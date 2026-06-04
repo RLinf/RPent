@@ -1,0 +1,10 @@
+{"action": "move_to", "xyz": [0.150, 0.030, 0.16], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 80, "note": "pre-pos above salad_dressing_1 (P1; tall bottle)"}
+{"action": "pi0_pick", "prompt": "pick up the salad dressing", "max_chunks": 25, "track_obj": "salad_dressing_1", "track_obj_lift_thresh": 0.08, "lift_thresh": 0.08, "gripper_closed_thresh": 0.06}
+{"action": "set_gripper", "gripper": 1, "steps": 15}
+{"action": "move_to", "xyz": [0.130, 0.030, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 120}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [0.060, 0.16, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [0.004, 0.304, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 100, "note": "above basket"}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "release", "max_steps": 30}

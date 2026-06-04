@@ -1,0 +1,7 @@
+{"action": "move_to", "xyz": [0.132, -0.083, 1.01], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 120, "note": "pre-pos above bowl_1 next to cookies"}
+{"action": "pi0_pick", "prompt": "pick up the black bowl", "max_chunks": 30, "track_obj": "akita_black_bowl_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [0.139, -0.041, 1.15], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 80}
+{"action": "move_to", "xyz": [0.0, -0.08, 1.15], "gripper": 1, "tol": 0.02, "step_clip": 0.025, "max_steps": 80, "note": "waypoint avoiding cookies"}
+{"action": "move_to", "xyz": [-0.257, -0.105, 1.15], "gripper": 1, "tol": 0.015, "step_clip": 0.02, "max_steps": 120, "note": "approach NEW plate on stove"}
+{"action": "move_to", "xyz": [-0.257, -0.105, 1.05], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 60, "note": "descend (plate elevated at z=0.933)"}
+{"action": "release", "max_steps": 25}

@@ -1,0 +1,6 @@
+{"action": "move_to", "xyz": [-0.155, 0.061, 0.13], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80, "note": "pre-pos above cream_cheese_1 (P1 target, NOT base target alphabet_soup)"}
+{"action": "pi0_pick", "prompt": "pick up the cream cheese", "max_chunks": 25, "track_obj": "cream_cheese_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06, "note": "Pi0 hand-off; track_obj_cut on cream_cheese_1"}
+{"action": "move_to", "xyz": [-0.186, 0.074, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.025, "max_steps": 60, "note": "lift to carry z=0.22"}
+{"action": "move_to", "xyz": [-0.014, 0.253, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.025, "max_steps": 100, "note": "travel above basket_1 (offset-compensated)"}
+{"action": "move_to", "xyz": [-0.014, 0.253, 0.15], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 60, "note": "descend to release height above basket rim"}
+{"action": "release", "max_steps": 25, "note": "drop cream_cheese into basket — libero_term=True"}

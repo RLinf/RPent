@@ -1,0 +1,9 @@
+{"action": "move_to", "xyz": [-0.09, -0.24, 0.13], "gripper": -1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80, "action_scale": 0.05}
+{"action": "pi0_pick", "prompt": "pick up the alphabet soup", "max_chunks": 25, "track_obj": "alphabet_soup_1", "track_obj_lift_thresh": 0.06, "lift_thresh": 0.06, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.125, -0.246, 0.22], "gripper": 1, "tol": 0.015, "step_clip": 0.02, "max_steps": 60, "action_scale": 0.05}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.08, 0.0, 0.22], "gripper": 1, "tol": 0.015, "step_clip": 0.015, "max_steps": 80, "action_scale": 0.05}
+{"action": "move_to", "xyz": [-0.04, 0.27, 0.22], "gripper": 1, "tol": 0.015, "step_clip": 0.015, "max_steps": 90, "action_scale": 0.05}
+{"action": "move_to", "xyz": [-0.04, 0.27, 0.16], "gripper": 1, "tol": 0.015, "step_clip": 0.015, "max_steps": 60, "action_scale": 0.05}
+{"action": "release", "max_steps": 25}
+{"action": "move_to", "xyz": [-0.04, 0.24, 0.25], "gripper": -1, "tol": 0.02, "step_clip": 0.02, "max_steps": 60, "action_scale": 0.05}

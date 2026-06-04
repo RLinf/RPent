@@ -1,0 +1,6 @@
+{"action": "move_to", "xyz": [-0.024, -0.012, 1.05], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 60}
+{"action": "pi0_pick", "prompt": "place yellow and white mug in microwave and close door", "max_chunks": 15, "track_obj": "white_yellow_mug_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.036, -0.032, 1.25], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 50}
+{"action": "move_to", "xyz": [-0.25, 0.0, 1.05], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 100}
+{"action": "release", "max_steps": 25}
+{"action": "exit"}

@@ -1,0 +1,6 @@
+{"action": "move_to", "xyz": [-0.187, 0.306, 1.05], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80, "note": "pre-pos above bowl_2 (NOT-between)"}
+{"action": "pi0_pick", "prompt": "pick up the black bowl", "max_chunks": 30, "track_obj": "akita_black_bowl_2", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06, "note": "track_obj cut on bowl_2 disambiguates from bowl_1"}
+{"action": "move_to", "xyz": [-0.184, 0.342, 1.1], "gripper": 1, "tol": 0.012, "step_clip": 0.025, "max_steps": 60, "note": "lift to carry height"}
+{"action": "move_to", "xyz": [0.058, 0.245, 1.1], "gripper": 1, "tol": 0.012, "step_clip": 0.025, "max_steps": 100, "note": "travel above plate (offset-compensated)"}
+{"action": "move_to", "xyz": [0.058, 0.245, 1.01], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 60, "note": "descend to release height"}
+{"action": "release", "max_steps": 25, "note": "drop bowl on plate"}

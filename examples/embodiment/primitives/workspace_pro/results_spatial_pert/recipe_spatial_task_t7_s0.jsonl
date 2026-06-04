@@ -1,0 +1,7 @@
+{"action": "move_to", "xyz": [0.038, -0.272, 1.2], "gripper": -1, "tol": 0.02, "step_clip": 0.03, "max_steps": 150, "note": "high pre-pos above bowl_2 on cabinet"}
+{"action": "pi0_pick", "prompt": "Pick the akita black bowl on the top of the cabinet and place it on the plate", "max_chunks": 40, "track_obj": "akita_black_bowl_2", "track_obj_lift_thresh": 0.08, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06, "note": "FULL task language + lift_thresh=0.08"}
+{"action": "move_to", "xyz": [-0.004, -0.192, 1.25], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "move_to", "xyz": [0.005, 0.0, 1.25], "gripper": 1, "tol": 0.02, "step_clip": 0.025, "max_steps": 100, "note": "y=0 waypoint at high z"}
+{"action": "move_to", "xyz": [0.015, 0.233, 1.1], "gripper": 1, "tol": 0.015, "step_clip": 0.02, "max_steps": 120}
+{"action": "move_to", "xyz": [0.015, 0.233, 1.01], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 60}
+{"action": "release", "max_steps": 25}

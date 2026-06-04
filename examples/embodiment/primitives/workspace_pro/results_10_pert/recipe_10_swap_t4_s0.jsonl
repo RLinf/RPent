@@ -1,0 +1,16 @@
+{"action": "move_to", "xyz": [-0.087, -0.138, 0.65], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "pick up the white mug", "max_chunks": 15, "track_obj": "porcelain_mug_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.09, -0.132, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [-0.033, -0.281, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [-0.033, -0.281, 0.58], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "release", "max_steps": 30}
+{"action": "move_to", "xyz": [-0.033, -0.281, 0.95], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 60}
+{"action": "move_to", "xyz": [-0.12, -0.13, 0.95], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
+{"action": "move_to", "xyz": [-0.217, 0.016, 0.65], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "pick up the yellow and white mug", "max_chunks": 15, "track_obj": "white_yellow_mug_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.233, 0.077, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [-0.1, 0.18, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [0.009, 0.348, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [0.009, 0.348, 0.58], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "release", "max_steps": 30}
+{"action": "exit"}

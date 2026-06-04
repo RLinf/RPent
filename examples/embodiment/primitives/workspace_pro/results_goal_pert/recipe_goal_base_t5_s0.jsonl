@@ -1,0 +1,9 @@
+{"action": "pi0_pick", "prompt": "pick up the plate", "max_chunks": 40, "track_obj": "plate_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.5, "gripper_closed_thresh": 0.03}
+{"action": "set_gripper", "gripper": 1, "steps": 15}
+{"action": "move_to", "xyz": [0.06, -0.03, 1.25], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150}
+{"action": "move_to", "xyz": [-0.033, 0.245, 1.25], "gripper": 1, "tol": 0.015, "step_clip": 0.012, "max_steps": 250}
+{"action": "set_gripper", "gripper": 1, "steps": 10}
+{"action": "move_to", "xyz": [-0.033, 0.245, 0.99], "gripper": 1, "tol": 0.012, "step_clip": 0.01, "max_steps": 150}
+{"action": "release", "max_steps": 40}
+{"action": "move_to", "xyz": [-0.05, 0.2, 1.25], "gripper": -1, "tol": 0.015, "step_clip": 0.02, "max_steps": 100}
+{"action": "exit"}

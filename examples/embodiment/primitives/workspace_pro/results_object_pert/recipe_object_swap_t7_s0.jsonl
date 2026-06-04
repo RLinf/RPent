@@ -1,0 +1,12 @@
+{"action": "move_to", "xyz": [0.051, -0.103, 0.16], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 80, "note": "pre-pos above milk_1 (SWAP; tall carton)"}
+{"action": "pi0_pick", "prompt": "pick up the milk", "max_chunks": 25, "track_obj": "milk_1", "track_obj_lift_thresh": 0.08, "lift_thresh": 0.08, "gripper_closed_thresh": 0.06}
+{"action": "set_gripper", "gripper": 1, "steps": 15}
+{"action": "move_to", "xyz": [0.030, -0.103, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 120}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [0.020, 0.08, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [0.010, 0.20, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 120}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [0.010, 0.301, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 100, "note": "above basket"}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "release", "max_steps": 30}

@@ -1,0 +1,10 @@
+{"action": "move_to", "xyz": [-0.150, 0.060, 0.16], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 80, "note": "pre-pos above ketchup_1 (P1 target, base is bbq_sauce; tall bottle z=0.16)"}
+{"action": "pi0_pick", "prompt": "pick up the ketchup", "max_chunks": 25, "track_obj": "ketchup_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "set_gripper", "gripper": 1, "steps": 15}
+{"action": "move_to", "xyz": [-0.170, 0.060, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 120, "note": "lift to z=0.30 (bottle clear of basket handles)"}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.08, 0.15, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 120, "note": "mid"}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [0.001, 0.297, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 100, "note": "above basket; high z=0.30 prevents basket from being knocked"}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "release", "max_steps": 30, "note": "drop from z=0.30 into basket"}

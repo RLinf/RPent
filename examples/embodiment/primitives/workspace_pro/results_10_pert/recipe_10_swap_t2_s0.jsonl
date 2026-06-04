@@ -1,0 +1,9 @@
+{"action": "pi0_pick", "prompt": "turn on the stove", "max_chunks": 15, "gripper_closed_thresh": 0.0, "track_obj": null}
+{"action": "move_to", "xyz": [-0.029, -0.236, 1.15], "gripper": -1, "tol": 0.012, "step_clip": 0.04, "max_steps": 120}
+{"action": "move_to", "xyz": [-0.029, -0.236, 1.04], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 100}
+{"action": "set_gripper", "gripper": 1, "steps": 12}
+{"action": "move_to", "xyz": [-0.029, -0.236, 1.2], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 120}
+{"action": "move_to", "xyz": [-0.067, 0.0, 1.2], "gripper": 1, "tol": 0.012, "step_clip": 0.025, "max_steps": 150}
+{"action": "move_to", "xyz": [-0.067, 0.2, 1.2], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 150}
+{"action": "move_to", "xyz": [-0.067, 0.2, 1.07], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120}
+{"action": "release", "max_steps": 30}

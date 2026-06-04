@@ -1,0 +1,9 @@
+{"action": "pi0_pick", "prompt": "Push the cream cheese to the front of the stove", "max_chunks": 40, "track_obj": "cream_cheese_1", "track_obj_lift_thresh": 0.06, "lift_thresh": 0.5, "gripper_closed_thresh": 0.03}
+{"action": "set_gripper", "gripper": 1, "steps": 15}
+{"action": "move_to", "xyz": [0.0, 0.0, 1.25], "gripper": 1, "tol": 0.02, "step_clip": 0.015, "max_steps": 120, "target_yaw": 0.0}
+{"action": "set_gripper", "gripper": 1, "steps": 10}
+{"action": "move_to", "xyz": [-0.05, 0.21, 1.25], "gripper": 1, "tol": 0.015, "step_clip": 0.012, "max_steps": 250}
+{"action": "set_gripper", "gripper": 1, "steps": 10}
+{"action": "move_to", "xyz": [-0.05, 0.21, 1.0], "gripper": 1, "tol": 0.012, "step_clip": 0.01, "max_steps": 150}
+{"action": "release", "max_steps": 40}
+{"action": "exit"}

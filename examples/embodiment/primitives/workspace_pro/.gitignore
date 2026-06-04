@@ -1,0 +1,10 @@
+# image/video artefacts are large + don't fit in repo
+**/baseline_imgs/
+**/baseline_imgs_t*/
+**/imgs/
+failure_videos/
+**/failure_videos/
+*.mp4
+*.webm
+# keep all .png in committed history; only stop new ones from being added
+# (existing repo PNGs survive)

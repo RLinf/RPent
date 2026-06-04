@@ -1,0 +1,12 @@
+{"action": "move_to", "xyz": [-0.119, -0.236, 0.13], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 80, "note": "pre-pos above cream_cheese_1 (SWAP position; base was -0.155,+0.061)"}
+{"action": "pi0_pick", "prompt": "pick up the cream cheese", "max_chunks": 20, "track_obj": "cream_cheese_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "set_gripper", "gripper": 1, "steps": 10}
+{"action": "move_to", "xyz": [-0.139, -0.243, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80, "note": "lift"}
+{"action": "set_gripper", "gripper": 1, "steps": 5}
+{"action": "move_to", "xyz": [-0.05, -0.05, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120, "note": "mid 1"}
+{"action": "set_gripper", "gripper": 1, "steps": 5}
+{"action": "move_to", "xyz": [-0.013, 0.15, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120, "note": "mid 2"}
+{"action": "set_gripper", "gripper": 1, "steps": 5}
+{"action": "move_to", "xyz": [-0.013, 0.268, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80, "note": "above basket"}
+{"action": "move_to", "xyz": [-0.013, 0.268, 0.15], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 60, "note": "descend"}
+{"action": "release", "max_steps": 25}

@@ -1,0 +1,10 @@
+{"action": "move_to", "xyz": [0.050, -0.100, 0.30], "gripper": -1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "pick up the orange juice", "max_chunks": 25, "track_obj": "orange_juice_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [0.043, -0.083, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 60}
+{"action": "move_to", "xyz": [-0.010, 0.254, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 100}
+{"action": "move_to", "xyz": [-0.010, 0.254, 0.20], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 60}
+{"action": "release", "max_steps": 8}
+{"action": "set_gripper", "gripper": -1, "steps": 20}
+{"action": "move_to", "xyz": [-0.014, 0.254, 0.32], "gripper": -1, "tol": 0.012, "step_clip": 0.02, "max_steps": 50}
+{"action": "move_to", "xyz": [-0.013, 0.268, 0.30], "gripper": -1, "tol": 0.012, "step_clip": 0.02, "max_steps": 50}
+{"action": "set_gripper", "gripper": 1, "steps": 10}

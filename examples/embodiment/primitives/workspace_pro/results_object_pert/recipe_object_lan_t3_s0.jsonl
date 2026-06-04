@@ -1,0 +1,10 @@
+{"action": "move_to", "xyz": [0.053, -0.091, 0.16], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 80, "note": "pre-pos above bbq_sauce_1"}
+{"action": "pi0_pick", "prompt": "pick up bbq sauce and put it into basket", "max_chunks": 25, "track_obj": "bbq_sauce_1", "track_obj_lift_thresh": 0.08, "lift_thresh": 0.08, "gripper_closed_thresh": 0.06, "note": "lan paraphrase"}
+{"action": "set_gripper", "gripper": 1, "steps": 15}
+{"action": "move_to", "xyz": [0.030, -0.091, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 120, "note": "lift"}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [0.010, 0.10, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150, "note": "mid"}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.019, 0.301, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 100, "note": "above basket center +offset"}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "release", "max_steps": 30}

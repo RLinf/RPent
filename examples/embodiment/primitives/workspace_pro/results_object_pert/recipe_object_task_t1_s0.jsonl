@@ -1,0 +1,12 @@
+{"action": "move_to", "xyz": [-0.119, -0.240, 0.13], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 80, "note": "pre-pos above alphabet_soup_1 (P1 inverted target; base is cream_cheese)"}
+{"action": "pi0_pick", "prompt": "pick up the alphabet soup", "max_chunks": 20, "track_obj": "alphabet_soup_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06, "note": "track_obj cut early to avoid over-lift slipping"}
+{"action": "set_gripper", "gripper": 1, "steps": 15, "note": "firm clamp after pick"}
+{"action": "move_to", "xyz": [-0.139, -0.243, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80, "note": "lift in place"}
+{"action": "set_gripper", "gripper": 1, "steps": 8, "note": "re-clamp"}
+{"action": "move_to", "xyz": [-0.05, -0.05, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120, "note": "mid 1 (Δy~0.19)"}
+{"action": "set_gripper", "gripper": 1, "steps": 8, "note": "re-clamp"}
+{"action": "move_to", "xyz": [-0.02, 0.15, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120, "note": "mid 2 (Δy~0.20)"}
+{"action": "set_gripper", "gripper": 1, "steps": 8, "note": "re-clamp"}
+{"action": "move_to", "xyz": [-0.017, 0.270, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80, "note": "above basket"}
+{"action": "move_to", "xyz": [-0.017, 0.270, 0.16], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 60, "note": "descend"}
+{"action": "release", "max_steps": 25, "note": "release -> libero_term=True"}

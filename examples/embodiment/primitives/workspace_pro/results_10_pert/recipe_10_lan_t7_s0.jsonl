@@ -1,0 +1,14 @@
+{"action": "move_to", "xyz": [0.068, -0.093, 0.65], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "pick up the alphabet soup", "max_chunks": 15, "track_obj": "alphabet_soup_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [0.092, -0.094, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150}
+{"action": "move_to", "xyz": [-0.038, 0.254, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 250}
+{"action": "move_to", "xyz": [-0.038, 0.254, 0.58], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "release", "max_steps": 30}
+{"action": "move_to", "xyz": [-0.038, 0.254, 0.95], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 60}
+{"action": "move_to", "xyz": [-0.125, 0.041, 0.65], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "pick up the cream cheese", "max_chunks": 15, "track_obj": "cream_cheese_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.127, 0.048, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150}
+{"action": "move_to", "xyz": [0.042, 0.257, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 250}
+{"action": "move_to", "xyz": [0.042, 0.257, 0.58], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "release", "max_steps": 30}
+{"action": "exit"}

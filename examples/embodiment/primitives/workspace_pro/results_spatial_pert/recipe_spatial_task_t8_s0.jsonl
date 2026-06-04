@@ -1,0 +1,6 @@
+{"action": "move_to", "xyz": [-0.19, 0.32, 1.01], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 120}
+{"action": "pi0_pick", "prompt": "Pick the akita black bowl next to the ramekin and place it on the plate", "max_chunks": 40, "track_obj": "akita_black_bowl_2", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.189, 0.357, 1.15], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "move_to", "xyz": [0.051, 0.226, 1.15], "gripper": 1, "tol": 0.015, "step_clip": 0.02, "max_steps": 100}
+{"action": "move_to", "xyz": [0.051, 0.226, 1.0], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 60}
+{"action": "release", "max_steps": 25}

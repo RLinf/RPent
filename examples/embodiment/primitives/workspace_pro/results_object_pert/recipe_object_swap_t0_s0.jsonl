@@ -1,0 +1,7 @@
+{"action": "move_to", "xyz": [-0.199, -0.080, 0.13], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 80, "note": "pre-pos above alphabet_soup_1 (SWAP position; base was -0.119,-0.240)"}
+{"action": "pi0_pick", "prompt": "pick up the alphabet soup", "max_chunks": 25, "track_obj": "alphabet_soup_1", "track_obj_lift_thresh": 0.07, "lift_thresh": 0.08, "gripper_closed_thresh": 0.06, "note": "track_obj_lift_thresh=0.07 ensures firmer grasp than default 0.05; first attempt with 0.05 slipped during travel"}
+{"action": "move_to", "xyz": [-0.204, -0.031, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 60, "note": "lift to carry z=0.22"}
+{"action": "move_to", "xyz": [-0.05, 0.10, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.018, "max_steps": 120, "note": "mid waypoint (long y traversal split to stay within IK-safe single-step bounds)"}
+{"action": "move_to", "xyz": [-0.019, 0.258, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.018, "max_steps": 100, "note": "travel above basket_1 (offset-compensated, slow step_clip for swap travel)"}
+{"action": "move_to", "xyz": [-0.019, 0.258, 0.16], "gripper": 1, "tol": 0.012, "step_clip": 0.018, "max_steps": 60, "note": "descend to release height"}
+{"action": "release", "max_steps": 25, "note": "drop alphabet_soup into basket -> libero_term=True"}

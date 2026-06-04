@@ -1,0 +1,55 @@
+{"action": "pi0_pick", "prompt": "turn on the stove", "max_chunks": 15, "gripper_closed_thresh": 0.0, "track_obj": null}
+{"action": "move_to", "xyz": [-0.049, 0.262, 1.2], "gripper": -1, "tol": 0.012, "step_clip": 0.04, "max_steps": 120}
+{"action": "move_to", "xyz": [-0.049, 0.262, 1.05], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 100}
+{"action": "set_gripper", "gripper": 1, "steps": 12}
+{"action": "move_to", "xyz": [-0.049, 0.262, 1.25], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 120}
+{"action": "move_to", "xyz": [-0.049, 0.24, 1.04], "gripper": -1, "tol": 0.006, "step_clip": 0.02, "max_steps": 120}
+{"action": "set_gripper", "gripper": 1, "steps": 14}
+{"action": "move_to", "xyz": [-0.049, 0.24, 1.25], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 120}
+{"action": "move_to", "xyz": [-0.05, 0.0, 1.25], "gripper": 1, "tol": 0.012, "step_clip": 0.025, "max_steps": 150}
+{"action": "move_to", "xyz": [-0.05, -0.2, 1.2], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 150}
+{"action": "move_to", "xyz": [-0.05, -0.2, 1.05], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120}
+{"action": "release", "max_steps": 30}
+{"action": "move_to", "xyz": [-0.073, -0.027, 1.1], "gripper": -1, "tol": 0.008, "step_clip": 0.03, "max_steps": 120}
+{"action": "move_to", "xyz": [-0.073, -0.027, 1.01], "gripper": -1, "tol": 0.006, "step_clip": 0.015, "max_steps": 120}
+{"action": "set_gripper", "gripper": 1, "steps": 16}
+{"action": "move_to", "xyz": [-0.073, -0.027, 1.2], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120}
+{"action": "reset"}
+{"action": "pi0_pick", "prompt": "turn on the stove", "max_chunks": 15, "gripper_closed_thresh": 0.0, "track_obj": null}
+{"action": "move_to", "xyz": [-0.049, 0.24, 1.1], "gripper": -1, "tol": 0.01, "step_clip": 0.04, "max_steps": 120}
+{"action": "pi0_pick", "prompt": "pick up the moka pot", "max_chunks": 20, "track_obj": "moka_pot_1", "track_obj_lift_thresh": 0.06, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.01, 0.247, 1.05], "gripper": -1, "tol": 0.006, "step_clip": 0.02, "max_steps": 120}
+{"action": "set_gripper", "gripper": 1, "steps": 16}
+{"action": "move_to", "xyz": [-0.01, 0.247, 1.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120}
+{"action": "reset"}
+{"action": "pi0_pick", "prompt": "turn on the stove", "max_chunks": 15, "gripper_closed_thresh": 0.0, "track_obj": null}
+{"action": "move_to", "xyz": [-0.049, 0.24, 1.15], "gripper": -1, "tol": 0.01, "step_clip": 0.04, "max_steps": 120}
+{"action": "move_to", "xyz": [-0.049, 0.24, 1.04], "gripper": -1, "tol": 0.006, "step_clip": 0.018, "max_steps": 120}
+{"action": "set_gripper", "gripper": 1, "steps": 16}
+{"action": "move_to", "xyz": [-0.049, 0.24, 1.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120}
+{"action": "move_to", "xyz": [-0.05, 0.1, 1.22], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.05, -0.05, 1.22], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.05, -0.2, 1.22], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.05, -0.2, 1.05], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 120}
+{"action": "release", "max_steps": 30}
+{"action": "reset"}
+{"action": "pi0_pick", "prompt": "turn on the stove", "max_chunks": 15, "gripper_closed_thresh": 0.0, "track_obj": null}
+{"action": "move_to", "xyz": [-0.049, 0.24, 1.15], "gripper": -1, "tol": 0.01, "step_clip": 0.04, "max_steps": 120}
+{"action": "move_to", "xyz": [-0.049, 0.24, 1.03], "gripper": -1, "tol": 0.005, "step_clip": 0.015, "max_steps": 140}
+{"action": "set_gripper", "gripper": 1, "steps": 22}
+{"action": "move_to", "xyz": [-0.049, 0.24, 1.18], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 140}
+{"action": "move_to", "xyz": [-0.05, 0.16, 1.18], "gripper": 1, "tol": 0.01, "step_clip": 0.01, "max_steps": 160}
+{"action": "set_gripper", "gripper": 1, "steps": 6}
+{"action": "move_to", "xyz": [-0.05, 0.08, 1.18], "gripper": 1, "tol": 0.01, "step_clip": 0.01, "max_steps": 160}
+{"action": "set_gripper", "gripper": 1, "steps": 6}
+{"action": "move_to", "xyz": [-0.05, 0.0, 1.18], "gripper": 1, "tol": 0.01, "step_clip": 0.01, "max_steps": 160}
+{"action": "set_gripper", "gripper": 1, "steps": 6}
+{"action": "move_to", "xyz": [-0.05, -0.1, 1.18], "gripper": 1, "tol": 0.01, "step_clip": 0.01, "max_steps": 160}
+{"action": "set_gripper", "gripper": 1, "steps": 6}
+{"action": "move_to", "xyz": [-0.05, -0.2, 1.18], "gripper": 1, "tol": 0.01, "step_clip": 0.01, "max_steps": 160}
+{"action": "set_gripper", "gripper": 1, "steps": 6}
+{"action": "move_to", "xyz": [-0.05, -0.2, 1.05], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 120}
+{"action": "release", "max_steps": 30}

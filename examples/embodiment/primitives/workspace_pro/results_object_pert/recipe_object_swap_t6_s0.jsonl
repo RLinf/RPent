@@ -1,0 +1,10 @@
+{"action": "move_to", "xyz": [0.050, -0.096, 0.13], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 80, "note": "pre-pos above butter_1 (SWAP)"}
+{"action": "pi0_pick", "prompt": "pick up the butter", "max_chunks": 20, "track_obj": "butter_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "set_gripper", "gripper": 1, "steps": 10}
+{"action": "move_to", "xyz": [0.030, -0.096, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "set_gripper", "gripper": 1, "steps": 5}
+{"action": "move_to", "xyz": [0.010, 0.05, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120}
+{"action": "set_gripper", "gripper": 1, "steps": 5}
+{"action": "move_to", "xyz": [-0.018, 0.252, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 100, "note": "above basket"}
+{"action": "move_to", "xyz": [-0.018, 0.252, 0.16], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 60}
+{"action": "release", "max_steps": 25}

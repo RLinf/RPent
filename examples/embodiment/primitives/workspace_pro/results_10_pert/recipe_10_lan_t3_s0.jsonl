@@ -1,0 +1,14 @@
+{"action": "move_to", "xyz": [0.031, -0.037, 1.05], "gripper": -1, "tol": 0.01, "step_clip": 0.04, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "put black bowl inside bottom drawer and close it", "max_chunks": 20, "track_obj": "akita_black_bowl_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [0.052, -0.029, 1.18], "gripper": 1, "tol": 0.012, "step_clip": 0.025, "max_steps": 100}
+{"action": "move_to", "xyz": [-0.005, 0.155, 1.18], "gripper": 1, "tol": 0.01, "step_clip": 0.018, "max_steps": 150}
+{"action": "move_to", "xyz": [-0.005, 0.10, 1.18], "gripper": 1, "tol": 0.008, "step_clip": 0.012, "max_steps": 120}
+{"action": "move_to", "xyz": [-0.005, 0.10, 1.03], "gripper": 1, "tol": 0.008, "step_clip": 0.012, "max_steps": 120}
+{"action": "release", "max_steps": 30}
+{"action": "move_to", "xyz": [-0.005, -0.08, 1.18], "gripper": -1, "tol": 0.012, "step_clip": 0.03, "max_steps": 90}
+{"action": "pi0_pick", "prompt": "close the bottom drawer", "max_chunks": 45, "track_obj": null, "lift_thresh": 99.0, "gripper_closed_thresh": 0.0}
+{"action": "move_to", "xyz": [0.02, 0.02, 1.10], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 100}
+{"action": "move_to", "xyz": [0.0, 0.04, 0.95], "gripper": 1, "tol": 0.01, "step_clip": 0.015, "max_steps": 100}
+{"action": "move_to", "xyz": [0.0, 0.30, 0.955], "gripper": 1, "tol": 0.008, "step_clip": 0.015, "max_steps": 110}
+{"action": "move_to", "xyz": [0.02, -0.02, 1.12], "gripper": 1, "tol": 0.015, "step_clip": 0.018, "max_steps": 110}
+{"action": "pi0_pick", "prompt": "close the bottom drawer", "max_chunks": 30, "track_obj": null, "lift_thresh": 99.0, "gripper_closed_thresh": 0.0}

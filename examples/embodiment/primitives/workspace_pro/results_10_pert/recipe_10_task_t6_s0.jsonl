@@ -1,0 +1,16 @@
+{"action": "move_to", "xyz": [-0.213, 0.0, 0.65], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "pick up the red mug", "max_chunks": 15, "track_obj": "red_coffee_mug_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.218, 0.058, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150}
+{"action": "set_gripper", "gripper": 1, "steps": 10}
+{"action": "move_to", "xyz": [-0.05, 0.03, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 200}
+{"action": "move_to", "xyz": [0.127, 0.049, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 200}
+{"action": "move_to", "xyz": [0.127, 0.049, 0.58], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "release", "max_steps": 30}
+{"action": "move_to", "xyz": [0.127, 0.049, 0.95], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 60}
+{"action": "move_to", "xyz": [-0.042, 0.101, 0.65], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "pick up the chocolate pudding", "max_chunks": 15, "track_obj": "chocolate_pudding_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.033, 0.106, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150}
+{"action": "move_to", "xyz": [0.149, 0.102, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 200}
+{"action": "move_to", "xyz": [0.149, 0.102, 0.58], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "release", "max_steps": 30}
+{"action": "exit"}

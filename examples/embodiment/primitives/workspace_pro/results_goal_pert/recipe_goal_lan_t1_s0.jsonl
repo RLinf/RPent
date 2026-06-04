@@ -1,0 +1,10 @@
+{"action": "move_to", "xyz": [-0.096, 0.002, 1.05], "gripper": -1, "tol": 0.008, "step_clip": 0.015, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "place the bowl on the stove", "max_chunks": 30, "track_obj": "akita_black_bowl_1", "track_obj_lift_thresh": 0.06, "lift_thresh": 0.5, "gripper_closed_thresh": 0.03}
+{"action": "set_gripper", "gripper": 1, "steps": 15}
+{"action": "move_to", "xyz": [-0.096, 0.002, 1.2], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 120}
+{"action": "set_gripper", "gripper": 1, "steps": 10}
+{"action": "move_to", "xyz": [-0.26, 0.252, 1.2], "gripper": 1, "tol": 0.015, "step_clip": 0.012, "max_steps": 250}
+{"action": "set_gripper", "gripper": 1, "steps": 10}
+{"action": "move_to", "xyz": [-0.26, 0.252, 1.04], "gripper": 1, "tol": 0.012, "step_clip": 0.01, "max_steps": 150}
+{"action": "release", "max_steps": 40}
+{"action": "exit"}

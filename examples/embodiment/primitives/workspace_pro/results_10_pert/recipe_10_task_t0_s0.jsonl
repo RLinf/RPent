@@ -1,0 +1,20 @@
+{"action": "move_to", "xyz": [0.087, -0.176, 0.65], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 60}
+{"action": "pi0_pick", "prompt": "pick up the cream cheese", "max_chunks": 15, "track_obj": "cream_cheese_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [0.087, -0.176, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [0.04, 0.06, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [0.006, 0.264, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [0.006, 0.266, 0.58], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "release", "max_steps": 25}
+{"action": "move_to", "xyz": [0.005, 0.267, 0.95], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 60}
+{"action": "move_to", "xyz": [-0.095, 0.041, 0.65], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "pick up the tomato sauce", "max_chunks": 15, "track_obj": "tomato_sauce_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.085, 0.06, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [0.04, 0.264, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [0.046, 0.272, 0.58], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "release", "max_steps": 25}
+{"action": "set_gripper", "gripper": -1, "steps": 25}
+{"action": "set_gripper", "gripper": 1, "steps": 15}
+{"action": "move_to", "xyz": [0.057, 0.271, 0.9], "gripper": 1, "tol": 0.012, "step_clip": 0.025, "max_steps": 60}
+{"action": "move_to", "xyz": [-0.045, 0.26, 0.9], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [-0.045, 0.26, 0.55], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "release", "max_steps": 40}

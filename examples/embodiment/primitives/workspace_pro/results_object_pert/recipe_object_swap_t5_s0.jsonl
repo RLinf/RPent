@@ -1,0 +1,12 @@
+{"action": "move_to", "xyz": [-0.120, -0.240, 0.13], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 80, "note": "pre-pos above tomato_sauce_1 (SWAP)"}
+{"action": "pi0_pick", "prompt": "pick up the tomato sauce", "max_chunks": 20, "track_obj": "tomato_sauce_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "set_gripper", "gripper": 1, "steps": 15}
+{"action": "move_to", "xyz": [-0.140, -0.243, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.08, -0.05, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.05, 0.15, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.030, 0.251, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "move_to", "xyz": [-0.030, 0.251, 0.16], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 60}
+{"action": "release", "max_steps": 25}

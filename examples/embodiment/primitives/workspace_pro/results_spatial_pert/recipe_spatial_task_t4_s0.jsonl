@@ -1,0 +1,8 @@
+{"action": "move_to", "xyz": [0.033, -0.276, 1.2], "gripper": -1, "tol": 0.02, "step_clip": 0.03, "max_steps": 150}
+{"action": "pi0_pick", "prompt": "pick up the black bowl", "max_chunks": 40, "track_obj": "akita_black_bowl_2", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [0.033, -0.196, 1.22], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 60, "note": "lift+forward to clear cabinet"}
+{"action": "move_to", "xyz": [0.034, -0.187, 1.25], "gripper": 1, "tol": 0.015, "step_clip": 0.015, "max_steps": 40}
+{"action": "move_to", "xyz": [-0.05, 0.0, 1.25], "gripper": 1, "tol": 0.02, "step_clip": 0.025, "max_steps": 80, "note": "y=0 waypoint to avoid IK flip"}
+{"action": "move_to", "xyz": [0.074, 0.268, 1.25], "gripper": 1, "tol": 0.015, "step_clip": 0.02, "max_steps": 120}
+{"action": "move_to", "xyz": [0.074, 0.268, 1.05], "gripper": 1, "tol": 0.015, "step_clip": 0.02, "max_steps": 80}
+{"action": "release", "max_steps": 25}

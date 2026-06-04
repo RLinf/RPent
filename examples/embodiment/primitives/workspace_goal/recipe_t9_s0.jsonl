@@ -1,0 +1,5 @@
+{"action": "move_to", "xyz": [-0.204, -0.062, 1.05], "gripper": -1, "tol": 0.012, "step_clip": 0.03, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "pick up the wine bottle", "max_chunks": 25, "track_obj": "wine_bottle_1", "track_obj_lift_thresh": 0.06, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.132, -0.050, 1.30], "gripper": 1, "tol": 0.012, "step_clip": 0.020, "max_steps": 120}
+{"action": "move_to", "xyz": [-0.240, -0.166, 1.30], "gripper": 1, "tol": 0.012, "step_clip": 0.020, "max_steps": 200}
+{"action": "release", "max_steps": 25}

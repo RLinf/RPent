@@ -1,0 +1,5 @@
+{"action": "move_to", "xyz": [-0.100, 0.010, 0.97], "gripper": -1, "tol": 0.012, "step_clip": 0.03, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "put the akita black bowl on top of the cabinet", "max_chunks": 25, "track_obj": "akita_black_bowl_1", "track_obj_lift_thresh": 0.10, "lift_thresh": 0.08, "gripper_closed_thresh": 0.05}
+{"action": "move_to", "xyz": [-0.083, 0.033, 1.25], "gripper": 1, "tol": 0.012, "step_clip": 0.010, "max_steps": 200}
+{"action": "move_to", "xyz": [0.018, -0.217, 1.25], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 200}
+{"action": "release", "max_steps": 25}

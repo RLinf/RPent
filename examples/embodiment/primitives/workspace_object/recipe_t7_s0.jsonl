@@ -1,0 +1,6 @@
+{"action": "move_to", "xyz": [-0.117, -0.244, 0.30], "gripper": -1, "tol": 0.012, "step_clip": 0.03, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "pick up the milk", "max_chunks": 25, "track_obj": "milk_1", "track_obj_lift_thresh": 0.06, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.093, -0.231, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.025, "max_steps": 60}
+{"action": "move_to", "xyz": [0.018, 0.272, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.025, "max_steps": 100}
+{"action": "move_to", "xyz": [0.018, 0.272, 0.20], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 60}
+{"action": "release", "max_steps": 25}

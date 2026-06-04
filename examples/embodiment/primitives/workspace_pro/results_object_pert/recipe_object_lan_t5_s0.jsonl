@@ -1,0 +1,10 @@
+{"action": "move_to", "xyz": [0.050, -0.100, 0.13], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 80, "note": "pre-pos above tomato_sauce_1"}
+{"action": "pi0_pick", "prompt": "pick tomato sauce and put it in basket", "max_chunks": 20, "track_obj": "tomato_sauce_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06, "note": "lan paraphrase"}
+{"action": "set_gripper", "gripper": 1, "steps": 15}
+{"action": "move_to", "xyz": [0.030, -0.100, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [0.020, 0.10, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.014, 0.269, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120, "note": "above basket (offset-compensated)"}
+{"action": "move_to", "xyz": [-0.014, 0.269, 0.16], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 60}
+{"action": "release", "max_steps": 25}

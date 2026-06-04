@@ -1,0 +1,14 @@
+{"action": "move_to", "xyz": [-0.104, -0.17, 0.65], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "pick up the white mug", "max_chunks": 15, "track_obj": "porcelain_mug_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.075, -0.168, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [0.006, -0.262, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [0.006, -0.262, 0.58], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "release", "max_steps": 30}
+{"action": "move_to", "xyz": [0.006, -0.262, 0.95], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 60}
+{"action": "move_to", "xyz": [-0.074, 0.083, 0.65], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "pick up the yellow and white mug", "max_chunks": 15, "track_obj": "white_yellow_mug_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.053, 0.198, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [-0.022, 0.334, 0.95], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [-0.022, 0.334, 0.58], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "release", "max_steps": 30}
+{"action": "exit"}

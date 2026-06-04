@@ -1,0 +1,2 @@
+{"action": "pi0_pick", "prompt": "Turn on the stove", "max_chunks": 25, "track_obj": null, "lift_thresh": 99.0, "gripper_closed_thresh": 0.0}
+{"action": "exit"}

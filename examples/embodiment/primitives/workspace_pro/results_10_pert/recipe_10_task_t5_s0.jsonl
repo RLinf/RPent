@@ -1,0 +1,11 @@
+{"action": "move_to", "xyz": [-0.101, 0.018, 1.05], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
+{"action": "pi0_pick", "prompt": "pick up the cup", "max_chunks": 15, "track_obj": "white_yellow_mug_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "set_gripper", "gripper": -1, "steps": 10}
+{"action": "move_to", "xyz": [-0.101, 0.018, 0.95], "gripper": -1, "tol": 0.008, "step_clip": 0.012, "max_steps": 80}
+{"action": "set_gripper", "gripper": 1, "steps": 15}
+{"action": "move_to", "xyz": [-0.101, 0.018, 1.25], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [-0.25, -0.08, 1.25], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [-0.395, -0.167, 1.25], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
+{"action": "move_to", "xyz": [-0.395, -0.167, 1.17], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}
+{"action": "release", "max_steps": 30}
+{"action": "exit"}

@@ -1,0 +1,2 @@
+{"action": "pi0_pick", "prompt": "open the bottom drawer of the cabinet", "max_chunks": 45, "track_obj": null, "lift_thresh": 99.0, "gripper_closed_thresh": 0.0}
+{"action": "exit"}

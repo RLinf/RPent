@@ -1,0 +1,4 @@
+{"action": "pi0_pick", "prompt": "pick up the chocolate pudding", "max_chunks": 25, "track_obj": "chocolate_pudding_1", "track_obj_lift_thresh": 0.06, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [-0.103, -0.243, 0.25], "gripper": 1, "tol": 0.012, "step_clip": 0.025, "max_steps": 60}
+{"action": "move_to", "xyz": [0.023, 0.249, 0.25], "gripper": 1, "tol": 0.012, "step_clip": 0.025, "max_steps": 100}
+{"action": "release", "max_steps": 25}

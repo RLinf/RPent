@@ -1,0 +1,7 @@
+{"action": "pi0_pick", "prompt": "Open the top layer of the drawer and put the bowl inside", "max_chunks": 55, "track_obj": "akita_black_bowl_1", "track_obj_lift_thresh": 0.06, "lift_thresh": 0.5, "gripper_closed_thresh": 0.02}
+{"action": "set_gripper", "gripper": 1, "steps": 12}
+{"action": "move_to", "xyz": [-0.09, 0.04, 1.18], "gripper": 1, "tol": 0.015, "step_clip": 0.02, "max_steps": 90}
+{"action": "move_to", "xyz": [0.02, -0.09, 1.18], "gripper": 1, "tol": 0.015, "step_clip": 0.02, "max_steps": 150}
+{"action": "move_to", "xyz": [0.02, -0.1, 1.08], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 120}
+{"action": "release", "max_steps": 40}
+{"action": "exit"}

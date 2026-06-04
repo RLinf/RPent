@@ -1,0 +1,13 @@
+{"action": "move_to", "xyz": [-0.200, -0.080, 0.16], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 80, "note": "pre-pos above salad_dressing_1 (SWAP position; tall bottle so pre-pos z=0.16, not 0.13)"}
+{"action": "pi0_pick", "prompt": "pick up the salad dressing", "max_chunks": 25, "track_obj": "salad_dressing_1", "track_obj_lift_thresh": 0.07, "lift_thresh": 0.08, "gripper_closed_thresh": 0.06, "note": "track_obj=0.07 for tall bottle firmer grasp"}
+{"action": "set_gripper", "gripper": 1, "steps": 15}
+{"action": "move_to", "xyz": [-0.220, -0.080, 0.25], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 100, "note": "lift to z=0.25 (high for tall bottle)"}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.16, -0.01, 0.25], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 120, "note": "mid 1"}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.10, 0.10, 0.25], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150, "note": "mid 2"}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [0.000, 0.288, 0.25], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 120, "note": "eef +y past basket center so dangling bottle (offset_y~-0.03) aligns with basket interior"}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [0.000, 0.288, 0.22], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 60, "note": "small descend; release from elevated z=0.22 so tall bottle drops cleanly into basket"}
+{"action": "release", "max_steps": 30, "note": "tall bottle falls into basket -> libero_term=True"}

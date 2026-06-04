@@ -1,0 +1,12 @@
+{"action": "move_to", "xyz": [-0.117, -0.239, 0.16], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 80, "note": "pre-pos above milk_1"}
+{"action": "pi0_pick", "prompt": "grab milk and put into basket", "max_chunks": 25, "track_obj": "milk_1", "track_obj_lift_thresh": 0.08, "lift_thresh": 0.08, "gripper_closed_thresh": 0.06, "note": "lan paraphrase"}
+{"action": "set_gripper", "gripper": 1, "steps": 15}
+{"action": "move_to", "xyz": [-0.140, -0.243, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 120}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.10, -0.05, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.04, 0.15, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 150}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "move_to", "xyz": [-0.001, 0.296, 0.30], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 100, "note": "above basket"}
+{"action": "set_gripper", "gripper": 1, "steps": 8}
+{"action": "release", "max_steps": 30}

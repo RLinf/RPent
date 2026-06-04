@@ -1,0 +1,6 @@
+{"action": "move_to", "xyz": [0.139, -0.068, 1.05], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 120}
+{"action": "pi0_pick", "prompt": "grab the black bowl beside the cookie box and set it on plate", "max_chunks": 40, "track_obj": "akita_black_bowl_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06, "note": "full paraphrase as prompt"}
+{"action": "move_to", "xyz": [0.106, -0.048, 1.1], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 60}
+{"action": "move_to", "xyz": [0.023, 0.209, 1.1], "gripper": 1, "tol": 0.015, "step_clip": 0.02, "max_steps": 120}
+{"action": "move_to", "xyz": [0.023, 0.209, 1.0], "gripper": 1, "tol": 0.012, "step_clip": 0.012, "max_steps": 40}
+{"action": "release", "max_steps": 25}

@@ -1,0 +1,6 @@
+{"action": "move_to", "xyz": [0.057, 0.034, 1.02], "gripper": -1, "tol": 0.008, "step_clip": 0.02, "max_steps": 120}
+{"action": "pi0_pick", "prompt": "pick up the black bowl", "max_chunks": 30, "track_obj": "akita_black_bowl_1", "track_obj_lift_thresh": 0.05, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
+{"action": "move_to", "xyz": [0.046, 0.07, 1.15], "gripper": 1, "tol": 0.012, "step_clip": 0.02, "max_steps": 60}
+{"action": "move_to", "xyz": [0.02, -0.314, 1.15], "gripper": 1, "tol": 0.02, "step_clip": 0.025, "max_steps": 120, "note": "long y-traversal to NEW plate (front)"}
+{"action": "move_to", "xyz": [0.02, -0.314, 1.01], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 60}
+{"action": "release", "max_steps": 25}
