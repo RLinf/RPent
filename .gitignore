@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local run outputs.
+logs/
+physicalagent/primitives/workspace_pro/results_agent_runs/
+
+# RLinf is consumed as an external checkout, not vendored here.
+rlinf/
+rlinf.egg-info/
