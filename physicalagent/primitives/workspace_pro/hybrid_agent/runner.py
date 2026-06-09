@@ -20,8 +20,10 @@ import sys
 import time
 from pathlib import Path
 
-# Auto-detect repo root: this file is at <repo>/examples/embodiment/primitives/workspace_pro/hybrid_agent/runner.py
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
+# Auto-detect project paths: this file is at
+# <repo>/physicalagent/primitives/workspace_pro/hybrid_agent/runner.py
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+PRIMITIVES_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORKDIR = "/tmp/hybrid_repl"
 
 # Make tools importable when run as a script
@@ -45,8 +47,8 @@ from prompts import (  # noqa: E402
 # Driver lifecycle
 # ---------------------------------------------------------------------------
 
-DEFAULT_DRIVER_CMD = "/opt/venv/openpi/bin/python"
-DEFAULT_DRIVER_SCRIPT = str(REPO_ROOT / "examples" / "embodiment" / "primitives" / "interactive_driver.py")
+DEFAULT_DRIVER_CMD = os.environ.get("PYTHON_BIN", "/opt/venv/openpi/bin/python")
+DEFAULT_DRIVER_SCRIPT = str(PRIMITIVES_ROOT / "interactive_driver.py")
 
 
 def start_driver(
@@ -102,7 +104,7 @@ def start_driver(
         stdout=log_f,
         stderr=subprocess.STDOUT,
         env=env,
-        cwd=str(REPO_ROOT),
+        cwd=str(PROJECT_ROOT),
     )
 
     print(f"[agent] waiting for state_00.json (Pi0 load ~80s)...")
@@ -423,7 +425,7 @@ def run_one_cell(
     tools_mod.set_workdir(workdir)
 
     if output_dir is None:
-        output_dir = str(REPO_ROOT / "examples" / "embodiment" / "primitives" / "workspace_pro" / "results_agent_runs")
+        output_dir = str(PRIMITIVES_ROOT / "workspace_pro" / "results_agent_runs")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     # Auto-route LIBERO_TYPE if not set
@@ -530,7 +532,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--max_turns", type=int, default=80)
     ap.add_argument("--max_tokens", type=int, default=4096)
     ap.add_argument("--max_episode_steps", type=int, default=600)
-    ap.add_argument("--cuda_device", default="0")
+    ap.add_argument("--cuda_device", default=os.environ.get("CUDA_DEVICE", "0"))
     ap.add_argument("--output_dir", default=None)
     ap.add_argument("--api_key", default=None,
                     help="Defaults to ANTHROPIC_API_KEY env var.")

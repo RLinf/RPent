@@ -201,8 +201,9 @@ TOOLS_SPEC = [
 # Tool implementations
 # ---------------------------------------------------------------------------
 
-# Auto-detect repo root: this file is at <repo>/examples/embodiment/primitives/workspace_pro/hybrid_agent/tools.py
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
+# Auto-detect repo root: this file is at
+# <repo>/physicalagent/primitives/workspace_pro/hybrid_agent/tools.py
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _resolve(path: str) -> Path:
@@ -378,6 +379,7 @@ def back_project(row: int, col: int, step: int | None = None) -> dict:
         return {"error": "camera_meta.json not found"}
 
     meta = _json.load(open(meta_path))
+    K = np.array(meta["intrinsic_K"])
     E = np.array(meta["extrinsic_cam2world"])
 
     if step is None:
@@ -401,7 +403,9 @@ def back_project(row: int, col: int, step: int | None = None) -> dict:
     if z <= 0 or z > 10:
         return {"error": f"invalid depth {z:.3f}m at pixel ({row},{col}); pick a different pixel"}
 
-    P = E @ np.array([col * z, row * z, z, 1.0])
+    pixel_h = np.array([float(col), float(row), 1.0])
+    camera_xyz = np.linalg.inv(K) @ pixel_h * z
+    P = E @ np.array([*camera_xyz, 1.0])
     world_xyz = [round(float(v), 4) for v in P[:3]]
 
     return {

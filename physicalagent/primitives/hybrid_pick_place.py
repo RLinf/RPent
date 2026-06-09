@@ -30,7 +30,7 @@ import time
 os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
-REPO_PATH = "/mnt/public2/zhangyixian/RLinf_agentic"
+REPO_PATH = "/mnt/public/jxqiu/physicalagent"
 if REPO_PATH not in sys.path:
     sys.path.insert(0, REPO_PATH)
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
@@ -39,7 +39,7 @@ import imageio.v2 as imageio
 import numpy as np
 import torch
 
-from examples.embodiment.primitives.primitives import (
+from physicalagent.primitives.primitives import (
     CHECKPOINT_PATH,
     LiberoPrimitiveDriver,
     build_env_cfg,

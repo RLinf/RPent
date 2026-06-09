@@ -18,17 +18,19 @@ import argparse
 import json
 import os
 import re
-import sys
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
-REPO_PATH = "/mnt/public2/zhangyixian/RLinf_agentic"
-if REPO_PATH not in sys.path:
-    sys.path.insert(0, REPO_PATH)
+PHYSICALAGENT_ROOT = Path(__file__).resolve().parents[2]
+
+from physicalagent.backends import add_external_rlinf_to_path
+
+RLINF_REPO_PATH = add_external_rlinf_to_path(PHYSICALAGENT_ROOT)
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
 import numpy as np
@@ -41,8 +43,9 @@ from rlinf.models.embodiment.openpi import get_model as get_openpi_model
 
 # ----- Config builders ----------------------------------------------------
 
-CHECKPOINT_PATH = (
-    "/mnt/public/quanlu/pi05_libero130_fullshot"
+CHECKPOINT_PATH = os.environ.get(
+    "PI05_CHECKPOINT_PATH",
+    "/mnt/public/quanlu/pi05_libero130_fullshot",
 )
 
 

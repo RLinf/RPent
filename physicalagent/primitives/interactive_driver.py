@@ -26,22 +26,24 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import time
+from pathlib import Path
 
 os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
-REPO_PATH = "/mnt/public2/zhangyixian/RLinf_agentic"
-if REPO_PATH not in sys.path:
-    sys.path.insert(0, REPO_PATH)
+PHYSICALAGENT_ROOT = Path(__file__).resolve().parents[2]
+
+from physicalagent.backends import add_external_rlinf_to_path
+
+RLINF_REPO_PATH = add_external_rlinf_to_path(PHYSICALAGENT_ROOT)
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
 import imageio.v2 as imageio
 import numpy as np
 import torch
 
-from examples.embodiment.primitives.primitives import (
+from physicalagent.primitives.primitives import (
     CHECKPOINT_PATH,
     LiberoPrimitiveDriver,
     build_env_cfg,
@@ -279,8 +281,7 @@ def execute(driver, cmd: dict, workdir: str, step_idx: int):
         log["result"] = {"name": "start_recording"}
     elif action == "save_video":
         path = cmd.get("path",
-            "/mnt/public2/zhangyixian/RLinf_agentic/"
-            "examples/embodiment/primitives/videos/last_run.mp4")
+            str(PHYSICALAGENT_ROOT / "physicalagent" / "primitives" / "videos" / "last_run.mp4"))
         log["result"] = driver.stop_recording_and_save(
             path, fps=cmd.get("fps", 20),
             keep_recording=cmd.get("keep_recording", False),

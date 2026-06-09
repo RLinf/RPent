@@ -9,7 +9,7 @@ to an audit JSON.
 
 Usage:
     LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 /opt/venv/openpi/bin/python \\
-        examples/embodiment/primitives/pi0_baseline.py \\
+        physicalagent/primitives/pi0_baseline.py \\
         --suite libero_spatial_task --task 0 --seed 0 --max_chunks 60 \\
         --out workspace_pro/results_spatial_pert/baseline_pi0_spatial_task_t0_s0.json
 """
@@ -25,20 +25,20 @@ import time
 os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
-REPO = "/mnt/public2/zhangyixian/RLinf_agentic"
+REPO = "/mnt/public/jxqiu/physicalagent"
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 
 import imageio.v2 as imageio
 import numpy as np
 
-from examples.embodiment.primitives.primitives import (
+from physicalagent.primitives.primitives import (
     CHECKPOINT_PATH,
     LiberoPrimitiveDriver,
     build_env_cfg,
     build_model_cfg,
 )
-from examples.embodiment.primitives.interactive_driver import make_env
+from physicalagent.primitives.interactive_driver import make_env
 from rlinf.models.embodiment.openpi import get_model as get_openpi_model
 
 
