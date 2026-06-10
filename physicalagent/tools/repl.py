@@ -20,10 +20,18 @@ REPO_ROOT = get_repo_root()
 WORKDIR = Path(os.environ.get("HYBRID_REPL_WORKDIR", get_default_workdir_prefix()))
 
 
+def _workdir_desc() -> str:
+    return str(WORKDIR)
+
+
+def _command_path_desc() -> str:
+    return str(WORKDIR / "command.json")
+
+
 def set_workdir(path: str | os.PathLike) -> None:
     """Override the REPL working directory used by view_repl_state /
     send_command. Call BEFORE the agent loop starts so each parallel
-    worker has its own /tmp/hybrid_repl_<tag>/."""
+    worker has its own workdir."""
     global WORKDIR
     WORKDIR = Path(path)
 
@@ -68,21 +76,21 @@ TOOLS_SPEC = [
     {
         "name": "list_dir",
         "description": (
-            "List files in a directory (non-recursive). Default = /tmp/hybrid_repl. "
+            "List files in a directory (non-recursive). Default = current REPL workdir. "
             "Use to inspect the REPL working directory or to discover existing "
             "recipes in workspace_pro/results_*_pert/."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Default /tmp/hybrid_repl"},
+                "path": {"type": "string", "description": "Default: current REPL workdir"},
             },
         },
     },
     {
         "name": "view_repl_state",
         "description": (
-            "Read state_NN.json + log_NN.json + image_NN.png from /tmp/hybrid_repl. "
+            "Read state_NN.json + log_NN.json + image_NN.png from the current REPL workdir. "
             "If step is null, returns the latest. Returns the state JSON and "
             "embeds the agentview PNG as a multimodal image content block "
             "(use this image — JSON state alone is not enough; see Rule 0)."
@@ -100,7 +108,7 @@ TOOLS_SPEC = [
     {
         "name": "send_command",
         "description": (
-            "Write a JSON command to /tmp/hybrid_repl/command.json and BLOCK "
+            "Write a JSON command to the current REPL workdir's command.json and BLOCK "
             "until the driver writes the next done_NN.flag. Returns the "
             "new state JSON + log JSON + agentview image.\n\n"
             "Schema for the `command` argument follows STRICT_HYBRID_GUIDE.md "
@@ -426,6 +434,28 @@ TOOL_HANDLERS = {
     "back_project": back_project,
     "finish": finish,
 }
+
+
+def get_tools_spec() -> list[dict]:
+    """Return tool schemas with descriptions bound to the current workdir."""
+    tools = json.loads(json.dumps(TOOLS_SPEC))
+    replacements = {
+        "current REPL workdir": _workdir_desc(),
+        "the current REPL workdir's command.json": _command_path_desc(),
+        "Default: current REPL workdir": f"Default: {_workdir_desc()}",
+    }
+    for tool in tools:
+        desc = tool.get("description", "")
+        for old, new in replacements.items():
+            desc = desc.replace(old, new)
+        tool["description"] = desc
+        props = tool.get("input_schema", {}).get("properties", {})
+        for prop in props.values():
+            prop_desc = prop.get("description", "")
+            for old, new in replacements.items():
+                prop_desc = prop_desc.replace(old, new)
+            prop["description"] = prop_desc
+    return tools
 
 
 def execute_tool(name: str, input_dict: dict) -> dict:

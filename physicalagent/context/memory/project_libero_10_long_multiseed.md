@@ -9,7 +9,9 @@ metadata:
 
 Completed 2026-05-25. libero_10 ("long", long-horizon) PRO hybrid sweep:
 3 regimes (task/swap/lan) × 10 tasks × 10 seeds = **300 cells**, opus-4.7,
-`hybrid_agent_cc/run_long_grid.sh` (4-way, max_episode_steps=5000, CELL_TIMEOUT 1200).
+the unified Claude Code runner (4-way, max_episode_steps=5000, CELL_TIMEOUT_S 1200;
+replacement entry point: `scripts/libero/run_pro_sweep.sh` with
+`ENV_BASE=libero_10`).
 
 **Result: 300/300 = 100%** (task 100, swap 100, lan 100) vs Pi0 fullshot baseline
 **85/300 (28%)**. Starkest gap = swap (Pi0 2/100, fixtures moved) → hybrid perfect.

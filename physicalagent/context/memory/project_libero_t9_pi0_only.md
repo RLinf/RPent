@@ -12,7 +12,7 @@ and close it") cannot be solved with strict hybrid (Pi0 pick + LLM place).
 Pi0 end-to-end with the full task prompt solves it in ~186 chunks
 (`max_chunks=100` × 2 calls; first call lifts and approaches, second call
 finishes insertion + door close). Video at
-`/mnt/public/jxqiu/physicalagent/physicalagent/primitives/videos/t9_pi0_SUCCESS.mp4`.
+`physicalagent/primitives/videos/t9_pi0_SUCCESS.mp4`.
 
 **Why strict fails:** OSC stalls at y≈0.26, x∈[-0.05, +0.05], z∈[1.03, 1.10]
 across 6+ staging variants. This is a Panda IK singularity at the workspace

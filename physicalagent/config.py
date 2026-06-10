@@ -6,6 +6,8 @@ of computing ``Path(__file__).resolve().parents[N]`` ad-hoc.
 from __future__ import annotations
 
 import os
+import sys
+import tempfile
 from pathlib import Path
 
 
@@ -61,14 +63,11 @@ def get_logs_dir() -> Path:
 
 def get_python_bin() -> str:
     """Python interpreter that can load RLinf + LIBERO + OpenPI."""
-    return os.environ.get("PYTHON_BIN", "/opt/venv/openpi/bin/python")
+    return os.environ.get("PYTHON_BIN", sys.executable)
 
 
 def get_pi05_checkpoint_path() -> str:
-    return os.environ.get(
-        "PI05_CHECKPOINT_PATH",
-        "/mnt/public/quanlu/pi05_libero130_fullshot",
-    )
+    return os.environ.get("PI05_CHECKPOINT_PATH", "")
 
 
 def get_libero_type() -> str:
@@ -89,7 +88,8 @@ def get_rlinf_repo_path() -> Path | None:
 
 def get_default_workdir_prefix() -> str:
     """Default prefix for REPL working directories."""
-    return os.environ.get("PHYSICALAGENT_WORKDIR_PREFIX", "/tmp/hybrid_repl")
+    default = Path(tempfile.gettempdir()) / "physicalagent_repl"
+    return os.environ.get("PHYSICALAGENT_WORKDIR_PREFIX", str(default))
 
 
 # ============================================================================

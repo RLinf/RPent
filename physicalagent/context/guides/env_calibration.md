@@ -132,15 +132,15 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
 ## Calibration log files
 
 Raw probe logs are preserved in:
-- `/tmp/hybrid_repl/log_{01..NN}.json` (per-command audit)
+- `$REPL_WORKDIR/log_{01..NN}.json` (per-command audit)
 - Only kept for the most recent driver session; reproduce by re-running
   the calibration with the snippet in the next section.
 
 ## Reproducer
 
 ```bash
-cd /mnt/public/jxqiu/physicalagent
-LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 /opt/venv/openpi/bin/python \
+cd ${PHYSICALAGENT_REPO_ROOT:-$(pwd)}
+LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 ${PYTHON_BIN:-python} \
   physicalagent/primitives/interactive_driver.py \
   --suite libero_10_with_mug --task 0 --seed 0 --max_episode_steps 5000 \
   --max_steps 80 &
@@ -148,6 +148,6 @@ LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 /opt/venv/openpi/bin/python \
 # wait for ready, then for each z in 0.65 .. 0.42:
 echo '{"action":"move_to","xyz":[-0.20, 0.10, 0.65],
        "gripper":-1,"tol":0.008,"step_clip":0.010,"max_steps":80}' \
-  > /tmp/hybrid_repl/command.json
-# read /tmp/hybrid_repl/log_NN.json for final_eef_pos & final_dist_m
+  > $REPL_WORKDIR/command.json
+# read $REPL_WORKDIR/log_NN.json for final_eef_pos & final_dist_m
 ```

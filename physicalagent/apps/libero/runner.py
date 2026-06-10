@@ -28,6 +28,7 @@ from physicalagent.config import (
     get_repl_driver_script,
     get_default_workdir_prefix,
     get_cuda_device,
+    get_libero_type,
     get_anthropic_api_key,
     get_anthropic_base_url,
     get_anthropic_model,
@@ -39,15 +40,19 @@ DEFAULT_DRIVER_CMD = get_python_bin()
 DEFAULT_DRIVER_SCRIPT = str(get_repl_driver_script())
 
 from physicalagent.tools.repl import (  # noqa: E402
-    TOOLS_SPEC,
     execute_tool,
+    get_tools_spec,
     tool_result_to_content_blocks,
     set_workdir as tools_set_workdir,
 )
 from physicalagent.context.libero_prompts import (  # noqa: E402
-    CLAUDE_CODE_USER_TEMPLATE,
-    SYSTEM_PROMPT, INITIAL_USER_TEMPLATE,
-    PERCEPTION_PREFIX, PERCEPTION_USER_TEMPLATE,
+    CLAUDE_CODE_PERCEPTION_PROMPT_TEMPLATE,
+    CLAUDE_CODE_PROMPT_TEMPLATE,
+    INITIAL_USER_TEMPLATE,
+    PERCEPTION_PREFIX,
+    PERCEPTION_USER_TEMPLATE,
+    SYSTEM_PROMPT,
+    format_claude_code_prompt,
 )
 from physicalagent.logging import make_log_dir  # noqa: E402
 from physicalagent.cerebrum.anthropic import AnthropicCerebrum  # noqa: E402
@@ -81,7 +86,7 @@ def start_driver(
         log_path = str(wd.parent / f"{wd.name}_driver.log")
 
     env = os.environ.copy()
-    env["LIBERO_TYPE"] = libero_type or "pro"
+    env["LIBERO_TYPE"] = libero_type or get_libero_type()
     env["CUDA_VISIBLE_DEVICES"] = str(cuda_device or get_cuda_device())
     env.setdefault("MUJOCO_GL", "egl")
     env.setdefault("ROBOT_PLATFORM", "LIBERO")
@@ -293,6 +298,8 @@ def run_one_cell(
     perception: bool = False,
     libero_type: str | None = None,
     cerebrum_type: str = "anthropic",
+    claude_code_timeout_s: int | None = None,
+    claude_code_max_budget_usd: float | None = None,
 ) -> dict:
     """Solve one (suite, task, seed) cell end-to-end.
 
@@ -307,6 +314,11 @@ def run_one_cell(
     - ``"claude_code"`` — delegates to ``claude -p`` (Claude Code).
     """
     import anthropic
+
+    if max_episode_steps == 600 and "libero_10" in suite:
+        max_episode_steps = 5000
+        if verbose:
+            print("[agent] auto-bumped max_episode_steps to 5000 for libero_10")
 
     # ---- resolve output directory early so the workdir can live inside it ----
     if output_dir is None:
@@ -341,12 +353,21 @@ def run_one_cell(
             max_tokens=max_tokens,
         )
     elif cerebrum_type == "claude_code":
+        cc_timeout_s = claude_code_timeout_s
+        if cc_timeout_s is None:
+            cc_timeout_s = int(os.environ.get("CELL_TIMEOUT_S", "1200" if perception else "600"))
+        cc_budget = claude_code_max_budget_usd
+        if cc_budget is None:
+            cc_budget = float(os.environ.get("MAX_BUDGET_USD", "10"))
+        cc_output_path = Path(output_dir) / f"claude_{suite.replace('libero_', '')}_t{task}_s{seed}.txt"
         cerebrum = ClaudeCodeCerebrum(
             workdir=workdir,
             repo_root=REPO_ROOT,
             model=model or "sonnet",
-            timeout_s=max_episode_steps,
+            timeout_s=cc_timeout_s,
+            max_budget_usd=cc_budget,
             extra_dirs=[str(get_memory_dir())],
+            output_path=cc_output_path,
         )
     else:
         raise ValueError(f"unknown cerebrum_type: {cerebrum_type}")
@@ -362,12 +383,16 @@ def run_one_cell(
     regime = "strict_perception" if perception else "strict"
 
     if cerebrum_type == "claude_code":
-        # Claude Code uses filesystem-based interaction; skip perception
-        # prefix (the prompt template already covers it inline).
-        system_prompt = SYSTEM_PROMPT
-        if perception:
-            system_prompt = PERCEPTION_PREFIX + system_prompt
-        user_msg = CLAUDE_CODE_USER_TEMPLATE.format(
+        # Claude Code gets the full legacy single-shot prompt.  It interacts
+        # through Bash/Read/Write directly, not Anthropic API tool schemas.
+        system_prompt = ""
+        template = (
+            CLAUDE_CODE_PERCEPTION_PROMPT_TEMPLATE
+            if perception
+            else CLAUDE_CODE_PROMPT_TEMPLATE
+        )
+        user_msg = format_claude_code_prompt(
+            template,
             suite=suite, task=task, seed=seed,
             output_dir=output_dir, recipe_tag=recipe_tag,
             workdir=workdir,
@@ -397,6 +422,8 @@ def run_one_cell(
             libero_type=libero_type,
             perception=perception,
         )
+        if cerebrum_type == "claude_code":
+            cerebrum.set_driver_process(proc)
     else:
         if not (Path(workdir) / "state_00.json").exists():
             raise RuntimeError(f"--no_driver but {workdir}/state_00.json missing")
@@ -408,7 +435,7 @@ def run_one_cell(
         result = cerebrum.solve(
             system_prompt=system_prompt,
             user_message=user_msg,
-            tools_spec=TOOLS_SPEC,
+            tools_spec=get_tools_spec(),
             tool_handler=execute_tool,
             tool_result_formatter=tool_result_to_content_blocks,
             max_turns=max_turns,
@@ -488,6 +515,12 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--cerebrum", default="anthropic",
                     choices=["anthropic", "claude_code"],
                     help="LLM backend: anthropic (API tool-use) | claude_code (claude -p CLI).")
+    ap.add_argument("--claude_code_timeout_s", type=int, default=None,
+                    help="Wall-clock cap for claude -p. Defaults to CELL_TIMEOUT_S, "
+                         "or 1200 in --perception mode / 600 otherwise.")
+    ap.add_argument("--claude_code_max_budget_usd", type=float, default=None,
+                    help="Budget passed to claude -p --max-budget-usd. "
+                         "Defaults to MAX_BUDGET_USD env or 10.")
     ap.add_argument("--no_driver", action="store_true",
                     help="Don't spawn driver; attach to existing workdir")
     ap.add_argument("--workdir", default=None,
@@ -528,6 +561,8 @@ def main() -> int:
         perception=args.perception,
         libero_type=args.libero_type,
         cerebrum_type=args.cerebrum,
+        claude_code_timeout_s=args.claude_code_timeout_s,
+        claude_code_max_budget_usd=args.claude_code_max_budget_usd,
     )
     return 0
 

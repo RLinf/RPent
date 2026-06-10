@@ -23,7 +23,7 @@ fix in one sentence; I should have arrived there in attempt 2 by
 inspecting the scene image. Repeating controller param tweaks (step_clip,
 max_steps, drop height) without ever opening the image is the signature
 of this failure mode. See
-`/mnt/public/jxqiu/physicalagent/physicalagent/primitives/STRICT_HYBRID_GUIDE.md`
+`physicalagent/context/guides/STRICT_HYBRID_GUIDE.md`
 "Rule 0" section. Linked: [[project-libero-hybrid-llm-vla]].
 
 **How to apply:**

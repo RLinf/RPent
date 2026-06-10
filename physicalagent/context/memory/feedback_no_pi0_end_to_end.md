@@ -18,7 +18,7 @@ the audit corpus to reflect LLM-place performance honestly.
 
 **How to apply:**
 - Encode as Rule 1 at the top of
-  [STRICT_HYBRID_GUIDE.md](../../../mnt/public/jxqiu/physicalagent/physicalagent/primitives/STRICT_HYBRID_GUIDE.md);
+  [STRICT_HYBRID_GUIDE.md](../guides/STRICT_HYBRID_GUIDE.md);
   also Rule 2 there allows multi-episode `reset`-and-retry iteration, which
   is the *permitted* escalation when one episode's placement misses.
 - Never call `pi0_pick` with `lift_thresh=99 gripper_closed_thresh=99` (the

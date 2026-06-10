@@ -2,7 +2,7 @@
 
 Each cell gets:
   - its own CUDA device (--cuda_device passed through)
-  - its own workdir (/tmp/hybrid_repl_<tag>)
+    - its own workdir (<output_dir>/repl/hybrid_repl_<tag> by default)
   - its own log file
   - its own transcript / recipe / audit in --output_dir
 
@@ -45,6 +45,28 @@ from physicalagent.config import get_python_bin, get_anthropic_api_key, get_anth
 _THIS_DIR = Path(__file__).resolve().parent
 
 
+def _summarize_process(proc, log_path: str, tag: str, cell: tuple) -> dict:
+    try:
+        log_text = Path(log_path).read_text()
+    except Exception:
+        log_text = ""
+    finish_line = next(
+        (line for line in reversed(log_text.splitlines()) if "FINISH called" in line),
+        "",
+    )
+    usage_line = next(
+        (line for line in reversed(log_text.splitlines()) if line.startswith("[agent] usage:")),
+        "",
+    )
+    return {
+        "tag": tag,
+        "cell": cell,
+        "rc": proc.returncode,
+        "finish": finish_line,
+        "usage": usage_line,
+    }
+
+
 def _runner_cmd(
     *,
     python_bin: str,
@@ -60,6 +82,11 @@ def _runner_cmd(
     output_dir: str,
     base_url: str | None,
     api_key: str | None,
+    cerebrum: str,
+    perception: bool,
+    libero_type: str | None,
+    claude_code_timeout_s: int | None,
+    claude_code_max_budget_usd: float | None,
 ) -> list[str]:
     cmd = [
         python_bin,
@@ -74,10 +101,19 @@ def _runner_cmd(
         "--max_tokens", str(max_tokens),
         "--max_episode_steps", str(max_episode_steps),
         "--output_dir", output_dir,
+        "--cerebrum", cerebrum,
     ]
+    if perception:
+        cmd += ["--perception"]
+    if libero_type:
+        cmd += ["--libero_type", libero_type]
+    if claude_code_timeout_s is not None:
+        cmd += ["--claude_code_timeout_s", str(claude_code_timeout_s)]
+    if claude_code_max_budget_usd is not None:
+        cmd += ["--claude_code_max_budget_usd", str(claude_code_max_budget_usd)]
     if base_url:
         cmd += ["--base_url", base_url]
-    if api_key:
+    if api_key and cerebrum == "anthropic":
         cmd += ["--api_key", api_key]
     return cmd
 
@@ -94,6 +130,8 @@ def main() -> int:
                          "triples e.g. libero_spatial_lan:0:0 libero_spatial_lan:0:1")
     ap.add_argument("--cuda_devices", type=str, nargs="+", default=["0", "1", "2", "3"])
     ap.add_argument("--model", default="claude-sonnet-4-5")
+    ap.add_argument("--cerebrum", default="anthropic", choices=["anthropic", "claude_code"],
+                    help="LLM backend passed to runner.py.")
     ap.add_argument("--max_turns", type=int, default=40)
     ap.add_argument("--max_tokens", type=int, default=4096)
     ap.add_argument("--max_episode_steps", type=int, default=600)
@@ -104,11 +142,22 @@ def main() -> int:
     ap.add_argument("--base_url", default=None,
                     help="defaults to ANTHROPIC_BASE_URL env var")
     ap.add_argument("--python_bin", default=get_python_bin())
-    ap.add_argument("--workdir_root", default="/tmp",
-                    help="Each cell gets a fresh /<root>/hybrid_repl_<tag>/ directory")
+    ap.add_argument("--workdir_root", default=None,
+                    help="Each cell gets a fresh <root>/hybrid_repl_<tag>/ directory. "
+                         "Default: <output_dir>/repl, or PHYSICALAGENT_WORKDIR_PREFIX.")
     ap.add_argument("--stagger_s", type=float, default=20.0,
                     help="Seconds to wait between launching successive agents "
                          "(helps avoid hammering the API + spreads Pi0 load IO).")
+    ap.add_argument("--perception", action="store_true",
+                    help="Run perception-isolated cells (--hide_object_coords, full perception prompt).")
+    ap.add_argument("--libero_type", default=None, choices=["standard", "pro", "plus"],
+                    help="LIBERO variant to pass through. Default is runner.py auto-routing.")
+    ap.add_argument("--skip_existing", action="store_true",
+                    help="Skip cells whose audit JSON already exists in --output_dir.")
+    ap.add_argument("--claude_code_timeout_s", type=int, default=None,
+                    help="Wall-clock cap for claude -p cells. Defaults in runner.py.")
+    ap.add_argument("--claude_code_max_budget_usd", type=float, default=None,
+                    help="Budget passed to claude -p --max-budget-usd.")
     ap.add_argument("--dry_run", action="store_true")
     args = ap.parse_args()
 
@@ -129,20 +178,50 @@ def main() -> int:
         return 2
 
     api_key = args.api_key or get_anthropic_api_key()
-    if not api_key:
+    if args.cerebrum == "anthropic" and not api_key:
         print("ERROR: ANTHROPIC_API_KEY missing", file=sys.stderr)
         return 2
     base_url = args.base_url or get_anthropic_base_url()
 
     n_devices = len(args.cuda_devices)
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    workdir_root = args.workdir_root or os.environ.get("PHYSICALAGENT_WORKDIR_PREFIX")
+    if workdir_root is None:
+        workdir_root = str(Path(args.output_dir) / "repl")
 
-    procs: list[tuple[subprocess.Popen, str, str, tuple]] = []
+    procs: list[tuple[subprocess.Popen, str, str, tuple, int]] = []
+    active: list[tuple[subprocess.Popen, str, str, tuple, int]] = []
+    all_results: list[dict] = []
+
+    def collect_finished(*, block: bool = False) -> None:
+        """Collect finished cells, optionally waiting for one free GPU slot."""
+        while True:
+            for item in list(active):
+                proc, log_path, tag, cell, _slot = item
+                rc = proc.poll()
+                if rc is None:
+                    continue
+                active.remove(item)
+                all_results.append(_summarize_process(proc, log_path, tag, cell))
+            if not block or len(active) < n_devices:
+                return
+            time.sleep(2)
+
     print(f"[parallel] launching {len(cells)} cells across {n_devices} GPUs")
+    launched = 0
     for i, (suite, task, seed) in enumerate(cells):
-        cuda = args.cuda_devices[i % n_devices]
         tag = f"{suite.replace('libero_','')}_t{task}_s{seed}"
-        workdir = f"{args.workdir_root}/hybrid_repl_{tag}"
+        if args.skip_existing and (Path(args.output_dir) / f"{tag}.json").exists():
+            print(f"  [{i}] {tag}  SKIP existing audit")
+            continue
+        if args.dry_run:
+            slot = i % n_devices
+        else:
+            collect_finished(block=len(active) >= n_devices)
+            used_slots = {item[4] for item in active}
+            slot = next((idx for idx in range(n_devices) if idx not in used_slots), 0)
+        cuda = args.cuda_devices[slot]
+        workdir = str(Path(workdir_root) / f"hybrid_repl_{tag}")
         log_path = f"{args.log_dir}/agent_{tag}.log"
 
         cmd = _runner_cmd(
@@ -156,6 +235,11 @@ def main() -> int:
             output_dir=args.output_dir,
             base_url=base_url,
             api_key=api_key,
+            cerebrum=args.cerebrum,
+            perception=args.perception,
+            libero_type=args.libero_type,
+            claude_code_timeout_s=args.claude_code_timeout_s,
+            claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         )
 
         print(f"  [{i}] {tag}  GPU={cuda}  workdir={workdir}  log={log_path}")
@@ -165,53 +249,42 @@ def main() -> int:
 
         log_f = open(log_path, "w")
         env = os.environ.copy()
-        # API key/base also via env as a fallback
-        env["ANTHROPIC_API_KEY"] = api_key
+        # API key/base also via env as a fallback for the Anthropic backend.
+        if api_key:
+            env["ANTHROPIC_API_KEY"] = api_key
         if base_url:
             env["ANTHROPIC_BASE_URL"] = base_url
         # Stagger launches so 4 agents don't hammer the API at the same
         # instant during initial guide reading (proxy may refuse parallel
         # TLS handshakes). Also spreads Pi0 model-load disk IO.
-        if i > 0:
+        if launched > 0:
             time.sleep(args.stagger_s)
         proc = subprocess.Popen(cmd, stdout=log_f, stderr=subprocess.STDOUT, env=env)
-        procs.append((proc, log_path, tag, (suite, task, seed)))
+        item = (proc, log_path, tag, (suite, task, seed, cuda), slot)
+        procs.append(item)
+        active.append(item)
+        launched += 1
 
     if args.dry_run:
         return 0
 
     print(f"\n[parallel] waiting for {len(procs)} cells...")
     t0 = time.time()
-    results = []
-    for proc, log_path, tag, cell in procs:
+    for proc, log_path, tag, cell, _slot in list(active):
         rc = proc.wait()
+        result = _summarize_process(proc, log_path, tag, cell)
+        all_results.append(result)
         elapsed = time.time() - t0
-        # Extract the FINISH line from the agent log if present
-        try:
-            log_text = Path(log_path).read_text()
-        except Exception:
-            log_text = ""
-        finish_line = next(
-            (ln for ln in reversed(log_text.splitlines()) if "FINISH called" in ln),
-            "",
-        )
-        usage_line = next(
-            (ln for ln in reversed(log_text.splitlines()) if ln.startswith("[agent] usage:")),
-            "",
-        )
-        results.append({
-            "tag": tag, "cell": cell, "rc": rc, "elapsed_s": round(elapsed, 1),
-            "finish": finish_line,  # keep FULL line — 'status: success' is at the start
-            "usage": usage_line,
-        })
         print(f"[parallel] [{tag}] rc={rc}  elapsed={elapsed:.1f}s")
-        if finish_line:
+        if result["finish"]:
             # show head (where 'status' lives) and a tail if it's long
-            print(f"           {finish_line[:280]}")
-            if len(finish_line) > 480:
-                print(f"           ...{finish_line[-200:]}")
-        if usage_line:
-            print(f"           {usage_line}")
+            print(f"           {result['finish'][:280]}")
+            if len(result["finish"]) > 480:
+                print(f"           ...{result['finish'][-200:]}")
+        if result["usage"]:
+            print(f"           {result['usage']}")
+
+    results = all_results
 
     print(f"\n[parallel] all done in {time.time()-t0:.1f}s")
     print("[parallel] summary:")
@@ -222,7 +295,7 @@ def main() -> int:
         # libero_terminated=true. This catches cases where the agent
         # crashed (e.g. API error) AFTER the sim already terminated.
         tag = r["tag"]
-        wd = Path(f"{args.workdir_root}/hybrid_repl_{tag}")
+        wd = Path(workdir_root) / f"hybrid_repl_{tag}"
         sim_ok = False
         if wd.exists():
             import json as _json

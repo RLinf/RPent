@@ -7,7 +7,7 @@ metadata:
   originSessionId: 1d2ff8f3-2dd8-4212-b752-4547e53239bb
 ---
 
-`hybrid_agent_cc/run_spatial_grid.sh` (added 2026-05-23) runs the hybrid
+`scripts/libero/run_pro_sweep.sh` with `ENV_BASE=libero_spatial` runs the hybrid
 claude -p sweep over libero_spatial PRO: 3 regimes (task/lan/swap) × 10
 tasks × 10 seeds = 300 cells → `multi_seed_exp/spatial/`. Defaults:
 `GPUS="0 1 2 3"` (4-GPU, 1 cell/GPU), `STAGGER_S=60`, `MODEL=claude-opus-4-7`,

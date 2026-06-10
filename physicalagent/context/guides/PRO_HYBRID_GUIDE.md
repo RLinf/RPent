@@ -51,13 +51,13 @@ See `results_spatial_pert/REPORT_spatial_t0.md` for the full diagnostic.
 
 ### 2.1. LIBERO-PRO repo
 
-Cloned at `/opt/venv/openpi/libero_pro/` from
+Cloned at `${LIBERO_PRO_PATH:-/path/to/LIBERO-PRO}/` from
 `https://github.com/RLinf/LIBERO-PRO.git` (commit `0bcf736`). Already
 installed editable into the openpi venv:
 
 ```bash
-/opt/venv/openpi/bin/pip show liberopro
-# Name: liberopro  Version: 0.1.0  Location: /opt/venv/openpi/libero_pro
+${PYTHON_BIN:-python} -m pip show liberopro
+# Name: liberopro  Version: 0.1.0  Location: ${LIBERO_PRO_PATH:-/path/to/LIBERO-PRO}
 ```
 
 ### 2.2. Apply the benchmark-registration patch
@@ -69,14 +69,14 @@ adds them and also overrides `Task.language` to read each BDDL's actual
 `:language` tag (so the perturbed instruction reaches Pi0 / hybrid).
 
 ```bash
-cd /opt/venv/openpi/libero_pro
+cd ${LIBERO_PRO_PATH:-/path/to/LIBERO-PRO}
 git apply <path-to>/workspace_pro/liberopro_register_perturbations.patch
 ```
 
 If the patch is already applied (likely), `git status -s` shows clean. If
 you ever reinstall liberopro, you must re-apply.
 
-### 2.3. Huggingface dataset (already persisted at `/mnt/public2/zhangyixian/datasets/liberopro_hf/`)
+### 2.3. Huggingface dataset (already persisted at `${LIBEROPRO_DATASET_PATH:-/path/to/liberopro_hf}/`)
 
 The LIBERO-PRO git repo ships **incomplete / broken** init files for several
 perturbation suites:
@@ -90,7 +90,7 @@ The full, correct set lives on Huggingface
 A clean local copy has been persisted at:
 
 ```
-/mnt/public2/zhangyixian/datasets/liberopro_hf/
+${LIBEROPRO_DATASET_PATH:-/path/to/liberopro_hf}/
 ├── bddl_files/                    16 perturbation suites, 10 BDDLs each
 └── init_files/                    16 perturbation suites, 10 init files each
 ```
@@ -101,8 +101,8 @@ Total: 1.2 MB. Covers `{libero_spatial, libero_object, libero_goal, libero_10}
 **Sync this into the liberopro install** (overwrites broken upstream files):
 
 ```bash
-SRC=/mnt/public2/zhangyixian/datasets/liberopro_hf
-DEST=/opt/venv/openpi/libero_pro/liberopro/liberopro
+SRC=${LIBEROPRO_DATASET_PATH:-/path/to/liberopro_hf}
+DEST=${LIBERO_PRO_PATH:-/path/to/LIBERO-PRO}/liberopro/liberopro
 for suite_dir in $SRC/bddl_files/*/; do
   name=$(basename $suite_dir)
   mkdir -p $DEST/bddl_files/$name
@@ -119,17 +119,17 @@ If you ever reinstall liberopro, run this sync again. If the persistent
 copy is somehow gone, re-download with:
 
 ```bash
-/opt/venv/openpi/bin/python -c "
+${PYTHON_BIN:-python} -c "
 from huggingface_hub import snapshot_download
 snapshot_download(repo_id='zhouxueyang/LIBERO-Pro', repo_type='dataset',
-                  local_dir='/mnt/public2/zhangyixian/datasets/liberopro_hf',
+                  local_dir='${LIBEROPRO_DATASET_PATH:-/path/to/liberopro_hf}',
                   allow_patterns=['bddl_files/**','init_files/**'])"
 ```
 
 ### 2.4. Verify
 
 ```bash
-LIBERO_TYPE=pro /opt/venv/openpi/bin/python -c "
+LIBERO_TYPE=pro ${PYTHON_BIN:-python} -c "
 import liberopro.liberopro.benchmark as bench
 for n in ['libero_spatial_task','libero_spatial_swap','libero_spatial_lan']:
     b = bench.get_benchmark(n)(); t = b.get_task(0)
@@ -218,13 +218,18 @@ Replace `spatial` with `object`, `goal`, or `10` for the other base suites.
 ### 4.1. Hybrid run — same as STRICT_HYBRID_GUIDE except `LIBERO_TYPE=pro`
 
 ```bash
-ps -ef | grep interactive_driver | grep -v grep | awk '{print $2}' | xargs -r kill
-rm -rf /tmp/hybrid_repl
-cd /mnt/public/jxqiu/physicalagent
-LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 /opt/venv/openpi/bin/python \
-  physicalagent/primitives/interactive_driver.py \
+ps -ef | grep repl_driver | grep -v grep | awk '{print $2}' | xargs -r kill
+cd ${PHYSICALAGENT_REPO_ROOT:-$(pwd)}
+REPL_WORKDIR="${PHYSICALAGENT_WORKDIR_PREFIX:-$(${PYTHON_BIN:-python} - <<'PY'
+from physicalagent.config import get_default_workdir_prefix
+print(get_default_workdir_prefix())
+PY
+)}"
+rm -rf "$REPL_WORKDIR"
+LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 ${PYTHON_BIN:-python} \
+  physicalagent/backends/rlinf/repl_driver.py \
   --suite libero_spatial_task --task 0 --seed 0 --max_episode_steps 600
-# (run in background; wait for /tmp/hybrid_repl/state_00.json)
+# (run in background; wait for $REPL_WORKDIR/state_00.json)
 ```
 
 Then issue JSON commands per STRICT_HYBRID_GUIDE §"The command vocabulary".
@@ -256,8 +261,8 @@ populate:
 For the same (suite, task, seed), run the Pi0 baseline:
 
 ```bash
-cd /mnt/public/jxqiu/physicalagent
-LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 /opt/venv/openpi/bin/python \
+cd ${PHYSICALAGENT_REPO_ROOT:-$(pwd)}
+LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 ${PYTHON_BIN:-python} \
   physicalagent/primitives/pi0_baseline.py \
   --suite libero_spatial_task --task 0 --seed 0 --max_chunks 60 \
   --out physicalagent/primitives/workspace_pro/results_spatial_pert/baseline_pi0_spatial_task_t0_s0.json \
@@ -337,25 +342,25 @@ only for t0**. That's the work that remains.
 
 ```bash
 # 1. Sanity-check liberopro patch present
-LIBERO_TYPE=pro /opt/venv/openpi/bin/python -c \
+LIBERO_TYPE=pro ${PYTHON_BIN:-python} -c \
   "import liberopro.liberopro.benchmark as b; print(b.get_benchmark('libero_spatial_task')().get_task(0).language)"
 # → must read 'Pick the akita black bowl not between ...' (the perturbed text)
 
 # 2. Start a hybrid driver (background)
-cd /mnt/public/jxqiu/physicalagent
-LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 /opt/venv/openpi/bin/python \
-  physicalagent/primitives/interactive_driver.py \
+cd ${PHYSICALAGENT_REPO_ROOT:-$(pwd)}
+LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 ${PYTHON_BIN:-python} \
+  physicalagent/backends/rlinf/repl_driver.py \
   --suite libero_spatial_task --task <N> --seed 0 --max_episode_steps 600
 
 # 3. Wait for readiness
-until [ -f /tmp/hybrid_repl/state_00.json ] && [ -s /tmp/hybrid_repl/state_00.json ]; do sleep 5; done
+until [ -f $REPL_WORKDIR/state_00.json ] && [ -s $REPL_WORKDIR/state_00.json ]; do sleep 5; done
 
 # 4. Open state_00.json AND image_00.png; describe the scene; decide target
 # 5. Issue JSON commands per STRICT_HYBRID_GUIDE §"The command vocabulary"
 # 6. Save audit + recipe to workspace_pro/results_<base>_pert/
 
 # 7. Run Pi0 baseline for the same (suite, task, seed)
-LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 /opt/venv/openpi/bin/python \
+LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 ${PYTHON_BIN:-python} \
   physicalagent/primitives/pi0_baseline.py \
   --suite libero_spatial_task --task <N> --seed 0 --max_chunks 60 \
   --out physicalagent/primitives/workspace_pro/results_spatial_pert/baseline_pi0_spatial_task_t<N>_s0.json

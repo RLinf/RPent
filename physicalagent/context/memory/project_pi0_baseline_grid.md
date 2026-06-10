@@ -7,7 +7,7 @@ metadata:
   originSessionId: 1d2ff8f3-2dd8-4212-b752-4547e53239bb
 ---
 
-`hybrid_agent_cc/run_pi0_baseline_grid.sh` (added 2026-05-23) runs the Pi0
+`scripts/libero/run_pi0_baseline_grid.sh` runs the Pi0
 fullshot baseline as an 8-GPU parallel grid: SUITES × TASKS × SEEDS, one
 `pi0_baseline.py` cell per GPU, skip-if-output-exists, 900s/cell timeout,
 `LIBERO_TYPE=pro`. No claude -p → no subscription quota. ~2 min/cell, 300

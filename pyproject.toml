@@ -41,7 +41,7 @@ Documentation = "https://github.com/RLinf/PhysicalAgent"
 
 [project.optional-dependencies]
 rlinf = [
-    "rlinf @ file:///mnt/public/jxqiu/rlinf",
+    "rlinf @ git+https://github.com/RLinf/RLinf.git",
 ]
 
 [tool.setuptools]

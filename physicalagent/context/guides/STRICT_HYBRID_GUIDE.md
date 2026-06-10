@@ -11,7 +11,7 @@ guide is everything you need to know to continue iterating on **strict** hybrid:
 ## Before you start: READ THE AUTO-MEMORY
 
 Past sessions have stored ~20 hard-won lessons in
-`/root/.claude/projects/-mnt-public2-zhangyixian/memory/`. The index
+`physicalagent/context/memory/`. The index
 file `MEMORY.md` is auto-loaded into your system prompt via CLAUDE.md,
 so the one-line hooks are already visible to you. Before launching a
 driver, **scan those hooks** for entries whose name/description touches
@@ -240,7 +240,7 @@ in your plan or in the physics simulator's behavior.**
 1. **One Python process runs forever.** It loaded Pi0.5 (~90s, GPU mem ~6GB),
    built a single-env LIBERO sim, and is now blocked waiting for a command.
 2. **You write commands.** Each command is a JSON file at
-   `/tmp/hybrid_repl/command.json`. The driver consumes it, runs one
+   `$REPL_WORKDIR/command.json`. The driver consumes it, runs one
    primitive, dumps `state_NN.json` + `image_NN.png` + `log_NN.json`, then
    touches `done_NN.flag`. Then it blocks for the next command.
 3. **You read state, decide next move, write next command. Repeat.**
@@ -251,9 +251,15 @@ freely `reset` to retry the same task.
 ## Launch a session
 
 ```bash
-cd /mnt/public/jxqiu/physicalagent
-CUDA_VISIBLE_DEVICES=0 /opt/venv/openpi/bin/python \
-    physicalagent/primitives/interactive_driver.py \
+cd ${PHYSICALAGENT_REPO_ROOT:-$(pwd)}
+REPL_WORKDIR="${PHYSICALAGENT_WORKDIR_PREFIX:-$(${PYTHON_BIN:-python} - <<'PY'
+from physicalagent.config import get_default_workdir_prefix
+print(get_default_workdir_prefix())
+PY
+)}"
+CUDA_VISIBLE_DEVICES=0 ${PYTHON_BIN:-python} \
+    physicalagent/backends/rlinf/repl_driver.py \
+    --workdir "$REPL_WORKDIR" \
     --suite libero_10 --task <N> --seed 0 --max_episode_steps 5000
 ```
 
@@ -268,7 +274,7 @@ doesn't block. Then wait for `state_00.json` to exist as the readiness signal
 (~90s model load).
 
 ```bash
-until [ -f /tmp/hybrid_repl/state_00.json ] && [ -s /tmp/hybrid_repl/state_00.json ]; do sleep 5; done
+until [ -f $REPL_WORKDIR/state_00.json ] && [ -s $REPL_WORKDIR/state_00.json ]; do sleep 5; done
 ```
 
 Suites currently supported: `libero_spatial`, `libero_10`. Add more via
@@ -276,7 +282,7 @@ Suites currently supported: `libero_spatial`, `libero_10`. Add more via
 
 ## The command vocabulary
 
-Write JSON to `/tmp/hybrid_repl/command.json`. Brief schemas below; the full
+Write JSON to `$REPL_WORKDIR/command.json`. Brief schemas below; the full
 **Extended primitives reference** section (later in this guide) explains
 when to use each, gotchas, failure trees, and worked examples (t9 strict
 recipe is documented end-to-end).
@@ -335,7 +341,7 @@ recipe is documented end-to-end).
 After each command, wait for the flag:
 
 ```bash
-until [ -f /tmp/hybrid_repl/done_<NN>.flag ]; do sleep 1; done
+until [ -f $REPL_WORKDIR/done_<NN>.flag ]; do sleep 1; done
 ```
 
 Where `<NN>` is the step number (zero-padded, starts at 01 for first command).
@@ -554,7 +560,7 @@ rlinf/envs/libero/
 ## Reading state / log files
 
 ```bash
-cat /tmp/hybrid_repl/state_<NN>.json | python -c "
+cat $REPL_WORKDIR/state_<NN>.json | python -c "
 import json, sys
 d = json.load(sys.stdin); s = d['state']
 print('libero_term:', d['libero_terminated'])
@@ -564,7 +570,7 @@ for k, v in s['objects'].items(): print(f'  {k}: {v}')
 "
 ```
 
-For images, use the Read tool on `/tmp/hybrid_repl/image_<NN>.png` (Claude
+For images, use the Read tool on `$REPL_WORKDIR/image_<NN>.png` (Claude
 Code's Read tool renders PNGs).
 
 ## Hyperparameters that actually matter
@@ -726,7 +732,7 @@ less descent before the trigger fires.
 After each run, check `log_<pick_step>.json`:
 
 ```python
-pr = json.load(open("/tmp/hybrid_repl/log_02.json"))["result"]  # the pi0_pick step
+pr = json.load(open("$REPL_WORKDIR/log_02.json"))["result"]  # the pi0_pick step
 assert pr["libero_terminated"] == False, "Pi0 finished the task — violation!"
 assert pr["chunks_used"] < 25, "Pi0 ran too long; may have done place"
 ```
@@ -734,7 +740,7 @@ assert pr["chunks_used"] < 25, "Pi0 ran too long; may have done place"
 And `log_<release_step>.json`:
 
 ```python
-rr = json.load(open("/tmp/hybrid_repl/log_06.json"))["result"]  # release step
+rr = json.load(open("$REPL_WORKDIR/log_06.json"))["result"]  # release step
 assert rr["libero_terminated"] == True, "Task didn't terminate during release"
 ```
 
@@ -744,7 +750,7 @@ release triggered libero_term ⇒ LLM did the place**.
 ## Persisting successful runs as audit JSONs
 
 The REPL workflow is great for iteration but **leaves nothing reproducible
-behind once the driver exits** — `/tmp/hybrid_repl/state_NN.json` and
+behind once the driver exits** — `$REPL_WORKDIR/state_NN.json` and
 `log_NN.json` live only until the next driver run wipes them. The
 libero_spatial corpus at `results_all_spatial/tN_sM.json` is the gold
 standard: each file is a single self-contained record of one
@@ -762,7 +768,7 @@ schema, plus an entry in `all_rows.json`.
 │ 1. REPL iterate (Rule 0 + command vocab + heuristics).          │
 │    Find a command sequence that gets libero_terminated=True.    │
 │    Write each command as a JSON line in a scratch file as you   │
-│    go, e.g. /tmp/hybrid_repl/recipe_t<N>_s<M>.jsonl, so the     │
+│    go, e.g. $REPL_WORKDIR/recipe_t<N>_s<M>.jsonl, so the     │
 │    final recipe is captured cleanly (do NOT rely on memory).    │
 │                                                                 │
 │ 2. Confirm strict compliance via the asserts above.             │
@@ -844,10 +850,10 @@ extend the schema rather than collapse.
 Run this at the end of a successful REPL session, before issuing `exit`:
 
 ```bash
-/opt/venv/openpi/bin/python - <<'PYEOF'
+${PYTHON_BIN:-python} - <<'PYEOF'
 import json, glob, os, re
-WORKDIR = "/tmp/hybrid_repl"
-OUTDIR  = "/mnt/public/jxqiu/physicalagent/physicalagent/primitives/results_all_10"
+WORKDIR = "$REPL_WORKDIR"
+OUTDIR  = "${PHYSICALAGENT_REPO_ROOT:-$(pwd)}/physicalagent/primitives/results_all_10"
 TASK_ID, SEED = 9, 0                                           # ← fill in
 REGIME = "strict"                                               # ← fill in ("strict" or "pi0_doubled" — Rule 1 forbids "pi0_end_to_end")
 NOTES  = "OSC IK barrier at cavity entry; Pi0 full task prompt solved in 186 chunks"
@@ -911,7 +917,7 @@ sequence (from `recipe_t<N>_s<M>.jsonl`) into a small Python module under
 # strategies/t9_strict_attempt.py — example shell
 def commands_for(task_id, seed, state_00):
     """Return a list of REPL command dicts that solve t9. Each dict is
-    exactly what you'd write to /tmp/hybrid_repl/command.json."""
+    exactly what you'd write to $REPL_WORKDIR/command.json."""
     return [
         {"action": "start_recording"},
         {"action": "move_to", "xyz": [-0.020, -0.020, 1.10], "gripper": -1,
@@ -1124,7 +1130,7 @@ the task as a strict failure in `strategy_notes`.
 ## Memory files to read
 
 **You have access to a persistent auto-memory at**
-`/root/.claude/projects/-mnt-public2-zhangyixian/memory/`. The index is
+`physicalagent/context/memory/`. The index is
 `MEMORY.md` (one-line hooks per memory, auto-injected by CLAUDE.md into
 the system prompt of every new session). Individual entries live as
 `feedback_*.md` / `project_*.md` / `reference_*.md`.
@@ -1220,16 +1226,16 @@ Cross-suite progress + non-obvious past failures:
 ## TL;DR launch checklist
 
 ```
-0. cat /root/.claude/projects/-mnt-public2-zhangyixian/memory/MEMORY.md
+0. cat physicalagent/context/memory/MEMORY.md
    → scan one-line hooks; Read matching .md files for relevant fixes.
-1. cd /mnt/public/jxqiu/physicalagent
+1. cd ${PHYSICALAGENT_REPO_ROOT:-$(pwd)}
 2. Bash run_in_background:true
-     CUDA_VISIBLE_DEVICES=0 /opt/venv/openpi/bin/python \
-         physicalagent/primitives/interactive_driver.py \
+     CUDA_VISIBLE_DEVICES=0 ${PYTHON_BIN:-python} \
+         physicalagent/backends/rlinf/repl_driver.py \
          --suite libero_10 --task <N> --seed 0 --max_episode_steps 5000
 3. Bash run_in_background:true (wait for state_00.json)
-     until [ -f /tmp/hybrid_repl/state_00.json ] && \
-            [ -s /tmp/hybrid_repl/state_00.json ]; do sleep 5; done
+     until [ -f $REPL_WORKDIR/state_00.json ] && \
+            [ -s $REPL_WORKDIR/state_00.json ]; do sleep 5; done
 4. Read state_00.json, image_00.png. Identify target objects + goal regions.
 5. Iterate: REPL command → done_NN.flag → Read image_NN.png (Rule 0)
             → Read state_NN.json → next command.
@@ -1267,7 +1273,7 @@ Cross-suite progress + non-obvious past failures:
 11. Write exit. Move on to next task.
 12. **Memory write-back**: if you discovered a non-obvious fix or env
      quirk that took >2 iterations to diagnose, save it as
-     `/root/.claude/projects/-mnt-public2-zhangyixian/memory/feedback_<name>.md`
+     `physicalagent/context/memory/feedback_<name>.md`
      (YAML frontmatter: `name`, `description`, `type: feedback`; body
      leads with the rule, then `**Why:**` and `**How to apply:**` lines)
      AND append a one-line hook to `MEMORY.md`. Next session reads it

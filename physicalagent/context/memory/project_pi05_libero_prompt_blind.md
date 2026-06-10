@@ -20,4 +20,4 @@ metadata:
 **How to apply:**
 - For libero_spatial: `driver.pick(...)` works reliably regardless of `object_text` — usable as a "trigger a pick" executor in primitive-DSL plans, but do not rely on prompt to disambiguate.
 - To test true prompt-following: switch to `libero_object` (8 distinct items in one scene), where vision alone cannot solve the task. Same driver, just `task_suite_name="libero_object"`.
-- Driver lives at `/mnt/public/jxqiu/physicalagent/physicalagent/primitives/`.
+- Driver lives under `physicalagent/backends/rlinf/`.

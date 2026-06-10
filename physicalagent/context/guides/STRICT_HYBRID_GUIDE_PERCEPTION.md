@@ -43,7 +43,7 @@ interface is unconditional once the driver is launched).
 Operating wisdom lives in the in-repo snapshot:
 
 ```
-physicalagent/primitives/workspace_pro/memory_snapshot/MEMORY.md
+physicalagent/context/memory/MEMORY.md
 ```
 
 Scan the ~40 one-line hooks. For perception cells **always** open:
@@ -109,7 +109,7 @@ different pixel firmly on the target's top, re-back-project. Don't conclude
 ### One-click (recommended)
 
 ```bash
-bash physicalagent/primitives/workspace_pro/hybrid_agent_cc/run_perception_cell.sh \
+bash scripts/libero/run_perception_cell.sh \
      SUITE TASK SEED
 
 # examples:
@@ -127,12 +127,17 @@ via env: `CUDA_DEVICE=2 MODEL=claude-opus-4-7 OUTPUT_DIR=/path bash run_percepti
 ### Raw driver launch (if you want to drive the REPL yourself)
 
 ```bash
-cd /mnt/public/jxqiu/physicalagent
+cd ${PHYSICALAGENT_REPO_ROOT:-$(pwd)}
+REPL_WORKDIR="${PHYSICALAGENT_WORKDIR_PREFIX:-$(${PYTHON_BIN:-python} - <<'PY'
+from physicalagent.config import get_default_workdir_prefix
+print(get_default_workdir_prefix())
+PY
+)}"
 CUDA_VISIBLE_DEVICES=0 LIBERO_TYPE=pro MUJOCO_GL=egl \
-  /opt/venv/openpi/bin/python \
-    physicalagent/primitives/interactive_driver.py \
+  ${PYTHON_BIN:-python} \
+    physicalagent/backends/rlinf/repl_driver.py \
     --suite libero_object_swap --task 0 --seed 0 \
-    --workdir /tmp/hybrid_repl \
+    --workdir $REPL_WORKDIR \
     --max_episode_steps 600 \
     --hide_object_coords --always_render
 ```
@@ -149,7 +154,7 @@ suites; omit it (or set `standard`) for the base benchmark.
 Run in background; wait for readiness:
 
 ```bash
-until [ -f /tmp/hybrid_repl/state_00.json ] && [ -s /tmp/hybrid_repl/state_00.json ]; do sleep 5; done
+until [ -f $REPL_WORKDIR/state_00.json ] && [ -s $REPL_WORKDIR/state_00.json ]; do sleep 5; done
 ```
 
 ## The perception files you read each step
@@ -166,9 +171,9 @@ until [ -f /tmp/hybrid_repl/state_00.json ] && [ -s /tmp/hybrid_repl/state_00.js
 ## Localization snippet (run via Bash; substitute pixel + step)
 
 ```bash
-/opt/venv/openpi/bin/python - <<'PY'
+${PYTHON_BIN:-python} - <<'PY'
 import json, numpy as np
-wd = "/tmp/hybrid_repl"; step = "01"; row, col = ROW, COL   # <-- fill in
+wd = "$REPL_WORKDIR"; step = "01"; row, col = ROW, COL   # <-- fill in
 cm = json.load(open(f"{wd}/camera_meta.json"))
 E  = np.array(cm["extrinsic_cam2world"])
 depth = np.load(f"{wd}/depth_{step}.npy")
@@ -327,7 +332,7 @@ snippet above.
 Before saving the audit, run this check on your recipe-so-far:
 
 ```bash
-grep -E "\"(set_object_pose|articulate_to|js_move_to|carry_object)\"" /tmp/hybrid_repl/log_*.json && echo "TELEPORT — REJECTED" || echo "physics-only ✓"
+grep -E "\"(set_object_pose|articulate_to|js_move_to|carry_object)\"" $REPL_WORKDIR/log_*.json && echo "TELEPORT — REJECTED" || echo "physics-only ✓"
 ```
 
 ## Persisting successful runs as audit JSONs

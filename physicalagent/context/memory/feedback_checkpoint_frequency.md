@@ -4,7 +4,7 @@ description: User wants CRL training to save few checkpoints, not one per eval s
 type: feedback
 originSessionId: d8efb52a-c642-417f-8d42-9c041c8719c2
 ---
-For BuilderBench CRL runs (`/mnt/public2/zhangyixian/builderbench/rl/impls/crl.py`), do not save a checkpoint at every eval step.
+For BuilderBench CRL runs (`${BUILDERBENCH_ROOT:-/path/to/builderbench}/rl/impls/crl.py`), do not save a checkpoint at every eval step.
 
 **Why:** Each `params_{es}.pkl` is ~38 MB for a small net and >100 MB for the depth=32 big net. With `num_eval_steps=200` (the watcher default) that's ~8 GB / 20+ GB per run, multiplied by many parallel runs — wasteful and clutters `runs_*` dirs. The user explicitly said "不用保存太多，也不用每个eval都保存".
 
