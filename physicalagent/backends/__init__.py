@@ -6,25 +6,23 @@ import os
 import sys
 from pathlib import Path
 
+from physicalagent.config import get_repo_root, get_rlinf_repo_path
+
 
 def add_external_rlinf_to_path(project_root: Path | None = None) -> Path:
     """Add the configured external RLinf checkout to ``sys.path``.
 
     Resolution order:
-    1. ``PHYSICALAGENT_RLINF_ROOT``
-    2. ``RLINF_REPO_PATH``
+    1. ``PHYSICALAGENT_RLINF_ROOT`` env var
+    2. ``RLINF_REPO_PATH`` env var
     3. sibling checkout named ``rlinf`` next to the PhysicalAgent repo
     """
     if project_root is None:
-        project_root = Path(__file__).resolve().parents[1]
+        project_root = get_repo_root()
 
-    default_path = project_root.parent / "rlinf"
-    rlinf_path = Path(
-        os.environ.get(
-            "PHYSICALAGENT_RLINF_ROOT",
-            os.environ.get("RLINF_REPO_PATH", str(default_path)),
-        )
-    ).expanduser().resolve()
+    rlinf_path = get_rlinf_repo_path()
+    if rlinf_path is None:
+        rlinf_path = (project_root.parent / "rlinf").resolve()
 
     if str(rlinf_path) not in sys.path:
         sys.path.insert(0, str(rlinf_path))

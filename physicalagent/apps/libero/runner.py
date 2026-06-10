@@ -22,51 +22,57 @@ from pathlib import Path
 
 # Auto-detect project paths: this file is at
 # <repo>/physicalagent/apps/libero/runner.py
-REPO_ROOT = Path(__file__).resolve().parents[3]
-PRIMITIVES_ROOT = REPO_ROOT / "physicalagent" / "primitives"
-DEFAULT_WORKDIR = "/tmp/hybrid_repl"
+from physicalagent.config import (
+    get_repo_root,
+    get_python_bin,
+    get_repl_driver_script,
+    get_default_workdir_prefix,
+    get_cuda_device,
+    get_anthropic_api_key,
+    get_anthropic_base_url,
+    get_anthropic_model,
+    get_memory_dir,
+)
+
+REPO_ROOT = get_repo_root()
+DEFAULT_DRIVER_CMD = get_python_bin()
+DEFAULT_DRIVER_SCRIPT = str(get_repl_driver_script())
 
 from physicalagent.tools.repl import (  # noqa: E402
     TOOLS_SPEC,
-    TOOL_HANDLERS,
     execute_tool,
     tool_result_to_content_blocks,
     set_workdir as tools_set_workdir,
 )
 from physicalagent.context.libero_prompts import (  # noqa: E402
+    CLAUDE_CODE_USER_TEMPLATE,
     SYSTEM_PROMPT, INITIAL_USER_TEMPLATE,
     PERCEPTION_PREFIX, PERCEPTION_USER_TEMPLATE,
 )
 from physicalagent.logging import make_log_dir  # noqa: E402
-
-
-# ---------------------------------------------------------------------------
-# Driver lifecycle
-# ---------------------------------------------------------------------------
-
-DEFAULT_DRIVER_CMD = os.environ.get("PYTHON_BIN", "/opt/venv/openpi/bin/python")
-DEFAULT_DRIVER_SCRIPT = str(PRIMITIVES_ROOT / "interactive_driver.py")
+from physicalagent.cerebrum.anthropic import AnthropicCerebrum  # noqa: E402
+from physicalagent.cerebrum.claude_code import ClaudeCodeCerebrum  # noqa: E402
 
 
 def start_driver(
     suite: str,
     task: int,
     seed: int,
-    workdir: str = DEFAULT_WORKDIR,
+    workdir: str | None = None,
     max_episode_steps: int = 600,
-    libero_type: str = "pro",
-    cuda_device: str = "0",
+    libero_type: str | None = None,
+    cuda_device: str | None = None,
     log_path: str | None = None,
-    python_bin: str = DEFAULT_DRIVER_CMD,
-    driver_script: str = DEFAULT_DRIVER_SCRIPT,
+    python_bin: str | None = None,
+    driver_script: str | None = None,
     ready_timeout_s: float = 300.0,
     perception: bool = False,
 ) -> subprocess.Popen:
-    """Clear workdir and launch interactive_driver.py in background.
+    """Clear workdir and launch the REPL driver in background.
 
     Returns the Popen handle; waits until state_00.json appears.
     """
-    wd = Path(workdir)
+    wd = Path(workdir or get_default_workdir_prefix())
     if wd.exists():
         shutil.rmtree(wd)
     wd.mkdir(parents=True, exist_ok=True)
@@ -75,14 +81,14 @@ def start_driver(
         log_path = str(wd.parent / f"{wd.name}_driver.log")
 
     env = os.environ.copy()
-    env["LIBERO_TYPE"] = libero_type
-    env["CUDA_VISIBLE_DEVICES"] = str(cuda_device)
+    env["LIBERO_TYPE"] = libero_type or "pro"
+    env["CUDA_VISIBLE_DEVICES"] = str(cuda_device or get_cuda_device())
     env.setdefault("MUJOCO_GL", "egl")
     env.setdefault("ROBOT_PLATFORM", "LIBERO")
 
     cmd = [
-        python_bin,
-        driver_script,
+        python_bin or get_python_bin(),
+        driver_script or str(get_repl_driver_script()),
         "--suite", suite,
         "--task", str(task),
         "--seed", str(seed),
@@ -119,10 +125,10 @@ def start_driver(
     return proc
 
 
-def stop_driver(proc: subprocess.Popen, workdir: str = DEFAULT_WORKDIR, timeout: float = 15.0) -> None:
+def stop_driver(proc: subprocess.Popen, workdir: str | None = None, timeout: float = 15.0) -> None:
     if proc.poll() is not None:
         return
-    cmd_path = Path(workdir) / "command.json"
+    cmd_path = Path(workdir or get_default_workdir_prefix()) / "command.json"
     try:
         with open(cmd_path, "w") as f:
             json.dump({"action": "exit"}, f)
@@ -167,122 +173,6 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
             new_blocks.append(bd)
         out.append({"role": m["role"], "content": new_blocks})
     return out
-
-
-def _short_repr(obj, maxlen=200):
-    s = json.dumps(obj, default=str) if not isinstance(obj, str) else obj
-    return s if len(s) <= maxlen else s[:maxlen] + "...(+%d)" % (len(s) - maxlen)
-
-
-def run_agent_loop(
-    client,
-    model: str,
-    system: str,
-    user_msg: str,
-    max_turns: int = 80,
-    max_tokens: int = 4096,
-    verbose: bool = True,
-):
-    """Single-cell LLM-in-the-loop. Returns (finish_result_or_None, messages, stats)."""
-    messages: list[dict] = [{"role": "user", "content": user_msg}]
-    finish_result = None
-    total_in = total_out = 0
-    n_tool_calls = 0
-
-    import anthropic  # for retryable exception classes
-    for turn in range(1, max_turns + 1):
-        if verbose:
-            print(f"\n[agent] === turn {turn}/{max_turns} ===")
-
-        # Outer retry on top of SDK's built-in: handles longer outages
-        # (proxy down for 30+s) by sleeping then retrying once more.
-        response = None
-        last_err = None
-        for outer in range(3):
-            try:
-                response = client.messages.create(
-                    model=model,
-                    max_tokens=max_tokens,
-                    system=system,
-                    tools=TOOLS_SPEC,
-                    messages=messages,
-                )
-                break
-            except (anthropic.APIConnectionError, anthropic.APITimeoutError, anthropic.InternalServerError, anthropic.RateLimitError) as e:
-                last_err = e
-                wait = 10 * (outer + 1)
-                if verbose:
-                    print(f"[agent] API error '{type(e).__name__}: {e}' — sleeping {wait}s and retrying (outer {outer+1}/3)")
-                time.sleep(wait)
-        if response is None:
-            if verbose:
-                print(f"[agent] giving up after 3 outer retries; last error: {last_err}")
-            break
-        u = response.usage
-        total_in += u.input_tokens
-        total_out += u.output_tokens
-
-        if verbose:
-            for block in response.content:
-                if block.type == "text" and block.text.strip():
-                    print(f"[claude] {block.text.strip()}")
-                elif block.type == "tool_use":
-                    print(f"[tool→] {block.name}({_short_repr(block.input, 250)})")
-            print(f"[usage] in={u.input_tokens}  out={u.output_tokens}  "
-                  f"stop={response.stop_reason}  total_in={total_in}  total_out={total_out}")
-
-        messages.append({"role": "assistant", "content": response.content})
-
-        if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type != "tool_use":
-                    continue
-                n_tool_calls += 1
-                result = execute_tool(block.name, block.input)
-                if isinstance(result, dict) and result.get("_finish"):
-                    finish_result = result
-                if verbose:
-                    summary = {k: v for k, v in result.items() if k not in ("state", "content", "log", "_image_path")} \
-                        if isinstance(result, dict) else result
-                    if isinstance(result, dict) and "state" in result:
-                        s = result["state"]
-                        summary["state_summary"] = {
-                            "eef": [round(x, 3) for x in s.get("robot0_eef_pos", [])][:3],
-                            "libero_terminated": result.get("libero_terminated"),
-                        }
-                    if isinstance(result, dict) and "log" in result:
-                        lg = result["log"]
-                        if isinstance(lg, dict) and "result" in lg:
-                            summary["log_result_keys"] = list(lg["result"].keys())
-                    print(f"[tool←] {block.name}: {_short_repr(summary, 350)}")
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": tool_result_to_content_blocks(result),
-                })
-            messages.append({"role": "user", "content": tool_results})
-
-            if finish_result is not None:
-                if verbose:
-                    print(f"\n[agent] FINISH called: {finish_result}")
-                break
-        elif response.stop_reason == "end_turn":
-            if verbose:
-                print("[agent] Claude ended turn without a tool call. Stopping.")
-            break
-        else:
-            if verbose:
-                print(f"[agent] unexpected stop_reason: {response.stop_reason}")
-            break
-
-    stats = {
-        "total_input_tokens": total_in,
-        "total_output_tokens": total_out,
-        "turns_used": turn,
-        "tool_calls": n_tool_calls,
-    }
-    return finish_result, messages, stats
 
 
 # ---------------------------------------------------------------------------
@@ -388,12 +278,13 @@ def run_one_cell(
     suite: str,
     task: int,
     seed: int,
-    api_key: str,
-    model: str = "claude-sonnet-4-5",
+    *,
+    api_key: str | None = None,
+    model: str | None = None,
     max_turns: int = 80,
     max_tokens: int = 4096,
     max_episode_steps: int = 600,
-    cuda_device: str = "0",
+    cuda_device: str | None = None,
     output_dir: str | None = None,
     no_driver: bool = False,
     verbose: bool = True,
@@ -401,6 +292,7 @@ def run_one_cell(
     workdir: str | None = None,
     perception: bool = False,
     libero_type: str | None = None,
+    cerebrum_type: str = "anthropic",
 ) -> dict:
     """Solve one (suite, task, seed) cell end-to-end.
 
@@ -409,6 +301,10 @@ def run_one_cell(
     and the episode video land there directly — no post-hoc copy.
     Pass an explicit ``workdir`` to override (e.g. for parallel runs
     that share a single output directory).
+
+    ``cerebrum_type`` selects the LLM backend:
+    - ``"anthropic"`` — Anthropic Messages API with tool-use (default).
+    - ``"claude_code"`` — delegates to ``claude -p`` (Claude Code).
     """
     import anthropic
 
@@ -428,14 +324,32 @@ def run_one_cell(
     # Point the agent's tools at the per-run workdir BEFORE the loop starts.
     tools_set_workdir(workdir)
 
-    kwargs = {
-        "api_key": api_key,
-        "max_retries": 8,    # SDK does exp-backoff on 429 / 5xx / ConnectionError
-        "timeout": 120.0,    # per-request socket timeout
-    }
-    if base_url:
-        kwargs["base_url"] = base_url
-    client = anthropic.Anthropic(**kwargs)
+    if cerebrum_type == "anthropic":
+        api_key = api_key or get_anthropic_api_key()
+        if not api_key:
+            raise ValueError("api_key is required for anthropic cerebrum")
+        import anthropic
+        client = anthropic.Anthropic(
+            api_key=api_key,
+            max_retries=8,
+            timeout=120.0,
+            **({"base_url": base_url} if base_url else {}),
+        )
+        cerebrum = AnthropicCerebrum(
+            client=client,
+            model=model or get_anthropic_model(),
+            max_tokens=max_tokens,
+        )
+    elif cerebrum_type == "claude_code":
+        cerebrum = ClaudeCodeCerebrum(
+            workdir=workdir,
+            repo_root=REPO_ROOT,
+            model=model or "sonnet",
+            timeout_s=max_episode_steps,
+            extra_dirs=[str(get_memory_dir())],
+        )
+    else:
+        raise ValueError(f"unknown cerebrum_type: {cerebrum_type}")
 
     # Auto-route LIBERO_TYPE if not set
     if libero_type is None:
@@ -446,7 +360,19 @@ def run_one_cell(
 
     recipe_tag = f"{suite.replace('libero_', '')}_t{task}_s{seed}"
     regime = "strict_perception" if perception else "strict"
-    if perception:
+
+    if cerebrum_type == "claude_code":
+        # Claude Code uses filesystem-based interaction; skip perception
+        # prefix (the prompt template already covers it inline).
+        system_prompt = SYSTEM_PROMPT
+        if perception:
+            system_prompt = PERCEPTION_PREFIX + system_prompt
+        user_msg = CLAUDE_CODE_USER_TEMPLATE.format(
+            suite=suite, task=task, seed=seed,
+            output_dir=output_dir, recipe_tag=recipe_tag,
+            workdir=workdir,
+        )
+    elif perception:
         user_msg = PERCEPTION_USER_TEMPLATE.format(
             suite=suite, task=task, seed=seed,
             output_dir=output_dir, recipe_tag=recipe_tag,
@@ -477,12 +403,21 @@ def run_one_cell(
 
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None
-    stats = {"total_input_tokens": 0, "total_output_tokens": 0, "turns_used": 0, "tool_calls": 0}
+    stats: dict = {}
     try:
-        finish_result, messages, stats = run_agent_loop(
-            client, model, system_prompt, user_msg,
-            max_turns=max_turns, max_tokens=max_tokens, verbose=verbose,
+        result = cerebrum.solve(
+            system_prompt=system_prompt,
+            user_message=user_msg,
+            tools_spec=TOOLS_SPEC,
+            tool_handler=execute_tool,
+            tool_result_formatter=tool_result_to_content_blocks,
+            max_turns=max_turns,
+            verbose=verbose,
         )
+        finish_result = result.finish_result
+        messages = result.messages
+        stats = result.stats
+        agent_error = result.error
     except Exception as e:
         agent_error = f"{type(e).__name__}: {e}"
         if verbose:
@@ -536,18 +471,23 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="e.g. libero_object_task, libero_spatial_swap")
     ap.add_argument("--task", type=int, required=True)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--model", default="claude-sonnet-4-5",
-                    help="Anthropic model id (e.g. claude-sonnet-4-5, claude-opus-4-5)")
+    ap.add_argument("--model", default=None,
+                    help="Model id. Defaults to ANTHROPIC_MODEL env or claude-sonnet-4-5.")
     ap.add_argument("--max_turns", type=int, default=80)
     ap.add_argument("--max_tokens", type=int, default=4096)
     ap.add_argument("--max_episode_steps", type=int, default=600)
-    ap.add_argument("--cuda_device", default=os.environ.get("CUDA_DEVICE", "0"))
+    ap.add_argument("--cuda_device", default=None,
+                    help="GPU device. Defaults to CUDA_DEVICE env or 0.")
     ap.add_argument("--output_dir", default=None)
     ap.add_argument("--api_key", default=None,
-                    help="Defaults to ANTHROPIC_API_KEY env var.")
+                    help="Anthropic API key (required for --cerebrum anthropic). "
+                         "Defaults to ANTHROPIC_API_KEY env var.")
     ap.add_argument("--base_url", default=None,
-                    help="Override Anthropic base URL (for proxy endpoints). "
-                         "Defaults to ANTHROPIC_BASE_URL env var or anthropic.com.")
+                    help="Override Anthropic base URL. "
+                         "Defaults to ANTHROPIC_BASE_URL env var.")
+    ap.add_argument("--cerebrum", default="anthropic",
+                    choices=["anthropic", "claude_code"],
+                    help="LLM backend: anthropic (API tool-use) | claude_code (claude -p CLI).")
     ap.add_argument("--no_driver", action="store_true",
                     help="Don't spawn driver; attach to existing workdir")
     ap.add_argument("--workdir", default=None,
@@ -566,24 +506,28 @@ def _build_argparser() -> argparse.ArgumentParser:
 def main() -> int:
     ap = _build_argparser()
     args = ap.parse_args()
-    api_key = args.api_key or os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
+
+    api_key = args.api_key or get_anthropic_api_key()
+    if args.cerebrum == "anthropic" and not api_key:
         print("ERROR: set ANTHROPIC_API_KEY env var or pass --api_key", file=sys.stderr)
         return 2
-    base_url = args.base_url or os.environ.get("ANTHROPIC_BASE_URL")
+
     run_one_cell(
         suite=args.suite, task=args.task, seed=args.seed,
-        api_key=api_key, model=args.model,
-        max_turns=args.max_turns, max_tokens=args.max_tokens,
+        api_key=api_key,
+        model=args.model,
+        max_turns=args.max_turns,
+        max_tokens=args.max_tokens,
         max_episode_steps=args.max_episode_steps,
         cuda_device=args.cuda_device,
         output_dir=args.output_dir,
         no_driver=args.no_driver,
         verbose=not args.quiet,
-        base_url=base_url,
+        base_url=args.base_url or get_anthropic_base_url(),
         workdir=args.workdir,
         perception=args.perception,
         libero_type=args.libero_type,
+        cerebrum_type=args.cerebrum,
     )
     return 0
 

@@ -40,6 +40,8 @@ import sys
 import time
 from pathlib import Path
 
+from physicalagent.config import get_python_bin, get_anthropic_api_key, get_anthropic_base_url
+
 _THIS_DIR = Path(__file__).resolve().parent
 
 
@@ -101,7 +103,7 @@ def main() -> int:
                     help="defaults to ANTHROPIC_API_KEY env var")
     ap.add_argument("--base_url", default=None,
                     help="defaults to ANTHROPIC_BASE_URL env var")
-    ap.add_argument("--python_bin", default=os.environ.get("PYTHON_BIN", "/opt/venv/openpi/bin/python"))
+    ap.add_argument("--python_bin", default=get_python_bin())
     ap.add_argument("--workdir_root", default="/tmp",
                     help="Each cell gets a fresh /<root>/hybrid_repl_<tag>/ directory")
     ap.add_argument("--stagger_s", type=float, default=20.0,
@@ -126,11 +128,11 @@ def main() -> int:
         print("nothing to do (pass --seeds or --tuples)", file=sys.stderr)
         return 2
 
-    api_key = args.api_key or os.environ.get("ANTHROPIC_API_KEY")
+    api_key = args.api_key or get_anthropic_api_key()
     if not api_key:
         print("ERROR: ANTHROPIC_API_KEY missing", file=sys.stderr)
         return 2
-    base_url = args.base_url or os.environ.get("ANTHROPIC_BASE_URL")
+    base_url = args.base_url or get_anthropic_base_url()
 
     n_devices = len(args.cuda_devices)
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)

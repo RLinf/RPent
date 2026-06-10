@@ -14,7 +14,10 @@ import re
 import time
 from pathlib import Path
 
-WORKDIR = Path(os.environ.get("HYBRID_REPL_WORKDIR", "/tmp/hybrid_repl"))
+from physicalagent.config import get_repo_root, get_default_workdir_prefix
+
+REPO_ROOT = get_repo_root()
+WORKDIR = Path(os.environ.get("HYBRID_REPL_WORKDIR", get_default_workdir_prefix()))
 
 
 def set_workdir(path: str | os.PathLike) -> None:
@@ -201,10 +204,6 @@ TOOLS_SPEC = [
 # Tool implementations
 # ---------------------------------------------------------------------------
 
-# Auto-detect repo root: this file is at
-# <repo>/physicalagent/tools/repl.py
-REPO_ROOT = Path(__file__).resolve().parents[2]
-
 
 def _resolve(path: str) -> Path:
     p = Path(path)
@@ -269,7 +268,7 @@ def _latest_step() -> int | None:
 
 def view_repl_state(step: int | None = None) -> dict:
     if not WORKDIR.exists():
-        return {"error": "WORKDIR /tmp/hybrid_repl does not exist; driver not started"}
+        return {"error": f"WORKDIR {WORKDIR} does not exist; driver not started"}
     if step is None:
         nn = _latest_step()
         if nn is None:
@@ -312,7 +311,7 @@ BLOCKED_ACTIONS = {"reset", "exit"}
 
 def send_command(command: dict, timeout_s: float = 600.0) -> dict:
     if not WORKDIR.exists():
-        return {"error": "WORKDIR /tmp/hybrid_repl missing; driver not started"}
+        return {"error": f"WORKDIR {WORKDIR} missing; driver not started"}
 
     action = command.get("action") if isinstance(command, dict) else None
     if action in BLOCKED_ACTIONS:

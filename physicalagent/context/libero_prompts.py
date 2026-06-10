@@ -305,3 +305,41 @@ Suggested first steps:
 6. plan; then call send_command repeatedly until libero_terminated=True
 7. write_text_file the recipe + audit; finish(success)
 """
+
+
+# ============================================================================
+# Claude Code prompts (filesystem-based interaction, no API tool calls)
+# ============================================================================
+
+CLAUDE_CODE_USER_TEMPLATE = """Cell: suite={suite}  task={task}  seed={seed}.
+
+The REPL driver is already running at workdir `{workdir}`.
+``state_00.json`` + ``image_00.png`` are ready on disk.
+
+Interact with the driver by WRITING JSON commands and READING state files:
+
+    # step N command (N starts at 01, zero-padded: 01, 02, ..., 10, 11...)
+    cat > {workdir}/command.json <<'EOF'
+    {{"action": "move_to", "xyz": [x, y, z], "gripper": -1, ...}}
+    EOF
+    # wait for done flag
+    until [ -f {workdir}/done_01.flag ]; do sleep 1; done
+    # read results
+    Read {workdir}/state_01.json
+    Read {workdir}/log_01.json
+    Read {workdir}/image_01.png
+
+Goal: make ``state.libero_terminated == True`` in a single episode.
+
+Save artifacts to: {output_dir}
+- recipe filename: recipe_{recipe_tag}.jsonl
+- audit  filename: {recipe_tag}.json
+
+Suggested first steps:
+1. Read physicalagent/context/memory/MEMORY.md
+2. Read physicalagent/context/guides/STRICT_HYBRID_GUIDE.md
+3. Read physicalagent/context/guides/PRO_HYBRID_GUIDE.md
+4. Read {workdir}/state_00.json AND {workdir}/image_00.png
+5. Plan; then issue commands one at a time via the Bash+Read pattern above
+6. When libero_terminated=True, Write the recipe + audit; then stop
+"""

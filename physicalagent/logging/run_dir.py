@@ -11,6 +11,8 @@ import json
 import shutil
 from pathlib import Path
 
+from physicalagent.config import get_repo_root, get_logs_dir
+
 
 def make_log_dir(
     *,
@@ -27,13 +29,14 @@ def make_log_dir(
     written with the identifying metadata.
     """
     if repo_root is None:
-        repo_root = Path(__file__).resolve().parents[2]  # physicalagent repo root
+        repo_root = get_repo_root()
     repo_root = Path(repo_root)
 
     if timestamp is None:
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H:%M:%S")
     tag = f"{suite}_t{task}_s{seed}"
-    run_dir = repo_root / "logs" / f"{timestamp}_{tag}"
+    run_dir = get_logs_dir() if repo_root == get_repo_root() else repo_root / "logs"
+    run_dir = run_dir / f"{timestamp}_{tag}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
     # Write a lightweight run manifest so other tools can discover runs.
