@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import time
 from typing import Any, Callable
@@ -49,15 +50,18 @@ class AnthropicCerebrum:
         messages: list[dict] = [{"role": "user", "content": user_message}]
         finish_result = None
         total_in = total_out = 0
+        total_cache_create = total_cache_read = 0
         n_tool_calls = 0
         last_error = None
+        system = _cacheable_system(system_prompt)
+        tools = _cacheable_tools(tools_spec)
 
         for turn in range(1, max_turns + 1):
             logger.info("=== turn %d/%d ===", turn, max_turns)
 
             response = self._call_with_retries(
-                system=system_prompt,
-                tools=tools_spec,
+                system=system,
+                tools=tools,
                 messages=messages,
             )
             if response is None:
@@ -66,8 +70,19 @@ class AnthropicCerebrum:
             u = response.usage
             total_in += u.input_tokens
             total_out += u.output_tokens
+            cache_create = int(getattr(u, "cache_creation_input_tokens", 0) or 0)
+            cache_read = int(getattr(u, "cache_read_input_tokens", 0) or 0)
+            total_cache_create += cache_create
+            total_cache_read += cache_read
 
-            self._log_response(response, u, total_in, total_out)
+            self._log_response(
+                response,
+                u,
+                total_in,
+                total_out,
+                total_cache_create,
+                total_cache_read,
+            )
 
             messages.append({"role": "assistant", "content": response.content})
 
@@ -93,6 +108,8 @@ class AnthropicCerebrum:
             stats={
                 "total_input_tokens": total_in,
                 "total_output_tokens": total_out,
+                "total_cache_creation_input_tokens": total_cache_create,
+                "total_cache_read_input_tokens": total_cache_read,
                 "turns_used": turn,
                 "tool_calls": n_tool_calls,
             },
@@ -106,7 +123,7 @@ class AnthropicCerebrum:
     def _call_with_retries(
         self,
         *,
-        system: str,
+        system: str | list[dict[str, Any]],
         tools: list[dict],
         messages: list[dict],
     ):
@@ -137,7 +154,14 @@ class AnthropicCerebrum:
         return None
 
     @staticmethod
-    def _log_response(response, usage, total_in, total_out):
+    def _log_response(
+        response,
+        usage,
+        total_in,
+        total_out,
+        total_cache_create,
+        total_cache_read,
+    ):
         for block in response.content:
             if block.type == "text" and block.text.strip():
                 logger.info("[claude] %s", block.text.strip())
@@ -145,11 +169,19 @@ class AnthropicCerebrum:
                 s = json.dumps(block.input, default=str)
                 if len(s) > 250:
                     s = s[:250] + "...(+%d)" % (len(s) - 250)
-                logger.info("[tool→] %s(%s)", block.name, s)
+                logger.info("[tool->] %s(%s)", block.name, s)
         logger.info(
-            "[usage] in=%s  out=%s  stop=%s  total_in=%s  total_out=%s",
-            usage.input_tokens, usage.output_tokens,
-            response.stop_reason, total_in, total_out,
+            "[usage] in=%s cache_create=%s cache_read=%s out=%s stop=%s "
+            "total_in=%s total_cache_create=%s total_cache_read=%s total_out=%s",
+            usage.input_tokens,
+            int(getattr(usage, "cache_creation_input_tokens", 0) or 0),
+            int(getattr(usage, "cache_read_input_tokens", 0) or 0),
+            usage.output_tokens,
+            response.stop_reason,
+            total_in,
+            total_cache_create,
+            total_cache_read,
+            total_out,
         )
 
     @staticmethod
@@ -172,13 +204,34 @@ class AnthropicCerebrum:
             s = json.dumps(summary, default=str)
             if len(s) > 350:
                 s = s[:350] + "...(+%d)" % (len(s) - 350)
-            logger.info("[tool←] %s: %s", block.name, s)
+            logger.info("[tool<-] %s: %s", block.name, s)
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": block.id,
                 "content": tool_result_formatter(result),
             })
         return tool_results, finish_result, n
+
+
+def _cacheable_system(system_prompt: str) -> list[dict[str, Any]] | str:
+    """Return Anthropic system blocks with prompt caching enabled."""
+    if not system_prompt:
+        return system_prompt
+    return [
+        {
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
+
+def _cacheable_tools(tools_spec: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mark the stable tool surface as cacheable without mutating callers."""
+    tools = copy.deepcopy(tools_spec)
+    if tools:
+        tools[-1]["cache_control"] = {"type": "ephemeral"}
+    return tools
 
 
 def _summarise_result(result: dict) -> dict:
