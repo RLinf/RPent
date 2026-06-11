@@ -9,29 +9,38 @@ from __future__ import annotations
 import base64
 import json
 import os
-import time
 from pathlib import Path
 
-from physical_agent.utils.config import get_repo_root, get_default_workdir_prefix
+from physical_agent.transport import FileTransportClient, TransportClient
+from physical_agent.utils.config import get_default_workdir_prefix, get_repo_root
 
 REPO_ROOT = get_repo_root()
-WORKDIR = Path(os.environ.get("HYBRID_REPL_WORKDIR", get_default_workdir_prefix()))
+WORKDIR = Path(
+    os.environ.get(
+        "HYBRID_DRIVER_WORKDIR",
+        os.environ.get("HYBRID_REPL_WORKDIR", get_default_workdir_prefix()),
+    )
+)
+TRANSPORT: TransportClient = FileTransportClient(WORKDIR)
 
 
 def _workdir_desc() -> str:
     return str(WORKDIR)
 
 
-def _command_path_desc() -> str:
-    return str(WORKDIR / "command.json")
-
-
 def set_workdir(path: str | os.PathLike) -> None:
-    """Override the REPL working directory used by view_repl_state /
+    """Override the driver working directory used by view_driver_state /
     send_command. Call BEFORE the agent loop starts so each parallel
     worker has its own workdir."""
-    global WORKDIR
+    global WORKDIR, TRANSPORT
     WORKDIR = Path(path)
+    TRANSPORT = FileTransportClient(WORKDIR)
+
+
+def set_transport(client: TransportClient) -> None:
+    """Override the process-to-driver transport used by agent tools."""
+    global TRANSPORT
+    TRANSPORT = client
 
 
 # ---------------------------------------------------------------------------
@@ -74,22 +83,22 @@ TOOLS_SPEC = [
     {
         "name": "list_dir",
         "description": (
-            "List files in a directory (non-recursive). Default = current REPL workdir. "
-            "Use to inspect the REPL working directory or to discover existing "
+            "List files in a directory (non-recursive). Default = current driver workdir. "
+            "Use to inspect the driver working directory or to discover existing "
             "recipes in workspace_pro/results_*_pert/."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Default: current REPL workdir"},
+                "path": {"type": "string", "description": "Default: current driver workdir"},
             },
         },
     },
     {
-        "name": "view_repl_state",
+        "name": "view_driver_state",
         "description": (
             "Read step NN from `states.json` + the matching "
-            "`images/image_NN.png` in the current REPL workdir. If step is "
+            "`images/image_NN.png` in the current driver workdir. If step is "
             "null, returns the latest entry. Each entry contains the robot "
             "state, libero_terminated flag, command log, and result. Embeds "
             "the agentview PNG as a multimodal image content block (use this "
@@ -108,8 +117,8 @@ TOOLS_SPEC = [
     {
         "name": "send_command",
         "description": (
-            "Write a JSON command to the current REPL workdir's command.json and BLOCK "
-            "until the driver appends the next step entry to `states.json`. "
+            "Send a JSON command to the interactive driver and BLOCK "
+            "until the next step is available in `states.json`. "
             "Returns the new state entry + log + agentview image.\n\n"
             "Schema for the `command` argument follows STRICT_HYBRID_GUIDE.md "
             "§The command vocabulary. ALLOWED actions:\n"
@@ -148,7 +157,7 @@ TOOLS_SPEC = [
     {
         "name": "view_camera_meta",
         "description": (
-            "Read camera_meta.json from the REPL workdir. Returns the camera "
+            "Read camera_meta.json from the driver workdir. Returns the camera "
             "intrinsics matrix K (3x3), the camera-to-world extrinsic matrix "
             "(4x4), image dimensions, and the back-projection recipe. Use this "
             "in PERCEPTION-ISOLATED mode to localize objects — you do NOT get "
@@ -251,7 +260,7 @@ def write_text_file(path: str, content: str) -> dict:
 
 
 def list_dir(path: str = "") -> dict:
-    # Default to the current REPL workdir (so parallel agents see their own).
+    # Default to the current driver workdir (so parallel agents see their own).
     p = _resolve(path) if path else WORKDIR
     if not p.exists():
         return {"error": f"directory not found: {p}"}
@@ -260,12 +269,7 @@ def list_dir(path: str = "") -> dict:
 
 
 def _load_states() -> list:
-    """Return the parsed contents of ``WORKDIR/states.json`` (a JSON array).
-
-    Returns an empty list if the file is missing or unparseable. Safe to
-    call while the driver is mid-rewrite — atomic rename means we either
-    see the previous or the new array, never a partial one.
-    """
+    """Return the parsed contents of ``WORKDIR/states.json``."""
     path = WORKDIR / "states.json"
     if not path.exists():
         return []
@@ -280,27 +284,23 @@ def _load_states() -> list:
 
 
 def _latest_step() -> int | None:
-    """Return the highest step index recorded in states.json, else None."""
     arr = _load_states()
     if not arr:
         return None
     return len(arr) - 1
 
 
-def view_repl_state(step: int | None = None) -> dict:
+def view_driver_state(step: int | None = None) -> dict:
     if not WORKDIR.exists():
         return {"error": f"WORKDIR {WORKDIR} does not exist; driver not started"}
     arr = _load_states()
     if not arr:
         return {"error": "no states.json; driver not ready"}
-    if step is None:
-        nn = len(arr) - 1
-    else:
-        nn = step
+    nn = len(arr) - 1 if step is None else step
     if nn < 0 or nn >= len(arr) or arr[nn] is None:
         return {"error": f"step {nn} not present in states.json (len={len(arr)})"}
-    nn_str = f"{nn:02d}"
 
+    nn_str = f"{nn:02d}"
     image_path = WORKDIR / "images" / f"image_{nn_str}.png"
     image_cam_path = WORKDIR / "images_cam" / f"image_cam_{nn_str}.png"
 
@@ -308,7 +308,6 @@ def view_repl_state(step: int | None = None) -> dict:
     out: dict = {"step": nn}
     out["state"] = data.get("state", data)
     out["libero_terminated"] = data.get("libero_terminated")
-    # Command + result + elapsed_s are merged into each states.json entry.
     out["log"] = {
         "command": data.get("command"),
         "result": data.get("result"),
@@ -331,9 +330,6 @@ BLOCKED_ACTIONS = {"reset", "exit"}
 
 
 def send_command(command: dict, timeout_s: float = 600.0) -> dict:
-    if not WORKDIR.exists():
-        return {"error": f"WORKDIR {WORKDIR} missing; driver not started"}
-
     action = command.get("action") if isinstance(command, dict) else None
     if action in BLOCKED_ACTIONS:
         return {
@@ -350,30 +346,21 @@ def send_command(command: dict, timeout_s: float = 600.0) -> dict:
     current = _latest_step()
     if current is None:
         return {"error": "no states.json (or empty); driver not ready"}
-    next_n = current + 1
 
-    cmd_path = WORKDIR / "command.json"
-    tmp_path = WORKDIR / "command.json.tmp"
-    with open(tmp_path, "w") as f:
-        json.dump(command, f)
-    os.replace(tmp_path, cmd_path)  # atomic
+    transport_result = TRANSPORT.request(
+        "send_command",
+        {"command": command, "current_step": current},
+        timeout_s=timeout_s,
+    )
+    if transport_result.get("error"):
+        return transport_result
 
-    t0 = time.time()
-    while True:
-        latest = _latest_step()
-        if latest is not None and latest >= next_n:
-            break
-        time.sleep(0.5)
-        if time.time() - t0 > timeout_s:
-            return {
-                "error": f"timeout after {timeout_s}s waiting for step {next_n} "
-                         f"in states.json (still at step {latest})",
-                "command_sent": command,
-            }
-
-    elapsed = time.time() - t0
-    result = view_repl_state(next_n)
-    result["agent_elapsed_s"] = round(elapsed, 1)
+    step = int(transport_result.get("step", current + 1))
+    result = view_driver_state(step)
+    if "agent_elapsed_s" in transport_result:
+        result["agent_elapsed_s"] = transport_result["agent_elapsed_s"]
+    if "driver_exit" in transport_result:
+        result["driver_exit"] = transport_result["driver_exit"]
     return result
 
 
@@ -383,59 +370,67 @@ def finish(status: str, summary: str) -> dict:
 
 def view_camera_meta() -> dict:
     """Read camera_meta.json from the workdir for perception-mode localization."""
-    p = WORKDIR / "camera_meta.json"
-    if not p.exists():
-        return {"error": f"camera_meta.json not found in {WORKDIR}; is the driver running in perception mode?"}
-    import json as _json
-    meta = _json.load(open(p))
+    path = WORKDIR / "camera_meta.json"
+    if not path.exists():
+        return {
+            "error": (
+                f"camera_meta.json not found in {WORKDIR}; "
+                "is the driver running in perception mode?"
+            )
+        }
+    with open(path) as f:
+        meta = json.load(f)
     return {"camera_meta": meta}
 
 
 def back_project(row: int, col: int, step: int | None = None) -> dict:
     """Back-project a pixel to world XYZ using depth + camera calibration."""
-    import json as _json
     import numpy as np
 
     meta_path = WORKDIR / "camera_meta.json"
     if not meta_path.exists():
         return {"error": "camera_meta.json not found"}
 
-    meta = _json.load(open(meta_path))
-    K = np.array(meta["intrinsic_K"])
-    E = np.array(meta["extrinsic_cam2world"])
+    with open(meta_path) as f:
+        meta = json.load(f)
+    k_matrix = np.array(meta["intrinsic_K"])
+    extrinsic = np.array(meta["extrinsic_cam2world"])
 
-    if step is None:
-        nn = _latest_step()
-        if nn is None:
-            return {"error": "no depth files available"}
-    else:
-        nn = step
-    nn_str = f"{nn:02d}"
+    nn = _latest_step() if step is None else step
+    if nn is None:
+        return {"error": "no depth files available"}
 
-    depth_path = WORKDIR / "depths" / f"depth_{nn_str}.npy"
+    depth_path = WORKDIR / "depths" / f"depth_{nn:02d}.npy"
     if not depth_path.exists():
         return {"error": f"depth file not found: {depth_path}"}
 
     depth = np.load(depth_path)
-    H, W = depth.shape
-    if row < 0 or row >= H or col < 0 or col >= W:
-        return {"error": f"pixel ({row},{col}) out of bounds; image is {H}x{W}"}
+    height, width = depth.shape
+    if row < 0 or row >= height or col < 0 or col >= width:
+        return {
+            "error": f"pixel ({row},{col}) out of bounds; image is {height}x{width}"
+        }
 
     z = float(depth[row, col])
     if z <= 0 or z > 10:
-        return {"error": f"invalid depth {z:.3f}m at pixel ({row},{col}); pick a different pixel"}
+        return {
+            "error": (
+                f"invalid depth {z:.3f}m at pixel ({row},{col}); "
+                "pick a different pixel"
+            )
+        }
 
     pixel_h = np.array([float(col), float(row), 1.0])
-    camera_xyz = np.linalg.inv(K) @ pixel_h * z
-    P = E @ np.array([*camera_xyz, 1.0])
-    world_xyz = [round(float(v), 4) for v in P[:3]]
+    camera_xyz = np.linalg.inv(k_matrix) @ pixel_h * z
+    world = extrinsic @ np.array([*camera_xyz, 1.0])
+    world_xyz = [round(float(v), 4) for v in world[:3]]
 
     return {
         "pixel": [row, col],
         "depth_m": round(z, 4),
         "world_xyz": world_xyz,
         "step": nn,
-        "image_size": [H, W],
+        "image_size": [height, width],
     }
 
 
@@ -443,7 +438,7 @@ TOOL_HANDLERS = {
     "read_text_file": read_text_file,
     "write_text_file": write_text_file,
     "list_dir": list_dir,
-    "view_repl_state": view_repl_state,
+    "view_driver_state": view_driver_state,
     "send_command": send_command,
     "view_camera_meta": view_camera_meta,
     "back_project": back_project,
@@ -455,9 +450,8 @@ def get_tools_spec() -> list[dict]:
     """Return tool schemas with descriptions bound to the current workdir."""
     tools = json.loads(json.dumps(TOOLS_SPEC))
     replacements = {
-        "current REPL workdir": _workdir_desc(),
-        "the current REPL workdir's command.json": _command_path_desc(),
-        "Default: current REPL workdir": f"Default: {_workdir_desc()}",
+        "current driver workdir": _workdir_desc(),
+        "Default: current driver workdir": f"Default: {_workdir_desc()}",
     }
     for tool in tools:
         desc = tool.get("description", "")

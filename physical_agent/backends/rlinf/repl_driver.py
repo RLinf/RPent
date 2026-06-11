@@ -28,12 +28,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import threading
 import time
 from pathlib import Path
 
 os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
+from physical_agent.transport.socket_transport import (
+    TransportTCPServer,
+)
 from physical_agent.utils.config import get_default_workdir_prefix, get_repo_root
 from physical_agent.utils.logging import get_logger, init_run_logging
 
@@ -399,6 +403,71 @@ def wait_for_command(cmd_path: str, poll_s: float = 0.5, timeout_s: float = 3600
     return None
 
 
+class DriverTransportDispatcher:
+    """Dispatch socket transport requests onto a single interactive driver."""
+
+    def __init__(self, driver, workdir: str, video_path: str):
+        self.driver = driver
+        self.workdir = workdir
+        self.video_path = video_path
+        self.step = 1
+        self.server: TransportTCPServer | None = None
+
+    def dispatch(self, request: dict) -> dict:
+        method = request.get("method")
+        params = request.get("params") or {}
+        if not isinstance(params, dict):
+            raise ValueError("request params must be an object")
+
+        if method == "send_command":
+            cmd = params.get("command")
+            if not isinstance(cmd, dict):
+                raise ValueError("send_command requires object param 'command'")
+
+            step = self.step
+            log = execute(self.driver, cmd, self.workdir, step)
+            dump_state(self.driver, self.workdir, step, log=log)
+            result = {"step": step, "agent_elapsed_s": log.get("elapsed_s")}
+            logger.info(
+                "step %d: done in %ss  result=%s",
+                step,
+                log["elapsed_s"],
+                log["result"],
+            )
+            if cmd.get("action") == "exit":
+                video_result = self.driver.stop_recording_and_save(self.video_path)
+                logger.info(
+                    "saved %s frames to %s",
+                    video_result["n_frames"],
+                    self.video_path,
+                )
+                result["driver_exit"] = video_result
+                if self.server is not None:
+                    threading.Thread(target=self.server.shutdown, daemon=True).start()
+            else:
+                self.step += 1
+            return result
+
+        raise ValueError(f"unknown transport method: {method}")
+
+
+def _start_parent_watchdog(server: TransportTCPServer, poll_s: float = 2.0) -> None:
+    def _watch() -> None:
+        while True:
+            time.sleep(poll_s)
+            ppid = os.getppid()
+            if ppid != _INITIAL_PPID or ppid == 1:
+                logger.warning(
+                    "parent died (ppid %s -> %s); stopping socket transport",
+                    _INITIAL_PPID,
+                    ppid,
+                )
+                server.shutdown()
+                return
+
+    threading.Thread(target=_watch, daemon=True).start()
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--task", type=int, default=9)
@@ -406,6 +475,9 @@ def main():
     p.add_argument("--suite", type=str, default="libero_spatial")
     p.add_argument("--max_episode_steps", type=int, default=240)
     p.add_argument("--workdir", type=str, default=get_default_workdir_prefix())
+    p.add_argument("--transport", choices=["file", "socket"], default="file")
+    p.add_argument("--transport_host", type=str, default="127.0.0.1")
+    p.add_argument("--transport_port", type=int, default=0)
     p.add_argument("--always_render", action="store_true",
                    help="disable the auto render-skip toggle; render every "
                         "env.step. Use for video recording (frames are valid "
@@ -460,6 +532,35 @@ def main():
         args.workdir, "episode.mp4")
     driver.start_recording()
     logger.info("recording started; will save to %s", video_path)
+
+    if args.transport == "socket":
+        dispatcher = DriverTransportDispatcher(driver, args.workdir, video_path)
+        server = TransportTCPServer(
+            (args.transport_host, args.transport_port),
+            dispatcher.dispatch,
+        )
+        dispatcher.server = server
+        bound_host, bound_port = server.server_address
+        client_host = "127.0.0.1" if bound_host == "0.0.0.0" else bound_host
+        print(
+            json.dumps({
+                "event": "transport_ready",
+                "kind": "socket",
+                "host": client_host,
+                "port": bound_port,
+            }),
+            flush=True,
+        )
+        logger.info(
+            "socket transport listening on %s:%s",
+            client_host,
+            bound_port,
+        )
+        _start_parent_watchdog(server)
+        server.serve_forever()
+        server.server_close()
+        logger.info("libero_terminated = %s", driver._libero_terminated)
+        return
 
     cmd_path = os.path.join(args.workdir, "command.json")
     step = 1

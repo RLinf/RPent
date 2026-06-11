@@ -1,6 +1,6 @@
 """Codex CLI cerebrum -- delegates the agent loop to ``codex exec``.
 
-Codex interacts directly with the repository and REPL workdir through its
+Codex interacts directly with the repository and driver workdir through its
 normal local CLI tools.  This backend mirrors ``ClaudeCodeCerebrum``: it sends
 one self-contained task prompt to a subprocess and waits for completion.
 """

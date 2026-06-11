@@ -14,9 +14,11 @@ import argparse
 import importlib
 import json
 import os
+import queue
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -59,12 +61,32 @@ from physical_agent.utils import make_log_dir  # noqa: E402
 from physical_agent.utils.logging import get_logger, init_run_logging  # noqa: E402
 
 logger = get_logger("agent")
-from physical_agent.tools.repl import (  # noqa: E402
+from physical_agent.tools.frontend import (  # noqa: E402
     execute_tool,
     get_tools_spec,
-    tool_result_to_content_blocks,
+    set_transport as tools_set_transport,
     set_workdir as tools_set_workdir,
+    tool_result_to_content_blocks,
 )
+from physical_agent.transport import create_transport_client, set_socket_endpoint  # noqa: E402
+
+
+def _pipe_driver_output(
+    proc: subprocess.Popen,
+    log_file,
+    ready_events: "queue.Queue[dict]",
+) -> None:
+    """Copy driver stdout to log and capture machine-readable ready events."""
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        log_file.write(line)
+        log_file.flush()
+        try:
+            event = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(event, dict) and event.get("event") == "transport_ready":
+            ready_events.put(event)
 
 
 def start_driver(
@@ -79,8 +101,11 @@ def start_driver(
     driver_script: str | None = None,
     ready_timeout_s: float = 300.0,
     perception: bool = False,
+    transport: str = "file",
+    transport_host: str = "127.0.0.1",
+    transport_port: int = 0,
 ) -> subprocess.Popen:
-    """Launch the REPL driver in background.
+    """Launch the interactive driver in background.
 
     The driver itself wipes its own stale outputs (states.json, images/,
     depths/, etc.) before writing — we don't rmtree the workdir here
@@ -109,7 +134,13 @@ def start_driver(
         "--seed", str(seed),
         "--max_episode_steps", str(max_episode_steps),
         "--workdir", str(wd),
+        "--transport", transport,
     ]
+    if transport == "socket":
+        cmd += [
+            "--transport_host", transport_host,
+            "--transport_port", str(transport_port),
+        ]
     if perception:
         cmd += ["--hide_object_coords", "--always_render"]
         cmd += ["--video_path", str(wd / "episode.mp4")]
@@ -117,13 +148,30 @@ def start_driver(
     logger.info("driver log: %s", log_path)
     logger.info("CUDA_VISIBLE_DEVICES=%s  workdir=%s", cuda_device, wd)
     log_f = open(log_path, "w")
-    proc = subprocess.Popen(
-        cmd,
-        stdout=log_f,
-        stderr=subprocess.STDOUT,
-        env=env,
-        cwd=str(REPO_ROOT),
-    )
+    ready_events: queue.Queue[dict] = queue.Queue()
+    if transport == "socket":
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=env,
+            cwd=str(REPO_ROOT),
+            text=True,
+            bufsize=1,
+        )
+        threading.Thread(
+            target=_pipe_driver_output,
+            args=(proc, log_f, ready_events),
+            daemon=True,
+        ).start()
+    else:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=log_f,
+            stderr=subprocess.STDOUT,
+            env=env,
+            cwd=str(REPO_ROOT),
+        )
 
     logger.info("waiting for states.json (Pi0 load ~80s)...")
     t0 = time.time()
@@ -139,7 +187,29 @@ def start_driver(
         except Exception:
             return False
 
-    while not _has_initial_state():
+    transport_ready = transport != "socket"
+
+    def _capture_transport_ready() -> bool:
+        nonlocal transport_ready
+        if transport_ready:
+            return True
+        while True:
+            try:
+                event = ready_events.get_nowait()
+            except queue.Empty:
+                break
+            if event.get("kind") == "socket" and event.get("host") and event.get("port"):
+                set_socket_endpoint(wd, event["host"], int(event["port"]))
+                transport_ready = True
+                logger.info(
+                    "socket transport ready at %s:%s",
+                    event["host"],
+                    event["port"],
+                )
+                return True
+        return False
+
+    while not (_has_initial_state() and _capture_transport_ready()):
         time.sleep(2)
         if proc.poll() is not None:
             logger.error("driver EXITED before becoming ready. Last log:")
@@ -152,13 +222,22 @@ def start_driver(
     return proc
 
 
-def stop_driver(proc: subprocess.Popen, workdir: str | None = None, timeout: float = 15.0) -> None:
+def stop_driver(
+    proc: subprocess.Popen,
+    workdir: str | None = None,
+    timeout: float = 15.0,
+    transport: str = "file",
+) -> None:
     if proc.poll() is not None:
         return
-    cmd_path = Path(workdir or get_default_workdir_prefix()) / "command.json"
+    wd = Path(workdir or get_default_workdir_prefix())
     try:
-        with open(cmd_path, "w") as f:
-            json.dump({"action": "exit"}, f)
+        client = create_transport_client(transport, wd)
+        client.request(
+            "send_command",
+            {"command": {"action": "exit"}},
+            timeout_s=timeout,
+        )
     except Exception:
         pass
     try:
@@ -329,10 +408,13 @@ def run_one_cell(
     claude_code_timeout_s: int | None = None,
     claude_code_max_budget_usd: float | None = None,
     codex_timeout_s: int | None = None,
+    transport: str = "file",
+    transport_host: str = "127.0.0.1",
+    transport_port: int = 0,
 ) -> dict:
     """Solve one (suite, task, seed) cell end-to-end.
 
-    By default the REPL workdir IS the log directory (``output_dir``),
+    By default the driver workdir IS the log directory (``output_dir``),
     so the driver's images/, depths/, states.json, camera_meta.json and
     episode.mp4 land alongside the agent's recipe/audit/transcript — no
     ``repl/`` subdir, no post-hoc copy. Pass an explicit ``workdir`` to
@@ -504,7 +586,12 @@ def run_one_cell(
             cuda_device=cuda_device,
             libero_type=libero_type,
             perception=perception,
+            transport=transport,
+            transport_host=transport_host,
+            transport_port=transport_port,
         )
+        if transport == "socket":
+            tools_set_transport(create_transport_client(transport, workdir))
         if cerebrum_type == "claude_code":
             cerebrum.set_driver_process(proc)
         elif cerebrum_type == "codex":
@@ -512,6 +599,13 @@ def run_one_cell(
     else:
         if not (Path(workdir) / "states.json").exists():
             raise RuntimeError(f"--no_driver but {workdir}/states.json missing")
+        if transport == "socket":
+            if transport_port <= 0:
+                raise RuntimeError(
+                    "--no_driver --transport socket requires --transport_port"
+                )
+            set_socket_endpoint(workdir, transport_host, transport_port)
+            tools_set_transport(create_transport_client(transport, workdir))
 
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None
@@ -542,7 +636,7 @@ def run_one_cell(
         except Exception as e:
             logger.error("emergency save failed: %s", e)
         if proc is not None:
-            stop_driver(proc, workdir=workdir)
+            stop_driver(proc, workdir=workdir, transport=transport)
 
     elapsed = time.time() - t0
 
@@ -613,8 +707,14 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--no_driver", action="store_true",
                     help="Don't spawn driver; attach to existing workdir")
     ap.add_argument("--workdir", default=None,
-                    help="REPL working directory. Default: <output_dir> itself. "
+                    help="Driver working directory. Default: <output_dir> itself. "
                          "Override for parallel runs that share an output dir.")
+    ap.add_argument("--transport", choices=["file", "socket"], default="file",
+                    help="Process transport between tool frontend and driver.")
+    ap.add_argument("--transport_host", default="127.0.0.1",
+                    help="Socket transport bind/connect host.")
+    ap.add_argument("--transport_port", type=int, default=0,
+                    help="Socket transport port. 0 asks the OS for a free port.")
     ap.add_argument("--perception", action="store_true",
                     help="PERCEPTION-ISOLATED mode: hide object coords, "
                          "use camera+depth+back_project for localization.")
@@ -666,6 +766,9 @@ def main() -> int:
         claude_code_timeout_s=args.claude_code_timeout_s,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         codex_timeout_s=args.codex_timeout_s,
+        transport=args.transport,
+        transport_host=args.transport_host,
+        transport_port=args.transport_port,
     )
     return 0
 

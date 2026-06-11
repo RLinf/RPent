@@ -1,6 +1,6 @@
 """Claude Code cerebrum — delegates the agent loop to `claude -p`.
 
-Claude Code interacts directly with the REPL workdir filesystem (Bash,
+Claude Code interacts directly with the driver workdir filesystem (Bash,
 Read, Write, Grep, Glob).  This cerebrum writes a combined task prompt,
 spawns ``claude -p`` with directory access, and waits for completion.
 """
@@ -29,7 +29,7 @@ class ClaudeCodeCerebrum:
     Constructor parameters
     ----------------------
     workdir:
-        REPL working directory (granted to Claude Code via ``--add-dir``).
+        driver working directory (granted to Claude Code via ``--add-dir``).
     repo_root:
         Repository root (used as ``cwd`` for the subprocess so relative
         paths in the prompt resolve correctly).

@@ -10,7 +10,7 @@ per object). You must LOCALIZE objects yourself via camera + depth:
 
   HOW TO GET AN OBJECT'S WORLD XYZ:
   1. Look at images_cam/image_cam_NN.png (calibration frame — the SECOND
-     image returned by view_repl_state / send_command). Find the target
+     image returned by view_driver_state / send_command). Find the target
      object's pixel (row from top, col from left; image is 256×256).
   2. Call back_project(row, col) to back-project that pixel ->
      world_xyz using the metric depth at that pixel + camera_meta.
@@ -39,7 +39,7 @@ SYSTEM_PROMPT = """You are an LLM-in-the-loop hybrid driver for LIBERO PRO exper
 
 A Python process (interactive_driver.py) is already running. It has Pi0.5
 loaded and a single LIBERO sim env. It communicates with you via files in
-the run-specific REPL workdir named in the user message — you call tools
+the run-specific driver workdir named in the user message — you call tools
 to inspect state and issue commands.
 
 ═══════════════════════════════════════════════════════════════════════
@@ -55,7 +55,7 @@ and the final release.
 RULES (NON-NEGOTIABLE)
 ═══════════════════════════════════════════════════════════════════════
 
-Rule 0 — USE IMAGES. Every view_repl_state and send_command result
+Rule 0 — USE IMAGES. Every view_driver_state and send_command result
    includes the agentview PNG. LOOK at it before deciding on a move
    target. Numerical state alone gets you to "control tuner"; the
    image is the spatial-reasoning input.
@@ -162,7 +162,7 @@ WORKFLOW
        prompt choices, not the place coords. Don't blindly copy coords —
        understand them.
 
-3. INSPECT INITIAL: view_repl_state(step=0). Read state.objects[*]_pos
+3. INSPECT INITIAL: view_driver_state(step=0). Read state.objects[*]_pos
    and look at the image. Identify the target object and the goal region.
 
 4. PLAN, then EXECUTE one command at a time via send_command:
@@ -240,7 +240,7 @@ OUTPUT DISCIPLINE
 ═══════════════════════════════════════════════════════════════════════
 
 • 1-2 sentence reasoning before each tool call (observation -> decision).
-• Don't re-read files you already read. Don't view_repl_state if you
+• Don't re-read files you already read. Don't view_driver_state if you
   just got the state from send_command.
 • Be parsimonious with tokens. Numerical coords in 3 decimals is enough.
 • When `finish` is called the agent halts. Save artifacts BEFORE finish.
@@ -269,7 +269,7 @@ Suggested first steps:
 2. read_text_file("physical_agent/context/guides/STRICT_HYBRID_GUIDE.md")
 3. read_text_file("physical_agent/context/guides/PRO_HYBRID_GUIDE.md")
 4. view_camera_meta() — get the calibration matrices
-5. view_repl_state(step=0) — see the initial scene (both images!)
+5. view_driver_state(step=0) — see the initial scene (both images!)
 6. Look at images_cam/image_cam_00.png; find the target object; back_project() its pixels
 7. Plan; then send_command repeatedly until libero_terminated=True
 8. write_text_file the recipe + audit; finish(success)
@@ -279,7 +279,7 @@ Suggested first steps:
 INITIAL_USER_TEMPLATE = """Cell: suite={suite}  task={task}  seed={seed}.
 
 The REPL driver is already running. Its working directory is {workdir}
-(this is also the default for list_dir / view_repl_state / send_command).
+(this is also the default for list_dir / view_driver_state / send_command).
 states.json (with step 0 entry) + images/image_00.png are ready.
 Run `mcp_list_dir` to confirm.
 
@@ -302,7 +302,7 @@ Suggested first steps:
    then read a past recipe_<sim>.jsonl as a starting point — BUT
    re-derive coords from states.json[0] and apply memory offsets, don't
    blindly copy.
-5. view_repl_state(step=0)  — see initial scene
+5. view_driver_state(step=0)  — see initial scene
 6. plan; then call send_command repeatedly until libero_terminated=True
 7. write_text_file the recipe + audit; finish(success)
 """
