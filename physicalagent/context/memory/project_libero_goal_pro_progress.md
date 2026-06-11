@@ -19,7 +19,7 @@ metadata:
 **Why**: user asked to set up libero_goal hybrid runs + Pi0 baselines following PRO_HYBRID_GUIDE workflow on 2026-05-21.
 
 **How to apply**:
-- To continue, work through t2 swap/lan + t3..t9 × 4 cells (30 remaining). Each follows base recipe with target-object swap for `_task`, position lookup from state_00 for `_swap`, paraphrased prompt for `_lan`.
+- To continue, work through t2 swap/lan + t3..t9 × 4 cells (30 remaining). Each follows base recipe with target-object swap for `_task`, position lookup from states.json step 0 for `_swap`, paraphrased prompt for `_lan`.
 - Stove tasks need cook_region offset trick — see [[cook-region-offset]].
 - Cabinet top tasks (t2 base, t4): top_side site at world (0.026, -0.256, table_z+0.22).
 - Drawer open/close (t0, t3): NO teleport — open/close `wooden_cabinet_1_{top,middle,bottom}_level`

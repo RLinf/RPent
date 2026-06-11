@@ -159,7 +159,7 @@ the eef home z differs by ~0.5 m.
 | `living_room_table` | ≈ 0.68 | ≈ 0.43 | `(x∈±0.30, y∈±0.30)` | basket / plate / pudding tasks |
 | `kitchen_table` | ≈ 1.17 | ≈ 0.90 | `(x∈±0.30, y∈±0.30)` | stove / cabinet / drawer / microwave |
 
-**Mandatory check** at session start: read `state_00.robot0_eef_pos[2]`.
+**Mandatory check** at session start: read `states.json[0].state.robot0_eef_pos[2]`.
 If ≈ 0.68 you're in LIVING_ROOM frame; if ≈ 1.17 you're in KITCHEN frame.
 Pick `pre_pos_z`, `carry_z`, `release_z` accordingly. Sending KITCHEN-frame
 coordinates while the env is in LIVING_ROOM frame will crash the env worker
@@ -210,7 +210,7 @@ For each base task you want to claim coverage on, generate four runs:
 |---|---|---|
 | `libero_spatial`        | base sanity | Both Pi0 and hybrid pass |
 | `libero_spatial_task`   | **P1 Task** | Pi0 ✗ (picks base target), hybrid ✓ (LLM flips target from instruction) |
-| `libero_spatial_swap`   | **P2 Position** | Pi0 mixed, hybrid ✓ (reads coords from state_00) |
+| `libero_spatial_swap`   | **P2 Position** | Pi0 mixed, hybrid ✓ (reads coords from states.json step 0) |
 | `libero_spatial_lan`    | Semantic | Both pass (paraphrase invariant) |
 
 Replace `spatial` with `object`, `goal`, or `10` for the other base suites.
@@ -229,7 +229,7 @@ rm -rf "$REPL_WORKDIR"
 LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 python \
   physicalagent/backends/rlinf/repl_driver.py \
   --suite libero_spatial_task --task 0 --seed 0 --max_episode_steps 600
-# (run in background; wait for $REPL_WORKDIR/state_00.json)
+# (run in background; wait for $REPL_WORKDIR/states.json)
 ```
 
 Then issue JSON commands per STRICT_HYBRID_GUIDE §"The command vocabulary".
@@ -285,7 +285,7 @@ reading `final_state` and printing object xy distance to the place target.
 - **Rule 0 (use images).** Even more important under PRO than vanilla
   LIBERO. P2 swap can move a large object (plate, cabinet) clear across
   the table; coordinates from the *base* task are meaningless. Always
-  open `image_00.png` and describe the scene before deciding targets.
+  open `images/image_00.png` and describe the scene before deciding targets.
 - **Rule 1 (no `pi0_end_to_end`).** Same as STRICT_HYBRID_GUIDE: Pi0
   performs the grasp via `pi0_pick` with `track_obj` cut; the LLM does
   every motion + release. Under PRO this is doubly important — handing
@@ -326,13 +326,13 @@ only for t0**. That's the work that remains.
    pick step is usually identical; the place coordinates change for `_swap`,
    the target object changes for `_task`.
 2. **Scale to seeds beyond 0.** Each PRO benchmark exposes 50 trials per
-   task. Parameterize recipes as `commands_for(state_00) -> List[dict]`
+   task. Parameterize recipes as `commands_for(states_json_step0) -> List[dict]`
    reading object positions at runtime. Existing recipes already follow
    this data-flow pattern; codify them as Python callables in
    `workspace_pro/strategies/<suite>/<task>.py`.
 3. **Replicate on `libero_object`, `libero_goal`, `libero_10`.** Each has
    `_swap`, `_task`, `_lan`, `_object` available. Frame split applies
-   (LIVING_ROOM vs KITCHEN per task — read `state_00.robot0_eef_pos[2]`).
+   (LIVING_ROOM vs KITCHEN per task — read `states.json[0].state.robot0_eef_pos[2]`).
 4. **Aggregate into a main table.** `(suite × perturbation × {Pi0, hybrid})`
    grid. The headline number is the **conditional**: of the seeds Pi0
    fails on, what fraction does hybrid succeed on? That is the strongest
@@ -353,9 +353,9 @@ LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 python \
   --suite libero_spatial_task --task <N> --seed 0 --max_episode_steps 600
 
 # 3. Wait for readiness
-until [ -f $REPL_WORKDIR/state_00.json ] && [ -s $REPL_WORKDIR/state_00.json ]; do sleep 5; done
+until [ -f $REPL_WORKDIR/states.json ] && [ -s $REPL_WORKDIR/states.json ]; do sleep 5; done
 
-# 4. Open state_00.json AND image_00.png; describe the scene; decide target
+# 4. Open states.json (step 0 entry) AND images/image_00.png; describe the scene; decide target
 # 5. Issue JSON commands per STRICT_HYBRID_GUIDE §"The command vocabulary"
 # 6. Save audit + recipe to workspace_pro/results_<base>_pert/
 

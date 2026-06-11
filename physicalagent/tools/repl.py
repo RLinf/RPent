@@ -9,7 +9,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import re
 import time
 from pathlib import Path
 
@@ -89,10 +88,12 @@ TOOLS_SPEC = [
     {
         "name": "view_repl_state",
         "description": (
-            "Read state_NN.json + log_NN.json + image_NN.png from the current REPL workdir. "
-            "If step is null, returns the latest. Returns the state JSON and "
-            "embeds the agentview PNG as a multimodal image content block "
-            "(use this image — JSON state alone is not enough; see Rule 0)."
+            "Read step NN from `states.json` + the matching "
+            "`images/image_NN.png` in the current REPL workdir. If step is "
+            "null, returns the latest entry. Each entry contains the robot "
+            "state, libero_terminated flag, command log, and result. Embeds "
+            "the agentview PNG as a multimodal image content block (use this "
+            "image — JSON state alone is not enough; see Rule 0)."
         ),
         "input_schema": {
             "type": "object",
@@ -108,8 +109,8 @@ TOOLS_SPEC = [
         "name": "send_command",
         "description": (
             "Write a JSON command to the current REPL workdir's command.json and BLOCK "
-            "until the driver writes the next done_NN.flag. Returns the "
-            "new state JSON + log JSON + agentview image.\n\n"
+            "until the driver appends the next step entry to `states.json`. "
+            "Returns the new state entry + log + agentview image.\n\n"
             "Schema for the `command` argument follows STRICT_HYBRID_GUIDE.md "
             "§The command vocabulary. ALLOWED actions:\n"
             "  - move_to: {action, xyz:[x,y,z], gripper:-1|+1, tol, step_clip, "
@@ -138,7 +139,7 @@ TOOLS_SPEC = [
                 },
                 "timeout_s": {
                     "type": "number",
-                    "description": "Seconds to wait for done flag (default 600)",
+                    "description": "Seconds to wait for the next states.json entry (default 600)",
                 },
             },
             "required": ["command"],
@@ -164,11 +165,12 @@ TOOLS_SPEC = [
             "Back-project a pixel (row, col) to a world XYZ point using the "
             "metric depth at that pixel and the camera calibration. "
             "Row 0 = top of image, col 0 = left. Step NN selects which "
-            "depth_NN.npy to use (default latest). Returns world_xyz in meters.\n\n"
+            "`depths/depth_NN.npy` to use (default latest). Returns world_xyz "
+            "in meters.\n\n"
             "USE THIS to find where an object is in the world — look at "
-            "image_cam_NN.png to pick a pixel on the target object, then "
-            "call back_project(row, col). Sample several pixels on the object "
-            "and median their xy for robustness."
+            "`images_cam/image_cam_NN.png` to pick a pixel on the target "
+            "object, then call back_project(row, col). Sample several pixels "
+            "on the object and median their xy for robustness."
         ),
         "input_schema": {
             "type": "object",
@@ -257,49 +259,61 @@ def list_dir(path: str = "") -> dict:
     return {"path": str(p), "count": len(files), "files": files}
 
 
+def _load_states() -> list:
+    """Return the parsed contents of ``WORKDIR/states.json`` (a JSON array).
+
+    Returns an empty list if the file is missing or unparseable. Safe to
+    call while the driver is mid-rewrite — atomic rename means we either
+    see the previous or the new array, never a partial one.
+    """
+    path = WORKDIR / "states.json"
+    if not path.exists():
+        return []
+    try:
+        with open(path) as f:
+            arr = json.load(f)
+        if isinstance(arr, list):
+            return arr
+    except Exception:
+        pass
+    return []
+
+
 def _latest_step() -> int | None:
-    """Return the highest NN for which done_NN.flag exists, else 0 if state_00 only."""
-    if not WORKDIR.exists():
+    """Return the highest step index recorded in states.json, else None."""
+    arr = _load_states()
+    if not arr:
         return None
-    flag_nums = []
-    for f in WORKDIR.glob("done_*.flag"):
-        m = re.match(r"done_(\d+)\.flag", f.name)
-        if m:
-            flag_nums.append(int(m.group(1)))
-    if flag_nums:
-        return max(flag_nums)
-    if (WORKDIR / "state_00.json").exists():
-        return 0
-    return None
+    return len(arr) - 1
 
 
 def view_repl_state(step: int | None = None) -> dict:
     if not WORKDIR.exists():
         return {"error": f"WORKDIR {WORKDIR} does not exist; driver not started"}
+    arr = _load_states()
+    if not arr:
+        return {"error": "no states.json; driver not ready"}
     if step is None:
-        nn = _latest_step()
-        if nn is None:
-            return {"error": "no state files; driver not ready"}
+        nn = len(arr) - 1
     else:
         nn = step
+    if nn < 0 or nn >= len(arr) or arr[nn] is None:
+        return {"error": f"step {nn} not present in states.json (len={len(arr)})"}
     nn_str = f"{nn:02d}"
 
-    state_path = WORKDIR / f"state_{nn_str}.json"
-    log_path = WORKDIR / f"log_{nn_str}.json"
-    image_path = WORKDIR / f"image_{nn_str}.png"
-    image_cam_path = WORKDIR / f"image_cam_{nn_str}.png"
+    image_path = WORKDIR / "images" / f"image_{nn_str}.png"
+    image_cam_path = WORKDIR / "images_cam" / f"image_cam_{nn_str}.png"
 
+    data = arr[nn]
     out: dict = {"step": nn}
-    if state_path.exists():
-        with open(state_path) as f:
-            data = json.load(f)
-        out["state"] = data.get("state", data)
-        out["libero_terminated"] = data.get("libero_terminated")
-    else:
-        out["state_error"] = f"missing {state_path}"
-    if log_path.exists():
-        with open(log_path) as f:
-            out["log"] = json.load(f)
+    out["state"] = data.get("state", data)
+    out["libero_terminated"] = data.get("libero_terminated")
+    # Command + result + elapsed_s are merged into each states.json entry.
+    out["log"] = {
+        "command": data.get("command"),
+        "result": data.get("result"),
+        "elapsed_s": data.get("elapsed_s"),
+    }
     if image_path.exists():
         out["_image_path"] = str(image_path)
     if image_cam_path.exists():
@@ -335,9 +349,8 @@ def send_command(command: dict, timeout_s: float = 600.0) -> dict:
 
     current = _latest_step()
     if current is None:
-        return {"error": "no state_00.json; driver not ready"}
+        return {"error": "no states.json (or empty); driver not ready"}
     next_n = current + 1
-    next_nn = f"{next_n:02d}"
 
     cmd_path = WORKDIR / "command.json"
     tmp_path = WORKDIR / "command.json.tmp"
@@ -345,13 +358,16 @@ def send_command(command: dict, timeout_s: float = 600.0) -> dict:
         json.dump(command, f)
     os.replace(tmp_path, cmd_path)  # atomic
 
-    flag_path = WORKDIR / f"done_{next_nn}.flag"
     t0 = time.time()
-    while not flag_path.exists():
+    while True:
+        latest = _latest_step()
+        if latest is not None and latest >= next_n:
+            break
         time.sleep(0.5)
         if time.time() - t0 > timeout_s:
             return {
-                "error": f"timeout after {timeout_s}s waiting for {flag_path.name}",
+                "error": f"timeout after {timeout_s}s waiting for step {next_n} "
+                         f"in states.json (still at step {latest})",
                 "command_sent": command,
             }
 
@@ -396,7 +412,7 @@ def back_project(row: int, col: int, step: int | None = None) -> dict:
         nn = step
     nn_str = f"{nn:02d}"
 
-    depth_path = WORKDIR / f"depth_{nn_str}.npy"
+    depth_path = WORKDIR / "depths" / f"depth_{nn_str}.npy"
     if not depth_path.exists():
         return {"error": f"depth file not found: {depth_path}"}
 

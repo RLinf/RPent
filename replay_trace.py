@@ -3,8 +3,8 @@
 
 The historical files are often named ``recipe_*.jsonl``, but they are really
 traces of commands to send to ``repl_driver.py``. This tool reads each JSON
-line, writes the command to ``command.json``, waits for ``done_NN.flag``, then
-prints a compact result summary.
+line, writes the command to ``command.json``, waits for the next entry in
+``states.json``, then prints a compact result summary.
 """
 
 from __future__ import annotations
@@ -53,25 +53,41 @@ def _write_command(workdir: Path, command: dict[str, Any]) -> None:
     tmp_path.replace(cmd_path)
 
 
-def _wait_for_flag(flag_path: Path, timeout_s: float, poll_s: float) -> None:
+def _load_states(states_path: Path) -> list:
+    """Return parsed states.json as a list (empty on error / missing)."""
+    if not states_path.exists():
+        return []
+    try:
+        with states_path.open() as f:
+            arr = json.load(f)
+        if isinstance(arr, list):
+            return arr
+    except Exception:
+        pass
+    return []
+
+
+def _wait_for_step(states_path: Path, step: int, timeout_s: float, poll_s: float) -> dict:
+    """Block until ``states_path`` has an entry at index ``step``. Return it."""
     start = time.time()
-    while not flag_path.exists():
+    while True:
+        arr = _load_states(states_path)
+        if step < len(arr) and isinstance(arr[step], dict):
+            return arr[step]
         if time.time() - start > timeout_s:
-            raise TimeoutError(f"timed out waiting for {flag_path}")
+            raise TimeoutError(
+                f"timed out waiting for step {step} in {states_path} "
+                f"(have {len(arr)} entries)"
+            )
         time.sleep(poll_s)
 
 
-def _summarize(log_path: Path, action: str, elapsed_s: float) -> tuple[str, bool]:
-    try:
-        log = json.loads(log_path.read_text())
-    except Exception as exc:  # noqa: BLE001 - best-effort console summary
-        return f"could not parse {log_path.name}: {exc}", False
-
-    result = log.get("result", {}) if isinstance(log, dict) else {}
+def _summarize(entry: dict, action: str, elapsed_s: float) -> tuple[str, bool]:
+    result = entry.get("result", {}) if isinstance(entry, dict) else {}
     if not isinstance(result, dict):
         result = {}
 
-    terminated = bool(result.get("libero_terminated"))
+    terminated = bool(result.get("libero_terminated") or entry.get("libero_terminated"))
     extras: list[str] = []
     if action == "move_to":
         extras.append(f"dist={_fmt(result.get('final_dist_m'))}")
@@ -102,7 +118,7 @@ def build_argparser() -> argparse.ArgumentParser:
         "--workdir",
         type=Path,
         default=Path(get_default_workdir_prefix()),
-        help="REPL workdir containing command.json/state_NN/log_NN files",
+        help="REPL workdir containing command.json + states.json",
     )
     parser.add_argument(
         "--start-step",
@@ -114,13 +130,13 @@ def build_argparser() -> argparse.ArgumentParser:
         "--timeout-s",
         type=float,
         default=600.0,
-        help="Seconds to wait for each done_NN.flag",
+        help="Seconds to wait for each new states.json entry",
     )
     parser.add_argument(
         "--poll-s",
         type=float,
         default=0.5,
-        help="Polling interval while waiting for done_NN.flag",
+        help="Polling interval while waiting for states.json",
     )
     parser.add_argument(
         "--keep-note",
@@ -155,6 +171,8 @@ def main(argv: list[str] | None = None) -> int:
     commands = _load_trace(args.trace)
     print(f"[trace] loaded {len(commands)} commands from {args.trace}")
 
+    states_path = args.workdir / "states.json"
+
     for offset, command in enumerate(commands):
         step = args.start_step + offset
         step_id = f"{step:02d}"
@@ -163,14 +181,16 @@ def main(argv: list[str] | None = None) -> int:
             key: value for key, value in command.items() if key != "note"
         }
 
-        flag_path = args.workdir / f"done_{step_id}.flag"
-        if flag_path.exists() and not args.dry_run:
-            print(
-                f"[trace] refusing to replay step {step_id}: {flag_path} already exists. "
-                "Use --start-step for the next pending step or clear the workdir.",
-                file=sys.stderr,
-            )
-            return 2
+        if not args.dry_run:
+            existing = _load_states(states_path)
+            if step < len(existing) and isinstance(existing[step], dict):
+                print(
+                    f"[trace] refusing to replay step {step_id}: states.json already "
+                    f"has entry {step}. Use --start-step for the next pending step "
+                    f"or clear the workdir.",
+                    file=sys.stderr,
+                )
+                return 2
 
         print(f"[trace] step {step_id}: {action}", flush=True)
         if args.dry_run:
@@ -180,15 +200,16 @@ def main(argv: list[str] | None = None) -> int:
         start = time.time()
         _write_command(args.workdir, clean)
         try:
-            _wait_for_flag(flag_path, timeout_s=args.timeout_s, poll_s=args.poll_s)
+            entry = _wait_for_step(
+                states_path, step,
+                timeout_s=args.timeout_s, poll_s=args.poll_s,
+            )
         except TimeoutError as exc:
             print(f"[trace] TIMEOUT: {exc}", file=sys.stderr, flush=True)
             return 2
 
         summary, terminated = _summarize(
-            args.workdir / f"log_{step_id}.json",
-            action=action,
-            elapsed_s=time.time() - start,
+            entry, action=action, elapsed_s=time.time() - start,
         )
         print(f"[trace] step {step_id}: {summary}", flush=True)
         if terminated and not args.continue_after_terminated:

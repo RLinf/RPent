@@ -16,7 +16,7 @@ tasks × 10 seeds = 300 cells → `multi_seed_exp/spatial/`. Defaults:
 **Why 4 GPUs not 8:** 8 simultaneous Pi0/EGL inits (1 cell/GPU on 8-GPU
 host) crash the driver with EOFError/EGL_NOT_INITIALIZED — see
 [[feedback_pi0_chunks_egl_crash]]. On 2026-05-23 this hung 5/10 cells for
-6.5h in `until [ -f done_NN.flag ]` poll loops. Fixes applied:
+6.5h in `until [ -f states.json ]` poll loops. Fixes applied:
 - `run_one_cell.sh` now wraps `claude -p` in `timeout 600` (`CELL_TIMEOUT_S`)
   so a stuck worker can't block the orchestrator forever.
 - `run_one_cell.sh` skips a cell if `$OUTPUT_DIR/<tag>.json` exists →

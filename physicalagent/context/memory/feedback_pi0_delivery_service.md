@@ -20,7 +20,7 @@ Pi0 is a vision-action grasper — its strength is closing the loop on a single 
 This is complementary to [[pi0-pick-full-prompt]], which is the *elevated-object* version of the same rule. This memory is the *general* rule: even for table-level libero_10 picks in cluttered scenes (multiple distractors), full task language often outperforms sub-instr because Pi0's training data on libero_10 paired multi-step instructions with the grasp.
 
 **How to apply:** when `pi0_pick` returns "nothing happened" (gripper open, object unmoved, 15+ chunks consumed) on any libero_10 task, my reflex must be:
-1. Re-issue `pi0_pick` with `prompt = full BDDL :language` (read from `state_00.task_descriptions[0]` or `benchmark.get_task(i).language`).
+1. Re-issue `pi0_pick` with `prompt = full BDDL :language` (read from `states.json[0].task_descriptions[0]` or `benchmark.get_task(i).language`).
 2. If still failing, try with `track_obj_lift_thresh = 0.08`.
 3. If still failing, reset + retry.
 4. *Then and only then*, LLM-scripted pick.

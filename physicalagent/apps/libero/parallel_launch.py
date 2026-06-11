@@ -2,7 +2,7 @@
 
 Each cell gets:
   - its own CUDA device (--cuda_device passed through)
-    - its own workdir (<output_dir>/repl/hybrid_repl_<tag> by default)
+    - its own workdir (<output_dir>/hybrid_repl_<tag> by default)
   - its own log file
   - its own transcript / recipe / audit in --output_dir
 
@@ -157,7 +157,7 @@ def main() -> int:
                     help="defaults to the selected backend's base URL env var")
     ap.add_argument("--workdir_root", default=None,
                     help="Each cell gets a fresh <root>/hybrid_repl_<tag>/ directory. "
-                         "Default: <output_dir>/repl, or PHYSICALAGENT_WORKDIR_PREFIX.")
+                         "Default: <output_dir>, or PHYSICALAGENT_WORKDIR_PREFIX.")
     ap.add_argument("--stagger_s", type=float, default=20.0,
                     help="Seconds to wait between launching successive agents "
                          "(helps avoid hammering the API + spreads Pi0 load IO).")
@@ -214,7 +214,7 @@ def main() -> int:
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     workdir_root = args.workdir_root or os.environ.get("PHYSICALAGENT_WORKDIR_PREFIX")
     if workdir_root is None:
-        workdir_root = str(Path(args.output_dir) / "repl")
+        workdir_root = args.output_dir
 
     procs: list[tuple[subprocess.Popen, str, str, tuple, int]] = []
     active: list[tuple[subprocess.Popen, str, str, tuple, int]] = []
@@ -325,7 +325,7 @@ def main() -> int:
     n_ok = n_sim_ok = 0
     for r in results:
         ok = ("status': 'success'" in r["finish"]) or ('"status": "success"' in r["finish"])
-        # Sim-side success fallback: scan the workdir state_*.json for
+        # Sim-side success fallback: read states.json for any step with
         # libero_terminated=true. This catches cases where the agent
         # crashed (e.g. API error) AFTER the sim already terminated.
         tag = r["tag"]
@@ -333,13 +333,17 @@ def main() -> int:
         sim_ok = False
         if wd.exists():
             import json as _json
-            for sp in sorted(wd.glob("state_*.json"), reverse=True):
+            sp = wd / "states.json"
+            if sp.exists():
                 try:
-                    if _json.load(open(sp)).get("libero_terminated"):
-                        sim_ok = True
-                        break
+                    arr = _json.load(open(sp))
+                    if isinstance(arr, list):
+                        for entry in arr:
+                            if isinstance(entry, dict) and entry.get("libero_terminated"):
+                                sim_ok = True
+                                break
                 except Exception:
-                    continue
+                    pass
         if ok:
             n_ok += 1
         if sim_ok:

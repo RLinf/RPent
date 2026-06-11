@@ -1,6 +1,6 @@
 ---
 name: failure-forensics-render-images
-description: "After a retry fails, render image_NN.png at the failed steps and write what you see vs what you expected — that's where the bug is. Don't tune numbers blindly."
+description: "After a retry fails, render images/image_NN.png at the failed steps and write what you see vs what you expected — that's where the bug is. Don't tune numbers blindly."
 metadata: 
   node_type: memory
   type: feedback
@@ -11,7 +11,7 @@ When a strategy fails twice, the next action must be **`Read` the failed-step PN
 
 **Mandatory diagnostic render set after any failed (suite, task, seed) attempt:**
 
-1. `image_00.png` — verify initial scene matches `state_00` (catches BDDL distractors, unexpected fixtures, perturbation effects).
+1. `images/image_00.png` — verify initial scene matches `states.json[0]` (catches BDDL distractors, unexpected fixtures, perturbation effects).
 2. Image right after each `pi0_pick` — confirm object is actually held (gripper around it, lifted) vs hanging off a finger or untouched. JSON `chunks_used` lies when Pi0 exhausted chunks mid-motion.
 3. Image right before every `release` — confirm object is over target xy zone, not 5 cm off due to stalled `move_to`.
 4. Image right after every `release` — confirm landed where physics predicted, not bounced/rolled/tipped.

@@ -155,16 +155,17 @@ file is the operating manual.
 
 ## Rule 0 — Use images for reasoning, not just JSON state
 
-The driver dumps **both** `state_NN.json` (privileged numerical state) and
-`image_NN.png` (agentview render) at every step. The single biggest failure
-mode of the previous session was **only reading the JSON**: I had every image
-on disk but never called `Read` on a PNG, so I never used the LLM's spatial
-reasoning ability. I became a control-parameter tuner instead of a spatial
-reasoner — and tuned controllers cannot rescue a bad target layout.
+The driver dumps **both** `states.json` (privileged numerical state — one
+entry appended per step) and `images/image_NN.png` (agentview render) at
+every step. The single biggest failure mode of the previous session was
+**only reading the JSON**: I had every image on disk but never called
+`Read` on a PNG, so I never used the LLM's spatial reasoning ability.
+I became a control-parameter tuner instead of a spatial reasoner — and
+tuned controllers cannot rescue a bad target layout.
 
 **Mandatory practice:**
 
-1. **Before any non-trivial decision, `Read` the latest `image_NN.png`.**
+1. **Before any non-trivial decision, `Read` the latest `images/image_NN.png`.**
    Especially: before the first `move_to` of a placement, after every
    failure, and any time you're about to retry the same plan with tweaked
    numbers. JSON tells you where objects are; the image tells you what
@@ -192,13 +193,13 @@ reasoning, not two hours of step_clip tuning.
 
 After two retries on the same plan, *stop tuning parameters and start
 rendering*. The image is your debugger. Walk the failed run step by
-step, `Read` the `image_NN.png` at each critical milestone, and look
-for the disagreement between what you expected and what's on screen.
+step, `Read` the `images/image_NN.png` at each critical milestone, and
+look for the disagreement between what you expected and what's on screen.
 
 **Render this set after any failed (suite, task, seed) attempt:**
 
-1. `image_00.png` — initial scene (verify object positions match
-   `state_00`; spot any unexpected fixture / distractor / configuration
+1. `images/image_00.png` — initial scene (verify object positions match
+   `states.json[0]`; spot any unexpected fixture / distractor / configuration
    the BDDL didn't tell you about).
 2. The image right after each `pi0_pick` — confirm the object is
    actually held (gripper around object, object lifted) vs hanging
@@ -241,8 +242,9 @@ in your plan or in the physics simulator's behavior.**
    built a single-env LIBERO sim, and is now blocked waiting for a command.
 2. **You write commands.** Each command is a JSON file at
    `$REPL_WORKDIR/command.json`. The driver consumes it, runs one
-   primitive, dumps `state_NN.json` + `image_NN.png` + `log_NN.json`, then
-   touches `done_NN.flag`. Then it blocks for the next command.
+   primitive, appends a step entry to `$REPL_WORKDIR/states.json` (state
+   + command + result) and writes `images/image_NN.png`. Then it blocks
+   for the next command.
 3. **You read state, decide next move, write next command. Repeat.**
 
 Each (task, seed) run reloads the model (slow). Within a session you can
@@ -270,11 +272,11 @@ CUDA_VISIBLE_DEVICES=0 python \
 > See `feedback_max_episode_steps_libero.md` + `results_10_pert/PATCH_NOTES.md`.
 
 Run this **in the background** (Bash `run_in_background: true`) so the harness
-doesn't block. Then wait for `state_00.json` to exist as the readiness signal
+doesn't block. Then wait for `states.json` to exist as the readiness signal
 (~90s model load).
 
 ```bash
-until [ -f $REPL_WORKDIR/state_00.json ] && [ -s $REPL_WORKDIR/state_00.json ]; do sleep 5; done
+until [ -f $REPL_WORKDIR/states.json ] && [ -s $REPL_WORKDIR/states.json ]; do sleep 5; done
 ```
 
 Suites currently supported: `libero_spatial`, `libero_10`. Add more via
@@ -309,7 +311,7 @@ recipe is documented end-to-end).
 // Hold pose, command gripper for N env steps without moving.
 {"action": "set_gripper", "gripper": +1|-1, "steps": 5}
 
-// Reset env (same task/seed). State_00.json reappears.
+// Reset env (same task/seed). A reset step is appended to states.json.
 {"action": "reset"}
 
 // Clean shutdown. Use when switching tasks (next session = new --task).
@@ -338,20 +340,19 @@ recipe is documented end-to-end).
 //  contact skill to pi0_pick (pi0_doubled). See "Rule 4 — NO TELEPORT".)
 ```
 
-After each command, wait for the flag:
+After each command, wait for the next entry to appear in states.json:
 
 ```bash
-until [ -f $REPL_WORKDIR/done_<NN>.flag ]; do sleep 1; done
+N=<step_number>  # zero-indexed; first command after step 0 is N=1
+until python -c "import json,sys; sys.exit(0 if len(json.load(open('$REPL_WORKDIR/states.json')))>$N else 1)" 2>/dev/null; do sleep 1; done
 ```
-
-Where `<NN>` is the step number (zero-padded, starts at 01 for first command).
 
 ## The strict-hybrid recipe
 
 Per (task, seed):
 
 ```
-1. Inspect state_00.json + image_00.png. List target objects and their xyz.
+1. Inspect states.json[0] + images/image_00.png. List target objects and their xyz.
 2. (Optional) pre-position above target object with gripper open.
 3. pi0_pick with track_obj=<target> and lift_thresh=0.05–0.08.
    The track_obj parameter is what enforces "Pi0 only does pick" —
@@ -560,18 +561,21 @@ rlinf/envs/libero/
 ## Reading state / log files
 
 ```bash
-cat $REPL_WORKDIR/state_<NN>.json | python -c "
+python - <<'PY'
 import json, sys
-d = json.load(sys.stdin); s = d['state']
+NN = 5  # step index
+states = json.load(open("$REPL_WORKDIR/states.json"))
+d = states[NN]
+s = d['state']
 print('libero_term:', d['libero_terminated'])
 print('eef:', s['robot0_eef_pos'])
 print('grip:', s['robot0_gripper_qpos'])
 for k, v in s['objects'].items(): print(f'  {k}: {v}')
-"
+PY
 ```
 
-For images, use the Read tool on `$REPL_WORKDIR/image_<NN>.png` (Claude
-Code's Read tool renders PNGs).
+For images, use the Read tool on `$REPL_WORKDIR/images/image_<NN>.png`
+(Claude Code's Read tool renders PNGs).
 
 ## Hyperparameters that actually matter
 
@@ -592,7 +596,7 @@ with LLM-scripted descend+close+lift the moment Pi0 stumbles.
 
 Concretely, the LLM/Pi0 split for any pick is:
 
-- **LLM**: read the BDDL, find the target's xy in `state_00`, drive
+- **LLM**: read the BDDL, find the target's xy in `states.json[0]`, drive
   `move_to` to a pre-pos that places the gripper directly above the
   object at a stable z, hand Pi0 the right prompt, *let go*.
 - **Pi0**: from that pre-pos + prompt, run the closed-loop grasp.
@@ -729,18 +733,19 @@ less descent before the trigger fires.
 
 ## Verifying strict compliance
 
-After each run, check `log_<pick_step>.json`:
+After each run, check the pick step entry in states.json:
 
 ```python
-pr = json.load(open("$REPL_WORKDIR/log_02.json"))["result"]  # the pi0_pick step
+states = json.load(open("$REPL_WORKDIR/states.json"))
+pr = states[pick_step_idx]["result"]  # the pi0_pick step
 assert pr["libero_terminated"] == False, "Pi0 finished the task — violation!"
 assert pr["chunks_used"] < 25, "Pi0 ran too long; may have done place"
 ```
 
-And `log_<release_step>.json`:
+And the release step entry:
 
 ```python
-rr = json.load(open("$REPL_WORKDIR/log_06.json"))["result"]  # release step
+rr = states[release_step_idx]["result"]  # release step
 assert rr["libero_terminated"] == True, "Task didn't terminate during release"
 ```
 
@@ -750,8 +755,8 @@ release triggered libero_term ⇒ LLM did the place**.
 ## Persisting successful runs as audit JSONs
 
 The REPL workflow is great for iteration but **leaves nothing reproducible
-behind once the driver exits** — `$REPL_WORKDIR/state_NN.json` and
-`log_NN.json` live only until the next driver run wipes them. The
+behind once the driver exits** — `$REPL_WORKDIR/states.json` and the
+`images/` subdir live only until the next driver run wipes them. The
 libero_spatial corpus at `results_all_spatial/tN_sM.json` is the gold
 standard: each file is a single self-contained record of one
 (task, seed) rollout that an auditor (or a future Claude) can read months
@@ -812,14 +817,14 @@ Top-level keys, in order:
   "elapsed_s": 22.3,
   "regime": "strict",  // or "pi0_doubled" — "pi0_end_to_end" is FORBIDDEN (Rule 1); only kept in historical entries
   "strategy_notes": "lift to z=1.20 before any +y motion; cavity entered at x=-0.05",
-  "pick_result":     { /* log_<pick_step>.json["result"] verbatim */ },
-  "post_pick_state": { /* state_<pick_step>.json["state"] verbatim */ },
+  "pick_result":     { /* states.json[pick_step]["result"] verbatim */ },
+  "post_pick_state": { /* states.json[pick_step]["state"] verbatim */ },
   "object_lifted_during_pick_m": 0.07,         // peak_lift_m, sanity
   "target_xyz":      [x, y, z],                // computed release target
   "target_diag":     { eef, target_obj, offset_obj_minus_eef },
-  "move_results":    [ /* list of log_<move_step>.json["result"], one per stage */ ],
-  "release_result":  { /* log_<release_step>.json["result"] */ },
-  "final_state":     { /* state_<release_step>.json["state"] */ },
+  "move_results":    [ /* list of states.json[move_step]["result"], one per stage */ ],
+  "release_result":  { /* states.json[release_step]["result"] */ },
+  "final_state":     { /* states.json[release_step]["state"] */ },
   "libero_terminated": true,                   // final
   "<task-specific metric>": 0.0143,            // bowl_to_plate_xy_m,
                                                 // mug_in_heating_region, etc.
@@ -851,25 +856,19 @@ Run this at the end of a successful REPL session, before issuing `exit`:
 
 ```bash
 python - <<'PYEOF'
-import json, glob, os, re
+import json, os
 WORKDIR = "$REPL_WORKDIR"
 OUTDIR  = "${PHYSICALAGENT_REPO_ROOT:-$(pwd)}/physicalagent/primitives/results_all_10"
 TASK_ID, SEED = 9, 0                                           # ← fill in
 REGIME = "strict"                                               # ← fill in ("strict" or "pi0_doubled" — Rule 1 forbids "pi0_end_to_end")
 NOTES  = "OSC IK barrier at cavity entry; Pi0 full task prompt solved in 186 chunks"
 
-logs = {}
-for p in sorted(glob.glob(os.path.join(WORKDIR, "log_*.json"))):
-    n = int(re.search(r"log_(\d+)\.json", p).group(1))
-    logs[n] = json.load(open(p))
-states = {}
-for p in sorted(glob.glob(os.path.join(WORKDIR, "state_*.json"))):
-    n = int(re.search(r"state_(\d+)\.json", p).group(1))
-    states[n] = json.load(open(p))
+states = json.load(open(os.path.join(WORKDIR, "states.json")))
+# states is a list; indices are the step indices
 
-pick_steps    = [n for n, l in logs.items() if l["command"]["action"] == "pi0_pick"]
-move_steps    = [n for n, l in logs.items() if l["command"]["action"] == "move_to"]
-release_steps = [n for n, l in logs.items() if l["command"]["action"] == "release"]
+pick_steps    = [n for n, e in enumerate(states) if e.get("command", {}).get("action") == "pi0_pick"]
+move_steps    = [n for n, e in enumerate(states) if e.get("command", {}).get("action") == "move_to"]
+release_steps = [n for n, e in enumerate(states) if e.get("command", {}).get("action") == "release"]
 pick_n    = pick_steps[0]      if pick_steps    else None
 release_n = release_steps[-1]  if release_steps else None
 
@@ -878,13 +877,13 @@ record = {
     "seed": SEED,
     "regime": REGIME,
     "strategy_notes": NOTES,
-    "pick_result":     logs[pick_n]["result"]               if pick_n is not None else None,
-    "post_pick_state": states[pick_n]["state"]              if pick_n is not None else None,
-    "move_results":    [logs[n]["result"] for n in move_steps],
-    "release_result":  logs[release_n]["result"]            if release_n is not None else None,
-    "final_state":     states[max(states)]["state"],
-    "libero_terminated": states[max(states)]["libero_terminated"],
-    "elapsed_s": sum(l.get("elapsed_s", 0.0) for l in logs.values()),
+    "pick_result":     states[pick_n]["result"]    if pick_n is not None else None,
+    "post_pick_state": states[pick_n]["state"]     if pick_n is not None else None,
+    "move_results":    [states[n]["result"] for n in move_steps],
+    "release_result":  states[release_n]["result"] if release_n is not None else None,
+    "final_state":     states[-1]["state"],
+    "libero_terminated": states[-1]["libero_terminated"],
+    "elapsed_s": sum(e.get("elapsed_s", 0.0) for e in states),
 }
 os.makedirs(OUTDIR, exist_ok=True)
 out = os.path.join(OUTDIR, f"t{TASK_ID}_s{SEED}.json")
@@ -903,9 +902,9 @@ PYEOF
 ```
 
 Edit `TASK_ID`, `SEED`, `REGIME`, and `NOTES` for each run. The helper
-auto-discovers all command logs in the workdir, picks the first `pi0_pick`
-as the canonical pick, the last `release` as the canonical place, and
-captures every `move_to` in execution order.
+reads states.json directly, picks the first `pi0_pick` step as the
+canonical pick, the last `release` step as the canonical place, and
+captures every `move_to` step in execution order.
 
 ### Codify into a replay script (optional but recommended for benchmark runs)
 
@@ -1233,12 +1232,12 @@ Cross-suite progress + non-obvious past failures:
      CUDA_VISIBLE_DEVICES=0 python \
          physicalagent/backends/rlinf/repl_driver.py \
          --suite libero_10 --task <N> --seed 0 --max_episode_steps 5000
-3. Bash run_in_background:true (wait for state_00.json)
-     until [ -f $REPL_WORKDIR/state_00.json ] && \
-            [ -s $REPL_WORKDIR/state_00.json ]; do sleep 5; done
-4. Read state_00.json, image_00.png. Identify target objects + goal regions.
-5. Iterate: REPL command → done_NN.flag → Read image_NN.png (Rule 0)
-            → Read state_NN.json → next command.
+3. Bash run_in_background:true (wait for states.json)
+     until [ -f $REPL_WORKDIR/states.json ] && \
+            [ -s $REPL_WORKDIR/states.json ]; do sleep 5; done
+4. Read states.json[0], images/image_00.png. Identify target objects + goal regions.
+5. Iterate: REPL command → next entry appended to states.json →
+            Read images/image_NN.png (Rule 0) → Read states.json[NN] → next command.
    Append each command to a recipe_tN_sM.jsonl scratch file as you go.
 6. For each pick:
      Write command.json (pi0_pick + track_obj)

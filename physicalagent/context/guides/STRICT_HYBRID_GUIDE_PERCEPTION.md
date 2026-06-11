@@ -15,27 +15,27 @@ coordinates — which is not allowed in this mode.
 | | oracle (`STRICT_HYBRID_GUIDE.md`) | **perception (this guide)** |
 |---|---|---|
 | driver flags | (none) | **`--hide_object_coords --always_render`** |
-| `state_NN.json` objects | full `objects:{name:[x,y,z]}` | **`object_names:[…]` only — NO coords** |
-| extra obs files | `image_NN.png` only | **+ `image_cam_NN.png`, `depth_NN.npy`, `camera_meta.json`** |
-| how you get an object's xyz | read `state["objects"][name]` | **detect the object pixel in `image_cam_NN.png`, read depth at that pixel, back-project with `camera_meta.json`** |
+| `states.json` entry's state | full `objects:{name:[x,y,z]}` | **`object_names:[…]` only — NO coords** |
+| extra obs files | `images/image_NN.png` only | **+ `images_cam/image_cam_NN.png`, `depths/depth_NN.npy`, `camera_meta.json`** |
+| how you get an object's xyz | read `state["objects"][name]` | **detect the object pixel in `images_cam/image_cam_NN.png`, read depth at that pixel, back-project with `camera_meta.json`** |
 | `pi0_pick` `track_obj` arg | name from state's `objects` keys | name from `state["object_names"]` (the names list is still given; only positions are stripped) |
 | cell timeout | 600 (short suites) | **1200** — perceptual localization + manipulation is slower |
 | audit `regime` | `strict` | `strict_perception` |
 
 How localization works (the core of this mode):
 
-1. `Read` `image_cam_NN.png` — the agentview RGB **in the calibration frame**
+1. `Read` `images_cam/image_cam_NN.png` — the agentview RGB **in the calibration frame**
    (vertical-flip of the raw buffer). This is the image you pick pixels in.
-   `image_NN.png` is the Pi0-rotation frame; **do not use it for back-projection**.
+   `images/image_NN.png` is the Pi0-rotation frame; **do not use it for back-projection**.
 2. Find the target object visually → pixel `(row, col)`.
-3. Read the metric depth at that pixel from `depth_NN.npy`.
+3. Read the metric depth at that pixel from `depths/depth_NN.npy`.
 4. Back-project with `camera_meta.json`:
    `P_world = extrinsic_cam2world @ [col·z, row·z, z, 1]; z = depth[row,col]`.
    That gives you the object's surface point in world frame.
 
 **Verified 5/5 vs GT** at protocol design time (plate Δ=6 mm, cookies Δ=14 mm) —
-the back-projection is trustworthy. The driver `dump_state` writes `depth_NN.npy`
-+ `camera_meta.json` + `image_cam_NN.png` every step (always — the perception
+the back-projection is trustworthy. The driver `dump_state` writes `depths/depth_NN.npy`
++ `camera_meta.json` + `images_cam/image_cam_NN.png` every step (always — the perception
 interface is unconditional once the driver is launched).
 
 ## Before you start: READ THE AUTO-MEMORY
@@ -72,12 +72,12 @@ never warp.
 
 ## Rule 0 — Use images for reasoning, not just JSON state
 
-After every command, `Read` the new `image_cam_NN.png` (`Read` renders PNG
+After every command, `Read` the new `images_cam/image_cam_NN.png` (`Read` renders PNG
 visually in Claude Code). Even more important here than in oracle mode: this
 is *the* signal you use to find objects.
 
-`image_cam_NN.png` is the calibration-frame RGB — same scene as
-`image_NN.png` but vertically flipped so that pixel coordinates align with
+`images_cam/image_cam_NN.png` is the calibration-frame RGB — same scene as
+`images/image_NN.png` but vertically flipped so that pixel coordinates align with
 the camera matrices in `camera_meta.json`. Pick object pixels from this one.
 
 ## Rule 2 — Multi-episode iteration is allowed
@@ -90,7 +90,7 @@ runs.
 
 Same as oracle mode. A localization that "looks right" but moves the gripper
 into thin air usually means your pixel was on a wrong surface (e.g. picked
-the bowl's reflection on the table). Re-look at `image_cam_NN.png`, pick a
+the bowl's reflection on the table). Re-look at `images_cam/image_cam_NN.png`, pick a
 different pixel firmly on the target's top, re-back-project. Don't conclude
 "unreachable" until you've validated localization.
 
@@ -98,10 +98,10 @@ different pixel firmly on the target's top, re-back-project. Don't conclude
 
 1. **One Python process runs forever.** Pi0.5 + LIBERO sim, waiting for a command.
 2. **You write commands.** Each command is a JSON file at `{workdir}/command.json`.
-   The driver consumes it, runs one primitive, dumps
-   `state_NN.json` + `image_NN.png` + **`image_cam_NN.png`** + **`depth_NN.npy`** +
-   `log_NN.json` + (once at step 00) **`camera_meta.json`**, then touches
-   `done_NN.flag`. Then it blocks for the next command.
+   The driver consumes it, runs one primitive, appends a step entry to
+   `states.json` and writes `images/image_NN.png` + **`images_cam/image_cam_NN.png`** +
+   **`depths/depth_NN.npy`** + (once at step 00) **`camera_meta.json`**. Then it
+   blocks for the next command.
 3. **You read, localize via back-projection, decide next move, write next command.**
 
 ## Launch a session
@@ -143,9 +143,10 @@ CUDA_VISIBLE_DEVICES=0 LIBERO_TYPE=pro MUJOCO_GL=egl \
 ```
 
 > Mandatory flags for this mode: **`--hide_object_coords`** strips `objects`
-> from `state_NN.json` (keeps `object_names` + proprioception); **`--always_render`**
-> keeps the depth + camera observables fresh after every OSC primitive (the
-> render-skip optimisation in oracle mode leaves depth stale after `move_to`).
+> from each `states.json` entry's state (keeps `object_names` + proprioception);
+> **`--always_render`** keeps the depth + camera observables fresh after every
+> OSC primitive (the render-skip optimisation in oracle mode leaves depth stale
+> after `move_to`).
 
 Set `--max_episode_steps 5000` for libero_10 (long-horizon); 600 is fine
 for libero_spatial / object / goal. `LIBERO_TYPE=pro` for PRO perturbation
@@ -154,19 +155,18 @@ suites; omit it (or set `standard`) for the base benchmark.
 Run in background; wait for readiness:
 
 ```bash
-until [ -f $REPL_WORKDIR/state_00.json ] && [ -s $REPL_WORKDIR/state_00.json ]; do sleep 5; done
+until [ -f $REPL_WORKDIR/states.json ] && [ -s $REPL_WORKDIR/states.json ]; do sleep 5; done
 ```
 
 ## The perception files you read each step
 
 | file | what's in it |
 |---|---|
-| `state_NN.json` | `step_idx`, `libero_terminated`, `state.{robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos, object_names, obj_of_interest}`. **No object coordinates.** |
-| `image_NN.png` | RGB in Pi0 frame (180° rotated). *Do not pick pixels here for back-projection.* |
-| `image_cam_NN.png` | RGB in **calibration frame** (vertical flip). Pick object pixels HERE. |
-| `depth_NN.npy` | `(256, 256) float32` metric depth in meters, calibration frame. Same row/col as `image_cam_NN.png`. |
+| `states.json[NN]` | `step_idx`, `libero_terminated`, `state.{robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos, object_names, obj_of_interest}`, `command`, `result`, `elapsed_s`. **No object coordinates.** |
+| `images/image_NN.png` | RGB in Pi0 frame (180° rotated). *Do not pick pixels here for back-projection.* |
+| `images_cam/image_cam_NN.png` | RGB in **calibration frame** (vertical flip). Pick object pixels HERE. |
+| `depths/depth_NN.npy` | `(256, 256) float32` metric depth in meters, calibration frame. Same row/col as `images_cam/image_cam_NN.png`. |
 | `camera_meta.json` | `intrinsic_K` (3×3), `extrinsic_cam2world` (4×4), `depth_near`, `depth_far`, plus a `projection` recipe in the file. Dumped once at step 00; cache it on disk read. |
-| `log_NN.json` | The command + its result + `elapsed_s`. Read after each `done_NN.flag`. |
 
 ## Localization snippet (run via Bash; substitute pixel + step)
 
@@ -176,7 +176,7 @@ import json, numpy as np
 wd = "$REPL_WORKDIR"; step = "01"; row, col = ROW, COL   # <-- fill in
 cm = json.load(open(f"{wd}/camera_meta.json"))
 E  = np.array(cm["extrinsic_cam2world"])
-depth = np.load(f"{wd}/depth_{step}.npy")
+depth = np.load(f"{wd}/depths/depth_{step}.npy")
 z = float(depth[row, col])
 P = E @ np.array([col*z, row*z, z, 1.0])
 print("world_xyz =", [round(float(v),3) for v in P[:3]], " depth_m=", round(z,3))
@@ -248,10 +248,10 @@ Write JSON to `{workdir}/command.json`. The full primitive set (this matches
 
 A typical bowl→plate cell looks like:
 
-1. Read `state_00.json`, `image_cam_00.png`, `camera_meta.json`.
+1. Read `states.json[0]`, `images_cam/image_cam_00.png`, `camera_meta.json`.
 2. Identify the target object name from `task language` (the `obj_of_interest`
    key is often `null`; lean on `state.object_names` + the task instruction).
-3. Localize the target object — pixel in `image_cam_00.png` → `depth[row,col]`
+3. Localize the target object — pixel in `images_cam/image_cam_00.png` → `depth[row,col]`
    → back-project → world xyz.
 4. **Pre-position** above it: `move_to [obj_x, obj_y, carry_z]`, gripper open.
 5. `pi0_pick` with `track_obj=<obj_name>` and the right prompt (start with
@@ -299,15 +299,13 @@ qualifier** for elevated picks (stove, cabinet-top, drawer). See
 ## Reading state / log files
 
 After every command:
-1. `Read {workdir}/log_NN.json` → check `result.success`, `final_dist_m`,
-   `peak_lift_m`, etc.
-2. `Read {workdir}/image_cam_NN.png` → visual confirmation; pick pixels for
-   any new localization.
-3. (Optionally) `Read {workdir}/state_NN.json` → eef pose / gripper width /
-   `libero_terminated`.
+1. `Read {workdir}/states.json` (jump to entry NN) → check `result.success`,
+   `final_dist_m`, `peak_lift_m`, eef pose, gripper width, `libero_terminated`.
+2. `Read {workdir}/images_cam/image_cam_NN.png` → visual confirmation;
+   pick pixels for any new localization.
 
-You **do not** open `depth_NN.npy` interactively — feed it to the localization
-snippet above.
+You **do not** open `depths/depth_NN.npy` interactively — feed it to the
+localization snippet above.
 
 ## Common failure modes
 
@@ -321,18 +319,18 @@ snippet above.
   same xy twice → try `rotate_pitch`, split into more waypoints, or
   `move_pose` (co-varying) for cabinet-front singularity.
 - **Placement off because localization was wrong.** The release puts the
-  object on bare table instead of on the plate. Re-`Read image_cam`, pick a
-  different pixel on the target region (sample 3 pixels on the plate's flat
-  top, median the back-projected xy), redo. Tip: if depth at your chosen
-  pixel is much closer than the table z, you picked the camera's near edge
-  / an object rim — pick again.
+  object on bare table instead of on the plate. Re-`Read` the latest
+  `images_cam/image_cam_NN.png`, pick a different pixel on the target region
+  (sample 3 pixels on the plate's flat top, median the back-projected xy),
+  redo. Tip: if depth at your chosen pixel is much closer than the table z,
+  you picked the camera's near edge / an object rim — pick again.
 
 ## Verifying strict compliance
 
 Before saving the audit, run this check on your recipe-so-far:
 
 ```bash
-grep -E "\"(set_object_pose|articulate_to|js_move_to|carry_object)\"" $REPL_WORKDIR/log_*.json && echo "TELEPORT — REJECTED" || echo "physics-only ✓"
+python -c "import json,re; s=json.load(open('$REPL_WORKDIR/states.json')); bad=re.compile(r'set_object_pose|articulate_to|js_move_to|carry_object'); hits=[e['command'].get('action') for e in s if e.get('command') and bad.search(e['command'].get('action',''))]; print('TELEPORT — REJECTED' if hits else 'physics-only ✓')"
 ```
 
 ## Persisting successful runs as audit JSONs
@@ -340,13 +338,14 @@ grep -E "\"(set_object_pose|articulate_to|js_move_to|carry_object)\"" $REPL_WORK
 When `state.libero_terminated == true`:
 
 a. Write the working command sequence (copy the `command` field of each
-   `log_NN.json` in order) to
+   step entry in `states.json` in order) to
    `{OUTPUT_DIR}/recipe_{TAG}.jsonl` — one JSON per line, no `note` field.
 b. Write a minimal audit JSON to `{OUTPUT_DIR}/{TAG}.json` with at least:
    `suite`, `task_id`, `seed`, `regime: "strict_perception"`, `strategy_notes`
    (mention HOW you localized — which pixel, depth, back-projected world xyz),
-   `pick_result` (the `result` from your `pi0_pick` log), `final_state` (latest
-   `state_NN.json`'s `state` field), `libero_terminated: true`.
+   `pick_result` (the `result` from your `pi0_pick` step in `states.json`),
+   `final_state` (latest `states.json` entry's `state` field),
+   `libero_terminated: true`.
 c. Stop.
 
 If unrecoverable after honest exploration, write
@@ -360,7 +359,7 @@ failed. Stop.
 ## Iteration heuristics
 
 - After 2 failed retries on the same step, **stop tuning numerics** and
-  inspect images: open `image_cam_NN.png` at pick / pre-release / post-release.
+  inspect images: open `images_cam/image_cam_NN.png` at pick / pre-release / post-release.
   The visual disagreement is usually the bug (you picked the wrong pixel, or
   Pi0 grabbed the decoy). This is the lesson of
   `feedback_failure_forensics.md` — applies even more strongly here.
@@ -375,7 +374,7 @@ failed. Stop.
 
 - **No GT object coordinates anywhere in your reasoning.** The `state` you
   read has none; the only legitimate sources of object xyz are
-  `image_cam_NN.png` + `depth_NN.npy` + `camera_meta.json`.
+  `images_cam/image_cam_NN.png` + `depths/depth_NN.npy` + `camera_meta.json`.
 - **No teleport primitives.** The four are deleted.
 - **Pi0 only does the grasp.** You script every motion + release.
 - **`track_obj` still receives a NAME from `state.object_names`** — names are
@@ -400,5 +399,5 @@ When you write a new audit, browse `multi_seed_exp/percep_*/recipe_*_s0.jsonl`
 for a sibling cell's working sequence as a template — but never paste its
 xyz, re-derive every position via back-projection from THIS scene's depth.
 
-Begin by reading MEMORY.md, then `state_00 + image_cam_00 + camera_meta`,
+Begin by reading MEMORY.md, then `states.json[0] + images_cam/image_cam_00.png + camera_meta`,
 localize the target object via back-projection, then plan and execute.

@@ -1,8 +1,10 @@
 """REPL-style LLM-in-the-loop driver.
 
 One process: env + Pi0.5 loaded once. Reads single-command JSON files from
-`<workdir>/command.json`, executes, dumps `state_<step>.json` and
-`image_<step>.png`, then blocks waiting for the next command.
+`<workdir>/command.json`, executes, appends the step blob to
+`<workdir>/states.json` (a top-level JSON array), saves
+`<workdir>/images/image_<step>.png` (+ `images_cam/image_cam_<step>.png`
+and `depths/depth_<step>.npy`), then blocks waiting for the next command.
 
 Commands (in command.json):
     {"action": "move_to", "xyz": [x, y, z], "gripper": -1,
@@ -17,8 +19,8 @@ Commands (in command.json):
 Usage:
     Launch in background, then write commands one at a time:
         $ echo '{"action":"move_to","xyz":[...],"gripper":-1}' > "$WORKDIR/command.json"
-        $ # wait for "$WORKDIR/done_<step>.flag"
-        $ # read state + image
+        $ # wait for $WORKDIR/states.json length to grow
+        $ # read the new entry + image
         $ # write next command
 """
 from __future__ import annotations
@@ -83,7 +85,59 @@ def hold_gripper(driver, gripper: float, steps: int):
                 driver._libero_terminated = True
 
 
-def dump_state(driver, workdir: str, step_idx: int) -> dict:
+def _append_state(workdir: str, blob: dict) -> None:
+    """Append *blob* to ``<workdir>/states.json`` atomically.
+
+    The merged trace is a top-level JSON array (one entry per step). The
+    file is rewritten via a tmp + rename so a reader never sees partial
+    content. The entry index equals ``blob['step_idx']``.
+    """
+    path = os.path.join(workdir, "states.json")
+    tmp = path + ".tmp"
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                arr = json.load(f)
+            if not isinstance(arr, list):
+                arr = []
+        except Exception:
+            arr = []
+    else:
+        arr = []
+    idx = int(blob.get("step_idx", len(arr)))
+    # Pad with None if the agent ever skips a step (shouldn't happen,
+    # but keeps array index == step_idx).
+    while len(arr) < idx:
+        arr.append(None)
+    if len(arr) == idx:
+        arr.append(blob)
+    else:
+        arr[idx] = blob
+    with open(tmp, "w") as f:
+        json.dump(arr, f, indent=2)
+    os.replace(tmp, path)
+
+
+def dump_state(driver, workdir: str, step_idx: int, log: dict | None = None) -> dict:
+    """Dump state snapshot, images, and depth for step *step_idx*.
+
+    Writes:
+      - ``<workdir>/images/image_NN.png``       (Pi0-frame agentview)
+      - ``<workdir>/images_cam/image_cam_NN.png`` (calibration-frame agentview)
+      - ``<workdir>/depths/depth_NN.npy``        (metric depth, meters)
+      - ``<workdir>/camera_meta.json``           (static, once)
+      - appends the step blob to ``<workdir>/states.json``
+
+    If *log* is provided (the return value of :func:`execute`), its
+    ``command``, ``result``, and ``elapsed_s`` fields are merged into the
+    step blob so a single entry captures everything.
+    """
+    images_dir = os.path.join(workdir, "images")
+    images_cam_dir = os.path.join(workdir, "images_cam")
+    depths_dir = os.path.join(workdir, "depths")
+    os.makedirs(images_dir, exist_ok=True)
+    os.makedirs(images_cam_dir, exist_ok=True)
+    os.makedirs(depths_dir, exist_ok=True)
     state = driver.get_privileged_state()
     # PERCEPTION-ISOLATED mode: drop object world coords (the agent must
     # localize via depth_NN.npy + camera_meta.json). Keep the object NAMES
@@ -113,7 +167,7 @@ def dump_state(driver, workdir: str, step_idx: int) -> dict:
             img = np.zeros((128, 128, 3), dtype=np.uint8)
         if img.dtype != np.uint8:
             img = img.astype(np.uint8)
-    imageio.imwrite(os.path.join(workdir, f"image_{step_idx:02d}.png"), img)
+    imageio.imwrite(os.path.join(images_dir, f"image_{step_idx:02d}.png"), img)
 
     # --- camera calibration (static for agentview): fetch + dump once ---
     cam_meta = getattr(driver, "_camera_meta", None)
@@ -151,7 +205,7 @@ def dump_state(driver, workdir: str, step_idx: int) -> dict:
             ci = np.asarray(ci)
             if ci.dtype != np.uint8:
                 ci = ci.astype(np.uint8)
-            imageio.imwrite(os.path.join(workdir, f"image_cam_{step_idx:02d}.png"),
+            imageio.imwrite(os.path.join(images_cam_dir, f"image_cam_{step_idx:02d}.png"),
                             ci[::-1])
     except Exception as e:
         print(f"[dump_state] image_cam dump failed: {e}", flush=True)
@@ -178,7 +232,7 @@ def dump_state(driver, workdir: str, step_idx: int) -> dict:
             # camera_meta.json (NOT the same frame as the 180°-rotated
             # image_NN.png — see camera_meta note).
             d = d[::-1]
-            np.save(os.path.join(workdir, f"depth_{step_idx:02d}.npy"),
+            np.save(os.path.join(depths_dir, f"depth_{step_idx:02d}.npy"),
                     d.astype(np.float32))
     except Exception as e:
         print(f"[dump_state] depth dump failed: {e}", flush=True)
@@ -188,8 +242,13 @@ def dump_state(driver, workdir: str, step_idx: int) -> dict:
         "libero_terminated": driver._libero_terminated,
         "state": state,
     }
-    with open(os.path.join(workdir, f"state_{step_idx:02d}.json"), "w") as f:
-        json.dump(blob, f, indent=2)
+    # Merge the execution log (command + result + elapsed_s) into the
+    # state blob so a single entry captures everything for the step.
+    if log is not None:
+        blob["command"] = log.get("command")
+        blob["result"] = log.get("result")
+        blob["elapsed_s"] = log.get("elapsed_s")
+    _append_state(workdir, blob)
     return blob
 
 
@@ -308,9 +367,10 @@ def execute(driver, cmd: dict, workdir: str, step_idx: int):
     # recent render-enabled step, e.g. the previous pi0_pick or reset).
 
     log["elapsed_s"] = round(time.time() - t0, 2)
-    with open(os.path.join(workdir, f"log_{step_idx:02d}.json"), "w") as f:
-        json.dump(log, f, indent=2)
     return log
+
+
+_INITIAL_PPID = os.getppid()
 
 
 def wait_for_command(cmd_path: str, poll_s: float = 0.5, timeout_s: float = 3600.0):
@@ -326,6 +386,12 @@ def wait_for_command(cmd_path: str, poll_s: float = 0.5, timeout_s: float = 3600
                 print(f"[wait] error reading cmd: {e}, retrying")
                 time.sleep(poll_s)
                 continue
+        # Parent (agent/runner) died -> we've been reparented. Exit instead
+        # of holding the GPU until the 1h timeout.
+        ppid = os.getppid()
+        if ppid != _INITIAL_PPID or ppid == 1:
+            print(f"[wait] parent died (ppid {_INITIAL_PPID} -> {ppid}); exiting")
+            return None
         time.sleep(poll_s)
     return None
 
@@ -337,8 +403,6 @@ def main():
     p.add_argument("--suite", type=str, default="libero_spatial")
     p.add_argument("--max_episode_steps", type=int, default=240)
     p.add_argument("--workdir", type=str, default=get_default_workdir_prefix())
-    p.add_argument("--max_steps", type=int, default=40,
-                   help="hard cap on the number of REPL commands")
     p.add_argument("--always_render", action="store_true",
                    help="disable the auto render-skip toggle; render every "
                         "env.step. Use for video recording (frames are valid "
@@ -346,18 +410,28 @@ def main():
                         "wall time and risks the old EGL accumulation cap.")
     p.add_argument("--hide_object_coords", action="store_true",
                    help="PERCEPTION-ISOLATED mode: drop object world coords from "
-                        "state_NN.json (keep object_names + obj_of_interest + "
+                        "states.json (keep object_names + obj_of_interest + "
                         "robot proprioception). The agent must localize objects "
-                        "from depth_NN.npy + camera_meta.json. Default off "
+                        "from depths/depth_NN.npy + camera_meta.json. Default off "
                         "(oracle mode: full GT coords).")
     p.add_argument("--video_path", default=None,
                    help="Path to save episode video (default: <workdir>/episode.mp4)")
     args = p.parse_args()
 
     os.makedirs(args.workdir, exist_ok=True)
-    # clean stale state
-    for f in os.listdir(args.workdir):
-        os.remove(os.path.join(args.workdir, f))
+    # Clean stale driver outputs only — leave any unrelated files (audit,
+    # transcript, recipe, driver.log) alone since the workdir is now the
+    # same as the run's output_dir.
+    import shutil as _shutil
+    for sub in ("images", "images_cam", "depths"):
+        p = os.path.join(args.workdir, sub)
+        if os.path.isdir(p):
+            _shutil.rmtree(p)
+    for f in ("states.json", "states.json.tmp", "command.json",
+              "camera_meta.json", "episode.mp4"):
+        p = os.path.join(args.workdir, f)
+        if os.path.isfile(p):
+            os.remove(p)
 
     print(f"[setup] task={args.task}  seed={args.seed}  workdir={args.workdir}")
     print(f"[setup] loading Pi0.5 ...")
@@ -383,7 +457,7 @@ def main():
 
     cmd_path = os.path.join(args.workdir, "command.json")
     step = 1
-    while step <= args.max_steps:
+    while True:
         print(f"\n[step {step}] BLOCKED — waiting for {cmd_path}")
         cmd = wait_for_command(cmd_path, timeout_s=3600.0)
         if cmd is None:
@@ -391,10 +465,7 @@ def main():
             break
         print(f"[step {step}] received: {cmd}")
         log = execute(driver, cmd, args.workdir, step)
-        dump_state(driver, args.workdir, step)
-        # signal done
-        with open(os.path.join(args.workdir, f"done_{step:02d}.flag"), "w") as f:
-            f.write("ok")
+        dump_state(driver, args.workdir, step, log=log)
         print(f"[step {step}] done in {log['elapsed_s']}s  result={log['result']}")
         if cmd.get("action") == "exit":
             result = driver.stop_recording_and_save(video_path)

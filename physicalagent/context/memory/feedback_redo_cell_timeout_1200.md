@@ -25,6 +25,6 @@ CELL_TIMEOUT_S=1200; skip-if-audit-exists preserves cells already solved.
 neither script overrides it). A timed-out cell with empty `claude_*.txt` is
 normal: `claude -p --output-format text` flushes its result only at exit, so a
 `timeout` kill loses all stdout. Check `sim_libero_terminated` in the last
-`state_NN.json` to tell a real-but-unrecorded solve from a genuine non-finish.
+`states.json` to tell a real-but-unrecorded solve from a genuine non-finish.
 Same lever ONBOARDING §2 already prescribes for libero_10. See
 [[feedback_worker_reads_memory_snapshot]].

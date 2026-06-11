@@ -8,7 +8,7 @@ Measured 2026-05-20 on `libero_10_with_mug` t0 (LIVING_ROOM frame) and t8
 
 Each task's BDDL specifies one of two table fixtures, which sets the entire
 world-frame z origin. The OSC workspace and all pick/place altitudes shift
-accordingly. **Always check `state_00.robot0_eef_pos[2]` after reset and
+accordingly. **Always check `states.json[0].state.robot0_eef_pos[2]` after reset and
 branch on it.**
 
 | Fixture | eef home z | Table top z | Used by tasks |
@@ -106,7 +106,7 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
 
 ## Practical rules going forward
 
-1. **Always read `state_00.robot0_eef_pos[2]` before computing any z target.**
+1. **Always read `states.json[0].state.robot0_eef_pos[2]` before computing any z target.**
    If it's ≈ 0.68 you're in LIVING_ROOM frame; if it's ≈ 1.17 you're in KITCHEN
    frame. Use the right table from the table above.
 2. **Never command an eef z below the per-frame floor.** Going to z=0.42
@@ -132,7 +132,8 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
 ## Calibration log files
 
 Raw probe logs are preserved in:
-- `$REPL_WORKDIR/log_{01..NN}.json` (per-command audit)
+- `$REPL_WORKDIR/states.json` (one step entry per command — the per-command
+  audit; each entry has `command`, `result`, `state`, `elapsed_s`).
 - Only kept for the most recent driver session; reproduce by re-running
   the calibration with the snippet in the next section.
 
@@ -149,5 +150,5 @@ LIBERO_TYPE=pro CUDA_VISIBLE_DEVICES=0 python \
 echo '{"action":"move_to","xyz":[-0.20, 0.10, 0.65],
        "gripper":-1,"tol":0.008,"step_clip":0.010,"max_steps":80}' \
   > $REPL_WORKDIR/command.json
-# read $REPL_WORKDIR/log_NN.json for final_eef_pos & final_dist_m
+# read $REPL_WORKDIR/states.json (entry NN) for final_eef_pos & final_dist_m
 ```

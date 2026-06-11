@@ -9,3 +9,5 @@ physicalagent/primitives/workspace_pro/results_agent_runs/
 # RLinf is consumed as an external checkout, not vendored here.
 /rlinf/
 /rlinf.egg-info/
+
+uv.lock

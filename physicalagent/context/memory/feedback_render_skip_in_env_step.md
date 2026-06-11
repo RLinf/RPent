@@ -18,7 +18,7 @@ The driver crash at ~20 commands wasn't Pi0 chunks — it was robosuite's per-en
 6. `physicalagent/primitives/interactive_driver.py` `execute()`: pre-primitive toggle (OSC primitives → disable, pi0_pick → enable). No post-primitive refresh step (robosuite's first sample after re-enable returns degenerate (1,1,3) float64).
 7. `interactive_driver.py` `dump_state()`: fallback to LiberoEnv._cached_full_image when render_agentview returns bad shape/dtype.
 
-**Trade-off — stale image**: when in OSC-only sequence, image_NN.png stays at last pi0_pick frame (or initial reset). LLM-visual debugging sees pre-OSC scene, not post-OSC. For most cases (move-then-release-then-look) this is fine; for "tweak then look" debugging it's confusing. Document in audit notes when reviewing.
+**Trade-off — stale image**: when in OSC-only sequence, `images/image_NN.png` stays at last pi0_pick frame (or initial reset). LLM-visual debugging sees pre-OSC scene, not post-OSC. For most cases (move-then-release-then-look) this is fine; for "tweak then look" debugging it's confusing. Document in audit notes when reviewing.
 
 **Validated 2026-05-21** on libero_10 t6 base layout: 20 OSC `move_to` commands + 1 × 300-step move_to back-to-back → no crash, all images valid. Previous max was ~20 commands before EGL_NOT_INITIALIZED killed the env worker.
 

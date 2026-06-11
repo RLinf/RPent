@@ -14,7 +14,6 @@ import argparse
 import importlib
 import json
 import os
-import shutil
 import signal
 import subprocess
 import sys
@@ -77,17 +76,20 @@ def start_driver(
     ready_timeout_s: float = 300.0,
     perception: bool = False,
 ) -> subprocess.Popen:
-    """Clear workdir and launch the REPL driver in background.
+    """Launch the REPL driver in background.
 
-    Returns the Popen handle; waits until state_00.json appears.
+    The driver itself wipes its own stale outputs (states.json, images/,
+    depths/, etc.) before writing — we don't rmtree the workdir here
+    because it doubles as the run's output_dir.
+
+    Returns the Popen handle; waits until ``states.json`` exists with the
+    initial (step 0) entry.
     """
     wd = Path(workdir or get_default_workdir_prefix())
-    if wd.exists():
-        shutil.rmtree(wd)
     wd.mkdir(parents=True, exist_ok=True)
 
     if log_path is None:
-        log_path = str(wd.parent / f"{wd.name}_driver.log")
+        log_path = str(wd / "driver.log")
 
     env = os.environ.copy()
     env["LIBERO_TYPE"] = libero_type or get_libero_type()
@@ -119,9 +121,21 @@ def start_driver(
         cwd=str(REPO_ROOT),
     )
 
-    print("[agent] waiting for state_00.json (Pi0 load ~80s)...")
+    print("[agent] waiting for states.json (Pi0 load ~80s)...")
     t0 = time.time()
-    while not (wd / "state_00.json").exists():
+
+    def _has_initial_state() -> bool:
+        sp = wd / "states.json"
+        if not sp.exists():
+            return False
+        try:
+            with open(sp) as f:
+                arr = json.load(f)
+            return isinstance(arr, list) and len(arr) >= 1 and arr[0] is not None
+        except Exception:
+            return False
+
+    while not _has_initial_state():
         time.sleep(2)
         if proc.poll() is not None:
             print("[agent] driver EXITED before becoming ready. Last log:")
@@ -195,9 +209,9 @@ def _sanitize_transcript_content(value):
 
 def _emergency_save(workdir, output_dir, suite, task, seed, recipe_tag,
                     agent_error, regime="strict", verbose=True):
-    """If the workdir has libero_terminated=True in any state file and the
-    output_dir is missing the recipe.jsonl / audit.json, stitch them now
-    from logs in the workdir. Idempotent — won't overwrite existing files.
+    """If the workdir has libero_terminated=True in any step of
+    ``states.json`` and the output_dir is missing the recipe.jsonl /
+    audit.json, stitch them now. Idempotent — won't overwrite existing files.
     """
     wd = Path(workdir)
     out = Path(output_dir)
@@ -208,34 +222,34 @@ def _emergency_save(workdir, output_dir, suite, task, seed, recipe_tag,
     if recipe_path.exists() and audit_path.exists():
         return  # agent already saved
 
-    # Did the sim ever fire libero_terminated=True?
+    # Load the merged states.json (top-level JSON array, one entry per step).
+    states: dict[int, dict] = {}
     sim_terminated = False
-    states = {}
-    for sp in sorted(wd.glob("state_*.json")):
+    states_path = wd / "states.json"
+    if states_path.exists():
         try:
-            sn = int(sp.stem.split("_")[1])
-            d = json.load(open(sp))
-            states[sn] = d
-            if d.get("libero_terminated"):
-                sim_terminated = True
+            with open(states_path) as f:
+                arr = json.load(f)
+            if isinstance(arr, list):
+                for i, entry in enumerate(arr):
+                    if not isinstance(entry, dict):
+                        continue
+                    sn = int(entry.get("step_idx", i))
+                    states[sn] = entry
+                    if entry.get("libero_terminated"):
+                        sim_terminated = True
         except Exception:
-            continue
-    logs = {}
-    for lp in sorted(wd.glob("log_*.json")):
-        try:
-            ln = int(lp.stem.split("_")[1])
-            logs[ln] = json.load(open(lp))
-        except Exception:
-            continue
+            pass
 
-    if not states and not logs:
+    if not states:
         return  # nothing to salvage
 
     # Always rebuild a recipe.jsonl from the commands actually executed
-    if not recipe_path.exists() and logs:
+    # (commands are merged into each entry of states.json).
+    if not recipe_path.exists():
         recipe_lines = []
-        for ln in sorted(logs.keys()):
-            cmd = logs[ln].get("command") or {}
+        for sn in sorted(states.keys()):
+            cmd = states[sn].get("command") or {}
             if cmd.get("action") in ("exit", "reset"):
                 continue
             recipe_lines.append(json.dumps(cmd))
@@ -248,14 +262,14 @@ def _emergency_save(workdir, output_dir, suite, task, seed, recipe_tag,
     # Build a minimal audit (PRO schema) if missing
     if not audit_path.exists():
         pick_step = next(
-            (n for n in sorted(logs) if (logs[n].get("command") or {}).get("action") == "pi0_pick"),
+            (n for n in sorted(states) if (states[n].get("command") or {}).get("action") == "pi0_pick"),
             None,
         )
         release_step = next(
-            (n for n in reversed(sorted(logs)) if (logs[n].get("command") or {}).get("action") == "release"),
+            (n for n in reversed(sorted(states)) if (states[n].get("command") or {}).get("action") == "release"),
             None,
         )
-        move_steps = [n for n in sorted(logs) if (logs[n].get("command") or {}).get("action") == "move_to"]
+        move_steps = [n for n in sorted(states) if (states[n].get("command") or {}).get("action") == "move_to"]
         last_state = states[max(states)] if states else {}
         record = {
             "suite": suite,
@@ -266,10 +280,10 @@ def _emergency_save(workdir, output_dir, suite, task, seed, recipe_tag,
                 f"emergency-saved by runner after agent error: {agent_error}"
                 if agent_error else "emergency-saved by runner (agent did not call finish)"
             ),
-            "pick_result":     logs[pick_step]["result"]   if pick_step    is not None else None,
+            "pick_result":     states[pick_step]["result"]   if pick_step    is not None else None,
             "post_pick_state": states[pick_step]["state"]  if pick_step    is not None and pick_step in states else None,
-            "move_results":    [logs[n]["result"] for n in move_steps],
-            "release_result":  logs[release_step]["result"] if release_step is not None else None,
+            "move_results":    [states[n]["result"] for n in move_steps],
+            "release_result":  states[release_step]["result"] if release_step is not None else None,
             "final_state":     last_state.get("state"),
             "libero_terminated": bool(last_state.get("libero_terminated")),
             "sim_reached_terminated": sim_terminated,
@@ -313,11 +327,12 @@ def run_one_cell(
 ) -> dict:
     """Solve one (suite, task, seed) cell end-to-end.
 
-    By default the REPL workdir is placed inside the log directory
-    (``output_dir/repl/``) so images, depth arrays, state snapshots,
-    and the episode video land there directly — no post-hoc copy.
-    Pass an explicit ``workdir`` to override (e.g. for parallel runs
-    that share a single output directory).
+    By default the REPL workdir IS the log directory (``output_dir``),
+    so the driver's images/, depths/, states.json, camera_meta.json and
+    episode.mp4 land alongside the agent's recipe/audit/transcript — no
+    ``repl/`` subdir, no post-hoc copy. Pass an explicit ``workdir`` to
+    override (e.g. for parallel runs that share a single output
+    directory but want separate driver workdirs).
 
     ``cerebrum_type`` selects the LLM backend:
     - ``"anthropic"`` — Anthropic Messages API with tool-use (default).
@@ -337,11 +352,12 @@ def run_one_cell(
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     # ---- resolve workdir ----
+    # The driver writes directly into the run's output_dir (no `repl/`
+    # subdir): images/, images_cam/, depths/, states.json, etc. live
+    # alongside the agent's recipe/audit/transcript.
     if workdir is None:
-        workdir = str(Path(output_dir) / "repl")
-        Path(workdir).mkdir(parents=True, exist_ok=True)
-    else:
-        Path(workdir).mkdir(parents=True, exist_ok=True)
+        workdir = output_dir
+    Path(workdir).mkdir(parents=True, exist_ok=True)
 
     # Point the agent's tools at the per-run workdir BEFORE the loop starts.
     tools_set_workdir(workdir)
@@ -480,8 +496,8 @@ def run_one_cell(
         elif cerebrum_type == "codex":
             cerebrum.set_driver_process(proc)
     else:
-        if not (Path(workdir) / "state_00.json").exists():
-            raise RuntimeError(f"--no_driver but {workdir}/state_00.json missing")
+        if not (Path(workdir) / "states.json").exists():
+            raise RuntimeError(f"--no_driver but {workdir}/states.json missing")
 
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None
@@ -582,7 +598,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--no_driver", action="store_true",
                     help="Don't spawn driver; attach to existing workdir")
     ap.add_argument("--workdir", default=None,
-                    help="REPL working directory. Default: <output_dir>/repl/. "
+                    help="REPL working directory. Default: <output_dir> itself. "
                          "Override for parallel runs that share an output dir.")
     ap.add_argument("--perception", action="store_true",
                     help="PERCEPTION-ISOLATED mode: hide object coords, "

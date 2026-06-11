@@ -1,6 +1,6 @@
 ---
 name: feedback-read-image-before-decide
-description: "In any LLM-in-the-loop driver that dumps both image_NN.png and state_NN.json, Read the PNG before every non-trivial decision — JSON alone turns the LLM into a control tuner instead of a spatial reasoner."
+description: "In any LLM-in-the-loop driver that dumps both images/image_NN.png and a step entry into states.json, Read the PNG before every non-trivial decision — JSON alone turns the LLM into a control tuner instead of a spatial reasoner."
 metadata: 
   node_type: memory
   type: feedback
@@ -17,7 +17,7 @@ attempts placing two moka pots at the same cook_region center, then
 debugging release dynamics, OSC stall, drop height, wrist rotation — all
 controller-level tuning. The actual problem was that the 15×15 cm
 cook_region had plenty of room for two 6 cm pots placed at opposite
-corners. **I had `image_NN.png` saved at every step but never opened one
+corners. **I had `images/image_NN.png` saved at every step but never opened one
 during planning** — I only read JSON state. The user pointed out the layout
 fix in one sentence; I should have arrived there in attempt 2 by
 inspecting the scene image. Repeating controller param tweaks (step_clip,

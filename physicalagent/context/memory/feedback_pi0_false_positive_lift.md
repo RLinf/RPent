@@ -13,6 +13,6 @@ metadata:
 
 **How to apply**:
 - For swap scenes: `track_obj_lift_thresh: 0.08, lift_thresh: 0.5, gripper_closed_thresh: 0.01`
-- Always check `log_NN.json.result.diagnostics.track_obj_final_z` after pi0_pick before continuing — gating on `success` flag alone causes downstream releases to drop nothing onto the target site.
+- Always check the pi0_pick step entry's `result.diagnostics.track_obj_final_z` in `states.json` after pi0_pick before continuing — gating on `success` flag alone causes downstream releases to drop nothing onto the target site.
 
 **Related**: [[pi0-pick-full-prompt]] [[pi0-delivery-service]]
