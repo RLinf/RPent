@@ -41,10 +41,11 @@ from physical_agent.utils.config import (
 REPO_ROOT = get_repo_root()
 DEFAULT_DRIVER_SCRIPT = str(get_repl_driver_script())
 
-from physical_agent.cerebrum.anthropic import AnthropicCerebrum  # noqa: E402
+from physical_agent.cerebrum.adapters.anthropic import AnthropicAdapter  # noqa: E402
+from physical_agent.cerebrum.adapters.openai_compat import OpenAICompatibleAdapter  # noqa: E402
+from physical_agent.cerebrum.api_loop import ApiAgentLoop  # noqa: E402
 from physical_agent.cerebrum.claude_code import ClaudeCodeCerebrum  # noqa: E402
 from physical_agent.cerebrum.codex import CodexCerebrum  # noqa: E402
-from physical_agent.cerebrum.openai_compat import OpenAICompatibleCerebrum  # noqa: E402
 from physical_agent.context.libero_prompts import (  # noqa: E402
     CLAUDE_CODE_PERCEPTION_PROMPT_TEMPLATE,
     CLAUDE_CODE_PROMPT_TEMPLATE,
@@ -380,11 +381,13 @@ def run_one_cell(
             timeout=120.0,
             **({"base_url": base_url} if base_url else {}),
         )
-        cerebrum = AnthropicCerebrum(
-            client=client,
-            model=model or get_anthropic_model(),
-            max_tokens=max_tokens,
-            thinking=thinking,
+        cerebrum = ApiAgentLoop(
+            adapter=AnthropicAdapter(
+                client=client,
+                model=model or get_anthropic_model(),
+                max_tokens=max_tokens,
+                thinking=thinking,
+            )
         )
     elif cerebrum_type == "openai_compat":
         api_key = api_key or get_openai_compat_api_key()
@@ -407,12 +410,14 @@ def run_one_cell(
         supports_images = openai_compat_supports_images
         if supports_images is None:
             supports_images = get_openai_compat_supports_images()
-        cerebrum = OpenAICompatibleCerebrum(
-            client=client,
-            model=model or get_openai_compat_model(),
-            max_tokens=max_tokens,
-            supports_images=supports_images,
-            thinking=thinking,
+        cerebrum = ApiAgentLoop(
+            adapter=OpenAICompatibleAdapter(
+                client=client,
+                model=model or get_openai_compat_model(),
+                max_tokens=max_tokens,
+                supports_images=supports_images,
+                thinking=thinking,
+            )
         )
     elif cerebrum_type == "claude_code":
         cc_timeout_s = claude_code_timeout_s

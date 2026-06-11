@@ -138,7 +138,7 @@ def get_logger(name: str = "") -> logging.Logger:
 
     or with a dotted name::
 
-        logger = get_logger("cerebrum.anthropic")
+        logger = get_logger("anthropic")
     """
     if name:
         return logging.getLogger(f"{_PKG_LOGGER_NAME}.{name}")

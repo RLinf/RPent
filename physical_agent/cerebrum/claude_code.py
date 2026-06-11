@@ -20,7 +20,7 @@ from physical_agent.cerebrum.base import CerebrumResult
 from physical_agent.utils.config import get_repo_root
 from physical_agent.utils.logging import get_logger
 
-logger = get_logger("cerebrum.claude")
+logger = get_logger("claude")
 
 
 class ClaudeCodeCerebrum:
