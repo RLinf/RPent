@@ -121,7 +121,7 @@ WORKFLOW
 ═══════════════════════════════════════════════════════════════════════
 
 1. READ MEMORY FIRST. The portable snapshot is in the repo at
-   `physical_agent/context/memory/`
+   `logs/memory/`
   It contains the "operating wisdom" — a collection of `feedback_*.md` and
    `project_*.md` files cataloging magic numbers, gotchas, and failure
    modes learned across many runs.
@@ -265,7 +265,7 @@ Save artifacts to: {output_dir}
 - audit  filename: {recipe_tag}.json
 
 Suggested first steps:
-1. read_text_file("physical_agent/context/memory/MEMORY.md")
+1. read_text_file("logs/memory/MEMORY.md")
 2. read_text_file("physical_agent/context/guides/STRICT_HYBRID_GUIDE.md")
 3. read_text_file("physical_agent/context/guides/PRO_HYBRID_GUIDE.md")
 4. view_camera_meta() — get the calibration matrices
@@ -291,7 +291,7 @@ Save artifacts to: {output_dir}
 - audit  filename: {recipe_tag}.json
 
 Suggested first steps:
-1. read_text_file("physical_agent/context/memory/MEMORY.md")
+1. read_text_file("logs/memory/MEMORY.md")
    — the index of operating wisdom. Scan ALL lines, then read the
    ~3-5 individual feedback_*.md files (in the same dir) that look
    most relevant to your suite (e.g. for libero_spatial bowl tasks,
@@ -313,7 +313,7 @@ Suggested first steps:
 
 # These templates are intentionally full, single-shot Claude Code prompts.
 # They are ported from the former standalone Claude Code prompt files, with paths
-# updated to the in-package context/memory and context/guides locations.
+# updated to the in-package logs/memory and context/guides locations.
 # Keep the legacy uppercase placeholders and substitute with
 # format_claude_code_prompt() so JSON examples with literal braces remain safe.
 
@@ -386,10 +386,10 @@ WORKFLOW
 
 1. READ MEMORY FIRST (the "operating wisdom" — magic numbers + gotchas).
    The snapshot lives IN THE REPO at:
-     `physical_agent/context/memory/MEMORY.md`
+     `logs/memory/MEMORY.md`
    (If you are running on the originating machine and want the LIVE
    feed instead, it's at
-   `physical_agent/context/memory/MEMORY.md`,
+   `logs/memory/MEMORY.md`,
    but the in-repo snapshot is the portable source of truth.)
    Scan all ~40 lines, then `Read` the 3-5 most relevant feedback_*.md
    for your cell. For bowl→plate spatial tasks ALWAYS read:
@@ -635,7 +635,7 @@ WORKFLOW
 ═══════════════════════════════════════════════════════════════════════
 
 1. READ MEMORY FIRST (operating wisdom — magic numbers + gotchas):
-     `physical_agent/context/memory/MEMORY.md`
+     `logs/memory/MEMORY.md`
    Scan it, then `Read` the 3-5 most relevant feedback_*.md for your cell.
 
 2. READ THE GUIDES (once each):

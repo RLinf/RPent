@@ -43,7 +43,7 @@ interface is unconditional once the driver is launched).
 Operating wisdom lives in the in-repo snapshot:
 
 ```
-physical_agent/context/memory/MEMORY.md
+logs/memory/MEMORY.md
 ```
 
 Scan the ~40 one-line hooks. For perception cells **always** open:

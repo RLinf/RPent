@@ -9,7 +9,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LIVE=${MEMORY_LIVE}
-SNAPSHOT="$SCRIPT_DIR/../physical_agent/context/memory"
+SNAPSHOT="$SCRIPT_DIR/../logs/memory"
 
 if [ ! -d "$LIVE" ]; then
     echo "[sync_memory] live memory dir not found: $LIVE" >&2

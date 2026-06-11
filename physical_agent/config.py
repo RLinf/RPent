@@ -37,7 +37,7 @@ def get_package_root() -> Path:
 # ============================================================================
 
 def get_memory_dir() -> Path:
-    return get_repo_root() / "physical_agent" / "context" / "memory"
+    return get_repo_root() / "logs" / "memory"
 
 
 def get_guides_dir() -> Path:

@@ -11,7 +11,7 @@ guide is everything you need to know to continue iterating on **strict** hybrid:
 ## Before you start: READ THE AUTO-MEMORY
 
 Past sessions have stored ~20 hard-won lessons in
-`physical_agent/context/memory/`. The index
+`logs/memory/`. The index
 file `MEMORY.md` is auto-loaded into your system prompt via CLAUDE.md,
 so the one-line hooks are already visible to you. Before launching a
 driver, **scan those hooks** for entries whose name/description touches
@@ -1129,7 +1129,7 @@ the task as a strict failure in `strategy_notes`.
 ## Memory files to read
 
 **You have access to a persistent auto-memory at**
-`physical_agent/context/memory/`. The index is
+`logs/memory/`. The index is
 `MEMORY.md` (one-line hooks per memory, auto-injected by CLAUDE.md into
 the system prompt of every new session). Individual entries live as
 `feedback_*.md` / `project_*.md` / `reference_*.md`.
@@ -1225,7 +1225,7 @@ Cross-suite progress + non-obvious past failures:
 ## TL;DR launch checklist
 
 ```
-0. cat physical_agent/context/memory/MEMORY.md
+0. cat logs/memory/MEMORY.md
    → scan one-line hooks; Read matching .md files for relevant fixes.
 1. cd ${PHYSICALAGENT_REPO_ROOT:-$(pwd)}
 2. Bash run_in_background:true
@@ -1272,7 +1272,7 @@ Cross-suite progress + non-obvious past failures:
 11. Write exit. Move on to next task.
 12. **Memory write-back**: if you discovered a non-obvious fix or env
      quirk that took >2 iterations to diagnose, save it as
-     `physical_agent/context/memory/feedback_<name>.md`
+     `logs/memory/feedback_<name>.md`
      (YAML frontmatter: `name`, `description`, `type: feedback`; body
      leads with the rule, then `**Why:**` and `**How to apply:**` lines)
      AND append a one-line hook to `MEMORY.md`. Next session reads it
