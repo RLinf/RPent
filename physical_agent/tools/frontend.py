@@ -2,7 +2,7 @@
 
 Each tool is a thin wrapper that the agent calls via an LLM tool-use API.
 Results are JSON-serializable dicts; for image-bearing tools the caller
-(runner.py) converts a `_image_path` field into a multimodal content block.
+(runner.py) converts private image byte fields into multimodal content blocks.
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import json
 import os
 from pathlib import Path
 
-from physical_agent.transport import FileTransportClient, TransportClient
+from physical_agent.transport import DriverClient, FileDriverClient
 from physical_agent.utils.config import get_default_workdir_prefix, get_repo_root
 
 REPO_ROOT = get_repo_root()
@@ -21,7 +21,9 @@ WORKDIR = Path(
         os.environ.get("HYBRID_REPL_WORKDIR", get_default_workdir_prefix()),
     )
 )
-TRANSPORT: TransportClient = FileTransportClient(WORKDIR)
+DRIVER_CLIENT: DriverClient = FileDriverClient(WORKDIR)
+# Compatibility name used by existing tests/callers.
+TRANSPORT = DRIVER_CLIENT
 
 
 def _workdir_desc() -> str:
@@ -32,15 +34,22 @@ def set_workdir(path: str | os.PathLike) -> None:
     """Override the driver working directory used by view_driver_state /
     send_command. Call BEFORE the agent loop starts so each parallel
     worker has its own workdir."""
-    global WORKDIR, TRANSPORT
+    global WORKDIR, DRIVER_CLIENT, TRANSPORT
     WORKDIR = Path(path)
-    TRANSPORT = FileTransportClient(WORKDIR)
+    DRIVER_CLIENT = FileDriverClient(WORKDIR)
+    TRANSPORT = DRIVER_CLIENT
 
 
-def set_transport(client: TransportClient) -> None:
-    """Override the process-to-driver transport used by agent tools."""
-    global TRANSPORT
+def set_transport(client: DriverClient) -> None:
+    """Override the process-to-driver client used by agent tools."""
+    global DRIVER_CLIENT, TRANSPORT
+    DRIVER_CLIENT = client
     TRANSPORT = client
+
+
+def set_driver_client(client: DriverClient) -> None:
+    """Override the driver client used by agent tools."""
+    set_transport(client)
 
 
 # ---------------------------------------------------------------------------
@@ -269,42 +278,24 @@ def list_dir(path: str = "") -> dict:
 
 
 def _load_states() -> list:
-    """Return the parsed contents of ``WORKDIR/states.json``."""
-    path = WORKDIR / "states.json"
-    if not path.exists():
-        return []
-    try:
-        with open(path) as f:
-            arr = json.load(f)
-        if isinstance(arr, list):
-            return arr
-    except Exception:
-        pass
-    return []
+    """Return the parsed driver state trace."""
+    return DRIVER_CLIENT.load_states()
 
 
 def _latest_step() -> int | None:
-    arr = _load_states()
-    if not arr:
-        return None
-    return len(arr) - 1
+    return DRIVER_CLIENT.latest_step()
 
 
 def view_driver_state(step: int | None = None) -> dict:
-    if not WORKDIR.exists():
-        return {"error": f"WORKDIR {WORKDIR} does not exist; driver not started"}
-    arr = _load_states()
-    if not arr:
-        return {"error": "no states.json; driver not ready"}
-    nn = len(arr) - 1 if step is None else step
-    if nn < 0 or nn >= len(arr) or arr[nn] is None:
-        return {"error": f"step {nn} not present in states.json (len={len(arr)})"}
+    latest = _latest_step()
+    if latest is None:
+        return {"error": "no driver state entries; driver not ready"}
+    nn = latest if step is None else int(step)
+    try:
+        data = DRIVER_CLIENT.load_step(nn)
+    except Exception as e:
+        return {"error": f"step {nn} not present in driver state trace: {e}"}
 
-    nn_str = f"{nn:02d}"
-    image_path = WORKDIR / "images" / f"image_{nn_str}.png"
-    image_cam_path = WORKDIR / "images_cam" / f"image_cam_{nn_str}.png"
-
-    data = arr[nn]
     out: dict = {"step": nn}
     out["state"] = data.get("state", data)
     out["libero_terminated"] = data.get("libero_terminated")
@@ -313,10 +304,12 @@ def view_driver_state(step: int | None = None) -> dict:
         "result": data.get("result"),
         "elapsed_s": data.get("elapsed_s"),
     }
-    if image_path.exists():
-        out["_image_path"] = str(image_path)
-    if image_cam_path.exists():
-        out["_image_cam_path"] = str(image_cam_path)
+    image = DRIVER_CLIENT.load_image(nn, "agent")
+    image_cam = DRIVER_CLIENT.load_image(nn, "camera")
+    if image:
+        out["_image_bytes"] = image
+    if image_cam:
+        out["_image_cam_bytes"] = image_cam
     return out
 
 
@@ -329,8 +322,54 @@ def view_driver_state(step: int | None = None) -> dict:
 BLOCKED_ACTIONS = {"reset", "exit"}
 
 
+def _normalize_command(command: dict) -> dict:
+    if not isinstance(command, dict):
+        raise ValueError("command must be an object")
+
+    out = dict(command)
+    action = out.get("action")
+
+    if action in {"move_to", "move_pose"}:
+        xyz = out.get("xyz")
+        if isinstance(xyz, dict) and set(xyz) == {"item"}:
+            xyz = xyz["item"]
+        if not isinstance(xyz, (list, tuple)) or len(xyz) != 3:
+            raise ValueError(
+                "xyz must be a JSON array of three numbers, e.g. "
+                '{"xyz":[-0.05,0,0.3]}'
+            )
+        out["xyz"] = [float(v) for v in xyz]
+
+    float_fields = (
+        "gripper tol step_clip action_scale target_yaw yaw_step_clip "
+        "target_pitch pitch_step yaw_step ori_tol delta_yaw delta_pitch "
+        "track_obj_lift_thresh lift_thresh gripper_closed_thresh"
+    )
+    for key in float_fields.split():
+        if key in out and out[key] is not None:
+            out[key] = float(out[key])
+
+    for key in ("max_steps", "steps", "max_chunks"):
+        if key in out and out[key] is not None:
+            out[key] = int(out[key])
+
+    return out
+
+
 def send_command(command: dict, timeout_s: float = 600.0) -> dict:
-    action = command.get("action") if isinstance(command, dict) else None
+    try:
+        command = _normalize_command(command)
+    except ValueError as e:
+        return {
+            "error": str(e),
+            "hint": (
+                "Use plain JSON for motion vectors, e.g. "
+                '{"command":{"action":"move_to","xyz":[-0.05,0,0.3],'
+                '"gripper":-1}}'
+            ),
+        }
+
+    action = command.get("action")
     if action in BLOCKED_ACTIONS:
         return {
             "error": (
@@ -347,20 +386,20 @@ def send_command(command: dict, timeout_s: float = 600.0) -> dict:
     if current is None:
         return {"error": "no states.json (or empty); driver not ready"}
 
-    transport_result = TRANSPORT.request(
-        "send_command",
-        {"command": command, "current_step": current},
+    driver_result = DRIVER_CLIENT.send_command(
+        command,
+        current_step=current,
         timeout_s=timeout_s,
     )
-    if transport_result.get("error"):
-        return transport_result
+    if driver_result.get("error"):
+        return driver_result
 
-    step = int(transport_result.get("step", current + 1))
+    step = int(driver_result.get("step", current + 1))
     result = view_driver_state(step)
-    if "agent_elapsed_s" in transport_result:
-        result["agent_elapsed_s"] = transport_result["agent_elapsed_s"]
-    if "driver_exit" in transport_result:
-        result["driver_exit"] = transport_result["driver_exit"]
+    if "agent_elapsed_s" in driver_result:
+        result["agent_elapsed_s"] = driver_result["agent_elapsed_s"]
+    if "driver_exit" in driver_result:
+        result["driver_exit"] = driver_result["driver_exit"]
     return result
 
 
@@ -369,17 +408,16 @@ def finish(status: str, summary: str) -> dict:
 
 
 def view_camera_meta() -> dict:
-    """Read camera_meta.json from the workdir for perception-mode localization."""
-    path = WORKDIR / "camera_meta.json"
-    if not path.exists():
+    """Read camera calibration metadata for perception-mode localization."""
+    try:
+        meta = DRIVER_CLIENT.load_camera_meta()
+    except Exception:
         return {
             "error": (
-                f"camera_meta.json not found in {WORKDIR}; "
+                f"camera metadata not found for driver workdir {WORKDIR}; "
                 "is the driver running in perception mode?"
             )
         }
-    with open(path) as f:
-        meta = json.load(f)
     return {"camera_meta": meta}
 
 
@@ -387,12 +425,11 @@ def back_project(row: int, col: int, step: int | None = None) -> dict:
     """Back-project a pixel to world XYZ using depth + camera calibration."""
     import numpy as np
 
-    meta_path = WORKDIR / "camera_meta.json"
-    if not meta_path.exists():
-        return {"error": "camera_meta.json not found"}
+    try:
+        meta = DRIVER_CLIENT.load_camera_meta()
+    except Exception:
+        return {"error": "camera metadata not found"}
 
-    with open(meta_path) as f:
-        meta = json.load(f)
     k_matrix = np.array(meta["intrinsic_K"])
     extrinsic = np.array(meta["extrinsic_cam2world"])
 
@@ -400,11 +437,10 @@ def back_project(row: int, col: int, step: int | None = None) -> dict:
     if nn is None:
         return {"error": "no depth files available"}
 
-    depth_path = WORKDIR / "depths" / f"depth_{nn:02d}.npy"
-    if not depth_path.exists():
-        return {"error": f"depth file not found: {depth_path}"}
-
-    depth = np.load(depth_path)
+    try:
+        depth = DRIVER_CLIENT.load_depth(nn)
+    except Exception as e:
+        return {"error": f"depth artifact not found for step {nn}: {e}"}
     height, width = depth.shape
     if row < 0 or row >= height or col < 0 or col >= width:
         return {
@@ -439,11 +475,15 @@ TOOL_HANDLERS = {
     "write_text_file": write_text_file,
     "list_dir": list_dir,
     "view_driver_state": view_driver_state,
+    "view_repl_state": view_driver_state,
     "send_command": send_command,
     "view_camera_meta": view_camera_meta,
     "back_project": back_project,
     "finish": finish,
 }
+
+# Compatibility function name from the earlier REPL tool.
+view_repl_state = view_driver_state
 
 
 def get_tools_spec() -> list[dict]:
@@ -490,19 +530,34 @@ MAX_TEXT_BYTES_IN_RESULT = 60000
 def tool_result_to_content_blocks(result):
     """Build a list of Anthropic content blocks from a tool result dict.
 
-    If the result has an `_image_path`, that PNG is included as a base64
-    image block (alongside a text block with the JSON state).
+    If the result has private image bytes, those PNGs are included as base64
+    image blocks (alongside a text block with the JSON state).
     """
     if not isinstance(result, dict):
         return [{"type": "text", "text": str(result)[:MAX_TEXT_BYTES_IN_RESULT]}]
 
-    image_path = result.pop("_image_path", None)
-    image_cam_path = result.pop("_image_cam_path", None)
-    text = json.dumps(result, indent=2, default=str)
+    result_for_text = dict(result)
+    image = result_for_text.pop("_image_bytes", None)
+    image_cam = result_for_text.pop("_image_cam_bytes", None)
+    # Legacy private path fields are still supported for external callers.
+    image_path = result_for_text.pop("_image_path", None)
+    image_cam_path = result_for_text.pop("_image_cam_path", None)
+    text = json.dumps(result_for_text, indent=2, default=str)
     if len(text) > MAX_TEXT_BYTES_IN_RESULT:
         text = text[:MAX_TEXT_BYTES_IN_RESULT] + "\n[truncated]"
 
     blocks = [{"type": "text", "text": text}]
+
+    def _add_image_bytes(data_bytes: bytes):
+        data = base64.b64encode(data_bytes).decode("utf-8")
+        blocks.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": data,
+            },
+        })
 
     def _add_image(path):
         p = Path(path)
@@ -518,6 +573,10 @@ def tool_result_to_content_blocks(result):
                 },
             })
 
+    if image:
+        _add_image_bytes(image)
+    if image_cam:
+        _add_image_bytes(image_cam)
     if image_path:
         _add_image(image_path)
     if image_cam_path:

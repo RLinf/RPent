@@ -64,11 +64,11 @@ logger = get_logger("agent")
 from physical_agent.tools.frontend import (  # noqa: E402
     execute_tool,
     get_tools_spec,
-    set_transport as tools_set_transport,
+    set_driver_client as tools_set_driver_client,
     set_workdir as tools_set_workdir,
     tool_result_to_content_blocks,
 )
-from physical_agent.transport import create_transport_client, set_socket_endpoint  # noqa: E402
+from physical_agent.transport import create_driver_client, set_socket_endpoint  # noqa: E402
 
 
 def _pipe_driver_output(
@@ -232,12 +232,8 @@ def stop_driver(
         return
     wd = Path(workdir or get_default_workdir_prefix())
     try:
-        client = create_transport_client(transport, wd)
-        client.request(
-            "send_command",
-            {"command": {"action": "exit"}},
-            timeout_s=timeout,
-        )
+        client = create_driver_client(transport, wd)
+        client.send_command({"action": "exit"}, timeout_s=timeout)
     except Exception:
         pass
     try:
@@ -452,6 +448,13 @@ def run_one_cell(
     # Point the agent's tools at the per-run workdir BEFORE the loop starts.
     tools_set_workdir(workdir)
 
+    if transport == "socket" and cerebrum_type in {"claude_code", "codex"}:
+        raise RuntimeError(
+            f"--transport socket is not supported with --cerebrum {cerebrum_type}. "
+            "CLI cerebrums currently interact through workdir files instead of "
+            "the API tool handler; use --transport file for this backend."
+        )
+
     if cerebrum_type == "anthropic":
         api_key = api_key or get_anthropic_api_key()
         if not api_key:
@@ -591,7 +594,7 @@ def run_one_cell(
             transport_port=transport_port,
         )
         if transport == "socket":
-            tools_set_transport(create_transport_client(transport, workdir))
+            tools_set_driver_client(create_driver_client(transport, workdir))
         if cerebrum_type == "claude_code":
             cerebrum.set_driver_process(proc)
         elif cerebrum_type == "codex":
@@ -605,7 +608,7 @@ def run_one_cell(
                     "--no_driver --transport socket requires --transport_port"
                 )
             set_socket_endpoint(workdir, transport_host, transport_port)
-            tools_set_transport(create_transport_client(transport, workdir))
+            tools_set_driver_client(create_driver_client(transport, workdir))
 
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None

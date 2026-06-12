@@ -123,7 +123,16 @@ def summarise_tool_result(result: Any) -> dict[str, Any]:
     summary = {
         k: v
         for k, v in result.items()
-        if k not in ("state", "content", "log", "_image_path", "_image_cam_path")
+        if k
+        not in (
+            "state",
+            "content",
+            "log",
+            "_image_path",
+            "_image_cam_path",
+            "_image_bytes",
+            "_image_cam_bytes",
+        )
     }
     if "state" in result:
         state = result["state"]
