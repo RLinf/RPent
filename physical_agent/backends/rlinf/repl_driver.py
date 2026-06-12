@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import threading
@@ -413,6 +414,24 @@ class DriverTransportDispatcher:
         self.step = 1
         self.server: TransportTCPServer | None = None
 
+    def _load_states(self) -> list:
+        path = os.path.join(self.workdir, "states.json")
+        if not os.path.exists(path):
+            return []
+        with open(path) as f:
+            states = json.load(f)
+        return states if isinstance(states, list) else []
+
+    def _image_path(self, step: int, kind: str) -> str:
+        nn_str = f"{step:02d}"
+        if kind == "agent":
+            return os.path.join(self.workdir, "images", f"image_{nn_str}.png")
+        if kind == "camera":
+            return os.path.join(
+                self.workdir, "images_cam", f"image_cam_{nn_str}.png"
+            )
+        raise ValueError(f"unknown image kind: {kind}")
+
     def dispatch(self, request: dict) -> dict:
         method = request.get("method")
         params = request.get("params") or {}
@@ -447,6 +466,62 @@ class DriverTransportDispatcher:
             else:
                 self.step += 1
             return result
+
+        if method == "get_states":
+            return {"states": self._load_states()}
+
+        if method == "get_latest_step":
+            states = self._load_states()
+            return {"step": len(states) - 1 if states else None}
+
+        if method == "get_step":
+            states = self._load_states()
+            if not states:
+                raise FileNotFoundError(f"no states.json entries in {self.workdir}")
+            raw_step = params.get("step")
+            step = len(states) - 1 if raw_step is None else int(raw_step)
+            if step < 0 or step >= len(states) or states[step] is None:
+                raise IndexError(
+                    f"step {step} not present in states.json (len={len(states)})"
+                )
+            return {"step": step, "step_data": states[step]}
+
+        if method == "get_image_paths":
+            step = int(params.get("step"))
+            image_path = self._image_path(step, "agent")
+            image_cam_path = self._image_path(step, "camera")
+            result = {}
+            if os.path.exists(image_path):
+                result["image"] = image_path
+            if os.path.exists(image_cam_path):
+                result["image_cam"] = image_cam_path
+            return result
+
+        if method == "get_image":
+            step = int(params.get("step"))
+            kind = str(params.get("kind") or "agent")
+            path = self._image_path(step, kind)
+            if not os.path.exists(path):
+                return {"data": None}
+            with open(path, "rb") as f:
+                data = base64.b64encode(f.read()).decode("ascii")
+            return {"data": data, "media_type": "image/png"}
+
+        if method == "get_camera_meta":
+            path = os.path.join(self.workdir, "camera_meta.json")
+            if not os.path.exists(path):
+                raise FileNotFoundError(
+                    f"camera_meta.json not found in {self.workdir}"
+                )
+            with open(path) as f:
+                return {"camera_meta": json.load(f)}
+
+        if method == "get_depth":
+            step = int(params.get("step"))
+            path = os.path.join(self.workdir, "depths", f"depth_{step:02d}.npy")
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"depth file not found: {path}")
+            return {"depth": np.load(path).tolist()}
 
         raise ValueError(f"unknown transport method: {method}")
 
