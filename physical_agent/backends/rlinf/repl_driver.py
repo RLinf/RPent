@@ -54,13 +54,11 @@ import numpy as np
 import torch
 
 from physical_agent.backends.rlinf.primitives import (
-    CHECKPOINT_PATH,
     LiberoPrimitiveDriver,
     build_env_cfg,
-    build_model_cfg,
 )
+from physical_agent.backends.rlinf.vla_client import VLAClient
 from rlinf.envs.libero.libero_env import LiberoEnv
-from rlinf.models.embodiment.openpi import get_model as get_openpi_model
 
 
 def make_env(task_id: int, seed: int, suite_name: str = "libero_spatial",
@@ -555,6 +553,10 @@ def main():
                         "(oracle mode: full GT coords).")
     p.add_argument("--video_path", default=None,
                    help="Path to save episode video (default: <workdir>/episode.mp4)")
+    p.add_argument("--vla-endpoint", default=None,
+                   help="Base URL for a remote Pi0.5 VLA /predict server "
+                        "(e.g. http://localhost:8000). When unset the model "
+                        "is loaded in-process via get_openpi_model.")
     args = p.parse_args()
 
     os.makedirs(args.workdir, exist_ok=True)
@@ -576,11 +578,21 @@ def main():
     init_run_logging(args.workdir)
 
     logger.info("task=%d  seed=%d  workdir=%s", args.task, args.seed, args.workdir)
-    logger.info("loading Pi0.5 ...")
-    t0 = time.time()
-    model_cfg = build_model_cfg(model_path=CHECKPOINT_PATH)
-    model = get_openpi_model(model_cfg, torch_dtype=None).cuda().eval()
-    logger.info("model ready in %.1fs", time.time() - t0)
+    vla_endpoint = args.vla_endpoint
+    local_proc = None
+    if vla_endpoint is None:
+        import atexit
+        from physical_agent.backends.rlinf.vla_server import spawn_local_server
+        vla_endpoint, local_proc = spawn_local_server()
+        atexit.register(local_proc.terminate)
+        logger.info("spawned local vla_server at %s; waiting for /healthz ...",
+                    vla_endpoint)
+    else:
+        logger.info("using remote VLA at %s", vla_endpoint)
+
+    model = VLAClient(vla_endpoint)
+    model.wait_for_healthz(timeout_s=60.0)
+    logger.info("vla_server ready at %s", vla_endpoint)
 
     env = make_env(args.task, args.seed, suite_name=args.suite,
                    max_episode_steps=args.max_episode_steps)

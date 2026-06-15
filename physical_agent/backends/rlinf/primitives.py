@@ -38,7 +38,8 @@ import torch
 from omegaconf import OmegaConf
 
 from rlinf.envs.libero.libero_env import LiberoEnv
-from rlinf.models.embodiment.openpi import get_model as get_openpi_model
+
+from physical_agent.backends.rlinf.vla_client import VLAClient
 
 
 # ----- Config builders ----------------------------------------------------
@@ -853,11 +854,13 @@ class LiberoPrimitiveDriver:
 def build_driver(
     *,
     task_id: int,
+    model: VLAClient,
     seed: int = 0,
-    model_path: str = CHECKPOINT_PATH,
-    torch_dtype=None,
 ):
     """Build a single-env LiberoPrimitiveDriver pinned to one libero_spatial task.
+
+    The caller owns the ``VLAClient`` (and the matching ``vla_server``
+    process behind it).
 
     Uses the task's first trial (specific_reset_id = task_id * trials_per_task
     is not what we want — instead we lock task via specific_task_id-style trick:
@@ -885,13 +888,8 @@ def build_driver(
         worker_info=None,
     )
 
-    model_cfg = build_model_cfg(model_path=model_path)
-    model = get_openpi_model(model_cfg, torch_dtype=torch_dtype)
-    model = model.cuda()
-    model.eval()
-
     driver = LiberoPrimitiveDriver(env=env, model=model, action_chunk=5)
-    return driver, env, model
+    return driver, env
 
 
 # ----- CLI smoke-run -------------------------------------------------------
@@ -924,13 +922,35 @@ def main():
     p.add_argument("--max_chunks_place", type=int, default=24)
     p.add_argument("--max_chunks_full", type=int, default=48)
     p.add_argument("--out", type=str, default=None, help="JSON result path")
+    p.add_argument("--vla-endpoint", default=None,
+                   help="Base URL for a remote Pi0.5 VLA /predict server "
+                        "(e.g. http://localhost:8000). When unset, the model "
+                        "is loaded in-process via get_openpi_model.")
     args = p.parse_args()
 
     t0 = time.time()
     obj, tgt = parse_task_object(args.task)
     print(f"[task {args.task}] obj=\"{obj}\"  tgt=\"{tgt}\"")
 
-    driver, env, model = build_driver(task_id=args.task, seed=args.seed)
+    local_server = None
+    vla_endpoint = args.vla_endpoint
+    if vla_endpoint is None:
+        import atexit
+        from physical_agent.backends.rlinf.vla_server import spawn_local_server
+        vla_endpoint, local_server = spawn_local_server()
+        atexit.register(local_server.terminate)
+        print(f"[setup] spawned local vla_server at {vla_endpoint}; "
+              "waiting for /healthz ...")
+
+    model = VLAClient(vla_endpoint)
+    model.wait_for_healthz(timeout_s=60.0)
+    print(f"[setup] vla_server ready at {vla_endpoint}")
+
+    driver, env = build_driver(
+        task_id=args.task,
+        seed=args.seed,
+        model=model,
+    )
     print(f"[setup] driver built in {time.time() - t0:.1f}s")
 
     obs, _ = driver.reset()
