@@ -43,7 +43,9 @@ from physical_agent.utils.config import (
 REPO_ROOT = get_repo_root()
 
 from physical_agent.cerebrum.adapters.anthropic import AnthropicAdapter  # noqa: E402
-from physical_agent.cerebrum.adapters.openai_compat import OpenAICompatibleAdapter  # noqa: E402
+from physical_agent.cerebrum.adapters.openai_compat import (  # noqa: E402
+    OpenAICompatibleAdapter,
+)
 from physical_agent.cerebrum.api_loop import ApiAgentLoop  # noqa: E402
 from physical_agent.cerebrum.claude_code import ClaudeCodeCerebrum  # noqa: E402
 from physical_agent.cerebrum.codex import CodexCerebrum  # noqa: E402
@@ -56,18 +58,26 @@ from physical_agent.context.libero_prompts import (  # noqa: E402
     SYSTEM_PROMPT,
     format_claude_code_prompt,
 )
+from physical_agent.driver_client import (  # noqa: E402
+    create_driver_client,
+    get_socket_endpoint,
+    set_socket_endpoint,
+)
+from physical_agent.tools.frontend import (  # noqa: E402
+    execute_tool,
+    get_tools_spec,
+    tool_result_to_content_blocks,
+)
+from physical_agent.tools.frontend import (  # noqa: E402
+    set_driver_client as tools_set_driver_client,
+)
+from physical_agent.tools.frontend import (  # noqa: E402
+    set_workdir as tools_set_workdir,
+)
 from physical_agent.utils import make_log_dir  # noqa: E402
 from physical_agent.utils.logging import get_logger, init_run_logging  # noqa: E402
 
 logger = get_logger("agent")
-from physical_agent.tools.frontend import (  # noqa: E402
-    execute_tool,
-    get_tools_spec,
-    set_driver_client as tools_set_driver_client,
-    set_workdir as tools_set_workdir,
-    tool_result_to_content_blocks,
-)
-from physical_agent.driver_client import create_driver_client, set_socket_endpoint  # noqa: E402
 
 
 def _pipe_driver_output(
@@ -447,13 +457,6 @@ def run_one_cell(
     # Point the agent's tools at the per-run workdir BEFORE the loop starts.
     tools_set_workdir(workdir)
 
-    if transport == "socket" and cerebrum_type in {"claude_code", "codex"}:
-        raise RuntimeError(
-            f"--transport socket is not supported with --cerebrum {cerebrum_type}. "
-            "CLI cerebrums currently interact through workdir files instead of "
-            "the API tool handler; use --transport file for this backend."
-        )
-
     if cerebrum_type == "anthropic":
         api_key = api_key or get_anthropic_api_key()
         if not api_key:
@@ -519,6 +522,9 @@ def run_one_cell(
             max_budget_usd=cc_budget,
             extra_dirs=[str(get_memory_dir())],
             output_path=cc_output_path,
+            transport=transport,
+            transport_host=transport_host,
+            transport_port=transport_port,
         )
     elif cerebrum_type == "codex":
         cx_timeout_s = codex_timeout_s
@@ -535,6 +541,9 @@ def run_one_cell(
             timeout_s=cx_timeout_s,
             extra_dirs=[str(get_memory_dir())],
             output_path=cx_output_path,
+            transport=transport,
+            transport_host=transport_host,
+            transport_port=transport_port,
         )
     else:
         raise ValueError(f"unknown cerebrum_type: {cerebrum_type}")
@@ -551,7 +560,8 @@ def run_one_cell(
 
     if cerebrum_type in {"claude_code", "codex"}:
         # CLI cerebrums get the full legacy single-shot prompt.  They interact
-        # through their own filesystem tools, not API tool schemas.
+        # through local CLI tools plus the PhysicalAgent MCP bridge, not API
+        # tool schemas.
         system_prompt = ""
         template = (
             CLAUDE_CODE_PERCEPTION_PROMPT_TEMPLATE
@@ -594,6 +604,13 @@ def run_one_cell(
         )
         if transport == "socket":
             tools_set_driver_client(create_driver_client(transport, workdir))
+            if cerebrum_type in {"claude_code", "codex"}:
+                endpoint = get_socket_endpoint(workdir)
+                if endpoint is None:
+                    raise RuntimeError(
+                        f"socket endpoint not registered for workdir: {workdir}"
+                    )
+                cerebrum.set_socket_endpoint(*endpoint)
         if cerebrum_type == "claude_code":
             cerebrum.set_driver_process(proc)
         elif cerebrum_type == "codex":
@@ -608,6 +625,8 @@ def run_one_cell(
                 )
             set_socket_endpoint(workdir, transport_host, transport_port)
             tools_set_driver_client(create_driver_client(transport, workdir))
+            if cerebrum_type in {"claude_code", "codex"}:
+                cerebrum.set_socket_endpoint(transport_host, transport_port)
 
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None

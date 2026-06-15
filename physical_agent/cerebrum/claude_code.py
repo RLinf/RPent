@@ -1,8 +1,9 @@
 """Claude Code cerebrum — delegates the agent loop to `claude -p`.
 
-Claude Code interacts directly with the driver workdir filesystem (Bash,
-Read, Write, Grep, Glob).  This cerebrum writes a combined task prompt,
-spawns ``claude -p`` with directory access, and waits for completion.
+Claude Code uses normal filesystem tools for reading guides and writing final
+artifacts, and a local MCP server for driver commands such as ``send_command``.
+This cerebrum writes a combined task prompt, spawns ``claude -p`` with the MCP
+configuration and directory access, and waits for completion.
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import os
 import selectors
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -60,7 +62,12 @@ class ClaudeCodeCerebrum:
         extra_dirs: list[str] | None = None,
         output_path: str | Path | None = None,
         driver_pid: int | None = None,
+        enable_mcp: bool = True,
+        transport: str = "file",
+        transport_host: str = "127.0.0.1",
+        transport_port: int = 0,
     ):
+        """Initialize the Claude Code subprocess wrapper."""
         self._workdir = str(workdir)
         self._repo_root = str(repo_root) if repo_root else str(get_repo_root())
         self._model = model
@@ -69,6 +76,10 @@ class ClaudeCodeCerebrum:
         self._max_budget_usd = max_budget_usd
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
+        self._enable_mcp = enable_mcp
+        self._transport = transport
+        self._transport_host = transport_host
+        self._transport_port = int(transport_port)
 
     def set_driver_pid(self, pid: int | None) -> None:
         """Compatibility no-op for the runner interface."""
@@ -77,6 +88,12 @@ class ClaudeCodeCerebrum:
     def set_driver_process(self, proc: subprocess.Popen | None) -> None:
         """Compatibility no-op for the runner interface."""
         return None
+
+    def set_socket_endpoint(self, host: str, port: int) -> None:
+        """Record the driver socket endpoint discovered after startup."""
+        self._transport = "socket"
+        self._transport_host = host
+        self._transport_port = int(port)
 
     # ------------------------------------------------------------------
     # Cerebrum protocol
@@ -112,6 +129,7 @@ class ClaudeCodeCerebrum:
             f.write(full_prompt)
             prompt_file = f.name
 
+        mcp_config_file: str | None = None
         try:
             logger.info("prompt: %d chars -> %s", len(full_prompt), prompt_file)
             logger.info("workdir: %s", self._workdir)
@@ -119,6 +137,30 @@ class ClaudeCodeCerebrum:
                 "invoking claude -p --model %s (timeout=%ds, budget=$%s)",
                 self._model, self._timeout_s, self._max_budget_usd,
             )
+
+            allowed_tools = self._allowed_tools
+            if self._enable_mcp:
+                mcp_config_file = _write_physical_agent_mcp_config(
+                    workdir=self._workdir,
+                    repo_root=self._repo_root,
+                    transport=self._transport,
+                    transport_host=self._transport_host,
+                    transport_port=self._transport_port,
+                )
+                allowed_tools = _append_allowed_tools(
+                    allowed_tools,
+                    [
+                        "mcp__physical_agent__send_command",
+                        "mcp__physical_agent__view_driver_state",
+                        "mcp__physical_agent__list_dir",
+                        "mcp__physical_agent__view_camera_meta",
+                        "mcp__physical_agent__back_project",
+                        "mcp__physical_agent__read_text_file",
+                        "mcp__physical_agent__write_text_file",
+                        "mcp__physical_agent__finish",
+                    ],
+                )
+                logger.info("mcp config: %s", mcp_config_file)
 
             cmd = [
                 "claude", "-p",
@@ -128,9 +170,11 @@ class ClaudeCodeCerebrum:
                 "--output-format", "stream-json",
                 "--verbose",
                 "--add-dir", self._workdir,
-                "--allowedTools", self._allowed_tools,
+                "--allowedTools", allowed_tools,
                 "--max-budget-usd", str(self._max_budget_usd),
             ]
+            if mcp_config_file is not None:
+                cmd += ["--mcp-config", mcp_config_file, "--strict-mcp-config"]
             for d in self._extra_dirs:
                 cmd += ["--add-dir", d]
 
@@ -205,6 +249,73 @@ class ClaudeCodeCerebrum:
                 os.unlink(prompt_file)
             except OSError:
                 pass
+            if mcp_config_file is not None:
+                try:
+                    os.unlink(mcp_config_file)
+                except OSError:
+                    pass
+
+
+def _append_allowed_tools(existing: str, additions: list[str]) -> str:
+    current = existing.split()
+    seen = set(current)
+    for tool in additions:
+        if tool not in seen:
+            current.append(tool)
+            seen.add(tool)
+    return " ".join(current)
+
+
+def _write_physical_agent_mcp_config(
+    *,
+    workdir: str,
+    repo_root: str,
+    transport: str,
+    transport_host: str,
+    transport_port: int,
+) -> str:
+    if transport == "socket" and transport_port <= 0:
+        raise RuntimeError("Claude Code MCP socket transport requires a bound port")
+    pythonpath = repo_root
+    if os.environ.get("PYTHONPATH"):
+        pythonpath = repo_root + os.pathsep + os.environ["PYTHONPATH"]
+    args = [
+        "-m",
+        "physical_agent.cerebrum.mcp.mcp",
+        "--workdir",
+        workdir,
+        "--repo-root",
+        repo_root,
+        "--transport",
+        transport,
+    ]
+    if transport == "socket":
+        args += [
+            "--transport-host",
+            transport_host,
+            "--transport-port",
+            str(transport_port),
+        ]
+    config = {
+        "mcpServers": {
+            "physical_agent": {
+                "command": sys.executable,
+                "args": args,
+                "env": {
+                    "HYBRID_DRIVER_WORKDIR": workdir,
+                    "PHYSICAL_AGENT_TRANSPORT": transport,
+                    "PHYSICAL_AGENT_TRANSPORT_HOST": transport_host,
+                    "PHYSICAL_AGENT_TRANSPORT_PORT": str(transport_port),
+                    "PYTHONPATH": pythonpath,
+                },
+            }
+        }
+    }
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", prefix="cc_mcp_", delete=False
+    ) as f:
+        json.dump(config, f)
+        return f.name
 
 
 def _terminate_process_group(proc: subprocess.Popen) -> None:

@@ -13,6 +13,11 @@ def set_socket_endpoint(workdir: str | Path, host: str, port: int) -> None:
     _SOCKET_ENDPOINTS[str(Path(workdir).resolve())] = (host, int(port))
 
 
+def get_socket_endpoint(workdir: str | Path) -> tuple[str, int] | None:
+    """Return the socket endpoint registered for a driver workdir."""
+    return _SOCKET_ENDPOINTS.get(str(Path(workdir).resolve()))
+
+
 def create_driver_client(kind: str, workdir: str | Path) -> DriverClient:
     """Create a driver client for an initialized driver workdir."""
     wd = Path(workdir)
@@ -32,5 +37,6 @@ __all__ = [
     "FileDriverClient",
     "SocketDriverClient",
     "create_driver_client",
+    "get_socket_endpoint",
     "set_socket_endpoint",
 ]

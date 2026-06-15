@@ -11,6 +11,7 @@ import os
 import selectors
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -36,13 +37,22 @@ class CodexCerebrum:
         extra_dirs: list[str] | None = None,
         output_path: str | Path | None = None,
         driver_pid: int | None = None,
+        enable_mcp: bool = True,
+        transport: str = "file",
+        transport_host: str = "127.0.0.1",
+        transport_port: int = 0,
     ):
+        """Initialize the Codex CLI subprocess wrapper."""
         self._workdir = str(workdir)
         self._repo_root = str(repo_root) if repo_root else str(get_repo_root())
         self._model = model
         self._timeout_s = timeout_s
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
+        self._enable_mcp = enable_mcp
+        self._transport = transport
+        self._transport_host = transport_host
+        self._transport_port = int(transport_port)
 
     def set_driver_pid(self, pid: int | None) -> None:
         """Compatibility no-op for the runner interface."""
@@ -51,6 +61,12 @@ class CodexCerebrum:
     def set_driver_process(self, proc: subprocess.Popen | None) -> None:
         """Compatibility no-op for the runner interface."""
         return None
+
+    def set_socket_endpoint(self, host: str, port: int) -> None:
+        """Record the driver socket endpoint discovered after startup."""
+        self._transport = "socket"
+        self._transport_host = host
+        self._transport_port = int(port)
 
     def solve(
         self,
@@ -105,6 +121,14 @@ class CodexCerebrum:
                 "--output-last-message",
                 str(last_message_path),
             ]
+            if self._enable_mcp:
+                cmd += _codex_mcp_config_args(
+                    workdir=self._workdir,
+                    repo_root=self._repo_root,
+                    transport=self._transport,
+                    transport_host=self._transport_host,
+                    transport_port=self._transport_port,
+                )
             if self._model:
                 cmd += ["--model", self._model]
             for d in [self._workdir, *self._extra_dirs]:
@@ -185,6 +209,62 @@ class CodexCerebrum:
                     os.unlink(prompt_file)
                 except OSError:
                     pass
+
+
+def _toml_value(value: Any) -> str:
+    return json.dumps(value)
+
+
+def _codex_mcp_config_args(
+    *,
+    workdir: str,
+    repo_root: str,
+    transport: str,
+    transport_host: str,
+    transport_port: int,
+) -> list[str]:
+    if transport == "socket" and transport_port <= 0:
+        raise RuntimeError("Codex MCP socket transport requires a bound port")
+
+    pythonpath = repo_root
+    if os.environ.get("PYTHONPATH"):
+        pythonpath = repo_root + os.pathsep + os.environ["PYTHONPATH"]
+
+    server_args = [
+        "-m",
+        "physical_agent.cerebrum.mcp.mcp",
+        "--workdir",
+        workdir,
+        "--repo-root",
+        repo_root,
+        "--transport",
+        transport,
+    ]
+    if transport == "socket":
+        server_args += [
+            "--transport-host",
+            transport_host,
+            "--transport-port",
+            str(transport_port),
+        ]
+
+    config: list[tuple[str, Any]] = [
+        ("mcp_servers.physical_agent.command", sys.executable),
+        ("mcp_servers.physical_agent.args", server_args),
+        ("mcp_servers.physical_agent.env.HYBRID_DRIVER_WORKDIR", workdir),
+        ("mcp_servers.physical_agent.env.PHYSICAL_AGENT_TRANSPORT", transport),
+        ("mcp_servers.physical_agent.env.PHYSICAL_AGENT_TRANSPORT_HOST", transport_host),
+        (
+            "mcp_servers.physical_agent.env.PHYSICAL_AGENT_TRANSPORT_PORT",
+            str(transport_port),
+        ),
+        ("mcp_servers.physical_agent.env.PYTHONPATH", pythonpath),
+    ]
+
+    out: list[str] = []
+    for key, value in config:
+        out += ["-c", f"{key}={_toml_value(value)}"]
+    return out
 
 
 def _terminate_process_group(proc: subprocess.Popen) -> None:
