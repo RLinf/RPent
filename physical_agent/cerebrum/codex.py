@@ -1,19 +1,20 @@
-"""Codex CLI cerebrum -- delegates the agent loop to ``codex exec``.
+"""Codex SDK cerebrum.
 
-Codex interacts directly with the repository and driver output dir through its
-normal local CLI tools.  This backend mirrors ``ClaudeCodeCerebrum``: it sends
-one self-contained task prompt to a subprocess and waits for completion.
+Mirror of ``claude_code.py``: a thin, SDK-first backend. ``solve()`` prepares
+artifacts, drives one Codex SDK turn, and assembles a ``CerebrumResult``.
+PhysicalAgent tools are exposed via the stdio MCP bridge configured through
+``_codex_mcp_config_overrides``; this backend does not register tools in
+process. Event rendering and stats live in a single ``_Recorder``.
 """
+
 from __future__ import annotations
 
 import json
 import os
-import selectors
-import signal
-import subprocess
 import sys
-import tempfile
+import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -24,8 +25,26 @@ from physical_agent.utils.logging import get_logger
 logger = get_logger("codex")
 
 
+# ---------------------------------------------------------------------------
+# Execution policy
+# ---------------------------------------------------------------------------
+
+# Approval + sandbox decisions are configured once per backend and reused for
+# both ``thread_start`` and the first ``turn``. Tighten ``_SANDBOX`` to
+# ``workspace_write`` if we ever stop trusting the agent with arbitrary writes.
+_APPROVAL_MODE_NAME = "deny_all"
+_SANDBOX_NAME = "full_access"
+
+_FINISH_TOOL_NAME = "finish"
+
+
+# ---------------------------------------------------------------------------
+# Public backend
+# ---------------------------------------------------------------------------
+
+
 class CodexCerebrum:
-    """Cerebrum backed by the local ``codex exec`` CLI."""
+    """Cerebrum backed by the OpenAI Codex Python SDK."""
 
     def __init__(
         self,
@@ -44,7 +63,7 @@ class CodexCerebrum:
         hide_object_coords: bool = False,
         video_path: str = "",
     ):
-        """Initialize the Codex CLI subprocess wrapper."""
+        """Initialize the Codex SDK backend."""
         self._output_dir = str(output_dir)
         self._repo_root = str(repo_root) if repo_root else str(get_repo_root())
         self._model = model
@@ -58,7 +77,6 @@ class CodexCerebrum:
         self._env_name = env_name
         self._hide_object_coords = bool(hide_object_coords)
         self._video_path = video_path
-        self._driver_process: subprocess.Popen | None = None
 
     def set_socket_endpoint(self, host: str, port: int) -> None:
         """Record the driver socket endpoint discovered after startup."""
@@ -68,10 +86,6 @@ class CodexCerebrum:
     def set_vla_endpoint(self, endpoint: str) -> None:
         """Record the vla_server HTTP endpoint discovered after startup."""
         self._vla_endpoint = endpoint
-
-    def set_driver_process(self, proc: subprocess.Popen) -> None:
-        """Record the spawned driver process for protocol compatibility."""
-        self._driver_process = proc
 
     def solve(
         self,
@@ -83,147 +97,319 @@ class CodexCerebrum:
         tool_result_formatter: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None,
         max_turns: int,
     ) -> CerebrumResult:
-        """Run ``codex exec`` with the combined system+user prompt.
+        """Run one Codex SDK turn for the given prompt."""
+        del tools_spec, tool_handler, tool_result_formatter
+        prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
+        artifacts = _Artifacts.create(self._output_path)
+        recorder = _Recorder(max_turns=max_turns)
+        state: dict[str, Any] = {}
 
-        ``tools_spec``, ``tool_handler``, and ``tool_result_formatter`` are
-        accepted for protocol compatibility but ignored; Codex uses its own
-        local tool loop.
-        """
-        full_prompt = (
-            f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
+        model_desc = self._model or "(configured default)"
+        logger.info("prompt: %d chars", len(prompt))
+        logger.info("output_dir: %s", self._output_dir)
+        logger.info(
+            "invoking Codex SDK model %s (timeout=%ds)",
+            model_desc, self._timeout_s,
         )
-        prompt_file = None
 
+        started = time.time()
+        worker = threading.Thread(
+            target=self._run_session,
+            args=(prompt, artifacts, recorder, state),
+            name="codex-sdk",
+            daemon=True,
+        )
+        worker.start()
+        worker.join(timeout=self._timeout_s)
+
+        error: str | None = None
+        if worker.is_alive():
+            error = f"Codex SDK timed out after {self._timeout_s}s"
+            _interrupt(state)
+            _append_event(artifacts, "timeout", error)
+            worker.join(timeout=15)
+        elif "error" in state:
+            exc = state["error"]
+            error = f"{type(exc).__name__}: {exc}"
+            _append_event(artifacts, "error", error)
+
+        elapsed = time.time() - started
+        text = state.get("text", "") or artifacts.output_path.read_text(errors="replace")
+        error = error or recorder.error
+
+        logger.info("Codex SDK finished in %.1fs", elapsed)
+        logger.info("output: %s", artifacts.output_path)
+        logger.info("raw stream: %s", artifacts.raw_path)
+
+        return CerebrumResult(
+            finish_result=recorder.finish_result,
+            messages=[{"role": "codex_sdk", "content": text}],
+            stats={
+                "backend": "codex_sdk",
+                "elapsed_s": round(elapsed, 1),
+                "output_chars": len(text),
+                "output_path": str(artifacts.output_path),
+                "raw_stream_path": str(artifacts.raw_path),
+                "last_message_path": str(artifacts.last_message_path),
+                "last_message_chars": len(recorder.final_response or ""),
+                **recorder.stats(),
+            },
+            error=error,
+        )
+
+    # -- internal session --------------------------------------------------
+
+    def _run_session(
+        self,
+        prompt: str,
+        artifacts: "_Artifacts",
+        recorder: "_Recorder",
+        state: dict[str, Any],
+    ) -> None:
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".md", prefix="codex_task_", delete=False
-            ) as f:
-                f.write(full_prompt)
-                prompt_file = f.name
-
-            model_desc = self._model if self._model else "(configured default)"
-            logger.info("prompt: %d chars -> %s", len(full_prompt), prompt_file)
-            logger.info("output_dir: %s", self._output_dir)
-            logger.info(
-                "invoking codex exec --model %s (timeout=%ds)",
-                model_desc, self._timeout_s,
-            )
-
-            output_path = self._output_path or Path(
-                f"/tmp/codex_task_{os.getpid()}_{int(time.time() * 1000)}.out"
-            )
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            last_message_path = output_path.with_suffix(output_path.suffix + ".last")
-            raw_stream_path = output_path.with_suffix(output_path.suffix + ".stream.jsonl")
-
-            cmd = [
-                "codex",
-                "exec",
-                "--json",
-                "--cd",
-                self._repo_root,
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--output-last-message",
-                str(last_message_path),
-            ]
-            if self._enable_mcp:
-                cmd += _codex_mcp_config_args(
-                    output_dir=self._output_dir,
-                    repo_root=self._repo_root,
-                    transport_host=self._transport_host,
-                    transport_port=self._transport_port,
-                    vla_endpoint=self._vla_endpoint,
-                    env_name=self._env_name,
-                    hide_object_coords=self._hide_object_coords,
-                    video_path=self._video_path,
-                )
-            if self._model:
-                cmd += ["--model", self._model]
-            for d in [self._output_dir, *self._extra_dirs]:
-                cmd += ["--add-dir", d]
-            cmd.append(full_prompt)
-
-            t0 = time.time()
-            timed_out = False
-            rendered_chunks: list[str] = []
-            renderer = _CodexStreamRenderer(max_turns=max_turns)
-            with open(output_path, "w") as out_f, open(raw_stream_path, "w") as raw_f:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
+            sdk = _import_sdk()
+            policy = _resolve_policy(sdk)
+            chunks: list[str] = []
+            with sdk.Codex(config=self._build_config(sdk)) as codex:
+                state["codex"] = codex
+                thread = codex.thread_start(
+                    approval_mode=policy.approval,
                     cwd=self._repo_root,
-                    env={**os.environ},
-                    start_new_session=True,
+                    model=self._model,
+                    sandbox=policy.sandbox,
                 )
-
-                timed_out = _poll_stdout_until_exit(
-                    proc=proc,
-                    timeout_s=self._timeout_s,
-                    raw_f=raw_f,
-                    out_f=out_f,
-                    rendered_chunks=rendered_chunks,
-                    renderer=renderer,
-                    timeout_prefix="[codex-cerebrum]",
+                state["thread"] = thread
+                turn = thread.turn(
+                    prompt,
+                    approval_mode=policy.approval,
+                    cwd=self._repo_root,
+                    model=self._model,
+                    sandbox=policy.sandbox,
                 )
+                state["turn"] = turn
 
-            elapsed = time.time() - t0
-            stdout_text = "".join(rendered_chunks) or output_path.read_text(errors="replace")
-            last_message = (
-                last_message_path.read_text(errors="replace")
-                if last_message_path.exists()
-                else ""
+                with open(artifacts.output_path, "w") as out_f, \
+                     open(artifacts.raw_path, "w") as raw_f:
+                    for event in turn.stream():
+                        _write_jsonl(raw_f, _message_to_json(event))
+                        if rendered := recorder.observe(event):
+                            chunks.append(rendered)
+                            out_f.write(rendered)
+                            out_f.flush()
+                            logger.info(rendered.rstrip())
+
+            state["text"] = "".join(chunks)
+            if recorder.final_response is not None:
+                artifacts.last_message_path.write_text(recorder.final_response)
+        except BaseException as e:
+            state["error"] = e
+
+    # -- config builder ----------------------------------------------------
+
+    def _build_config(
+        self,
+        sdk: Any,
+    ) -> Any:
+        overrides: list[str] = []
+        if self._enable_mcp:
+            overrides.extend(_codex_mcp_config_overrides(
+                output_dir=self._output_dir,
+                repo_root=self._repo_root,
+                transport_host=self._transport_host,
+                transport_port=self._transport_port,
+                vla_endpoint=self._vla_endpoint,
+                env_name=self._env_name,
+                hide_object_coords=self._hide_object_coords,
+                video_path=self._video_path,
+            ))
+
+        kwargs: dict[str, Any] = {
+            "config_overrides": tuple(overrides),
+            "cwd": self._repo_root,
+            "env": {**os.environ},
+        }
+        if codex_bin := os.environ.get("CODEX_BIN"):
+            kwargs["codex_bin"] = codex_bin
+        return sdk.CodexConfig(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Run artifacts
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _Artifacts:
+    output_path: Path
+    raw_path: Path
+    last_message_path: Path
+
+    @classmethod
+    def create(cls, output_path: Path | None) -> "_Artifacts":
+        path = output_path or _tmp_output_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return cls(
+            output_path=path,
+            raw_path=path.with_suffix(path.suffix + ".stream.jsonl"),
+            last_message_path=path.with_suffix(path.suffix + ".last"),
+        )
+
+
+def _append_event(artifacts: _Artifacts, event_type: str, message: str) -> None:
+    rendered = f"\n[codex-cerebrum] {message}\n"
+    with open(artifacts.output_path, "a") as out_f:
+        out_f.write(rendered)
+    with open(artifacts.raw_path, "a") as raw_f:
+        _write_jsonl(raw_f, {"type": event_type, "message": message})
+    logger.info(rendered.rstrip())
+
+
+# ---------------------------------------------------------------------------
+# Observation layer
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _Recorder:
+    """Pure adapter: consume Codex SDK events, emit text + accumulate stats."""
+
+    max_turns: int
+    turns: int = 0
+    tool_calls: int = 0
+    usage: dict[str, int] = field(default_factory=lambda: {
+        "total_input_tokens": 0,
+        "total_cached_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_reasoning_output_tokens": 0,
+    })
+    final_response: str | None = None
+    finish_result: dict[str, Any] | None = None
+    error: str | None = None
+
+    def stats(self) -> dict[str, int]:
+        return {"turns_used": self.turns, "tool_calls": self.tool_calls, **self.usage}
+
+    def observe(self, event: Any) -> str:
+        method = str(_get(event, "method", ""))
+        payload = _get(event, "payload")
+
+        if method in {"thread/started", "turn/started"}:
+            return f"[codex-system] {method}\n"
+        if method == "item/completed":
+            return self._render_item(_get(payload, "item"))
+        if method == "thread/tokenUsage/updated":
+            self._set_usage(_get(payload, "token_usage"))
+            return ""
+        if method == "turn/completed":
+            return self._render_turn_completed(_get(payload, "turn"))
+        if "requestApproval" in method:
+            return f"[codex-approval] {method}\n"
+        if method in {"error", "fatal"}:
+            return f"[codex-error] {_short_json(_jsonable(payload), limit=500)}\n"
+        return ""
+
+    # -- per-item handlers -------------------------------------------------
+
+    def _render_item(self, item: Any) -> str:
+        item = _unwrap(item)
+        item_type = _kind(item)
+        item_type_lower = item_type.lower()
+
+        if _is_input_item(item_type_lower):
+            return ""
+
+        if "agentmessage" in item_type_lower:
+            text = _extract_text(item)
+            if not text:
+                return ""
+            self.final_response = text
+            self.turns += 1
+            return (
+                f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n"
+                f"[codex] {text}\n"
             )
-            returncode = proc.returncode
-            codex_stats = renderer.stats()
 
-            logger.info(
-                "codex exec finished in %.1fs rc=%d", elapsed, returncode,
-            )
-            logger.info("output: %s", output_path)
-            logger.info("raw stream: %s", raw_stream_path)
+        if "reasoning" in item_type_lower:
+            text = _extract_text(item)
+            return f"[codex-reasoning] {text}\n" if text else ""
 
-            error = None
-            if timed_out:
-                error = f"codex exec timed out after {self._timeout_s}s"
-            elif returncode != 0:
-                error = f"codex exec exited with rc={returncode}: {stdout_text[-500:]}"
+        if _is_tool_item(item_type_lower):
+            self.tool_calls += 1
+            name = _tool_name(item, item_type)
+            payload = _summarise_item(item)
+            self._maybe_capture_finish(name, item)
+            return f"[tool<-] {name}: {json.dumps(payload, ensure_ascii=False)}\n"
 
-            return CerebrumResult(
-                finish_result=None,
-                messages=[{"role": "codex_cli", "content": stdout_text}],
-                stats={
-                    "elapsed_s": round(elapsed, 1),
-                    "returncode": returncode,
-                    "output_chars": len(stdout_text),
-                    "output_path": str(output_path),
-                    "raw_stream_path": str(raw_stream_path),
-                    "last_message_path": str(last_message_path),
-                    "last_message_chars": len(last_message),
-                    **codex_stats,
-                },
-                error=error,
-            )
-        except subprocess.TimeoutExpired:
-            return CerebrumResult(
-                error=f"codex exec timed out after {self._timeout_s}s",
-                stats={"elapsed_s": self._timeout_s},
-            )
-        finally:
-            if prompt_file is not None:
-                try:
-                    os.unlink(prompt_file)
-                except OSError:
-                    pass
+        return ""
+
+    def _render_turn_completed(self, turn: Any) -> str:
+        status = str(_get(_get(turn, "status"), "value", _get(turn, "status", "")))
+        duration_ms = _get(turn, "duration_ms")
+        if error := _get(turn, "error"):
+            self.error = str(_get(error, "message", str(error)))
+
+        parts = ["[codex-result]", status]
+        if duration_ms is not None:
+            parts.append(f"duration={float(duration_ms) / 1000:.1f}s")
+        usage_line = (
+            f"\n[usage] in={self.usage['total_input_tokens']} "
+            f"cached={self.usage['total_cached_input_tokens']} "
+            f"out={self.usage['total_output_tokens']} "
+            f"reasoning={self.usage['total_reasoning_output_tokens']} "
+            f"tool_calls={self.tool_calls}"
+        )
+        return " ".join(p for p in parts if p) + usage_line + "\n"
+
+    # -- helpers -----------------------------------------------------------
+
+    def _set_usage(self, usage: Any) -> None:
+        if usage is None:
+            return
+        self.usage = {
+            "total_input_tokens": _int_attr(usage, "input_tokens"),
+            "total_cached_input_tokens": _int_attr(usage, "cached_input_tokens"),
+            "total_output_tokens": _int_attr(usage, "output_tokens"),
+            "total_reasoning_output_tokens": _int_attr(usage, "reasoning_output_tokens"),
+        }
+
+    def _maybe_capture_finish(self, name: str, item: Any) -> None:
+        if self.finish_result is not None or _FINISH_TOOL_NAME not in name.lower():
+            return
+        data = _jsonable(item)
+        args = data.get("arguments") if isinstance(data, dict) else None
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except Exception:
+                args = None
+        if isinstance(args, dict):
+            self.finish_result = {"_finish": True, **args}
 
 
-def _toml_value(value: Any) -> str:
-    return json.dumps(value)
+# ---------------------------------------------------------------------------
+# Execution policy resolution
+# ---------------------------------------------------------------------------
 
 
-def _codex_mcp_config_args(
+@dataclass(frozen=True)
+class _Policy:
+    approval: Any
+    sandbox: Any
+
+
+def _resolve_policy(sdk: Any) -> _Policy:
+    return _Policy(
+        approval=getattr(sdk.ApprovalMode, _APPROVAL_MODE_NAME),
+        sandbox=getattr(sdk.Sandbox, _SANDBOX_NAME),
+    )
+
+
+# ---------------------------------------------------------------------------
+# MCP overrides (PhysicalAgent stdio bridge)
+# ---------------------------------------------------------------------------
+
+
+def _codex_mcp_config_overrides(
     *,
     output_dir: str,
     repo_root: str,
@@ -235,13 +421,13 @@ def _codex_mcp_config_args(
     video_path: str,
 ) -> list[str]:
     if transport_port <= 0:
-        raise RuntimeError("Codex MCP socket transport requires a bound port")
+        raise RuntimeError("Codex SDK MCP socket transport requires a bound port")
     if not vla_endpoint:
-        raise RuntimeError("Codex MCP server requires a vla_endpoint")
+        raise RuntimeError("Codex SDK MCP server requires a vla_endpoint")
 
     pythonpath = repo_root
-    if os.environ.get("PYTHONPATH"):
-        pythonpath = repo_root + os.pathsep + os.environ["PYTHONPATH"]
+    if existing := os.environ.get("PYTHONPATH"):
+        pythonpath = repo_root + os.pathsep + existing
 
     server_args = [
         "-m",
@@ -269,385 +455,156 @@ def _codex_mcp_config_args(
         ("mcp_servers.physical_agent.args", server_args),
         ("mcp_servers.physical_agent.env.HYBRID_DRIVER_OUTPUT_DIR", output_dir),
         ("mcp_servers.physical_agent.env.PHYSICAL_AGENT_TRANSPORT_HOST", transport_host),
-        (
-            "mcp_servers.physical_agent.env.PHYSICAL_AGENT_TRANSPORT_PORT",
-            str(transport_port),
-        ),
+        ("mcp_servers.physical_agent.env.PHYSICAL_AGENT_TRANSPORT_PORT", str(transport_port)),
         ("mcp_servers.physical_agent.env.PHYSICAL_AGENT_VLA_ENDPOINT", vla_endpoint),
         ("mcp_servers.physical_agent.env.PHYSICAL_AGENT_ENV", env_name),
         ("mcp_servers.physical_agent.env.PYTHONPATH", pythonpath),
     ]
-
-    out: list[str] = []
-    for key, value in config:
-        out += ["-c", f"{key}={_toml_value(value)}"]
-    return out
+    return [f"{key}={json.dumps(value)}" for key, value in config]
 
 
-def _terminate_process_group(proc: subprocess.Popen) -> None:
-    """Terminate Codex and tool subprocesses spawned in its process group."""
+# ---------------------------------------------------------------------------
+# SDK utilities
+# ---------------------------------------------------------------------------
+
+
+def _import_sdk() -> Any:
     try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    except OSError:
-        proc.terminate()
-        return
+        import openai_codex
+    except ImportError as e:
+        raise RuntimeError(
+            "openai-codex is required for the codex backend. "
+            "Install project dependencies or run `pip install openai-codex`."
+        ) from e
+    return openai_codex
 
-    try:
-        proc.wait(timeout=3)
-    except subprocess.TimeoutExpired:
+
+def _interrupt(state: dict[str, Any]) -> None:
+    if (turn := state.get("turn")) is not None:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except OSError:
-            proc.kill()
-
-
-def _poll_stdout_until_exit(
-    *,
-    proc: subprocess.Popen,
-    timeout_s: int,
-    raw_f,
-    out_f,
-    rendered_chunks: list[str],
-    renderer: "_CodexStreamRenderer",
-    timeout_prefix: str,
-) -> bool:
-    """Poll child stdout in the main thread until exit or timeout."""
-    if proc.stdout is None:
+            turn.interrupt()
+        except Exception:
+            pass
+    if (codex := state.get("codex")) is not None:
         try:
-            proc.wait(timeout=timeout_s)
-            return False
-        except subprocess.TimeoutExpired:
-            msg = f"\n{timeout_prefix} TIMEOUT after {timeout_s}s; killing worker.\n"
-            _write_rendered(msg, raw_f, out_f, rendered_chunks, "timeout")
-            _terminate_process_group(proc)
-            proc.wait(timeout=15)
-            return True
-
-    selector = selectors.DefaultSelector()
-    selector.register(proc.stdout, selectors.EVENT_READ)
-    deadline = time.time() + timeout_s
-    timed_out = False
-
-    try:
-        while True:
-            remaining = deadline - time.time()
-            if remaining <= 0 and proc.poll() is None:
-                timed_out = True
-                msg = f"\n{timeout_prefix} TIMEOUT after {timeout_s}s; killing worker.\n"
-                _write_rendered(msg, raw_f, out_f, rendered_chunks, "timeout")
-                _terminate_process_group(proc)
-                proc.wait(timeout=15)
-
-            events = selector.select(timeout=0 if timed_out else min(max(remaining, 0), 0.25))
-            for key, _ in events:
-                line = key.fileobj.readline()
-                if not line:
-                    selector.unregister(key.fileobj)
-                    break
-                raw_f.write(line)
-                raw_f.flush()
-                rendered = renderer.render(line)
-                if rendered:
-                    rendered_chunks.append(rendered)
-                    out_f.write(rendered)
-                    out_f.flush()
-                    logger.info(rendered.rstrip())
-
-            if proc.poll() is not None:
-                # Drain any buffered lines after process exit.
-                while True:
-                    line = proc.stdout.readline()
-                    if not line:
-                        break
-                    raw_f.write(line)
-                    raw_f.flush()
-                    rendered = renderer.render(line)
-                    if rendered:
-                        rendered_chunks.append(rendered)
-                        out_f.write(rendered)
-                        out_f.flush()
-                        logger.info(rendered.rstrip())
-                break
-    finally:
-        selector.close()
-    return timed_out
+            codex.close()
+        except Exception:
+            pass
 
 
-def _write_rendered(
-    msg: str,
-    raw_f,
-    out_f,
-    rendered_chunks: list[str],
-    event_type: str,
-) -> None:
-    out_f.write(msg)
-    rendered_chunks.append(msg)
-    out_f.flush()
-    raw_f.write(json.dumps({"type": event_type, "message": msg}) + "\n")
-    raw_f.flush()
-    logger.info(msg.rstrip())
+def _tmp_output_path() -> Path:
+    return Path(f"/tmp/codex_sdk_task_{os.getpid()}_{int(time.time() * 1000)}.out")
 
 
-class _CodexStreamRenderer:
-    def __init__(self, *, max_turns: int):
-        self._turn = 0
-        self._max_turns = max_turns
-        self._tool_calls = 0
-        self._total_input_tokens = 0
-        self._total_cached_input_tokens = 0
-        self._total_output_tokens = 0
-        self._total_reasoning_output_tokens = 0
-
-    def stats(self) -> dict[str, int]:
-        return {
-            "turns_used": self._turn,
-            "tool_calls": self._tool_calls,
-            "total_input_tokens": self._total_input_tokens,
-            "total_cached_input_tokens": self._total_cached_input_tokens,
-            "total_output_tokens": self._total_output_tokens,
-            "total_reasoning_output_tokens": self._total_reasoning_output_tokens,
-        }
-
-    def render(self, line: str) -> str:
-        """Convert one Codex JSONL event to a compact readable log line."""
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            return line
-
-        event_type = str(event.get("type") or event.get("event") or "")
-        if not event_type:
-            return _render_generic_event(event)
-
-        if event_type in {"thread.started", "session_configured", "session.created", "system"}:
-            model = event.get("model")
-            session_id = event.get("thread_id") or event.get("session_id") or event.get("id")
-            parts = ["[codex-system]", event_type]
-            if model:
-                parts.append(f"model={model}")
-            if session_id:
-                parts.append(f"session={session_id}")
-            return " ".join(parts) + "\n"
-
-        if event_type == "turn.started":
-            return ""
-
-        if event_type in {"turn.completed", "turn_complete"}:
-            return self._render_turn_completed(event)
-
-        if event_type in {"turn.failed", "turn_failed"}:
-            text = _extract_text(event) or json.dumps(event, ensure_ascii=False, default=str)
-            return f"[codex-error] {text}\n"
-
-        if event_type == "item.started":
-            return _render_codex_item_started(event.get("item", {}))
-
-        if event_type == "item.completed":
-            return self._render_codex_item_completed(event.get("item", {}))
-
-        if "reasoning" in event_type:
-            text = _extract_text(event)
-            return f"[codex-reasoning] {text}\n" if text else ""
-
-        if "message" in event_type or event_type in {"assistant", "agent_message"}:
-            text = _extract_text(event)
-            return self._render_agent_message(text)
-
-        if "exec" in event_type or "tool" in event_type or "command" in event_type:
-            return _render_tool_event(event, event_type)
-
-        if event_type in {"error", "fatal"}:
-            text = _extract_text(event) or json.dumps(event, ensure_ascii=False, default=str)
-            return f"[codex-error] {text}\n"
-
-        if event_type in {"task_complete", "result", "completed"}:
-            text = _extract_text(event)
-            return f"[codex-result] {text}\n" if text else f"[codex-result] {event_type}\n"
-
-        return _render_generic_event(event)
-
-    def _render_turn_completed(self, event: dict[str, Any]) -> str:
-        usage = event.get("usage")
-        if not isinstance(usage, dict):
-            return "[usage] in=? out=? tool_calls={}\n".format(self._tool_calls)
-
-        input_tokens = int(usage.get("input_tokens") or 0)
-        cached_tokens = int(usage.get("cached_input_tokens") or 0)
-        output_tokens = int(usage.get("output_tokens") or 0)
-        reasoning_tokens = int(usage.get("reasoning_output_tokens") or 0)
-        self._total_input_tokens += input_tokens
-        self._total_cached_input_tokens += cached_tokens
-        self._total_output_tokens += output_tokens
-        self._total_reasoning_output_tokens += reasoning_tokens
-        return (
-            f"[usage] in={input_tokens} cached={cached_tokens} out={output_tokens} "
-            f"reasoning={reasoning_tokens} tool_calls={self._tool_calls}\n"
-        )
-
-    def _render_codex_item_completed(self, item: Any) -> str:
-        if isinstance(item, dict) and _is_tool_item_type(str(item.get("type") or "")):
-            self._tool_calls += 1
-        if isinstance(item, dict) and str(item.get("type") or "") == "agent_message":
-            return self._render_agent_message(_extract_text(item))
-        return _render_codex_item(item)
-
-    def _render_agent_message(self, text: str) -> str:
-        if not text:
-            return ""
-        self._turn += 1
-        return f"\n[agent] === turn {self._turn}/{self._max_turns} ===\n[codex] {text}\n"
+def _write_jsonl(file_obj, value: dict[str, Any]) -> None:
+    file_obj.write(json.dumps(value, ensure_ascii=False, default=str) + "\n")
+    file_obj.flush()
 
 
-def _is_tool_item_type(item_type: str) -> bool:
-    return item_type in {
-        "exec_command",
-        "command_execution",
-        "exec_command_output",
-        "tool_call",
-        "tool_result",
-        "function_call",
-        "function_call_output",
-        "mcp_tool_call",
-        "mcp_tool_call_result",
+def _message_to_json(message: Any) -> dict[str, Any]:
+    return {
+        "method": _get(message, "method", ""),
+        "payload": _jsonable(_get(message, "payload")),
     }
 
 
-def _render_tool_event(event: dict[str, Any], event_type: str) -> str:
-    name = event.get("name") or event.get("tool") or event.get("command") or event_type
-    arrow = "<-" if any(k in event_type for k in ("result", "output", "end", "complete")) else "->"
-    payload = _summarise_tool_result(event) if arrow == "<-" else _tool_input_payload(event)
-    if isinstance(payload, (dict, list)):
-        payload_text = json.dumps(payload, ensure_ascii=False, default=str)
-    else:
-        payload_text = str(payload)
-    payload_text = _omit_image_payload(payload_text.strip())
-    if len(payload_text) > 500:
-        payload_text = payload_text[:500] + f"...(+{len(payload_text) - 500})"
-
-    if payload_text:
-        return f"[tool{arrow}] {name}: {payload_text}\n"
-    return f"[tool{arrow}] {name}\n"
+def _jsonable(value: Any) -> Any:
+    value = _unwrap(value)
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json", exclude_none=True)
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, bytes):
+        return {"type": "bytes", "size": len(value)}
+    return value
 
 
-def _render_codex_item_started(item: Any) -> str:
-    if not isinstance(item, dict):
-        return ""
-    item_type = str(item.get("type") or "")
-    if item_type in {"exec_command", "command_execution"}:
-        command = item.get("command") or item.get("cmd") or ""
-        payload = {"command": _truncate_text(str(command), 200)} if command else {}
-        return f"[tool->] exec_command: {json.dumps(payload, ensure_ascii=False)}\n"
-    if item_type in {"tool_call", "function_call", "mcp_tool_call"}:
-        name = item.get("name") or item.get("tool_name") or item_type
-        payload = _tool_input_payload(item)
-        payload_text = json.dumps(payload, ensure_ascii=False, default=str) if payload else "{}"
-        if len(payload_text) > 500:
-            payload_text = payload_text[:500] + f"...(+{len(payload_text) - 500})"
-        return f"[tool->] {name}: {payload_text}\n"
-    return ""
+def _unwrap(value: Any) -> Any:
+    return getattr(value, "root", value)
 
 
-def _render_codex_item(item: Any) -> str:
-    if not isinstance(item, dict):
-        return ""
-    item_type = str(item.get("type") or "")
-    if item_type == "agent_message":
-        text = _extract_text(item)
-        return f"[codex] {text}\n" if text else ""
-    if item_type in {"reasoning", "reasoning_summary"}:
-        text = _extract_text(item)
-        return f"[codex-reasoning] {text}\n" if text else ""
-    if item_type in {
-        "exec_command",
-        "command_execution",
-        "exec_command_output",
-        "tool_call",
-        "tool_result",
-        "function_call",
-        "function_call_output",
-        "mcp_tool_call",
-        "mcp_tool_call_result",
-    }:
-        name = _tool_name_for_item(item, item_type)
-        payload_text = json.dumps(_summarise_tool_result(item), ensure_ascii=False, default=str)
-        if len(payload_text) > 500:
-            payload_text = payload_text[:500] + f"...(+{len(payload_text) - 500})"
-        return f"[tool<-] {name}: {payload_text}\n"
-    return _render_generic_event(item)
+def _get(value: Any, key: str, default: Any = None) -> Any:
+    if isinstance(value, dict):
+        return value.get(key, default)
+    return getattr(value, key, default)
 
 
-def _tool_name_for_item(item: dict[str, Any], item_type: str) -> str:
-    if item.get("name"):
-        return str(item["name"])
-    if item.get("tool_name"):
-        return str(item["tool_name"])
-    if item_type in {"exec_command", "command_execution", "exec_command_output"}:
-        return "exec_command"
-    return item_type
+def _kind(value: Any) -> str:
+    value = _unwrap(value)
+    if isinstance(value, dict):
+        return str(value.get("type") or value.get("kind") or "")
+    return value.__class__.__name__
 
 
-def _tool_input_payload(event: dict[str, Any]) -> Any:
-    return (
-        event.get("arguments")
-        or event.get("input")
-        or event.get("cmd")
-        or event.get("command")
-        or ""
+def _is_tool_item(item_type_lower: str) -> bool:
+    return any(
+        marker in item_type_lower
+        for marker in ("command", "exec", "tool", "mcp", "filechange", "patch")
     )
 
 
-def _summarise_tool_result(event: dict[str, Any]) -> dict[str, Any]:
+def _is_input_item(item_type_lower: str) -> bool:
+    return any(
+        marker in item_type_lower
+        for marker in ("input", "user", "prompt")
+    )
+
+
+def _tool_name(item: Any, item_type: str) -> str:
+    return str(
+        _get(item, "name")
+        or _get(item, "tool_name")
+        or _get(item, "command")
+        or item_type
+    )
+
+
+def _summarise_item(item: Any) -> dict[str, Any]:
+    data = _jsonable(item)
+    if not isinstance(data, dict):
+        return {"size": _payload_size(data)}
+
     summary: dict[str, Any] = {}
-
-    path = _first_present(event, "path", "file_path", "filename")
-    command = _first_present(event, "command", "cmd")
-    status = _first_present(event, "status", "state")
-    exit_code = _first_present(event, "exit_code", "returncode", "code")
-
-    nested_input = event.get("input") if isinstance(event.get("input"), dict) else {}
-    if path is None and isinstance(nested_input, dict):
-        path = _first_present(nested_input, "path", "file_path", "filename")
-    if command is None and isinstance(nested_input, dict):
-        command = _first_present(nested_input, "command", "cmd")
-
-    if path is not None:
-        summary["path"] = str(path)
-    if command is not None:
-        summary["command"] = _truncate_text(str(command), 200)
-    if status is not None:
-        summary["status"] = status
-    if exit_code is not None:
-        summary["exit_code"] = exit_code
-
-    for key in ("content", "text", "output", "aggregated_output", "stdout", "stderr", "result"):
-        if key not in event or event[key] in (None, ""):
-            continue
-        size = _payload_size(event[key])
-        if key == "content" and path is not None:
-            summary["size"] = size
-        elif key == "aggregated_output":
-            summary["output_size"] = size
-        else:
-            summary[f"{key}_size"] = size
-
-    if "size" not in summary and path is not None:
-        size = _payload_size(_first_present(event, "content", "text", "output", "result"))
-        if size:
-            summary["size"] = size
+    for key in ("path", "file_path", "filename", "status", "state", "exit_code"):
+        value = data.get(key)
+        if value not in (None, ""):
+            summary[key] = value
+    if command := (data.get("command") or data.get("cmd")):
+        summary["command"] = _truncate(str(command), 200)
+    for key in ("content", "text", "output", "stdout", "stderr", "result"):
+        if key in data and data[key] not in (None, ""):
+            summary[f"{key}_size"] = _payload_size(data[key])
 
     if not summary:
-        keys = sorted(k for k in event.keys() if k not in {"content", "text", "output", "stdout", "stderr", "result"})
-        summary["keys"] = keys
+        summary["keys"] = sorted(
+            key for key in data if key not in {"content", "text", "output"}
+        )
     return summary
 
 
-def _first_present(mapping: dict[str, Any], *keys: str) -> Any:
-    for key in keys:
-        if key in mapping and mapping[key] is not None:
-            return mapping[key]
-    return None
+def _extract_text(value: Any) -> str:
+    value = _unwrap(value)
+    if isinstance(value, str):
+        return _omit_image_payload(value.strip())
+    if isinstance(value, list):
+        parts = [_extract_text(item) for item in value]
+        return "\n".join(part for part in parts if part)
+    if isinstance(value, dict):
+        for key in ("text", "message", "content", "summary", "result", "output"):
+            if key in value:
+                text = _extract_text(value[key])
+                if text:
+                    return text
+        return ""
+    for key in ("text", "message", "content", "summary", "result", "output"):
+        attr = getattr(value, key, None)
+        if attr is not None:
+            text = _extract_text(attr)
+            if text:
+                return text
+    return ""
 
 
 def _payload_size(value: Any) -> int:
@@ -655,44 +612,27 @@ def _payload_size(value: Any) -> int:
         return 0
     if isinstance(value, str):
         return len(value)
-    try:
-        return len(json.dumps(value, ensure_ascii=False, default=str))
-    except TypeError:
-        return len(str(value))
+    return len(json.dumps(value, ensure_ascii=False, default=str))
 
 
-def _truncate_text(text: str, limit: int) -> str:
+def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"...(+{len(text) - limit})"
 
 
-def _render_generic_event(event: dict[str, Any]) -> str:
-    text = _extract_text(event)
-    if text:
-        return f"[codex] {text}\n"
-    return ""
-
-
-def _extract_text(value: Any) -> str:
-    if isinstance(value, str):
-        return _omit_image_payload(value.strip())
-    if isinstance(value, list):
-        parts = [_extract_text(item) for item in value]
-        return "\n".join(part for part in parts if part)
-    if not isinstance(value, dict):
-        return ""
-
-    for key in ("message", "text", "content", "delta", "summary", "result", "output", "item"):
-        if key not in value:
-            continue
-        text = _extract_text(value[key])
-        if text:
-            return text
-    return ""
+def _short_json(value: Any, *, limit: int) -> str:
+    text = json.dumps(value, ensure_ascii=False, default=str)
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"...(+{len(text) - limit})"
 
 
 def _omit_image_payload(text: str) -> str:
-    if "data:image" in text or "base64" in text and ("image" in text or "iVBOR" in text):
+    if "data:image" in text or ("base64" in text and ("image" in text or "iVBOR" in text)):
         return "<image omitted>"
     return text
+
+
+def _int_attr(value: Any, key: str) -> int:
+    return int(_get(value, key, 0) or 0)
