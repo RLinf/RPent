@@ -17,6 +17,7 @@ class CerebrumResult:
         stats: dict | None = None,
         error: str | None = None,
     ):
+        """Initialize a serializable cerebrum result."""
         self.finish_result = finish_result  # {"status": "success"/"failure"/"stuck", "summary": "..."}
         self.messages = messages or []       # serialisable conversation transcript
         self.stats = stats or {}             # {"total_input_tokens", "total_output_tokens", "turns_used", "tool_calls"}
