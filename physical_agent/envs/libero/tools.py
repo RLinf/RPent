@@ -28,8 +28,7 @@ import numpy as np
 
 from physical_agent.driver_client.base import DriverClient
 from physical_agent.driver_client.proxies import RemoteEnvProxy
-from physical_agent.tools.common import _output_dir_desc, _require_output_dir
-from physical_agent.utils.logging import get_logger
+from physical_agent.utils.logging import get_logger, get_output_dir
 
 logger = get_logger("libero")
 
@@ -1038,7 +1037,7 @@ def set_driver_client(
     _HIDE_OBJECT_COORDS = hide_object_coords
     VIDEO_PATH = video_path
 
-    out_dir = _require_output_dir()
+    out_dir = get_output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     for sub in ("images", "images_cam", "depths"):
         target = out_dir / sub
@@ -1338,7 +1337,7 @@ TOOLS_SPEC = [
 
 def _load_states() -> list:
     """Return the parsed driver state trace from the local output dir."""
-    path = _require_output_dir() / "states.json"
+    path = get_output_dir() / "states.json"
     if not path.exists():
         return []
     with open(path) as f:
@@ -1363,7 +1362,7 @@ def _load_step(nn: int) -> dict:
 def _load_image(nn: int, kind: str) -> bytes | None:
     """Return PNG bytes for ``image_NN.png`` (kind='agent') or
     ``image_cam_NN.png`` (kind='camera'). None if not present."""
-    out_dir = _require_output_dir()
+    out_dir = get_output_dir()
     if kind == "agent":
         path = out_dir / "images" / f"image_{nn:02d}.png"
     elif kind == "camera":
@@ -1376,7 +1375,7 @@ def _load_image(nn: int, kind: str) -> bytes | None:
 
 
 def _load_camera_meta() -> dict:
-    out_dir = _require_output_dir()
+    out_dir = get_output_dir()
     path = out_dir / "camera_meta.json"
     if not path.exists():
         raise FileNotFoundError(f"camera_meta.json not found in {out_dir}")
@@ -1385,7 +1384,7 @@ def _load_camera_meta() -> dict:
 
 
 def _load_depth(nn: int) -> np.ndarray:
-    out_dir = _require_output_dir()
+    out_dir = get_output_dir()
     path = out_dir / "depths" / f"depth_{nn:02d}.npy"
     if not path.exists():
         raise FileNotFoundError(f"depth_{nn:02d}.npy not found in {out_dir}")
@@ -1468,7 +1467,7 @@ def _run_driver_primitive(name: str, **kwargs) -> dict:
     step_idx = _NEXT_STEP
     dump_state(
         driver,
-        str(_require_output_dir()),
+        str(get_output_dir()),
         step_idx=step_idx,
         log={"command": command, "result": result_dict, "elapsed_s": elapsed},
     )
@@ -1499,7 +1498,7 @@ def view_camera_meta() -> dict:
     except Exception:
         return {
             "error": (
-                f"camera metadata not found for output dir {_output_dir_desc()}; "
+                f"camera metadata not found for output dir {get_output_dir()}; "
                 "is the driver running in perception mode?"
             )
         }
