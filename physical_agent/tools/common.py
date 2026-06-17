@@ -3,10 +3,8 @@
 Defines the schemas the LLM sees, the dispatch glue for tool calls, and
 the conversion of tool results into multimodal content blocks.
 
-Generic file/IO tools live in this module. Libero-specific tools (driver
-primitives, state-trace readers, camera back-projection) are registered
-by :mod:`physical_agent.tools.libero` and merged in at the bottom of
-this module.
+Generic file/IO tools live in this module. Environment-specific tools are
+provided by :mod:`physical_agent.envs` and merged by :mod:`physical_agent.tools`.
 """
 from __future__ import annotations
 
@@ -144,29 +142,13 @@ TOOL_HANDLERS: dict = {
 
 
 # ---------------------------------------------------------------------------
-# Merge libero-specific tools. Imported at the bottom so libero can pull
-# _require_output_dir / _output_dir_desc from this module without a true
-# circular import (this module's names are already bound by the time the
-# import below runs).
-# ---------------------------------------------------------------------------
-
-from physical_agent.tools.libero import (  # noqa: E402
-    TOOLS_SPEC as _LIBERO_TOOLS_SPEC,
-    TOOL_HANDLERS as _LIBERO_TOOL_HANDLERS,
-)
-
-TOOLS_SPEC.extend(_LIBERO_TOOLS_SPEC)
-TOOL_HANDLERS.update(_LIBERO_TOOL_HANDLERS)
-
-
-# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
 
-def get_tools_spec() -> list[dict]:
+def bind_output_dir_descriptions(tools_spec: list[dict]) -> list[dict]:
     """Return tool schemas with descriptions bound to the current output dir."""
-    tools = json.loads(json.dumps(TOOLS_SPEC))
+    tools = json.loads(json.dumps(tools_spec))
     replacements = {
         "current output dir": _output_dir_desc(),
         "Default: current output dir": f"Default: {_output_dir_desc()}",
@@ -183,6 +165,10 @@ def get_tools_spec() -> list[dict]:
                 prop_desc = prop_desc.replace(old, new)
             prop["description"] = prop_desc
     return tools
+
+
+def get_tools_spec() -> list[dict]:
+    return bind_output_dir_descriptions(TOOLS_SPEC)
 
 
 def execute_tool(name: str, input_dict: dict) -> dict:

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from physical_agent.cerebrum.base import CerebrumResult
+from physical_agent.envs.registry import get_env_spec
 from physical_agent.utils.config import get_repo_root
 from physical_agent.utils.logging import get_logger
 
@@ -44,6 +45,7 @@ class ClaudeCodeCerebrum:
         transport_host: str = "127.0.0.1",
         transport_port: int = 0,
         vla_endpoint: str = "",
+        env_name: str = "libero",
         hide_object_coords: bool = False,
         video_path: str = "",
     ):
@@ -60,8 +62,10 @@ class ClaudeCodeCerebrum:
         self._transport_host = transport_host
         self._transport_port = int(transport_port)
         self._vla_endpoint = vla_endpoint
+        self._env_name = env_name
         self._hide_object_coords = bool(hide_object_coords)
         self._video_path = video_path
+        self._driver_process: subprocess.Popen | None = None
 
     def set_socket_endpoint(self, host: str, port: int) -> None:
         """Record the driver socket endpoint discovered after startup."""
@@ -71,6 +75,10 @@ class ClaudeCodeCerebrum:
     def set_vla_endpoint(self, endpoint: str) -> None:
         """Record the vla_server HTTP endpoint discovered after startup."""
         self._vla_endpoint = endpoint
+
+    def set_driver_process(self, proc: subprocess.Popen) -> None:
+        """Record the spawned driver process for protocol compatibility."""
+        self._driver_process = proc
 
     def solve(
         self,
@@ -119,27 +127,13 @@ class ClaudeCodeCerebrum:
                     transport_host=self._transport_host,
                     transport_port=self._transport_port,
                     vla_endpoint=self._vla_endpoint,
+                    env_name=self._env_name,
                     hide_object_coords=self._hide_object_coords,
                     video_path=self._video_path,
                 )
                 allowed_tools = _append_allowed_tools(
                     allowed_tools,
-                    [
-                        "mcp__physical_agent__move_to",
-                        "mcp__physical_agent__pi0_pick",
-                        "mcp__physical_agent__release",
-                        "mcp__physical_agent__set_gripper",
-                        "mcp__physical_agent__rotate_wrist",
-                        "mcp__physical_agent__rotate_pitch",
-                        "mcp__physical_agent__move_pose",
-                        "mcp__physical_agent__view_driver_state",
-                        "mcp__physical_agent__view_camera_meta",
-                        "mcp__physical_agent__back_project",
-                        "mcp__physical_agent__read_text_file",
-                        "mcp__physical_agent__write_text_file",
-                        "mcp__physical_agent__mcp_list_dir",
-                        "mcp__physical_agent__finish",
-                    ],
+                    list(get_env_spec(self._env_name).allowed_mcp_tool_names),
                 )
                 logger.info("mcp config: %s", mcp_config_file)
 
@@ -254,6 +248,7 @@ def _write_physical_agent_mcp_config(
     transport_host: str,
     transport_port: int,
     vla_endpoint: str,
+    env_name: str,
     hide_object_coords: bool,
     video_path: str,
 ) -> str:
@@ -277,6 +272,8 @@ def _write_physical_agent_mcp_config(
         str(transport_port),
         "--vla-endpoint",
         vla_endpoint,
+        "--env",
+        env_name,
     ]
     if hide_object_coords:
         args.append("--hide-object-coords")
@@ -292,6 +289,7 @@ def _write_physical_agent_mcp_config(
                     "PHYSICAL_AGENT_TRANSPORT_HOST": transport_host,
                     "PHYSICAL_AGENT_TRANSPORT_PORT": str(transport_port),
                     "PHYSICAL_AGENT_VLA_ENDPOINT": vla_endpoint,
+                    "PHYSICAL_AGENT_ENV": env_name,
                     "PYTHONPATH": pythonpath,
                 },
             }

@@ -1,14 +1,10 @@
 """Agent tool declarations, handlers, and result serialization."""
 
-from physical_agent.tools.common import (  # noqa: F401
-    TOOLS_SPEC,
-    TOOL_HANDLERS,
-    execute_tool,
-    get_tools_spec,
-    tool_result_to_content_blocks,
-)
-from physical_agent.tools.libero import (  # noqa: F401
-    set_driver_client,
-    stop_recording_and_save,
-    view_driver_state,
-)
+from physical_agent.tools.common import tool_result_to_content_blocks
+from physical_agent.tools.registry import ToolRegistry, create_tool_registry
+
+__all__ = [
+    "ToolRegistry",
+    "create_tool_registry",
+    "tool_result_to_content_blocks",
+]

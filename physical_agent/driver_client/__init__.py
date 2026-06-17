@@ -4,7 +4,6 @@ from pathlib import Path
 from physical_agent.driver_client.base import DriverClient
 from physical_agent.driver_client.proxies import RemoteEnvProxy
 from physical_agent.driver_client.socket import SocketDriverClient
-from physical_agent.driver_client.vla_client import VLAClient
 
 _SOCKET_ENDPOINTS: dict[str, tuple[str, int]] = {}
 
@@ -33,7 +32,6 @@ __all__ = [
     "DriverClient",
     "RemoteEnvProxy",
     "SocketDriverClient",
-    "VLAClient",
     "create_driver_client",
     "get_socket_endpoint",
     "set_socket_endpoint",

@@ -94,6 +94,7 @@ def _runner_cmd(
     api_key: str | None,
     cerebrum: str,
     perception: bool,
+    env_name: str | None,
     libero_type: str | None,
     claude_code_timeout_s: int | None,
     claude_code_max_budget_usd: float | None,
@@ -118,6 +119,8 @@ def _runner_cmd(
         cmd += ["--model", model]
     if perception:
         cmd += ["--perception"]
+    if env_name:
+        cmd += ["--env", env_name]
     if libero_type:
         cmd += ["--libero_type", libero_type]
     if claude_code_timeout_s is not None:
@@ -166,6 +169,8 @@ def main() -> int:
                          "(helps avoid hammering the API + spreads Pi0 load IO).")
     ap.add_argument("--perception", action="store_true",
                     help="Run perception-isolated cells (--hide_object_coords, full perception prompt).")
+    ap.add_argument("--env", dest="env_name", default=None,
+                    help="Environment backend passed to runner.py. Defaults to runner inference/libero.")
     ap.add_argument("--libero_type", default=None, choices=["standard", "pro", "plus"],
                     help="LIBERO variant to pass through. Default is runner.py auto-routing.")
     ap.add_argument("--skip_existing", action="store_true",
@@ -268,6 +273,7 @@ def main() -> int:
             api_key=api_key,
             cerebrum=args.cerebrum,
             perception=args.perception,
+            env_name=args.env_name,
             libero_type=args.libero_type,
             claude_code_timeout_s=args.claude_code_timeout_s,
             claude_code_max_budget_usd=args.claude_code_max_budget_usd,

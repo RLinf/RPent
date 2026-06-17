@@ -19,14 +19,15 @@ from physical_agent.driver_client import SocketDriverClient
 from physical_agent.driver_client.vla_client import VLAClient
 from physical_agent.utils.logging import init_output_dir
 from physical_agent import tools as agent_tools
+from physical_agent.tools import ToolRegistry
 
 SERVER_NAME = "physical_agent"
 PROTOCOL_VERSION = "2025-06-18"
 
 
-def _tool_specs() -> list[dict[str, Any]]:
+def _tool_specs(tool_registry: ToolRegistry) -> list[dict[str, Any]]:
     tools = []
-    for tool in agent_tools.get_tools_spec():
+    for tool in tool_registry.get_tools_spec():
         tools.append(
             {
                 "name": tool["name"],
@@ -114,7 +115,10 @@ def _error_response(
     return {"jsonrpc": "2.0", "id": request["id"], "error": error}
 
 
-def _handle_request(request: dict[str, Any]) -> dict[str, Any] | None:
+def _handle_request(
+    request: dict[str, Any],
+    tool_registry: ToolRegistry,
+) -> dict[str, Any] | None:
     method = request.get("method")
     params = request.get("params") or {}
 
@@ -129,7 +133,7 @@ def _handle_request(request: dict[str, Any]) -> dict[str, Any] | None:
         )
 
     if method == "tools/list":
-        return _response(request, {"tools": _tool_specs()})
+        return _response(request, {"tools": _tool_specs(tool_registry)})
 
     if method == "ping":
         return _response(request, {})
@@ -145,7 +149,7 @@ def _handle_request(request: dict[str, Any]) -> dict[str, Any] | None:
                 -32602,
                 "tools/call arguments must be an object",
             )
-        result = agent_tools.execute_tool(name, arguments)
+        result = tool_registry.execute_tool(name, arguments)
         return _response(request, _tool_result_to_mcp(result))
 
     if method in {"notifications/initialized", "$/cancelRequest"}:
@@ -154,7 +158,7 @@ def _handle_request(request: dict[str, Any]) -> dict[str, Any] | None:
     return _error_response(request, -32601, f"unknown method: {method}")
 
 
-def serve() -> int:
+def serve(tool_registry: ToolRegistry) -> int:
     """Run the MCP request loop until stdin closes."""
     rpc = StdioJsonRpc()
     while True:
@@ -162,7 +166,7 @@ def serve() -> int:
         if request is None:
             return 0
         try:
-            response = _handle_request(request)
+            response = _handle_request(request, tool_registry)
         except Exception as e:
             response = _error_response(
                 request,
@@ -183,6 +187,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--transport-port", type=int, required=True, help="driver socket port")
     ap.add_argument("--vla-endpoint", required=True,
                     help="Pi0.5 /predict server (e.g. http://localhost:8000)")
+    ap.add_argument("--env", dest="env_name", default="libero",
+                    help="Environment backend for MCP tools.")
     ap.add_argument("--hide-object-coords", action="store_true",
                     help="redact GT object world poses from dumped state")
     ap.add_argument("--video-path", default="",
@@ -194,15 +200,17 @@ def main(argv: list[str] | None = None) -> int:
         if str(Path(args.repo_root)) not in sys.path:
             sys.path.insert(0, str(Path(args.repo_root)))
     init_output_dir(args.output_dir)
+    tool_registry = agent_tools.create_tool_registry(args.env_name)
+    env_spec = tool_registry.env_spec
     if args.transport_port <= 0:
         raise ValueError("--transport-port must be > 0")
-    agent_tools.set_driver_client(
+    env_spec.set_driver_client(
         SocketDriverClient(args.transport_host, args.transport_port),
         model=VLAClient(args.vla_endpoint),
         hide_object_coords=args.hide_object_coords,
         video_path=args.video_path or None,
     )
-    return serve()
+    return serve(tool_registry)
 
 
 if __name__ == "__main__":

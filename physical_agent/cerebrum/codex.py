@@ -40,6 +40,7 @@ class CodexCerebrum:
         transport_host: str = "127.0.0.1",
         transport_port: int = 0,
         vla_endpoint: str = "",
+        env_name: str = "libero",
         hide_object_coords: bool = False,
         video_path: str = "",
     ):
@@ -54,8 +55,10 @@ class CodexCerebrum:
         self._transport_host = transport_host
         self._transport_port = int(transport_port)
         self._vla_endpoint = vla_endpoint
+        self._env_name = env_name
         self._hide_object_coords = bool(hide_object_coords)
         self._video_path = video_path
+        self._driver_process: subprocess.Popen | None = None
 
     def set_socket_endpoint(self, host: str, port: int) -> None:
         """Record the driver socket endpoint discovered after startup."""
@@ -65,6 +68,10 @@ class CodexCerebrum:
     def set_vla_endpoint(self, endpoint: str) -> None:
         """Record the vla_server HTTP endpoint discovered after startup."""
         self._vla_endpoint = endpoint
+
+    def set_driver_process(self, proc: subprocess.Popen) -> None:
+        """Record the spawned driver process for protocol compatibility."""
+        self._driver_process = proc
 
     def solve(
         self,
@@ -126,6 +133,7 @@ class CodexCerebrum:
                     transport_host=self._transport_host,
                     transport_port=self._transport_port,
                     vla_endpoint=self._vla_endpoint,
+                    env_name=self._env_name,
                     hide_object_coords=self._hide_object_coords,
                     video_path=self._video_path,
                 )
@@ -222,6 +230,7 @@ def _codex_mcp_config_args(
     transport_host: str,
     transport_port: int,
     vla_endpoint: str,
+    env_name: str,
     hide_object_coords: bool,
     video_path: str,
 ) -> list[str]:
@@ -247,6 +256,8 @@ def _codex_mcp_config_args(
         str(transport_port),
         "--vla-endpoint",
         vla_endpoint,
+        "--env",
+        env_name,
     ]
     if hide_object_coords:
         server_args.append("--hide-object-coords")
@@ -263,6 +274,7 @@ def _codex_mcp_config_args(
             str(transport_port),
         ),
         ("mcp_servers.physical_agent.env.PHYSICAL_AGENT_VLA_ENDPOINT", vla_endpoint),
+        ("mcp_servers.physical_agent.env.PHYSICAL_AGENT_ENV", env_name),
         ("mcp_servers.physical_agent.env.PYTHONPATH", pythonpath),
     ]
 

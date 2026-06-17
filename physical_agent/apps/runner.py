@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -49,14 +50,8 @@ from physical_agent.cerebrum.adapters.openai_compat import (  # noqa: E402
 from physical_agent.cerebrum.api_loop import ApiAgentLoop  # noqa: E402
 from physical_agent.cerebrum.claude_code import ClaudeCodeCerebrum  # noqa: E402
 from physical_agent.cerebrum.codex import CodexCerebrum  # noqa: E402
-from physical_agent.context.libero_prompts import (  # noqa: E402
-    CLAUDE_CODE_PERCEPTION_PROMPT_TEMPLATE,
-    CLAUDE_CODE_PROMPT_TEMPLATE,
-    INITIAL_USER_TEMPLATE,
-    PERCEPTION_PREFIX,
-    PERCEPTION_USER_TEMPLATE,
-    SYSTEM_PROMPT,
-    format_claude_code_prompt,
+from physical_agent.envs.registry import (  # noqa: E402
+    infer_env_from_suite,
 )
 from physical_agent.driver_client import (  # noqa: E402
     create_driver_client,
@@ -65,10 +60,7 @@ from physical_agent.driver_client import (  # noqa: E402
 )
 from physical_agent.driver_client.vla_client import VLAClient  # noqa: E402
 from physical_agent.tools import (  # noqa: E402
-    execute_tool,
-    get_tools_spec,
-    set_driver_client as tools_set_driver_client,
-    stop_recording_and_save as tools_stop_recording_and_save,
+    create_tool_registry,
     tool_result_to_content_blocks,
 )
 from physical_agent.utils.logging import get_logger, init_output_dir  # noqa: E402
@@ -190,15 +182,17 @@ def start_driver(
 def stop_driver(
     proc: subprocess.Popen,
     output_dir: str,
+    stop_recording_and_save: Callable[[], None] | None = None,
     timeout: float = 15.0,
 ) -> None:
     if proc.poll() is not None:
         return
     # Agent-side: flush the episode video before the env+model process dies.
-    try:
-        tools_stop_recording_and_save()
-    except Exception:
-        pass
+    if stop_recording_and_save is not None:
+        try:
+            stop_recording_and_save()
+        except Exception:
+            pass
     try:
         client = create_driver_client(output_dir)
         client.call("shutdown", timeout_s=timeout)
@@ -436,6 +430,7 @@ def run_one_cell(
     transport_host: str = "127.0.0.1",
     transport_port: int = 0,
     vla_endpoint: str | None = None,
+    env_name: str | None = None,
 ) -> dict:
     """Solve one (suite, task, seed) cell end-to-end.
 
@@ -450,6 +445,11 @@ def run_one_cell(
     - ``"claude_code"`` — delegates to ``claude -p`` (Claude Code).
     - ``"codex"`` — delegates to local ``codex exec``.
     """
+    env_name = env_name or infer_env_from_suite(suite)
+    tool_registry = create_tool_registry(env_name)
+    env_spec = tool_registry.env_spec
+    prompt_bundle = env_spec.prompts
+
     if max_episode_steps == 600 and "libero_10" in suite:
         max_episode_steps = 5000
         if verbose:
@@ -524,6 +524,7 @@ def run_one_cell(
             output_path=cc_output_path,
             transport_host=transport_host,
             transport_port=transport_port,
+            env_name=env_spec.name,
             hide_object_coords=perception,
             video_path=str(Path(output_dir) / "episode.mp4"),
         )
@@ -544,6 +545,7 @@ def run_one_cell(
             output_path=cx_output_path,
             transport_host=transport_host,
             transport_port=transport_port,
+            env_name=env_spec.name,
             hide_object_coords=perception,
             video_path=str(Path(output_dir) / "episode.mp4"),
         )
@@ -565,28 +567,22 @@ def run_one_cell(
         # through local CLI tools plus the PhysicalAgent MCP bridge, not API
         # tool schemas.
         system_prompt = ""
-        template = (
-            CLAUDE_CODE_PERCEPTION_PROMPT_TEMPLATE
-            if perception
-            else CLAUDE_CODE_PROMPT_TEMPLATE
-        )
-        user_msg = format_claude_code_prompt(
+        template = prompt_bundle.cli_prompt_template(perception=perception)
+        user_msg = prompt_bundle.format_claude_code_prompt(
             template,
             suite=suite, task=task, seed=seed,
             output_dir=output_dir, recipe_tag=recipe_tag,
         )
-    elif perception:
-        user_msg = PERCEPTION_USER_TEMPLATE.format(
-            suite=suite, task=task, seed=seed,
-            output_dir=output_dir, recipe_tag=recipe_tag,
-        )
-        system_prompt = PERCEPTION_PREFIX + SYSTEM_PROMPT
     else:
-        user_msg = INITIAL_USER_TEMPLATE.format(
-            suite=suite, task=task, seed=seed,
-            output_dir=output_dir, recipe_tag=recipe_tag,
+        user_msg = prompt_bundle.api_user_message(
+            perception=perception,
+            suite=suite,
+            task=task,
+            seed=seed,
+            output_dir=output_dir,
+            recipe_tag=recipe_tag,
         )
-        system_prompt = SYSTEM_PROMPT
+        system_prompt = prompt_bundle.api_system_prompt(perception=perception)
 
     proc = None
     vla_proc = None
@@ -615,7 +611,7 @@ def run_one_cell(
             cerebrum.set_vla_endpoint(vla_endpoint)
             cerebrum.set_driver_process(proc)
         else:
-            tools_set_driver_client(
+            env_spec.set_driver_client(
                 create_driver_client(output_dir),
                 model=VLAClient(vla_endpoint),
                 hide_object_coords=perception,
@@ -635,7 +631,7 @@ def run_one_cell(
             cerebrum.set_socket_endpoint(transport_host, transport_port)
             cerebrum.set_vla_endpoint(vla_endpoint)
         else:
-            tools_set_driver_client(
+            env_spec.set_driver_client(
                 create_driver_client(output_dir),
                 model=VLAClient(vla_endpoint),
                 hide_object_coords=perception,
@@ -649,8 +645,8 @@ def run_one_cell(
         result = cerebrum.solve(
             system_prompt=system_prompt,
             user_message=user_msg,
-            tools_spec=get_tools_spec(),
-            tool_handler=execute_tool,
+            tools_spec=tool_registry.get_tools_spec(),
+            tool_handler=tool_registry.execute_tool,
             tool_result_formatter=tool_result_to_content_blocks,
             max_turns=max_turns,
         )
@@ -671,7 +667,11 @@ def run_one_cell(
         except Exception as e:
             logger.error("emergency save failed: %s", e)
         if proc is not None:
-            stop_driver(proc, output_dir=output_dir)
+            stop_driver(
+                proc,
+                output_dir=output_dir,
+                stop_recording_and_save=env_spec.stop_recording_and_save,
+            )
         stop_vla_server(vla_proc)
 
     elapsed = time.time() - t0
@@ -711,6 +711,8 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="e.g. libero_object_task, libero_spatial_swap")
     ap.add_argument("--task", type=int, required=True)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--env", dest="env_name", default=None,
+                    help="Environment backend. Defaults to suite inference/libero.")
     ap.add_argument("--model", default=None,
                     help="Model id. Defaults to the selected backend's model env var.")
     ap.add_argument("--max_turns", type=int, default=80)
@@ -804,6 +806,7 @@ def main() -> int:
         transport_host=args.transport_host,
         transport_port=args.transport_port,
         vla_endpoint=args.vla_endpoint,
+        env_name=args.env_name,
     )
     return 0
 

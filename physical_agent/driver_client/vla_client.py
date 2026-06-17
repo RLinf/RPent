@@ -34,12 +34,13 @@ import time
 from typing import Any
 
 import httpx
-import imageio.v2 as imageio
 import numpy as np
 import torch
 
 
 def _png_b64(img: np.ndarray) -> str:
+    import imageio.v2 as imageio
+
     arr = np.asarray(img)
     if arr.dtype != np.uint8:
         arr = arr.astype(np.uint8)
