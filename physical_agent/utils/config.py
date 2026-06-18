@@ -87,9 +87,3 @@ def get_openai_compat_base_url() -> str | None:
 def get_openai_compat_model() -> str:
     """Return the default model id for the OpenAI-compatible backend."""
     return os.environ.get("OPENAI_COMPAT_MODEL", "gpt-4.1")
-
-
-def get_openai_compat_supports_images() -> bool:
-    """Return whether OpenAI-compatible tool results should include images."""
-    value = os.environ.get("OPENAI_COMPAT_SUPPORTS_IMAGES", "1")
-    return value.lower() not in {"0", "false", "no", "off"}

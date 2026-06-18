@@ -88,6 +88,7 @@ def build_env_cfg(
                 # back-project pixels to world from depth + camera calibration
                 # (no GT object poses).
                 "camera_depths": True,
+                "horizon": max_episode_steps,
                 **({"robots": [os.environ["LIBERO_ROBOT_BASE"]]}
                    if os.environ.get("LIBERO_ROBOT_BASE") else {}),
             },

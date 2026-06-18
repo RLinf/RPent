@@ -14,26 +14,12 @@ from datetime import datetime
 from pathlib import Path
 
 from physical_agent.utils.config import (
-    get_anthropic_api_key,
-    get_anthropic_base_url,
-    get_anthropic_model,
     get_cuda_device,
     get_libero_type,
-    get_memory_dir,
-    get_openai_compat_api_key,
-    get_openai_compat_base_url,
-    get_openai_compat_model,
-    get_openai_compat_supports_images,
     get_repo_root,
 )
 
-from physical_agent.cerebrum.adapters.anthropic import AnthropicAdapter  # noqa: E402
-from physical_agent.cerebrum.adapters.openai_compat import (  # noqa: E402
-    OpenAICompatibleAdapter,
-)
-from physical_agent.cerebrum.api_loop import ApiAgentLoop  # noqa: E402
-from physical_agent.cerebrum.claude_code import ClaudeCodeCerebrum  # noqa: E402
-from physical_agent.cerebrum.codex import CodexCerebrum  # noqa: E402
+from physical_agent.cerebrum.base import build_cerebrum  # noqa: E402
 from physical_agent.envs.registry import (  # noqa: E402
     infer_env_from_suite,
 )
@@ -281,121 +267,6 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Cerebrum construction
-# ---------------------------------------------------------------------------
-
-
-def build_cerebrum(
-    cerebrum_type: str,
-    *,
-    output_dir: str | Path,
-    env_name: str,
-    recipe_tag: str,
-    api_key: str | None = None,
-    base_url: str | None = None,
-    model: str | None = None,
-    max_tokens: int = 4096,
-    perception: bool = False,
-    thinking: bool = False,
-    openai_compat_supports_images: bool | None = None,
-    claude_code_timeout_s: int | None = None,
-    claude_code_max_budget_usd: float | None = None,
-    codex_timeout_s: int | None = None,
-    transport_host: str = "127.0.0.1",
-    transport_port: int = 0,
-):
-    """Build a cerebrum for the given backend, resolving credentials from env vars."""
-    if cerebrum_type == "anthropic":
-        api_key = api_key or get_anthropic_api_key()
-        base_url = base_url or get_anthropic_base_url()
-        if not api_key:
-            raise ValueError(
-                "ANTHROPIC_API_KEY env var or --api_key must be set"
-            )
-        import anthropic
-        client = anthropic.Anthropic(
-            api_key=api_key,
-            max_retries=8,
-            timeout=120.0,
-            **({"base_url": base_url} if base_url else {}),
-        )
-        return ApiAgentLoop(
-            adapter=AnthropicAdapter(
-                client=client,
-                model=model or get_anthropic_model(),
-                max_tokens=max_tokens,
-                thinking=thinking,
-            )
-        )
-    if cerebrum_type == "openai_compat":
-        api_key = api_key or get_openai_compat_api_key()
-        base_url = base_url or get_openai_compat_base_url()
-        if not api_key:
-            raise ValueError(
-                "OPENAI_COMPAT_API_KEY or OPENAI_API_KEY or --api_key must be set"
-            )
-        import openai
-        client_kwargs = {"api_key": api_key, "max_retries": 0, "timeout": 120.0}
-        if base_url:
-            client_kwargs["base_url"] = base_url
-        client = openai.OpenAI(**client_kwargs)
-        supports_images = openai_compat_supports_images
-        if supports_images is None:
-            supports_images = get_openai_compat_supports_images()
-        return ApiAgentLoop(
-            adapter=OpenAICompatibleAdapter(
-                client=client,
-                model=model or get_openai_compat_model(),
-                max_tokens=max_tokens,
-                supports_images=supports_images,
-                thinking=thinking,
-            )
-        )
-    if cerebrum_type == "claude_code":
-        cc_timeout_s = claude_code_timeout_s
-        if cc_timeout_s is None:
-            cc_timeout_s = int(os.environ.get("CELL_TIMEOUT_S", "1200" if perception else "600"))
-        cc_budget = claude_code_max_budget_usd
-        if cc_budget is None:
-            cc_budget = float(os.environ.get("MAX_BUDGET_USD", "10"))
-        return ClaudeCodeCerebrum(
-            output_dir=output_dir,
-            repo_root=get_repo_root(),
-            model=model or "sonnet",
-            timeout_s=cc_timeout_s,
-            max_budget_usd=cc_budget,
-            extra_dirs=[str(get_memory_dir())],
-            output_path=Path(output_dir) / f"claude_{recipe_tag}.txt",
-            transport_host=transport_host,
-            transport_port=transport_port,
-            env_name=env_name,
-            hide_object_coords=perception,
-            video_path=str(Path(output_dir) / "episode.mp4"),
-        )
-    if cerebrum_type == "codex":
-        cx_timeout_s = codex_timeout_s
-        if cx_timeout_s is None:
-            cx_timeout_s = int(os.environ.get(
-                "CODEX_TIMEOUT_S",
-                os.environ.get("CELL_TIMEOUT_S", "1200" if perception else "600"),
-            ))
-        return CodexCerebrum(
-            output_dir=output_dir,
-            repo_root=get_repo_root(),
-            model=model,
-            timeout_s=cx_timeout_s,
-            extra_dirs=[str(get_memory_dir())],
-            output_path=Path(output_dir) / f"codex_{recipe_tag}.txt",
-            transport_host=transport_host,
-            transport_port=transport_port,
-            env_name=env_name,
-            hide_object_coords=perception,
-            video_path=str(Path(output_dir) / "episode.mp4"),
-        )
-    raise ValueError(f"unknown cerebrum_type: {cerebrum_type}")
-
-
-# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -425,8 +296,6 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--cerebrum", default="anthropic",
                     choices=["anthropic", "openai_compat", "claude_code", "codex"],
                     help="LLM backend: anthropic | openai_compat | claude_code | codex.")
-    ap.add_argument("--openai_compat_no_images", action="store_true",
-                    help="Do not send tool-result images to an openai_compat model.")
     ap.add_argument("--thinking", action="store_true",
                     help="Enable extended thinking / reasoning for anthropic and "
                          "openai_compat backends (no-op for claude_code/codex).")
@@ -497,7 +366,6 @@ def main() -> int:
         max_tokens=args.max_tokens,
         perception=args.perception,
         thinking=args.thinking,
-        openai_compat_supports_images=not args.openai_compat_no_images,
         claude_code_timeout_s=args.claude_code_timeout_s,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         codex_timeout_s=args.codex_timeout_s,
@@ -598,8 +466,7 @@ def main() -> int:
         stats = result.stats
         agent_error = result.error
     except Exception as e:
-        agent_error = f"{type(e).__name__}: {e}"
-        logger.error("EXCEPTION in agent loop: %s", agent_error)
+        logger.error("EXCEPTION in agent loop: %s", e)
     finally:
         if proc is not None:
             stop_env_server(

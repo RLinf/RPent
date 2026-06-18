@@ -49,6 +49,9 @@ rlinf = [
     "rlinf @ git+https://github.com/jx-qiu/RLinf.git@feature/physicalagent",
 ]
 
+[tool.uv]
+prerelease = "allow"
+
 [tool.setuptools]
 include-package-data = true
 

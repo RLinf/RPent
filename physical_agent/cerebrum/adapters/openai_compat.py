@@ -30,14 +30,12 @@ class OpenAICompatibleAdapter:
         model: str,
         max_tokens: int = 4096,
         *,
-        supports_images: bool = True,
         thinking: bool = False,
         reasoning_effort: str = "xhigh",
     ):
         self._client = client
         self._model = model
         self._max_tokens = max_tokens
-        self._supports_images = supports_images
         self._thinking = bool(thinking)
         self._reasoning_effort = reasoning_effort
 
@@ -95,7 +93,6 @@ class OpenAICompatibleAdapter:
             tool_text, tool_image_blocks = format_tool_result_for_openai(
                 tool_result.result,
                 tool_result_formatter,
-                supports_images=self._supports_images,
                 tool_name=tool_result.name,
             )
             tool_messages.append({
@@ -175,7 +172,7 @@ class OpenAICompatibleAdapter:
             extra_kwargs["reasoning_effort"] = self._reasoning_effort
         for outer in range(3):
             try:
-                return self._client.chat.completions.create(
+                response = self._client.chat.completions.create(
                     model=self._model,
                     messages=messages,
                     tools=tools,
@@ -183,13 +180,14 @@ class OpenAICompatibleAdapter:
                     max_tokens=self._max_tokens,
                     **extra_kwargs,
                 )
+                # Some OpenAI-compatible gateways answer 200 with an empty
+                # body (no `choices`) when the upstream request fails. Treat that as
+                # a transient, retryable error instead of crashing the agent loop.
+                _first_choice(response)
+                return response
             except Exception as e:  # noqa: BLE001 - SDK-compatible errors vary by provider.
                 last_err = e
                 if not _is_retryable_error(e):
-                    logger.error(
-                        "non-retryable API error '%s: %s'",
-                        type(e).__name__, e,
-                    )
                     raise
                 wait = 10 * (outer + 1)
                 logger.warning(
@@ -197,6 +195,7 @@ class OpenAICompatibleAdapter:
                     type(e).__name__, e, wait, outer + 1,
                 )
                 time.sleep(wait)
+
         logger.error("giving up after 3 retries; last error: %s", last_err)
         return None
 
@@ -222,7 +221,6 @@ def format_tool_result_for_openai(
     result: dict[str, Any],
     tool_result_formatter: Callable[[dict[str, Any]], list[dict[str, Any]]],
     *,
-    supports_images: bool,
     tool_name: str,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Convert Anthropic-style content blocks into OpenAI messages."""
@@ -230,7 +228,6 @@ def format_tool_result_for_openai(
     blocks = tool_result_formatter(formatter_input)
     text_parts: list[str] = []
     image_blocks: list[dict[str, Any]] = []
-    omitted_images = 0
 
     for block in blocks:
         block_type = _get(block, "type")
@@ -240,7 +237,7 @@ def format_tool_result_for_openai(
                 text_parts.append(str(text))
         elif block_type == "image":
             image_url = _image_block_to_url(block)
-            if supports_images and image_url:
+            if image_url:
                 image_blocks.extend([
                     {
                         "type": "text",
@@ -248,16 +245,8 @@ def format_tool_result_for_openai(
                     },
                     {"type": "image_url", "image_url": {"url": image_url}},
                 ])
-            else:
-                omitted_images += 1
         else:
             text_parts.append(json.dumps(_to_plain_data(block), default=str))
-
-    if omitted_images:
-        text_parts.append(
-            f"[{omitted_images} image result(s) omitted because this "
-            "OpenAI-compatible backend is configured without image support.]"
-        )
 
     text = "\n\n".join(part for part in text_parts if part)
     if not text:
@@ -338,7 +327,7 @@ def _parse_tool_arguments(raw_arguments: Any) -> tuple[dict[str, Any], str | Non
 def _first_choice(response: Any) -> Any:
     choices = _get(response, "choices") or []
     if not choices:
-        raise RuntimeError("OpenAI-compatible response did not include choices")
+        raise KeyError("OpenAI-compatible response did not include choices")
     return choices[0]
 
 
@@ -351,6 +340,7 @@ def _is_retryable_error(error: Exception) -> bool:
         "RateLimitError",
         "Timeout",
         "TimeoutException",
+        "KeyError",
     }:
         return True
     status_code = getattr(error, "status_code", None)
