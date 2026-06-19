@@ -19,10 +19,7 @@ from physical_agent.utils.config import (
 )
 
 from physical_agent.cerebrum.base import build_cerebrum  # noqa: E402
-from physical_agent.envs.registry import (  # noqa: E402
-    get_env_spec,
-    get_toolkit,
-)
+from physical_agent.envs import get_env_spec, get_toolkit  # noqa: E402
 from physical_agent.driver_client import (  # noqa: E402
     create_driver_client,
     get_socket_endpoint,

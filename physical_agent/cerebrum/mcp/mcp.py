@@ -18,7 +18,7 @@ from typing import Any
 from physical_agent.driver_client import SocketDriverClient
 from physical_agent.driver_client.vla_client import VLAClient
 from physical_agent.utils.logging import init_output_dir
-from physical_agent.envs.registry import get_toolkit
+from physical_agent.envs import get_toolkit
 from physical_agent.tools import Toolkit
 
 SERVER_NAME = "physical_agent"
