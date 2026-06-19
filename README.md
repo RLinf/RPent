@@ -1,9 +1,5 @@
 # Physical Agent
 
-Physical Agent Architecture
-
-![Physical Agent Architecture](assets/arch.png)
-
 To begin with, 
 1. clone RLinf and physical agent side-by-side.
 ```bash
@@ -12,20 +8,20 @@ mkdir workspace && cd workspace
 git clone https://github.com/jx-qiu/RLinf -b feature/physicalagent rlinf
 git clone https://github.com/jx-qiu/PhysicalAgent physicalagent
 ```
-2. in RLinf, configure a openpi+libero venv.
+1. in RLinf, configure a openpi+libero venv.
 ```bash
 cd rlinf
 bash requirements/install.sh embodied --env libero --model openpi --use-mirror --venv ../.venv-opi-libero
 cd ..
 source .venv-opi-libero/bin/activate
 ```
-3. install additional PhysicalAgent dependencies on top of the above venv.
+1. install additional PhysicalAgent dependencies on top of the above venv.
 ```bash
 cd physicalagent
 uv sync --active --inexact
 bash scripts/install_libero_pro_plus.sh
 ```
-4. Try the run: 
+1. Try the run: 
 ```bash
 # configure API keys
 export ANTHROPIC_BASE_URL=https://xxx
