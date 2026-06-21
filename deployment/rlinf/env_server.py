@@ -3,7 +3,7 @@
 Owns the RLinf/LIBERO bootstrap (path setup, env config builder) and
 exposes a pickle-framed RPC server over the
 :class:`~physical_agent.driver_client.socket.TransportTCPServer`. The agent
-process drives a :class:`~physical_agent.envs.libero.tools.LiberoPrimitiveDriver`
+process drives a :class:`~physical_agent.envs.libero.tools.LiberoPrimitives`
 locally and reaches in only for ``env.*`` method calls; the model side
 goes over HTTP to a separate ``deployment/rlinf/vla_server.py`` process
 (see :class:`~physical_agent.driver_client.vla_client.VLAClient`).

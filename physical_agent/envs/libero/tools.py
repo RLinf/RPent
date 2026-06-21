@@ -107,7 +107,7 @@ class PrimitiveResult:
         }
 
 
-class LiberoPrimitiveDriver:
+class LiberoPrimitives:
     """Wraps a single-env LIBERO-shaped env + VLA policy with primitive-
     level methods.
 
@@ -818,7 +818,7 @@ def _append_state(output_dir: str, blob: dict) -> None:
     os.replace(tmp, path)
 
 
-def dump_state(driver: LiberoPrimitiveDriver, output_dir: str, step_idx: int,
+def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
                log: dict | None = None) -> dict:
     """Dump state snapshot, images, and depth for step *step_idx*.
 

@@ -47,7 +47,7 @@ class LiberoToolkit(Toolkit):
     # Bound in set_driver_client() and non-null for the rest of the run —
     # toolkit contract: primitive tools are only invoked afterwards, so call
     # sites use self._driver directly with no None-check.
-    _driver: libero_tools.LiberoPrimitiveDriver
+    _driver: libero_tools.LiberoPrimitives
 
     def __init__(self) -> None:
         super().__init__()
@@ -169,7 +169,7 @@ class LiberoToolkit(Toolkit):
             if target.exists():
                 target.unlink()
 
-        driver = libero_tools.LiberoPrimitiveDriver(
+        driver = libero_tools.LiberoPrimitives(
             env=RemoteEnvProxy(client),
             model=model,
             action_chunk=5,
