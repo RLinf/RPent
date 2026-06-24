@@ -84,10 +84,13 @@ class Toolkit:
     """Base toolkit: registers common tools and dispatches tool calls.
 
     Subclasses extend ``__init__`` (calling ``super().__init__()`` first)
-    and register additional tools with :meth:`add_tool`. Override
-    :meth:`set_driver_client` / :meth:`release_driver_client` to wire up
-    env-side drivers the tools talk to, and set
-    :attr:`allowed_mcp_tool_names` to expose tools over MCP.
+    and register additional tools with :meth:`add_tool`. Env-specific
+    subclasses receive their env/model/etc. as constructor arguments and
+    build the underlying primitive driver in ``__init__``; the toolkit
+    base class only contributes the common file/IO tools. Override
+    :meth:`close` to release env-side drivers at the end
+    of the run, and set :attr:`allowed_mcp_tool_names` to expose tools
+    over MCP.
     """
 
     #: MCP allowlist contributed by this toolkit (namespaced tool names).
@@ -156,19 +159,5 @@ class Toolkit:
     # Driver lifecycle hooks (overridden by env toolkits)
     # ------------------------------------------------------------------
 
-    def set_driver_client(
-        self,
-        client: Any,
-        *,
-        model: Any,
-        hide_object_coords: bool = False,
-        video_path: str | None = None,
-    ) -> None:
-        """Bind the env driver the tools talk to. Default: no-op.
-
-        Env toolkits override this to build their primitive driver once the
-        wire transport is ready.
-        """
-
-    def release_driver_client(self) -> None:
+    def close(self) -> None:
         """Release the env driver at end of run. Default: no-op."""

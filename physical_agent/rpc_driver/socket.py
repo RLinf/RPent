@@ -58,7 +58,7 @@ class RpcError(RuntimeError):
         self.server_traceback = traceback
 
 
-class SocketDriverClient:
+class SocketRpcClient:
     """One-request-per-connection pickle-framed RPC client."""
 
     def __init__(
@@ -141,7 +141,7 @@ class _RequestHandler(socketserver.StreamRequestHandler):
             pass
 
 
-class TransportTCPServer(socketserver.ThreadingTCPServer):
+class SocketRpcServer(socketserver.ThreadingTCPServer):
     """TCP server that dispatches pickle-framed RPC calls."""
 
     allow_reuse_address = True

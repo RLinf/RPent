@@ -20,12 +20,13 @@ from physical_agent.utils.config import (
 
 from physical_agent.cerebrum.base import build_cerebrum  # noqa: E402
 from physical_agent.envs import get_env_spec, get_toolkit  # noqa: E402
-from physical_agent.driver_client import (  # noqa: E402
-    create_driver_client,
+from physical_agent.rpc_driver import (  # noqa: E402
+    create_rpc_client,
     get_socket_endpoint,
     set_socket_endpoint,
 )
-from physical_agent.driver_client.vla_client import VLAClient  # noqa: E402
+from physical_agent.rpc_driver.vla_client import VLAClient  # noqa: E402
+from physical_agent.envs.libero.libero_env_client import LiberoEnvClient  # noqa: E402
 from physical_agent.utils.logging import get_logger, init_output_dir  # noqa: E402
 
 logger = get_logger("agent")
@@ -148,7 +149,7 @@ def stop_env_server(
     if proc.poll() is not None:
         return
     try:
-        client = create_driver_client(output_dir)
+        client = create_rpc_client(output_dir)
         client.call("shutdown", timeout_s=timeout)
     except Exception:
         pass
@@ -323,7 +324,6 @@ def main() -> int:
     task = args.task
     seed = args.seed
     env_name = args.env_name
-    toolkit = get_toolkit(env_name)
     env_spec = get_env_spec(env_name)
     prompt_bundle = env_spec.prompts
 
@@ -392,11 +392,12 @@ def main() -> int:
             perception=args.perception,
         )
 
-    proc = None
+    env_proc = None
     vla_proc = None
     vla_endpoint = args.vla_endpoint
+    toolkit = None
     if not args.no_driver:
-        proc = start_env_server(
+        env_proc = start_env_server(
             suite=suite, task=task, seed=seed,
             output_dir=output_dir,
             max_episode_steps=max_episode_steps,
@@ -410,7 +411,7 @@ def main() -> int:
                 cuda_device=args.cuda_device,
                 log_path=str(Path(output_dir) / "vla_server.log"),
             )
-        if args.cerebrum in {"claude_code", "codex"}:
+        if args.cerebrum == "codex":
             endpoint = get_socket_endpoint(output_dir)
             if endpoint is None:
                 raise RuntimeError(
@@ -418,13 +419,15 @@ def main() -> int:
                 )
             cerebrum.set_socket_endpoint(*endpoint)
             cerebrum.set_vla_endpoint(vla_endpoint)
-        else:
-            toolkit.set_driver_client(
-                create_driver_client(output_dir),
-                model=VLAClient(vla_endpoint),
-                hide_object_coords=args.perception,
-                video_path=str(Path(output_dir) / "episode.mp4"),
-            )
+        toolkit = get_toolkit(
+            env_name,
+            primitives_kwargs={
+                "env": LiberoEnvClient(create_rpc_client(output_dir)),
+                "model": VLAClient(vla_endpoint),
+                "hide_object_coords": args.perception,
+            },
+            video_path=str(Path(output_dir) / "episode.mp4"),
+        )
     else:
         if args.transport_port <= 0:
             raise RuntimeError(
@@ -435,16 +438,18 @@ def main() -> int:
                 "--no_driver requires --vla_endpoint pointing at an existing vla_server"
             )
         set_socket_endpoint(output_dir, args.transport_host, args.transport_port)
-        if args.cerebrum in {"claude_code", "codex"}:
+        if args.cerebrum == "codex":
             cerebrum.set_socket_endpoint(args.transport_host, args.transport_port)
             cerebrum.set_vla_endpoint(vla_endpoint)
-        else:
-            toolkit.set_driver_client(
-                create_driver_client(output_dir),
-                model=VLAClient(vla_endpoint),
-                hide_object_coords=args.perception,
-                video_path=str(Path(output_dir) / "episode.mp4"),
-            )
+        toolkit = get_toolkit(
+            env_name,
+            primitives_kwargs={
+                "env": LiberoEnvClient(create_rpc_client(output_dir)),
+                "model": VLAClient(vla_endpoint),
+                "hide_object_coords": args.perception,
+            },
+            video_path=str(Path(output_dir) / "episode.mp4"),
+        )
 
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None
@@ -463,12 +468,12 @@ def main() -> int:
     except Exception as e:
         logger.error("EXCEPTION in agent loop: %s", e)
     finally:
-        if proc is not None:
-            # Agent-side: flush the episode video before the env+model
-            # process dies, then shut down the env server.
-            toolkit.release_driver_client()
-            stop_env_server(proc, output_dir=output_dir)
-        stop_vla_server(vla_proc)
+        # Agent-side: flush the episode video before the env+model
+        toolkit.close()
+        if env_proc is not None:
+            stop_env_server(env_proc, output_dir=output_dir)
+        if vla_proc is not None:
+            stop_vla_server(vla_proc)
 
     elapsed = time.time() - t0
 

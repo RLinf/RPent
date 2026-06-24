@@ -23,7 +23,7 @@ import claude_agent_sdk
 from physical_agent.cerebrum.base import CerebrumResult
 from physical_agent.tools.toolkit import Toolkit
 from physical_agent.utils.config import get_repo_root
-from physical_agent.utils.logging import get_logger
+from physical_agent.utils.logging import get_logger, init_output_dir
 
 logger = get_logger("claude")
 
@@ -46,9 +46,6 @@ class ClaudeCodeCerebrum:
         max_budget_usd: float = 10.0,
         extra_dirs: list[str] | None = None,
         output_path: str | Path | None = None,
-        transport_host: str = "127.0.0.1",
-        transport_port: int = 0,
-        vla_endpoint: str = "",
         hide_object_coords: bool = False,
         video_path: str = "",
     ):
@@ -61,20 +58,8 @@ class ClaudeCodeCerebrum:
         self._max_budget_usd = max_budget_usd
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
-        self._transport_host = transport_host
-        self._transport_port = int(transport_port)
-        self._vla_endpoint = vla_endpoint
         self._hide_object_coords = bool(hide_object_coords)
         self._video_path = video_path
-
-    def set_socket_endpoint(self, host: str, port: int) -> None:
-        """Record the driver socket endpoint discovered after startup."""
-        self._transport_host = host
-        self._transport_port = int(port)
-
-    def set_vla_endpoint(self, endpoint: str) -> None:
-        """Record the vla_server HTTP endpoint discovered after startup."""
-        self._vla_endpoint = endpoint
 
     def solve(
         self,
@@ -115,7 +100,7 @@ class ClaudeCodeCerebrum:
         raw_stream_path = output_path.with_suffix(output_path.suffix + ".stream.jsonl")
         recorder = _Recorder(max_turns=max_turns)
 
-        self._bind_runtime(toolkit)
+        init_output_dir(self._output_dir)
         options = self._build_options(sdk, toolkit=toolkit, max_turns=max_turns)
 
         logger.info("prompt: %d chars", len(prompt))
@@ -208,29 +193,6 @@ class ClaudeCodeCerebrum:
             # Ignore user/project .claude configuration; PhysicalAgent owns the loop.
             setting_sources=[],
             stderr=lambda line: logger.debug("[claude-sdk] %s", line.rstrip()),
-        )
-
-    def _bind_runtime(self, toolkit: Toolkit) -> None:
-        """Bind PhysicalAgent driver/output state for this run.
-
-        Single source of side effects in this backend. Always called explicitly
-        from ``solve()``, never as a hidden import-time hook.
-        """
-        if self._transport_port <= 0:
-            raise RuntimeError("Claude Agent SDK requires a bound driver socket port")
-        if not self._vla_endpoint:
-            raise RuntimeError("Claude Agent SDK requires a vla_endpoint")
-
-        from physical_agent.driver_client import SocketDriverClient
-        from physical_agent.driver_client.vla_client import VLAClient
-        from physical_agent.utils.logging import init_output_dir
-
-        init_output_dir(self._output_dir)
-        toolkit.set_driver_client(
-            SocketDriverClient(self._transport_host, self._transport_port),
-            model=VLAClient(self._vla_endpoint),
-            hide_object_coords=self._hide_object_coords,
-            video_path=self._video_path or None,
         )
 
 

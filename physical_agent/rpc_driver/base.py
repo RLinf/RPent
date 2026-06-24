@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 
-class DriverClient(Protocol):
+class RpcClient(Protocol):
     """Transport from the agent process to the driver process."""
 
     def call(

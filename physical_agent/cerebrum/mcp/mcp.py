@@ -15,8 +15,8 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from physical_agent.driver_client import SocketDriverClient
-from physical_agent.driver_client.vla_client import VLAClient
+from physical_agent.rpc_driver import SocketRpcClient
+from physical_agent.rpc_driver.vla_client import VLAClient
 from physical_agent.utils.logging import init_output_dir
 from physical_agent.envs import get_toolkit
 from physical_agent.tools import Toolkit
@@ -196,13 +196,17 @@ def main(argv: list[str] | None = None) -> int:
         if str(Path(args.repo_root)) not in sys.path:
             sys.path.insert(0, str(Path(args.repo_root)))
     init_output_dir(args.output_dir)
-    toolkit = get_toolkit(args.env_name)
     if args.transport_port <= 0:
         raise ValueError("--transport-port must be > 0")
-    toolkit.set_driver_client(
-        SocketDriverClient(args.transport_host, args.transport_port),
-        model=VLAClient(args.vla_endpoint),
-        hide_object_coords=args.hide_object_coords,
+    from physical_agent.envs.libero.libero_env_client import LiberoEnvClient
+
+    toolkit = get_toolkit(
+        args.env_name,
+        primitives_kwargs={
+            "env": LiberoEnvClient(SocketRpcClient(args.transport_host, args.transport_port)),
+            "model": VLAClient(args.vla_endpoint),
+            "hide_object_coords": args.hide_object_coords,
+        },
         video_path=args.video_path or None,
     )
     return serve(toolkit)

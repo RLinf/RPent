@@ -3,57 +3,16 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any
 
 import imageio.v2 as imageio
 import numpy as np
 
-from physical_agent.driver_client.vla_client import VLAClient
+from physical_agent.rpc_driver.vla_client import VLAClient
+from physical_agent.envs.libero.libero_env_client import LiberoEnvClient
 from physical_agent.utils.logging import get_logger, get_output_dir
 
 logger = get_logger("libero")
-
-
-class EnvInterface(Protocol):
-    """Minimal LIBERO-style env contract.
-
-    Implementations (e.g. ``LiberoEnvFacade`` in the RLinf host) are
-    responsible for normalizing torch tensors to numpy at the boundary so
-    primitives stay torch-free.
-    """
-
-    def reset(self) -> tuple[dict, Any]:
-        """Reset the environment."""
-
-    def step(
-        self, action: np.ndarray
-    ) -> tuple[dict, Any, np.ndarray, Any, Any]:
-        """Step the env with ``action`` of shape ``[num_envs, action_dim]``.
-
-        Returns ``(obs, reward, term, trunc, info)`` where ``term`` is a
-        numpy bool array (or convertible to one).
-        """
-
-    def raw_obs(self, env_idx: int = 0) -> dict:
-        """Per-env raw observation dict (camera images, object world
-        poses, robot proprioception)."""
-
-    def render_agentview(self, env_idx: int = 0) -> np.ndarray:
-        """``uint8`` HxWx3 RGB agentview frame in Pi0 convention (180°
-        rotated from the raw buffer)."""
-
-    def get_camera_meta(self) -> dict | None:
-        """Agentview camera intrinsics + extrinsics + depth near/far, or
-        ``None`` if unavailable."""
-
-    def set_image_render_enabled(self, enabled: bool) -> None:
-        """Toggle image rendering during ``step`` (perf optimization for
-        OSC-only primitives)."""
-
-    def cached_image(self) -> np.ndarray | None:
-        """Most recent agentview frame in Pi0 convention, or ``None``.
-        Used as a fallback when image rendering is disabled."""
 
 
 def _as_numpy_array(x):
@@ -79,34 +38,6 @@ def _normalize_xyz(xyz):
     return [float(v) for v in xyz]
 
 
-@dataclass
-class PrimitiveResult:
-    name: str
-    instruction: str
-    success: bool
-    chunks_used: int
-    max_chunks: int
-    peak_lift_m: float
-    min_gripper_opening: float
-    final_gripper_opening: float
-    libero_terminated: bool = False
-    diagnostics: dict = field(default_factory=dict)
-
-    def to_dict(self):
-        return {
-            "name": self.name,
-            "instruction": self.instruction,
-            "success": self.success,
-            "chunks_used": self.chunks_used,
-            "max_chunks": self.max_chunks,
-            "peak_lift_m": round(self.peak_lift_m, 4),
-            "min_gripper_opening": round(self.min_gripper_opening, 4),
-            "final_gripper_opening": round(self.final_gripper_opening, 4),
-            "libero_terminated": self.libero_terminated,
-            "diagnostics": self.diagnostics,
-        }
-
-
 class LiberoPrimitives:
     """Wraps a single-env LIBERO-shaped env + VLA policy with primitive-
     level methods.
@@ -119,15 +50,17 @@ class LiberoPrimitives:
 
     def __init__(
         self,
-        env: EnvInterface,
+        env: LiberoEnvClient,
         model: VLAClient,
         action_chunk: int = 5,
         env_idx: int = 0,
+        hide_object_coords: bool = False,
     ):
         self.env = env
         self.model = model
         self.action_chunk = action_chunk
         self.env_idx = env_idx
+        self.hide_object_coords = hide_object_coords
         self._last_obs = None
         self._start_eef_z = None
         self._libero_terminated = False
@@ -191,15 +124,13 @@ class LiberoPrimitives:
         obs.setdefault("extra_view_images", None)
 
         actions, _ = self.model.predict_action_batch(obs, mode="eval")
-        # actions: [num_envs, chunk_size, action_dim]
-        chunk_size = actions.shape[1]
-        any_term = False
-        last_obs = obs
-        for c in range(chunk_size):
-            action = actions[:, c, :]
-            last_obs, _rew, term, _trunc, _info = self.env.step(action)
-            if _step_terminated(term, self.env_idx):
-                any_term = True
+        # actions: [num_envs, chunk_size, action_dim]. The whole chunk
+        # runs in a single env.chunk_step RPC; the env owns the per-step
+        # loop server-side.
+        result, _rew, term, _trunc, _info = self.env.chunk_step(actions)
+        last_obs = result[-1] if self.env.return_all_frames else result
+        # term shape is [num_envs, chunk_size]; reduce over the chunk dim.
+        any_term = bool(np.asarray(term)[self.env_idx].any())
         # One frame per chunk (matches the previous chunk_step cadence).
         self._last_obs = last_obs
         self.record_frame()
@@ -220,7 +151,7 @@ class LiberoPrimitives:
         gripper_closed_thresh: float = 0.06,
         track_obj: str | None = None,
         track_obj_lift_thresh: float = 0.05,
-    ) -> PrimitiveResult:
+    ) -> dict:
         """Closed-loop Pi0.5 pick driven by ``prompt`` as the VLA instruction.
 
         Success := eef lifted by >= ``lift_thresh`` AND gripper_opening
@@ -281,17 +212,17 @@ class LiberoPrimitives:
                 success = True
                 break
 
-        return PrimitiveResult(
-            name="pick",
-            instruction=instr,
-            success=success,
-            chunks_used=chunks_used,
-            max_chunks=max_chunks,
-            peak_lift_m=post_min_peak_z - min_z,  # actual post-descent ascent
-            min_gripper_opening=min_grip,
-            final_gripper_opening=last_grip,
-            libero_terminated=self._libero_terminated,
-            diagnostics={
+        return {
+            "name": "pick",
+            "instruction": instr,
+            "success": success,
+            "chunks_used": chunks_used,
+            "max_chunks": max_chunks,
+            "peak_lift_m": post_min_peak_z - min_z,  # actual post-descent ascent
+            "min_gripper_opening": min_grip,
+            "final_gripper_opening": last_grip,
+            "libero_terminated": self._libero_terminated,
+            "diagnostics": {
                 "start_eef_z": round(start_z, 4),
                 "peak_eef_z": round(peak_z, 4),
                 "min_eef_z": round(min_z, 4),
@@ -305,7 +236,7 @@ class LiberoPrimitives:
                 "track_obj_init_z": track_obj_init_z,
                 "track_obj_final_z": track_obj_lifted_to,
             },
-        )
+        }
 
     def place(
         self,
@@ -314,7 +245,7 @@ class LiberoPrimitives:
         max_chunks: int = 24,
         release_thresh: float = 0.04,
         instruction_template: str = "place it on {tgt}",
-    ) -> PrimitiveResult:
+    ) -> dict:
         """Run VLA with the place sub-instruction until gripper opens or budget."""
         instr = instruction_template.format(tgt=target_text)
         start_z = self._eef_z(self._last_obs)
@@ -339,18 +270,18 @@ class LiberoPrimitives:
                 success = True
                 break
 
-        return PrimitiveResult(
-            name="place",
-            instruction=instr,
-            success=success,
-            chunks_used=chunks_used,
-            max_chunks=max_chunks,
-            peak_lift_m=peak_z - start_z,
-            min_gripper_opening=min_grip,
-            final_gripper_opening=last_grip,
-            libero_terminated=self._libero_terminated,
-            diagnostics={"release_thresh": release_thresh},
-        )
+        return {
+            "name": "place",
+            "instruction": instr,
+            "success": success,
+            "chunks_used": chunks_used,
+            "max_chunks": max_chunks,
+            "peak_lift_m": peak_z - start_z,
+            "min_gripper_opening": min_grip,
+            "final_gripper_opening": last_grip,
+            "libero_terminated": self._libero_terminated,
+            "diagnostics": {"release_thresh": release_thresh},
+        }
 
     def move_to(
         self,
@@ -753,18 +684,13 @@ class LiberoPrimitives:
             obs = self._last_obs
             obs.setdefault("extra_view_images", None)
             actions, _ = self.model.predict_action_batch(obs, mode="eval")
-            chunk_size = actions.shape[1]
-            any_term = False
-            last_obs = obs
-            for s in range(chunk_size):
-                action = actions[:, s, :]
-                last_obs, _rew, term, _trunc, _info = self.env.step(action)
-                if _step_terminated(term, self.env_idx):
-                    any_term = True
-            self._last_obs = last_obs
+            result, _rew, term, _trunc, _info = self.env.chunk_step(actions)
+            self._last_obs = (
+                result[-1] if self.env.return_all_frames else result
+            )
             chunks_used = c + 1
             peak_z = max(peak_z, self._eef_z(self._last_obs))
-            if any_term:
+            if bool(np.asarray(term)[self.env_idx].any()):
                 self._libero_terminated = True
                 break
         return {
@@ -844,7 +770,7 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
     # localize via depth_NN.npy + camera_meta.json). Keep the object NAMES
     # (what's in the scene / which is the target) + robot proprioception —
     # names are not coordinate info and are also implied by the task language.
-    if getattr(driver, "_hide_object_coords", False):
+    if driver.hide_object_coords:
         objs = state.get("objects", {})
         state["object_names"] = sorted(objs.keys())
         state.pop("objects", None)

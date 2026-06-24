@@ -2,11 +2,11 @@
 
 Owns the RLinf/LIBERO bootstrap (path setup, env config builder) and
 exposes a pickle-framed RPC server over the
-:class:`~physical_agent.driver_client.socket.TransportTCPServer`. The agent
+:class:`~physical_agent.rpc_driver.socket.SocketRpcServer`. The agent
 process drives a :class:`~physical_agent.envs.libero.tools.LiberoPrimitives`
 locally and reaches in only for ``env.*`` method calls; the model side
 goes over HTTP to a separate ``deployment/rlinf/vla_server.py`` process
-(see :class:`~physical_agent.driver_client.vla_client.VLAClient`).
+(see :class:`~physical_agent.rpc_driver.vla_client.VLAClient`).
 
 Launched as a subprocess by :func:`cli.main.start_driver`.
 """
@@ -24,7 +24,7 @@ from typing import Any
 os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
-from physical_agent.driver_client.socket import TransportTCPServer
+from physical_agent.rpc_driver.socket import SocketRpcServer
 from physical_agent.utils.config import (
     get_repo_root,
     get_rlinf_repo_path,
@@ -135,8 +135,8 @@ def _to_numpy_tree(x):
 
 
 class LiberoEnvFacade:
-    """Implements :class:`physical_agent.envs.libero.tools.EnvInterface` over
-    :class:`rlinf.envs.libero.libero_env.LiberoEnv`.
+    """Implements :class:`physical_agent.envs.libero.libero_env_client.LiberoEnvClient`
+    over :class:`rlinf.envs.libero.libero_env.LiberoEnv`.
 
     All return values are converted to CPU numpy so the agent process
     (which does not import torch) can consume them after the pickle round
@@ -155,6 +155,30 @@ class LiberoEnvFacade:
         obs, rew, term, trunc, info = self._env.step(action)
         return (
             _to_numpy_tree(obs),
+            _to_numpy_tree(rew),
+            _to_numpy_tree(term),
+            _to_numpy_tree(trunc),
+            _to_numpy_tree(info),
+        )
+
+    def chunk_step(self, actions, *, return_all_frames: bool = False):
+        """Run a full action chunk in one RPC. ``actions`` shape
+        ``[num_envs, chunk_size, action_dim]``.
+
+        Returns the 5-positional tuple
+        ``(obs_or_list, reward, terminated, truncated, info)``. ``obs`` is
+        ``list[Obs]`` when ``return_all_frames=True`` (full per-step
+        trajectory), or just the final ``Obs`` dict when False (default).
+        ``terminated`` / ``truncated`` keep their native ``[num_envs,
+        chunk_size]`` shape — the agent does its own reduction.
+        """
+        obs_list, rew, term, trunc, info = self._env.chunk_step(actions)
+        if not isinstance(obs_list, (list, tuple)):
+            obs_list = [obs_list]
+        obs_list = [_to_numpy_tree(o) for o in obs_list]
+        obs_field = obs_list if return_all_frames else obs_list[-1]
+        return (
+            obs_field,
             _to_numpy_tree(rew),
             _to_numpy_tree(term),
             _to_numpy_tree(trunc),
@@ -203,7 +227,7 @@ class LiberoEnvFacade:
 _INITIAL_PPID = os.getppid()
 
 
-def _start_parent_watchdog(server: TransportTCPServer, shutdown_event: threading.Event,
+def _start_parent_watchdog(server: SocketRpcServer, shutdown_event: threading.Event,
                            poll_s: float = 2.0) -> None:
     """Shut the RPC server down if the agent (parent) process dies."""
 
@@ -270,7 +294,7 @@ def main():
     shutdown_event = threading.Event()
     dispatch = _build_dispatcher(env_facade, shutdown_event)
 
-    server = TransportTCPServer(
+    server = SocketRpcServer(
         (args.transport_host, args.transport_port), dispatch,
     )
     bound_host, bound_port = server.server_address

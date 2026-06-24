@@ -1,7 +1,10 @@
 """LIBERO environment extension."""
 from __future__ import annotations
 
-from physical_agent.envs.base import EnvSpec, PromptBundle
+from typing import Any
+
+from physical_agent.envs.prompt_bundle import PromptBundle
+from physical_agent.envs.env_spec import EnvSpec
 from physical_agent.envs.libero.prompt_bundle import (
     api_system,
     api_user,
@@ -27,8 +30,15 @@ def get_env_spec() -> EnvSpec:
     )
 
 
-def get_toolkit():
+def get_toolkit(
+    *,
+    primitives_kwargs: dict[str, Any],
+    video_path: str | None = None,
+):
     """Return the LIBERO toolkit (common tools + LIBERO primitives)."""
     from physical_agent.envs.libero.toolkit import LiberoToolkit
 
-    return LiberoToolkit()
+    return LiberoToolkit(
+        primitives_kwargs=primitives_kwargs,
+        video_path=video_path,
+    )
