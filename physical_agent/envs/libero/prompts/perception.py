@@ -47,11 +47,10 @@ CLI_PERCEPTION_WORKFLOW = """
    honest stuck-audit (libero_terminated:false) — never warp.
 
 8. WHEN state.libero_terminated == True:
-   a. Write the working command sequence to {{output_dir}}/recipe_{{recipe_tag}}.jsonl.
-   b. Write audit {{output_dir}}/{{recipe_tag}}.json with: suite, task_id, seed,
+   a. Write audit {{output_dir}}/{{recipe_tag}}.json with: suite, task_id, seed,
       regime:"strict_perception", strategy_notes (incl. how you localized),
       pick_result, final_state (latest states.json entry's `state`), libero_terminated:true.
-   c. Stop.
+   b. Stop.
    If unrecoverable, write {{recipe_tag}}.json with libero_terminated:false +
    strategy_notes describing what you tried. Then stop.
 """

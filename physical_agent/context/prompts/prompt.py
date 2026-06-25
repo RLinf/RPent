@@ -14,7 +14,7 @@ CLI_OUTPUT = BulletList([
     "Brief reasoning before each Bash/Read call (1-2 sentences).",
     "Don't re-read files already in this session.",
     "Numerical coords in 3 decimals are enough.",
-    "Stop immediately after writing the recipe + audit. Do not chat further.",
+    "Stop immediately after writing the audit. Do not chat further.",
 ])
 
 API_USER = {
@@ -28,7 +28,6 @@ CLI_USER = {
     - seed:    {{seed}}
     - output_dir: {{output_dir}}
     - output:  {{output_dir}}/
-      - recipe filename: recipe_{{recipe_tag}}.jsonl
       - audit filename:  {{recipe_tag}}.json
     """,
 }

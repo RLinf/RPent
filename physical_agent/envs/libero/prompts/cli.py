@@ -93,15 +93,12 @@ CLI_WORKFLOW = """
      (Teleport primitives are forbidden; see ALLOWED PRIMITIVES above.)
 
 8. WHEN state.libero_terminated becomes True:
-   a. Write the WORKING command sequence to
-      `{{output_dir}}/recipe_{{recipe_tag}}.jsonl` (one JSON per line, NO `note`
-      needed; can copy from each states.json entry's "command" field).
-   b. Write a minimal audit JSON to `{{output_dir}}/{{recipe_tag}}.json`
+   a. Write a minimal audit JSON to `{{output_dir}}/{{recipe_tag}}.json`
       with these keys: `suite`, `task_id`, `seed`, `regime: "strict"`,
       `strategy_notes`, `pick_result` (from the pi0_pick step's entry
       in states.json), `final_state` (from the latest states.json
       entry's `state` field), `libero_terminated: true`.
-   c. Stop.
+   b. Stop.
 
    If unrecoverable after honest exploration, instead write
    `{{recipe_tag}}.json` with `libero_terminated: false` and

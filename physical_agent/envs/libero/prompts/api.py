@@ -237,11 +237,10 @@ Suggested first steps:
 5. plan; then call the primitive tools (move_to / pi0_pick / release /
    set_gripper / rotate_wrist / rotate_pitch / move_pose) repeatedly
    until libero_terminated=True
-6. write_text_file the recipe + audit; finish(success)
+6. write_text_file the audit; finish(success)
 """
 
 API_USER_OUTPUT = """
 Save artifacts to: {{output_dir}}
-- recipe filename: recipe_{{recipe_tag}}.jsonl
 - audit  filename: {{recipe_tag}}.json
 """
