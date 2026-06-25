@@ -137,3 +137,7 @@ class LiberoToolkit(Toolkit):
             get_logger("libero_toolkit").warning(
                 f"failed to save video to {self._video_path}: {e}"
             )
+
+    def write_recipe(self, recipe_tag: str) -> str:
+        """Write the LIBERO recipe JSONL from the dumped state trace."""
+        return libero_tools.write_recipe_from_states(str(get_output_dir()), recipe_tag)

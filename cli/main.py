@@ -477,6 +477,9 @@ def main() -> int:
 
     elapsed = time.time() - t0
 
+    recipe_path = toolkit.write_recipe(recipe_tag)
+    logger.info("recipe: %s", recipe_path)
+
     transcript_path = Path(output_dir) / f"transcript_{recipe_tag}.json"
     record = {
         "suite": suite, "task": task, "seed": seed, "model": args.model,

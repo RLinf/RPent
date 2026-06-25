@@ -161,3 +161,7 @@ class Toolkit:
 
     def close(self) -> None:
         """Release the env driver at end of run. Default: no-op."""
+
+    def write_recipe(self, recipe_tag: str) -> str | None:
+        """Write a replay recipe for this env, if supported."""
+        return None

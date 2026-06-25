@@ -744,6 +744,49 @@ def _append_state(output_dir: str, blob: dict) -> None:
     os.replace(tmp, path)
 
 
+def write_recipe_from_states(output_dir: str, recipe_tag: str) -> str:
+    """Find a command sequence that gets ``libero_terminated=True``.
+
+    Export only non-error LIBERO primitive commands (move_to, pi0_pick,
+    release, set_gripper, rotate_*, move_pose). Exclude inspection/file/
+    finalization tools such as Read, Bash, back_project, view_driver_state,
+    write_text_file, and finish.
+    """
+    states_path = os.path.join(output_dir, "states.json")
+    states = json.load(open(states_path)) if os.path.exists(states_path) else []
+    primitive_actions = {
+        "move_to",
+        "pi0_pick",
+        "release",
+        "set_gripper",
+        "rotate_wrist",
+        "rotate_pitch",
+        "move_pose",
+    }
+
+    commands = []
+    for entry in states:
+        if not entry:
+            continue
+        command = entry.get("command")
+        if command is None:
+            continue
+        if command.get("action") not in primitive_actions:
+            continue
+        result = entry.get("result")
+        if isinstance(result, dict) and result.get("error"):
+            continue
+        commands.append(command)
+
+    recipe_path = os.path.join(output_dir, f"recipe_{recipe_tag}.jsonl")
+    tmp_path = recipe_path + ".tmp"
+    with open(tmp_path, "w") as f:
+        for command in commands:
+            f.write(json.dumps(command, separators=(",", ":")) + "\n")
+    os.replace(tmp_path, recipe_path)
+    return recipe_path
+
+
 def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
                log: dict | None = None) -> dict:
     """Dump state snapshot, images, and depth for step *step_idx*.
