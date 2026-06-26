@@ -143,53 +143,80 @@ class LiberoEnvFacade:
     trip.
     """
 
-    def __init__(self, env: LiberoEnv, env_idx: int = 0):
+    def __init__(self, env: LiberoEnv):
         self._env = env
-        self._env_idx = env_idx
+        self._env_idx = 0
+
+    # ---- shape helpers ----
+
+    def _strip(self, v):
+        """Drop the leading env dim. ``v`` is either a batched numpy array
+        (shape ``[B, ...]``), a length-B list (e.g. ``task_descriptions``),
+        or ``None`` (optional images). LiberoEnv runs ``num_envs=1`` so
+        index ``self._env_idx`` is always present."""
+        if v is None:
+            return None
+        return v[self._env_idx]
+
+    def _strip_obs(self, obs: dict) -> dict:
+        """Strip the leading env dim from every value of a LIBERO obs dict."""
+        return {k: self._strip(v) for k, v in obs.items()}
+
+    def _expand_action(self, action) -> np.ndarray:
+        """Inject the env dim onto a single-env action shaped ``[action_dim]``."""
+        return np.asarray(action)[None]
+
+    def _expand_chunk(self, actions) -> np.ndarray:
+        """Inject the env dim onto a single-env chunk shaped
+        ``[chunk_size, action_dim]``."""
+        return np.asarray(actions)[None]
+
+    # ---- gym-like surface ----
 
     def reset(self):
         obs, info = self._env.reset()
-        return _to_numpy_tree(obs), _to_numpy_tree(info)
+        return self._strip_obs(_to_numpy_tree(obs)), _to_numpy_tree(info)
 
     def step(self, action):
-        obs, rew, term, trunc, info = self._env.step(action)
+        obs, rew, term, trunc, info = self._env.step(self._expand_action(action))
         return (
-            _to_numpy_tree(obs),
-            _to_numpy_tree(rew),
-            _to_numpy_tree(term),
-            _to_numpy_tree(trunc),
+            self._strip_obs(_to_numpy_tree(obs)),
+            self._strip(_to_numpy_tree(rew)),
+            self._strip(_to_numpy_tree(term)),
+            self._strip(_to_numpy_tree(trunc)),
             _to_numpy_tree(info),
         )
 
     def chunk_step(self, actions, *, return_all_frames: bool = False):
         """Run a full action chunk in one RPC. ``actions`` shape
-        ``[num_envs, chunk_size, action_dim]``.
+        ``[chunk_size, action_dim]`` (single env).
 
         Returns the 5-positional tuple
         ``(obs_or_list, reward, terminated, truncated, info)``. ``obs`` is
         ``list[Obs]`` when ``return_all_frames=True`` (full per-step
         trajectory), or just the final ``Obs`` dict when False (default).
-        ``terminated`` / ``truncated`` keep their native ``[num_envs,
-        chunk_size]`` shape — the agent does its own reduction.
+        ``terminated`` / ``truncated`` carry shape ``[chunk_size]`` after
+        the leading env dim is stripped — the agent reduces across the
+        chunk itself.
         """
-        obs_list, rew, term, trunc, info = self._env.chunk_step(actions)
-        if not isinstance(obs_list, (list, tuple)):
-            obs_list = [obs_list]
-        obs_list = [_to_numpy_tree(o) for o in obs_list]
+        obs_list, rew, term, trunc, info = self._env.chunk_step(
+            self._expand_chunk(actions)
+        )
+        obs_list = [self._strip_obs(_to_numpy_tree(o)) for o in obs_list]
         obs_field = obs_list if return_all_frames else obs_list[-1]
         return (
             obs_field,
-            _to_numpy_tree(rew),
-            _to_numpy_tree(term),
-            _to_numpy_tree(trunc),
+            self._strip(_to_numpy_tree(rew)),
+            self._strip(_to_numpy_tree(term)),
+            self._strip(_to_numpy_tree(trunc)),
             _to_numpy_tree(info),
         )
 
-    def raw_obs(self, env_idx: int = 0) -> dict:
-        return _to_numpy_tree(self._env.current_raw_obs[env_idx])
+    def raw_obs(self) -> dict:
+        return _to_numpy_tree(self._env.current_raw_obs[self._env_idx])
 
-    def render_agentview(self, env_idx: int = 0) -> np.ndarray:
-        img = self._env.current_raw_obs[env_idx]["agentview_image"]
+    def render_agentview(self) -> np.ndarray:
+        img = self._env.current_raw_obs[self._env_idx]["agentview_image"]
         if isinstance(img, torch.Tensor):
             img = img.detach().cpu().numpy()
         # Pi0 convention: 180° rotation from the raw camera frame.
@@ -205,12 +232,6 @@ class LiberoEnvFacade:
         except Exception as e:
             logger.warning("get_camera_meta failed: %s", e)
             return None
-
-    def set_image_render_enabled(self, enabled: bool) -> None:
-        # Older LiberoEnv builds lack this toggle; no-op in that case.
-        toggle = getattr(self._env, "set_image_render_enabled", None)
-        if toggle is not None:
-            toggle(enabled)
 
     def cached_image(self) -> np.ndarray | None:
         cached = getattr(self._env, "_cached_full_image", None)

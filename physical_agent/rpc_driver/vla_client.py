@@ -8,7 +8,7 @@ Wire format (see also ``vla_server.py``):
 
     POST {base_url}/predict
     {
-      "instruction": "<task_descriptions[0]>",
+      "instruction": "<task_descriptions>",
       "images": {
         "main":  {"format": "png", "data": "<base64>"},
         "wrist": {"format": "png", "data": "<base64>"},   # optional
@@ -109,38 +109,37 @@ class VLAClient:
         **_kwargs,
     ) -> tuple[np.ndarray, dict[str, Any]]:
         main_images = _to_numpy(env_obs["main_images"])
-        if main_images.ndim != 4:
+        if main_images.ndim != 3:
             raise ValueError(
-                f"main_images expected shape [B,H,W,3]; got {main_images.shape}"
+                f"main_images expected shape [H,W,3]; got {main_images.shape}"
             )
-        # LiberoPrimitives always runs with B=1 (num_envs=1). Encode the
-        # first batch element. If batch>1 ever surfaces, callers should fan
-        # out one request per item.
         images: dict[str, Any] = {
-            "main": {"format": "png", "data": _png_b64(main_images[0])},
+            "main": {"format": "png", "data": _png_b64(main_images)},
         }
         for src_key, wire_key in (("wrist_images", "wrist"), ("extra_view_images", "extra")):
             view = env_obs.get(src_key)
             if view is None:
                 continue
             arr = _to_numpy(view)
-            if arr.size > 0 and arr.ndim == 4:
+            if arr.size > 0 and arr.ndim == 3:
                 images[wire_key] = {
                     "format": "png",
-                    "data": _png_b64(arr[0]),
+                    "data": _png_b64(arr),
                 }
 
-        task_descriptions = env_obs.get("task_descriptions") or [""]
+        instruction = env_obs.get("task_descriptions") or ""
+
         states = _to_numpy(env_obs["states"]).astype(np.float32)
-        if states.ndim != 2:
+        if states.ndim != 1:
             raise ValueError(
-                f"states must be [B, state_dim]; got {states.shape}"
+                f"states must be single-env shape [state_dim]; got {states.shape}"
             )
 
         body = {
-            "instruction": str(task_descriptions[0]),
+            "instruction": instruction,
             "images": images,
-            "state": states.tolist(),
+            # vla_server's wire still expects [B, state_dim]
+            "state": [states.tolist()],
             "mode": mode,
         }
 
@@ -159,5 +158,7 @@ class VLAClient:
                 f"VLA /predict failed (HTTP {resp.status_code}): {detail}"
             )
         payload = resp.json()
-        actions = np.asarray(payload["actions"], dtype=np.float32)
+        # Wire returns [B=1, chunk, action_dim]; strip B so callers see
+        # [chunk, action_dim] without thinking in num_envs.
+        actions = np.asarray(payload["actions"], dtype=np.float32)[0]
         return actions, {}

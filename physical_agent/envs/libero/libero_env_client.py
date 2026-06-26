@@ -1,10 +1,9 @@
 """LIBERO env client that forwards calls over a driver client.
 
 Lives in :mod:`physical_agent.envs.libero` because the methods exposed
-here (``current_raw_obs`` / ``render_agentview`` / ``cached_image`` /
-…) reference LIBERO-specific obs dict keys and camera names. The
-generic gym-style base lives in
-:mod:`physical_agent.rpc_driver.env_client`.
+here (``raw_obs`` / ``render_agentview`` / ``cached_image`` / …)
+reference LIBERO-specific obs dict keys and camera names. The generic
+gym-style base lives in :mod:`physical_agent.rpc_driver.env_client`.
 """
 from __future__ import annotations
 
@@ -16,15 +15,10 @@ from physical_agent.rpc_driver.base import RpcClient
 
 
 _TIMEOUT_S = {
+    "default": 30.0,
     "env.reset": 120.0,
     "env.step": 60.0,
     "env.chunk_step": 120.0,
-    "env.raw_obs": 30.0,
-    "env.current_raw_obs": 30.0,
-    "env.render_agentview": 30.0,
-    "env.get_camera_meta": 30.0,
-    "env.set_image_render_enabled": 30.0,
-    "env.cached_image": 30.0,
 }
 
 
@@ -64,31 +58,20 @@ class LiberoEnvClient:
             timeout_s=_TIMEOUT_S["env.chunk_step"],
         )
 
-    def raw_obs(self, env_idx: int = 0) -> dict:
-        return self._client.call(
-            "env.raw_obs", args=(env_idx,), timeout_s=_TIMEOUT_S["env.raw_obs"]
-        )
+    def raw_obs(self) -> dict:
+        return self._client.call("env.raw_obs", timeout_s=_TIMEOUT_S["default"])
 
-    def render_agentview(self, env_idx: int = 0) -> np.ndarray:
+    def render_agentview(self) -> np.ndarray:
         return self._client.call(
-            "env.render_agentview",
-            args=(env_idx,),
-            timeout_s=_TIMEOUT_S["env.render_agentview"],
+            "env.render_agentview", timeout_s=_TIMEOUT_S["default"]
         )
 
     def get_camera_meta(self) -> dict | None:
         return self._client.call(
-            "env.get_camera_meta", timeout_s=_TIMEOUT_S["env.get_camera_meta"]
-        )
-
-    def set_image_render_enabled(self, enabled: bool) -> None:
-        self._client.call(
-            "env.set_image_render_enabled",
-            args=(bool(enabled),),
-            timeout_s=_TIMEOUT_S["env.set_image_render_enabled"],
+            "env.get_camera_meta", timeout_s=_TIMEOUT_S["default"]
         )
 
     def cached_image(self) -> np.ndarray | None:
         return self._client.call(
-            "env.cached_image", timeout_s=_TIMEOUT_S["env.cached_image"]
+            "env.cached_image", timeout_s=_TIMEOUT_S["default"]
         )
