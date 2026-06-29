@@ -15,13 +15,6 @@ from physical_agent.utils.logging import get_logger, get_output_dir
 logger = get_logger("libero")
 
 
-def _as_numpy_array(x):
-    """Duck-typed torch-or-numpy → numpy conversion."""
-    if hasattr(x, "detach"):
-        return x.detach().cpu().numpy()
-    return np.asarray(x)
-
-
 def _normalize_xyz(xyz):
     """Coerce an LLM-supplied xyz into a length-3 list[float]."""
     if isinstance(xyz, dict) and set(xyz) == {"item"}:
@@ -84,7 +77,7 @@ class LiberoPrimitives:
 
     def set_obs(self, obs):
         self._last_obs = obs
-        states_arr = _as_numpy_array(obs["states"])
+        states_arr = np.asarray(obs["states"])
         self._last_obs_eef_pos = np.asarray(states_arr[:3], dtype=np.float32)
         self._last_obs_eef_z = float(self._last_obs_eef_pos[2])
         # robosuite 2f85: qpos[6] in [~0, ~0.04], qpos[7] in [~-0.04, ~0].

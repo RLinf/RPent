@@ -34,7 +34,6 @@ from typing import Any
 
 import httpx
 import numpy as np
-import torch
 
 
 def _png_b64(img: np.ndarray) -> str:
@@ -46,12 +45,6 @@ def _png_b64(img: np.ndarray) -> str:
     buf = io.BytesIO()
     imageio.imwrite(buf, arr, format="png")
     return base64.b64encode(buf.getvalue()).decode("ascii")
-
-
-def _to_numpy(x: Any) -> np.ndarray:
-    if isinstance(x, torch.Tensor):
-        return x.detach().cpu().numpy()
-    return np.asarray(x)
 
 
 class VLAClient:
@@ -108,7 +101,7 @@ class VLAClient:
         mode: str = "eval",
         **_kwargs,
     ) -> tuple[np.ndarray, dict[str, Any]]:
-        main_images = _to_numpy(env_obs["main_images"])
+        main_images = np.asarray(env_obs["main_images"])
         if main_images.ndim != 3:
             raise ValueError(
                 f"main_images expected shape [H,W,3]; got {main_images.shape}"
@@ -120,7 +113,7 @@ class VLAClient:
             view = env_obs.get(src_key)
             if view is None:
                 continue
-            arr = _to_numpy(view)
+            arr = np.asarray(view)
             if arr.size > 0 and arr.ndim == 3:
                 images[wire_key] = {
                     "format": "png",
@@ -129,7 +122,7 @@ class VLAClient:
 
         instruction = env_obs.get("task_descriptions") or ""
 
-        states = _to_numpy(env_obs["states"]).astype(np.float32)
+        states = np.asarray(env_obs["states"]).astype(np.float32)
         if states.ndim != 1:
             raise ValueError(
                 f"states must be single-env shape [state_dim]; got {states.shape}"
