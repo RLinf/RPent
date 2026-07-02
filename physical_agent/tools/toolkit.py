@@ -45,9 +45,9 @@ class ToolResult:
     def _build_content_blocks(self) -> list[dict[str, Any]]:
         """Build Anthropic-shaped content blocks (text + optional images).
 
-        Strips any ``_image_bytes`` / ``_image_cam_bytes`` payloads from the
-        text block and emits them as separate base64 image blocks so the LLM
-        receives the agentview PNGs as multimodal content.
+        Strips image byte payloads from the text block and emits them as
+        separate base64 image blocks so the LLM receives the state images as
+        multimodal content.
         """
         result = self.result
         if not isinstance(result, dict):
@@ -56,6 +56,7 @@ class ToolResult:
         result_for_text = dict(result)
         image = result_for_text.pop("_image_bytes", None)
         image_cam = result_for_text.pop("_image_cam_bytes", None)
+        image_wrist = result_for_text.pop("_image_wrist_bytes", None)
         text = json.dumps(result_for_text, indent=2, default=str)
         if len(text) > self.MAX_TEXT_BYTES_IN_RESULT:
             text = text[:self.MAX_TEXT_BYTES_IN_RESULT] + "\n[truncated]"
@@ -77,6 +78,8 @@ class ToolResult:
             _add_image_bytes(image)
         if image_cam:
             _add_image_bytes(image_cam)
+        if image_wrist:
+            _add_image_bytes(image_wrist)
         return blocks
 
 

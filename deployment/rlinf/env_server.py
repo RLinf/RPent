@@ -249,10 +249,15 @@ class LiberoEnvFacade:
         # Pi0 convention: 180° rotation from the raw camera frame.
         return np.ascontiguousarray(img[::-1, ::-1])
 
-    def get_camera_meta(self) -> dict | None:
+    def get_camera_meta(
+        self,
+        camera_name: str = "agentview",
+        height: int = 256,
+        width: int = 256,
+    ) -> dict | None:
         return _to_numpy_tree(
             self._env.get_camera_meta(
-                camera_name="agentview", height=256, width=256
+                camera_name=camera_name, height=height, width=width
             )
         )
 

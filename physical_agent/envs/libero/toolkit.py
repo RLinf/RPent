@@ -108,7 +108,17 @@ class LiberoToolkit(Toolkit):
         """Wipe stale run artifacts, build the primitive driver, dump step 0."""
         out_dir = get_output_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
-        for sub in ("images", "images_cam", "depths", "action_videos"):
+        for sub in (
+            "images",
+            "images_cam",
+            "depths",
+            "action_videos",
+            "world",
+            "images_wrist",
+            "depths_wrist",
+            "world_wrist",
+            "wrist_meta",
+        ):
             target = out_dir / sub
             if target.exists():
                 shutil.rmtree(target)

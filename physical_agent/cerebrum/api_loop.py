@@ -126,6 +126,7 @@ def summarise_tool_result(result: Any) -> dict[str, Any]:
             "log",
             "_image_bytes",
             "_image_cam_bytes",
+            "_image_wrist_bytes",
         )
     }
     if "state" in result:

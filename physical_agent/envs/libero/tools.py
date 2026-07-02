@@ -785,6 +785,11 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
       - ``<output_dir>/images/image_NN.png``       (Pi0-frame agentview)
       - ``<output_dir>/images_cam/image_cam_NN.png`` (calibration-frame agentview)
       - ``<output_dir>/depths/depth_NN.npy``        (metric depth, meters)
+      - ``<output_dir>/world/world_NN.npy``         (agentview world xyz map)
+      - ``<output_dir>/images_wrist/image_wrist_NN.png``
+      - ``<output_dir>/depths_wrist/depth_wrist_NN.npy``
+      - ``<output_dir>/world_wrist/world_wrist_NN.npy``
+      - ``<output_dir>/wrist_meta/wrist_meta_NN.json``
       - ``<output_dir>/camera_meta.json``           (static, once)
       - appends the step blob to ``<output_dir>/states.json``
 
@@ -795,9 +800,21 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
     images_dir = os.path.join(output_dir, "images")
     images_cam_dir = os.path.join(output_dir, "images_cam")
     depths_dir = os.path.join(output_dir, "depths")
+    world_dir = os.path.join(output_dir, "world")
+    images_wrist_dir = os.path.join(output_dir, "images_wrist")
+    depths_wrist_dir = os.path.join(output_dir, "depths_wrist")
+    world_wrist_dir = os.path.join(output_dir, "world_wrist")
+    wrist_meta_dir = os.path.join(output_dir, "wrist_meta")
     os.makedirs(images_dir, exist_ok=True)
     os.makedirs(images_cam_dir, exist_ok=True)
     os.makedirs(depths_dir, exist_ok=True)
+    os.makedirs(world_dir, exist_ok=True)
+    os.makedirs(images_wrist_dir, exist_ok=True)
+    os.makedirs(depths_wrist_dir, exist_ok=True)
+    os.makedirs(world_wrist_dir, exist_ok=True)
+    os.makedirs(wrist_meta_dir, exist_ok=True)
+    agent_world_map = None
+    wrist_world_map = None
     state = driver.get_privileged_state()
     # force perception: drop object world coords (the agent must
     # localize via depth_NN.npy + camera_meta.json). Keep the object NAMES
@@ -827,14 +844,18 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
     imageio.imwrite(os.path.join(images_dir, f"image_{step_idx:02d}.png"), img)
 
     # --- camera calibration (static for agentview): fetch + dump once ---
-    cam_meta = getattr(driver, "_camera_meta", None)
-    if cam_meta is None:
-        cam_meta = driver.env.get_camera_meta()
-        if cam_meta is None:
-            cam_meta = {}
-        driver._camera_meta = cam_meta
-        if cam_meta:
-            cam_meta_out = dict(cam_meta)
+    agentview_meta = getattr(driver, "_agentview_camera_meta", None)
+    if agentview_meta is None:
+        agentview_meta = driver.env.get_camera_meta(
+            camera_name="agentview",
+            height=256,
+            width=256,
+        )
+        if agentview_meta is None:
+            agentview_meta = {}
+        driver._agentview_camera_meta = agentview_meta
+        if agentview_meta:
+            cam_meta_out = dict(agentview_meta)
             cam_meta_out["projection"] = (
                 "Prefer the back_project(row, col, step=NN) MCP tool. "
                 "For reference: world->pixel first computes "
@@ -851,13 +872,15 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
             with open(os.path.join(output_dir, "camera_meta.json"), "w") as f:
                 json.dump(cam_meta_out, f, indent=2)
 
+    # Fetch one raw observation snapshot for all per-step camera artifacts.
+    raw = driver.env.raw_obs()
+
     # --- per-step RGB in the depth/K frame (vertical-flip of the raw buffer) ---
     # The agent picks object pixels HERE (same frame as depth_NN.npy + K), so
     # pixel -> depth -> back-project is direct. (image_NN.png is the 180°-rotated
     # Pi0-convention frame and must NOT be used for back-projection.)
     try:
-        _raw = driver.env.raw_obs()
-        ci = _raw.get("agentview_image")
+        ci = raw.get("agentview_image")
         if ci is not None:
             ci = np.asarray(ci)
             if ci.dtype != np.uint8:
@@ -871,16 +894,14 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
 
     # --- per-step metric depth (agentview), native orientation, in meters ---
     try:
-        raw = driver.env.raw_obs()
         d = raw.get("agentview_depth")
         if d is not None:
             d = np.asarray(d, dtype=np.float32)
             if d.ndim == 3:
                 d = d[..., 0]
-            near = cam_meta.get("depth_near")
-            far = cam_meta.get("depth_far")
+            near = agentview_meta.get("depth_near")
+            far = agentview_meta.get("depth_far")
             if near is not None and far is not None:
-                # robosuite normalized OpenGL depth -> metric (get_real_depth_map)
                 d = near / (1.0 - d * (1.0 - near / far))
             # Vertical flip to align with the camera matrices: robosuite's
             # camera_utils projection M = K_exp @ inv(extrinsic) expects the
@@ -893,14 +914,105 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
             d = d[::-1]
             np.save(os.path.join(depths_dir, f"depth_{step_idx:02d}.npy"),
                     d.astype(np.float32))
+            k_matrix = np.array(agentview_meta["intrinsic_K"], dtype=np.float64)
+            extrinsic = np.array(agentview_meta["extrinsic_cam2world"], dtype=np.float64)
+            fx, fy = k_matrix[0, 0], k_matrix[1, 1]
+            cx, cy = k_matrix[0, 2], k_matrix[1, 2]
+            height, width = d.shape
+            rr, cc = np.mgrid[0:height, 0:width]
+            z = d.astype(np.float64)
+            camera_points = np.stack(
+                [(cc - cx) * z / fx, (rr - cy) * z / fy, z, np.ones_like(z)],
+                axis=-1,
+            )
+            world = (camera_points @ extrinsic.T)[..., :3].astype(np.float32)
+            world_name = f"world_{step_idx:02d}.npy"
+            np.save(os.path.join(world_dir, world_name), world)
+            agent_world_map = f"world/{world_name}"
     except Exception as e:
         logger.warning("depth dump failed: %s", e)
+
+    # --- per-step wrist camera (robot0_eye_in_hand), calibration frame ---
+    try:
+        wimg = raw.get("robot0_eye_in_hand_image")
+        if wimg is None:
+            logger.warning("wrist image missing from raw_obs")
+        else:
+            wimg = np.asarray(wimg)
+            if wimg.dtype != np.uint8:
+                wimg = wimg.astype(np.uint8)
+            imageio.imwrite(
+                os.path.join(images_wrist_dir, f"image_wrist_{step_idx:02d}.png"),
+                wimg[::-1],
+            )
+    except Exception as e:
+        logger.warning("wrist image dump failed: %s", e)
+
+    try:
+        wdpt = raw.get("robot0_eye_in_hand_depth")
+        if wdpt is None:
+            logger.warning("wrist depth missing from raw_obs")
+        else:
+            wdpt_arr = np.asarray(wdpt, dtype=np.float32)
+            height, width = wdpt_arr.shape[:2]
+            wmeta = driver.env.get_camera_meta(
+                camera_name="robot0_eye_in_hand",
+                height=int(height),
+                width=int(width),
+            )
+            if wmeta is None:
+                logger.warning("wrist camera meta missing; skipping wrist depth/world")
+            else:
+                if wdpt_arr.ndim == 3:
+                    wdpt_arr = wdpt_arr[..., 0]
+                near = wmeta.get("depth_near")
+                far = wmeta.get("depth_far")
+                if near is not None and far is not None:
+                    wdpt_arr = near / (1.0 - wdpt_arr * (1.0 - near / far))
+                wdpt_metric = wdpt_arr[::-1]
+                depth_name = f"depth_wrist_{step_idx:02d}.npy"
+                np.save(
+                    os.path.join(depths_wrist_dir, depth_name),
+                    wdpt_metric.astype(np.float32),
+                )
+                k_matrix = np.array(wmeta["intrinsic_K"], dtype=np.float64)
+                extrinsic = np.array(wmeta["extrinsic_cam2world"], dtype=np.float64)
+                fx, fy = k_matrix[0, 0], k_matrix[1, 1]
+                cx, cy = k_matrix[0, 2], k_matrix[1, 2]
+                height, width = wdpt_metric.shape
+                rr, cc = np.mgrid[0:height, 0:width]
+                z = wdpt_metric.astype(np.float64)
+                camera_points = np.stack(
+                    [(cc - cx) * z / fx, (rr - cy) * z / fy, z, np.ones_like(z)],
+                    axis=-1,
+                )
+                world_w = (camera_points @ extrinsic.T)[..., :3].astype(np.float32)
+                world_name = f"world_wrist_{step_idx:02d}.npy"
+                np.save(os.path.join(world_wrist_dir, world_name), world_w)
+                wrist_world_map = f"world_wrist/{world_name}"
+
+                wmeta_out = dict(wmeta)
+                wmeta_out["note"] = (
+                    "MOVING camera: extrinsic_cam2world is for THIS step "
+                    "only. world_wrist_NN.npy[row,col] gives world "
+                    "(x,y,z) for that pixel, in the SAME world frame as "
+                    "agentview world_NN.npy."
+                )
+                with open(
+                    os.path.join(wrist_meta_dir, f"wrist_meta_{step_idx:02d}.json"),
+                    "w",
+                ) as f:
+                    json.dump(wmeta_out, f, indent=2)
+    except Exception as e:
+        logger.warning("wrist depth/world dump failed: %s", e)
 
     blob = {
         "step_idx": step_idx,
         "libero_terminated": driver.env.episode_done,
         "task_language": driver.env.get_task_language(),
         "state": state,
+        "world_map": agent_world_map,
+        "wrist_world_map": wrist_world_map,
     }
     # Merge the execution log (command + result + elapsed_s) into the
     # state blob so a single entry captures everything for the step.
@@ -921,11 +1033,15 @@ TOOLS_SPEC = [
         "name": "view_driver_state",
         "description": (
             "Read step NN from `states.json` + the matching "
-            "`images/image_NN.png` in {{output_dir}}. If step is "
+            "state images in {{output_dir}}. If step is "
             "null, returns the latest entry. Each entry contains the robot "
             "state, libero_terminated flag, command log, and result. Embeds "
-            "the agentview PNG as a multimodal image content block (use this "
-            "image — JSON state alone is not enough; see Rule 0)."
+            "available PNGs as multimodal image content blocks in this stable "
+            "order: 1) `images/image_NN.png` (Pi0-frame agentview), "
+            "2) `images_cam/image_cam_NN.png` (calibration-frame agentview), "
+            "3) `images_wrist/image_wrist_NN.png` (calibration-frame wrist). "
+            "Use the calibration-frame images for pixel back-projection; JSON "
+            "state alone is not enough."
         ),
         "input_schema": {
             "type": "object",
@@ -1122,13 +1238,23 @@ TOOLS_SPEC = [
     {
         "name": "view_camera_meta",
         "description": (
-            "Read camera_meta.json from the output dir. Returns the camera "
-            "intrinsics matrix K (3x3), the camera-to-world extrinsic matrix "
-            "(4x4), image dimensions, and the back-projection recipe."
+            "Read camera calibration metadata from the output dir. "
+            "camera='agentview' reads static camera_meta.json. "
+            "camera='wrist' reads the per-step wrist metadata."
         ),
         "input_schema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "camera": {
+                    "type": "string",
+                    "enum": ["agentview", "wrist"],
+                    "description": "Camera metadata to read (default agentview).",
+                },
+                "step": {
+                    "type": ["integer", "null"],
+                    "description": "Wrist metadata step to use (default latest).",
+                },
+            },
         },
     },
     {
@@ -1174,14 +1300,13 @@ TOOLS_SPEC = [
         "name": "back_project",
         "description": (
             "Back-project a pixel (row, col) to a world XYZ point using the "
-            "metric depth at that pixel and the camera calibration. "
-            "Row 0 = top of image, col 0 = left. Step NN selects which "
-            "`depths/depth_NN.npy` to use (default latest). Returns world_xyz "
-            "in meters.\n\n"
+            "selected camera's precomputed world map. Row 0 = top of image, "
+            "col 0 = left. Returns world_xyz in meters.\n\n"
             "USE THIS to find where an object is in the world — look at "
-            "`images_cam/image_cam_NN.png` to pick a pixel on the target "
-            "object, then call back_project(row, col). Sample several pixels "
-            "on the object and median their xy for robustness."
+            "`images_cam/image_cam_NN.png` or `images_wrist/image_wrist_NN.png` "
+            "to pick a pixel on the target object, then call back_project. "
+            "Sample several pixels on the object and median their xy for "
+            "robustness."
         ),
         "input_schema": {
             "type": "object",
@@ -1190,7 +1315,12 @@ TOOLS_SPEC = [
                 "col": {"type": "integer", "description": "Pixel column (0=left, 255=right)"},
                 "step": {
                     "type": ["integer", "null"],
-                    "description": "Depth step to use (default latest). 0 for initial.",
+                    "description": "Depth/world-map step to use (default latest). 0 for initial.",
+                },
+                "camera": {
+                    "type": "string",
+                    "enum": ["agentview", "wrist"],
+                    "description": "Camera to back-project from (default agentview).",
                 },
             },
             "required": ["row", "col"],
@@ -1250,13 +1380,14 @@ def _load_step(nn: int) -> dict:
 
 
 def _load_image(nn: int, kind: str) -> bytes | None:
-    """Return PNG bytes for ``image_NN.png`` (kind='agent') or
-    ``image_cam_NN.png`` (kind='camera'). None if not present."""
+    """Return PNG bytes for a dumped state image. None if not present."""
     out_dir = get_output_dir()
     if kind == "agent":
         path = out_dir / "images" / f"image_{nn:02d}.png"
     elif kind == "camera":
         path = out_dir / "images_cam" / f"image_cam_{nn:02d}.png"
+    elif kind == "wrist":
+        path = out_dir / "images_wrist" / f"image_wrist_{nn:02d}.png"
     else:
         raise ValueError(f"unknown image kind: {kind}")
     if not path.exists():
@@ -1264,21 +1395,47 @@ def _load_image(nn: int, kind: str) -> bytes | None:
     return path.read_bytes()
 
 
-def _load_camera_meta() -> dict:
+def _load_camera_meta(camera: str = "agentview", nn: int | None = None) -> dict:
     out_dir = get_output_dir()
-    path = out_dir / "camera_meta.json"
+    if camera == "agentview":
+        path = out_dir / "camera_meta.json"
+    elif camera == "wrist" and nn is not None:
+        path = out_dir / "wrist_meta" / f"wrist_meta_{nn:02d}.json"
+    else:
+        raise ValueError("camera must be 'agentview' or 'wrist' with nn")
     if not path.exists():
-        raise FileNotFoundError(f"camera_meta.json not found in {out_dir}")
+        raise FileNotFoundError(f"{path.name} not found in {out_dir}")
     with open(path) as f:
         return json.load(f)
 
 
-def _load_depth(nn: int) -> np.ndarray:
+def _load_world_map(camera: str, nn: int) -> np.ndarray:
     out_dir = get_output_dir()
-    path = out_dir / "depths" / f"depth_{nn:02d}.npy"
+    if camera == "agentview":
+        path = out_dir / "world" / f"world_{nn:02d}.npy"
+    elif camera == "wrist":
+        path = out_dir / "world_wrist" / f"world_wrist_{nn:02d}.npy"
+    else:
+        raise ValueError("camera must be 'agentview' or 'wrist'")
     if not path.exists():
-        raise FileNotFoundError(f"depth_{nn:02d}.npy not found in {out_dir}")
+        raise FileNotFoundError(f"{path.name} not found in {out_dir}")
     return np.load(path)
+
+
+def _load_depth(camera: str, nn: int) -> np.ndarray:
+    out_dir = get_output_dir()
+    if camera == "agentview":
+        path = out_dir / "depths" / f"depth_{nn:02d}.npy"
+    elif camera == "wrist":
+        path = out_dir / "depths_wrist" / f"depth_wrist_{nn:02d}.npy"
+    else:
+        raise ValueError("camera must be 'agentview' or 'wrist'")
+    if not path.exists():
+        raise FileNotFoundError(f"{path.name} not found in {out_dir}")
+    depth = np.load(path)
+    if depth.ndim == 3:
+        depth = depth[..., 0]
+    return depth
 
 
 def view_driver_state(step: int | None = None) -> dict:
@@ -1295,6 +1452,8 @@ def view_driver_state(step: int | None = None) -> dict:
     out["task_language"] = data.get("task_language")
     out["state"] = data.get("state", data)
     out["libero_terminated"] = data.get("libero_terminated")
+    out["world_map"] = data.get("world_map")
+    out["wrist_world_map"] = data.get("wrist_world_map")
     out["log"] = {
         "command": data.get("command"),
         "result": data.get("result"),
@@ -1302,10 +1461,13 @@ def view_driver_state(step: int | None = None) -> dict:
     }
     image = _load_image(nn, "agent")
     image_cam = _load_image(nn, "camera")
+    image_wrist = _load_image(nn, "wrist")
     if image:
         out["_image_bytes"] = image
     if image_cam:
         out["_image_cam_bytes"] = image_cam
+    if image_wrist:
+        out["_image_wrist_bytes"] = image_wrist
     return out
 
 
@@ -1440,61 +1602,84 @@ def finish(status: str, summary: str) -> dict:
     return {"_finish": True, "status": status, "summary": summary}
 
 
-def view_camera_meta() -> dict:
+def view_camera_meta(camera: str = "agentview", step: int | None = None) -> dict:
     """Read camera calibration metadata for localization."""
-    try:
-        meta = _load_camera_meta()
-    except Exception:
-        return {
-            "error": (
-                f"camera metadata not found for output dir {get_output_dir()}"
-            )
-        }
-    return {"camera_meta": meta}
+    if camera not in ("agentview", "wrist"):
+        return {"error": f"bad camera '{camera}' (use 'agentview' or 'wrist')"}
 
-
-def back_project(row: int, col: int, step: int | None = None) -> dict:
-    """Back-project a pixel to world XYZ using depth + camera calibration."""
-    try:
-        meta = _load_camera_meta()
-    except Exception:
-        return {"error": "camera metadata not found"}
-
-    k_matrix = np.array(meta["intrinsic_K"])
-    extrinsic = np.array(meta["extrinsic_cam2world"])
-
-    nn = _latest_step() if step is None else step
-    if nn is None:
-        return {"error": "no depth files available"}
+    nn = None
+    if camera == "wrist":
+        nn = _latest_step() if step is None else int(step)
+        if nn is None:
+            return {"error": "no wrist metadata available"}
 
     try:
-        depth = _load_depth(nn)
+        meta = _load_camera_meta(camera, nn)
     except Exception as e:
-        return {"error": f"depth artifact not found for step {nn}: {e}"}
-    height, width = depth.shape
+        return {"error": f"{camera} camera metadata not found: {e}"}
+
+    if camera == "agentview":
+        return {"camera": "agentview", "camera_meta": meta}
+    else:
+        return {"camera": "wrist", "step": nn, "camera_meta": meta}
+
+
+def back_project(
+    row: int,
+    col: int,
+    step: int | None = None,
+    camera: str = "agentview",
+) -> dict:
+    """Look up a pixel's world XYZ in the precomputed world map."""
+    if camera not in ("agentview", "wrist"):
+        return {"error": f"bad camera '{camera}' (use 'agentview' or 'wrist')"}
+
+    nn = _latest_step() if step is None else int(step)
+    if nn is None:
+        return {"error": "no depth/world-map files available"}
+
+    if camera == "agentview":
+        source_artifact = f"world/world_{nn:02d}.npy"
+    else:
+        source_artifact = f"world_wrist/world_wrist_{nn:02d}.npy"
+
+    try:
+        world_map = _load_world_map(camera, nn)
+        depth = _load_depth(camera, nn)
+    except Exception as e:
+        return {"error": f"{camera} artifact not found for step {nn}: {e}"}
+
+    height, width = world_map.shape[:2]
     if row < 0 or row >= height or col < 0 or col >= width:
         return {
-            "error": f"pixel ({row},{col}) out of bounds; image is {height}x{width}"
+            "error": (
+                f"pixel ({row},{col}) out of bounds; {camera} image is "
+                f"{height}x{width}"
+            )
         }
 
     z = float(depth[row, col])
-    if z <= 0 or z > 10:
+    if not np.isfinite(z) or z <= 0 or z > 10:
         return {
             "error": (
-                f"invalid depth {z:.3f}m at pixel ({row},{col}); "
+                f"invalid {camera} depth {z:.3f}m at pixel ({row},{col}); "
                 "pick a different pixel"
             )
         }
-
-    pixel_h = np.array([float(col), float(row), 1.0])
-    camera_xyz = np.linalg.inv(k_matrix) @ pixel_h * z
-    world = extrinsic @ np.array([*camera_xyz, 1.0])
-    world_xyz = [round(float(v), 4) for v in world[:3]]
+    world_xyz_raw = world_map[row, col]
+    if (
+        not np.isfinite(world_xyz_raw).all()
+        or float(np.abs(world_xyz_raw[:3]).sum()) <= 1e-6
+    ):
+        return {"error": f"invalid {camera} world xyz at pixel ({row},{col})"}
+    world_xyz = [round(float(v), 4) for v in world_xyz_raw[:3]]
 
     return {
+        "camera": camera,
         "pixel": [row, col],
         "depth_m": round(z, 4),
         "world_xyz": world_xyz,
         "step": nn,
         "image_size": [height, width],
+        "source_artifact": source_artifact,
     }

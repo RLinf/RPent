@@ -336,8 +336,9 @@ class _Recorder:
         self.tool_calls += 1
         name = self.tool_names.get(tool_use_id, "tool_result")
         summary: dict[str, Any] = {"size": _payload_size(content)}
-        if _content_has_image(content):
-            summary["images"] = 1
+        image_count = _content_image_count(content)
+        if image_count:
+            summary["images"] = image_count
         if is_error:
             summary["is_error"] = bool(is_error)
         # Promote the finish payload once the tool result lands successfully.
@@ -521,10 +522,12 @@ def _payload_size(value: Any) -> int:
     return len(json.dumps(value, ensure_ascii=False, default=str))
 
 
-def _content_has_image(value: Any) -> bool:
+def _content_image_count(value: Any) -> int:
     if isinstance(value, list):
-        return any(
-            isinstance(item, dict) and item.get("type") == "image" for item in value
-        )
+        count = 0
+        for item in value:
+            if isinstance(item, dict) and item.get("type") == "image":
+                count += 1
+        return count
     text = str(value)
-    return "'type': 'image'" in text or '"type": "image"' in text
+    return text.count("'type': 'image'") + text.count('"type": "image"')

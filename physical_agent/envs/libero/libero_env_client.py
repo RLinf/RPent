@@ -96,9 +96,16 @@ class LiberoEnvClient:
             "env.render_agentview", timeout_s=_TIMEOUT_S["default"]
         )
 
-    def get_camera_meta(self) -> dict | None:
+    def get_camera_meta(
+        self,
+        camera_name: str = "agentview",
+        height: int = 256,
+        width: int = 256,
+    ) -> dict | None:
         return self._client.call(
-            "env.get_camera_meta", timeout_s=_TIMEOUT_S["default"]
+            "env.get_camera_meta",
+            kwargs={"camera_name": camera_name, "height": height, "width": width},
+            timeout_s=_TIMEOUT_S["default"],
         )
 
     def get_task_language(self) -> str | None:
