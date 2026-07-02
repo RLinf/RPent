@@ -26,7 +26,8 @@ WORKFLOW = """
 
 5. INSPECT INITIAL STATE: Call the `view_driver_state` tool with
    `{"step": 0}` OR read states.json[0] (object_names + eef pose),
-   images_cam/image_cam_00.png, camera_meta.json. Identify the target object + goal region.
+   then Read the high-resolution image paths returned by the tool. Identify
+   the target object + goal region.
 
 6. EXECUTE one primitive at a time by calling its tool, e.g.:
 
@@ -37,7 +38,7 @@ WORKFLOW = """
    Each tool blocks until the next states.json entry, and returns the
    new state entry + log + images. Do NOT manually create driver command
    files; use the tool for every primitive. Then inspect the returned state +
-   images_cam/image_cam_NN.png (+ back-project as needed),
+   high-resolution image paths (+ back_project as needed),
    decide, repeat with NN=02, 03, ...
 
 7. ALLOWED PRIMITIVES (physics-only; full schemas in the guide source files):
@@ -91,7 +92,11 @@ and writes artifacts in `{{output_dir}}/`:
     `{{output_dir}}/images/image_NN.png`         — agentview RGB, 180°-rotated (Pi0 frame; do NOT
                                               use for back-projection)
     `{{output_dir}}/images_cam/image_cam_NN.png` — agentview RGB in the CALIBRATION frame; pick
-                                              object pixels HERE
+                                              object pixels here only for low-resolution checks
+    `{{output_dir}}/images_cam_hi/image_cam_hi_NN.png` — 1024x1024 agentview RGB in the
+                                              CALIBRATION frame; use this for localization
+    `{{output_dir}}/images_wrist_hi/image_wrist_hi_NN.png` — 1024x1024 wrist RGB in the
+                                              CALIBRATION frame; use this for close-range localization
     `{{output_dir}}/depths/depth_NN.npy`         — HxW float32 metric depth (meters), calibration frame
     `{{output_dir}}/camera_meta.json`            — camera intrinsics K, cam->world extrinsic, projection recipe
 - NN is zero-padded sequential (`01`, `02`, ...). Initial state is step `00`,
@@ -102,9 +107,9 @@ GOAL = "YOUR GOAL: produce `state.libero_terminated == true` in a single episode
 
 RULES = Numbered([
     """
-    USE IMAGES. After every command, `Read` the new
-    `images_cam/image_cam_NN.png` (calibration frame — the one you pick
-    pixels in, also returned by the tool result when available). The image is
+    USE IMAGES. After every command, call `view_driver_state`, then `Read` the
+    returned `image_cam_hi_path` or `image_wrist_hi_path` (1024x1024
+    calibration frame — the one you pick pixels in). The image is
     your spatial-reasoning input; states.json only gives proprioception +
     object names.
     """,
@@ -128,8 +133,9 @@ RULES = Numbered([
     pick/place shortcut.
     """,
     """
-    Inspect THEN act. Read states.json[0] + images_cam/image_cam_00.png +
-    camera_meta + the relevant guides/recipes BEFORE your first command.
+    Inspect THEN act. Call `view_driver_state({"step": 0})`, Read the returned
+    high-resolution image path(s), then read the relevant guides/recipes BEFORE
+    your first command.
     """,
     """
     Walk the Pi0 prompt ladder before scripting a grasp:
@@ -148,18 +154,22 @@ RULES = Numbered([
 LOCALIZATION = """
 To find where an object is:
 
-1. Look at `images_cam/image_cam_NN.png` and find the target object's pixel
-   (row, col). (row = vertical/y from top, col = horizontal/x from left;
-   image is 256x256.)
+1. Read `images_cam_hi/image_cam_hi_NN.png` or
+   `images_wrist_hi/image_wrist_hi_NN.png` and find the target object's pixel
+   (row, col). Row = vertical/y from top, col = horizontal/x from left;
+   high-resolution images are 1024x1024.
 2. Call the `back_project` tool with
-   `{"row": ROW, "col": COL, "step": NN}` to get world_xyz.
+   `{"row": ROW, "col": COL, "step": NN}` to get world_xyz. This uses the
+   high-resolution world map by default. Pass `resolution:"low"` only if the
+   pixel came from a 256x256 image.
    For a grasp/place target, use its x,y; for z use the object's resting
    height (sample a pixel on the table next to it, or use the known table
    z ~0.9 kitchen / ~0.42 table-top).
 3. Sample a few pixels on the object to be robust; median the back-projected xy.
 
 ALWAYS apply the manipulation offsets from memory to the PERCEIVED position
-(e.g. BOWL: eef_y = plate_y + 0.045). Verify visually in images_cam after moving.
+(e.g. BOWL: eef_y = plate_y + 0.045). Verify visually with the high-resolution
+image path returned after moving.
 """
 
 ENVIRONMENT = BulletList([
@@ -173,11 +183,11 @@ ENVIRONMENT = BulletList([
 
 NEXT = """
 Begin by reading MEMORY.md, then Read the guide source files, then
-states.json[0], images_cam/image_cam_00.png, camera_meta.json, and depth.
-Localize via back_project before planning.
+call view_driver_state for step 0 and Read the returned high-resolution image
+path. Localize via back_project before planning.
 """
 
 USER_MODE = """
-Use images_cam/image_cam_NN.png, depths/depth_NN.npy, camera_meta.json,
-and back_project to localize objects before motion.
+Use the high-resolution image paths returned by view_driver_state and
+back_project to localize objects before motion.
 """

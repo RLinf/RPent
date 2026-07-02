@@ -118,6 +118,10 @@ class LiberoToolkit(Toolkit):
             "depths_wrist",
             "world_wrist",
             "wrist_meta",
+            "images_cam_hi",
+            "world_hi",
+            "images_wrist_hi",
+            "world_wrist_hi",
         ):
             target = out_dir / sub
             if target.exists():

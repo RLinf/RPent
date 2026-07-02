@@ -242,12 +242,21 @@ class LiberoEnvFacade:
         """Return the meta info this server was launched with. """
         return dict(self._meta)
 
-    def render_agentview(self) -> np.ndarray:
-        img = self._env.current_raw_obs[self._env_idx]["agentview_image"]
-        if isinstance(img, torch.Tensor):
-            img = img.detach().cpu().numpy()
-        # Pi0 convention: 180° rotation from the raw camera frame.
-        return np.ascontiguousarray(img[::-1, ::-1])
+    def render_camera(
+        self,
+        camera_name: str = "agentview",
+        height: int = 1024,
+        width: int = 1024,
+        depth: bool = False,
+    ):
+        return _to_numpy_tree(
+            self._env.render_camera(
+                camera_name=camera_name,
+                height=height,
+                width=width,
+                depth=depth,
+            )
+        )
 
     def get_camera_meta(
         self,

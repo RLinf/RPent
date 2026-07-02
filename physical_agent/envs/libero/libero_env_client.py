@@ -1,7 +1,7 @@
 """LIBERO env client that forwards calls over a driver client.
 
 Lives in :mod:`physical_agent.envs.libero` because the methods exposed
-here (``raw_obs`` / ``render_agentview`` / ``cached_image`` / …)
+here (``raw_obs`` / ``render_camera`` / ``cached_image`` / …)
 reference LIBERO-specific obs dict keys and camera names. The generic
 gym-style base lives in :mod:`physical_agent.rpc_driver.env_client`.
 """
@@ -19,6 +19,7 @@ _TIMEOUT_S = {
     "env.reset": 120.0,
     "env.step": 60.0,
     "env.chunk_step": 120.0,
+    "env.render_camera": 120.0,
 }
 
 
@@ -91,9 +92,22 @@ class LiberoEnvClient:
     def raw_obs(self) -> dict:
         return self._client.call("env.raw_obs", timeout_s=_TIMEOUT_S["default"])
 
-    def render_agentview(self) -> np.ndarray:
+    def render_camera(
+        self,
+        camera_name: str = "agentview",
+        height: int = 1024,
+        width: int = 1024,
+        depth: bool = False,
+    ):
         return self._client.call(
-            "env.render_agentview", timeout_s=_TIMEOUT_S["default"]
+            "env.render_camera",
+            kwargs={
+                "camera_name": camera_name,
+                "height": height,
+                "width": width,
+                "depth": depth,
+            },
+            timeout_s=_TIMEOUT_S["env.render_camera"],
         )
 
     def get_camera_meta(
