@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import queue
 from pathlib import Path
 from typing import Protocol
 
@@ -68,6 +69,7 @@ class Cerebrum(Protocol):
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
+        input_queue: queue.Queue[str | None] | None = None,
     ) -> CerebrumResult:
         """Run the multi-turn agent loop until completion or budget.
 
@@ -79,6 +81,11 @@ class Cerebrum(Protocol):
                 ``toolkit.get_tools_spec()`` and dispatch calls via
                 ``toolkit.execute_tool()``.
             max_turns: Maximum LLM turns before giving up.
+            input_queue: Optional queue of user-typed lines enabling interactive
+                mode. Lines pulled while a run is in flight are injected at the
+                next turn boundary; when a run ends without ``finish`` the loop
+                blocks on the queue for the next message. A ``None`` item ends
+                the session. Backends that don't support interaction ignore it.
 
         Returns:
             ``CerebrumResult`` with finish status, conversation transcript,

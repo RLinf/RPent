@@ -278,6 +278,22 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
     ]
 
 
+def _start_stdin_reader(input_queue: "queue.Queue[str | None]") -> threading.Thread:
+    """Forward each stdin line to the agent input queue (None sentinel on EOF)."""
+    def _read() -> None:
+        try:
+            for line in sys.stdin:
+                input_queue.put(line.rstrip("\n"))
+        except Exception:
+            pass
+        finally:
+            input_queue.put(None)
+
+    thread = threading.Thread(target=_read, name="stdin-reader", daemon=True)
+    thread.start()
+    return thread
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -340,6 +356,10 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--verbose", action="store_true",
                     help="Enable DEBUG-level logging for stdout and the run.log "
                          "file. Defaults to INFO when not set.")
+    ap.add_argument("--interactive", "-i", action="store_true",
+                    help="Interactive mode (api cerebrum only): type messages "
+                         "during the run to steer the agent; each is delivered "
+                         "at the next turn boundary. /quit or Ctrl-D ends it.")
 
     # environments
     ap.add_argument("--env", dest="env_name", default="libero",
@@ -523,12 +543,26 @@ def main() -> int:
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None
     stats: dict = {}
+    input_queue: "queue.Queue[str | None] | None" = None
+    if args.interactive:
+        if args.cerebrum != "api":
+            logger.warning(
+                "--interactive is only supported for --cerebrum api; ignoring."
+            )
+        else:
+            input_queue = queue.Queue()
+            _start_stdin_reader(input_queue)
+            logger.info(
+                "interactive mode ON: type a message any time to steer the agent "
+                "(delivered at the next turn); /quit or Ctrl-D to end."
+            )
     try:
         result = cerebrum.solve(
             system_prompt=system_prompt,
             user_message=user_msg,
             toolkit=toolkit,
             max_turns=args.max_turns,
+            input_queue=input_queue,
         )
         finish_result = result.finish_result
         messages = result.messages

@@ -12,6 +12,7 @@ import asyncio
 import base64
 import dataclasses
 import json
+import queue
 from typing import Any
 
 from pydantic_ai import Agent, BinaryContent, ModelSettings, Tool, ToolReturn
@@ -48,6 +49,9 @@ _MAX_HISTORY_IMAGE_BYTES = 4 * 1024 * 1024
 #: frame exceeds the byte budget, so the model never loses its current view.
 _MIN_RECENT_IMAGES = 2
 
+#: Interactive-mode lines that end the session (case-insensitive).
+_QUIT_TOKENS = frozenset({"/quit", "/exit", "/q"})
+
 
 class ApiAgentLoop:
     """Cerebrum that runs the tool-calling loop via a pydantic-ai ``Agent``."""
@@ -64,14 +68,22 @@ class ApiAgentLoop:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
+        input_queue: queue.Queue[str | None] | None = None,
     ) -> CerebrumResult:
-        """Run the tool-calling loop until finish, normal stop, or budget."""
+        """Run the tool-calling loop until finish, normal stop, or budget.
+
+        When ``input_queue`` is provided the loop runs interactively: lines
+        pulled from the queue during a run are injected at the next turn
+        boundary, and when a run ends without ``finish`` the loop blocks on the
+        queue for the next message. A ``None`` item (or ``/quit``) ends it.
+        """
         return asyncio.run(
             self._solve(
                 system_prompt=system_prompt,
                 user_message=user_message,
                 toolkit=toolkit,
                 max_turns=max_turns,
+                input_queue=input_queue,
             )
         )
 
@@ -82,6 +94,7 @@ class ApiAgentLoop:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
+        input_queue: queue.Queue[str | None] | None = None,
     ) -> CerebrumResult:
         agent = Agent(
             self._model,
@@ -94,52 +107,121 @@ class ApiAgentLoop:
             ],
         )
 
+        interactive = input_queue is not None
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
         finish_result: dict[str, Any] | None = None
         n_tool_calls = 0
         turns = 0
         last_error: str | None = None
         usage: RunUsage | None = None
+        quit_requested = False
 
+        def _inject_pending(run: Any) -> bool:
+            """Drain queued user lines into the live run; True => end session.
+
+            Each line is enqueued ``asap`` so it lands in the next model request
+            (the next turn boundary). This runs on the event-loop thread, so
+            mutating the run's pending-message queue here is race-free.
+            """
+            while True:
+                try:
+                    line = input_queue.get_nowait()  # type: ignore[union-attr]
+                except queue.Empty:
+                    return False
+                if line is None:
+                    return True
+                line = line.strip()
+                if line.lower() in _QUIT_TOKENS:
+                    return True
+                if not line:
+                    continue
+                run.enqueue(line, priority="asap")
+                messages.append({"role": "user", "content": line})
+                logger.info("[user] %s", _clip(line, _ARGS_LOG_LIMIT))
+
+        async def _await_next() -> str | None:
+            """Block off-loop for the next user line between runs (None => end)."""
+            logger.info("awaiting input — type a message to continue, /quit to end")
+            while True:
+                line = await asyncio.to_thread(input_queue.get)  # type: ignore[union-attr]
+                if line is None:
+                    return None
+                line = line.strip()
+                if line.lower() in _QUIT_TOKENS:
+                    return None
+                if line:
+                    logger.info("[user] %s", _clip(line, _ARGS_LOG_LIMIT))
+                    return line
+
+        seed = user_message
+        history: list[ModelMessage] | None = None
         try:
-            # request_limit overrides pydantic-ai's default (50) so the manual
-            # max_turns break below is what actually bounds the loop.
-            async with agent.iter(
-                user_message,
-                usage_limits=UsageLimits(request_limit=max_turns + 1),
-            ) as run:
-                async for node in run:
-                    if Agent.is_call_tools_node(node):
-                        turns += 1
-                        response = node.model_response
-                        messages.append(_serialize_response(response))
-                        _log_response(response, run.usage, turns, max_turns)
-
-                        async with node.stream(run.ctx) as stream:
-                            async for event in stream:
-                                if isinstance(event, FunctionToolCallEvent):
-                                    n_tool_calls += 1
-                                    if event.part.tool_name == "finish":
-                                        finish_result = {
-                                            "_finish": True,
-                                            **event.part.args_as_dict(),
-                                        }
-                                elif isinstance(event, FunctionToolResultEvent):
-                                    message = _serialize_tool_result(event)
-                                    messages.append(message)
-                                    _log_tool_result(message)
-
-                        if finish_result is not None:
-                            logger.info("FINISH called: %s", finish_result)
+            while True:
+                run_turns = 0
+                # request_limit overrides pydantic-ai's default (50) so the
+                # manual max_turns break below is what bounds each run.
+                async with agent.iter(
+                    seed,
+                    message_history=history,
+                    usage_limits=UsageLimits(request_limit=max_turns + 1),
+                ) as run:
+                    async for node in run:
+                        if interactive and _inject_pending(run):
+                            quit_requested = True
                             break
-                        if turns >= max_turns:
-                            logger.info("reached max_turns=%d. Stopping.", max_turns)
-                            break
-                    elif Agent.is_end_node(node):
-                        logger.info("model ended turn without a tool call. Stopping.")
-                        break
+                        if Agent.is_call_tools_node(node):
+                            turns += 1
+                            run_turns += 1
+                            response = node.model_response
+                            messages.append(_serialize_response(response))
+                            _log_response(response, run.usage, run_turns, max_turns)
 
-                usage = run.usage
+                            async with node.stream(run.ctx) as stream:
+                                async for event in stream:
+                                    if isinstance(event, FunctionToolCallEvent):
+                                        n_tool_calls += 1
+                                        if event.part.tool_name == "finish":
+                                            finish_result = {
+                                                "_finish": True,
+                                                **event.part.args_as_dict(),
+                                            }
+                                    elif isinstance(event, FunctionToolResultEvent):
+                                        message = _serialize_tool_result(event)
+                                        messages.append(message)
+                                        _log_tool_result(message)
+
+                            if finish_result is not None:
+                                logger.info("FINISH called: %s", finish_result)
+                                break
+                            if run_turns >= max_turns:
+                                logger.info(
+                                    "reached max_turns=%d. Stopping.", max_turns
+                                )
+                                break
+                        elif Agent.is_end_node(node):
+                            if interactive:
+                                logger.info(
+                                    "model ended turn without a tool call "
+                                    "— awaiting your input."
+                                )
+                            else:
+                                logger.info(
+                                    "model ended turn without a tool call. Stopping."
+                                )
+                            break
+
+                    usage = run.usage
+                    if interactive:
+                        history = run.all_messages()
+
+                # finish => end the whole session immediately (chosen behavior).
+                if finish_result is not None or quit_requested or not interactive:
+                    break
+                nxt = await _await_next()
+                if nxt is None:
+                    break
+                seed = nxt
+                messages.append({"role": "user", "content": seed})
         except UsageLimitExceeded as e:
             logger.info("usage limit reached: %s", e)
         except Exception as e:  # noqa: BLE001 - surfaced via CerebrumResult.error

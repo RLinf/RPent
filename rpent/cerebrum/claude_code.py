@@ -68,8 +68,10 @@ class ClaudeCodeCerebrum:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
+        input_queue=None,
     ) -> CerebrumResult:
         """Run one Claude Agent SDK session for the given prompt."""
+        del input_queue  # interactive mode is unsupported for this backend
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         return asyncio.run(
             self._solve_async(

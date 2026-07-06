@@ -65,8 +65,11 @@ class CodexCerebrum:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
+        input_queue=None,
     ) -> CerebrumResult:
         """Run one Codex SDK turn for the given prompt."""
+        # interactive input is unsupported for this backend.
+        del input_queue
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         if self._output_path is None:
             with tempfile.NamedTemporaryFile(
