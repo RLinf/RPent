@@ -53,6 +53,27 @@ TOOLS_SPEC: list[dict] = [
             },
         },
     },
+    {
+        "name": "finish",
+        "description": (
+            "Call when the task is complete or unrecoverable. Halts the agent "
+            "loop. Save any artifacts (recipe, audit) BEFORE calling finish."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "description": "Outcome, e.g. 'success', 'failure', or 'stuck'.",
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "Short natural-language summary of the run.",
+                },
+            },
+            "required": ["status", "summary"],
+        },
+    },
 ]
 
 
@@ -101,8 +122,19 @@ def list_dir(path: str = "") -> dict:
     return {"path": str(p), "count": len(files), "files": files}
 
 
+def finish(status: str, summary: str) -> dict:
+    """Signal that the run is complete. Halts the agent loop.
+
+    The ``_finish`` sentinel is what the cerebra (e.g.
+    :data:`physical_agent.cerebrum.api_loop.FINISH_TOOL`) detect to stop the
+    tool-calling loop.
+    """
+    return {"_finish": True, "status": status, "summary": summary}
+
+
 TOOL_HANDLERS: dict = {
     "read_text_file": read_text_file,
     "write_text_file": write_text_file,
     "list_dir": list_dir,
+    "finish": finish,
 }

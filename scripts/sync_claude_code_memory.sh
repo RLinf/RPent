@@ -4,12 +4,16 @@
 # Run any time the live /root/.claude/.../memory/ has gained a new
 # entry relevant to these experiments. The snapshot is what fresh
 # clones see; the live dir continues accumulating between syncs.
+#
+# The snapshot lives under the per-env memory folder
+# (resources/<env>/memory); set ENV_NAME to target a different env.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LIVE=${MEMORY_LIVE}
-SNAPSHOT="$SCRIPT_DIR/../logs/memory"
+ENV_NAME=${ENV_NAME:-libero}
+SNAPSHOT="$SCRIPT_DIR/../resources/$ENV_NAME/memory"
 
 if [ ! -d "$LIVE" ]; then
     echo "[sync_memory] live memory dir not found: $LIVE" >&2

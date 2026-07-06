@@ -26,8 +26,9 @@ def get_repo_root() -> Path:
 # Paths derived from the repo root  (callable so tests can override)
 # ============================================================================
 
-def get_memory_dir() -> Path:
-    return get_repo_root() / "logs" / "memory"
+def get_memory_dir(env_name: str) -> Path:
+    """Return the persistent, cross-run memory directory for an env."""
+    return get_repo_root() / "resources" / env_name / "memory"
 
 
 def get_pi05_checkpoint_path() -> str:
@@ -36,10 +37,6 @@ def get_pi05_checkpoint_path() -> str:
 
 def get_libero_type() -> str:
     return os.environ.get("LIBERO_TYPE", "pro")
-
-
-def get_cuda_device() -> str:
-    return os.environ.get("CUDA_DEVICE", "0")
 
 
 def get_rlinf_repo_path() -> Path | None:

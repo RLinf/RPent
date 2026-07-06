@@ -1448,27 +1448,6 @@ TOOLS_SPEC = [
             "required": ["row", "col"],
         },
     },
-    {
-        "name": "finish",
-        "description": (
-            "Declare the task finished. Call when state.libero_terminated "
-            "becomes True, or when genuinely stuck after honest exploration."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "status": {
-                    "type": "string",
-                    "enum": ["success", "failure", "stuck"],
-                },
-                "summary": {
-                    "type": "string",
-                    "description": "1-3 sentence summary of what worked / what failed.",
-                },
-            },
-            "required": ["status", "summary"],
-        },
-    },
 ]
 
 
@@ -1716,10 +1695,6 @@ def segment(
         result["overlay_path"] = str(overlay_path)
         result["_image_bytes"] = overlay_path.read_bytes()
     return result
-
-
-def finish(status: str, summary: str) -> dict:
-    return {"_finish": True, "status": status, "summary": summary}
 
 
 def view_camera_meta(camera: str = "agentview", step: int | None = None) -> dict:

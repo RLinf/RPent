@@ -47,7 +47,6 @@ class LiberoToolkit(Toolkit):
             "view_camera_meta",
             "segment",
             "back_project",
-            "finish",
         ):
             self.add_tool(name, spec[name], getattr(libero_tools, name))
         # Primitive tools: each goes through _step, which looks up the

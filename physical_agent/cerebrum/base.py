@@ -97,12 +97,12 @@ def build_cerebrum(
     *,
     output_dir: str | Path,
     recipe_tag: str,
+    env_name: str,
     base_url: str | None = None,
     model: str | None = None,
     max_tokens: int = 8192,
-    claude_code_timeout_s: int | None = None,
+    cerebrum_timeout_s: int | None = None,
     claude_code_max_budget_usd: float | None = None,
-    codex_timeout_s: int | None = None,
     dashboard: Any = None,
 ):
     """Build a cerebrum for the given backend, resolving credentials from env vars."""
@@ -148,7 +148,7 @@ def build_cerebrum(
     if cerebrum_type == "claude_code":
         from physical_agent.cerebrum.claude_code import ClaudeCodeCerebrum
 
-        cc_timeout_s = claude_code_timeout_s
+        cc_timeout_s = cerebrum_timeout_s
         if cc_timeout_s is None:
             cc_timeout_s = int(os.environ.get("CELL_TIMEOUT_S", "1200"))
         cc_budget = claude_code_max_budget_usd
@@ -160,14 +160,14 @@ def build_cerebrum(
             model=model or "sonnet",
             timeout_s=cc_timeout_s,
             max_budget_usd=cc_budget,
-            extra_dirs=[str(get_memory_dir())],
+            extra_dirs=[str(get_memory_dir(env_name))],
             output_path=Path(output_dir) / f"claude_{recipe_tag}.txt",
             dashboard=dashboard,
         )
     if cerebrum_type == "codex":
         from physical_agent.cerebrum.codex import CodexCerebrum
 
-        cx_timeout_s = codex_timeout_s
+        cx_timeout_s = cerebrum_timeout_s
         if cx_timeout_s is None:
             cx_timeout_s = int(
                 os.environ.get(
@@ -179,7 +179,7 @@ def build_cerebrum(
             output_dir=output_dir,
             repo_root=get_repo_root(),
             timeout_s=cx_timeout_s,
-            extra_dirs=[str(get_memory_dir())],
+            extra_dirs=[str(get_memory_dir(env_name))],
             output_path=Path(output_dir) / f"codex_{recipe_tag}.txt",
         )
     raise ValueError(f"unknown cerebrum_type: {cerebrum_type}")

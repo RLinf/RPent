@@ -14,7 +14,6 @@ from datetime import datetime
 from pathlib import Path
 
 from physical_agent.utils.config import (
-    get_cuda_device,
     get_libero_type,
     get_repo_root,
 )
@@ -61,8 +60,6 @@ def start_env_server(
     log_path: str | None = None,
     driver_script: str | None = None,
     ready_timeout_s: float = 300.0,
-    transport_host: str = "127.0.0.1",
-    transport_port: int = 0,
 ) -> subprocess.Popen:
     """Launch the env server in background. The env server hosts the 
     env, and prints a machine-readable ``transport_ready`` event on stdout
@@ -77,7 +74,8 @@ def start_env_server(
 
     env = os.environ.copy()
     env["LIBERO_TYPE"] = libero_type
-    env["CUDA_VISIBLE_DEVICES"] = str(cuda_device or get_cuda_device())
+    if cuda_device is not None:
+        env["CUDA_VISIBLE_DEVICES"] = str(cuda_device)
     env.setdefault("MUJOCO_GL", "egl")
     env.setdefault("ROBOT_PLATFORM", "LIBERO")
 
@@ -87,14 +85,16 @@ def start_env_server(
         "--suite", suite,
         "--task", str(task),
         "--seed", str(seed),
-        "--max_episode_steps", str(max_episode_steps),
-        "--output_dir", str(out_dir),
-        "--transport_host", transport_host,
-        "--transport_port", str(transport_port),
+        "--max-episode-steps", str(max_episode_steps),
+        "--output-dir", str(out_dir),
     ]
     logger.info("env server cmd: %s", ' '.join(cmd))
     logger.info("env server log: %s", log_path)
-    logger.info("CUDA_VISIBLE_DEVICES=%s  output_dir=%s", cuda_device, out_dir)
+    logger.info(
+        "CUDA_VISIBLE_DEVICES=%s  output_dir=%s",
+        env.get("CUDA_VISIBLE_DEVICES"),
+        out_dir,
+    )
     log_f = open(log_path, "a")
     ready_events: queue.Queue[dict] = queue.Queue()
     proc = subprocess.Popen(
@@ -262,59 +262,70 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description="Standalone hybrid LLM-in-the-loop agent for LIBERO PRO",
     )
-    ap.add_argument("--suite", default=None,
-                    help="e.g. libero_object_task, libero_spatial_swap")
-    ap.add_argument("--task", type=int, default=None)
-    ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--env", dest="env_name", default="libero",
-                    help="Environment backend. Defaults to libero.")
+
+    # models
+    ap.add_argument("--cerebrum", default="api",
+                    choices=["api", "claude_code", "codex"],
+                    help="LLM backend: api | claude_code | codex.")
     ap.add_argument("--model", default=None,
                     help="Model id. For the 'api' cerebrum you need to prefix provider to the model id "
                          "(e.g. anthropic:claude-opus-4-8, openai:gpt-5.5, "
                          "openai-chat:glm-5.2).")
-    ap.add_argument("--max_turns", type=int, default=100)
-    ap.add_argument("--max_tokens", type=int, default=8192)
-    ap.add_argument("--max_episode_steps", type=int, default=600)
-    ap.add_argument("--cuda_device", default=None,
-                    help="GPU device. Defaults to CUDA_DEVICE env or 0.")
-    ap.add_argument("--output_dir", default=None)
-    ap.add_argument("--base_url", default=None,
+    ap.add_argument("--base-url", default=None,
                     help="API base URL. Defaults to the selected backend's base URL env var.")
-    ap.add_argument("--cerebrum", default="api",
-                    choices=["api", "claude_code", "codex"],
-                    help="LLM backend: api | claude_code | codex.")
-    ap.add_argument("--claude_code_timeout_s", type=int, default=None,
-                    help="Wall-clock cap for claude -p. Defaults to CELL_TIMEOUT_S "
-                         "or 1200.")
-    ap.add_argument("--claude_code_max_budget_usd", type=float, default=None,
+    ap.add_argument("--api-key", default=None,
+                    help="API key. Defaults to the selected backend's API key env var.")
+    ap.add_argument("--max-turns", type=int, default=100)
+    ap.add_argument("--max-tokens", type=int, default=8192)
+    ap.add_argument("--cerebrum-timeout-s", type=int, default=None,
+                    help="Wall-clock cap for the claude_code/codex cerebrum "
+                         "subprocess. Defaults to CODEX_TIMEOUT_S (codex only), "
+                         "CELL_TIMEOUT_S, or 1200.")
+    ap.add_argument("--claude-code-max-budget-usd", type=float, default=None,
                     help="Budget passed to claude -p --max-budget-usd. "
                          "Defaults to MAX_BUDGET_USD env or 10.")
-    ap.add_argument("--codex_timeout_s", type=int, default=None,
-                    help="Wall-clock cap for codex exec. Defaults to CODEX_TIMEOUT_S, "
-                         "CELL_TIMEOUT_S, or 1200.")
-    ap.add_argument("--no_driver", action="store_true",
+
+    # driver / transport
+    ap.add_argument("--no-driver", action="store_true",
                     help="Don't spawn driver; attach to existing output dir")
-    ap.add_argument("--transport_host", default="127.0.0.1",
-                    help="Socket transport bind/connect host.")
-    ap.add_argument("--transport_port", type=int, default=0,
-                    help="Socket transport port. 0 asks the OS for a free port; "
-                         "required with --no_driver to point at an existing driver.")
-    ap.add_argument("--vla_endpoint", default=None,
+    ap.add_argument("--env-endpoint", default="127.0.0.1",
+                    help="Host of an existing env server to connect to; required "
+                         "with --no-driver.")
+    ap.add_argument("--env-port", type=int, default=0,
+                    help="Port of an existing env server to connect to; "
+                         "required with --no-driver.")
+    ap.add_argument("--vla-endpoint", default=None,
                     help="Base URL of an existing vla_server (e.g. http://host:8000). "
                          "If omitted with a spawned driver, a local vla_server is started; "
-                         "required with --no_driver.")
-    ap.add_argument("--libero_type", default=None,
-                    choices=["standard", "pro", "plus"],
-                    help="LIBERO variant (auto-routed from suite suffix if not set).")
+                         "required with --no-driver.")
+    ap.add_argument("--cuda-device", default=None,
+                    help="GPU device(s) to expose via CUDA_VISIBLE_DEVICES.")
+
+    # other config
+    ap.add_argument("--output-dir", default=None)
     ap.add_argument("--dashboard", action="store_true",
                     help="Start a local dashboard server for this single run.")
-    ap.add_argument("--dashboard_host", default="127.0.0.1",
+    ap.add_argument("--dashboard-host", default="127.0.0.1",
                     help="Dashboard bind host. Defaults to 127.0.0.1.")
-    ap.add_argument("--dashboard_port", type=int, default=0,
+    ap.add_argument("--dashboard-port", type=int, default=0,
                     help="Dashboard port. 0 asks the OS for a free port.")
     ap.add_argument("--verbose", action="store_true",
                     help="Enable DEBUG-level logging for stdout and the run.log "
                          "file. Defaults to INFO when not set.")
+
+    # environments
+    ap.add_argument("--env", dest="env_name", default="libero",
+                    help="Environment backend. Defaults to libero.")
+    ap.add_argument("--max-episode-steps", type=int, default=600)
+
+    ap.add_argument("--libero-type", default=None,
+                    choices=["standard", "pro", "plus"],
+                    help="LIBERO variant (auto-routed from suite suffix if not set).")
+    ap.add_argument("--suite", default=None,
+                    help="e.g. libero_object_task, libero_spatial_swap")
+    ap.add_argument("--task", type=int, default=None)
+    ap.add_argument("--seed", type=int, default=0)
+
     return ap
 
 
@@ -393,12 +404,12 @@ def main() -> int:
         args.cerebrum,
         output_dir=output_dir,
         recipe_tag=recipe_tag,
+        env_name=env_name,
         base_url=args.base_url,
         model=args.model,
         max_tokens=args.max_tokens,
-        claude_code_timeout_s=args.claude_code_timeout_s,
+        cerebrum_timeout_s=args.cerebrum_timeout_s,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
-        codex_timeout_s=args.codex_timeout_s,
         dashboard=dashboard_state,
     )
 
@@ -432,8 +443,6 @@ def main() -> int:
             max_episode_steps=max_episode_steps,
             cuda_device=args.cuda_device,
             libero_type=libero_type,
-            transport_host=args.transport_host,
-            transport_port=args.transport_port,
         )
         if vla_endpoint is None:
             vla_endpoint, vla_proc = start_vla_server(
@@ -458,15 +467,15 @@ def main() -> int:
             dashboard=dashboard_state,
         )
     else:
-        if args.transport_port <= 0:
+        if args.env_port <= 0:
             raise RuntimeError(
-                "--no_driver requires --transport_port pointing at an existing driver"
+                "--no-driver requires --env-port pointing at an existing driver"
             )
         if vla_endpoint is None:
             raise RuntimeError(
-                "--no_driver requires --vla_endpoint pointing at an existing vla_server"
+                "--no-driver requires --vla-endpoint pointing at an existing vla_server"
             )
-        set_socket_endpoint(output_dir, args.transport_host, args.transport_port)
+        set_socket_endpoint(output_dir, args.env_endpoint, args.env_port)
         toolkit = get_toolkit(
             env_name,
             primitives_kwargs={
