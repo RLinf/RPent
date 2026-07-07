@@ -51,6 +51,7 @@ from rpent.utils.rpc import (  # noqa: E402
 )
 from rpent.utils.vla_client import VLAClient  # noqa: E402
 from robots.libero.env_client import LiberoEnvClient  # noqa: E402
+from cli.tui import start_interactive_reader  # noqa: E402
 from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
 
 logger = get_logger("agent")
@@ -278,22 +279,6 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
     ]
 
 
-def _start_stdin_reader(input_queue: "queue.Queue[str | None]") -> threading.Thread:
-    """Forward each stdin line to the agent input queue (None sentinel on EOF)."""
-    def _read() -> None:
-        try:
-            for line in sys.stdin:
-                input_queue.put(line.rstrip("\n"))
-        except Exception:
-            pass
-        finally:
-            input_queue.put(None)
-
-    thread = threading.Thread(target=_read, name="stdin-reader", daemon=True)
-    thread.start()
-    return thread
-
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -357,9 +342,11 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="Enable DEBUG-level logging for stdout and the run.log "
                          "file. Defaults to INFO when not set.")
     ap.add_argument("--interactive", "-i", action="store_true",
-                    help="Interactive mode (api cerebrum only): type messages "
-                         "during the run to steer the agent; each is delivered "
-                         "at the next turn boundary. /quit or Ctrl-D ends it.")
+                    help="Interactive mode (api cerebrum only): opens an "
+                         "editable input prompt with history, arrow keys, "
+                         "and Option/Alt-arrow word movement. Messages are "
+                         "delivered at the next turn boundary; /quit or "
+                         "Ctrl-D ends it.")
 
     # environments
     ap.add_argument("--env", dest="env_name", default="libero",
@@ -551,9 +538,9 @@ def main() -> int:
             )
         else:
             input_queue = queue.Queue()
-            _start_stdin_reader(input_queue)
+            start_interactive_reader(input_queue)
             logger.info(
-                "interactive mode ON: type a message any time to steer the agent "
+                "interactive mode ON: use the `you>` prompt to steer the agent "
                 "(delivered at the next turn); /quit or Ctrl-D to end."
             )
     try:
