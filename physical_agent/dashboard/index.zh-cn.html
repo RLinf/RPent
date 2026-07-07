@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>PhysicalAgent · Live Monitor</title>
+<title>PhysicalAgent · 实时监控</title>
 <style>
   :root {
     --bg: #f6f1e8; --panel: #fffdf8; --panel2: #efe7d8; --border: #d8cfbe;
@@ -176,11 +176,11 @@
 <body>
   <div id="launcher" class="hidden">
     <div class="launch-card">
-      <h2><span class="dot">●</span> PhysicalAgent · New Run</h2>
-      <div class="sub">Review the config, then click Run to start the agent.</div>
+      <h2><span class="dot">●</span> PhysicalAgent · 新建任务</h2>
+      <div class="sub">确认配置后,点击「开始运行」启动智能体。</div>
       <div class="lform">
         <div class="lfield full">
-          <label for="f-suite">Suite</label>
+          <label for="f-suite">任务集</label>
           <select id="f-suite">
             <option value="libero_object_task">libero_object_task</option>
             <option value="libero_object_swap">libero_object_swap</option>
@@ -198,52 +198,52 @@
           </select>
         </div>
         <div class="lfield">
-          <label for="f-task">Task</label>
+          <label for="f-task">任务编号</label>
           <input type="number" id="f-task" min="0" step="1" />
         </div>
         <div class="lfield">
-          <label for="f-seed">Seed</label>
+          <label for="f-seed">随机种子</label>
           <input type="number" id="f-seed" min="0" step="1" />
         </div>
         <div class="lfield">
-          <label for="f-cerebrum">Cerebrum (LLM backend)</label>
+          <label for="f-cerebrum">决策大脑(大模型后端)</label>
           <select id="f-cerebrum">
-            <option value="anthropic">anthropic (unsupported)</option>
-            <option value="openai_compat">openai_compat (unsupported)</option>
+            <option value="anthropic">anthropic(不支持)</option>
+            <option value="openai_compat">openai_compat(不支持)</option>
             <option value="claude_code">claude_code</option>
-            <option value="codex">codex (unsupported)</option>
+            <option value="codex">codex(不支持)</option>
           </select>
         </div>
         <div class="lfield">
-          <label for="f-max_turns">Max turns</label>
+          <label for="f-max_turns">最大对话轮数</label>
           <input type="number" id="f-max_turns" min="1" step="1" />
         </div>
         <div class="lfield">
-          <label for="f-max_tokens">Max tokens</label>
+          <label for="f-max_tokens">最大 token 数</label>
           <input type="number" id="f-max_tokens" min="1" step="1" />
         </div>
         <div class="lfield">
-          <label for="f-max_episode_steps">Max episode steps</label>
+          <label for="f-max_episode_steps">最大仿真步数</label>
           <input type="number" id="f-max_episode_steps" min="1" step="1" />
         </div>
         <div class="lfield">
-          <label for="f-model">Model <span style="text-transform:none">(blank = default)</span></label>
-          <input type="text" id="f-model" placeholder="default" />
+          <label for="f-model">模型 <span style="text-transform:none">(留空=默认)</span></label>
+          <input type="text" id="f-model" placeholder="默认" />
         </div>
         <div class="lfield">
-          <label for="f-cuda_device">CUDA device <span style="text-transform:none">(blank = default)</span></label>
-          <input type="text" id="f-cuda_device" placeholder="default" />
+          <label for="f-cuda_device">CUDA 设备 <span style="text-transform:none">(留空=默认)</span></label>
+          <input type="text" id="f-cuda_device" placeholder="默认" />
         </div>
       </div>
       <div class="launch-actions">
-        <button id="runBtn">Run</button>
+        <button id="runBtn">开始运行</button>
         <span id="launchStatus"></span>
       </div>
     </div>
   </div>
 
   <header>
-    <h1><span class="dot">●</span> PhysicalAgent <span class="meta">Live Monitor</span></h1>
+    <h1><span class="dot">●</span> PhysicalAgent <span class="meta">实时监控</span></h1>
     <span id="statusBadge" class="badge b-stale">—</span>
     <span id="resultBadge" class="badge b-fail" style="display:none"></span>
     <span class="meta" id="taskMeta"></span>
@@ -255,17 +255,17 @@
   <main>
     <div class="col left">
       <div class="panel-title">
-        Agent reasoning &amp; tool calls
+        智能体推理与工具调用
         <span class="count" id="evCount"></span>
         <span class="grow"></span>
         <label class="meta" style="text-transform:none;letter-spacing:0">
-          <input type="checkbox" id="showtools" /> expand tool calls
+          <input type="checkbox" id="showtools" /> 展开工具调用
         </label>
         <label class="meta" style="text-transform:none;letter-spacing:0">
-          <input type="checkbox" id="autoscroll" checked /> auto-scroll
+          <input type="checkbox" id="autoscroll" checked /> 自动滚动
         </label>
       </div>
-      <div id="transcript"><div class="empty">Select a run to begin.</div></div>
+      <div id="transcript"><div class="empty">请选择一个运行以开始。</div></div>
     </div>
 
     <div class="gutter gutter-v" id="gutterV" title="拖动调整左右宽度"></div>
@@ -273,19 +273,19 @@
     <div class="col right">
       <div class="framewrap">
         <div class="frame-tabs">
-          <button data-kind="agent" class="active">realtime-Pi0 view</button>
-          <button data-kind="camera">realtime-camera</button>
+          <button data-kind="agent" class="active">实时画面·Pi0 视角</button>
+          <button data-kind="camera">实时画面·摄像头</button>
         </div>
         <img class="frame-media" id="frame-a" alt="" />
         <img class="frame-media" id="frame-b" alt="" />
         <video class="frame-media" id="video-a" controls playsinline></video>
         <video class="frame-media" id="video-b" controls playsinline></video>
-        <div class="frame-cap" id="frameCap">waiting for first frame…</div>
+        <div class="frame-cap" id="frameCap">等待第一帧…</div>
       </div>
       <div class="gutter gutter-h" id="gutterH" title="拖动调整画面高度"></div>
       <div class="col" style="min-height:0">
-        <div class="panel-title">Action timeline <span class="count" id="stepCount"></span></div>
-        <div id="timeline"><div class="empty">No actions yet.</div></div>
+        <div class="panel-title">动作时间线 <span class="count" id="stepCount"></span></div>
+        <div id="timeline"><div class="empty">暂无动作。</div></div>
       </div>
     </div>
   </main>
@@ -528,7 +528,7 @@ function fmtArgs(o) {
 async function loadRun() {
   const r = await fetch("/api/runs").then(x => x.json());
   if (!r.runs.length) {
-    $("#taskMeta").textContent = `(no runs in ${r.runs_dir})`;
+    $("#taskMeta").textContent = `(${r.runs_dir} 中暂无运行)`;
     return;
   }
 
@@ -536,10 +536,11 @@ async function loadRun() {
   selectRun(run.id);
 }
 
+const STATE_LABELS = { running: "运行中", done: "已完成", stale: "已停止" };
 function setBadge(state) {
   const b = $("#statusBadge");
   b.className = "badge b-" + (state || "stale");
-  b.textContent = state || "—";
+  b.textContent = state ? (STATE_LABELS[state] || state) : "—";
 }
 
 function setResult(terminated, state) {
@@ -547,7 +548,7 @@ function setResult(terminated, state) {
   if (state === "done" || terminated) {
     b.style.display = "";
     b.className = "badge " + (terminated ? "b-ok" : "b-fail");
-    b.textContent = terminated ? "TASK SOLVED" : "not solved";
+    b.textContent = terminated ? "任务完成" : "未完成";
   } else {
     b.style.display = "none";
   }
@@ -579,7 +580,7 @@ function renderTimeline(tl, hasEpisodeVideo = episodeVideoAvailable) {
   const total = tl.length + (episodeVideoAvailable ? 1 : 0);
   $("#stepCount").textContent = total ? total : "";
   if (!tl.length && !episodeVideoAvailable) {
-    el.innerHTML = '<div class="empty">No actions yet.</div>';
+    el.innerHTML = '<div class="empty">暂无动作。</div>';
     return;
   }
   el.innerHTML = "";
@@ -590,17 +591,17 @@ function renderTimeline(tl, hasEpisodeVideo = episodeVideoAvailable) {
     if (s.has_action_video) div.className += " hasclip";
     const res = s.result || {};
     let det = "";
-    if (res.final_dist_m != null) det += `dist ${(+res.final_dist_m).toFixed(3)}m `;
-    if (res.steps_used != null) det += `${res.steps_used}/${res.max_steps ?? "?"} steps `;
-    if (res.lifted != null) det += `lifted=${res.lifted} `;
-    if (res.chunks != null) det += `chunks=${res.chunks} `;
+    if (res.final_dist_m != null) det += `距离 ${(+res.final_dist_m).toFixed(3)}m `;
+    if (res.steps_used != null) det += `${res.steps_used}/${res.max_steps ?? "?"} 步 `;
+    if (res.lifted != null) det += `已抓取=${res.lifted} `;
+    if (res.chunks != null) det += `块数=${res.chunks} `;
     det = det.trim() || fmtArgs(s.args).slice(0, 60);
     div.innerHTML = `<span class="idx">${s.step}</span>
       <div class="body"><span class="act">${s.action ?? "—"}</span>
       <div class="det" title="${fmtArgs(res).replace(/"/g,'&quot;')}">${det}</div></div>
       <span class="el">${s.elapsed_s != null ? s.elapsed_s + "s" : ""}</span>`;
     if (s.has_action_video) {
-      div.title = "Click to replay this action";
+      div.title = "点击回放该动作";
       div.addEventListener("click", () => playActionVideo(s, {
         returnAfterEnd: true,
         returnKind: "agent",
@@ -611,11 +612,11 @@ function renderTimeline(tl, hasEpisodeVideo = episodeVideoAvailable) {
   if (episodeVideoAvailable) {
     const div = document.createElement("div");
     div.className = "step episode";
-    div.title = "Click to replay the full episode";
-    div.innerHTML = `<span class="idx">full</span>
-      <div class="body"><span class="act">episode video</span>
-      <div class="det">complete run video</div></div>
-      <span class="el">finished</span>`;
+    div.title = "点击回放完整过程";
+    div.innerHTML = `<span class="idx">全</span>
+      <div class="body"><span class="act">完整回放</span>
+      <div class="det">整段运行视频</div></div>
+      <span class="el">已完成</span>`;
     div.addEventListener("click", playEpisodeVideo);
     el.appendChild(div);
   }
@@ -646,7 +647,7 @@ function appendEvents(events) {
       if (!curToolGroup) {
         const g = document.createElement("div");
         g.className = "toolgroup";
-        g.innerHTML = `<div class="tg-head"><span class="tg-count">0</span> tool calls</div><div class="tg-body"></div>`;
+        g.innerHTML = `<div class="tg-head"><span class="tg-count">0</span> 次工具调用</div><div class="tg-body"></div>`;
         g.querySelector(".tg-head").addEventListener("click", () => g.classList.toggle("open"));
         box.appendChild(g);
         curToolGroup = g;
@@ -664,7 +665,7 @@ function appendEvents(events) {
     }
   }
   evShown += events.length;
-  $("#evCount").textContent = evShown ? evShown + " events" : "";
+  $("#evCount").textContent = evShown ? evShown + " 条事件" : "";
   if ($("#autoscroll").checked) box.scrollTop = box.scrollHeight;
 }
 
@@ -684,7 +685,7 @@ async function refreshTranscript() {
     ).then(x => x.json());
     if (run !== curRun) return;            // switched run mid-flight — drop
     if (r.events && r.events.length) appendEvents(r.events);
-    else if (evShown === 0) $("#transcript").innerHTML = '<div class="empty">No transcript events yet.</div>';
+    else if (evShown === 0) $("#transcript").innerHTML = '<div class="empty">暂无推理记录。</div>';
   } catch (e) {
     /* transient — next tick retries */
   } finally {
@@ -772,7 +773,7 @@ function refreshFrame(idx, opts = {}) {
     // written once and never mutate, so the buffer's ``_loadedSrc`` cache
     // gives us instant replay when the same clip is re-clicked.
     const url = `/api/run/action-video?run=${encodeURIComponent(curRun)}&step=${encodeURIComponent(actionVideo.step)}`;
-    const cap = `action #${actionVideo.step} ${actionVideo.action}`;
+    const cap = `动作 #${actionVideo.step} ${actionVideo.action}`;
     swapMedia({
       kind: "video",
       url,
@@ -803,7 +804,7 @@ function refreshFrame(idx, opts = {}) {
     swapMedia({
       kind: "video",
       url,
-      cap: "episode video",
+      cap: "完整回放",
       source,
       holdUntilEnded: true,
       onReady: (v) => {
@@ -820,10 +821,11 @@ function refreshFrame(idx, opts = {}) {
   if (idx != null && idx === frameIdx) return;
   frameIdx = idx ?? frameIdx;
   const url = `/api/run/frame?run=${encodeURIComponent(curRun)}&kind=${frameKind}&t=${Date.now()}`;
+  const kindLabel = frameKind === "camera" ? "摄像头" : "智能体视角";
   swapMedia({
     kind: "img",
     url,
-    cap: `${frameKind} · frame #${frameIdx}`,
+    cap: `${kindLabel} · 第 ${frameIdx} 帧`,
     source,
   });
 }
@@ -833,9 +835,9 @@ async function refreshMeta(opts = {}) {
   const r = await fetch(`/api/run?run=${encodeURIComponent(curRun)}`).then(x => x.json());
   setBadge(r.state);
   setResult(r.terminated, r.state);
-  $("#taskMeta").innerHTML = `<b>${r.suite ?? r.name}</b> · task ${r.task ?? "?"} · seed ${r.seed ?? "?"}`;
+  $("#taskMeta").innerHTML = `<b>${r.suite ?? r.name}</b> · 任务 ${r.task ?? "?"} · 种子 ${r.seed ?? "?"}`;
   if (r.usage) $("#usageMeta").textContent =
-    `token in ${r.usage.in.toLocaleString()} · out ${r.usage.out.toLocaleString()} · ${r.usage.tool_calls} tools`;
+    `输入 ${r.usage.in.toLocaleString()} · 输出 ${r.usage.out.toLocaleString()} · ${r.usage.tool_calls} 次工具调用`;
   renderTimeline(r.timeline || [], r.has_video);
   if (opts.primeAutoActionStep) {
     autoActionLastStep = maxTimelineStep(r.timeline || []);
@@ -860,8 +862,8 @@ function connectSSE() {
     setBadge(sig.state);
     setResult(sig.terminated, sig.state);
     if (sig.usage) $("#usageMeta").textContent =
-      `tok in ${sig.usage.in.toLocaleString()} · out ${sig.usage.out.toLocaleString()} · ${sig.usage.tool_calls} tools`;
-    $("#connMeta").textContent = "● live";
+      `输入 ${sig.usage.in.toLocaleString()} · 输出 ${sig.usage.out.toLocaleString()} · ${sig.usage.tool_calls} 次工具调用`;
+    $("#connMeta").textContent = "● 实时";
     refreshTranscript();
     // refresh timeline lazily on step change
     if (sig.n_steps !== connectSSE._steps) {
@@ -894,7 +896,7 @@ function connectSSE() {
       && sig.frame_idx !== frameIdx
     ) refreshFrame(sig.frame_idx);
   };
-  es.onerror = () => { $("#connMeta").textContent = "○ reconnecting…"; };
+  es.onerror = () => { $("#connMeta").textContent = "○ 正在重连…"; };
 }
 
 function selectRun(id) {
@@ -911,9 +913,9 @@ function selectRun(id) {
   frameKind = "agent"; lastRealtimeFrameKind = "agent";
   document.querySelectorAll(".frame-tabs button").forEach(b =>
     b.classList.toggle("active", b.dataset.kind === "agent"));
-  $("#transcript").innerHTML = '<div class="empty">Loading…</div>';
+  $("#transcript").innerHTML = '<div class="empty">加载中…</div>';
   $("#timeline").innerHTML = '<div class="empty">…</div>';
-  $("#frameCap").textContent = "waiting for first frame…";
+  $("#frameCap").textContent = "等待第一帧…";
   refreshMeta({ primeAutoActionStep: true });
   refreshTranscript();
   connectSSE();
@@ -1019,22 +1021,22 @@ async function pollForRun() {
 async function onRun() {
   const config = collectLaunchConfig();
   const requiredNums = [
-    ["Task", config.task],
-    ["Seed", config.seed],
-    ["Max turns", config.max_turns],
-    ["Max tokens", config.max_tokens],
-    ["Max episode steps", config.max_episode_steps],
+    ["任务编号", config.task],
+    ["随机种子", config.seed],
+    ["最大对话轮数", config.max_turns],
+    ["最大 token 数", config.max_tokens],
+    ["最大仿真步数", config.max_episode_steps],
   ];
   const badNum = requiredNums.find(([_, v]) => v == null || !Number.isFinite(v));
   if (!config.suite || badNum) {
     $("#launchStatus").textContent = !config.suite
-      ? "Suite is required."
-      : `${badNum[0]} is required.`;
+      ? "请选择任务集。"
+      : `请填写${badNum[0]}。`;
     return;
   }
   $("#runBtn").disabled = true;
   $("#launchStatus").textContent =
-    "starting… booting env & VLA servers, this can take a minute.";
+    "启动中… 正在加载仿真与 VLA 服务,可能需要一分钟。";
   try {
     const resp = await fetch("/api/launch/run", {
       method: "POST",
@@ -1044,7 +1046,7 @@ async function onRun() {
     if (!resp.ok) throw new Error(await resp.text());
   } catch (e) {
     $("#runBtn").disabled = false;
-    $("#launchStatus").textContent = "failed to start — check the terminal.";
+    $("#launchStatus").textContent = "启动失败,请查看终端输出。";
     return;
   }
   pollForRun();

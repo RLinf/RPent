@@ -37,10 +37,12 @@ class DashboardServer:
         host: str = "127.0.0.1",
         port: int = 0,
         runs_dir: str = "",
+        language: str = "en",
     ) -> None:
         self.host = host
         self.port = int(port)
         self.runs_dir = runs_dir
+        self._index_file = Path(__file__).parent / ("index.zh-cn.html" if language == "zh-cn" else "index.html")
         self._runs: dict[str, State] = {}
         self._app = self._build_app()
         self._server: uvicorn.Server | None = None
@@ -92,7 +94,7 @@ class DashboardServer:
 
         @app.get("/")
         def index() -> Response:
-            return FileResponse(Path(__file__).parent / "index.html", media_type="text/html")
+            return FileResponse(self._index_file, media_type="text/html")
 
         @app.get("/healthz")
         def healthz() -> JSONResponse:

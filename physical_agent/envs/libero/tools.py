@@ -58,17 +58,9 @@ class LiberoPrimitives:
         self._recording = True
         self._frames = []
 
-    def record_frame(self):
-        """Snapshot the current agentview to the frame buffer, if recording."""
-        if self._recording:
-            img = self.env.render_camera(
-                camera_name="agentview",
-                height=256,
-                width=256,
-                depth=False,
-            )
-            img = np.asarray(img)
-            self._frames.append(np.ascontiguousarray(img[::-1, ::-1]))
+    def record_frame(self, obs):
+        """Append one agentview frame extracted from ``obs`` to the buffer."""
+        self._frames.append(np.ascontiguousarray(np.asarray(obs["main_images"])))
 
     def recorded_frame_count(self) -> int:
         return len(self._frames)
@@ -119,11 +111,17 @@ class LiberoPrimitives:
         # actions: [chunk_size, action_dim] The whole chunk
         # runs in a single env.chunk_step RPC; the env owns the per-step
         # loop server-side.
-        chunk_obs,  _r, _t, _tr, _i = self.env.chunk_step(actions)
-        obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
+        if not self._recording:
+            chunk_obs,  _r, _t, _tr, _i = self.env.chunk_step(actions)
+            obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
+        else:
+            chunk_obs,  _r, _t, _tr, _i = self.env.chunk_step(
+                actions, return_all_frames=True
+            )
+            for obs in chunk_obs:
+                self.record_frame(obs)
+            obs = chunk_obs[-1]
         self.set_obs(obs)
-        # One frame per chunk (matches the previous chunk_step cadence).
-        self.record_frame()
         # Restore original task_descriptions on the obs dict for fairness
         # with future steps (no leaked state if caller switches primitives).
         if original_td is not None:
@@ -343,7 +341,8 @@ class LiberoPrimitives:
             action[6] = gripper
             obs, _r, _t, _tr, _i = self.env.step(action)
             self.set_obs(obs)
-            self.record_frame()
+            if self._recording:
+                self.record_frame(obs)
             if self.env.episode_done:
                 break
         final = self._last_obs_eef_pos
@@ -418,7 +417,8 @@ class LiberoPrimitives:
             action[6] = float(gripper)
             obs, _r, _t, _tr, _i = self.env.step(action)
             self.set_obs(obs)
-            self.record_frame()
+            if self._recording:
+                self.record_frame(obs)
             if self.env.episode_done:
                 break
         final_yaw = _yaw_of(self.env.raw_obs()["robot0_eef_quat"])
@@ -500,7 +500,8 @@ class LiberoPrimitives:
             action[6] = float(gripper)
             obs, _r, _t, _tr, _i = self.env.step(action)
             self.set_obs(obs)
-            self.record_frame()
+            if self._recording:
+                self.record_frame(obs)
             if self.env.episode_done:
                 break
         final_pitch = _pitch_of(self.env.raw_obs()["robot0_eef_quat"])
@@ -573,7 +574,8 @@ class LiberoPrimitives:
             action[6] = float(gripper)
             obs, _r, _t, _tr, _i = self.env.step(action)
             self.set_obs(obs)
-            self.record_frame()
+            if self._recording:
+                self.record_frame(obs)
             if self.env.episode_done:
                 break
         final = self._last_obs_eef_pos
@@ -604,7 +606,8 @@ class LiberoPrimitives:
             action[6] = -1.0  # open
             obs, _r, _t, _tr, _i = self.env.step(action)
             self.set_obs(obs)
-            self.record_frame()
+            if self._recording:
+                self.record_frame(obs)
             peak_grip = max(peak_grip, self._last_obs_gripper)
             if self.env.episode_done:
                 break
@@ -631,7 +634,8 @@ class LiberoPrimitives:
             action[6] = g
             obs, _r, _t, _tr, _i = self.env.step(action)
             self.set_obs(obs)
-            self.record_frame()
+            if self._recording:
+                self.record_frame(obs)
             if self.env.episode_done:
                 break
         return {

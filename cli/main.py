@@ -309,6 +309,9 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="Dashboard bind host. Defaults to 127.0.0.1.")
     ap.add_argument("--dashboard-port", type=int, default=0,
                     help="Dashboard port. 0 asks the OS for a free port.")
+    ap.add_argument("--dashboard_language", choices=["en", "zh-cn"], default="en",
+                    help="Dashboard UI language. 'zh-cn' serves the Chinese "
+                         "variant (index.zh-cn.html); defaults to English.")
     ap.add_argument("--verbose", action="store_true",
                     help="Enable DEBUG-level logging for stdout and the run.log "
                          "file. Defaults to INFO when not set.")
@@ -343,12 +346,13 @@ def main() -> int:
         from physical_agent.dashboard.launcher import apply_to_args, defaults_from_args
 
         dashboard_server = DashboardServer(
-            host=args.dashboard_host, port=args.dashboard_port
+            host=args.dashboard_host, port=args.dashboard_port,
+            language=args.dashboard_language,
         )
         dashboard_url = dashboard_server.start()
-        logger.info(
-            "Dashboard: %s. Open it, adjust the run config, and click Run to start.",
-            dashboard_url,
+        print(
+            f"Dashboard: {dashboard_url}. Open it, adjust the run config, and click Run to start.",
+            flush=True,
         )
         launch_config = dashboard_server.wait_for_launch(
             defaults=defaults_from_args(args)

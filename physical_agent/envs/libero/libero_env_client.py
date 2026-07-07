@@ -67,11 +67,11 @@ class LiberoEnvClient:
         self.check_done(term, trunc)
         return ret
 
-    def chunk_step(self, actions) -> tuple[Any, Any, Any, Any, Any]:
+    def chunk_step(self, actions, *, return_all_frames: bool | None = None) -> tuple[Any, Any, Any, Any, Any]:
         """Run an action chunk in one RPC. Returns the 5-positional tuple
         ``(obs_or_list, reward, terminated, truncated, info)``.
 
-        ``obs`` is ``list[Obs]`` when ``self.return_all_frames`` is True
+        ``obs`` is ``list[Obs]`` when ``return_all_frames`` is True
         (one entry per chunk step), otherwise the final ``Obs`` dict.
         Terminated / truncated have shape ``[chunk_size]`` after the
         server strips the env dim.
@@ -79,10 +79,12 @@ class LiberoEnvClient:
         assert not self.episode_done, (
             "env.chunk_step called after the episode signaled term/trunc"
         )
+        if return_all_frames is None:
+            return_all_frames = self.return_all_frames
         ret = self._client.call(
             "env.chunk_step",
             args=(actions,),
-            kwargs={"return_all_frames": self.return_all_frames},
+            kwargs={"return_all_frames": return_all_frames},
             timeout_s=_TIMEOUT_S["env.chunk_step"],
         )
         _, _, term, trunc, _ = ret
