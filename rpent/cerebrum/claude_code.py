@@ -21,6 +21,7 @@ from typing import Any
 from rpent.cerebrum.base import (
     CerebrumResult,
     add_mcp_prefix,
+    next_user_line,
     strip_mcp_prefix,
 )
 from rpent.tools.toolkit import Toolkit
@@ -70,14 +71,14 @@ class ClaudeCodeCerebrum:
         max_turns: int,
         input_queue=None,
     ) -> CerebrumResult:
-        """Run one Claude Agent SDK session for the given prompt."""
-        del input_queue  # interactive mode is unsupported for this backend
+        """Run a Claude Agent SDK session for the given prompt."""
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         return asyncio.run(
             self._solve_async(
                 prompt,
                 toolkit=toolkit,
                 max_turns=max_turns,
+                input_queue=input_queue,
             )
         )
 
@@ -89,6 +90,7 @@ class ClaudeCodeCerebrum:
         *,
         toolkit: Toolkit,
         max_turns: int,
+        input_queue=None,
     ) -> CerebrumResult:
         import claude_agent_sdk
         sdk = claude_agent_sdk
@@ -119,21 +121,45 @@ class ClaudeCodeCerebrum:
         error: str | None = None
         rendered_chunks: list[str] = []
         with open(output_path, "w") as out_f, open(raw_stream_path, "w") as raw_f:
+
+            def _emit(message: Any) -> None:
+                _write_jsonl(raw_f, _message_to_json(message))
+                if rendered := recorder.observe(message):
+                    rendered_chunks.append(rendered)
+                    out_f.write(rendered)
+                    out_f.flush()
+                    logger.info(rendered.rstrip())
+
+            def _emit_user(line: str) -> None:
+                rendered = f"\n[user] {line}\n"
+                rendered_chunks.append(rendered)
+                out_f.write(rendered)
+                out_f.flush()
+                logger.info(rendered.rstrip())
+
             try:
+                if input_queue is None:
 
-                async def consume_stream() -> None:
-                    async for message in sdk.query(prompt=prompt, options=options):
-                        _write_jsonl(raw_f, _message_to_json(message))
-                        if rendered := recorder.observe(message):
-                            rendered_chunks.append(rendered)
-                            out_f.write(rendered)
-                            out_f.flush()
-                            logger.info(rendered.rstrip())
-                        if recorder.finish_result is not None:
-                            logger.info("FINISH called: %s", recorder.finish_result)
-                            break
+                    async def consume_stream() -> None:
+                        async for message in sdk.query(prompt=prompt, options=options):
+                            _emit(message)
+                            if recorder.finish_result is not None:
+                                logger.info(
+                                    "FINISH called: %s", recorder.finish_result
+                                )
+                                break
 
-                await asyncio.wait_for(consume_stream(), timeout=self._timeout_s)
+                    await asyncio.wait_for(consume_stream(), timeout=self._timeout_s)
+                else:
+                    await self._run_interactive(
+                        sdk,
+                        prompt,
+                        options,
+                        recorder,
+                        input_queue,
+                        emit=_emit,
+                        emit_user=_emit_user,
+                    )
             except asyncio.TimeoutError:
                 error = f"Claude Agent SDK timed out after {self._timeout_s}s"
                 rendered = f"\n[cc-cerebrum] {error}\n"
@@ -172,6 +198,45 @@ class ClaudeCodeCerebrum:
             },
             error=error,
         )
+
+    async def _run_interactive(
+        self,
+        sdk: Any,
+        prompt: str,
+        options: Any,
+        recorder: "_Recorder",
+        input_queue,
+        *,
+        emit,
+        emit_user,
+    ) -> None:
+        """Drive a stateful ``ClaudeSDKClient``: one user message per turn.
+
+        Each ``query`` is streamed to completion, then the loop blocks for the
+        next user line and continues the same session (preserving context).
+        ``finish`` or a quit/EOF sentinel ends it. The per-turn wall-clock cap
+        still bounds each turn, but never the between-turn wait.
+        """
+        async with sdk.ClaudeSDKClient(options=options) as client:
+
+            async def consume_turn() -> None:
+                async for message in client.receive_response():
+                    emit(message)
+                    if recorder.finish_result is not None:
+                        logger.info("FINISH called: %s", recorder.finish_result)
+                        return
+
+            seed = prompt
+            while True:
+                await client.query(seed)
+                await asyncio.wait_for(consume_turn(), timeout=self._timeout_s)
+                if recorder.finish_result is not None:
+                    break
+                nxt = await asyncio.to_thread(next_user_line, input_queue)
+                if nxt is None:
+                    break
+                emit_user(nxt)
+                seed = nxt
 
     # -- options + tool bridge ---------------------------------------------
 

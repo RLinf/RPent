@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import tempfile
 import threading
 import time
@@ -20,7 +21,11 @@ from typing import Any
 
 import openai_codex
 
-from rpent.cerebrum.base import CerebrumResult, strip_mcp_prefix
+from rpent.cerebrum.base import (
+    CerebrumResult,
+    next_user_line,
+    strip_mcp_prefix,
+)
 from rpent.cerebrum.utils.http_mcp_server import HttpMcpServer
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
@@ -67,9 +72,7 @@ class CodexCerebrum:
         max_turns: int,
         input_queue=None,
     ) -> CerebrumResult:
-        """Run one Codex SDK turn for the given prompt."""
-        # interactive input is unsupported for this backend.
-        del input_queue
+        """Run one or more Codex SDK turns for the given prompt."""
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         if self._output_path is None:
             with tempfile.NamedTemporaryFile(
@@ -110,13 +113,17 @@ class CodexCerebrum:
                 recorder,
                 state,
                 mcp_url,
+                input_queue,
             ),
             name="codex-sdk",
             daemon=True,
         )
         worker.start()
         try:
-            worker.join(timeout=self._timeout_s)
+            # Interactive sessions block on user input between turns, so the
+            # per-run wall-clock cap must not apply; only bound one-shot runs.
+            join_timeout = None if input_queue is not None else self._timeout_s
+            worker.join(timeout=join_timeout)
 
             error: str | None = None
             if worker.is_alive():
@@ -176,6 +183,7 @@ class CodexCerebrum:
         recorder: "_Recorder",
         state: dict[str, Any],
         mcp_url: str,
+        input_queue: "queue.Queue[str | None] | None" = None,
     ) -> None:
         try:
             approval = openai_codex.ApprovalMode.deny_all
@@ -190,26 +198,43 @@ class CodexCerebrum:
                     sandbox=sandbox,
                 )
                 state["thread"] = thread
-                turn = thread.turn(
-                    prompt,
-                    approval_mode=approval,
-                    cwd=self._repo_root,
-                    model=self._model,
-                    sandbox=sandbox,
-                )
-                state["turn"] = turn
 
                 with (
                     open(output_path, "w") as out_f,
                     open(raw_stream_path, "w") as raw_f,
                 ):
-                    for event in turn.stream():
-                        _write_jsonl(raw_f, _message_to_json(event))
-                        if rendered := recorder.observe(event):
-                            chunks.append(rendered)
-                            out_f.write(rendered)
-                            out_f.flush()
-                            logger.info(rendered.rstrip())
+                    seed = prompt
+                    while True:
+                        turn = thread.turn(
+                            seed,
+                            approval_mode=approval,
+                            cwd=self._repo_root,
+                            model=self._model,
+                            sandbox=sandbox,
+                        )
+                        state["turn"] = turn
+                        for event in turn.stream():
+                            _write_jsonl(raw_f, _message_to_json(event))
+                            if rendered := recorder.observe(event):
+                                chunks.append(rendered)
+                                out_f.write(rendered)
+                                out_f.flush()
+                                logger.info(rendered.rstrip())
+
+                        # finish ends the whole session; a non-interactive run
+                        # is a single turn. Otherwise block for the next user
+                        # message and continue on the same stateful thread.
+                        if recorder.finish_result is not None or input_queue is None:
+                            break
+                        nxt = next_user_line(input_queue)
+                        if nxt is None:
+                            break
+                        rendered = f"\n[user] {nxt}\n"
+                        chunks.append(rendered)
+                        out_f.write(rendered)
+                        out_f.flush()
+                        logger.info(rendered.rstrip())
+                        seed = nxt
 
             state["text"] = "".join(chunks)
             if recorder.final_response is not None:

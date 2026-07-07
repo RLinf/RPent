@@ -342,11 +342,8 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="Enable DEBUG-level logging for stdout and the run.log "
                          "file. Defaults to INFO when not set.")
     ap.add_argument("--interactive", "-i", action="store_true",
-                    help="Interactive mode (api cerebrum only): opens an "
-                         "editable input prompt with history, arrow keys, "
-                         "and Option/Alt-arrow word movement. Messages are "
-                         "delivered at the next turn boundary; /quit or "
-                         "Ctrl-D ends it.")
+                    help="Interactive mode: opens an interactive cli session. "
+                         "Messages are delivered at the next turn boundary.")
 
     # environments
     ap.add_argument("--env", dest="env_name", default="libero",
@@ -532,17 +529,12 @@ def main() -> int:
     stats: dict = {}
     input_queue: "queue.Queue[str | None] | None" = None
     if args.interactive:
-        if args.cerebrum != "api":
-            logger.warning(
-                "--interactive is only supported for --cerebrum api; ignoring."
-            )
-        else:
-            input_queue = queue.Queue()
-            start_interactive_reader(input_queue)
-            logger.info(
-                "interactive mode ON: use the `you>` prompt to steer the agent "
-                "(delivered at the next turn); /quit or Ctrl-D to end."
-            )
+        input_queue = queue.Queue()
+        start_interactive_reader(input_queue)
+        logger.info(
+            "interactive mode on: type next to the `you>` prompt to steer the agent "
+            "(delivered at the next turn); /quit or Ctrl-D to end."
+        )
     try:
         result = cerebrum.solve(
             system_prompt=system_prompt,

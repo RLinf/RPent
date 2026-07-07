@@ -30,6 +30,29 @@ def strip_mcp_prefix(name: str) -> str:
     return name.removeprefix(MCP_TOOL_PREFIX)
 
 
+#: Interactive-mode lines that end the session (case-insensitive).
+_QUIT_TOKENS = frozenset({"/quit", "/exit", "/q"})
+
+
+def next_user_line(input_queue: "queue.Queue[str | None]") -> str | None:
+    """Block for the next actionable user line from an interactive input queue.
+
+    Returns the trimmed line, or ``None`` when the session should end (the queue
+    yielded ``None`` or a quit token such as ``/quit``). Empty lines are skipped.
+    This is a blocking call; async callers should wrap it with
+    :func:`asyncio.to_thread`.
+    """
+    while True:
+        line = input_queue.get()
+        if line is None:
+            return None
+        line = line.strip()
+        if line.lower() in _QUIT_TOKENS:
+            return None
+        if line:
+            return line
+
+
 class CerebrumResult:
     """Result returned by a cerebrum invocation."""
 
