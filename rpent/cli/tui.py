@@ -13,23 +13,19 @@ from rpent.utils.logging import get_logger
 logger = get_logger("agent.tui")
 
 _QUIT_TOKENS = frozenset({"/quit", "/exit", "/q"})
+_HELP_TOKENS = frozenset({"/help", "/h", "help", "?"})
+_HELP_TEXT = """Interactive commands:
+    /help, /h, help, ? Show this help.
+    /quit, /exit, /q   End interactive mode.
+"""
 
 
-def _start_stdin_reader(input_queue: "queue.Queue[str | None]") -> threading.Thread:
-    """Forward each stdin line to the agent input queue."""
-
-    def _read() -> None:
-        try:
-            for line in sys.stdin:
-                input_queue.put(line.rstrip("\n"))
-        except Exception:
-            pass
-        finally:
-            input_queue.put(None)
-
-    thread = threading.Thread(target=_read, name="stdin-reader", daemon=True)
-    thread.start()
-    return thread
+def handle_local_command(line: str) -> bool:
+    """Handle TUI-local commands; return True when the line was consumed."""
+    if line.strip().lower() not in _HELP_TOKENS:
+        return False
+    print(_HELP_TEXT, end="")
+    return True
 
 
 @contextlib.contextmanager
@@ -79,21 +75,19 @@ def start_interactive_reader(
 ) -> threading.Thread:
     """Start a prompt-toolkit input UI and forward submitted lines."""
     if not sys.stdin.isatty():
-        logger.warning(
-            "interactive prompt UI needs a TTY; falling back to plain stdin."
+        raise RuntimeError(
+            "--interactive requires a TTY; stdin is not interactive."
         )
-        return _start_stdin_reader(input_queue)
 
     try:
         prompt_toolkit = importlib.import_module("prompt_toolkit")
         history = importlib.import_module("prompt_toolkit.history")
         patch_stdout_module = importlib.import_module("prompt_toolkit.patch_stdout")
         styles = importlib.import_module("prompt_toolkit.styles")
-    except ImportError:
-        logger.warning(
-            "interactive prompt UI needs prompt-toolkit; falling back to plain stdin."
-        )
-        return _start_stdin_reader(input_queue)
+    except ImportError as exc:
+        raise RuntimeError(
+            "--interactive requires prompt-toolkit; install project dependencies first."
+        ) from exc
 
     def _read() -> None:
         session = prompt_toolkit.PromptSession(
@@ -112,6 +106,8 @@ def start_interactive_reader(
                             )
                         except (EOFError, KeyboardInterrupt):
                             break
+                        if handle_local_command(line):
+                            continue
                         input_queue.put(line)
                         if line.strip().lower() in _QUIT_TOKENS:
                             break
