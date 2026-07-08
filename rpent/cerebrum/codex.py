@@ -120,10 +120,7 @@ class CodexCerebrum:
         )
         worker.start()
         try:
-            # Interactive sessions block on user input between turns, so the
-            # per-run wall-clock cap must not apply; only bound one-shot runs.
-            join_timeout = None if input_queue is not None else self._timeout_s
-            worker.join(timeout=join_timeout)
+            worker.join(timeout=self._timeout_s)
 
             error: str | None = None
             if worker.is_alive():
@@ -203,38 +200,69 @@ class CodexCerebrum:
                     open(output_path, "w") as out_f,
                     open(raw_stream_path, "w") as raw_f,
                 ):
-                    seed = prompt
-                    while True:
-                        turn = thread.turn(
-                            seed,
-                            approval_mode=approval,
-                            cwd=self._repo_root,
-                            model=self._model,
-                            sandbox=sandbox,
-                        )
-                        state["turn"] = turn
+                    write_lock = threading.Lock()
+
+                    turn = thread.turn(
+                        prompt,
+                        approval_mode=approval,
+                        cwd=self._repo_root,
+                        model=self._model,
+                        sandbox=sandbox,
+                    )
+                    state["turn"] = turn
+
+                    stop_steer: threading.Event | None = None
+                    if input_queue is not None:
+                        stop_steer = threading.Event()
+
+                        def _steer() -> None:
+                            while True:
+                                nxt = next_user_line(input_queue)
+                                if stop_steer.is_set():
+                                    return
+                                if nxt is None:
+                                    try:
+                                        turn.interrupt()
+                                    except Exception:
+                                        pass
+                                    return
+                                rendered = f"\n[user] {nxt}\n"
+                                with write_lock:
+                                    chunks.append(rendered)
+                                    out_f.write(rendered)
+                                    out_f.flush()
+                                logger.info(rendered.strip())
+                                try:
+                                    turn.steer(nxt)
+                                except Exception as e:
+                                    rendered = (
+                                        f"\n[codex-cerebrum] steer failed: {e}\n"
+                                    )
+                                    with write_lock:
+                                        chunks.append(rendered)
+                                        out_f.write(rendered)
+                                        out_f.flush()
+                                    logger.info(rendered.strip())
+                                    return
+
+                        threading.Thread(
+                            target=_steer,
+                            name="codex-steer",
+                            daemon=True,
+                        ).start()
+
+                    try:
                         for event in turn.stream():
                             _write_jsonl(raw_f, _message_to_json(event))
                             if rendered := recorder.observe(event):
-                                chunks.append(rendered)
-                                out_f.write(rendered)
-                                out_f.flush()
-                                logger.info(rendered.rstrip())
-
-                        # finish ends the whole session; a non-interactive run
-                        # is a single turn. Otherwise block for the next user
-                        # message and continue on the same stateful thread.
-                        if recorder.finish_result is not None or input_queue is None:
-                            break
-                        nxt = next_user_line(input_queue)
-                        if nxt is None:
-                            break
-                        rendered = f"\n[user] {nxt}\n"
-                        chunks.append(rendered)
-                        out_f.write(rendered)
-                        out_f.flush()
-                        logger.info(rendered.rstrip())
-                        seed = nxt
+                                with write_lock:
+                                    chunks.append(rendered)
+                                    out_f.write(rendered)
+                                    out_f.flush()
+                                logger.info(rendered.strip())
+                    finally:
+                        if stop_steer is not None:
+                            stop_steer.set()
 
             state["text"] = "".join(chunks)
             if recorder.final_response is not None:
@@ -321,7 +349,11 @@ class _Recorder:
         item = _unwrap(item)
         item_type = str(_get(item, "type", ""))
 
-        if item_type in {"userMessage", "hookPrompt", "plan"}:
+        if item_type == "userMessage":
+            text = _extract_text(_get(item, "content"))
+            return f"\n[codex][user] {text}\n" if text else ""
+
+        if item_type in {"hookPrompt", "plan"}:
             return ""
 
         if item_type == "agentMessage":
