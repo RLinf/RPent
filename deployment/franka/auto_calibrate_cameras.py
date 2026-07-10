@@ -11,7 +11,7 @@ The default mode calibrates the fixed scene camera into the Franka base frame
 4. pair that point with the live robot TCP position and fit ``T_base_cam`` with
    RANSAC Kabsch,
 5. save the calibration record to
-   ``~/.cache/physical_agent/franka/camera_calibration/<serial>.json`` and ask
+   ``~/.cache/rpent/franka/camera_calibration/<serial>.json`` and ask
    the running env server to reload it.
 
 This is the right first calibration for ``back_project`` because the scene
@@ -47,7 +47,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from deployment.franka import calibration as franka_calib  # noqa: E402
 from deployment.lerobot import geometry as geom  # noqa: E402
-from physical_agent.rpc_driver.socket import SocketRpcClient  # noqa: E402
+from rpent.rpc_driver.socket import SocketRpcClient  # noqa: E402
 
 _DEFAULT_GRID_X = (0.46, 0.54, 0.60)
 _DEFAULT_GRID_Y = (-0.08, 0.0, 0.08)

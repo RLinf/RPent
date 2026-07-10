@@ -4,7 +4,7 @@ Drives a Franka arm through the SERL cartesian-impedance ROS controller and the
 ``franka_gripper`` action topics, exposing agent-friendly *Cartesian* primitives
 (``reset`` / ``get_obs`` / ``get_ee_pose`` / ``move_to`` / ``move_delta`` /
 ``open_gripper`` / ``close_gripper`` / ``get_spec``) over a pickle-framed TCP RPC
-server (:class:`physical_agent.rpc_driver.socket.SocketRpcServer`) -- the same
+server (:class:`rpent.rpc_driver.socket.SocketRpcServer`) -- the same
 wire protocol the LIBERO and LeRobot drivers use, so the agent side talks to all
 three identically.
 
@@ -43,14 +43,14 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 
-# Make ``physical_agent`` importable when this file is run from the RLinf .venv
-# (which need not have physical_agent installed) -- the source tree is enough.
+# Make ``rpent`` importable when this file is run from the RLinf .venv
+# (which need not have rpent installed) -- the source tree is enough.
 _PHYSICALAGENT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PHYSICALAGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PHYSICALAGENT_ROOT))
 
-from physical_agent.rpc_driver.socket import SocketRpcServer  # noqa: E402
-from physical_agent.utils.logging import get_logger, init_output_dir  # noqa: E402
+from rpent.rpc_driver.socket import SocketRpcServer  # noqa: E402
+from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
 
 from deployment.franka import calibration as camera_calib  # noqa: E402
 
