@@ -35,7 +35,7 @@ conflicting process-level requirements. Co-locating them in one process
 couples their lifecycles, forces one interpreter to satisfy both dependency
 trees, and lets a model OOM take down the sim. Keeping them separate means
 either can be restarted, scaled, or pointed at a remote host independently
-(`--vla_endpoint host:port` reuses an already-running model server). Every env
+(`--vla-endpoint host:port` reuses an already-running model server). Every env
 MUST follow this: env_server owns the sim, vla_server owns the model.
 
 **Transport may differ per env; the architecture may not.** LIBERO's
