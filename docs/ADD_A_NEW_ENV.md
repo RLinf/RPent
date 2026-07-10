@@ -6,7 +6,7 @@ simulated environment into RPent's LLM-in-the-loop runner. Use
 
 RPent splits an env into two processes:
 
-- **Agent side** (`rpent/envs/<env>/`) — runs in the agent process;
+- **Agent side** (`robots/<env>/`) — runs in the agent process;
   contributes the tool schemas, primitive-driver logic, and prompts.
 - **Driver side** (`robots/<env>/env_server.py`) — owns the
   heavyweight simulator / robot; exposes its env over a pickle-framed TCP
@@ -59,43 +59,43 @@ render/step/grasp/assemble, the model client for inference.
 For a new env `myenv`, the file layout is:
 
 ```
-rpent/envs/myenv/
+robots/myenv/
     __init__.py            # entry point — get_env_spec() / get_toolkit() factories
-    myenv_env_client.py    # MyEnvClient — agent-side RPC stub (§1)
+    env_client.py          # MyEnvClient — agent-side RPC stub (§1)
     prompt_bundle.py       # system()/user() prompt factories         (§2)
     toolkit.py             # MyEnvToolkit + primitives + tool schemas (§3)
-
-robots/<env>/env_server.py    # driver-side facade + RPC server (§1)
+    env_server.py          # driver-side facade + RPC server (§1)
+    vla_server.py          # (optional) VLA model server (§1)
 ```
 
 `__init__.py` is the package's entry point. The registry in
-`rpent/envs/base.py` lazily imports `rpent.envs.<name>`
+`rpent/envs/base.py` lazily imports `robots.<name>`
 on demand and calls its two factories:
 
 ```python
-# rpent/envs/myenv/__init__.py
+# robots/myenv/__init__.py
 from rpent.envs.env_spec import EnvSpec
 from rpent.envs.prompt_bundle import PromptBundle
-from rpent.envs.myenv.prompt_bundle import system_prompt, user_prompt
+from robots.myenv.prompt_bundle import system_prompt, user_prompt
 
 def get_env_spec() -> EnvSpec:
     return EnvSpec(name="myenv", prompts=PromptBundle(system=system_prompt, user=user_prompt))
 
 def get_toolkit(*, primitives_kwargs: dict[str, Any], video_path: str | None = None):
-    from rpent.envs.myenv.toolkit import MyEnvToolkit
+    from robots.myenv.toolkit import MyEnvToolkit
     return MyEnvToolkit(primitives_kwargs=primitives_kwargs, video_path=video_path)
 ```
 
 That's the entire registration step — `_resolve_env(name)` does an
-`importlib.import_module(f"rpent.envs.{name}")`, so dropping the
-package on disk is enough. No central list to update.
+`importlib.import_module(f"robots.{name}")`, so dropping the
+package under `robots/` on disk is enough. No central list to update.
 
 The three sections below describe what each of the three referenced
 modules must contain.
 
 ---
 
-## 1. `myenv_env_client.py` + `robots/<env>/env_server.py`
+## 1. `env_client.py` + `env_server.py`
 
 These two files form the agent ↔ driver bridge. The client lives in the
 agent process and turns method calls into RPCs; the env_server lives in the
@@ -168,10 +168,10 @@ once that the Claude Code / Codex SDK shows them namespaced as
 `mcp__rpent__<name>` — do not maintain separate CLI/API copies.
 
 ```python
-# rpent/envs/myenv/prompt_bundle.py
+# robots/myenv/prompt_bundle.py
 from rpent.context.prompt_utils import PromptNode
 from rpent.context.prompts import prompt as base_prompt
-from rpent.envs.myenv import prompts as myenv_prompt
+from robots.myenv import prompts as myenv_prompt
 
 def system_prompt() -> dict[str, PromptNode]:
     return {

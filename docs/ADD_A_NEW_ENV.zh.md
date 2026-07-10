@@ -5,7 +5,7 @@ runner。请把 `robots/libero/` 当作完整参考实例。
 
 RPent 把一个 env 拆成两个进程:
 
-- **Agent 侧** (`rpent/envs/<env>/`) — 跑在 agent 进程内, 提供工具
+- **Agent 侧** (`robots/<env>/`) — 跑在 agent 进程内, 提供工具
   schema、primitive driver 逻辑和 prompt。
 - **Driver 侧** (`robots/<env>/env_server.py`) — 持有重量级的仿真器 /
   机器人; 通过 pickle-framed TCP RPC server
@@ -50,41 +50,41 @@ VLA server。于是 agent 侧的 skill(`RLDXSkill`)同时持有两个 client: en
 新增名为 `myenv` 的 env 时, 文件布局如下:
 
 ```
-rpent/envs/myenv/
+robots/myenv/
     __init__.py            # 入口 — get_env_spec() / get_toolkit() 工厂
-    myenv_env_client.py    # MyEnvClient — agent 侧 RPC 代理 (§1)
+    env_client.py          # MyEnvClient — agent 侧 RPC 代理 (§1)
     prompt_bundle.py       # system()/user() prompt 工厂              (§2)
     toolkit.py             # MyEnvToolkit + primitives + tool schemas (§3)
-
-robots/<env>/env_server.py    # driver 侧 facade + RPC server (§1)
+    env_server.py          # driver 侧 facade + RPC server (§1)
+    vla_server.py          # (可选) VLA 模型 server (§1)
 ```
 
 `__init__.py` 是这个包的入口。`rpent/envs/base.py` 中的注册表会按需
-lazily import `rpent.envs.<name>`, 并调用其两个工厂函数:
+lazily import `robots.<name>`, 并调用其两个工厂函数:
 
 ```python
-# rpent/envs/myenv/__init__.py
+# robots/myenv/__init__.py
 from rpent.envs.env_spec import EnvSpec
 from rpent.envs.prompt_bundle import PromptBundle
-from rpent.envs.myenv.prompt_bundle import system_prompt, user_prompt
+from robots.myenv.prompt_bundle import system_prompt, user_prompt
 
 def get_env_spec() -> EnvSpec:
     return EnvSpec(name="myenv", prompts=PromptBundle(system=system_prompt, user=user_prompt))
 
 def get_toolkit(*, primitives_kwargs: dict[str, Any], video_path: str | None = None):
-    from rpent.envs.myenv.toolkit import MyEnvToolkit
+    from robots.myenv.toolkit import MyEnvToolkit
     return MyEnvToolkit(primitives_kwargs=primitives_kwargs, video_path=video_path)
 ```
 
 整个注册流程就是这样 — `_resolve_env(name)` 通过
-`importlib.import_module(f"rpent.envs.{name}")` 动态加载, 所以
-把包放在磁盘上就够了, 没有中央列表需要维护。
+`importlib.import_module(f"robots.{name}")` 动态加载, 所以
+把包放在 `robots/` 下就够了, 没有中央列表需要维护。
 
 下面三章分别说明上面引用的三个模块各自需要写什么。
 
 ---
 
-## 1. `myenv_env_client.py` + `robots/<env>/env_server.py`
+## 1. `env_client.py` + `env_server.py`
 
 这两个文件构成 agent ↔ driver 的桥梁: client 跑在 agent 进程内, 把方法调用转成
 RPC; env_server 跑在 driver 进程内, 应答这些调用。
@@ -152,10 +152,10 @@ stdout 上的 `transport_ready` 事件是必须的 — `cli.main.start_env_serve
 `mcp__rpent__<name>` — 不要再维护 CLI/API 两份拷贝。
 
 ```python
-# rpent/envs/myenv/prompt_bundle.py
+# robots/myenv/prompt_bundle.py
 from rpent.context.prompt_utils import PromptNode
 from rpent.context.prompts import prompt as base_prompt
-from rpent.envs.myenv import prompts as myenv_prompt
+from robots.myenv import prompts as myenv_prompt
 
 def system_prompt() -> dict[str, PromptNode]:
     return {
