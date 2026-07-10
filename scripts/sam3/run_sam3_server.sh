@@ -22,7 +22,7 @@ is_up() {
 
 if is_up; then
   echo "[run_sam3_server] SAM3 service already reachable at $URL"
-  echo "[run_sam3_server] To use this service with PhysicalAgent in the run shell:"
+  echo "[run_sam3_server] To use this service with RPent in the run shell:"
   echo "export SAM3_SERVER_URL=$URL"
   exit 0
 fi
@@ -45,7 +45,7 @@ echo "[run_sam3_server]   launcher: $SAM3_LAUNCHER"
 echo "[run_sam3_server]   gpu:  $SAM3_GPU"
 echo "[run_sam3_server]   url:  $URL"
 echo
-echo "[run_sam3_server] To use this service with PhysicalAgent in the run shell:"
+echo "[run_sam3_server] To use this service with RPent in the run shell:"
 echo "export SAM3_SERVER_URL=$URL"
 echo
 echo "[run_sam3_server] launching optional SAM3 service..."
@@ -63,7 +63,7 @@ echo "[run_sam3_server] waiting for SAM3 service at $URL (up to $((SAM3_READY_AT
 for _ in $(seq 1 "$SAM3_READY_ATTEMPTS"); do
   if is_up; then
     echo "[run_sam3_server] SAM3 service reachable at $URL"
-    echo "[run_sam3_server] Remember to run this in the PhysicalAgent shell:"
+    echo "[run_sam3_server] Remember to run this in the RPent shell:"
     echo "export SAM3_SERVER_URL=$URL"
     exit 0
   fi
