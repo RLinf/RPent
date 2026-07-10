@@ -414,7 +414,7 @@ def main() -> int:
         dashboard=dashboard_state,
     )
 
-    # Fall back to LIBERO_TYPE, then "pro", if the CLI option is omitted.
+    # Auto-route LIBERO_TYPE if not set
     libero_type = args.libero_type or get_libero_type()
 
     prompt_vars = {

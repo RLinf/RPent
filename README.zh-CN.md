@@ -177,7 +177,7 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 | `--max-tokens` | `8192` | 单次回复最大 token |
 | `--max-episode-steps` | `10000` | 环境最大步数 |
 | `--libero-type` | `LIBERO_TYPE` 或 `pro` | LIBERO 类型：`standard` \| `pro` \| `plus` |
-| `--cuda-device` | 继承当前环境 | 通过 `CUDA_VISIBLE_DEVICES` 指定 env / vla server 可见的 GPU |
+| `--cuda-device` | 继承当前环境 | env / vla server 可见的 GPU 设备 |
 | `--dashboard` | 关 | 为本次运行启动本地 dashboard |
 | `--dashboard-language` | `en` | Dashboard 界面语言：`en` \| `zh-cn` |
 | `--vla-endpoint` | — | 复用已在运行的 vla_server，而非新起一个 |

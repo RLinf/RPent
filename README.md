@@ -177,7 +177,7 @@ See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 +
 | `--max-tokens` | `8192` | Max tokens per LLM reply |
 | `--max-episode-steps` | `10000` | Max env steps |
 | `--libero-type` | `LIBERO_TYPE` or `pro` | LIBERO variant: `standard` \| `pro` \| `plus` |
-| `--cuda-device` | inherited | GPU device(s) exposed to the env / vla servers via `CUDA_VISIBLE_DEVICES` |
+| `--cuda-device` | inherited | GPU device(s) exposed to the env / vla servers |
 | `--dashboard` | off | Start the local dashboard for this run |
 | `--dashboard-language` | `en` | Dashboard UI language: `en` \| `zh-cn` |
 | `--vla-endpoint` | — | Reuse an already-running vla_server instead of spawning one |
