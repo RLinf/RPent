@@ -1,0 +1,18 @@
+{
+  "type": "charuco",
+  "dictionary": "DICT_4X4_50",
+  "squares_x": 7,
+  "squares_y": 5,
+  "square_length_m": 0.025,
+  "marker_length_m": 0.018,
+  "margin_m": 0.012,
+  "dpi": 300,
+  "image_width_px": 2349,
+  "image_height_px": 1759,
+  "print_instructions": [
+    "Print the PDF at 100% / actual size.",
+    "Disable fit-to-page or scaling.",
+    "Use matte paper and mount it flat to cardboard/foam board.",
+    "Measure one printed square and update square_length_m if needed."
+  ]
+}
