@@ -43,12 +43,10 @@ _TEXT_LOG_LIMIT = 500
 _ARGS_LOG_LIMIT = 250
 _TOOL_LOG_LIMIT = 350
 
-#: Cap on cumulative decoded image bytes kept in the resent request history.
-_MAX_HISTORY_IMAGE_BYTES = 4 * 1024 * 1024
-
-#: Always retain at least this many of the most recent images, even if a single
-#: frame exceeds the byte budget, so the model never loses its current view.
-_MIN_RECENT_IMAGES = 2
+#: Maximum number of recent images kept in the resent request history.
+#: Franka action results usually return scene + wrist, so 4 preserves the
+#: latest visual observation while bounding multimodal context growth.
+_MAX_HISTORY_IMAGES = 4
 
 
 class ApiAgentLoop:
@@ -319,8 +317,8 @@ def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
 
 def _prune_history_images(messages: list[ModelMessage]) -> list[ModelMessage]:
     """Drop old camera images so the resent request body stays bounded."""
-    # Every image in history, oldest -> newest: (msg_idx, part_idx, item_idx, nbytes).
-    located: list[tuple[int, int, int, int]] = []
+    # Every image in history, oldest -> newest: (msg_idx, part_idx, item_idx).
+    located: list[tuple[int, int, int]] = []
     for mi, message in enumerate(messages):
         for pi, part in enumerate(getattr(message, "parts", ()) or ()):
             if not isinstance(part, UserPromptPart) or not isinstance(
@@ -331,24 +329,15 @@ def _prune_history_images(messages: list[ModelMessage]) -> list[ModelMessage]:
                 if isinstance(item, BinaryContent) and item.media_type.startswith(
                     "image/"
                 ):
-                    located.append((mi, pi, ii, len(item.data)))
+                    located.append((mi, pi, ii))
 
-    if not located:
+    if len(located) <= _MAX_HISTORY_IMAGES:
         return messages
 
-    # Walk newest -> oldest, keeping images while under the byte budget.
-    keep: set[tuple[int, int, int]] = set()
-    total = 0
-    for rank, (mi, pi, ii, nbytes) in enumerate(reversed(located)):
-        if rank < _MIN_RECENT_IMAGES or total + nbytes <= _MAX_HISTORY_IMAGE_BYTES:
-            keep.add((mi, pi, ii))
-            total += nbytes
-
-    if len(keep) == len(located):
-        return messages
+    keep = set(located[-_MAX_HISTORY_IMAGES:])
 
     drop_items_by_part: dict[tuple[int, int], set[int]] = {}
-    for mi, pi, ii, _ in located:
+    for mi, pi, ii in located:
         if (mi, pi, ii) not in keep:
             drop_items_by_part.setdefault((mi, pi), set()).add(ii)
 
