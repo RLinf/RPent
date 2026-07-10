@@ -1,15 +1,15 @@
 # 新增 environment 指南
 
-本指南说明如何把一个新的物理 / 仿真环境接入 PhysicalAgent 的 LLM-in-the-loop
-runner。请把 `physical_agent/envs/libero/` 当作完整参考实例。
+本指南说明如何把一个新的物理 / 仿真环境接入 RPent 的 LLM-in-the-loop
+runner。请把 `rpent/envs/libero/` 当作完整参考实例。
 
-PhysicalAgent 把一个 env 拆成两个进程:
+RPent 把一个 env 拆成两个进程:
 
-- **Agent 侧** (`physical_agent/envs/<env>/`) — 跑在 agent 进程内, 提供工具
+- **Agent 侧** (`rpent/envs/<env>/`) — 跑在 agent 进程内, 提供工具
   schema、primitive driver 逻辑和 prompt。
-- **Driver 侧** (`deployment/<backend>/env_server.py`) — 持有重量级的仿真器 /
+- **Driver 侧** (`robots/<env>/env_server.py`) — 持有重量级的仿真器 /
   机器人; 通过 pickle-framed TCP RPC server
-  (`physical_agent.rpc_driver.socket.SocketRpcServer`) 对外暴露 env。
+  (`rpent.rpc_driver.socket.SocketRpcServer`) 对外暴露 env。
 
 两侧通过一个 `EnvClient` 类相连: 每个 agent 侧方法调用对应一次到 driver 的 RPC。
 
@@ -18,7 +18,7 @@ PhysicalAgent 把一个 env 拆成两个进程:
 当一个 env 使用 VLA 策略(读取相机观测、输出动作的学习模型)时, 该模型跑在
 **第三个独立进程**里 —— 绝不塞进 env_server:
 
-- **VLA 侧** (`deployment/<backend>/vla_server.py`) — 只持有 VLA 策略(GPU
+- **VLA 侧** (`robots/<env>/vla_server.py`) — 只持有 VLA 策略（GPU
   模型), 通过自己的 RPC/HTTP 端点暴露 `vla_load` / `vla_infer` / `vla_reset`,
   不 import 任何仿真器。
 - toolkit 除了 `EnvClient` 之外, 还接收一个 **model client**(LIBERO/Pi0.5 用
@@ -50,41 +50,41 @@ VLA server。于是 agent 侧的 skill(`RLDXSkill`)同时持有两个 client: en
 新增名为 `myenv` 的 env 时, 文件布局如下:
 
 ```
-physical_agent/envs/myenv/
+rpent/envs/myenv/
     __init__.py            # 入口 — get_env_spec() / get_toolkit() 工厂
     myenv_env_client.py    # MyEnvClient — agent 侧 RPC 代理 (§1)
     prompt_bundle.py       # system()/user() prompt 工厂              (§2)
     toolkit.py             # MyEnvToolkit + primitives + tool schemas (§3)
 
-deployment/<backend>/env_server.py    # driver 侧 facade + RPC server (§1)
+robots/<env>/env_server.py    # driver 侧 facade + RPC server (§1)
 ```
 
-`__init__.py` 是这个包的入口。`physical_agent/envs/base.py` 中的注册表会按需
-lazily import `physical_agent.envs.<name>`, 并调用其两个工厂函数:
+`__init__.py` 是这个包的入口。`rpent/envs/base.py` 中的注册表会按需
+lazily import `rpent.envs.<name>`, 并调用其两个工厂函数:
 
 ```python
-# physical_agent/envs/myenv/__init__.py
-from physical_agent.envs.env_spec import EnvSpec
-from physical_agent.envs.prompt_bundle import PromptBundle
-from physical_agent.envs.myenv.prompt_bundle import system_prompt, user_prompt
+# rpent/envs/myenv/__init__.py
+from rpent.envs.env_spec import EnvSpec
+from rpent.envs.prompt_bundle import PromptBundle
+from rpent.envs.myenv.prompt_bundle import system_prompt, user_prompt
 
 def get_env_spec() -> EnvSpec:
     return EnvSpec(name="myenv", prompts=PromptBundle(system=system_prompt, user=user_prompt))
 
 def get_toolkit(*, primitives_kwargs: dict[str, Any], video_path: str | None = None):
-    from physical_agent.envs.myenv.toolkit import MyEnvToolkit
+    from rpent.envs.myenv.toolkit import MyEnvToolkit
     return MyEnvToolkit(primitives_kwargs=primitives_kwargs, video_path=video_path)
 ```
 
 整个注册流程就是这样 — `_resolve_env(name)` 通过
-`importlib.import_module(f"physical_agent.envs.{name}")` 动态加载, 所以
+`importlib.import_module(f"rpent.envs.{name}")` 动态加载, 所以
 把包放在磁盘上就够了, 没有中央列表需要维护。
 
 下面三章分别说明上面引用的三个模块各自需要写什么。
 
 ---
 
-## 1. `myenv_env_client.py` + `deployment/<backend>/env_server.py`
+## 1. `myenv_env_client.py` + `robots/<env>/env_server.py`
 
 这两个文件构成 agent ↔ driver 的桥梁: client 跑在 agent 进程内, 把方法调用转成
 RPC; env_server 跑在 driver 进程内, 应答这些调用。
@@ -149,13 +149,13 @@ stdout 上的 `transport_ready` 事件是必须的 — `cli.main.start_env_serve
 分节), 由 `PromptBundle.render` 组装并填充。一份 prompt 服务所有 cerebrum
 (API loop、Claude Code、Codex): 用工具的裸名引用 (`move_to`, ...), 并只需说明
 一次 Claude Code / Codex SDK 会把它们命名空间化为
-`mcp__physical_agent__<name>` — 不要再维护 CLI/API 两份拷贝。
+`mcp__rpent__<name>` — 不要再维护 CLI/API 两份拷贝。
 
 ```python
-# physical_agent/envs/myenv/prompt_bundle.py
-from physical_agent.context.prompt_utils import PromptNode
-from physical_agent.context.prompts import prompt as base_prompt
-from physical_agent.envs.myenv import prompts as myenv_prompt
+# rpent/envs/myenv/prompt_bundle.py
+from rpent.context.prompt_utils import PromptNode
+from rpent.context.prompts import prompt as base_prompt
+from rpent.envs.myenv import prompts as myenv_prompt
 
 def system_prompt() -> dict[str, PromptNode]:
     return {
@@ -171,7 +171,7 @@ def user_prompt() -> dict[str, PromptNode]:
     return dict(base_prompt.USER)
 ```
 
-可以复用 `physical_agent.context.prompts.prompt` 中的共享分节 (`OUTPUT`、
+可以复用 `rpent.context.prompts.prompt` 中的共享分节 (`OUTPUT`、
 `USER`), 也可以自己写。分节内容是普通字符串 (或 `BulletList` / `Numbered`),
 占位符 `{{suite}}` / `{{task}}` / `{{seed}}` / `{{output_dir}}` /
 `{{recipe_tag}}` 在渲染时填充。
@@ -199,7 +199,7 @@ def user_prompt() -> dict[str, PromptNode]:
 之后会通过 `view_*` 工具读回的所有状态 (图像、深度、JSON 状态、camera meta)
 序列化到 `output_dir`。
 
-**Toolkit 类** — 继承 `physical_agent.tools.toolkit.Toolkit`:
+**Toolkit 类** — 继承 `rpent.tools.toolkit.Toolkit`:
 
 - 在 `__init__` 中通过 `init_driver_clean` 构建 primitive driver (清理过期的
   `images/` 等, 构造 primitives, dump 第 0 步),

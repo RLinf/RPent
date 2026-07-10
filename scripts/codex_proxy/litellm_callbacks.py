@@ -6,7 +6,7 @@ Problem
 
 Codex sends ``type: "namespace"`` tool definitions.  The upstream API
 (Infini-AI) rejects namespace format, so the proxy inlines them as
-``type: "function"`` (``mcp__physical_agent__echo``).  The API then returns
+``type: "function"`` (``mcp__rpent__echo``).  The API then returns
 ``function_call`` *without* a ``namespace`` field — Codex cannot route the
 flattened name through its MCP namespace registry.
 
@@ -91,8 +91,8 @@ def _extract_mcp_namespace_map(data: dict) -> dict[str, str]:
     mapping of ``{short_name: namespace}``.
 
     Example::
-        {"back_project": "mcp__physical_agent",
-         "view_driver_state": "mcp__physical_agent"}
+        {"back_project": "mcp__rpent",
+         "view_driver_state": "mcp__rpent"}
     """
     tools = data.get("tools")
     if not isinstance(tools, list):
@@ -253,7 +253,7 @@ class _CodexToolFilter(CustomLogger):
                 continue
             name: str = item.get("name", "")
             if "__" in name:
-                # Full name: mcp__physical_agent__back_project → namespace + short name
+                # Full name: mcp__rpent__back_project → namespace + short name
                 parts = name.split("__")
                 if len(parts) < 2:
                     continue

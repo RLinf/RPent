@@ -13,20 +13,20 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from physical_agent.utils.config import (
+from rpent.utils.config import (
     get_libero_type,
     get_repo_root,
 )
 
-from physical_agent.cerebrum.base import build_cerebrum  # noqa: E402
-from physical_agent.envs import get_env_spec, get_toolkit  # noqa: E402
-from physical_agent.rpc_driver import (  # noqa: E402
+from rpent.cerebrum.base import build_cerebrum  # noqa: E402
+from rpent.envs import get_env_spec, get_toolkit  # noqa: E402
+from rpent.rpc_driver import (  # noqa: E402
     create_rpc_client,
     set_socket_endpoint,
 )
-from physical_agent.rpc_driver.vla_client import VLAClient  # noqa: E402
-from physical_agent.envs.libero.libero_env_client import LiberoEnvClient  # noqa: E402
-from physical_agent.utils.logging import get_logger, init_output_dir  # noqa: E402
+from rpent.rpc_driver.vla_client import VLAClient  # noqa: E402
+from rpent.envs.libero.libero_env_client import LiberoEnvClient  # noqa: E402
+from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
 
 logger = get_logger("agent")
 
@@ -81,7 +81,7 @@ def start_env_server(
 
     cmd = [
         sys.executable,
-        driver_script or str(get_repo_root() / "deployment" / "rlinf" / "env_server.py"),
+        driver_script or str(get_repo_root() / "robots" / "libero" / "env_server.py"),
         "--suite", suite,
         "--task", str(task),
         "--seed", str(seed),
@@ -183,7 +183,7 @@ def start_vla_server(
 
     cmd = [
         sys.executable,
-        str(get_repo_root() / "deployment" / "rlinf" / "vla_server.py"),
+        str(get_repo_root() / "robots" / "libero" / "vla_server.py"),
         "--host", host,
         "--port", str(port),
     ]
@@ -342,8 +342,8 @@ def main() -> int:
     dashboard_server = None
     dashboard_url = None
     if args.dashboard:
-        from physical_agent.dashboard import DashboardServer
-        from physical_agent.dashboard.launcher import apply_to_args, defaults_from_args
+        from rpent.dashboard import DashboardServer
+        from rpent.dashboard.launcher import apply_to_args, defaults_from_args
 
         dashboard_server = DashboardServer(
             host=args.dashboard_host, port=args.dashboard_port,
@@ -386,7 +386,7 @@ def main() -> int:
 
     dashboard_state = None
     if args.dashboard and dashboard_server is not None:
-        from physical_agent.dashboard.state import State
+        from rpent.dashboard.state import State
 
         dashboard_state = State(
             run_id=f"{suite}/{output_dir.name}",

@@ -1,16 +1,16 @@
 # Adding a new environment
 
 This guide walks through what you need to write to plug a new physical /
-simulated environment into PhysicalAgent's LLM-in-the-loop runner. Use
-`physical_agent/envs/libero/` as the worked reference.
+simulated environment into RPent's LLM-in-the-loop runner. Use
+`rpent/envs/libero/` as the worked reference.
 
-PhysicalAgent splits an env into two processes:
+RPent splits an env into two processes:
 
-- **Agent side** (`physical_agent/envs/<env>/`) — runs in the agent process;
+- **Agent side** (`rpent/envs/<env>/`) — runs in the agent process;
   contributes the tool schemas, primitive-driver logic, and prompts.
-- **Driver side** (`deployment/<backend>/env_server.py`) — owns the
+- **Driver side** (`robots/<env>/env_server.py`) — owns the
   heavyweight simulator / robot; exposes its env over a pickle-framed TCP
-  RPC server (`physical_agent.rpc_driver.socket.SocketRpcServer`).
+  RPC server (`rpent.rpc_driver.socket.SocketRpcServer`).
 
 The two are connected by an `EnvClient` class that turns each agent-side
 method call into one RPC against the driver.
@@ -21,7 +21,7 @@ When an env uses a VLA policy (a learned model that consumes camera obs and
 emits actions), that model runs in a **third, separate process** — never
 inside the env_server:
 
-- **VLA side** (`deployment/<backend>/vla_server.py`) — owns ONLY the VLA
+- **VLA side** (`robots/<env>/vla_server.py`) — owns ONLY the VLA
   policy (the GPU model). It exposes `vla_load` / `vla_infer` / `vla_reset`
   over its own RPC/HTTP endpoint. It imports NO simulator.
 - The toolkit receives a **model client** (e.g. `VLAClient` for LIBERO/Pi0.5,
@@ -59,35 +59,35 @@ render/step/grasp/assemble, the model client for inference.
 For a new env `myenv`, the file layout is:
 
 ```
-physical_agent/envs/myenv/
+rpent/envs/myenv/
     __init__.py            # entry point — get_env_spec() / get_toolkit() factories
     myenv_env_client.py    # MyEnvClient — agent-side RPC stub (§1)
     prompt_bundle.py       # system()/user() prompt factories         (§2)
     toolkit.py             # MyEnvToolkit + primitives + tool schemas (§3)
 
-deployment/<backend>/env_server.py    # driver-side facade + RPC server (§1)
+robots/<env>/env_server.py    # driver-side facade + RPC server (§1)
 ```
 
 `__init__.py` is the package's entry point. The registry in
-`physical_agent/envs/base.py` lazily imports `physical_agent.envs.<name>`
+`rpent/envs/base.py` lazily imports `rpent.envs.<name>`
 on demand and calls its two factories:
 
 ```python
-# physical_agent/envs/myenv/__init__.py
-from physical_agent.envs.env_spec import EnvSpec
-from physical_agent.envs.prompt_bundle import PromptBundle
-from physical_agent.envs.myenv.prompt_bundle import system_prompt, user_prompt
+# rpent/envs/myenv/__init__.py
+from rpent.envs.env_spec import EnvSpec
+from rpent.envs.prompt_bundle import PromptBundle
+from rpent.envs.myenv.prompt_bundle import system_prompt, user_prompt
 
 def get_env_spec() -> EnvSpec:
     return EnvSpec(name="myenv", prompts=PromptBundle(system=system_prompt, user=user_prompt))
 
 def get_toolkit(*, primitives_kwargs: dict[str, Any], video_path: str | None = None):
-    from physical_agent.envs.myenv.toolkit import MyEnvToolkit
+    from rpent.envs.myenv.toolkit import MyEnvToolkit
     return MyEnvToolkit(primitives_kwargs=primitives_kwargs, video_path=video_path)
 ```
 
 That's the entire registration step — `_resolve_env(name)` does an
-`importlib.import_module(f"physical_agent.envs.{name}")`, so dropping the
+`importlib.import_module(f"rpent.envs.{name}")`, so dropping the
 package on disk is enough. No central list to update.
 
 The three sections below describe what each of the three referenced
@@ -95,7 +95,7 @@ modules must contain.
 
 ---
 
-## 1. `myenv_env_client.py` + `deployment/<backend>/env_server.py`
+## 1. `myenv_env_client.py` + `robots/<env>/env_server.py`
 
 These two files form the agent ↔ driver bridge. The client lives in the
 agent process and turns method calls into RPCs; the env_server lives in the
@@ -165,13 +165,13 @@ ordered `dict[str, PromptNode]` of titled sections; `PromptBundle.render`
 assembles and fills them. One prompt serves every cerebrum (API loop, Claude
 Code, Codex): refer to tools by their bare names (`move_to`, ...) and note
 once that the Claude Code / Codex SDK shows them namespaced as
-`mcp__physical_agent__<name>` — do not maintain separate CLI/API copies.
+`mcp__rpent__<name>` — do not maintain separate CLI/API copies.
 
 ```python
-# physical_agent/envs/myenv/prompt_bundle.py
-from physical_agent.context.prompt_utils import PromptNode
-from physical_agent.context.prompts import prompt as base_prompt
-from physical_agent.envs.myenv import prompts as myenv_prompt
+# rpent/envs/myenv/prompt_bundle.py
+from rpent.context.prompt_utils import PromptNode
+from rpent.context.prompts import prompt as base_prompt
+from rpent.envs.myenv import prompts as myenv_prompt
 
 def system_prompt() -> dict[str, PromptNode]:
     return {
@@ -187,7 +187,7 @@ def user_prompt() -> dict[str, PromptNode]:
     return dict(base_prompt.USER)
 ```
 
-Reuse the shared sections in `physical_agent.context.prompts.prompt`
+Reuse the shared sections in `rpent.context.prompts.prompt`
 (`OUTPUT`, `USER`) or write your own. Section bodies are plain strings (or
 `BulletList` / `Numbered`) with `{{suite}}` / `{{task}}` / `{{seed}}` /
 `{{output_dir}}` / `{{recipe_tag}}` placeholders filled at render time.
@@ -218,7 +218,7 @@ any free functions referenced by the toolkit (e.g. `view_driver_state`,
 serializes whatever state the agent will read back via the `view_*` tools
 (images, depths, JSON state, camera meta) into `output_dir`.
 
-**Toolkit class** — subclass `physical_agent.tools.toolkit.Toolkit`:
+**Toolkit class** — subclass `rpent.tools.toolkit.Toolkit`:
 
 - build the primitive driver in `__init__` via `init_driver_clean`
   (wipes stale `images/` etc., constructs the primitives, dumps step 0),

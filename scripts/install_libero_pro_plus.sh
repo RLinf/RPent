@@ -80,7 +80,7 @@ PIP=("$PYTHON" -m pip)
 
 LIBERO_PRO_PATH="${LIBERO_PRO_PATH:-$VENV_DIR/libero_pro}"
 LIBERO_PLUS_PATH="${LIBERO_PLUS_PATH:-$VENV_DIR/libero_plus}"
-LIBERO_PRO_HF_DIR="${LIBERO_PRO_HF_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/physical_agent/liberopro_hf}"
+LIBERO_PRO_HF_DIR="${LIBERO_PRO_HF_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/rpent/liberopro_hf}"
 LIBERO_PRO_CONFIG_PATH="${LIBERO_PRO_CONFIG_PATH:-${LIBERO_CONFIG_PATH:-$HOME/.liberopro}}"
 if [ -z "${LIBERO_PLUS_CONFIG_PATH:-}" ]; then
     if [ "$ONLY" = "plus" ] && [ -n "${LIBERO_CONFIG_PATH:-}" ]; then

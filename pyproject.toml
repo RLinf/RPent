@@ -3,9 +3,9 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "physicalagent"
+name = "rpent"
 version = "0.0.0"
-authors = [{ name = "PhysicalAgent Contributors" }]
+authors = [{ name = "RPent Contributors" }]
 description = "Embodied agent framework for coordinating high-level reasoning and robot skills"
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.10,<=3.11.14"
@@ -40,10 +40,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/RLinf/PhysicalAgent"
-Repository = "https://github.com/RLinf/PhysicalAgent"
-Documentation = "https://github.com/RLinf/PhysicalAgent"
-"Bug Report" = "https://github.com/RLinf/PhysicalAgent/issues"
+Homepage = "https://github.com/RLinf/RPent"
+Repository = "https://github.com/RLinf/RPent"
+Documentation = "https://github.com/RLinf/RPent"
+"Bug Report" = "https://github.com/RLinf/RPent/issues"
 
 [project.optional-dependencies]
 rlinf = [
@@ -57,11 +57,11 @@ prerelease = "allow"
 include-package-data = true
 
 [tool.setuptools.package-data]
-"physical_agent.envs.libero" = ["guides/*.md", "prompts/*.md"]
+"rpent.envs.libero" = ["guides/*.md", "prompts/*.md"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["physical_agent*"]
+include = ["rpent*"]
 exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.ruff]
@@ -70,7 +70,7 @@ indent-width = 4
 target-version = "py311"
 
 [tool.ruff.lint]
-isort = {known-first-party = ["physical_agent"]}
+isort = {known-first-party = ["rpent"]}
 select = ["C", "E", "F", "I", "W", "CPY001", "RUF013", "UP006", "PERF102", "PLC1802", "PLC0208", "D", "RUF002", "DOC102", "DOC202", "DOC403", "DOC502"]
 ignore = [
     "C901", # "complex-structure"
@@ -86,7 +86,7 @@ unfixable = []
 
 [tool.ruff.lint.per-file-ignores]
 # Only enable docstring check for the scheduler module for now.
-"!physical_agent/**.py" = ["D", "RUF002"]
+"!rpent/**.py" = ["D", "RUF002"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

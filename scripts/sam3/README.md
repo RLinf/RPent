@@ -4,8 +4,8 @@ SAM3 is an optional external perception service. `cli/main.py` does not
 automatically start SAM3; the runtime `segment` tool only calls the service
 configured by `SAM3_SERVER_URL`.
 
-Start a SAM3-compatible HTTP service before running PhysicalAgent, then export
-its URL in the shell that launches PhysicalAgent:
+Start a SAM3-compatible HTTP service before running RPent, then export
+its URL in the shell that launches RPent:
 
 ```bash
 export SAM3_SERVER_URL=http://127.0.0.1:8114
@@ -30,7 +30,7 @@ The external service should expose:
   - response: mask tensor fields such as `masks_base64`, `masks_shape`,
     `masks_dtype`, and optional `scores`
 
-PhysicalAgent decodes the returned mask and, when a matching LIBERO world map
+RPent decodes the returned mask and, when a matching LIBERO world map
 artifact exists, writes `world_xyz` into collision-safe `segment_NN_XX.json`
 artifacts. Repeated `segment()` calls on the same source step receive different
 `XX` indexes instead of overwriting earlier evidence.
@@ -51,4 +51,4 @@ bash scripts/sam3/run_sam3_server.sh
 `SAM3_HOST`, `SAM3_PORT`, `SAM3_GPU`, and `SAM3_CUDA_DEVICE` are passed through
 to the external launcher when supported by that launcher. The helper prints the
 `export SAM3_SERVER_URL=...` command, but it cannot export that variable into
-the parent shell. Set `SAM3_SERVER_URL` explicitly before running PhysicalAgent.
+the parent shell. Set `SAM3_SERVER_URL` explicitly before running RPent.
