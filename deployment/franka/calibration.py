@@ -1,7 +1,7 @@
 """Franka camera calibration loading helpers.
 
 Calibration records are stored per RealSense serial under
-``~/.cache/physical_agent/franka/camera_calibration``. Supported records:
+``~/.cache/rpent/franka/camera_calibration``. Supported records:
 
 - fixed scene camera: ``{"T_base_cam": [[...]], ...}``
 - wrist camera: ``{"T_tcp_cam": [[...]], ...}``
@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 
-_CALIB_DIR = "~/.cache/physical_agent/franka/camera_calibration"
+_CALIB_DIR = "~/.cache/rpent/franka/camera_calibration"
 MAX_ACCEPTABLE_RMSE_M = 0.02
 
 
