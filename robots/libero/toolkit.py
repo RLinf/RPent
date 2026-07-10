@@ -10,7 +10,7 @@ import time
 from functools import partial
 from typing import Any
 
-from rpent.envs.libero import tools as libero_tools
+from robots.libero import tools as libero_tools
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 

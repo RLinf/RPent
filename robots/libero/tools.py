@@ -11,7 +11,7 @@ import imageio.v2 as imageio
 import numpy as np
 
 from rpent.rpc_driver.vla_client import VLAClient
-from rpent.envs.libero.libero_env_client import LiberoEnvClient
+from robots.libero.libero_env_client import LiberoEnvClient
 from rpent.utils.logging import get_logger, get_output_dir
 
 logger = get_logger("libero")

@@ -1,7 +1,7 @@
 """Prompt bundle dataclass for env-contributed LLM prompts.
 
 Lives in :mod:`rpent.envs` so each env's
-``prompt_bundle.py`` (e.g. :mod:`rpent.envs.libero.prompt_bundle`)
+``prompt_bundle.py`` (e.g. :mod:`robots.libero.prompt_bundle`)
 can import it without depending on the driver-client transport layer.
 """
 from __future__ import annotations

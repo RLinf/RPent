@@ -413,9 +413,9 @@ WORKFLOW
 
 2. READ THE GUIDES (the PERCEPTION-compatible guides — NOT hidden benchmark
    internals, which would tempt you to use GT coords) once each:
-   - `rpent/envs/libero/guides/strict_hybrid_guide.md`
-   - `rpent/envs/libero/guides/pro_hybrid_guide.md`
-   - `rpent/envs/libero/guides/env_calibration.md`
+   - `robots/libero/guides/strict_hybrid_guide.md`
+   - `robots/libero/guides/pro_hybrid_guide.md`
+   - `robots/libero/guides/env_calibration.md`
 
 3. READ SEED-0 STRATEGY REFERENCES IF PRESENT, then solve from scratch.
    Strategy references live under:

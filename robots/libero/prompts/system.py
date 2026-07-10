@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from rpent.context.prompt_utils import BulletList, Numbered
-from rpent.envs.libero.prompts.shared import GUIDE_READ_INSTRUCTIONS, MCP_RUNTIME_ADAPTER
+from robots.libero.prompts.shared import GUIDE_READ_INSTRUCTIONS, MCP_RUNTIME_ADAPTER
 
 WORKFLOW = """
 1. READ MEMORY FIRST (operating wisdom — magic numbers + gotchas):

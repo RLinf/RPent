@@ -2,7 +2,7 @@
 
 This guide walks through what you need to write to plug a new physical /
 simulated environment into RPent's LLM-in-the-loop runner. Use
-`rpent/envs/libero/` as the worked reference.
+`robots/libero/` as the worked reference.
 
 RPent splits an env into two processes:
 

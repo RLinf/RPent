@@ -1,6 +1,6 @@
 """LIBERO env client that forwards calls over a driver client.
 
-Lives in :mod:`rpent.envs.libero` because the methods exposed
+Lives in :mod:`robots.libero` because the methods exposed
 here (``raw_obs`` / ``render_camera`` / ``cached_image`` / …)
 reference LIBERO-specific obs dict keys and camera names. The generic
 gym-style base lives in :mod:`rpent.rpc_driver.env_client`.

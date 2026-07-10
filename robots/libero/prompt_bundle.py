@@ -5,7 +5,7 @@ from pathlib import Path
 
 from rpent.context.prompt_utils import PromptNode
 from rpent.context.prompts import prompt as base_prompt
-from rpent.envs.libero import prompts as libero_prompt
+from robots.libero import prompts as libero_prompt
 
 
 def system_prompt() -> PromptNode:

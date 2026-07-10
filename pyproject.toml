@@ -56,9 +56,6 @@ prerelease = "allow"
 [tool.setuptools]
 include-package-data = true
 
-[tool.setuptools.package-data]
-"rpent.envs.libero" = ["guides/*.md", "prompts/*.md"]
-
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["rpent*"]

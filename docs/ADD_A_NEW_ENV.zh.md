@@ -1,7 +1,7 @@
 # 新增 environment 指南
 
 本指南说明如何把一个新的物理 / 仿真环境接入 RPent 的 LLM-in-the-loop
-runner。请把 `rpent/envs/libero/` 当作完整参考实例。
+runner。请把 `robots/libero/` 当作完整参考实例。
 
 RPent 把一个 env 拆成两个进程:
 

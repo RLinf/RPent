@@ -22,9 +22,9 @@ CURRENT MCP RUNTIME ADAPTER:
 
 GUIDE_READ_INSTRUCTIONS = """
 GUIDE SOURCE FILES TO READ:
-- rpent/envs/libero/guides/strict_hybrid_guide.md
-- rpent/envs/libero/guides/pro_hybrid_guide.md
-- rpent/envs/libero/guides/env_calibration.md
+- robots/libero/guides/strict_hybrid_guide.md
+- robots/libero/guides/pro_hybrid_guide.md
+- robots/libero/guides/env_calibration.md
 
 At the start of each run, read all three guide source files once with Claude
 Code's structured `Read` tool before issuing the first physical command. Treat

@@ -430,7 +430,7 @@ perception protocol). Write the audit with `write_text_file` to
 ## 6. Existing corpus
 
 ```
-rpent/envs/libero/guides/
+robots/libero/guides/
 ├── pro_hybrid_guide.md                 <- this file
 ├── strict_hybrid_guide.md              <- perception protocol + Rules (source of truth)
 └── env_calibration.md                  <- OSC frame bounds + safe altitudes

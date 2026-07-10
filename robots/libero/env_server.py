@@ -3,7 +3,7 @@
 Owns the RLinf/LIBERO bootstrap (path setup, env config builder) and
 exposes a pickle-framed RPC server over the
 :class:`~rpent.rpc_driver.socket.SocketRpcServer`. The agent
-process drives a :class:`~rpent.envs.libero.tools.LiberoPrimitives`
+process drives a :class:`~robots.libero.tools.LiberoPrimitives`
 locally and reaches in only for ``env.*`` method calls; the model side
 goes over HTTP to a separate ``robots/libero/vla_server.py`` process
 (see :class:`~rpent.rpc_driver.vla_client.VLAClient`).
@@ -115,7 +115,7 @@ def make_env(task_id: int, seed: int, suite_name: str = "libero_spatial",
 
 
 # ---------------------------------------------------------------------------
-# Facades implementing the envs.libero.tools protocols
+# Facades implementing the robots.libero.tools protocols
 # ---------------------------------------------------------------------------
 
 
@@ -134,7 +134,7 @@ def _to_numpy_tree(x):
 
 
 class LiberoEnvFacade:
-    """Implements :class:`rpent.envs.libero.libero_env_client.LiberoEnvClient`
+    """Implements :class:`robots.libero.libero_env_client.LiberoEnvClient`
     over :class:`rlinf.envs.libero.libero_env.LiberoEnv`.
 
     All return values are converted to CPU numpy so the agent process

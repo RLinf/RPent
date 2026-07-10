@@ -13,9 +13,9 @@ behavior.
 The active prompt path is:
 
 1. `cli/main.py` selects the environment spec and renders prompts.
-2. `rpent/envs/libero/prompt_bundle.py` assembles the LIBERO prompt sections.
-3. `rpent/envs/libero/prompts/system.py` defines the active LIBERO system prompt fragments.
-4. `rpent/envs/libero/prompts/shared.py` defines shared guide-loading and runtime-adapter constants.
+2. `robots/libero/prompt_bundle.py` assembles the LIBERO prompt sections.
+3. `robots/libero/prompts/system.py` defines the active LIBERO system prompt fragments.
+4. `robots/libero/prompts/shared.py` defines shared guide-loading and runtime-adapter constants.
 5. The rendered prompt is passed to the selected cerebrum backend.
 
 ## Files and Responsibilities
@@ -38,9 +38,9 @@ at the start of each run with the structured `Read` tool, before issuing the
 first physical command:
 
 ```text
-rpent/envs/libero/guides/strict_hybrid_guide.md
-rpent/envs/libero/guides/pro_hybrid_guide.md
-rpent/envs/libero/guides/env_calibration.md
+robots/libero/guides/strict_hybrid_guide.md
+robots/libero/guides/pro_hybrid_guide.md
+robots/libero/guides/env_calibration.md
 ```
 
 

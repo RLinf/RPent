@@ -5,7 +5,7 @@ from typing import Any
 
 from rpent.envs.prompt_bundle import PromptBundle
 from rpent.envs.env_spec import EnvSpec
-from rpent.envs.libero.prompt_bundle import (
+from robots.libero.prompt_bundle import (
     system_prompt,
     user_prompt,
 )
@@ -33,7 +33,7 @@ def get_toolkit(
     dashboard: Any = None,
 ):
     """Return the LIBERO toolkit (common tools + LIBERO primitives)."""
-    from rpent.envs.libero.toolkit import LiberoToolkit
+    from robots.libero.toolkit import LiberoToolkit
 
     return LiberoToolkit(
         primitives_kwargs=primitives_kwargs,
