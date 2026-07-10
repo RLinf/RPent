@@ -1,0 +1,1 @@
+- [For placing in the white plate at x≈0.25,y≈0.105, high vertical standoffs can be unreachable; move low/reachable over the plate and release around z≈-0.03.](plate_place_low_standoff.md)
