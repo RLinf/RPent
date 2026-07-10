@@ -25,7 +25,7 @@ from rpent.rpc_driver import (  # noqa: E402
     set_socket_endpoint,
 )
 from rpent.rpc_driver.vla_client import VLAClient  # noqa: E402
-from robots.libero.libero_env_client import LiberoEnvClient  # noqa: E402
+from robots.libero.env_client import LiberoEnvClient  # noqa: E402
 from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
 
 logger = get_logger("agent")

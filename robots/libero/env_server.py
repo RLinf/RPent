@@ -134,7 +134,7 @@ def _to_numpy_tree(x):
 
 
 class LiberoEnvFacade:
-    """Implements :class:`robots.libero.libero_env_client.LiberoEnvClient`
+    """Implements :class:`robots.libero.env_client.LiberoEnvClient`
     over :class:`rlinf.envs.libero.libero_env.LiberoEnv`.
 
     All return values are converted to CPU numpy so the agent process
