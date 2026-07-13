@@ -14,13 +14,13 @@ Triggers the env server's :meth:`auto_calibrate_scene_camera` routine, which:
 No human input, no markers. Start the env server first, then run::
 
     conda activate lerobot
-    python deployment/lerobot/auto_calibrate_scene_cam.py --port 53101
+    python robots/lerobot/auto_calibrate_scene_cam.py --port 53101
 
 WARNING: this moves the arm through many poses. Clear the workspace first.
 
 Offline math check (no hardware)::
 
-    python deployment/lerobot/auto_calibrate_scene_cam.py --self-test
+    python robots/lerobot/auto_calibrate_scene_cam.py --self-test
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from deployment.lerobot import geometry as geom  # noqa: E402
+from robots.lerobot import geometry as geom  # noqa: E402
 from rpent.rpc_driver.socket import SocketRpcClient  # noqa: E402
 
 

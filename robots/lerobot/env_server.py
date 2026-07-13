@@ -16,7 +16,7 @@ directly, reusing the device / action / observation recipe from RLinf's
 Run it inside the ``lerobot`` conda env::
 
     conda activate lerobot
-    python deployment/lerobot/env_server.py --output-dir /tmp/so101_run
+    python robots/lerobot/env_server.py --output-dir /tmp/so101_run
 
 Hardware defaults match the current bench setup: follower on ``/dev/ttyACM1``
 (calibration id ``my_awesome_follower_arm``), an OpenCV hand/arm camera on
@@ -48,10 +48,10 @@ if str(_PHYSICALAGENT_ROOT) not in sys.path:
 from rpent.rpc_driver.socket import SocketRpcServer  # noqa: E402
 from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
 
-from deployment.lerobot import calibration as scene_calib  # noqa: E402
-from deployment.lerobot import geometry as geom  # noqa: E402
-from deployment.lerobot.kinematics import SO101Kinematics  # noqa: E402
-from deployment.lerobot.scene_camera import SceneCameraD405  # noqa: E402
+from robots.lerobot import calibration as scene_calib  # noqa: E402
+from robots.lerobot import geometry as geom  # noqa: E402
+from robots.lerobot.kinematics import SO101Kinematics  # noqa: E402
+from robots.lerobot.scene_camera import SceneCameraD405  # noqa: E402
 
 logger = get_logger("lerobot_driver")
 
@@ -400,7 +400,7 @@ class SO101LeRobotEnv:
                     logger.warning(
                         "scene-cam extrinsic REJECTED: rmse=%.3fm > %.3fm limit; "
                         "back_project would be unreliable. Recalibrate with "
-                        "deployment/lerobot/auto_calibrate_scene_cam.py "
+                        "robots/lerobot/auto_calibrate_scene_cam.py "
                         "(or calibrate_scene_cam.py).",
                         rmse, scene_calib.MAX_ACCEPTABLE_RMSE_M,
                     )

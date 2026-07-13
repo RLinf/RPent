@@ -1,6 +1,6 @@
 """LeRobot SO101 env client that forwards calls over a driver RPC client.
 
-Mirrors the RPC surface exposed by ``deployment/lerobot/env_server.py``
+Mirrors the RPC surface exposed by ``robots/lerobot/env_server.py``
 (:class:`SO101LeRobotEnv`): a minimal gym-style ``reset`` / ``step`` plus a
 ``get_spec`` self-description. Each method turns one agent-side call into one
 RPC against the driver process via :class:`RpcClient`.

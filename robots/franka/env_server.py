@@ -18,10 +18,10 @@ controller channel names, the ``roslaunch`` bring-up, the ``franka_gripper``
 action messages, and the safety-box + pose-interpolation logic.
 
 Run it inside the RLinf ``.venv`` with the ``serl_franka_controllers`` catkin
-workspace sourced (see ``deployment/franka/run_env_server.sh``)::
+workspace sourced (see ``robots/franka/run_env_server.sh``)::
 
     source /home/franka/franka/RLinf/.venv/franka_catkin_ws/devel/setup.bash
-    /home/franka/franka/RLinf/.venv/bin/python deployment/franka/env_server.py \
+    /home/franka/franka/RLinf/.venv/bin/python robots/franka/env_server.py \
         --output-dir /tmp/franka_run --robot-ip 172.16.0.2
 
 Hardware defaults match the current bench: an FR3 at ``172.16.0.2`` with the
@@ -52,7 +52,7 @@ if str(_PHYSICALAGENT_ROOT) not in sys.path:
 from rpent.rpc_driver.socket import SocketRpcServer  # noqa: E402
 from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
 
-from deployment.franka import calibration as camera_calib  # noqa: E402
+from robots.franka import calibration as camera_calib  # noqa: E402
 
 logger = get_logger("franka_driver")
 

@@ -42,7 +42,7 @@ def get_env_spec() -> EnvSpec:
 def _build_driver_command(context: EnvDriverContext) -> list[str]:
     return [
         sys.executable,
-        str(get_repo_root() / "deployment" / "lerobot" / "env_server.py"),
+        str(get_repo_root() / "robots" / "lerobot" / "env_server.py"),
         "--output-dir",
         str(context.output_dir),
         "--max-episode-steps",

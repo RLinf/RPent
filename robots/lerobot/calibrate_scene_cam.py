@@ -4,7 +4,7 @@
 Computes the fixed extrinsic ``T_base_cam`` that maps scene-camera points into
 the SO101 ``base_link`` world frame, using only the arm's own FK + the scene
 camera's aligned depth (no marker / no extra hardware). The result is saved via
-:mod:`deployment.lerobot.calibration` and auto-loaded by the env server, after
+:mod:`robots.lerobot.calibration` and auto-loaded by the env server, after
 which ``back_project`` returns world coordinates.
 
 Procedure (per correspondence):
@@ -42,8 +42,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from deployment.lerobot import calibration as scene_calib  # noqa: E402
-from deployment.lerobot import geometry as geom  # noqa: E402
+from robots.lerobot import calibration as scene_calib  # noqa: E402
+from robots.lerobot import geometry as geom  # noqa: E402
 from rpent.rpc_driver.socket import SocketRpcClient  # noqa: E402
 
 
