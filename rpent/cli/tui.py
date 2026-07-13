@@ -21,10 +21,11 @@ START_TOKENS = frozenset({"/start"})
 HELP_TOKENS = frozenset({"/help", "/h", "help", "?"})
 _HELP_TEXT = """Interactive commands:
     /help, /h, help, ? Show this help.
-    /start             Run the built-in default task prompt.
+    /start             Restore the built-in default task prompt.
     /quit, /exit, /q   End interactive mode.
 
-At the first prompt, type a task to run it (or type '/start' to use the default one).
+At the first prompt, the built-in task is pre-filled — edit it and press Enter,
+submit it as-is, or clear it to type your own task ('/start' restores the default).
 While the agent runs, type to steer it at the next turn.
 """
 
@@ -81,6 +82,8 @@ def build_interactive_key_bindings():
 
 def start_interactive_reader(
     input_queue: "queue.Queue[str | None]",
+    *,
+    first_prompt_default: str | None = None,
 ) -> threading.Thread:
     """Start a prompt-toolkit input UI and forward submitted lines."""
     if not sys.stdin.isatty():
@@ -104,6 +107,7 @@ def start_interactive_reader(
             key_bindings=build_interactive_key_bindings(),
             style=styles.Style.from_dict({"prompt": "ansicyan bold"}),
         )
+        pending_default = first_prompt_default
         try:
             with patch_stdout_module.patch_stdout(raw=True):
                 with _route_console_logs_to_current_stdout():
@@ -111,6 +115,7 @@ def start_interactive_reader(
                         try:
                             line = session.prompt(
                                 [("class:prompt", "you> ")],
+                                default=pending_default or "",
                                 handle_sigint=False,
                             )
                         except (EOFError, KeyboardInterrupt):
@@ -118,6 +123,7 @@ def start_interactive_reader(
                         if handle_local_command(line):
                             continue
                         input_queue.put(line)
+                        pending_default = None
                         if line.strip().lower() in QUIT_TOKENS:
                             break
         finally:

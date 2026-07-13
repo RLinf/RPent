@@ -469,12 +469,14 @@ def main() -> int:
     await_first_prompt: "Callable[[], str | None] | None" = None
     if args.interactive:
         input_queue = queue.Queue()
-        start_interactive_reader(input_queue)
+        # Pre-fill the first prompt with the rendered default task (editable
+        # preset);
+        start_interactive_reader(input_queue, first_prompt_default=user_msg)
         logger.info(
-            "interactive mode on: type your opening task now (or /start for the "
-            "built-in prompt) — you can type while the env/VLA servers start. "
-            "Once running, type to steer the agent at the next turn. /help for "
-            "commands, /quit or Ctrl-D to end."
+            "interactive mode on: the built-in task is pre-filled — "
+            "edit it and press Enter, submit it as-is, or clear it to "
+            "type your own (/start restores the default). Once running, type to steer the agent at the "
+            "next turn. /help for commands, /quit or Ctrl-D to end."
         )
         # Resolve the opening prompt on a background thread so the user can type
         # it while the (slow) env/VLA servers boot below.
