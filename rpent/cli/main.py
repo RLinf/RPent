@@ -342,8 +342,7 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="Enable DEBUG-level logging for stdout and the run.log "
                          "file. Defaults to INFO when not set.")
     ap.add_argument("--interactive", "-i", action="store_true",
-                    help="Interactive mode: opens an interactive cli session. "
-                         "Messages are delivered at the next turn boundary.")
+                    help="Interactive mode: opens an interactive cli session.")
 
     # environments
     ap.add_argument("--env", dest="env_name", default="libero",
@@ -532,8 +531,9 @@ def main() -> int:
         input_queue = queue.Queue()
         start_interactive_reader(input_queue)
         logger.info(
-            "interactive mode on: type next to the `you>` prompt to steer the agent "
-            "(delivered at the next turn); /quit or Ctrl-D to end."
+            "interactive mode on: type a task to start "
+            "(or /start for the built-in prompt); once running, type to steer "
+            "the agent at the next turn. /help for commands, /quit or Ctrl-D to end."
         )
     try:
         result = cerebrum.solve(

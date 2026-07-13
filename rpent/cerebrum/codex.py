@@ -23,6 +23,7 @@ import openai_codex
 
 from rpent.cerebrum.base import (
     CerebrumResult,
+    initial_user_message,
     next_user_line,
     strip_mcp_prefix,
 )
@@ -73,7 +74,15 @@ class CodexCerebrum:
         input_queue=None,
     ) -> CerebrumResult:
         """Run one or more Codex SDK turns for the given prompt."""
-        prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
+        if input_queue is not None:
+            first_message = initial_user_message(input_queue, user_message)
+            if first_message is None:
+                return CerebrumResult()
+        else:
+            first_message = user_message
+        prompt = (
+            f"{system_prompt}\n\n{first_message}" if system_prompt else first_message
+        )
         if self._output_path is None:
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".out", prefix="codex_sdk_task_", delete=False

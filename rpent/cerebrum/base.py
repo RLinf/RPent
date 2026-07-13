@@ -33,6 +33,9 @@ def strip_mcp_prefix(name: str) -> str:
 #: Interactive-mode lines that end the session (case-insensitive).
 _QUIT_TOKENS = frozenset({"/quit", "/exit", "/q"})
 
+#: Interactive-mode lines that inject the built-in default task prompt.
+_START_TOKENS = frozenset({"/start"})
+
 
 def next_user_line(input_queue: "queue.Queue[str | None]") -> str | None:
     """Block for the next actionable user line from an interactive input queue.
@@ -49,6 +52,25 @@ def next_user_line(input_queue: "queue.Queue[str | None]") -> str | None:
         line = line.strip()
         if line.lower() in _QUIT_TOKENS:
             return None
+        if line:
+            return line
+
+
+def initial_user_message(
+    input_queue: "queue.Queue[str | None]", default_message: str
+) -> str | None:
+    """Block for the first user turn of an interactive session.
+    This is a blocking call; async callers should wrap it with :func:`asyncio.to_thread`.
+    """
+    while True:
+        line = input_queue.get()
+        if line is None:
+            return None
+        line = line.strip()
+        if line.lower() in _QUIT_TOKENS:
+            return None
+        if line.lower() in _START_TOKENS:
+            return default_message
         if line:
             return line
 
@@ -105,10 +127,7 @@ class Cerebrum(Protocol):
                 ``toolkit.execute_tool()``.
             max_turns: Maximum LLM turns before giving up.
             input_queue: Optional queue of user-typed lines enabling interactive
-                mode. Lines pulled while a run is in flight are injected at the
-                next turn boundary; when a run ends without ``finish`` the loop
-                blocks on the queue for the next message. A ``None`` item ends
-                the session. Backends that don't support interaction ignore it.
+                mode.
 
         Returns:
             ``CerebrumResult`` with finish status, conversation transcript,

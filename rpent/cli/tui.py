@@ -16,7 +16,11 @@ _QUIT_TOKENS = frozenset({"/quit", "/exit", "/q"})
 _HELP_TOKENS = frozenset({"/help", "/h", "help", "?"})
 _HELP_TEXT = """Interactive commands:
     /help, /h, help, ? Show this help.
+    /start             Run the built-in default task prompt.
     /quit, /exit, /q   End interactive mode.
+
+At the first prompt, type a task to run it (or type '/start' to use the default one).
+While the agent runs, type to steer it at the next turn.
 """
 
 
