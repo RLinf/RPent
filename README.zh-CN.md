@@ -144,6 +144,15 @@ python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
   --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
+### 交互模式
+
+加上 `--interactive`（`-i`）即可在终端里实时引导智能体。在 `you>` 提示符处，输入你自己的初始任务——或输入 `/start` 使用内置任务提示；智能体运行时，随时输入消息即可在下一轮引导它（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要交互式终端（TTY）。
+
+```bash
+python rpent/cli/main.py --interactive --suite libero_object_swap --task 2 --seed 0 \
+  --cerebrum claude_code
+```
+
 ### 实时 Dashboard
 
 加上 `--dashboard` 即可为本次运行打开一个浏览器监控页。它会先展示一个启动屏让你选择配置，然后实时推送推理流、实时画面与动作时间线。用 `--dashboard-language zh-cn` 切换到中文界面。

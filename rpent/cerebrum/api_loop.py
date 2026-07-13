@@ -32,6 +32,7 @@ from pydantic_ai.models import Model
 from pydantic_ai.usage import RunUsage, UsageLimits
 
 from rpent.cerebrum.base import CerebrumResult, initial_user_message
+from rpent.cli.tui import QUIT_TOKENS
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
 
@@ -48,9 +49,6 @@ _MAX_HISTORY_IMAGE_BYTES = 4 * 1024 * 1024
 #: Always retain at least this many of the most recent images, even if a single
 #: frame exceeds the byte budget, so the model never loses its current view.
 _MIN_RECENT_IMAGES = 2
-
-#: Interactive-mode lines that end the session (case-insensitive).
-_QUIT_TOKENS = frozenset({"/quit", "/exit", "/q"})
 
 
 class ApiAgentLoop:
@@ -131,7 +129,7 @@ class ApiAgentLoop:
                 if line is None:
                     return True
                 line = line.strip()
-                if line.lower() in _QUIT_TOKENS:
+                if line.lower() in QUIT_TOKENS:
                     return True
                 if not line:
                     continue
@@ -147,7 +145,7 @@ class ApiAgentLoop:
                 if line is None:
                     return None
                 line = line.strip()
-                if line.lower() in _QUIT_TOKENS:
+                if line.lower() in QUIT_TOKENS:
                     return None
                 if line:
                     logger.info("[user] %s", _clip(line, _ARGS_LOG_LIMIT))

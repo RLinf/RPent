@@ -51,7 +51,7 @@ from rpent.utils.rpc import (  # noqa: E402
 )
 from rpent.utils.vla_client import VLAClient  # noqa: E402
 from robots.libero.env_client import LiberoEnvClient  # noqa: E402
-from cli.tui import start_interactive_reader  # noqa: E402
+from rpent.cli.tui import start_interactive_reader  # noqa: E402
 from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
 
 logger = get_logger("agent")

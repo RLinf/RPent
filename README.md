@@ -135,6 +135,15 @@ python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
   --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
+### Interactive CLI mode
+
+Add `--interactive` (`-i`) to steer the agent live from your terminal. At the `you>` prompt, type your own opening task — or `/start` to use the built-in one — then type any message while it runs to steer the agent at the next turn (`/help` lists commands; `/quit` or Ctrl-D ends). Requires an interactive terminal (TTY).
+
+```bash
+python rpent/cli/main.py --interactive --suite libero_object_swap --task 2 --seed 0 \
+  --cerebrum claude_code
+```
+
 ### Live Dashboard
 
 Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard-language zh-cn` for the Chinese UI.

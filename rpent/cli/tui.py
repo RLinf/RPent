@@ -12,8 +12,12 @@ from rpent.utils.logging import get_logger
 
 logger = get_logger("agent.tui")
 
-_QUIT_TOKENS = frozenset({"/quit", "/exit", "/q"})
-_HELP_TOKENS = frozenset({"/help", "/h", "help", "?"})
+#: Interactive-mode command tokens (case-insensitive). This module is the single
+#: source of truth; the cerebrum queue helpers import ``QUIT_TOKENS`` and
+#: ``START_TOKENS`` from here.
+QUIT_TOKENS = frozenset({"/quit", "/exit", "/q"})
+START_TOKENS = frozenset({"/start"})
+HELP_TOKENS = frozenset({"/help", "/h", "help", "?"})
 _HELP_TEXT = """Interactive commands:
     /help, /h, help, ? Show this help.
     /start             Run the built-in default task prompt.
@@ -26,7 +30,7 @@ While the agent runs, type to steer it at the next turn.
 
 def handle_local_command(line: str) -> bool:
     """Handle TUI-local commands; return True when the line was consumed."""
-    if line.strip().lower() not in _HELP_TOKENS:
+    if line.strip().lower() not in HELP_TOKENS:
         return False
     print(_HELP_TEXT, end="")
     return True
@@ -113,7 +117,7 @@ def start_interactive_reader(
                         if handle_local_command(line):
                             continue
                         input_queue.put(line)
-                        if line.strip().lower() in _QUIT_TOKENS:
+                        if line.strip().lower() in QUIT_TOKENS:
                             break
         finally:
             input_queue.put(None)

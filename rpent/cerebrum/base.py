@@ -7,6 +7,7 @@ import queue
 from pathlib import Path
 from typing import Protocol
 
+from rpent.cli.tui import QUIT_TOKENS, START_TOKENS
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import (
     get_memory_dir,
@@ -30,13 +31,6 @@ def strip_mcp_prefix(name: str) -> str:
     return name.removeprefix(MCP_TOOL_PREFIX)
 
 
-#: Interactive-mode lines that end the session (case-insensitive).
-_QUIT_TOKENS = frozenset({"/quit", "/exit", "/q"})
-
-#: Interactive-mode lines that inject the built-in default task prompt.
-_START_TOKENS = frozenset({"/start"})
-
-
 def next_user_line(input_queue: "queue.Queue[str | None]") -> str | None:
     """Block for the next actionable user line from an interactive input queue.
 
@@ -50,7 +44,7 @@ def next_user_line(input_queue: "queue.Queue[str | None]") -> str | None:
         if line is None:
             return None
         line = line.strip()
-        if line.lower() in _QUIT_TOKENS:
+        if line.lower() in QUIT_TOKENS:
             return None
         if line:
             return line
@@ -67,9 +61,9 @@ def initial_user_message(
         if line is None:
             return None
         line = line.strip()
-        if line.lower() in _QUIT_TOKENS:
+        if line.lower() in QUIT_TOKENS:
             return None
-        if line.lower() in _START_TOKENS:
+        if line.lower() in START_TOKENS:
             return default_message
         if line:
             return line
