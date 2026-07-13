@@ -13,11 +13,11 @@ Typical workflow:
 3. Move the wrist camera so the board is visible in the wrist image.
 4. Check detection:
 
-       python deployment/franka/calibrate_charuco_wrist.py --port 5599 check
+       python robots/franka/calibrate_charuco_wrist.py --port 5599 check
 
 5. Calibrate with a small automatic orbit around the current pose:
 
-       python deployment/franka/calibrate_charuco_wrist.py --port 5599 calibrate --yes
+       python robots/franka/calibrate_charuco_wrist.py --port 5599 calibrate --yes
 
 The scene camera is different: a ChArUco board gives ``T_scene_cam_board`` but
 not ``T_base_scene_cam`` unless the board pose in ``panda_link0`` is known. Use
@@ -41,8 +41,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from deployment.franka import calibration as franka_calib  # noqa: E402
-from deployment.lerobot import geometry as geom  # noqa: E402
+from robots.franka import calibration as franka_calib  # noqa: E402
+from robots.lerobot import geometry as geom  # noqa: E402
 from rpent.rpc_driver.socket import SocketRpcClient  # noqa: E402
 
 _DEFAULT_BOARD_SPEC = (

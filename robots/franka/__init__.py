@@ -27,7 +27,7 @@ def get_env_spec() -> EnvSpec:
 def _build_driver_command(context: EnvDriverContext) -> list[str]:
     return [
         "bash",
-        str(get_repo_root() / "deployment" / "franka" / "run_env_server.sh"),
+        str(get_repo_root() / "robots" / "franka" / "run_env_server.sh"),
         "--output-dir",
         str(context.output_dir),
     ]

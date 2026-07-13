@@ -15,8 +15,8 @@ pose first.
 Run with the env server STOPPED (it needs exclusive access to the motor bus)::
 
     conda activate lerobot
-    python deployment/lerobot/diagnose_motors.py                 # health only, no motion
-    python deployment/lerobot/diagnose_motors.py --tracking-test # also nudges each joint
+    python robots/lerobot/diagnose_motors.py                 # health only, no motion
+    python robots/lerobot/diagnose_motors.py --tracking-test # also nudges each joint
 """
 from __future__ import annotations
 

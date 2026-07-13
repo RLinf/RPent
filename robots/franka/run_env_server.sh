@@ -5,7 +5,7 @@
 # The agent (physical/.venv) connects to this over TCP. Two ways to use it:
 #
 #   1. Fixed port, then run the agent with --no-driver:
-#        bash deployment/franka/run_env_server.sh --transport-port 5599
+#        bash robots/franka/run_env_server.sh --transport-port 5599
 #        # in the physical/.venv:
 #        python -m cli.main --env franka --no-driver --env-port 5599 ...
 #

@@ -425,7 +425,7 @@ def back_project(
         out["xy_spread_m"] = round(float(np.hypot(*pts_cam[:, :2].std(axis=0))), 4)
         out["note"] = (
             "scene camera not calibrated (no T_base_cam); returning camera-frame "
-            "xyz only. Run deployment/lerobot/calibrate_scene_cam.py."
+            "xyz only. Run robots/lerobot/calibrate_scene_cam.py."
         )
     return out
 

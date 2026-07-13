@@ -23,11 +23,11 @@ wrist calibration from one moving camera alone.
 
 Run the env server first, then run in the physicalagent env::
 
-    python deployment/franka/auto_calibrate_cameras.py --port 5599 --yes
+    python robots/franka/auto_calibrate_cameras.py --port 5599 --yes
 
 Offline math check::
 
-    python deployment/franka/auto_calibrate_cameras.py --self-test
+    python robots/franka/auto_calibrate_cameras.py --self-test
 """
 from __future__ import annotations
 
@@ -45,8 +45,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from deployment.franka import calibration as franka_calib  # noqa: E402
-from deployment.lerobot import geometry as geom  # noqa: E402
+from robots.franka import calibration as franka_calib  # noqa: E402
+from robots.lerobot import geometry as geom  # noqa: E402
 from rpent.rpc_driver.socket import SocketRpcClient  # noqa: E402
 
 _DEFAULT_GRID_X = (0.46, 0.54, 0.60)
