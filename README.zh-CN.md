@@ -146,7 +146,7 @@ python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
 
 ### 交互模式
 
-加上 `--interactive`（`-i`）即可在终端里实时引导智能体。在 `you>` 提示符处，输入你自己的初始任务——或输入 `/start` 使用内置任务提示；智能体运行时，随时输入消息即可在下一轮引导它（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要交互式终端（TTY）。
+加上 `--interactive`（`-i`）即可在终端里实时引导智能体。在 `you>` 提示符处，输入你自己的初始任务——或输入 `/default` 使用内置任务提示；智能体运行时，随时输入消息即可在下一轮引导它（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要交互式终端（TTY）。
 
 ```bash
 python rpent/cli/main.py --interactive --suite libero_object_swap --task 2 --seed 0 \

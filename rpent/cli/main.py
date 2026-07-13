@@ -475,8 +475,8 @@ def main() -> int:
         logger.info(
             "interactive mode on: the built-in task is pre-filled — "
             "edit it and press Enter, submit it as-is, or clear it to "
-            "type your own (/start restores the default). Once running, type to steer the agent at the "
-            "next turn. /help for commands, /quit or Ctrl-D to end."
+            "type your own (/default starts the default task). Once running, type to steer the agent. "
+            "/help for commands."
         )
         # Resolve the opening prompt on a background thread so the user can type
         # it while the (slow) env/VLA servers boot below.

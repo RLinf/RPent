@@ -14,18 +14,17 @@ from rpent.utils.logging import get_logger
 logger = get_logger("agent.tui")
 
 #: Interactive-mode command tokens (case-insensitive). This module is the single
-#: source of truth; the cerebrum queue helpers import ``QUIT_TOKENS`` and
-#: ``START_TOKENS`` from here.
+#: source of truth; ``api_loop`` imports ``QUIT_TOKENS`` for its steering checks.
 QUIT_TOKENS = frozenset({"/quit", "/exit", "/q"})
-START_TOKENS = frozenset({"/start"})
+DEFAULT_TOKENS = frozenset({"/default"})
 HELP_TOKENS = frozenset({"/help", "/h", "help", "?"})
 _HELP_TEXT = """Interactive commands:
     /help, /h, help, ? Show this help.
-    /start             Restore the built-in default task prompt.
+    /default           Restore the built-in default task prompt.
     /quit, /exit, /q   End interactive mode.
 
 At the first prompt, the built-in task is pre-filled — edit it and press Enter,
-submit it as-is, or clear it to type your own task ('/start' restores the default).
+submit it as-is, or clear it to type your own task ('/default' starts the default task).
 While the agent runs, type to steer it at the next turn.
 """
 
@@ -57,7 +56,7 @@ def _route_console_logs_to_current_stdout():
 
 
 def build_interactive_key_bindings():
-    """Return extra key bindings for common Option/Alt-arrow sequences."""
+    """Return line-editing key bindings for the interactive prompt."""
     key_binding = importlib.import_module("prompt_toolkit.key_binding")
     named_commands = importlib.import_module(
         "prompt_toolkit.key_binding.bindings.named_commands"
@@ -66,16 +65,37 @@ def build_interactive_key_bindings():
     bindings = key_binding.KeyBindings()
     backward_word = named_commands.get_by_name("backward-word")
     forward_word = named_commands.get_by_name("forward-word")
+    beginning_of_line = named_commands.get_by_name("beginning-of-line")
+    end_of_line = named_commands.get_by_name("end-of-line")
+    backward_kill_word = named_commands.get_by_name("backward-kill-word")
 
+    # Move one word left: Option/Alt+Left, Ctrl+Left, or Alt+b.
     @bindings.add("escape", "left", eager=True)
+    @bindings.add("c-left", eager=True)
     @bindings.add("escape", "b", eager=True)
-    def _move_word_left(event):
+    def _word_left(event):
         backward_word(event)
 
+    # Move one word right: Option/Alt+Right, Ctrl+Right, or Alt+f.
     @bindings.add("escape", "right", eager=True)
+    @bindings.add("c-right", eager=True)
     @bindings.add("escape", "f", eager=True)
-    def _move_word_right(event):
+    def _word_right(event):
         forward_word(event)
+
+    # Jump to line start / end: Home / End.
+    @bindings.add("home", eager=True)
+    def _line_start(event):
+        beginning_of_line(event)
+
+    @bindings.add("end", eager=True)
+    def _line_end(event):
+        end_of_line(event)
+
+    # Delete the previous word: Option/Alt+Backspace.
+    @bindings.add("escape", "backspace", eager=True)
+    def _delete_word_left(event):
+        backward_kill_word(event)
 
     return bindings
 
@@ -158,10 +178,11 @@ def initial_user_message(
 ) -> str | None:
     """Block for the first user turn of an interactive session.
 
-    Returns ``default_message`` when the user submits a start token (``/start``),
-    the typed text for any other non-empty line (a custom opening prompt), or
-    ``None`` when the session should end before it begins (a ``/quit`` token or a
-    ``None`` sentinel). Empty lines are skipped. Blocking call.
+    Returns ``default_message`` when the user submits a default token
+    (``/default``), the typed text for any other non-empty line (a custom
+    opening prompt), or ``None`` when the session should end before it begins (a
+    ``/quit`` token or a ``None`` sentinel). Empty lines are skipped. Blocking
+    call.
     """
     while True:
         line = input_queue.get()
@@ -170,7 +191,7 @@ def initial_user_message(
         line = line.strip()
         if line.lower() in QUIT_TOKENS:
             return None
-        if line.lower() in START_TOKENS:
+        if line.lower() in DEFAULT_TOKENS:
             return default_message
         if line:
             return line
@@ -182,8 +203,8 @@ def start_first_prompt_resolver(
     """Resolve the opening user turn on a background thread.
 
     Returns a callable that blocks until the first turn is available and returns
-    it (``default_message`` on ``/start``, the typed text for a custom prompt, or
-    ``None`` if the user quit before starting). Resolving off-thread lets the
+    it (``default_message`` on ``/default``, the typed text for a custom prompt,
+    or ``None`` if the user quit before starting). Resolving off-thread lets the
     caller boot slow resources (e.g. env/VLA servers) while the user is typing.
     """
     holder: dict[str, str | None] = {}
