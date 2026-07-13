@@ -7,7 +7,6 @@ import queue
 from pathlib import Path
 from typing import Protocol
 
-from rpent.cli.tui import QUIT_TOKENS, START_TOKENS
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import (
     get_memory_dir,
@@ -29,44 +28,6 @@ def add_mcp_prefix(name: str) -> str:
 def strip_mcp_prefix(name: str) -> str:
     """Return the bare tool name, dropping the MCP namespace if present."""
     return name.removeprefix(MCP_TOOL_PREFIX)
-
-
-def next_user_line(input_queue: "queue.Queue[str | None]") -> str | None:
-    """Block for the next actionable user line from an interactive input queue.
-
-    Returns the trimmed line, or ``None`` when the session should end (the queue
-    yielded ``None`` or a quit token such as ``/quit``). Empty lines are skipped.
-    This is a blocking call; async callers should wrap it with
-    :func:`asyncio.to_thread`.
-    """
-    while True:
-        line = input_queue.get()
-        if line is None:
-            return None
-        line = line.strip()
-        if line.lower() in QUIT_TOKENS:
-            return None
-        if line:
-            return line
-
-
-def initial_user_message(
-    input_queue: "queue.Queue[str | None]", default_message: str
-) -> str | None:
-    """Block for the first user turn of an interactive session.
-    This is a blocking call; async callers should wrap it with :func:`asyncio.to_thread`.
-    """
-    while True:
-        line = input_queue.get()
-        if line is None:
-            return None
-        line = line.strip()
-        if line.lower() in QUIT_TOKENS:
-            return None
-        if line.lower() in START_TOKENS:
-            return default_message
-        if line:
-            return line
 
 
 class CerebrumResult:
@@ -120,8 +81,7 @@ class Cerebrum(Protocol):
                 ``toolkit.get_tools_spec()`` and dispatch calls via
                 ``toolkit.execute_tool()``.
             max_turns: Maximum LLM turns before giving up.
-            input_queue: Optional queue of user-typed lines enabling interactive
-                mode.
+            input_queue: Optional queue of user-typed lines for interactive steering.
 
         Returns:
             ``CerebrumResult`` with finish status, conversation transcript,

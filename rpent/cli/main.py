@@ -35,6 +35,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -51,7 +52,10 @@ from rpent.utils.rpc import (  # noqa: E402
 )
 from rpent.utils.vla_client import VLAClient  # noqa: E402
 from robots.libero.env_client import LiberoEnvClient  # noqa: E402
-from rpent.cli.tui import start_interactive_reader  # noqa: E402
+from rpent.cli.tui import (  # noqa: E402
+    start_first_prompt_resolver,
+    start_interactive_reader,
+)
 from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
 
 logger = get_logger("agent")
@@ -461,6 +465,21 @@ def main() -> int:
         variables=prompt_vars,
     )
 
+    input_queue: "queue.Queue[str | None] | None" = None
+    await_first_prompt: "Callable[[], str | None] | None" = None
+    if args.interactive:
+        input_queue = queue.Queue()
+        start_interactive_reader(input_queue)
+        logger.info(
+            "interactive mode on: type your opening task now (or /start for the "
+            "built-in prompt) — you can type while the env/VLA servers start. "
+            "Once running, type to steer the agent at the next turn. /help for "
+            "commands, /quit or Ctrl-D to end."
+        )
+        # Resolve the opening prompt on a background thread so the user can type
+        # it while the (slow) env/VLA servers boot below.
+        await_first_prompt = start_first_prompt_resolver(input_queue, user_msg)
+
     env_proc = None
     vla_proc = None
     vla_endpoint = args.vla_endpoint
@@ -526,27 +545,25 @@ def main() -> int:
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None
     stats: dict = {}
-    input_queue: "queue.Queue[str | None] | None" = None
-    if args.interactive:
-        input_queue = queue.Queue()
-        start_interactive_reader(input_queue)
-        logger.info(
-            "interactive mode on: type a task to start "
-            "(or /start for the built-in prompt); once running, type to steer "
-            "the agent at the next turn. /help for commands, /quit or Ctrl-D to end."
-        )
+    first_user_msg: str | None = user_msg
+    if await_first_prompt is not None:
+        # Block until the opening prompt typed during startup is ready.
+        first_user_msg = await_first_prompt()
+        if first_user_msg is None:
+            logger.info("no task entered; ending session before start.")
     try:
-        result = cerebrum.solve(
-            system_prompt=system_prompt,
-            user_message=user_msg,
-            toolkit=toolkit,
-            max_turns=args.max_turns,
-            input_queue=input_queue,
-        )
-        finish_result = result.finish_result
-        messages = result.messages
-        stats = result.stats
-        agent_error = result.error
+        if first_user_msg is not None:
+            result = cerebrum.solve(
+                system_prompt=system_prompt,
+                user_message=first_user_msg,
+                toolkit=toolkit,
+                max_turns=args.max_turns,
+                input_queue=input_queue,
+            )
+            finish_result = result.finish_result
+            messages = result.messages
+            stats = result.stats
+            agent_error = result.error
     except Exception as e:
         logger.error("EXCEPTION in agent loop: %s", e)
     finally:

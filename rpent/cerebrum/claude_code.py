@@ -21,10 +21,9 @@ from typing import Any
 from rpent.cerebrum.base import (
     CerebrumResult,
     add_mcp_prefix,
-    initial_user_message,
-    next_user_line,
     strip_mcp_prefix,
 )
+from rpent.cli.tui import next_user_line
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
@@ -73,15 +72,7 @@ class ClaudeCodeCerebrum:
         input_queue=None,
     ) -> CerebrumResult:
         """Run a Claude Agent SDK session for the given prompt."""
-        if input_queue is not None:
-            first_message = initial_user_message(input_queue, user_message)
-            if first_message is None:
-                return CerebrumResult()
-        else:
-            first_message = user_message
-        prompt = (
-            f"{system_prompt}\n\n{first_message}" if system_prompt else first_message
-        )
+        prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         return asyncio.run(
             self._solve_async(
                 prompt,

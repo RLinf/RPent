@@ -31,7 +31,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model
 from pydantic_ai.usage import RunUsage, UsageLimits
 
-from rpent.cerebrum.base import CerebrumResult, initial_user_message
+from rpent.cerebrum.base import CerebrumResult
 from rpent.cli.tui import QUIT_TOKENS
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
@@ -69,16 +69,10 @@ class ApiAgentLoop:
         input_queue: queue.Queue[str | None] | None = None,
     ) -> CerebrumResult:
         """Run the tool-calling loop until finish, normal stop, or budget."""
-        if input_queue is not None:
-            first_message = initial_user_message(input_queue, user_message)
-            if first_message is None:
-                return CerebrumResult()
-        else:
-            first_message = user_message
         return asyncio.run(
             self._solve(
                 system_prompt=system_prompt,
-                user_message=first_message,
+                user_message=user_message,
                 toolkit=toolkit,
                 max_turns=max_turns,
                 input_queue=input_queue,

@@ -7,6 +7,7 @@ import logging
 import queue
 import sys
 import threading
+from collections.abc import Callable
 
 from rpent.utils.logging import get_logger
 
@@ -125,3 +126,70 @@ def start_interactive_reader(
     thread = threading.Thread(target=_read, name="interactive-input", daemon=True)
     thread.start()
     return thread
+
+
+def next_user_line(input_queue: "queue.Queue[str | None]") -> str | None:
+    """Block for the next actionable user line from an interactive input queue.
+
+    Returns the trimmed line, or ``None`` when the session should end (the queue
+    yielded ``None`` or a quit token such as ``/quit``). Empty lines are skipped.
+    This is a blocking call; async callers should wrap it with
+    :func:`asyncio.to_thread`.
+    """
+    while True:
+        line = input_queue.get()
+        if line is None:
+            return None
+        line = line.strip()
+        if line.lower() in QUIT_TOKENS:
+            return None
+        if line:
+            return line
+
+
+def initial_user_message(
+    input_queue: "queue.Queue[str | None]", default_message: str
+) -> str | None:
+    """Block for the first user turn of an interactive session.
+
+    Returns ``default_message`` when the user submits a start token (``/start``),
+    the typed text for any other non-empty line (a custom opening prompt), or
+    ``None`` when the session should end before it begins (a ``/quit`` token or a
+    ``None`` sentinel). Empty lines are skipped. Blocking call.
+    """
+    while True:
+        line = input_queue.get()
+        if line is None:
+            return None
+        line = line.strip()
+        if line.lower() in QUIT_TOKENS:
+            return None
+        if line.lower() in START_TOKENS:
+            return default_message
+        if line:
+            return line
+
+
+def start_first_prompt_resolver(
+    input_queue: "queue.Queue[str | None]", default_message: str
+) -> Callable[[], str | None]:
+    """Resolve the opening user turn on a background thread.
+
+    Returns a callable that blocks until the first turn is available and returns
+    it (``default_message`` on ``/start``, the typed text for a custom prompt, or
+    ``None`` if the user quit before starting). Resolving off-thread lets the
+    caller boot slow resources (e.g. env/VLA servers) while the user is typing.
+    """
+    holder: dict[str, str | None] = {}
+
+    def _resolve() -> None:
+        holder["message"] = initial_user_message(input_queue, default_message)
+
+    thread = threading.Thread(target=_resolve, name="first-prompt", daemon=True)
+    thread.start()
+
+    def _await() -> str | None:
+        thread.join()
+        return holder.get("message")
+
+    return _await
