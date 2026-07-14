@@ -27,7 +27,7 @@ RPent is an **physical-agent framework** that puts a large language model *in th
   - `codex` — the OpenAI Codex SDK, bridged to the toolkit over an HTTP MCP server.
 - **Two environments, two VLAs, one contract.** LIBERO (Pi0.5 over HTTP) and RoboCasa (RLDX-1 over socket-RPC) share the exact same env/vla process split; only the wire codec differs, chosen to fit each env's observation shape.
 - **Live dashboard.** An optional `--dashboard` starts a local FastAPI monitor that streams the agent's reasoning, real-time camera / Pi0 views, an action timeline, and clip replays — with a **bilingual UI** (`--dashboard_language {en, zh-cn}`).
-- **Add an environment by dropping a package on disk.** No central registry to edit — see [Adding a new environment](docs/ADD_A_NEW_ENV.md).
+- **Add an environment by dropping a package on disk.** No central registry to edit — see [Adding a new environment](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html).
 
 ## How It Works
 
@@ -185,9 +185,9 @@ See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 +
 
 ## Documentation
 
-- [Adding a new environment](docs/ADD_A_NEW_ENV.md) — plug a new simulator / robot into the runner ([中文](docs/ADD_A_NEW_ENV.zh.md)).
+- [Adding a new environment](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html) — plug a new simulator / robot into the runner ([中文](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html)).
 - [RoboCasa setup](docs/SETUP_ROBOCASA.zh.md) — RoboCasa365 + RLDX-1 install and run guide.
-- [`docs/`](docs/README.md) — the full documentation index.
+- [`docs/`](docs/README.md) — local Sphinx build and preview instructions.
 
 ## Acknowledgements
 

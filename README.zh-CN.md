@@ -27,7 +27,7 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
   - `codex` —— 使用 OpenAI Codex SDK，通过 HTTP MCP server 桥接工具。
 - **两套环境、两个 VLA、同一套契约。** LIBERO（Pi0.5 走 HTTP）与 RoboCasa（RLDX-1 走 socket-RPC）共用完全相同的 env/vla 进程拆分；仅传输编解码不同，按各自观测数据的形状而定。
 - **实时 Dashboard。** 可选的 `--dashboard` 会启动一个本地 FastAPI 监控页，实时推送智能体的推理流、实时摄像头 / Pi0 视角画面、动作时间线与片段回放——并提供**中英双语界面**（`--dashboard_language {en, zh-cn}`）。
-- **在磁盘上放一个包即可接入新环境。** 无需修改中心注册表——参见[接入新环境](docs/ADD_A_NEW_ENV.zh.md)。
+- **在磁盘上放一个包即可接入新环境。** 无需修改中心注册表——参见[接入新环境](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html)。
 
 ## 工作原理
 
@@ -185,9 +185,9 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 
 ## 文档
 
-- [接入新环境](docs/ADD_A_NEW_ENV.zh.md) —— 把新的仿真器 / 机器人接入 runner（[English](docs/ADD_A_NEW_ENV.md)）。
+- [接入新环境](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html) —— 把新的仿真器 / 机器人接入 runner（[English](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html)）。
 - [RoboCasa 安装](docs/SETUP_ROBOCASA.zh.md) —— RoboCasa365 + RLDX-1 安装与运行指南。
-- [`docs/`](docs/README.md) —— 完整文档索引。
+- [`docs/`](docs/README.md) —— 本地 Sphinx 构建与预览说明。
 
 ## 致谢
 

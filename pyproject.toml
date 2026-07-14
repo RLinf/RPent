@@ -42,7 +42,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"
 Repository = "https://github.com/RLinf/RPent"
-Documentation = "https://github.com/RLinf/RPent"
+Documentation = "https://rpent.readthedocs.io/en/latest/"
 "Bug Report" = "https://github.com/RLinf/RPent/issues"
 
 [project.optional-dependencies]
