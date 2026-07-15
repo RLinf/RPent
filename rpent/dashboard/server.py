@@ -92,9 +92,18 @@ class DashboardServer:
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="RPent dashboard")
 
+        # Logo served from <repo>/docs/logo.png for the dashboard header.
+        logo_path = Path(__file__).resolve().parent.parent.parent / "docs" / "logo.png"
+
         @app.get("/")
         def index() -> Response:
             return FileResponse(self._index_file, media_type="text/html")
+
+        @app.get("/logo")
+        def logo() -> Response:
+            if not logo_path.exists():
+                return Response(status_code=404)
+            return FileResponse(logo_path, media_type="image/png")
 
         @app.get("/healthz")
         def healthz() -> JSONResponse:
@@ -141,6 +150,25 @@ class DashboardServer:
             live = self._runs.get(run)
             events = live.events_since(since) if live else []
             return JSONResponse({"events": events})
+
+        @app.post("/api/run/inject")
+        def api_inject(payload: dict[str, Any] = Body(default={})) -> JSONResponse:
+            run = str((payload or {}).get("run", ""))
+            text = str((payload or {}).get("text", ""))
+            live = self._runs.get(run)
+            if live is None:
+                return JSONResponse({"error": "unknown run"}, status_code=404)
+            ok = live.submit_message(text)
+            return JSONResponse({"ok": ok, "interact": live.interact})
+
+        @app.post("/api/run/interrupt")
+        def api_interrupt(payload: dict[str, Any] = Body(default={})) -> JSONResponse:
+            run = str((payload or {}).get("run", ""))
+            live = self._runs.get(run)
+            if live is None:
+                return JSONResponse({"error": "unknown run"}, status_code=404)
+            live.request_interrupt()
+            return JSONResponse({"ok": True})
 
         @app.get("/api/run/frame")
         def api_frame(run: str, kind: str = "agent", t: str = "") -> Response:

@@ -116,20 +116,85 @@ class ClaudeCodeCerebrum:
         started = time.time()
         error: str | None = None
         rendered_chunks: list[str] = []
+        dashboard = self._dashboard
         with open(output_path, "w") as out_f, open(raw_stream_path, "w") as raw_f:
             try:
 
                 async def consume_stream() -> None:
-                    async for message in sdk.query(prompt=prompt, options=options):
-                        _write_jsonl(raw_f, _message_to_json(message))
-                        if rendered := recorder.observe(message):
-                            rendered_chunks.append(rendered)
-                            out_f.write(rendered)
-                            out_f.flush()
-                            logger.info(rendered.rstrip())
-                        if recorder.finish_result is not None:
-                            logger.info("FINISH called: %s", recorder.finish_result)
-                            break
+                    # Streaming-input client (vs one-shot ``sdk.query``): keeps a
+                    # single session alive so dashboard submissions can be
+                    # injected as new user turns — appended while the agent works
+                    # (CLI queues them) or, in interact mode, after an
+                    # ``interrupt()`` that stops the current generation. This
+                    # mirrors the Claude ​Code TUI (type-to-queue / ESC-to-stop).
+                    async with sdk.ClaudeSDKClient(options=options) as client:
+                        await client.query(prompt)
+                        if dashboard is not None:
+                            dashboard.set_busy(True)
+                        stop_pump = asyncio.Event()
+
+                        async def pump() -> None:
+                            """Relay dashboard input into the live session."""
+                            while not stop_pump.is_set():
+                                try:
+                                    if (
+                                        dashboard.interact
+                                        and dashboard.interrupt_requested()
+                                    ):
+                                        await client.interrupt()
+                                        dashboard.clear_interrupt()
+                                    for msg in dashboard.take_pending_messages():
+                                        await client.query(msg)
+                                        dashboard.set_busy(True)
+                                except Exception as e:  # noqa: BLE001
+                                    logger.debug("inject pump error: %s", e)
+                                await asyncio.sleep(0.15)
+
+                        pump_task = (
+                            asyncio.create_task(pump())
+                            if dashboard is not None
+                            else None
+                        )
+                        try:
+                            async for message in client.receive_messages():
+                                _write_jsonl(raw_f, _message_to_json(message))
+                                if rendered := recorder.observe(message):
+                                    rendered_chunks.append(rendered)
+                                    out_f.write(rendered)
+                                    out_f.flush()
+                                    logger.info(rendered.rstrip())
+
+                                is_result = _kind(message) == "ResultMessage"
+                                if is_result and dashboard is not None:
+                                    # Segment finished → agent idle. The composer
+                                    # re-enables (append) or flips back from
+                                    # "interrupt" (interact).
+                                    dashboard.set_busy(False)
+                                # ``finish`` ends the run — except in interact mode,
+                                # where the user keeps control until the env
+                                # terminates (success alone does not stop it).
+                                if recorder.finish_result is not None and not (
+                                    dashboard is not None and dashboard.interact
+                                ):
+                                    logger.info(
+                                        "FINISH called: %s", recorder.finish_result
+                                    )
+                                    break
+                                # No dashboard: one-shot run, stop at the result.
+                                # With a dashboard, keep the session open for
+                                # follow-up turns (bounded by wait_for(timeout_s)).
+                                if is_result and dashboard is None:
+                                    break
+                        finally:
+                            if dashboard is not None:
+                                dashboard.set_busy(False)
+                            stop_pump.set()
+                            if pump_task is not None:
+                                pump_task.cancel()
+                                try:
+                                    await pump_task
+                                except BaseException:  # noqa: BLE001
+                                    pass
 
                 await asyncio.wait_for(consume_stream(), timeout=self._timeout_s)
             except asyncio.TimeoutError:

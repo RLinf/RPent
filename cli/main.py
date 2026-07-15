@@ -312,6 +312,12 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--dashboard_language", choices=["en", "zh-cn"], default="en",
                     help="Dashboard UI language. 'zh-cn' serves the Chinese "
                          "variant (index.zh-cn.html); defaults to English.")
+    ap.add_argument("--dashboard-interact", action="store_true",
+                    help="Enable mid-run interruption from the dashboard input "
+                         "box: a submitted message immediately stops the current "
+                         "generation and is injected as a new user turn (history "
+                         "kept). Without this flag the input box only appends — "
+                         "messages are delivered at the next turn boundary.")
     ap.add_argument("--verbose", action="store_true",
                     help="Enable DEBUG-level logging for stdout and the run.log "
                          "file. Defaults to INFO when not set.")
@@ -396,6 +402,7 @@ def main() -> int:
             seed=seed,
             output_dir=str(output_dir),
             video_path=str(Path(output_dir) / "episode.mp4"),
+            interact=args.dashboard_interact,
         )
         # Server is already serving the launcher; register the run so the
         # frontend can switch from the start screen to the live monitor.
@@ -432,6 +439,8 @@ def main() -> int:
         "user",
         variables=prompt_vars,
     )
+    if dashboard_state is not None:
+        dashboard_state.set_prompt(user_msg)
 
     env_proc = None
     vla_proc = None
@@ -499,6 +508,12 @@ def main() -> int:
     finish_result, messages, agent_error = None, [], None
     stats: dict = {}
     try:
+        # With the dashboard, the initial task prompt is prefilled into the
+        # input box and the agent waits for the user to click Send (they may
+        # edit it first). Whatever they send becomes the first user turn.
+        if dashboard_state is not None:
+            logger.info("dashboard active — waiting for the user to send the first prompt")
+            user_msg = dashboard_state.wait_for_first_message()
         result = cerebrum.solve(
             system_prompt=system_prompt,
             user_message=user_msg,
