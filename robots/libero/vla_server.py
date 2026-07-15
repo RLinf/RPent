@@ -66,7 +66,11 @@ class PredictRequest(BaseModel):
 CHECKPOINT_PATH = get_pi05_checkpoint_path()
 
 
-def build_model_cfg(model_path: str | None = None) -> Any:
+def build_model_cfg(
+    model_path: str | None = None,
+    action_chunk: int = 5,
+    num_steps: int = 5,
+) -> Any:
     """OmegaConf for ``rlinf.models.embodiment.openpi.get_model``."""
     model_path = model_path or CHECKPOINT_PATH
     if not model_path:
@@ -79,19 +83,19 @@ def build_model_cfg(model_path: str | None = None) -> Any:
             "model_type": "openpi",
             "model_path": model_path,
             "precision": None,
-            "num_action_chunks": 5,
+            "num_action_chunks": action_chunk,
             "action_dim": 7,
             "is_lora": False,
             "lora_rank": 32,
             "use_proprio": True,
-            "num_steps": 5,
+            "num_steps": num_steps,
             "add_value_head": False,
             "openpi": {
                 "config_name": "pi05_libero",
                 "num_images_in_input": 2,
                 "noise_level": 0.5,
-                "action_chunk": 5,
-                "num_steps": 5,
+                "action_chunk": action_chunk,
+                "num_steps": num_steps,
                 "train_expert_only": True,
                 "action_env_dim": 7,
                 "noise_method": "flow_sde",
@@ -111,14 +115,27 @@ def build_model_cfg(model_path: str | None = None) -> Any:
 _MODEL = None
 
 
-def load_model(model_path: str | None) -> None:
+def load_model(
+    model_path: str | None,
+    action_chunk: int = 5,
+    num_steps: int = 5,
+) -> None:
     """Build the openpi model and stash it on the module."""
     global _MODEL
     from rlinf.models.embodiment.openpi import get_model as get_openpi_model
 
-    cfg = build_model_cfg(model_path=model_path or get_pi05_checkpoint_path())
+    cfg = build_model_cfg(
+        model_path=model_path or get_pi05_checkpoint_path(),
+        action_chunk=action_chunk,
+        num_steps=num_steps,
+    )
     t0 = time.time()
-    logger.info("loading Pi0.5 (model_path=%s) ...", cfg["model_path"])
+    logger.info(
+        "loading Pi0.5 (model_path=%s, action_chunk=%d, num_steps=%d) ...",
+        cfg["model_path"],
+        action_chunk,
+        num_steps,
+    )
     model = get_openpi_model(cfg, torch_dtype=None).cuda().eval()
     _MODEL = model
     logger.info("model ready in %.1fs", time.time() - t0)
@@ -248,9 +265,21 @@ def main() -> None:
         default=None,
         help="Pi0.5 checkpoint (defaults to PI05_CHECKPOINT_PATH env)",
     )
+    p.add_argument(
+        "--action-chunk",
+        type=int,
+        default=5,
+        help="LIBERO-10 long: 10; other suites: 5",
+    )
+    p.add_argument(
+        "--num-steps",
+        type=int,
+        default=5,
+        help="LIBERO-10 long: 4; other suites: 5",
+    )
     args = p.parse_args()
 
-    load_model(args.model_path)
+    load_model(args.model_path, action_chunk=args.action_chunk, num_steps=args.num_steps)
     app = build_app()
 
     import uvicorn
