@@ -1,9 +1,9 @@
 """Pickle-framed TCP transport for the env + model RPC boundary.
 
-The agent process ships ``(method, args, kwargs)`` tuples to the driver
+The client process ships ``(method, args, kwargs)`` tuples to the server
 process and receives the method's return value. Numpy arrays, dicts of
-arrays, and other LIBERO/OpenPI payloads ride the wire as pickle frames
-(length-prefixed, one frame per request/response).
+arrays, and any other pickle-serializable payloads ride the wire as pickle
+frames (length-prefixed, one frame per request/response).
 
 Both processes are spawned by the same user on the same host, so we use
 pickle rather than a more defensive codec.

@@ -8,7 +8,7 @@
 #   PORT=4200 ./start_proxy.sh      # custom port
 #   FOREGROUND=1 ./start_proxy.sh   # run in foreground (for debugging)
 #
-# After it starts, point Codex at the proxy via cli/main.py:
+# After it starts, point Codex at the proxy via rpent/cli/main.py:
 #   --base_url http://127.0.0.1:${PORT} --api_key sk-codex-proxy
 # (or any non-empty key; the proxy's master_key is the only thing it
 #  validates — its own forwarded calls use INFINI_API_KEY).

@@ -2,7 +2,7 @@
 
 Lives in :mod:`rpent.envs` so each env's
 ``prompt_bundle.py`` (e.g. :mod:`robots.libero.prompt_bundle`)
-can import it without depending on the driver-client transport layer.
+can import it without depending on the RPC transport layer.
 """
 from __future__ import annotations
 

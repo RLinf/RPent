@@ -10,7 +10,7 @@ from urllib.parse import urlsplit, urlunsplit
 import imageio.v2 as imageio
 import numpy as np
 
-from rpent.rpc_driver.vla_client import VLAClient
+from rpent.utils.vla_client import VLAClient
 from robots.libero.env_client import LiberoEnvClient
 from rpent.utils.logging import get_logger, get_output_dir
 
@@ -812,7 +812,7 @@ def _world_from_depth(depth_metric: np.ndarray, camera_meta: dict) -> np.ndarray
     return (camera_points @ extrinsic.T)[..., :3]
 
 
-def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
+def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
                log: dict | None = None) -> dict:
     """Dump state snapshot, images, and depth for step *step_idx*.
 
@@ -858,7 +858,7 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
     wrist_world_map = None
     agent_world_map_hi = None
     wrist_world_map_hi = None
-    state = driver.get_privileged_state()
+    state = primitives.get_privileged_state()
     # force perception: drop object world coords (the agent must
     # localize via depth_NN.npy + camera_meta.json). Keep the object NAMES
     # (what's in the scene / which is the target) + robot proprioception —
@@ -869,7 +869,7 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
     # Render live agentview and convert to the Pi0-frame artifact. Fall back
     # to the most recent valid cached frame if active rendering is unavailable.
     try:
-        img = driver.env.render_camera(
+        img = primitives.env.render_camera(
             camera_name="agentview",
             height=256,
             width=256,
@@ -883,7 +883,7 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
     except Exception:
         # cached_image() is already 180°-flipped (get_libero_image does
         # the flip), so just hand it through. No double-flip.
-        img = driver.env.cached_image()
+        img = primitives.env.cached_image()
         if img is None:
             img = np.zeros((128, 128, 3), dtype=np.uint8)
         if img.dtype != np.uint8:
@@ -891,16 +891,16 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
     imageio.imwrite(os.path.join(images_dir, f"image_{step_idx:02d}.png"), img)
 
     # --- camera calibration (static for agentview): fetch + dump once ---
-    agentview_meta = getattr(driver, "_agentview_camera_meta", None)
+    agentview_meta = getattr(primitives, "_agentview_camera_meta", None)
     if agentview_meta is None:
-        agentview_meta = driver.env.get_camera_meta(
+        agentview_meta = primitives.env.get_camera_meta(
             camera_name="agentview",
             height=256,
             width=256,
         )
         if agentview_meta is None:
             agentview_meta = {}
-        driver._agentview_camera_meta = agentview_meta
+        primitives._agentview_camera_meta = agentview_meta
         if agentview_meta:
             cam_meta_out = dict(agentview_meta)
             cam_meta_out["projection"] = (
@@ -923,7 +923,7 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
                 json.dump(cam_meta_out, f, indent=2)
 
     # Fetch one raw observation snapshot for all per-step camera artifacts.
-    raw = driver.env.raw_obs()
+    raw = primitives.env.raw_obs()
 
     # --- per-step RGB in the depth/K frame (vertical-flip of the raw buffer) ---
     # The agent picks object pixels HERE (same frame as depth_NN.npy + K), so
@@ -987,7 +987,7 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
         else:
             wdpt_arr = np.asarray(wdpt, dtype=np.float32)
             height, width = wdpt_arr.shape[:2]
-            wmeta = driver.env.get_camera_meta(
+            wmeta = primitives.env.get_camera_meta(
                 camera_name="robot0_eye_in_hand",
                 height=int(height),
                 width=int(width),
@@ -1022,13 +1022,13 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
         logger.warning("wrist depth/world dump failed: %s", e)
 
     try:
-        rgb_hi, depth_hi = driver.env.render_camera(
+        rgb_hi, depth_hi = primitives.env.render_camera(
             camera_name="agentview",
             height=1024,
             width=1024,
             depth=True,
         )
-        meta_hi = driver.env.get_camera_meta("agentview", 1024, 1024)
+        meta_hi = primitives.env.get_camera_meta("agentview", 1024, 1024)
         if meta_hi is None:
             raise RuntimeError("agentview camera metadata missing")
         imageio.imwrite(
@@ -1050,13 +1050,13 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
         logger.warning("agentview high-res dump failed: %s", e)
 
     try:
-        rgb_wrist_hi, depth_wrist_hi = driver.env.render_camera(
+        rgb_wrist_hi, depth_wrist_hi = primitives.env.render_camera(
             camera_name="robot0_eye_in_hand",
             height=1024,
             width=1024,
             depth=True,
         )
-        meta_wrist_hi = driver.env.get_camera_meta(
+        meta_wrist_hi = primitives.env.get_camera_meta(
             "robot0_eye_in_hand", 1024, 1024
         )
         if meta_wrist_hi is None:
@@ -1108,8 +1108,8 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
 
     blob = {
         "step_idx": step_idx,
-        "libero_terminated": driver.env.episode_done,
-        "task_language": driver.env.get_task_language(),
+        "libero_terminated": primitives.env.episode_done,
+        "task_language": primitives.env.get_task_language(),
         "state": state,
         "world_map": agent_world_map,
         "wrist_world_map": wrist_world_map,
@@ -1471,7 +1471,7 @@ TOOLS_SPEC = [
 
 
 def _load_states() -> list:
-    """Return the parsed driver state trace from the local output dir."""
+    """Return the parsed state trace from the local output dir."""
     path = get_output_dir() / "states.json"
     if not path.exists():
         return []
@@ -1543,12 +1543,12 @@ def _load_depth(camera: str, nn: int) -> np.ndarray:
 def view_driver_state(step: int | None = None) -> dict:
     latest = _latest_step()
     if latest is None:
-        return {"error": "no driver state entries; driver not ready"}
+        return {"error": "no state entries; env not ready"}
     nn = latest if step is None else int(step)
     try:
         data = _load_step(nn)
     except Exception as e:
-        return {"error": f"step {nn} not present in driver state trace: {e}"}
+        return {"error": f"step {nn} not present in state trace: {e}"}
 
     out: dict = {"step": nn}
     out["task_language"] = data.get("task_language")
@@ -1885,7 +1885,7 @@ def segment(
     """
     nn = _latest_step() if step is None else int(step)
     if nn is None:
-        return {"error": "no driver state entries; cannot select segment image"}
+        return {"error": "no state entries; cannot select segment image"}
 
     camera = camera or "agentview"
     if point is None and not prompt:
@@ -2062,7 +2062,7 @@ def back_project(
     try:
         data = _load_step(nn)
     except Exception as e:
-        return {"error": f"step {nn} not present in driver state trace: {e}"}
+        return {"error": f"step {nn} not present in state trace: {e}"}
 
     if camera == "agentview":
         hi_artifact = data.get("world_map_hi")
