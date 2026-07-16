@@ -26,7 +26,7 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
   - `claude_code` —— 使用 [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview)，把工具容器包装成进程内 MCP server。
   - `codex` —— 使用 OpenAI Codex SDK，通过 HTTP MCP server 桥接工具。
 - **两套环境、两个 VLA、同一套契约。** LIBERO（Pi0.5 走 HTTP）与 RoboCasa（RLDX-1 走 socket-RPC）共用完全相同的 env/vla 进程拆分；仅传输编解码不同，按各自观测数据的形状而定。
-- **实时 Dashboard。** 可选的 `--dashboard` 会启动一个本地 FastAPI 监控页，实时推送智能体的推理流、实时摄像头 / Pi0 视角画面、动作时间线与片段回放——并提供**中英双语界面**（`--dashboard_language {en, zh-cn}`）。
+- **实时 Dashboard。** 可选的 `--dashboard` 会启动一个本地 FastAPI 监控页，实时推送智能体的推理流、实时摄像头 / Pi0 视角画面、动作时间线与片段回放——并提供**中英双语界面**（`--dashboard-language {en, zh-cn}`）。
 - **在磁盘上放一个包即可接入新环境。** 无需修改中心注册表——参见[接入新环境](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html)。
 
 ## 工作原理
@@ -39,7 +39,7 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
 4. 环境渲染出新的观测与摄像头画面。
 5. 结果被转成「文本 + 图像」内容块，回灌给大模型进入下一轮。
 
-当大模型调用 `finish` 工具（`success` / `failure` / `stuck`），或达到 `--max_turns` / `--max_episode_steps` 上限时，循环结束。
+当大模型调用 `finish` 工具（`success` / `failure` / `stuck`），或达到 `--max-turns` / `--max-episode-steps` 上限时，循环结束。
 
 ## 支持的环境
 
@@ -133,7 +133,7 @@ export OPENAI_API_KEY=sk-xxx
 # https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft
 export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 export LIBERO_TYPE=pro
-export CUDA_DEVICE=0
+export CUDA_VISIBLE_DEVICES=0
 
 # 运行一个任务：libero_object_swap，task 2，seed 0，使用 api 决策大脑、
 # 一个 Anthropic 模型，最大输出 8192 token。
@@ -141,15 +141,15 @@ export CUDA_DEVICE=0
 #   • OpenAI responses 端点：  --model openai:gpt-5.5
 #   • claude_code / codex 大脑：无需 provider 前缀，如 --model claude-opus-4-8
 python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
-  --cerebrum api --model anthropic:claude-opus-4-8 --max_tokens 8192
+  --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
 ### 实时 Dashboard
 
-加上 `--dashboard` 即可为本次运行打开一个浏览器监控页。它会先展示一个启动屏让你选择配置，然后实时推送推理流、实时画面与动作时间线。用 `--dashboard_language zh-cn` 切换到中文界面。
+加上 `--dashboard` 即可为本次运行打开一个浏览器监控页。它会先展示一个启动屏让你选择配置，然后实时推送推理流、实时画面与动作时间线。用 `--dashboard-language zh-cn` 切换到中文界面。
 
 ```bash
-python cli/main.py --dashboard --dashboard_language zh-cn \
+python cli/main.py --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 ```
 
@@ -173,15 +173,15 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 | `--seed` | `0` | 随机种子 |
 | `--cerebrum` | `api` | 决策大脑：`api` \| `claude_code` \| `codex` |
 | `--model` | — | 模型 id；`api` 需带 provider 前缀（`anthropic:…`、`openai:…`、`openai-chat:…`） |
-| `--max_turns` | `100` | 智能体最大轮数 |
-| `--max_tokens` | `8192` | 单次回复最大 token |
-| `--max_episode_steps` | `600` | 环境最大步数（`libero_10` 自动提升到 5000） |
-| `--libero_type` | 自动 | `standard` \| `pro` \| `plus`（由任务集后缀自动路由） |
-| `--cuda_device` | `0` | env / vla server 使用的 GPU |
+| `--max-turns` | `100` | 智能体最大轮数 |
+| `--max-tokens` | `8192` | 单次回复最大 token |
+| `--max-episode-steps` | `10000` | 环境最大步数 |
+| `--libero-type` | `LIBERO_TYPE` 或 `pro` | LIBERO 类型：`standard` \| `pro` \| `plus` |
+| `--cuda-device` | 继承当前环境 | env / vla server 可见的 GPU 设备 |
 | `--dashboard` | 关 | 为本次运行启动本地 dashboard |
-| `--dashboard_language` | `en` | Dashboard 界面语言：`en` \| `zh-cn` |
-| `--vla_endpoint` | — | 复用已在运行的 vla_server，而非新起一个 |
-| `--no_driver` | 关 | 连接已存在的 env_server / vla_server |
+| `--dashboard-language` | `en` | Dashboard 界面语言：`en` \| `zh-cn` |
+| `--vla-endpoint` | — | 复用已在运行的 vla_server，而非新起一个 |
+| `--no-driver` | 关 | 连接已存在的 env_server / vla_server |
 
 ## 文档
 

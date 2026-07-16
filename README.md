@@ -26,7 +26,7 @@ RPent is an **physical-agent framework** that puts a large language model *in th
   - `claude_code` — the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview), exposing the toolkit as an in-process MCP server.
   - `codex` — the OpenAI Codex SDK, bridged to the toolkit over an HTTP MCP server.
 - **Two environments, two VLAs, one contract.** LIBERO (Pi0.5 over HTTP) and RoboCasa (RLDX-1 over socket-RPC) share the exact same env/vla process split; only the wire codec differs, chosen to fit each env's observation shape.
-- **Live dashboard.** An optional `--dashboard` starts a local FastAPI monitor that streams the agent's reasoning, real-time camera / Pi0 views, an action timeline, and clip replays — with a **bilingual UI** (`--dashboard_language {en, zh-cn}`).
+- **Live dashboard.** An optional `--dashboard` starts a local FastAPI monitor that streams the agent's reasoning, real-time camera / Pi0 views, an action timeline, and clip replays — with a **bilingual UI** (`--dashboard-language {en, zh-cn}`).
 - **Add an environment by dropping a package on disk.** No central registry to edit — see [Adding a new environment](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html).
 
 ## How It Works
@@ -39,7 +39,7 @@ A single run is an **LLM-in-the-loop** cycle:
 4. The env renders the resulting observation and camera frames.
 5. Results are turned into text + image content blocks and fed back to the LLM for the next turn.
 
-The loop ends when the LLM calls the `finish` tool (`success` / `failure` / `stuck`) or hits `--max_turns` / `--max_episode_steps`.
+The loop ends when the LLM calls the `finish` tool (`success` / `failure` / `stuck`) or hits `--max-turns` / `--max-episode-steps`.
 
 ## Supported Environments
 
@@ -133,7 +133,7 @@ export OPENAI_API_KEY=sk-xxx
 # https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft
 export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 export LIBERO_TYPE=pro
-export CUDA_DEVICE=0
+export CUDA_VISIBLE_DEVICES=0
 
 # Run one task: libero_object_swap, task 2, seed 0, using the `api` cerebrum
 # with an Anthropic model and an 8192-token cap.
@@ -141,15 +141,15 @@ export CUDA_DEVICE=0
 #   • OpenAI responses endpoints:        --model openai:gpt-5.5
 #   • claude_code / codex cerebrums:     no provider prefix, e.g. --model claude-opus-4-8
 python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
-  --cerebrum api --model anthropic:claude-opus-4-8 --max_tokens 8192
+  --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
 ### Live Dashboard
 
-Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard_language zh-cn` for the Chinese UI.
+Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
-python cli/main.py --dashboard --dashboard_language zh-cn \
+python cli/main.py --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 ```
 
@@ -173,15 +173,15 @@ See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 +
 | `--seed` | `0` | Random seed |
 | `--cerebrum` | `api` | Reasoning brain: `api` \| `claude_code` \| `codex` |
 | `--model` | — | Model id; for `api`, prefix the provider (`anthropic:…`, `openai:…`, `openai-chat:…`) |
-| `--max_turns` | `100` | Max agent turns |
-| `--max_tokens` | `8192` | Max tokens per LLM reply |
-| `--max_episode_steps` | `600` | Max env steps (auto-raised to 5000 for `libero_10`) |
-| `--libero_type` | auto | `standard` \| `pro` \| `plus` (routed from the suite suffix) |
-| `--cuda_device` | `0` | GPU for the env / vla servers |
+| `--max-turns` | `100` | Max agent turns |
+| `--max-tokens` | `8192` | Max tokens per LLM reply |
+| `--max-episode-steps` | `10000` | Max env steps |
+| `--libero-type` | `LIBERO_TYPE` or `pro` | LIBERO variant: `standard` \| `pro` \| `plus` |
+| `--cuda-device` | inherited | GPU device(s) exposed to the env / vla servers |
 | `--dashboard` | off | Start the local dashboard for this run |
-| `--dashboard_language` | `en` | Dashboard UI language: `en` \| `zh-cn` |
-| `--vla_endpoint` | — | Reuse an already-running vla_server instead of spawning one |
-| `--no_driver` | off | Attach to an existing env_server / vla_server |
+| `--dashboard-language` | `en` | Dashboard UI language: `en` \| `zh-cn` |
+| `--vla-endpoint` | — | Reuse an already-running vla_server instead of spawning one |
+| `--no-driver` | off | Attach to an existing env_server / vla_server |
 
 ## Documentation
 

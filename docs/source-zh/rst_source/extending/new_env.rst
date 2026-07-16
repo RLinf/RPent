@@ -31,7 +31,7 @@ VLA 模型跑在自己独立的进程里(env / vla 分离)
 ``transformers``/``openpi`` 等重依赖)和仿真器(MuJoCo/robosuite、绑定主线程的 EGL
 渲染)在进程层面的需求相互冲突。把它们放进同一进程会耦合生命周期、逼一个解释器同时
 满足两套依赖树, 且模型 OOM 会连带拖垮仿真。分开后, 任一侧都能独立重启、扩容或指向
-远程主机(``--vla_endpoint host:port`` 可复用已在运行的模型 server)。每个 env 都
+远程主机(``--vla-endpoint host:port`` 可复用已在运行的模型 server)。每个 env 都
 **必须** 遵守: env_server 持有仿真, vla_server 持有模型。
 
 **传输协议可因 env 而异, 但架构不可变。** LIBERO 的 ``vla_server.py`` 走 HTTP
