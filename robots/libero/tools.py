@@ -1137,8 +1137,8 @@ TOOLS_SPEC = [
             "Read step NN from `states.json` + the matching "
             "state images in {{output_dir}}. If step is "
             "null, returns the latest entry. Each entry contains the robot "
-            "state, libero_terminated flag, command log, and result. Embeds "
-            "available PNGs as multimodal image content blocks in this stable "
+            "state, libero_terminated flag, command log, and result. Returns "
+            "available PNG paths in this stable "
             "order: 1) `images/image_NN.png` (Pi0-frame agentview), "
             "2) `images_cam/image_cam_NN.png` (calibration-frame agentview), "
             "3) `images_wrist/image_wrist_NN.png` (calibration-frame wrist). "
@@ -1494,8 +1494,8 @@ def _load_step(nn: int) -> dict:
     raise FileNotFoundError(f"step {nn} not present in states.json")
 
 
-def _load_image(nn: int, kind: str) -> bytes | None:
-    """Return PNG bytes for a dumped state image. None if not present."""
+def _load_image_path(nn: int, kind: str) -> str | None:
+    """Return the path to a dumped state image. None if not present."""
     out_dir = get_output_dir()
     if kind == "agent":
         path = out_dir / "images" / f"image_{nn:02d}.png"
@@ -1507,7 +1507,7 @@ def _load_image(nn: int, kind: str) -> bytes | None:
         raise ValueError(f"unknown image kind: {kind}")
     if not path.exists():
         return None
-    return path.read_bytes()
+    return str(path)
 
 
 def _load_camera_meta(camera: str = "agentview", nn: int | None = None) -> dict:
@@ -1563,15 +1563,15 @@ def view_driver_state(step: int | None = None) -> dict:
         "result": data.get("result"),
         "elapsed_s": data.get("elapsed_s"),
     }
-    image = _load_image(nn, "agent")
-    image_cam = _load_image(nn, "camera")
-    image_wrist = _load_image(nn, "wrist")
-    if image:
-        out["_image_bytes"] = image
-    if image_cam:
-        out["_image_cam_bytes"] = image_cam
-    if image_wrist:
-        out["_image_wrist_bytes"] = image_wrist
+    image_path = _load_image_path(nn, "agent")
+    image_cam_path = _load_image_path(nn, "camera")
+    image_wrist_path = _load_image_path(nn, "wrist")
+    if image_path:
+        out["image_path"] = image_path
+    if image_cam_path:
+        out["image_cam_path"] = image_cam_path
+    if image_wrist_path:
+        out["image_wrist_path"] = image_wrist_path
     out_dir = get_output_dir()
     image_cam_hi_path = out_dir / "images_cam_hi" / f"image_cam_hi_{nn:02d}.png"
     image_wrist_hi_path = (
@@ -2016,7 +2016,6 @@ def segment(
         result["error"] = segment_blob["error"]
     if overlay_path is not None and overlay_path.exists():
         result["overlay_path"] = str(overlay_path)
-        result["_image_bytes"] = overlay_path.read_bytes()
     return result
 
 
