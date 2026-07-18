@@ -136,7 +136,7 @@ export OPENAI_API_KEY=sk-xxx
 # https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft
 export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 export LIBERO_TYPE=pro
-export CUDA_DEVICE=0
+export CUDA_VISIBLE_DEVICES=0
 
 # Run one task: libero_object_swap, task 2, seed 0, using the `api` cerebrum
 # with an Anthropic model and an 8192-token cap.
@@ -144,15 +144,15 @@ export CUDA_DEVICE=0
 #   • OpenAI responses endpoints:        --model openai:gpt-5.5
 #   • claude_code / codex cerebrums:     no provider prefix, e.g. --model claude-opus-4-8
 python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
-  --cerebrum api --model anthropic:claude-opus-4-8 --max_tokens 8192
+  --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
 ### Live Dashboard
 
-Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard_language zh-cn` for the Chinese UI.
+Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
-python cli/main.py --dashboard --dashboard_language zh-cn \
+python cli/main.py --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 ```
 
@@ -176,21 +176,21 @@ See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 +
 | `--seed` | `0` | Random seed |
 | `--cerebrum` | `api` | Reasoning brain: `api` \| `claude_code` \| `codex` |
 | `--model` | — | Model id; for `api`, prefix the provider (`anthropic:…`, `openai:…`, `openai-chat:…`) |
-| `--max_turns` | `100` | Max agent turns |
-| `--max_tokens` | `8192` | Max tokens per LLM reply |
-| `--max_episode_steps` | `600` | Max env steps (auto-raised to 5000 for `libero_10`) |
-| `--libero_type` | auto | `standard` \| `pro` \| `plus` (routed from the suite suffix) |
-| `--cuda_device` | `0` | GPU for the env / vla servers |
+| `--max-turns` | `100` | Max agent turns |
+| `--max-tokens` | `8192` | Max tokens per LLM reply |
+| `--max-episode-steps` | `10000` | Max env steps |
+| `--libero-type` | `LIBERO_TYPE` or `pro` | LIBERO variant: `standard` \| `pro` \| `plus` |
+| `--cuda-device` | inherited | GPU device(s) exposed to the env / vla servers |
 | `--dashboard` | off | Start the local dashboard for this run |
-| `--dashboard_language` | `en` | Dashboard UI language: `en` \| `zh-cn` |
-| `--vla_endpoint` | — | Reuse an already-running vla_server instead of spawning one |
-| `--no_driver` | off | Attach to an existing env_server / vla_server |
+| `--dashboard-language` | `en` | Dashboard UI language: `en` \| `zh-cn` |
+| `--vla-endpoint` | — | Reuse an already-running vla_server instead of spawning one |
+| `--no-driver` | off | Attach to an existing env_server / vla_server |
 
 ## Documentation
 
-- [Adding a new environment](docs/ADD_A_NEW_ENV.md) — plug a new simulator / robot into the runner ([中文](docs/ADD_A_NEW_ENV.zh.md)).
+- [Adding a new environment](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html) — plug a new simulator / robot into the runner ([中文](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html)).
 - [RoboCasa setup](docs/SETUP_ROBOCASA.zh.md) — RoboCasa365 + RLDX-1 install and run guide.
-- [`docs/`](docs/README.md) — the full documentation index.
+- [`docs/`](docs/README.md) — local Sphinx build and preview instructions.
 
 ## Citation and Acknowledgement
 
