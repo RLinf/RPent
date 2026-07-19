@@ -140,7 +140,7 @@ export CUDA_VISIBLE_DEVICES=0
 #   • OpenAI 兼容 chat 端点：  --model openai-chat:glm-5.2
 #   • OpenAI responses 端点：  --model openai:gpt-5.5
 #   • claude_code / codex 大脑：无需 provider 前缀，如 --model claude-opus-4-8
-python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
+python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
   --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
@@ -149,7 +149,7 @@ python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
 加上 `--dashboard` 即可为本次运行打开一个浏览器监控页。它会先展示一个启动屏让你选择配置，然后实时推送推理流、实时画面与动作时间线。用 `--dashboard-language zh-cn` 切换到中文界面。
 
 ```bash
-python cli/main.py --dashboard --dashboard-language zh-cn \
+python rpent/cli/main.py --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 ```
 

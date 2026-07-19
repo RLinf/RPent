@@ -82,27 +82,24 @@ The code that implements the framework is split cleanly by concern:
 
    rpent/
      cerebrum/       # Reasoning brains: api_loop, claude_code, codex, base.
+     cli/            # main.py entrypoint (no __init__.py — not a subpackage).
      context/        # Prompt bundles, prompt utils, shared prompt sections.
      dashboard/      # FastAPI monitor + SSE streams (optional).
      envs/           # EnvSpec, PromptBundle, and the lazy env registry.
-     rpc_driver/     # Socket RPC client/server; VLAClient HTTP shim.
      tools/          # Toolkit base class and shared tool helpers.
-     utils/          # Config discovery, logging, small helpers.
+     utils/          # Config, logging, RPC client/server, VLA HTTP shim.
    robots/
      libero/         # LIBERO env_client / env_server / vla_server /
                      # toolkit / prompt_bundle. The reference env.
      (robocasa/)     # RoboCasa driver (see scripts/run_robocasa.sh).
      (franka/)       # Franka driver — in progress.
      (so101/)        # SO-101 driver — in progress.
-   cli/
-     main.py         # The single entrypoint. Spawns env_server + vla_server,
-                     # builds the cerebrum, runs the loop, tears everything down.
    scripts/          # Setup scripts (LIBERO PRO/PLUS, RoboCasa, codex proxy).
 
-The runner (``cli/main.py``)
-----------------------------
+The runner (``rpent/cli/main.py``)
+----------------------------------
 
-``cli/main.py`` is the choreographer. On each invocation it:
+``rpent/cli/main.py`` is the choreographer. On each invocation it:
 
 1. Parses the CLI flags (:doc:`../quickstart` documents the ones you'll
    use day-to-day).
@@ -110,7 +107,7 @@ The runner (``cli/main.py``)
    auto-generated one under ``runs/``).
 3. Spawns the **env_server** as a subprocess and waits for its
    ``transport_ready`` JSON event on stdout. That event carries the
-   host/port the socket RPC is listening on; ``cli/main.py`` records
+   host/port the socket RPC is listening on; ``rpent/cli/main.py`` records
    the endpoint under ``<output_dir>/`` so the client can find it.
 4. Spawns (or attaches to) the **vla_server** the same way, using
    ``--vla-endpoint`` when reusing a running instance.
@@ -189,7 +186,7 @@ Transport substrate
 
 Two codecs are supported natively:
 
-- **Pickle-framed socket RPC** (``rpent.rpc_driver.socket``) — used
+- **Pickle-framed socket RPC** (``rpent.utils.socket_rpc``) — used
   by every env_server and by the RoboCasa vla_server. Chosen for
   history-stacked nested numpy dicts (RLDX obs) and for the wide,
   variable-shape state payloads env_servers exchange.
@@ -205,7 +202,7 @@ Dashboard (optional)
 --------------------
 
 ``rpent/dashboard/`` is a FastAPI app plus a static frontend. When
-``--dashboard`` is set, ``cli/main.py`` binds it on
+``--dashboard`` is set, ``rpent/cli/main.py`` binds it on
 ``--dashboard-host:--dashboard-port`` (default localhost, random
 port), boots a launcher page for picking config, and then streams:
 
