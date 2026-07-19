@@ -11,7 +11,7 @@ RPent splits an env into two processes:
   the tool schemas, primitive-driver logic, and prompts.
 - **Driver side** (``robots/<env>/env_server.py``) — owns the heavyweight
   simulator / robot; exposes its env over a pickle-framed TCP RPC server
-  (``rpent.rpc_driver.socket.SocketRpcServer``).
+  (``rpent.utils.socket_rpc.SocketRpcServer``).
 
 The two are connected by an ``EnvClient`` class that turns each agent-side
 method call into one RPC against the driver.
@@ -151,9 +151,9 @@ Wrap the facade in a dispatcher and serve over ``SocketRpcServer``:
                      "host": host, "port": bound_port}), flush=True)
 
 The ``transport_ready`` event on stdout is required —
-``cli.main.start_env_server`` blocks until it sees it.
+``start_env_server()`` in ``rpent/cli/main.py`` blocks until it sees it.
 
-``cli/main.py`` currently imports ``LiberoEnvClient`` and the LIBERO env_server
+``rpent/cli/main.py`` currently imports ``LiberoEnvClient`` and the LIBERO env_server
 script path directly. Adding a new env means either branching on
 ``args.env_name`` to pick the client class + driver script, or factoring those
 two callsites out behind a per-env helper.
@@ -257,7 +257,7 @@ Once everything compiles, the minimal smoke loop is:
 .. code-block:: bash
 
    PI05_CHECKPOINT_PATH=<path> ANTHROPIC_API_KEY=<key> \
-     python -m cli.main --env myenv --suite <suite> --task <id> --seed 0 \
+     python rpent/cli/main.py --env myenv --suite <suite> --task <id> --seed 0 \
      --output-dir /tmp/myenv_smoke --cerebrum api --model anthropic:claude-opus-4-8
 
 Expect the driver to emit ``transport_ready``, the agent to complete the

@@ -1,14 +1,14 @@
 """LIBERO host process for the LLM-in-the-loop agent (env-only).
 
 Owns the RLinf/LIBERO bootstrap (path setup, env config builder) and
-exposes a pickle-framed RPC server over the
-:class:`~rpent.rpc_driver.socket.SocketRpcServer`. The agent
-process drives a :class:`~robots.libero.tools.LiberoPrimitives`
-locally and reaches in only for ``env.*`` method calls; the model side
-goes over HTTP to a separate ``robots/libero/vla_server.py`` process
-(see :class:`~rpent.rpc_driver.vla_client.VLAClient`).
+exposes a pickle-framed RPC server over
+:class:`~rpent.utils.socket_rpc.SocketRpcServer`. The agent process
+drives a :class:`~robots.libero.tools.LiberoPrimitives` locally and
+reaches in only for ``env.*`` method calls; the model side goes over
+HTTP to a separate ``robots/libero/vla_server.py`` process
+(see :class:`~rpent.utils.vla_client.VLAClient`).
 
-Launched as a subprocess by :func:`cli.main.start_driver`.
+Launched as a subprocess by ``start_env_server`` in ``rpent/cli/main.py``.
 """
 from __future__ import annotations
 
@@ -24,14 +24,14 @@ from typing import Any
 os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
-from rpent.rpc_driver.socket import SocketRpcServer
+from rpent.utils.socket_rpc import SocketRpcServer
 from rpent.utils.config import (
     get_repo_root,
     get_rlinf_repo_path,
 )
 from rpent.utils.logging import get_logger, init_output_dir
 
-logger = get_logger("driver")
+logger = get_logger("env_server")
 
 RPENT_ROOT = get_repo_root()
 RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
@@ -121,7 +121,7 @@ def make_env(task_id: int, seed: int, suite_name: str = "libero_spatial",
 
 def _to_numpy_tree(x):
     """Recursively convert torch tensors to CPU numpy arrays so the result
-    pickles cleanly across the agent/driver wire."""
+    pickles cleanly across the agent/env_server wire."""
     if isinstance(x, torch.Tensor):
         return x.detach().cpu().numpy()
     if isinstance(x, dict):
@@ -390,7 +390,7 @@ def main():
     finally:
         server.shutdown()
         server.server_close()
-    logger.info("driver exited cleanly")
+    logger.info("env_server exited cleanly")
 
 
 if __name__ == "__main__":

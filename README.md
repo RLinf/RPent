@@ -141,7 +141,7 @@ export CUDA_VISIBLE_DEVICES=0
 #   • OpenAI-compatible chat endpoints:  --model openai-chat:glm-5.2
 #   • OpenAI responses endpoints:        --model openai:gpt-5.5
 #   • claude_code / codex cerebrums:     no provider prefix, e.g. --model claude-opus-4-8
-python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
+python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
   --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
@@ -150,7 +150,7 @@ python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
 Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
-python cli/main.py --dashboard --dashboard-language zh-cn \
+python rpent/cli/main.py --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 ```
 

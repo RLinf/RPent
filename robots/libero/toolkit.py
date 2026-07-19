@@ -33,7 +33,7 @@ class LiberoToolkit(Toolkit):
         super().__init__(dashboard=dashboard)
         self._next_step: int = 0
         self._video_path: str | None = video_path
-        self.init_driver_clean(primitives_kwargs=primitives_kwargs)
+        self.init_primitives_clean(primitives_kwargs=primitives_kwargs)
         self._register_libero_tools()
 
     # ------------------------------------------------------------------
@@ -50,7 +50,7 @@ class LiberoToolkit(Toolkit):
         ):
             self.add_tool(name, spec[name], getattr(libero_tools, name))
         # Primitive tools: each goes through _step, which looks up the
-        # matching driver method via getattr at call time.
+        # matching primitive method via getattr at call time.
         for name in (
             "move_to",
             "pi0_pick",
@@ -64,13 +64,13 @@ class LiberoToolkit(Toolkit):
             self.add_tool(name, spec[name], partial(self._step, name))
 
     def _step(self, name: str, **kwargs) -> dict:
-        """Run ``self._driver.<name>(**kwargs)``, dump the new step, and
+        """Run ``self._primitives.<name>(**kwargs)``, dump the new step, and
         return the rendered state view + log.
         """
         command = {"action": name, **kwargs}
         t0 = time.time()
-        start_frame = self._driver.recorded_frame_count()
-        result = getattr(self._driver, name)(**kwargs)
+        start_frame = self._primitives.recorded_frame_count()
+        result = getattr(self._primitives, name)(**kwargs)
         elapsed = round(time.time() - t0, 2)
 
         if isinstance(result, dict):
@@ -84,13 +84,13 @@ class LiberoToolkit(Toolkit):
             video_dir = get_output_dir() / "action_videos"
             video_path = video_dir / f"step_{step_idx:02d}_{name}.mp4"
             try:
-                self._driver.save_frame_slice(start_frame, str(video_path), fps=20)
+                self._primitives.save_frame_slice(start_frame, str(video_path), fps=20)
             except Exception as e:
                 get_logger("libero_toolkit").warning(
                     f"failed to save action clip to {video_path}: {e}"
                 )
         libero_tools.dump_state(
-            self._driver,
+            self._primitives,
             str(get_output_dir()),
             step_idx=step_idx,
             log={"command": command, "result": result_dict, "elapsed_s": elapsed},
@@ -99,12 +99,12 @@ class LiberoToolkit(Toolkit):
         out["agent_elapsed_s"] = elapsed
         return out
 
-    def init_driver_clean(
+    def init_primitives_clean(
         self,
         *,
         primitives_kwargs: dict[str, Any],
     ) -> None:
-        """Wipe stale run artifacts, build the primitive driver, dump step 0."""
+        """Wipe stale run artifacts, build the LiberoPrimitives, dump step 0."""
         out_dir = get_output_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
         for sub in (
@@ -130,14 +130,14 @@ class LiberoToolkit(Toolkit):
             if target.exists():
                 target.unlink()
 
-        driver = libero_tools.LiberoPrimitives(**primitives_kwargs)
-        driver.reset()
-        driver.start_recording()
-        libero_tools.dump_state(driver, str(out_dir), step_idx=0, log=None)
+        primitives = libero_tools.LiberoPrimitives(**primitives_kwargs)
+        primitives.reset()
+        primitives.start_recording()
+        libero_tools.dump_state(primitives, str(out_dir), step_idx=0, log=None)
         if self._dashboard is not None:
             self._dashboard.on_tool_result("view_driver_state", libero_tools.view_driver_state(0))
 
-        self._driver = driver
+        self._primitives = primitives
 
     def close(self) -> None:
         """Flush the agent-side video buffer to disk (end-of-run).
@@ -145,7 +145,7 @@ class LiberoToolkit(Toolkit):
         if self._video_path is None:
             return
         try:
-            self._driver.stop_recording_and_save(self._video_path)
+            self._primitives.stop_recording_and_save(self._video_path)
         except Exception as e:
             # The runner is in the cleanup path; never let a video save
             # abort it.

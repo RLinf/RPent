@@ -2,7 +2,7 @@
 # Start an external SAM3-compatible server for the LIBERO segment tool.
 #
 # This optional startup helper invokes a user-provided SAM3 launcher. It is not
-# called automatically by cli/main.py; the runtime segment tool only calls the
+# called automatically by rpent/cli/main.py; the runtime segment tool only calls the
 # service configured by SAM3_SERVER_URL.
 
 set -euo pipefail

@@ -96,5 +96,5 @@ Live dashboard
 --------------
 
 RoboCasa runs support ``--dashboard`` in the same way as LIBERO. Add
-``--dashboard`` to whichever underlying ``cli/main.py`` invocation
+``--dashboard`` to whichever underlying ``rpent/cli/main.py`` invocation
 your ``run_robocasa.sh`` shells out to.

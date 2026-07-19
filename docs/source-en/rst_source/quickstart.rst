@@ -39,7 +39,7 @@ Run a single LIBERO PRO task (``libero_object_swap``, task ``2``, seed
 
 .. code-block:: bash
 
-   python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
+   python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
      --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 
 **Model id conventions.** ``--model`` accepts a provider-prefixed id
@@ -63,7 +63,7 @@ replays. Use ``--dashboard-language zh-cn`` for the Chinese UI.
 
 .. code-block:: bash
 
-   python cli/main.py --dashboard --dashboard-language zh-cn \
+   python rpent/cli/main.py --dashboard --dashboard-language zh-cn \
      --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 
 4. RoboCasa
@@ -85,7 +85,7 @@ exposes to the agent.
 Key CLI options
 ---------------
 
-The most common flags of ``cli/main.py`` at a glance:
+The most common flags of ``rpent/cli/main.py`` at a glance:
 
 .. list-table::
    :header-rows: 1
