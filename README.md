@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_logo.png" alt="RPent-logo" width="600"/>
+  <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_logo.png" alt="RPent-logo" width="520"/>
 </div>
 
 <div align="center">
