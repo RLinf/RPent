@@ -1427,17 +1427,22 @@ TOOLS_SPEC = [
             "locations; use camera='wrist' for close-range details near the "
             "gripper, occlusions, and container/cabinet interiors. "
             "Sample several pixels on the object and median their xy for "
-            "robustness."
+            "robustness.\n\n"
+            "REGION MODE: pass row_range=[r0,r1] and col_range=[c0,c1] instead "
+            "of row/col to get the midpoint of world xy over that pixel window, "
+            "with an optional world-z band (z_min, z_max). Use it for the "
+            "center of a container cavity or flat region, where a single-pixel "
+            "or mask-median estimate is biased toward an edge/rim."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "row": {
-                    "type": "integer",
+                    "type": ["integer", "null"],
                     "description": "Pixel row (0=top) in the selected resolution image.",
                 },
                 "col": {
-                    "type": "integer",
+                    "type": ["integer", "null"],
                     "description": "Pixel column (0=left) in the selected resolution image.",
                 },
                 "step": {
@@ -1458,8 +1463,25 @@ TOOLS_SPEC = [
                         "embedded/standard 256 image."
                     ),
                 },
+                "row_range": {
+                    "type": ["array", "null"],
+                    "items": {"type": "integer"},
+                    "description": "Region mode: [r0, r1] pixel row window. Requires col_range.",
+                },
+                "col_range": {
+                    "type": ["array", "null"],
+                    "items": {"type": "integer"},
+                    "description": "Region mode: [c0, c1] pixel col window. Requires row_range.",
+                },
+                "z_min": {
+                    "type": ["number", "null"],
+                    "description": "Region mode: keep only pixels with world z >= z_min.",
+                },
+                "z_max": {
+                    "type": ["number", "null"],
+                    "description": "Region mode: keep only pixels with world z <= z_max.",
+                },
             },
-            "required": ["row", "col"],
         },
     },
 ]
@@ -2042,17 +2064,30 @@ def view_camera_meta(camera: str = "agentview", step: int | None = None) -> dict
 
 
 def back_project(
-    row: int,
-    col: int,
+    row: int | None = None,
+    col: int | None = None,
     step: int | None = None,
     camera: str = "agentview",
     resolution: str = "high",
+    row_range: list | None = None,
+    col_range: list | None = None,
+    z_min: float | None = None,
+    z_max: float | None = None,
 ) -> dict:
     """Look up a pixel's world XYZ in the precomputed world map."""
     if camera not in ("agentview", "wrist"):
         return {"error": f"bad camera '{camera}' (use 'agentview' or 'wrist')"}
     if resolution not in ("high", "low"):
         return {"error": f"bad resolution '{resolution}' (use 'high' or 'low')"}
+
+    region_mode = row_range is not None or col_range is not None
+    if not region_mode and (row is None or col is None):
+        return {
+            "error": (
+                "provide either (row, col) for a single pixel, or "
+                "row_range=[r0,r1] and col_range=[c0,c1] for a region center"
+            )
+        }
 
     nn = _latest_step() if step is None else int(step)
     if nn is None:
@@ -2089,6 +2124,71 @@ def back_project(
         }
 
     height, width = world_map.shape[:2]
+
+    if region_mode:
+        if row_range is None or col_range is None:
+            return {
+                "error": "region mode needs BOTH row_range=[r0,r1] and col_range=[c0,c1]"
+            }
+        try:
+            r0, r1 = int(row_range[0]), int(row_range[1])
+            c0, c1 = int(col_range[0]), int(col_range[1])
+        except Exception:
+            return {"error": "row_range/col_range must each be [min, max] integers"}
+        r0, r1 = sorted((max(0, r0), min(height, r1)))
+        c0, c1 = sorted((max(0, c0), min(width, c1)))
+        if r1 <= r0 or c1 <= c0:
+            return {
+                "error": (
+                    f"empty region after clamping to image {height}x{width}: "
+                    f"rows [{r0},{r1}] cols [{c0},{c1}]"
+                )
+            }
+        window = world_map[r0:r1, c0:c1].reshape(-1, world_map.shape[2]).astype(
+            np.float64
+        )
+        finite = np.isfinite(window).all(axis=1) & (
+            np.abs(window[:, :3]).sum(axis=1) > 1e-6
+        )
+        pts = window[finite]
+        n_total = int(pts.shape[0])
+        if z_min is not None:
+            pts = pts[pts[:, 2] >= float(z_min)]
+        if z_max is not None:
+            pts = pts[pts[:, 2] <= float(z_max)]
+        if pts.shape[0] < 8:
+            return {
+                "error": (
+                    f"too few valid pixels in region after z-filter "
+                    f"({int(pts.shape[0])}); widen the window or the z band"
+                ),
+                "n_valid_before_zfilter": n_total,
+            }
+        xs, ys, zs = pts[:, 0], pts[:, 1], pts[:, 2]
+        center = [
+            round(float((xs.min() + xs.max()) / 2.0), 4),
+            round(float((ys.min() + ys.max()) / 2.0), 4),
+            round(float(np.median(zs)), 4),
+        ]
+        return {
+            "camera": camera,
+            "resolution": resolution,
+            "mode": "region",
+            "row_range": [r0, r1],
+            "col_range": [c0, c1],
+            "z_band": [z_min, z_max],
+            "center_xyz": center,
+            "median_xyz": [
+                round(float(np.median(xs)), 4),
+                round(float(np.median(ys)), 4),
+                round(float(np.median(zs)), 4),
+            ],
+            "n_valid": int(pts.shape[0]),
+            "step": nn,
+            "image_size": [height, width],
+            "source_artifact": source_artifact,
+        }
+
     if row < 0 or row >= height or col < 0 or col >= width:
         return {
             "error": (
