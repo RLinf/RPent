@@ -1,5 +1,5 @@
-配置 action primitive
-=====================
+Action primitives
+=================
 
 Planner 决定 *做什么*, 而 **action primitive** 决定 *怎么做*。所谓 primitive
 就是把一次 tool 调用 (``pi0_pick``、``move_to``、``open_drawer``…) 变成

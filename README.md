@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_logo.png" alt="RPent-logo" width="760"/>
+  <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_logo.png" alt="RPent-logo" width="365"/>
 </div>
 
 <div align="center">
@@ -34,13 +34,13 @@ RPent is built upon three core design principles: Service-oriented, Standardized
 
 - [2026/07] 🔥 Our first RPent publication, [Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents](https://arxiv.org/abs/2607.08448), is released.
 
-## Supported Environments
+## Feature Matrix
 
 <table width="100%">
   <thead align="center" valign="bottom">
     <tr>
       <th width="26%">Agentic Planner</th>
-      <th width="28%">Action Primitives</th>
+      <th width="28%">Action Primitive</th>
       <th width="26%" align="left">Simulator</th>
       <th width="20%">Real World</th>
     </tr>
@@ -49,44 +49,34 @@ RPent is built upon three core design principles: Service-oriented, Standardized
     <tr>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><b>api</b> — pydantic-ai ✅</li>
-          <ul>
-            <li>Anthropic (Claude) ✅</li>
-            <li>OpenAI (responses) ✅</li>
-            <li>OpenAI-compatible (chat) ✅</li>
-          </ul>
-          <li><b>claude_code</b> — Claude Agent SDK ✅</li>
-          <li><b>codex</b> — OpenAI Codex SDK ✅</li>
+          <li>Claude Code ✅</li>
+          <li>Codex ✅</li>
+          <li>Custom planner ✅</li>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><b>VLA manipulation</b> ✅</li>
+          <li><b>VLA manipulation</b></li>
           <ul>
-            <li>Pi0.5 (LIBERO, HTTP) ✅</li>
-            <li>RLDX-1 (RoboCasa, socket-RPC) ✅</li>
+            <li>Pi0.5 ✅</li>
+            <li>RLDX-1</li>
+          </ul>
+          <li><b>WAM manipulation</b></li>
+          <ul>
+            <li>DreamZero</li>
           </ul>
         </ul>
       </td>
       <td style="text-align: left; padding-left: 8px;">
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><b>LIBERO</b> (standard / pro / plus) ✅</li>
-          <ul>
-            <li>libero_object · _task / _swap / _lan</li>
-            <li>libero_goal · _task / _swap / _lan</li>
-            <li>libero_spatial · _task / _lan</li>
-            <li>libero_10 · _task / _swap / _lan</li>
-          </ul>
-          <li><b>RoboCasa</b> (kitchen, long-horizon) ✅</li>
-          <ul>
-            <li>PickPlace* · Open/Close* · TurnOn/Off* …</li>
-          </ul>
+          <li>LIBERO-PRO ✅</li>
+          <li>RoboCasa </li>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><b>Franka</b></li>
-          <li><b>SO-101</b></li>
+          <li>Franka</li>
+          <li>SO-101</li>
         </ul>
       </td>
     </tr>

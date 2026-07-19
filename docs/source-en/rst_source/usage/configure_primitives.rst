@@ -1,5 +1,5 @@
-Configure action primitives
-===========================
+Action primitives
+=================
 
 Where the planner chooses *what* to do, the **action primitive**
 chooses *how* it happens. A primitive is whatever turns a tool call

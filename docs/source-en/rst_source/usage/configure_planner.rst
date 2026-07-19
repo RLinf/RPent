@@ -1,5 +1,5 @@
-Configure planner
-=================
+Agentic planner
+===============
 
 RPent's reasoning brain — the *cerebrum* — is chosen with a single CLI
 flag:

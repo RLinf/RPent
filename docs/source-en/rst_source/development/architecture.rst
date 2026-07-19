@@ -1,5 +1,5 @@
-RPent architecture
-==================
+System internals
+================
 
 This page is the implementation-level view of RPent. It walks through
 what the three processes actually own, how they communicate, and how
