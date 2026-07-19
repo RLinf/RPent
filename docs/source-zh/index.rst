@@ -94,7 +94,7 @@
    :hidden:
    :caption: 开发教程
 
-   系统内部 <rst_source/development/architecture>
+   系统设计 <rst_source/development/architecture>
    添加新机器人 <rst_source/development/add_robot>
    添加 action primitive <rst_source/development/add_primitive>
    Memory 管理 <rst_source/development/memory>
