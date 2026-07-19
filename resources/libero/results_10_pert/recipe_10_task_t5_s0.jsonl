@@ -1,0 +1,1 @@
+{"action": "pi0_pick", "prompt": "pick up the cup and place it in the back compartment of the caddy", "max_chunks": 50, "lift_thresh": 0.5, "gripper_closed_thresh": 0.0}
