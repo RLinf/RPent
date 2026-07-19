@@ -90,5 +90,5 @@ Dashboard
 ---------
 
 RoboCasa 也支持 ``--dashboard``, 用法和 LIBERO 一致。把
-``--dashboard`` 加到 ``run_robocasa.sh`` 底下调的 ``cli/main.py`` 命令
+``--dashboard`` 加到 ``run_robocasa.sh`` 底下调的 ``rpent/cli/main.py`` 命令
 上即可。

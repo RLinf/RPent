@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_logo.png" alt="RPent-logo" width="365"/>
+  <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_logo.png" alt="RPent-logo" width="520"/>
 </div>
 
 <div align="center">
@@ -20,11 +20,9 @@
   <sub>RPent: Agentic Infrastructure for the Physical World</sub>
 </h1>
 
-RPent (Recursive Physical Agent) is an open framework for building embodied agents that continuously evolve through recursive interaction with the physical world. Rather than prescribing a single foundation model, RPent provides a recursive agent framework that harnesses heterogeneous intelligence, including perception, reasoning, memory, execution, and self-evolution, into a unified physical agent. Through continuous interaction, reflection, and adaptation, RPent enables physical agents to acquire new capabilities and evolve beyond their initial design.
+**RPent (Recursive Physical Agent)** is an open framework for building embodied agents that continuously evolve through recursive interaction with the physical world. Rather than prescribing a single foundation model, RPent provides a recursive agent framework that harnesses heterogeneous intelligence, including perception, reasoning, memory, execution, and self-evolution, into a unified physical agent. Through continuous interaction, reflection, and adaptation, RPent enables physical agents to acquire new capabilities and evolve beyond their initial design.
 
-The name Pent is inspired by the Pentagram, whose five points symbolize the integration of multimodal intelligence into a unified embodied agent. At its center, the infinity symbol (∞) represents the endless recursive cycle of perception, reasoning, execution, and self-evolution, through which intelligence continuously expands into the physical world.
-
-RPent is built upon three core design principles: Service-oriented, Standardized, and Composable. RPent enables capabilities to be deployed as reusable services, connected through unified interfaces, and flexibly composed into diverse physical agents. Together, these principles allow RPent to move beyond traditional robot control frameworks and establish an Agentic Infrastructure for the Physical World, where intelligence is not only deployed, but continuously built, expanded, and evolved.
+RPent is built upon three core design principles: **service-oriented, standardized, and composable**. RPent enables capabilities to be deployed as reusable services, connected through unified interfaces, and flexibly composed into diverse physical agents. Together, these principles allow RPent to move beyond traditional robot control frameworks and establish an agentic infrastructure for the physical world, where intelligence is not only deployed, but continuously built, expanded, and evolved.
 
 <div align="center">
   <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_framework.png" alt="RPent framework"/>
@@ -133,7 +131,7 @@ export CUDA_VISIBLE_DEVICES=0
 #   • OpenAI-compatible chat endpoints:  --model openai-chat:glm-5.2
 #   • OpenAI responses endpoints:        --model openai:gpt-5.5
 #   • claude_code / codex cerebrums:     no provider prefix, e.g. --model claude-opus-4-8
-python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
+python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
   --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
@@ -142,7 +140,7 @@ python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
 Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
-python cli/main.py --dashboard --dashboard-language zh-cn \
+python rpent/cli/main.py --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 ```
 

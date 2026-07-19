@@ -10,7 +10,7 @@ RPent 把一个 env 拆成两个进程:
   primitive driver 逻辑和 prompt。
 - **Driver 侧** (``robots/<env>/env_server.py``) —— 持有重量级的仿真器 /
   机器人; 通过 pickle-framed TCP RPC server
-  (``rpent.rpc_driver.socket.SocketRpcServer``) 对外暴露 env。
+  (``rpent.utils.socket_rpc.SocketRpcServer``) 对外暴露 env。
 
 两侧通过一个 ``EnvClient`` 类相连: 每个 agent 侧方法调用对应一次到 driver 的 RPC。
 
@@ -137,10 +137,10 @@ agent 侧不 import torch)。
    print(json.dumps({"event": "transport_ready", "kind": "socket",
                      "host": host, "port": bound_port}), flush=True)
 
-stdout 上的 ``transport_ready`` 事件是必须的 —— ``cli.main.start_env_server``
-会阻塞直到看到它。
+stdout 上的 ``transport_ready`` 事件是必须的 —— ``rpent/cli/main.py`` 里的
+``start_env_server()`` 会阻塞直到看到它。
 
-当前的 ``cli/main.py`` 直接 import 了 ``LiberoEnvClient`` 和 LIBERO 的 env_server
+当前的 ``rpent/cli/main.py`` 直接 import 了 ``LiberoEnvClient`` 和 LIBERO 的 env_server
 脚本路径。新增 env 时, 要么在 ``args.env_name`` 上分支选择 client 类和 driver
 脚本, 要么把这两处调用点抽到每个 env 的小型 helper 后面。
 
@@ -239,7 +239,7 @@ primitive driver ``__init__`` 的 dict —— 通常是
 .. code-block:: bash
 
    PI05_CHECKPOINT_PATH=<path> ANTHROPIC_API_KEY=<key> \
-     python -m cli.main --env myenv --suite <suite> --task <id> --seed 0 \
+     python rpent/cli/main.py --env myenv --suite <suite> --task <id> --seed 0 \
      --output-dir /tmp/myenv_smoke --cerebrum api --model anthropic:claude-opus-4-8
 
 期望: driver 输出 ``transport_ready``, agent 完成 prompt 的任务, 并调用 ``finish``。

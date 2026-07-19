@@ -1,4 +1,4 @@
-"""HTTP client for the Pi0.5 VLA `/predict` server.
+"""HTTP RPC client for the Pi0.5 VLA `/predict` server.
 
 The server lifecycle is the caller's responsibility: bring up
 ``robots/libero/vla_server.py`` (or any compatible ``/predict``

@@ -49,10 +49,12 @@ class State:
     def on_tool_result(self, name: str, result: Any) -> None:
         if not isinstance(result, dict):
             return
+        image_path = result.get("overlay_path") or result.get("image_path")
+        image_cam_path = result.get("image_cam_path")
         self._update_frame(
             step=result.get("step"),
-            image=result.get("_image_bytes"),
-            image_cam=result.get("_image_cam_bytes"),
+            image=Path(image_path).read_bytes() if image_path else None,
+            image_cam=Path(image_cam_path).read_bytes() if image_cam_path else None,
         )
         log = result.get("log")
         if not isinstance(log, dict):

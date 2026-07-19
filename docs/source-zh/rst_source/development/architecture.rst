@@ -71,34 +71,31 @@
 
    rpent/
      cerebrum/       # Reasoning brains: api_loop, claude_code, codex, base.
+     cli/            # main.py 入口 (无 __init__.py, 不是 subpackage)。
      context/        # Prompt bundles、prompt 工具、共享 prompt 分节。
      dashboard/      # FastAPI 监控 + SSE stream (可选)。
      envs/           # EnvSpec、PromptBundle、以及 env 的 lazy 注册表。
-     rpc_driver/     # Socket RPC client/server; VLAClient HTTP shim。
      tools/          # Toolkit 基类和共享 tool 辅助函数。
-     utils/          # 配置发现、日志、小工具。
+     utils/          # 配置、日志、RPC client/server、VLA HTTP shim。
    robots/
      libero/         # LIBERO 的 env_client / env_server / vla_server /
                      # toolkit / prompt_bundle。参考实现。
      (robocasa/)     # RoboCasa driver (见 scripts/run_robocasa.sh)。
      (franka/)       # Franka driver —— 研发中。
      (so101/)        # SO-101 driver —— 研发中。
-   cli/
-     main.py         # 单一入口。起 env_server + vla_server, 构造
-                     # cerebrum, 跑循环, 结束时清理。
    scripts/          # 安装脚本 (LIBERO PRO/PLUS、RoboCasa、codex proxy)。
 
-Runner (``cli/main.py``)
-------------------------
+Runner (``rpent/cli/main.py``)
+------------------------------
 
-``cli/main.py`` 是编排者。每一次调用它会:
+``rpent/cli/main.py`` 是编排者。每一次调用它会:
 
 1. 解析 CLI flag (:doc:`../quickstart` 说明了日常最常用的那些)。
 2. 创建 per-run 的 scratch 目录 (``--output-dir`` 或
    ``runs/`` 下自动生成的目录)。
 3. 以子进程启动 **env_server**, 等待它在 stdout 上打印
    ``transport_ready`` JSON 事件。事件里带着 socket RPC 监听的
-   host/port; ``cli/main.py`` 把 endpoint 记录到 ``<output_dir>/``
+   host/port; ``rpent/cli/main.py`` 把 endpoint 记录到 ``<output_dir>/``
    下, 供 client 找到。
 4. 以同样方式启动 (或复用) **vla_server**, 复用时用
    ``--vla-endpoint``。
@@ -167,7 +164,7 @@ Toolkit 接口
 
 内置支持两种编码:
 
-- **Pickle-framed socket RPC** (``rpent.rpc_driver.socket``) —— 所有
+- **Pickle-framed socket RPC** (``rpent.utils.socket_rpc``) —— 所有
   env_server 以及 RoboCasa vla_server 都走它。适合历史堆叠的嵌套
   numpy dict (RLDX obs) 和 env_server 之间宽泛、形状多变的状态载荷。
 - **HTTP** —— LIBERO vla_server 用, 走 Pi0.5 的扁平
@@ -181,7 +178,7 @@ Dashboard (可选)
 ----------------
 
 ``rpent/dashboard/`` 是一个 FastAPI app 加一份静态前端。
-开了 ``--dashboard`` 时, ``cli/main.py`` 会把它绑在
+开了 ``--dashboard`` 时, ``rpent/cli/main.py`` 会把它绑在
 ``--dashboard-host:--dashboard-port`` 上 (默认 localhost, 随机端口),
 先起 launcher 页面选配置, 然后 stream:
 

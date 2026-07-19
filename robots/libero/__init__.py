@@ -14,7 +14,7 @@ from robots.libero.prompt_bundle import (
 def get_env_spec() -> EnvSpec:
     """Return the LIBERO env identity + prompt bundle.
 
-    Tool schemas, handlers, driver lifecycle, and the MCP allowlist live on
+    Tool schemas, handlers, server lifecycle, and the MCP allowlist live on
     the LIBERO toolkit (see :func:`get_toolkit`).
     """
     return EnvSpec(

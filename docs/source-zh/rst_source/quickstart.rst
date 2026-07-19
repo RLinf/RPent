@@ -35,7 +35,7 @@ RPent 的额外依赖)。
 
 .. code-block:: bash
 
-   python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
+   python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
      --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 
 **模型 id 规约。** ``api`` cerebrum 下, ``--model`` 需要带 provider
@@ -58,7 +58,7 @@ RPent 的额外依赖)。
 
 .. code-block:: bash
 
-   python cli/main.py --dashboard --dashboard-language zh-cn \
+   python rpent/cli/main.py --dashboard --dashboard-language zh-cn \
      --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 
 4. RoboCasa
@@ -78,7 +78,7 @@ RoboCasa 有自己的入口和一次性安装脚本:
 关键 CLI 选项
 -------------
 
-``cli/main.py`` 日常最常用的几个 flag:
+``rpent/cli/main.py`` 日常最常用的几个 flag:
 
 .. list-table::
    :header-rows: 1
