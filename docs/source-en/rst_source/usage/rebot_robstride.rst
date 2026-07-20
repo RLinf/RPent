@@ -168,9 +168,14 @@ shutdown mode. If disable fails, ``close`` does not close the controller or eras
 the physically uncertain enabled/``disable_failed`` state, allowing a later
 emergency-stop or close retry. The heartbeat protects loss of the agent process
 while the hardware server remains alive. A hard crash or ``SIGKILL`` of the
-hardware server cannot be proven fail-safe because the tested
-RobStride/motorbridge API does not expose a confirmed hardware watchdog. Never
-operate unattended, and keep the physical emergency stop reachable.
+hardware server cannot be proven fail-safe. Hardware validation on the B601
+firmware found RobStride ``0x7028 canTimeout`` present but disabled by default;
+setting it to ``20000`` both at runtime and with saved parameters did not produce
+a post-enable ``mode_state 2 -> 0`` transition during 21.5 seconds of host
+silence in MIT mode. A manual disable was still required. Do not treat
+``0x7028`` or motorbridge ``set_can_timeout_ms`` as a verified motor watchdog on
+this platform. Never operate unattended, and keep the physical emergency stop
+reachable.
 
 The first implementation provides guarded joint-space control. It does not
 claim collision avoidance, Cartesian planning, or perception-based grasping.
