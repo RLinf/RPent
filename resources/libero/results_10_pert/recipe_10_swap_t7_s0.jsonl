@@ -1,0 +1,25 @@
+{"action":"segment","prompt":"the silver woven basket on the right","camera":"agentview"}
+{"action":"segment","prompt":"the light blue box on the table","camera":"agentview"}
+{"action":"segment","prompt":"the can with a blue label in the back","camera":"agentview"}
+{"action":"segment","prompt":"the can with a blue and yellow sunflower label","camera":"agentview"}
+{"action":"segment","prompt":"the can with a red and green label in the back","camera":"agentview"}
+{"action":"pi0_doubled","prompt":"put both the alphabet soup and the cream cheese box in the basket","max_chunks":25}
+{"action":"segment","prompt":"the can with a blue and yellow sunflower label","camera":"agentview"}
+{"action":"set_gripper","gripper":1,"steps":8}
+{"action":"move_to","xyz":[-0.112,0.035,0.70],"gripper":1,"max_steps":60,"tol":0.02}
+{"action":"move_to","xyz":[0.058,0.229,0.70],"gripper":1,"max_steps":120,"tol":0.02}
+{"action":"release","steps":10}
+{"action":"move_to","xyz":[0.10,-0.21,0.85],"gripper":-1,"max_steps":80,"tol":0.03}
+{"action":"pi0_pick","prompt":"pick up the cream cheese","max_chunks":20,"lift_thresh":0.05,"gripper_closed_thresh":0.06}
+{"action":"move_to","xyz":[0.11,-0.21,0.75],"gripper":1,"max_steps":80,"tol":0.02}
+{"action":"move_to","xyz":[0.058,0.229,0.75],"gripper":1,"max_steps":150,"tol":0.02}
+{"action":"move_to","xyz":[0.058,0.229,0.62],"gripper":1,"max_steps":80,"tol":0.02}
+{"action":"release","steps":10}
+{"action":"move_to","xyz":[-0.05,0.0,0.75],"gripper":-1,"max_steps":80,"tol":0.03}
+{"action":"pi0_doubled","prompt":"put the cream cheese in the basket","max_chunks":20}
+{"action":"move_to","xyz":[0.09,-0.09,0.70],"gripper":1,"max_steps":80,"tol":0.03}
+{"action":"release","steps":10}
+{"action":"segment","prompt":"the light blue box","camera":"agentview"}
+{"action":"set_gripper","gripper":1,"steps":5}
+{"action":"move_to","xyz":[0.007,0.218,0.65],"gripper":1,"max_steps":80,"tol":0.02}
+{"action":"move_to","xyz":[0.007,0.218,0.56],"gripper":1,"max_steps":80,"tol":0.02,"step_clip":0.012}

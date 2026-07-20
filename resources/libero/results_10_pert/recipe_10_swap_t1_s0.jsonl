@@ -1,0 +1,16 @@
+{"action":"move_to","xyz":[-0.30,0.0,0.85],"gripper":-1,"step_clip":0.025,"max_steps":60}
+{"action":"move_to","xyz":[-0.02,-0.20,0.65],"gripper":-1,"step_clip":0.025,"max_steps":80}
+{"action":"move_to","xyz":[-0.02,-0.235,0.55],"gripper":-1,"step_clip":0.02,"max_steps":80}
+{"action":"pi0_pick","prompt":"pick up the cream cheese","max_chunks":15,"lift_thresh":0.05,"gripper_closed_thresh":0.06}
+{"action":"move_to","xyz":[-0.04,-0.21,0.70],"gripper":1,"step_clip":0.02,"max_steps":60}
+{"action":"move_to","xyz":[0.03,0.00,0.70],"gripper":1,"step_clip":0.02,"max_steps":80}
+{"action":"move_to","xyz":[0.03,0.20,0.70],"gripper":1,"step_clip":0.02,"max_steps":80}
+{"action":"move_pose","xyz":[0.03,0.20,0.54],"target_pitch":0.5,"gripper":1,"step_clip":0.015,"max_steps":120}
+{"action":"release"}
+{"action":"move_to","xyz":[0.03,0.20,0.75],"gripper":-1,"step_clip":0.025,"max_steps":80}
+{"action":"move_to","xyz":[0.03,0.00,0.80],"gripper":-1,"step_clip":0.025,"max_steps":80}
+{"action":"move_to","xyz":[-0.08,0.06,0.65],"gripper":-1,"step_clip":0.025,"max_steps":80}
+{"action":"move_to","xyz":[-0.075,0.058,0.55],"gripper":-1,"step_clip":0.02,"max_steps":80}
+{"action":"move_to","xyz":[-0.04,0.06,0.55],"gripper":-1,"step_clip":0.02,"max_steps":80}
+{"action":"move_to","xyz":[-0.07,0.062,0.55],"gripper":-1,"step_clip":0.015,"max_steps":80}
+{"action":"pi0_pick","prompt":"pick up the butter","max_chunks":10,"lift_thresh":0.04,"gripper_closed_thresh":0.06}
