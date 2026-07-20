@@ -1,4 +1,4 @@
-System internals
+System Internals
 ================
 
 This page is the implementation-level view of RPent. It walks through

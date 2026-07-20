@@ -1,4 +1,4 @@
-Action primitives
+Action Primitives
 =================
 
 Where the planner chooses *what* to do, the **action primitive**

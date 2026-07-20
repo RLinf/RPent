@@ -1,4 +1,4 @@
-Quick start
+Quick Start
 ===========
 
 This page ports the ``README.md`` Quick Start into the documentation.

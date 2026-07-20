@@ -1,4 +1,4 @@
-添加 action primitive
+添加 Action Primitive
 =====================
 
 RPent 中的 *action primitive* 就是把一次 tool 调用变成 environment 可

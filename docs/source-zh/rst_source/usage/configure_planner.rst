@@ -1,4 +1,4 @@
-Agentic planner
+Agentic Planner
 ===============
 
 RPent 的 reasoning brain —— 也叫 cerebrum —— 用一个 CLI flag 选择:
