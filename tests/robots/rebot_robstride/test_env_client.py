@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from robots.rebot_robstride.config import MOTION_RPC_TIMEOUT_S
 from robots.rebot_robstride.env_client import RebotRobstrideEnvClient
 
 
@@ -29,3 +30,8 @@ def test_client_uses_stable_robot_rpc_names() -> None:
     assert client.reset_stop()["method"] == "robot.reset_stop"
     assert client.emergency_stop()["method"] == "robot.emergency_stop"
     assert client.heartbeat()["method"] == "robot.heartbeat"
+
+    timeouts = {method: timeout for method, _, _, timeout in rpc.calls}
+    assert timeouts["robot.enable"] == 30.0
+    assert timeouts["robot.move_joints"] == MOTION_RPC_TIMEOUT_S
+    assert timeouts["robot.set_gripper"] == MOTION_RPC_TIMEOUT_S

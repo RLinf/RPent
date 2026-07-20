@@ -68,6 +68,19 @@ def test_shutdown_sets_event_after_emergency_stop() -> None:
     assert shutdown.is_set()
 
 
+def test_shutdown_does_not_set_event_when_emergency_stop_fails() -> None:
+    class FailingDriver(FakeDriver):
+        def emergency_stop(self):
+            raise RuntimeError("disable failed")
+
+    shutdown = threading.Event()
+    dispatch = make_dispatch(FailingDriver(), shutdown)
+
+    with pytest.raises(RuntimeError, match="disable failed"):
+        dispatch("shutdown", (), {})
+    assert not shutdown.is_set()
+
+
 @pytest.mark.parametrize("host", ["127.0.0.1", "127.0.0.2", "::1", "localhost"])
 def test_loopback_hosts_are_accepted(host: str) -> None:
     validate_loopback_host(host)

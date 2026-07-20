@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from robots.rebot_robstride.config import MOTION_RPC_TIMEOUT_S
 from rpent.utils.rpc import RpcClient
 
 _DEFAULT_TIMEOUT_S = 10.0
-_MOTION_TIMEOUT_S = 75.0
+_ENABLE_TIMEOUT_S = 30.0
 
 
 class RebotRobstrideEnvClient:
@@ -20,7 +21,7 @@ class RebotRobstrideEnvClient:
         return self._client.call("robot.state", timeout_s=_DEFAULT_TIMEOUT_S)
 
     def enable(self) -> dict[str, Any]:
-        return self._client.call("robot.enable", timeout_s=_DEFAULT_TIMEOUT_S)
+        return self._client.call("robot.enable", timeout_s=_ENABLE_TIMEOUT_S)
 
     def move_joints(
         self, positions: list[float], *, duration_s: float = 2.0
@@ -28,7 +29,7 @@ class RebotRobstrideEnvClient:
         return self._client.call(
             "robot.move_joints",
             kwargs={"positions": positions, "duration_s": duration_s},
-            timeout_s=_MOTION_TIMEOUT_S,
+            timeout_s=MOTION_RPC_TIMEOUT_S,
         )
 
     def set_gripper(
@@ -37,7 +38,7 @@ class RebotRobstrideEnvClient:
         return self._client.call(
             "robot.set_gripper",
             kwargs={"position": position, "duration_s": duration_s},
-            timeout_s=_MOTION_TIMEOUT_S,
+            timeout_s=MOTION_RPC_TIMEOUT_S,
         )
 
     def stop_motion(self) -> dict[str, Any]:

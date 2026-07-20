@@ -7,6 +7,9 @@ from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
+MOTION_RPC_TIMEOUT_S = 75.0
+SERVER_MOTION_DEADLINE_S = 68.0
+
 
 @dataclass(frozen=True)
 class JointConfig:
@@ -180,9 +183,9 @@ def _validate(config: RebotConfig) -> RebotConfig:
     if (
         isinstance(config.read_timeout_ms, bool)
         or not isinstance(config.read_timeout_ms, int)
-        or not 1 <= config.read_timeout_ms <= 1000
+        or not 1 <= config.read_timeout_ms <= 100
     ):
-        raise ValueError("read_timeout_ms must be an integer in [1, 1000]")
+        raise ValueError("read_timeout_ms must be an integer in [1, 100]")
 
     finite_positive = {
         "control_rate_hz": config.control_rate_hz,

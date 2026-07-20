@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Passive seven-motor connectivity check for a reBot DevArm RobStride arm.
 
-This script only reads RobStride mechPos and fault-report telemetry. It never
-clears faults, changes modes, enables motors, or sends a target.
+This script enables active fault reporting and reads RobStride mechPos plus
+fault/status telemetry. It never clears faults, selects a control mode, enables
+torque, or sends a target. On exit it confirms disable_all before releasing CAN.
 """
 
 from __future__ import annotations

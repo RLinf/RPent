@@ -103,6 +103,7 @@ def test_load_config_rejects_non_numeric_nested_value(tmp_path: Path) -> None:
         ("settle_timeout_s: 100000\n", "settle_timeout_s must not exceed"),
         ("heartbeat_timeout_s: 100000\n", "heartbeat_timeout_s must not exceed"),
         ("max_motion_duration_s: 100\n", "max_motion_duration_s must not exceed"),
+        ("read_timeout_ms: 101\n", "read_timeout_ms must be an integer"),
         ("gripper: {kp: 1000000000}\n", "gripper gains must satisfy"),
         ("gripper: {max_velocity: 1000000000}\n", "gripper max_velocity"),
     ],
