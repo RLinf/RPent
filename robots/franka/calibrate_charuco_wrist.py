@@ -43,7 +43,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from robots.franka import calibration as franka_calib  # noqa: E402
 from robots.lerobot import geometry as geom  # noqa: E402
-from rpent.rpc_driver.socket import SocketRpcClient  # noqa: E402
+from rpent.utils.socket_rpc import SocketRpcClient  # noqa: E402
 
 _DEFAULT_BOARD_SPEC = (
     _REPO_ROOT / "resources" / "franka" / "calibration_boards" / "franka_charuco_7x5_25mm.json"

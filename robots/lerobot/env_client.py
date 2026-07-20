@@ -14,7 +14,7 @@ from typing import Any
 
 import numpy as np
 
-from rpent.rpc_driver.base import RpcClient
+from rpent.utils.rpc import RpcClient
 
 
 # Per-method RPC timeouts (seconds). ``reset`` moves the arm to its rest pose

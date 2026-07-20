@@ -36,7 +36,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from robots.lerobot import geometry as geom  # noqa: E402
-from rpent.rpc_driver.socket import SocketRpcClient  # noqa: E402
+from rpent.utils.socket_rpc import SocketRpcClient  # noqa: E402
 
 
 def _self_test() -> int:

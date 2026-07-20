@@ -44,7 +44,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from robots.lerobot import calibration as scene_calib  # noqa: E402
 from robots.lerobot import geometry as geom  # noqa: E402
-from rpent.rpc_driver.socket import SocketRpcClient  # noqa: E402
+from rpent.utils.socket_rpc import SocketRpcClient  # noqa: E402
 
 
 def _self_test() -> int:
