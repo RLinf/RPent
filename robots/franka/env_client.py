@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from rpent.rpc_driver.base import RpcClient
+from rpent.utils.rpc import RpcClient
 
 
 _TIMEOUT_S = {

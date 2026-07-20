@@ -3,7 +3,7 @@
 Drives a physical SO101 follower arm through LeRobot's synchronous Python
 API (:class:`lerobot.robots.so_follower.SO101Follower`) and exposes a minimal
 ``reset`` / ``step`` gym-style surface over a pickle-framed TCP RPC server
-(:class:`rpent.rpc_driver.socket.SocketRpcServer`) — the same wire
+(:class:`rpent.utils.socket_rpc.SocketRpcServer`) — the same wire
 protocol the LIBERO driver uses, so the agent side talks to both identically.
 
 Unlike the LIBERO driver, this server does **not** wrap an RLinf env class:
@@ -45,7 +45,7 @@ _PHYSICALAGENT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PHYSICALAGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PHYSICALAGENT_ROOT))
 
-from rpent.rpc_driver.socket import SocketRpcServer  # noqa: E402
+from rpent.utils.socket_rpc import SocketRpcServer  # noqa: E402
 from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
 
 from robots.lerobot import calibration as scene_calib  # noqa: E402

@@ -7,7 +7,7 @@ from rpent.deployment.launcher import EnvDriverContext
 from rpent.envs.env_spec import EnvSpec
 from rpent.envs.prompt_bundle import PromptBundle
 from robots.franka.prompt import system_prompt, user_prompt
-from rpent.rpc_driver.base import RpcClient
+from rpent.utils.rpc import RpcClient
 from rpent.utils.config import get_repo_root
 
 

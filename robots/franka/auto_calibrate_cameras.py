@@ -47,7 +47,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from robots.franka import calibration as franka_calib  # noqa: E402
 from robots.lerobot import geometry as geom  # noqa: E402
-from rpent.rpc_driver.socket import SocketRpcClient  # noqa: E402
+from rpent.utils.socket_rpc import SocketRpcClient  # noqa: E402
 
 _DEFAULT_GRID_X = (0.46, 0.54, 0.60)
 _DEFAULT_GRID_Y = (-0.08, 0.0, 0.08)
