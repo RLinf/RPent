@@ -198,15 +198,18 @@ class RebotRobstrideDriver:
             except Exception as exc:
                 self._fail_closed(exc)
 
-            with self._state_lock:
-                self._enabled = True
-                self._gripper_enabled = False
-                self._stopped = False
-                self._cancel_event.clear()
-                self._last_heartbeat = self._clock()
-                self._last_targets = [
-                    second["positions"][joint.motor_id] for joint in arm_configs
-                ]
+            try:
+                with self._io_lock, self._state_lock:
+                    self._raise_if_cancelled()
+                    self._enabled = True
+                    self._gripper_enabled = False
+                    self._stopped = False
+                    self._last_heartbeat = self._clock()
+                    self._last_targets = [
+                        second["positions"][joint.motor_id] for joint in arm_configs
+                    ]
+            except Exception as exc:
+                self._fail_closed(exc)
             return {
                 "enabled": True,
                 "gripper_enabled": False,
@@ -336,13 +339,12 @@ class RebotRobstrideDriver:
             target = gripper.open_position + normalized * (
                 gripper.closed_position - gripper.open_position
             )
-            self._ensure_gripper_enabled(gripper, start)
-
             minimum_duration = (
                 MIN_JERK_PEAK_VELOCITY * abs(target - start) / gripper.max_velocity
             )
             actual_duration = max(requested_duration, minimum_duration)
             self._check_actual_duration(actual_duration)
+            self._ensure_gripper_enabled(gripper, start)
             steps = max(2, math.ceil(actual_duration * self.config.control_rate_hz))
             interval = actual_duration / steps
             feedback_stride = max(
@@ -632,7 +634,8 @@ class RebotRobstrideDriver:
             with self._io_lock:
                 self._raise_if_cancelled()
                 self._send_mit_locked(gripper, hold)
-            with self._state_lock:
+            with self._io_lock, self._state_lock:
+                self._raise_if_cancelled()
                 self._gripper_enabled = True
         except Exception as exc:
             self._fail_closed(exc)

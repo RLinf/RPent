@@ -49,6 +49,9 @@ class FakeMotor:
         self.block_enable = False
         self.enable_entered = threading.Event()
         self.release_enable = threading.Event()
+        self.block_send = False
+        self.send_entered = threading.Event()
+        self.release_send = threading.Event()
 
     def robstride_get_param_f32(self, parameter: int, timeout_ms: int = 1000) -> float:
         self.calls.append(("read", parameter, timeout_ms))
@@ -84,6 +87,10 @@ class FakeMotor:
             raise RuntimeError("injected send failure")
         self.calls.append(("send_mit", pos, vel, kp, kd, tau, self.clock()))
         self.send_event.set()
+        if self.block_send:
+            self.send_entered.set()
+            if not self.release_send.wait(timeout=2.0):
+                raise TimeoutError("test did not release motor send")
         if self.fault_on_send:
             self.fault_raw = self.fault_on_send
         if self.follow_commands:
@@ -263,6 +270,36 @@ def test_emergency_stop_cancels_an_enable_in_progress() -> None:
     assert enable_error and isinstance(enable_error[0], MotionCancelled)
     assert controllers[0].disabled
     assert not controllers[0].enabled
+
+
+def test_emergency_stop_wins_after_the_last_enable_hold() -> None:
+    driver, controllers, _ = make_driver()
+    driver.connect()
+    last_arm_motor = controllers[0].motors[6]
+    last_arm_motor.block_send = True
+    enable_error: list[BaseException] = []
+
+    def enable() -> None:
+        try:
+            driver.enable()
+        except BaseException as exc:  # captured for the test thread
+            enable_error.append(exc)
+
+    enable_thread = threading.Thread(target=enable)
+    enable_thread.start()
+    assert last_arm_motor.send_entered.wait(timeout=1.0)
+
+    stop_thread = threading.Thread(target=driver.emergency_stop)
+    stop_thread.start()
+    last_arm_motor.release_send.set()
+    enable_thread.join(timeout=1.0)
+    stop_thread.join(timeout=1.0)
+
+    assert not enable_thread.is_alive()
+    assert not stop_thread.is_alive()
+    assert enable_error and isinstance(enable_error[0], MotionCancelled)
+    assert controllers[0].disabled
+    assert driver.state()["enabled"] is False
 
 
 def test_move_joints_interpolates_and_returns_settled_evidence() -> None:
@@ -450,6 +487,29 @@ def test_gripper_refuses_motion_until_endpoints_are_calibrated() -> None:
         driver.set_gripper(0.5)
 
     assert not controllers[0].motors[7].enabled
+
+
+def test_gripper_rejects_excessive_duration_before_enable() -> None:
+    config = default_config()
+    calibrated = replace(
+        config,
+        gripper=replace(
+            config.gripper,
+            open_position=0.0,
+            closed_position=-1.0,
+            max_velocity=0.01,
+        ),
+    )
+    driver, controllers, _ = make_driver(config=calibrated)
+    driver.connect()
+    driver.enable()
+
+    with pytest.raises(ValueError, match="exceeds max_motion_duration_s"):
+        driver.set_gripper(1.0)
+
+    gripper = controllers[0].motors[7]
+    assert not gripper.enabled
+    assert not any(call[0] == "enable" for call in gripper.calls)
 
 
 def test_gripper_maps_and_returns_settlement_evidence() -> None:
