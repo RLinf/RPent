@@ -28,3 +28,4 @@ def test_client_uses_stable_robot_rpc_names() -> None:
     assert client.stop_motion()["method"] == "robot.stop_motion"
     assert client.reset_stop()["method"] == "robot.reset_stop"
     assert client.emergency_stop()["method"] == "robot.emergency_stop"
+    assert client.heartbeat()["method"] == "robot.heartbeat"

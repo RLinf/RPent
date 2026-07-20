@@ -7,7 +7,7 @@ from typing import Any
 from rpent.utils.rpc import RpcClient
 
 _DEFAULT_TIMEOUT_S = 10.0
-_MOTION_TIMEOUT_S = 120.0
+_MOTION_TIMEOUT_S = 75.0
 
 
 class RebotRobstrideEnvClient:
@@ -48,3 +48,6 @@ class RebotRobstrideEnvClient:
 
     def emergency_stop(self) -> dict[str, Any]:
         return self._client.call("robot.emergency_stop", timeout_s=_DEFAULT_TIMEOUT_S)
+
+    def heartbeat(self) -> dict[str, Any]:
+        return self._client.call("robot.heartbeat", timeout_s=1.0)

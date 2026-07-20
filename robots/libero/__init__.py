@@ -12,6 +12,12 @@ from rpent.envs.env_spec import EnvSpec
 from rpent.envs.prompt_bundle import PromptBundle
 
 
+def validate_args(args: Any, parser: Any) -> None:
+    """Reject incomplete LIBERO invocations during CLI parsing."""
+    if args.suite is None or args.task is None:
+        parser.error("--suite and --task are required for --env libero")
+
+
 def get_env_spec() -> EnvSpec:
     """Return the LIBERO env identity + prompt bundle.
 

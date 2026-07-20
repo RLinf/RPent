@@ -11,15 +11,17 @@ TOOLS_SPEC = [
         "name": "get_robot_state",
         "description": (
             "Read fresh RobStride joint, velocity, gripper, enable, and stop state. "
-            "Call this before enabling or planning any motion."
+            "Includes raw fault/warning reports. Call this before enabling or planning "
+            "any motion."
         ),
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
     {
         "name": "enable_arm",
         "description": (
-            "Explicitly enable the arm after reading state. The driver clears faults, "
-            "selects MIT mode, and holds the observed pose before returning."
+            "Explicitly enable the six arm joints after reading state. The driver "
+            "validates startup feedback, clears and rechecks faults, selects MIT mode, "
+            "and holds the observed pose before returning."
         ),
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
@@ -41,6 +43,7 @@ TOOLS_SPEC = [
                 "duration_s": {
                     "type": "number",
                     "minimum": 0.1,
+                    "maximum": 60.0,
                     "default": 2.0,
                 },
             },
@@ -57,7 +60,12 @@ TOOLS_SPEC = [
             "type": "object",
             "properties": {
                 "position": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-                "duration_s": {"type": "number", "minimum": 0.1, "default": 1.0},
+                "duration_s": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 60.0,
+                    "default": 1.0,
+                },
             },
             "required": ["position"],
         },
@@ -68,7 +76,12 @@ TOOLS_SPEC = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "duration_s": {"type": "number", "minimum": 0.1, "default": 1.0}
+                "duration_s": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 60.0,
+                    "default": 1.0,
+                }
             },
             "required": [],
         },
@@ -79,7 +92,12 @@ TOOLS_SPEC = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "duration_s": {"type": "number", "minimum": 0.1, "default": 1.0}
+                "duration_s": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 60.0,
+                    "default": 1.0,
+                }
             },
             "required": [],
         },

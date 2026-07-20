@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from argparse import Namespace
 from typing import cast
 
@@ -16,6 +17,16 @@ class FakeLiberoEnv:
     def __init__(self, rpc, *, expected_meta) -> None:
         self.rpc = rpc
         self.expected_meta = expected_meta
+
+
+class FakeRebotEnv:
+    def __init__(self, rpc) -> None:
+        self.rpc = rpc
+        self.heartbeat_seen = threading.Event()
+
+    def heartbeat(self) -> dict:
+        self.heartbeat_seen.set()
+        return {"ok": True}
 
 
 def test_libero_runtime_preserves_no_driver_attach(monkeypatch, tmp_path) -> None:
@@ -70,9 +81,7 @@ def test_rebot_runtime_supports_no_driver_attach(monkeypatch, tmp_path) -> None:
         lambda output, host, port: endpoint_calls.append((output, host, port)),
     )
     monkeypatch.setattr(rebot_runtime_module, "create_rpc_client", lambda _: fake_rpc)
-    monkeypatch.setattr(
-        rebot_runtime_module, "RebotRobstrideEnvClient", lambda rpc: ("env", rpc)
-    )
+    monkeypatch.setattr(rebot_runtime_module, "RebotRobstrideEnvClient", FakeRebotEnv)
     monkeypatch.setattr(rebot_runtime_module, "RebotRobstrideToolkit", FakeToolkit)
     args = Namespace(
         no_driver=True,
@@ -87,4 +96,51 @@ def test_rebot_runtime_supports_no_driver_attach(monkeypatch, tmp_path) -> None:
     toolkit = cast(FakeToolkit, runtime.start())
 
     assert endpoint_calls == [(tmp_path, "127.0.0.1", 46001)]
-    assert toolkit.kwargs["env"] == ("env", fake_rpc)
+    env = toolkit.kwargs["env"]
+    assert isinstance(env, FakeRebotEnv)
+    assert env.rpc is fake_rpc
+    assert env.heartbeat_seen.wait(timeout=1.0)
+    runtime.stop()
+
+
+def test_rebot_runtime_stops_the_spawned_server(monkeypatch, tmp_path) -> None:
+    fake_process = object()
+    starts: list[tuple] = []
+    stops: list[tuple] = []
+    fake_rpc = object()
+
+    def start_process(command, **kwargs):
+        starts.append((command, kwargs))
+        return fake_process
+
+    def stop_process(process, **kwargs) -> None:
+        stops.append((process, kwargs))
+
+    monkeypatch.setattr(
+        rebot_runtime_module, "start_socket_server_process", start_process
+    )
+    monkeypatch.setattr(
+        rebot_runtime_module, "stop_socket_server_process", stop_process
+    )
+    monkeypatch.setattr(rebot_runtime_module, "create_rpc_client", lambda _: fake_rpc)
+    monkeypatch.setattr(rebot_runtime_module, "RebotRobstrideEnvClient", FakeRebotEnv)
+    monkeypatch.setattr(rebot_runtime_module, "RebotRobstrideToolkit", FakeToolkit)
+    args = Namespace(
+        no_driver=False,
+        env_endpoint="127.0.0.1",
+        env_port=0,
+        env_config=None,
+    )
+    runtime = rebot_runtime_module.RebotRobstrideRuntime(
+        args=args, output_dir=tmp_path, dashboard=None
+    )
+
+    toolkit = cast(FakeToolkit, runtime.start())
+    env = toolkit.kwargs["env"]
+    assert isinstance(env, FakeRebotEnv)
+    assert env.heartbeat_seen.wait(timeout=1.0)
+    assert starts and starts[0][0][-1].endswith("robots/rebot_robstride/env_server.py")
+
+    runtime.stop()
+
+    assert stops == [(fake_process, {"output_dir": tmp_path})]

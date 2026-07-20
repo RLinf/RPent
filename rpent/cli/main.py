@@ -37,7 +37,7 @@ from datetime import datetime
 from pathlib import Path
 
 from rpent.cerebrum.base import build_cerebrum  # noqa: E402
-from rpent.envs import get_env_spec, get_runtime  # noqa: E402
+from rpent.envs import get_env_spec, get_runtime, validate_env_args  # noqa: E402
 from rpent.utils.config import (
     get_repo_root,
 )
@@ -256,6 +256,7 @@ def main() -> int:
         logger.info("launcher config applied: %s", launch_config)
 
     env_name = args.env_name
+    validate_env_args(env_name, args, parser)
     suite = args.suite or env_name
     task = args.task if args.task is not None else 0
     seed = args.seed
@@ -344,6 +345,7 @@ def main() -> int:
         stats = result.stats
         agent_error = result.error
     except Exception as e:
+        agent_error = str(e)
         logger.error("EXCEPTION in agent loop: %s", e)
     finally:
         if toolkit is not None:
@@ -362,6 +364,7 @@ def main() -> int:
         "model": args.model,
         "elapsed_s": round(elapsed, 1),
         "finish": finish_result,
+        "error": agent_error,
         "stats": stats,
         "messages": _serialize_messages(messages),
     }
@@ -389,7 +392,7 @@ def main() -> int:
             threading.Event().wait()
         except KeyboardInterrupt:
             pass
-    return 0
+    return 1 if agent_error else 0
 
 
 if __name__ == "__main__":

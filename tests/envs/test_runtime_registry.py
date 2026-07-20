@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import sys
 import types
+from argparse import ArgumentParser, Namespace
 
 import pytest
 
-from rpent.envs import get_runtime
+from rpent.envs import get_runtime, validate_env_args
 from rpent.envs.runtime import EnvRuntime
 
 
@@ -42,3 +43,20 @@ def test_get_runtime_reports_missing_factory(monkeypatch: pytest.MonkeyPatch) ->
 
     with pytest.raises(ValueError, match="does not expose get_runtime"):
         get_runtime("no_runtime")
+
+
+def test_libero_cli_validation_requires_suite_and_task() -> None:
+    parser = ArgumentParser()
+
+    with pytest.raises(SystemExit) as exc_info:
+        validate_env_args("libero", Namespace(suite=None, task=None), parser)
+
+    assert exc_info.value.code == 2
+
+
+def test_rebot_cli_validation_does_not_require_libero_arguments() -> None:
+    validate_env_args(
+        "rebot_robstride",
+        Namespace(suite=None, task=None),
+        ArgumentParser(),
+    )

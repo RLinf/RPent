@@ -58,3 +58,38 @@ gripper:
 
     with pytest.raises(ValueError, match="both be set or both be null"):
         load_config(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("control_rate_hz", ".inf"),
+        ("feedback_rate_hz", ".nan"),
+        ("settle_timeout_s", ".nan"),
+        ("max_motion_duration_s", ".inf"),
+    ],
+)
+def test_load_config_rejects_non_finite_global_values(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    path = tmp_path / "non-finite.yaml"
+    path.write_text(f"{field}: {value}\n")
+
+    with pytest.raises(ValueError, match="finite and positive"):
+        load_config(path)
+
+
+def test_load_config_rejects_unknown_root_key(tmp_path: Path) -> None:
+    path = tmp_path / "unknown.yaml"
+    path.write_text("control_rates_hz: 50\n")
+
+    with pytest.raises(ValueError, match="unknown reBot config fields"):
+        load_config(path)
+
+
+def test_load_config_rejects_non_numeric_nested_value(tmp_path: Path) -> None:
+    path = tmp_path / "bad-gripper.yaml"
+    path.write_text("gripper: {kp: fast}\n")
+
+    with pytest.raises(ValueError, match="gripper contains a non-finite value"):
+        load_config(path)

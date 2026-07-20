@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-from robots.rebot_robstride.env_server import make_dispatch
+from robots.rebot_robstride.env_server import make_dispatch, validate_loopback_host
 
 
 class FakeDriver:
@@ -29,6 +29,9 @@ class FakeDriver:
     def emergency_stop(self):
         return {"op": "estop"}
 
+    def heartbeat(self):
+        return {"op": "heartbeat"}
+
 
 def test_dispatch_maps_only_declared_robot_methods() -> None:
     shutdown = threading.Event()
@@ -51,14 +54,26 @@ def test_dispatch_maps_only_declared_robot_methods() -> None:
     assert dispatch("robot.stop_motion", (), {}) == {"op": "stop"}
     assert dispatch("robot.reset_stop", (), {}) == {"op": "reset"}
     assert dispatch("robot.emergency_stop", (), {}) == {"op": "estop"}
+    assert dispatch("robot.heartbeat", (), {}) == {"op": "heartbeat"}
 
     with pytest.raises(ValueError, match="unknown RPC method"):
         dispatch("robot.set_zero", (), {})
 
 
-def test_shutdown_sets_event_without_touching_motion() -> None:
+def test_shutdown_sets_event_after_emergency_stop() -> None:
     shutdown = threading.Event()
     dispatch = make_dispatch(FakeDriver(), shutdown)
 
     assert dispatch("shutdown", (), {}) == {"ok": True}
     assert shutdown.is_set()
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "127.0.0.2", "::1", "localhost"])
+def test_loopback_hosts_are_accepted(host: str) -> None:
+    validate_loopback_host(host)
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.4", "rpent.example"])
+def test_non_loopback_hosts_are_rejected(host: str) -> None:
+    with pytest.raises(ValueError, match="loopback"):
+        validate_loopback_host(host)

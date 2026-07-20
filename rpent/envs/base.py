@@ -17,9 +17,9 @@ from rpent.envs.env_spec import EnvSpec
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 
-# Env packages live under ``<repo>/robots/``, which is not part of the installed
-# ``rpent`` distribution. Ensure the repo root is importable so ``robots.<name>``
-# resolves regardless of the process's current working directory.
+# Source checkouts keep env packages under ``<repo>/robots/``. Installed wheels
+# package the same namespace, while this path setup preserves checkout execution
+# regardless of the process's current working directory.
 _REPO_ROOT = str(get_repo_root())
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
@@ -53,3 +53,10 @@ def get_runtime(name: str, **kwargs):
     if factory is None:
         raise ValueError(f"environment {name!r} does not expose get_runtime")
     return factory(**kwargs)
+
+
+def validate_env_args(name: str, args: Any, parser: Any) -> None:
+    """Run optional environment-specific CLI validation before side effects."""
+    validator = getattr(_resolve_env(name), "validate_args", None)
+    if validator is not None:
+        validator(args, parser)

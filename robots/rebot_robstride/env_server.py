@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import re
 import signal
@@ -27,10 +28,12 @@ def make_dispatch(driver: Any, shutdown_event: threading.Event):
         "robot.stop_motion": driver.stop_motion,
         "robot.reset_stop": driver.reset_stop,
         "robot.emergency_stop": driver.emergency_stop,
+        "robot.heartbeat": driver.heartbeat,
     }
 
     def dispatch(method: str, args: tuple, kwargs: dict):
         if method == "shutdown":
+            driver.emergency_stop()
             shutdown_event.set()
             return {"ok": True}
         handler = handlers.get(method)
@@ -39,6 +42,19 @@ def make_dispatch(driver: Any, shutdown_event: threading.Event):
         return handler(*args, **kwargs)
 
     return dispatch
+
+
+def validate_loopback_host(host: str) -> None:
+    """Reject network-exposed pickle RPC for the physical-control backend."""
+    normalized = host.strip().lower()
+    if normalized == "localhost":
+        return
+    try:
+        address = ipaddress.ip_address(normalized)
+    except ValueError as exc:
+        raise ValueError("reBot RPC host must be a loopback address") from exc
+    if not address.is_loopback:
+        raise ValueError("reBot RPC host must be a loopback address")
 
 
 def validate_socketcan(channel: str, bitrate: int) -> None:
@@ -80,6 +96,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = _build_parser().parse_args()
+    validate_loopback_host(args.host)
     config = load_config(args.config)
     validate_socketcan(config.channel, config.bitrate)
 
@@ -89,10 +106,46 @@ def main() -> int:
     try:
         initial_state = driver.connect()
         server = SocketRpcServer(
-            (args.host, args.port), make_dispatch(driver, shutdown_event)
+            (args.host, args.port),
+            make_dispatch(driver, shutdown_event),
+            priority_methods={
+                "robot.stop_motion",
+                "robot.emergency_stop",
+                "robot.heartbeat",
+                "shutdown",
+            },
         )
         host, port = server.server_address
         threading.Thread(target=server.serve_forever, daemon=True).start()
+
+        def enforce_deadman() -> None:
+            interval_s = min(max(config.heartbeat_timeout_s / 4.0, 0.05), 0.5)
+            while not shutdown_event.wait(interval_s):
+                try:
+                    if driver.enforce_heartbeat_deadman():
+                        print(
+                            json.dumps(
+                                {
+                                    "event": "heartbeat_deadman",
+                                    "action": "emergency_stop",
+                                }
+                            ),
+                            flush=True,
+                        )
+                except Exception as exc:
+                    print(
+                        json.dumps(
+                            {
+                                "event": "heartbeat_deadman_error",
+                                "error": str(exc),
+                            }
+                        ),
+                        flush=True,
+                    )
+                    shutdown_event.set()
+                    return
+
+        threading.Thread(target=enforce_deadman, daemon=True).start()
 
         def request_shutdown(_signum, _frame) -> None:
             shutdown_event.set()

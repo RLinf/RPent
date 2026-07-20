@@ -8,6 +8,7 @@ frames (length-prefixed, one frame per request/response).
 Both processes are spawned by the same user on the same host, so we use
 pickle rather than a more defensive codec.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -18,7 +19,6 @@ import threading
 import uuid
 from collections.abc import Callable
 from typing import Any
-
 
 DEFAULT_CONNECT_TIMEOUT_S = 10.0
 DEFAULT_REQUEST_TIMEOUT_S = 30.0
@@ -53,6 +53,7 @@ class RpcError(RuntimeError):
     """Raised when a remote method call returns an error."""
 
     def __init__(self, method: str, message: str, *, traceback: str | None = None):
+        """Create an RPC error with optional remote traceback text."""
         super().__init__(f"{method}: {message}")
         self.method = method
         self.server_traceback = traceback
@@ -68,6 +69,7 @@ class SocketRpcClient:
         *,
         connect_timeout_s: float = DEFAULT_CONNECT_TIMEOUT_S,
     ):
+        """Configure a client for one socket endpoint."""
         self.host = host
         self.port = int(port)
         self.connect_timeout_s = connect_timeout_s
@@ -80,6 +82,7 @@ class SocketRpcClient:
         *,
         timeout_s: float | None = None,
     ) -> Any:
+        """Call one remote method and return its decoded result."""
         req_id = str(uuid.uuid4())
         payload = {
             "id": req_id,
@@ -110,6 +113,7 @@ class SocketRpcClient:
         return response.get("result")
 
     def close(self) -> None:
+        """Retain compatibility with clients that own persistent resources."""
         return None
 
 
@@ -129,6 +133,7 @@ class _RequestHandler(socketserver.StreamRequestHandler):
             response: dict = {"id": req_id, "ok": True, "result": result}
         except Exception as exc:
             import traceback as _tb
+
             response = {
                 "id": req_id,
                 "ok": False,
@@ -151,11 +156,18 @@ class SocketRpcServer(socketserver.ThreadingTCPServer):
         self,
         server_address: tuple[str, int],
         dispatch: Callable[[str, tuple, dict], Any],
+        *,
+        priority_methods: set[str] | None = None,
     ):
+        """Create a server with optional lock-bypassing priority methods."""
         super().__init__(server_address, _RequestHandler)
         self._dispatch = dispatch
         self._dispatch_lock = threading.Lock()
+        self._priority_methods = frozenset(priority_methods or ())
 
     def dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
+        """Dispatch priority methods concurrently and serialize all others."""
+        if method in self._priority_methods:
+            return self._dispatch(method, args, kwargs)
         with self._dispatch_lock:
             return self._dispatch(method, args, kwargs)

@@ -4,10 +4,18 @@
 channel: can0
 bitrate: 1000000
 control_rate_hz: 50
+feedback_rate_hz: 10
 read_timeout_ms: 100
 settle_tolerance: 0.03
 settle_timeout_s: 2.0
-shutdown_policy: disable
+settle_samples: 3
+settle_velocity_rad_s: 0.05
+startup_sample_interval_s: 0.1
+startup_velocity_limit_rad_s: 0.1
+max_tracking_error_rad: 0.35
+velocity_abort_multiplier: 2.5
+max_motion_duration_s: 60
+heartbeat_timeout_s: 2.0
 
 # Limits are raw motor coordinates. Keep max_velocity <= 1.0 rad/s.
 joints:

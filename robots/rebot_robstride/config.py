@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -42,10 +42,18 @@ class RebotConfig:
     channel: str
     bitrate: int
     control_rate_hz: float
+    feedback_rate_hz: float
     read_timeout_ms: int
     settle_tolerance: float
     settle_timeout_s: float
-    shutdown_policy: str
+    settle_samples: int
+    settle_velocity_rad_s: float
+    startup_sample_interval_s: float
+    startup_velocity_limit_rad_s: float
+    max_tracking_error_rad: float
+    velocity_abort_multiplier: float
+    max_motion_duration_s: float
+    heartbeat_timeout_s: float
     joints: tuple[JointConfig, ...]
     gripper: GripperConfig
 
@@ -65,10 +73,18 @@ def default_config() -> RebotConfig:
             channel="can0",
             bitrate=1_000_000,
             control_rate_hz=50.0,
+            feedback_rate_hz=10.0,
             read_timeout_ms=100,
             settle_tolerance=0.03,
             settle_timeout_s=2.0,
-            shutdown_policy="disable",
+            settle_samples=3,
+            settle_velocity_rad_s=0.05,
+            startup_sample_interval_s=0.1,
+            startup_velocity_limit_rad_s=0.1,
+            max_tracking_error_rad=0.35,
+            velocity_abort_multiplier=2.5,
+            max_motion_duration_s=60.0,
+            heartbeat_timeout_s=2.0,
             joints=joints,
             gripper=GripperConfig(),
         )
@@ -92,14 +108,27 @@ def load_config(path: str | Path | None = None) -> RebotConfig:
     if not isinstance(raw, dict):
         raise ValueError("reBot config must contain a YAML mapping")
 
+    allowed_root = {field.name for field in fields(RebotConfig)}
+    unknown_root = sorted(set(raw) - allowed_root)
+    if unknown_root:
+        raise ValueError(f"unknown reBot config fields: {', '.join(unknown_root)}")
+
     scalar_fields = {
         "channel",
         "bitrate",
         "control_rate_hz",
+        "feedback_rate_hz",
         "read_timeout_ms",
         "settle_tolerance",
         "settle_timeout_s",
-        "shutdown_policy",
+        "settle_samples",
+        "settle_velocity_rad_s",
+        "startup_sample_interval_s",
+        "startup_velocity_limit_rad_s",
+        "max_tracking_error_rad",
+        "velocity_abort_multiplier",
+        "max_motion_duration_s",
+        "heartbeat_timeout_s",
     }
     updates = {key: raw[key] for key in scalar_fields if key in raw}
 
@@ -139,23 +168,64 @@ def _joint_from_mapping(row: Any) -> JointConfig:
 
 
 def _validate(config: RebotConfig) -> RebotConfig:
-    if not config.channel:
-        raise ValueError("channel must be non-empty")
-    if config.bitrate <= 0:
-        raise ValueError("bitrate must be positive")
+    if not isinstance(config.channel, str) or not config.channel:
+        raise ValueError("channel must be a non-empty string")
+    if (
+        isinstance(config.bitrate, bool)
+        or not isinstance(config.bitrate, int)
+        or config.bitrate <= 0
+    ):
+        raise ValueError("bitrate must be a positive integer")
 
-    if config.control_rate_hz <= 0:
-        raise ValueError("control_rate_hz must be positive")
-    if config.read_timeout_ms <= 0:
-        raise ValueError("read_timeout_ms must be positive")
-    if config.settle_tolerance <= 0 or config.settle_timeout_s <= 0:
-        raise ValueError("settle tolerances and timeouts must be positive")
-    if config.shutdown_policy not in {"disable", "hold"}:
-        raise ValueError("shutdown_policy must be 'disable' or 'hold'")
+    if (
+        isinstance(config.read_timeout_ms, bool)
+        or not isinstance(config.read_timeout_ms, int)
+        or not 1 <= config.read_timeout_ms <= 1000
+    ):
+        raise ValueError("read_timeout_ms must be an integer in [1, 1000]")
+
+    finite_positive = {
+        "control_rate_hz": config.control_rate_hz,
+        "feedback_rate_hz": config.feedback_rate_hz,
+        "settle_tolerance": config.settle_tolerance,
+        "settle_timeout_s": config.settle_timeout_s,
+        "settle_velocity_rad_s": config.settle_velocity_rad_s,
+        "startup_sample_interval_s": config.startup_sample_interval_s,
+        "startup_velocity_limit_rad_s": config.startup_velocity_limit_rad_s,
+        "max_tracking_error_rad": config.max_tracking_error_rad,
+        "velocity_abort_multiplier": config.velocity_abort_multiplier,
+        "max_motion_duration_s": config.max_motion_duration_s,
+        "heartbeat_timeout_s": config.heartbeat_timeout_s,
+    }
+    for name, value in finite_positive.items():
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value <= 0
+        ):
+            raise ValueError(f"{name} must be finite and positive")
+    if config.control_rate_hz > 200:
+        raise ValueError("control_rate_hz must not exceed 200 Hz")
+    if config.feedback_rate_hz > config.control_rate_hz:
+        raise ValueError("feedback_rate_hz must not exceed control_rate_hz")
+    if (
+        isinstance(config.settle_samples, bool)
+        or not isinstance(config.settle_samples, int)
+        or config.settle_samples < 1
+    ):
+        raise ValueError("settle_samples must be a positive integer")
+    if config.max_motion_duration_s >= 120:
+        raise ValueError("max_motion_duration_s must remain below the RPC timeout")
     if len(config.joints) != 6:
         raise ValueError("exactly six arm joints are required")
 
     motor_ids = [joint.motor_id for joint in config.joints] + [config.gripper.motor_id]
+    if any(
+        isinstance(motor_id, bool) or not isinstance(motor_id, int)
+        for motor_id in motor_ids
+    ):
+        raise ValueError("motor IDs must be integers")
     if len(set(motor_ids)) != len(motor_ids):
         raise ValueError("motor IDs must be unique")
     if any(not 1 <= motor_id <= 0xFF for motor_id in motor_ids):
@@ -167,7 +237,12 @@ def _validate(config: RebotConfig) -> RebotConfig:
 
     for joint in config.joints:
         values = (joint.lower, joint.upper, joint.kp, joint.kd, joint.max_velocity)
-        if not all(math.isfinite(value) for value in values):
+        if not all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            for value in values
+        ):
             raise ValueError(f"{joint.name} contains a non-finite value")
         if joint.lower >= joint.upper:
             raise ValueError(f"{joint.name} lower limit must be below upper limit")
@@ -182,13 +257,23 @@ def _validate(config: RebotConfig) -> RebotConfig:
             "gripper open_position and closed_position must both be set or both be null"
         )
     gripper_values = (gripper.kp, gripper.kd, gripper.max_velocity)
-    if not all(math.isfinite(value) for value in gripper_values):
+    if not all(
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        for value in gripper_values
+    ):
         raise ValueError("gripper contains a non-finite value")
     if gripper.kp < 0 or gripper.kd < 0 or gripper.max_velocity <= 0:
         raise ValueError("gripper gains must be non-negative and max_velocity positive")
     if gripper.open_position is not None:
         endpoints = (gripper.open_position, gripper.closed_position)
-        if not all(value is not None and math.isfinite(value) for value in endpoints):
+        if not all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            for value in endpoints
+        ):
             raise ValueError("gripper endpoints must be finite")
         if gripper.open_position == gripper.closed_position:
             raise ValueError("gripper endpoints must differ")

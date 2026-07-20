@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
+from robots.rebot_robstride.config import load_config
 from robots.rebot_robstride.env_client import RebotRobstrideEnvClient
 from robots.rebot_robstride.toolkit import RebotRobstrideToolkit
 from rpent.envs.process import start_socket_server_process, stop_socket_server_process
@@ -29,6 +31,9 @@ class RebotRobstrideRuntime(EnvRuntime):
         self.output_dir = Path(output_dir)
         self.dashboard = dashboard
         self._process: subprocess.Popen | None = None
+        self._client: RebotRobstrideEnvClient | None = None
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread: threading.Thread | None = None
 
     def start(self) -> RebotRobstrideToolkit:
         if not self.args.no_driver:
@@ -57,9 +62,36 @@ class RebotRobstrideRuntime(EnvRuntime):
             )
 
         client = RebotRobstrideEnvClient(create_rpc_client(self.output_dir))
+        self._client = client
+        config = load_config(getattr(self.args, "env_config", None))
+        interval_s = min(0.5, config.heartbeat_timeout_s / 3.0)
+        self._heartbeat_stop.clear()
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            args=(interval_s,),
+            daemon=True,
+        )
+        self._heartbeat_thread.start()
         return RebotRobstrideToolkit(env=client, dashboard=self.dashboard)
 
+    def _heartbeat_loop(self, interval_s: float) -> None:
+        while not self._heartbeat_stop.is_set():
+            client = self._client
+            if client is None:
+                return
+            try:
+                client.heartbeat()
+            except Exception:
+                if self._heartbeat_stop.is_set():
+                    return
+            self._heartbeat_stop.wait(interval_s)
+
     def stop(self) -> None:
+        self._heartbeat_stop.set()
+        if self._heartbeat_thread is not None:
+            self._heartbeat_thread.join(timeout=2.0)
+        self._heartbeat_thread = None
+        self._client = None
         stop_socket_server_process(
             self._process,
             output_dir=self.output_dir,

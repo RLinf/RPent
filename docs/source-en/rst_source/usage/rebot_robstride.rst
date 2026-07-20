@@ -36,9 +36,11 @@ Verify all seven motors before enabling torque:
 
    python scripts/check_rebot_robstride.py
 
-The check only reads RobStride ``mechPos`` (``0x7019``) and ``mechVel``
-(``0x701A``) parameters. It never clears faults, changes modes, enables motors,
-or sends a target.
+The check only reads RobStride ``mechPos`` (``0x7019``) and fault/warning
+reports. It never clears faults, changes modes, enables motors, or sends a
+target. Runtime velocity feedback is estimated from timestamped position
+samples because ``mechVel`` scaling is not consistent across the tested
+RobStride firmware variants.
 
 Configuration
 -------------
@@ -86,14 +88,17 @@ Start a physical-agent run with an explicit natural-language instruction:
      --model anthropic:claude-opus-4-8
 
 The arm starts disabled. An agent must call ``get_robot_state`` and then
-``enable_arm`` before any motion. ``enable_arm`` clears motor errors, selects
-MIT mode, enables the controller, and immediately holds the observed pose to
-avoid a startup jump.
+``enable_arm`` before any motion. ``enable_arm`` first validates raw joint
+limits and near-zero startup velocity, clears faults, verifies they are clear,
+selects MIT mode, enables only the six arm motors, and immediately holds the
+observed pose. The gripper remains disabled until a calibrated gripper command
+explicitly enables it.
 
 Available robot tools
 ---------------------
 
-- ``get_robot_state`` — fresh positions and velocities for all motors.
+- ``get_robot_state`` — fresh positions, estimated velocities, and raw
+  fault/warning reports for all motors.
 - ``enable_arm`` — explicit fault-clear, mode selection, enable, and pose hold.
 - ``move_joints`` — six raw-motor-radian targets through a bounded minimum-jerk
   trajectory with final read-back evidence.
@@ -107,13 +112,34 @@ Safety limits
 -------------
 
 ``move_joints`` rejects non-finite values, targets outside the configured joint
-limits, and malformed six-joint vectors. Requested durations are stretched when
-needed to respect each joint's configured velocity cap. Every result includes
-the target, final hardware read-back, maximum error, and ``reached`` flag.
+limits, malformed six-joint vectors, and durations above the configured hard
+maximum. Requested durations are stretched by the 1.875 peak derivative of the
+minimum-jerk profile so the actual setpoint velocity respects each configured
+cap. During motion the driver polls position and fault feedback, aborting and
+disabling all motors on a transport error, fault/warning report, excessive
+tracking error, or excessive measured velocity. Completion requires consecutive
+position-and-velocity settlement samples. Gripper results use the same
+``target``/``final``/``max_error``/``reached`` evidence contract.
+
+``robot.stop_motion``, ``robot.emergency_stop``, heartbeats, and ``shutdown``
+use a priority RPC path that bypasses the serialized motion-command lock.
+Trajectories check a cancellation latch at every control tick. A runtime worker
+sends periodic heartbeats; if the agent process disappears while torque is
+enabled, the server calls emergency stop after ``heartbeat_timeout_s``.
+
+The pickle-framed hardware RPC server accepts loopback binds only. Do not expose
+it through a TCP proxy or bind it to a LAN address.
 
 ``emergency_stop`` removes torque; an unsupported arm may fall under gravity.
 Support the arm and keep the physical emergency stop accessible during initial
 hardware validation.
+
+Normal shutdown always disables enabled motors; there is no unattended ``hold``
+shutdown mode. The heartbeat protects loss of the agent process while the
+hardware server remains alive. A hard crash or ``SIGKILL`` of the hardware
+server cannot be proven fail-safe because the tested RobStride/motorbridge API
+does not expose a confirmed hardware watchdog. Never operate unattended, and
+keep the physical emergency stop reachable.
 
 The first implementation provides guarded joint-space control. It does not
 claim collision avoidance, Cartesian planning, or perception-based grasping.
