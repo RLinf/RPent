@@ -6,6 +6,7 @@ the ``rpent`` package); an env is resolved by importing ``robots.<name>``. The
 so cerebrums and envs share the same contract types without crossing module
 layers.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -36,9 +37,19 @@ def _resolve_env(name: str) -> Any:
 
 
 def get_env_spec(name: str) -> EnvSpec:
+    """Return the static descriptor exposed by ``robots.<name>``."""
     return _resolve_env(name).get_env_spec()
 
 
 def get_toolkit(name: str, **kwargs) -> Toolkit:
     """Build the env toolkit (common tools + env-specific tools)."""
     return _resolve_env(name).get_toolkit(**kwargs)
+
+
+def get_runtime(name: str, **kwargs):
+    """Build the lifecycle adapter exposed by ``robots.<name>``."""
+    module = _resolve_env(name)
+    factory = getattr(module, "get_runtime", None)
+    if factory is None:
+        raise ValueError(f"environment {name!r} does not expose get_runtime")
+    return factory(**kwargs)

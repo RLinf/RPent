@@ -1,0 +1,60 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from robots.rebot_robstride.config import default_config, load_config
+
+
+def test_default_config_matches_rebot_robstride_bus() -> None:
+    config = default_config()
+    assert config.channel == "can0"
+    assert config.bitrate == 1_000_000
+    assert [joint.motor_id for joint in config.joints] == [1, 2, 3, 4, 5, 6]
+    assert [joint.model for joint in config.joints] == [
+        "rs-06",
+        "rs-06",
+        "rs-06",
+        "rs-00",
+        "rs-00",
+        "rs-00",
+    ]
+    assert config.gripper.motor_id == 7
+    assert config.gripper.model == "rs-00"
+    assert config.gripper.open_position is None
+    assert config.gripper.closed_position is None
+
+
+def test_load_config_rejects_duplicate_motor_ids(tmp_path: Path) -> None:
+    path = tmp_path / "duplicate.yaml"
+    path.write_text(
+        """
+channel: can0
+joints:
+  - {name: joint1, motor_id: 1, model: rs-06, lower: -2.8, upper: 2.8, kp: 20, kd: 1}
+  - {name: joint2, motor_id: 1, model: rs-06, lower: -3.14, upper: 0, kp: 20, kd: 1}
+  - {name: joint3, motor_id: 3, model: rs-06, lower: -3.14, upper: 0, kp: 20, kd: 1}
+  - {name: joint4, motor_id: 4, model: rs-00, lower: -1.57, upper: 1.57, kp: 15, kd: 1}
+  - {name: joint5, motor_id: 5, model: rs-00, lower: -1.57, upper: 1.57, kp: 15, kd: 1}
+  - {name: joint6, motor_id: 6, model: rs-00, lower: -3.14, upper: 3.14, kp: 15, kd: 1}
+gripper: {motor_id: 7, model: rs-00}
+""".strip()
+    )
+
+    with pytest.raises(ValueError, match="motor IDs must be unique"):
+        load_config(path)
+
+
+def test_load_config_rejects_half_calibrated_gripper(tmp_path: Path) -> None:
+    path = tmp_path / "gripper.yaml"
+    path.write_text(
+        """
+gripper:
+  open_position: -5.0
+  closed_position:
+""".strip()
+    )
+
+    with pytest.raises(ValueError, match="both be set or both be null"):
+        load_config(path)

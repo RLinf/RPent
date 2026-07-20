@@ -75,6 +75,7 @@ RPent is built upon three core design principles: **service-oriented, standardiz
         <ul style="margin-left: 0; padding-left: 16px;">
           <li>Franka</li>
           <li>SO-101</li>
+          <li>reBot DevArm (RobStride) ✅</li>
         </ul>
       </td>
     </tr>
@@ -177,6 +178,7 @@ See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 +
 ## Documentation
 
 - [Adding a new environment](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html) — plug a new simulator / robot into the runner ([中文](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html)).
+- [reBot DevArm (RobStride)](docs/source-en/rst_source/usage/rebot_robstride.rst) — safe SocketCAN setup, passive validation, and guarded motion tools.
 - [RoboCasa setup](docs/SETUP_ROBOCASA.zh.md) — RoboCasa365 + RLDX-1 install and run guide.
 - [`docs/`](docs/README.md) — local Sphinx build and preview instructions.
 

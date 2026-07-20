@@ -1,14 +1,15 @@
 """LIBERO environment extension."""
+
 from __future__ import annotations
 
 from typing import Any
 
-from rpent.envs.prompt_bundle import PromptBundle
-from rpent.envs.env_spec import EnvSpec
 from robots.libero.prompt_bundle import (
     system_prompt,
     user_prompt,
 )
+from rpent.envs.env_spec import EnvSpec
+from rpent.envs.prompt_bundle import PromptBundle
 
 
 def get_env_spec() -> EnvSpec:
@@ -24,6 +25,13 @@ def get_env_spec() -> EnvSpec:
             user=user_prompt,
         ),
     )
+
+
+def get_runtime(*, args: Any, output_dir: str, dashboard: Any = None):
+    """Return the LIBERO process lifecycle adapter."""
+    from robots.libero.runtime import LiberoRuntime
+
+    return LiberoRuntime(args=args, output_dir=output_dir, dashboard=dashboard)
 
 
 def get_toolkit(

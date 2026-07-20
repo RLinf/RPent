@@ -1,0 +1,29 @@
+# reBot DevArm B601-RS: RobStride motors over classic SocketCAN.
+# Bring the interface up before starting RPent:
+#   sudo ip link set can0 up type can bitrate 1000000
+channel: can0
+bitrate: 1000000
+control_rate_hz: 50
+read_timeout_ms: 100
+settle_tolerance: 0.03
+settle_timeout_s: 2.0
+shutdown_policy: disable
+
+# Limits are raw motor coordinates. Keep max_velocity <= 1.0 rad/s.
+joints:
+  - {name: joint1, motor_id: 1, model: rs-06, lower: -2.8, upper: 2.8, kp: 50, kd: 3, max_velocity: 0.5}
+  - {name: joint2, motor_id: 2, model: rs-06, lower: -3.14, upper: 0.0, kp: 150, kd: 10, max_velocity: 0.5}
+  - {name: joint3, motor_id: 3, model: rs-06, lower: -3.14, upper: 0.0, kp: 150, kd: 10, max_velocity: 0.5}
+  - {name: joint4, motor_id: 4, model: rs-00, lower: -1.57, upper: 1.57, kp: 50, kd: 5, max_velocity: 0.5}
+  - {name: joint5, motor_id: 5, model: rs-00, lower: -1.57, upper: 1.57, kp: 50, kd: 4, max_velocity: 0.5}
+  - {name: joint6, motor_id: 6, model: rs-00, lower: -3.14, upper: 3.14, kp: 50, kd: 4, max_velocity: 0.5}
+
+gripper:
+  motor_id: 7
+  model: rs-00
+  kp: 20
+  kd: 1
+  max_velocity: 1.0
+  # Deliberately unset: calibrate this specific gripper before commanding it.
+  open_position:
+  closed_position:

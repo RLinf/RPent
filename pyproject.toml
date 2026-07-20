@@ -49,6 +49,10 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 rlinf = [
     "rlinf @ git+https://github.com/jx-qiu/RLinf.git@feature/physicalagent",
 ]
+rebot-robstride = [
+    "motorbridge>=0.4.9; sys_platform == 'linux'",
+    "PyYAML>=6.0",
+]
 
 [tool.uv]
 prerelease = "allow"
