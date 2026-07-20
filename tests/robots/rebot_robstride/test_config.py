@@ -93,3 +93,25 @@ def test_load_config_rejects_non_numeric_nested_value(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="gripper contains a non-finite value"):
         load_config(path)
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "message"),
+    [
+        ("control_rate_hz: 1\n", "control_rate_hz must be in"),
+        ("feedback_rate_hz: 0.0001\n", "feedback_rate_hz must be in"),
+        ("settle_timeout_s: 100000\n", "settle_timeout_s must not exceed"),
+        ("heartbeat_timeout_s: 100000\n", "heartbeat_timeout_s must not exceed"),
+        ("max_motion_duration_s: 100\n", "max_motion_duration_s must not exceed"),
+        ("gripper: {kp: 1000000000}\n", "gripper gains must satisfy"),
+        ("gripper: {max_velocity: 1000000000}\n", "gripper max_velocity"),
+    ],
+)
+def test_load_config_rejects_values_above_safety_ceilings(
+    tmp_path: Path, yaml_text: str, message: str
+) -> None:
+    path = tmp_path / "unsafe.yaml"
+    path.write_text(yaml_text)
+
+    with pytest.raises(ValueError, match=message):
+        load_config(path)

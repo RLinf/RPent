@@ -73,6 +73,13 @@ Gripper ``open_position`` and ``closed_position`` intentionally default to
 null. Calibrate the installed gripper before setting them. RPent refuses every
 gripper command while either endpoint is missing.
 
+Safety-critical overrides have hard ceilings: control is 10–200 Hz, feedback
+is at least 5 Hz, motion is at most 60 seconds, settlement is at most 5 seconds,
+and their combined budget is at most 65 seconds versus the 75-second motion RPC
+timeout. Heartbeat timeout is 0.25–5 seconds, joint/gripper velocity is at most
+1 rad/s, and MIT gains are capped at ``kp=200`` / ``kd=20``. Configuration that
+exceeds these bounds is rejected before opening SocketCAN.
+
 Run
 ---
 
@@ -126,6 +133,10 @@ use a priority RPC path that bypasses the serialized motion-command lock.
 Trajectories check a cancellation latch at every control tick. A runtime worker
 sends periodic heartbeats; if the agent process disappears while torque is
 enabled, the server calls emergency stop after ``heartbeat_timeout_s``.
+Soft stop holds both the arm and an enabled gripper at freshly measured
+positions. If ``disable_all`` itself fails, state reports ``disable_failed=true``
+and ``reset_stop`` remains blocked until a later emergency-stop retry confirms
+that torque was removed.
 
 The pickle-framed hardware RPC server accepts loopback binds only. Do not expose
 it through a TCP proxy or bind it to a LAN address.

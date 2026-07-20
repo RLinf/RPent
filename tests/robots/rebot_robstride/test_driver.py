@@ -52,15 +52,24 @@ class FakeMotor:
         self.block_send = False
         self.send_entered = threading.Event()
         self.release_send = threading.Event()
+        self.read_delay_s = 0.0
+
+    def _delay_read(self) -> None:
+        if self.read_delay_s <= 0:
+            return
+        sleep = getattr(self.clock, "sleep", time.sleep)
+        sleep(self.read_delay_s)
 
     def robstride_get_param_f32(self, parameter: int, timeout_ms: int = 1000) -> float:
         self.calls.append(("read", parameter, timeout_ms))
+        self._delay_read()
         if parameter != MECH_POS:
             raise AssertionError(f"unexpected parameter {parameter:#x}")
         return self.position
 
     def robstride_get_fault_report(self) -> tuple[int, int]:
         self.calls.append(("fault_report",))
+        self._delay_read()
         return self.fault_raw, self.warning_raw
 
     def clear_error(self) -> None:
@@ -110,6 +119,7 @@ class FakeController:
         self.clock = clock
         self.motors: dict[int, FakeMotor] = {}
         self.disabled = False
+        self.fail_disable = False
         self.closed = False
 
     @property
@@ -130,6 +140,8 @@ class FakeController:
         return motor
 
     def disable_all(self) -> None:
+        if self.fail_disable:
+            raise RuntimeError("injected disable failure")
         self.disabled = True
         for motor in self.motors.values():
             motor.enabled = False
@@ -342,6 +354,29 @@ def test_minimum_jerk_profile_respects_configured_velocity_cap() -> None:
     assert result["actual_duration_s"] >= 1.875
 
 
+def test_feedback_latency_does_not_create_catch_up_bursts() -> None:
+    driver, controllers, _ = make_driver()
+    driver.connect()
+    driver.enable()
+    for motor in controllers[0].motors.values():
+        motor.read_delay_s = 0.003
+    motor = controllers[0].motors[1]
+    command_count = sum(call[0] == "send_mit" for call in motor.calls)
+
+    driver.move_joints([0.5, 0.0, 0.0, 0.0, 0.0, 0.0], duration_s=0.1)
+
+    commands = [call for call in motor.calls if call[0] == "send_mit"][command_count:]
+    intervals = [
+        current[6] - previous[6] for previous, current in zip(commands, commands[1:])
+    ]
+    velocities = [
+        abs(current[1] - previous[1]) / interval
+        for previous, current, interval in zip(commands, commands[1:], intervals)
+    ]
+    assert min(intervals) >= 1.0 / driver.config.control_rate_hz - 1e-9
+    assert max(velocities) <= driver.config.joints[0].max_velocity * 1.02
+
+
 def test_motion_transport_failure_disables_all_and_latches_stop() -> None:
     driver, controllers, _ = make_driver()
     driver.connect()
@@ -399,6 +434,33 @@ def test_settlement_timeout_returns_unreached_and_disables() -> None:
     assert result["reached"] is False
     assert result["enabled"] is False
     assert controllers[0].disabled
+
+
+def test_settlement_disable_failure_latches_stop_and_blocks_reset() -> None:
+    config = replace(
+        default_config(),
+        max_tracking_error_rad=0.5,
+        settle_timeout_s=0.2,
+    )
+    driver, controllers, _ = make_driver(config=config)
+    driver.connect()
+    driver.enable()
+    controllers[0].motors[1].follow_commands = False
+    controllers[0].fail_disable = True
+
+    with pytest.raises(RuntimeError, match="disable_all also failed"):
+        driver.move_joints([0.1, 0.0, 0.0, 0.0, 0.0, 0.0], duration_s=0.2)
+
+    state = driver.state()
+    assert state["enabled"] is True
+    assert state["stopped"] is True
+    assert state["disable_failed"] is True
+    with pytest.raises(RuntimeError, match="retry emergency_stop"):
+        driver.reset_stop()
+
+    controllers[0].fail_disable = False
+    driver.emergency_stop()
+    assert driver.state()["disable_failed"] is False
 
 
 def test_move_joints_rejects_limit_and_duration_violations() -> None:
@@ -530,6 +592,68 @@ def test_gripper_maps_and_returns_settlement_evidence() -> None:
     assert result["max_error"] == pytest.approx(0.0)
     assert result["reached"] is True
     assert controllers[0].motors[7].enabled
+
+
+def test_estop_between_gripper_ready_and_feedback_cannot_reenable() -> None:
+    config = default_config()
+    calibrated = replace(
+        config,
+        gripper=replace(config.gripper, open_position=-1.0, closed_position=0.0),
+    )
+    driver, controllers, _ = make_driver(config=calibrated)
+    driver.connect()
+    driver.enable()
+    original_sample = driver._sample_feedback
+    sample_entered = threading.Event()
+    release_sample = threading.Event()
+    motion_error: list[BaseException] = []
+
+    def blocked_sample():
+        sample_entered.set()
+        if not release_sample.wait(timeout=2.0):
+            raise TimeoutError("test did not release feedback")
+        return original_sample()
+
+    def move_gripper() -> None:
+        try:
+            driver.set_gripper(0.5)
+        except BaseException as exc:  # captured for the test thread
+            motion_error.append(exc)
+
+    driver._sample_feedback = blocked_sample
+    thread = threading.Thread(target=move_gripper)
+    thread.start()
+    assert sample_entered.wait(timeout=1.0)
+
+    driver.emergency_stop()
+    release_sample.set()
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert motion_error and isinstance(motion_error[0], MotionCancelled)
+    assert not controllers[0].motors[7].enabled
+    assert driver.state()["enabled"] is False
+
+
+def test_soft_stop_holds_enabled_gripper_at_measured_position() -> None:
+    config = default_config()
+    calibrated = replace(
+        config,
+        gripper=replace(config.gripper, open_position=-1.0, closed_position=0.0),
+    )
+    driver, controllers, _ = make_driver(config=calibrated)
+    driver.connect()
+    driver.enable()
+    driver.set_gripper(0.5)
+    gripper = controllers[0].motors[7]
+    gripper.position = -0.4
+
+    result = driver.stop_motion()
+
+    gripper_commands = [call for call in gripper.calls if call[0] == "send_mit"]
+    assert gripper_commands[-1][1] == pytest.approx(-0.4)
+    assert result["gripper_enabled"] is True
+    assert result["stopped"] is True
 
 
 def test_gripper_transport_failure_disables_all() -> None:

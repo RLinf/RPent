@@ -205,18 +205,39 @@ def _validate(config: RebotConfig) -> RebotConfig:
             or value <= 0
         ):
             raise ValueError(f"{name} must be finite and positive")
-    if config.control_rate_hz > 200:
-        raise ValueError("control_rate_hz must not exceed 200 Hz")
-    if config.feedback_rate_hz > config.control_rate_hz:
-        raise ValueError("feedback_rate_hz must not exceed control_rate_hz")
+    if not 10 <= config.control_rate_hz <= 200:
+        raise ValueError("control_rate_hz must be in [10, 200]")
+    if not 5 <= config.feedback_rate_hz <= config.control_rate_hz:
+        raise ValueError("feedback_rate_hz must be in [5, control_rate_hz]")
     if (
         isinstance(config.settle_samples, bool)
         or not isinstance(config.settle_samples, int)
-        or config.settle_samples < 1
+        or not 1 <= config.settle_samples <= 10
     ):
-        raise ValueError("settle_samples must be a positive integer")
-    if config.max_motion_duration_s >= 120:
-        raise ValueError("max_motion_duration_s must remain below the RPC timeout")
+        raise ValueError("settle_samples must be an integer in [1, 10]")
+    bounded_values = {
+        "settle_tolerance": (config.settle_tolerance, 0.2),
+        "settle_timeout_s": (config.settle_timeout_s, 5.0),
+        "settle_velocity_rad_s": (config.settle_velocity_rad_s, 0.5),
+        "startup_sample_interval_s": (config.startup_sample_interval_s, 1.0),
+        "startup_velocity_limit_rad_s": (
+            config.startup_velocity_limit_rad_s,
+            0.5,
+        ),
+        "max_tracking_error_rad": (config.max_tracking_error_rad, 1.0),
+        "velocity_abort_multiplier": (config.velocity_abort_multiplier, 5.0),
+        "max_motion_duration_s": (config.max_motion_duration_s, 60.0),
+        "heartbeat_timeout_s": (config.heartbeat_timeout_s, 5.0),
+    }
+    for name, (value, maximum) in bounded_values.items():
+        if value > maximum:
+            raise ValueError(f"{name} must not exceed {maximum}")
+    if config.heartbeat_timeout_s < 0.25:
+        raise ValueError("heartbeat_timeout_s must be at least 0.25")
+    if config.max_motion_duration_s + config.settle_timeout_s > 65.0:
+        raise ValueError(
+            "max_motion_duration_s + settle_timeout_s must not exceed 65 seconds"
+        )
     if len(config.joints) != 6:
         raise ValueError("exactly six arm joints are required")
 
@@ -246,8 +267,12 @@ def _validate(config: RebotConfig) -> RebotConfig:
             raise ValueError(f"{joint.name} contains a non-finite value")
         if joint.lower >= joint.upper:
             raise ValueError(f"{joint.name} lower limit must be below upper limit")
-        if joint.kp < 0 or joint.kd < 0:
-            raise ValueError(f"{joint.name} gains must be non-negative")
+        if max(abs(joint.lower), abs(joint.upper)) > 2 * math.pi:
+            raise ValueError(f"{joint.name} limits must remain within +/-2*pi")
+        if not 0 <= joint.kp <= 200 or not 0 <= joint.kd <= 20:
+            raise ValueError(
+                f"{joint.name} gains must satisfy kp in [0, 200], kd in [0, 20]"
+            )
         if not 0 < joint.max_velocity <= 1.0:
             raise ValueError(f"{joint.name} max_velocity must be in (0, 1.0]")
 
@@ -264,9 +289,12 @@ def _validate(config: RebotConfig) -> RebotConfig:
         for value in gripper_values
     ):
         raise ValueError("gripper contains a non-finite value")
-    if gripper.kp < 0 or gripper.kd < 0 or gripper.max_velocity <= 0:
-        raise ValueError("gripper gains must be non-negative and max_velocity positive")
+    if not 0 <= gripper.kp <= 200 or not 0 <= gripper.kd <= 20:
+        raise ValueError("gripper gains must satisfy kp in [0, 200], kd in [0, 20]")
+    if not 0 < gripper.max_velocity <= 1.0:
+        raise ValueError("gripper max_velocity must be in (0, 1.0]")
     if gripper.open_position is not None:
+        assert gripper.closed_position is not None
         endpoints = (gripper.open_position, gripper.closed_position)
         if not all(
             isinstance(value, (int, float))
@@ -277,4 +305,6 @@ def _validate(config: RebotConfig) -> RebotConfig:
             raise ValueError("gripper endpoints must be finite")
         if gripper.open_position == gripper.closed_position:
             raise ValueError("gripper endpoints must differ")
+        if max(abs(value) for value in endpoints) > 4 * math.pi:
+            raise ValueError("gripper endpoints must remain within +/-4*pi")
     return config

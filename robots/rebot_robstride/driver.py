@@ -62,6 +62,7 @@ class RebotRobstrideDriver:
         self._enabled = False
         self._gripper_enabled = False
         self._stopped = False
+        self._disable_failed = False
         self._last_targets: list[float] | None = None
         self._previous_positions: dict[int, float] | None = None
         self._previous_sample_time: float | None = None
@@ -107,6 +108,7 @@ class RebotRobstrideDriver:
                 with self._state_lock:
                     self._controller = controller
                     self._motors = motors
+                    self._disable_failed = False
                 snapshot = self.state()
                 self._last_targets = list(snapshot["joint_positions"])
                 return snapshot
@@ -126,6 +128,7 @@ class RebotRobstrideDriver:
             enabled = self._enabled
             gripper_enabled = self._gripper_enabled
             stopped = self._stopped
+            disable_failed = self._disable_failed
         joint_ids = [joint.motor_id for joint in self.config.joints]
         gripper_id = self.config.gripper.motor_id
         return {
@@ -133,6 +136,7 @@ class RebotRobstrideDriver:
             "enabled": enabled,
             "gripper_enabled": gripper_enabled,
             "stopped": stopped,
+            "disable_failed": disable_failed,
             "channel": self.config.channel,
             "joint_names": [joint.name for joint in self.config.joints],
             "joint_positions": [
@@ -233,7 +237,6 @@ class RebotRobstrideDriver:
             self._validate_joint_limits(target)
             requested_duration = self._validate_duration(duration_s)
 
-            self._cancel_event.clear()
             try:
                 start_state = self._sample_feedback()
                 start = [
@@ -249,18 +252,19 @@ class RebotRobstrideDriver:
             )
             actual_duration = max(requested_duration, minimum_duration)
             self._check_actual_duration(actual_duration)
-            steps = max(2, math.ceil(actual_duration * self.config.control_rate_hz))
-            interval = actual_duration / steps
-            feedback_stride = max(
-                1,
-                round(self.config.control_rate_hz / self.config.feedback_rate_hz),
-            )
+            control_interval = 1.0 / self.config.control_rate_hz
+            feedback_interval = 1.0 / self.config.feedback_rate_hz
             start_time = self._clock()
+            next_feedback = start_time + feedback_interval
 
             try:
-                for index in range(1, steps + 1):
-                    self._raise_if_cancelled()
-                    scale = _min_jerk(index / steps)
+                while True:
+                    if self._sleep_interruptible(control_interval):
+                        raise MotionCancelled("joint motion cancelled by stop request")
+                    progress = min(
+                        max((self._clock() - start_time) / actual_duration, 0.0), 1.0
+                    )
+                    scale = _min_jerk(progress)
                     waypoint = [
                         initial + (goal - initial) * scale
                         for initial, goal in zip(start, target)
@@ -270,14 +274,14 @@ class RebotRobstrideDriver:
                             self._send_mit_locked(joint, position)
                     with self._state_lock:
                         self._last_targets = waypoint
-
-                    remaining = start_time + index * interval - self._clock()
-                    if remaining > 0 and self._sleep_interruptible(remaining):
-                        raise MotionCancelled("joint motion cancelled by stop request")
-                    if index % feedback_stride == 0 or index == steps:
+                    now = self._clock()
+                    if now >= next_feedback or progress >= 1.0:
                         self._validate_motion_feedback(
                             self._sample_feedback(), waypoint
                         )
+                        next_feedback = self._clock() + feedback_interval
+                    if progress >= 1.0:
+                        break
 
                 settled = self._wait_for_joint_target(target)
             except MotionCancelled:
@@ -323,7 +327,6 @@ class RebotRobstrideDriver:
                     "gripper is not calibrated; configure open_position and closed_position"
                 )
 
-            self._cancel_event.clear()
             try:
                 snapshot = self._sample_feedback()
             except Exception as exc:
@@ -345,28 +348,30 @@ class RebotRobstrideDriver:
             actual_duration = max(requested_duration, minimum_duration)
             self._check_actual_duration(actual_duration)
             self._ensure_gripper_enabled(gripper, start)
-            steps = max(2, math.ceil(actual_duration * self.config.control_rate_hz))
-            interval = actual_duration / steps
-            feedback_stride = max(
-                1,
-                round(self.config.control_rate_hz / self.config.feedback_rate_hz),
-            )
+            control_interval = 1.0 / self.config.control_rate_hz
+            feedback_interval = 1.0 / self.config.feedback_rate_hz
             start_time = self._clock()
+            next_feedback = start_time + feedback_interval
 
             try:
-                for index in range(1, steps + 1):
-                    self._raise_if_cancelled()
-                    waypoint = start + (target - start) * _min_jerk(index / steps)
-                    with self._io_lock:
-                        self._send_mit_locked(gripper, waypoint)
-                    remaining = start_time + index * interval - self._clock()
-                    if remaining > 0 and self._sleep_interruptible(remaining):
+                while True:
+                    if self._sleep_interruptible(control_interval):
                         raise MotionCancelled(
                             "gripper motion cancelled by stop request"
                         )
-                    if index % feedback_stride == 0 or index == steps:
+                    progress = min(
+                        max((self._clock() - start_time) / actual_duration, 0.0), 1.0
+                    )
+                    waypoint = start + (target - start) * _min_jerk(progress)
+                    with self._io_lock:
+                        self._send_mit_locked(gripper, waypoint)
+                    now = self._clock()
+                    if now >= next_feedback or progress >= 1.0:
                         feedback = self._sample_feedback()
                         self._validate_gripper_feedback(feedback, waypoint)
+                        next_feedback = self._clock() + feedback_interval
+                    if progress >= 1.0:
+                        break
 
                 settled = self._wait_for_gripper_target(target)
             except MotionCancelled:
@@ -390,39 +395,63 @@ class RebotRobstrideDriver:
             }
 
     def stop_motion(self) -> dict[str, Any]:
-        """Preempt motion, latch a software stop, and hold fresh arm feedback."""
+        """Preempt motion, latch a software stop, and hold fresh motor feedback."""
         self._cancel_event.set()
         with self._state_lock:
             self._require_connected_locked()
             self._stopped = True
             enabled = self._enabled
-        if enabled:
+            gripper_enabled = self._gripper_enabled
+        if enabled or gripper_enabled:
             try:
                 snapshot = self._sample_feedback()
-                self._validate_startup_positions(snapshot)
-                self._assert_no_faults(
-                    snapshot["faults"],
-                    {joint.motor_id for joint in self.config.joints},
-                    context="soft stop",
-                )
+                if enabled:
+                    self._validate_startup_positions(snapshot)
+                    self._assert_no_faults(
+                        snapshot["faults"],
+                        {joint.motor_id for joint in self.config.joints},
+                        context="soft stop",
+                    )
+                if gripper_enabled:
+                    self._assert_no_faults(
+                        snapshot["faults"],
+                        {self.config.gripper.motor_id},
+                        context="gripper soft stop",
+                    )
                 with self._io_lock:
-                    for joint in self.config.joints:
+                    if enabled:
+                        for joint in self.config.joints:
+                            self._send_mit_locked(
+                                joint, snapshot["positions"][joint.motor_id]
+                            )
+                    if gripper_enabled:
+                        gripper = self.config.gripper
                         self._send_mit_locked(
-                            joint, snapshot["positions"][joint.motor_id]
+                            gripper, snapshot["positions"][gripper.motor_id]
                         )
                 with self._state_lock:
-                    self._last_targets = [
-                        snapshot["positions"][joint.motor_id]
-                        for joint in self.config.joints
-                    ]
+                    if enabled:
+                        self._last_targets = [
+                            snapshot["positions"][joint.motor_id]
+                            for joint in self.config.joints
+                        ]
             except Exception as exc:
                 self._fail_closed(exc)
-        return {"enabled": self.enabled, "stopped": True}
+        with self._state_lock:
+            return {
+                "enabled": self._enabled,
+                "gripper_enabled": self._gripper_enabled,
+                "stopped": True,
+            }
 
     def reset_stop(self) -> dict[str, Any]:
         """Clear only the software-stop latch; it never enables motors."""
         with self._state_lock:
             self._require_connected_locked()
+            if self._disable_failed:
+                raise RuntimeError(
+                    "disable_all previously failed; retry emergency_stop before reset_stop"
+                )
             self._stopped = False
             self._cancel_event.clear()
             return {"enabled": self._enabled, "stopped": False}
@@ -475,6 +504,7 @@ class RebotRobstrideDriver:
                     self._enabled = False
                     self._gripper_enabled = False
                     self._stopped = True
+                    self._disable_failed = False
                     self._previous_positions = None
                     self._previous_sample_time = None
 
@@ -741,6 +771,9 @@ class RebotRobstrideDriver:
             )
 
     def _disable_after_timeout(self, reason: str) -> None:
+        self._cancel_event.set()
+        with self._state_lock:
+            self._stopped = True
         try:
             self._disable_all()
         except Exception as exc:
@@ -759,15 +792,22 @@ class RebotRobstrideDriver:
         raise error
 
     def _disable_all(self) -> None:
-        with self._io_lock:
-            controller = self._controller
-            if controller is None:
-                return
-            controller.disable_all()
+        try:
+            with self._io_lock:
+                controller = self._controller
+                if controller is None:
+                    return
+                controller.disable_all()
+        except Exception:
+            with self._state_lock:
+                self._stopped = True
+                self._disable_failed = True
+            raise
         with self._state_lock:
             self._enabled = False
             self._gripper_enabled = False
             self._stopped = True
+            self._disable_failed = False
 
     def _validate_joint_limits(self, target: Sequence[float]) -> None:
         for joint, value in zip(self.config.joints, target):

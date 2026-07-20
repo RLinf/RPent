@@ -10,9 +10,9 @@ TOOLS_SPEC = [
     {
         "name": "get_robot_state",
         "description": (
-            "Read fresh RobStride joint, velocity, gripper, enable, and stop state. "
-            "Includes raw fault/warning reports. Call this before enabling or planning "
-            "any motion."
+            "Read fresh RobStride joint, velocity, gripper, enable, stop, and "
+            "disable-failure state. Includes raw fault/warning reports. Call this "
+            "before enabling or planning any motion."
         ),
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
