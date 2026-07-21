@@ -92,35 +92,25 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
 
 ## 快速开始
 
-RPent 依赖 [RLinf](https://github.com/RLinf/RLinf) 的一个 fork 分支来提供仿真器与 VLA 模型。请把两者并排 clone。
-
-**1. 并排 clone RLinf 与 RPent。**
+**1. 用一条 `pip install` 安装 RPent。**
 
 ```bash
-mkdir workspace && cd workspace
-# RPent 依赖 RLinf 的 fork 分支；后续迭代稳定后会合并回 main。
-git clone https://github.com/jx-qiu/RLinf -b feature/physicalagent rlinf
-git clone https://github.com/RLinf/RPent rpent
+git clone https://github.com/RLinf/RPent rpent && cd rpent
+pip install -e ".[full]"
 ```
 
-**2. 在 RLinf 中创建 openpi + LIBERO 虚拟环境。**
+`.[full]` 是默认的端到端组合（openpi Pi0.5 VLA + LIBERO-PRO 仿真器，运行在 RLinf 运行时之上）。如果不需要整套，可选择更小的 extra：
 
-```bash
-cd rlinf
-bash requirements/install.sh embodied --env libero --model openpi --use-mirror --venv ../.venv-opi-libero
-cd ..
-source .venv-opi-libero/bin/activate
-```
+| Extra | 安装内容 |
+| --- | --- |
+| `.[full]` | `rlinf` + `openpi` + `libero-pro`——默认运行组合 |
+| `.[libero-pro]` | 仅基础 LIBERO + LIBERO-PRO 仿真器 |
+| `.[libero-plus]` | 基础 LIBERO + LIBERO-plus 仿真器 |
+| `.[libero]` | 仅基础 LIBERO |
+| `.[openpi]` | 仅 openpi VLA |
+| `.[rlinf]` | 仅 RLinf 运行时 |
 
-**3. 在上述 venv 之上安装 RPent 的额外依赖。**
-
-```bash
-cd rpent
-uv sync --active --inexact
-bash scripts/install_libero_pro_plus.sh
-```
-
-**4. 配置密钥与 checkpoint，然后运行。**
+**2. 配置密钥与 checkpoint，然后运行。**
 
 ```bash
 # 大模型 API 密钥（api 决策大脑）
@@ -140,7 +130,7 @@ export CUDA_VISIBLE_DEVICES=0
 #   • OpenAI 兼容 chat 端点：  --model openai-chat:glm-5.2
 #   • OpenAI responses 端点：  --model openai:gpt-5.5
 #   • claude_code / codex 大脑：无需 provider 前缀，如 --model claude-opus-4-8
-python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
+rpent --suite libero_object_swap --task 2 --seed 0 \
   --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
@@ -149,7 +139,7 @@ python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
 加上 `--dashboard` 即可为本次运行打开一个浏览器监控页。它会先展示一个启动屏让你选择配置，然后实时推送推理流、实时画面与动作时间线。用 `--dashboard-language zh-cn` 切换到中文界面。
 
 ```bash
-python rpent/cli/main.py --dashboard --dashboard-language zh-cn \
+rpent --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 ```
 

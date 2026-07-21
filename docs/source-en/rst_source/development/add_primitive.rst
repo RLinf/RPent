@@ -140,7 +140,7 @@ runner supports pointing at an already-running one:
 
 .. code-block:: bash
 
-   python rpent/cli/main.py --vla-endpoint http://vla-host:8000 ...
+   rpent --vla-endpoint http://vla-host:8000 ...
 
 Design your ``vla_server`` to be **stateless across tasks** — reset
 its per-episode state through an explicit ``vla_reset`` RPC — so a

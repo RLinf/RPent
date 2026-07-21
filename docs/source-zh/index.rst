@@ -37,8 +37,8 @@
       :link-type: doc
       :text-align: center
 
-      并排克隆 RLinf + RPent, 创建虚拟环境, 安装
-      LIBERO PRO/PLUS 相关依赖。
+      克隆 RPent, 用一条 ``pip install``
+      装好整套依赖。
 
    .. grid-item-card:: 快速开始
       :link: rst_source/quickstart

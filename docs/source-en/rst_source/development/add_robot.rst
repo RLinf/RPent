@@ -257,7 +257,7 @@ Once everything compiles, the minimal smoke loop is:
 .. code-block:: bash
 
    PI05_CHECKPOINT_PATH=<path> ANTHROPIC_API_KEY=<key> \
-     python rpent/cli/main.py --env myenv --suite <suite> --task <id> --seed 0 \
+     rpent --env myenv --suite <suite> --task <id> --seed 0 \
      --output-dir /tmp/myenv_smoke --cerebrum api --model anthropic:claude-opus-4-8
 
 Expect the driver to emit ``transport_ready``, the agent to complete the

@@ -38,8 +38,8 @@ Welcome to RPent
       :link-type: doc
       :text-align: center
 
-      Install RPent with a simple command, which creates the virtualenv, install
-      the LIBERO PRO/PLUS etc.
+      Clone RPent and install the whole stack with a single
+      ``pip install``.
 
    .. grid-item-card:: Quick start
       :link: rst_source/quickstart
