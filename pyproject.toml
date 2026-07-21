@@ -49,6 +49,10 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 rlinf = [
     "rlinf @ git+https://github.com/jx-qiu/RLinf.git@feature/physicalagent",
 ]
+rebot-robstride = [
+    "motorbridge>=0.4.9; sys_platform == 'linux'",
+    "PyYAML>=6.0",
+]
 
 [tool.uv]
 prerelease = "allow"
@@ -58,8 +62,12 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rpent*"]
+include = ["rpent*", "robots*"]
 exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
+
+[tool.setuptools.package-data]
+"robots.libero" = ["README.md", "guides/*.md", "prompts/*.md"]
+"robots.rebot_robstride" = ["config/*.yaml"]
 
 [tool.ruff]
 line-length = 88

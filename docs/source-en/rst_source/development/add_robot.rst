@@ -64,7 +64,8 @@ For a new env ``myenv``, the file layout is:
 .. code-block:: text
 
    robots/myenv/
-       __init__.py            # entry point — get_env_spec() / get_toolkit() factories
+       __init__.py            # get_env_spec / get_runtime / get_toolkit factories
+       runtime.py             # process/client lifecycle behind EnvRuntime
        env_client.py          # MyEnvClient — agent-side RPC stub (§1)
        prompt_bundle.py       # system()/user() prompt factories         (§2)
        toolkit.py             # MyEnvToolkit + primitives + tool schemas (§3)
@@ -73,7 +74,7 @@ For a new env ``myenv``, the file layout is:
 
 ``__init__.py`` is the package's entry point. The registry in
 ``rpent/envs/base.py`` lazily imports ``robots.<name>`` on demand and calls its
-two factories:
+three factories:
 
 .. code-block:: python
 
@@ -84,6 +85,10 @@ two factories:
 
    def get_env_spec() -> EnvSpec:
        return EnvSpec(name="myenv", prompts=PromptBundle(system=system_prompt, user=user_prompt))
+
+   def get_runtime(*, args, output_dir, dashboard=None):
+       from robots.myenv.runtime import MyEnvRuntime
+       return MyEnvRuntime(args=args, output_dir=output_dir, dashboard=dashboard)
 
    def get_toolkit(*, primitives_kwargs: dict[str, Any], video_path: str | None = None):
        from robots.myenv.toolkit import MyEnvToolkit
@@ -150,13 +155,14 @@ Wrap the facade in a dispatcher and serve over ``SocketRpcServer``:
    print(json.dumps({"event": "transport_ready", "kind": "socket",
                      "host": host, "port": bound_port}), flush=True)
 
-The ``transport_ready`` event on stdout is required —
-``start_env_server()`` in ``rpent/cli/main.py`` blocks until it sees it.
+The ``transport_ready`` event on stdout is required — the selected
+``EnvRuntime`` waits for it before constructing the client.
 
-``rpent/cli/main.py`` currently imports ``LiberoEnvClient`` and the LIBERO env_server
-script path directly. Adding a new env means either branching on
-``args.env_name`` to pick the client class + driver script, or factoring those
-two callsites out behind a per-env helper.
+The environment's ``EnvRuntime`` owns server startup/attach, client
+construction, and shutdown. ``rpent/cli/main.py`` calls ``get_runtime`` and
+contains no robot-specific branching. See ``robots/libero/runtime.py`` for a
+model-backed simulator and ``robots/rebot_robstride/runtime.py`` for a physical
+robot without a VLA process.
 
 2. ``prompt_bundle.py``
 -----------------------

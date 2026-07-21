@@ -91,6 +91,7 @@ The code that implements the framework is split cleanly by concern:
    robots/
      libero/         # LIBERO env_client / env_server / vla_server /
                      # toolkit / prompt_bundle. The reference env.
+     rebot_robstride/ # Physical reBot driver over motorbridge + SocketCAN.
      (robocasa/)     # RoboCasa driver (see scripts/run_robocasa.sh).
      (franka/)       # Franka driver — in progress.
      (so101/)        # SO-101 driver — in progress.
@@ -105,15 +106,14 @@ The runner (``rpent/cli/main.py``)
    use day-to-day).
 2. Creates the per-run scratch directory (``--output-dir`` or an
    auto-generated one under ``runs/``).
-3. Spawns the **env_server** as a subprocess and waits for its
-   ``transport_ready`` JSON event on stdout. That event carries the
-   host/port the socket RPC is listening on; ``rpent/cli/main.py`` records
-   the endpoint under ``<output_dir>/`` so the client can find it.
-4. Spawns (or attaches to) the **vla_server** the same way, using
-   ``--vla-endpoint`` when reusing a running instance.
-5. Builds the **toolkit** for the chosen env via the env's
-   ``get_toolkit(primitives_kwargs=...)`` factory, wiring in the env
-   client and the VLA client.
+3. Builds the chosen environment's **EnvRuntime** through
+   ``get_runtime(args=..., output_dir=...)``.
+4. Calls ``runtime.start()``. The runtime starts or attaches to the processes
+   that environment needs, waits for ``transport_ready``, builds its clients,
+   and returns the environment toolkit. LIBERO starts env + VLA processes;
+   physical reBot control starts only its single-owner hardware server.
+5. Keeps process/client details outside the runner, so adding a robot never
+   adds an ``if env_name == ...`` branch to ``main.py``.
 6. Builds the **cerebrum** via ``rpent.cerebrum.base.build_cerebrum``,
    selecting one of ``api_loop.py`` / ``claude_code.py`` /
    ``codex.py`` based on ``--cerebrum``.
@@ -137,6 +137,7 @@ factories the package exposes:
 
    # robots/myenv/__init__.py
    def get_env_spec() -> EnvSpec: ...
+   def get_runtime(*, args, output_dir, dashboard=None): ...
    def get_toolkit(*, primitives_kwargs, video_path=None): ...
 
 There is **no central list** of envs. Dropping a package under
