@@ -53,7 +53,7 @@ rlinf = [
     "rlinf @ git+https://github.com/RLinf/RLinf.git@dev/physical-agent",
 ]
 openpi = [
-    "openpi @ git+https://github.com/RLinf/openpi.git",
+    "openpi @ git+https://github.com/RLinf/openpi.git@feature/physical-agent",
 ]
 libero = [
     "libero @ git+https://github.com/RLinf/LIBERO.git",
