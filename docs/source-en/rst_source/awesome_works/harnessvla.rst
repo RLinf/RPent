@@ -110,6 +110,11 @@ complementary mechanisms: semantic re-grounding by the planner, sparse and
 targeted VLA retries after restaging, and Analytic Primitives that isolate
 non-contact execution.
 
+Quick Start
+-----------
+
+* **Tutorial:** :doc:`LIBERO <../usage/libero>`
+
 Citation
 --------
 

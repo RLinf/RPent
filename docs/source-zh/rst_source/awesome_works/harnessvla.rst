@@ -94,6 +94,11 @@ Harness VLA 在标准 LIBERO 上取得 96.0% 的成功率，与 π\ :sub:`RLinf`
 这些提升来自三种相互配合的机制：Planner 完成语义重新定位，在重新预置位后
 对 VLA 进行稀疏且有针对性的重试，以及使用 Analytic Primitives 隔离非接触执行。
 
+快速开始
+--------
+
+* **教程：** :doc:`LIBERO <../usage/libero>`
+
 引用
 ----
 
