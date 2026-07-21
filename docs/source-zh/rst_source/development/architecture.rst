@@ -37,9 +37,9 @@
     把 toolkit 暴露为 in-process MCP server。
   - ``codex`` —— OpenAI Codex SDK, 通过 HTTP MCP server 桥接到
     toolkit。
-- **两个 environment、两个 VLA、一份契约。** LIBERO (Pi0.5 走 HTTP) 和
-  RoboCasa (RLDX-1 走 socket-RPC) 共享 *完全一致* 的 env/vla 进程划分;
-  只有传输协议不同, 且是按各自 observation 形状选出来的。
+- **两个 VLA、一份契约。** Pi0.5 (走 HTTP) 和 RLDX-1 (走 socket-RPC) 共享
+  *完全一致* 的 env/vla 进程划分; 只有传输协议不同, 且是按各自 observation
+  形状选出来的。
 - **实时 dashboard。** 可选的 ``--dashboard`` 会起一个本地 FastAPI
   监控页, 实时展示 agent 的 reasoning、相机 / Pi0 视图、动作时间线、
   剪辑回放 —— 提供 **双语 UI** (``--dashboard-language {en, zh-cn}``)。
@@ -54,8 +54,7 @@
 1. LLM 分析任务、调一个工具 (如 ``pi0_pick``)。
 2. 工具的 **primitive driver** 向 ``vla_server`` 请求一个 action
    chunk (``predict`` / ``vla_infer``)。
-3. ``env_server`` 执行这段 chunk (LIBERO 是 ``chunk_step``, RoboCasa
-   是逐步 ``step``)。
+3. ``env_server`` 执行这段 chunk (LIBERO 是 ``chunk_step``)。
 4. Env 渲染出新的 observation 与相机帧。
 5. 结果被组装成 text + image content block, 喂回 LLM 进入下一轮。
 
@@ -80,10 +79,9 @@
    robots/
      libero/         # LIBERO 的 env_client / env_server / vla_server /
                      # toolkit / prompt_bundle。参考实现。
-     (robocasa/)     # RoboCasa driver (见 scripts/run_robocasa.sh)。
      (franka/)       # Franka driver —— 研发中。
      (so101/)        # SO-101 driver —— 研发中。
-   scripts/          # 安装脚本 (LIBERO PRO/PLUS、RoboCasa、codex proxy)。
+   scripts/          # 安装脚本 (LIBERO PRO/PLUS、codex proxy)。
 
 Runner (``rpent/cli/main.py``)
 ------------------------------
@@ -165,7 +163,7 @@ Toolkit 接口
 内置支持两种编码:
 
 - **Pickle-framed socket RPC** (``rpent.utils.socket_rpc``) —— 所有
-  env_server 以及 RoboCasa vla_server 都走它。适合历史堆叠的嵌套
+  env_server 以及 RLDX-1 vla_server 都走它。适合历史堆叠的嵌套
   numpy dict (RLDX obs) 和 env_server 之间宽泛、形状多变的状态载荷。
 - **HTTP** —— LIBERO vla_server 用, 走 Pi0.5 的扁平
   ``image+state → action`` 载荷。方便做标准负载均衡, 也方便

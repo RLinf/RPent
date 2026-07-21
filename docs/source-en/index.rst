@@ -54,7 +54,7 @@ Welcome to RPent
       :link-type: doc
       :text-align: center
 
-      Drive the LIBERO / RoboCasa simulators or a Franka / SO-101 arm,
+      Drive the LIBERO simulator or a Franka / SO-101 arm,
       switch planners, and pick action primitives.
 
    .. grid-item-card:: Development tutorial
@@ -85,7 +85,6 @@ Welcome to RPent
    Agentic planner <rst_source/usage/configure_planner>
    Action primitives <rst_source/usage/configure_primitives>
    LIBERO <rst_source/usage/libero>
-   RoboCasa <rst_source/usage/robocasa>
    Franka <rst_source/usage/franka>
    SO-101 <rst_source/usage/so101>
 

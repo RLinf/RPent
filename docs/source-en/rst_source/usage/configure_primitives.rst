@@ -11,7 +11,7 @@ RPent supports two families of primitives out of the box:
 - **VLA policies** (Vision-Language-Action models). These run in the
   dedicated ``vla_server`` process, keep GPU weights isolated from
   the physics engine, and are called by the toolkit through a per-env
-  model client. Examples: Pi0.5 (LIBERO), RLDX-1 (RoboCasa).
+  model client. Examples: Pi0.5 (LIBERO), RLDX-1.
 - **Scripted primitives**. Deterministic motions such as ``move_to``,
   ``rotate_wrist``, ``release``, or ``back_project``. They live on the
   agent side (no VLA weights needed) and are wired directly to
@@ -19,7 +19,7 @@ RPent supports two families of primitives out of the box:
 
 For the concrete per-environment configuration (which VLA runs
 against which robot, checkpoint paths, tool surface), see the
-environment pages: :doc:`libero`, :doc:`robocasa`, :doc:`franka`,
+environment pages: :doc:`libero`, :doc:`franka`,
 :doc:`so101`.
 
 Which VLA runs where
@@ -37,10 +37,6 @@ Which VLA runs where
      - Pi0.5
      - HTTP ``/predict``
      - ``robots/libero/vla_server.py``
-   * - RoboCasa (sim)
-     - RLDX-1
-     - pickle-framed socket RPC
-     - ``robots/robocasa/vla_server.py``
    * - Franka (real)
      - Pi0.5 or RLDX-1 (task-dependent)
      - HTTP or socket
@@ -52,7 +48,7 @@ Which VLA runs where
 
 The wire codec is chosen per env to fit the observation shape: HTTP
 for flat image+state payloads (LIBERO/Pi0.5), sockets for
-history-stacked nested numpy dicts (RoboCasa/RLDX-1). See
+history-stacked nested numpy dicts (RLDX-1). See
 :doc:`../development/add_robot` for the design rationale.
 
 Reusing a running VLA server

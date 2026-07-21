@@ -11,7 +11,7 @@
 
 </div>
 
-RPent 是一个把大语言模型放进「决策回路」的**具身智能体框架**。大模型负责高层推理并调用工具；一个视觉-语言-动作（VLA）策略——如 **Pi0.5** 或 **RLDX-1**——负责底层动作执行；仿真环境（**LIBERO** 或 **RoboCasa**）返回观测与渲染画面，闭合整个回路。推理、执行、仿真各自运行在独立进程中，重量级的 GPU 模型与物理引擎不会争抢同一个 Python 解释器。
+RPent 是一个把大语言模型放进「决策回路」的**具身智能体框架**。大模型负责高层推理并调用工具；一个视觉-语言-动作（VLA）策略——如 **Pi0.5** 或 **RLDX-1**——负责底层动作执行；仿真环境（**LIBERO**）返回观测与渲染画面，闭合整个回路。推理、执行、仿真各自运行在独立进程中，重量级的 GPU 模型与物理引擎不会争抢同一个 Python 解释器。
 
 <div align="center">
   <img src="docs/architecture.svg" alt="RPent 架构" width="960"/>
@@ -25,7 +25,7 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
   - `api` —— 基于 [pydantic-ai](https://ai.pydantic.dev/) 的、与厂商无关的工具调用循环（Anthropic / OpenAI / OpenAI 兼容），带提示词缓存与历史图像裁剪。
   - `claude_code` —— 使用 [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview)，把工具容器包装成进程内 MCP server。
   - `codex` —— 使用 OpenAI Codex SDK，通过 HTTP MCP server 桥接工具。
-- **两套环境、两个 VLA、同一套契约。** LIBERO（Pi0.5 走 HTTP）与 RoboCasa（RLDX-1 走 socket-RPC）共用完全相同的 env/vla 进程拆分；仅传输编解码不同，按各自观测数据的形状而定。
+- **两个 VLA、同一套契约。** Pi0.5（走 HTTP）与 RLDX-1（走 socket-RPC）共用完全相同的 env/vla 进程拆分；仅传输编解码不同，按各自观测数据的形状而定。
 - **实时 Dashboard。** 可选的 `--dashboard` 会启动一个本地 FastAPI 监控页，实时推送智能体的推理流、实时摄像头 / Pi0 视角画面、动作时间线与片段回放——并提供**中英双语界面**（`--dashboard-language {en, zh-cn}`）。
 - **在磁盘上放一个包即可接入新环境。** 无需修改中心注册表——参见[接入新环境](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html)。
 
@@ -35,7 +35,7 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
 
 1. 大模型对任务进行推理，并调用某个工具（例如 `pi0_pick`）。
 2. 该工具的**原语驱动**向 `vla_server` 请求一段动作块（`predict` / `vla_infer`）。
-3. `env_server` 执行这段动作块（LIBERO 用 `chunk_step`，RoboCasa 逐步 `step`）。
+3. `env_server` 执行这段动作块（LIBERO 用 `chunk_step`）。
 4. 环境渲染出新的观测与摄像头画面。
 5. 结果被转成「文本 + 图像」内容块，回灌给大模型进入下一轮。
 
@@ -62,16 +62,12 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
             <li>libero_spatial · _task / _lan</li>
             <li>libero_10 · _task / _swap / _lan</li>
           </ul>
-          <li><b>RoboCasa</b>（厨房长程任务）✅</li>
-          <ul>
-            <li>PickPlace* · Open/Close* · TurnOn/Off* …</li>
-          </ul>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
           <li><b>Pi0.5</b>（LIBERO，HTTP）✅</li>
-          <li><b>RLDX-1</b>（RoboCasa，socket-RPC）✅</li>
+          <li><b>RLDX-1</b>（socket-RPC）✅</li>
         </ul>
       </td>
       <td>
@@ -143,17 +139,6 @@ rpent --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 ```
 
-### RoboCasa
-
-RoboCasa 使用独立的入口与安装指南。
-
-```bash
-bash scripts/setup_robocasa.sh                                # 一次性安装
-bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <种子>
-```
-
-完整的 RoboCasa365 + RLDX-1 部署流程见 [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md)。
-
 ## 主要命令行参数
 
 | 参数 | 默认值 | 说明 |
@@ -176,9 +161,8 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 ## 文档
 
 - [接入新环境](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html) —— 把新的仿真器 / 机器人接入 runner（[English](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html)）。
-- [RoboCasa 安装](docs/SETUP_ROBOCASA.zh.md) —— RoboCasa365 + RLDX-1 安装与运行指南。
 - [`docs/`](docs/README.md) —— 本地 Sphinx 构建与预览说明。
 
 ## 致谢
 
-RPent 构建于 [RLinf](https://github.com/RLinf/RLinf) 的仿真器、VLA 模型与训练基础设施之上，也得益于更广泛开源社区的 agent SDK —— [pydantic-ai](https://ai.pydantic.dev/)、[Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) 与 OpenAI Codex SDK。感谢 LIBERO、RoboCasa、robosuite、MuJoCo、openpi 背后的团队。
+RPent 构建于 [RLinf](https://github.com/RLinf/RLinf) 的仿真器、VLA 模型与训练基础设施之上，也得益于更广泛开源社区的 agent SDK —— [pydantic-ai](https://ai.pydantic.dev/)、[Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) 与 OpenAI Codex SDK。感谢 LIBERO、robosuite、MuJoCo、openpi 背后的团队。

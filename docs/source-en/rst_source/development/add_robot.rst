@@ -27,7 +27,7 @@ the env_server:
   (the GPU model). It exposes ``vla_load`` / ``vla_infer`` / ``vla_reset`` over
   its own RPC/HTTP endpoint. It imports NO simulator.
 - The toolkit receives a **model client** (e.g. ``VLAClient`` for LIBERO/Pi0.5,
-  ``RLDXVLAClient`` for RoboCasa/RLDX-1) as its ``model`` argument, alongside
+  ``RLDXVLAClient`` for RLDX-1) as its ``model`` argument, alongside
   the ``EnvClient``. The two clients point at two different server processes.
 
 **Why the split is mandatory (not optional):** the model (large GPU weights,
@@ -42,19 +42,17 @@ MUST follow this: env_server owns the sim, vla_server owns the model.
 
 **Transport may differ per env; the architecture may not.** LIBERO's
 ``vla_server.py`` speaks HTTP ``/predict`` (flat image+state payloads);
-RoboCasa's ``vla_server.py`` speaks the same pickle-framed socket RPC as its
+some envs' ``vla_server.py`` speaks the same pickle-framed socket RPC as its
 env_server, because RLDX observations are history-stacked nested numpy dicts
 (3 camera video tensors ``(1,T,H,W,3)`` + ``state.*`` + annotation + session /
 reset_memory) that ride sockets natively but would need a bespoke wire format
 over HTTP. Choose the codec that fits the obs; keep the env/vla process split
 identical.
 
-**Anything that needs the sim env object stays in env_server.** For RoboCasa,
-``check_grasp`` and ``assemble_action`` (the eval ``unmap_action`` +
-composite-controller split-index assembly) require the live robosuite env, so
-they are env_server RPCs — NOT part of the VLA server. The agent-side skill
-(``RLDXSkill``) therefore holds BOTH clients: the env client for
-render/step/grasp/assemble, the model client for inference.
+**Anything that needs the sim env object stays in env_server.** Such logic must
+be an env_server RPC — NOT part of the VLA server. The agent-side skill
+therefore holds BOTH clients: the env client for render/step and other sim
+operations, the model client for inference.
 
 Entry point
 -----------

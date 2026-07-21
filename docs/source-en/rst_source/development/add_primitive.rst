@@ -21,7 +21,7 @@ Two shapes of primitive
        (VLA / WAM / diffusion / …)
      - Own process (``vla_server``). Called via a *model client* the
        toolkit holds.
-     - Pi0.5 (LIBERO), RLDX-1 (RoboCasa)
+     - Pi0.5 (LIBERO), RLDX-1
    * - **Scripted**
        (kinematic / heuristic)
      - Agent process, sometimes with a driver-side RPC for the
@@ -92,7 +92,7 @@ model runs in its own process. Pattern:
    - Over **HTTP** if your obs is a flat ``image + state`` payload
      (LIBERO / Pi0.5 pattern).
    - Over **socket RPC** if your obs is a nested dict of numpy
-     arrays with history stacks (RoboCasa / RLDX-1 pattern).
+     arrays with history stacks (RLDX-1 pattern).
 
    Emit a ``transport_ready`` JSON event on stdout when your server
    is listening; ``rpent/cli/main.py`` blocks on it.

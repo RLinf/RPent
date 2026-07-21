@@ -52,7 +52,7 @@
       :link-type: doc
       :text-align: center
 
-      驱动 LIBERO / RoboCasa 仿真器或 Franka / SO-101 机械臂,
+      驱动 LIBERO 仿真器或 Franka / SO-101 机械臂,
       切换 planner, 选择 action primitive。
 
    .. grid-item-card:: 开发教程
@@ -83,7 +83,6 @@
    Agentic planner <rst_source/usage/configure_planner>
    Action primitives <rst_source/usage/configure_primitives>
    LIBERO <rst_source/usage/libero>
-   RoboCasa <rst_source/usage/robocasa>
    Franka <rst_source/usage/franka>
    SO-101 <rst_source/usage/so101>
 

@@ -24,7 +24,7 @@ VLA 模型跑在自己独立的进程里 (env / vla 分离)
   通过自己的 RPC/HTTP 端点暴露 ``vla_load`` / ``vla_infer`` / ``vla_reset``,
   不 import 任何仿真器。
 - toolkit 除了 ``EnvClient`` 之外, 还接收一个 **model client** (LIBERO/Pi0.5
-  用 ``VLAClient``, RoboCasa/RLDX-1 用 ``RLDXVLAClient``) 作为 ``model`` 参数。
+  用 ``VLAClient``, RLDX-1 用 ``RLDXVLAClient``) 作为 ``model`` 参数。
   两个 client 指向两个不同的 server 进程。
 
 **为什么这个分离是强制的 (而非可选):** 模型 (大 GPU 权重、自己的 CUDA 上下文、
@@ -35,17 +35,15 @@ VLA 模型跑在自己独立的进程里 (env / vla 分离)
 **必须** 遵守: env_server 持有仿真, vla_server 持有模型。
 
 **传输协议可因 env 而异, 但架构不可变。** LIBERO 的 ``vla_server.py`` 走 HTTP
-``/predict`` (扁平的 image+state 载荷); RoboCasa 的 ``vla_server.py`` 走和它
+``/predict`` (扁平的 image+state 载荷); 某些 env 的 ``vla_server.py`` 走和它
 env_server 相同的 pickle-framed socket RPC —— 因为 RLDX 观测是历史堆叠的嵌套
 numpy dict (3 路相机 video 张量 ``(1,T,H,W,3)`` + ``state.*`` + annotation +
 session/reset_memory), 用 socket 天然承载, 走 HTTP 则要额外设计 wire 格式。按
 观测形态选编解码, 但保持 env/vla 进程分离一致。
 
-**任何需要仿真 env 对象的逻辑都留在 env_server。** 对 RoboCasa, ``check_grasp``
-和 ``assemble_action`` (eval 的 ``unmap_action`` + composite-controller
-split-index 组装) 需要活的 robosuite env, 因此是 env_server 的 RPC —— **不** 属于
-VLA server。于是 agent 侧的 skill (``RLDXSkill``) 同时持有两个 client: env client
-做 render/step/grasp/assemble, model client 做推理。
+**任何需要仿真 env 对象的逻辑都留在 env_server。** 这类逻辑必须是 env_server
+的 RPC —— **不** 属于 VLA server。于是 agent 侧的 skill 会同时持有两个 client:
+env client 负责 render/step 等仿真操作, model client 负责推理。
 
 入口
 ----

@@ -9,13 +9,13 @@ RPent 内置支持两大类 primitive:
 
 - **VLA 策略** (Vision-Language-Action 模型)。跑在专门的 ``vla_server``
   进程里, 把 GPU 权重与物理引擎隔离; toolkit 通过 per-env 的 model
-  client 调用它。例如 Pi0.5 (LIBERO)、RLDX-1 (RoboCasa)。
+  client 调用它。例如 Pi0.5 (LIBERO)、RLDX-1。
 - **脚本化 primitive**。确定性运动, 如 ``move_to``、``rotate_wrist``、
   ``release`` 或 ``back_project``。它们放在 agent 侧 (不需要 VLA
   权重), 通过 ``env_server`` 的 RPC 调用。
 
 具体到每一种机器人的配置 (哪个 VLA、checkpoint 路径、tool surface),
-参见对应的 environment 页: :doc:`libero`、:doc:`robocasa`、
+参见对应的 environment 页: :doc:`libero`、
 :doc:`franka`、:doc:`so101`。
 
 不同 environment 用哪个 VLA
@@ -33,10 +33,6 @@ RPent 内置支持两大类 primitive:
      - Pi0.5
      - HTTP ``/predict``
      - ``robots/libero/vla_server.py``
-   * - RoboCasa (仿真)
-     - RLDX-1
-     - pickle-framed socket RPC
-     - ``robots/robocasa/vla_server.py``
    * - Franka (真机)
      - Pi0.5 或 RLDX-1 (依任务而定)
      - HTTP 或 socket
@@ -47,7 +43,7 @@ RPent 内置支持两大类 primitive:
      - ``robots/so101/vla_server.py`` *(规划中)*
 
 传输协议按 obs 形状选择: 扁平的 image+state 载荷用 HTTP (LIBERO/Pi0.5),
-历史堆叠的嵌套 numpy dict 用 socket (RoboCasa/RLDX-1)。设计理由参见
+历史堆叠的嵌套 numpy dict 用 socket (RLDX-1)。设计理由参见
 :doc:`../development/add_robot`。
 
 复用一个已在运行的 VLA server

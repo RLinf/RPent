@@ -43,10 +43,9 @@ around; the sections below then show how each is implemented.)*
     the toolkit as an in-process MCP server.
   - ``codex`` — the OpenAI Codex SDK, bridged to the toolkit over an
     HTTP MCP server.
-- **Two environments, two VLAs, one contract.** LIBERO (Pi0.5 over
-  HTTP) and RoboCasa (RLDX-1 over socket-RPC) share the exact same
-  env/vla process split; only the wire codec differs, chosen to fit
-  each env's observation shape.
+- **Two VLAs, one contract.** Pi0.5 (over HTTP) and RLDX-1 (over
+  socket-RPC) share the exact same env/vla process split; only the
+  wire codec differs, chosen to fit each env's observation shape.
 - **Live dashboard.** An optional ``--dashboard`` starts a local
   FastAPI monitor that streams the agent's reasoning, real-time
   camera / Pi0 views, an action timeline, and clip replays — with a
@@ -63,8 +62,7 @@ A single run is an LLM-in-the-loop cycle:
    (e.g. ``pi0_pick``).
 2. The tool's **primitive driver** asks the ``vla_server`` for an
    action chunk (``predict`` / ``vla_infer``).
-3. The ``env_server`` executes that chunk (``chunk_step`` for LIBERO,
-   stepwise ``step`` for RoboCasa).
+3. The ``env_server`` executes that chunk (``chunk_step`` for LIBERO).
 4. The env renders the resulting observation and camera frames.
 5. Results are turned into text + image content blocks and fed back
    to the LLM for the next turn.
@@ -91,10 +89,9 @@ The code that implements the framework is split cleanly by concern:
    robots/
      libero/         # LIBERO env_client / env_server / vla_server /
                      # toolkit / prompt_bundle. The reference env.
-     (robocasa/)     # RoboCasa driver (see scripts/run_robocasa.sh).
      (franka/)       # Franka driver — in progress.
      (so101/)        # SO-101 driver — in progress.
-   scripts/          # Setup scripts (LIBERO PRO/PLUS, RoboCasa, codex proxy).
+   scripts/          # Setup scripts (LIBERO PRO/PLUS, codex proxy).
 
 The runner (``rpent/cli/main.py``)
 ----------------------------------
@@ -187,7 +184,7 @@ Transport substrate
 Two codecs are supported natively:
 
 - **Pickle-framed socket RPC** (``rpent.utils.socket_rpc``) — used
-  by every env_server and by the RoboCasa vla_server. Chosen for
+  by every env_server and by the RLDX-1 vla_server. Chosen for
   history-stacked nested numpy dicts (RLDX obs) and for the wide,
   variable-shape state payloads env_servers exchange.
 - **HTTP** — used by the LIBERO vla_server for the flat

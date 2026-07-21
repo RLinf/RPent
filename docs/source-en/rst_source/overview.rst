@@ -49,7 +49,6 @@ Feature Matrix
 
          - DreamZero
      - - LIBERO-PRO ✅
-       - RoboCasa
      - - Franka
        - SO-101
 

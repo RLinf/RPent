@@ -160,11 +160,11 @@ Choosing max-tokens and max-turns
 Two knobs bound every planner run:
 
 - ``--max-tokens`` caps *per-reply* tokens. LIBERO-style tasks usually
-  finish comfortably under ``8192``; longer-horizon RoboCasa episodes
+  finish comfortably under ``8192``; longer-horizon tasks
   benefit from raising it if your model supports it.
 - ``--max-turns`` caps the *total number of tool-calling turns*. A
-  single LIBERO task rarely needs more than ~30 turns; RoboCasa
-  long-horizon tasks can approach the default ``100``.
+  single LIBERO task rarely needs more than ~30 turns; longer-horizon
+  tasks can approach the default ``100``.
 
 Both caps trigger a graceful ``finish(stuck)`` outcome rather than a
 hard crash, so you can tune them without losing the transcript.
