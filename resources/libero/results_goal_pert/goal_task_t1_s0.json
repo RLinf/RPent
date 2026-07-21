@@ -7,7 +7,7 @@
   "perturbed_task_language": "Put the plate on the stove",
   "perturbation_semantics": "Task language directs placing the plate (a thin disc) onto the stove cook region; goal predicate is On(plate, stove_cook_region).",
   "expected_baseline_behavior": "Pi0 fullshot likely picks the wrong target (akita bowl) or fails to deliver the thin plate to the stove.",
-  "strategy_notes": "Localized by back-projection from agentview world_00.npy. Plate visually identified as red-rimmed white disc near bottom center of image_cam_00.png at pixel (~205,135) -> world (0.123, 0.020, 0.902) (table-top z, plate is flat). Wrist-refined post pre-position to xy=(0.135, 0.017). Stove cook region (dark disc on white fixture, right of center, pixel ~118,190) back-projected to (-0.24, 0.23, 0.93) - slightly elevated above table top z=0.902 confirming it sits on stove fixture; classified semantically as stove burner (dark gray disc on white stove fixture). Frame = KITCHEN (eef home z=1.17).  RECIPE: (1) pre-position over plate at z=1.05 (gripper open). (2) pi0_pick with full task language as prompt; pick succeeded with gripper width=0.0118 holding plate rim, peak_lift=0.061m. (3) Single slow move_pose with locked target_pitch=0, target_yaw=0 and gripper=+1, step_clip=0.008 directly to (-0.24, 0.23, 1.05); used move_pose (not move_to) because the eef came out of pi0_pick with significant tilt (pitch~-0.46 rad) and move_to lets the orientation drift further during long traversals, dropping the thin plate.  The slow co-varying pose servo got the eef to (-0.157, 0.234, 1.054) within the predicate's xy region for the cook region, and the On(plate, stove) predicate fired even though final eef xy slightly undershot the cook center.  Many earlier attempts failed because: (a) thin plate rim slips through gripper under any large orientation change; (b) OSC ±0.30m single-step xy limit caused move_to from pick pos x=+0.135 to stove x=-0.24 to stall; (c) intermediate waypoints introduced extra orientation drift each time. Locking pose with move_pose at small step_clip resolved both.",
+  "strategy_notes": "Localized by back-projection from agentview world_00.npy. Plate visually identified as red-rimmed white disc near bottom center of image_cam_00.png at pixel (~205,135) -> world (0.123, 0.020, 0.902) (table-top z, plate is flat). Wrist-refined post pre-position to xy=(0.135, 0.017). Stove cook region (dark disc on white fixture, right of center, pixel ~118,190) back-projected to (-0.24, 0.23, 0.93) - slightly elevated above table top z=0.902 confirming it sits on stove fixture; classified semantically as stove burner (dark gray disc on white stove fixture). Frame = KITCHEN (eef home z=1.17). RECIPE: (1) pre-position over plate at z=1.05 (gripper open). (2) pi0_pick with full task language as prompt; pick succeeded with gripper width=0.0118 holding plate rim, peak_lift=0.061m. (3) Single slow move_pose with locked target_pitch=0, target_yaw=0 and gripper=+1, step_clip=0.008 directly to (-0.24, 0.23, 1.05); used move_pose (not move_to) because the eef came out of pi0_pick with significant tilt (pitch~-0.46 rad) and move_to lets the orientation drift further during long traversals, dropping the thin plate. The slow co-varying pose servo got the eef to (-0.157, 0.234, 1.054) within the predicate's xy region for the cook region, and the On(plate, stove) predicate fired even though final eef xy slightly undershot the cook center. Many earlier attempts failed because: (a) thin plate rim slips through gripper under any large orientation change; (b) OSC ±0.30m single-step xy limit caused move_to from pick pos x=+0.135 to stove x=-0.24 to stall; (c) intermediate waypoints introduced extra orientation drift each time. Locking pose with move_pose at small step_clip resolved both.",
   "pick_result": {
     "name": "pick",
     "instruction": "Put the plate on the stove",
@@ -57,5 +57,10 @@
   },
   "libero_terminated": true,
   "attempts": 9,
-  "winning_attempt_steps": [39, 40, 41, 42]
+  "winning_attempt_steps": [
+    39,
+    40,
+    41,
+    42
+  ]
 }

@@ -5,33 +5,40 @@
   "regime": "strict_perception",
   "libero_terminated": true,
   "strategy_notes": [
-    "Task: put both the cream cheese box and the butter in the basket. SOLVED on attempt 6 after 5 prior failures recorded in attempts/10_swap_t1_s0/attempt_1..5.",
+    "Task: put both the cream cheese box and the butter in the basket. SOLVED on attempt 6 after 5 prior failures recorded in prior attempts",
     "LOCALIZATION (perception-only, agentview hi-res + wrist hi-res refine):",
-    " - basket cavity floor at world (0.071, 0.216, 0.456) via z-filter z∈[0.43,0.47] over world_hi_00. x range [-0.067, 0.075], y range [0.175, 0.302].",
-    " - cream_cheese: HIDDEN in agentview behind orange juice. Found by pre-positioning eef at (-0.02, -0.20, 0.65) and scanning wrist hi-res: blue 'Cream Cheese' label pixels cluster at world (~ -0.02, -0.235, top z=0.455). Confirmed via wrist 'Cream Cheese' label visible.",
-    " - butter: tilted red 'FARM FRESH BUTTER' box behind tomato_sauce_can. Visible only from above-right wrist over (-0.08, 0.06, 0.65). Red box pixels at world (~ -0.07, +0.06, top z=0.454). Box was lying nearly flat (top face is the labeled side).",
+    "- basket cavity floor at world (0.071, 0.216, 0.456) via z-filter z∈[0.43,0.47] over world_hi_00. x range [-0.067, 0.075], y range [0.175, 0.302].",
+    "- cream_cheese: HIDDEN in agentview behind orange juice. Found by pre-positioning eef at (-0.02, -0.20, 0.65) and scanning wrist hi-res: blue 'Cream Cheese' label pixels cluster at world (~ -0.02, -0.235, top z=0.455). Confirmed via wrist 'Cream Cheese' label visible.",
+    "- butter: tilted red 'FARM FRESH BUTTER' box behind tomato_sauce_can. Visible only from above-right wrist over (-0.08, 0.06, 0.65). Red box pixels at world (~ -0.07, +0.06, top z=0.454). Box was lying nearly flat (top face is the labeled side).",
     "SEQUENCE (winning):",
-    " 1. Park robot back to (-0.30, 0, 0.85) for clear agentview.",
-    " 2. CREAM CHEESE: pre-pos (-0.02, -0.20, 0.65) for wrist scan -> exact xy from blue-label cluster -> pre-pos (-0.02, -0.235, 0.55) -> pi0_pick 'pick up the cream cheese' max_chunks=15 SUCCEEDED (gripper qpos 0.018, peak_lift 0.0696). Wrist confirmed cream cheese held.",
-    " 3. CARRY (NO set_gripper +1 — per attempt 4/5 lesson, set_gripper +1 squeezes thin box and lets it slip): lift to (-0.04, -0.21, 0.70) gripper:1 -> mid waypoint (0.03, 0.00, 0.70) -> over basket front (0.03, 0.20, 0.70). Gripper qpos stayed ~0.019 (held).",
-    " 4. PLACE CREAM CHEESE: move_pose target_pitch=0.5 to (0.03, 0.20, 0.54) -> walled at z=0.596 with tilt active (gripper-down OSC wall ~0.589 cleared by tilt). Released. Cream cheese landed IN basket front. Confirmed via wrist (basket interior with blue Cream label visible).",
-    " 5. Retract straight up (0.03, 0.20, 0.75) then move clear (0.03, 0.00, 0.80) without bumping basket.",
-    " 6. BUTTER: pre-pos (-0.08, 0.06, 0.65) for wrist scan -> red 'BUTTER' pixels cluster -> pre-pos (-0.075, 0.058, 0.55).",
-    " 7. FIRST pi0_pick butter (step 19) max_chunks=12 — picked with peak_lift=0.056, but on lift to z=0.65 with gripper:1, butter slipped out (gripper qpos collapsed 0.018->0.0007). Same failure mode as attempts 4/5: butter is thin enough that continued gripper:1 closes through it.",
-    " 8. SECOND pi0_pick butter (step 24) at pre-pos (-0.07, 0.062, 0.55) max_chunks=10, lift_thresh=0.04 — Pi0 PICKED + CARRIED + PLACED in one go (peak_lift 0.233, peak_z 0.685, final eef inside basket at (-0.013, 0.271, 0.631)). libero_terminated=true.",
+    "1. Park robot back to (-0.30, 0, 0.85) for clear agentview.",
+    "2. CREAM CHEESE: pre-pos (-0.02, -0.20, 0.65) for wrist scan -> exact xy from blue-label cluster -> pre-pos (-0.02, -0.235, 0.55) -> pi0_pick 'pick up the cream cheese' max_chunks=15 SUCCEEDED (gripper qpos 0.018, peak_lift 0.0696). Wrist confirmed cream cheese held.",
+    "3. CARRY (NO set_gripper +1 — per attempt 4/5 lesson, set_gripper +1 squeezes thin box and lets it slip): lift to (-0.04, -0.21, 0.70) gripper:1 -> mid waypoint (0.03, 0.00, 0.70) -> over basket front (0.03, 0.20, 0.70). Gripper qpos stayed ~0.019 (held).",
+    "4. PLACE CREAM CHEESE: move_pose target_pitch=0.5 to (0.03, 0.20, 0.54) -> walled at z=0.596 with tilt active (gripper-down OSC wall ~0.589 cleared by tilt). Released. Cream cheese landed IN basket front. Confirmed via wrist (basket interior with blue Cream label visible).",
+    "5. Retract straight up (0.03, 0.20, 0.75) then move clear (0.03, 0.00, 0.80) without bumping basket.",
+    "6. BUTTER: pre-pos (-0.08, 0.06, 0.65) for wrist scan -> red 'BUTTER' pixels cluster -> pre-pos (-0.075, 0.058, 0.55).",
+    "7. FIRST pi0_pick butter (step 19) max_chunks=12 — picked with peak_lift=0.056, but on lift to z=0.65 with gripper:1, butter slipped out (gripper qpos collapsed 0.018->0.0007). Same failure mode as attempts 4/5: butter is thin enough that continued gripper:1 closes through it.",
+    "8. SECOND pi0_pick butter (step 24) at pre-pos (-0.07, 0.062, 0.55) max_chunks=10, lift_thresh=0.04 — Pi0 PICKED + CARRIED + PLACED in one go (peak_lift 0.233, peak_z 0.685, final eef inside basket at (-0.013, 0.271, 0.631)). libero_terminated=true.",
     "KEY LESSONS (transferable):",
-    " - For 2-items-in-basket on libero_10_swap_t1: cream_cheese is HIDDEN behind orange_juice (y<-0.2); MUST pre-position eef + use wrist hi-res to find blue label. Agentview alone can't see it.",
-    " - For the BUTTER (thin red box): pi0_pick from low pre-pos (z=0.55) AND letting Pi0 RUN ITS FULL TRAJECTORY (don't immediately intercept with move_to gripper:1) actually places the butter directly into the basket when basket is the obvious nearby container. Pi0 has full pick+place trajectories trained.",
-    " - DO NOT set_gripper +1 on butter — it squeezes through the thin box. Cream cheese is OK to firm-grip but butter is not.",
-    " - Successful placement of cream cheese: tilt-descend via move_pose target_pitch=0.5 to z=0.54 target (walls ~0.596 with tilt). Release here puts box into basket cavity (basket floor at z=0.456, rim 0.49-0.58)."
+    "- For 2-items-in-basket on libero_10_swap_t1: cream_cheese is HIDDEN behind orange_juice (y<-0.2); MUST pre-position eef + use wrist hi-res to find blue label. Agentview alone can't see it.",
+    "- For the BUTTER (thin red box): pi0_pick from low pre-pos (z=0.55) AND letting Pi0 RUN ITS FULL TRAJECTORY (don't immediately intercept with move_to gripper:1) actually places the butter directly into the basket when basket is the obvious nearby container. Pi0 has full pick+place trajectories trained.",
+    "- DO NOT set_gripper +1 on butter — it squeezes through the thin box. Cream cheese is OK to firm-grip but butter is not.",
+    "- Successful placement of cream cheese: tilt-descend via move_pose target_pitch=0.5 to z=0.54 target (walls ~0.596 with tilt). Release here puts box into basket cavity (basket floor at z=0.456, rim 0.49-0.58)."
   ],
   "pick_result": {
     "cream_cheese": "picked + placed in basket (vertical pre-pos + pi0_pick + manual carry + tilt-descend + release)",
     "butter": "picked + placed in basket (pi0_pick from pre-pos completed full pick+place trajectory autonomously, terminating libero)"
   },
   "final_state": {
-    "robot0_eef_pos": [-0.013499842991267285, 0.27140263327838293, 0.6309974628643316],
-    "robot0_gripper_qpos": [0.036306606774540076, -0.03598549213790889],
+    "robot0_eef_pos": [
+      -0.013499842991267285,
+      0.27140263327838293,
+      0.6309974628643316
+    ],
+    "robot0_gripper_qpos": [
+      0.036306606774540076,
+      -0.03598549213790889
+    ],
     "libero_terminated": true
   }
 }

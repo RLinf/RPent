@@ -6,7 +6,7 @@
   "perturbation_type": "swap (P2 Position perturbation)",
   "task_language": "Pick the akita black bowl next to the ramekin and place it on the plate",
   "perturbation_semantics": "Two identical akita_black_bowls in scene; the target is disambiguated by spatial relation ('next to the ramekin'), not by name index.",
-  "strategy_notes": "PERCEPTION ONLY (no BDDL, no GT poses). Localized via world_hi_00.npy clustering (z>0.92 elevated mask, scipy.ndimage.label). Found 3 round-object clusters on the robot-LEFT side: comp3 at world (-0.21, +0.34, 0.94), comp4 at world (-0.21, +0.20, 0.94), comp5 at world (+0.03, +0.215, 0.94). Plate at world (+0.115, -0.045, 0.91), cookies box at (+0.05, -0.02). The largest of the three round objects (comp5, the porcelain dish with crinkled rim in middle-right of image) is the ramekin. The two akita black bowls are the back-area dishes comp3 and comp4. Distance from each bowl to the ramekin: comp4-ramekin = sqrt(0.24^2+0.01^2) = 0.24m, comp3-ramekin = sqrt(0.24^2+0.13^2) = 0.27m. So comp4 ((-0.21, +0.20)) is 'next to the ramekin' (Δy ~ 0.01m vs Δy ~ 0.13m for comp3). Matched seed-0 reference recipe coordinates within 2cm; reused the winning sequence: pre-position above target -> pi0_pick 'pick up the akita black bowl' (max_chunks=22, lift=0.06, grip=0.06) -> set_gripper +1 firm hold -> two-waypoint carry at z=1.13 to clear obstacles -> descend to z=1.04 over plate with eef_y_target = plate_y - 0.03 (bowl-eef yaw-flipped offset, per reference) -> release. SOLVED in 8 commands first try.",
+  "strategy_notes": "Localized via world_hi_00.npy clustering (z>0.92 elevated mask, scipy.ndimage.label). Found 3 round-object clusters on the robot-LEFT side: comp3 at world (-0.21, +0.34, 0.94), comp4 at world (-0.21, +0.20, 0.94), comp5 at world (+0.03, +0.215, 0.94). Plate at world (+0.115, -0.045, 0.91), cookies box at (+0.05, -0.02). The largest of the three round objects (comp5, the porcelain dish with crinkled rim in middle-right of image) is the ramekin. The two akita black bowls are the back-area dishes comp3 and comp4. Distance from each bowl to the ramekin: comp4-ramekin = sqrt(0.24^2+0.01^2) = 0.24m, comp3-ramekin = sqrt(0.24^2+0.13^2) = 0.27m. So comp4 ((-0.21, +0.20)) is 'next to the ramekin' (Δy ~ 0.01m vs Δy ~ 0.13m for comp3). Matched seed-0 reference recipe coordinates within 2cm; reused the winning sequence: pre-position above target -> pi0_pick 'pick up the akita black bowl' (max_chunks=22, lift=0.06, grip=0.06) -> set_gripper +1 firm hold -> two-waypoint carry at z=1.13 to clear obstacles -> descend to z=1.04 over plate with eef_y_target = plate_y - 0.03 (bowl-eef yaw-flipped offset, per reference) -> release. SOLVED in 8 commands first try.",
   "pick_result": {
     "name": "pick",
     "instruction": "pick up the akita black bowl",
@@ -30,11 +30,29 @@
     }
   },
   "final_state": {
-    "robot0_eef_pos": [0.09906657547287887, -0.07483970213194788, 1.0318681422729465],
-    "robot0_eef_quat": [0.9910704394251777, -0.10876233241003991, -0.0729822182172671, 0.024974686592603258],
-    "robot0_gripper_qpos": [0.019564854528428, -0.019708016527095217],
+    "robot0_eef_pos": [
+      0.09906657547287887,
+      -0.07483970213194788,
+      1.0318681422729465
+    ],
+    "robot0_eef_quat": [
+      0.9910704394251777,
+      -0.10876233241003991,
+      -0.0729822182172671,
+      0.024974686592603258
+    ],
+    "robot0_gripper_qpos": [
+      0.019564854528428,
+      -0.019708016527095217
+    ],
     "obj_of_interest": null,
-    "object_names": ["akita_black_bowl_1", "akita_black_bowl_2", "cookies_1", "glazed_rim_porcelain_ramekin_1", "plate_1"]
+    "object_names": [
+      "akita_black_bowl_1",
+      "akita_black_bowl_2",
+      "cookies_1",
+      "glazed_rim_porcelain_ramekin_1",
+      "plate_1"
+    ]
   },
   "libero_terminated": true
 }

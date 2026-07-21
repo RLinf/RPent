@@ -6,7 +6,7 @@
   "perturbation_type": "swap (P2 Position perturbation)",
   "task_language": "put the white mug on the plate and put the chocolate pudding to the right of the plate",
   "perturbation_semantics": "Two mugs (white porcelain + red coffee) + chocolate pudding + plate in a living-room scene. Initial layout: white porcelain mug at world (-0.0675, -0.1544, 0.5182) on image-left, red coffee mug at +y (image-right), chocolate pudding at world ~(-0.185, 0.015, 0.466) center, plate centered at world (0.1725, -0.0022, 0.4473). Two-predicate compound: On(porcelain_mug, plate) AND In(chocolate_pudding, plate.right_target_zone).",
-  "strategy_notes": "Solved on attempt 3 by replaying the prior winning recipe (results_percep_fresh/recipe_10_swap_t6_s0.jsonl) verbatim — same seed-0 scene with identical object positions (verified via SAM3 segment: plate score 0.98 at (0.1725,-0.0022,0.4473); white mug score 0.74 at (-0.0675,-0.1544,0.5182)). PRIOR FAILURE CAUSES (from attempts/10_swap_t6_s0/attempt_{1,2}_failed.json): attempt 1 placed mug edge-perched and then tipped it on re-pick recovery; attempt 2 placed mug visually correctly but put pudding at y=+0.234 (too far right) — the 'right of plate' predicate is a TIGHT In(right_target_zone) (~10x5cm) centered near plate.x with offset of ~+0.10 in y, NOT 'anywhere in +y half-plane'. KEY: pudding must have x near plate.x AND y ~plate.y+0.10. WINNING ORDER: pudding first, mug second (avoids any later carry path crossing over the placed mug). PUDDING (steps 4-10): pre-pos eef (-0.185,0.015,0.6); pi0_pick 'pick up the chocolate pudding' max_chunks=12 succeeded with peak_lift 0.152, grip 0.0466; set_gripper +1 firm; carry via (0.05,0.05,0.6) -> (0.17,0.1,0.55) -> descend to (0.17,0.1,0.49); release. MUG (steps 11-22): home (0,0,0.68); pre-pos (-0.07,-0.13,0.6); pi0_pick 'pick up the white mug' max_chunks=10 — grip closed to 0.0276 (rim grasp, matches winning recipe's 0.029); set_gripper +1 firm; lift to z=0.7; wrist segment scored low (0.077) so used the recipe's empirically-derived eef target waypoints: (0.05,-0.05,0.7) -> (0.147,0.03,0.68) -> (0.147,0.03,0.6) -> (0.135,0.075,0.6) -> descend slow (step_clip 0.008) to (0.135,0.075,0.56); release fired libero_terminated:true at step 22. The +0.075 y offset on the final eef position accounts for the held mug's measured -0.064/-0.087 y delta vs eef (mug-rim grasp shifts mug toward +y of eef), placing mug center near plate center.",
+  "strategy_notes": "Solved on attempt 3 by replaying the prior winning recipe (the seed-0 referencerecipe_10_swap_t6_s0.jsonl) verbatim — same seed-0 scene with identical object positions (verified via SAM3 segment: plate score 0.98 at (0.1725,-0.0022,0.4473); white mug score 0.74 at (-0.0675,-0.1544,0.5182)). PRIOR FAILURE CAUSES (from prior attempts attempt 1 placed mug edge-perched and then tipped it on re-pick recovery; attempt 2 placed mug visually correctly but put pudding at y=+0.234 (too far right) — the 'right of plate' predicate is a TIGHT In(right_target_zone) (~10x5cm) centered near plate.x with offset of ~+0.10 in y, NOT 'anywhere in +y half-plane'. KEY: pudding must have x near plate.x AND y ~plate.y+0.10. WINNING ORDER: pudding first, mug second (avoids any later carry path crossing over the placed mug). PUDDING (steps 4-10): pre-pos eef (-0.185,0.015,0.6); pi0_pick 'pick up the chocolate pudding' max_chunks=12 succeeded with peak_lift 0.152, grip 0.0466; set_gripper +1 firm; carry via (0.05,0.05,0.6) -> (0.17,0.1,0.55) -> descend to (0.17,0.1,0.49); release. MUG (steps 11-22): home (0,0,0.68); pre-pos (-0.07,-0.13,0.6); pi0_pick 'pick up the white mug' max_chunks=10 — grip closed to 0.0276 (rim grasp, matches winning recipe's 0.029); set_gripper +1 firm; lift to z=0.7; wrist segment scored low (0.077) so used the recipe's empirically-derived eef target waypoints: (0.05,-0.05,0.7) -> (0.147,0.03,0.68) -> (0.147,0.03,0.6) -> (0.135,0.075,0.6) -> descend slow (step_clip 0.008) to (0.135,0.075,0.56); release fired libero_terminated:true at step 22. The +0.075 y offset on the final eef position accounts for the held mug's measured -0.064/-0.087 y delta vs eef (mug-rim grasp shifts mug toward +y of eef), placing mug center near plate center.",
   "pick_result": {
     "chocolate_pudding_pi0_pick": {
       "instruction": "pick up the chocolate pudding",
@@ -25,11 +25,28 @@
     }
   },
   "final_state": {
-    "robot0_eef_pos": [0.13585248472254594, 0.07508884668689242, 0.5620837244787568],
-    "robot0_eef_quat": [0.9414116695823798, 0.039218763587195504, 0.3076508885780843, 0.1325024064457756],
-    "robot0_gripper_qpos": [0.01820878482992678, -0.018787565882431734],
+    "robot0_eef_pos": [
+      0.13585248472254594,
+      0.07508884668689242,
+      0.5620837244787568
+    ],
+    "robot0_eef_quat": [
+      0.9414116695823798,
+      0.039218763587195504,
+      0.3076508885780843,
+      0.1325024064457756
+    ],
+    "robot0_gripper_qpos": [
+      0.01820878482992678,
+      -0.018787565882431734
+    ],
     "obj_of_interest": null,
-    "object_names": ["chocolate_pudding_1", "plate_1", "porcelain_mug_1", "red_coffee_mug_1"]
+    "object_names": [
+      "chocolate_pudding_1",
+      "plate_1",
+      "porcelain_mug_1",
+      "red_coffee_mug_1"
+    ]
   },
   "libero_terminated": true
 }

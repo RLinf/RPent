@@ -7,7 +7,7 @@
   "perturbed_task_language": "Open the top layer of the drawer and put the bowl inside",
   "perturbation_semantics": "Wooden cabinet fixture relocated by P2 swap; bowl + distractors (cream_cheese, plate, wine_bottle) sit on a different region of the kitchen table than the base task.",
   "expected_baseline_behavior": "Pi0 fullshot likely drives toward base wooden-cabinet location and either fails to open or grabs air.",
-  "strategy_notes": "Perception-isolated localization (no GT coords used). Localized the wooden cabinet from agentview world_00.npy: scan of elevated points (z 0.92-1.30) revealed a contiguous cabinet TOP surface at z=1.128 spanning x in [-0.06, +0.16], y in [-0.33, -0.16], front face at y~-0.16 (cabinet drawers slide +y per memory feedback_handle_bar_grasp_orientation.md). Used the proven goal_pert_t3 recipe: a single pi0_pick with the FULL perturbed task language as the prompt (Pi0 opens the top drawer AND grasps the akita_black_bowl_1 in one call; ~25 chunks). Grasp confirmed via gripper qpos 0.005 (closed but not fully shut => holding bowl) and wrist image_wrist_01.png showing the dark patterned bowl interior in the gripper jaws. Then post-pick localization in world_01.npy revealed the OPEN drawer slot interior at z=1.065-1.097, x in [-0.07, +0.07], y in [-0.16, -0.02] => slot center ~(0.0, -0.09, 1.07). LLM scripted: set_gripper +1 to firm grip, move_to (-0.05, 0.05, 1.20) lift, move_to (0.0, -0.09, 1.20) over slot, move_to (0.0, -0.09, 1.10) descend. The In(bowl, top_drawer) predicate fired mid-descent at eef (0.001, -0.091, 1.150); no release was even needed. NO BDDL access, NO track_obj passed to pi0_pick.",
+  "strategy_notes": "Perception-isolated localization (no GT coords used). Localized the wooden cabinet from agentview world_00.npy: scan of elevated points (z 0.92-1.30) revealed a contiguous cabinet TOP surface at z=1.128 spanning x in [-0.06, +0.16], y in [-0.33, -0.16], front face at y~-0.16 (cabinet drawers slide +y per memory feedback_handle_bar_grasp_orientation.md). Used the proven goal_pert_t3 recipe: a single pi0_pick with the FULL perturbed task language as the prompt (Pi0 opens the top drawer AND grasps the akita_black_bowl_1 in one call; ~25 chunks). Grasp confirmed via gripper qpos 0.005 (closed but not fully shut => holding bowl) and wrist image_wrist_01.png showing the dark patterned bowl interior in the gripper jaws. Then post-pick localization in world_01.npy revealed the OPEN drawer slot interior at z=1.065-1.097, x in [-0.07, +0.07], y in [-0.16, -0.02] => slot center ~(0.0, -0.09, 1.07). LLM scripted: set_gripper +1 to firm grip, move_to (-0.05, 0.05, 1.20) lift, move_to (0.0, -0.09, 1.20) over slot, move_to (0.0, -0.09, 1.10) descend. The In(bowl, top_drawer) predicate fired mid-descent at eef (0.001, -0.091, 1.150); no release was even needed.",
   "pick_result": {
     "name": "pick",
     "instruction": "Open the top layer of the drawer and put the bowl inside",
@@ -34,11 +34,28 @@
     }
   },
   "final_state": {
-    "robot0_eef_pos": [0.0014259746759189597, -0.09111210003771254, 1.1503258349804226],
-    "robot0_eef_quat": [0.991523496995984, -0.002843517572913179, 0.10627382592531459, 0.07469232380815886],
-    "robot0_gripper_qpos": [0.00413836288823794, -0.004069536693507671],
+    "robot0_eef_pos": [
+      0.0014259746759189597,
+      -0.09111210003771254,
+      1.1503258349804226
+    ],
+    "robot0_eef_quat": [
+      0.991523496995984,
+      -0.002843517572913179,
+      0.10627382592531459,
+      0.07469232380815886
+    ],
+    "robot0_gripper_qpos": [
+      0.00413836288823794,
+      -0.004069536693507671
+    ],
     "obj_of_interest": null,
-    "object_names": ["akita_black_bowl_1", "cream_cheese_1", "plate_1", "wine_bottle_1"]
+    "object_names": [
+      "akita_black_bowl_1",
+      "cream_cheese_1",
+      "plate_1",
+      "wine_bottle_1"
+    ]
   },
   "libero_terminated": true
 }

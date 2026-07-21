@@ -5,29 +5,60 @@
   "regime": "strict_perception",
   "perturbation_type": "swap (P2 Position perturbation)",
   "task_language": "Pick the akita black bowl next to the cookies box and place it on the plate",
-  "strategy_notes": "MULTI-ATTEMPT EXPLORATION solve. Scene localization (agentview hi-res + world_hi_00.npy, robust to wrist refinement): cookies_box at world (+0.076, +0.020, z=0.92); plate at (-0.265, -0.140, z=0.938) — partially occluded behind black cabinet at back-left, confirmed by SAM3 score=0.555 and wrist refine score=0.973 to (-0.256, -0.152, z=0.94); ramekin (red-rimmed) at (-0.215, +0.198, z=0.91) — NOT a target; two akita_black_bowls: LBowl (image-front-left) at world (+0.078, -0.169, z=0.955) and RBowl (image-front-right) at (+0.040, +0.157, z=0.95). \n\nDistance-to-cookies analysis: RBowl ~0.14m, LBowl ~0.19m — RBowl appeared 'closer/next to' under cosine intuition.\n\nKEY FINDING (overrides distance heuristic): the predicate is bound to akita_black_bowl_1 (NAMED-OBJECT predicate). Attempt-A picked RBowl, placed bowl perfectly on plate center (visually seated in plate well, gripper retracted, bowl world at (-0.305, -0.153)) — predicate REMAINED FALSE. After reset, Attempt-B picked LBowl with pi0_pick max_chunks=15 (chunks=22 first failed with non-descent), measured bowl-eef offset (varied during carry: initial (+0.047, -0.056) at lift, then (+0.003, +0.033) after waypoint+over-plate move), placed eef at (-0.259, -0.185, z=1.01) — predicate FIRED. So LBowl = akita_black_bowl_1, even though it is the more distant of the two from cookies. The 'next to' language in the SWAP variant is misleading — the predicate identity is fixed; pick by NAMED bowl, not by closest-to-relation.\n\nLessons for future swap-variant cells with duplicate-class targets: (a) the goal predicate binds to a specific named instance _1; (b) closest-by-distance is unreliable when positions are swapped; (c) try both candidates across resets — placement-on-correct-surface but predicate-false is the signature of WRONG-OBJECT, not wrong-physics; (d) pi0_pick from a low (z=1.05) pre-position with max_chunks<=15 grasps reliably while z=1.10 + chunks=22 can fail to descend; (e) bowl-eef offset drifts during long carries — re-measure with wrist world map (filter pixels within ~10cm xy of eef and 1.05<z<1.16) before final descent. Path from front-bowl-area to back-left-plate clears the cabinet by waypointing via (-0.10, -0.05, z=1.18) then to (-0.30, ~y, 1.10) before final descent.",
+  "strategy_notes": "MULTI-ATTEMPT EXPLORATION solve. Scene localization (agentview hi-res + world_hi_00.npy, robust to wrist refinement): cookies_box at world (+0.076, +0.020, z=0.92); plate at (-0.265, -0.140, z=0.938) — partially occluded behind black cabinet at back-left, confirmed by SAM3 score=0.555 and wrist refine score=0.973 to (-0.256, -0.152, z=0.94); ramekin (red-rimmed) at (-0.215, +0.198, z=0.91) — NOT a target; two akita_black_bowls: LBowl (image-front-left) at world (+0.078, -0.169, z=0.955) and RBowl (image-front-right) at (+0.040, +0.157, z=0.95). Distance-to-cookies analysis: RBowl ~0.14m, LBowl ~0.19m — RBowl appeared 'closer/next to' under cosine intuition. KEY FINDING (overrides distance heuristic): the predicate is bound to akita_black_bowl_1 (NAMED-OBJECT predicate). Attempt-A picked RBowl, placed bowl perfectly on plate center (visually seated in plate well, gripper retracted, bowl world at (-0.305, -0.153)) — predicate REMAINED FALSE. After reset, Attempt-B picked LBowl with pi0_pick max_chunks=15 (chunks=22 first failed with non-descent), measured bowl-eef offset (varied during carry: initial (+0.047, -0.056) at lift, then (+0.003, +0.033) after waypoint+over-plate move), placed eef at (-0.259, -0.185, z=1.01) — predicate FIRED. So LBowl = akita_black_bowl_1, even though it is the more distant of the two from cookies. The 'next to' language in the SWAP variant is misleading — the predicate identity is fixed; pick by NAMED bowl, not by closest-to-relation. Lessons for future swap-variant cells with duplicate-class targets: (a) the goal predicate binds to a specific named instance _1; (b) closest-by-distance is unreliable when positions are swapped; (c) try both candidates across resets — placement-on-correct-surface but predicate-false is the signature of WRONG-OBJECT, not wrong-physics; (d) pi0_pick from a low (z=1.05) pre-position with max_chunks<=15 grasps reliably while z=1.10 + chunks=22 can fail to descend; (e) bowl-eef offset drifts during long carries — re-measure with wrist world map (filter pixels within ~10cm xy of eef and 1.05<z<1.16) before final descent. Path from front-bowl-area to back-left-plate clears the cabinet by waypointing via (-0.10, -0.05, z=1.18) then to (-0.30, ~y, 1.10) before final descent.",
   "pick_result": {
     "name": "pick",
     "instruction": "pick up the akita black bowl",
     "success": true,
     "target_bowl": "LBowl == akita_black_bowl_1 (front-right of robot frame, image-left)",
-    "pre_position": [0.078, -0.169, 1.05],
+    "pre_position": [
+      0.078,
+      -0.169,
+      1.05
+    ],
     "chunks_used": 7,
     "max_chunks": 15,
     "final_gripper_opening": 0.0072,
-    "bowl_eef_offset_at_lift": [0.047, -0.056],
-    "bowl_eef_offset_at_release": [0.003, 0.033]
+    "bowl_eef_offset_at_lift": [
+      0.047,
+      -0.056
+    ],
+    "bowl_eef_offset_at_release": [
+      0.003,
+      0.033
+    ]
   },
   "place_result": {
-    "plate_world_xyz": [-0.256, -0.152, 0.94],
-    "release_eef": [-0.259, -0.187, 1.018],
+    "plate_world_xyz": [
+      -0.256,
+      -0.152,
+      0.94
+    ],
+    "release_eef": [
+      -0.259,
+      -0.187,
+      1.018
+    ],
     "predicate_fired": true,
     "step_at_termination": 29
   },
   "final_state": {
-    "robot0_eef_pos": [-0.2595, -0.1866, 1.0158],
-    "robot0_gripper_qpos": [0.0061, -0.0072],
-    "object_names": ["akita_black_bowl_1", "akita_black_bowl_2", "cookies_1", "glazed_rim_porcelain_ramekin_1", "plate_1"]
+    "robot0_eef_pos": [
+      -0.2595,
+      -0.1866,
+      1.0158
+    ],
+    "robot0_gripper_qpos": [
+      0.0061,
+      -0.0072
+    ],
+    "object_names": [
+      "akita_black_bowl_1",
+      "akita_black_bowl_2",
+      "cookies_1",
+      "glazed_rim_porcelain_ramekin_1",
+      "plate_1"
+    ]
   },
   "libero_terminated": true
 }

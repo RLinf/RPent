@@ -5,14 +5,38 @@
   "regime": "strict_perception",
   "task_language": "put the red mug on the plate and put the chocolate pudding to the right of the plate",
   "libero_terminated": true,
-  "strategy_notes": "SOLVED. Two-subtask: (1) red_coffee_mug on plate, (2) chocolate_pudding to right of plate. LOCALIZATION (agentview SAM3 segment): red mug (-0.169, 0.011, 0.534) via 'the red coffee mug with patterned graphics' (0.93); plate (0.126, 0.016, 0.447) via 'the white plate with red rim' (0.98); chocolate pudding (-0.037, 0.113, 0.466) via 'the small dark box on the table' (0.60) — 'chocolate' / 'pudding' as brand keywords scored ~0.03, but 'small dark box' grounded well. APPROACH 1 - MUG ON PLATE: rim-grasp (eef_y = mug_y + 0.045, so eef target y=0.056), Pi0 short prompt 'grasp the red mug' with max_chunks=8 (prevents Pi0 from auto-placing per t4 lesson); set_gripper +1 firmed; held mug had offset dx=+0.016, dy=-0.046 from eef (rim grasp); carried at z=0.65 to eef target (0.110, 0.062), descended to z=0.56 (OSC stalled at ~0.57 with mug resting on plate), released, retreated up. SUCCESS — mug at (0.111, 0.015, 0.545) post-release, on plate. APPROACH 2 - PUDDING RIGHT OF PLATE: top-grasp via pi0_pick max_chunks=10, set_gripper +1 firmed. CRITICAL: 'right of plate' region is TIGHT — first try at y=0.20 didn't fire, y=0.25 didn't fire. Per seed-0 reference at results_percep_fresh: winning placement is plate_xy + (+0.02, +0.10) ≈ (0.149, +0.13). Pudding placement required THREE re-picks because each pi0_pick changed the held-pudding offset; final eef target (0.121, 0.130, 0.50) put pudding at the winning region. PREDICATE FIRED. KEY LESSONS for swap variants: (a) the 'right of plate' region is narrow ~10cm in +y of plate and within ~3cm of plate.x — overshooting +y or +x both fail; (b) the held-pudding offset varies per pi0_pick (~3cm in +x), so plan to re-segment AND adjust eef target after each pick rather than trusting the first held-offset; (c) memory's egocentric-flip warning does NOT apply: 'right' = +y (image-right, world-right per BDDL plate_left/right regions).",
-  "pick_result": {"action": "pi0_pick", "object": "red_coffee_mug_1 + chocolate_pudding_1", "success": true},
+  "strategy_notes": "SOLVED. Two-subtask: (1) red_coffee_mug on plate, (2) chocolate_pudding to right of plate. LOCALIZATION (agentview SAM3 segment): red mug (-0.169, 0.011, 0.534) via 'the red coffee mug with patterned graphics' (0.93); plate (0.126, 0.016, 0.447) via 'the white plate with red rim' (0.98); chocolate pudding (-0.037, 0.113, 0.466) via 'the small dark box on the table' (0.60) — 'chocolate' / 'pudding' as brand keywords scored ~0.03, but 'small dark box' grounded well. APPROACH 1 - MUG ON PLATE: rim-grasp (eef_y = mug_y + 0.045, so eef target y=0.056), Pi0 short prompt 'grasp the red mug' with max_chunks=8 (prevents Pi0 from auto-placing per t4 lesson); set_gripper +1 firmed; held mug had offset dx=+0.016, dy=-0.046 from eef (rim grasp); carried at z=0.65 to eef target (0.110, 0.062), descended to z=0.56 (OSC stalled at ~0.57 with mug resting on plate), released, retreated up. SUCCESS — mug at (0.111, 0.015, 0.545) post-release, on plate. APPROACH 2 - PUDDING RIGHT OF PLATE: top-grasp via pi0_pick max_chunks=10, set_gripper +1 firmed. CRITICAL: 'right of plate' region is TIGHT — first try at y=0.20 didn't fire, y=0.25 didn't fire. Per seed-0 reference at the seed-0 reference: winning placement is plate_xy + (+0.02, +0.10) ≈ (0.149, +0.13). Pudding placement required THREE re-picks because each pi0_pick changed the held-pudding offset; final eef target (0.121, 0.130, 0.50) put pudding at the winning region. PREDICATE FIRED. KEY LESSONS for swap variants: (a) the 'right of plate' region is narrow ~10cm in +y of plate and within ~3cm of plate.x — overshooting +y or +x both fail; (b) the held-pudding offset varies per pi0_pick (~3cm in +x), so plan to re-segment AND adjust eef target after each pick rather than trusting the first held-offset;",
+  "pick_result": {
+    "action": "pi0_pick",
+    "object": "red_coffee_mug_1 + chocolate_pudding_1",
+    "success": true
+  },
   "final_state": {
-    "robot0_eef_pos": [0.2046, 0.1760, 0.5404],
-    "robot0_gripper_qpos": [0.0015, -0.0014],
-    "object_names": ["chocolate_pudding_1", "plate_1", "porcelain_mug_1", "red_coffee_mug_1"],
-    "mug_xyz": [0.111, 0.015, 0.545],
-    "pudding_xyz_final": [0.149, 0.130, 0.466],
+    "robot0_eef_pos": [
+      0.2046,
+      0.176,
+      0.5404
+    ],
+    "robot0_gripper_qpos": [
+      0.0015,
+      -0.0014
+    ],
+    "object_names": [
+      "chocolate_pudding_1",
+      "plate_1",
+      "porcelain_mug_1",
+      "red_coffee_mug_1"
+    ],
+    "mug_xyz": [
+      0.111,
+      0.015,
+      0.545
+    ],
+    "pudding_xyz_final": [
+      0.149,
+      0.13,
+      0.466
+    ],
     "libero_terminated": true
   }
 }
