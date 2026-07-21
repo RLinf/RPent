@@ -2,8 +2,8 @@
 ========
 
 本页把 ``README.md`` 里的 Quick Start 搬到了文档中。它假设你已经完成了
-:doc:`installation` (并排克隆好 RLinf 与 RPent、激活虚拟环境、同步好
-RPent 的额外依赖)。
+:doc:`installation` (克隆好 RPent 并执行了
+``pip install -e ".[full]"``)。
 
 1. 配置 API key 与 checkpoint
 ------------------------------
@@ -35,7 +35,7 @@ RPent 的额外依赖)。
 
 .. code-block:: bash
 
-   python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
+   rpent --suite libero_object_swap --task 2 --seed 0 \
      --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 
 **模型 id 规约。** ``api`` cerebrum 下, ``--model`` 需要带 provider
@@ -58,7 +58,7 @@ RPent 的额外依赖)。
 
 .. code-block:: bash
 
-   python cli/main.py --dashboard --dashboard-language zh-cn \
+   rpent --dashboard --dashboard-language zh-cn \
      --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 
 4. RoboCasa
@@ -78,7 +78,7 @@ RoboCasa 有自己的入口和一次性安装脚本:
 关键 CLI 选项
 -------------
 
-``cli/main.py`` 日常最常用的几个 flag:
+``rpent`` 日常最常用的几个 flag:
 
 .. list-table::
    :header-rows: 1

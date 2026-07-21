@@ -1,5 +1,5 @@
-Configure action primitives
-===========================
+Action primitives
+=================
 
 Where the planner chooses *what* to do, the **action primitive**
 chooses *how* it happens. A primitive is whatever turns a tool call
@@ -64,7 +64,7 @@ new one each time:
 
 .. code-block:: bash
 
-   python cli/main.py --vla-endpoint http://localhost:8000 \
+   rpent --vla-endpoint http://localhost:8000 \
      --suite libero_object_swap --task 2 --seed 0 --cerebrum api \
      --model anthropic:claude-opus-4-8
 

@@ -1,4 +1,23 @@
 """Physical agent main CLI entrypoint."""
+# `rpent/cli/`
+#
+# CLI entrypoints for RPent (currently just `main.py`).
+#
+# ## Run
+#
+# `main()` is exposed as the `rpent` console script (see `[project.scripts]`
+# in `pyproject.toml`):
+#
+# ```bash
+# rpent --suite libero_object_task --task 0 --seed 0 [...]
+# ```
+#
+# ## Note
+#
+# Do not import `rpent.cli` from other `rpent` modules. `main.py` pulls in
+# `rpent.cerebrum`, `rpent.envs`, `rpent.utils`, `rpent.dashboard`, and
+# `rpent.tools`, so importing the CLI back into any of them would create an
+# import cycle. Nothing else should depend on this package.
 from __future__ import annotations
 
 import argparse
@@ -20,11 +39,11 @@ from rpent.utils.config import (
 
 from rpent.cerebrum.base import build_cerebrum  # noqa: E402
 from rpent.envs import get_env_spec, get_toolkit  # noqa: E402
-from rpent.rpc_driver import (  # noqa: E402
+from rpent.utils.rpc import (  # noqa: E402
     create_rpc_client,
     set_socket_endpoint,
 )
-from rpent.rpc_driver.vla_client import VLAClient  # noqa: E402
+from rpent.utils.vla_client import VLAClient  # noqa: E402
 from robots.libero.env_client import LiberoEnvClient  # noqa: E402
 from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
 
@@ -36,7 +55,7 @@ def _pipe_driver_output(
     log_file,
     ready_events: "queue.Queue[dict]",
 ) -> None:
-    """Copy driver stdout to log and capture machine-readable ready events."""
+    """Copy env_server stdout to log and capture machine-readable ready events."""
     assert proc.stdout is not None
     for line in proc.stdout:
         log_file.write(line)
@@ -61,7 +80,7 @@ def start_env_server(
     driver_script: str | None = None,
     ready_timeout_s: float = 300.0,
 ) -> subprocess.Popen:
-    """Launch the env server in background. The env server hosts the 
+    """Launch the env server in background. The env server hosts the
     env, and prints a machine-readable ``transport_ready`` event on stdout
     once its RPC server is listening; this function returns once that event
     is seen.
@@ -285,7 +304,7 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="Budget passed to claude -p --max-budget-usd. "
                          "Defaults to MAX_BUDGET_USD env or 10.")
 
-    # driver / transport
+    # env_server / vla_server / transport
     ap.add_argument("--no-driver", action="store_true",
                     help="Don't spawn driver; attach to existing output dir")
     ap.add_argument("--env-endpoint", default="127.0.0.1",
@@ -470,7 +489,7 @@ def main() -> int:
     else:
         if args.env_port <= 0:
             raise RuntimeError(
-                "--no-driver requires --env-port pointing at an existing driver"
+                "--no-driver requires --env-port pointing at an existing env_server"
             )
         if vla_endpoint is None:
             raise RuntimeError(

@@ -1,0 +1,8 @@
+{"action":"move_to","xyz":[-0.06,-0.01,1.10],"gripper":-1,"step_clip":0.025}
+{"action":"pi0_pick","prompt":"pick up the black book","max_chunks":20,"lift_thresh":0.05,"gripper_closed_thresh":0.06}
+{"action":"set_gripper","gripper":1,"steps":10}
+{"action":"move_to","xyz":[-0.20,0.0,1.20],"gripper":1,"step_clip":0.025}
+{"action":"move_to","xyz":[-0.42,-0.14,1.20],"gripper":1,"step_clip":0.025}
+{"action":"move_to","xyz":[-0.42,-0.14,1.05],"gripper":1,"step_clip":0.015}
+{"action":"release","steps":10}
+{"action":"move_to","xyz":[-0.30,-0.14,1.25],"gripper":-1,"step_clip":0.025}

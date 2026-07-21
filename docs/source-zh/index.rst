@@ -7,11 +7,18 @@
 
    <div class="rpent-hero">
      <h1 class="rpent-hero-title">欢迎使用 RPent</h1>
+     <img class="rpent-hero-architecture"
+          src="https://github.com/RLinf/misc/raw/main/pic/rpent_logo.png"
+          alt="RPent logo" />
      <p class="rpent-hero-subtitle">
-       面向物理世界的智能体基础设施 ——
-       通过与环境的递归交互, 让具身智能体持续演进的开放框架。
+       RPent (Recursive Physical Agent) 是一个用于构建具身智能体的开放
+       框架, 让智能体通过与物理世界的递归交互持续演进。RPent 不预设某个
+       具体的基础模型, 而是提供一个递归智能体框架, 将异构智能能力 ——
+       感知 (perception)、推理 (reasoning)、记忆 (memory)、执行
+       (execution)、自我演进 (self-evolution) —— 统一到一个物理智能体中。
+       通过持续的交互、反思与适应, RPent 让物理智能体获得超出其初始
+       设计的新能力。
      </p>
-     <img class="rpent-hero-architecture" src="architecture.svg" alt="RPent 架构" />
    </div>
 
 .. grid:: 2
@@ -30,8 +37,8 @@
       :link-type: doc
       :text-align: center
 
-      并排克隆 RLinf + RPent, 创建虚拟环境, 安装
-      LIBERO PRO/PLUS 相关依赖。
+      克隆 RPent, 用一条 ``pip install``
+      装好整套依赖。
 
    .. grid-item-card:: 快速开始
       :link: rst_source/quickstart
@@ -73,8 +80,8 @@
    :hidden:
    :caption: 使用教程
 
-   配置 planner <rst_source/usage/configure_planner>
-   配置 action primitive <rst_source/usage/configure_primitives>
+   Agentic planner <rst_source/usage/configure_planner>
+   Action primitives <rst_source/usage/configure_primitives>
    LIBERO <rst_source/usage/libero>
    RoboCasa <rst_source/usage/robocasa>
    Franka <rst_source/usage/franka>
@@ -87,7 +94,7 @@
    :hidden:
    :caption: 开发教程
 
-   RPent 架构 <rst_source/development/architecture>
+   系统设计 <rst_source/development/architecture>
    添加新机器人 <rst_source/development/add_robot>
    添加 action primitive <rst_source/development/add_primitive>
    Memory 管理 <rst_source/development/memory>

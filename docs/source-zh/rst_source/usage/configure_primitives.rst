@@ -1,5 +1,5 @@
-配置 action primitive
-=====================
+Action primitives
+=================
 
 Planner 决定 *做什么*, 而 **action primitive** 决定 *怎么做*。所谓 primitive
 就是把一次 tool 调用 (``pi0_pick``、``move_to``、``open_drawer``…) 变成
@@ -58,7 +58,7 @@ RPent 内置支持两大类 primitive:
 
 .. code-block:: bash
 
-   python cli/main.py --vla-endpoint http://localhost:8000 \
+   rpent --vla-endpoint http://localhost:8000 \
      --suite libero_object_swap --task 2 --seed 0 --cerebrum api \
      --model anthropic:claude-opus-4-8
 

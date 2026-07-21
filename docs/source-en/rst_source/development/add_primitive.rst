@@ -95,11 +95,11 @@ model runs in its own process. Pattern:
      arrays with history stacks (RoboCasa / RLDX-1 pattern).
 
    Emit a ``transport_ready`` JSON event on stdout when your server
-   is listening; ``cli.main`` blocks on it.
+   is listening; ``rpent/cli/main.py`` blocks on it.
 
 2. **Write a model client**. A tiny class with ``predict(obs)``
    (HTTP) or ``vla_infer(obs)`` (socket) that the toolkit will hold
-   alongside its env client. See ``rpent.rpc_driver.vla_client.VLAClient``
+   alongside its env client. See ``rpent.utils.vla_client.VLAClient``
    as the LIBERO reference.
 
 3. **Add a primitive-driver method.** In your env's primitive-driver
@@ -129,7 +129,7 @@ model runs in its own process. Pattern:
               video_path=video_path,
           )
 
-   And ``cli/main.py`` will pass in ``{"env": MyRobotEnvClient(...),
+   And ``rpent/cli/main.py`` will pass in ``{"env": MyRobotEnvClient(...),
    "model": MyModelClient(...)}``.
 
 Reuse an existing vla_server across runs
@@ -140,7 +140,7 @@ runner supports pointing at an already-running one:
 
 .. code-block:: bash
 
-   python cli/main.py --vla-endpoint http://vla-host:8000 ...
+   rpent --vla-endpoint http://vla-host:8000 ...
 
 Design your ``vla_server`` to be **stateless across tasks** — reset
 its per-episode state through an explicit ``vla_reset`` RPC — so a

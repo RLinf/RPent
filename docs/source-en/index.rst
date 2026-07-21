@@ -6,13 +6,20 @@ Welcome to RPent
 .. raw:: html
 
    <div class="rpent-hero">
-     <h1 class="rpent-hero-title">Welcome to RPent</h1>
+     <img class="rpent-hero-architecture"
+          src="https://github.com/RLinf/misc/raw/main/pic/rpent_logo.png"
+          alt="RPent logo" />
      <p class="rpent-hero-subtitle">
-       Agentic Infrastructure for the Physical World —
-       an open framework for building embodied agents that continuously
-       evolve through recursive interaction with their environment.
+       RPent (Recursive Physical Agent) is an open framework for building
+       embodied agents that continuously evolve through recursive interaction
+       with the physical world. Rather than prescribing a single foundation
+       model, RPent provides a recursive agent framework that harnesses
+       heterogeneous intelligence, including perception, reasoning, memory,
+       execution, and self-evolution, into a unified physical agent. Through
+       continuous interaction, reflection, and adaptation, RPent enables
+       physical agents to acquire new capabilities and evolve beyond their
+       initial design.
      </p>
-     <img class="rpent-hero-architecture" src="architecture.svg" alt="RPent architecture" />
    </div>
 
 .. grid:: 2
@@ -31,15 +38,15 @@ Welcome to RPent
       :link-type: doc
       :text-align: center
 
-      Clone RLinf + RPent side by side, create the virtualenv, install
-      the LIBERO PRO/PLUS bits.
+      Clone RPent and install the whole stack with a single
+      ``pip install``.
 
    .. grid-item-card:: Quick start
       :link: rst_source/quickstart
       :link-type: doc
       :text-align: center
 
-      Set your keys, point at a checkpoint, and run one LIBERO task
+      Choose a planner, configure the agent, and run one LIBERO task
       end-to-end.
 
    .. grid-item-card:: Usage tutorial
@@ -75,8 +82,8 @@ Welcome to RPent
    :hidden:
    :caption: Usage tutorial
 
-   Configure planner <rst_source/usage/configure_planner>
-   Configure action primitives <rst_source/usage/configure_primitives>
+   Agentic planner <rst_source/usage/configure_planner>
+   Action primitives <rst_source/usage/configure_primitives>
    LIBERO <rst_source/usage/libero>
    RoboCasa <rst_source/usage/robocasa>
    Franka <rst_source/usage/franka>
@@ -89,7 +96,7 @@ Welcome to RPent
    :hidden:
    :caption: Development tutorial
 
-   RPent architecture <rst_source/development/architecture>
+   System internals <rst_source/development/architecture>
    Add a new robot <rst_source/development/add_robot>
    Add an action primitive <rst_source/development/add_primitive>
    Memory management <rst_source/development/memory>

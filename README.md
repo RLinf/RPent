@@ -32,13 +32,13 @@ RPent is built upon three core design principles: **service-oriented, standardiz
 
 - [2026/07] 🔥 Our first RPent publication, [Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents](https://arxiv.org/abs/2607.08448), is released.
 
-## Supported Environments
+## Feature Matrix
 
 <table width="100%">
   <thead align="center" valign="bottom">
     <tr>
       <th width="26%">Agentic Planner</th>
-      <th width="28%">Action Primitives</th>
+      <th width="28%">Action Primitive</th>
       <th width="26%" align="left">Simulator</th>
       <th width="20%">Real World</th>
     </tr>
@@ -47,44 +47,34 @@ RPent is built upon three core design principles: **service-oriented, standardiz
     <tr>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><b>api</b> — pydantic-ai ✅</li>
-          <ul>
-            <li>Anthropic (Claude) ✅</li>
-            <li>OpenAI (responses) ✅</li>
-            <li>OpenAI-compatible (chat) ✅</li>
-          </ul>
-          <li><b>claude_code</b> — Claude Agent SDK ✅</li>
-          <li><b>codex</b> — OpenAI Codex SDK ✅</li>
+          <li>Claude Code ✅</li>
+          <li>Codex ✅</li>
+          <li>Custom planner ✅</li>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><b>VLA manipulation</b> ✅</li>
+          <li><b>VLA manipulation</b></li>
           <ul>
-            <li>Pi0.5 (LIBERO, HTTP) ✅</li>
-            <li>RLDX-1 (RoboCasa, socket-RPC) ✅</li>
+            <li>Pi0.5 ✅</li>
+            <li>RLDX-1</li>
+          </ul>
+          <li><b>WAM manipulation</b></li>
+          <ul>
+            <li>DreamZero</li>
           </ul>
         </ul>
       </td>
       <td style="text-align: left; padding-left: 8px;">
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><b>LIBERO</b> (standard / pro / plus) ✅</li>
-          <ul>
-            <li>libero_object · _task / _swap / _lan</li>
-            <li>libero_goal · _task / _swap / _lan</li>
-            <li>libero_spatial · _task / _lan</li>
-            <li>libero_10 · _task / _swap / _lan</li>
-          </ul>
-          <li><b>RoboCasa</b> (kitchen, long-horizon) ✅</li>
-          <ul>
-            <li>PickPlace* · Open/Close* · TurnOn/Off* …</li>
-          </ul>
+          <li>LIBERO-PRO ✅</li>
+          <li>RoboCasa </li>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><b>Franka</b></li>
-          <li><b>SO-101</b></li>
+          <li>Franka</li>
+          <li>SO-101</li>
         </ul>
       </td>
     </tr>
@@ -93,35 +83,26 @@ RPent is built upon three core design principles: **service-oriented, standardiz
 
 ## Quick Start
 
-RPent runs on top of a forked branch of [RLinf](https://github.com/RLinf/RLinf) for the simulators and VLA models. Clone them side by side.
-
-**1. Clone RLinf and RPent side by side.**
+**1. Install RPent with a single `pip install`.** 
 
 ```bash
-mkdir workspace && cd workspace
-# RPent depends on a forked branch of RLinf; it will be merged back to main after more iterations.
-git clone https://github.com/jx-qiu/RLinf -b feature/physicalagent rlinf
-git clone https://github.com/RLinf/RPent rpent
+git clone https://github.com/RLinf/RPent rpent && cd rpent
+pip install -e ".[full]"
 ```
 
-**2. In RLinf, create an openpi + LIBERO virtualenv.**
+`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator on the RLinf runtime). 
+Pick a narrower extra if you don't need the whole stack:
 
-```bash
-cd rlinf
-bash requirements/install.sh embodied --env libero --model openpi --use-mirror --venv ../.venv-opi-libero
-cd ..
-source .venv-opi-libero/bin/activate
-```
+| Extra | Installs |
+| --- | --- |
+| `.[full]` | `rlinf` + `openpi` + `libero-pro` — the default run stack |
+| `.[libero-pro]` | Base LIBERO + LIBERO-PRO simulator |
+| `.[libero-plus]` | Base LIBERO + LIBERO-plus simulator |
+| `.[libero]` | Base LIBERO only |
+| `.[openpi]` | openpi VLA only |
+| `.[rlinf]` | RLinf runtime only |
 
-**3. Install RPent's extra dependencies on top of that venv.**
-
-```bash
-cd rpent
-uv sync --active --inexact
-bash scripts/install_libero_pro_plus.sh
-```
-
-**4. Configure keys and checkpoints, then run.**
+**2. Configure keys and checkpoints, then run.**
 
 ```bash
 # LLM API keys (the `api` cerebrum)
@@ -141,7 +122,7 @@ export CUDA_VISIBLE_DEVICES=0
 #   • OpenAI-compatible chat endpoints:  --model openai-chat:glm-5.2
 #   • OpenAI responses endpoints:        --model openai:gpt-5.5
 #   • claude_code / codex cerebrums:     no provider prefix, e.g. --model claude-opus-4-8
-python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
+rpent --suite libero_object_swap --task 2 --seed 0 \
   --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
@@ -150,7 +131,7 @@ python cli/main.py --suite libero_object_swap --task 2 --seed 0 \
 Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
-python cli/main.py --dashboard --dashboard-language zh-cn \
+rpent --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 ```
 

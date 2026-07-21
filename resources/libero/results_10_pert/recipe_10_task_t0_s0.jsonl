@@ -1,0 +1,8 @@
+{"action":"pi0_pick","prompt":"pick up the tomato sauce","max_chunks":25,"lift_thresh":0.05,"gripper_closed_thresh":0.06}
+{"action":"move_to","xyz":[0.07,0.23,0.62],"gripper":1,"step_clip":0.015}
+{"action":"release"}
+{"action":"move_to","xyz":[-0.058,0.0,0.68],"gripper":-1,"step_clip":0.025}
+{"action":"pi0_pick","prompt":"pick up the cream cheese","max_chunks":20,"lift_thresh":0.05,"gripper_closed_thresh":0.06}
+{"action":"move_to","xyz":[0.10,0.02,0.62],"gripper":1,"step_clip":0.012}
+{"action":"move_to","xyz":[0.07,0.23,0.62],"gripper":1,"step_clip":0.012}
+{"action":"release"}

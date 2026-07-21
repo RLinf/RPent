@@ -37,8 +37,12 @@ a.reference.internal {
   background: transparent !important;
   display: block;
   margin: 0 auto;
-  max-width: 960px;
+  max-width: 320px;
   width: 100%;
+}
+
+.rpent-hero-subtitle {
+  text-align: left;
 }
 
 .bd-page-width {

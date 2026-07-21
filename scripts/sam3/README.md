@@ -1,6 +1,6 @@
 # SAM3 service notes
 
-SAM3 is an optional external perception service. `cli/main.py` does not
+SAM3 is an optional external perception service. `rpent/cli/main.py` does not
 automatically start SAM3; the runtime `segment` tool only calls the service
 configured by `SAM3_SERVER_URL`.
 

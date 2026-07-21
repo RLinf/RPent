@@ -1,18 +1,16 @@
 安装
 ====
 
-RPent 依赖 `RLinf <https://github.com/RLinf/RLinf>`_ 的一个 fork 分支,
-后者提供 LIBERO / RoboCasa 仿真器以及 VLA 训练 / 推理栈。这两个仓库
-需要并排放在同一个 ``workspace/`` 目录下。
+RPent 用一条 ``pip install`` 即可安装。其 optional-dependency extra 会以
+git 依赖的形式拉取 `RLinf <https://github.com/RLinf/RLinf>`_ fork 运行时、
+openpi 以及 LIBERO 仿真器, 因此不再需要单独 clone RLinf 或运行安装脚本。
 
 先决条件
 --------
 
 - Linux + NVIDIA GPU (LIBERO / RoboCasa 通过 EGL 渲染)。
 - 与显卡匹配的 CUDA 12.x 驱动。
-- Python 3.10+。
-- `uv <https://github.com/astral-sh/uv>`_ (用于在 RLinf 提供的虚拟环境
-  上同步 RPent 的额外依赖)。
+- Python 3.10–3.11。
 - ``git``、``bash``、以及能编译 MuJoCo / robosuite 的 C 工具链。
 
 同时你还需要:
@@ -23,60 +21,40 @@ RPent 依赖 `RLinf <https://github.com/RLinf/RLinf>`_ 的一个 fork 分支,
   `HuggingFace: rlinf-pi05-libero-130-fullshot-sft
   <https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_。
 
-1. 并排克隆 RLinf 与 RPent
---------------------------
+1. 用 pip 安装 RPent
+--------------------
+
+Clone RPent (用于 CLI 与运行配置), 再按需选择 extra 安装:
 
 .. code-block:: bash
 
-   mkdir workspace && cd workspace
-   # RPent 依赖 RLinf 的一个 fork 分支; 更多迭代后会合并回 RLinf 主线。
-   git clone https://github.com/jx-qiu/RLinf -b feature/physicalagent rlinf
-   git clone https://github.com/RLinf/RPent rpent
+   git clone https://github.com/RLinf/RPent rpent && cd rpent
+   pip install -e ".[full]"
 
-期望的目录结构:
+``.[full]`` 是默认的端到端组合 —— openpi Pi0.5 VLA + LIBERO-PRO 仿真器,
+运行在 RLinf 运行时之上。
 
-.. code-block:: text
+可用的 extra:
 
-   workspace/
-   ├── rlinf/     # RLinf fork (仿真器 + VLA 基础设施)
-   └── rpent/     # RPent (agent 框架 —— 本仓库)
+.. list-table::
+   :header-rows: 1
 
-2. 创建 RLinf 虚拟环境 (LIBERO + openpi)
------------------------------------------
+   * - Extra
+     - 安装内容
+   * - ``.[full]``
+     - ``rlinf`` + ``openpi`` + ``libero-pro`` —— 默认运行组合
+   * - ``.[libero-pro]``
+     - 仅基础 LIBERO + LIBERO-PRO 仿真器
+   * - ``.[libero-plus]``
+     - 基础 LIBERO + LIBERO-plus 仿真器
+   * - ``.[libero]``
+     - 仅基础 LIBERO
+   * - ``.[openpi]``
+     - 仅 openpi VLA
+   * - ``.[rlinf]``
+     - 仅 RLinf 运行时
 
-RLinf 提供一键安装脚本, 一次性搭好带 LIBERO + openpi (Pi0.5 运行时) 的
-虚拟环境:
-
-.. code-block:: bash
-
-   cd rlinf
-   bash requirements/install.sh embodied \
-     --env libero --model openpi --use-mirror \
-     --venv ../.venv-opi-libero
-   cd ..
-   source .venv-opi-libero/bin/activate
-
-安装脚本会把虚拟环境创建在 ``rlinf/`` 的上一级, 方便 RPent 复用。进入下一步
-前 **先激活它**。
-
-3. 安装 RPent 的额外依赖
-------------------------
-
-激活了 RLinf 虚拟环境之后, 在其上同步 RPent 的额外依赖, 并运行 LIBERO
-PRO/PLUS 的安装脚本:
-
-.. code-block:: bash
-
-   cd rpent
-   uv sync --active --inexact
-   bash scripts/install_libero_pro_plus.sh
-
-``uv sync --active --inexact`` 会在不打扰 RLinf 已装包的前提下, 补齐
-RPent 自己的 Python 依赖 (pydantic-ai、Claude Agent SDK、Codex SDK、
-用于 dashboard 的 FastAPI 等)。``install_libero_pro_plus.sh`` 会 patch
-LIBERO, 暴露出 RPent 全流程使用的 ``pro`` / ``plus`` 任务变体。
-
-4. (可选) RoboCasa
+2. (可选) RoboCasa
 ------------------
 
 RoboCasa (厨房尺度、长时序操作) 有自己的一键脚本:
@@ -90,7 +68,7 @@ RoboCasa (厨房尺度、长时序操作) 有自己的一键脚本:
 <https://github.com/RLinf/RPent/blob/main/docs/SETUP_ROBOCASA.zh.md>`_
 (资产、controller 配置、VLA checkpoint)。
 
-5. (可选) 真实机器人依赖
+3. (可选) 真实机器人依赖
 ------------------------
 
 Franka 与 SO-101 的支持正在逐步接入; 每个机器人的 driver 会以一个包的

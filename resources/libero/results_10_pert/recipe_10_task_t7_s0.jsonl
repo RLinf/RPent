@@ -1,0 +1,3 @@
+{"action":"pi0_pick","prompt":"pick up the ketchup and place it in the basket","max_chunks":30,"lift_thresh":0.99,"gripper_closed_thresh":0.06}
+{"action":"move_to","xyz":[-0.058,0.0,0.681],"gripper":-1,"step_clip":0.025}
+{"action":"pi0_pick","prompt":"pick up the cream cheese and place it in the basket","max_chunks":30,"lift_thresh":0.99,"gripper_closed_thresh":0.06}

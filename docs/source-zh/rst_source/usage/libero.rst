@@ -67,7 +67,7 @@ Pi0.5 只需要一件事: 磁盘上的 checkpoint。通过 ``PI05_CHECKPOINT_PAT
    export LIBERO_TYPE=pro
    export CUDA_VISIBLE_DEVICES=0
 
-   python cli/main.py \
+   rpent \
      --suite libero_object_swap --task 2 --seed 0 \
      --cerebrum api --model anthropic:claude-opus-4-8 \
      --max-tokens 8192
@@ -112,7 +112,7 @@ Dashboard
 
 .. code-block:: bash
 
-   python cli/main.py --dashboard \
+   rpent --dashboard \
      --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 
 Dashboard streams reasoning、agentview + 腕部相机 + Pi0.5 叠加视图,
