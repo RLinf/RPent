@@ -47,13 +47,13 @@ tool-calling 循环 *如何* 被编排, 以及能触达哪些 LLM / SDK 上有�
 .. code-block:: bash
 
    # Anthropic Claude
-   python rpent/cli/main.py --cerebrum api --model anthropic:claude-opus-4-8 ...
+   rpent --cerebrum api --model anthropic:claude-opus-4-8 ...
 
    # OpenAI Responses (例如 GPT-5.5)
-   python rpent/cli/main.py --cerebrum api --model openai:gpt-5.5 ...
+   rpent --cerebrum api --model openai:gpt-5.5 ...
 
    # OpenAI 兼容 chat (例如 GLM 5.2)
-   python rpent/cli/main.py --cerebrum api --model openai-chat:glm-5.2 ...
+   rpent --cerebrum api --model openai-chat:glm-5.2 ...
 
 它读取的环境变量 (需要覆盖时用 ``--base-url`` / ``--api-key``):
 
@@ -75,7 +75,7 @@ tool-calling 循环 *如何* 被编排, 以及能触达哪些 LLM / SDK 上有�
 
 .. code-block:: bash
 
-   python rpent/cli/main.py --cerebrum claude_code \
+   rpent --cerebrum claude_code \
      --model claude-opus-4-8 \
      --suite libero_object_swap --task 2 --seed 0
 
@@ -98,7 +98,7 @@ tool-calling 循环 *如何* 被编排, 以及能触达哪些 LLM / SDK 上有�
 
 .. code-block:: bash
 
-   python rpent/cli/main.py --cerebrum codex \
+   rpent --cerebrum codex \
      --model gpt-5.5 \
      --suite libero_goal_task --task 1 --seed 0
 

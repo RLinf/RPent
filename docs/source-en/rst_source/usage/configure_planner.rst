@@ -52,13 +52,13 @@ Pick the provider by prefixing ``--model``:
 .. code-block:: bash
 
    # Anthropic Claude
-   python rpent/cli/main.py --cerebrum api --model anthropic:claude-opus-4-8 ...
+   rpent --cerebrum api --model anthropic:claude-opus-4-8 ...
 
    # OpenAI Responses (e.g. GPT-5.5)
-   python rpent/cli/main.py --cerebrum api --model openai:gpt-5.5 ...
+   rpent --cerebrum api --model openai:gpt-5.5 ...
 
    # OpenAI-compatible chat (e.g. GLM 5.2)
-   python rpent/cli/main.py --cerebrum api --model openai-chat:glm-5.2 ...
+   rpent --cerebrum api --model openai-chat:glm-5.2 ...
 
 Environment variables it reads (override with ``--base-url`` /
 ``--api-key`` if needed):
@@ -83,7 +83,7 @@ namespace.
 
 .. code-block:: bash
 
-   python rpent/cli/main.py --cerebrum claude_code \
+   rpent --cerebrum claude_code \
      --model claude-opus-4-8 \
      --suite libero_object_swap --task 2 --seed 0
 
@@ -108,7 +108,7 @@ over an HTTP MCP server started by ``scripts/codex_proxy/``.
 
 .. code-block:: bash
 
-   python rpent/cli/main.py --cerebrum codex \
+   rpent --cerebrum codex \
      --model gpt-5.5 \
      --suite libero_goal_task --task 1 --seed 0
 

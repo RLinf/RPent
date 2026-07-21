@@ -1,20 +1,17 @@
 Installation
 ============
 
-RPent runs on top of a forked branch of
-`RLinf <https://github.com/RLinf/RLinf>`_, which supplies the LIBERO /
-RoboCasa simulators and the VLA training / inference stack. The two
-repositories are meant to live side by side in a single ``workspace/``
-directory.
+RPent installs with a single ``pip install``. The optional-dependency
+extras pull the forked `RLinf <https://github.com/RLinf/RLinf>`_ runtime,
+openpi, and the LIBERO simulator as git dependencies, so there is no
+longer a separate RLinf clone or setup script.
 
 Prerequisites
 -------------
 
 - Linux with an NVIDIA GPU (LIBERO / RoboCasa render on EGL).
 - CUDA 12.x drivers matching your GPU.
-- Python 3.10+.
-- `uv <https://github.com/astral-sh/uv>`_ (used to sync RPent's extra
-  dependencies on top of the RLinf-provided virtualenv).
+- Python 3.10–3.11.
 - ``git``, ``bash``, and a working C toolchain for MuJoCo / robosuite.
 
 You will also want:
@@ -25,63 +22,41 @@ You will also want:
   at `HuggingFace: rlinf-pi05-libero-130-fullshot-sft
   <https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_.
 
-1. Clone RLinf and RPent side by side
--------------------------------------
+1. Install RPent with pip
+-------------------------
+
+Clone RPent (for the CLI and run configs) and install with the extra for
+the stack you want:
 
 .. code-block:: bash
 
-   mkdir workspace && cd workspace
-   # RPent depends on a forked branch of RLinf; the fork will be merged
-   # back to RLinf main after more iterations.
-   git clone https://github.com/jx-qiu/RLinf -b feature/physicalagent rlinf
-   git clone https://github.com/RLinf/RPent rpent
+   git clone https://github.com/RLinf/RPent rpent && cd rpent
+   pip install -e ".[full]"
 
-The exact layout you should end up with:
+``.[full]`` is the default end-to-end stack — the openpi Pi0.5 VLA and
+the LIBERO-PRO simulator on top of the RLinf runtime.
 
-.. code-block:: text
+Available extras:
 
-   workspace/
-   ├── rlinf/     # RLinf fork (simulators + VLA infrastructure)
-   └── rpent/     # RPent (the agent framework — this repo)
+.. list-table::
+   :header-rows: 1
 
-2. Create the RLinf virtualenv (LIBERO + openpi)
-------------------------------------------------
+   * - Extra
+     - Installs
+   * - ``.[full]``
+     - ``rlinf`` + ``openpi`` + ``libero-pro`` — the default run stack
+   * - ``.[libero-pro]``
+     - Base LIBERO + LIBERO-PRO simulator only
+   * - ``.[libero-plus]``
+     - Base LIBERO + LIBERO-plus simulator
+   * - ``.[libero]``
+     - Base LIBERO only
+   * - ``.[openpi]``
+     - openpi VLA only
+   * - ``.[rlinf]``
+     - RLinf runtime only
 
-RLinf ships a single-command installer that builds a virtualenv with
-LIBERO + openpi (the Pi0.5 runtime) pre-wired:
-
-.. code-block:: bash
-
-   cd rlinf
-   bash requirements/install.sh embodied \
-     --env libero --model openpi --use-mirror \
-     --venv ../.venv-opi-libero
-   cd ..
-   source .venv-opi-libero/bin/activate
-
-The installer places the virtualenv one level above ``rlinf/`` so it can
-be reused by RPent. Activate it *before* the next step.
-
-3. Install RPent's extra dependencies
--------------------------------------
-
-With the RLinf virtualenv active, sync RPent's extras on top of it and
-run the LIBERO PRO/PLUS setup script:
-
-.. code-block:: bash
-
-   cd rpent
-   uv sync --active --inexact
-   bash scripts/install_libero_pro_plus.sh
-
-``uv sync --active --inexact`` adds RPent's own Python dependencies
-(pydantic-ai, the Claude Agent SDK, the Codex SDK, FastAPI for the
-dashboard, …) without disturbing the RLinf packages that share the
-environment. ``install_libero_pro_plus.sh`` patches the LIBERO
-distribution to expose the ``pro`` and ``plus`` task variants used
-throughout RPent.
-
-4. (Optional) RoboCasa
+2. (Optional) RoboCasa
 ----------------------
 
 RoboCasa (kitchen-scale, long-horizon manipulation) has its own
@@ -96,7 +71,7 @@ See `docs/SETUP_ROBOCASA.zh.md
 for the full RoboCasa365 + RLDX-1 walkthrough (assets, controller
 configs, VLA checkpoints).
 
-5. (Optional) Real-world robot dependencies
+3. (Optional) Real-world robot dependencies
 -------------------------------------------
 
 Franka and SO-101 support is being rolled in; when it lands, each

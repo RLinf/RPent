@@ -83,35 +83,26 @@ RPent is built upon three core design principles: **service-oriented, standardiz
 
 ## Quick Start
 
-RPent runs on top of a forked branch of [RLinf](https://github.com/RLinf/RLinf) for the simulators and VLA models. Clone them side by side.
-
-**1. Clone RLinf and RPent side by side.**
+**1. Install RPent with a single `pip install`.** 
 
 ```bash
-mkdir workspace && cd workspace
-# RPent depends on a forked branch of RLinf; it will be merged back to main after more iterations.
-git clone https://github.com/jx-qiu/RLinf -b feature/physicalagent rlinf
-git clone https://github.com/RLinf/RPent rpent
+git clone https://github.com/RLinf/RPent rpent && cd rpent
+pip install -e ".[full]"
 ```
 
-**2. In RLinf, create an openpi + LIBERO virtualenv.**
+`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator on the RLinf runtime). 
+Pick a narrower extra if you don't need the whole stack:
 
-```bash
-cd rlinf
-bash requirements/install.sh embodied --env libero --model openpi --use-mirror --venv ../.venv-opi-libero
-cd ..
-source .venv-opi-libero/bin/activate
-```
+| Extra | Installs |
+| --- | --- |
+| `.[full]` | `rlinf` + `openpi` + `libero-pro` — the default run stack |
+| `.[libero-pro]` | Base LIBERO + LIBERO-PRO simulator |
+| `.[libero-plus]` | Base LIBERO + LIBERO-plus simulator |
+| `.[libero]` | Base LIBERO only |
+| `.[openpi]` | openpi VLA only |
+| `.[rlinf]` | RLinf runtime only |
 
-**3. Install RPent's extra dependencies on top of that venv.**
-
-```bash
-cd rpent
-uv sync --active --inexact
-bash scripts/install_libero_pro_plus.sh
-```
-
-**4. Configure keys and checkpoints, then run.**
+**2. Configure keys and checkpoints, then run.**
 
 ```bash
 # LLM API keys (the `api` cerebrum)
@@ -131,7 +122,7 @@ export CUDA_VISIBLE_DEVICES=0
 #   • OpenAI-compatible chat endpoints:  --model openai-chat:glm-5.2
 #   • OpenAI responses endpoints:        --model openai:gpt-5.5
 #   • claude_code / codex cerebrums:     no provider prefix, e.g. --model claude-opus-4-8
-python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
+rpent --suite libero_object_swap --task 2 --seed 0 \
   --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
@@ -140,7 +131,7 @@ python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
 Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
-python rpent/cli/main.py --dashboard --dashboard-language zh-cn \
+rpent --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
 ```
 

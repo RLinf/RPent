@@ -58,7 +58,7 @@ RPent 内置支持两大类 primitive:
 
 .. code-block:: bash
 
-   python rpent/cli/main.py --vla-endpoint http://localhost:8000 \
+   rpent --vla-endpoint http://localhost:8000 \
      --suite libero_object_swap --task 2 --seed 0 --cerebrum api \
      --model anthropic:claude-opus-4-8
 

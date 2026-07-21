@@ -239,7 +239,7 @@ primitive driver ``__init__`` 的 dict —— 通常是
 .. code-block:: bash
 
    PI05_CHECKPOINT_PATH=<path> ANTHROPIC_API_KEY=<key> \
-     python rpent/cli/main.py --env myenv --suite <suite> --task <id> --seed 0 \
+     rpent --env myenv --suite <suite> --task <id> --seed 0 \
      --output-dir /tmp/myenv_smoke --cerebrum api --model anthropic:claude-opus-4-8
 
 期望: driver 输出 ``transport_ready``, agent 完成 prompt 的任务, 并调用 ``finish``。
