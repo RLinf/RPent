@@ -52,10 +52,11 @@ _MIN_RECENT_IMAGES = 2
 class ApiAgentLoop:
     """Cerebrum that runs the tool-calling loop via a pydantic-ai ``Agent``."""
 
-    def __init__(self, model: Model, max_tokens: int = 8192):
+    def __init__(self, model: Model, max_tokens: int = 8192, dashboard: Any = None):
         """Store the pydantic-ai model and the output-token cap."""
         self._model = model
         self._max_tokens = max_tokens
+        self._dashboard = dashboard
 
     def solve(
         self,
@@ -112,13 +113,42 @@ class ApiAgentLoop:
                     if Agent.is_call_tools_node(node):
                         turns += 1
                         response = node.model_response
-                        messages.append(_serialize_response(response))
+                        response_message = _serialize_response(response)
+                        messages.append(response_message)
                         _log_response(response, run.usage, turns, max_turns)
+                        if self._dashboard is not None:
+                            for block in response_message["content"]:
+                                if block["type"] == "text":
+                                    dashboard_event = {
+                                        "type": "text",
+                                        "text": block["text"],
+                                    }
+                                elif block["type"] == "thinking":
+                                    dashboard_event = {
+                                        "type": "thinking",
+                                        "text": block["thinking"],
+                                    }
+                                else:
+                                    continue
+                                self._dashboard.on_event(dashboard_event)
+                            self._dashboard.on_usage(
+                                inp=int(run.usage.input_tokens or 0),
+                                out=int(run.usage.output_tokens or 0),
+                                tool_calls=n_tool_calls,
+                            )
 
                         async with node.stream(run.ctx) as stream:
                             async for event in stream:
                                 if isinstance(event, FunctionToolCallEvent):
                                     n_tool_calls += 1
+                                    if self._dashboard is not None:
+                                        self._dashboard.on_event(
+                                            {
+                                                "type": "tool_call",
+                                                "tool": event.part.tool_name,
+                                                "args": event.part.args_as_dict(),
+                                            }
+                                        )
                                     if event.part.tool_name == "finish":
                                         finish_result = {
                                             "_finish": True,
@@ -128,6 +158,29 @@ class ApiAgentLoop:
                                     message = _serialize_tool_result(event)
                                     messages.append(message)
                                     _log_tool_result(message)
+                                    if self._dashboard is not None:
+                                        dashboard_result = {
+                                            "is_error": bool(
+                                                getattr(
+                                                    event.part, "is_error", False
+                                                )
+                                            ),
+                                            "size": len(message["content"]),
+                                        }
+                                        self._dashboard.on_event(
+                                            {
+                                                "type": "tool_result",
+                                                "tool": message.get("name")
+                                                or "tool_result",
+                                                "result": dashboard_result,
+                                            }
+                                        )
+                                if self._dashboard is not None:
+                                    self._dashboard.on_usage(
+                                        inp=int(run.usage.input_tokens or 0),
+                                        out=int(run.usage.output_tokens or 0),
+                                        tool_calls=n_tool_calls,
+                                    )
 
                         if finish_result is not None:
                             logger.info("FINISH called: %s", finish_result)

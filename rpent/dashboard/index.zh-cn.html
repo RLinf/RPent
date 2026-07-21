@@ -69,6 +69,18 @@
   .ev.turn { color: var(--purple); font-weight: 600; font-size: 13.5px;
     border-top: 1px dashed var(--border); padding-top: 10px; margin-top: 10px; }
   .ev.text { white-space: pre-wrap; word-wrap: break-word; }
+  .ev.thinking details {
+    background: rgba(210,153,34,.08); border: 1px solid rgba(210,153,34,.35);
+    border-radius: 6px; padding: 6px 9px;
+  }
+  .ev.thinking summary {
+    color: var(--yellow); cursor: pointer; font-size: 12px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .ev.thinking pre {
+    white-space: pre-wrap; word-wrap: break-word; margin: 8px 0 0;
+    color: var(--fg); font: inherit;
+  }
   .ev.meta { color: var(--muted); font-size: 13px; font-style: italic; }
   .ev.tool_call, .ev.tool_result {
     font-size: 13.5px;
@@ -137,11 +149,12 @@
   /* launcher (start screen) */
   #launcher {
     position: fixed; inset: 0; z-index: 50; background: var(--bg);
-    display: flex; align-items: center; justify-content: center; padding: 24px;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 24px; overflow-y: auto;
   }
   #launcher.hidden { display: none; }
   .launch-card {
-    width: 100%; max-width: 560px; background: var(--panel);
+    width: 100%; max-width: 680px; background: var(--panel);
     border: 1px solid var(--border); border-radius: 14px; padding: 32px 34px;
     box-shadow: 0 12px 40px rgba(60,50,40,.18);
   }
@@ -151,6 +164,7 @@
   .lform { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; }
   .lfield { display: flex; flex-direction: column; gap: 6px; }
   .lfield.full { grid-column: 1 / -1; }
+  .lfield.hidden { display: none; }
   .lfield label { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
   .lfield input[type=text], .lfield input[type=number], .lfield select {
     background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
@@ -166,6 +180,11 @@
   #runBtn:hover { filter: brightness(1.08); }
   #runBtn:disabled { opacity: .55; cursor: default; }
   #launchStatus { color: var(--muted); font-size: 14px; }
+  @media (max-width: 720px), (max-height: 620px) {
+    #launcher { padding: 12px; }
+    .launch-card { padding: 18px; }
+    .lform { grid-template-columns: 1fr; gap: 12px; }
+  }
 
   .empty { color: var(--muted); padding: 24px 14px; font-style: italic; font-size: 14px; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -208,31 +227,42 @@
         <div class="lfield">
           <label for="f-cerebrum">决策大脑(大模型后端)</label>
           <select id="f-cerebrum">
-            <option value="anthropic">anthropic(不支持)</option>
-            <option value="openai_compat">openai_compat(不支持)</option>
+            <option value="api">api</option>
             <option value="claude_code">claude_code</option>
-            <option value="codex">codex(不支持)</option>
+            <option value="codex">codex</option>
           </select>
         </div>
         <div class="lfield">
-          <label for="f-max_turns">最大对话轮数</label>
-          <input type="number" id="f-max_turns" min="1" step="1" />
+          <label for="f-max-turns">最大对话轮数</label>
+          <input type="number" id="f-max-turns" min="1" step="1" />
+        </div>
+        <div class="lfield backend-field" data-backends="api">
+          <label for="f-max-tokens">最大 token 数</label>
+          <input type="number" id="f-max-tokens" min="1" step="1" />
         </div>
         <div class="lfield">
-          <label for="f-max_tokens">最大 token 数</label>
-          <input type="number" id="f-max_tokens" min="1" step="1" />
+          <label for="f-max-episode-steps">最大仿真步数</label>
+          <input type="number" id="f-max-episode-steps" min="1" step="1" />
+        </div>
+        <div class="lfield backend-field full" data-backends="api claude_code codex">
+          <label for="f-model_preset">模型预设</label>
+          <select id="f-model_preset"></select>
+        </div>
+        <div class="lfield backend-field full" data-backends="api claude_code codex">
+          <label for="f-model_custom">自定义模型 <span style="text-transform:none">(可选)</span></label>
+          <input type="text" id="f-model_custom" placeholder="provider:model 或别名" />
+        </div>
+        <div class="lfield backend-field" data-backends="claude_code">
+          <label for="f-claude-code-max-budget-usd">Claude Code 预算 USD</label>
+          <input type="number" id="f-claude-code-max-budget-usd" min="0" step="0.01" placeholder="MAX_BUDGET_USD" />
+        </div>
+        <div class="lfield backend-field" data-backends="claude_code codex">
+          <label for="f-cerebrum-timeout-s">Cerebrum 超时秒数</label>
+          <input type="number" id="f-cerebrum-timeout-s" min="1" step="1" placeholder="CELL_TIMEOUT_S / CODEX_TIMEOUT_S" />
         </div>
         <div class="lfield">
-          <label for="f-max_episode_steps">最大仿真步数</label>
-          <input type="number" id="f-max_episode_steps" min="1" step="1" />
-        </div>
-        <div class="lfield">
-          <label for="f-model">模型 <span style="text-transform:none">(留空=默认)</span></label>
-          <input type="text" id="f-model" placeholder="默认" />
-        </div>
-        <div class="lfield">
-          <label for="f-cuda_device">CUDA 设备 <span style="text-transform:none">(留空=默认)</span></label>
-          <input type="text" id="f-cuda_device" placeholder="默认" />
+          <label for="f-cuda-device">CUDA 设备 <span style="text-transform:none">(留空=默认)</span></label>
+          <input type="text" id="f-cuda-device" placeholder="默认" />
         </div>
       </div>
       <div class="launch-actions">
@@ -302,6 +332,18 @@ let autoActionPlayback = null;
 let autoActionReturnTimer = null;
 let stepTransitioning = false;  // suppress realtime frames during step transition
 const AUTO_ACTION_RETURN_DELAY_MS = 300;
+const MODEL_PRESETS = {
+  api: [
+    "",
+    "anthropic:claude-opus-4-7",
+    "anthropic:claude-opus-4-8",
+    "anthropic:claude-sonnet-4-5",
+    "openai:gpt-5.5",
+    "openai-chat:glm-5.2",
+  ],
+  claude_code: ["", "claude-opus-4-7", "sonnet", "opus"],
+  codex: [""],
+};
 
 // --- Double-buffered media swap ------------------------------------------
 // Two <img> + two <video> live in the DOM at the same position. Exactly one
@@ -638,6 +680,21 @@ function makeToolEl(ev) {
   return div;
 }
 
+function makeThinkingEl(ev) {
+  const div = document.createElement("div");
+  div.className = "ev thinking";
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  const text = ev.text || "";
+  summary.textContent = `思考 · ${text.length.toLocaleString()} 字符`;
+  const pre = document.createElement("pre");
+  pre.textContent = text;
+  details.appendChild(summary);
+  details.appendChild(pre);
+  div.appendChild(details);
+  return div;
+}
+
 function appendEvents(events) {
   const box = $("#transcript");
   if (evShown === 0) { box.innerHTML = ""; curToolGroup = null; }
@@ -657,11 +714,15 @@ function appendEvents(events) {
       curToolGroup.querySelector(".tg-count").textContent = n;
     } else {
       curToolGroup = null;  // close the group; turn/text render at top level
-      const div = document.createElement("div");
-      div.className = "ev " + ev.type;
-      if (ev.type === "meta") div.textContent = `[${ev.tag}] ${ev.text}`;
-      else div.textContent = ev.text;
-      box.appendChild(div);
+      if (ev.type === "thinking") {
+        box.appendChild(makeThinkingEl(ev));
+      } else {
+        const div = document.createElement("div");
+        div.className = "ev " + ev.type;
+        if (ev.type === "meta") div.textContent = `[${ev.tag}] ${ev.text}`;
+        else div.textContent = ev.text;
+        box.appendChild(div);
+      }
     }
   }
   evShown += events.length;
@@ -973,18 +1034,53 @@ setupSplitter($("#gutterH"), {
 });
 
 // --- launcher (start screen) ---
+function populateModelPresets(cerebrum, selected = "") {
+  const preset = $("#f-model_preset");
+  const current = selected || preset.value || "";
+  preset.innerHTML = "";
+  for (const value of (MODEL_PRESETS[cerebrum] || [""])) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value || (cerebrum === "api" ? "选择模型" : "后端默认");
+    preset.appendChild(option);
+  }
+  preset.value = (MODEL_PRESETS[cerebrum] || []).includes(current) ? current : "";
+}
+
+function updateBackendFields() {
+  const cerebrum = $("#f-cerebrum").value;
+  document.querySelectorAll("[data-backends]").forEach(el => {
+    const allowed = (el.dataset.backends || "").split(/\s+/);
+    el.classList.toggle("hidden", !allowed.includes(cerebrum));
+  });
+  const currentModel = $("#f-model_custom").value || $("#f-model_preset").value;
+  populateModelPresets(cerebrum, currentModel);
+}
+
+function selectedModel() {
+  return $("#f-model_custom").value.trim() || $("#f-model_preset").value.trim();
+}
+
 function showLauncher(defaults) {
   const d = defaults || {};
   const set = (id, val) => { $(id).value = val == null ? "" : val; };
   set("#f-suite", d.suite);
   set("#f-task", d.task);
   set("#f-seed", d.seed);
-  set("#f-cerebrum", d.cerebrum || "anthropic");
-  set("#f-max_turns", d.max_turns);
-  set("#f-max_tokens", d.max_tokens);
-  set("#f-max_episode_steps", d.max_episode_steps);
-  set("#f-model", d.model);
-  set("#f-cuda_device", d.cuda_device);
+  set("#f-cerebrum", d.cerebrum || "claude_code");
+  set("#f-max-turns", d["max-turns"]);
+  set("#f-max-tokens", d["max-tokens"]);
+  set("#f-max-episode-steps", d["max-episode-steps"]);
+  set("#f-cerebrum-timeout-s", d["cerebrum-timeout-s"]);
+  set("#f-claude-code-max-budget-usd", d["claude-code-max-budget-usd"]);
+  set("#f-cuda-device", d["cuda-device"]);
+  populateModelPresets($("#f-cerebrum").value, d.model || "");
+  if ((MODEL_PRESETS[$("#f-cerebrum").value] || []).includes(d.model || "")) {
+    set("#f-model_custom", "");
+  } else {
+    set("#f-model_custom", d.model);
+  }
+  updateBackendFields();
   $("#launcher").classList.remove("hidden");
 }
 
@@ -998,11 +1094,13 @@ function collectLaunchConfig() {
     task: numOrNull("#f-task"),
     seed: numOrNull("#f-seed"),
     cerebrum: $("#f-cerebrum").value,
-    max_turns: numOrNull("#f-max_turns"),
-    max_tokens: numOrNull("#f-max_tokens"),
-    max_episode_steps: numOrNull("#f-max_episode_steps"),
-    model: $("#f-model").value.trim(),
-    cuda_device: $("#f-cuda_device").value.trim(),
+    "max-turns": numOrNull("#f-max-turns"),
+    "max-tokens": numOrNull("#f-max-tokens"),
+    "max-episode-steps": numOrNull("#f-max-episode-steps"),
+    model: selectedModel(),
+    "cerebrum-timeout-s": numOrNull("#f-cerebrum-timeout-s"),
+    "claude-code-max-budget-usd": numOrNull("#f-claude-code-max-budget-usd"),
+    "cuda-device": $("#f-cuda-device").value.trim(),
   };
 }
 
@@ -1023,10 +1121,10 @@ async function onRun() {
   const requiredNums = [
     ["任务编号", config.task],
     ["随机种子", config.seed],
-    ["最大对话轮数", config.max_turns],
-    ["最大 token 数", config.max_tokens],
-    ["最大仿真步数", config.max_episode_steps],
+    ["最大对话轮数", config["max-turns"]],
+    ["最大仿真步数", config["max-episode-steps"]],
   ];
+  if (config.cerebrum === "api") requiredNums.push(["最大 token 数", config["max-tokens"]]);
   const badNum = requiredNums.find(([_, v]) => v == null || !Number.isFinite(v));
   if (!config.suite || badNum) {
     $("#launchStatus").textContent = !config.suite
@@ -1034,9 +1132,13 @@ async function onRun() {
       : `请填写${badNum[0]}。`;
     return;
   }
+  if (config.cerebrum === "api" && (!config.model || !config.model.includes(":"))) {
+    $("#launchStatus").textContent = "API 模型必须包含 provider 前缀,例如 anthropic:claude-opus-4-8。";
+    return;
+  }
   $("#runBtn").disabled = true;
   $("#launchStatus").textContent =
-    "启动中… 正在加载仿真与 VLA 服务,可能需要一分钟。";
+    "正在启动运行… 页面将切换到实时监控。";
   try {
     const resp = await fetch("/api/launch/run", {
       method: "POST",
@@ -1052,6 +1154,11 @@ async function onRun() {
   pollForRun();
 }
 $("#runBtn").addEventListener("click", onRun);
+$("#f-cerebrum").addEventListener("change", () => {
+  $("#f-model_custom").value = "";
+  $("#launchStatus").textContent = "";
+  updateBackendFields();
+});
 
 async function boot() {
   let st = { enabled: false };

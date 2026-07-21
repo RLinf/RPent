@@ -287,9 +287,10 @@ def _build_argparser() -> argparse.ArgumentParser:
                     choices=["api", "claude_code", "codex"],
                     help="LLM backend: api | claude_code | codex.")
     ap.add_argument("--model", default=None,
-                    help="Model id. For the 'api' cerebrum you need to prefix provider to the model id "
+                    help="Model id. For the 'api' cerebrum, prefix the provider "
                          "(e.g. anthropic:claude-opus-4-8, openai:gpt-5.5, "
-                         "openai-chat:glm-5.2).")
+                         "openai-chat:glm-5.2). For claude_code/codex this "
+                         "overrides the backend default model.")
     ap.add_argument("--base-url", default=None,
                     help="API base URL. Defaults to the selected backend's base URL env var.")
     ap.add_argument("--api-key", default=None,
@@ -360,6 +361,7 @@ def main() -> int:
     # Everything downstream (output_dir, State, run loop) then sees final args.
     dashboard_server = None
     dashboard_url = None
+    launch_config = None
     if args.dashboard:
         from rpent.dashboard import DashboardServer
         from rpent.dashboard.launcher import apply_to_args, defaults_from_args
@@ -369,15 +371,17 @@ def main() -> int:
             language=args.dashboard_language,
         )
         dashboard_url = dashboard_server.start()
+        # The run directory is not final until the launcher form is submitted, so
+        # print the pre-launch URL without initializing the run.log file handler.
         print(
-            f"Dashboard: {dashboard_url}. Open it, adjust the run config, and click Run to start.",
+            f"Dashboard: {dashboard_url}. "
+            "Open it, adjust the run config, and click Run to start.",
             flush=True,
         )
         launch_config = dashboard_server.wait_for_launch(
             defaults=defaults_from_args(args)
         )
         apply_to_args(args, launch_config)
-        logger.info("launcher config applied: %s", launch_config)
 
     if not args.suite:
         parser.error("--suite is required")
@@ -399,6 +403,11 @@ def main() -> int:
         timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
         output_dir = get_repo_root() / "logs" / f"{timestamp}_{suite}_t{task}_s{seed}"
     output_dir = init_output_dir(output_dir, verbose=args.verbose)
+    # Now that output_dir is fixed, repeat launcher details into this run's log.
+    if dashboard_url is not None:
+        logger.info("Dashboard: %s", dashboard_url)
+    if launch_config is not None:
+        logger.info("launcher config applied: %s", launch_config)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
     recipe_tag = f"{suite.replace('libero_', '')}_t{task}_s{seed}"

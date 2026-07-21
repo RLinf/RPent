@@ -47,6 +47,8 @@ class CodexCerebrum:
         timeout_s: int = 600,
         extra_dirs: list[str] | None = None,
         output_path: str | Path | None = None,
+        model: str | None = None,
+        dashboard: Any = None,
     ):
         """Initialize the Codex SDK backend."""
         self._output_dir = str(output_dir)
@@ -54,9 +56,10 @@ class CodexCerebrum:
         self._timeout_s = timeout_s
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
-        self._model = os.environ.get("CODEX_MODEL", None)
+        self._model = model or os.environ.get("CODEX_MODEL", None)
         self._base_url = os.environ.get("CODEX_BASE_URL", None)
         self._api_key = os.environ.get("CODEX_API_KEY", None)
+        self._dashboard = dashboard
 
     def solve(
         self,
@@ -78,7 +81,7 @@ class CodexCerebrum:
             output_path.parent.mkdir(parents=True, exist_ok=True)
         raw_stream_path = output_path.with_suffix(output_path.suffix + ".stream.jsonl")
         last_message_path = output_path.with_suffix(output_path.suffix + ".last")
-        recorder = _Recorder(max_turns=max_turns)
+        recorder = _Recorder(max_turns=max_turns, dashboard=self._dashboard)
         state: dict[str, Any] = {}
 
         # Start the in-thread MCP HTTP server so Codex can reach the
@@ -251,6 +254,7 @@ class _Recorder:
     """Pure adapter: consume Codex SDK events, emit text + accumulate stats."""
 
     max_turns: int
+    dashboard: Any = None
     turns: int = 0
     tool_calls: int = 0
     usage: dict[str, int] = field(
@@ -302,6 +306,8 @@ class _Recorder:
                 return ""
             self.final_response = text
             self.turns += 1
+            if self.dashboard is not None:
+                self.dashboard.on_event({"type": "text", "text": text})
             return (
                 f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n"
                 f"[codex] {text}\n"
@@ -309,25 +315,35 @@ class _Recorder:
 
         if item_type == "reasoning":
             text = _extract_text(_get(item, "summary") or _get(item, "content"))
+            if text and self.dashboard is not None:
+                self.dashboard.on_event({"type": "thinking", "text": text})
             return f"[codex-reasoning] {text}\n" if text else ""
 
-        if item_type in {"mcpToolCall", "dynamicToolCall"}:
+        if item_type in {
+            "mcpToolCall",
+            "dynamicToolCall",
+            "commandExecution",
+            "fileChange",
+        }:
             self.tool_calls += 1
-            name = strip_mcp_prefix(str(_get(item, "tool", item_type)))
+            if item_type in {"mcpToolCall", "dynamicToolCall"}:
+                name = strip_mcp_prefix(str(_get(item, "tool", item_type)))
+                self._maybe_capture_finish(name, item)
+            elif item_type == "commandExecution":
+                name = str(_get(item, "command", item_type))
+            else:
+                name = "fileChange"
             payload = _summarise_item(item)
-            self._maybe_capture_finish(name, item)
+            if self.dashboard is not None:
+                data = _jsonable(item)
+                args = data.get("arguments", {}) if isinstance(data, dict) else {}
+                self.dashboard.on_event(
+                    {"type": "tool_call", "tool": name, "args": args}
+                )
+                self.dashboard.on_event(
+                    {"type": "tool_result", "tool": name, "result": payload}
+                )
             return f"[tool<-] {name}: {json.dumps(payload, ensure_ascii=False)}\n"
-
-        if item_type == "commandExecution":
-            self.tool_calls += 1
-            name = str(_get(item, "command", item_type))
-            payload = _summarise_item(item)
-            return f"[tool<-] {name}: {json.dumps(payload, ensure_ascii=False)}\n"
-
-        if item_type == "fileChange":
-            self.tool_calls += 1
-            payload = _summarise_item(item)
-            return f"[tool<-] fileChange: {json.dumps(payload, ensure_ascii=False)}\n"
 
         return ""
 
@@ -362,6 +378,12 @@ class _Recorder:
                 usage, "reasoning_output_tokens"
             ),
         }
+        if self.dashboard is not None:
+            self.dashboard.on_usage(
+                inp=self.usage["total_input_tokens"],
+                out=self.usage["total_output_tokens"],
+                tool_calls=self.tool_calls,
+            )
 
     def _maybe_capture_finish(self, name: str, item: Any) -> None:
         if self.finish_result is not None:
@@ -510,11 +532,7 @@ def _extract_text(value: Any) -> str:
 
 
 def _payload_size(value: Any) -> int:
-    if value is None:
-        return 0
-    if isinstance(value, str):
-        return len(value)
-    return len(json.dumps(value, ensure_ascii=False, default=str))
+    return len(str(value or ""))
 
 
 def _short_json(value: Any, *, limit: int) -> str:
