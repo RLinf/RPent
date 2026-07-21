@@ -65,7 +65,7 @@ new one each time:
 .. code-block:: bash
 
    rpent --vla-endpoint http://localhost:8000 \
-     --suite libero_object_swap --task 2 --seed 0 --cerebrum api \
+     --suite libero_object_swap --task 2 --seed 0 --planner api \
      --model anthropic:claude-opus-4-8
 
 That is the recommended pattern once you are running many tasks in a

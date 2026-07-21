@@ -105,7 +105,7 @@ Pick a narrower extra if you don't need the whole stack:
 **2. Configure keys and checkpoints, then run.**
 
 ```bash
-# LLM API keys (the `api` cerebrum)
+# LLM API keys (the `api` planner)
 export ANTHROPIC_BASE_URL=https://xxx
 export ANTHROPIC_API_KEY=sk-xxx
 export OPENAI_BASE_URL=https://xxx
@@ -117,13 +117,13 @@ export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 export LIBERO_TYPE=pro
 export CUDA_VISIBLE_DEVICES=0
 
-# Run one task: libero_object_swap, task 2, seed 0, using the `api` cerebrum
+# Run one task: libero_object_swap, task 2, seed 0, using the `api` planner
 # with an Anthropic model and an 8192-token cap.
 #   • OpenAI-compatible chat endpoints:  --model openai-chat:glm-5.2
 #   • OpenAI responses endpoints:        --model openai:gpt-5.5
-#   • claude_code / codex cerebrums:     no provider prefix, e.g. --model claude-opus-4-8
+#   • claude_code / codex planners:     no provider prefix, e.g. --model claude-opus-4-8
 rpent --suite libero_object_swap --task 2 --seed 0 \
-  --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
+  --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
 ### Live Dashboard
@@ -132,7 +132,7 @@ Add `--dashboard` to open a browser monitor for the run. It boots a launcher scr
 
 ```bash
 rpent --dashboard --dashboard-language zh-cn \
-  --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
+  --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 ```
 
 ### RoboCasa
@@ -153,7 +153,7 @@ See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 +
 | `--suite` | — (required) | Task suite, e.g. `libero_object_task`, `libero_spatial_swap` |
 | `--task` | — (required) | Task id within the suite |
 | `--seed` | `0` | Random seed |
-| `--cerebrum` | `api` | Reasoning brain: `api` \| `claude_code` \| `codex` |
+| `--planner` | `api` | Reasoning brain: `api` \| `claude_code` \| `codex` |
 | `--model` | — | Model id; for `api`, prefix the provider (`anthropic:…`, `openai:…`, `openai-chat:…`) |
 | `--max-turns` | `100` | Max agent turns |
 | `--max-tokens` | `8192` | Max tokens per LLM reply |

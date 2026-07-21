@@ -21,7 +21,7 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
 
 - **LLM-in-the-loop 控制。** 大模型无需微调——它完全通过调用工具（`pi0_pick`、`move_to`、`rotate_wrist`、`back_project`、`finish` …）来驱动机器人。每次工具调用的结果都以多模态上下文（文本 + 渲染图像）回灌，让模型基于「它实际看到的画面」进行推理。
 - **三进程架构。** **Agent 主进程**（LLM 决策大脑 + 工具容器，不加载 `torch`）、**env_server**（仿真器 + EGL 渲染）、**vla_server**（GPU 策略权重）彼此独立，用轻量 RPC 连接。两个重量级进程都可以独立重启、切换到另一块 GPU，或指向远程主机。
-- **可插拔的决策大脑（cerebrum）。** 用一个参数 `--cerebrum {api, claude_code, codex}` 切换决策大脑，无需改动工具或提示词：
+- **可插拔的决策大脑（planner）。** 用一个参数 `--planner {api, claude_code, codex}` 切换决策大脑，无需改动工具或提示词：
   - `api` —— 基于 [pydantic-ai](https://ai.pydantic.dev/) 的、与厂商无关的工具调用循环（Anthropic / OpenAI / OpenAI 兼容），带提示词缓存与历史图像裁剪。
   - `claude_code` —— 使用 [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview)，把工具容器包装成进程内 MCP server。
   - `codex` —— 使用 OpenAI Codex SDK，通过 HTTP MCP server 桥接工具。
@@ -131,7 +131,7 @@ export CUDA_VISIBLE_DEVICES=0
 #   • OpenAI responses 端点：  --model openai:gpt-5.5
 #   • claude_code / codex 大脑：无需 provider 前缀，如 --model claude-opus-4-8
 rpent --suite libero_object_swap --task 2 --seed 0 \
-  --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
+  --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
 ### 实时 Dashboard
@@ -140,7 +140,7 @@ rpent --suite libero_object_swap --task 2 --seed 0 \
 
 ```bash
 rpent --dashboard --dashboard-language zh-cn \
-  --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
+  --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 ```
 
 ### RoboCasa
@@ -161,7 +161,7 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 | `--suite` | —（必填） | 任务集，如 `libero_object_task`、`libero_spatial_swap` |
 | `--task` | —（必填） | 任务集内的任务编号 |
 | `--seed` | `0` | 随机种子 |
-| `--cerebrum` | `api` | 决策大脑：`api` \| `claude_code` \| `codex` |
+| `--planner` | `api` | 决策大脑：`api` \| `claude_code` \| `codex` |
 | `--model` | — | 模型 id；`api` 需带 provider 前缀（`anthropic:…`、`openai:…`、`openai-chat:…`） |
 | `--max-turns` | `100` | 智能体最大轮数 |
 | `--max-tokens` | `8192` | 单次回复最大 token |

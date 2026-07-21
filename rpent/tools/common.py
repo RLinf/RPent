@@ -125,11 +125,11 @@ def list_dir(path: str = "") -> dict:
 def finish(status: str, summary: str) -> dict:
     """Signal that the run is complete. Halts the agent loop.
 
-    The ``_finish`` sentinel is what each cerebrum detects to stop the
+    The ``_finish`` sentinel is what each planner detects to stop the
     tool-calling loop — see ``event.part.tool_name == "finish"`` in
-    :meth:`rpent.cerebrum.api_loop.ApiAgentLoop._solve` and the
+    :meth:`rpent.planner.api_loop.ApiAgentLoop._solve` and the
     ``pending_finish`` bookkeeping in
-    :class:`rpent.cerebrum.claude_code._Recorder`.
+    :class:`rpent.planner.claude_code._Recorder`.
     """
     return {"_finish": True, "status": status, "summary": summary}
 

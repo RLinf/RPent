@@ -1,14 +1,14 @@
 Agentic planner
 ===============
 
-RPent's reasoning brain — the *cerebrum* — is chosen with a single CLI
+RPent's reasoning brain — the *planner* — is chosen with a single CLI
 flag:
 
 .. code-block:: bash
 
-   --cerebrum {api, claude_code, codex}
+   --planner {api, claude_code, codex}
 
-All three cerebrums see the same tool schemas and the same prompt
+All three planners see the same tool schemas and the same prompt
 bundle. They differ only in *how* the tool-calling loop is orchestrated
 and in *which* LLMs / SDKs they can reach.
 
@@ -16,7 +16,7 @@ and in *which* LLMs / SDKs they can reach.
    :header-rows: 1
    :widths: 20 40 40
 
-   * - ``--cerebrum``
+   * - ``--planner``
      - What it is
      - When to pick it
    * - ``api``
@@ -39,10 +39,10 @@ and in *which* LLMs / SDKs they can reach.
      - You want the Codex agent runtime or you already have OpenAI /
        Codex quota to spend.
 
-The ``api`` cerebrum (custom / lightweight)
+The ``api`` planner (custom / lightweight)
 -------------------------------------------
 
-``--cerebrum api`` runs a hand-rolled pydantic-ai loop. It is the
+``--planner api`` runs a hand-rolled pydantic-ai loop. It is the
 default and the most portable — any provider that speaks the Anthropic
 Messages API, the OpenAI Responses API, or an OpenAI-compatible chat
 API works.
@@ -52,13 +52,13 @@ Pick the provider by prefixing ``--model``:
 .. code-block:: bash
 
    # Anthropic Claude
-   rpent --cerebrum api --model anthropic:claude-opus-4-8 ...
+   rpent --planner api --model anthropic:claude-opus-4-8 ...
 
    # OpenAI Responses (e.g. GPT-5.5)
-   rpent --cerebrum api --model openai:gpt-5.5 ...
+   rpent --planner api --model openai:gpt-5.5 ...
 
    # OpenAI-compatible chat (e.g. GLM 5.2)
-   rpent --cerebrum api --model openai-chat:glm-5.2 ...
+   rpent --planner api --model openai-chat:glm-5.2 ...
 
 Environment variables it reads (override with ``--base-url`` /
 ``--api-key`` if needed):
@@ -73,17 +73,17 @@ Useful ``api``-only knobs:
 - ``--max-turns`` — cap the number of tool-calling turns (default
   ``100``).
 
-The ``claude_code`` cerebrum
+The ``claude_code`` planner
 ----------------------------
 
-``--cerebrum claude_code`` delegates the loop to the Claude Agent SDK.
+``--planner claude_code`` delegates the loop to the Claude Agent SDK.
 RPent's tools become an **in-process MCP server** that Claude Code
 calls; you see the same tools under the ``mcp__rpent__<name>``
 namespace.
 
 .. code-block:: bash
 
-   rpent --cerebrum claude_code \
+   rpent --planner claude_code \
      --model claude-opus-4-8 \
      --suite libero_object_swap --task 2 --seed 0
 
@@ -92,7 +92,7 @@ Notes:
 - Do **not** prefix the model id with a provider — pass e.g.
   ``claude-opus-4-8``.
 - The subprocess is capped by a wall-clock budget
-  (``--cerebrum-timeout-s``, defaults to
+  (``--planner-timeout-s``, defaults to
   ``CODEX_TIMEOUT_S`` / ``CELL_TIMEOUT_S`` / ``1200``).
 - A dollar budget can be set via ``--claude-code-max-budget-usd``
   (defaults to ``MAX_BUDGET_USD`` env or ``10``).
@@ -100,21 +100,21 @@ Notes:
   the `Claude Agent SDK docs
   <https://docs.claude.com/en/api/agent-sdk/overview>`_.
 
-The ``codex`` cerebrum
+The ``codex`` planner
 ----------------------
 
-``--cerebrum codex`` bridges the same toolkit to the OpenAI Codex SDK
+``--planner codex`` bridges the same toolkit to the OpenAI Codex SDK
 over an HTTP MCP server started by ``scripts/codex_proxy/``.
 
 .. code-block:: bash
 
-   rpent --cerebrum codex \
+   rpent --planner codex \
      --model gpt-5.5 \
      --suite libero_goal_task --task 1 --seed 0
 
 Notes:
 
-- ``--cerebrum-timeout-s`` bounds the Codex subprocess in the same way
+- ``--planner-timeout-s`` bounds the Codex subprocess in the same way
   as ``claude_code``.
 - Codex authentication uses the standard OpenAI environment
   variables.
@@ -122,23 +122,23 @@ Notes:
 Bring your own agent
 --------------------
 
-If none of the three cerebrums fit — say you want to plug in an
+If none of the three planners fit — say you want to plug in an
 in-house planner, a research prototype, or a different agent SDK —
-subclass ``rpent.cerebrum.base.Cerebrum`` and register your factory in
-``rpent.cerebrum.base.build_cerebrum``:
+subclass ``rpent.planner.base.Planner`` and register your factory in
+``rpent.planner.base.build_planner``:
 
 .. code-block:: python
 
-   # rpent/cerebrum/mybrain.py
-   from rpent.cerebrum.base import Cerebrum
+   # rpent/planner/mybrain.py
+   from rpent.planner.base import Planner
 
-   class MyCerebrum(Cerebrum):
+   class MyPlanner(Planner):
        async def run(self, *, prompt_bundle, toolkit, output_dir, ...):
            # Drive the tool-calling loop yourself.
            # Call toolkit.dispatch(tool_name, **kwargs) to invoke a tool.
            ...
 
-Any cerebrum must:
+Any planner must:
 
 1. Take the rendered ``prompt_bundle`` (system + user prompt sections
    from ``robots/<env>/prompt_bundle.py``).
@@ -148,7 +148,7 @@ Any cerebrum must:
    context (text + images).
 4. Terminate on ``finish`` or when the caps are hit.
 
-Because every cerebrum sees the same schemas and the same prompts,
+Because every planner sees the same schemas and the same prompts,
 adding a new brain never requires touching the tools or the env
 servers. See :doc:`../development/architecture` for the interface, and
 :doc:`../development/add_primitive` if you want to expose new tools to

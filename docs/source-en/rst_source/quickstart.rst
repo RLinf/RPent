@@ -13,7 +13,7 @@ reasoning brain, plus the path to the VLA checkpoint:
 
 .. code-block:: bash
 
-   # LLM API keys (used by the `api` cerebrum via pydantic-ai)
+   # LLM API keys (used by the `api` planner via pydantic-ai)
    export ANTHROPIC_BASE_URL=https://xxx
    export ANTHROPIC_API_KEY=sk-xxx
    export OPENAI_BASE_URL=https://xxx
@@ -26,24 +26,24 @@ reasoning brain, plus the path to the VLA checkpoint:
    export CUDA_VISIBLE_DEVICES=0
 
 You only need to set the keys for the providers you actually target.
-For example, if you only run ``--cerebrum claude_code``, you can skip
+For example, if you only run ``--planner claude_code``, you can skip
 ``OPENAI_*``.
 
 2. Run one LIBERO task
 ----------------------
 
 Run a single LIBERO PRO task (``libero_object_swap``, task ``2``, seed
-``0``) using the ``api`` cerebrum against an Anthropic model with an
+``0``) using the ``api`` planner against an Anthropic model with an
 8192-token cap:
 
 .. code-block:: bash
 
    rpent --suite libero_object_swap --task 2 --seed 0 \
-     --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
+     --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 
 **Model id conventions.** ``--model`` accepts a provider-prefixed id
-for the ``api`` cerebrum, and a bare id for the ``claude_code`` /
-``codex`` cerebrums:
+for the ``api`` planner, and a bare id for the ``claude_code`` /
+``codex`` planners:
 
 - OpenAI-compatible chat endpoints — ``--model openai-chat:glm-5.2``
 - OpenAI responses endpoints — ``--model openai:gpt-5.5``
@@ -63,7 +63,7 @@ replays. Use ``--dashboard-language zh-cn`` for the Chinese UI.
 .. code-block:: bash
 
    rpent --dashboard --dashboard-language zh-cn \
-     --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
+     --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
 4. RoboCasa
 -----------
@@ -102,7 +102,7 @@ The most common flags of ``rpent`` at a glance:
    * - ``--seed``
      - ``0``
      - Random seed
-   * - ``--cerebrum``
+   * - ``--planner``
      - ``api``
      - Reasoning brain: ``api`` | ``claude_code`` | ``codex``
    * - ``--model``

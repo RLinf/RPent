@@ -30,7 +30,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model
 from pydantic_ai.usage import RunUsage, UsageLimits
 
-from rpent.cerebrum.base import CerebrumResult
+from rpent.planner.base import PlannerResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
 
@@ -50,7 +50,7 @@ _MIN_RECENT_IMAGES = 2
 
 
 class ApiAgentLoop:
-    """Cerebrum that runs the tool-calling loop via a pydantic-ai ``Agent``."""
+    """Planner that runs the tool-calling loop via a pydantic-ai ``Agent``."""
 
     def __init__(self, model: Model, max_tokens: int = 8192, dashboard: Any = None):
         """Store the pydantic-ai model and the output-token cap."""
@@ -65,7 +65,7 @@ class ApiAgentLoop:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-    ) -> CerebrumResult:
+    ) -> PlannerResult:
         """Run the tool-calling loop until finish, normal stop, or budget."""
         return asyncio.run(
             self._solve(
@@ -83,7 +83,7 @@ class ApiAgentLoop:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-    ) -> CerebrumResult:
+    ) -> PlannerResult:
         agent = Agent(
             self._model,
             instructions=system_prompt or None,
@@ -195,11 +195,11 @@ class ApiAgentLoop:
                 usage = run.usage
         except UsageLimitExceeded as e:
             logger.info("usage limit reached: %s", e)
-        except Exception as e:  # noqa: BLE001 - surfaced via CerebrumResult.error
+        except Exception as e:  # noqa: BLE001 - surfaced via PlannerResult.error
             last_error = f"{type(e).__name__}: {e}"
             logger.error("agent run failed: %s", last_error)
 
-        return CerebrumResult(
+        return PlannerResult(
             finish_result=finish_result,
             messages=messages,
             stats=_build_stats(usage, turns, n_tool_calls),
