@@ -127,9 +127,6 @@ class ClaudeCodeCerebrum:
                             out_f.write(rendered)
                             out_f.flush()
                             logger.info(rendered.rstrip())
-                        if recorder.finish_result is not None:
-                            logger.info("FINISH called: %s", recorder.finish_result)
-                            break
 
                 await asyncio.wait_for(consume_stream(), timeout=self._timeout_s)
             except asyncio.TimeoutError:
@@ -218,6 +215,7 @@ class _Recorder:
     max_turns: int
     dashboard: Any = None
     turns: int = 0
+    _seen_assistant_ids: set[str] = field(default_factory=set)
     tool_calls: int = 0
     tool_names: dict[str, str] = field(default_factory=dict)
     pending_finish: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -276,16 +274,20 @@ class _Recorder:
     def _assistant(self, message: Any) -> str:
         self._add_usage(_get(message, "usage"))
         lines: list[str] = []
+        if _get(message, "parent_tool_use_id") is None:
+            # One Claude response may arrive as multiple messages with the same ID.
+            assistant_id = _get(message, "message_id") or _get(message, "uuid")
+            if not assistant_id or assistant_id not in self._seen_assistant_ids:
+                if assistant_id:
+                    self._seen_assistant_ids.add(str(assistant_id))
+                self.turns += 1
+                lines.append(f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n")
         for block in _get(message, "content", []) or []:
             block_kind = _kind(block)
             if block_kind == "TextBlock":
                 text = str(_get(block, "text", "")).strip()
                 if text:
-                    self.turns += 1
-                    lines.append(
-                        f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n"
-                        f"[claude] {text}\n"
-                    )
+                    lines.append(f"[claude] {text}\n")
                     if self.dashboard is not None:
                         self.dashboard.on_event({"type": "text", "text": text})
             elif block_kind == "ToolUseBlock":
@@ -358,8 +360,6 @@ class _Recorder:
     def _result(self, message: Any) -> str:
         if usage := _get(message, "usage"):
             self._set_usage(usage)
-        if turns := _get(message, "num_turns"):
-            self.turns = int(turns)
         if cost := _get(message, "total_cost_usd"):
             self.total_cost_usd = float(cost)
         if _get(message, "is_error", False):
