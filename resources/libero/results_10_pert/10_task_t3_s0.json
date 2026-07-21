@@ -1,0 +1,17 @@
+{
+  "suite": "libero_10_task",
+  "task_id": 3,
+  "seed": 0,
+  "regime": "strict_perception_multi_attempt",
+  "libero_terminated": false,
+  "task_language": "put the bottle in the bottom drawer of the cabinet and close it",
+  "final_state": {
+    "robot0_eef_pos": [0.0006, 0.1259, 1.0501],
+    "robot0_gripper_qpos": [0.039, -0.040],
+    "bottle_xyz_estimate": [0.0, 0.200, 0.981]
+  },
+  "strategy_notes": "19th explore attempt on this cell (18 prior failures all archived in attempts/10_task_t3_s0/attempt_*). Task: place wine bottle in bottom drawer and close drawer. Same intractable bind as all 18 prior failures: bottle CAN be grasped (manual neck-grasp at z=1.02 after pi0_pick fails, or pi0_pick with prepos at exact bottle xy z=1.18 + max_chunks=25 lift_thresh=0.04 gripper_closed_thresh=0.03) and CAN be oriented horizontal along +Y axis (rotate_wrist 1.57 + rotate_pitch 1.5 = bottle extending into drawer). BUT OSC vertical reach walls at z=0.99 when carrying tilted bottle - cannot reach cavity floor z=0.924. Bottle therefore rests on drawer front rim/lip at z=0.98 (visible in agentview - dark green horizontal cylinder partially inside drawer area but above floor). Closure attempts via pi0_doubled (multiple max_chunks=25,30) and manual move_to push to y=0.30 z=1.05 all wall at y=0.126 (drawer face) - the bottle sitting on the rim blocks drawer slide. Vertical OSC limit appears to be ~6cm above cavity floor when arm is in tilted-carry pose. The 9/10 libero_10_task sweep solution requires bottle BELOW the front rim before close, which the OSC controller appears physically incapable of reaching with current primitives. WINNING TECHNIQUES DISCOVERED but not sufficient: (1) Pi0_pick 'pick up the wine bottle' with prepos at exact bottle xy z=1.18, max_chunks=25, lift_thresh=0.04, gripper_closed_thresh=0.03 reliably picks (peak_lift>0.10 qpos<0.01); (2) rotate_wrist=+1.57 then rotate_pitch=+1.5 produces bottle horizontal extending +Y from gripper, perfect orientation for drawer cavity; (3) move_pose to (-0.025, 0.085, 0.96) target_pitch=1.5 step_clip=0.008 max_steps=250 reaches max vertical descent z=0.994 - INSUFFICIENT (3-4cm above rim).",
+  "pick_result": "success_via_pi0_pick_lift=0.106m_qpos=0.008",
+  "place_result": "horizontal_along_Y_inside_cavity_xy_but_on_drawer_rim_z=0.98_not_floor_z=0.924",
+  "drawer_close_result": "stuck_at_y_face=0.126_OSC_walls_at_drawer_face"
+}

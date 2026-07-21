@@ -1,0 +1,44 @@
+{
+  "suite": "libero_object_swap",
+  "task_id": 9,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "swap (P2 Position perturbation)",
+  "perturbed_task_language": "Pick the orange juice and place it in the basket",
+  "perturbation_semantics": "object positions swapped vs base; orange_juice_1 and basket_1 localized purely from depth back-projection (no coords from state)",
+  "expected_baseline_behavior": "Pi0 fullshot may pick base-position object or place at base-position basket",
+  "strategy_notes": "Localized orange_juice_1 in agentview image_cam_00.png by scanning for orange/yellow RGB cluster: rows 97-115 col 140-150 showed RGB(137,98,7)/(140,60,13) (orange carton label) with vertical extent z=0 to z=0.135 — world xy = (-0.125, +0.06). Basket_1 found by white wicker rim cluster (RGB 235,235,236) at rows 130-140, cols 195-220 — world xy = (+0.085, +0.25), rim z=0.14. After pre-positioning at (-0.125, 0.07, 0.22), wrist cam (world_wrist_01) confirmed OJ carton at world (-0.13, +0.06), top z=0.136 (matched ORANGE JUICE text visible on label). Pi0_pick succeeded in 7 chunks; wrist post-pick showed OJ held with 'ORANGE JUICE' label visible. Carried at z=0.26 across to basket xy, released, retreated — predicate fired during settle on retreat.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the orange juice",
+    "success": true,
+    "chunks_used": 7,
+    "max_chunks": 25,
+    "peak_lift_m": 0.0577,
+    "min_gripper_opening": 0.0532,
+    "final_gripper_opening": 0.0532,
+    "libero_terminated": false,
+    "diagnostics": {
+      "start_eef_z": 0.2213,
+      "peak_eef_z": 0.2213,
+      "min_eef_z": 0.0962,
+      "post_min_peak_z": 0.1539,
+      "descent_m": 0.1252,
+      "post_min_ascent_m": 0.0577,
+      "descent_done": true,
+      "lift_thresh": 0.05,
+      "gripper_closed_thresh": 0.06,
+      "track_obj": null,
+      "track_obj_init_z": null,
+      "track_obj_final_z": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [0.09608489311700143, 0.25500047658651837, 0.2758254073910816],
+    "robot0_eef_quat": [0.9976716893860674, -0.004277447846937177, -0.06717212738571982, -0.010991312020962315],
+    "robot0_gripper_qpos": [0.03936332947609635, -0.039311933678396985],
+    "obj_of_interest": null,
+    "object_names": ["basket_1", "bbq_sauce_1", "butter_1", "chocolate_pudding_1", "ketchup_1", "orange_juice_1", "salad_dressing_1"]
+  },
+  "libero_terminated": true
+}

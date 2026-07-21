@@ -1,0 +1,44 @@
+{
+  "suite": "libero_object_swap",
+  "task_id": 2,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "swap (P2 Position perturbation)",
+  "perturbed_task_language": "Pick the salad dressing and place it in the basket",
+  "perturbation_semantics": "loose-object positions swapped; both salad_dressing and basket localized purely by depth back-projection",
+  "expected_baseline_behavior": "Pi0 fullshot likely picks/places at base (un-swapped) locations",
+  "strategy_notes": "Perception-isolated localization (no GT coords). Coarse agentview pass on world_00.npy: clustered above-table pixels (z>0.05), then narrowed by color/shape. First attempt picked the LEFT red bottle at world (-0.107,-0.237,top_z~0.097) using 'pick up the salad dressing'. Pi0 lifted+placed it in the basket but predicate did NOT fire => that bottle was ketchup, not salad_dressing. Reset and retried with the DARK back-center bottle at world (-0.185,-0.088,top_z~0.144) — that one matched the salad_dressing predicate. Recipe: reset -> move_to (-0.185,-0.088,0.20) gripper open -> pi0_pick max_chunks=10 (small chunk budget so Pi0 only does the grasp, not a full place) -> move_to (0.076,0.231,0.35) carry above basket (basket localized via world_00.npy cluster at high-z near right side, basket-center xy ~ (0.076,0.231)) -> release. libero_terminated fired on release step_20.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the salad dressing",
+    "success": false,
+    "chunks_used": 10,
+    "max_chunks": 10,
+    "peak_lift_m": 0.162,
+    "min_gripper_opening": 0.037,
+    "final_gripper_opening": 0.037,
+    "libero_terminated": false,
+    "diagnostics": {
+      "start_eef_z": 0.197,
+      "peak_eef_z": 0.2724,
+      "min_eef_z": 0.1104,
+      "post_min_peak_z": 0.2724,
+      "descent_m": 0.0866,
+      "post_min_ascent_m": 0.162,
+      "descent_done": false,
+      "lift_thresh": 0.05,
+      "gripper_closed_thresh": 0.06,
+      "track_obj": null,
+      "track_obj_init_z": null,
+      "track_obj_final_z": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [0.08563715696876292, 0.236625409364378, 0.3665311540365803],
+    "robot0_eef_quat": [0.9990707397315355, 0.011413524644209028, -0.020440504437676803, -0.03618804009353346],
+    "robot0_gripper_qpos": [0.03907899209311719, -0.03892709482648108],
+    "obj_of_interest": null,
+    "object_names": ["alphabet_soup_1", "basket_1", "cream_cheese_1", "ketchup_1", "milk_1", "salad_dressing_1", "tomato_sauce_1"]
+  },
+  "libero_terminated": true
+}

@@ -1,0 +1,24 @@
+{
+  "suite": "libero_spatial_swap",
+  "task_id": 3,
+  "seed": 0,
+  "regime": "strict_perception",
+  "task_language": "Pick the akita black bowl on the cookies box and place it on the plate",
+  "strategy_notes": "Perception-isolated, multi-attempt exploration mode. Scene identified via image_cam_hi_00 + world_hi_00 + SAM3 segment: TWO akita black bowls (one on a small textured cookies-box at center ~(0.04, 0.005, 0.95), one on a tall dark cabinet at right ~(0.04, 0.21, 1.16)), the cookies box (center), AND two flat discs (the gray disc on a small pedestal at upper-middle ~(-0.37, -0.08, 0.92) and a pink/red-rim disc at bottom-left ~(0.03, -0.28, 0.91)). Key disambiguation: SAM3 'the dinner plate' scored 0.79 on the PINK-RIM disc — that is plate_1; the gray disc is glazed_rim_porcelain_ramekin_1 (ramekin, NOT the place target). The middle bowl on cookies_1 is 'the bowl on the cookies box'. Prior cell attempt (10 resets) had never tried middle-bowl→pink-rim plate with corrected coords AND a slow descent; the failed combinations had bad target coords (eef y was ~6cm off in att 7). \n\nWinning approach: (1) Pre-position eef high above the middle bowl at (0.04, 0.005, 1.05) with gripper open. (2) pi0_pick 'pick up the black bowl in front of you' max_chunks 22 — Pi0 picks the middle bowl (gripper tight ~0.004, lift ~0.05m). (3) Lift to z=1.15 with gripper:1 to clear obstacles. (4) move_pose to pre-place (0.055, -0.295, 1.05) gripper:1 — note move_pose REQUIRES gripper:1 or it OPENS and drops the bowl (cost one reset to confirm); also move_pose threads OSC singularities where move_to stalled completely (cost two resets to discover). The eef-x of 0.055 = plate_x (0.028) - measured dx offset (-0.024); eef-y of -0.295 = plate_y (-0.281) - dy offset (~ -0.014 effective drop). (5) Slow descent with move_pose to (0.055, -0.295, 0.95) step_clip 0.012 — bowl rests on plate's surface; release happens automatically when libero_terminated fires mid-descent (term=True at eef z=0.962). No explicit release needed because the predicate fired before the bowl was released.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the black bowl in front of you",
+    "success": true,
+    "peak_lift_m": 0.0518,
+    "min_gripper_opening": 0.0043,
+    "note": "middle bowl on the cookies box (akita_black_bowl_*) picked cleanly from cookies_1; tight grip held throughout carry"
+  },
+  "final_state": {
+    "robot0_eef_pos": [0.05210512815874001, -0.2937294418428798, 0.9621650909897346],
+    "robot0_eef_quat": [0.9973113150198865, 6.906150401525535e-05, -0.07327809053347215, 0.0006764699412537649],
+    "robot0_gripper_qpos": [0.0032251211395647175, -0.003219855182014003],
+    "obj_of_interest": null,
+    "object_names": ["akita_black_bowl_1", "akita_black_bowl_2", "cookies_1", "glazed_rim_porcelain_ramekin_1", "plate_1"]
+  },
+  "libero_terminated": true
+}

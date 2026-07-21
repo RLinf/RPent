@@ -1,0 +1,32 @@
+{
+  "suite": "libero_10_task",
+  "task_id": 8,
+  "seed": 0,
+  "regime": "strict_perception",
+  "libero_terminated": true,
+  "attempts": 10,
+  "strategy_notes": "SOLVED via pi0_doubled with task language. After 9 failed attempts trying various pi0_pick + scripted-carry + manual-place sequences (all hit the same wall: OSC verticals 5cm short at burner xy=-0.047,-0.199 because |y|>0.215 OSC limit, leaving pot floating 2-4cm above burner z=0.928; even when pot was scripted onto burner area at within-range xy, predicate did NOT fire — burner cook region is narrower than the visual red disc AND requires pot base in actual contact with burner surface, not floating). The WINNING approach: reset, then ONE call to {action:pi0_doubled, prompt:'put the left moka pot on the stove', max_chunks:25}. pi0_doubled is Pi0's closed-loop contact skill (success := libero_terminated) — Pi0 ran the full pick-and-place internally in 23 chunks and predicate fired. Key lesson: for libero_10 tasks where a precise on-burner / in-cavity placement is needed AND OSC walls block deep scripted placement, pi0_doubled with the FULL task language is the right primitive — Pi0 was trained on this exact task and handles the orientation + contact properly. Coord-localization perception (LEFT pot at world (0.046,0.044,top z=1.054), RIGHT pot at (-0.042,0.231), burner red center (-0.041,-0.200,z=0.928)) was useful for diagnosis but not for the winning recipe.",
+  "pick_result": {
+    "name": "doubled",
+    "instruction": "put the left moka pot on the stove",
+    "success": true,
+    "chunks_used": 23,
+    "max_chunks": 25,
+    "peak_lift_m": 0.0315,
+    "min_gripper_opening": 0.0098,
+    "final_gripper_opening": 0.0134,
+    "libero_terminated": true,
+    "diagnostics": {
+      "start_eef_z": 1.1733,
+      "peak_eef_z": 1.2048,
+      "min_eef_z": 1.0021,
+      "mode": "contact_skill (success := libero_terminated)"
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [-0.041451476158085664, -0.27879205435547566, 1.0334630476736237],
+    "robot0_eef_quat": [0.7038207471475897, -0.6380441211368139, -0.13972511239353658, -0.27930798114979144],
+    "robot0_gripper_qpos": [0.004726038364713437, -0.008673818691482368],
+    "object_names": ["moka_pot_1", "moka_pot_2"]
+  }
+}

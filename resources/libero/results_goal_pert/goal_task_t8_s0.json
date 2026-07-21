@@ -1,0 +1,38 @@
+{
+  "suite": "libero_goal_task",
+  "task_id": 8,
+  "seed": 0,
+  "regime": "strict_perception",
+  "task_language": "Put the wine bottle on the plate",
+  "strategy_notes": "KITCHEN frame (eef home z=1.17). Localized via back-projection from world_00.npy: filtered for elevated dark pixels (RGB<60, world_z>0.93) and clustered by world xy; wine bottle body found at xy=(-0.21,-0.05) z up to 1.05 (pixels around row 95-101, col 113-116, very dark green RGB<10); plate (pink rim, white interior) at xy~(0.02 to 0.05, -0.04) z=0.91 (pixels row 170-185 col 110-135). Stove cook region distinguished from plate by darker gray ring pattern and elevated xy~(-0.33,0.16) z=0.93 (excluded). After Pi0 pick at carry height z=1.087 with bottle held mid-body (gripper qpos 0.029, peak_lift 0.106), used wrist cam for fine plate localization at xy=(0.028,-0.038) z=0.911 (pink rim cluster). Key fix vs prior failed attempt: very slow descent (step_clip=0.004-0.006) all the way to eef z=1.01 — prior attempt stalled at z=1.136 due to faster step_clip=0.008 and likely insufficient IK convergence at low z. At eef z=1.01 the bottle base reached plate top, and release on predicate fire with bottle still upright in gripper. Pi0 pick worked first try with full task language 'Put the wine bottle on the plate'. No teleport primitives used; pure physics. Total 10 commands, 1 attempt.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "Put the wine bottle on the plate",
+    "success": true,
+    "chunks_used": 13,
+    "max_chunks": 25,
+    "peak_lift_m": 0.1059,
+    "min_gripper_opening": 0.0293,
+    "final_gripper_opening": 0.0293,
+    "libero_terminated": false,
+    "diagnostics": {
+      "start_eef_z": 1.1607,
+      "peak_eef_z": 1.1607,
+      "min_eef_z": 0.9812,
+      "post_min_peak_z": 1.0871,
+      "descent_m": 0.1795,
+      "post_min_ascent_m": 0.1059,
+      "descent_done": true,
+      "lift_thresh": 0.07,
+      "gripper_closed_thresh": 0.06
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [0.04017007179631597, -0.020041149545411998, 1.0085164535569502],
+    "robot0_eef_quat": [0.9769789222578534, 0.1246083183419209, -0.15813638635851734, 0.07055377929884182],
+    "robot0_gripper_qpos": [0.01881281983148095, -0.01902614268556459],
+    "obj_of_interest": null,
+    "object_names": ["akita_black_bowl_1", "cream_cheese_1", "plate_1", "wine_bottle_1"]
+  },
+  "libero_terminated": true
+}

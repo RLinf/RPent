@@ -1,0 +1,36 @@
+{
+  "suite": "libero_spatial_swap",
+  "task_id": 7,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "swap (P2 Position perturbation)",
+  "task_language": "Pick the akita black bowl on the stove and place it on the plate",
+  "perturbation_semantics": "Bowl positions swapped — the akita_black_bowl referenced is now on the stove fixture (KITCHEN frame).",
+  "strategy_notes": "MULTI-ATTEMPT MODE solve. PERCEPTION: bowl on stove localized via SAM3 prompt 'the black bowl on the stove' (score 0.79) -> world (-0.30, -0.15, z~0.96-0.98). Plate localized via SAM3 prompt 'the white plate with red rim' (score 0.96) -> world (-0.21, 0.20, 0.91). KITCHEN frame (eef home z=1.17). SOLUTION: a 3-command chain — (1) move_to pre-position high over bowl at (-0.30, -0.15, 1.20) with gripper open. (2) pi0_pick prompt 'pick up the bowl' max_chunks=15, lift_thresh=0.04, gripper_closed_thresh=0.05 -> success in 12 chunks, peak_lift 0.045m, gripper qpos sum 0.015 (rim-hooked). (3) chained pi0_pick prompt 'place the bowl on the plate' max_chunks=30, lift_thresh=999, gripper_closed_thresh=0 (turns pi0_pick into a generic Pi0 driver) -> libero_terminated:true in 13 chunks. KEY INSIGHT: prior two attempts (attempt_01, attempt_02) discovered that scripted move_to with gripper:+1 progressively over-closes the binary OSC gripper, ejecting the rim-grasped bowl mid-carry. Solution: keep the carry inside Pi0's own controller by chaining a second pi0_pick with a place-phrase prompt — Pi0's policy controls the gripper continuously and carries+places without dropping. Prior attempts didn't try a CHAINED pi0_pick with 'place the bowl on the plate' as the second call; they tried the FULL task language or end-to-end which mistargeted destination. The short place-phrase prompt navigated Pi0 to the actual plate at (-0.21, 0.24, 0.93). Pre-positioning over the correct bowl on the stove first anchors Pi0 to the right target (vs. end-to-end from home where Pi0 misidentifies bowl).",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the bowl",
+    "success": true,
+    "chunks_used": 12,
+    "max_chunks": 15,
+    "peak_lift_m": 0.0447,
+    "min_gripper_opening": 0.0155,
+    "final_gripper_opening": 0.0155
+  },
+  "place_result": {
+    "name": "pick",
+    "instruction": "place the bowl on the plate",
+    "success": true,
+    "chunks_used": 13,
+    "max_chunks": 30,
+    "libero_terminated": true
+  },
+  "final_state": {
+    "robot0_eef_pos": [-0.21537670060334654, 0.23994761210742213, 0.9274759346439797],
+    "robot0_eef_quat": [0.9907692840376008, 0.11164882853964236, 0.052868909098585236, 0.05581794822519112],
+    "robot0_gripper_qpos": [0.005494008947162929, -0.0050468737499148675],
+    "obj_of_interest": null,
+    "object_names": ["akita_black_bowl_1", "akita_black_bowl_2", "cookies_1", "glazed_rim_porcelain_ramekin_1", "plate_1"]
+  },
+  "libero_terminated": true
+}
