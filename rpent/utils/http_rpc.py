@@ -1,12 +1,15 @@
 """HTTP-transport RPC for the env + model RPC boundary.
 
 Uses HTTP POST with JSON payloads instead of pickle-framed TCP.
-Numpy arrays cross the wire tagged as ``{"__ndarray__": [...], "dtype": ...}``
-so the decode is explicit.
+Numpy arrays cross the wire tagged as
+``{"__ndarray__": <base64>, "dtype": ..., "shape": [...]}`` — the raw
+bytes stay compact (vs ``tolist()``, which stringifies every element)
+and the decode is explicit.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import threading
 import urllib.error
@@ -26,13 +29,17 @@ DEFAULT_TIMEOUT_S = 30.0
 
 
 def _from_json(obj: Any) -> Any:
-    """Rehydrate ``{"__ndarray__": ..., "dtype": ...}`` back into ndarrays.
-
-    Everything else is passed through unchanged.
+    """Rehydrate ``{"__ndarray__": <b64>, "dtype": ..., "shape": [...]}``
+    back into ndarrays. Everything else is passed through unchanged.
     """
     if isinstance(obj, dict):
-        if "__ndarray__" in obj and set(obj) <= {"__ndarray__", "dtype"}:
-            return np.array(obj["__ndarray__"], dtype=obj.get("dtype"))
+        if "__ndarray__" in obj and set(obj) <= {"__ndarray__", "dtype", "shape"}:
+            raw = base64.b64decode(obj["__ndarray__"])
+            arr = np.frombuffer(raw, dtype=obj.get("dtype"))
+            # frombuffer returns a read-only view of the base64 bytes; copy
+            # so callers can mutate the returned array like they would with
+            # a pickle round-tripped one.
+            return arr.reshape(obj.get("shape", (-1,))).copy()
         return {k: _from_json(v) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_from_json(v) for v in obj]
@@ -127,7 +134,11 @@ class _NumpyEncoder(json.JSONEncoder):
 
     def default(self, obj: Any) -> Any:
         if isinstance(obj, np.ndarray):
-            return {"__ndarray__": obj.tolist(), "dtype": str(obj.dtype)}
+            return {
+                "__ndarray__": base64.b64encode(obj.tobytes()).decode("ascii"),
+                "dtype": str(obj.dtype),
+                "shape": list(obj.shape),
+            }
         if isinstance(obj, (np.integer,)):
             return int(obj)
         if isinstance(obj, (np.floating,)):
@@ -156,8 +167,8 @@ class _HttpRpcHandler(BaseHTTPRequestHandler):
             request = json.loads(body)
             req_id = request.get("id") if isinstance(request, dict) else None
             method = request["method"]
-            args = tuple(request.get("args", []))
-            kwargs = dict(request.get("kwargs", {}))
+            args = tuple(_from_json(v) for v in request.get("args", []))
+            kwargs = {k: _from_json(v) for k, v in request.get("kwargs", {}).items()}
             result = self.server.dispatch(method, args, kwargs)  # type: ignore[attr-defined]
             response: dict = {"id": req_id, "ok": True, "result": result}
         except Exception as exc:
