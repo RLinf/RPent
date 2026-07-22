@@ -1,8 +1,8 @@
-"""Claude Agent SDK cerebrum.
+"""Claude Agent SDK planner.
 
 A thin, SDK-first backend for RPent. ``solve()`` does four things:
 prepare output files, bind the in-process tool runtime, drive the SDK
-query, and assemble a ``CerebrumResult``. Event rendering and stats
+query, and assemble a ``PlannerResult``. Event rendering and stats
 collection live in a single observation layer (``_Recorder``) that has
 no backend state of its own.
 """
@@ -18,8 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rpent.cerebrum.base import (
-    CerebrumResult,
+from rpent.planner.base import (
+    PlannerResult,
     add_mcp_prefix,
     strip_mcp_prefix,
 )
@@ -34,8 +34,8 @@ logger = get_logger("claude")
 # ---------------------------------------------------------------------------
 
 
-class ClaudeCodeCerebrum:
-    """Cerebrum backed by the Claude Agent SDK."""
+class ClaudeCodePlanner:
+    """Planner backed by the Claude Agent SDK."""
 
     def __init__(
         self,
@@ -68,7 +68,7 @@ class ClaudeCodeCerebrum:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-    ) -> CerebrumResult:
+    ) -> PlannerResult:
         """Run one Claude Agent SDK session for the given prompt."""
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         return asyncio.run(
@@ -87,7 +87,7 @@ class ClaudeCodeCerebrum:
         *,
         toolkit: Toolkit,
         max_turns: int,
-    ) -> CerebrumResult:
+    ) -> PlannerResult:
         import claude_agent_sdk
         sdk = claude_agent_sdk
         if self._output_path is None:
@@ -131,7 +131,7 @@ class ClaudeCodeCerebrum:
                 await asyncio.wait_for(consume_stream(), timeout=self._timeout_s)
             except asyncio.TimeoutError:
                 error = f"Claude Agent SDK timed out after {self._timeout_s}s"
-                rendered = f"\n[cc-cerebrum] {error}\n"
+                rendered = f"\n[cc-planner] {error}\n"
                 rendered_chunks.append(rendered)
                 out_f.write(rendered)
                 out_f.flush()
@@ -139,7 +139,7 @@ class ClaudeCodeCerebrum:
                 logger.info(rendered.rstrip())
             except Exception as e:
                 error = f"{type(e).__name__}: {e}"
-                rendered = f"\n[cc-cerebrum] {error}\n"
+                rendered = f"\n[cc-planner] {error}\n"
                 rendered_chunks.append(rendered)
                 out_f.write(rendered)
                 out_f.flush()
@@ -154,7 +154,7 @@ class ClaudeCodeCerebrum:
         logger.info("output: %s", output_path)
         logger.info("raw stream: %s", raw_stream_path)
 
-        return CerebrumResult(
+        return PlannerResult(
             finish_result=recorder.finish_result,
             messages=[{"role": "claude_agent_sdk", "content": text}],
             stats={

@@ -12,7 +12,7 @@
 
 .. code-block:: bash
 
-   # LLM API keys (供 `api` cerebrum 通过 pydantic-ai 使用)
+   # LLM API keys (供 `api` planner 通过 pydantic-ai 使用)
    export ANTHROPIC_BASE_URL=https://xxx
    export ANTHROPIC_API_KEY=sk-xxx
    export OPENAI_BASE_URL=https://xxx
@@ -25,20 +25,20 @@
    export CUDA_VISIBLE_DEVICES=0
 
 你只需要为实际使用的 provider 设置对应的 key。例如, 只用
-``--cerebrum claude_code`` 时, 可以不配置 ``OPENAI_*``。
+``--planner claude_code`` 时, 可以不配置 ``OPENAI_*``。
 
 2. 跑一个 LIBERO 任务
 ---------------------
 
-用 ``api`` cerebrum + Anthropic 模型, 上限 8192 tokens, 跑单个 LIBERO PRO
+用 ``api`` planner + Anthropic 模型, 上限 8192 tokens, 跑单个 LIBERO PRO
 任务 (``libero_object_swap``, 任务 ``2``, 种子 ``0``):
 
 .. code-block:: bash
 
    rpent --suite libero_object_swap --task 2 --seed 0 \
-     --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
+     --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 
-**模型 id 规约。** ``api`` cerebrum 下, ``--model`` 需要带 provider
+**模型 id 规约。** ``api`` planner 下, ``--model`` 需要带 provider
 前缀; ``claude_code`` / ``codex`` 下, 直接写裸模型名:
 
 - OpenAI 兼容 chat 接口 —— ``--model openai-chat:glm-5.2``
@@ -59,7 +59,7 @@
 .. code-block:: bash
 
    rpent --dashboard --dashboard-language zh-cn \
-     --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
+     --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
 4. RoboCasa
 -----------
@@ -96,7 +96,7 @@ RoboCasa 有自己的入口和一次性安装脚本:
    * - ``--seed``
      - ``0``
      - 随机种子
-   * - ``--cerebrum``
+   * - ``--planner``
      - ``api``
      - Reasoning brain: ``api`` | ``claude_code`` | ``codex``
    * - ``--model``

@@ -1,7 +1,7 @@
-"""Codex SDK cerebrum.
+"""Codex SDK planner.
 
 Mirror of ``claude_code.py``: a thin, SDK-first backend. ``solve()`` prepares
-artifacts, drives one Codex SDK turn, and assembles a ``CerebrumResult``.
+artifacts, drives one Codex SDK turn, and assembles a ``PlannerResult``.
 RPent tools are exposed via the stdio MCP bridge configured through
 ``_codex_mcp_config_overrides``; this backend does not register tools in
 process. Event rendering and stats live in a single ``_Recorder``.
@@ -20,8 +20,8 @@ from typing import Any
 
 import openai_codex
 
-from rpent.cerebrum.base import CerebrumResult, strip_mcp_prefix
-from rpent.cerebrum.utils.http_mcp_server import HttpMcpServer
+from rpent.planner.base import PlannerResult, strip_mcp_prefix
+from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
@@ -36,8 +36,8 @@ PROVIDER_ENV_KEY = "RPENT_CODEX_PROVIDER_KEY"
 # ---------------------------------------------------------------------------
 
 
-class CodexCerebrum:
-    """Cerebrum backed by the OpenAI Codex Python SDK."""
+class CodexPlanner:
+    """Planner backed by the OpenAI Codex Python SDK."""
 
     def __init__(
         self,
@@ -68,7 +68,7 @@ class CodexCerebrum:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-    ) -> CerebrumResult:
+    ) -> PlannerResult:
         """Run one Codex SDK turn for the given prompt."""
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         if self._output_path is None:
@@ -122,7 +122,7 @@ class CodexCerebrum:
             if worker.is_alive():
                 error = f"Codex SDK timed out after {self._timeout_s}s"
                 _interrupt(state)
-                rendered = f"\n[codex-cerebrum] {error}\n"
+                rendered = f"\n[codex-planner] {error}\n"
                 with open(output_path, "a") as out_f:
                     out_f.write(rendered)
                 with open(raw_stream_path, "a") as raw_f:
@@ -132,7 +132,7 @@ class CodexCerebrum:
             elif "error" in state:
                 exc = state["error"]
                 error = f"{type(exc).__name__}: {exc}"
-                rendered = f"\n[codex-cerebrum] {error}\n"
+                rendered = f"\n[codex-planner] {error}\n"
                 with open(output_path, "a") as out_f:
                     out_f.write(rendered)
                 with open(raw_stream_path, "a") as raw_f:
@@ -149,7 +149,7 @@ class CodexCerebrum:
         logger.info("output: %s", output_path)
         logger.info("raw stream: %s", raw_stream_path)
 
-        return CerebrumResult(
+        return PlannerResult(
             finish_result=recorder.finish_result,
             messages=[{"role": "codex_sdk", "content": text}],
             stats={

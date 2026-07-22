@@ -9,12 +9,12 @@ FIELDS = (
     "task",
     "seed",
     "model",
-    "cerebrum",
+    "planner",
     "cuda-device",
     "max-turns",
     "max-tokens",
     "max-episode-steps",
-    "cerebrum-timeout-s",
+    "planner-timeout-s",
     "claude-code-max-budget-usd",
 )
 
@@ -22,7 +22,7 @@ DEFAULTS = {
     "suite": "libero_object_task",
     "task": 6,
     "seed": 0,
-    "cerebrum": "claude_code",
+    "planner": "claude_code",
     "max-turns": 100,
     "max-tokens": 8192,
     "max-episode-steps": 600,
@@ -34,7 +34,7 @@ INT_FIELDS = {
     "max-turns",
     "max-tokens",
     "max-episode-steps",
-    "cerebrum-timeout-s",
+    "planner-timeout-s",
 }
 FLOAT_FIELDS = {"claude-code-max-budget-usd"}
 BOOL_FIELDS: set[str] = set()

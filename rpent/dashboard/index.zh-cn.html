@@ -225,8 +225,8 @@
           <input type="number" id="f-seed" min="0" step="1" />
         </div>
         <div class="lfield">
-          <label for="f-cerebrum">决策大脑(大模型后端)</label>
-          <select id="f-cerebrum">
+          <label for="f-planner">决策大脑(大模型后端)</label>
+          <select id="f-planner">
             <option value="api">api</option>
             <option value="claude_code">claude_code</option>
             <option value="codex">codex</option>
@@ -257,8 +257,8 @@
           <input type="number" id="f-claude-code-max-budget-usd" min="0" step="0.01" placeholder="MAX_BUDGET_USD" />
         </div>
         <div class="lfield backend-field" data-backends="claude_code codex">
-          <label for="f-cerebrum-timeout-s">Cerebrum 超时秒数</label>
-          <input type="number" id="f-cerebrum-timeout-s" min="1" step="1" placeholder="CELL_TIMEOUT_S / CODEX_TIMEOUT_S" />
+          <label for="f-planner-timeout-s">Planner 超时秒数</label>
+          <input type="number" id="f-planner-timeout-s" min="1" step="1" placeholder="CELL_TIMEOUT_S / CODEX_TIMEOUT_S" />
         </div>
         <div class="lfield">
           <label for="f-cuda-device">CUDA 设备 <span style="text-transform:none">(留空=默认)</span></label>
@@ -1034,27 +1034,27 @@ setupSplitter($("#gutterH"), {
 });
 
 // --- launcher (start screen) ---
-function populateModelPresets(cerebrum, selected = "") {
+function populateModelPresets(planner, selected = "") {
   const preset = $("#f-model_preset");
   const current = selected || preset.value || "";
   preset.innerHTML = "";
-  for (const value of (MODEL_PRESETS[cerebrum] || [""])) {
+  for (const value of (MODEL_PRESETS[planner] || [""])) {
     const option = document.createElement("option");
     option.value = value;
-    option.textContent = value || (cerebrum === "api" ? "选择模型" : "后端默认");
+    option.textContent = value || (planner === "api" ? "选择模型" : "后端默认");
     preset.appendChild(option);
   }
-  preset.value = (MODEL_PRESETS[cerebrum] || []).includes(current) ? current : "";
+  preset.value = (MODEL_PRESETS[planner] || []).includes(current) ? current : "";
 }
 
 function updateBackendFields() {
-  const cerebrum = $("#f-cerebrum").value;
+  const planner = $("#f-planner").value;
   document.querySelectorAll("[data-backends]").forEach(el => {
     const allowed = (el.dataset.backends || "").split(/\s+/);
-    el.classList.toggle("hidden", !allowed.includes(cerebrum));
+    el.classList.toggle("hidden", !allowed.includes(planner));
   });
   const currentModel = $("#f-model_custom").value || $("#f-model_preset").value;
-  populateModelPresets(cerebrum, currentModel);
+  populateModelPresets(planner, currentModel);
 }
 
 function selectedModel() {
@@ -1067,15 +1067,15 @@ function showLauncher(defaults) {
   set("#f-suite", d.suite);
   set("#f-task", d.task);
   set("#f-seed", d.seed);
-  set("#f-cerebrum", d.cerebrum || "claude_code");
+  set("#f-planner", d.planner || "claude_code");
   set("#f-max-turns", d["max-turns"]);
   set("#f-max-tokens", d["max-tokens"]);
   set("#f-max-episode-steps", d["max-episode-steps"]);
-  set("#f-cerebrum-timeout-s", d["cerebrum-timeout-s"]);
+  set("#f-planner-timeout-s", d["planner-timeout-s"]);
   set("#f-claude-code-max-budget-usd", d["claude-code-max-budget-usd"]);
   set("#f-cuda-device", d["cuda-device"]);
-  populateModelPresets($("#f-cerebrum").value, d.model || "");
-  if ((MODEL_PRESETS[$("#f-cerebrum").value] || []).includes(d.model || "")) {
+  populateModelPresets($("#f-planner").value, d.model || "");
+  if ((MODEL_PRESETS[$("#f-planner").value] || []).includes(d.model || "")) {
     set("#f-model_custom", "");
   } else {
     set("#f-model_custom", d.model);
@@ -1093,12 +1093,12 @@ function collectLaunchConfig() {
     suite: $("#f-suite").value.trim(),
     task: numOrNull("#f-task"),
     seed: numOrNull("#f-seed"),
-    cerebrum: $("#f-cerebrum").value,
+    planner: $("#f-planner").value,
     "max-turns": numOrNull("#f-max-turns"),
     "max-tokens": numOrNull("#f-max-tokens"),
     "max-episode-steps": numOrNull("#f-max-episode-steps"),
     model: selectedModel(),
-    "cerebrum-timeout-s": numOrNull("#f-cerebrum-timeout-s"),
+    "planner-timeout-s": numOrNull("#f-planner-timeout-s"),
     "claude-code-max-budget-usd": numOrNull("#f-claude-code-max-budget-usd"),
     "cuda-device": $("#f-cuda-device").value.trim(),
   };
@@ -1124,7 +1124,7 @@ async function onRun() {
     ["最大对话轮数", config["max-turns"]],
     ["最大仿真步数", config["max-episode-steps"]],
   ];
-  if (config.cerebrum === "api") requiredNums.push(["最大 token 数", config["max-tokens"]]);
+  if (config.planner === "api") requiredNums.push(["最大 token 数", config["max-tokens"]]);
   const badNum = requiredNums.find(([_, v]) => v == null || !Number.isFinite(v));
   if (!config.suite || badNum) {
     $("#launchStatus").textContent = !config.suite
@@ -1132,7 +1132,7 @@ async function onRun() {
       : `请填写${badNum[0]}。`;
     return;
   }
-  if (config.cerebrum === "api" && (!config.model || !config.model.includes(":"))) {
+  if (config.planner === "api" && (!config.model || !config.model.includes(":"))) {
     $("#launchStatus").textContent = "API 模型必须包含 provider 前缀,例如 anthropic:claude-opus-4-8。";
     return;
   }
@@ -1154,7 +1154,7 @@ async function onRun() {
   pollForRun();
 }
 $("#runBtn").addEventListener("click", onRun);
-$("#f-cerebrum").addEventListener("change", () => {
+$("#f-planner").addEventListener("change", () => {
   $("#f-model_custom").value = "";
   $("#launchStatus").textContent = "";
   updateBackendFields();

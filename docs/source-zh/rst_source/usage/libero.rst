@@ -69,7 +69,7 @@ Pi0.5 只需要一件事: 磁盘上的 checkpoint。通过 ``PI05_CHECKPOINT_PAT
 
    rpent \
      --suite libero_object_swap --task 2 --seed 0 \
-     --cerebrum api --model anthropic:claude-opus-4-8 \
+     --planner api --model anthropic:claude-opus-4-8 \
      --max-tokens 8192
 
 进程分工
@@ -113,7 +113,7 @@ Dashboard
 .. code-block:: bash
 
    rpent --dashboard \
-     --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
+     --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
 Dashboard streams reasoning、agentview + 腕部相机 + Pi0.5 叠加视图,
 以及动作时间线。用 ``--dashboard-language zh-cn`` 切换中文 UI。
