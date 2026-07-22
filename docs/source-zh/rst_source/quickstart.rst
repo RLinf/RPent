@@ -35,7 +35,7 @@
 
 .. code-block:: bash
 
-   rpent --suite libero_object_swap --task 2 --seed 0 \
+   rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
      --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 
 **模型 id 规约。** ``api`` planner 下, ``--model`` 需要带 provider
@@ -58,7 +58,7 @@
 
 .. code-block:: bash
 
-   rpent --dashboard --dashboard-language zh-cn \
+   rpent --env libero --dashboard --dashboard-language zh-cn \
      --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
 关键 CLI 选项
@@ -73,6 +73,9 @@
    * - Flag
      - 默认值
      - 说明
+   * - ``--env``
+     - 必填
+     - 环境后端。当前支持 ``libero``。
    * - ``--suite``
      - 必填
      - 任务套件, 如 ``libero_object_task``、``libero_spatial_swap``
@@ -110,19 +113,22 @@
    * - ``--dashboard-language``
      - ``en``
      - Dashboard UI 语言: ``en`` | ``zh-cn``
+   * - ``--env-endpoint``
+     - —(自动 spawn)
+     - 已在运行的 env_server 的 ``[protocol://]host:port``
+       (``protocol=http|socket``, 默认 ``http``). 留空则本地起一个。
    * - ``--vla-endpoint``
-     - —
-     - 复用已在运行的 vla_server, 而不是启动新实例
-   * - ``--no-driver``
-     - 关
-     - 连接到已在运行的 env_server / vla_server
+     - —(自动 spawn)
+     - 已在运行的 vla_server 的 ``[protocol://]host:port`` (同上).
+       留空则本地起一个。
 
 跑起来后应该看到什么
 --------------------
 
 一次成功的运行:
 
-1. env server 起来后打印 ``env server ready at 127.0.0.1:<port>``。
+1. env_server / vla_server 起来后各打印一行
+   ``RPC server listening on http://127.0.0.1:<port>``。
 2. 每一轮 agent 的 reasoning 会输出到终端 (或 stream 到 dashboard)。
 3. 当 LLM 调用 ``finish(success=True)`` 时结束; 或者触达
    ``--max-turns`` / ``--max-episode-steps`` 时结束。

@@ -10,8 +10,10 @@ RPent splits an env into two processes:
 - **Agent side** (``robots/<env>/``) — runs in the agent process; contributes
   the tool schemas, primitive-driver logic, and prompts.
 - **Driver side** (``robots/<env>/env_server.py``) — owns the heavyweight
-  simulator / robot; exposes its env over a pickle-framed TCP RPC server
-  (``rpent.utils.socket_rpc.SocketRpcServer``).
+  simulator / robot; exposes its env via a
+  :class:`rpent.utils.rpc.RpcFacade` served over HTTP by default
+  (``--transport socket`` switches to the pickle-framed TCP transport
+  when the obs shape is a better fit).
 
 The two are connected by an ``EnvClient`` class that turns each agent-side
 method call into one RPC against the driver.
@@ -40,14 +42,13 @@ restarted, scaled, or pointed at a remote host independently
 (``--vla-endpoint host:port`` reuses an already-running model server). Every env
 MUST follow this: env_server owns the sim, vla_server owns the model.
 
-**Transport may differ per env; the architecture may not.** LIBERO's
-``vla_server.py`` speaks HTTP ``/predict`` (flat image+state payloads);
-RoboCasa's ``vla_server.py`` speaks the same pickle-framed socket RPC as its
-env_server, because RLDX observations are history-stacked nested numpy dicts
-(3 camera video tensors ``(1,T,H,W,3)`` + ``state.*`` + annotation + session /
-reset_memory) that ride sockets natively but would need a bespoke wire format
-over HTTP. Choose the codec that fits the obs; keep the env/vla process split
-identical.
+**Transport may differ per env; the architecture may not.** LIBERO uses
+HTTP by default for both env_server and vla_server; a robot with
+history-stacked nested numpy dict obs may prefer pickle-framed sockets
+(``--transport socket``) to avoid JSON re-encoding overhead. Both
+transports share the same ``predict`` / ``env.*`` method surface via
+:class:`RpcFacade`. Choose the codec that fits the obs; keep the
+env/vla process split identical.
 
 **Anything that needs the sim env object stays in env_server.** For an env like
 RoboCasa, operations such as grasp checks and action assembly require the live
@@ -129,28 +130,37 @@ timeout. Keep names stable — the driver-side dispatcher matches by name.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Mirror the client's API in a facade class on the driver side (e.g.
-``MyEnvFacade``). Methods take the same positional / keyword arguments the
-client sends and return pickleable values (numpy, not torch — the agent side
-does not import torch).
-
-Wrap the facade in a dispatcher and serve over ``SocketRpcServer``:
+``MyEnvFacade``). Subclass :class:`rpent.utils.rpc.RpcFacade`, implement
+``_dispatch(method, args, kwargs)`` to route ``env.*`` calls to your
+methods, and delegate startup to ``self.serve(...)``. Methods take the
+same positional / keyword arguments the client sends and return
+pickleable values (numpy, not torch — the agent side does not import
+torch).
 
 .. code-block:: python
 
-   def dispatch(method, args, kwargs):
-       if method.startswith("env."):
-           return getattr(facade, method[len("env."):])(*args, **kwargs)
-       if method == "shutdown":
-           shutdown_event.set()
-           return {"ok": True}
-       raise ValueError(f"unknown RPC method: {method!r}")
+   from rpent.utils.rpc import RpcFacade
 
-   server = SocketRpcServer((host, port), dispatch)
-   print(json.dumps({"event": "transport_ready", "kind": "socket",
-                     "host": host, "port": bound_port}), flush=True)
+   class MyEnvFacade(RpcFacade):
+       def __init__(self, env, meta):
+           super().__init__()
+           self._env = env
+           self._meta = meta
 
-The ``transport_ready`` event on stdout is required —
-``start_env_server()`` in ``rpent/cli/main.py`` blocks until it sees it.
+       def _dispatch(self, method, args, kwargs):
+           if method.startswith("env."):
+               return getattr(self, method[len("env."):])(*args, **kwargs)
+           raise ValueError(f"unknown RPC method: {method!r}")
+
+       def reset(self): ...
+       def step(self, action): ...
+
+   facade = MyEnvFacade(env, meta)
+   facade.serve(transport="http", host=host, port=port)
+
+``RpcFacade.serve`` handles transport binding (HTTP or socket), the
+``healthz`` / ``shutdown`` methods, parent-death detection, and clean
+teardown — you only write the business methods.
 
 ``rpent/cli/main.py`` currently imports ``LiberoEnvClient`` and the LIBERO env_server
 script path directly. Adding a new env means either branching on
@@ -259,6 +269,6 @@ Once everything compiles, the minimal smoke loop is:
      rpent --env myenv --suite <suite> --task <id> --seed 0 \
      --output-dir /tmp/myenv_smoke --planner api --model anthropic:claude-opus-4-8
 
-Expect the driver to emit ``transport_ready``, the agent to complete the
-prompted task, and ``finish`` to be invoked. Check
-``<output_dir>/transcript_*.json`` for the post-run summary.
+Expect the agent to complete the prompted task, and ``finish`` to be
+invoked. Check ``<output_dir>/transcript_*.json`` for the post-run
+summary.

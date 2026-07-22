@@ -72,7 +72,7 @@ Minimal command
    export LIBERO_TYPE=pro
    export CUDA_VISIBLE_DEVICES=0
 
-   rpent \
+   rpent --env libero \
      --suite libero_object_swap --task 2 --seed 0 \
      --planner api --model anthropic:claude-opus-4-8 \
      --max-tokens 8192
@@ -83,9 +83,11 @@ What runs where
 - **env_server** (``robots/libero/env_server.py``) — owns the LIBERO
   MuJoCo env and EGL rendering. Exposes ``reset``, ``step``,
   ``chunk_step``, ``render_agentview``, ``get_camera_meta``,
-  ``cached_image``, … over pickle-framed socket RPC.
+  ``cached_image``, … over an RPC transport (HTTP by default; socket
+  via ``--transport socket``).
 - **vla_server** (``robots/libero/vla_server.py``) — owns the Pi0.5
-  weights. Exposes ``/predict`` over HTTP.
+  weights. Exposes ``predict`` over the same RPC transport (HTTP or
+  socket).
 - **Toolkit** (``robots/libero/toolkit.py``) — defines the tools the
   LLM can call: ``pi0_pick`` (fed to Pi0.5), ``move_to``,
   ``rotate_wrist``, ``back_project``, ``view_driver_state``,
@@ -119,7 +121,7 @@ Add ``--dashboard`` to open a local monitor for a LIBERO run:
 
 .. code-block:: bash
 
-   rpent --dashboard \
+   rpent --env libero --dashboard \
      --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
 The dashboard streams reasoning, agentview + wrist camera + Pi0.5
@@ -132,10 +134,9 @@ Bringing your own VLA
 If you have a LIBERO-compatible VLA that is not Pi0.5, swap the model
 client without touching the env by:
 
-1. Writing a new ``vla_server.py`` that exposes the same
-   ``/predict`` HTTP contract (or a socket-RPC contract, if that fits
-   better).
-2. Pointing at it with ``--vla-endpoint http://host:port``.
+1. Writing a new ``vla_server.py`` that exposes the same ``predict``
+   RPC contract (over http or socket).
+2. Pointing at it with ``--vla-endpoint [protocol://]host:port``.
 3. Optionally updating ``robots/libero/toolkit.py`` if the tool
    surface (e.g. ``pi0_pick`` → ``mymodel_pick``) needs to change.
 

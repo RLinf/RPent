@@ -1,8 +1,13 @@
-"""RPC client protocol and endpoint registry for the agent/server boundary."""
+"""RPC client protocol and Facade base for subprocess RPC servers."""
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Protocol
+import threading
+import time
+from typing import Any, Literal, Protocol
+
+from rpent.utils.logging import get_logger
+
+logger = get_logger("rpc")
 
 
 class RpcClient(Protocol):
@@ -22,54 +27,91 @@ class RpcClient(Protocol):
         """Release any client-side transport resources."""
 
 
-# ---------------------------------------------------------------------------
-# Endpoint registry (transport-agnostic; entries carry a ``kind`` discriminator)
-# ---------------------------------------------------------------------------
-
-_ENDPOINTS: dict[str, dict[str, Any]] = {}
-
-
-def set_socket_endpoint(output_dir: str | Path, host: str, port: int) -> None:
-    """Register a socket-based RPC endpoint against an env_server output dir."""
-    _ENDPOINTS[str(Path(output_dir).resolve())] = {
-        "kind": "socket", "host": host, "port": int(port)
-    }
-
-
-def get_socket_endpoint(output_dir: str | Path) -> tuple[str, int] | None:
-    """Return ``(host, port)`` if a socket endpoint is registered, else ``None``."""
-    ep = _ENDPOINTS.get(str(Path(output_dir).resolve()))
-    if ep is None or ep.get("kind") != "socket":
-        return None
-    return ep["host"], ep["port"]
-
-
-def get_endpoint(output_dir: str | Path) -> dict[str, Any] | None:
-    """Return the raw endpoint record for an output dir, or ``None``."""
-    return _ENDPOINTS.get(str(Path(output_dir).resolve()))
+def wait_for_ready(
+    client: RpcClient,
+    *,
+    timeout_s: float = 300.0,
+    poll_interval_s: float = 0.5,
+) -> None:
+    """Poll ``client.call("healthz")`` until it succeeds or ``timeout_s`` elapses."""
+    deadline = time.time() + timeout_s
+    last_err: Exception | None = None
+    while time.time() < deadline:
+        try:
+            client.call("healthz", timeout_s=1.0)
+            return
+        except Exception as exc:
+            last_err = exc
+            time.sleep(poll_interval_s)
+    raise TimeoutError(
+        f"server did not become ready within {timeout_s:.0f}s: {last_err}"
+    )
 
 
-def create_rpc_client(output_dir: str | Path) -> RpcClient:
-    """Build an RPC client for whichever transport was registered at ``output_dir``.
+class RpcFacade:
+    """Base class for subprocess RPC servers.
 
-    Dispatch is by the endpoint's ``kind`` field. Each transport is imported
-    lazily inside the branch so this module stays dependency-free at load time
-    and adding a new transport (e.g. ``http_rpc``) is a one-branch edit.
+    Subclasses implement :meth:`_dispatch`; the base owns the shutdown
+    event, the ``shutdown`` RPC method, transport binding, parent-watch,
+    and clean teardown. ``healthz`` is answered by the transport itself
+    (see :class:`HttpRpcServer` / :class:`SocketRpcServer`), so subclasses
+    don't implement it either.
+
+    Usage::
+
+        class MyFacade(RpcFacade):
+            def _dispatch(self, method, args, kwargs):
+                if method == "hello":
+                    return "world"
+                raise ValueError(f"unknown RPC method: {method!r}")
+
+        MyFacade().serve(transport="http", host="127.0.0.1", port=0)
     """
-    ep = _ENDPOINTS.get(str(Path(output_dir).resolve()))
-    if ep is None:
-        raise RuntimeError(f"no RPC endpoint registered for output_dir: {output_dir}")
-    kind = ep.get("kind")
-    if kind == "socket":
-        from rpent.utils.socket_rpc import SocketRpcClient
-        return SocketRpcClient(ep["host"], ep["port"])
-    raise RuntimeError(f"unknown RPC endpoint kind: {kind!r}")
+
+    def __init__(self) -> None:
+        self._shutdown_event = threading.Event()
+
+    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
+        """Business RPC dispatch. Override in subclasses.
+
+        Do not handle ``shutdown`` or ``healthz`` here — the base and the
+        transport framework take care of them.
+        """
+        raise NotImplementedError
+
+    def serve(
+        self,
+        *,
+        transport: Literal["socket", "http"],
+        host: str,
+        port: int,
+    ) -> None:
+        """Bind, announce, watch-parent, serve-forever, shut down cleanly."""
+        from rpent.utils.daemon import watch_parent_death
+        from rpent.utils.http_rpc import HttpRpcServer
+        from rpent.utils.socket_rpc import SocketRpcServer
+
+        def dispatch(method: str, args: tuple, kwargs: dict) -> Any:
+            if method == "shutdown":
+                self._shutdown_event.set()
+                return {"ok": True}
+            return self._dispatch(method, args, kwargs)
+
+        server_cls = HttpRpcServer if transport == "http" else SocketRpcServer
+        server = server_cls((host, port), dispatch)
+        bound_host, bound_port = server.server_address
+        client_host = "127.0.0.1" if bound_host == "0.0.0.0" else bound_host
+        url = f"{transport}://{client_host}:{bound_port}"
+        print(f"RPC server listening on {url}", flush=True)
+        logger.info("RPC server listening on %s", url)
+
+        watch_parent_death(self._shutdown_event.set)
+        try:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            self._shutdown_event.wait()
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
-__all__ = [
-    "RpcClient",
-    "create_rpc_client",
-    "get_endpoint",
-    "get_socket_endpoint",
-    "set_socket_endpoint",
-]
+__all__ = ["RpcClient", "RpcFacade", "wait_for_ready"]
