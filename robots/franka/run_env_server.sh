@@ -7,9 +7,10 @@
 #   1. Fixed port, then run the agent with --no-driver:
 #        bash robots/franka/run_env_server.sh --transport-port 5599
 #        # in the physical/.venv:
-#        python -m cli.main --env franka --no-driver --env-port 5599 ...
+#        python rpent/cli/main.py --env franka --no-driver --env-port 5599 ...
 #
-#   2. Let cli.main spawn it (it invokes this script); see start_franka_env_server.
+#   2. Let the agent CLI spawn it (it invokes this script automatically):
+#        python rpent/cli/main.py --env franka ...
 #
 # Override the machine-specific bits via env vars:
 #   FRANKA_CATKIN_SETUP  catkin devel setup.bash (default: RLinf .venv workspace)
