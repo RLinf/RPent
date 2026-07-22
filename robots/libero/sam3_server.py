@@ -2,7 +2,8 @@
 
 Run manually with::
 
-    python -m robots.libero.sam3_server --host 127.0.0.1 --port 8114
+    SAM3_CHECKPOINT_PATH=/path/to/sam3.pt \
+        python -m robots.libero.sam3_server --host 127.0.0.1 --port 8114
 
 RPent normally starts this process automatically. The service exposes one
 ``POST /segment`` endpoint for either a text prompt or a single positive point,
@@ -61,18 +62,6 @@ class SegmentResponse(BaseModel):
     reason: str | None = None
 
 
-def _to_numpy(value: Any) -> np.ndarray:
-    if hasattr(value, "detach"):
-        value = value.detach()
-    if hasattr(value, "cpu"):
-        value = value.cpu()
-    if hasattr(value, "float") and str(getattr(value, "dtype", "")) == "torch.bfloat16":
-        value = value.float()
-    if hasattr(value, "numpy"):
-        return value.numpy()
-    return np.asarray(value)
-
-
 def _encode_mask_png(mask: np.ndarray) -> str:
     image = Image.fromarray(np.asarray(mask, dtype=np.uint8) * 255, mode="L")
     buffer = io.BytesIO()
@@ -100,7 +89,7 @@ class Sam3Engine:
         self._image_state: dict[str, Any] | None = None
 
     @classmethod
-    def load(cls, checkpoint: str | None = None) -> "Sam3Engine":
+    def load(cls, checkpoint: str) -> "Sam3Engine":
         """Load the official SAM 3.0 model and interactive point head."""
         try:
             import torch
@@ -118,29 +107,22 @@ class Sam3Engine:
         torch.backends.cudnn.allow_tf32 = True
         torch.cuda.set_device(0)
 
-        checkpoint_path: str | None = None
-        if checkpoint:
-            resolved = Path(checkpoint).expanduser().resolve()
-            if not resolved.is_file():
-                raise FileNotFoundError(f"SAM3 checkpoint not found: {resolved}")
-            checkpoint_path = str(resolved)
+        resolved = Path(checkpoint).expanduser().resolve()
+        if not resolved.is_file():
+            raise FileNotFoundError(f"SAM3 checkpoint not found: {resolved}")
+        checkpoint_path = str(resolved)
 
-        logger.info(
-            "loading SAM 3.0 checkpoint: %s",
-            checkpoint_path or "facebook/sam3/sam3.pt (Hugging Face cache)",
-        )
+        logger.info("loading SAM 3.0 checkpoint: %s", checkpoint_path)
         try:
             model = build_sam3_image_model(
                 device="cuda",
                 checkpoint_path=checkpoint_path,
-                load_from_HF=checkpoint_path is None,
+                load_from_HF=False,
                 enable_inst_interactivity=True,
             )
         except Exception as exc:
             raise RuntimeError(
-                "failed to load SAM 3.0; for automatic download request access "
-                "to facebook/sam3 and authenticate with Hugging Face, or pass "
-                "--checkpoint /path/to/sam3.pt"
+                f"failed to load SAM 3.0 checkpoint: {checkpoint_path}"
             ) from exc
         processor = Sam3Processor(model, device="cuda", confidence_threshold=0.0)
         return cls(model, processor, device="cuda", torch_module=torch)
@@ -239,8 +221,8 @@ class Sam3Engine:
     ) -> SegmentResponse:
         if masks is None or scores is None:
             return SegmentResponse(found=False, reason="SAM3 returned no candidate")
-        masks_array = _to_numpy(masks)
-        scores_array = _to_numpy(scores).reshape(-1)
+        masks_array = masks.detach().float().cpu().numpy()
+        scores_array = scores.detach().float().cpu().numpy().reshape(-1)
         if masks_array.size == 0 or scores_array.size == 0:
             return SegmentResponse(found=False, reason="SAM3 returned no candidate")
         if masks_array.ndim == 4 and masks_array.shape[1] == 1:
@@ -257,7 +239,7 @@ class Sam3Engine:
         score = float(scores_array[index])
         box: list[float] | None = None
         if boxes is not None:
-            boxes_array = _to_numpy(boxes)
+            boxes_array = boxes.detach().float().cpu().numpy()
             if boxes_array.ndim >= 2 and index < boxes_array.shape[0]:
                 box = [float(value) for value in boxes_array[index].reshape(-1)[:4]]
         if score < min_score:
@@ -346,11 +328,6 @@ def _build_argparser() -> argparse.ArgumentParser:
         default=None,
         help="GPU device(s) exposed through CUDA_VISIBLE_DEVICES.",
     )
-    parser.add_argument(
-        "--checkpoint",
-        default=None,
-        help="SAM 3.0 sam3.pt path; defaults to SAM3_CHECKPOINT_PATH then HF.",
-    )
     return parser
 
 
@@ -360,7 +337,12 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="[%(name)s] %(message)s")
     if args.cuda_device is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
-    checkpoint = args.checkpoint or os.environ.get("SAM3_CHECKPOINT_PATH")
+    checkpoint = os.environ.get("SAM3_CHECKPOINT_PATH")
+    if not checkpoint:
+        raise RuntimeError(
+            "SAM3_CHECKPOINT_PATH is not set; export the path to sam3.pt "
+            "before starting RPent"
+        )
     engine = Sam3Engine.load(checkpoint)
     app = build_app(engine)
 
