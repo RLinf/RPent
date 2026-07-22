@@ -1,0 +1,62 @@
+{
+  "suite": "libero_spatial_task",
+  "task_id": 4,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "task (P1 Task perturbation)",
+  "perturbed_task_language": "Pick the akita black bowl on the top of the wooden cabinet and place it on the plate",
+  "perturbation_semantics": "Target is the akita_black_bowl that is elevated on top of the wooden cabinet (vs the bowl inside an open drawer). Identical objects (akita_black_bowl_1 vs _2) are disambiguated only by their spatial relation to the cabinet (which has higher world-z).",
+  "expected_baseline_behavior": "Pi0 fullshot tends to pick by visual saliency / training-distribution location, often grabbing the drawer-interior bowl rather than the cabinet-top one when both are present.",
+  "strategy_notes": "KITCHEN frame (eef home z=1.17, table top z~0.90). Two akita_black_bowls visible in image_cam_00: upper (on cabinet top) and lower (inside open top drawer). Coarse agentview localization via world_00.npy: candidate bowl pixels showed two clusters, upper at xy~(-0.03,-0.22) with rim z up to 1.18, lower at xy~(+0.03,-0.16) with rim z up to 1.13 — the upper one is ~5cm higher, consistent with being ON TOP of the cabinet. Pre-positioned eef to (-0.03,-0.22,1.20). Wrist cam (world_wrist_01.npy) refined: right (centered) bowl at xy=(0.030,-0.256) z_rim=1.179, left (peripheral) bowl at xy=(0.061,-0.120) z_rim=1.127 — confirmed the right-in-wrist bowl is the elevated one. Recentered eef to (0.030,-0.256,1.22) so the wrist sat directly above the cabinet-top bowl. First pi0_pick with the short prompt 'pick up the akita black bowl on top of the wooden cabinet' descended but did not close (peak_lift 0.025, min_gripper_opening 0.067) — failed and drifted to (0.046,-0.120,1.136). Re-pre-positioned back to (0.030,-0.256,1.22) and reissued pi0_pick with the FULL task language verbatim ('Pick the akita black bowl on the top of the wooden cabinet and place it on the plate') at max_chunks=25 — Pi0 then descended, gripped (min_gripper_opening 0.005), carried, and placed: end eef at (0.060, 0.230, 0.925) directly above plate_1 (perceived plate xy~(-0.10,0.24)) and libero_terminated fired. No GT object coordinates used at any step; all positions derived from world_NN.npy / world_wrist_NN.npy back-projection.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "Pick the akita black bowl on the top of the wooden cabinet and place it on the plate",
+    "success": true,
+    "chunks_used": 23,
+    "max_chunks": 25,
+    "peak_lift_m": 0.0037,
+    "min_gripper_opening": 0.0049,
+    "final_gripper_opening": 0.0089,
+    "libero_terminated": true,
+    "diagnostics": {
+      "start_eef_z": 1.2206,
+      "peak_eef_z": 1.3061,
+      "min_eef_z": 0.9215,
+      "post_min_peak_z": 0.9253,
+      "descent_m": 0.2991,
+      "post_min_ascent_m": 0.0037,
+      "descent_done": true,
+      "lift_thresh": 0.05,
+      "gripper_closed_thresh": 0.06,
+      "track_obj": null,
+      "track_obj_init_z": null,
+      "track_obj_final_z": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [
+      0.06011022213070738,
+      0.23018961691366183,
+      0.9252727016086725
+    ],
+    "robot0_eef_quat": [
+      0.9638401992410022,
+      0.03493744361314932,
+      0.21615109454046347,
+      0.15188860948011335
+    ],
+    "robot0_gripper_qpos": [
+      0.005578300196032304,
+      -0.00328918024131817
+    ],
+    "obj_of_interest": null,
+    "object_names": [
+      "akita_black_bowl_1",
+      "akita_black_bowl_2",
+      "cookies_1",
+      "glazed_rim_porcelain_ramekin_1",
+      "plate_1"
+    ]
+  },
+  "libero_terminated": true
+}

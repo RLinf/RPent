@@ -1,4 +1,4 @@
-Add a new robot
+Add a New Robot
 ===============
 
 This guide walks through what you need to write to plug a new physical /
@@ -49,12 +49,11 @@ reset_memory) that ride sockets natively but would need a bespoke wire format
 over HTTP. Choose the codec that fits the obs; keep the env/vla process split
 identical.
 
-**Anything that needs the sim env object stays in env_server.** For RoboCasa,
-``check_grasp`` and ``assemble_action`` (the eval ``unmap_action`` +
-composite-controller split-index assembly) require the live robosuite env, so
-they are env_server RPCs — NOT part of the VLA server. The agent-side skill
-(``RLDXSkill``) therefore holds BOTH clients: the env client for
-render/step/grasp/assemble, the model client for inference.
+**Anything that needs the sim env object stays in env_server.** For an env like
+RoboCasa, operations such as grasp checks and action assembly require the live
+simulator env, so they are env_server RPCs — NOT part of the VLA server. The
+agent-side skill therefore holds BOTH clients: the env client for render/step,
+the model client for inference.
 
 Entry point
 -----------
@@ -165,7 +164,7 @@ Define two prompt factories — ``system_prompt()`` and ``user_prompt()`` — an
 build a ``PromptBundle(system=system_prompt, user=user_prompt)`` in the env's
 ``__init__.py`` (see entry point above). Each factory returns an ordered
 ``dict[str, PromptNode]`` of titled sections; ``PromptBundle.render`` assembles
-and fills them. One prompt serves every cerebrum (API loop, Claude Code, Codex):
+and fills them. One prompt serves every planner (API loop, Claude Code, Codex):
 refer to tools by their bare names (``move_to``, ...) and note once that the
 Claude Code / Codex SDK shows them namespaced as ``mcp__rpent__<name>`` — do not
 maintain separate CLI/API copies.
@@ -242,7 +241,7 @@ Conventions worth keeping
   goes there.
 - Tool schemas are Anthropic-shaped (``name`` / ``description`` /
   ``input_schema``). Every tool registered with ``self.add_tool(...)`` is
-  exposed to all cerebrums.
+  exposed to all planners.
 - Driver-side return values must be picklable and torch-free.
 - Each primitive tool dumps a fresh state snapshot after running so the next
   ``view_driver_state`` call reflects the post-action world.
@@ -257,8 +256,8 @@ Once everything compiles, the minimal smoke loop is:
 .. code-block:: bash
 
    PI05_CHECKPOINT_PATH=<path> ANTHROPIC_API_KEY=<key> \
-     python rpent/cli/main.py --env myenv --suite <suite> --task <id> --seed 0 \
-     --output-dir /tmp/myenv_smoke --cerebrum api --model anthropic:claude-opus-4-8
+     rpent --env myenv --suite <suite> --task <id> --seed 0 \
+     --output-dir /tmp/myenv_smoke --planner api --model anthropic:claude-opus-4-8
 
 Expect the driver to emit ``transport_ready``, the agent to complete the
 prompted task, and ``finish`` to be invoked. Check

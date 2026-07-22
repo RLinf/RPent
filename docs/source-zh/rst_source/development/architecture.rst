@@ -21,12 +21,12 @@
   (``pi0_pick``、``move_to``、``rotate_wrist``、``back_project``、
   ``finish``…) 来驱动机器人。每个工具的返回都以多模态上下文
   (文本 + 渲染图) 喂回, 让模型基于 *看到的世界* 推理。
-- **三进程架构。** **Agent 进程** (LLM cerebrum + toolkit, 不 import
+- **三进程架构。** **Agent 进程** (LLM planner + toolkit, 不 import
   ``torch``)、**env_server** (仿真器 + EGL 渲染)、**vla_server**
   (GPU 策略权重) 是三个独立进程, 用轻量 RPC 串起来。任一重量级
   进程都可以独立重启、迁到另一张 GPU、或指向远程主机。
-- **可插拔的 reasoning brain (cerebrum)。** 用一个 flag ——
-  ``--cerebrum {api, claude_code, codex}`` —— 就能换决策 brain, 不用
+- **可插拔的 reasoning brain (planner)。** 用一个 flag ——
+  ``--planner {api, claude_code, codex}`` —— 就能换决策 brain, 不用
   动 tool 或 prompt:
 
   - ``api`` —— 基于 `pydantic-ai <https://ai.pydantic.dev/>`_ 的
@@ -70,7 +70,7 @@
 .. code-block:: text
 
    rpent/
-     cerebrum/       # Reasoning brains: api_loop, claude_code, codex, base.
+     planner/       # Reasoning brains: api_loop, claude_code, codex, base.
      cli/            # main.py 入口 (无 __init__.py, 不是 subpackage)。
      context/        # Prompt bundles、prompt 工具、共享 prompt 分节。
      dashboard/      # FastAPI 监控 + SSE stream (可选)。
@@ -80,10 +80,10 @@
    robots/
      libero/         # LIBERO 的 env_client / env_server / vla_server /
                      # toolkit / prompt_bundle。参考实现。
-     (robocasa/)     # RoboCasa driver (见 scripts/run_robocasa.sh)。
+     (robocasa/)     # RoboCasa driver —— 研发中。
      (franka/)       # Franka driver —— 研发中。
      (so101/)        # SO-101 driver —— 研发中。
-   scripts/          # 安装脚本 (LIBERO PRO/PLUS、RoboCasa、codex proxy)。
+   scripts/          # 安装脚本 (LIBERO PRO/PLUS、codex proxy)。
 
 Runner (``rpent/cli/main.py``)
 ------------------------------
@@ -101,15 +101,15 @@ Runner (``rpent/cli/main.py``)
    ``--vla-endpoint``。
 5. 通过 env 的 ``get_toolkit(primitives_kwargs=...)`` 工厂为选中的
    env 构造 **toolkit**, 把 env client 和 VLA client 传进去。
-6. 通过 ``rpent.cerebrum.base.build_cerebrum`` 构造 **cerebrum**,
-   根据 ``--cerebrum`` 选出 ``api_loop.py`` / ``claude_code.py`` /
+6. 通过 ``rpent.planner.base.build_planner`` 构造 **planner**,
+   根据 ``--planner`` 选出 ``api_loop.py`` / ``claude_code.py`` /
    ``codex.py`` 之一。
 7. 跑 tool-calling 循环; 如果开了 ``--dashboard`` 就 stream 到 dashboard;
    结束时写出 ``<output_dir>/transcript_*.json`` 和
    ``<output_dir>/episode.mp4``。
 
 Runner 有意保持薄: 一切与 env 相关的东西在 ``robots/<env>/`` 下,
-一切与 brain 相关的东西在 ``rpent/cerebrum/`` 下。
+一切与 brain 相关的东西在 ``rpent/planner/`` 下。
 
 Env 侧的注册表
 --------------
@@ -127,10 +127,10 @@ Env 侧的注册表
 env 是 **没有中央列表** 的。把包放到 ``robots/`` 下就行。这也是新增
 机器人时用的机制 (见 :doc:`add_robot`)。
 
-Cerebrum 接口
+Planner 接口
 -------------
 
-每个 cerebrum 实现同一个很小的接口 (见 ``rpent.cerebrum.base``):
+每个 planner 实现同一个很小的接口 (见 ``rpent.planner.base``):
 
 - 接受渲染好的 ``prompt_bundle`` (system + user 分节)。
 - 接受一个 ``toolkit`` (暴露 tool schema 和 ``dispatch`` 方法)。
@@ -138,9 +138,9 @@ Cerebrum 接口
 - 把每个 tool 返回值以多模态上下文喂回。
 - 遇到 ``finish`` 或触达上限时终止。
 
-抽象就这些。三个内置 cerebrum 只在 *如何满足契约* 上不同 —— 用户视角
+抽象就这些。三个内置 planner 只在 *如何满足契约* 上不同 —— 用户视角
 见 :doc:`../usage/configure_planner`, 源码见
-``rpent/cerebrum/api_loop.py`` / ``claude_code.py`` / ``codex.py``。
+``rpent/planner/api_loop.py`` / ``claude_code.py`` / ``codex.py``。
 
 Toolkit 接口
 ------------
@@ -172,7 +172,7 @@ Toolkit 接口
   ``--vla-endpoint`` 式复用。
 
 新增一个传输只需要实现两个方法的 ``RpcClient`` 接口
-(``call(method, args, kwargs, timeout_s)``); toolkit 和 cerebrum 不用动。
+(``call(method, args, kwargs, timeout_s)``); toolkit 和 planner 不用动。
 
 Dashboard (可选)
 ----------------

@@ -1,4 +1,4 @@
-System internals
+System Internals
 ================
 
 This page is the implementation-level view of RPent. It walks through
@@ -24,14 +24,14 @@ around; the sections below then show how each is implemented.)*
   ``rotate_wrist``, ``back_project``, ``finish``, …). Each tool
   result is fed back as multimodal context (text + rendered images),
   so the model reasons over what it actually sees.
-- **Three-process architecture.** The **agent process** (LLM cerebrum
+- **Three-process architecture.** The **agent process** (LLM planner
   + toolkit, no ``torch``), the **env_server** (simulator + EGL
   rendering), and the **vla_server** (GPU policy weights) are
   separate processes wired by lightweight RPC. Either heavyweight
   process can be restarted, moved to another GPU, or pointed at a
   remote host independently.
-- **Pluggable reasoning brains (cerebrums).** Swap the decision brain
-  with one flag — ``--cerebrum {api, claude_code, codex}`` —
+- **Pluggable reasoning brains (planners).** Swap the decision brain
+  with one flag — ``--planner {api, claude_code, codex}`` —
   without touching the tools or prompts:
 
   - ``api`` — a provider-agnostic tool-calling loop built on
@@ -81,7 +81,7 @@ The code that implements the framework is split cleanly by concern:
 .. code-block:: text
 
    rpent/
-     cerebrum/       # Reasoning brains: api_loop, claude_code, codex, base.
+     planner/       # Reasoning brains: api_loop, claude_code, codex, base.
      cli/            # main.py entrypoint (no __init__.py — not a subpackage).
      context/        # Prompt bundles, prompt utils, shared prompt sections.
      dashboard/      # FastAPI monitor + SSE streams (optional).
@@ -91,10 +91,10 @@ The code that implements the framework is split cleanly by concern:
    robots/
      libero/         # LIBERO env_client / env_server / vla_server /
                      # toolkit / prompt_bundle. The reference env.
-     (robocasa/)     # RoboCasa driver (see scripts/run_robocasa.sh).
+     (robocasa/)     # RoboCasa driver — in progress.
      (franka/)       # Franka driver — in progress.
      (so101/)        # SO-101 driver — in progress.
-   scripts/          # Setup scripts (LIBERO PRO/PLUS, RoboCasa, codex proxy).
+   scripts/          # Setup scripts (LIBERO PRO/PLUS, codex proxy).
 
 The runner (``rpent/cli/main.py``)
 ----------------------------------
@@ -114,16 +114,16 @@ The runner (``rpent/cli/main.py``)
 5. Builds the **toolkit** for the chosen env via the env's
    ``get_toolkit(primitives_kwargs=...)`` factory, wiring in the env
    client and the VLA client.
-6. Builds the **cerebrum** via ``rpent.cerebrum.base.build_cerebrum``,
+6. Builds the **planner** via ``rpent.planner.base.build_planner``,
    selecting one of ``api_loop.py`` / ``claude_code.py`` /
-   ``codex.py`` based on ``--cerebrum``.
+   ``codex.py`` based on ``--planner``.
 7. Runs the tool-calling loop, streams to the dashboard if
    ``--dashboard`` is set, and on exit writes
    ``<output_dir>/transcript_*.json`` plus ``<output_dir>/episode.mp4``.
 
 The runner is intentionally thin: everything env-specific lives under
 ``robots/<env>/``, and everything brain-specific lives under
-``rpent/cerebrum/``.
+``rpent/planner/``.
 
 Env-side registry
 -----------------
@@ -143,11 +143,11 @@ There is **no central list** of envs. Dropping a package under
 ``robots/`` is enough. This is the mechanism you use to add a new
 robot (see :doc:`add_robot`).
 
-Cerebrum interface
+Planner interface
 ------------------
 
-Every cerebrum implements the same tiny interface (see
-``rpent.cerebrum.base``):
+Every planner implements the same tiny interface (see
+``rpent.planner.base``):
 
 - Take the rendered ``prompt_bundle`` (system + user sections).
 - Take a ``toolkit`` (which exposes tool schemas + a ``dispatch``
@@ -156,10 +156,10 @@ Every cerebrum implements the same tiny interface (see
 - Feed each tool result back as multimodal context.
 - Terminate on ``finish`` or when caps are hit.
 
-That is the entire abstraction. The three built-in cerebrums differ
+That is the entire abstraction. The three built-in planners differ
 only in *how* they meet the contract — see
 :doc:`../usage/configure_planner` for the user-facing view and
-``rpent/cerebrum/api_loop.py`` / ``claude_code.py`` / ``codex.py``
+``rpent/planner/api_loop.py`` / ``claude_code.py`` / ``codex.py``
 for the code.
 
 Toolkit interface
@@ -196,7 +196,7 @@ Two codecs are supported natively:
 
 Adding a new transport is a matter of implementing the two-method
 ``RpcClient`` interface (``call(method, args, kwargs, timeout_s)``);
-the toolkit and cerebrum stay unchanged.
+the toolkit and planner stay unchanged.
 
 Dashboard (optional)
 --------------------

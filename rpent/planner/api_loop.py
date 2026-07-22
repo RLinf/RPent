@@ -31,8 +31,8 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model
 from pydantic_ai.usage import RunUsage, UsageLimits
 
-from rpent.cerebrum.base import CerebrumResult
 from rpent.cli.tui import QUIT_TOKENS
+from rpent.planner.base import PlannerResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
 
@@ -52,12 +52,13 @@ _MIN_RECENT_IMAGES = 2
 
 
 class ApiAgentLoop:
-    """Cerebrum that runs the tool-calling loop via a pydantic-ai ``Agent``."""
+    """Planner that runs the tool-calling loop via a pydantic-ai ``Agent``."""
 
-    def __init__(self, model: Model, max_tokens: int = 8192):
+    def __init__(self, model: Model, max_tokens: int = 8192, dashboard: Any = None):
         """Store the pydantic-ai model and the output-token cap."""
         self._model = model
         self._max_tokens = max_tokens
+        self._dashboard = dashboard
 
     def solve(
         self,
@@ -67,7 +68,7 @@ class ApiAgentLoop:
         toolkit: Toolkit,
         max_turns: int,
         input_queue: queue.Queue[str | None] | None = None,
-    ) -> CerebrumResult:
+    ) -> PlannerResult:
         """Run the tool-calling loop until finish, normal stop, or budget."""
         return asyncio.run(
             self._solve(
@@ -87,7 +88,7 @@ class ApiAgentLoop:
         toolkit: Toolkit,
         max_turns: int,
         input_queue: queue.Queue[str | None] | None = None,
-    ) -> CerebrumResult:
+    ) -> PlannerResult:
         agent = Agent(
             self._model,
             instructions=system_prompt or None,
@@ -165,13 +166,42 @@ class ApiAgentLoop:
                             turns += 1
                             run_turns += 1
                             response = node.model_response
-                            messages.append(_serialize_response(response))
+                            response_message = _serialize_response(response)
+                            messages.append(response_message)
                             _log_response(response, run.usage, run_turns, max_turns)
+                            if self._dashboard is not None:
+                                for block in response_message["content"]:
+                                    if block["type"] == "text":
+                                        dashboard_event = {
+                                            "type": "text",
+                                            "text": block["text"],
+                                        }
+                                    elif block["type"] == "thinking":
+                                        dashboard_event = {
+                                            "type": "thinking",
+                                            "text": block["thinking"],
+                                        }
+                                    else:
+                                        continue
+                                    self._dashboard.on_event(dashboard_event)
+                                self._dashboard.on_usage(
+                                    inp=int(run.usage.input_tokens or 0),
+                                    out=int(run.usage.output_tokens or 0),
+                                    tool_calls=n_tool_calls,
+                                )
 
                             async with node.stream(run.ctx) as stream:
                                 async for event in stream:
                                     if isinstance(event, FunctionToolCallEvent):
                                         n_tool_calls += 1
+                                        if self._dashboard is not None:
+                                            self._dashboard.on_event(
+                                                {
+                                                    "type": "tool_call",
+                                                    "tool": event.part.tool_name,
+                                                    "args": event.part.args_as_dict(),
+                                                }
+                                            )
                                         if event.part.tool_name == "finish":
                                             finish_result = {
                                                 "_finish": True,
@@ -181,6 +211,29 @@ class ApiAgentLoop:
                                         message = _serialize_tool_result(event)
                                         messages.append(message)
                                         _log_tool_result(message)
+                                        if self._dashboard is not None:
+                                            dashboard_result = {
+                                                "is_error": bool(
+                                                    getattr(
+                                                        event.part, "is_error", False
+                                                    )
+                                                ),
+                                                "size": len(message["content"]),
+                                            }
+                                            self._dashboard.on_event(
+                                                {
+                                                    "type": "tool_result",
+                                                    "tool": message.get("name")
+                                                    or "tool_result",
+                                                    "result": dashboard_result,
+                                                }
+                                            )
+                                    if self._dashboard is not None:
+                                        self._dashboard.on_usage(
+                                            inp=int(run.usage.input_tokens or 0),
+                                            out=int(run.usage.output_tokens or 0),
+                                            tool_calls=n_tool_calls,
+                                        )
 
                             if finish_result is not None:
                                 logger.info("FINISH called: %s", finish_result)
@@ -216,11 +269,11 @@ class ApiAgentLoop:
                 messages.append({"role": "user", "content": seed})
         except UsageLimitExceeded as e:
             logger.info("usage limit reached: %s", e)
-        except Exception as e:  # noqa: BLE001 - surfaced via CerebrumResult.error
+        except Exception as e:  # noqa: BLE001 - surfaced via PlannerResult.error
             last_error = f"{type(e).__name__}: {e}"
             logger.error("agent run failed: %s", last_error)
 
-        return CerebrumResult(
+        return PlannerResult(
             finish_result=finish_result,
             messages=messages,
             stats=_build_stats(usage, turns, n_tool_calls),
@@ -293,8 +346,8 @@ def _prune_history_images(messages: list[ModelMessage]) -> list[ModelMessage]:
 
 
 def _build_tools(toolkit: Toolkit) -> list[Tool]:
-    """Wrap each toolkit tool as a pydantic-ai function tool from its schema."""
-    tools: list[Tool] = []
+    """Build the API-only image reader plus pydantic-ai toolkit wrappers."""
+    tools: list[Tool] = [Tool(read_image)]
     for spec in toolkit.get_tools_spec():
         name = spec["name"]
         tools.append(
@@ -308,6 +361,14 @@ def _build_tools(toolkit: Toolkit) -> list[Tool]:
             )
         )
     return tools
+
+
+def read_image(path: str) -> ToolReturn:
+    """Read a local image path returned by an RPent tool as visual input."""
+    return ToolReturn(
+        return_value=path,
+        content=[BinaryContent.from_path(path)],
+    )
 
 
 def _make_tool_function(toolkit: Toolkit, name: str):

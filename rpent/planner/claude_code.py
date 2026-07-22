@@ -1,8 +1,8 @@
-"""Claude Agent SDK cerebrum.
+"""Claude Agent SDK planner.
 
 A thin, SDK-first backend for RPent. ``solve()`` does four things:
 prepare output files, bind the in-process tool runtime, drive the SDK
-query, and assemble a ``CerebrumResult``. Event rendering and stats
+query, and assemble a ``PlannerResult``. Event rendering and stats
 collection live in a single observation layer (``_Recorder``) that has
 no backend state of its own.
 """
@@ -18,25 +18,27 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rpent.cerebrum.base import (
-    CerebrumResult,
+from rpent.cli.tui import next_user_line
+from rpent.planner.base import (
+    PlannerResult,
     add_mcp_prefix,
     strip_mcp_prefix,
 )
-from rpent.cli.tui import next_user_line
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
 
 logger = get_logger("claude")
 
+_MAX_STREAM_BUFFER_BYTES = 8 * 1024 * 1024
+
 # ---------------------------------------------------------------------------
 # Public backend
 # ---------------------------------------------------------------------------
 
 
-class ClaudeCodeCerebrum:
-    """Cerebrum backed by the Claude Agent SDK."""
+class ClaudeCodePlanner:
+    """Planner backed by the Claude Agent SDK."""
 
     def __init__(
         self,
@@ -70,7 +72,7 @@ class ClaudeCodeCerebrum:
         toolkit: Toolkit,
         max_turns: int,
         input_queue=None,
-    ) -> CerebrumResult:
+    ) -> PlannerResult:
         """Run a Claude Agent SDK session for the given prompt."""
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         return asyncio.run(
@@ -91,7 +93,7 @@ class ClaudeCodeCerebrum:
         toolkit: Toolkit,
         max_turns: int,
         input_queue=None,
-    ) -> CerebrumResult:
+    ) -> PlannerResult:
         import claude_agent_sdk
         sdk = claude_agent_sdk
         if self._output_path is None:
@@ -162,7 +164,7 @@ class ClaudeCodeCerebrum:
                     )
             except asyncio.TimeoutError:
                 error = f"Claude Agent SDK timed out after {self._timeout_s}s"
-                rendered = f"\n[cc-cerebrum] {error}\n"
+                rendered = f"\n[cc-planner] {error}\n"
                 rendered_chunks.append(rendered)
                 out_f.write(rendered)
                 out_f.flush()
@@ -170,7 +172,7 @@ class ClaudeCodeCerebrum:
                 logger.info(rendered.rstrip())
             except Exception as e:
                 error = f"{type(e).__name__}: {e}"
-                rendered = f"\n[cc-cerebrum] {error}\n"
+                rendered = f"\n[cc-planner] {error}\n"
                 rendered_chunks.append(rendered)
                 out_f.write(rendered)
                 out_f.flush()
@@ -185,7 +187,7 @@ class ClaudeCodeCerebrum:
         logger.info("output: %s", output_path)
         logger.info("raw stream: %s", raw_stream_path)
 
-        return CerebrumResult(
+        return PlannerResult(
             finish_result=recorder.finish_result,
             messages=[{"role": "claude_agent_sdk", "content": text}],
             stats={
@@ -254,6 +256,7 @@ class ClaudeCodeCerebrum:
             model=self._model,
             max_turns=max_turns,
             max_budget_usd=self._max_budget_usd,
+            max_buffer_size=_MAX_STREAM_BUFFER_BYTES,
             tools=builtins or None,
             allowed_tools=list(dict.fromkeys(allowed)),
             mcp_servers={
@@ -285,6 +288,7 @@ class _Recorder:
     max_turns: int
     dashboard: Any = None
     turns: int = 0
+    _seen_assistant_ids: set[str] = field(default_factory=set)
     tool_calls: int = 0
     tool_names: dict[str, str] = field(default_factory=dict)
     pending_finish: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -343,16 +347,20 @@ class _Recorder:
     def _assistant(self, message: Any) -> str:
         self._add_usage(_get(message, "usage"))
         lines: list[str] = []
+        if _get(message, "parent_tool_use_id") is None:
+            # One Claude response may arrive as multiple messages with the same ID.
+            assistant_id = _get(message, "message_id") or _get(message, "uuid")
+            if not assistant_id or assistant_id not in self._seen_assistant_ids:
+                if assistant_id:
+                    self._seen_assistant_ids.add(str(assistant_id))
+                self.turns += 1
+                lines.append(f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n")
         for block in _get(message, "content", []) or []:
             block_kind = _kind(block)
             if block_kind == "TextBlock":
                 text = str(_get(block, "text", "")).strip()
                 if text:
-                    self.turns += 1
-                    lines.append(
-                        f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n"
-                        f"[claude] {text}\n"
-                    )
+                    lines.append(f"[claude] {text}\n")
                     if self.dashboard is not None:
                         self.dashboard.on_event({"type": "text", "text": text})
             elif block_kind == "ToolUseBlock":
@@ -425,8 +433,6 @@ class _Recorder:
     def _result(self, message: Any) -> str:
         if usage := _get(message, "usage"):
             self._set_usage(usage)
-        if turns := _get(message, "num_turns"):
-            self.turns = int(turns)
         if cost := _get(message, "total_cost_usd"):
             self.total_cost_usd = float(cost)
         if _get(message, "is_error", False):

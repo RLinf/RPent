@@ -14,3 +14,6 @@ uv.lock
 # Documentation build artifacts and local environment.
 .docs-venv/
 docs/build/
+
+build/
+.claude/settings.json

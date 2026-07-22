@@ -2,8 +2,8 @@
 ========
 
 本页把 ``README.md`` 里的 Quick Start 搬到了文档中。它假设你已经完成了
-:doc:`installation` (并排克隆好 RLinf 与 RPent、激活虚拟环境、同步好
-RPent 的额外依赖)。
+:doc:`installation` (克隆好 RPent 并执行了
+``pip install -e ".[full]"``)。
 
 1. 配置 API key 与 checkpoint
 ------------------------------
@@ -12,7 +12,7 @@ RPent 的额外依赖)。
 
 .. code-block:: bash
 
-   # LLM API keys (供 `api` cerebrum 通过 pydantic-ai 使用)
+   # LLM API keys (供 `api` planner 通过 pydantic-ai 使用)
    export ANTHROPIC_BASE_URL=https://xxx
    export ANTHROPIC_API_KEY=sk-xxx
    export OPENAI_BASE_URL=https://xxx
@@ -25,20 +25,20 @@ RPent 的额外依赖)。
    export CUDA_VISIBLE_DEVICES=0
 
 你只需要为实际使用的 provider 设置对应的 key。例如, 只用
-``--cerebrum claude_code`` 时, 可以不配置 ``OPENAI_*``。
+``--planner claude_code`` 时, 可以不配置 ``OPENAI_*``。
 
 2. 跑一个 LIBERO 任务
 ---------------------
 
-用 ``api`` cerebrum + Anthropic 模型, 上限 8192 tokens, 跑单个 LIBERO PRO
+用 ``api`` planner + Anthropic 模型, 上限 8192 tokens, 跑单个 LIBERO PRO
 任务 (``libero_object_swap``, 任务 ``2``, 种子 ``0``):
 
 .. code-block:: bash
 
-   python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
-     --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
+   rpent --suite libero_object_swap --task 2 --seed 0 \
+     --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 
-**模型 id 规约。** ``api`` cerebrum 下, ``--model`` 需要带 provider
+**模型 id 规约。** ``api`` planner 下, ``--model`` 需要带 provider
 前缀; ``claude_code`` / ``codex`` 下, 直接写裸模型名:
 
 - OpenAI 兼容 chat 接口 —— ``--model openai-chat:glm-5.2``
@@ -58,27 +58,13 @@ RPent 的额外依赖)。
 
 .. code-block:: bash
 
-   python rpent/cli/main.py --dashboard --dashboard-language zh-cn \
-     --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
-
-4. RoboCasa
------------
-
-RoboCasa 有自己的入口和一次性安装脚本:
-
-.. code-block:: bash
-
-   bash scripts/setup_robocasa.sh                                # 一次性安装
-   bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <task> <gpu> <seed>
-
-完整的 RoboCasa365 + RLDX-1 流程见 `docs/SETUP_ROBOCASA.zh.md
-<https://github.com/RLinf/RPent/blob/main/docs/SETUP_ROBOCASA.zh.md>`_,
-而 :doc:`usage/robocasa` 说明 RoboCasa toolkit 对 agent 暴露了什么。
+   rpent --dashboard --dashboard-language zh-cn \
+     --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
 关键 CLI 选项
 -------------
 
-``rpent/cli/main.py`` 日常最常用的几个 flag:
+``rpent`` 日常最常用的几个 flag:
 
 .. list-table::
    :header-rows: 1
@@ -96,7 +82,7 @@ RoboCasa 有自己的入口和一次性安装脚本:
    * - ``--seed``
      - ``0``
      - 随机种子
-   * - ``--cerebrum``
+   * - ``--planner``
      - ``api``
      - Reasoning brain: ``api`` | ``claude_code`` | ``codex``
    * - ``--model``

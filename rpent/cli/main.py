@@ -3,27 +3,21 @@
 #
 # CLI entrypoints for RPent (currently just `main.py`).
 #
-# ## Rules
-#
-# - **No `__init__.py`.** This directory is not a Python subpackage of
-#   `rpent`. Do not add one.
-# - **Never reference `rpent.cli` as a dotted import path** anywhere in
-#   the codebase. Without `__init__.py` it isn't one, and treating it as
-#   one would risk import cycles — `main.py` already pulls in
-#   `rpent.cerebrum`, `rpent.envs`, `rpent.utils`, `rpent.dashboard`, and
-#   `rpent.tools`, so exposing it as an importable submodule invites a
-#   cycle back to the CLI.
-# - **Setuptools skips it.** `pyproject.toml`'s `packages.find` only picks
-#   up dirs with `__init__.py`, so the CLI ships as source-tree scripts,
-#   not as an installed submodule.
-#
 # ## Run
 #
+# `main()` is exposed as the `rpent` console script (see `[project.scripts]`
+# in `pyproject.toml`):
+#
 # ```bash
-# python rpent/cli/main.py --suite libero_object_task --task 0 --seed 0 [...]
+# rpent --suite libero_object_task --task 0 --seed 0 [...]
 # ```
 #
-# Do not use `python -m rpent.cli.main`.
+# ## Note
+#
+# Do not import `rpent.cli` from other `rpent` modules. `main.py` pulls in
+# `rpent.planner`, `rpent.envs`, `rpent.utils`, `rpent.dashboard`, and
+# `rpent.tools`, so importing the CLI back into any of them would create an
+# import cycle. Nothing else should depend on this package.
 from __future__ import annotations
 
 import argparse
@@ -39,24 +33,23 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from rpent.utils.config import (
-    get_libero_type,
-    get_repo_root,
-)
-
-from rpent.cerebrum.base import build_cerebrum  # noqa: E402
-from rpent.envs import get_env_spec, get_toolkit  # noqa: E402
-from rpent.utils.rpc import (  # noqa: E402
-    create_rpc_client,
-    set_socket_endpoint,
-)
-from rpent.utils.vla_client import VLAClient  # noqa: E402
 from robots.libero.env_client import LiberoEnvClient  # noqa: E402
 from rpent.cli.tui import (  # noqa: E402
     start_first_prompt_resolver,
     start_interactive_reader,
 )
+from rpent.envs import get_env_spec, get_toolkit  # noqa: E402
+from rpent.planner.base import build_planner  # noqa: E402
+from rpent.utils.config import (
+    get_libero_type,
+    get_repo_root,
+)
 from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
+from rpent.utils.rpc import (  # noqa: E402
+    create_rpc_client,
+    set_socket_endpoint,
+)
+from rpent.utils.vla_client import VLAClient  # noqa: E402
 
 logger = get_logger("agent")
 
@@ -294,21 +287,22 @@ def _build_argparser() -> argparse.ArgumentParser:
     )
 
     # models
-    ap.add_argument("--cerebrum", default="api",
+    ap.add_argument("--planner", default="api",
                     choices=["api", "claude_code", "codex"],
                     help="LLM backend: api | claude_code | codex.")
     ap.add_argument("--model", default=None,
-                    help="Model id. For the 'api' cerebrum you need to prefix provider to the model id "
+                    help="Model id. For the 'api' planner, prefix the provider "
                          "(e.g. anthropic:claude-opus-4-8, openai:gpt-5.5, "
-                         "openai-chat:glm-5.2).")
+                         "openai-chat:glm-5.2). For claude_code/codex this "
+                         "overrides the backend default model.")
     ap.add_argument("--base-url", default=None,
                     help="API base URL. Defaults to the selected backend's base URL env var.")
     ap.add_argument("--api-key", default=None,
                     help="API key. Defaults to the selected backend's API key env var.")
     ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--max-tokens", type=int, default=8192)
-    ap.add_argument("--cerebrum-timeout-s", type=int, default=None,
-                    help="Wall-clock cap for the claude_code/codex cerebrum "
+    ap.add_argument("--planner-timeout-s", type=int, default=None,
+                    help="Wall-clock cap for the claude_code/codex planner "
                          "subprocess. Defaults to CODEX_TIMEOUT_S (codex only), "
                          "CELL_TIMEOUT_S, or 1200.")
     ap.add_argument("--claude-code-max-budget-usd", type=float, default=None,
@@ -373,6 +367,7 @@ def main() -> int:
     # Everything downstream (output_dir, State, run loop) then sees final args.
     dashboard_server = None
     dashboard_url = None
+    launch_config = None
     if args.dashboard:
         from rpent.dashboard import DashboardServer
         from rpent.dashboard.launcher import apply_to_args, defaults_from_args
@@ -382,15 +377,17 @@ def main() -> int:
             language=args.dashboard_language,
         )
         dashboard_url = dashboard_server.start()
+        # The run directory is not final until the launcher form is submitted, so
+        # print the pre-launch URL without initializing the run.log file handler.
         print(
-            f"Dashboard: {dashboard_url}. Open it, adjust the run config, and click Run to start.",
+            f"Dashboard: {dashboard_url}. "
+            "Open it, adjust the run config, and click Run to start.",
             flush=True,
         )
         launch_config = dashboard_server.wait_for_launch(
             defaults=defaults_from_args(args)
         )
         apply_to_args(args, launch_config)
-        logger.info("launcher config applied: %s", launch_config)
 
     if not args.suite:
         parser.error("--suite is required")
@@ -412,6 +409,11 @@ def main() -> int:
         timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
         output_dir = get_repo_root() / "logs" / f"{timestamp}_{suite}_t{task}_s{seed}"
     output_dir = init_output_dir(output_dir, verbose=args.verbose)
+    # Now that output_dir is fixed, repeat launcher details into this run's log.
+    if dashboard_url is not None:
+        logger.info("Dashboard: %s", dashboard_url)
+    if launch_config is not None:
+        logger.info("launcher config applied: %s", launch_config)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
     recipe_tag = f"{suite.replace('libero_', '')}_t{task}_s{seed}"
@@ -433,15 +435,15 @@ def main() -> int:
         # frontend can switch from the start screen to the live monitor.
         dashboard_server.register(dashboard_state)
 
-    cerebrum = build_cerebrum(
-        args.cerebrum,
+    planner = build_planner(
+        args.planner,
         output_dir=output_dir,
         recipe_tag=recipe_tag,
         env_name=env_name,
         base_url=args.base_url,
         model=args.model,
         max_tokens=args.max_tokens,
-        cerebrum_timeout_s=args.cerebrum_timeout_s,
+        planner_timeout_s=args.planner_timeout_s,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard=dashboard_state,
     )
@@ -555,7 +557,7 @@ def main() -> int:
             logger.info("no task entered; ending session before start.")
     try:
         if first_user_msg is not None:
-            result = cerebrum.solve(
+            result = planner.solve(
                 system_prompt=system_prompt,
                 user_message=first_user_msg,
                 toolkit=toolkit,

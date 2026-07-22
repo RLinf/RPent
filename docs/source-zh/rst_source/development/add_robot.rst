@@ -41,11 +41,10 @@ numpy dict (3 路相机 video 张量 ``(1,T,H,W,3)`` + ``state.*`` + annotation 
 session/reset_memory), 用 socket 天然承载, 走 HTTP 则要额外设计 wire 格式。按
 观测形态选编解码, 但保持 env/vla 进程分离一致。
 
-**任何需要仿真 env 对象的逻辑都留在 env_server。** 对 RoboCasa, ``check_grasp``
-和 ``assemble_action`` (eval 的 ``unmap_action`` + composite-controller
-split-index 组装) 需要活的 robosuite env, 因此是 env_server 的 RPC —— **不** 属于
-VLA server。于是 agent 侧的 skill (``RLDXSkill``) 同时持有两个 client: env client
-做 render/step/grasp/assemble, model client 做推理。
+**任何需要仿真 env 对象的逻辑都留在 env_server。** 对 RoboCasa 这样的 env,
+抓取检测、动作组装等操作需要活的仿真 env, 因此是 env_server 的 RPC —— **不** 属于
+VLA server。于是 agent 侧的 skill 同时持有两个 client: env client 做 render/step,
+model client 做推理。
 
 入口
 ----
@@ -150,7 +149,7 @@ stdout 上的 ``transport_ready`` 事件是必须的 —— ``rpent/cli/main.py`
 定义两个 prompt 工厂 —— ``system_prompt()`` 和 ``user_prompt()`` —— 并在 env 的
 ``__init__.py`` 中构造 ``PromptBundle(system=system_prompt, user=user_prompt)``
 (见上面的入口章节)。每个工厂返回一个有序的 ``dict[str, PromptNode]`` (带标题的
-分节), 由 ``PromptBundle.render`` 组装并填充。一份 prompt 服务所有 cerebrum
+分节), 由 ``PromptBundle.render`` 组装并填充。一份 prompt 服务所有 planner
 (API loop、Claude Code、Codex): 用工具的裸名引用 (``move_to``, ...), 并只需说明
 一次 Claude Code / Codex SDK 会把它们命名空间化为 ``mcp__rpent__<name>`` ——
 不要再维护 CLI/API 两份拷贝。
@@ -224,7 +223,7 @@ primitive driver ``__init__`` 的 dict —— 通常是
 - ``output_dir`` 是 per-run 的临时目录, 由 runner 创建; 所有工件 (images、
   depths、``states.json``、transcripts、``episode.mp4``) 都写在里面。
 - 工具 schema 是 Anthropic 形状 (``name`` / ``description`` / ``input_schema``)。
-  每个用 ``self.add_tool(...)`` 注册的工具都会暴露给所有 cerebrum。
+  每个用 ``self.add_tool(...)`` 注册的工具都会暴露给所有 planner。
 - Driver 侧的返回值必须可 pickle, 且不含 torch。
 - 每个 primitive 工具执行后要 dump 一次新的状态快照, 这样下一次
   ``view_driver_state`` 看到的是动作后的世界。
@@ -239,8 +238,8 @@ primitive driver ``__init__`` 的 dict —— 通常是
 .. code-block:: bash
 
    PI05_CHECKPOINT_PATH=<path> ANTHROPIC_API_KEY=<key> \
-     python rpent/cli/main.py --env myenv --suite <suite> --task <id> --seed 0 \
-     --output-dir /tmp/myenv_smoke --cerebrum api --model anthropic:claude-opus-4-8
+     rpent --env myenv --suite <suite> --task <id> --seed 0 \
+     --output-dir /tmp/myenv_smoke --planner api --model anthropic:claude-opus-4-8
 
 期望: driver 输出 ``transport_ready``, agent 完成 prompt 的任务, 并调用 ``finish``。
 查看 ``<output_dir>/transcript_*.json`` 获取运行结束的总结。

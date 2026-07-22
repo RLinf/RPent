@@ -1,0 +1,28 @@
+{
+  "suite": "libero_goal_task",
+  "task_id": 5,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "task (P1 Task perturbation)",
+  "perturbed_task_language": "Push the cream cheese to the front of the stove",
+  "perturbation_semantics": "Base task pushed the plate; perturbation swaps the target object to the cream cheese (smaller, narrower box). Same goal region (main_table_stove_front_region).",
+  "expected_baseline_behavior": "Pi0 fullshot likely pushes the base-task object (plate) to the front of the stove and fails the perturbed predicate On(cream_cheese_1, stove_front_region).",
+  "strategy_notes": "Perception-isolated push. (1) From image_cam_00 + world_00 located cream_cheese_1 visually as the only elevated blue-coloured small object (RGB B-R>15, z>0.91): median world xy=(-0.041,+0.112) at z=0.92 (top surface). Confirmed with wrist cam after first move: world_wrist_01 median (-0.041,+0.112). (2) Located stove fixture white top via grep-mask: x in [-0.245,-0.165], y in [+0.119,+0.293], top z=0.927; dark cook_region at xy~(-0.214,+0.200). (3) Located target zone main_table_stove_front_region via libero region parsing in envs/problems/libero_kitchen_tabletop_manipulation.py (workspace_offset = (0, 0, 0.90)) and the region rectangle (-0.09, 0.17, -0.01, 0.25) in main_table frame, giving world centroid (-0.05, +0.21), size 8x8 cm, so target xy must satisfy x in [-0.09,-0.01] AND y in [+0.17,+0.25]. (4) Strategy: cream cheese starts at x=-0.041 already inside the region's x band, only needed +0.10 in y. (5) Push: close gripper, pre-position eef at (-0.04, +0.04, 1.05) directly behind the box in -y, descend to z=0.91 (OSC kitchen-floor was 0.92 effective, fingertips at box mid-height to push the side instead of skating over the top), then move_to (-0.04, +0.20, 0.91). The +y sweep at z=0.91 contacted the box's -y face and slid it forward; predicate fired mid-push. Earlier attempts at z=0.93/0.98 slid OVER the box (no contact). Earlier diagonal pushes had also displaced the box toward the stove (x<-0.10), confirming the region is in FRONT of the stove (more +x) not at the stove, before resetting to do a clean pure-+y push. Final cream cheese center (perception): xy=(-0.027,+0.175) z=0.92, inside the 8x8 cm region.",
+  "pick_result": {
+    "note": "No pi0_pick used in the final recipe; this is a pure paddle-push solution (closed gripper)."
+  },
+  "final_state": {
+    "step_idx": 40,
+    "libero_terminated": true,
+    "task_language": "Push the cream cheese to the front of the stove",
+    "robot0_eef_pos": [-0.04005566676383009, 0.13729958242511456, 0.9165395904669906],
+    "robot0_eef_quat": [0.9996037970257307, 0.00039658533800124296, -0.02814406202805015, -5.8858910403507964e-05],
+    "robot0_gripper_qpos": [0.0007327632415264937, -0.0002669822347299281],
+    "obj_of_interest": null,
+    "object_names": ["akita_black_bowl_1", "cream_cheese_1", "plate_1", "wine_bottle_1"],
+    "perceived_cream_cheese_xyz_final": [-0.027, 0.175, 0.92],
+    "stove_front_region_world_centroid": [-0.05, 0.21],
+    "stove_front_region_world_xy_bounds": [-0.09, -0.01, 0.17, 0.25]
+  },
+  "libero_terminated": true
+}

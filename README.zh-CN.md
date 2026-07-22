@@ -21,7 +21,7 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
 
 - **LLM-in-the-loop 控制。** 大模型无需微调——它完全通过调用工具（`pi0_pick`、`move_to`、`rotate_wrist`、`back_project`、`finish` …）来驱动机器人。每次工具调用的结果都以多模态上下文（文本 + 渲染图像）回灌，让模型基于「它实际看到的画面」进行推理。
 - **三进程架构。** **Agent 主进程**（LLM 决策大脑 + 工具容器，不加载 `torch`）、**env_server**（仿真器 + EGL 渲染）、**vla_server**（GPU 策略权重）彼此独立，用轻量 RPC 连接。两个重量级进程都可以独立重启、切换到另一块 GPU，或指向远程主机。
-- **可插拔的决策大脑（cerebrum）。** 用一个参数 `--cerebrum {api, claude_code, codex}` 切换决策大脑，无需改动工具或提示词：
+- **可插拔的决策大脑（planner）。** 用一个参数 `--planner {api, claude_code, codex}` 切换决策大脑，无需改动工具或提示词：
   - `api` —— 基于 [pydantic-ai](https://ai.pydantic.dev/) 的、与厂商无关的工具调用循环（Anthropic / OpenAI / OpenAI 兼容），带提示词缓存与历史图像裁剪。
   - `claude_code` —— 使用 [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview)，把工具容器包装成进程内 MCP server。
   - `codex` —— 使用 OpenAI Codex SDK，通过 HTTP MCP server 桥接工具。
@@ -62,7 +62,7 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
             <li>libero_spatial · _task / _lan</li>
             <li>libero_10 · _task / _swap / _lan</li>
           </ul>
-          <li><b>RoboCasa</b>（厨房长程任务）✅</li>
+          <li><b>RoboCasa</b>（厨房长程任务）</li>
           <ul>
             <li>PickPlace* · Open/Close* · TurnOn/Off* …</li>
           </ul>
@@ -70,8 +70,8 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><b>Pi0.5</b>（LIBERO，HTTP）✅</li>
-          <li><b>RLDX-1</b>（RoboCasa，socket-RPC）✅</li>
+          <li><b>Pi0.5</b>（LIBERO）✅</li>
+          <li><b>RLDX-1</b>（RoboCasa）</li>
         </ul>
       </td>
       <td>
@@ -92,35 +92,25 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
 
 ## 快速开始
 
-RPent 依赖 [RLinf](https://github.com/RLinf/RLinf) 的一个 fork 分支来提供仿真器与 VLA 模型。请把两者并排 clone。
-
-**1. 并排 clone RLinf 与 RPent。**
+**1. 用一条 `pip install` 安装 RPent。**
 
 ```bash
-mkdir workspace && cd workspace
-# RPent 依赖 RLinf 的 fork 分支；后续迭代稳定后会合并回 main。
-git clone https://github.com/jx-qiu/RLinf -b feature/physicalagent rlinf
-git clone https://github.com/RLinf/RPent rpent
+git clone https://github.com/RLinf/RPent rpent && cd rpent
+pip install -e ".[full]"
 ```
 
-**2. 在 RLinf 中创建 openpi + LIBERO 虚拟环境。**
+`.[full]` 是默认的端到端组合（openpi Pi0.5 VLA + LIBERO-PRO 仿真器，运行在 RLinf 运行时之上）。如果不需要整套，可选择更小的 extra：
 
-```bash
-cd rlinf
-bash requirements/install.sh embodied --env libero --model openpi --use-mirror --venv ../.venv-opi-libero
-cd ..
-source .venv-opi-libero/bin/activate
-```
+| Extra | 安装内容 |
+| --- | --- |
+| `.[full]` | `rlinf` + `openpi` + `libero-pro`——默认运行组合 |
+| `.[libero-pro]` | 仅基础 LIBERO + LIBERO-PRO 仿真器 |
+| `.[libero-plus]` | 基础 LIBERO + LIBERO-plus 仿真器 |
+| `.[libero]` | 仅基础 LIBERO |
+| `.[openpi]` | 仅 openpi VLA |
+| `.[rlinf]` | 仅 RLinf 运行时 |
 
-**3. 在上述 venv 之上安装 RPent 的额外依赖。**
-
-```bash
-cd rpent
-uv sync --active --inexact
-bash scripts/install_libero_pro_plus.sh
-```
-
-**4. 配置密钥与 checkpoint，然后运行。**
+**2. 配置密钥与 checkpoint，然后运行。**
 
 ```bash
 # 大模型 API 密钥（api 决策大脑）
@@ -140,8 +130,8 @@ export CUDA_VISIBLE_DEVICES=0
 #   • OpenAI 兼容 chat 端点：  --model openai-chat:glm-5.2
 #   • OpenAI responses 端点：  --model openai:gpt-5.5
 #   • claude_code / codex 大脑：无需 provider 前缀，如 --model claude-opus-4-8
-python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
-  --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
+rpent --suite libero_object_swap --task 2 --seed 0 \
+  --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
 ### 交互模式
@@ -158,20 +148,9 @@ python rpent/cli/main.py --interactive --suite libero_object_swap --task 2 --see
 加上 `--dashboard` 即可为本次运行打开一个浏览器监控页。它会先展示一个启动屏让你选择配置，然后实时推送推理流、实时画面与动作时间线。用 `--dashboard-language zh-cn` 切换到中文界面。
 
 ```bash
-python rpent/cli/main.py --dashboard --dashboard-language zh-cn \
-  --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
+rpent --dashboard --dashboard-language zh-cn \
+  --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 ```
-
-### RoboCasa
-
-RoboCasa 使用独立的入口与安装指南。
-
-```bash
-bash scripts/setup_robocasa.sh                                # 一次性安装
-bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <种子>
-```
-
-完整的 RoboCasa365 + RLDX-1 部署流程见 [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md)。
 
 ## 主要命令行参数
 
@@ -180,7 +159,7 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 | `--suite` | —（必填） | 任务集，如 `libero_object_task`、`libero_spatial_swap` |
 | `--task` | —（必填） | 任务集内的任务编号 |
 | `--seed` | `0` | 随机种子 |
-| `--cerebrum` | `api` | 决策大脑：`api` \| `claude_code` \| `codex` |
+| `--planner` | `api` | 决策大脑：`api` \| `claude_code` \| `codex` |
 | `--model` | — | 模型 id；`api` 需带 provider 前缀（`anthropic:…`、`openai:…`、`openai-chat:…`） |
 | `--max-turns` | `100` | 智能体最大轮数 |
 | `--max-tokens` | `8192` | 单次回复最大 token |
@@ -195,7 +174,6 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 ## 文档
 
 - [接入新环境](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html) —— 把新的仿真器 / 机器人接入 runner（[English](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html)）。
-- [RoboCasa 安装](docs/SETUP_ROBOCASA.zh.md) —— RoboCasa365 + RLDX-1 安装与运行指南。
 - [`docs/`](docs/README.md) —— 本地 Sphinx 构建与预览说明。
 
 ## 致谢

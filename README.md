@@ -83,38 +83,29 @@ RPent is built upon three core design principles: **service-oriented, standardiz
 
 ## Quick Start
 
-RPent runs on top of a forked branch of [RLinf](https://github.com/RLinf/RLinf) for the simulators and VLA models. Clone them side by side.
-
-**1. Clone RLinf and RPent side by side.**
+**1. Install RPent with a single `pip install`.** 
 
 ```bash
-mkdir workspace && cd workspace
-# RPent depends on a forked branch of RLinf; it will be merged back to main after more iterations.
-git clone https://github.com/jx-qiu/RLinf -b feature/physicalagent rlinf
-git clone https://github.com/RLinf/RPent rpent
+git clone https://github.com/RLinf/RPent rpent && cd rpent
+pip install -e ".[full]"
 ```
 
-**2. In RLinf, create an openpi + LIBERO virtualenv.**
+`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator on the RLinf runtime). 
+Pick a narrower extra if you don't need the whole stack:
+
+| Extra | Installs |
+| --- | --- |
+| `.[full]` | `rlinf` + `openpi` + `libero-pro` — the default run stack |
+| `.[libero-pro]` | Base LIBERO + LIBERO-PRO simulator |
+| `.[libero-plus]` | Base LIBERO + LIBERO-plus simulator |
+| `.[libero]` | Base LIBERO only |
+| `.[openpi]` | openpi VLA only |
+| `.[rlinf]` | RLinf runtime only |
+
+**2. Configure keys and checkpoints, then run.**
 
 ```bash
-cd rlinf
-bash requirements/install.sh embodied --env libero --model openpi --use-mirror --venv ../.venv-opi-libero
-cd ..
-source .venv-opi-libero/bin/activate
-```
-
-**3. Install RPent's extra dependencies on top of that venv.**
-
-```bash
-cd rpent
-uv sync --active --inexact
-bash scripts/install_libero_pro_plus.sh
-```
-
-**4. Configure keys and checkpoints, then run.**
-
-```bash
-# LLM API keys (the `api` cerebrum)
+# LLM API keys (the `api` planner)
 export ANTHROPIC_BASE_URL=https://xxx
 export ANTHROPIC_API_KEY=sk-xxx
 export OPENAI_BASE_URL=https://xxx
@@ -126,13 +117,13 @@ export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 export LIBERO_TYPE=pro
 export CUDA_VISIBLE_DEVICES=0
 
-# Run one task: libero_object_swap, task 2, seed 0, using the `api` cerebrum
+# Run one task: libero_object_swap, task 2, seed 0, using the `api` planner
 # with an Anthropic model and an 8192-token cap.
 #   • OpenAI-compatible chat endpoints:  --model openai-chat:glm-5.2
 #   • OpenAI responses endpoints:        --model openai:gpt-5.5
-#   • claude_code / codex cerebrums:     no provider prefix, e.g. --model claude-opus-4-8
-python rpent/cli/main.py --suite libero_object_swap --task 2 --seed 0 \
-  --cerebrum api --model anthropic:claude-opus-4-8 --max-tokens 8192
+#   • claude_code / codex planners:     no provider prefix, e.g. --model claude-opus-4-8
+rpent --suite libero_object_swap --task 2 --seed 0 \
+  --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
 ### Interactive CLI mode
@@ -149,20 +140,9 @@ python rpent/cli/main.py --interactive --suite libero_object_swap --task 2 --see
 Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
-python rpent/cli/main.py --dashboard --dashboard-language zh-cn \
-  --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
+rpent --dashboard --dashboard-language zh-cn \
+  --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 ```
-
-### RoboCasa
-
-RoboCasa uses a separate entrypoint and setup guide.
-
-```bash
-bash scripts/setup_robocasa.sh                                # one-time setup
-bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <task> <gpu> <seed>
-```
-
-See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 + RLDX-1 walkthrough.
 
 ## Key CLI Options
 
@@ -171,7 +151,7 @@ See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 +
 | `--suite` | — (required) | Task suite, e.g. `libero_object_task`, `libero_spatial_swap` |
 | `--task` | — (required) | Task id within the suite |
 | `--seed` | `0` | Random seed |
-| `--cerebrum` | `api` | Reasoning brain: `api` \| `claude_code` \| `codex` |
+| `--planner` | `api` | Reasoning brain: `api` \| `claude_code` \| `codex` |
 | `--model` | — | Model id; for `api`, prefix the provider (`anthropic:…`, `openai:…`, `openai-chat:…`) |
 | `--max-turns` | `100` | Max agent turns |
 | `--max-tokens` | `8192` | Max tokens per LLM reply |
@@ -186,7 +166,6 @@ See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 +
 ## Documentation
 
 - [Adding a new environment](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html) — plug a new simulator / robot into the runner ([中文](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html)).
-- [RoboCasa setup](docs/SETUP_ROBOCASA.zh.md) — RoboCasa365 + RLDX-1 install and run guide.
 - [`docs/`](docs/README.md) — local Sphinx build and preview instructions.
 
 ## Citation and Acknowledgement

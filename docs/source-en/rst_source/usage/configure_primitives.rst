@@ -1,4 +1,4 @@
-Action primitives
+Action Primitives
 =================
 
 Where the planner chooses *what* to do, the **action primitive**
@@ -40,7 +40,7 @@ Which VLA runs where
    * - RoboCasa (sim)
      - RLDX-1
      - pickle-framed socket RPC
-     - ``robots/robocasa/vla_server.py``
+     - ``robots/robocasa/vla_server.py`` *(planned)*
    * - Franka (real)
      - Pi0.5 or RLDX-1 (task-dependent)
      - HTTP or socket
@@ -64,8 +64,8 @@ new one each time:
 
 .. code-block:: bash
 
-   python rpent/cli/main.py --vla-endpoint http://localhost:8000 \
-     --suite libero_object_swap --task 2 --seed 0 --cerebrum api \
+   rpent --vla-endpoint http://localhost:8000 \
+     --suite libero_object_swap --task 2 --seed 0 --planner api \
      --model anthropic:claude-opus-4-8
 
 That is the recommended pattern once you are running many tasks in a

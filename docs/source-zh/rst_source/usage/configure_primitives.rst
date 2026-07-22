@@ -1,4 +1,4 @@
-Action primitives
+Action Primitives
 =================
 
 Planner 决定 *做什么*, 而 **action primitive** 决定 *怎么做*。所谓 primitive
@@ -36,7 +36,7 @@ RPent 内置支持两大类 primitive:
    * - RoboCasa (仿真)
      - RLDX-1
      - pickle-framed socket RPC
-     - ``robots/robocasa/vla_server.py``
+     - ``robots/robocasa/vla_server.py`` *(规划中)*
    * - Franka (真机)
      - Pi0.5 或 RLDX-1 (依任务而定)
      - HTTP 或 socket
@@ -58,8 +58,8 @@ RPent 内置支持两大类 primitive:
 
 .. code-block:: bash
 
-   python rpent/cli/main.py --vla-endpoint http://localhost:8000 \
-     --suite libero_object_swap --task 2 --seed 0 --cerebrum api \
+   rpent --vla-endpoint http://localhost:8000 \
+     --suite libero_object_swap --task 2 --seed 0 --planner api \
      --model anthropic:claude-opus-4-8
 
 跑批量任务时推荐这样做: VLA 权重加载一次, 每次 run 起的 env 都是

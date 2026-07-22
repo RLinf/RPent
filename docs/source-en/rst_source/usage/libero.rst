@@ -72,9 +72,9 @@ Minimal command
    export LIBERO_TYPE=pro
    export CUDA_VISIBLE_DEVICES=0
 
-   python rpent/cli/main.py \
+   rpent \
      --suite libero_object_swap --task 2 --seed 0 \
-     --cerebrum api --model anthropic:claude-opus-4-8 \
+     --planner api --model anthropic:claude-opus-4-8 \
      --max-tokens 8192
 
 What runs where
@@ -119,8 +119,8 @@ Add ``--dashboard`` to open a local monitor for a LIBERO run:
 
 .. code-block:: bash
 
-   python rpent/cli/main.py --dashboard \
-     --suite libero_goal_task --task 1 --seed 0 --cerebrum claude_code
+   rpent --dashboard \
+     --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
 The dashboard streams reasoning, agentview + wrist camera + Pi0.5
 overlays, and an action timeline. Use

@@ -1,0 +1,64 @@
+{
+  "suite": "libero_object_task",
+  "task_id": 2,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "task (P1 Task perturbation)",
+  "perturbed_task_language": "Pick the tomato sauce and place it in the basket",
+  "perturbation_semantics": "task-pert variant: target object is tomato sauce can; place in basket",
+  "expected_baseline_behavior": "Pi0 fullshot may pick the wrong red object (ketchup) or fail to deliver to basket",
+  "strategy_notes": "Localized via two-camera back-projection. Agentview clustering (world_00.npy) found 7 raised clusters; the MILK carton has a red-topped label that initially confused the search. Found tomato_sauce by filtering red pixels (R>50, G<50, B<30) at z>0.04 and clustering \u2014 pinned at world (-0.18, -0.08), top_z=0.083, pixel (108,107). Wrist refinement (world_wrist_03.npy after move_to (-0.20,-0.08,0.25)) confirmed can at world (-0.198,-0.077,top_z=0.078). Distinguished from KETCHUP (back-left, world (-0.10,-0.24), taller bottle z=0.149) and ALPHABET SOUP (back-right blue can, world (-0.13,+0.06)). First pi0_pick (prompt 'pick up the tomato sauce') gripper-closed fully (qpos=0.0008) \u2014 grabbed air. Rung-2 prompt ('Pick the tomato sauce and place it in the basket') successfully picked AND carried near basket. Attempt 1 released at eef (0.046,0.248,0.185); can fell BESIDE basket at world (0.17,0.26) \u2014 x-shift +10cm. Reset. Attempt 2: prompt 'pick up the tomato sauce can', then carry over basket with x-offset compensation. Released at (0.045,0.251,0.185); can balanced on basket rim at world (0.09,0.25,top_z=0.16). Re-grasped can on rim with pi0_pick, then moved to basket interior center (0.04,0.27) and released at eef z=0.173. Predicate fired: libero_terminated=True.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the tomato sauce can",
+    "success": true,
+    "chunks_used": 12,
+    "max_chunks": 15,
+    "peak_lift_m": 0.0057,
+    "min_gripper_opening": 0.063,
+    "final_gripper_opening": 0.0715,
+    "libero_terminated": true,
+    "diagnostics": {
+      "start_eef_z": 0.2161,
+      "peak_eef_z": 0.2161,
+      "min_eef_z": 0.1661,
+      "post_min_peak_z": 0.1717,
+      "descent_m": 0.05,
+      "post_min_ascent_m": 0.0057,
+      "descent_done": false,
+      "lift_thresh": 0.04,
+      "gripper_closed_thresh": 0.06,
+      "track_obj": null,
+      "track_obj_init_z": null,
+      "track_obj_final_z": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [
+      0.008716962325414211,
+      0.2553540184961914,
+      0.17494586635230758
+    ],
+    "robot0_eef_quat": [
+      0.9987539949296074,
+      0.019129416979974778,
+      0.025788516916619597,
+      0.038203081202908044
+    ],
+    "robot0_gripper_qpos": [
+      0.03876648590935194,
+      -0.03892203807007751
+    ],
+    "obj_of_interest": null,
+    "object_names": [
+      "alphabet_soup_1",
+      "basket_1",
+      "cream_cheese_1",
+      "ketchup_1",
+      "milk_1",
+      "salad_dressing_1",
+      "tomato_sauce_1"
+    ]
+  },
+  "libero_terminated": true
+}
