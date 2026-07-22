@@ -1,0 +1,41 @@
+{
+  "suite": "libero_object_swap",
+  "task_id": 6,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "swap (P2 Position perturbation)",
+  "perturbed_task_language": "Pick the butter and place it in the basket",
+  "perturbation_semantics": "Object initial positions swapped; in this scene butter is in the middle of the front row, chocolate_pudding is at the front-left, basket on the right.",
+  "expected_baseline_behavior": "Pi0 fullshot may pick the wrong small box (chocolate_pudding at front-left) since both are similarly sized brown boxes; hybrid wins by visually disambiguating the FARM FRESH BUTTER label from the wrist cam before grasping.",
+  "strategy_notes": "1) Read agentview image_cam_00, found two small flat boxes on the table (front-left at world (0.14,-0.20) and middle at world (0.04,-0.10)). 2) Moved wrist over the front-left candidate — wrist image revealed it was 'CHOCOLATE PUDDING', not butter. 3) Moved wrist over the middle candidate (0.04,-0.10) — wrist image confirmed 'FARM FRESH BUTTER' label. 4) Refined butter center to world (0.06,-0.10) from wrist depth (sampled raised pixels at z=0.017 on its top surface, spanning x=[0.03,0.085], y=[-0.09,-0.111]). 5) Centered wrist directly over butter at (0.06,-0.10,0.10). 6) pi0_pick 'pick up the butter' — Pi0 grasped (gripper opening 0.04 = holding object) AND carried it directly over the basket (final eef at (-0.007, 0.263, 0.175)). 7) release fired On(butter, basket) predicate -> libero_terminated=True. Total: 6 commands, no resets needed.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the butter",
+    "success": false,
+    "chunks_used": 20,
+    "max_chunks": 20,
+    "peak_lift_m": 0.2679,
+    "min_gripper_opening": 0.0393,
+    "final_gripper_opening": 0.0399,
+    "libero_terminated": false,
+    "diagnostics": {
+      "start_eef_z": 0.0996,
+      "peak_eef_z": 0.2775,
+      "min_eef_z": 0.0097,
+      "post_min_peak_z": 0.2775,
+      "descent_m": 0.0899,
+      "post_min_ascent_m": 0.2679,
+      "descent_done": false,
+      "lift_thresh": 0.05,
+      "gripper_closed_thresh": 0.06
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [-0.007334492615755368, 0.26258783219445814, 0.17790342120797886],
+    "robot0_eef_quat": [0.9973128071342882, 0.07313798144084516, -0.0026140838150049786, -0.0033417005389411616],
+    "robot0_gripper_qpos": [0.03390621339049561, -0.03389044996284572],
+    "obj_of_interest": null,
+    "object_names": ["basket_1", "bbq_sauce_1", "butter_1", "chocolate_pudding_1", "ketchup_1", "orange_juice_1", "tomato_sauce_1"]
+  },
+  "libero_terminated": true
+}

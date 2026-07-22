@@ -1,0 +1,68 @@
+{
+  "suite": "libero_10_task",
+  "task_id": 4,
+  "seed": 0,
+  "regime": "strict_perception",
+  "libero_terminated": true,
+  "attempt": 12,
+  "n_commands_in_recipe": 26,
+  "task_language": "put the yellow and white mug on the left plate and put the white mug on the right plate",
+  "strategy_notes": [
+    "BREAKTHROUGH: this cell failed 11 prior attempts because every vertical move_to placement walled at OSC z~0.52 and slid the held mug forward by 4-5cm during the stall+release, leaving the body off-plate or tipped. The WINNING lever was move_pose with target_pitch=0.5 for BOTH releases: tilting the gripper forward clears the OSC vertical-reach singularity at the lateral plate distance (y=+/-0.30), letting the eef descend cleanly to z~0.54 over the plate center without the wall-induced slide. After tilted release, retreat with another move_pose(target_pitch=0.0) to un-tilt.",
+    "Localization (SAM3 agentview hi-res): yellow_white_mug at (-0.052, +0.087, 0.514) score 0.83; porcelain (gray) at (-0.063, -0.171, 0.518) score 0.88; LEFT plate at (-0.036, -0.303, 0.448) score 0.76; RIGHT plate at (+0.003, +0.283, 0.447) score 0.69. Matches prior attempts -- this seed's coords are stable.",
+    "Mapping (per memory + prior s10/s20 attempts): white_yellow_mug -> LEFT plate (world -y); porcelain_mug -> RIGHT plate (world +y). Red coffee mug is a decoy -- never touched.",
+    "YELLOW pick: pi0_pick 'grasp the yellow mug' from home (no pre-pos), max_chunks=8. peak_lift only 0.009 (below threshold, success=false) but gripper qpos 0.005 (closed) and wrist cam confirmed yellow mug in jaws. set_gripper +1 firmed; lifted with move_to to z=0.72.",
+    "YELLOW carry: waypoints (-0.05, 0, 0.72) -> (-0.05, -0.18, 0.72) -> (-0.036, -0.273, 0.72). step_clip 0.02-0.015.",
+    "YELLOW WINNING PLACE: move_pose(xyz=[-0.036, -0.293, 0.48], target_pitch=0.5, gripper=1, step_clip=0.012, max_steps=120). Reached eef (-0.028, -0.289, 0.544) with pitch=0.499 -- 6cm short of target z=0.48 but the TILT meant the mug bottom contacted plate at z=0.43 with no slide. Released. Post-release agentview world-map index: yellow body at (-0.011, -0.279, z_top=0.564), 2.5cm from plate center -- well inside the predicate footprint.",
+    "Retreat: move_pose to (-0.05, -0.20, 0.70) with pitch=0.0 to un-tilt before next pick.",
+    "PORCELAIN pick: pre-pos at (-0.063, -0.171, 0.65), pi0_pick 'grasp the gray mug' max_chunks=8 -> success, chunks_used=5, peak_lift 0.068, gripper opening 0.009. set_gripper +1 firmed.",
+    "PORCELAIN carry: waypoints (-0.06, -0.10, 0.72) -> (-0.05, 0.10, 0.72) -> (0.003, 0.20, 0.72). Wrist + agentview confirmed mug held throughout (avoided the placed yellow on its plate by routing via x=-0.05 in carry).",
+    "PORCELAIN WINNING PLACE: move_pose(xyz=[0.003, 0.293, 0.48], target_pitch=0.5, gripper=1, step_clip=0.012, max_steps=120). Reached eef (0.008, 0.294, 0.535) with pitch=0.498. Released; retreated via move_pose(0.0, 0.20, 0.70, pitch=0.0, gripper=-1).",
+    "TERMINATION fired on the porcelain release/retreat step -- libero_terminated=true confirmed at step 26.",
+    "KEY LESSON for future attempts on plate-placement at lateral edge: when target y exceeds ~0.27 in absolute value, NEVER use vertical move_to to descend -- it walls and slides. ALWAYS use move_pose with target_pitch ~0.5 in the same direction. The tilt is the difference between a 4-5cm slide (predicate fail) and a clean stop on the plate (predicate fire)."
+  ],
+  "pick_result": {
+    "white_yellow_mug": {
+      "prompt": "grasp the yellow mug",
+      "chunks_used": 8,
+      "peak_lift_m": 0.009,
+      "min_gripper_opening": 0.0068,
+      "success_flag": false,
+      "actually_held": true,
+      "placed_on": "plate_1 (LEFT, world -y) -- upright, body at (-0.011,-0.279,z_top=0.564), 2.5cm from plate center"
+    },
+    "porcelain_mug": {
+      "prompt": "grasp the gray mug",
+      "chunks_used": 5,
+      "peak_lift_m": 0.0684,
+      "min_gripper_opening": 0.009,
+      "success_flag": true,
+      "placed_on": "plate_2 (RIGHT, world +y) via tilted move_pose -- triggered libero_terminated"
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [
+      -0.043658909137191934,
+      0.180070296588658,
+      0.5114086659607664
+    ],
+    "robot0_eef_quat": [
+      0.9443335804987802,
+      0.21789529197980276,
+      0.2299829357633579,
+      0.0886768274864217
+    ],
+    "robot0_gripper_qpos": [
+      0.03974501864389583,
+      -0.04004986023148907
+    ],
+    "obj_of_interest": null,
+    "object_names": [
+      "plate_1",
+      "plate_2",
+      "porcelain_mug_1",
+      "red_coffee_mug_1",
+      "white_yellow_mug_1"
+    ]
+  }
+}

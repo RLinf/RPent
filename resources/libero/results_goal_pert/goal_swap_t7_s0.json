@@ -1,0 +1,61 @@
+{
+  "suite": "libero_goal_swap",
+  "task_id": 7,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "swap (P2 Position perturbation)",
+  "perturbed_task_language": "Turn on the stove",
+  "perturbation_semantics": "P2 swap relocated fixtures (stove/cabinet/rack) on the kitchen table; loose objects akita_black_bowl_1, cream_cheese_1, plate_1, wine_bottle_1 are not the target.",
+  "expected_baseline_behavior": "Pi0 fullshot may approach the stove but the swapped fixture location can fool memorized actions. Hybrid succeeds because Pi0's closed-loop policy adapts visually to the relocated stove.",
+  "strategy_notes": "Inspected state_00 (eef z=1.173 -> KITCHEN frame) and task_language='Turn on the stove'. Identified the stove visually in image_cam_00.png (dark grey fixture with a circular burner ring in the lower-right portion of the agentview frame, distinct from the plate disc and from the wooden cabinet on the upper-left). No back-projection was needed because the target is a fixture knob and Pi0 sees it directly; localization was therefore by RGB classification (Rule 2d: cooking-region stove vs ceramic plate distinguished by burner-ring texture vs plate rim). Issued a single Pi0 closed-loop call as pi0_pick with prompt 'turn on the stove' and lift_thresh=0.5 to let the full chunk budget run (no lift expected for a knob turn). Pi0 drove the eef from z=1.173 down to z=0.927 to engage the knob; libero_terminated fired at chunk 15/25.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "turn on the stove",
+    "success": true,
+    "chunks_used": 15,
+    "max_chunks": 25,
+    "peak_lift_m": 0.0002,
+    "min_gripper_opening": 0.0264,
+    "final_gripper_opening": 0.0265,
+    "libero_terminated": true,
+    "diagnostics": {
+      "start_eef_z": 1.1733,
+      "peak_eef_z": 1.1733,
+      "min_eef_z": 0.9272,
+      "post_min_peak_z": 0.9274,
+      "descent_m": 0.2461,
+      "post_min_ascent_m": 0.0002,
+      "descent_done": true,
+      "lift_thresh": 0.5,
+      "gripper_closed_thresh": 0.06,
+      "track_obj": null,
+      "track_obj_init_z": null,
+      "track_obj_final_z": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [
+      -0.055715356271706463,
+      0.11792204398271648,
+      0.9273659013809666
+    ],
+    "robot0_eef_quat": [
+      0.9552516365941571,
+      0.2951759889948822,
+      -0.01911650852508538,
+      -7.353153427757005e-05
+    ],
+    "robot0_gripper_qpos": [
+      0.013900517009812869,
+      -0.012633232350326205
+    ],
+    "obj_of_interest": null,
+    "object_names": [
+      "akita_black_bowl_1",
+      "cream_cheese_1",
+      "plate_1",
+      "wine_bottle_1"
+    ]
+  },
+  "libero_terminated": true
+}

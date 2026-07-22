@@ -1,0 +1,40 @@
+{
+  "suite": "libero_goal_swap",
+  "task_id": 4,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "swap (P2 Position perturbation)",
+  "perturbed_task_language": "Put the bowl on the top of the drawer",
+  "perturbation_semantics": "P2 swap relocates the wooden_cabinet (drawer fixture) to the wine_rack_region location at FAR LEFT BACK of table at world (-0.27, -0.27, z=1.13). Meanwhile a wine_rack-style slatted structure occupies the cabinet's original center-back position at world (0.04, -0.24, z=1.18-1.21), and a white_stove sits at RIGHT at world (-0.23, +0.20, z=0.93). 5 prior agent sessions (27+ attempts) failed because they mistakenly identified the visible center-back wooden slatted top as the drawer/cabinet — but that is the swapped-in WINE_RACK, not the wooden_cabinet. The TRUE wooden_cabinet (with dark wood, drawer handle visible from wrist cam) is at the FAR LEFT BACK location matching the goal_swap_t2 audit's documented swap-position (world ~(-0.264, -0.276, ~1.12)).",
+  "expected_baseline_behavior": "Pi0 fullshot picks bowl and approaches the base-scene cabinet location (center-back), missing the swap-relocated cabinet at far-left-back, so predicate never fires.",
+  "strategy_notes": "BREAKTHROUGH (after 5 prior failed agent sessions): cross-referenced the SOLVED goal_swap_t2 audit which documented 'P2 swap moves the wooden_cabinet fixture to the wine_rack_region location' with cabinet top at world (-0.264, -0.276, z~1.12). Cluster-scanned my own world_00.npy and confirmed a separate flat surface at world (-0.282, -0.257, z=1.12) (1411 px, FAR LEFT BACK; previously dismissed by prior agents as wine_rack). Wrist-cam verification at eef (-0.27, -0.225, 1.22) revealed a DARK WOODEN BOX with a visible side handle — definitively the wooden_cabinet, NOT a wine_rack. Recipe: (1) pre-position over bowl at world (-0.04, 0.14) at z=1.05; (2) pi0_pick 'pick up the akita black bowl' (peak_lift=0.054m, gripper_opening=0.012m = rim hold confirmed); (3) set_gripper +1 to firm grip; (4) lift to z=1.30 then traverse in 2 waypoints to (-0.27, -0.15, 1.30) to stay within OSC xy step cap; (5) descend to eef (-0.27, -0.225, 1.22) — with bowl-eef y-offset 0.045m this puts bowl center at world (-0.27, -0.27) on the FAR-LEFT cabinet top; (6) release. libero_terminated fired during release. Total successful sequence: 8 commands after the reset.",
+  "localization": {
+    "bowl_initial_xy": [-0.04, 0.14],
+    "bowl_initial_z": 0.91,
+    "swap_relocated_cabinet_xy": [-0.27, -0.27],
+    "swap_relocated_cabinet_top_z": 1.13,
+    "wine_rack_at_center_back": [0.04, -0.24, 1.186],
+    "white_stove_at_right": [-0.23, 0.20, 0.93],
+    "release_eef": [-0.27, -0.225, 1.22],
+    "bowl_world_at_release": [-0.27, -0.27, 1.18]
+  },
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the akita black bowl",
+    "success": true,
+    "chunks_used": 7,
+    "max_chunks": 25,
+    "peak_lift_m": 0.0536,
+    "min_gripper_opening": 0.0115,
+    "final_gripper_opening": 0.0115,
+    "libero_terminated": false
+  },
+  "final_state": {
+    "robot0_eef_pos": [-0.27026412513980147, -0.22019632092430305, 1.2235002422046282],
+    "robot0_eef_quat": [0.9956907810088859, -0.006649096323193826, -0.07509528295321055, 0.054003301845130275],
+    "robot0_gripper_qpos": [0.013332856610422654, -0.01356909126000679],
+    "obj_of_interest": null,
+    "object_names": ["akita_black_bowl_1", "cream_cheese_1", "plate_1", "wine_bottle_1"]
+  },
+  "libero_terminated": true
+}

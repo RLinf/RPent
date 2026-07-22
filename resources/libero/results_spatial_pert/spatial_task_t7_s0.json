@@ -1,0 +1,42 @@
+{
+  "suite": "libero_spatial_task",
+  "task_id": 7,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "task (P1 perturbation, inverted instruction + goal predicate)",
+  "perturbed_task_language": "Pick the akita black bowl on the top of the cabinet and place it on the plate",
+  "perturbation_semantics": "Task language identifies the target by the relation 'on top of the cabinet'; perception must localize the elevated bowl rather than rely on object name suffix.",
+  "expected_baseline_behavior": "Pi0 fullshot picks the base-task target by visual habit; agentic hybrid follows the perturbed language and uses depth-based localization to grasp the bowl elevated on the cabinet.",
+  "strategy_notes": "KITCHEN frame (eef home z=1.173). Localization: (1) agentview world_00.npy back-projection histogram revealed an elevated cluster with median world xy=(+0.010, -0.272), z up to 1.18 over a cabinet top at z=1.13 — this is the bowl-on-cabinet (the target by the 'on the top of the cabinet' relation). The only other on-table object cluster of bowl size was the ramekin near (-0.20, +0.20), so no ambiguity at this resolution. (2) Wrist refinement at eef=(0.011,-0.259,1.252) and (0.039,-0.270,1.247) confirmed the bowl center is ~world (+0.05,-0.27,+1.17). (3) Plate location from world_21.npy after reset: plate rim bbox in x[-0.02,+0.11], y[+0.12,+0.26] → plate center ≈(+0.045, +0.19, +0.913); applied the BOWL→PLATE eef_y offset (+0.045): release eef target (0.045, 0.235, 1.03). Approach: pre-pos ~11 cm above bowl rim at eef z=1.28 (lift_thresh=0.05 succeeded; the higher 1.25/1.22 + lift_thresh=0.08 attempts mid-run failed to clear the heuristic). Two earlier pi0_pick attempts at z=1.25/1.22 missed (empty close); the 1.28+ lift_thresh=0.05 attempt grasped (gripper_qpos ±0.003-0.006). First place attempt at the agentview-misread plate center (+0.001,+0.221) put the bowl at the plate's left edge and did not fire the predicate; after reset and the corrected center (+0.045,+0.19), the descent+release fired the On(bowl, plate) predicate immediately.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the bowl on top of the cabinet",
+    "success": true,
+    "chunks_used": 9,
+    "max_chunks": 25,
+    "peak_lift_m": 0.0631,
+    "min_gripper_opening": 0.0061,
+    "final_gripper_opening": 0.0061,
+    "libero_terminated": false,
+    "diagnostics": {
+      "start_eef_z": 1.281,
+      "peak_eef_z": 1.281,
+      "min_eef_z": 1.149,
+      "post_min_peak_z": 1.207,
+      "descent_m": 0.132,
+      "post_min_ascent_m": 0.063,
+      "descent_done": true,
+      "lift_thresh": 0.05,
+      "gripper_closed_thresh": 0.06,
+      "track_obj": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [0.04597615967792776, 0.23512671343797933, 1.0379638122398243],
+    "robot0_eef_quat": [0.9935249367304021, 0.05394330886384552, -0.08875137090979579, 0.046059892371792865],
+    "robot0_gripper_qpos": [0.0103807921247806, -0.010566221923729495],
+    "obj_of_interest": null,
+    "object_names": ["akita_black_bowl_1", "akita_black_bowl_2", "cookies_1", "glazed_rim_porcelain_ramekin_1", "plate_1"]
+  },
+  "libero_terminated": true
+}

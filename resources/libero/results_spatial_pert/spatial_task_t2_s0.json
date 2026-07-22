@@ -1,0 +1,60 @@
+{
+  "suite": "libero_spatial_task",
+  "task_id": 2,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "task (P1 Task perturbation)",
+  "perturbed_task_language": "Pick the akita black bowl next to the plate and place it on the plate",
+  "strategy_notes": "Localized the target bowl by perception. From agentview world_00.npy, identified 3 elevated dark patches: C1@(x=-0.20,y=0.20), C2@(x=-0.11,y=0.01), C4@(x=-0.03,y=0.34). Found plate at (x=0.05,y=0.23) via flat z=0.92 patch with reddish rim. The bowl C4 at (x=-0.03,y=0.34) was nearest to plate (dist=0.14m); the other two bowls were ~0.25m+ away. C1 had lighter avg RGB (149,149,149) \u2014 likely the ramekin; C2 and C4 had darker greys (akita bowls). Pre-positioned eef to (0.02,0.34,1.05); wrist-cam refinement showed bowl center at world (0.008,0.356,0.94). Moved to (0.008,0.36,1.02) above bowl. pi0_pick (no track_obj) succeeded: chunks=7, peak_lift=0.0675, gripper=0.004 (held). Carried to (0.05,0.275,1.10) and descended to z=0.99 (eef_y=plate_y+0.045 bowl-rim offset). First release placed bowl partially off plate (bowl at x=0.03,y=0.27 vs plate center x=0.08,y=0.19). Re-grasped via pi0_pick (failed to close) then scripted descend to z=0.95 + set_gripper +1 to firm into the plate; predicate fired on the close \u2192 libero_terminated=true.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the akita black bowl",
+    "success": true,
+    "chunks_used": 7,
+    "max_chunks": 20,
+    "peak_lift_m": 0.0675,
+    "min_gripper_opening": 0.0043,
+    "final_gripper_opening": 0.0043,
+    "libero_terminated": false,
+    "diagnostics": {
+      "start_eef_z": 1.0293,
+      "peak_eef_z": 1.0293,
+      "min_eef_z": 0.9128,
+      "post_min_peak_z": 0.9803,
+      "descent_m": 0.1165,
+      "post_min_ascent_m": 0.0675,
+      "descent_done": true,
+      "lift_thresh": 0.05,
+      "gripper_closed_thresh": 0.06,
+      "track_obj": null,
+      "track_obj_init_z": null,
+      "track_obj_final_z": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [
+      0.03292622608353475,
+      0.2699400048320885,
+      0.9461615577792879
+    ],
+    "robot0_eef_quat": [
+      0.9716921235860824,
+      -0.1902415924341193,
+      0.13403000113171154,
+      -0.040724835979194844
+    ],
+    "robot0_gripper_qpos": [
+      0.007204125474913347,
+      -0.00769507776120155
+    ],
+    "obj_of_interest": null,
+    "object_names": [
+      "akita_black_bowl_1",
+      "akita_black_bowl_2",
+      "cookies_1",
+      "glazed_rim_porcelain_ramekin_1",
+      "plate_1"
+    ]
+  },
+  "libero_terminated": true
+}
