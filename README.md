@@ -4,9 +4,8 @@
 
 <div align="center">
 <a href="https://arxiv.org/abs/2607.08448"><img src="https://img.shields.io/badge/arXiv-Paper-red?logo=arxiv"></a>
-<a href="https://github.com/RLinf/RPent"><img src="https://img.shields.io/badge/GitHub-RPent-181717?logo=github"></a>
-<a href="https://github.com/RLinf/RPent"><img src="https://img.shields.io/badge/Code-RPent-blue?logo=github"></a>
 <a href="https://huggingface.co/RLinf"><img src="https://img.shields.io/badge/HuggingFace-yellow?logo=huggingface&logoColor=white" alt="Hugging Face"></a>
+<a href="https://github.com/RLinf/misc/blob/main/pic/rpent_wechat.png?raw=true"><img src="https://img.shields.io/badge/微信-green?logo=wechat&amp"></a>
 </div>
 
 <div align="center">
@@ -49,17 +48,17 @@ RPent is built upon three core design principles: **service-oriented, standardiz
         <ul style="margin-left: 0; padding-left: 16px;">
           <li>Claude Code ✅</li>
           <li>Codex ✅</li>
-          <li>Custom planner ✅</li>
+          <li>Custom Planner ✅</li>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><b>VLA manipulation</b></li>
+          <li><b>VLA</b></li>
           <ul>
             <li>Pi0.5 ✅</li>
             <li>RLDX-1</li>
           </ul>
-          <li><b>WAM manipulation</b></li>
+          <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
           </ul>
