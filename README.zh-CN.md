@@ -35,7 +35,7 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
 
 ## 功能矩阵
 
-<table style="width: 100%; table-layout: auto; border-collapse: collapse;">
+<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
   <thead align="center" valign="bottom">
     <tr>
       <th width="26%">智能体规划器</th>
@@ -94,7 +94,7 @@ pip install -e ".[full]"
 `.[full]` 是默认的端到端组合（openpi Pi0.5 VLA + LIBERO-PRO 仿真器，运行在 RLinf 运行时之上）。
 如果不需要整套，可选择更小的 extra：
 
-<table style="width: 100%; table-layout: auto; border-collapse: collapse;">
+<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
   <thead align="center" valign="bottom">
     <tr>
       <th style="min-width: 120px; text-align: left;">Extra</th>
@@ -175,7 +175,7 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 
 ## 主要命令行参数
 
-<table style="width: 100%; table-layout: auto; border-collapse: collapse;">
+<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
   <thead align="center" valign="bottom">
     <tr>
       <th style="min-width: 160px; text-align: left;">参数</th>

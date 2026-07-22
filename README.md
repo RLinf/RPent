@@ -35,7 +35,7 @@ RPent is built upon three core design principles: **service-oriented, standardiz
 
 ## Feature Matrix
 
-<table style="width: 100%; table-layout: auto; border-collapse: collapse;">
+<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
   <thead align="center" valign="bottom">
     <tr>
       <th width="26%">Agentic Planner</th>
@@ -94,7 +94,7 @@ pip install -e ".[full]"
 `.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator on the RLinf runtime). 
 Pick a narrower extra if you don't need the whole stack:
 
-<table style="width: 100%; table-layout: auto; border-collapse: collapse;">
+<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
   <thead align="center" valign="bottom">
     <tr>
       <th style="min-width: 120px; text-align: left;">Extra</th>
@@ -164,7 +164,7 @@ rpent --env libero --dashboard --dashboard-language zh-cn \
 
 ## Key CLI Options
 
-<table style="width: 100%; table-layout: auto; border-collapse: collapse;">
+<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
   <thead align="center" valign="bottom">
     <tr>
       <th style="min-width: 160px; text-align: left;">Flag</th>
