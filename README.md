@@ -122,7 +122,7 @@ export CUDA_VISIBLE_DEVICES=0
 #   • OpenAI-compatible chat endpoints:  --model openai-chat:glm-5.2
 #   • OpenAI responses endpoints:        --model openai:gpt-5.5
 #   • claude_code / codex planners:     no provider prefix, e.g. --model claude-opus-4-8
-rpent --suite libero_object_swap --task 2 --seed 0 \
+rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
   --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
@@ -131,7 +131,7 @@ rpent --suite libero_object_swap --task 2 --seed 0 \
 Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
-rpent --dashboard --dashboard-language zh-cn \
+rpent --env libero --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 ```
 
@@ -139,6 +139,7 @@ rpent --dashboard --dashboard-language zh-cn \
 
 | Flag | Default | Description |
 | --- | --- | --- |
+| `--env` | — (required) | Environment backend. Currently `libero`. |
 | `--suite` | — (required) | Task suite, e.g. `libero_object_task`, `libero_spatial_swap` |
 | `--task` | — (required) | Task id within the suite |
 | `--seed` | `0` | Random seed |
@@ -151,8 +152,8 @@ rpent --dashboard --dashboard-language zh-cn \
 | `--cuda-device` | inherited | GPU device(s) exposed to the env / vla servers |
 | `--dashboard` | off | Start the local dashboard for this run |
 | `--dashboard-language` | `en` | Dashboard UI language: `en` \| `zh-cn` |
-| `--vla-endpoint` | — | Reuse an already-running vla_server instead of spawning one |
-| `--no-driver` | off | Attach to an existing env_server / vla_server |
+| `--env-endpoint` | — (spawn) | `[protocol://]host:port` of an existing env_server (`protocol=http\|socket`, default `http`). If unset, one is spawned locally. |
+| `--vla-endpoint` | — (spawn) | `[protocol://]host:port` of an existing vla_server (same rules). If unset, one is spawned locally. |
 
 ## Documentation
 
