@@ -29,6 +29,8 @@ from rpent.utils.logging import get_logger, init_output_dir
 
 logger = get_logger("claude")
 
+_MAX_STREAM_BUFFER_BYTES = 8 * 1024 * 1024
+
 # ---------------------------------------------------------------------------
 # Public backend
 # ---------------------------------------------------------------------------
@@ -184,6 +186,7 @@ class ClaudeCodePlanner:
             model=self._model,
             max_turns=max_turns,
             max_budget_usd=self._max_budget_usd,
+            max_buffer_size=_MAX_STREAM_BUFFER_BYTES,
             tools=builtins or None,
             allowed_tools=list(dict.fromkeys(allowed)),
             mcp_servers={
