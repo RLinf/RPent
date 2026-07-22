@@ -1,4 +1,4 @@
-Add an action primitive
+Add an Action Primitive
 =======================
 
 An *action primitive* in RPent is anything that turns a tool call

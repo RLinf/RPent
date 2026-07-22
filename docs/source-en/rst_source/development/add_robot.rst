@@ -1,4 +1,4 @@
-Add a new robot
+Add a New Robot
 ===============
 
 This guide walks through what you need to write to plug a new physical /

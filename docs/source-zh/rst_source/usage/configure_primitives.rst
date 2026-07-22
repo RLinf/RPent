@@ -1,4 +1,4 @@
-Action primitives
+Action Primitives
 =================
 
 Planner 决定 *做什么*, 而 **action primitive** 决定 *怎么做*。所谓 primitive

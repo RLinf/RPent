@@ -1,4 +1,4 @@
-Agentic planner
+Agentic Planner
 ===============
 
 RPent's reasoning brain — the *planner* — is chosen with a single CLI
