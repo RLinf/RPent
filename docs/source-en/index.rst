@@ -85,6 +85,7 @@ Welcome to RPent
    Agentic planner <rst_source/usage/configure_planner>
    Action primitives <rst_source/usage/configure_primitives>
    LIBERO <rst_source/usage/libero>
+   Advanced Deployment <rst_source/usage/advanced_deployment>
    RoboCasa <rst_source/usage/robocasa>
    Franka <rst_source/usage/franka>
    SO-101 <rst_source/usage/so101>

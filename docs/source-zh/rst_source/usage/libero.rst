@@ -10,35 +10,41 @@ LIBERO
 VLA 配置
 --------
 
-Pi0.5 只需要一件事: 磁盘上的 checkpoint。通过 ``PI05_CHECKPOINT_PATH``
-指向它:
+Pi0.5 只需要一件事: 磁盘上的 checkpoint。下载推荐的 SFT checkpoint，
+再通过 ``PI05_CHECKPOINT_PATH`` 指向它:
 
 .. code-block:: bash
 
+   hf download RLinf/rlinf-pi05-libero-130-fullshot-sft \
+     --repo-type dataset \
+     --local-dir /path/to/rlinf-pi05-libero-130-fullshot-sft
+
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 
-推荐的 SFT checkpoint 可以从 HuggingFace 下载:
+checkpoint 页面:
 `rlinf-pi05-libero-130-fullshot-sft
 <https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_。
 
 SAM3 配置
 ---------
 
-每次 LIBERO 运行都默认启用 SAM 3.0 分割。RPent 会在同一个
-``--cuda-device`` 上自动启动 ``robots/libero/sam3_server.py``, 并随运行
-结束关闭。checkpoint 按以下顺序解析:
-
-1. ``SAM3_CHECKPOINT_PATH``;
-2. 受限的 ``facebook/sam3/sam3.pt`` Hugging Face 缓存/自动下载。
-
-传入 ``--sam3-endpoint https://host:port`` 可复用已有 RPent SAM3 服务,
-并跳过本机 Torch、模型和 checkpoint 加载。手动部署命令为:
+每次 LIBERO 运行都默认启用 SAM 3.0 分割。可以用以下任一方式下载
+``sam3.pt``，再通过 ``SAM3_CHECKPOINT_PATH`` 指定本地 checkpoint:
 
 .. code-block:: bash
 
-   python -m robots.libero.sam3_server \
-     --host 0.0.0.0 --port 8114 --cuda-device 0 \
-     --checkpoint /path/to/sam3.pt
+   # Hugging Face（需要先在模型页面申请访问权限）
+   hf auth login
+   hf download facebook/sam3 sam3.pt --local-dir /path/to/sam3
+
+   # ModelScope（与上面的 Hugging Face 命令二选一）
+   modelscope download --model facebook/sam3 sam3.pt --local_dir /path/to/sam3
+
+   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+
+SAM 3.0 checkpoint 可以从以下页面下载:
+`Hugging Face: facebook/sam3 <https://huggingface.co/facebook/sam3>`_、
+`ModelScope: facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_。
 
 任务选择
 --------

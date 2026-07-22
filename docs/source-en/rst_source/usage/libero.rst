@@ -11,36 +11,41 @@ The default VLA is **Pi0.5**, served over HTTP by
 VLA configuration
 -----------------
 
-Pi0.5 needs one thing: a checkpoint on disk. Point at it via
-``PI05_CHECKPOINT_PATH``:
+Pi0.5 needs one thing: a checkpoint on disk. Download the recommended SFT
+checkpoint, then point at it via ``PI05_CHECKPOINT_PATH``:
 
 .. code-block:: bash
 
+   hf download RLinf/rlinf-pi05-libero-130-fullshot-sft \
+     --repo-type dataset \
+     --local-dir /path/to/rlinf-pi05-libero-130-fullshot-sft
+
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 
-Download the recommended SFT checkpoint from HuggingFace:
+Checkpoint page:
 `rlinf-pi05-libero-130-fullshot-sft
 <https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_.
 
 SAM3 configuration
 ------------------
 
-SAM 3.0 segmentation is enabled for every LIBERO run. RPent starts
-``robots/libero/sam3_server.py`` automatically on the same ``--cuda-device``
-and shuts it down with the run. Checkpoint resolution is:
-
-1. ``SAM3_CHECKPOINT_PATH``;
-2. the gated ``facebook/sam3/sam3.pt`` Hugging Face cache/download.
-
-Use ``--sam3-endpoint https://host:port`` to reuse an already-running RPent
-SAM3 service; this skips all local Torch, model, and checkpoint loading. A
-standalone service can be started with:
+SAM 3.0 segmentation is enabled for every LIBERO run. Download ``sam3.pt``
+from either source below, then point at it via ``SAM3_CHECKPOINT_PATH``:
 
 .. code-block:: bash
 
-   python -m robots.libero.sam3_server \
-     --host 0.0.0.0 --port 8114 --cuda-device 0 \
-     --checkpoint /path/to/sam3.pt
+   # Hugging Face (request access on the model page first)
+   hf auth login
+   hf download facebook/sam3 sam3.pt --local-dir /path/to/sam3
+
+   # ModelScope (use this instead of the Hugging Face commands above)
+   modelscope download --model facebook/sam3 sam3.pt --local_dir /path/to/sam3
+
+   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+
+Download the checkpoint from `Hugging Face: facebook/sam3
+<https://huggingface.co/facebook/sam3>`_ or `ModelScope: facebook/sam3
+<https://modelscope.cn/models/facebook/sam3>`_.
 
 Task selection
 --------------

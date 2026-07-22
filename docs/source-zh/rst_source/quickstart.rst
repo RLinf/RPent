@@ -21,6 +21,10 @@
    # VLA checkpoint —— 从下面地址下载
    # https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+   # SAM 3.0 checkpoint —— 从以下任一地址下载
+   # https://huggingface.co/facebook/sam3
+   # https://modelscope.cn/models/facebook/sam3
+   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
    export LIBERO_TYPE=pro
    export CUDA_VISIBLE_DEVICES=0
 

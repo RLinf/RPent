@@ -22,6 +22,10 @@ reasoning brain, plus the path to the VLA checkpoint:
    # VLA checkpoint — download from
    # https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+   # SAM 3.0 checkpoint — download from either
+   # https://huggingface.co/facebook/sam3
+   # https://modelscope.cn/models/facebook/sam3
+   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
    export LIBERO_TYPE=pro
    export CUDA_VISIBLE_DEVICES=0
 

@@ -21,9 +21,9 @@ You will also want:
 - A VLA checkpoint. For LIBERO / Pi0.5 the recommended checkpoint lives
   at `HuggingFace: rlinf-pi05-libero-130-fullshot-sft
   <https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_.
-- Access to the gated `facebook/sam3
-  <https://huggingface.co/facebook/sam3>`_ checkpoint and an authenticated
-  Hugging Face client, or a local SAM 3.0 ``sam3.pt`` file.
+- A local SAM 3.0 ``sam3.pt`` file, downloaded from `Hugging Face:
+  facebook/sam3 <https://huggingface.co/facebook/sam3>`_ or `ModelScope:
+  facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_.
 
 1. Install RPent with pip
 -------------------------
@@ -88,10 +88,8 @@ Verifying the install
 ---------------------
 
 The quickest way to confirm everything is wired correctly is to run one
-LIBERO task end-to-end — see :doc:`quickstart`. SAM3 starts automatically;
-set ``SAM3_CHECKPOINT_PATH=/path/to/sam3.pt`` to use a local checkpoint,
-or run ``hf auth login`` once to allow the official checkpoint to enter
-the Hugging Face cache.
+LIBERO task end-to-end — see :doc:`quickstart`. If it succeeds, the env server,
+VLA server, SAM3 server, and reasoning brain are all healthy.
 
 If something breaks:
 
