@@ -1,0 +1,62 @@
+{
+  "suite": "libero_spatial_task",
+  "task_id": 0,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "task (P1 instruction perturbation)",
+  "perturbed_task_language": "Pick the akita black bowl not between the plate and the ramekin and place it on the plate",
+  "perturbation_semantics": "The target predicate selects the akita_black_bowl that is NOT spatially between the plate and the ramekin (the negation of the base task's 'between' relation).",
+  "expected_baseline_behavior": "Pi0 fullshot likely picks the bowl matching the base task's 'between' relation (incorrect target) because it is prompt-blind and uses the visual prior from the original task.",
+  "strategy_notes": "PERCEPTION: agentview blob-analysis on world_00.npy (z>0.93) found 6 above-table blobs including 2 right-cluster dishes at world (-0.25, 0.22) [bowl A] and (-0.20, 0.33) [bowl B], plus 1 elevated cluster at world (-0.61, 0.0) on the stove (unreachable, beyond OSC x-reach ~ -0.51). PRE-POS at (-0.20, 0.30, 1.05) parked the wrist over the right cluster; wrist image (image_wrist_02.png) showed LEFT = larger dark-interior bowl (akita_black_bowl, sampled as world (-0.18, 0.36) z=0.95) and RIGHT = smaller white-interior dish (glazed_rim_porcelain_ramekin, world (-0.20, 0.20)). DISAMBIGUATION via task RELATION: the bowl at (-0.20, 0.33) is the NOT-between candidate (it is OFF the line plate->ramekin: proj_t=0.83 on line, distance from line ~16cm); the stove bowl at (-0.61, 0.0) is also not-between but unreachable. PLATE localized from agentview depth (z=0.91-0.92 mask, x_range 0.023-0.155, y_range 0.134-0.267, center (0.089, 0.200)). PLACEMENT: applied bowl-eef y-offset (memory: eef_y = plate_y + 0.045) -> target eef (0.089, 0.245, 1.05). First attempt overshot eef_y (0.287) and the bowl landed off plate edge (libero_terminated=false). After reset + retry with the corrected y offset, release fired the On(bowl,plate) predicate. Took 1 reset + 7-command attempt. No GT coordinates used; localization purely from world_NN.npy / world_wrist_NN.npy.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the akita black bowl",
+    "success": true,
+    "chunks_used": 7,
+    "max_chunks": 20,
+    "peak_lift_m": 0.0975,
+    "min_gripper_opening": 0.005,
+    "final_gripper_opening": 0.005,
+    "libero_terminated": false,
+    "diagnostics": {
+      "start_eef_z": 1.0503,
+      "peak_eef_z": 1.0503,
+      "min_eef_z": 0.9118,
+      "post_min_peak_z": 1.0093,
+      "descent_m": 0.1385,
+      "post_min_ascent_m": 0.0975,
+      "descent_done": true,
+      "lift_thresh": 0.05,
+      "gripper_closed_thresh": 0.06,
+      "track_obj": null,
+      "track_obj_init_z": null,
+      "track_obj_final_z": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [
+      0.08249068904050011,
+      0.24461722270175335,
+      1.047919439395926
+    ],
+    "robot0_eef_quat": [
+      0.9970664709055955,
+      -0.04704227018892754,
+      -0.05509095850865379,
+      0.024707563658319727
+    ],
+    "robot0_gripper_qpos": [
+      0.018162229802660575,
+      -0.01827879094508915
+    ],
+    "obj_of_interest": null,
+    "object_names": [
+      "akita_black_bowl_1",
+      "akita_black_bowl_2",
+      "cookies_1",
+      "glazed_rim_porcelain_ramekin_1",
+      "plate_1"
+    ]
+  },
+  "libero_terminated": true
+}

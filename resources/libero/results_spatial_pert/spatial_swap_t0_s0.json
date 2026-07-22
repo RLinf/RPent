@@ -1,0 +1,42 @@
+{
+  "suite": "libero_spatial_swap",
+  "task_id": 0,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "swap (P2 Position perturbation)",
+  "perturbed_task_language": "Pick the akita black bowl between the plate and the ramekin and place it on the plate",
+  "perturbation_semantics": "Loose-object swap: two identical akita_black_bowls are at different table positions vs the base task; one is between the plate and the ramekin, the other is offset to the side.",
+  "expected_baseline_behavior": "Pi0 fullshot is prompt-blind on libero_spatial and picks by visual habit; it likely grasps the wrong bowl or the rim of the ramekin and cannot reliably satisfy On(bowl, plate) for the bowl that is BETWEEN plate and ramekin.",
+  "strategy_notes": "KITCHEN frame (eef home z=1.173). Read task_language verbatim from state_00. Localized all five objects from image_cam_00 + world_00.npy: (1) plate at world (+0.072, +0.032, z=0.91) — sampled bright (white) pixel cluster rows 175-205 cols 115-165, median; (2) ramekin (silver glazed rim) at world (-0.191, +0.191, z=0.91) — pixel rows 118-138 cols 168-195; (3) the BETWEEN-bowl target (front-center black bowl) at world (-0.036, +0.237, z=0.93) — pixel rows 148-170 cols 188-215 dark-pixel median; the other akita_black_bowl was at world (-0.13, +0.30) clearly offset to the side. Pre-positioned eef to world (-0.04, +0.237, 1.05); wrist cam (image_wrist_01.png + world_wrist_01.npy) refined target to (-0.02, +0.244) — agentview was off ~2cm in x. Re-centered to (-0.02, +0.244, 1.05) and called pi0_pick with prompt 'pick up the akita black bowl between the plate and the ramekin'; pick succeeded (chunks=7, peak_lift_m=0.102, final_gripper_opening=0.005). Verified via wrist cam: bowl held in gripper, original spot empty. Firmed grip, lifted to z=1.10, carried to plate xy with bowl-eef y-offset applied (eef_y = plate_y + 0.045 = 0.077), descended to z=1.005, release fired On(bowl, plate) predicate -> libero_terminated=true on the release step.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the akita black bowl between the plate and the ramekin",
+    "success": true,
+    "chunks_used": 7,
+    "max_chunks": 25,
+    "peak_lift_m": 0.1021,
+    "min_gripper_opening": 0.0049,
+    "final_gripper_opening": 0.0049,
+    "libero_terminated": false,
+    "diagnostics": {
+      "start_eef_z": 1.0488,
+      "peak_eef_z": 1.0488,
+      "min_eef_z": 0.9161,
+      "post_min_peak_z": 1.0182,
+      "descent_m": 0.1327,
+      "post_min_ascent_m": 0.1021,
+      "descent_done": true,
+      "lift_thresh": 0.05,
+      "gripper_closed_thresh": 0.06,
+      "track_obj": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [0.06805228068867082, 0.07635239167756276, 1.0094735491153417],
+    "robot0_eef_quat": [0.9968718144439364, -0.07891298002514635, -0.0018597593354233411, 0.003983521810953865],
+    "robot0_gripper_qpos": [0.01051116751475632, -0.010530706913214071],
+    "obj_of_interest": null,
+    "object_names": ["akita_black_bowl_1", "akita_black_bowl_2", "cookies_1", "glazed_rim_porcelain_ramekin_1", "plate_1"]
+  },
+  "libero_terminated": true
+}

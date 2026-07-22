@@ -1,22 +1,25 @@
 ---
 name: bowl-eef-y-offset
-description: Pi0 rim-hooks a bowl with ~4.5cm offset in eef-frame -y; compensate eef y target = predicate_y + 0.045 for bowls
-metadata: 
+description: "A rim-hook bowl grasp can leave the bowl center behind the EEF; estimate the current held-object offset and compensate relative to the visually localized target."
+metadata:
   node_type: memory
   type: feedback
   originSessionId: cf2f87e2-37a3-4480-8b9a-4e5666fbf61f
 ---
 
-**Rule**: When placing a bowl into a target predicate site (On/In with ≤3cm xy tolerance), set `eef_y_target = predicate_y + 0.045` (m). The bowl hangs ~4.5cm in eef-frame -y direction after a Pi0 rim-hook grasp.
+**Rule**: For a rim-hook bowl grasp, place according to the observed bowl center rather than assuming that the bowl is centered under the EEF.
 
-**Why**: Pi0's grasp on a small round bowl is a rim-hook (one finger pressing on the rim, bowl body offset to the side of the gripper). The bowl center sits ~4.5cm in -y from the eef center. Without compensation, the bowl drops 4cm short of the predicate site even though the eef hits its target exactly.
+Use the relationship:
 
-Discovered 2026-05-21 by comparing libero_goal t3 task PASS (cream_cheese, centered box grasp) vs t3 base FAIL (bowl ended up at xy (0.035, -0.135) when eef targeted (0.027, -0.091); delta y = -0.044 → bowl is 4.4cm in -y of eef).
+`target_eef_xy = visually_localized_target_xy - held_object_offset_xy`
+
+**Why**: A small bowl is often held from its rim, leaving its center several centimeters to one side of the EEF. Sending the EEF directly to the target center can therefore leave the bowl short of the usable surface.
 
 **How to apply**:
-- For `On(bowl, cook_region)` on stove: eef y = cook_region_y + 0.042 → 0.252.
-- For `In(bowl, drawer_top_region)`: eef y = drawer_y + 0.045 → -0.046.
-- For boxes (cream_cheese), cylinders (alphabet_soup), plates: no offset needed — those grasp centered.
-- The offset can be empirically refined per object: subtract `(post_release_bowl_y - eef_target_y)` from your eef y target.
+1. Confirm from the wrist and agent views that the bowl is held by a rim-hook grasp.
+2. Estimate the current bowl-center-to-EEF offset using visible geometry and back-projected points from the current images.
+3. A positive y compensation of roughly 0.04-0.045 m is a useful starting reference only when the current grasp matches this pattern; refine it from what is visible.
+4. Visually localize the requested burner, container interior, or other support surface, then apply the measured held-object offset.
+5. Do not apply the bowl offset blindly to boxes, cylinders, plates, or centered grasps.
 
-**Related**: [[cook-region-offset]] [[pi0-false-positive-lift]]
+**Related**: [[feedback_cook_region_offset]] [[feedback_pi0_false_positive_lift]] [[feedback_staged_held_object_transport]]

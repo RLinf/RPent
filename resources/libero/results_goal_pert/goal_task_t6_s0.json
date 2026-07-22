@@ -1,0 +1,26 @@
+{
+  "suite": "libero_goal_task",
+  "task_id": 6,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "task (P1 instruction/goal perturbation)",
+  "perturbed_task_language": "put the wine bottle in the bowl",
+  "strategy_notes": "KITCHEN frame (eef home z=1.17). Object localization via depth back-projection: agentview world_00.npy clustering for z>1.00 found wine bottle cap at world(-0.182,-0.053,z=1.030); bowl rim at world(-0.133,-0.034,z=0.94). Wrist refinement after pre-pos at z=1.13 gave bottle top dark cap at world(-0.180,-0.052,z=1.054) (wrist comp3) and bowl center at world(-0.099,-0.014,z=0.935). Grasp: pi0_pick with full task language prompt 'put the wine bottle in the bowl' after pre-pos move_to (-0.18,-0.045,1.13); pi0 closed gripper to width 0.009 (holding ~1cm bottle neck). Carry: set_gripper +1 to firm grip, move_to (-0.16,-0.054,1.25) then (-0.105,-0.013,1.25) - high carry to clear bowl rim. Place: slow descent step_clip 0.012 to eef_z=1.05 (bottle base just above bowl interior), then release. First attempt with same xy but eef_z=1.07 release did NOT fire predicate (bottle tipped, COM ended ~3.7cm from bowl - just outside On predicate's 3cm xy tolerance); second attempt with lower descent (eef_z=1.05) succeeded - bottle settled with COM within 3cm of bowl center and contact maintained, satisfying On(bottle, bowl) check (bottle z<=bowl z, contact, xy_dist<0.03).",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "put the wine bottle in the bowl",
+    "success": true,
+    "chunks_used": null,
+    "max_chunks": 20,
+    "lift_thresh": 0.05,
+    "gripper_closed_thresh": 0.06
+  },
+  "final_state": {
+    "robot0_eef_pos": [-0.10478219376152227, -0.012898184448120614, 1.0546787234948158],
+    "robot0_eef_quat": [0.984147264563454, 0.10696938545732831, -0.12737825675203862, 0.061534477603726254],
+    "robot0_gripper_qpos": [0.009699817423288518, -0.00990710863980443],
+    "obj_of_interest": null,
+    "object_names": ["akita_black_bowl_1", "cream_cheese_1", "plate_1", "wine_bottle_1"]
+  },
+  "libero_terminated": true
+}

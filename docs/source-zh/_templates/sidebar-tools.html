@@ -1,0 +1,14 @@
+<div class="rpent-sidebar-tools">
+  <div class="rpent-sidebar-tools__version">
+    {% include "components/version-switcher.html" %}
+  </div>
+  {% include "language-switcher.html" %}
+  <div class="rpent-sidebar-tools__icons">
+    <button class="rpent-theme-toggle btn btn-sm pst-navbar-icon" type="button"
+            aria-label="{{ _('Color mode') }}">
+      <i class="fa-solid fa-sun fa-lg rpent-theme-icon-light"></i>
+      <i class="fa-solid fa-moon fa-lg rpent-theme-icon-dark"></i>
+    </button>
+    {% include "components/navbar-icon-links.html" %}
+  </div>
+</div>

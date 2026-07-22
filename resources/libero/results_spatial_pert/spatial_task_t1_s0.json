@@ -1,0 +1,30 @@
+{
+  "suite": "libero_spatial_task",
+  "task_id": 1,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "task (P1 language perturbation)",
+  "perturbed_task_language": "Pick the akita black bowl next to the cookie box and place it on the plate",
+  "perturbation_semantics": "Task language references the akita_black_bowl by its spatial relation to the cookies box; two akita bowls in scene (one next-to cookies in front-middle, one at back).",
+  "expected_baseline_behavior": "Pi0 fullshot is prompt-blind on libero_spatial; would pick its memorized base-task bowl regardless of language.",
+  "strategy_notes": "KITCHEN frame (eef home z=1.17, table z=0.90). Identified the target by perception: clustered z>0.92 in agentview world_00.npy and found 1392-px elevated cluster at world (+0.098, -0.033, z_top=0.953) adjacent to the red cookies box (world +0.06, +0.01) — this is the akita_black_bowl 'next to the cookie box'. Other bowl candidates were at world (-0.22, +0.20) and (-0.18, +0.34) (back-middle and back-right), each >0.30m from the cookies box. Refined target via wrist cam at step 02 (world (+0.107, -0.030)). pi0_pick with prompt 'pick up the akita black bowl next to the cookies box' succeeded (chunks=7, lift=0.056m, gripper_opening=0.009 — bowl in grip confirmed by wrist view). FIRST attempt FAILED: trusted wrist-view plate estimate (+0.07, +0.22), released bowl 7cm off plate in x (bowl landed at world ~(+0.085,+0.220) but plate center actually (+0.015,+0.194)). RESET and refined plate position from agentview pink-rim (RGB R>>G,B): plate center world (+0.015, +0.194). Measured bowl-eef offset directly from wrist view step 19: bowl at world (+0.030, +0.170) vs eef (+0.016, +0.229) → offset (+0.014, -0.059). Set release target eef = (+0.047, +0.269) for bowl to land at plate center. Release at z=1.01 fired the On(akita_black_bowl_X, plate_1) predicate immediately.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the akita black bowl next to the cookies box",
+    "success": true,
+    "chunks_used": 7,
+    "max_chunks": 22,
+    "peak_lift_m": 0.0559,
+    "min_gripper_opening": 0.0088,
+    "final_gripper_opening": 0.0088,
+    "libero_terminated": false
+  },
+  "final_state": {
+    "robot0_eef_pos": [0.04324618826288036, 0.2668389768116535, 1.0110363467916788],
+    "robot0_eef_quat": [0.9994242446652631, 0.009258385574106298, -0.007052812940838564, 0.03187035144848462],
+    "robot0_gripper_qpos": [0.013406998800675668, -0.01354477090265959],
+    "obj_of_interest": null,
+    "object_names": ["akita_black_bowl_1", "akita_black_bowl_2", "cookies_1", "glazed_rim_porcelain_ramekin_1", "plate_1"]
+  },
+  "libero_terminated": true
+}

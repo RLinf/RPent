@@ -8,7 +8,7 @@ version = "0.0.0"
 authors = [{ name = "RPent Contributors" }]
 description = "Embodied agent framework for coordinating high-level reasoning and robot skills"
 readme = {file = "README.md", content-type = "text/markdown"}
-requires-python = ">=3.10,<=3.11.14"
+requires-python = ">=3.10"
 license = {file = "LICENSE"}
 keywords = [
     "embodied-intelligence",
@@ -39,15 +39,40 @@ dependencies = [
     "imageio>=2.0",
 ]
 
+[project.scripts]
+rpent = "rpent.cli.main:main"
+
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"
 Repository = "https://github.com/RLinf/RPent"
-Documentation = "https://github.com/RLinf/RPent"
+Documentation = "https://rpent.readthedocs.io/en/latest/"
 "Bug Report" = "https://github.com/RLinf/RPent/issues"
 
 [project.optional-dependencies]
 rlinf = [
-    "rlinf @ git+https://github.com/jx-qiu/RLinf.git@feature/physicalagent",
+    "rlinf @ git+https://github.com/RLinf/RLinf.git@dev/physical-agent",
+]
+openpi = [
+    "openpi @ git+https://github.com/RLinf/openpi.git@feature/physical-agent",
+]
+libero = [
+    "libero @ git+https://github.com/RLinf/LIBERO.git",
+    "robosuite==1.4.1",
+    "bddl",
+    "easydict",
+    "matplotlib",
+    "gym"
+]
+libero-pro = [
+    "rpent[libero]",
+    "liberopro @ git+https://github.com/RLinf/LIBERO-PRO.git@feature/physical-agent",
+]
+libero-plus = [
+    "rpent[libero]",
+    "liberoplus @ git+https://github.com/RLinf/LIBERO-plus.git@feature/physical-agent",
+]
+full = [
+    "rpent[rlinf,openpi,libero-pro]",
 ]
 
 [tool.uv]
@@ -68,7 +93,7 @@ target-version = "py311"
 
 [tool.ruff.lint]
 isort = {known-first-party = ["rpent"]}
-select = ["C", "E", "F", "I", "W", "CPY001", "RUF013", "UP006", "PERF102", "PLC1802", "PLC0208", "D", "RUF002", "DOC102", "DOC202", "DOC403", "DOC502"]
+select = ["C", "E", "F", "I", "W", "CPY001", "RUF013", "UP006", "PERF102", "PLC1802", "PLC0208", "DOC102", "DOC202", "DOC403", "DOC502"]
 ignore = [
     "C901", # "complex-structure"
     "E501", # "line-too-long"
@@ -80,10 +105,6 @@ ignore = [
 ]
 fixable = ["ALL"]
 unfixable = []
-
-[tool.ruff.lint.per-file-ignores]
-# Only enable docstring check for the scheduler module for now.
-"!rpent/**.py" = ["D", "RUF002"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

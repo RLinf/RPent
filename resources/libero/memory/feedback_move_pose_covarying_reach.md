@@ -18,11 +18,12 @@ z=0.92 at y=+0.12, and pi0 (which co-varies orientation) reaches even farther-fo
 rank-deficient there → the position servo stalls.
 
 **How to apply:** use the new **`move_pose`** primitive (added 2026-05-27 to
-`examples/embodiment/primitives/primitives.py` + `interactive_driver.py`; physics-only OSC,
-Rule-compliant). It servos `action[:3]` (xyz) AND `action[3]`(pitch)/`action[5]`(yaw) SIMULTANEOUSLY
-each env.step toward `target_xyz`+`target_pitch`+`target_yaw`. JSON:
-`{"action":"move_pose","xyz":[x,y,z],"target_pitch":-0.7,"target_yaw":null,"gripper":-1,
-"step_clip":0.016,"pitch_step":0.05,"tol":0.012,"max_steps":180}`.
+`robots/libero/tools.py`; OSC control). It servos `action[:3]` (xyz) AND
+`action[3]`(pitch)/`action[5]`(yaw) SIMULTANEOUSLY
+each env.step toward the `xyz` target plus `target_pitch` and `target_yaw`.
+Call the current structured tool directly:
+`move_pose({"xyz":[x,y,z],"target_pitch":-0.7,"target_yaw":null,"gripper":-1,
+"step_clip":0.016,"pitch_step":0.05,"tol":0.012,"max_steps":180})`.
 
 Recipe that reached the goal-t0 wooden_cabinet **bottom handle** (z=0.946, which move_to walls ~8cm
 above): warm-up `move_to (0.04,0.12,0.92) → (0.045,-0.03,0.93)` (gets the arm into a low config),
@@ -35,7 +36,7 @@ with modest `max_steps`; targeting past the boundary makes it sustain-push → Q
 ([[feedback_osc_push_mujoco_nan]]). (3) For closing on an object, set `tol:0.0` so it servos-in-place
 while the gripper closes (avoids the early-exit-before-close bug) and counters set_gripper's pose drift.
 
-Open problem (goal_task_t0): reach is solved but the drawer PULL isn't — pi0 won't pull the bottom
-drawer (policy-locked to middle/top) and scripted contact at the handle crashes the sim. See
-[[goal-pert-physical-redo]]. Likely also unblocks the reach half of [[no-teleport-rule]] cabinet cells
-(goal_swap_t0, 10_swap_t3).
+For a low cabinet handle, reaching the bar does not by itself solve the pull:
+the finger pads still need the correct bar-straddling orientation and sustained
+contact can destabilize the simulation. See [[feedback_handle_bar_grasp_orientation]]
+and [[feedback_thin_handle_drawer_closure]].

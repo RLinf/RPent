@@ -10,7 +10,7 @@ from urllib.parse import urlsplit, urlunsplit
 import imageio.v2 as imageio
 import numpy as np
 
-from rpent.rpc_driver.vla_client import VLAClient
+from rpent.utils.vla_client import VLAClient
 from robots.libero.env_client import LiberoEnvClient
 from rpent.utils.logging import get_logger, get_output_dir
 
@@ -812,7 +812,7 @@ def _world_from_depth(depth_metric: np.ndarray, camera_meta: dict) -> np.ndarray
     return (camera_points @ extrinsic.T)[..., :3]
 
 
-def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
+def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
                log: dict | None = None) -> dict:
     """Dump state snapshot, images, and depth for step *step_idx*.
 
@@ -858,7 +858,7 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
     wrist_world_map = None
     agent_world_map_hi = None
     wrist_world_map_hi = None
-    state = driver.get_privileged_state()
+    state = primitives.get_privileged_state()
     # force perception: drop object world coords (the agent must
     # localize via depth_NN.npy + camera_meta.json). Keep the object NAMES
     # (what's in the scene / which is the target) + robot proprioception —
@@ -869,7 +869,7 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
     # Render live agentview and convert to the Pi0-frame artifact. Fall back
     # to the most recent valid cached frame if active rendering is unavailable.
     try:
-        img = driver.env.render_camera(
+        img = primitives.env.render_camera(
             camera_name="agentview",
             height=256,
             width=256,
@@ -883,7 +883,7 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
     except Exception:
         # cached_image() is already 180°-flipped (get_libero_image does
         # the flip), so just hand it through. No double-flip.
-        img = driver.env.cached_image()
+        img = primitives.env.cached_image()
         if img is None:
             img = np.zeros((128, 128, 3), dtype=np.uint8)
         if img.dtype != np.uint8:
@@ -891,16 +891,16 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
     imageio.imwrite(os.path.join(images_dir, f"image_{step_idx:02d}.png"), img)
 
     # --- camera calibration (static for agentview): fetch + dump once ---
-    agentview_meta = getattr(driver, "_agentview_camera_meta", None)
+    agentview_meta = getattr(primitives, "_agentview_camera_meta", None)
     if agentview_meta is None:
-        agentview_meta = driver.env.get_camera_meta(
+        agentview_meta = primitives.env.get_camera_meta(
             camera_name="agentview",
             height=256,
             width=256,
         )
         if agentview_meta is None:
             agentview_meta = {}
-        driver._agentview_camera_meta = agentview_meta
+        primitives._agentview_camera_meta = agentview_meta
         if agentview_meta:
             cam_meta_out = dict(agentview_meta)
             cam_meta_out["projection"] = (
@@ -923,7 +923,7 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
                 json.dump(cam_meta_out, f, indent=2)
 
     # Fetch one raw observation snapshot for all per-step camera artifacts.
-    raw = driver.env.raw_obs()
+    raw = primitives.env.raw_obs()
 
     # --- per-step RGB in the depth/K frame (vertical-flip of the raw buffer) ---
     # The agent picks object pixels HERE (same frame as depth_NN.npy + K), so
@@ -987,7 +987,7 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
         else:
             wdpt_arr = np.asarray(wdpt, dtype=np.float32)
             height, width = wdpt_arr.shape[:2]
-            wmeta = driver.env.get_camera_meta(
+            wmeta = primitives.env.get_camera_meta(
                 camera_name="robot0_eye_in_hand",
                 height=int(height),
                 width=int(width),
@@ -1022,13 +1022,13 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
         logger.warning("wrist depth/world dump failed: %s", e)
 
     try:
-        rgb_hi, depth_hi = driver.env.render_camera(
+        rgb_hi, depth_hi = primitives.env.render_camera(
             camera_name="agentview",
             height=1024,
             width=1024,
             depth=True,
         )
-        meta_hi = driver.env.get_camera_meta("agentview", 1024, 1024)
+        meta_hi = primitives.env.get_camera_meta("agentview", 1024, 1024)
         if meta_hi is None:
             raise RuntimeError("agentview camera metadata missing")
         imageio.imwrite(
@@ -1050,13 +1050,13 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
         logger.warning("agentview high-res dump failed: %s", e)
 
     try:
-        rgb_wrist_hi, depth_wrist_hi = driver.env.render_camera(
+        rgb_wrist_hi, depth_wrist_hi = primitives.env.render_camera(
             camera_name="robot0_eye_in_hand",
             height=1024,
             width=1024,
             depth=True,
         )
-        meta_wrist_hi = driver.env.get_camera_meta(
+        meta_wrist_hi = primitives.env.get_camera_meta(
             "robot0_eye_in_hand", 1024, 1024
         )
         if meta_wrist_hi is None:
@@ -1108,8 +1108,8 @@ def dump_state(driver: LiberoPrimitives, output_dir: str, step_idx: int,
 
     blob = {
         "step_idx": step_idx,
-        "libero_terminated": driver.env.episode_done,
-        "task_language": driver.env.get_task_language(),
+        "libero_terminated": primitives.env.episode_done,
+        "task_language": primitives.env.get_task_language(),
         "state": state,
         "world_map": agent_world_map,
         "wrist_world_map": wrist_world_map,
@@ -1137,8 +1137,8 @@ TOOLS_SPEC = [
             "Read step NN from `states.json` + the matching "
             "state images in {{output_dir}}. If step is "
             "null, returns the latest entry. Each entry contains the robot "
-            "state, libero_terminated flag, command log, and result. Embeds "
-            "available PNGs as multimodal image content blocks in this stable "
+            "state, libero_terminated flag, command log, and result. Returns "
+            "available PNG paths in this stable "
             "order: 1) `images/image_NN.png` (Pi0-frame agentview), "
             "2) `images_cam/image_cam_NN.png` (calibration-frame agentview), "
             "3) `images_wrist/image_wrist_NN.png` (calibration-frame wrist). "
@@ -1427,17 +1427,22 @@ TOOLS_SPEC = [
             "locations; use camera='wrist' for close-range details near the "
             "gripper, occlusions, and container/cabinet interiors. "
             "Sample several pixels on the object and median their xy for "
-            "robustness."
+            "robustness.\n\n"
+            "REGION MODE: pass row_range=[r0,r1] and col_range=[c0,c1] instead "
+            "of row/col to get the midpoint of world xy over that pixel window, "
+            "with an optional world-z band (z_min, z_max). Use it for the "
+            "center of a container cavity or flat region, where a single-pixel "
+            "or mask-median estimate is biased toward an edge/rim."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "row": {
-                    "type": "integer",
+                    "type": ["integer", "null"],
                     "description": "Pixel row (0=top) in the selected resolution image.",
                 },
                 "col": {
-                    "type": "integer",
+                    "type": ["integer", "null"],
                     "description": "Pixel column (0=left) in the selected resolution image.",
                 },
                 "step": {
@@ -1458,8 +1463,25 @@ TOOLS_SPEC = [
                         "embedded/standard 256 image."
                     ),
                 },
+                "row_range": {
+                    "type": ["array", "null"],
+                    "items": {"type": "integer"},
+                    "description": "Region mode: [r0, r1] pixel row window. Requires col_range.",
+                },
+                "col_range": {
+                    "type": ["array", "null"],
+                    "items": {"type": "integer"},
+                    "description": "Region mode: [c0, c1] pixel col window. Requires row_range.",
+                },
+                "z_min": {
+                    "type": ["number", "null"],
+                    "description": "Region mode: keep only pixels with world z >= z_min.",
+                },
+                "z_max": {
+                    "type": ["number", "null"],
+                    "description": "Region mode: keep only pixels with world z <= z_max.",
+                },
             },
-            "required": ["row", "col"],
         },
     },
 ]
@@ -1471,7 +1493,7 @@ TOOLS_SPEC = [
 
 
 def _load_states() -> list:
-    """Return the parsed driver state trace from the local output dir."""
+    """Return the parsed state trace from the local output dir."""
     path = get_output_dir() / "states.json"
     if not path.exists():
         return []
@@ -1494,8 +1516,8 @@ def _load_step(nn: int) -> dict:
     raise FileNotFoundError(f"step {nn} not present in states.json")
 
 
-def _load_image(nn: int, kind: str) -> bytes | None:
-    """Return PNG bytes for a dumped state image. None if not present."""
+def _load_image_path(nn: int, kind: str) -> str | None:
+    """Return the path to a dumped state image. None if not present."""
     out_dir = get_output_dir()
     if kind == "agent":
         path = out_dir / "images" / f"image_{nn:02d}.png"
@@ -1507,7 +1529,7 @@ def _load_image(nn: int, kind: str) -> bytes | None:
         raise ValueError(f"unknown image kind: {kind}")
     if not path.exists():
         return None
-    return path.read_bytes()
+    return str(path)
 
 
 def _load_camera_meta(camera: str = "agentview", nn: int | None = None) -> dict:
@@ -1543,12 +1565,12 @@ def _load_depth(camera: str, nn: int) -> np.ndarray:
 def view_driver_state(step: int | None = None) -> dict:
     latest = _latest_step()
     if latest is None:
-        return {"error": "no driver state entries; driver not ready"}
+        return {"error": "no state entries; env not ready"}
     nn = latest if step is None else int(step)
     try:
         data = _load_step(nn)
     except Exception as e:
-        return {"error": f"step {nn} not present in driver state trace: {e}"}
+        return {"error": f"step {nn} not present in state trace: {e}"}
 
     out: dict = {"step": nn}
     out["task_language"] = data.get("task_language")
@@ -1563,15 +1585,15 @@ def view_driver_state(step: int | None = None) -> dict:
         "result": data.get("result"),
         "elapsed_s": data.get("elapsed_s"),
     }
-    image = _load_image(nn, "agent")
-    image_cam = _load_image(nn, "camera")
-    image_wrist = _load_image(nn, "wrist")
-    if image:
-        out["_image_bytes"] = image
-    if image_cam:
-        out["_image_cam_bytes"] = image_cam
-    if image_wrist:
-        out["_image_wrist_bytes"] = image_wrist
+    image_path = _load_image_path(nn, "agent")
+    image_cam_path = _load_image_path(nn, "camera")
+    image_wrist_path = _load_image_path(nn, "wrist")
+    if image_path:
+        out["image_path"] = image_path
+    if image_cam_path:
+        out["image_cam_path"] = image_cam_path
+    if image_wrist_path:
+        out["image_wrist_path"] = image_wrist_path
     out_dir = get_output_dir()
     image_cam_hi_path = out_dir / "images_cam_hi" / f"image_cam_hi_{nn:02d}.png"
     image_wrist_hi_path = (
@@ -1885,7 +1907,7 @@ def segment(
     """
     nn = _latest_step() if step is None else int(step)
     if nn is None:
-        return {"error": "no driver state entries; cannot select segment image"}
+        return {"error": "no state entries; cannot select segment image"}
 
     camera = camera or "agentview"
     if point is None and not prompt:
@@ -2016,7 +2038,6 @@ def segment(
         result["error"] = segment_blob["error"]
     if overlay_path is not None and overlay_path.exists():
         result["overlay_path"] = str(overlay_path)
-        result["_image_bytes"] = overlay_path.read_bytes()
     return result
 
 
@@ -2043,17 +2064,30 @@ def view_camera_meta(camera: str = "agentview", step: int | None = None) -> dict
 
 
 def back_project(
-    row: int,
-    col: int,
+    row: int | None = None,
+    col: int | None = None,
     step: int | None = None,
     camera: str = "agentview",
     resolution: str = "high",
+    row_range: list | None = None,
+    col_range: list | None = None,
+    z_min: float | None = None,
+    z_max: float | None = None,
 ) -> dict:
     """Look up a pixel's world XYZ in the precomputed world map."""
     if camera not in ("agentview", "wrist"):
         return {"error": f"bad camera '{camera}' (use 'agentview' or 'wrist')"}
     if resolution not in ("high", "low"):
         return {"error": f"bad resolution '{resolution}' (use 'high' or 'low')"}
+
+    region_mode = row_range is not None or col_range is not None
+    if not region_mode and (row is None or col is None):
+        return {
+            "error": (
+                "provide either (row, col) for a single pixel, or "
+                "row_range=[r0,r1] and col_range=[c0,c1] for a region center"
+            )
+        }
 
     nn = _latest_step() if step is None else int(step)
     if nn is None:
@@ -2062,7 +2096,7 @@ def back_project(
     try:
         data = _load_step(nn)
     except Exception as e:
-        return {"error": f"step {nn} not present in driver state trace: {e}"}
+        return {"error": f"step {nn} not present in state trace: {e}"}
 
     if camera == "agentview":
         hi_artifact = data.get("world_map_hi")
@@ -2090,6 +2124,71 @@ def back_project(
         }
 
     height, width = world_map.shape[:2]
+
+    if region_mode:
+        if row_range is None or col_range is None:
+            return {
+                "error": "region mode needs BOTH row_range=[r0,r1] and col_range=[c0,c1]"
+            }
+        try:
+            r0, r1 = int(row_range[0]), int(row_range[1])
+            c0, c1 = int(col_range[0]), int(col_range[1])
+        except Exception:
+            return {"error": "row_range/col_range must each be [min, max] integers"}
+        r0, r1 = sorted((max(0, r0), min(height, r1)))
+        c0, c1 = sorted((max(0, c0), min(width, c1)))
+        if r1 <= r0 or c1 <= c0:
+            return {
+                "error": (
+                    f"empty region after clamping to image {height}x{width}: "
+                    f"rows [{r0},{r1}] cols [{c0},{c1}]"
+                )
+            }
+        window = world_map[r0:r1, c0:c1].reshape(-1, world_map.shape[2]).astype(
+            np.float64
+        )
+        finite = np.isfinite(window).all(axis=1) & (
+            np.abs(window[:, :3]).sum(axis=1) > 1e-6
+        )
+        pts = window[finite]
+        n_total = int(pts.shape[0])
+        if z_min is not None:
+            pts = pts[pts[:, 2] >= float(z_min)]
+        if z_max is not None:
+            pts = pts[pts[:, 2] <= float(z_max)]
+        if pts.shape[0] < 8:
+            return {
+                "error": (
+                    f"too few valid pixels in region after z-filter "
+                    f"({int(pts.shape[0])}); widen the window or the z band"
+                ),
+                "n_valid_before_zfilter": n_total,
+            }
+        xs, ys, zs = pts[:, 0], pts[:, 1], pts[:, 2]
+        center = [
+            round(float((xs.min() + xs.max()) / 2.0), 4),
+            round(float((ys.min() + ys.max()) / 2.0), 4),
+            round(float(np.median(zs)), 4),
+        ]
+        return {
+            "camera": camera,
+            "resolution": resolution,
+            "mode": "region",
+            "row_range": [r0, r1],
+            "col_range": [c0, c1],
+            "z_band": [z_min, z_max],
+            "center_xyz": center,
+            "median_xyz": [
+                round(float(np.median(xs)), 4),
+                round(float(np.median(ys)), 4),
+                round(float(np.median(zs)), 4),
+            ],
+            "n_valid": int(pts.shape[0]),
+            "step": nn,
+            "image_size": [height, width],
+            "source_artifact": source_artifact,
+        }
+
     if row < 0 or row >= height or col < 0 or col >= width:
         return {
             "error": (

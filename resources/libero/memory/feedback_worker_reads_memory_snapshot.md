@@ -1,27 +1,31 @@
 ---
 name: worker-reads-memory-snapshot
-description: "claude -p hybrid workers read a FROZEN copy of memory (resources/libero/memory), not the live ~/.claude memory dir; re-sync before any sweep or new feedback memories silently never reach the worker."
-metadata: 
+description: RPent workers read the reviewed in-repository memory snapshot at resources/libero/memory; update it deliberately before evaluation.
+metadata:
   node_type: memory
   type: feedback
   originSessionId: 82a57f3e-217b-4ac0-984d-bebcc7d3eb36
 ---
 
-`run_one_cell.sh` passes `--add-dir $MEMORY_DIR` where `MEMORY_DIR` defaults to
-`examples/embodiment/primitives/resources/libero/memory/` — a **frozen copy**,
-NOT the live `/root/.claude/projects/-mnt-public2-zhangyixian/memory/`.
+RPent points workers to `resources/libero/memory/MEMORY.md`, relative to the
+repository root. This reviewed snapshot is the canonical Global Memory for a
+run; external live notes are not loaded automatically.
 
-**Why:** keeps sweeps reproducible (workers see the same magic-number notes regardless
-of what I edit live mid-sweep).
+**Why:** A frozen, reviewed copy keeps evaluations reproducible and prevents a
+new unreviewed note from silently changing behavior during a running batch.
 
-**How to apply:** any feedback/magic-number memory written AFTER the last snapshot sync
-is invisible to workers. Before launching a sweep that depends on a new lesson, re-sync:
-`cp -f /root/.claude/projects/-mnt-public2-zhangyixian/memory/*.md examples/embodiment/primitives/resources/libero/memory/`
-(2026-05-23: snapshot was 2 files + MEMORY.md index behind live; re-synced. `cp` leaves
-extra stale files — e.g. an unrelated README.md — harmless.)
+**How to apply:**
 
-Related script-level lessons that bypass the worker entirely (set at orchestrator level,
-not via memory): [[max-episode-steps-libero]] (libero_10 needs --max_episode_steps 5000;
-run_one_cell.sh now auto-bumps when suite name contains libero_10), and CELL_TIMEOUT_S=600
-being too tight for long-horizon libero_10 cells (use 1200 + re-launch to backfill
-MISSING_AUDIT cells). See ONBOARDING_FRESH_AGENT.md §Defaults.
+1. Run RPent commands from the repository root so memory, runtime, guide,
+   script, and result paths remain portable.
+2. Resolve Global Memory from `resources/libero/memory/`, the LIBERO runtime
+   from `robots/libero/`, agent guides from `robots/libero/guides/`, and
+   installation helpers from `scripts/`.
+3. Edit and review the memory snapshot before launching an evaluation.
+4. Update `MEMORY.md` whenever a leaf file is added or renamed.
+5. Do not bulk-copy an external memory directory over this snapshot; merge
+   useful lessons one file at a time.
+6. Keep runner-only settings in the RPent launch configuration rather than in
+   task recipes.
+
+Related: [[feedback_max_episode_steps_libero]] [[feedback_long_horizon_cell_timeout_1200]]

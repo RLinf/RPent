@@ -1,7 +1,7 @@
 """Base class for agent tools.
 
 ``Toolkit`` is the agent-facing tool container. Subclasses can register tools
-during ``__init__`` via :meth:`Toolkit.add_tool`; the cerebrum calls the tools through :meth:`Toolkit.get_tools_spec` and
+during ``__init__`` via :meth:`Toolkit.add_tool`; the planner calls the tools through :meth:`Toolkit.get_tools_spec` and
 :meth:`Toolkit.execute_tool`.
 """
 from __future__ import annotations
@@ -89,9 +89,9 @@ class Toolkit:
     Subclasses extend ``__init__`` (calling ``super().__init__()`` first)
     and register additional tools with :meth:`add_tool`. Env-specific
     subclasses receive their env/model/etc. as constructor arguments and
-    build the underlying primitive driver in ``__init__``; the toolkit
+    build the underlying LiberoPrimitives in ``__init__``; the toolkit
     base class only contributes the common file/IO tools. Override
-    :meth:`close` to release env-side drivers at the end of the run.
+    :meth:`close` to release env-side primitives / servers at the end of the run.
     """
 
     def __init__(self, *, dashboard: Any = None) -> None:
@@ -130,7 +130,7 @@ class Toolkit:
             self.add_tool(name, spec, common.TOOL_HANDLERS[name])
 
     # ------------------------------------------------------------------
-    # Cerebrum-facing API
+    # Planner-facing API
     # ------------------------------------------------------------------
 
     def get_tools_spec(self) -> list[dict[str, Any]]:
@@ -156,11 +156,11 @@ class Toolkit:
         return ToolResult(name=name, result=result)
 
     # ------------------------------------------------------------------
-    # Driver lifecycle hooks (overridden by env toolkits)
+    # Server lifecycle hooks (overridden by env toolkits)
     # ------------------------------------------------------------------
 
     def close(self) -> None:
-        """Release the env driver at end of run. Default: no-op."""
+        """Release the env-side primitives / servers at end of run. Default: no-op."""
 
     def write_recipe(self, recipe_tag: str) -> str | None:
         """Write a replay recipe for this env, if supported."""

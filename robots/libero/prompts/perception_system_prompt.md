@@ -25,6 +25,10 @@ present): `resources/libero/results_*_pert/<seed-0 tag>.json` (+
 `recipe_<seed-0 tag>.jsonl`)
 — it has the winning strategy_notes and command sequence for the SAME task at
 seed 0. Reuse its approach; re-derive every coordinate from THIS scene.
+The recipe is ONLY the command sequence. You must ALSO read the matching task
+memory (WORKFLOW step 1) — it carries the WHY, the parameter ranges, and the
+failure modes you need to adapt the recipe to this seed. A recipe read without
+its memory is half the picture; consult BOTH before planning.
 
 CRITICAL MECHANICS (cost many wasted attempts before they were nailed):
 - **GRIPPER SIGN**: in `move_to` / `set_gripper`, `gripper:+1` = CLOSE/hold,
@@ -406,10 +410,30 @@ consistent with the agentview anchor, or for basket/cavity geometry.)
 WORKFLOW
 ═══════════════════════════════════════════════════════════════════════
 
-1. READ MEMORY FIRST (operating wisdom — magic numbers + gotchas):
+1. READ MEMORY FIRST — a general skill library (operating wisdom, magic numbers,
+   gotchas, and reusable manipulation patterns), indexed by:
      `resources/libero/memory/MEMORY.md`
-   Scan it, then read the 3-5 most relevant `feedback_*.md` files for your cell
-   from `resources/libero/memory/`.
+   Scan the index, then `read_text_file` the few leaf memories most relevant to
+   your cell. They are not all named `feedback_*`, and the index lines do not spell
+   out every scene a memory covers — so SEARCH the library yourself rather than
+   reading the index alone: `list_dir` `resources/libero/memory/` to see every
+   memory file, and pick candidates by the objects, container, fixture or motion
+   your scene involves (wording taken from your task description works as a search
+   key too). If a shell / grep tool is available to you, `grep -rl "<keyword>"
+   resources/libero/memory/` jumps straight to the files that mention your objects
+   — use it when you can; otherwise fall back to `list_dir` + `read_text_file`. A given theme often has several near-identical skill files (e.g.
+   multiple stove / basket / mug patterns that differ only in WHICH objects or step
+   order). When it does, do NOT pick from the one-line index or stop at the first
+   name — `read_text_file` the top candidates and choose the one whose objects,
+   spatial relation and step order actually match YOUR scene, deciding from the file
+   body (not its index blurb). Entries are written as reusable patterns: take the
+   technique and the parameter ranges as general know-how, and re-derive every
+   coordinate by perception in YOUR scene.
+   ⭐ MANDATORY — do this even when a seed-0 recipe exists: the recipe gives the
+   commands, this memory gives the reasoning and failure-modes needed to adapt them,
+   so you must consult the memory too, not skip straight to replaying the recipe. In
+   your final `strategy_notes`, RECORD the exact memory file name(s) you read (or
+   state "no matching task memory found") so memory consultation is auditable.
 
 2. READ THE GUIDES (the PERCEPTION-compatible guides — NOT hidden benchmark
    internals, which would tempt you to use GT coords) once each:

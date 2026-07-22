@@ -1,24 +1,23 @@
 ---
 name: cook-region-offset
-description: "stove cook_region is offset (+0.15 m, 0, 0) from stove fixture origin via burner sub-body — don't aim at the stove_region BDDL center"
-metadata: 
+description: "Visually localize the usable burner surface instead of aiming at the center of the whole stove platform or a remembered coordinate."
+metadata:
   node_type: memory
   type: feedback
   originSessionId: cf2f87e2-37a3-4480-8b9a-4e5666fbf61f
 ---
 
-When placing on `flat_stove_1_cook_region` (e.g. "put bowl on stove"):
+When placing an object on a stove, treat the visible burner as the target surface rather than the center of the entire stove fixture.
 
-**Rule**: target eef xy = `(stove_region_center_x + 0.15, stove_region_center_y)`, NOT the stove_region center itself.
+**Rule**: Localize the burner from the current image. Do not derive its position from a stored stove origin, a fixed offset, or an internal scene description.
 
-**Why**: `flat_stove.xml` structure is `base → burner (pos=0.15 0 0) → cook_region site (pos=0 0 0)`. The cook_region site is centered at the burner sub-body, which is offset +0.15 m in stove-local x from the fixture origin. For LIBERO scenes that place the stove with default yaw=0, this +0.15 carries through to world coords. With yaw=π it flips to -0.15.
+**Why**: The stove base and the usable burner can have different visual centers. A target on the outer platform may look close while leaving the object unsupported by the burner.
 
 **How to apply**:
-- libero_goal: stove_region in BDDL at world (-0.41, 0.21) → cook_region center at world **(-0.26, 0.21)** (verified by t1 release at this xy → predicate triggers).
-- libero_10 t2: stove_init_region at (-0.21, 0.20) → cook_region at (-0.06, 0.20) (matches the existing recipe target -0.067, 0.20).
-- Also add a +0.04 m y compensation for bowl-eef offset: eef y target = cook_region_y + 0.042, so bowl xy lands at cook_region center.
-- Cook_region site half-extent is 0.075 (15 cm box). Bowl center must land within ±0.07 m of cook_region center AND `check_contact(stove_body, bowl)` must register — bowl dropped from height (descent stall) lands on burner rim and may evaluate False even within xy bounds.
+1. Inspect the high-resolution view and identify the round burner or coil requested by the task.
+2. Select several interior burner pixels, back-project them, and use a robust center of the valid surface points. Avoid the stove housing and outer boundary.
+3. Estimate the held object's current offset from the EEF. For a matching bowl rim-hook grasp, a small positive y compensation can be used as an initial estimate, but verify it from the current images.
+4. Approach from above, descend until the object is visibly supported by the burner, release, and retreat with the gripper open.
+5. Reinspect the scene and distinguish stable burner support from contact with the surrounding stove platform or rim.
 
-**Related**: [[libero-10-t0-t5-pro]] [[liberopro-driver-patch]]
-
-A 2-hour t1 failure debug (releasing bowl at x=-0.40..-0.45 → predicate False even with bowl visually on stove) was solved by reading `flat_stove.xml` and seeing the burner offset.
+**Related**: [[feedback_bowl_eef_y_offset]] [[feedback_staged_held_object_transport]] [[feedback_read_image_before_decide]]

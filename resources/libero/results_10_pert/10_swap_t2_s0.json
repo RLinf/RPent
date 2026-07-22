@@ -1,0 +1,19 @@
+{
+  "suite": "libero_10_swap",
+  "task_id": 2,
+  "seed": 0,
+  "task_language": "turn on the stove and put the moka pot on it",
+  "regime": "strict_perception",
+  "libero_terminated": true,
+  "strategy_notes": "WINNING RECIPE (order reversed: moka FIRST, then stove). Critical insight: doing pi0_doubled stove-on first leaves the eef in a tilted orientation that sabotages every subsequent moka grasp (prior failed attempts 1-3 all hit this). With clean vertical home pose, manual pick+place worked. Sequence: (1) Localize moka via SAM3: silver moka pot at (-0.011,-0.235,1.002), stove burner at (-0.052,0.199,0.933). (2) From clean home pose with vertical quat (w~0.999), move above moka to (-0.011,-0.235,1.18). (3) Descend vertically to z=0.97 (OSC walls at z~1.038 due to gripper-down constraint — gripper jaws end up around moka body widest part at z~0.97). (4) set_gripper +1 steps=20 — qpos closed to 0.037 (gentle, not fully shut due to moka body width). (5) Lift to z=1.18 with gripper:+1 step_clip=0.012 — surprisingly the moka came along despite low qpos closure (the gripper hooked the moka via its tapered top/cap, not body-gripped). (6) Carry sideways to xy=(-0.05, 0.199) at z=1.18 (over stove burner). (7) Descend to z=1.04 with gripper:+1 step_clip=0.01. (8) release gripper -1. Moka settled on the burner at (-0.054, 0.184, 1.023) — confirmed by SAM3 re-segment after retreat. (9) Move arm out of the way to (-0.21, 0.0, 1.18). (10) pi0_doubled 'turn on the stove' max_chunks=40 — completed in 8 chunks; libero_terminated=true. The reverse order (place cold moka, then turn on knob) avoids the orientation-tilt cascade that breaks the grasp.",
+  "final_state": {
+    "robot0_eef_pos": [-0.21473612048391005, 0.1833660337344027, 0.9277207743405457],
+    "robot0_eef_quat": [0.9456000501558296, 0.32323485789656903, -0.03666532444820917, 0.003927565274232117],
+    "robot0_gripper_qpos": [0.0188880752949053, -0.01291797840586265],
+    "obj_of_interest": null,
+    "object_names": ["chefmate_8_frypan_1", "moka_pot_1"]
+  },
+  "pick_result": {"method":"manual","grasp":"top-hook","qpos_at_close":0.037,"moka_landed_at":[-0.0535,0.184,1.023]},
+  "stove_on": true,
+  "moka_on_stove": true
+}

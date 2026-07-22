@@ -1,6 +1,6 @@
 ---
 name: pi0-pick-full-prompt
-description: "For elevated picks under LIBERO-Pro (stove z≈0.93, cabinet-top z≈1.13, drawer interior), use the FULL perturbed task language as pi0_pick.prompt + raise track_obj_lift_thresh to 0.08."
+description: "For elevated picks under LIBERO-Pro (stove z≈0.93, cabinet-top z≈1.13, drawer interior), use the full active task language as pi0_pick.prompt and verify the grasp visually."
 metadata: 
   node_type: memory
   type: feedback
@@ -8,21 +8,21 @@ metadata:
 ---
 
 For elevated/non-table-level pi0_pick under LIBERO-Pro, always set
-`prompt` to the full perturbed BDDL `:language` (or paraphrased lan
-text) and raise `track_obj_lift_thresh` from 0.05 → 0.08.
+`prompt` to the full active task instruction (or its current paraphrased
+language) rather than reducing it to a generic object-only prompt.
 
 **Why:** The generic prompt `"pick up the black bowl"` consistently
 fails on stove (z≈0.929) and cabinet-top (z≈1.126) picks — pi0 descends
 but the gripper never closes (`final_gripper_opening` stays at 0.05+,
 `peak_lift_m` is misleading because the eef itself moved). Switching
-to the full task language is what the t4 drawer recipe in [[liberopro-driver-patch]]
+to the full task language is what the t4 drawer recipe in [[feedback_liberopro_driver_patch]]
 already required; the t5–t9 PRO sweep on 2026-05-21 confirmed it on
 every elevated pick (t6_task stove, t6_lan cookies-side, t7_task cabinet,
 t7_swap stove, t9_task stove, t9_swap cabinet, t9_lan cabinet).
 
-**How to apply:** When writing a hybrid recipe and the bowl init_z is
-above ~0.92, set the pick step's `prompt` to the env's
-`task_descriptions[0]` verbatim and `track_obj_lift_thresh: 0.08`. The
-generic prompt still works for table-level picks at z≈0.90 (t6_swap
-bowl_1 next-to-cookies, t8_*). See `recipe_spatial_*_t{6,7,9}_s0.jsonl`
-in [[libero-spatial-t0-t9-pro]] for canonical examples.
+**How to apply:** When the current images show the target on an elevated
+surface or inside an articulated container, set the pick step's `prompt` to
+the active `task_language` verbatim. A generic prompt can still work for an
+isolated table-level object. Re-localize the object in the current scene,
+use only parameters exposed by the current `pi0_pick` schema, and verify the
+returned grasp with supported diagnostics plus the latest images.

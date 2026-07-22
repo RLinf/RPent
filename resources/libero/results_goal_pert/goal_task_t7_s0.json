@@ -1,0 +1,44 @@
+{
+  "suite": "libero_goal_task",
+  "task_id": 7,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "task (P1 Task perturbation)",
+  "perturbed_task_language": "Turn off the stove",
+  "perturbation_semantics": "Base goal predicate inverted from TurnOn -> TurnOff. The stove starts in the ON state (knob qpos>=0.5) and must be driven to OFF (knob qpos<0.0 STRICT, per feedback_stove_turnoff_strict).",
+  "expected_baseline_behavior": "Pi0 fullshot is prompt-blind and tends to replay the base 'turn on the stove' habit -> would either no-op (already on) or re-grasp toward the on-band, missing the TurnOff predicate.",
+  "strategy_notes": "Task language (verbatim from state_00.task_language): 'Turn off the stove' -- a single-knob contact-skill task with no object-grasp target, so the LLM does NOT need to localize a graspable target object via back-projection. The action is a Pi0 closed-loop knob turn at the stove's existing pose. The driver build available here lacks `pi0_doubled`, so I drove the knob with `pi0_pick` using the lowercased task_language as the prompt and disabled both pick-success heuristics: `lift_thresh=99.0` (knob twist produces no eef lift) and `gripper_closed_thresh=0.001` (knob contact doesn't fully close the fingers). Frame check: state_00.robot0_eef_pos[2]=1.173 -> KITCHEN frame, eef home matches the standard stove panel altitude. Pi0 descended 0.243 m to z=0.930 (the burner panel) and twisted the knob in 11/25 chunks; `state.libero_terminated` (the only authoritative signal -- the FlatStove TurnOff predicate, qpos<0.0 strict) fired on the same primitive. Fingers ended at ~0.040/-0.025 gap (~0.065 m opening), consistent with a contact pinch, not an object grasp (peak_lift_m=0.0). No teleport primitives used. NO GT object coordinates were read at any point -- the only coord sources consulted were state_00 proprioception (for frame inference) and world_00.npy (for a quick scene sanity scan); the knob's xy was never written into a command.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "turn off the stove",
+    "success": true,
+    "chunks_used": 11,
+    "max_chunks": 25,
+    "peak_lift_m": 0.0,
+    "min_gripper_opening": 0.0654,
+    "final_gripper_opening": 0.0654,
+    "libero_terminated": true,
+    "diagnostics": {
+      "start_eef_z": 1.1733,
+      "peak_eef_z": 1.1733,
+      "min_eef_z": 0.93,
+      "post_min_peak_z": 0.93,
+      "descent_m": 0.2432,
+      "post_min_ascent_m": 0.0,
+      "descent_done": true,
+      "lift_thresh": 99.0,
+      "gripper_closed_thresh": 0.001,
+      "track_obj": null,
+      "track_obj_init_z": null,
+      "track_obj_final_z": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [-0.3911936791397262, 0.20753311051811274, 0.9300443876364725],
+    "robot0_eef_quat": [0.9952678925794607, -0.005835871773197221, -0.09347688985416054, -0.025881183594998913],
+    "robot0_gripper_qpos": [0.04007227240914355, -0.025342500866194585],
+    "obj_of_interest": null,
+    "object_names": ["akita_black_bowl_1", "cream_cheese_1", "plate_1", "wine_bottle_1"]
+  },
+  "libero_terminated": true
+}

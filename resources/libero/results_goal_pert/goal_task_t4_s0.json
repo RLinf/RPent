@@ -1,0 +1,61 @@
+{
+  "suite": "libero_goal_task",
+  "task_id": 4,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "task (P1 Task perturbation)",
+  "perturbed_task_language": "Put the plate on the top of the drawer",
+  "perturbation_semantics": "Task instruction inverted: instead of base 'put bowl on plate', target is now 'put plate on top of wooden drawer'",
+  "expected_baseline_behavior": "Pi0 fullshot expected to solve base task (place something else on plate), not place plate on drawer",
+  "strategy_notes": "KITCHEN frame (eef home z=1.173). Localized plate via agentview: world_00.npy pixels around (185,110) gave world ~(0.06,-0.07,0.91); refined via wrist after move_to(0.10,-0.01,1.15) \u2014 wrist depth at pixel (120,95) gave (0.10,-0.01,0.92). First pi0_pick from (0.10,-0.01,1.05) appeared to succeed but gripper ended fully closed (no object held) \u2014 plate had shifted slightly to (0.02,-0.04). Re-localized via wrist color-segment of red rim. Second pi0_pick from (0.02,-0.04,1.05) succeeded with gripper opening 0.006m (matches plate-rim thickness): Pi0 grasped the plate by its rim, holding it vertically. Drawer top localized in agentview world map via z-mask (1.10<z<1.16): 5294 pixels spanning x[-0.40,+0.16] y[-0.35,-0.16] z=1.128, centroid world ~(0.025,-0.232,1.128). Carried plate at z=1.25 over drawer-top centroid, released at eef (0,-0.23,1.25); the predicate fired during release (plate dropped onto drawer top).",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the plate",
+    "success": true,
+    "chunks_used": 20,
+    "max_chunks": 25,
+    "peak_lift_m": 0.0896,
+    "min_gripper_opening": 0.006,
+    "final_gripper_opening": 0.006,
+    "libero_terminated": false,
+    "diagnostics": {
+      "start_eef_z": 1.0527,
+      "peak_eef_z": 1.0527,
+      "min_eef_z": 0.923,
+      "post_min_peak_z": 1.0127,
+      "descent_m": 0.1297,
+      "post_min_ascent_m": 0.0896,
+      "descent_done": true,
+      "lift_thresh": 0.05,
+      "gripper_closed_thresh": 0.06,
+      "track_obj": null,
+      "track_obj_init_z": null,
+      "track_obj_final_z": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [
+      -0.0008451948635444483,
+      -0.22272249399329247,
+      1.2505627691671397
+    ],
+    "robot0_eef_quat": [
+      0.9698110813754743,
+      -0.01348715537754075,
+      0.08740234219603427,
+      0.2272562290891088
+    ],
+    "robot0_gripper_qpos": [
+      0.00855408448416367,
+      -0.009504313941508226
+    ],
+    "obj_of_interest": null,
+    "object_names": [
+      "akita_black_bowl_1",
+      "cream_cheese_1",
+      "plate_1",
+      "wine_bottle_1"
+    ]
+  },
+  "libero_terminated": true
+}

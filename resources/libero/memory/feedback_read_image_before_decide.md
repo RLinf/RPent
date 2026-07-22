@@ -1,15 +1,15 @@
 ---
 name: feedback-read-image-before-decide
-description: "In any LLM-in-the-loop driver that dumps both image_NN.png and state_NN.json, Read the PNG before every non-trivial decision — JSON alone turns the LLM into a control tuner instead of a spatial reasoner."
+description: "Inspect the latest view_driver_state images before every non-trivial decision; states.json alone turns the agent into a control tuner instead of a spatial reasoner."
 metadata: 
   node_type: memory
   type: feedback
   originSessionId: 9df802c0-b380-4d01-8d48-706e324854e2
 ---
 
-When operating a REPL driver that writes both numerical state (JSON) and a
-rendered image (PNG) after each step, **call `Read` on the latest image
-before deciding the next command, not just `json.load` on the state**.
+When operating RPent, call `view_driver_state` after each primitive and inspect
+the returned `image_cam_hi_path` or `image_wrist_hi_path` before deciding the
+next command; do not reason from `states.json` alone.
 Describe the scene in 1–2 sentences first; then choose the action.
 
 **Why:** On libero_10 t8 (2026-05-19), I spent 3 failed strict-hybrid
@@ -17,14 +17,14 @@ attempts placing two moka pots at the same cook_region center, then
 debugging release dynamics, OSC stall, drop height, wrist rotation — all
 controller-level tuning. The actual problem was that the 15×15 cm
 cook_region had plenty of room for two 6 cm pots placed at opposite
-corners. **I had `image_NN.png` saved at every step but never opened one
+corners. **I had a scene image saved at every step but never opened one
 during planning** — I only read JSON state. The user pointed out the layout
 fix in one sentence; I should have arrived there in attempt 2 by
 inspecting the scene image. Repeating controller param tweaks (step_clip,
 max_steps, drop height) without ever opening the image is the signature
 of this failure mode. See
-`/mnt/public2/zhangyixian/RLinf_agentic/examples/embodiment/primitives/STRICT_HYBRID_GUIDE.md`
-"Rule 0" section. Linked: [[project-libero-hybrid-llm-vla]].
+`robots/libero/guides/strict_hybrid_guide.md`
+"Rule 0" section. Linked: [[feedback_staged_held_object_transport]].
 
 **How to apply:**
 

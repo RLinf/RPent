@@ -12,11 +12,11 @@ behavior.
 
 The active prompt path is:
 
-1. `cli/main.py` selects the environment spec and renders prompts.
+1. `rpent/cli/main.py` selects the environment spec and renders prompts.
 2. `robots/libero/prompt_bundle.py` assembles the LIBERO prompt sections.
 3. `robots/libero/prompts/system.py` defines the active LIBERO system prompt fragments.
 4. `robots/libero/prompts/shared.py` defines shared guide-loading and runtime-adapter constants.
-5. The rendered prompt is passed to the selected cerebrum backend.
+5. The rendered prompt is passed to the selected planner backend.
 
 ## Files and Responsibilities
 
@@ -56,7 +56,7 @@ paths, should stay in `prompts/system.py` and the guide-level runtime contract.
 
 ## Optional SAM3 Segmentation
 
-The `segment` tool is an optional perception helper. `cli/main.py` does not
+The `segment` tool is an optional perception helper. `rpent/cli/main.py` does not
 automatically start SAM3; the runtime `segment` tool only calls the service
 configured by `SAM3_SERVER_URL`. When no segmentation service is configured,
 `segment` returns a structured fallback so the agent can continue with image
@@ -85,7 +85,7 @@ See `scripts/sam3/README.md` for the optional pre-run SAM3 service setup helper.
 
 Before changing LIBERO prompts:
 
-1. Confirm the active prompt path: `cli/main.py` -> `prompt_bundle.py` -> `prompts/system.py`.
+1. Confirm the active prompt path: `rpent/cli/main.py` -> `prompt_bundle.py` -> `prompts/system.py`.
 2. Check which shared constants are imported by `prompts/system.py`.
 3. Keep runtime-tool guidance before guide-source instructions.
 4. Keep guide source paths and guide-level runtime contracts accurate.

@@ -1,45 +1,36 @@
-# memory_snapshot — frozen copy of operating wisdom
+# RPent LIBERO global memory
 
-This directory is a **versioned snapshot** of the user's live Claude
-Code memory at
-`/root/.claude/projects/-mnt-public2-zhangyixian/memory/`. Each
-`feedback_*.md` and `project_*.md` is a single-paragraph note capturing
-a magic number, gotcha, or failure mode learned across many runs.
-`MEMORY.md` is the index (one line per entry).
+This directory is the versioned Global Memory used by the RPent LIBERO agent.
+It contains general operating lessons, reusable calibration, and reusable
+manipulation patterns derived from reference tasks.
 
-## Why a snapshot
+`MEMORY.md` is the single entry point. The agent scans that index first, then
+opens the most relevant leaf memories before acting. Manipulation files are
+indexed by reusable operation pattern; exact task phrases appear only as retrieval
+aliases inside the leaf memory. Geometry, failure modes, and control patterns
+remain available without using benchmark task identifiers as the primary
+organization.
 
-The hybrid agent (both `hybrid_agent/` API variant and `hybrid_agent_cc/`
-claude -p variant) tells the worker to read these notes BEFORE the
-first command — they contain "the +0.045 bowl-eef y-offset" type
-magic constants that recipe JSONLs embed without explanation.
+## Content rules
 
-The live copy lives outside the repo (`/root/.claude/...`) so a fresh
-clone on another machine wouldn't have access. This dir solves that —
-clone the repo and the wisdom comes with it.
+- Preserve verified action order, parameter ranges, prompts, and recovery
+  lessons unless a new experiment directly disproves them.
+- Describe geometry from the current scene or from reusable relative offsets;
+  do not expose benchmark-definition provenance in the runtime narrative.
+- Keep paths relative to the RPent repository root.
+- Use ordinary `recipe` naming. Do not encode evaluation-layout provenance or
+  agent implementation names in operational advice.
+- Every cross-reference must resolve to a real file in this directory.
 
 ## Updating
 
-The live copy on this machine accumulates new entries over time. To
-re-sync the snapshot from the live source:
+1. Edit the relevant leaf memory manually.
+2. Preserve the useful technique and change only the wording that has become
+   stale or environment-specific.
+3. Update `MEMORY.md` when a file is added, renamed, or removed.
+4. Run the memory checks for forbidden provenance terms, absolute paths, and
+   unresolved cross-references.
+5. Review the diff before committing the snapshot.
 
-```bash
-bash resources/libero/sync_memory.sh
-git add memory_snapshot/
-git commit -m "memory_snapshot: sync from live <date>"
-```
-
-Do this any time the live memory has gained an entry that's relevant
-to the experiments captured in this repo.
-
-## Where the prompts point
-
-- `hybrid_agent_cc/agent_task_prompt.md` — uses the absolute path
-  rooted at the repo (your clone's checkout).
-- `hybrid_agent/prompts.py` — same.
-
-If you fork the repo and put it at a different absolute path, both
-prompts use relative-to-repo-root form (`examples/.../memory_snapshot/`)
-so the absolute layout doesn't matter, as long as `Read` /
-`read_text_file` is called from the repo root (which the agent runners
-already do).
+The canonical runtime path is `resources/libero/memory/`, relative to the
+RPent repository root.

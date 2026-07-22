@@ -41,14 +41,14 @@ recover in place or write an honest failure audit and `finish`.
 
 | | oracle mode (not in this repo) | **perception (this guide)** |
 |---|---|---|
-| how launched | oracle-state run | `cli/main.py --libero-type pro` (or `LIBERO_TYPE=pro`); perception artifacts always dumped, coords withheld |
+| how launched | oracle-state run | `rpent/cli/main.py --libero-type pro` (or `LIBERO_TYPE=pro`); perception artifacts always dumped, coords withheld |
 | `states.json` objects | full `objects:{name:[x,y,z]}` | **`object_names:[…]` only — NO coords** |
 | how you learn the task | env prompt / scrape BDDL | **`states.json[0].task_language`** (authoritative `:language`, coord-free) — never read the BDDL |
 | extra obs artifacts | agentview RGB only | **+ `images_cam/`, `depths/`, `world/` (agentview); `images_wrist/`, `depths_wrist/`, `world_wrist/` (wrist); hi-res pairs; `camera_meta.json`** — all via `back_project` |
 | cameras | agentview only | **agentview (fixed, ~1m → ±8-13cm) + eye-in-hand wrist (moves with gripper, ±1-2cm when <20cm to target)** — see §3.6 |
 | how P2 swap is solved | read swapped coords from `states.json[0]` | **localize the swapped objects by `back_project`** |
 | how a swapped *fixture* site is found | read the swap BDDL `:init` block | **localize the fixture visually** (see §3.5) |
-| run budget | short | **larger** — perception localization + manipulation is slower (raise `--max-turns` / `--cerebrum-timeout-s`) |
+| run budget | short | **larger** — perception localization + manipulation is slower (raise `--max-turns` / `--planner-timeout-s`) |
 | audit `regime` | `strict` | `strict_perception` |
 | which image you pick pixels in | agentview RGB | `images_cam/image_cam_NN.png` (or hi-res) for **pixel-picking**; `images/image_NN.png` only for a sanity glance |
 
@@ -328,8 +328,8 @@ Launch a cell with the CLI; the runner owns `env_server.py`, exposes the
 structured tools, and runs single-attempt:
 
 ```bash
-python cli/main.py --suite <suite> --task <n> --seed <k> \
-    --libero-type pro --cerebrum claude_code --model claude-opus-4-7
+python rpent/cli/main.py --suite <suite> --task <n> --seed <k> \
+    --libero-type pro --planner claude_code --model claude-opus-4-7
 
 # e.g. --suite libero_spatial_task 0 (P1) · libero_spatial_swap 0 (P2) ·
 #      libero_goal_swap 2 (P2 fixture swap) · libero_10_task 5 (long horizon)
@@ -482,8 +482,8 @@ LIBERO_TYPE=pro python -c \
 # 2. Read the auto-memory: resources/libero/memory/MEMORY.md
 
 # 3. Launch a perception cell (runner owns env_server; single-attempt)
-python cli/main.py --suite libero_spatial_swap --task <N> --seed 0 \
-    --libero-type pro --cerebrum claude_code --model claude-opus-4-7
+python rpent/cli/main.py --suite libero_spatial_swap --task <N> --seed 0 \
+    --libero-type pro --planner claude_code --model claude-opus-4-7
 ```
 
 Then, inside the run:

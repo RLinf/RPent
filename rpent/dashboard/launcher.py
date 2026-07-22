@@ -9,33 +9,43 @@ FIELDS = (
     "task",
     "seed",
     "model",
-    "cerebrum",
-    "cuda_device",
-    "max_turns",
-    "max_tokens",
-    "max_episode_steps",
+    "planner",
+    "cuda-device",
+    "max-turns",
+    "max-tokens",
+    "max-episode-steps",
+    "planner-timeout-s",
+    "claude-code-max-budget-usd",
 )
 
 DEFAULTS = {
     "suite": "libero_object_task",
     "task": 6,
     "seed": 0,
-    "cerebrum": "claude_code",
-    "max_turns": 100,
-    "max_tokens": 8192,
-    "max_episode_steps": 600,
+    "planner": "claude_code",
+    "max-turns": 100,
+    "max-tokens": 8192,
+    "max-episode-steps": 600,
 }
 
-INT_FIELDS = {"task", "seed", "max_turns", "max_tokens", "max_episode_steps"}
+INT_FIELDS = {
+    "task",
+    "seed",
+    "max-turns",
+    "max-tokens",
+    "max-episode-steps",
+    "planner-timeout-s",
+}
+FLOAT_FIELDS = {"claude-code-max-budget-usd"}
 BOOL_FIELDS: set[str] = set()
-OPTIONAL_STR_FIELDS = {"model", "cuda_device"}
+OPTIONAL_STR_FIELDS = {"model", "cuda-device"}
 
 
 def defaults_from_args(args: Any) -> dict[str, Any]:
     """Build form defaults from parsed CLI args, falling back to UI defaults."""
     defaults: dict[str, Any] = {}
     for key in FIELDS:
-        value = getattr(args, key, None)
+        value = getattr(args, key.replace("-", "_"), None)
         defaults[key] = DEFAULTS.get(key) if value is None else value
     return defaults
 
@@ -49,10 +59,12 @@ def apply_to_args(args: Any, payload: dict[str, Any]) -> None:
         if key in OPTIONAL_STR_FIELDS and value in ("", None):
             value = None
         elif key in INT_FIELDS:
-            value = DEFAULTS[key] if value in ("", None) else int(value)
+            value = DEFAULTS.get(key) if value in ("", None) else int(value)
+        elif key in FLOAT_FIELDS:
+            value = DEFAULTS.get(key) if value in ("", None) else float(value)
         elif key in BOOL_FIELDS:
             value = _as_bool(value)
-        setattr(args, key, value)
+        setattr(args, key.replace("-", "_"), value)
 
 
 def _as_bool(value: Any) -> bool:

@@ -1,6 +1,6 @@
 ---
 name: render-skip-env-step
-description: "env.step renders agentview every step → EGL accumulation crashes ~20 cmds. Patch added LiberoEnv.set_image_render_enabled() to toggle robosuite observables; interactive_driver disables for OSC primitives, enables for pi0_pick. Stale image fallback uses LiberoEnv._cached_full_image."
+description: "Historical RLinF render-skip patch avoided EGL accumulation by disabling camera rendering during OSC primitives. Current RPent retains a cached-frame fallback in robots/libero/env_server.py; revalidate render toggling before porting the old optimization."
 metadata: 
   node_type: memory
   type: feedback
@@ -9,17 +9,25 @@ metadata:
 
 The driver crash at ~20 commands wasn't Pi0 chunks — it was robosuite's per-env.step camera render piling EGL contexts. With render-skip, a 300-step move_to + 20 OSC commands ran clean (~600 env.steps, ~30× the previous budget).
 
-**Changes (already merged)**:
-1. `rlinf/envs/venv/venv.py` worker: handle `env_call` cmd → dispatch to `env.env.env...method(*args, **kwargs)`.
-2. `rlinf/envs/libero/venv.py` worker: mirror env_call handler (libero-specific worker, used by ReconfigureSubprocEnv).
-3. `rlinf/envs/venv/venv.py` SubprocEnvWorker: new `env_call(method, args, kwargs, target='robosuite')`.
-4. `rlinf/envs/libero/libero_env.py` LiberoEnv: new `set_image_render_enabled(enabled)` → broadcasts `modify_observable('agentview_image'/'robot0_eye_in_hand_image', 'enabled', flag)` to all workers.
-5. `rlinf/envs/libero/libero_env.py` `_extract_image_and_state`: cache last good image; substitute when obs lacks image keys.
-6. `examples/embodiment/primitives/interactive_driver.py` `execute()`: pre-primitive toggle (OSC primitives → disable, pi0_pick → enable). No post-primitive refresh step (robosuite's first sample after re-enable returns degenerate (1,1,3) float64).
-7. `interactive_driver.py` `dump_state()`: fallback to LiberoEnv._cached_full_image when render_agentview returns bad shape/dtype.
+**Historical implementation (the old RLinF files are not included in this checkout):**
+1. Add an `env_call` dispatch path to both generic and LIBERO-specific environment workers.
+2. Add `set_image_render_enabled(enabled)` to broadcast observable toggles.
+3. Cache the last good image and substitute it when an observation lacks image keys.
+4. Disable rendering before OSC primitives and enable it before `pi0_pick`.
+5. Fall back to `LiberoEnv._cached_full_image` when a rendered frame has invalid shape or dtype.
 
-**Trade-off — stale image**: when in OSC-only sequence, image_NN.png stays at last pi0_pick frame (or initial reset). LLM-visual debugging sees pre-OSC scene, not post-OSC. For most cases (move-then-release-then-look) this is fine; for "tweak then look" debugging it's confusing. Document in audit notes when reviewing.
+Current RPent keeps the cached-frame fallback in `robots/libero/env_server.py`, but the old automatic pre-primitive render toggle is not exposed in `robots/libero/tools.py`.
+
+**Current image behavior:** after every primitive, `dump_state` attempts a fresh
+agentview and wrist render before appending `states.json`. It uses a cached frame
+only when active rendering fails or returns an invalid image. Therefore an
+unchanged frame after OSC motion is a render-fallback symptom to investigate,
+not the expected behavior of current RPent.
 
 **Validated 2026-05-21** on libero_10 t6 base layout: 20 OSC `move_to` commands + 1 × 300-step move_to back-to-back → no crash, all images valid. Previous max was ~20 commands before EGL_NOT_INITIALIZED killed the env worker.
 
-**How to apply**: nothing to do — driver auto-toggles. Recipe count limit was ~18 due to EGL; new effective limit unclear but at least 30-50× higher. Long multi-stage tasks (drawer push close, dual-moka placement, microwave + close) now fit in a single session.
+**How to apply:** treat this as a porting pattern, not as a claim that current RPent auto-toggles rendering. Monitor EGL behavior first; if the failure recurs, reintroduce the toggle through `robots/libero/env_server.py` and verify that Pi0 receives fresh frames after re-enable.
+
+## Related memory
+
+[[feedback_pi0_chunks_egl_crash]] [[feedback_read_image_before_decide]]
