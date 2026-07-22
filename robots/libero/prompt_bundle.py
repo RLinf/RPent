@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from robots.libero.prompts import system as system_parts
 from robots.libero.prompts import user as user_parts
-from rpent.context.prompt_utils import PromptNode
+from rpent.context.prompt_utils import Numbered, PromptNode
 
 
 def system_prompt() -> PromptNode:
@@ -23,7 +23,7 @@ def system_prompt() -> PromptNode:
         "First-step Algorithm — agentview = Identity, wrist = Geometry": (
             system_parts.PERCEPTION_ALGORITHM
         ),
-        "Workflow": system_parts.WORKFLOW,
+        "Workflow": Numbered(system_parts.WORKFLOW_STEPS),
         "Key Hyperparameters": system_parts.KEY_HYPERPARAMETERS,
         "Output Discipline": system_parts.OUTPUT_DISCIPLINE,
     }
