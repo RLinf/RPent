@@ -13,6 +13,7 @@ from typing import Any
 from robots.libero import tools as libero_tools
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
+from rpent.utils.sam3_client import Sam3Client
 
 
 class LiberoToolkit(Toolkit):
@@ -27,12 +28,14 @@ class LiberoToolkit(Toolkit):
         self,
         *,
         primitives_kwargs: dict[str, Any],
+        sam3_client: Sam3Client,
         video_path: str | None = None,
         dashboard: Any = None,
     ) -> None:
         super().__init__(dashboard=dashboard)
         self._next_step: int = 0
         self._video_path: str | None = video_path
+        self._sam3_client = sam3_client
         self.init_primitives_clean(primitives_kwargs=primitives_kwargs)
         self._register_libero_tools()
 
@@ -45,10 +48,14 @@ class LiberoToolkit(Toolkit):
         for name in (
             "view_driver_state",
             "view_camera_meta",
-            "segment",
             "back_project",
         ):
             self.add_tool(name, spec[name], getattr(libero_tools, name))
+        self.add_tool(
+            "segment",
+            spec["segment"],
+            partial(libero_tools.segment, sam3_client=self._sam3_client),
+        )
         # Primitive tools: each goes through _step, which looks up the
         # matching primitive method via getattr at call time.
         for name in (

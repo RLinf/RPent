@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from rpent.envs.prompt_bundle import PromptBundle
-from rpent.envs.env_spec import EnvSpec
 from robots.libero.prompt_bundle import (
     system_prompt,
     user_prompt,
 )
+from rpent.envs.env_spec import EnvSpec
+from rpent.envs.prompt_bundle import PromptBundle
 
 
 def get_env_spec() -> EnvSpec:
@@ -29,6 +29,7 @@ def get_env_spec() -> EnvSpec:
 def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
+    sam3_client: Any,
     video_path: str | None = None,
     dashboard: Any = None,
 ):
@@ -37,6 +38,7 @@ def get_toolkit(
 
     return LiberoToolkit(
         primitives_kwargs=primitives_kwargs,
+        sam3_client=sam3_client,
         video_path=video_path,
         dashboard=dashboard,
     )

@@ -31,21 +31,22 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
+from robots.libero.env_client import LiberoEnvClient  # noqa: E402
+from rpent.envs import get_env_spec, get_toolkit  # noqa: E402
+from rpent.planner.base import build_planner  # noqa: E402
 from rpent.utils.config import (
     get_libero_type,
     get_repo_root,
 )
-
-from rpent.planner.base import build_planner  # noqa: E402
-from rpent.envs import get_env_spec, get_toolkit  # noqa: E402
+from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
 from rpent.utils.rpc import (  # noqa: E402
     create_rpc_client,
     set_socket_endpoint,
 )
+from rpent.utils.sam3_client import Sam3Client  # noqa: E402
 from rpent.utils.vla_client import VLAClient  # noqa: E402
-from robots.libero.env_client import LiberoEnvClient  # noqa: E402
-from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
 
 logger = get_logger("agent")
 
@@ -227,11 +228,102 @@ def start_vla_server(
         except Exception:
             pass
         time.sleep(2.0)
-    proc.terminate()
+    stop_vla_server(proc)
     raise RuntimeError("vla_server not ready after 300s")
 
 
 def stop_vla_server(proc: subprocess.Popen | None, timeout: float = 10.0) -> None:
+    if proc is None or proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def start_sam3_server(
+    *,
+    host: str = "127.0.0.1",
+    port: int = 0,
+    cuda_device: str | None = None,
+    log_path: str | None = None,
+    ready_timeout_s: float = 300.0,
+) -> tuple[Sam3Client, subprocess.Popen]:
+    """Launch RPent's local SAM3 server and wait for model readiness."""
+    if port == 0:
+        import socket
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((host, 0))
+            port = int(sock.getsockname()[1])
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "robots.libero.sam3_server",
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+    if cuda_device is not None:
+        cmd.extend(["--cuda-device", str(cuda_device)])
+
+    logger.info("SAM3 server cmd: %s", shlex.join(cmd))
+    if log_path:
+        logger.info("SAM3 server log: %s", log_path)
+        log_file = open(log_path, "a")
+        proc = subprocess.Popen(
+            cmd,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            cwd=get_repo_root(),
+        )
+    else:
+        proc = subprocess.Popen(cmd, cwd=get_repo_root())
+
+    endpoint = f"http://{host}:{port}"
+    client = Sam3Client(endpoint)
+    started_at = time.monotonic()
+    last_error: Exception | None = None
+    while time.monotonic() - started_at < ready_timeout_s:
+        if proc.poll() is not None:
+            close_sam3(client, proc)
+            raise RuntimeError(
+                "SAM3 server exited before becoming ready; "
+                f"inspect {log_path or 'its stderr'}"
+            )
+        try:
+            client.healthz(timeout_s=1.0)
+            logger.info(
+                "SAM3 server ready at %s after %.1fs",
+                endpoint,
+                time.monotonic() - started_at,
+            )
+            return client, proc
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+        time.sleep(0.5)
+
+    close_sam3(client, proc)
+    raise RuntimeError(
+        f"SAM3 server not ready after {ready_timeout_s:.0f}s "
+        f"(last error: {last_error})"
+    )
+
+
+def close_sam3(
+    client: Sam3Client | None,
+    proc: subprocess.Popen | None,
+    timeout: float = 10.0,
+) -> None:
+    """Close the SAM3 client and terminate its local server, if owned."""
+    if client is not None:
+        try:
+            client.close()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("failed to close SAM3 client: %s", exc)
     if proc is None or proc.poll() is not None:
         return
     proc.terminate()
@@ -277,6 +369,31 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _parse_env_endpoint(value: str) -> tuple[str, int]:
+    """Parse an env_server socket endpoint written as ``HOST:PORT``."""
+    raw = value.strip()
+    try:
+        parsed = urlsplit(f"//{raw}")
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid env endpoint: {value!r}") from exc
+    if (
+        not host
+        or port is None
+        or not 1 <= port <= 65535
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise argparse.ArgumentTypeError(
+            "env endpoint must be HOST:PORT, for example 127.0.0.1:9000"
+        )
+    return host, port
+
+
 def _build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description="Standalone hybrid LLM-in-the-loop agent for LIBERO PRO",
@@ -305,19 +422,24 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="Budget passed to claude -p --max-budget-usd. "
                          "Defaults to MAX_BUDGET_USD env or 10.")
 
-    # env_server / vla_server / transport
-    ap.add_argument("--no-driver", action="store_true",
-                    help="Don't spawn driver; attach to existing output dir")
-    ap.add_argument("--env-endpoint", default="127.0.0.1",
-                    help="Host of an existing env server to connect to; required "
-                         "with --no-driver.")
-    ap.add_argument("--env-port", type=int, default=0,
-                    help="Port of an existing env server to connect to; "
-                         "required with --no-driver.")
+    # env_server / vla_server / sam3_server / transport
+    ap.add_argument(
+        "--env-endpoint",
+        type=_parse_env_endpoint,
+        metavar="HOST:PORT",
+        default=None,
+        help="Socket endpoint of an existing env_server. If omitted, a local "
+        "env_server is started.",
+    )
     ap.add_argument("--vla-endpoint", default=None,
                     help="Base URL of an existing vla_server (e.g. http://host:8000). "
-                         "If omitted with a spawned driver, a local vla_server is started; "
-                         "required with --no-driver.")
+                         "If omitted, a local vla_server is started.")
+    ap.add_argument(
+        "--sam3-endpoint",
+        default=None,
+        help="Base URL of an existing RPent SAM3 service. If omitted, a local "
+        "SAM3 server is started automatically.",
+    )
     ap.add_argument("--cuda-device", default=None,
                     help="GPU device(s) to expose via CUDA_VISIBLE_DEVICES.")
 
@@ -463,9 +585,13 @@ def main() -> int:
 
     env_proc = None
     vla_proc = None
+    sam3_proc = None
+    sam3_client = None
     vla_endpoint = args.vla_endpoint
-    toolkit = None
-    if not args.no_driver:
+    if args.env_endpoint is not None:
+        env_host, env_port = args.env_endpoint
+        set_socket_endpoint(output_dir, env_host, env_port)
+    else:
         env_proc = start_env_server(
             suite=suite, task=task, seed=seed,
             output_dir=output_dir,
@@ -473,11 +599,23 @@ def main() -> int:
             cuda_device=args.cuda_device,
             libero_type=libero_type,
         )
+
+    try:
         if vla_endpoint is None:
             vla_endpoint, vla_proc = start_vla_server(
                 cuda_device=args.cuda_device,
                 log_path=str(Path(output_dir) / "vla_server.log"),
             )
+
+        if args.sam3_endpoint:
+            sam3_client = Sam3Client(args.sam3_endpoint)
+            sam3_client.wait_for_healthz(timeout_s=300.0)
+        else:
+            sam3_client, sam3_proc = start_sam3_server(
+                cuda_device=args.cuda_device,
+                log_path=str(Path(output_dir) / "sam3_server.log"),
+            )
+
         toolkit = get_toolkit(
             env_name,
             primitives_kwargs={
@@ -492,36 +630,17 @@ def main() -> int:
                 ),
                 "model": VLAClient(vla_endpoint),
             },
+            sam3_client=sam3_client,
             video_path=str(Path(output_dir) / "episode.mp4"),
             dashboard=dashboard_state,
         )
-    else:
-        if args.env_port <= 0:
-            raise RuntimeError(
-                "--no-driver requires --env-port pointing at an existing env_server"
-            )
-        if vla_endpoint is None:
-            raise RuntimeError(
-                "--no-driver requires --vla-endpoint pointing at an existing vla_server"
-            )
-        set_socket_endpoint(output_dir, args.env_endpoint, args.env_port)
-        toolkit = get_toolkit(
-            env_name,
-            primitives_kwargs={
-                "env": LiberoEnvClient(
-                    create_rpc_client(output_dir),
-                    expected_meta={
-                        "suite": suite,
-                        "task": task,
-                        "seed": seed,
-                        "max_episode_steps": max_episode_steps,
-                    },
-                ),
-                "model": VLAClient(vla_endpoint),
-            },
-            video_path=str(Path(output_dir) / "episode.mp4"),
-            dashboard=dashboard_state,
-        )
+    except Exception:
+        close_sam3(sam3_client, sam3_proc)
+        if vla_proc is not None:
+            stop_vla_server(vla_proc)
+        if env_proc is not None:
+            stop_env_server(env_proc, output_dir=output_dir)
+        raise
 
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None
@@ -545,10 +664,11 @@ def main() -> int:
         logger.info("recipe: %s", recipe_path)
 
         toolkit.close()
-        if env_proc is not None:
-            stop_env_server(env_proc, output_dir=output_dir)
+        close_sam3(sam3_client, sam3_proc)
         if vla_proc is not None:
             stop_vla_server(vla_proc)
+        if env_proc is not None:
+            stop_env_server(env_proc, output_dir=output_dir)
 
     elapsed = time.time() - t0
 
