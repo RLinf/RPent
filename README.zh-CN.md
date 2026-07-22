@@ -35,7 +35,7 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
 
 ## 功能矩阵
 
-<table width="100%">
+<table style="width: 100%; table-layout: auto; border-collapse: collapse;">
   <thead align="center" valign="bottom">
     <tr>
       <th width="26%">智能体规划器</th>
@@ -94,14 +94,40 @@ pip install -e ".[full]"
 `.[full]` 是默认的端到端组合（openpi Pi0.5 VLA + LIBERO-PRO 仿真器，运行在 RLinf 运行时之上）。
 如果不需要整套，可选择更小的 extra：
 
-| Extra | 安装内容 |
-| --- | --- |
-| `.[full]` | `rlinf` + `openpi` + `libero-pro` — 默认运行组合 |
-| `.[libero-pro]` | 基础 LIBERO + LIBERO-PRO 仿真器 |
-| `.[libero-plus]` | 基础 LIBERO + LIBERO-plus 仿真器 |
-| `.[libero]` | 仅基础 LIBERO |
-| `.[openpi]` | 仅 openpi VLA |
-| `.[rlinf]` | 仅 RLinf 运行时 |
+<table style="width: 100%; table-layout: auto; border-collapse: collapse;">
+  <thead align="center" valign="bottom">
+    <tr>
+      <th style="min-width: 120px; text-align: left;">Extra</th>
+      <th style="min-width: 240px;">安装内容</th>
+    </tr>
+  </thead>
+  <tbody valign="top">
+    <tr>
+      <td><code>.[full]</code></td>
+      <td><code>rlinf</code> + <code>openpi</code> + <code>libero-pro</code> — 默认运行组合</td>
+    </tr>
+    <tr>
+      <td><code>.[libero-pro]</code></td>
+      <td>基础 LIBERO + LIBERO-PRO 仿真器</td>
+    </tr>
+    <tr>
+      <td><code>.[libero-plus]</code></td>
+      <td>基础 LIBERO + LIBERO-plus 仿真器</td>
+    </tr>
+    <tr>
+      <td><code>.[libero]</code></td>
+      <td>仅基础 LIBERO</td>
+    </tr>
+    <tr>
+      <td><code>.[openpi]</code></td>
+      <td>仅 openpi VLA</td>
+    </tr>
+    <tr>
+      <td><code>.[rlinf]</code></td>
+      <td>仅 RLinf 运行时</td>
+    </tr>
+  </tbody>
+</table>
 
 **2. 配置密钥与 checkpoint，然后运行。**
 
@@ -149,23 +175,32 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 
 ## 主要命令行参数
 
-| 参数 | 默认值 | 说明 |
-| --- | --- | --- |
-| `--env` | —（必填） | 环境后端。当前支持 `libero`。 |
-| `--suite` | —（必填） | 任务集，如 `libero_object_task`、`libero_spatial_swap` |
-| `--task` | —（必填） | 任务集内的任务编号 |
-| `--seed` | `0` | 随机种子 |
-| `--planner` | `api` | 推理大脑：`api` \| `claude_code` \| `codex` |
-| `--model` | — | 模型 id；`api` 需带 provider 前缀（`anthropic:…`、`openai:…`、`openai-chat:…`） |
-| `--max-turns` | `100` | 智能体最大轮数 |
-| `--max-tokens` | `8192` | 单次 LLM 回复最大 token |
-| `--max-episode-steps` | `10000` | 环境最大步数 |
-| `--libero-type` | `LIBERO_TYPE` 或 `pro` | LIBERO 类型：`standard` \| `pro` \| `plus` |
-| `--cuda-device` | 继承当前环境 | env / vla server 可见的 GPU 设备 |
-| `--dashboard` | 关 | 为本次运行启动本地 dashboard |
-| `--dashboard-language` | `en` | Dashboard 界面语言：`en` \| `zh-cn` |
-| `--env-endpoint` | —（新起进程） | 已在运行的 env_server 的 `[protocol://]host:port`（`protocol=http\|socket`，默认 `http`）。留空则本地起一个。 |
-| `--vla-endpoint` | —（新起进程） | 已在运行的 vla_server 的 `[protocol://]host:port`（同上）。留空则本地起一个。 |
+<table style="width: 100%; table-layout: auto; border-collapse: collapse;">
+  <thead align="center" valign="bottom">
+    <tr>
+      <th style="min-width: 160px; text-align: left;">参数</th>
+      <th style="min-width: 120px;">默认值</th>
+      <th style="min-width: 360px;">说明</th>
+    </tr>
+  </thead>
+  <tbody valign="top">
+    <tr><td><code>--env</code></td><td>—（必填）</td><td>环境后端。当前支持 <code>libero</code>。</td></tr>
+    <tr><td><code>--suite</code></td><td>—（必填）</td><td>任务集，如 <code>libero_object_task</code>、<code>libero_spatial_swap</code></td></tr>
+    <tr><td><code>--task</code></td><td>—（必填）</td><td>任务集内的任务编号</td></tr>
+    <tr><td><code>--seed</code></td><td><code>0</code></td><td>随机种子</td></tr>
+    <tr><td><code>--planner</code></td><td><code>api</code></td><td>推理大脑：<code>api</code> | <code>claude_code</code> | <code>codex</code></td></tr>
+    <tr><td><code>--model</code></td><td>—</td><td>模型 id；<code>api</code> 需带 provider 前缀（<code>anthropic:…</code>、<code>openai:…</code>、<code>openai-chat:…</code>）</td></tr>
+    <tr><td><code>--max-turns</code></td><td><code>100</code></td><td>智能体最大轮数</td></tr>
+    <tr><td><code>--max-tokens</code></td><td><code>8192</code></td><td>单次 LLM 回复最大 token</td></tr>
+    <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>环境最大步数</td></tr>
+    <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> 或 <code>pro</code></td><td>LIBERO 类型：<code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
+    <tr><td><code>--cuda-device</code></td><td>继承当前环境</td><td>env / vla server 可见的 GPU 设备</td></tr>
+    <tr><td><code>--dashboard</code></td><td>关</td><td>为本次运行启动本地 dashboard</td></tr>
+    <tr><td><code>--dashboard-language</code></td><td><code>en</code></td><td>Dashboard 界面语言：<code>en</code> | <code>zh-cn</code></td></tr>
+    <tr><td><code>--env-endpoint</code></td><td>—（新起进程）</td><td>已在运行的 env_server 的 <code>[protocol://]host:port</code>（<code>protocol=http|socket</code>，默认 <code>http</code>）。留空则本地起一个。</td></tr>
+    <tr><td><code>--vla-endpoint</code></td><td>—（新起进程）</td><td>已在运行的 vla_server 的 <code>[protocol://]host:port</code>（同上）。留空则本地起一个。</td></tr>
+  </tbody>
+</table>
 
 ## 文档
 

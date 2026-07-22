@@ -35,7 +35,7 @@ RPent is built upon three core design principles: **service-oriented, standardiz
 
 ## Feature Matrix
 
-<table width="100%">
+<table style="width: 100%; table-layout: auto; border-collapse: collapse;">
   <thead align="center" valign="bottom">
     <tr>
       <th width="26%">Agentic Planner</th>
@@ -94,14 +94,40 @@ pip install -e ".[full]"
 `.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator on the RLinf runtime). 
 Pick a narrower extra if you don't need the whole stack:
 
-| Extra | Installs |
-| --- | --- |
-| `.[full]` | `rlinf` + `openpi` + `libero-pro` — the default run stack |
-| `.[libero-pro]` | Base LIBERO + LIBERO-PRO simulator |
-| `.[libero-plus]` | Base LIBERO + LIBERO-plus simulator |
-| `.[libero]` | Base LIBERO only |
-| `.[openpi]` | openpi VLA only |
-| `.[rlinf]` | RLinf runtime only |
+<table style="width: 100%; table-layout: auto; border-collapse: collapse;">
+  <thead align="center" valign="bottom">
+    <tr>
+      <th style="min-width: 120px; text-align: left;">Extra</th>
+      <th style="min-width: 240px;">Installs</th>
+    </tr>
+  </thead>
+  <tbody valign="top">
+    <tr>
+      <td><code>.[full]</code></td>
+      <td><code>rlinf</code> + <code>openpi</code> + <code>libero-pro</code> — the default run stack</td>
+    </tr>
+    <tr>
+      <td><code>.[libero-pro]</code></td>
+      <td>Base LIBERO + LIBERO-PRO simulator</td>
+    </tr>
+    <tr>
+      <td><code>.[libero-plus]</code></td>
+      <td>Base LIBERO + LIBERO-plus simulator</td>
+    </tr>
+    <tr>
+      <td><code>.[libero]</code></td>
+      <td>Base LIBERO only</td>
+    </tr>
+    <tr>
+      <td><code>.[openpi]</code></td>
+      <td>openpi VLA only</td>
+    </tr>
+    <tr>
+      <td><code>.[rlinf]</code></td>
+      <td>RLinf runtime only</td>
+    </tr>
+  </tbody>
+</table>
 
 **2. Configure keys and checkpoints, then run.**
 
@@ -138,23 +164,32 @@ rpent --env libero --dashboard --dashboard-language zh-cn \
 
 ## Key CLI Options
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--env` | — (required) | Environment backend. Currently `libero`. |
-| `--suite` | — (required) | Task suite, e.g. `libero_object_task`, `libero_spatial_swap` |
-| `--task` | — (required) | Task id within the suite |
-| `--seed` | `0` | Random seed |
-| `--planner` | `api` | Reasoning brain: `api` \| `claude_code` \| `codex` |
-| `--model` | — | Model id; for `api`, prefix the provider (`anthropic:…`, `openai:…`, `openai-chat:…`) |
-| `--max-turns` | `100` | Max agent turns |
-| `--max-tokens` | `8192` | Max tokens per LLM reply |
-| `--max-episode-steps` | `10000` | Max env steps |
-| `--libero-type` | `LIBERO_TYPE` or `pro` | LIBERO variant: `standard` \| `pro` \| `plus` |
-| `--cuda-device` | inherited | GPU device(s) exposed to the env / vla servers |
-| `--dashboard` | off | Start the local dashboard for this run |
-| `--dashboard-language` | `en` | Dashboard UI language: `en` \| `zh-cn` |
-| `--env-endpoint` | — (spawn) | `[protocol://]host:port` of an existing env_server (`protocol=http\|socket`, default `http`). If unset, one is spawned locally. |
-| `--vla-endpoint` | — (spawn) | `[protocol://]host:port` of an existing vla_server (same rules). If unset, one is spawned locally. |
+<table style="width: 100%; table-layout: auto; border-collapse: collapse;">
+  <thead align="center" valign="bottom">
+    <tr>
+      <th style="min-width: 160px; text-align: left;">Flag</th>
+      <th style="min-width: 120px;">Default</th>
+      <th style="min-width: 360px;">Description</th>
+    </tr>
+  </thead>
+  <tbody valign="top">
+    <tr><td><code>--env</code></td><td>— (required)</td><td>Environment backend. Currently <code>libero</code>.</td></tr>
+    <tr><td><code>--suite</code></td><td>— (required)</td><td>Task suite, e.g. <code>libero_object_task</code>, <code>libero_spatial_swap</code></td></tr>
+    <tr><td><code>--task</code></td><td>— (required)</td><td>Task id within the suite</td></tr>
+    <tr><td><code>--seed</code></td><td><code>0</code></td><td>Random seed</td></tr>
+    <tr><td><code>--planner</code></td><td><code>api</code></td><td>Reasoning brain: <code>api</code> | <code>claude_code</code> | <code>codex</code></td></tr>
+    <tr><td><code>--model</code></td><td>—</td><td>Model id; for <code>api</code>, prefix the provider (<code>anthropic:…</code>, <code>openai:…</code>, <code>openai-chat:…</code>)</td></tr>
+    <tr><td><code>--max-turns</code></td><td><code>100</code></td><td>Max agent turns</td></tr>
+    <tr><td><code>--max-tokens</code></td><td><code>8192</code></td><td>Max tokens per LLM reply</td></tr>
+    <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>Max env steps</td></tr>
+    <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> or <code>pro</code></td><td>LIBERO variant: <code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
+    <tr><td><code>--cuda-device</code></td><td>inherited</td><td>GPU device(s) exposed to the env / vla servers</td></tr>
+    <tr><td><code>--dashboard</code></td><td>off</td><td>Start the local dashboard for this run</td></tr>
+    <tr><td><code>--dashboard-language</code></td><td><code>en</code></td><td>Dashboard UI language: <code>en</code> | <code>zh-cn</code></td></tr>
+    <tr><td><code>--env-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing env_server (<code>protocol=http|socket</code>, default <code>http</code>). If unset, one is spawned locally.</td></tr>
+    <tr><td><code>--vla-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing vla_server (same rules). If unset, one is spawned locally.</td></tr>
+  </tbody>
+</table>
 
 ## Documentation
 
