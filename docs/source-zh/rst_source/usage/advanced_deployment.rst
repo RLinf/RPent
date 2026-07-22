@@ -77,6 +77,7 @@ seed 和最大 episode 步数必须与环境服务的启动参数保持一致:
 .. code-block:: bash
 
    rpent \
+     --env libero \
      --suite libero_object_swap --task 2 --seed 0 \
      --libero-type pro --max-episode-steps 10000 \
      --env-endpoint http://ENV_HOST:ENV_PORT \

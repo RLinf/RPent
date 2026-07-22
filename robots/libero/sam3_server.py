@@ -222,8 +222,16 @@ class Sam3Engine:
     ) -> SegmentResponse:
         if masks is None or scores is None:
             return SegmentResponse(found=False, reason="SAM3 returned no candidate")
-        masks_array = masks.detach().float().cpu().numpy()
-        scores_array = scores.detach().float().cpu().numpy().reshape(-1)
+        masks_array = (
+            masks
+            if isinstance(masks, np.ndarray)
+            else masks.detach().float().cpu().numpy()
+        )
+        scores_array = (
+            scores
+            if isinstance(scores, np.ndarray)
+            else scores.detach().float().cpu().numpy()
+        ).reshape(-1)
         if masks_array.size == 0 or scores_array.size == 0:
             return SegmentResponse(found=False, reason="SAM3 returned no candidate")
         if masks_array.ndim == 4 and masks_array.shape[1] == 1:
@@ -240,7 +248,11 @@ class Sam3Engine:
         score = float(scores_array[index])
         box: list[float] | None = None
         if boxes is not None:
-            boxes_array = boxes.detach().float().cpu().numpy()
+            boxes_array = (
+                boxes
+                if isinstance(boxes, np.ndarray)
+                else boxes.detach().float().cpu().numpy()
+            )
             if boxes_array.ndim >= 2 and index < boxes_array.shape[0]:
                 box = [float(value) for value in boxes_array[index].reshape(-1)[:4]]
         if score < min_score:
