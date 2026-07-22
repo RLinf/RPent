@@ -61,20 +61,6 @@
    rpent --dashboard --dashboard-language zh-cn \
      --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
-4. RoboCasa
------------
-
-RoboCasa 有自己的入口和一次性安装脚本:
-
-.. code-block:: bash
-
-   bash scripts/setup_robocasa.sh                                # 一次性安装
-   bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <task> <gpu> <seed>
-
-完整的 RoboCasa365 + RLDX-1 流程见 `docs/SETUP_ROBOCASA.zh.md
-<https://github.com/RLinf/RPent/blob/main/docs/SETUP_ROBOCASA.zh.md>`_,
-而 :doc:`usage/robocasa` 说明 RoboCasa toolkit 对 agent 暴露了什么。
-
 关键 CLI 选项
 -------------
 

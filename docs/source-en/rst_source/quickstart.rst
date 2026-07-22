@@ -65,22 +65,6 @@ replays. Use ``--dashboard-language zh-cn`` for the Chinese UI.
    rpent --dashboard --dashboard-language zh-cn \
      --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
-4. RoboCasa
------------
-
-RoboCasa uses a separate entrypoint and one-time setup:
-
-.. code-block:: bash
-
-   bash scripts/setup_robocasa.sh                                # one-time
-   bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <task> <gpu> <seed>
-
-See `docs/SETUP_ROBOCASA.zh.md
-<https://github.com/RLinf/RPent/blob/main/docs/SETUP_ROBOCASA.zh.md>`_
-for the full RoboCasa365 + RLDX-1 walkthrough, and
-:doc:`usage/robocasa` for what the RoboCasa toolkit
-exposes to the agent.
-
 Key CLI options
 ---------------
 

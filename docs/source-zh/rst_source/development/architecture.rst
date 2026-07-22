@@ -80,10 +80,10 @@
    robots/
      libero/         # LIBERO 的 env_client / env_server / vla_server /
                      # toolkit / prompt_bundle。参考实现。
-     (robocasa/)     # RoboCasa driver (见 scripts/run_robocasa.sh)。
+     (robocasa/)     # RoboCasa driver —— 研发中。
      (franka/)       # Franka driver —— 研发中。
      (so101/)        # SO-101 driver —— 研发中。
-   scripts/          # 安装脚本 (LIBERO PRO/PLUS、RoboCasa、codex proxy)。
+   scripts/          # 安装脚本 (LIBERO PRO/PLUS、codex proxy)。
 
 Runner (``rpent/cli/main.py``)
 ------------------------------

@@ -40,7 +40,7 @@ Which VLA runs where
    * - RoboCasa (sim)
      - RLDX-1
      - pickle-framed socket RPC
-     - ``robots/robocasa/vla_server.py``
+     - ``robots/robocasa/vla_server.py`` *(planned)*
    * - Franka (real)
      - Pi0.5 or RLDX-1 (task-dependent)
      - HTTP or socket

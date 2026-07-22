@@ -36,7 +36,7 @@ RPent 内置支持两大类 primitive:
    * - RoboCasa (仿真)
      - RLDX-1
      - pickle-framed socket RPC
-     - ``robots/robocasa/vla_server.py``
+     - ``robots/robocasa/vla_server.py`` *(规划中)*
    * - Franka (真机)
      - Pi0.5 或 RLDX-1 (依任务而定)
      - HTTP 或 socket

@@ -41,11 +41,10 @@ numpy dict (3 路相机 video 张量 ``(1,T,H,W,3)`` + ``state.*`` + annotation 
 session/reset_memory), 用 socket 天然承载, 走 HTTP 则要额外设计 wire 格式。按
 观测形态选编解码, 但保持 env/vla 进程分离一致。
 
-**任何需要仿真 env 对象的逻辑都留在 env_server。** 对 RoboCasa, ``check_grasp``
-和 ``assemble_action`` (eval 的 ``unmap_action`` + composite-controller
-split-index 组装) 需要活的 robosuite env, 因此是 env_server 的 RPC —— **不** 属于
-VLA server。于是 agent 侧的 skill (``RLDXSkill``) 同时持有两个 client: env client
-做 render/step/grasp/assemble, model client 做推理。
+**任何需要仿真 env 对象的逻辑都留在 env_server。** 对 RoboCasa 这样的 env,
+抓取检测、动作组装等操作需要活的仿真 env, 因此是 env_server 的 RPC —— **不** 属于
+VLA server。于是 agent 侧的 skill 同时持有两个 client: env client 做 render/step,
+model client 做推理。
 
 入口
 ----

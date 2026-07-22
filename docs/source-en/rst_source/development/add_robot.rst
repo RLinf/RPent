@@ -49,12 +49,11 @@ reset_memory) that ride sockets natively but would need a bespoke wire format
 over HTTP. Choose the codec that fits the obs; keep the env/vla process split
 identical.
 
-**Anything that needs the sim env object stays in env_server.** For RoboCasa,
-``check_grasp`` and ``assemble_action`` (the eval ``unmap_action`` +
-composite-controller split-index assembly) require the live robosuite env, so
-they are env_server RPCs — NOT part of the VLA server. The agent-side skill
-(``RLDXSkill``) therefore holds BOTH clients: the env client for
-render/step/grasp/assemble, the model client for inference.
+**Anything that needs the sim env object stays in env_server.** For an env like
+RoboCasa, operations such as grasp checks and action assembly require the live
+simulator env, so they are env_server RPCs — NOT part of the VLA server. The
+agent-side skill therefore holds BOTH clients: the env client for render/step,
+the model client for inference.
 
 Entry point
 -----------
