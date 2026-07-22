@@ -20,7 +20,7 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
 ## 核心特性
 
 - **LLM-in-the-loop 控制。** 大模型无需微调——它完全通过调用工具（`pi0_pick`、`move_to`、`rotate_wrist`、`back_project`、`finish` …）来驱动机器人。每次工具调用的结果都以多模态上下文（文本 + 渲染图像）回灌，让模型基于「它实际看到的画面」进行推理。
-- **服务化多进程架构。** **Agent 主进程**（LLM 决策大脑 + 工具容器，不加载 `torch`）、**env_server**（仿真器 + EGL 渲染）、**vla_server**（GPU 策略权重）彼此独立，用轻量 RPC 连接；LIBERO 运行还会使用独立的 **sam3_server**。这些重量级服务可以独立重启、切换到另一块 GPU，或指向远程主机。
+- **服务化多进程架构。** **Agent 主进程**（LLM 决策大脑与工具容器，不加载 `torch`）、**env_server**（仿真器与 EGL 渲染）、**vla_server**（GPU 策略权重）以及 **sam3_server**（视觉分割模型）均以独立进程运行，并通过轻量 RPC 通信。env、VLA 与 SAM3 服务均可独立重启、分配到不同 GPU，或部署在远程主机上。
 - **可插拔的决策大脑（planner）。** 用一个参数 `--planner {api, claude_code, codex}` 切换决策大脑，无需改动工具或提示词：
   - `api` —— 基于 [pydantic-ai](https://ai.pydantic.dev/) 的、与厂商无关的工具调用循环（Anthropic / OpenAI / OpenAI 兼容），带提示词缓存与历史图像裁剪。
   - `claude_code` —— 使用 [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview)，把工具容器包装成进程内 MCP server。
@@ -166,8 +166,8 @@ rpent --env libero --dashboard --dashboard-language zh-cn \
 | `--dashboard` | 关 | 为本次运行启动本地 dashboard |
 | `--dashboard-language` | `en` | Dashboard 界面语言：`en` \| `zh-cn` |
 | `--env-endpoint` | —（新起进程） | 已在运行的 env_server 的 `[protocol://]host:port`（`protocol=http\|socket`，默认 `http`）。留空则本地起一个。 |
-| `--vla-endpoint` | —（新起进程） | 已在运行的 vla_server 的 `[protocol://]host:port`（同上）。留空则本地起一个。 |
-| `--sam3-endpoint` | —（新起进程） | 已在运行的 RPent SAM3 服务的 `[protocol://]host:port`（`protocol=http\|socket`，默认 `http`）。留空则本地起一个。 |
+| `--vla-endpoint` | —（新起进程） | 已在运行的 vla_server 的 `[protocol://]host:port`（协议规则同 `env_server`）。留空则本地起一个。 |
+| `--sam3-endpoint` | —（新起进程） | 已在运行的 RPent SAM3 服务的 `[protocol://]host:port`（协议规则同 `env_server`）。留空则本地起一个。 |
 
 ## 文档
 

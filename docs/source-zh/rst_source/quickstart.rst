@@ -123,20 +123,21 @@
        (``protocol=http|socket``, 默认 ``http``). 留空则本地起一个。
    * - ``--vla-endpoint``
      - —(自动 spawn)
-     - 已在运行的 vla_server 的 ``[protocol://]host:port`` (同上).
-       留空则本地起一个。
+     - 已在运行的 vla_server 的 ``[protocol://]host:port``
+       (协议规则同 ``env_server``)。留空则本地起一个。
    * - ``--sam3-endpoint``
      - —(自动 spawn)
      - 已在运行的 RPent SAM3 服务的 ``[protocol://]host:port``
-       (``protocol=http|socket``, 默认 ``http``)。留空则本地起一个。
+       (协议规则同 ``env_server``)。留空则本地起一个。
 
 跑起来后应该看到什么
 --------------------
 
 一次成功的运行:
 
-1. 启动 env_server、vla_server 和 sam3_server, 并在进入 agent loop 前
-   等待各自的 RPC 或 health endpoint 就绪。
+1. env_server、vla_server 和 sam3_server 就绪后，会在各自的服务日志中
+   打印一行 ``RPC server listening on http://127.0.0.1:<port>``；
+   主进程确认三个服务就绪后再进入 agent loop。
 2. 每一轮 agent 的 reasoning 会输出到终端 (或 stream 到 dashboard)。
 3. 当 LLM 调用 ``finish(success=True)`` 时结束; 或者触达
    ``--max-turns`` / ``--max-episode-steps`` 时结束。

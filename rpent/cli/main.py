@@ -191,27 +191,6 @@ def _subprocess_env(cuda_device: str | None, **extra: str) -> dict[str, str]:
     return env
 
 
-def _rpc_client(endpoint: str, *, option: str) -> RpcClient:
-    """Build the transport client for one CLI endpoint option."""
-    protocol, host, port = _parse_endpoint(endpoint)
-    if protocol == "socket":
-        return SocketRpcClient(host, port)
-    if protocol == "http":
-        return HttpRpcClient(f"http://{host}:{port}")
-    raise ValueError(
-        f"{option} protocol must be socket or http, got {protocol!r}"
-    )
-
-
-def _stop_daemons(daemons: list[ProcessDaemon]) -> None:
-    """Stop locally spawned services in reverse startup order."""
-    for daemon in reversed(daemons):
-        try:
-            daemon.stop()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("failed to stop %s: %s", daemon.name, exc)
-
-
 def _build_libero_clients(
     args: argparse.Namespace,
     output_dir,
@@ -248,7 +227,15 @@ def _build_libero_clients(
         env_client: RpcClient = HttpRpcClient(f"http://{host}:{port}")
         wait_for_ready(env_client)
     else:
-        env_client = _rpc_client(args.env_endpoint, option="--env-endpoint")
+        protocol, host, port = _parse_endpoint(args.env_endpoint)
+        if protocol == "socket":
+            env_client = SocketRpcClient(host, port)
+        elif protocol == "http":
+            env_client = HttpRpcClient(f"http://{host}:{port}")
+        else:
+            raise ValueError(
+                f"--env-endpoint protocol must be socket or http, got {protocol!r}"
+            )
 
     # --- vla_server --------------------------------------------------------
     if args.vla_endpoint is None:
@@ -270,7 +257,15 @@ def _build_libero_clients(
         vla_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
         wait_for_ready(vla_rpc)
     else:
-        vla_rpc = _rpc_client(args.vla_endpoint, option="--vla-endpoint")
+        protocol, host, port = _parse_endpoint(args.vla_endpoint)
+        if protocol == "socket":
+            vla_rpc = SocketRpcClient(host, port)
+        elif protocol == "http":
+            vla_rpc = HttpRpcClient(f"http://{host}:{port}")
+        else:
+            raise ValueError(
+                f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
+            )
 
     # --- sam3_server -------------------------------------------------------
     if args.sam3_endpoint is None:
@@ -291,7 +286,15 @@ def _build_libero_clients(
         daemons.append(sam3_daemon)
         sam3_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
     else:
-        sam3_rpc = _rpc_client(args.sam3_endpoint, option="--sam3-endpoint")
+        protocol, host, port = _parse_endpoint(args.sam3_endpoint)
+        if protocol == "socket":
+            sam3_rpc = SocketRpcClient(host, port)
+        elif protocol == "http":
+            sam3_rpc = HttpRpcClient(f"http://{host}:{port}")
+        else:
+            raise ValueError(
+                f"--sam3-endpoint protocol must be socket or http, got {protocol!r}"
+            )
     wait_for_ready(sam3_rpc)
     sam3_client = Sam3Client(sam3_rpc)
 
@@ -327,7 +330,11 @@ def _init_libero(
             daemons,
         )
     except Exception:
-        _stop_daemons(daemons)
+        for daemon in reversed(daemons):
+            try:
+                daemon.stop()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("failed to stop %s: %s", daemon.name, exc)
         raise
     return daemons, primitives_kwargs, sam3_client
 
@@ -456,7 +463,11 @@ def main() -> int:
             dashboard=dashboard_state,
         )
     except Exception:
-        _stop_daemons(daemons)
+        for daemon in reversed(daemons):
+            try:
+                daemon.stop()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("failed to stop %s: %s", daemon.name, exc)
         raise
 
     # --- agent loop --------------------------------------------------------
@@ -485,7 +496,11 @@ def main() -> int:
             finally:
                 toolkit.close()
         finally:
-            _stop_daemons(daemons)
+            for daemon in reversed(daemons):
+                try:
+                    daemon.stop()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("failed to stop %s: %s", daemon.name, exc)
 
     elapsed = time.time() - t0
 
