@@ -1,13 +1,13 @@
-"""Local SAM 3.0 image segmentation service owned by RPent.
+"""RPC server owning the local SAM 3.0 image segmentation model.
 
 Run manually with::
 
     SAM3_CHECKPOINT_PATH=/path/to/sam3.pt \
-        python -m robots.libero.sam3_server --host 127.0.0.1 --port 8114
+        python -m robots.libero.sam3_server \
+        --transport http --host 127.0.0.1 --port 8114
 
-RPent normally starts this process automatically. The service exposes one
-``POST /segment`` endpoint for either a text prompt or a single positive point,
-plus ``GET /healthz`` for readiness checks.
+RPent normally starts this process automatically. The service exposes a
+``segment`` RPC method over either HTTP or socket transport.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from PIL import Image
 from pydantic import BaseModel, Field, model_validator
 
 from rpent.utils.logging import get_logger
+from rpent.utils.rpc import RpcFacade
 
 logger = get_logger("sam3_server")
 
@@ -267,60 +268,47 @@ class Sam3Engine:
         )
 
 
-def build_app(engine: Sam3Engine):
-    """Build the FastAPI app around an already-loaded engine."""
-    from fastapi import FastAPI, Request
-    from fastapi.exceptions import RequestValidationError
-    from fastapi.responses import JSONResponse
+class Sam3Facade(RpcFacade):
+    """Expose :class:`Sam3Engine` through the shared RPC transports."""
 
-    app = FastAPI(title="RPent SAM3")
+    def __init__(self, engine: Sam3Engine) -> None:
+        super().__init__()
+        self._engine = engine
 
-    @app.exception_handler(RequestValidationError)
-    async def _validation_error(_request: Request, exc: RequestValidationError):
-        details = [
-            {
-                "type": error.get("type"),
-                "loc": error.get("loc"),
-                "msg": error.get("msg"),
-            }
-            for error in exc.errors()
-        ]
-        return JSONResponse(
-            {"error": "request validation failed", "detail": details},
-            status_code=422,
+    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
+        if method == "segment":
+            return self.segment(*args, **kwargs)
+        raise ValueError(f"unknown RPC method: {method!r}")
+
+    def segment(
+        self,
+        image_base64: str,
+        *,
+        text_prompt: str | None = None,
+        point: list[int] | None = None,
+        min_score: float = 0.2,
+    ) -> dict[str, Any]:
+        request = SegmentRequest(
+            image_base64=image_base64,
+            text_prompt=text_prompt,
+            point=point,
+            min_score=min_score,
         )
-
-    @app.get("/healthz")
-    def healthz():
-        return {"status": "ok"}
-
-    @app.post(
-        "/segment",
-        response_model=SegmentResponse,
-        response_model_exclude_none=True,
-    )
-    def segment(request: SegmentRequest):
-        try:
-            image_bytes = base64.b64decode(request.image_base64, validate=True)
-            if not image_bytes:
-                raise ValueError("image_base64 is empty")
-            return engine.segment(
-                image_bytes,
-                text_prompt=request.text_prompt,
-                point=request.point,
-                min_score=request.min_score,
-            )
-        except ValueError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("SAM3 /segment failed")
-            return JSONResponse({"error": str(exc)}, status_code=500)
-
-    return app
+        image_bytes = base64.b64decode(request.image_base64, validate=True)
+        if not image_bytes:
+            raise ValueError("image_base64 is empty")
+        response = self._engine.segment(
+            image_bytes,
+            text_prompt=request.text_prompt,
+            point=request.point,
+            min_score=request.min_score,
+        )
+        return response.model_dump(exclude_none=True)
 
 
 def _build_argparser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="RPent local SAM 3.0 server")
+    parser.add_argument("--transport", choices=["socket", "http"], default="http")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8114)
     parser.add_argument(
@@ -344,11 +332,8 @@ def main() -> None:
             "before starting RPent"
         )
     engine = Sam3Engine.load(checkpoint)
-    app = build_app(engine)
-
-    import uvicorn
-
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    facade = Sam3Facade(engine)
+    facade.serve(transport=args.transport, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

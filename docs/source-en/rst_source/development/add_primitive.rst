@@ -1,4 +1,4 @@
-Add an action primitive
+Add an Action Primitive
 =======================
 
 An *action primitive* in RPent is anything that turns a tool call
@@ -86,20 +86,23 @@ Model-based primitives require a bit more scaffolding because the
 model runs in its own process. Pattern:
 
 1. **Write a ``vla_server.py``**. Own only the model weights and the
-   CUDA context. Expose ``vla_load`` / ``vla_infer`` /
-   ``vla_reset``:
+   CUDA context. Subclass :class:`rpent.utils.rpc.RpcFacade` and
+   expose your model methods (e.g. ``predict``) via ``_dispatch``:
 
-   - Over **HTTP** if your obs is a flat ``image + state`` payload
-     (LIBERO / Pi0.5 pattern).
-   - Over **socket RPC** if your obs is a nested dict of numpy
-     arrays with history stacks (RoboCasa / RLDX-1 pattern).
+   - Default transport is **HTTP** (JSON over ``POST /call``); fine
+     for flat ``image + state`` payloads (LIBERO / Pi0.5 pattern).
+   - Switch to **socket RPC** (``--transport socket``) if your obs is
+     a nested dict of numpy arrays with history stacks (avoids the
+     JSON re-encode overhead).
 
-   Emit a ``transport_ready`` JSON event on stdout when your server
-   is listening; ``rpent/cli/main.py`` blocks on it.
+   ``RpcFacade.serve`` takes care of transport binding, ``healthz``,
+   ``shutdown``, and parent-death shutdown — you only write the
+   model-specific methods.
 
-2. **Write a model client**. A tiny class with ``predict(obs)``
-   (HTTP) or ``vla_infer(obs)`` (socket) that the toolkit will hold
-   alongside its env client. See ``rpent.utils.vla_client.VLAClient``
+2. **Write a model client**. A tiny class wrapping an
+   :class:`rpent.utils.rpc.RpcClient` (either
+   :class:`HttpRpcClient` or :class:`SocketRpcClient`) that exposes
+   your model's business API. See ``rpent.utils.vla_client.VLAClient``
    as the LIBERO reference.
 
 3. **Add a primitive-driver method.** In your env's primitive-driver
@@ -140,7 +143,7 @@ runner supports pointing at an already-running one:
 
 .. code-block:: bash
 
-   rpent --vla-endpoint http://vla-host:8000 ...
+   rpent --env libero --vla-endpoint http://vla-host:8000 ...
 
 Design your ``vla_server`` to be **stateless across tasks** — reset
 its per-episode state through an explicit ``vla_reset`` RPC — so a

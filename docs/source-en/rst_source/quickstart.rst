@@ -1,4 +1,4 @@
-Quick start
+Quick Start
 ===========
 
 This page ports the ``README.md`` Quick Start into the documentation.
@@ -9,7 +9,7 @@ and ``pip install -e ".[full]"`` completed).
 ---------------------------------
 
 Export the API keys for the LLM provider(s) you want to use as the
-reasoning brain, plus the path to the VLA checkpoint:
+reasoning brain, plus the paths to the VLA and SAM3 checkpoints:
 
 .. code-block:: bash
 
@@ -42,7 +42,7 @@ Run a single LIBERO PRO task (``libero_object_swap``, task ``2``, seed
 
 .. code-block:: bash
 
-   rpent --suite libero_object_swap --task 2 --seed 0 \
+   rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
      --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 
 **Model id conventions.** ``--model`` accepts a provider-prefixed id
@@ -66,24 +66,8 @@ replays. Use ``--dashboard-language zh-cn`` for the Chinese UI.
 
 .. code-block:: bash
 
-   rpent --dashboard --dashboard-language zh-cn \
+   rpent --env libero --dashboard --dashboard-language zh-cn \
      --suite libero_goal_task --task 1 --seed 0 --planner claude_code
-
-4. RoboCasa
------------
-
-RoboCasa uses a separate entrypoint and one-time setup:
-
-.. code-block:: bash
-
-   bash scripts/setup_robocasa.sh                                # one-time
-   bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <task> <gpu> <seed>
-
-See `docs/SETUP_ROBOCASA.zh.md
-<https://github.com/RLinf/RPent/blob/main/docs/SETUP_ROBOCASA.zh.md>`_
-for the full RoboCasa365 + RLDX-1 walkthrough, and
-:doc:`usage/robocasa` for what the RoboCasa toolkit
-exposes to the agent.
 
 Key CLI options
 ---------------
@@ -97,6 +81,9 @@ The most common flags of ``rpent`` at a glance:
    * - Flag
      - Default
      - Description
+   * - ``--env``
+     - required
+     - Environment backend. Currently ``libero``.
    * - ``--suite``
      - required
      - Task suite, e.g. ``libero_object_task``, ``libero_spatial_swap``
@@ -127,7 +114,7 @@ The most common flags of ``rpent`` at a glance:
      - LIBERO variant: ``standard`` | ``pro`` | ``plus``
    * - ``--cuda-device``
      - inherited
-     - GPU device(s) exposed to the env / vla servers
+     - GPU device(s) exposed to the env / VLA / SAM3 servers
    * - ``--dashboard``
      - off
      - Start the local dashboard for this run
@@ -135,24 +122,32 @@ The most common flags of ``rpent`` at a glance:
      - ``en``
      - Dashboard UI language: ``en`` | ``zh-cn``
    * - ``--env-endpoint``
-     - —
-     - Reuse an existing env_server at ``HOST:PORT`` instead of spawning one
+     - — (spawn)
+     - ``[protocol://]host:port`` of an existing env_server
+       (``protocol=http|socket``, default ``http``). If unset,
+       one is spawned locally.
    * - ``--vla-endpoint``
-     - —
-     - Reuse an already-running vla_server instead of spawning one
+     - — (spawn)
+     - ``[protocol://]host:port`` of an existing vla_server (same rules).
+       If unset, one is spawned locally.
+   * - ``--sam3-endpoint``
+     - — (spawn)
+     - ``[protocol://]host:port`` of an existing RPent SAM3 service
+       (``protocol=http|socket``, default ``http``). If unset,
+       one is spawned locally.
 
 What you should see
 -------------------
 
 A successful run:
 
-1. Prints ``env server ready at 127.0.0.1:<port>`` once the driver
-   process is up.
+1. Starts env_server, vla_server, and sam3_server, then waits for their
+   RPC or health endpoints before the agent loop begins.
 2. Prints per-turn agent reasoning (or streams it to the dashboard).
 3. Ends when the LLM calls ``finish(success=True)``, or hits
    ``--max-turns`` / ``--max-episode-steps``.
 4. Writes ``<output_dir>/transcript_*.json`` with the full turn-by-turn
    record and ``<output_dir>/episode.mp4`` with the rendered rollout.
 
-If something goes wrong, inspect the three log files described at the
+If something goes wrong, inspect the service and agent log files described at the
 bottom of :doc:`installation`.

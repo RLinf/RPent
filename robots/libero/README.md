@@ -54,32 +54,31 @@ prompt preserves guide strategy while using the current structured runtime tools
 Detailed runtime constraints, such as tool availability and forbidden legacy
 paths, should stay in `prompts/system.py` and the guide-level runtime contract.
 
-## Optional SAM3 Segmentation
+## SAM3 Segmentation
 
-The `segment` tool is an optional perception helper. `rpent/cli/main.py` does not
-automatically start SAM3; the runtime `segment` tool only calls the service
-configured by `SAM3_SERVER_URL`. When no segmentation service is configured,
-`segment` returns a structured fallback so the agent can continue with image
-inspection and `back_project`.
+The `segment` tool is a perception helper backed by a separate SAM3 RPC
+service. `rpent/cli/main.py` starts that service automatically unless an
+existing endpoint is provided with `--sam3-endpoint`.
 
-Start a SAM3-compatible segmentation service before running RPent, then
-export its URL in the shell that launches RPent:
+To start a reusable service manually:
 
 ```bash
-export SAM3_SERVER_URL=http://127.0.0.1:8114
+export SAM3_CHECKPOINT_PATH=/path/to/sam3.pt
+python -m robots.libero.sam3_server \
+  --transport http --host 127.0.0.1 --port 8114
+
+rpent --sam3-endpoint http://127.0.0.1:8114 ...
 ```
 
 If SAM3 occupies a GPU, do not schedule LIBERO env jobs on that same GPU.
-RPent's `SAM3_SERVER_URL` path uses a SAM3-compatible protocol
-(`text_prompt` for `/segment` and `/segment_point` for point prompts).
+Both HTTP and socket RPC transports expose the same `segment` method for text
+and single-positive-point prompts.
 
 When a matching world map artifact exists, `segment` writes collision-safe
 `segment_NN_XX.json` artifacts with mask statistics and `world_xyz`; repeated
 `segment()` calls on the same source step receive different `XX` indexes instead
 of overwriting earlier evidence. If the world map is missing or the mask shape
 does not match, the tool records a `world_error` instead of failing the episode.
-
-See `scripts/sam3/README.md` for the optional pre-run SAM3 service setup helper.
 
 ## Safe Checklist for Prompt Changes
 

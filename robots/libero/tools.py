@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
 
 import imageio.v2 as imageio
 import numpy as np
@@ -1648,19 +1647,6 @@ def _next_segment_artifact_paths(out_dir, nn: int):
         idx += 1
 
 
-def _redact_server_url(url: str) -> str:
-    try:
-        parts = urlsplit(url)
-        netloc = parts.hostname or ""
-        if ":" in netloc and not netloc.startswith("["):
-            netloc = f"[{netloc}]"
-        if parts.port is not None:
-            netloc += f":{parts.port}"
-        return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
-    except Exception:
-        return "<redacted>"
-
-
 def _mask_to_world(mask: np.ndarray, world_map: np.ndarray,
                    min_valid: int = 10) -> dict:
     if world_map.ndim != 3 or world_map.shape[2] < 3:
@@ -1819,7 +1805,6 @@ def segment(
         "source_step": nn,
         "segment_index": segment_index,
         "image_path": str(image_path),
-        "server_endpoint": _redact_server_url(sam3_client.base_url),
         "min_score": min_score,
         "score": round(float(data.score), 3) if data.score is not None else None,
         "box": data.box,

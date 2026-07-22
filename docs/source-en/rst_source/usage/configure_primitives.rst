@@ -1,4 +1,4 @@
-Action primitives
+Action Primitives
 =================
 
 Where the planner chooses *what* to do, the **action primitive**
@@ -35,12 +35,12 @@ Which VLA runs where
      - Server
    * - LIBERO (sim)
      - Pi0.5
-     - HTTP ``/predict``
+     - HTTP or socket RPC (``--transport``)
      - ``robots/libero/vla_server.py``
    * - RoboCasa (sim)
      - RLDX-1
      - pickle-framed socket RPC
-     - ``robots/robocasa/vla_server.py``
+     - ``robots/robocasa/vla_server.py`` *(planned)*
    * - Franka (real)
      - Pi0.5 or RLDX-1 (task-dependent)
      - HTTP or socket
@@ -50,10 +50,11 @@ Which VLA runs where
      - socket RPC
      - ``robots/so101/vla_server.py`` *(planned)*
 
-The wire codec is chosen per env to fit the observation shape: HTTP
-for flat image+state payloads (LIBERO/Pi0.5), sockets for
-history-stacked nested numpy dicts (RoboCasa/RLDX-1). See
-:doc:`../development/add_robot` for the design rationale.
+The wire codec is chosen per env to fit the observation shape. The
+VLA server exposes the same ``predict`` / ``healthz`` methods over both
+HTTP (JSON) and socket (pickle-framed) transports; pick whichever suits
+the observation shape via ``--transport {http,socket}`` (defaults to
+``http``). See :doc:`../development/add_robot` for the design rationale.
 
 For standalone services, remote endpoints, and cross-run model reuse, see
 :doc:`advanced_deployment`.

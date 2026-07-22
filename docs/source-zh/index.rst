@@ -80,8 +80,8 @@
    :hidden:
    :caption: 使用教程
 
-   Agentic planner <rst_source/usage/configure_planner>
-   Action primitives <rst_source/usage/configure_primitives>
+   Agentic Planner <rst_source/usage/configure_planner>
+   Action Primitives <rst_source/usage/configure_primitives>
    LIBERO <rst_source/usage/libero>
    高级部署 <rst_source/usage/advanced_deployment>
    RoboCasa <rst_source/usage/robocasa>
@@ -97,7 +97,7 @@
 
    系统设计 <rst_source/development/architecture>
    添加新机器人 <rst_source/development/add_robot>
-   添加 action primitive <rst_source/development/add_primitive>
+   添加 Action Primitive <rst_source/development/add_primitive>
    Memory 管理 <rst_source/development/memory>
 
 .. toctree::
@@ -105,6 +105,6 @@
    :includehidden:
    :titlesonly:
    :hidden:
-   :caption: 优秀工作
+   :caption: 论文
 
-   HarnessVLA <rst_source/awesome_works/harnessvla>
+   Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents <rst_source/awesome_works/harnessvla>

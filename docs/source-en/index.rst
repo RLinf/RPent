@@ -41,7 +41,7 @@ Welcome to RPent
       Clone RPent and install the whole stack with a single
       ``pip install``.
 
-   .. grid-item-card:: Quick start
+   .. grid-item-card:: Quick Start
       :link: rst_source/quickstart
       :link-type: doc
       :text-align: center
@@ -49,7 +49,7 @@ Welcome to RPent
       Choose a planner, configure the agent, and run one LIBERO task
       end-to-end.
 
-   .. grid-item-card:: Usage tutorial
+   .. grid-item-card:: Usage Tutorial
       :link: rst_source/usage/configure_planner
       :link-type: doc
       :text-align: center
@@ -57,7 +57,7 @@ Welcome to RPent
       Drive the LIBERO / RoboCasa simulators or a Franka / SO-101 arm,
       switch planners, and pick action primitives.
 
-   .. grid-item-card:: Development tutorial
+   .. grid-item-card:: Development Tutorial
       :link: rst_source/development/architecture
       :link-type: doc
       :text-align: center
@@ -73,17 +73,17 @@ Welcome to RPent
 
    Overview <rst_source/overview>
    Installation <rst_source/installation>
-   Quick start <rst_source/quickstart>
+   Quick Start <rst_source/quickstart>
 
 .. toctree::
    :maxdepth: 1
    :includehidden:
    :titlesonly:
    :hidden:
-   :caption: Usage tutorial
+   :caption: Usage Tutorial
 
-   Agentic planner <rst_source/usage/configure_planner>
-   Action primitives <rst_source/usage/configure_primitives>
+   Agentic Planner <rst_source/usage/configure_planner>
+   Action Primitives <rst_source/usage/configure_primitives>
    LIBERO <rst_source/usage/libero>
    Advanced Deployment <rst_source/usage/advanced_deployment>
    RoboCasa <rst_source/usage/robocasa>
@@ -95,18 +95,18 @@ Welcome to RPent
    :includehidden:
    :titlesonly:
    :hidden:
-   :caption: Development tutorial
+   :caption: Development Tutorial
 
-   System internals <rst_source/development/architecture>
-   Add a new robot <rst_source/development/add_robot>
-   Add an action primitive <rst_source/development/add_primitive>
-   Memory management <rst_source/development/memory>
+   System Internals <rst_source/development/architecture>
+   Add a New Robot <rst_source/development/add_robot>
+   Add an Action Primitive <rst_source/development/add_primitive>
+   Memory Management <rst_source/development/memory>
 
 .. toctree::
    :maxdepth: 2
    :includehidden:
    :titlesonly:
    :hidden:
-   :caption: Awesome works
+   :caption: Publications
 
-   HarnessVLA <rst_source/awesome_works/harnessvla>
+   Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents <rst_source/awesome_works/harnessvla>

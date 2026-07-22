@@ -1,4 +1,4 @@
-Memory management
+Memory Management
 =================
 
 Content coming soon.

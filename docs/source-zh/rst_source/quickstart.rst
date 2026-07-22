@@ -8,7 +8,7 @@
 1. 配置 API key 与 checkpoint
 ------------------------------
 
-导出你要用的 LLM 提供商的 API key, 以及 VLA checkpoint 的路径:
+导出你要用的 LLM 提供商的 API key, 以及 VLA 与 SAM3 checkpoint 的路径:
 
 .. code-block:: bash
 
@@ -39,7 +39,7 @@
 
 .. code-block:: bash
 
-   rpent --suite libero_object_swap --task 2 --seed 0 \
+   rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
      --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 
 **模型 id 规约。** ``api`` planner 下, ``--model`` 需要带 provider
@@ -62,22 +62,8 @@
 
 .. code-block:: bash
 
-   rpent --dashboard --dashboard-language zh-cn \
+   rpent --env libero --dashboard --dashboard-language zh-cn \
      --suite libero_goal_task --task 1 --seed 0 --planner claude_code
-
-4. RoboCasa
------------
-
-RoboCasa 有自己的入口和一次性安装脚本:
-
-.. code-block:: bash
-
-   bash scripts/setup_robocasa.sh                                # 一次性安装
-   bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <task> <gpu> <seed>
-
-完整的 RoboCasa365 + RLDX-1 流程见 `docs/SETUP_ROBOCASA.zh.md
-<https://github.com/RLinf/RPent/blob/main/docs/SETUP_ROBOCASA.zh.md>`_,
-而 :doc:`usage/robocasa` 说明 RoboCasa toolkit 对 agent 暴露了什么。
 
 关键 CLI 选项
 -------------
@@ -91,6 +77,9 @@ RoboCasa 有自己的入口和一次性安装脚本:
    * - Flag
      - 默认值
      - 说明
+   * - ``--env``
+     - 必填
+     - 环境后端。当前支持 ``libero``。
    * - ``--suite``
      - 必填
      - 任务套件, 如 ``libero_object_task``、``libero_spatial_swap``
@@ -121,7 +110,7 @@ RoboCasa 有自己的入口和一次性安装脚本:
      - LIBERO 变体: ``standard`` | ``pro`` | ``plus``
    * - ``--cuda-device``
      - 继承
-     - 暴露给 env / vla server 的 GPU 设备
+     - 暴露给 env / VLA / SAM3 server 的 GPU 设备
    * - ``--dashboard``
      - 关
      - 为本次运行启动本地 dashboard
@@ -129,22 +118,29 @@ RoboCasa 有自己的入口和一次性安装脚本:
      - ``en``
      - Dashboard UI 语言: ``en`` | ``zh-cn``
    * - ``--env-endpoint``
-     - —
-     - 复用位于 ``HOST:PORT`` 的已有 env_server，而非本地启动
+     - —(自动 spawn)
+     - 已在运行的 env_server 的 ``[protocol://]host:port``
+       (``protocol=http|socket``, 默认 ``http``). 留空则本地起一个。
    * - ``--vla-endpoint``
-     - —
-     - 复用已在运行的 vla_server, 而不是启动新实例
+     - —(自动 spawn)
+     - 已在运行的 vla_server 的 ``[protocol://]host:port`` (同上).
+       留空则本地起一个。
+   * - ``--sam3-endpoint``
+     - —(自动 spawn)
+     - 已在运行的 RPent SAM3 服务的 ``[protocol://]host:port``
+       (``protocol=http|socket``, 默认 ``http``)。留空则本地起一个。
 
 跑起来后应该看到什么
 --------------------
 
 一次成功的运行:
 
-1. env server 起来后打印 ``env server ready at 127.0.0.1:<port>``。
+1. 启动 env_server、vla_server 和 sam3_server, 并在进入 agent loop 前
+   等待各自的 RPC 或 health endpoint 就绪。
 2. 每一轮 agent 的 reasoning 会输出到终端 (或 stream 到 dashboard)。
 3. 当 LLM 调用 ``finish(success=True)`` 时结束; 或者触达
    ``--max-turns`` / ``--max-episode-steps`` 时结束。
 4. 写出 ``<output_dir>/transcript_*.json`` (完整 turn-by-turn 记录) 和
    ``<output_dir>/episode.mp4`` (渲染出的 rollout)。
 
-出问题时, 参考 :doc:`installation` 页底部提到的三份日志文件。
+出问题时, 参考 :doc:`installation` 页底部提到的服务与 agent 日志文件。

@@ -127,7 +127,7 @@ export CUDA_VISIBLE_DEVICES=0
 #   • OpenAI-compatible chat endpoints:  --model openai-chat:glm-5.2
 #   • OpenAI responses endpoints:        --model openai:gpt-5.5
 #   • claude_code / codex planners:     no provider prefix, e.g. --model claude-opus-4-8
-rpent --suite libero_object_swap --task 2 --seed 0 \
+rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
   --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
@@ -136,25 +136,15 @@ rpent --suite libero_object_swap --task 2 --seed 0 \
 Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
-rpent --dashboard --dashboard-language zh-cn \
+rpent --env libero --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 ```
-
-### RoboCasa
-
-RoboCasa uses a separate entrypoint and setup guide.
-
-```bash
-bash scripts/setup_robocasa.sh                                # one-time setup
-bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <task> <gpu> <seed>
-```
-
-See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 + RLDX-1 walkthrough.
 
 ## Key CLI Options
 
 | Flag | Default | Description |
 | --- | --- | --- |
+| `--env` | — (required) | Environment backend. Currently `libero`. |
 | `--suite` | — (required) | Task suite, e.g. `libero_object_task`, `libero_spatial_swap` |
 | `--task` | — (required) | Task id within the suite |
 | `--seed` | `0` | Random seed |
@@ -167,14 +157,13 @@ See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 +
 | `--cuda-device` | inherited | GPU device(s) exposed to the env / VLA / SAM3 servers |
 | `--dashboard` | off | Start the local dashboard for this run |
 | `--dashboard-language` | `en` | Dashboard UI language: `en` \| `zh-cn` |
-| `--env-endpoint` | — | Reuse an existing env_server at `HOST:PORT` instead of spawning one |
-| `--vla-endpoint` | — | Reuse an already-running vla_server instead of spawning one |
-| `--sam3-endpoint` | — | Reuse an already-running RPent SAM3 service instead of spawning one |
+| `--env-endpoint` | — (spawn) | `[protocol://]host:port` of an existing env_server (`protocol=http\|socket`, default `http`). If unset, one is spawned locally. |
+| `--vla-endpoint` | — (spawn) | `[protocol://]host:port` of an existing vla_server (same rules). If unset, one is spawned locally. |
+| `--sam3-endpoint` | — (spawn) | `[protocol://]host:port` of an existing RPent SAM3 service (`protocol=http\|socket`, default `http`). If unset, one is spawned locally. |
 
 ## Documentation
 
 - [Adding a new environment](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html) — plug a new simulator / robot into the runner ([中文](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html)).
-- [RoboCasa setup](docs/SETUP_ROBOCASA.zh.md) — RoboCasa365 + RLDX-1 install and run guide.
 - [`docs/`](docs/README.md) — local Sphinx build and preview instructions.
 
 ## Citation and Acknowledgement

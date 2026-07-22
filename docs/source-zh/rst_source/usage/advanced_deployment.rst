@@ -5,7 +5,7 @@
 服务。单机运行时建议保留这一默认行为。只有在服务分布于不同主机, 或需要
 跨任务复用 VLA 与 SAM3 模型时, 才需要配置外部 endpoint。
 
-三个 endpoint 使用不同的传输方式:
+三个 endpoint 支持以下传输方式:
 
 .. list-table::
    :header-rows: 1
@@ -15,13 +15,13 @@
      - Endpoint 格式
    * - LIBERO 环境
      - ``--env-endpoint``
-     - Socket RPC, ``HOST:PORT``
+     - HTTP 或 socket RPC, ``[protocol://]HOST:PORT``
    * - Pi0.5 VLA
      - ``--vla-endpoint``
-     - HTTP, ``http://HOST:PORT``
+     - HTTP 或 socket RPC, ``[protocol://]HOST:PORT``
    * - SAM3
      - ``--sam3-endpoint``
-     - HTTP, ``http://HOST:PORT``
+     - HTTP 或 socket RPC, ``[protocol://]HOST:PORT``
 
 LIBERO 环境服务
 ---------------
@@ -36,8 +36,7 @@ LIBERO 环境服务
    python -m robots.libero.env_server \
      --suite libero_object_swap --task 2 --seed 0 \
      --max-episode-steps 10000 \
-     --output-dir /path/to/env-output \
-     --transport-host 0.0.0.0 --transport-port ENV_PORT
+     --transport http --host 0.0.0.0 --port ENV_PORT
 
 环境服务与任务绑定。需要修改上述任一参数时, 请先停止旧服务并重新启动。
 
@@ -50,7 +49,8 @@ Pi0.5 VLA 服务
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
    export CUDA_VISIBLE_DEVICES=0
-   python -m robots.libero.vla_server --host 0.0.0.0 --port VLA_PORT
+   python -m robots.libero.vla_server \
+     --transport http --host 0.0.0.0 --port VLA_PORT
 
 VLA 服务只加载一次模型, 可以由多个 RPent 运行复用。
 
@@ -64,7 +64,7 @@ SAM3 服务
    export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
    export CUDA_VISIBLE_DEVICES=0
    python -m robots.libero.sam3_server \
-     --host 0.0.0.0 --port SAM3_PORT
+     --transport http --host 0.0.0.0 --port SAM3_PORT
 
 SAM3 服务只加载一次模型, 可以由多个 RPent 运行复用。
 
@@ -79,7 +79,7 @@ seed 和最大 episode 步数必须与环境服务的启动参数保持一致:
    rpent \
      --suite libero_object_swap --task 2 --seed 0 \
      --libero-type pro --max-episode-steps 10000 \
-     --env-endpoint ENV_HOST:ENV_PORT \
+     --env-endpoint http://ENV_HOST:ENV_PORT \
      --vla-endpoint http://VLA_HOST:VLA_PORT \
      --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
      --planner claude_code --model claude-opus-4-7
@@ -87,4 +87,5 @@ seed 和最大 episode 步数必须与环境服务的启动参数保持一致:
 请将各 ``*_HOST`` 替换为运行对应服务的机器地址, 并确保运行 RPent 的机器
 可以访问该地址; 将各 ``*_PORT`` 替换为启动服务时选择的空闲端口。三个
 endpoint 参数可以分别省略; 某项未指定时, RPent 会在当前机器上启动对应
-服务并自动选择空闲端口。
+服务并自动选择空闲端口。三个服务省略 protocol 时都默认使用 HTTP, 也都
+可以通过 ``socket://HOST:PORT`` 使用 socket RPC。

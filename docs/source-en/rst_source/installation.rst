@@ -9,7 +9,7 @@ is no longer a separate RLinf clone or setup script.
 Prerequisites
 -------------
 
-- Linux with an NVIDIA GPU (LIBERO / RoboCasa render on EGL).
+- Linux with an NVIDIA GPU (LIBERO renders on EGL).
 - CUDA 12.x drivers matching your GPU.
 - Python 3.10–3.11.
 - ``git``, ``bash``, and a working C toolchain for MuJoCo / robosuite.
@@ -61,22 +61,7 @@ Available extras:
    * - ``.[sam3]``
      - Pinned official SAM 3.0 segmentation stack only
 
-2. (Optional) RoboCasa
-----------------------
-
-RoboCasa (kitchen-scale, long-horizon manipulation) has its own
-one-shot setup script:
-
-.. code-block:: bash
-
-   bash scripts/setup_robocasa.sh
-
-See `docs/SETUP_ROBOCASA.zh.md
-<https://github.com/RLinf/RPent/blob/main/docs/SETUP_ROBOCASA.zh.md>`_
-for the full RoboCasa365 + RLDX-1 walkthrough (assets, controller
-configs, VLA checkpoints).
-
-3. (Optional) Real-world robot dependencies
+2. (Optional) Real-world robot dependencies
 -------------------------------------------
 
 Franka and SO-101 support is being rolled in; when it lands, each

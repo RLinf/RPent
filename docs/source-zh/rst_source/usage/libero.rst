@@ -92,7 +92,7 @@ SAM 3.0 checkpoint 可以从以下页面下载:
    export LIBERO_TYPE=pro
    export CUDA_VISIBLE_DEVICES=0
 
-   rpent \
+   rpent --env libero \
      --suite libero_object_swap --task 2 --seed 0 \
      --planner api --model anthropic:claude-opus-4-8 \
      --max-tokens 8192
@@ -101,13 +101,14 @@ SAM 3.0 checkpoint 可以从以下页面下载:
 --------
 
 - **env_server** (``robots/libero/env_server.py``) —— 持有 LIBERO
-  MuJoCo env 与 EGL 渲染。通过 pickle-framed socket RPC 对外暴露
+  MuJoCo env 与 EGL 渲染。通过 RPC 传输 (默认 HTTP; 加
+  ``--transport socket`` 走 pickle-framed socket) 对外暴露
   ``reset``、``step``、``chunk_step``、``render_agentview``、
   ``get_camera_meta``、``cached_image``…
 - **vla_server** (``robots/libero/vla_server.py``) —— 持有 Pi0.5
-  权重, 通过 HTTP 暴露 ``/predict``。
+  权重, 通过同一套 RPC 传输 (HTTP 或 socket) 暴露 ``predict``。
 - **sam3_server** (``robots/libero/sam3_server.py``) —— 持有 SAM 3.0,
-  通过同一个 ``/segment`` endpoint 支持文本或单个正点分割, 只返回
+  通过同一套 RPC 传输 (HTTP 或 socket) 支持文本或单个正点分割, 只返回
   top-1 压缩 PNG mask。
 - **Toolkit** (``robots/libero/toolkit.py``) —— 定义 LLM 能调的工具:
   ``pi0_pick`` (交给 Pi0.5)、``move_to``、``rotate_wrist``、
@@ -143,7 +144,7 @@ Dashboard
 
 .. code-block:: bash
 
-   rpent --dashboard \
+   rpent --env libero --dashboard \
      --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
 Dashboard streams reasoning、agentview + 腕部相机 + Pi0.5 叠加视图,
@@ -155,9 +156,9 @@ Dashboard streams reasoning、agentview + 腕部相机 + Pi0.5 叠加视图,
 如果你有一个与 LIBERO 兼容、但不是 Pi0.5 的 VLA, 可以在不动 env 的
 情况下把 model client 换掉:
 
-1. 写一个新的 ``vla_server.py``, 暴露相同的 HTTP ``/predict``
-   契约 (或改走 socket RPC, 如果那更合适)。
-2. 用 ``--vla-endpoint http://host:port`` 指向它。
+1. 写一个新的 ``vla_server.py``, 暴露相同的 ``predict`` RPC 契约
+   (http 或 socket 皆可)。
+2. 用 ``--vla-endpoint [protocol://]host:port`` 指向它。
 3. 如果 tool surface 要变 (比如 ``pi0_pick`` 改成 ``mymodel_pick``),
    相应更新 ``robots/libero/toolkit.py``。
 
