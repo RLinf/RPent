@@ -21,6 +21,25 @@ Pi0.5 只需要一件事: 磁盘上的 checkpoint。通过 ``PI05_CHECKPOINT_PAT
 `rlinf-pi05-libero-130-fullshot-sft
 <https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_。
 
+SAM3 配置
+---------
+
+每次 LIBERO 运行都默认启用 SAM 3.0 分割。RPent 会在同一个
+``--cuda-device`` 上自动启动 ``robots/libero/sam3_server.py``, 并随运行
+结束关闭。checkpoint 按以下顺序解析:
+
+1. ``SAM3_CHECKPOINT_PATH``;
+2. 受限的 ``facebook/sam3/sam3.pt`` Hugging Face 缓存/自动下载。
+
+传入 ``--sam3-endpoint https://host:port`` 可复用已有 RPent SAM3 服务,
+并跳过本机 Torch、模型和 checkpoint 加载。手动部署命令为:
+
+.. code-block:: bash
+
+   python -m robots.libero.sam3_server \
+     --host 0.0.0.0 --port 8114 --cuda-device 0 \
+     --checkpoint /path/to/sam3.pt
+
 任务选择
 --------
 
@@ -81,6 +100,9 @@ Pi0.5 只需要一件事: 磁盘上的 checkpoint。通过 ``PI05_CHECKPOINT_PAT
   ``get_camera_meta``、``cached_image``…
 - **vla_server** (``robots/libero/vla_server.py``) —— 持有 Pi0.5
   权重, 通过 HTTP 暴露 ``/predict``。
+- **sam3_server** (``robots/libero/sam3_server.py``) —— 持有 SAM 3.0,
+  通过同一个 ``/segment`` endpoint 支持文本或单个正点分割, 只返回
+  top-1 压缩 PNG mask。
 - **Toolkit** (``robots/libero/toolkit.py``) —— 定义 LLM 能调的工具:
   ``pi0_pick`` (交给 Pi0.5)、``move_to``、``rotate_wrist``、
   ``back_project``、``view_driver_state``、``finish``…
@@ -97,6 +119,9 @@ LIBERO toolkit 默认暴露:
 - ``release()`` —— 打开夹爪。
 - ``back_project(pixel_x, pixel_y)`` —— 把 agentview 图像上的像素点
   反投影到世界坐标 3D 点。
+- ``segment(prompt=..., point=...)`` —— 文本提示与单个 ``[row, col]``
+  正点二选一, 用 SAM3 的 top-1 mask 反投影得到 ``world_xyz``。mask 只在
+  服务端与客户端之间使用, planner 只收到摘要和 artifact 路径。
 - ``view_driver_state()`` —— 强制刷新一次状态 dump (图像、深度、
   camera meta、``states.json``)。
 - ``finish(status)`` —— 以 ``success`` / ``failure`` / ``stuck``

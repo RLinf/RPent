@@ -83,24 +83,25 @@ RPent is built upon three core design principles: **service-oriented, standardiz
 
 ## Quick Start
 
-**1. Install RPent with a single `pip install`.** 
+**1. Install RPent with a single `pip install`.**
 
 ```bash
 git clone https://github.com/RLinf/RPent rpent && cd rpent
 pip install -e ".[full]"
 ```
 
-`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator on the RLinf runtime). 
+`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator + SAM 3.0 on the RLinf runtime).
 Pick a narrower extra if you don't need the whole stack:
 
 | Extra | Installs |
 | --- | --- |
-| `.[full]` | `rlinf` + `openpi` + `libero-pro` — the default run stack |
+| `.[full]` | `rlinf` + `openpi` + `libero-pro` + `sam3` — the default run stack |
 | `.[libero-pro]` | Base LIBERO + LIBERO-PRO simulator |
 | `.[libero-plus]` | Base LIBERO + LIBERO-plus simulator |
 | `.[libero]` | Base LIBERO only |
 | `.[openpi]` | openpi VLA only |
 | `.[rlinf]` | RLinf runtime only |
+| `.[sam3]` | Pinned official SAM 3.0 segmentation stack only |
 
 **2. Configure keys and checkpoints, then run.**
 
@@ -114,6 +115,10 @@ export OPENAI_API_KEY=sk-xxx
 # VLA checkpoint — download from
 # https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft
 export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+# SAM 3.0 checkpoint — download from
+# https://huggingface.co/facebook/sam3
+# https://modelscope.cn/models/facebook/sam3
+export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
 export LIBERO_TYPE=pro
 export CUDA_VISIBLE_DEVICES=0
 
@@ -159,11 +164,12 @@ See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 +
 | `--max-tokens` | `8192` | Max tokens per LLM reply |
 | `--max-episode-steps` | `10000` | Max env steps |
 | `--libero-type` | `LIBERO_TYPE` or `pro` | LIBERO variant: `standard` \| `pro` \| `plus` |
-| `--cuda-device` | inherited | GPU device(s) exposed to the env / vla servers |
+| `--cuda-device` | inherited | GPU device(s) exposed to the env / VLA / SAM3 servers |
 | `--dashboard` | off | Start the local dashboard for this run |
 | `--dashboard-language` | `en` | Dashboard UI language: `en` \| `zh-cn` |
+| `--env-endpoint` | — | Reuse an existing env_server at `HOST:PORT` instead of spawning one |
 | `--vla-endpoint` | — | Reuse an already-running vla_server instead of spawning one |
-| `--no-driver` | off | Attach to an existing env_server / vla_server |
+| `--sam3-endpoint` | — | Reuse an already-running RPent SAM3 service instead of spawning one |
 
 ## Documentation
 

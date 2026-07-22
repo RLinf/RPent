@@ -124,12 +124,12 @@ RoboCasa 有自己的入口和一次性安装脚本:
    * - ``--dashboard-language``
      - ``en``
      - Dashboard UI 语言: ``en`` | ``zh-cn``
+   * - ``--env-endpoint``
+     - —
+     - 复用位于 ``HOST:PORT`` 的已有 env_server，而非本地启动
    * - ``--vla-endpoint``
      - —
      - 复用已在运行的 vla_server, 而不是启动新实例
-   * - ``--no-driver``
-     - 关
-     - 连接到已在运行的 env_server / vla_server
 
 跑起来后应该看到什么
 --------------------

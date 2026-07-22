@@ -22,6 +22,26 @@ Download the recommended SFT checkpoint from HuggingFace:
 `rlinf-pi05-libero-130-fullshot-sft
 <https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_.
 
+SAM3 configuration
+------------------
+
+SAM 3.0 segmentation is enabled for every LIBERO run. RPent starts
+``robots/libero/sam3_server.py`` automatically on the same ``--cuda-device``
+and shuts it down with the run. Checkpoint resolution is:
+
+1. ``SAM3_CHECKPOINT_PATH``;
+2. the gated ``facebook/sam3/sam3.pt`` Hugging Face cache/download.
+
+Use ``--sam3-endpoint https://host:port`` to reuse an already-running RPent
+SAM3 service; this skips all local Torch, model, and checkpoint loading. A
+standalone service can be started with:
+
+.. code-block:: bash
+
+   python -m robots.libero.sam3_server \
+     --host 0.0.0.0 --port 8114 --cuda-device 0 \
+     --checkpoint /path/to/sam3.pt
+
 Task selection
 --------------
 
@@ -86,6 +106,9 @@ What runs where
   ``cached_image``, … over pickle-framed socket RPC.
 - **vla_server** (``robots/libero/vla_server.py``) — owns the Pi0.5
   weights. Exposes ``/predict`` over HTTP.
+- **sam3_server** (``robots/libero/sam3_server.py``) — owns SAM 3.0 and
+  exposes text or single-positive-point segmentation through one
+  ``/segment`` endpoint. It returns only the top compressed PNG mask.
 - **Toolkit** (``robots/libero/toolkit.py``) — defines the tools the
   LLM can call: ``pi0_pick`` (fed to Pi0.5), ``move_to``,
   ``rotate_wrist``, ``back_project``, ``view_driver_state``,
@@ -104,6 +127,10 @@ By default the LIBERO toolkit exposes:
 - ``release()`` — open the gripper.
 - ``back_project(pixel_x, pixel_y)`` — turn a click on the agentview
   image into a 3D point in world coordinates.
+- ``segment(prompt=..., point=...)`` — run SAM3 with exactly one text prompt
+  or one ``[row, col]`` positive point, then project the top mask to
+  ``world_xyz``. The mask remains internal; the planner receives summary and
+  artifact paths.
 - ``view_driver_state()`` — force a fresh state dump (images, depths,
   camera meta, ``states.json``).
 - ``finish(status)`` — end the episode with ``success`` / ``failure``

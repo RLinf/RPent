@@ -130,12 +130,12 @@ The most common flags of ``rpent`` at a glance:
    * - ``--dashboard-language``
      - ``en``
      - Dashboard UI language: ``en`` | ``zh-cn``
+   * - ``--env-endpoint``
+     - —
+     - Reuse an existing env_server at ``HOST:PORT`` instead of spawning one
    * - ``--vla-endpoint``
      - —
      - Reuse an already-running vla_server instead of spawning one
-   * - ``--no-driver``
-     - off
-     - Attach to an existing env_server / vla_server
 
 What you should see
 -------------------

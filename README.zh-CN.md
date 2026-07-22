@@ -99,16 +99,17 @@ git clone https://github.com/RLinf/RPent rpent && cd rpent
 pip install -e ".[full]"
 ```
 
-`.[full]` 是默认的端到端组合（openpi Pi0.5 VLA + LIBERO-PRO 仿真器，运行在 RLinf 运行时之上）。如果不需要整套，可选择更小的 extra：
+`.[full]` 是默认的端到端组合（openpi Pi0.5 VLA + LIBERO-PRO 仿真器 + SAM 3.0，运行在 RLinf 运行时之上）。如果不需要整套，可选择更小的 extra：
 
 | Extra | 安装内容 |
 | --- | --- |
-| `.[full]` | `rlinf` + `openpi` + `libero-pro`——默认运行组合 |
+| `.[full]` | `rlinf` + `openpi` + `libero-pro` + `sam3`——默认运行组合 |
 | `.[libero-pro]` | 仅基础 LIBERO + LIBERO-PRO 仿真器 |
 | `.[libero-plus]` | 基础 LIBERO + LIBERO-plus 仿真器 |
 | `.[libero]` | 仅基础 LIBERO |
 | `.[openpi]` | 仅 openpi VLA |
 | `.[rlinf]` | 仅 RLinf 运行时 |
+| `.[sam3]` | 仅SAM 3.0 分割依赖 |
 
 **2. 配置密钥与 checkpoint，然后运行。**
 
@@ -122,6 +123,10 @@ export OPENAI_API_KEY=sk-xxx
 # VLA checkpoint —— 从以下地址下载：
 # https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft
 export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+# SAM 3.0 checkpoint —— 从以下地址下载：
+# https://huggingface.co/facebook/sam3
+# https://modelscope.cn/models/facebook/sam3
+export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
 export LIBERO_TYPE=pro
 export CUDA_VISIBLE_DEVICES=0
 
@@ -167,11 +172,12 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 | `--max-tokens` | `8192` | 单次回复最大 token |
 | `--max-episode-steps` | `10000` | 环境最大步数 |
 | `--libero-type` | `LIBERO_TYPE` 或 `pro` | LIBERO 类型：`standard` \| `pro` \| `plus` |
-| `--cuda-device` | 继承当前环境 | env / vla server 可见的 GPU 设备 |
+| `--cuda-device` | 继承当前环境 | env / VLA / SAM3 server 可见的 GPU 设备 |
 | `--dashboard` | 关 | 为本次运行启动本地 dashboard |
 | `--dashboard-language` | `en` | Dashboard 界面语言：`en` \| `zh-cn` |
+| `--env-endpoint` | — | 复用位于 `HOST:PORT` 的已有 env_server，而非本地启动 |
 | `--vla-endpoint` | — | 复用已在运行的 vla_server，而非新起一个 |
-| `--no-driver` | 关 | 连接已存在的 env_server / vla_server |
+| `--sam3-endpoint` | — | 复用已在运行的 RPent SAM3 服务，而非本地启动 |
 
 ## 文档
 

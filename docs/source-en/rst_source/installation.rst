@@ -3,8 +3,8 @@ Installation
 
 RPent installs with a single ``pip install``. The optional-dependency
 extras pull the forked `RLinf <https://github.com/RLinf/RLinf>`_ runtime,
-openpi, and the LIBERO simulator as git dependencies, so there is no
-longer a separate RLinf clone or setup script.
+openpi, the LIBERO simulator, and SAM 3.0 as git dependencies, so there
+is no longer a separate RLinf clone or setup script.
 
 Prerequisites
 -------------
@@ -21,6 +21,9 @@ You will also want:
 - A VLA checkpoint. For LIBERO / Pi0.5 the recommended checkpoint lives
   at `HuggingFace: rlinf-pi05-libero-130-fullshot-sft
   <https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_.
+- Access to the gated `facebook/sam3
+  <https://huggingface.co/facebook/sam3>`_ checkpoint and an authenticated
+  Hugging Face client, or a local SAM 3.0 ``sam3.pt`` file.
 
 1. Install RPent with pip
 -------------------------
@@ -33,8 +36,8 @@ the stack you want:
    git clone https://github.com/RLinf/RPent rpent && cd rpent
    pip install -e ".[full]"
 
-``.[full]`` is the default end-to-end stack — the openpi Pi0.5 VLA and
-the LIBERO-PRO simulator on top of the RLinf runtime.
+``.[full]`` is the default end-to-end stack — the openpi Pi0.5 VLA,
+the LIBERO-PRO simulator, and SAM 3.0 on top of the RLinf runtime.
 
 Available extras:
 
@@ -44,7 +47,7 @@ Available extras:
    * - Extra
      - Installs
    * - ``.[full]``
-     - ``rlinf`` + ``openpi`` + ``libero-pro`` — the default run stack
+     - ``rlinf`` + ``openpi`` + ``libero-pro`` + ``sam3`` — the default run stack
    * - ``.[libero-pro]``
      - Base LIBERO + LIBERO-PRO simulator only
    * - ``.[libero-plus]``
@@ -55,6 +58,8 @@ Available extras:
      - openpi VLA only
    * - ``.[rlinf]``
      - RLinf runtime only
+   * - ``.[sam3]``
+     - Pinned official SAM 3.0 segmentation stack only
 
 2. (Optional) RoboCasa
 ----------------------
@@ -83,15 +88,18 @@ Verifying the install
 ---------------------
 
 The quickest way to confirm everything is wired correctly is to run one
-LIBERO task end-to-end — see :doc:`quickstart`. If that succeeds, the
-env server, VLA server, and reasoning brain are all healthy.
+LIBERO task end-to-end — see :doc:`quickstart`. SAM3 starts automatically;
+set ``SAM3_CHECKPOINT_PATH=/path/to/sam3.pt`` to use a local checkpoint,
+or run ``hf auth login`` once to allow the official checkpoint to enter
+the Hugging Face cache.
 
 If something breaks:
 
 - The env server writes its stdout / stderr to
   ``<output_dir>/env_server.log``.
 - The VLA server writes to ``<output_dir>/vla_server.log``.
+- The SAM3 server writes to ``<output_dir>/sam3_server.log``.
 - The agent's own run log lives at ``<output_dir>/run.log``.
 
-The three logs are always in that per-run scratch directory, so a
+These logs are always in that per-run scratch directory, so a
 failed run is self-contained and easy to inspect.
