@@ -38,10 +38,10 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
 <table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
   <thead align="center" valign="bottom">
     <tr>
-      <th width="26%">智能体规划器</th>
-      <th width="28%">动作原语</th>
-      <th width="26%" align="left">仿真环境</th>
-      <th width="20%">真实世界</th>
+      <th style="min-width: 300px;">智能体规划器</th>
+      <th style="min-width: 340px;">动作原语</th>
+      <th style="min-width: 300px; text-align: left;">仿真环境</th>
+      <th style="min-width: 260px;">真实世界</th>
     </tr>
   </thead>
   <tbody valign="top">
