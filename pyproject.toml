@@ -32,7 +32,7 @@ dependencies = [
     "pydantic>=2",
     "fastapi>=0.110",
     "uvicorn>=0.27",
-    "httpx>=0.27",
+    "httpx>=0.27,<1",
     "claude-agent-sdk>=0.1.60",
     "openai-codex>=0.1.0b3",
     "numpy",
@@ -72,7 +72,14 @@ libero-plus = [
     "liberoplus @ git+https://github.com/RLinf/LIBERO-plus.git@feature/physical-agent",
 ]
 full = [
-    "rpent[rlinf,openpi,libero-pro]",
+    "rpent[rlinf,openpi,libero-pro,sam3]",
+]
+sam3 = [
+    "sam3 @ git+https://github.com/facebookresearch/sam3.git@2ec3c0711a9719ac324388adc662e471f8fe2168",
+    "torch",
+    "torchvision",
+    "pillow>=10",
+    "setuptools<82",
 ]
 
 [tool.uv]
