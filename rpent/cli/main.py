@@ -44,6 +44,7 @@ from rpent.utils.vla_client import VLAClient
 from robots.libero.env_client import LiberoEnvClient
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.logging import get_logger, init_output_dir
+from rpent.utils.resources import ensure_resources
 
 logger = get_logger("agent")
 
@@ -328,6 +329,7 @@ def main() -> int:
     task = args.task
     seed = args.seed
     env_name = args.env_name
+    ensure_resources(env_name)
 
     # resolve output directory
     output_dir = args.output_dir

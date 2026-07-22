@@ -1,6 +1,0 @@
-{"action": "reset"}
-{"action": "move_to", "xyz": [0.04, 0.005, 1.05], "gripper": -1, "tol": 0.012, "step_clip": 0.022, "max_steps": 80}
-{"action": "pi0_pick", "prompt": "pick up the black bowl in front of you", "max_chunks": 22, "lift_thresh": 0.04, "gripper_closed_thresh": 0.05}
-{"action": "move_to", "xyz": [0.07, 0.0, 1.15], "gripper": 1, "tol": 0.015, "step_clip": 0.022, "max_steps": 80}
-{"action": "move_pose", "xyz": [0.055, -0.295, 1.05], "gripper": 1, "target_pitch": 0.0, "target_yaw": 0.0, "step_clip": 0.022, "pitch_step": 0.05, "yaw_step": 0.05, "tol": 0.012, "ori_tol": 0.08, "max_steps": 200}
-{"action": "move_pose", "xyz": [0.055, -0.295, 0.95], "gripper": 1, "target_pitch": 0.0, "target_yaw": 0.0, "step_clip": 0.012, "pitch_step": 0.04, "yaw_step": 0.04, "tol": 0.012, "ori_tol": 0.08, "max_steps": 150}
