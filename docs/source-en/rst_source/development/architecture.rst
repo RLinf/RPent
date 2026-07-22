@@ -143,8 +143,8 @@ There is **no central list** of envs. Dropping a package under
 ``robots/`` is enough. This is the mechanism you use to add a new
 robot (see :doc:`add_robot`).
 
-Cerebrum interface
-------------------
+Planner interface
+-----------------
 
 Every planner implements the same tiny interface (see
 ``rpent.planner.base``):
@@ -192,7 +192,7 @@ prefix:
 - **HTTP** (``rpent.utils.http_rpc``) — JSON body over ``POST /call``.
   Convenient for standard load balancing and cross-language clients.
   Numpy arrays cross the wire tagged as
-  ``{"__ndarray__": [...], "dtype": ...}``.
+  ``{"__ndarray__": <base64>, "dtype": ..., "shape": [...]}``.
 - **Pickle-framed socket RPC** (``rpent.utils.socket_rpc``) — for
   history-stacked nested numpy dicts and other wide, variable-shape
   payloads where JSON re-encoding is wasteful.

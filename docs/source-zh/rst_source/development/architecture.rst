@@ -126,8 +126,8 @@ Env 侧的注册表
 env 是 **没有中央列表** 的。把包放到 ``robots/`` 下就行。这也是新增
 机器人时用的机制 (见 :doc:`add_robot`)。
 
-Cerebrum 接口
--------------
+Planner 接口
+------------
 
 每个 planner 实现同一个很小的接口 (见 ``rpent.planner.base``):
 
@@ -167,7 +167,7 @@ Toolkit 接口
 
 - **HTTP** (``rpent.utils.http_rpc``) —— JSON body 走
   ``POST /call``, 方便做标准负载均衡, 也方便跨语言 client。
-  Numpy 数组在 wire 上带标签 ``{"__ndarray__": [...], "dtype": ...}``。
+  Numpy 数组在 wire 上带标签 ``{"__ndarray__": <base64>, "dtype": ..., "shape": [...]}``。
 - **Pickle-framed socket RPC** (``rpent.utils.socket_rpc``) ——
   适合历史堆叠的嵌套 numpy dict 和宽泛、形状多变的载荷 (JSON 重编码
   在这种情况下太浪费)。
