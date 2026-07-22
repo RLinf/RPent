@@ -423,23 +423,16 @@ def _build_argparser() -> argparse.ArgumentParser:
                          "Defaults to MAX_BUDGET_USD env or 10.")
 
     # env_server / vla_server / sam3_server / transport
-    ap.add_argument(
-        "--env-endpoint",
-        type=_parse_env_endpoint,
-        metavar="HOST:PORT",
-        default=None,
-        help="Socket endpoint of an existing env_server. If omitted, a local "
-        "env_server is started.",
-    )
+    ap.add_argument("--env-endpoint", type=_parse_env_endpoint,
+                    metavar="HOST:PORT", default=None,
+                    help="Socket endpoint of an existing env_server. If omitted, "
+                         "a local env_server is started.")
     ap.add_argument("--vla-endpoint", default=None,
                     help="Base URL of an existing vla_server (e.g. http://host:8000). "
                          "If omitted, a local vla_server is started.")
-    ap.add_argument(
-        "--sam3-endpoint",
-        default=None,
-        help="Base URL of an existing RPent SAM3 service. If omitted, a local "
-        "SAM3 server is started automatically.",
-    )
+    ap.add_argument("--sam3-endpoint", default=None,
+                    help="Base URL of an existing RPent SAM3 service. If omitted, "
+                         "a local SAM3 server is started automatically.")
     ap.add_argument("--cuda-device", default=None,
                     help="GPU device(s) to expose via CUDA_VISIBLE_DEVICES.")
 
@@ -616,19 +609,21 @@ def main() -> int:
                 log_path=str(Path(output_dir) / "sam3_server.log"),
             )
 
+        env_client = LiberoEnvClient(
+            create_rpc_client(output_dir),
+            expected_meta={
+                "suite": suite,
+                "task": task,
+                "seed": seed,
+                "max_episode_steps": max_episode_steps,
+            },
+        )
+        vla_client = VLAClient(vla_endpoint)
         toolkit = get_toolkit(
             env_name,
             primitives_kwargs={
-                "env": LiberoEnvClient(
-                    create_rpc_client(output_dir),
-                    expected_meta={
-                        "suite": suite,
-                        "task": task,
-                        "seed": seed,
-                        "max_episode_steps": max_episode_steps,
-                    },
-                ),
-                "model": VLAClient(vla_endpoint),
+                "env": env_client,
+                "model": vla_client,
             },
             sam3_client=sam3_client,
             video_path=str(Path(output_dir) / "episode.mp4"),
