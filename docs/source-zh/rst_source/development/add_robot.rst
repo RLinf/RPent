@@ -9,8 +9,9 @@ RPent 把一个 env 拆成两个进程:
 - **Agent 侧** (``robots/<env>/``) —— 跑在 agent 进程内, 提供工具 schema、
   primitive driver 逻辑和 prompt。
 - **Driver 侧** (``robots/<env>/env_server.py``) —— 持有重量级的仿真器 /
-  机器人; 通过 pickle-framed TCP RPC server
-  (``rpent.utils.socket_rpc.SocketRpcServer``) 对外暴露 env。
+  机器人; 通过 :class:`rpent.utils.rpc.RpcFacade` 对外暴露 env,
+  默认走 HTTP (``--transport socket`` 可切换到 pickle-framed TCP
+  transport, 适合观测形态偏大的场景)。
 
 两侧通过一个 ``EnvClient`` 类相连: 每个 agent 侧方法调用对应一次到 driver 的 RPC。
 
@@ -34,12 +35,12 @@ VLA 模型跑在自己独立的进程里 (env / vla 分离)
 远程主机 (``--vla-endpoint host:port`` 可复用已在运行的模型 server)。每个 env 都
 **必须** 遵守: env_server 持有仿真, vla_server 持有模型。
 
-**传输协议可因 env 而异, 但架构不可变。** LIBERO 的 ``vla_server.py`` 走 HTTP
-``/predict`` (扁平的 image+state 载荷); RoboCasa 的 ``vla_server.py`` 走和它
-env_server 相同的 pickle-framed socket RPC —— 因为 RLDX 观测是历史堆叠的嵌套
-numpy dict (3 路相机 video 张量 ``(1,T,H,W,3)`` + ``state.*`` + annotation +
-session/reset_memory), 用 socket 天然承载, 走 HTTP 则要额外设计 wire 格式。按
-观测形态选编解码, 但保持 env/vla 进程分离一致。
+**传输协议可因 env 而异, 但架构不可变。** LIBERO 默认 env_server 和
+vla_server 都走 HTTP; 若某个机器人的观测是历史堆叠嵌套 numpy dict,
+可能更适合 pickle-framed socket (``--transport socket``), 避免 JSON
+重编码开销。两种 transport 通过 :class:`RpcFacade` 共用同一套
+``predict`` / ``env.*`` 方法表面。按观测形态选编解码, 但保持 env/vla
+进程分离一致。
 
 **任何需要仿真 env 对象的逻辑都留在 env_server。** 对 RoboCasa, ``check_grasp``
 和 ``assemble_action`` (eval 的 ``unmap_action`` + composite-controller
@@ -117,28 +118,35 @@ RPC; env_server 跑在 driver 进程内, 应答这些调用。
 1.2 Env server (driver 侧)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-在 driver 侧用 facade 类 (例如 ``MyEnvFacade``) 镜像 client 的 API。方法接收与
-client 发送方一致的位置 / 关键字参数, 返回可 pickle 的值 (numpy, 不要 torch ——
-agent 侧不 import torch)。
-
-把 facade 包在 dispatcher 中, 用 ``SocketRpcServer`` 提供服务:
+在 driver 侧用 facade 类 (例如 ``MyEnvFacade``) 镜像 client 的 API。继承
+:class:`rpent.utils.rpc.RpcFacade`, 实现 ``_dispatch(method, args, kwargs)``
+把 ``env.*`` 路由到自己的方法, 用 ``self.serve(...)`` 起服务。方法接收
+与 client 发送一致的位置 / 关键字参数, 返回可 pickle 的值 (numpy,
+不要 torch —— agent 侧不 import torch)。
 
 .. code-block:: python
 
-   def dispatch(method, args, kwargs):
-       if method.startswith("env."):
-           return getattr(facade, method[len("env."):])(*args, **kwargs)
-       if method == "shutdown":
-           shutdown_event.set()
-           return {"ok": True}
-       raise ValueError(f"unknown RPC method: {method!r}")
+   from rpent.utils.rpc import RpcFacade
 
-   server = SocketRpcServer((host, port), dispatch)
-   print(json.dumps({"event": "transport_ready", "kind": "socket",
-                     "host": host, "port": bound_port}), flush=True)
+   class MyEnvFacade(RpcFacade):
+       def __init__(self, env, meta):
+           super().__init__()
+           self._env = env
+           self._meta = meta
 
-stdout 上的 ``transport_ready`` 事件是必须的 —— ``rpent/cli/main.py`` 里的
-``start_env_server()`` 会阻塞直到看到它。
+       def _dispatch(self, method, args, kwargs):
+           if method.startswith("env."):
+               return getattr(self, method[len("env."):])(*args, **kwargs)
+           raise ValueError(f"unknown RPC method: {method!r}")
+
+       def reset(self): ...
+       def step(self, action): ...
+
+   facade = MyEnvFacade(env, meta)
+   facade.serve(transport="http", host=host, port=port)
+
+``RpcFacade.serve`` 负责 transport 绑定 (http / socket)、``healthz`` 与
+``shutdown`` 方法、感知父进程死亡、以及干净收尾 —— 你只写业务方法。
 
 当前的 ``rpent/cli/main.py`` 直接 import 了 ``LiberoEnvClient`` 和 LIBERO 的 env_server
 脚本路径。新增 env 时, 要么在 ``args.env_name`` 上分支选择 client 类和 driver
@@ -242,5 +250,5 @@ primitive driver ``__init__`` 的 dict —— 通常是
      rpent --env myenv --suite <suite> --task <id> --seed 0 \
      --output-dir /tmp/myenv_smoke --planner api --model anthropic:claude-opus-4-8
 
-期望: driver 输出 ``transport_ready``, agent 完成 prompt 的任务, 并调用 ``finish``。
-查看 ``<output_dir>/transcript_*.json`` 获取运行结束的总结。
+期望: agent 完成 prompt 的任务, 并调用 ``finish``。查看
+``<output_dir>/transcript_*.json`` 获取运行结束的总结。

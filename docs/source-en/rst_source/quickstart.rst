@@ -38,7 +38,7 @@ Run a single LIBERO PRO task (``libero_object_swap``, task ``2``, seed
 
 .. code-block:: bash
 
-   rpent --suite libero_object_swap --task 2 --seed 0 \
+   rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
      --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 
 **Model id conventions.** ``--model`` accepts a provider-prefixed id
@@ -62,24 +62,8 @@ replays. Use ``--dashboard-language zh-cn`` for the Chinese UI.
 
 .. code-block:: bash
 
-   rpent --dashboard --dashboard-language zh-cn \
+   rpent --env libero --dashboard --dashboard-language zh-cn \
      --suite libero_goal_task --task 1 --seed 0 --planner claude_code
-
-4. RoboCasa
------------
-
-RoboCasa uses a separate entrypoint and one-time setup:
-
-.. code-block:: bash
-
-   bash scripts/setup_robocasa.sh                                # one-time
-   bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <task> <gpu> <seed>
-
-See `docs/SETUP_ROBOCASA.zh.md
-<https://github.com/RLinf/RPent/blob/main/docs/SETUP_ROBOCASA.zh.md>`_
-for the full RoboCasa365 + RLDX-1 walkthrough, and
-:doc:`usage/robocasa` for what the RoboCasa toolkit
-exposes to the agent.
 
 Key CLI options
 ---------------
@@ -93,6 +77,9 @@ The most common flags of ``rpent`` at a glance:
    * - Flag
      - Default
      - Description
+   * - ``--env``
+     - required
+     - Environment backend. Currently ``libero``.
    * - ``--suite``
      - required
      - Task suite, e.g. ``libero_object_task``, ``libero_spatial_swap``
@@ -130,20 +117,23 @@ The most common flags of ``rpent`` at a glance:
    * - ``--dashboard-language``
      - ``en``
      - Dashboard UI language: ``en`` | ``zh-cn``
+   * - ``--env-endpoint``
+     - — (spawn)
+     - ``[protocol://]host:port`` of an existing env_server
+       (``protocol=http|socket``, default ``http``). If unset,
+       one is spawned locally.
    * - ``--vla-endpoint``
-     - —
-     - Reuse an already-running vla_server instead of spawning one
-   * - ``--no-driver``
-     - off
-     - Attach to an existing env_server / vla_server
+     - — (spawn)
+     - ``[protocol://]host:port`` of an existing vla_server (same rules).
+       If unset, one is spawned locally.
 
 What you should see
 -------------------
 
 A successful run:
 
-1. Prints ``env server ready at 127.0.0.1:<port>`` once the driver
-   process is up.
+1. Prints ``RPC server listening on http://127.0.0.1:<port>`` once each
+   subprocess (env_server, vla_server) is up.
 2. Prints per-turn agent reasoning (or streams it to the dashboard).
 3. Ends when the LLM calls ``finish(success=True)``, or hits
    ``--max-turns`` / ``--max-episode-steps``.

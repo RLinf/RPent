@@ -105,11 +105,11 @@ The runner (``rpent/cli/main.py``)
    use day-to-day).
 2. Creates the per-run scratch directory (``--output-dir`` or an
    auto-generated one under ``runs/``).
-3. Spawns the **env_server** as a subprocess and waits for its
-   ``transport_ready`` JSON event on stdout. That event carries the
-   host/port the socket RPC is listening on; ``rpent/cli/main.py`` records
-   the endpoint under ``<output_dir>/`` so the client can find it.
-4. Spawns (or attaches to) the **vla_server** the same way, using
+3. Pre-allocates a free port on the loopback for the **env_server**,
+   spawns it as a subprocess (with the port passed on the CLI), and
+   polls ``healthz`` via :func:`rpent.utils.rpc.wait_for_ready` until
+   the child is up.
+4. Does the same for the **vla_server**, or attaches to one via
    ``--vla-endpoint`` when reusing a running instance.
 5. Builds the **toolkit** for the chosen env via the env's
    ``get_toolkit(primitives_kwargs=...)`` factory, wiring in the env
@@ -143,7 +143,7 @@ There is **no central list** of envs. Dropping a package under
 ``robots/`` is enough. This is the mechanism you use to add a new
 robot (see :doc:`add_robot`).
 
-Planner interface
+Cerebrum interface
 ------------------
 
 Every planner implements the same tiny interface (see
@@ -184,19 +184,25 @@ class and registers whatever tools that env exposes.
 Transport substrate
 -------------------
 
-Two codecs are supported natively:
+Two codecs are supported natively, selected via the server's
+``--transport {http,socket}`` flag (default ``http``) and mirrored on
+the client side by ``--env-endpoint`` / ``--vla-endpoint`` protocol
+prefix:
 
-- **Pickle-framed socket RPC** (``rpent.utils.socket_rpc``) — used
-  by every env_server and by the RoboCasa vla_server. Chosen for
-  history-stacked nested numpy dicts (RLDX obs) and for the wide,
-  variable-shape state payloads env_servers exchange.
-- **HTTP** — used by the LIBERO vla_server for the flat
-  ``image+state → action`` payload of Pi0.5. Convenient for
-  standard load balancing and for ``--vla-endpoint``-style reuse.
+- **HTTP** (``rpent.utils.http_rpc``) — JSON body over ``POST /call``.
+  Convenient for standard load balancing and cross-language clients.
+  Numpy arrays cross the wire tagged as
+  ``{"__ndarray__": [...], "dtype": ...}``.
+- **Pickle-framed socket RPC** (``rpent.utils.socket_rpc``) — for
+  history-stacked nested numpy dicts and other wide, variable-shape
+  payloads where JSON re-encoding is wasteful.
 
-Adding a new transport is a matter of implementing the two-method
-``RpcClient`` interface (``call(method, args, kwargs, timeout_s)``);
-the toolkit and planner stay unchanged.
+Server-side, subclass :class:`rpent.utils.rpc.RpcFacade` and implement
+``_dispatch(method, args, kwargs)``; the base provides shutdown, healthz,
+transport binding, parent-death watch, and clean teardown. Adding a new
+transport is a matter of implementing the two-method ``RpcClient``
+interface (``call(method, args, kwargs, timeout_s)``); the toolkit and
+planner stay unchanged.
 
 Dashboard (optional)
 --------------------

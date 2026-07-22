@@ -93,12 +93,11 @@ Runner (``rpent/cli/main.py``)
 1. 解析 CLI flag (:doc:`../quickstart` 说明了日常最常用的那些)。
 2. 创建 per-run 的 scratch 目录 (``--output-dir`` 或
    ``runs/`` 下自动生成的目录)。
-3. 以子进程启动 **env_server**, 等待它在 stdout 上打印
-   ``transport_ready`` JSON 事件。事件里带着 socket RPC 监听的
-   host/port; ``rpent/cli/main.py`` 把 endpoint 记录到 ``<output_dir>/``
-   下, 供 client 找到。
-4. 以同样方式启动 (或复用) **vla_server**, 复用时用
-   ``--vla-endpoint``。
+3. 在 loopback 上预分配一个空闲端口, 把端口通过 CLI 传给子进程,
+   spawn **env_server**, 然后通过
+   :func:`rpent.utils.rpc.wait_for_ready` 轮询 ``healthz`` 直到子进程
+   起来。
+4. 对 **vla_server** 做同样的事; 复用已有实例时用 ``--vla-endpoint``。
 5. 通过 env 的 ``get_toolkit(primitives_kwargs=...)`` 工厂为选中的
    env 构造 **toolkit**, 把 env client 和 VLA client 传进去。
 6. 通过 ``rpent.planner.base.build_planner`` 构造 **planner**,
@@ -127,7 +126,7 @@ Env 侧的注册表
 env 是 **没有中央列表** 的。把包放到 ``robots/`` 下就行。这也是新增
 机器人时用的机制 (见 :doc:`add_robot`)。
 
-Planner 接口
+Cerebrum 接口
 -------------
 
 每个 planner 实现同一个很小的接口 (见 ``rpent.planner.base``):
@@ -162,17 +161,22 @@ Toolkit 接口
 传输层
 ------
 
-内置支持两种编码:
+内置支持两种编码, 通过 server 端 ``--transport {http,socket}``
+(默认 ``http``) 选择, client 端由 ``--env-endpoint`` /
+``--vla-endpoint`` 里的 protocol 前缀对应:
 
-- **Pickle-framed socket RPC** (``rpent.utils.socket_rpc``) —— 所有
-  env_server 以及 RoboCasa vla_server 都走它。适合历史堆叠的嵌套
-  numpy dict (RLDX obs) 和 env_server 之间宽泛、形状多变的状态载荷。
-- **HTTP** —— LIBERO vla_server 用, 走 Pi0.5 的扁平
-  ``image+state → action`` 载荷。方便做标准负载均衡, 也方便
-  ``--vla-endpoint`` 式复用。
+- **HTTP** (``rpent.utils.http_rpc``) —— JSON body 走
+  ``POST /call``, 方便做标准负载均衡, 也方便跨语言 client。
+  Numpy 数组在 wire 上带标签 ``{"__ndarray__": [...], "dtype": ...}``。
+- **Pickle-framed socket RPC** (``rpent.utils.socket_rpc``) ——
+  适合历史堆叠的嵌套 numpy dict 和宽泛、形状多变的载荷 (JSON 重编码
+  在这种情况下太浪费)。
 
-新增一个传输只需要实现两个方法的 ``RpcClient`` 接口
-(``call(method, args, kwargs, timeout_s)``); toolkit 和 planner 不用动。
+Server 端继承 :class:`rpent.utils.rpc.RpcFacade` 并实现
+``_dispatch(method, args, kwargs)`` 即可; base 负责 shutdown、healthz、
+transport 绑定、感知父进程死亡、以及干净收尾。新增一个传输只需要实现
+两个方法的 ``RpcClient`` 接口 (``call(method, args, kwargs, timeout_s)``);
+toolkit 和 planner 不用动。
 
 Dashboard (可选)
 ----------------

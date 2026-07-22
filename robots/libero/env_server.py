@@ -1,35 +1,21 @@
-"""LIBERO host process for the LLM-in-the-loop agent (env-only).
-
-Owns the RLinf/LIBERO bootstrap (path setup, env config builder) and
-exposes a pickle-framed RPC server over
-:class:`~rpent.utils.socket_rpc.SocketRpcServer`. The agent process
-drives a :class:`~robots.libero.tools.LiberoPrimitives` locally and
-reaches in only for ``env.*`` method calls; the model side goes over
-HTTP to a separate ``robots/libero/vla_server.py`` process
-(see :class:`~rpent.utils.vla_client.VLAClient`).
-
-Launched as a subprocess by ``start_env_server`` in ``rpent/cli/main.py``.
-"""
+"""RPC server wrapping a single-env LIBERO environment."""
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
-import threading
-import time
 from typing import Any
 
 # MuJoCo env vars must be set BEFORE importing anything that touches MuJoCo.
 os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
-from rpent.utils.socket_rpc import SocketRpcServer
 from rpent.utils.config import (
     get_repo_root,
     get_rlinf_repo_path,
 )
-from rpent.utils.logging import get_logger, init_output_dir
+from rpent.utils.logging import get_logger
+from rpent.utils.rpc import RpcFacade
 
 logger = get_logger("env_server")
 
@@ -115,7 +101,7 @@ def make_env(task_id: int, seed: int, suite_name: str = "libero_spatial",
 
 
 # ---------------------------------------------------------------------------
-# Facades implementing the robots.libero.tools protocols
+# Facade implementing the robots.libero.env_client protocol
 # ---------------------------------------------------------------------------
 
 
@@ -133,7 +119,7 @@ def _to_numpy_tree(x):
     return x
 
 
-class LiberoEnvFacade:
+class LiberoEnvFacade(RpcFacade):
     """Implements :class:`robots.libero.env_client.LiberoEnvClient`
     over :class:`rlinf.envs.libero.libero_env.LiberoEnv`.
 
@@ -143,6 +129,7 @@ class LiberoEnvFacade:
     """
 
     def __init__(self, env: LiberoEnv, *, meta: dict):
+        super().__init__()
         self._env = env
         self._env_idx = 0
         self._done = False
@@ -150,6 +137,16 @@ class LiberoEnvFacade:
         # client compares against its own expected values at construction
         # and refuses to talk to a stale or mis-configured server.
         self._meta = dict(meta)
+
+    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
+        if method.startswith("env."):
+            attr = method[len("env."):]
+            try:
+                return getattr(self, attr)(*args, **kwargs)
+            except Exception as e:
+                logger.warning("run method %s failed: %s", method, e)
+                raise e
+        raise ValueError(f"unknown RPC method: {method!r}")
 
     # ---- shape helpers ----
 
@@ -281,80 +278,24 @@ class LiberoEnvFacade:
 
 
 # ---------------------------------------------------------------------------
-# RPC dispatcher
-# ---------------------------------------------------------------------------
-
-
-_INITIAL_PPID = os.getppid()
-
-
-def _start_parent_watchdog(server: SocketRpcServer, shutdown_event: threading.Event,
-                           poll_s: float = 2.0) -> None:
-    """Shut the RPC server down if the agent (parent) process dies."""
-
-    def _watch() -> None:
-        while not shutdown_event.is_set():
-            time.sleep(poll_s)
-            ppid = os.getppid()
-            if ppid != _INITIAL_PPID or ppid == 1:
-                logger.warning(
-                    "parent died (ppid %s -> %s); stopping RPC server",
-                    _INITIAL_PPID,
-                    ppid,
-                )
-                shutdown_event.set()
-                threading.Thread(target=server.shutdown, daemon=True).start()
-                return
-
-    threading.Thread(target=_watch, daemon=True).start()
-
-
-def _build_dispatcher(env: LiberoEnvFacade,
-                      shutdown_event: threading.Event):
-    """Route ``env.*`` / ``shutdown`` to the right callable."""
-
-    def dispatch(method: str, args: tuple, kwargs: dict):
-        if method.startswith("env."):
-            attr = method[len("env."):]
-            try:
-                return getattr(env, attr)(*args, **kwargs)
-            except Exception as e:
-                logger.warning("run method %s failed: %s", method, e)
-                raise e
-        if method == "shutdown":
-            shutdown_event.set()
-            return {"ok": True}
-        raise ValueError(f"unknown RPC method: {method!r}")
-
-    return dispatch
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 
 def main():
     p = argparse.ArgumentParser()
+    p.add_argument("--transport", choices=["socket", "http"], default="http")
+    p.add_argument("--host", type=str, default="127.0.0.1")
+    p.add_argument("--port", type=int, default=0)
+    p.add_argument("--suite", type=str, default="libero_spatial")
     p.add_argument("--task", type=int, default=9)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--suite", type=str, default="libero_spatial")
     p.add_argument("--max-episode-steps", type=int, default=600)
-    p.add_argument("--output-dir", type=str, required=True)
-    p.add_argument("--transport-host", type=str, default="127.0.0.1")
-    p.add_argument("--transport-port", type=int, default=0)
     args = p.parse_args()
-
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    # Initialise unified logging for this run
-    init_output_dir(args.output_dir)
-
-    logger.info("task=%d  seed=%d  output_dir=%s", args.task, args.seed, args.output_dir)
 
     raw_env = make_env(args.task, args.seed, suite_name=args.suite,
                        max_episode_steps=args.max_episode_steps)
-    env_facade = LiberoEnvFacade(
+    facade = LiberoEnvFacade(
         raw_env,
         meta={
             "suite": args.suite,
@@ -363,34 +304,7 @@ def main():
             "max_episode_steps": args.max_episode_steps,
         },
     )
-
-    shutdown_event = threading.Event()
-    dispatch = _build_dispatcher(env_facade, shutdown_event)
-
-    server = SocketRpcServer(
-        (args.transport_host, args.transport_port), dispatch,
-    )
-    bound_host, bound_port = server.server_address
-    client_host = "127.0.0.1" if bound_host == "0.0.0.0" else bound_host
-    print(
-        json.dumps({
-            "event": "transport_ready",
-            "kind": "socket",
-            "host": client_host,
-            "port": bound_port,
-        }),
-        flush=True,
-    )
-    logger.info("RPC server listening on %s:%s", client_host, bound_port)
-
-    _start_parent_watchdog(server, shutdown_event)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    try:
-        shutdown_event.wait()
-    finally:
-        server.shutdown()
-        server.server_close()
-    logger.info("env_server exited cleanly")
+    facade.serve(transport=args.transport, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

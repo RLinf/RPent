@@ -60,8 +60,8 @@ Pick the provider by prefixing ``--model``:
    # OpenAI-compatible chat (e.g. GLM 5.2)
    rpent --planner api --model openai-chat:glm-5.2 ...
 
-Environment variables it reads (override with ``--base-url`` /
-``--api-key`` if needed):
+Environment variables it reads (override with ``--base-url`` if
+needed):
 
 - ``anthropic:*`` → ``ANTHROPIC_BASE_URL`` / ``ANTHROPIC_API_KEY``
 - ``openai:*`` / ``openai-chat:*`` → ``OPENAI_BASE_URL`` /
