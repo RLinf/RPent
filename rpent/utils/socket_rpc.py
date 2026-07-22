@@ -157,5 +157,7 @@ class SocketRpcServer(socketserver.ThreadingTCPServer):
         self._dispatch_lock = threading.Lock()
 
     def dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
+        if method == "healthz":
+            return {"status": "ok"}
         with self._dispatch_lock:
             return self._dispatch(method, args, kwargs)
