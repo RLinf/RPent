@@ -24,7 +24,7 @@ Harness VLA 是 RPent 的首篇论文。在部署阶段不更新 VLA、也不扩
 Action Primitive library 的条件下，它在 LIBERO-Pro、RoboCasa365 和 RoboTwin C2R
 上分别取得 **82.4%**、**55.4%** 和 **58.4%** 的成功率。
 
-.. figure:: /_static/images/harnessvla_scheme.png
+.. figure:: https://github.com/RLinf/misc/raw/main/pic/harnessvla_scheme.png
    :alt: Harness VLA 框架概览
    :align: center
    :width: 100%

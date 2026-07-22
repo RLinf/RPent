@@ -28,7 +28,7 @@ the primitive library during deployment, it reaches **82.4%** success on
 LIBERO-Pro, **55.4%** on RoboCasa365, and **58.4%** on the RoboTwin 2.0
 clean-to-randomized setting.
 
-.. figure:: /_static/images/harnessvla_scheme.png
+.. figure:: https://github.com/RLinf/misc/raw/main/pic/harnessvla_scheme.png
    :alt: Overview of the Harness VLA framework
    :align: center
    :width: 100%
