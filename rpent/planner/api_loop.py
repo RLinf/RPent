@@ -272,8 +272,8 @@ def _prune_history_images(messages: list[ModelMessage]) -> list[ModelMessage]:
 
 
 def _build_tools(toolkit: Toolkit) -> list[Tool]:
-    """Wrap each toolkit tool as a pydantic-ai function tool from its schema."""
-    tools: list[Tool] = []
+    """Build the API-only image reader plus pydantic-ai toolkit wrappers."""
+    tools: list[Tool] = [Tool(read_image)]
     for spec in toolkit.get_tools_spec():
         name = spec["name"]
         tools.append(
@@ -287,6 +287,14 @@ def _build_tools(toolkit: Toolkit) -> list[Tool]:
             )
         )
     return tools
+
+
+def read_image(path: str) -> ToolReturn:
+    """Read a local image path returned by an RPent tool as visual input."""
+    return ToolReturn(
+        return_value=path,
+        content=[BinaryContent.from_path(path)],
+    )
 
 
 def _make_tool_function(toolkit: Toolkit, name: str):

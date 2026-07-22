@@ -62,7 +62,7 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
             <li>libero_spatial · _task / _lan</li>
             <li>libero_10 · _task / _swap / _lan</li>
           </ul>
-          <li><b>RoboCasa</b>（厨房长程任务）✅</li>
+          <li><b>RoboCasa</b>（厨房长程任务）</li>
           <ul>
             <li>PickPlace* · Open/Close* · TurnOn/Off* …</li>
           </ul>
@@ -70,8 +70,8 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><b>Pi0.5</b>（LIBERO，HTTP）✅</li>
-          <li><b>RLDX-1</b>（RoboCasa，socket-RPC）✅</li>
+          <li><b>Pi0.5</b>（LIBERO）✅</li>
+          <li><b>RLDX-1</b>（RoboCasa）</li>
         </ul>
       </td>
       <td>
@@ -130,7 +130,7 @@ export CUDA_VISIBLE_DEVICES=0
 #   • OpenAI 兼容 chat 端点：  --model openai-chat:glm-5.2
 #   • OpenAI responses 端点：  --model openai:gpt-5.5
 #   • claude_code / codex 大脑：无需 provider 前缀，如 --model claude-opus-4-8
-rpent --suite libero_object_swap --task 2 --seed 0 \
+rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
   --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
 ```
 
@@ -139,25 +139,15 @@ rpent --suite libero_object_swap --task 2 --seed 0 \
 加上 `--dashboard` 即可为本次运行打开一个浏览器监控页。它会先展示一个启动屏让你选择配置，然后实时推送推理流、实时画面与动作时间线。用 `--dashboard-language zh-cn` 切换到中文界面。
 
 ```bash
-rpent --dashboard --dashboard-language zh-cn \
+rpent --env libero --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 ```
-
-### RoboCasa
-
-RoboCasa 使用独立的入口与安装指南。
-
-```bash
-bash scripts/setup_robocasa.sh                                # 一次性安装
-bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <种子>
-```
-
-完整的 RoboCasa365 + RLDX-1 部署流程见 [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md)。
 
 ## 主要命令行参数
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
+| `--env` | —（必填） | 环境后端。当前支持 `libero`。 |
 | `--suite` | —（必填） | 任务集，如 `libero_object_task`、`libero_spatial_swap` |
 | `--task` | —（必填） | 任务集内的任务编号 |
 | `--seed` | `0` | 随机种子 |
@@ -170,13 +160,12 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 | `--cuda-device` | 继承当前环境 | env / vla server 可见的 GPU 设备 |
 | `--dashboard` | 关 | 为本次运行启动本地 dashboard |
 | `--dashboard-language` | `en` | Dashboard 界面语言：`en` \| `zh-cn` |
-| `--vla-endpoint` | — | 复用已在运行的 vla_server，而非新起一个 |
-| `--no-driver` | 关 | 连接已存在的 env_server / vla_server |
+| `--env-endpoint` | —（新起进程） | 已在运行的 env_server 的 `[protocol://]host:port`（`protocol=http\|socket`，默认 `http`）。留空则本地起一个。 |
+| `--vla-endpoint` | —（新起进程） | 已在运行的 vla_server 的 `[protocol://]host:port`（同上）。留空则本地起一个。 |
 
 ## 文档
 
 - [接入新环境](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html) —— 把新的仿真器 / 机器人接入 runner（[English](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html)）。
-- [RoboCasa 安装](docs/SETUP_ROBOCASA.zh.md) —— RoboCasa365 + RLDX-1 安装与运行指南。
 - [`docs/`](docs/README.md) —— 本地 Sphinx 构建与预览说明。
 
 ## 致谢

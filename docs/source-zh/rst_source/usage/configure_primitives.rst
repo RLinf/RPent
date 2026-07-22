@@ -31,12 +31,12 @@ RPent 内置支持两大类 primitive:
      - Server
    * - LIBERO (仿真)
      - Pi0.5
-     - HTTP ``/predict``
+     - HTTP 或 socket RPC (``--transport``)
      - ``robots/libero/vla_server.py``
    * - RoboCasa (仿真)
      - RLDX-1
      - pickle-framed socket RPC
-     - ``robots/robocasa/vla_server.py``
+     - ``robots/robocasa/vla_server.py`` *(规划中)*
    * - Franka (真机)
      - Pi0.5 或 RLDX-1 (依任务而定)
      - HTTP 或 socket
@@ -46,9 +46,9 @@ RPent 内置支持两大类 primitive:
      - socket RPC
      - ``robots/so101/vla_server.py`` *(规划中)*
 
-传输协议按 obs 形状选择: 扁平的 image+state 载荷用 HTTP (LIBERO/Pi0.5),
-历史堆叠的嵌套 numpy dict 用 socket (RoboCasa/RLDX-1)。设计理由参见
-:doc:`../development/add_robot`。
+VLA server 用同一套 ``predict`` / ``healthz`` 方法, 同时支持 HTTP (JSON)
+与 socket (pickle-framed) 两种传输, 通过 ``--transport {http,socket}``
+选择 (默认 ``http``)。设计理由参见 :doc:`../development/add_robot`。
 
 复用一个已在运行的 VLA server
 -----------------------------
@@ -58,12 +58,13 @@ RPent 内置支持两大类 primitive:
 
 .. code-block:: bash
 
-   rpent --vla-endpoint http://localhost:8000 \
+   rpent --env libero --vla-endpoint http://localhost:8000 \
      --suite libero_object_swap --task 2 --seed 0 --planner api \
      --model anthropic:claude-opus-4-8
 
-跑批量任务时推荐这样做: VLA 权重加载一次, 每次 run 起的 env 都是
-一次性的。
+``--vla-endpoint`` 接受 ``[protocol://]host:port`` 格式, protocol 可为
+``http`` (默认) 或 ``socket``。同样的规则适用于 ``--env-endpoint``
+(复用已有的 env_server)。
 
 新增全新的 primitive 家族
 -------------------------
