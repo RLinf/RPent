@@ -62,7 +62,7 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
             <li>libero_spatial · _task / _lan</li>
             <li>libero_10 · _task / _swap / _lan</li>
           </ul>
-          <li><b>RoboCasa</b>（厨房长程任务）✅</li>
+          <li><b>RoboCasa</b>（厨房长程任务）</li>
           <ul>
             <li>PickPlace* · Open/Close* · TurnOn/Off* …</li>
           </ul>
@@ -70,8 +70,8 @@ RPent 是一个把大语言模型放进「决策回路」的**具身智能体框
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><b>Pi0.5</b>（LIBERO，HTTP）✅</li>
-          <li><b>RLDX-1</b>（RoboCasa，socket-RPC）✅</li>
+          <li><b>Pi0.5</b>（LIBERO）✅</li>
+          <li><b>RLDX-1</b>（RoboCasa）</li>
         </ul>
       </td>
       <td>
@@ -143,17 +143,6 @@ rpent --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 ```
 
-### RoboCasa
-
-RoboCasa 使用独立的入口与安装指南。
-
-```bash
-bash scripts/setup_robocasa.sh                                # 一次性安装
-bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <种子>
-```
-
-完整的 RoboCasa365 + RLDX-1 部署流程见 [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md)。
-
 ## 主要命令行参数
 
 | 参数 | 默认值 | 说明 |
@@ -176,7 +165,6 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 ## 文档
 
 - [接入新环境](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html) —— 把新的仿真器 / 机器人接入 runner（[English](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html)）。
-- [RoboCasa 安装](docs/SETUP_ROBOCASA.zh.md) —— RoboCasa365 + RLDX-1 安装与运行指南。
 - [`docs/`](docs/README.md) —— 本地 Sphinx 构建与预览说明。
 
 ## 致谢

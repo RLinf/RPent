@@ -135,17 +135,6 @@ rpent --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 ```
 
-### RoboCasa
-
-RoboCasa uses a separate entrypoint and setup guide.
-
-```bash
-bash scripts/setup_robocasa.sh                                # one-time setup
-bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <task> <gpu> <seed>
-```
-
-See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 + RLDX-1 walkthrough.
-
 ## Key CLI Options
 
 | Flag | Default | Description |
@@ -168,7 +157,6 @@ See [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md) for the full RoboCasa365 +
 ## Documentation
 
 - [Adding a new environment](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html) — plug a new simulator / robot into the runner ([中文](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html)).
-- [RoboCasa setup](docs/SETUP_ROBOCASA.zh.md) — RoboCasa365 + RLDX-1 install and run guide.
 - [`docs/`](docs/README.md) — local Sphinx build and preview instructions.
 
 ## Citation and Acknowledgement

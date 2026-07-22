@@ -91,10 +91,10 @@ The code that implements the framework is split cleanly by concern:
    robots/
      libero/         # LIBERO env_client / env_server / vla_server /
                      # toolkit / prompt_bundle. The reference env.
-     (robocasa/)     # RoboCasa driver (see scripts/run_robocasa.sh).
+     (robocasa/)     # RoboCasa driver — in progress.
      (franka/)       # Franka driver — in progress.
      (so101/)        # SO-101 driver — in progress.
-   scripts/          # Setup scripts (LIBERO PRO/PLUS, RoboCasa, codex proxy).
+   scripts/          # Setup scripts (LIBERO PRO/PLUS, codex proxy).
 
 The runner (``rpent/cli/main.py``)
 ----------------------------------
