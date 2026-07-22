@@ -1,0 +1,42 @@
+{
+  "suite": "libero_object_task",
+  "task_id": 1,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "task (P1) — object suite, task 1",
+  "perturbed_task_language": "Pick the alphabet soup and place it in the basket",
+  "strategy_notes": "Frame: OBJECT (eef home z=0.261, table z~0.003). Identified alphabet_soup visually in image_cam_00.png as the blue/yellow Campbell's-style can in the back-left of the scene (vs the green/red tomato_sauce in the front-left). Coarse agentview localization: world_00.npy sampled at pixel (115,68), (118,72), (120,65) → median can-top world xy ~(-0.116, -0.222), top z ~0.072. Pre-positioned eef at (-0.10, -0.22, 0.18); wrist refine via world_wrist_10.npy mask z in [0.05,0.10] over lower-center crop → median (-0.116, -0.238, 0.072) — authoritative grasp xy. Basket: sampled (110,210)/(115,215)/(115,200) → center ~(-0.05, +0.30), rim z ~0.11. First attempt with sub-instruction prompt 'pick up the alphabet soup' + lift_thresh=0.05 reported success=true but actually closed empty (gripper qpos=0.007 ≈ shut) — false positive heuristic; reset. Second attempt with full task language and max_chunks=10 lifted the can (qpos gap 3cm = holding), but capped Pi0 before it could end-to-end the place (kept Rule 1). LLM scripted move_to via mid-waypoint (-0.05, 0.20, 0.30) then over-basket (-0.05, 0.29, 0.28), release fired libero_terminated=true.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "Pick the alphabet soup and place it in the basket",
+    "success": false,
+    "chunks_used": 10,
+    "max_chunks": 10,
+    "peak_lift_m": 0.2511,
+    "min_gripper_opening": 0.0626,
+    "final_gripper_opening": 0.0626,
+    "libero_terminated": false,
+    "diagnostics": {
+      "start_eef_z": 0.1598,
+      "peak_eef_z": 0.2937,
+      "min_eef_z": 0.0426,
+      "post_min_peak_z": 0.2937,
+      "descent_m": 0.1172,
+      "post_min_ascent_m": 0.2511,
+      "descent_done": true,
+      "lift_thresh": 0.05,
+      "gripper_closed_thresh": 0.045,
+      "track_obj": null,
+      "track_obj_init_z": null,
+      "track_obj_final_z": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [-0.0474427875902004, 0.2865224255179505, 0.2826940845670785],
+    "robot0_eef_quat": [0.9984923396595137, 0.022666271552833628, -0.036703546010998844, 0.03394315078746208],
+    "robot0_gripper_qpos": [0.038746174315199465, -0.038889875865828635],
+    "obj_of_interest": null,
+    "object_names": ["alphabet_soup_1", "basket_1", "butter_1", "cream_cheese_1", "milk_1", "orange_juice_1", "tomato_sauce_1"]
+  },
+  "libero_terminated": true
+}

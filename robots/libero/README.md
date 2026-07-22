@@ -16,7 +16,7 @@ The active prompt path is:
 2. `robots/libero/prompt_bundle.py` assembles the LIBERO prompt sections.
 3. `robots/libero/prompts/system.py` defines the active LIBERO system prompt fragments.
 4. `robots/libero/prompts/shared.py` defines shared guide-loading and runtime-adapter constants.
-5. The rendered prompt is passed to the selected cerebrum backend.
+5. The rendered prompt is passed to the selected planner backend.
 
 ## Files and Responsibilities
 

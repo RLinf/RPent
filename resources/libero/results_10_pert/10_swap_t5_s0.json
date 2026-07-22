@@ -1,0 +1,29 @@
+{
+  "suite": "libero_10_swap",
+  "task_id": 5,
+  "seed": 0,
+  "regime": "strict_perception",
+  "task_language": "pick up the book and place it in the back compartment of the caddy",
+  "libero_terminated": true,
+  "n_commands": 8,
+  "strategy_notes": "Single-attempt success by replaying the proven r6 recipe (3 prior rounds — r4, r5, r6 — all solved this exact cell with the same approach). Scene (agentview hi-res image_cam_hi_00.png): wooden desk caddy on the table-left at world x~[-0.45,-0.32] with multiple compartments including a back-middle one; the black book stands upright on the table in the center-foreground at world ~(-0.06,-0.01,0.97); a white-yellow mug sits on the table-right (irrelevant). Perception: verified the book center via world_hi_00.npy pixel probes (cols ~480-510, rows ~750-820) returning x in [-0.085,-0.05], y in [-0.02,-0.001], z in [0.94,1.02] — matches the deterministic s0 scene reported in r4/r5/r6, so the proven xyz coords transfer directly. Recipe: (1) move_to (-0.06,-0.01,1.10) gripper -1 to pre-position over the upright book; (2) pi0_pick 'pick up the black book' succeeded in 4 chunks (peak_lift=0.0758m, gripper closed to 0.0316m — book held vertically); (3) set_gripper +1 (10 steps) to firm the grip before carrying; (4) waypoint move_to (-0.20,0,1.20) gripper 1 to keep single-step xy < 0.30 and clear caddy dividers; (5) move_to (-0.42,-0.14,1.20) gripper 1 over the back-middle compartment center; (6) move_to (-0.42,-0.14,1.05) gripper 1 — OSC vertical-down wall stalled the eef at z~1.15 (final_dist 0.10), but with the book hanging ~15cm below the gripper its bottom is already inside the compartment; (7) release (10 steps); (8) move_to (-0.30,-0.14,1.25) gripper -1 to retreat — libero_terminated fired on step 8. KEY LEVERS: (a) BACK-MIDDLE compartment (x=-0.42, y=-0.14) is the correct 'back compartment' for this caddy variant (NOT left-large nor right-back, per r5/r6 forensics); (b) gripper:+1 must be passed in every carry move_to AND firmed with set_gripper +1 right after pi0_pick (omitting it silently opens the gripper); (c) the OSC vertical wall at z~1.15 is acceptable — the book hangs below the grip so it falls the remaining ~10cm into the compartment on release; (d) no tilt/move_pose needed — straight vertical descent into the wall + release is enough because the held book extends the effective reach.",
+  "pick_result": {
+    "primitive": "pi0_pick",
+    "prompt": "pick up the black book",
+    "success": true,
+    "chunks_used": 4,
+    "peak_lift_m": 0.0758,
+    "min_gripper_opening": 0.0316
+  },
+  "place_result": {
+    "back_compartment_target_xyz": [-0.42, -0.14, 1.05],
+    "stalled_eef_xyz_pre_release": null,
+    "note": "OSC vertical-down wall at z~1.15 — book hanging below grip dropped into the back-middle compartment on release"
+  },
+  "final_state": {
+    "robot0_eef_pos": [-0.3903650190668653, -0.13962145827234726, 1.1684151610653541],
+    "robot0_eef_quat": [0.9972638585298227, -0.04824851241968847, -0.055992867946495724, -0.0012947040671403044],
+    "robot0_gripper_qpos": [0.03932466723659348, -0.039327802056548906],
+    "object_names": ["black_book_1", "white_yellow_mug_1"]
+  }
+}

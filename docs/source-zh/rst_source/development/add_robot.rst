@@ -150,7 +150,7 @@ stdout 上的 ``transport_ready`` 事件是必须的 —— ``rpent/cli/main.py`
 定义两个 prompt 工厂 —— ``system_prompt()`` 和 ``user_prompt()`` —— 并在 env 的
 ``__init__.py`` 中构造 ``PromptBundle(system=system_prompt, user=user_prompt)``
 (见上面的入口章节)。每个工厂返回一个有序的 ``dict[str, PromptNode]`` (带标题的
-分节), 由 ``PromptBundle.render`` 组装并填充。一份 prompt 服务所有 cerebrum
+分节), 由 ``PromptBundle.render`` 组装并填充。一份 prompt 服务所有 planner
 (API loop、Claude Code、Codex): 用工具的裸名引用 (``move_to``, ...), 并只需说明
 一次 Claude Code / Codex SDK 会把它们命名空间化为 ``mcp__rpent__<name>`` ——
 不要再维护 CLI/API 两份拷贝。
@@ -224,7 +224,7 @@ primitive driver ``__init__`` 的 dict —— 通常是
 - ``output_dir`` 是 per-run 的临时目录, 由 runner 创建; 所有工件 (images、
   depths、``states.json``、transcripts、``episode.mp4``) 都写在里面。
 - 工具 schema 是 Anthropic 形状 (``name`` / ``description`` / ``input_schema``)。
-  每个用 ``self.add_tool(...)`` 注册的工具都会暴露给所有 cerebrum。
+  每个用 ``self.add_tool(...)`` 注册的工具都会暴露给所有 planner。
 - Driver 侧的返回值必须可 pickle, 且不含 torch。
 - 每个 primitive 工具执行后要 dump 一次新的状态快照, 这样下一次
   ``view_driver_state`` 看到的是动作后的世界。
@@ -240,7 +240,7 @@ primitive driver ``__init__`` 的 dict —— 通常是
 
    PI05_CHECKPOINT_PATH=<path> ANTHROPIC_API_KEY=<key> \
      rpent --env myenv --suite <suite> --task <id> --seed 0 \
-     --output-dir /tmp/myenv_smoke --cerebrum api --model anthropic:claude-opus-4-8
+     --output-dir /tmp/myenv_smoke --planner api --model anthropic:claude-opus-4-8
 
 期望: driver 输出 ``transport_ready``, agent 完成 prompt 的任务, 并调用 ``finish``。
 查看 ``<output_dir>/transcript_*.json`` 获取运行结束的总结。

@@ -1,0 +1,44 @@
+{
+  "suite": "libero_object_task",
+  "task_id": 3,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "task (P1 Task perturbation)",
+  "perturbed_task_language": "Pick the ketchup and place it in the basket",
+  "perturbation_semantics": "Object-suite P1: instruction names ketchup as the target object among 3 tall bottles (ketchup / bbq_sauce / salad_dressing) on the table.",
+  "expected_baseline_behavior": "Pi0 fullshot may pick the wrong red-bodied bottle (bbq_sauce sitting close to the robot) because two bottles look similar in agentview.",
+  "strategy_notes": "Localized scene via image_cam_00.png + world_00.npy: 3 tall objects with depth z up to ~0.114-0.149 corresponded to the three bottles. Two red-bodied tall bottles found by strong-red mask: cluster A at world (-0.13, +0.07, top z=0.149) behind/under robot arm (pixel rows 105-127, cols 140-150) and cluster B at world (+0.05, -0.10, top z=0.114) front-center (rows 128-136, cols 96-100); third tall bottle (dark-green/black body, world (+0.10, -0.20, top z=0.149), rows 148, col 64). Basket interior centered at world (+0.01, +0.26, floor z~0.10, rim z~0.137) localized from gray-fabric mask. Attempt 1 picked cluster B (front bottle) — Pi0 with pre-pos + full task language gripped cleanly (min_gripper_opening=0.0367) and dropped into basket, but libero_terminated stayed False — that bottle was bbq_sauce, not ketchup. Attempt 2 picked cluster A (back bottle) — Pi0 picked but auto-carried sideways and dropped past the basket back-rim (final bottle xy=+0.0,+0.4, outside basket). Attempt 3 (success): reset, pre-pos at world (-0.13, +0.07, z=0.20) over cluster A, pi0_pick 'pick up the ketchup' (lift_thresh=0.08, max_chunks=15) grasped the back bottle (peak_lift_m=0.169, gripper=0.034), set_gripper +1 firmed grip, move_to (0.0, +0.26, +0.30) carried to basket center, release at z=0.30 — bottle dropped cleanly inside basket and libero_terminated fired immediately. Conclusion: ketchup_1 = cluster A (back/under-arm bottle, world x~-0.13, y~+0.07); bbq_sauce_1 = cluster B (front-center, world x~+0.05, y~-0.10).",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the ketchup",
+    "success": false,
+    "chunks_used": 15,
+    "max_chunks": 15,
+    "peak_lift_m": 0.169,
+    "min_gripper_opening": 0.034,
+    "final_gripper_opening": 0.034,
+    "libero_terminated": false,
+    "diagnostics": {
+      "start_eef_z": 0.2023,
+      "peak_eef_z": 0.28,
+      "min_eef_z": 0.111,
+      "post_min_peak_z": 0.28,
+      "descent_m": 0.0913,
+      "post_min_ascent_m": 0.169,
+      "descent_done": false,
+      "lift_thresh": 0.08,
+      "gripper_closed_thresh": 0.06,
+      "track_obj": null,
+      "track_obj_init_z": null,
+      "track_obj_final_z": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [7.14920242556082e-05, 0.25931168401206195, 0.29127964856866195],
+    "robot0_eef_quat": [0.9984442332398262, 0.0054658671268246195, 0.01769591771119871, -0.052593648885057596],
+    "robot0_gripper_qpos": [0.036187604080630875, -0.035960690353413115],
+    "obj_of_interest": null,
+    "object_names": ["alphabet_soup_1", "basket_1", "bbq_sauce_1", "chocolate_pudding_1", "cream_cheese_1", "ketchup_1", "salad_dressing_1"]
+  },
+  "libero_terminated": true
+}

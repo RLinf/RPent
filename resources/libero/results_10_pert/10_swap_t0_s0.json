@@ -1,0 +1,63 @@
+{
+  "suite": "libero_10_swap",
+  "task_id": 0,
+  "seed": 0,
+  "regime": "strict_perception",
+  "task_language": "put both the alphabet soup and the tomato sauce in the basket",
+  "strategy_notes": "Two-can-to-basket task. Critical perception insight: the alphabet_soup can is HIDDEN behind the ketchup bottle from agentview \u2014 the agentview only reveals 7 of 8 objects, and SAM3 from agentview consistently returns the SAME front-left can for both 'tomato sauce' and 'alphabet soup' prompts. Resolution: move the wrist cam high (xyz around (-0.1,-0.05,0.95)) for a top-down sweep \u2014 the two cans become visually distinct (front-left RED-top can with green/red tomato label, and back-center DARK-top can behind ketchup). Localized: tomato_sauce at world (0.005,-0.223,0.508) top-of-can; alphabet_soup at world (-0.257,-0.158,0.509) top-of-can; basket center at world (0.075,0.218,0.493) rim. Place order: pick tomato_sauce first (visible/accessible), drop into basket, then approach alphabet_soup from straight above to avoid ketchup. Pi0_pick for can #1 (tomato_sauce) succeeded at chunks_used=6, peak_lift=0.077m. Set_gripper +1 firmed the grip, carried via intermediate waypoint (avoiding ketchup) over to basket (0.075,0.218,0.58) and released. Pi0_pick for can #2 (alphabet_soup) \u2014 Pi0's policy carried the can to the basket itself in chunks_used=11, peak_lift=0.191m, and libero_terminated fired at the end of the same pi0_pick chunk. Total ~43 commands. No reset needed.",
+  "pick_result": {
+    "tomato_sauce_world_xyz": [
+      0.005,
+      -0.223,
+      0.508
+    ],
+    "alphabet_soup_world_xyz": [
+      -0.257,
+      -0.158,
+      0.509
+    ],
+    "basket_world_xyz_rim": [
+      0.075,
+      0.218,
+      0.493
+    ],
+    "ketchup_bottle_world_xyz": [
+      -0.108,
+      -0.122,
+      0.585
+    ],
+    "pick1_chunks": 6,
+    "pick1_peak_lift_m": 0.077,
+    "pick2_chunks": 11,
+    "pick2_peak_lift_m": 0.191
+  },
+  "final_state": {
+    "robot0_eef_pos": [
+      -0.03210030266436342,
+      0.27931768931151196,
+      0.6141818658406779
+    ],
+    "robot0_eef_quat": [
+      0.9966243848072303,
+      -0.060512192306554524,
+      0.05513773632479851,
+      -0.00615956352677138
+    ],
+    "robot0_gripper_qpos": [
+      0.03884052907248459,
+      -0.03879534363314313
+    ],
+    "obj_of_interest": null,
+    "object_names": [
+      "alphabet_soup_1",
+      "basket_1",
+      "butter_1",
+      "cream_cheese_1",
+      "ketchup_1",
+      "milk_1",
+      "orange_juice_1",
+      "tomato_sauce_1"
+    ]
+  },
+  "libero_terminated": true
+}

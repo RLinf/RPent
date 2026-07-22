@@ -1,0 +1,44 @@
+{
+  "suite": "libero_object_task",
+  "task_id": 7,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "task (P1 Task perturbation)",
+  "perturbed_task_language": "Pick the butter and place it in the basket",
+  "perturbation_semantics": "P1 task perturbation; target object specified by language (butter), destination is the basket.",
+  "expected_baseline_behavior": "Pi0 fullshot may pick a wrong object or fail to place inside basket.",
+  "strategy_notes": "Frame: OBJECT (state_00 robot0_eef_pos[2]=0.261). Localized basket from agentview world_00.npy by scanning elevated pixels (z>0.04): rim cluster at world x in [-0.05,+0.09], y in [+0.18,+0.32], rim-top z~0.13-0.14, interior floor z~0.05-0.07; basket center ~ (+0.02, +0.24). Localized butter only via Pi0 visual recognition. ATTEMPT 1 (failed): pi0_pick from home grabbed butter (confirmed in wrist cam: 'FARM FRESH BUTTER' visible). Lifted to z=0.25, traversed via waypoint (0.09,+0.04), then over basket center (~0.09,+0.24,0.25), released at z=0.25 - butter perched on basket BACK rim, predicate never fired. Diagnosed via image_wrist_08 (butter visibly on back edge, not inside). Reset. ATTEMPT 2 (success): pi0_pick butter from home (gripper closed to 0.020, lift 0.06m, wrist cam confirmed butter in gripper). Lifted to (0.114,-0.213,0.25). Two-waypoint traverse: (0.05,+0.05,0.25) -> (0.02,+0.24,0.25) (basket center in xy). DESCENDED INTO basket interior to z=0.13 (rim z~0.14, interior bottom z~0.05). Release at z=0.143 -> libero_terminated=true. Lesson: dropping from z=0.25 onto basket rim leaves butter balanced on edge; descending into basket interior before release lets butter settle inside.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the butter",
+    "success": true,
+    "chunks_used": 16,
+    "max_chunks": 25,
+    "peak_lift_m": 0.0605,
+    "min_gripper_opening": 0.0413,
+    "final_gripper_opening": 0.0413,
+    "libero_terminated": false,
+    "diagnostics": {
+      "start_eef_z": 0.2613,
+      "peak_eef_z": 0.2613,
+      "min_eef_z": 0.0128,
+      "post_min_peak_z": 0.0733,
+      "descent_m": 0.2485,
+      "post_min_ascent_m": 0.0605,
+      "descent_done": true,
+      "lift_thresh": 0.05,
+      "gripper_closed_thresh": 0.06,
+      "track_obj": null,
+      "track_obj_init_z": null,
+      "track_obj_final_z": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [0.02631678728647102, 0.24109840078188838, 0.14272392838632603],
+    "robot0_eef_quat": [0.9902393248807578, -0.12527931306615536, 0.05893719029494723, 0.016049323272609866],
+    "robot0_gripper_qpos": [0.037404035771570365, -0.03740984310875289],
+    "obj_of_interest": null,
+    "object_names": ["basket_1", "butter_1", "chocolate_pudding_1", "cream_cheese_1", "milk_1", "orange_juice_1", "tomato_sauce_1"]
+  },
+  "libero_terminated": true
+}

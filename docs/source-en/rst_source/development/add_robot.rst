@@ -1,4 +1,4 @@
-Add a new robot
+Add a New Robot
 ===============
 
 This guide walks through what you need to write to plug a new physical /
@@ -165,7 +165,7 @@ Define two prompt factories — ``system_prompt()`` and ``user_prompt()`` — an
 build a ``PromptBundle(system=system_prompt, user=user_prompt)`` in the env's
 ``__init__.py`` (see entry point above). Each factory returns an ordered
 ``dict[str, PromptNode]`` of titled sections; ``PromptBundle.render`` assembles
-and fills them. One prompt serves every cerebrum (API loop, Claude Code, Codex):
+and fills them. One prompt serves every planner (API loop, Claude Code, Codex):
 refer to tools by their bare names (``move_to``, ...) and note once that the
 Claude Code / Codex SDK shows them namespaced as ``mcp__rpent__<name>`` — do not
 maintain separate CLI/API copies.
@@ -242,7 +242,7 @@ Conventions worth keeping
   goes there.
 - Tool schemas are Anthropic-shaped (``name`` / ``description`` /
   ``input_schema``). Every tool registered with ``self.add_tool(...)`` is
-  exposed to all cerebrums.
+  exposed to all planners.
 - Driver-side return values must be picklable and torch-free.
 - Each primitive tool dumps a fresh state snapshot after running so the next
   ``view_driver_state`` call reflects the post-action world.
@@ -258,7 +258,7 @@ Once everything compiles, the minimal smoke loop is:
 
    PI05_CHECKPOINT_PATH=<path> ANTHROPIC_API_KEY=<key> \
      rpent --env myenv --suite <suite> --task <id> --seed 0 \
-     --output-dir /tmp/myenv_smoke --cerebrum api --model anthropic:claude-opus-4-8
+     --output-dir /tmp/myenv_smoke --planner api --model anthropic:claude-opus-4-8
 
 Expect the driver to emit ``transport_ready``, the agent to complete the
 prompted task, and ``finish`` to be invoked. Check

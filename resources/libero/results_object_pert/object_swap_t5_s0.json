@@ -1,0 +1,64 @@
+{
+  "suite": "libero_object_swap",
+  "task_id": 5,
+  "seed": 0,
+  "regime": "strict_perception",
+  "perturbation_type": "swap (P2 Position perturbation)",
+  "perturbed_task_language": "Pick the tomato sauce and place it in the basket",
+  "perturbation_semantics": "Object frame layout (eef home z=0.26); basket relocated to right side at world (~0.0, +0.27, top z=0.13); 5 distractor sauces/cartons/boxes scattered across the workspace.",
+  "expected_baseline_behavior": "Pi0 fullshot may pick the wrong (base-location) item under P2 layout; in this run perception+Pi0 confirmed the correct red tomato_sauce can.",
+  "strategy_notes": "Coarse localization: probed image_cam_00 across rows 120-180/cols 40-220; identified basket near (col 200-220, row 105-130) at world (rim ~0.0, +0.27, z_top 0.13). Tomato sauce candidate at world (-0.09, -0.25, z_top 0.07) with RGB (58,8,0) — dark red. Issued pi0_pick from home with prompt 'pick up the tomato sauce'; Pi0 reported success=true, peak_lift=0.0896 m, min_gripper_opening=0.0427 (holding object). Wrist cam (image_wrist_01.png) confirmed a red can-top in the gripper. eef post-pick at (-0.10, -0.22, 0.14) matched the dark-red candidate xy. Carry plan: set_gripper +1 to firm the grip, then 3 move_to waypoints at z=0.22 (above basket-rim z=0.13) splitting the Δy=0.49 traversal into <0.30 steps. Final pose over basket center (-0.001, +0.252, 0.219); release → libero_terminated=true on first attempt.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the tomato sauce",
+    "success": true,
+    "chunks_used": 15,
+    "max_chunks": 25,
+    "peak_lift_m": 0.0896,
+    "min_gripper_opening": 0.0427,
+    "final_gripper_opening": 0.0427,
+    "libero_terminated": false,
+    "diagnostics": {
+      "start_eef_z": 0.2613,
+      "peak_eef_z": 0.2613,
+      "min_eef_z": 0.0494,
+      "post_min_peak_z": 0.139,
+      "descent_m": 0.2119,
+      "post_min_ascent_m": 0.0896,
+      "descent_done": true,
+      "lift_thresh": 0.05,
+      "gripper_closed_thresh": 0.06,
+      "track_obj": null,
+      "track_obj_init_z": null,
+      "track_obj_final_z": null
+    }
+  },
+  "final_state": {
+    "robot0_eef_pos": [
+      0.0011252979632435656,
+      0.25853085484328975,
+      0.22150170335723038
+    ],
+    "robot0_eef_quat": [
+      0.9895698848250913,
+      -0.12887495946958333,
+      -0.0401167446191876,
+      -0.05033224284816429
+    ],
+    "robot0_gripper_qpos": [
+      0.03630254491370901,
+      -0.03606579462959173
+    ],
+    "obj_of_interest": null,
+    "object_names": [
+      "basket_1",
+      "bbq_sauce_1",
+      "butter_1",
+      "chocolate_pudding_1",
+      "milk_1",
+      "orange_juice_1",
+      "tomato_sauce_1"
+    ]
+  },
+  "libero_terminated": true
+}

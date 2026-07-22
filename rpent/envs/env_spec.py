@@ -2,7 +2,7 @@
 
 Lives in :mod:`rpent.envs` alongside
 :class:`~rpent.envs.prompt_bundle.PromptBundle` so envs
-and cerebrums can both import it without pulling in
+and planners can both import it without pulling in
 :mod:`rpent.tools` or the RPC transport layer. Tool schemas,
 handlers, server lifecycle, and the MCP allowlist live on
 :class:`rpent.tools.toolkit.Toolkit` and its env subclasses —

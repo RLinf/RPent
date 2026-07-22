@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import (
@@ -13,7 +13,7 @@ from rpent.utils.config import (
 )
 
 #: MCP namespace prefix for RPent tools (``mcp__<server>__<tool>``).
-#: Toolkits expose plain tool names; cerebrums add/strip this prefix.
+#: Toolkits expose plain tool names; planners add/strip this prefix.
 MCP_TOOL_PREFIX = "mcp__rpent__"
 
 
@@ -29,8 +29,8 @@ def strip_mcp_prefix(name: str) -> str:
     return name.removeprefix(MCP_TOOL_PREFIX)
 
 
-class CerebrumResult:
-    """Result returned by a cerebrum invocation."""
+class PlannerResult:
+    """Result returned by a planner invocation."""
 
     __slots__ = ("finish_result", "messages", "stats", "error")
 
@@ -42,7 +42,7 @@ class CerebrumResult:
         stats: dict | None = None,
         error: str | None = None,
     ):
-        """Initialize a serializable cerebrum result."""
+        """Initialize a serializable planner result."""
         self.finish_result = (
             finish_result  # {"status": "success"/"failure"/"stuck", "summary": "..."}
         )
@@ -50,14 +50,14 @@ class CerebrumResult:
         self.stats = (
             stats or {}
         )  # {"total_input_tokens", "total_output_tokens", "turns_used", "tool_calls"}
-        self.error = error  # str | None  — set when the cerebrum raises
+        self.error = error  # str | None  — set when the planner raises
 
 
-class Cerebrum(Protocol):
-    """A cerebrum solves a task by conversing with an LLM/VLM backend.
+class Planner(Protocol):
+    """A planner solves a task by conversing with an LLM/VLM backend.
 
     It is given one system prompt, one initial user message, and a set of
-    tool definitions.  It returns a ``CerebrumResult`` after the task is
+    tool definitions.  It returns a ``PlannerResult`` after the task is
     finished or the turn budget is exhausted.
     """
 
@@ -68,7 +68,7 @@ class Cerebrum(Protocol):
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-    ) -> CerebrumResult:
+    ) -> PlannerResult:
         """Run the multi-turn agent loop until completion or budget.
 
         Args:
@@ -81,19 +81,19 @@ class Cerebrum(Protocol):
             max_turns: Maximum LLM turns before giving up.
 
         Returns:
-            ``CerebrumResult`` with finish status, conversation transcript,
+            ``PlannerResult`` with finish status, conversation transcript,
             token-usage stats, and optional error string.
         """
         ...
 
 
 # ---------------------------------------------------------------------------
-# Cerebrum construction
+# Planner construction
 # ---------------------------------------------------------------------------
 
 
-def build_cerebrum(
-    cerebrum_type: str,
+def build_planner(
+    planner_type: str,
     *,
     output_dir: str | Path,
     recipe_tag: str,
@@ -101,18 +101,18 @@ def build_cerebrum(
     base_url: str | None = None,
     model: str | None = None,
     max_tokens: int = 8192,
-    cerebrum_timeout_s: int | None = None,
+    planner_timeout_s: int | None = None,
     claude_code_max_budget_usd: float | None = None,
     dashboard: Any = None,
 ):
-    """Build a cerebrum for the given backend, resolving credentials from env vars."""
+    """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
-    # codex all import from this module (CerebrumResult).
+    # codex all import from this module (PlannerResult).
 
-    if cerebrum_type == "api":
+    if planner_type == "api":
         if not model:
             raise ValueError(
-                "the 'api' cerebrum requires a model id; pass --model with a "
+                "the 'api' planner requires a model id; pass --model with a "
                 "provider prefix (e.g. 'anthropic:claude-opus-4-8', "
                 "'openai:gpt-5.5', 'openai-chat:glm-5.2')."
             )
@@ -122,7 +122,7 @@ def build_cerebrum(
         from pydantic_ai.models import infer_model
         from pydantic_ai.providers import infer_provider, infer_provider_class
 
-        from rpent.cerebrum.api_loop import ApiAgentLoop
+        from rpent.planner.api_loop import ApiAgentLoop
 
         def _provider_factory(provider_name: str):
             """Build the provider for ``provider_name``.
@@ -144,17 +144,17 @@ def build_cerebrum(
         api_model = infer_model(
             model, provider_factory=_provider_factory
         )
-        return ApiAgentLoop(model=api_model, max_tokens=max_tokens)
-    if cerebrum_type == "claude_code":
-        from rpent.cerebrum.claude_code import ClaudeCodeCerebrum
+        return ApiAgentLoop(model=api_model, max_tokens=max_tokens, dashboard=dashboard)
+    if planner_type == "claude_code":
+        from rpent.planner.claude_code import ClaudeCodePlanner
 
-        cc_timeout_s = cerebrum_timeout_s
+        cc_timeout_s = planner_timeout_s
         if cc_timeout_s is None:
             cc_timeout_s = int(os.environ.get("CELL_TIMEOUT_S", "1200"))
         cc_budget = claude_code_max_budget_usd
         if cc_budget is None:
             cc_budget = float(os.environ.get("MAX_BUDGET_USD", "10"))
-        return ClaudeCodeCerebrum(
+        return ClaudeCodePlanner(
             output_dir=output_dir,
             repo_root=get_repo_root(),
             model=model or "sonnet",
@@ -164,10 +164,10 @@ def build_cerebrum(
             output_path=Path(output_dir) / f"claude_{recipe_tag}.txt",
             dashboard=dashboard,
         )
-    if cerebrum_type == "codex":
-        from rpent.cerebrum.codex import CodexCerebrum
+    if planner_type == "codex":
+        from rpent.planner.codex import CodexPlanner
 
-        cx_timeout_s = cerebrum_timeout_s
+        cx_timeout_s = planner_timeout_s
         if cx_timeout_s is None:
             cx_timeout_s = int(
                 os.environ.get(
@@ -175,11 +175,13 @@ def build_cerebrum(
                     os.environ.get("CELL_TIMEOUT_S", "1200"),
                 )
             )
-        return CodexCerebrum(
+        return CodexPlanner(
             output_dir=output_dir,
             repo_root=get_repo_root(),
+            model=model,
             timeout_s=cx_timeout_s,
             extra_dirs=[str(get_memory_dir(env_name))],
             output_path=Path(output_dir) / f"codex_{recipe_tag}.txt",
+            dashboard=dashboard,
         )
-    raise ValueError(f"unknown cerebrum_type: {cerebrum_type}")
+    raise ValueError(f"unknown planner_type: {planner_type}")

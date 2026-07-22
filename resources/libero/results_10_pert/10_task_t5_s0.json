@@ -1,0 +1,41 @@
+{
+  "suite": "libero_10_task",
+  "task_id": 5,
+  "seed": 0,
+  "regime": "strict_perception",
+  "task_language": "pick up the cup and place it in the back compartment of the caddy",
+  "strategy_notes": "WINNING RECIPE replicated from the solved seed-0 reference at a single pi0_pick call with the FULL task_language as prompt, lift_thresh=0.5 (so the early-exit lift heuristic never fires) plus gripper_closed_thresh=0.0 — per memory wisdom, this turns pi0_pick into a generic closed-loop CONTACT driver and lets Pi0 run its trained pick+place trajectory to completion. Pi0 grasped the white_yellow_mug (the only cup-shaped object in the scene; black_book_1 is the only distractor, a flat book), carried it to the desk_caddy back compartment, and the predicate fired. SUCCESS first try on this run: chunks_used=32/50, peak_lift=0.3162m, descent=0.1987m, final_gripper_opening=0.0784, libero_terminated=true. Perception pass identified: white_yellow_mug in foreground (clearly the cup, ceramic with yellow interior), desk_caddy at back-left of workspace (brown wooden multi-compartment organizer), black_book on right of mug (flat distractor). Reference s0 strategy_notes documented the prior failures that led to this recipe: manual carry + pi0_doubled both miss the cavity because Pi0's intended placement needs Pi0's full trained trajectory; using pi0_pick-as-closed-loop with verbatim task_language is the cleanest path for caddy placement.",
+  "pick_result": {
+    "name": "pick",
+    "instruction": "pick up the cup and place it in the back compartment of the caddy",
+    "success": true,
+    "chunks_used": 32,
+    "max_chunks": 50,
+    "peak_lift_m": 0.3162,
+    "min_gripper_opening": 0.0109,
+    "final_gripper_opening": 0.0784,
+    "libero_terminated": true
+  },
+  "final_state": {
+    "robot0_eef_pos": [
+      -0.38531970596130455,
+      -0.1961700373091926,
+      1.1074942575003703
+    ],
+    "robot0_eef_quat": [
+      0.6155197125486214,
+      -0.7639491638480729,
+      -0.004552009237724836,
+      0.1936399693549643
+    ],
+    "robot0_gripper_qpos": [
+      0.03863713052660077,
+      -0.03980448171580618
+    ],
+    "object_names": [
+      "black_book_1",
+      "white_yellow_mug_1"
+    ]
+  },
+  "libero_terminated": true
+}

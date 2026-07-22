@@ -48,7 +48,7 @@ recover in place or write an honest failure audit and `finish`.
 | cameras | agentview only | **agentview (fixed, ~1m → ±8-13cm) + eye-in-hand wrist (moves with gripper, ±1-2cm when <20cm to target)** — see §3.6 |
 | how P2 swap is solved | read swapped coords from `states.json[0]` | **localize the swapped objects by `back_project`** |
 | how a swapped *fixture* site is found | read the swap BDDL `:init` block | **localize the fixture visually** (see §3.5) |
-| run budget | short | **larger** — perception localization + manipulation is slower (raise `--max-turns` / `--cerebrum-timeout-s`) |
+| run budget | short | **larger** — perception localization + manipulation is slower (raise `--max-turns` / `--planner-timeout-s`) |
 | audit `regime` | `strict` | `strict_perception` |
 | which image you pick pixels in | agentview RGB | `images_cam/image_cam_NN.png` (or hi-res) for **pixel-picking**; `images/image_NN.png` only for a sanity glance |
 
@@ -329,7 +329,7 @@ structured tools, and runs single-attempt:
 
 ```bash
 python rpent/cli/main.py --suite <suite> --task <n> --seed <k> \
-    --libero-type pro --cerebrum claude_code --model claude-opus-4-7
+    --libero-type pro --planner claude_code --model claude-opus-4-7
 
 # e.g. --suite libero_spatial_task 0 (P1) · libero_spatial_swap 0 (P2) ·
 #      libero_goal_swap 2 (P2 fixture swap) · libero_10_task 5 (long horizon)
@@ -483,7 +483,7 @@ LIBERO_TYPE=pro python -c \
 
 # 3. Launch a perception cell (runner owns env_server; single-attempt)
 python rpent/cli/main.py --suite libero_spatial_swap --task <N> --seed 0 \
-    --libero-type pro --cerebrum claude_code --model claude-opus-4-7
+    --libero-type pro --planner claude_code --model claude-opus-4-7
 ```
 
 Then, inside the run:

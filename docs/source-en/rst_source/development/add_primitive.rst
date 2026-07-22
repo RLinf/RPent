@@ -1,4 +1,4 @@
-Add an action primitive
+Add an Action Primitive
 =======================
 
 An *action primitive* in RPent is anything that turns a tool call
@@ -77,7 +77,7 @@ Scripted primitives are the fastest to add. Pattern:
                     lambda **kw: self._step("open_drawer", **kw))
 
 The primitive is now callable by ``api``, ``claude_code``, and
-``codex`` cerebrums — no other changes needed.
+``codex`` planners — no other changes needed.
 
 Add a VLA (or other model-based primitive)
 ------------------------------------------
