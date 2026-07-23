@@ -56,7 +56,7 @@ openpi = [
     "openpi @ git+https://github.com/RLinf/openpi.git@feature/physical-agent",
 ]
 libero = [
-    "libero @ git+https://github.com/RLinf/LIBERO.git",
+    "rlinf-libero",
     "robosuite==1.4.1",
     "bddl",
     "easydict",
@@ -65,7 +65,7 @@ libero = [
 ]
 libero-pro = [
     "rpent[libero]",
-    "liberopro @ git+https://github.com/RLinf/LIBERO-PRO.git@feature/physical-agent",
+    "rpent-liberopro",
 ]
 libero-plus = [
     "rpent[libero]",
