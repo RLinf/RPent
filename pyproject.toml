@@ -8,7 +8,7 @@ version = "0.0.0"
 authors = [{ name = "RPent Contributors" }]
 description = "Embodied agent framework for coordinating high-level reasoning and robot skills"
 readme = {file = "README.md", content-type = "text/markdown"}
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 license = {file = "LICENSE"}
 keywords = [
     "embodied-intelligence",
@@ -24,7 +24,6 @@ classifiers = [
     "Environment :: GPU :: NVIDIA CUDA :: 12 :: 12.4",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
 ]
 
 dependencies = [
@@ -51,26 +50,21 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 
 [project.optional-dependencies]
 rlinf = [
-    "rlinf @ git+https://github.com/RLinf/RLinf.git@dev/physical-agent",
+    "rpent-rlinf",
 ]
 openpi = [
-    "openpi @ git+https://github.com/RLinf/openpi.git@feature/physical-agent",
+    "rlinf-openpi",
 ]
 libero = [
-    "libero @ git+https://github.com/RLinf/LIBERO.git",
-    "robosuite==1.4.1",
-    "bddl",
-    "easydict",
-    "matplotlib",
-    "gym"
+    "rlinf-libero",
 ]
 libero-pro = [
     "rpent[libero]",
-    "liberopro @ git+https://github.com/RLinf/LIBERO-PRO.git@feature/physical-agent",
+    "rpent-liberopro",
 ]
 libero-plus = [
     "rpent[libero]",
-    "liberoplus @ git+https://github.com/RLinf/LIBERO-plus.git@feature/physical-agent",
+    "rlinf-liberoplus",
 ]
 full = [
     "rpent[rlinf,openpi,libero-pro]",

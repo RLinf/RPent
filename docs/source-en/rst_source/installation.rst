@@ -2,9 +2,7 @@ Installation
 ============
 
 RPent installs with a single ``pip install``. The optional-dependency
-extras pull the forked `RLinf <https://github.com/RLinf/RLinf>`_ runtime,
-openpi, and the LIBERO simulator as git dependencies, so there is no
-longer a separate RLinf clone or setup script.
+extras pull openpi and the LIBERO simulators.
 
 Prerequisites
 -------------
@@ -19,8 +17,8 @@ You will also want:
 - An API key for at least one LLM provider — Anthropic, OpenAI, or an
   OpenAI-compatible chat endpoint — for the reasoning brain.
 - A VLA checkpoint. For LIBERO / Pi0.5 the recommended checkpoint lives
-  at `HuggingFace: rlinf-pi05-libero-130-fullshot-sft
-  <https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_.
+  at `HuggingFace: RLinf-Pi05-LIBERO-130-fullshot-SFT
+  <https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_.
 
 1. Install RPent with pip
 -------------------------
@@ -56,7 +54,28 @@ Available extras:
    * - ``.[rlinf]``
      - RLinf runtime only
 
-2. (Optional) Real-world robot dependencies
+2. Download the simulator assets
+--------------------------------
+
+The PyPI wheels ship without the large simulation assets. Download them
+once after installing:
+
+.. code-block:: bash
+
+   libero-download-assets --skip-existing      # base LIBERO
+   liberopro-download-assets --skip-existing   # LIBERO-PRO — .[libero-pro] / .[full]
+   liberoplus-download-assets --skip-existing  # LIBERO-plus — .[libero-plus]
+
+.. tip::
+
+   If your connection to Hugging Face is slow, download through the
+   mirror by prefixing the command with ``HF_ENDPOINT``:
+
+   .. code-block:: bash
+
+      HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing
+
+3. (Optional) Real-world robot dependencies
 -------------------------------------------
 
 Franka and SO-101 support is being rolled in; when it lands, each
