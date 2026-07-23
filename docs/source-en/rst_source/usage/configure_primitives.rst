@@ -77,5 +77,5 @@ Adding a brand-new primitive family
 -----------------------------------
 
 If the primitive you want is neither a VLA nor a scripted motion —
-say a WAM (World Action Model), a diffusion policy, or a Model
+say a WAM (World Action Model), a diffusion planner, or a Model
 Predictive Control primitive — see :doc:`../development/add_primitive`.

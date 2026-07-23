@@ -1,13 +1,13 @@
-添加动作原语
-============
+添加 Action Primitive
+=====================
 
-在 RPent 中，*动作原语* 将一次工具调用转换成环境可以执行的动作。
+在 RPent 中，*action primitive* 将一次工具调用转换成环境可以执行的动作。
 它既可以基于 VLA、WAM 或 Diffusion Policy，也可以是 ``move_to``、
-``open_gripper`` 等脚本化程序。本页分别介绍这两类动作原语的
+``open_gripper`` 等脚本化程序。本页分别介绍这两类 primitive 的
 接入方法。
 
-两类动作原语
-------------
+两类 primitive
+--------------
 
 .. list-table::
    :header-rows: 1
@@ -28,13 +28,13 @@
      - ``move_to``、``rotate_wrist``、``release``、
        ``back_project``
 
-两类动作原语向 LLM 提供相同的接口：一份工具 schema、一个
+两类 primitive 向 LLM 提供相同的接口：一份工具 schema、一个
 primitive driver 方法，以及调用完成后的状态快照。区别仅在于方法内部的实现。
 
-添加一个脚本化动作原语
-----------------------
+添加一个脚本化 primitive
+------------------------
 
-添加脚本化动作原语通常包含以下三个步骤：
+添加脚本化 primitive 通常包含以下三个步骤：
 
 1. **在 primitive driver 上加一个方法。** 在你 env 的 primitive
    driver 类 (如 ``LiberoPrimitives``、``MyRobotPrimitives``) 上加
@@ -75,10 +75,10 @@ primitive driver 方法，以及调用完成后的状态快照。区别仅在于
 完成以上步骤后，``api``、``claude_code`` 和 ``codex`` 三种 planner 都可以
 调用该工具，无需修改其他代码。
 
-添加一个 VLA（或其他基于模型的动作原语）
-----------------------------------------
+添加一个 VLA（或其他基于模型的 primitive）
+------------------------------------------
 
-基于模型的动作原语需要增加一些组件，因为模型运行在独立进程中：
+基于模型的 primitive 需要增加一些组件，因为模型运行在独立进程中：
 
 1. **写一个 ``vla_server.py``。** 只持有模型权重和 CUDA 上下文。
    继承 :class:`rpent.utils.rpc.RpcFacade`, 通过 ``_dispatch`` 暴露
@@ -139,28 +139,28 @@ primitive driver 方法，以及调用完成后的状态快照。区别仅在于
 任务之间调用它完成重置。这样，同一个 server 进程就能安全地复用于多次
 连续运行。
 
-新动作原语的设计原则
---------------------
+新 primitive 的设计原则
+------------------------
 
 - **工具名称应描述意图，而非底层动作序列。** 例如使用 ``pi0_pick``，
   而不是 ``execute_action_chunk_of_length_20``。
 - **每个工具执行结束后都要保存新的状态快照。** 下一轮需要读取动作执行后的
-  环境状态，因此动作原语不能在渲染完成前返回。
+  环境状态，因此 primitive 不能在渲染完成前返回。
 - **工具只返回简短的字典。** 返回值会以文本形式提供给 LLM；图像、深度和
   ``states.json`` 等较大数据通过状态快照提供。
 - **安全限制由 ``env_server`` 强制执行。** LLM 可能使用任意参数调用工具，
   因此工作空间边界和安全限制不能只依赖 toolkit。
 
-其他基于模型的动作原语
-----------------------
+其他基于模型的 primitive
+------------------------
 
-同样的架构也适用于非 VLA 的模型动作原语：
+同样的架构也适用于非 VLA 的模型 primitive：
 
 - **World Action Model (WAM)** —— 根据模型预测生成 rollout 和执行计划，
   再交给环境执行。接入方式与 VLA 相同：使用独立进程和独立 client。
 - **Diffusion Policy / MPC** —— 接口形式相同，但工具返回的动作可能是一段
   trajectory，而非单个 chunk，并由 ``env_server`` 按顺序执行。
-- **多个动作原语共享一个 server** —— 一个 ``vla_server`` 可以承载
+- **多个 primitive 共享一个 server** —— 一个 ``vla_server`` 可以承载
   多个模型，由工具通过 ``vla_infer`` 的 ``model`` kwarg 选择要调用的模型
   或输出 head。
 

@@ -53,7 +53,7 @@
       :text-align: center
 
       使用 LIBERO / RoboCasa 仿真环境或 Franka / SO-101 机械臂，
-      切换 planner 并选择动作原语。
+      切换 planner 并选择 action primitive。
 
    .. grid-item-card:: 开发教程
       :link: rst_source/development/architecture
@@ -61,7 +61,7 @@
       :text-align: center
 
       了解 RPent 的实现架构，以及如何添加机器人、
-      动作原语或扩展 memory。
+      action primitive 或扩展 memory。
 
 .. toctree::
    :maxdepth: 2
@@ -81,7 +81,7 @@
    :caption: 使用教程
 
    Agentic Planner <rst_source/usage/configure_planner>
-   动作原语 <rst_source/usage/configure_primitives>
+   Action Primitives <rst_source/usage/configure_primitives>
    LIBERO <rst_source/usage/libero>
    RoboCasa <rst_source/usage/robocasa>
    Franka <rst_source/usage/franka>
@@ -96,7 +96,7 @@
 
    系统设计 <rst_source/development/architecture>
    添加新机器人 <rst_source/development/add_robot>
-   添加动作原语 <rst_source/development/add_primitive>
+   添加 Action Primitive <rst_source/development/add_primitive>
    Memory 管理 <rst_source/development/memory>
 
 .. toctree::

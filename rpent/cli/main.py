@@ -151,7 +151,7 @@ def _build_env_parser(env_name: str) -> argparse.ArgumentParser:
         ap.add_argument("--max-episode-steps", type=int, default=10000)
         ap.add_argument("--libero-type", default=None,
                         choices=["standard", "pro", "plus"],
-                        help="LIBERO implementation. Defaults to LIBERO_TYPE, then pro.")
+                        help="LIBERO variant. Defaults to LIBERO_TYPE, then pro.")
         ap.add_argument("--suite", default=None,
                         help="e.g. libero_object_task, libero_spatial_swap")
         ap.add_argument("--task", type=int, default=None)

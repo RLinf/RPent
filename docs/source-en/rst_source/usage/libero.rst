@@ -68,9 +68,6 @@ their perturbation suites.
      - ``libero_10_task``, ``libero_10_swap``, ``libero_10_lan``,
        ``libero_10_object``
 
-The suffixes identify LIBERO-PRO perturbations: ``_task`` is Task/P1,
-``_swap`` is Position/P2, ``_lan`` is Semantic, and ``_object`` is Object.
-
 Minimal command
 ---------------
 

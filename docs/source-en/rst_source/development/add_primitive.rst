@@ -3,7 +3,7 @@ Add an Action Primitive
 
 An *action primitive* in RPent is anything that turns a tool call
 into an executable action for the environment. It can be a learned
-policy (a VLA, a WAM, or a diffusion policy) or a scripted routine
+policy (a VLA, a WAM, a diffusion planner) or a scripted routine
 (``move_to``, ``open_gripper``). This page walks through how to add
 one, whichever family it falls into.
 
@@ -173,7 +173,7 @@ The same pattern extends to non-VLA model primitives:
 - **World Action Models (WAM)** — imagination-based rollouts that
   produce a plan the env then executes. Wire them exactly like a
   VLA: their own process, their own client.
-- **Diffusion policies / MPC** — same shape; the "action" the tool
+- **Diffusion planners / MPC** — same shape; the "action" the tool
   returns may be a trajectory rather than a single chunk, and the
   ``env_server`` steps it out.
 - **Multiple primitives sharing one server** — a single
