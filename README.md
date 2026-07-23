@@ -172,6 +172,8 @@ rpent --env libero --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 ```
 
+For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
+
 ## Key CLI Options
 
 <table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
@@ -200,11 +202,6 @@ rpent --env libero --dashboard --dashboard-language zh-cn \
     <tr><td><code>--vla-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing vla_server (same rules). If unset, one is spawned locally.</td></tr>
   </tbody>
 </table>
-
-## Documentation
-
-- [Adding a new environment](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html) — plug a new simulator / robot into the runner ([中文](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html)).
-- [`docs/`](docs/README.md) — local Sphinx build and preview instructions.
 
 ## Citation and Acknowledgement
 

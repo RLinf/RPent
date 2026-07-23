@@ -183,6 +183,8 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 
 完整的 RoboCasa365 + RLDX-1 部署流程见 [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md)。
 
+更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
+
 ## 主要命令行参数
 
 <table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
@@ -211,12 +213,6 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
     <tr><td><code>--vla-endpoint</code></td><td>—（新起进程）</td><td>已在运行的 vla_server 的 <code>[protocol://]host:port</code>（同上）。留空则本地起一个。</td></tr>
   </tbody>
 </table>
-
-## 文档
-
-- [接入新环境](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html) — 把新的仿真器 / 机器人接入 runner（[English](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html)）。
-- [RoboCasa 安装](docs/SETUP_ROBOCASA.zh.md) — RoboCasa365 + RLDX-1 安装与运行指南。
-- [`docs/`](docs/README.md) — 本地 Sphinx 构建与预览说明。
 
 ## 引用与致谢
 
