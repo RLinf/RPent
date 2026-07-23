@@ -16,10 +16,6 @@ from prompt_toolkit.key_binding.bindings.named_commands import get_by_name
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 
-from rpent.utils.logging import get_logger
-
-logger = get_logger("agent.tui")
-
 #: Interactive-mode command tokens (case-insensitive). This module is the single
 #: source of truth; ``api_loop`` imports ``QUIT_TOKENS`` for its steering checks.
 QUIT_TOKENS = frozenset({"/quit", "/exit", "/q"})
