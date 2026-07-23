@@ -4,9 +4,10 @@
 
 <div align="center">
 <a href="https://arxiv.org/abs/2607.08448"><img src="https://img.shields.io/badge/arXiv-Paper-red?logo=arxiv"></a>
-<a href="https://github.com/RLinf/RPent"><img src="https://img.shields.io/badge/GitHub-RPent-181717?logo=github"></a>
-<a href="https://github.com/RLinf/RPent"><img src="https://img.shields.io/badge/Code-RPent-blue?logo=github"></a>
 <a href="https://huggingface.co/RLinf"><img src="https://img.shields.io/badge/HuggingFace-yellow?logo=huggingface&logoColor=white" alt="Hugging Face"></a>
+<a href="https://rpent.readthedocs.io/en/latest/"><img src="https://img.shields.io/badge/Documentation-Purple?color=8A2BE2&logo=readthedocs"></a>
+<a href="https://rpent.readthedocs.io/zh-cn/latest/"><img src="https://img.shields.io/badge/中文文档-red?logo=readthedocs"></a>
+<a href="https://github.com/RLinf/misc/blob/main/pic/rpent_wechat.png?raw=true"><img src="https://img.shields.io/badge/微信-green?logo=wechat&amp"></a>
 </div>
 
 <div align="center">
@@ -34,13 +35,13 @@ RPent is built upon three core design principles: **service-oriented, standardiz
 
 ## Feature Matrix
 
-<table width="100%">
+<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
   <thead align="center" valign="bottom">
     <tr>
-      <th width="26%">Agentic Planner</th>
-      <th width="28%">Action Primitive</th>
-      <th width="26%" align="left">Simulator</th>
-      <th width="20%">Real World</th>
+      <th style="min-width: 300px;">Agentic Planner</th>
+      <th style="min-width: 340px;">Action Primitive</th>
+      <th style="min-width: 300px; text-align: left;">Simulator</th>
+      <th style="min-width: 260px;">Real World</th>
     </tr>
   </thead>
   <tbody valign="top">
@@ -49,17 +50,17 @@ RPent is built upon three core design principles: **service-oriented, standardiz
         <ul style="margin-left: 0; padding-left: 16px;">
           <li>Claude Code ✅</li>
           <li>Codex ✅</li>
-          <li>Custom planner ✅</li>
+          <li>Custom Planner ✅</li>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><b>VLA manipulation</b></li>
+          <li><b>VLA</b></li>
           <ul>
             <li>Pi0.5 ✅</li>
             <li>RLDX-1</li>
           </ul>
-          <li><b>WAM manipulation</b></li>
+          <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
           </ul>
@@ -93,14 +94,40 @@ pip install -e ".[full]"
 `.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator on the RLinf runtime). 
 Pick a narrower extra if you don't need the whole stack:
 
-| Extra | Installs |
-| --- | --- |
-| `.[full]` | `rlinf` + `openpi` + `libero-pro` — the default run stack |
-| `.[libero-pro]` | Base LIBERO + LIBERO-PRO simulator |
-| `.[libero-plus]` | Base LIBERO + LIBERO-plus simulator |
-| `.[libero]` | Base LIBERO only |
-| `.[openpi]` | openpi VLA only |
-| `.[rlinf]` | RLinf runtime only |
+<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
+  <thead align="center" valign="bottom">
+    <tr>
+      <th style="min-width: 120px; text-align: left;">Extra</th>
+      <th style="min-width: 240px;">Installs</th>
+    </tr>
+  </thead>
+  <tbody valign="top">
+    <tr>
+      <td><code>.[full]</code></td>
+      <td><code>rlinf</code> + <code>openpi</code> + <code>libero-pro</code> — the default run stack</td>
+    </tr>
+    <tr>
+      <td><code>.[libero-pro]</code></td>
+      <td>Base LIBERO + LIBERO-PRO simulator</td>
+    </tr>
+    <tr>
+      <td><code>.[libero-plus]</code></td>
+      <td>Base LIBERO + LIBERO-plus simulator</td>
+    </tr>
+    <tr>
+      <td><code>.[libero]</code></td>
+      <td>Base LIBERO only</td>
+    </tr>
+    <tr>
+      <td><code>.[openpi]</code></td>
+      <td>openpi VLA only</td>
+    </tr>
+    <tr>
+      <td><code>.[rlinf]</code></td>
+      <td>RLinf runtime only</td>
+    </tr>
+  </tbody>
+</table>
 
 **2. Configure keys and checkpoints, then run.**
 
@@ -112,7 +139,7 @@ export OPENAI_BASE_URL=https://xxx
 export OPENAI_API_KEY=sk-xxx
 
 # VLA checkpoint — download from
-# https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft
+# https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
 export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 export LIBERO_TYPE=pro
 export CUDA_VISIBLE_DEVICES=0
@@ -146,23 +173,32 @@ rpent --env libero --dashboard --dashboard-language zh-cn \
 
 ## Key CLI Options
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--env` | — (required) | Environment backend. Currently `libero`. |
-| `--suite` | — (required) | Task suite, e.g. `libero_object_task`, `libero_spatial_swap` |
-| `--task` | — (required) | Task id within the suite |
-| `--seed` | `0` | Random seed |
-| `--planner` | `api` | Reasoning brain: `api` \| `claude_code` \| `codex` |
-| `--model` | — | Model id; for `api`, prefix the provider (`anthropic:…`, `openai:…`, `openai-chat:…`) |
-| `--max-turns` | `100` | Max agent turns |
-| `--max-tokens` | `8192` | Max tokens per LLM reply |
-| `--max-episode-steps` | `10000` | Max env steps |
-| `--libero-type` | `LIBERO_TYPE` or `pro` | LIBERO variant: `standard` \| `pro` \| `plus` |
-| `--cuda-device` | inherited | GPU device(s) exposed to the env / vla servers |
-| `--dashboard` | off | Start the local dashboard for this run |
-| `--dashboard-language` | `en` | Dashboard UI language: `en` \| `zh-cn` |
-| `--env-endpoint` | — (spawn) | `[protocol://]host:port` of an existing env_server (`protocol=http\|socket`, default `http`). If unset, one is spawned locally. |
-| `--vla-endpoint` | — (spawn) | `[protocol://]host:port` of an existing vla_server (same rules). If unset, one is spawned locally. |
+<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
+  <thead align="center" valign="bottom">
+    <tr>
+      <th style="min-width: 160px; text-align: left;">Flag</th>
+      <th style="min-width: 120px;">Default</th>
+      <th style="min-width: 360px;">Description</th>
+    </tr>
+  </thead>
+  <tbody valign="top">
+    <tr><td><code>--env</code></td><td>— (required)</td><td>Environment backend. Currently <code>libero</code>.</td></tr>
+    <tr><td><code>--suite</code></td><td>— (required)</td><td>Task suite, e.g. <code>libero_object_task</code>, <code>libero_spatial_swap</code></td></tr>
+    <tr><td><code>--task</code></td><td>— (required)</td><td>Task id within the suite</td></tr>
+    <tr><td><code>--seed</code></td><td><code>0</code></td><td>Random seed</td></tr>
+    <tr><td><code>--planner</code></td><td><code>api</code></td><td>Reasoning brain: <code>api</code> | <code>claude_code</code> | <code>codex</code></td></tr>
+    <tr><td><code>--model</code></td><td>—</td><td>Model id; for <code>api</code>, prefix the provider (<code>anthropic:…</code>, <code>openai:…</code>, <code>openai-chat:…</code>)</td></tr>
+    <tr><td><code>--max-turns</code></td><td><code>100</code></td><td>Max agent turns</td></tr>
+    <tr><td><code>--max-tokens</code></td><td><code>8192</code></td><td>Max tokens per LLM reply</td></tr>
+    <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>Max env steps</td></tr>
+    <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> or <code>pro</code></td><td>LIBERO variant: <code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
+    <tr><td><code>--cuda-device</code></td><td>inherited</td><td>GPU device(s) exposed to the env / vla servers</td></tr>
+    <tr><td><code>--dashboard</code></td><td>off</td><td>Start the local dashboard for this run</td></tr>
+    <tr><td><code>--dashboard-language</code></td><td><code>en</code></td><td>Dashboard UI language: <code>en</code> | <code>zh-cn</code></td></tr>
+    <tr><td><code>--env-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing env_server (<code>protocol=http|socket</code>, default <code>http</code>). If unset, one is spawned locally.</td></tr>
+    <tr><td><code>--vla-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing vla_server (same rules). If unset, one is spawned locally.</td></tr>
+  </tbody>
+</table>
 
 ## Documentation
 

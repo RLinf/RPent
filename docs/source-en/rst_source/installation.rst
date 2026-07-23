@@ -19,8 +19,8 @@ You will also want:
 - An API key for at least one LLM provider — Anthropic, OpenAI, or an
   OpenAI-compatible chat endpoint — for the reasoning brain.
 - A VLA checkpoint. For LIBERO / Pi0.5 the recommended checkpoint lives
-  at `HuggingFace: rlinf-pi05-libero-130-fullshot-sft
-  <https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_.
+  at `HuggingFace: RLinf-Pi05-LIBERO-130-fullshot-SFT
+  <https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_.
 
 1. Install RPent with pip
 -------------------------
