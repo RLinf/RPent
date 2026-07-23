@@ -1,9 +1,8 @@
 安装
 ====
 
-RPent 用一条 ``pip install`` 即可安装。其 optional-dependency extra 会以
-git 依赖的形式拉取 `RLinf <https://github.com/RLinf/RLinf>`_ fork 运行时、
-openpi 以及 LIBERO 仿真器, 因此不再需要单独 clone RLinf 或运行安装脚本。
+RPent 用一条 ``pip install`` 即可安装。optional-dependency extra 会从
+PyPI 拉取已发布的 openpi 与 LIBERO 仿真器包。
 
 先决条件
 --------
@@ -54,7 +53,26 @@ Clone RPent (用于 CLI 与运行配置), 再按需选择 extra 安装:
    * - ``.[rlinf]``
      - 仅 RLinf 运行时
 
-2. (可选) 真实机器人依赖
+2. 下载仿真资产
+---------------
+
+PyPI wheel 不包含大体积仿真资产。安装后需一次性下载:
+
+.. code-block:: bash
+
+   libero-download-assets --skip-existing      # 基础 LIBERO
+   liberopro-download-assets --skip-existing   # LIBERO-PRO —— .[libero-pro] / .[full]
+   liberoplus-download-assets --skip-existing  # LIBERO-plus —— .[libero-plus]
+
+.. tip::
+
+   访问 Hugging Face 较慢时, 可通过 ``HF_ENDPOINT`` 走镜像加速下载:
+
+   .. code-block:: bash
+
+      HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing
+
+3. (可选) 真实机器人依赖
 ------------------------
 
 Franka 与 SO-101 的支持正在逐步接入; 每个机器人的 driver 会以一个包的

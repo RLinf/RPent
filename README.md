@@ -129,7 +129,17 @@ Pick a narrower extra if you don't need the whole stack:
   </tbody>
 </table>
 
-**2. Configure keys and checkpoints, then run.**
+**2. Download the LIBERO-PRO simulator assets.**
+
+```bash
+liberopro-download-assets --skip-existing
+```
+
+> 💡 Slow connection to Hugging Face? Download through the mirror: `HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing`.
+
+See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for other simulators.
+
+**3. Configure keys and checkpoints, then run.**
 
 ```bash
 # LLM API keys (the `api` planner)

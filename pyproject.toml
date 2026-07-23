@@ -24,7 +24,6 @@ classifiers = [
     "Environment :: GPU :: NVIDIA CUDA :: 12 :: 12.4",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
 ]
 
 dependencies = [
@@ -50,18 +49,13 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 
 [project.optional-dependencies]
 rlinf = [
-    "rlinf @ git+https://github.com/RLinf/RLinf.git@dev/physical-agent",
+    "rpent-rlinf",
 ]
 openpi = [
-    "openpi @ git+https://github.com/RLinf/openpi.git@feature/physical-agent",
+    "rlinf-openpi",
 ]
 libero = [
     "rlinf-libero",
-    "robosuite==1.4.1",
-    "bddl",
-    "easydict",
-    "matplotlib",
-    "gym"
 ]
 libero-pro = [
     "rpent[libero]",
@@ -69,7 +63,7 @@ libero-pro = [
 ]
 libero-plus = [
     "rpent[libero]",
-    "liberoplus @ git+https://github.com/RLinf/LIBERO-plus.git@feature/physical-agent",
+    "rlinf-liberoplus",
 ]
 full = [
     "rpent[rlinf,openpi,libero-pro]",

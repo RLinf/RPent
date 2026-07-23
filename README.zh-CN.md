@@ -129,7 +129,17 @@ pip install -e ".[full]"
   </tbody>
 </table>
 
-**2. 配置密钥与 checkpoint，然后运行。**
+**2. 下载 LIBERO-PRO 仿真资产。**
+
+```bash
+liberopro-download-assets --skip-existing
+```
+
+> 💡 访问 Hugging Face 较慢时，可走镜像加速：`HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing`。
+
+其他仿真器见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
+
+**3. 配置密钥与 checkpoint，然后运行。**
 
 ```bash
 # 大模型 API 密钥（api 规划器）
