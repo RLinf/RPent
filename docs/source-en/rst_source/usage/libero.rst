@@ -19,8 +19,8 @@ Pi0.5 needs one thing: a checkpoint on disk. Point at it via
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 
 Download the recommended SFT checkpoint from HuggingFace:
-`rlinf-pi05-libero-130-fullshot-sft
-<https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_.
+`RLinf-Pi05-LIBERO-130-fullshot-SFT
+<https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_.
 
 Task selection
 --------------
