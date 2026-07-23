@@ -41,9 +41,11 @@ class LiberoPrimitives:
         self,
         env: LiberoEnvClient,
         model: VLAClient,
+        sam3_client: Sam3Client,
     ):
         self.env = env
         self.model = model
+        self._sam3_client = sam3_client
         self._last_obs = None
         self._last_obs_eef_pos = None
         self._last_obs_eef_z = None
@@ -701,6 +703,125 @@ class LiberoPrimitives:
             "final_gripper_opening": self._last_obs_gripper,
             "libero_terminated": self.env.episode_done,
         }
+
+    def segment(
+        self,
+        prompt: str = "",
+        camera: str = "agentview",
+        step: int | None = None,
+        point: list[int] | None = None,
+        min_score: float = 0.2,
+    ) -> dict:
+        """Call SAM3 on an existing image artifact without advancing the env.
+
+        This tool deliberately does not render camera views or create wrist/high-res
+        artifacts. Errors are structured so the agent can continue with image
+        inspection and ``back_project``.
+        """
+        nn = _latest_step() if step is None else int(step)
+        if nn is None:
+            return {"error": "no state entries; cannot select segment image"}
+
+        camera = camera or "agentview"
+        prompt = prompt.strip()
+        has_prompt = bool(prompt)
+        has_point = point is not None
+        if has_prompt == has_point:
+            return {"error": "segment needs exactly one of prompt or point"}
+        try:
+            image_path, world_path, artifact_pairs = _select_segment_artifacts(
+                nn, camera
+            )
+        except ValueError as e:
+            return {"error": str(e)}
+        if image_path is None:
+            return {
+                "error": "segment image artifact not found",
+                "step": nn,
+                "camera": camera,
+                "checked_paths": [str(image) for image, _ in artifact_pairs],
+                "fallback": "Read the available image artifact and use back_project.",
+            }
+
+        try:
+            data = self._sam3_client.segment(
+                image_path,
+                text_prompt=prompt if has_prompt else None,
+                point=point,
+                min_score=min_score,
+            )
+        except Exception as e:
+            return {
+                "error": f"segmentation service call failed: {e}",
+                "step": nn,
+                "camera": camera,
+                "image_path": str(image_path),
+                "fallback": "Use manual visual localization and back_project.",
+            }
+
+        out_dir = get_output_dir()
+        segment_path, overlay_candidate_path, segment_index = (
+            _next_segment_artifact_paths(out_dir, nn)
+        )
+        overlay_path = None
+        mask = data.mask
+        if data.found and isinstance(mask, np.ndarray):
+            if world_path is None or not world_path.exists():
+                world_result = {
+                    "world_xyz": None,
+                    "world_error": "world map artifact not found for selected image",
+                    "expected_world_path": str(world_path) if world_path else None,
+                }
+            else:
+                world_result = _mask_to_world(mask, np.load(world_path))
+                world_result["world_path"] = str(world_path)
+            overlay_path = overlay_candidate_path
+            if not _write_segment_overlay(image_path, mask, overlay_path):
+                overlay_path = None
+        else:
+            world_result = {
+                "world_xyz": None,
+                "world_error": data.reason or "segmentation did not find a mask",
+            }
+
+        segment_blob = {
+            "found": data.found,
+            "mode": "text" if has_prompt else "point",
+            "camera": camera,
+            "source_step": nn,
+            "segment_index": segment_index,
+            "image_path": str(image_path),
+            "min_score": min_score,
+            "score": round(float(data.score), 3) if data.score is not None else None,
+            "box": data.box,
+            "mask_shape": list(data.mask_shape) if data.mask_shape else None,
+        }
+        if has_prompt:
+            segment_blob["prompt"] = prompt
+        else:
+            segment_blob["point"] = point
+        if not data.found:
+            segment_blob["error"] = data.reason or "SAM3 found no mask"
+        segment_blob.update(world_result)
+        segment_path.write_text(json.dumps(segment_blob, indent=2, default=str))
+
+        result = {
+            "found": data.found,
+            "step": nn,
+            "camera": camera,
+            "image_path": str(image_path),
+            "segment_path": str(segment_path),
+            "score": segment_blob["score"],
+            "box": segment_blob["box"],
+            "world_xyz": segment_blob["world_xyz"],
+            "world_error": segment_blob.get("world_error"),
+        }
+        if "error" in segment_blob:
+            result["error"] = segment_blob["error"]
+            result["fallback"] = "Use manual visual localization and back_project."
+        if overlay_path is not None and overlay_path.exists():
+            result["overlay_path"] = str(overlay_path)
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -1717,125 +1838,6 @@ def _write_segment_overlay(image_path, mask: np.ndarray, overlay_path) -> bool:
         return overlay_path.exists()
     except Exception:
         return False
-
-
-def segment(
-    prompt: str = "",
-    camera: str = "agentview",
-    step: int | None = None,
-    point: list[int] | None = None,
-    min_score: float = 0.2,
-    *,
-    sam3_client: Sam3Client,
-) -> dict:
-    """Call RPent's SAM3 service on an existing image artifact.
-
-    This tool deliberately does not render camera views or create wrist/high-res
-    artifacts. Errors are structured so the agent can continue with image
-    inspection and ``back_project``.
-    """
-    nn = _latest_step() if step is None else int(step)
-    if nn is None:
-        return {"error": "no state entries; cannot select segment image"}
-
-    camera = camera or "agentview"
-    prompt = prompt.strip()
-    has_prompt = bool(prompt)
-    has_point = point is not None
-    if has_prompt == has_point:
-        return {"error": "segment needs exactly one of prompt or point"}
-    try:
-        image_path, world_path, artifact_pairs = _select_segment_artifacts(nn, camera)
-    except ValueError as e:
-        return {"error": str(e)}
-    if image_path is None:
-        return {
-            "error": "segment image artifact not found",
-            "step": nn,
-            "camera": camera,
-            "checked_paths": [str(image) for image, _ in artifact_pairs],
-            "fallback": "Read the available image artifact and use back_project.",
-        }
-
-    try:
-        data = sam3_client.segment(
-            image_path,
-            text_prompt=prompt if has_prompt else None,
-            point=point,
-            min_score=min_score,
-        )
-    except Exception as e:
-        return {
-            "error": f"segmentation service call failed: {e}",
-            "step": nn,
-            "camera": camera,
-            "image_path": str(image_path),
-            "fallback": "Use manual visual localization and back_project.",
-        }
-
-    out_dir = get_output_dir()
-    segment_path, overlay_candidate_path, segment_index = (
-        _next_segment_artifact_paths(out_dir, nn)
-    )
-    overlay_path = None
-    mask = data.mask
-    if data.found and isinstance(mask, np.ndarray):
-        if world_path is None or not world_path.exists():
-            world_result = {
-                "world_xyz": None,
-                "world_error": "world map artifact not found for selected image",
-                "expected_world_path": str(world_path) if world_path else None,
-            }
-        else:
-            world_result = _mask_to_world(mask, np.load(world_path))
-            world_result["world_path"] = str(world_path)
-        overlay_path = overlay_candidate_path
-        if not _write_segment_overlay(image_path, mask, overlay_path):
-            overlay_path = None
-    else:
-        world_result = {
-            "world_xyz": None,
-            "world_error": data.reason or "segmentation did not find a mask",
-        }
-
-    segment_blob = {
-        "found": data.found,
-        "mode": "text" if has_prompt else "point",
-        "camera": camera,
-        "source_step": nn,
-        "segment_index": segment_index,
-        "image_path": str(image_path),
-        "min_score": min_score,
-        "score": round(float(data.score), 3) if data.score is not None else None,
-        "box": data.box,
-        "mask_shape": list(data.mask_shape) if data.mask_shape else None,
-    }
-    if has_prompt:
-        segment_blob["prompt"] = prompt
-    else:
-        segment_blob["point"] = point
-    if not data.found:
-        segment_blob["error"] = data.reason or "SAM3 found no mask"
-    segment_blob.update(world_result)
-    segment_path.write_text(json.dumps(segment_blob, indent=2, default=str))
-
-    result = {
-        "found": data.found,
-        "step": nn,
-        "camera": camera,
-        "image_path": str(image_path),
-        "segment_path": str(segment_path),
-        "score": segment_blob["score"],
-        "box": segment_blob["box"],
-        "world_xyz": segment_blob["world_xyz"],
-        "world_error": segment_blob.get("world_error"),
-    }
-    if "error" in segment_blob:
-        result["error"] = segment_blob["error"]
-        result["fallback"] = "Use manual visual localization and back_project."
-    if overlay_path is not None and overlay_path.exists():
-        result["overlay_path"] = str(overlay_path)
-    return result
 
 
 def view_camera_meta(camera: str = "agentview", step: int | None = None) -> dict:
