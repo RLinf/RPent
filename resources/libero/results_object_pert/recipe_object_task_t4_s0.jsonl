@@ -1,3 +1,0 @@
-{"action": "move_to", "xyz": [-0.18, -0.08, 0.22], "gripper": -1, "tol": 0.012, "step_clip": 0.02, "max_steps": 100}
-{"action": "pi0_pick", "prompt": "pick up the milk", "max_chunks": 25, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
-{"action": "release", "max_steps": 20}

@@ -1,4 +1,0 @@
-{"action": "set_gripper", "gripper": 1, "steps": 5}
-{"action": "move_to", "xyz": [-0.04, 0.04, 1.05], "gripper": 1, "tol": 0.012, "step_clip": 0.020, "max_steps": 100, "action_scale": 0.05}
-{"action": "move_to", "xyz": [-0.04, 0.04, 0.91], "gripper": 1, "tol": 0.015, "step_clip": 0.008, "max_steps": 120, "action_scale": 0.05}
-{"action": "move_to", "xyz": [-0.04, 0.20, 0.91], "gripper": 1, "tol": 0.015, "step_clip": 0.008, "max_steps": 250, "action_scale": 0.05}

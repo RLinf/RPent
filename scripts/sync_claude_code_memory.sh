@@ -30,4 +30,5 @@ RM_LIST=$(find "$SNAPSHOT" -maxdepth 1 -name "*.md" ! -name "README.md")
 cp "$LIVE"/*.md "$SNAPSHOT/"
 n=$(ls "$SNAPSHOT" | grep -c '\.md$')
 echo "[sync_memory] copied $n .md files from $LIVE -> $SNAPSHOT"
-echo "[sync_memory] don't forget to: git add $SNAPSHOT/ && git commit"
+echo "[sync_memory] resources/ is not tracked in git; a maintainer must publish"
+echo "[sync_memory] the update to the HuggingFace dataset (see docs: Memory Management)"

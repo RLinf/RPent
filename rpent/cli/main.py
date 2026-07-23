@@ -46,6 +46,7 @@ from rpent.utils.config import (
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.http_rpc import HttpRpcClient
 from rpent.utils.logging import get_logger, init_output_dir
+from rpent.utils.resources import ensure_resources
 from rpent.utils.rpc import RpcClient, wait_for_ready
 from rpent.utils.sam3_client import Sam3Client
 from rpent.utils.socket_rpc import SocketRpcClient
@@ -397,6 +398,8 @@ def main() -> int:
     if launch_config is not None:
         logger.info("launcher config applied: %s", launch_config)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
+
+    ensure_resources(env_name)
 
     recipe_tag = f"{suite.replace('libero_', '')}_t{task}_s{seed}"
 
