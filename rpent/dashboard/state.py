@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ class State:
         seed: int,
         output_dir: str,
         video_path: str,
+        interact: bool = False,
     ) -> None:
         self.run_id = run_id
         self.name = name
@@ -37,6 +39,93 @@ class State:
         self._frame_png: bytes | None = None
         self._frame_cam_png: bytes | None = None
         self._frame_idx = -1
+
+        # -- interactive input channel: the frontend posts user messages that
+        # the running cerebrum drains and injects as new user turns. In
+        # ``interact`` mode a submission also raises the interrupt flag so the
+        # cerebrum stops the current generation immediately (Claude Code TUI
+        # ESC-then-type semantics); otherwise messages only append, delivered
+        # at the next turn boundary.
+        self._interact = bool(interact)
+        self._prompt = ""
+        self._pending_msgs: list[str] = []
+        self._interrupt = threading.Event()
+        # Whether the cerebrum is actively generating right now. The composer
+        # uses this to gray out/disable input while the agent works (append
+        # mode) or to switch the button to "interrupt" (interact mode).
+        self._busy = False
+
+    @property
+    def interact(self) -> bool:
+        """Whether mid-run interruption is enabled for this run."""
+        return self._interact
+
+    def set_busy(self, busy: bool) -> None:
+        """Mark whether the cerebrum is currently generating a response."""
+        with self._lock:
+            self._busy = bool(busy)
+
+    def set_prompt(self, prompt: str) -> None:
+        """Record the task prompt shown to the model at launch."""
+        with self._lock:
+            self._prompt = str(prompt or "")
+
+    def submit_message(self, text: str) -> bool:
+        """Queue a user message from the dashboard input box.
+
+        Records it as a ``user`` transcript event (so it shows immediately),
+        appends it to the pending queue, and — in ``interact`` mode — raises
+        the interrupt flag. Returns ``False`` for empty text.
+        """
+        text = (text or "").strip()
+        if not text:
+            return False
+        with self._lock:
+            self._events.append({"type": "user", "text": text})
+            self._pending_msgs.append(text)
+        if self._interact:
+            self._interrupt.set()
+        return True
+
+    def take_pending_messages(self) -> list[str]:
+        """Drain and return all queued user messages (cerebrum-side)."""
+        with self._lock:
+            msgs = self._pending_msgs
+            self._pending_msgs = []
+            return msgs
+
+    def wait_for_first_message(self, poll_s: float = 0.1) -> str:
+        """Block until the user sends the first message, then return it.
+
+        The initial task prompt is prefilled into the dashboard input box; the
+        agent does not start until the user clicks Send. This drains the first
+        submission (joining any that arrived together) and clears the interrupt
+        flag it may have raised so the fresh run starts clean.
+        """
+        while True:
+            with self._lock:
+                if self._pending_msgs:
+                    msgs = self._pending_msgs
+                    self._pending_msgs = []
+                    self._interrupt.clear()
+                    return "\n\n".join(msgs)
+            time.sleep(poll_s)
+
+    def interrupt_requested(self) -> bool:
+        """Whether an interrupt has been requested and not yet cleared."""
+        return self._interrupt.is_set()
+
+    def request_interrupt(self) -> None:
+        """Request an interrupt without queuing a message (interact mode).
+
+        Used by the dashboard's "interrupt" button: it stops the current
+        generation; the user then sends a follow-up to continue.
+        """
+        self._interrupt.set()
+
+    def clear_interrupt(self) -> None:
+        """Clear a pending interrupt after the cerebrum has acted on it."""
+        self._interrupt.clear()
 
     def on_event(self, event: dict[str, Any]) -> None:
         with self._lock:
@@ -108,6 +197,7 @@ class State:
     def mark_done(self, terminated: bool | None = None) -> None:
         with self._lock:
             self._state = "done"
+            self._busy = False
             if terminated is None:
                 terminated = any(item.get("terminated") for item in self._timeline)
             self._terminated = bool(terminated)
@@ -148,6 +238,8 @@ class State:
                 "has_video": self._state == "done" and self.video_path.exists(),
                 "frame_idx": self._frame_idx,
                 "n_steps": len(self._timeline),
+                "interact": self._interact,
+                "busy": self._busy,
             }
 
     def run_info(self) -> dict[str, Any]:
@@ -160,6 +252,7 @@ class State:
                 "seed": self.seed,
                 "state": self._state,
                 "n_steps": len(self._timeline),
+                "interact": self._interact,
             }
 
     def run_detail(self) -> dict[str, Any]:
@@ -175,4 +268,7 @@ class State:
                 "timeline": list(self._timeline),
                 "has_video": self._state == "done" and self.video_path.exists(),
                 "frame_idx": self._frame_idx,
+                "prompt": self._prompt,
+                "interact": self._interact,
+                "busy": self._busy,
             }

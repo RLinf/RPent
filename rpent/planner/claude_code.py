@@ -10,7 +10,6 @@ no backend state of its own.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import dataclasses
 import json
 import tempfile
@@ -19,7 +18,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rpent.cli.tui import next_user_line
 from rpent.planner.base import (
     PlannerResult,
     add_mcp_prefix,
@@ -72,16 +70,14 @@ class ClaudeCodePlanner:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue=None,
     ) -> PlannerResult:
-        """Run a Claude Agent SDK session for the given prompt."""
+        """Run one Claude Agent SDK session for the given prompt."""
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         return asyncio.run(
             self._solve_async(
                 prompt,
                 toolkit=toolkit,
                 max_turns=max_turns,
-                input_queue=input_queue,
             )
         )
 
@@ -93,7 +89,6 @@ class ClaudeCodePlanner:
         *,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue=None,
     ) -> PlannerResult:
         import claude_agent_sdk
         sdk = claude_agent_sdk
@@ -123,46 +118,87 @@ class ClaudeCodePlanner:
         started = time.time()
         error: str | None = None
         rendered_chunks: list[str] = []
+        dashboard = self._dashboard
         with open(output_path, "w") as out_f, open(raw_stream_path, "w") as raw_f:
-
-            def _emit(message: Any) -> None:
-                _write_jsonl(raw_f, _message_to_json(message))
-                if rendered := recorder.observe(message):
-                    rendered_chunks.append(rendered)
-                    out_f.write(rendered)
-                    out_f.flush()
-                    logger.info(rendered.rstrip())
-
-            def _emit_user(line: str) -> None:
-                rendered = f"\n[user] {line}\n"
-                rendered_chunks.append(rendered)
-                out_f.write(rendered)
-                out_f.flush()
-                logger.info(rendered.strip())
-
             try:
-                if input_queue is None:
 
-                    async def consume_stream() -> None:
-                        async for message in sdk.query(prompt=prompt, options=options):
-                            _emit(message)
-                            if recorder.finish_result is not None:
-                                logger.info(
-                                    "FINISH called: %s", recorder.finish_result
-                                )
-                                break
+                async def consume_stream() -> None:
+                    # Streaming-input client (vs one-shot ``sdk.query``): keeps a
+                    # single session alive so dashboard submissions can be
+                    # injected as new user turns — appended while the agent works
+                    # (CLI queues them) or, in interact mode, after an
+                    # ``interrupt()`` that stops the current generation. This
+                    # mirrors the Claude Code TUI (type-to-queue / ESC-to-stop).
+                    async with sdk.ClaudeSDKClient(options=options) as client:
+                        await client.query(prompt)
+                        if dashboard is not None:
+                            dashboard.set_busy(True)
+                        stop_pump = asyncio.Event()
 
-                    await asyncio.wait_for(consume_stream(), timeout=self._timeout_s)
-                else:
-                    await self._run_interactive(
-                        sdk,
-                        prompt,
-                        options,
-                        recorder,
-                        input_queue,
-                        emit=_emit,
-                        emit_user=_emit_user,
-                    )
+                        async def pump() -> None:
+                            """Relay dashboard input into the live session."""
+                            while not stop_pump.is_set():
+                                try:
+                                    if (
+                                        dashboard.interact
+                                        and dashboard.interrupt_requested()
+                                    ):
+                                        await client.interrupt()
+                                        dashboard.clear_interrupt()
+                                    for msg in dashboard.take_pending_messages():
+                                        await client.query(msg)
+                                        dashboard.set_busy(True)
+                                except Exception as e:  # noqa: BLE001
+                                    logger.debug("inject pump error: %s", e)
+                                await asyncio.sleep(0.15)
+
+                        pump_task = (
+                            asyncio.create_task(pump())
+                            if dashboard is not None
+                            else None
+                        )
+                        try:
+                            async for message in client.receive_messages():
+                                _write_jsonl(raw_f, _message_to_json(message))
+                                if rendered := recorder.observe(message):
+                                    rendered_chunks.append(rendered)
+                                    out_f.write(rendered)
+                                    out_f.flush()
+                                    logger.info(rendered.rstrip())
+
+                                is_result = _kind(message) == "ResultMessage"
+                                if is_result and dashboard is not None:
+                                    # Segment finished → agent idle. The composer
+                                    # re-enables (append) or flips back from
+                                    # "interrupt" (interact).
+                                    dashboard.set_busy(False)
+                                # ``finish`` ends the run — except in interact mode,
+                                # where the user keeps control until the env
+                                # terminates (success alone does not stop it).
+                                if recorder.finish_result is not None and not (
+                                    dashboard is not None and dashboard.interact
+                                ):
+                                    logger.info(
+                                        "FINISH called: %s", recorder.finish_result
+                                    )
+                                    break
+                                # No dashboard: one-shot run, stop at the result.
+                                # With a dashboard, keep the session open for
+                                # follow-up turns (bounded by wait_for(timeout_s)).
+                                if is_result and dashboard is None:
+                                    break
+                        finally:
+                            if dashboard is not None:
+                                dashboard.set_busy(False)
+                            stop_pump.set()
+                            if pump_task is not None:
+                                pump_task.cancel()
+                                try:
+                                    await pump_task
+                                except BaseException:  # noqa: BLE001
+                                    pass
+
+                await asyncio.wait_for(consume_stream(), timeout=self._timeout_s)
             except asyncio.TimeoutError:
                 error = f"Claude Agent SDK timed out after {self._timeout_s}s"
                 rendered = f"\n[cc-planner] {error}\n"
@@ -201,73 +237,6 @@ class ClaudeCodePlanner:
             },
             error=error,
         )
-
-    async def _run_interactive(
-        self,
-        sdk: Any,
-        prompt: str,
-        options: Any,
-        recorder: "_Recorder",
-        input_queue,
-        *,
-        emit,
-        emit_user,
-    ) -> None:
-        """Drive a stateful ``ClaudeSDKClient`` with live steering.
-
-        The opening prompt is sent, then the agent streams autonomously while a
-        background pump forwards each user-typed line into the same session via
-        ``client.query`` so it steers the agent at its next turn. A quit/EOF
-        sentinel (or ``/quit``) interrupts the run; the ``finish`` tool ends it
-        normally. Because a human supervises, there is no wall-clock cap here.
-        """
-        async with sdk.ClaudeSDKClient(options=options) as client:
-            stop = asyncio.Event()
-
-            async def pump_input() -> None:
-                # Forward typed lines into the live session; interrupt on quit.
-                while not stop.is_set():
-                    nxt = await asyncio.to_thread(next_user_line, input_queue)
-                    if nxt is None:
-                        stop.set()
-                        with contextlib.suppress(Exception):
-                            await client.interrupt()
-                        return
-                    emit_user(nxt)
-                    # A running turn buffers further input until it ends, so
-                    # interrupt the in-flight turn first; the CLI then delivers
-                    # the steering line as the next user turn while preserving
-                    # the conversation context.
-                    recorder.suppress_next_result_error = True
-                    with contextlib.suppress(Exception):
-                        await client.interrupt()
-                    with contextlib.suppress(Exception):
-                        await client.query(nxt)
-
-            async def consume() -> None:
-                async for message in client.receive_messages():
-                    emit(message)
-                    if recorder.finish_result is not None:
-                        logger.info("FINISH called: %s", recorder.finish_result)
-                        return
-
-            await client.query(prompt)
-            pump = asyncio.create_task(pump_input())
-            consumer = asyncio.create_task(consume())
-            stop_wait = asyncio.create_task(stop.wait())
-            try:
-                await asyncio.wait(
-                    {consumer, stop_wait}, return_when=asyncio.FIRST_COMPLETED
-                )
-            finally:
-                # Unblock the pump's blocking queue read so its worker thread
-                # exits, then cancel and drain the remaining tasks.
-                input_queue.put(None)
-                for task in (consumer, stop_wait, pump):
-                    task.cancel()
-                for task in (consumer, stop_wait, pump):
-                    with contextlib.suppress(asyncio.CancelledError, Exception):
-                        await task
 
     # -- options + tool bridge ---------------------------------------------
 
@@ -332,10 +301,6 @@ class _Recorder:
     total_cost_usd: float | None = None
     finish_result: dict[str, Any] | None = None
     error: str | None = None
-    #: Set by the interactive loop before a user-initiated ``interrupt`` so the
-    #: next result (which the CLI may flag ``is_error``) is not mistaken for a
-    #: real failure. Cleared by the next result regardless of its outcome.
-    suppress_next_result_error: bool = False
 
     # -- public ------------------------------------------------------------
 
@@ -468,9 +433,7 @@ class _Recorder:
             self._set_usage(usage)
         if cost := _get(message, "total_cost_usd"):
             self.total_cost_usd = float(cost)
-        suppress = self.suppress_next_result_error
-        self.suppress_next_result_error = False
-        if _get(message, "is_error", False) and not suppress:
+        if _get(message, "is_error", False):
             self.error = f"Claude Agent SDK result {_get(message, 'subtype', 'error')}"
 
         parts = ["[cc-result]", str(_get(message, "subtype", ""))]

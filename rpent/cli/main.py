@@ -23,33 +23,27 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import queue
 import shlex
 import sys
 import threading
 import time
-from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from robots.libero.env_client import LiberoEnvClient
-from rpent.cli.tui import (
-    start_first_prompt_resolver,
-    start_interactive_reader,
-)
-from rpent.envs import get_env_spec, get_toolkit
-from rpent.planner.base import build_planner
 from rpent.utils.config import (
     get_libero_type,
     get_repo_root,
 )
-from rpent.utils.daemon import ProcessDaemon, pick_free_port
+
+from rpent.planner.base import build_planner
+from rpent.envs import get_env_spec, get_toolkit
 from rpent.utils.http_rpc import HttpRpcClient
-from rpent.utils.logging import get_logger, init_output_dir
-from rpent.utils.resources import ensure_resources
 from rpent.utils.rpc import RpcClient, wait_for_ready
 from rpent.utils.socket_rpc import SocketRpcClient
 from rpent.utils.vla_client import VLAClient
+from robots.libero.env_client import LiberoEnvClient
+from rpent.utils.daemon import ProcessDaemon, pick_free_port
+from rpent.utils.logging import get_logger, init_output_dir
 
 logger = get_logger("agent")
 
@@ -111,11 +105,6 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="API base URL. Defaults to the selected backend's base URL env var.")
     ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--max-tokens", type=int, default=8192)
-    ap.add_argument("--no-images", action="store_true",
-                    help="Never send image bytes to the model (api planner only). "
-                         "Use for text-only models that reject image input "
-                         "(e.g. 400 \"message type 'image_url' is not supported\"); "
-                         "read_image then returns the file path with a notice.")
     ap.add_argument("--planner-timeout-s", type=int, default=None,
                     help="Wall-clock cap for the claude_code/codex planner "
                          "subprocess. Defaults to CODEX_TIMEOUT_S (codex only), "
@@ -135,11 +124,15 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--dashboard-language", choices=["en", "zh-cn"], default="en",
                     help="Dashboard UI language. 'zh-cn' serves the Chinese "
                          "variant (index.zh-cn.html); defaults to English.")
+    ap.add_argument("--dashboard-interact", action="store_true",
+                    help="Enable mid-run interruption from the dashboard input "
+                         "box: a submitted message immediately stops the current "
+                         "generation and is injected as a new user turn (history "
+                         "kept). Without this flag the input box only appends — "
+                         "messages are delivered at the next turn boundary.")
     ap.add_argument("--verbose", action="store_true",
                     help="Enable DEBUG-level logging for stdout and the run.log "
                          "file. Defaults to INFO when not set.")
-    ap.add_argument("--interactive", "-i", action="store_true",
-                    help="Interactive mode: opens an interactive cli session.")
 
     return ap
 
@@ -355,8 +348,6 @@ def main() -> int:
         logger.info("launcher config applied: %s", launch_config)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
-    ensure_resources(env_name)
-
     recipe_tag = f"{suite.replace('libero_', '')}_t{task}_s{seed}"
 
     # --- dashboard state ---------------------------------------------------
@@ -372,6 +363,7 @@ def main() -> int:
             seed=seed,
             output_dir=str(output_dir),
             video_path=str(Path(output_dir) / "episode.mp4"),
+            interact=args.dashboard_interact,
         )
         # Server is already serving the launcher; register the run so the
         # frontend can switch from the start screen to the live monitor.
@@ -388,7 +380,6 @@ def main() -> int:
         planner_timeout_s=args.planner_timeout_s,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard=dashboard_state,
-        no_images=args.no_images,
     )
     env_spec = get_env_spec(env_name)
     prompt_bundle = env_spec.prompts
@@ -408,23 +399,8 @@ def main() -> int:
         "user",
         variables=prompt_vars,
     )
-
-    input_queue: "queue.Queue[str | None] | None" = None
-    await_first_prompt: "Callable[[], str | None] | None" = None
-    if args.interactive:
-        input_queue = queue.Queue()
-        # Pre-fill the first prompt with the rendered default task (editable
-        # preset);
-        start_interactive_reader(input_queue, first_prompt_default=user_msg)
-        logger.info(
-            "interactive mode on: the built-in task is pre-filled — "
-            "edit it and press Enter, submit it as-is, or clear it to "
-            "type your own. Once running, type to steer the agent. "
-            "/help for commands."
-        )
-        # Resolve the opening prompt on a background thread so the user can type
-        # it while the (slow) env/VLA servers boot below.
-        await_first_prompt = start_first_prompt_resolver(input_queue)
+    if dashboard_state is not None:
+        dashboard_state.set_prompt(user_msg)
 
     # --- initialise environment --------------------------------------------
     daemons, primitives_kwargs = _init_libero(args, output_dir)
@@ -441,25 +417,23 @@ def main() -> int:
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None
     stats: dict = {}
-    first_user_msg: str | None = user_msg
-    if await_first_prompt is not None:
-        # Block until the opening prompt typed during startup is ready.
-        first_user_msg = await_first_prompt()
-        if first_user_msg is None:
-            logger.info("no task entered; ending session before start.")
     try:
-        if first_user_msg is not None:
-            result = planner.solve(
-                system_prompt=system_prompt,
-                user_message=first_user_msg,
-                toolkit=toolkit,
-                max_turns=args.max_turns,
-                input_queue=input_queue,
-            )
-            finish_result = result.finish_result
-            messages = result.messages
-            stats = result.stats
-            agent_error = result.error
+        # With the dashboard, the initial task prompt is prefilled into the
+        # input box and the agent waits for the user to click Send (they may
+        # edit it first). Whatever they send becomes the first user turn.
+        if dashboard_state is not None:
+            logger.info("dashboard active — waiting for the user to send the first prompt")
+            user_msg = dashboard_state.wait_for_first_message()
+        result = planner.solve(
+            system_prompt=system_prompt,
+            user_message=user_msg,
+            toolkit=toolkit,
+            max_turns=args.max_turns,
+        )
+        finish_result = result.finish_result
+        messages = result.messages
+        stats = result.stats
+        agent_error = result.error
     except Exception as e:
         logger.error("EXCEPTION in agent loop: %s", e)
     finally:

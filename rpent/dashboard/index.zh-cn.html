@@ -20,7 +20,7 @@
   }
   header {
     display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: 0 20px 0 5px; background: var(--panel); border-bottom: 1px solid var(--border);
   }
   header h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: .3px; }
   header h1 .dot { color: var(--accent); }
@@ -187,6 +187,48 @@
   }
 
   .empty { color: var(--muted); padding: 24px 14px; font-style: italic; font-size: 14px; }
+
+  /* 用户插话气泡(dashboard 输入框) */
+  .ev.user {
+    color: var(--fg); background: var(--panel2);
+    border: 1px solid var(--accent); border-left: 3px solid var(--accent);
+    border-radius: 6px; padding: 7px 10px; margin-bottom: 8px;
+    white-space: pre-wrap; word-wrap: break-word; font-weight: 500;
+  }
+  .ev.user::before { content: "你 › "; color: var(--accent); font-weight: 700; }
+
+  /* 输入框(左栏底部聊天框) */
+  .composer {
+    flex-shrink: 0; background: var(--panel);
+    padding: 0 14px 10px; display: flex; flex-direction: column; gap: 7px;
+    height: var(--composerh, 30%);
+  }
+  /* 拖动手柄:复用与其它三个分隔条相同的 .gutter/.gutter-h 样式与
+     setupSplitter 行为。--composerh 控制整个输入框高度(textarea 弹性填充),
+     这样手柄始终跟随光标。 */
+  .composer > .gutter-h { height: 6px; margin: 0 -14px 6px; flex-shrink: 0; }
+  .composer textarea {
+    resize: none; background: var(--panel2); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 11px;
+    font: inherit; font-size: 14px; width: 100%; cursor: text;
+    flex: 1 1 auto; min-height: 46px;
+  }
+  /* 文字区用 I 光标,滚动条用箭头(自定义 ::-webkit-scrollbar 否则会继承
+     textarea 的文本光标)。 */
+  .composer textarea::-webkit-scrollbar,
+  .composer textarea::-webkit-scrollbar-track,
+  .composer textarea::-webkit-scrollbar-thumb { cursor: default; }
+  .composer textarea:focus { outline: none; border-color: var(--accent); }
+  .composer textarea:disabled { opacity: .5; cursor: not-allowed; }
+  .composer-row { display: flex; align-items: center; gap: 12px; }
+  .composer-hint { color: var(--muted); font-size: 12px; flex: 1; line-height: 1.35; }
+  .composer button {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 9px 20px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .composer button:hover { filter: brightness(1.08); }
+  .composer button:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+  .composer.interrupt button { background: var(--yellow); color: #3a2a00; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: #c9bea9; border-radius: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -195,7 +237,7 @@
 <body>
   <div id="launcher" class="hidden">
     <div class="launch-card">
-      <h2><span class="dot">●</span> RPent · 新建任务</h2>
+      <h2>RPent · 新建任务</h2>
       <div class="sub">确认配置后,点击「开始运行」启动智能体。</div>
       <div class="lform">
         <div class="lfield full">
@@ -273,7 +315,7 @@
   </div>
 
   <header>
-    <h1><span class="dot">●</span> RPent <span class="meta">实时监控</span></h1>
+    <h1>RPent <span class="meta">实时监控</span></h1>
     <span id="statusBadge" class="badge b-stale">—</span>
     <span id="resultBadge" class="badge b-fail" style="display:none"></span>
     <span class="meta" id="taskMeta"></span>
@@ -296,6 +338,14 @@
         </label>
       </div>
       <div id="transcript"><div class="empty">请选择一个运行以开始。</div></div>
+      <div class="composer" id="composer" style="display:none">
+        <div class="gutter gutter-h" id="composerGrip" title="拖动调整高度 · 双击复位"></div>
+        <textarea id="chatInput" rows="2" placeholder="给智能体发送一条消息…"></textarea>
+        <div class="composer-row">
+          <span class="composer-hint" id="chatHint"></span>
+          <button id="chatSend">发送</button>
+        </div>
+      </div>
     </div>
 
     <div class="gutter gutter-v" id="gutterV" title="拖动调整左右宽度"></div>
@@ -896,6 +946,8 @@ async function refreshMeta(opts = {}) {
   const r = await fetch(`/api/run?run=${encodeURIComponent(curRun)}`).then(x => x.json());
   setBadge(r.state);
   setResult(r.terminated, r.state);
+  prefillPrompt(r.prompt);
+  setComposerMode(r);
   $("#taskMeta").innerHTML = `<b>${r.suite ?? r.name}</b> · 任务 ${r.task ?? "?"} · 种子 ${r.seed ?? "?"}`;
   if (r.usage) $("#usageMeta").textContent =
     `输入 ${r.usage.in.toLocaleString()} · 输出 ${r.usage.out.toLocaleString()} · ${r.usage.tool_calls} 次工具调用`;
@@ -922,6 +974,7 @@ function connectSSE() {
     const sig = JSON.parse(e.data);
     setBadge(sig.state);
     setResult(sig.terminated, sig.state);
+    setComposerMode(sig);
     if (sig.usage) $("#usageMeta").textContent =
       `输入 ${sig.usage.in.toLocaleString()} · 输出 ${sig.usage.out.toLocaleString()} · ${sig.usage.tool_calls} 次工具调用`;
     $("#connMeta").textContent = "● 实时";
@@ -977,7 +1030,11 @@ function selectRun(id) {
   $("#transcript").innerHTML = '<div class="empty">加载中…</div>';
   $("#timeline").innerHTML = '<div class="empty">…</div>';
   $("#frameCap").textContent = "等待第一帧…";
+  promptPrefilled = false;
+  $("#chatInput").value = "";
+  $("#composer").style.display = "none";
   refreshMeta({ primeAutoActionStep: true });
+  pollPromptPrefill(40);
   refreshTranscript();
   connectSSE();
 }
@@ -989,9 +1046,115 @@ $("#showtools").addEventListener("change", (e) => {
   $("#transcript").classList.toggle("alltools", e.target.checked);
 });
 
+// --- 任务 prompt 预填 + 交互输入框 ---
+// 初始任务 prompt 会预填进输入框(每个运行一次),用户可修改后点发送启动智能体。
+let promptPrefilled = false;
+function prefillPrompt(text) {
+  if (promptPrefilled || !text || !text.trim()) return;
+  const input = $("#chatInput");
+  if (!input.value) input.value = text;
+  promptPrefilled = true;
+}
+// 智能体在首次发送前不产生任何步骤,refreshMeta 可能不会重跑来拿 prompt(它可能
+// 晚于运行注册)。这里轮询 /api/run 直到拿到 prompt 并完成预填。
+function pollPromptPrefill(tries) {
+  if (promptPrefilled || !curRun || tries <= 0) return;
+  const run = curRun;
+  fetch(`/api/run?run=${encodeURIComponent(run)}`)
+    .then(x => x.json())
+    .then(r => { if (run === curRun) prefillPrompt(r.prompt); })
+    .catch(() => {})
+    .finally(() => {
+      if (!promptPrefilled && run === curRun) {
+        setTimeout(() => pollPromptPrefill(tries - 1), 500);
+      }
+    });
+}
+
+let interactMode = false;
+let composerBusy = false;
+// 输入框状态:
+//  • 追加模式(不开 --dashboard-interact):智能体生成中时输入框置灰禁用;仅在
+//    智能体空闲 且 环境未 terminate 时才重新可用。(目前 LIBERO 仅支持此模式。)
+//  • 打断模式(--dashboard-interact,预留给其它环境):生成中按钮显式变为「中断」;
+//    空闲后只要环境未 terminate 就能继续发送——即使已经 success。
+function setComposerMode(sig) {
+  sig = sig || {};
+  interactMode = !!sig.interact;
+  composerBusy = !!sig.busy;
+  const terminated = !!sig.terminated;
+  const done = sig.state === "done";
+  const composer = $("#composer");
+  const send = $("#chatSend");
+  const input = $("#chatInput");
+  composer.style.display = curRun ? "flex" : "none";
+
+  let label = "发送", hint = "", enable = false, interruptBtn = false;
+  if (interactMode) {
+    if (composerBusy) {
+      interruptBtn = true; label = "中断"; enable = true;
+      hint = "智能体运行中——点击可中断。";
+    } else {
+      enable = !terminated;
+      hint = enable
+        ? "回车发送 · Shift+回车换行"
+        : "环境已结束——输入已禁用。";
+    }
+  } else {
+    enable = !composerBusy && !terminated && !done;
+    hint = composerBusy
+      ? "智能体运行中,请稍候…"
+      : enable
+        ? "回车发送 · Shift+回车换行"
+        : (terminated ? "任务已完成——输入已禁用。" : "运行已结束——输入已禁用。");
+  }
+  composer.classList.toggle("interrupt", interruptBtn);
+  send.textContent = label;
+  send.disabled = !enable;
+  input.disabled = !enable;
+  $("#chatHint").textContent = hint;
+}
+
+async function postJSON(url, body) {
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { /* 瞬时错误——可能已送达 */ }
+}
+
+async function sendChat() {
+  const input = $("#chatInput");
+  const text = input.value.trim();
+  if (!text || !curRun) return;
+  input.value = "";
+  await postJSON("/api/run/inject", { run: curRun, text });
+  refreshTranscript();  // 及时拉取服务端记录的 user 事件
+}
+
+async function interruptRun() {
+  if (!curRun) return;
+  await postJSON("/api/run/interrupt", { run: curRun });
+}
+
+// 打断模式 + 运行中 → 按钮执行中断;否则执行发送。
+function onComposerButton() {
+  if (interactMode && composerBusy) interruptRun();
+  else sendChat();
+}
+$("#chatSend").addEventListener("click", onComposerButton);
+$("#chatInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onComposerButton(); }
+});
+
 // --- draggable splitters ---
 function setupSplitter(handle, opts) {
-  // opts: { axis:'x'|'y', container, prop, min, max, store }
+  // opts: { axis:'x'|'y', container, prop, min, max, store, fromEnd }
+  // fromEnd measures from the container's right/bottom edge instead of its
+  // left/top — used for the composer, which is anchored to the bottom and
+  // grows upward.
   const saved = localStorage.getItem(opts.store);
   if (saved) opts.container.style.setProperty(opts.prop, saved);
   handle.addEventListener("mousedown", (e) => {
@@ -1001,7 +1164,9 @@ function setupSplitter(handle, opts) {
     document.body.style.cursor = opts.axis === "x" ? "col-resize" : "row-resize";
     const rect = opts.container.getBoundingClientRect();
     const move = (ev) => {
-      let v = opts.axis === "x" ? ev.clientX - rect.left : ev.clientY - rect.top;
+      let v = opts.axis === "x"
+        ? (opts.fromEnd ? rect.right - ev.clientX : ev.clientX - rect.left)
+        : (opts.fromEnd ? rect.bottom - ev.clientY : ev.clientY - rect.top);
       const limit = opts.axis === "x" ? rect.width : rect.height;
       v = Math.max(opts.min, Math.min(v, limit - opts.max));
       const px = v + "px";
@@ -1031,6 +1196,10 @@ setupSplitter($("#gutterV"), {
 setupSplitter($("#gutterH"), {
   axis: "y", container: $(".col.right"), prop: "--frameh",
   min: 120, max: 160, store: "wm.frameh",
+});
+setupSplitter($("#composerGrip"), {
+  axis: "y", fromEnd: true, container: $(".col.left"), prop: "--composerh",
+  min: 96, max: 160, store: "wm.composerh",
 });
 
 // --- launcher (start screen) ---
