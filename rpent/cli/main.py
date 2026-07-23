@@ -191,144 +191,131 @@ def _subprocess_env(cuda_device: str | None, **extra: str) -> dict[str, str]:
     return env
 
 
-def _build_libero_clients(
-    args: argparse.Namespace,
-    output_dir,
-    daemons: list[ProcessDaemon],
-) -> tuple[dict, Sam3Client]:
-    libero_type = args.libero_type or get_libero_type()
-
-    # --- env_server --------------------------------------------------------
-    if args.env_endpoint is None:
-        host, port = "127.0.0.1", pick_free_port()
-        env_daemon = ProcessDaemon(
-            name="env_server",
-            cmd=[
-                sys.executable,
-                str(get_repo_root() / "robots" / "libero" / "env_server.py"),
-                "--suite", args.suite,
-                "--task", str(args.task),
-                "--seed", str(args.seed),
-                "--max-episode-steps", str(args.max_episode_steps),
-                "--transport", "http",
-                "--host", host,
-                "--port", str(port),
-            ],
-            env=_subprocess_env(
-                args.cuda_device,
-                LIBERO_TYPE=libero_type,
-                MUJOCO_GL="egl",
-                ROBOT_PLATFORM="LIBERO",
-            ),
-            log_path=str(Path(output_dir) / "env_server.log"),
-        )
-        env_daemon.start()
-        daemons.append(env_daemon)
-        env_client: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-        wait_for_ready(env_client)
-    else:
-        protocol, host, port = _parse_endpoint(args.env_endpoint)
-        if protocol == "socket":
-            env_client = SocketRpcClient(host, port)
-        elif protocol == "http":
-            env_client = HttpRpcClient(f"http://{host}:{port}")
-        else:
-            raise ValueError(
-                f"--env-endpoint protocol must be socket or http, got {protocol!r}"
-            )
-
-    # --- vla_server --------------------------------------------------------
-    if args.vla_endpoint is None:
-        host, port = "127.0.0.1", pick_free_port()
-        vla_daemon = ProcessDaemon(
-            name="vla_server",
-            cmd=[
-                sys.executable,
-                str(get_repo_root() / "robots" / "libero" / "vla_server.py"),
-                "--transport", "http",
-                "--host", host,
-                "--port", str(port),
-            ],
-            env=_subprocess_env(args.cuda_device),
-            log_path=str(Path(output_dir) / "vla_server.log"),
-        )
-        vla_daemon.start()
-        daemons.append(vla_daemon)
-        vla_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-        wait_for_ready(vla_rpc)
-    else:
-        protocol, host, port = _parse_endpoint(args.vla_endpoint)
-        if protocol == "socket":
-            vla_rpc = SocketRpcClient(host, port)
-        elif protocol == "http":
-            vla_rpc = HttpRpcClient(f"http://{host}:{port}")
-        else:
-            raise ValueError(
-                f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
-            )
-
-    # --- sam3_server -------------------------------------------------------
-    if args.sam3_endpoint is None:
-        host, port = "127.0.0.1", pick_free_port()
-        sam3_daemon = ProcessDaemon(
-            name="sam3_server",
-            cmd=[
-                sys.executable,
-                str(get_repo_root() / "robots" / "libero" / "sam3_server.py"),
-                "--transport", "http",
-                "--host", host,
-                "--port", str(port),
-            ],
-            env=_subprocess_env(args.cuda_device),
-            log_path=str(Path(output_dir) / "sam3_server.log"),
-        )
-        sam3_daemon.start()
-        daemons.append(sam3_daemon)
-        sam3_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-    else:
-        protocol, host, port = _parse_endpoint(args.sam3_endpoint)
-        if protocol == "socket":
-            sam3_rpc = SocketRpcClient(host, port)
-        elif protocol == "http":
-            sam3_rpc = HttpRpcClient(f"http://{host}:{port}")
-        else:
-            raise ValueError(
-                f"--sam3-endpoint protocol must be socket or http, got {protocol!r}"
-            )
-    wait_for_ready(sam3_rpc)
-    sam3_client = Sam3Client(sam3_rpc)
-
-    primitives_kwargs = {
-        "env": LiberoEnvClient(
-            env_client,
-            expected_meta={
-                "suite": args.suite,
-                "task": args.task,
-                "seed": args.seed,
-                "max_episode_steps": args.max_episode_steps,
-            },
-        ),
-        "model": VLAClient(vla_rpc),
-    }
-    return primitives_kwargs, sam3_client
-
-
 def _init_libero(
     args: argparse.Namespace,
     output_dir,
 ) -> tuple[list[ProcessDaemon], dict, Sam3Client]:
-    """Spawn or attach to LIBERO services and construct their clients.
+    """Spawn env + vla + SAM3 daemons and build clients for LIBERO.
 
-    Each server can be spawned or attached-to independently. Any local
-    services started before an initialization failure are stopped here.
+    Each server can be spawned or attached-to independently: pass an
+    endpoint to attach, or leave it unset to spawn a local subprocess.
     """
     daemons: list[ProcessDaemon] = []
     try:
-        primitives_kwargs, sam3_client = _build_libero_clients(
-            args,
-            output_dir,
-            daemons,
-        )
+        libero_type = args.libero_type or get_libero_type()
+
+        # --- env_server --------------------------------------------------------
+        if args.env_endpoint is None:
+            host, port = "127.0.0.1", pick_free_port()
+            env_daemon = ProcessDaemon(
+                name="env_server",
+                cmd=[
+                    sys.executable,
+                    str(get_repo_root() / "robots" / "libero" / "env_server.py"),
+                    "--suite", args.suite,
+                    "--task", str(args.task),
+                    "--seed", str(args.seed),
+                    "--max-episode-steps", str(args.max_episode_steps),
+                    "--transport", "http",
+                    "--host", host,
+                    "--port", str(port),
+                ],
+                env=_subprocess_env(
+                    args.cuda_device,
+                    LIBERO_TYPE=libero_type,
+                    MUJOCO_GL="egl",
+                    ROBOT_PLATFORM="LIBERO",
+                ),
+                log_path=str(Path(output_dir) / "env_server.log"),
+            )
+            env_daemon.start()
+            daemons.append(env_daemon)
+            env_client: RpcClient = HttpRpcClient(f"http://{host}:{port}")
+            wait_for_ready(env_client)
+        else:
+            protocol, host, port = _parse_endpoint(args.env_endpoint)
+            if protocol == "socket":
+                env_client = SocketRpcClient(host, port)
+            elif protocol == "http":
+                env_client = HttpRpcClient(f"http://{host}:{port}")
+            else:
+                raise ValueError(
+                    f"--env-endpoint protocol must be socket or http, got {protocol!r}"
+                )
+
+        # --- vla_server --------------------------------------------------------
+        if args.vla_endpoint is None:
+            host, port = "127.0.0.1", pick_free_port()
+            vla_daemon = ProcessDaemon(
+                name="vla_server",
+                cmd=[
+                    sys.executable,
+                    str(get_repo_root() / "robots" / "libero" / "vla_server.py"),
+                    "--transport", "http",
+                    "--host", host,
+                    "--port", str(port),
+                ],
+                env=_subprocess_env(args.cuda_device),
+                log_path=str(Path(output_dir) / "vla_server.log"),
+            )
+            vla_daemon.start()
+            daemons.append(vla_daemon)
+            vla_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
+            wait_for_ready(vla_rpc)
+        else:
+            protocol, host, port = _parse_endpoint(args.vla_endpoint)
+            if protocol == "socket":
+                vla_rpc = SocketRpcClient(host, port)
+            elif protocol == "http":
+                vla_rpc = HttpRpcClient(f"http://{host}:{port}")
+            else:
+                raise ValueError(
+                    f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
+                )
+
+        # --- sam3_server -------------------------------------------------------
+        if args.sam3_endpoint is None:
+            host, port = "127.0.0.1", pick_free_port()
+            sam3_daemon = ProcessDaemon(
+                name="sam3_server",
+                cmd=[
+                    sys.executable,
+                    str(get_repo_root() / "robots" / "libero" / "sam3_server.py"),
+                    "--transport", "http",
+                    "--host", host,
+                    "--port", str(port),
+                ],
+                env=_subprocess_env(args.cuda_device),
+                log_path=str(Path(output_dir) / "sam3_server.log"),
+            )
+            sam3_daemon.start()
+            daemons.append(sam3_daemon)
+            sam3_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
+        else:
+            protocol, host, port = _parse_endpoint(args.sam3_endpoint)
+            if protocol == "socket":
+                sam3_rpc = SocketRpcClient(host, port)
+            elif protocol == "http":
+                sam3_rpc = HttpRpcClient(f"http://{host}:{port}")
+            else:
+                raise ValueError(
+                    f"--sam3-endpoint protocol must be socket or http, got {protocol!r}"
+                )
+        wait_for_ready(sam3_rpc)
+        sam3_client = Sam3Client(sam3_rpc)
+
+        primitives_kwargs = {
+            "env": LiberoEnvClient(
+                env_client,
+                expected_meta={
+                    "suite": args.suite,
+                    "task": args.task,
+                    "seed": args.seed,
+                    "max_episode_steps": args.max_episode_steps,
+                },
+            ),
+            "model": VLAClient(vla_rpc),
+        }
     except Exception:
         for daemon in reversed(daemons):
             try:
