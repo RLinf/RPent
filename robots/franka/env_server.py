@@ -4,7 +4,7 @@ Drives a Franka arm through the SERL cartesian-impedance ROS controller and the
 ``franka_gripper`` action topics, exposing agent-friendly *Cartesian* primitives
 (``reset`` / ``get_obs`` / ``get_ee_pose`` / ``move_to`` / ``move_delta`` /
 ``open_gripper`` / ``close_gripper`` / ``get_spec``) over an RPC server
-(:class:`rpent.utils.rpc.RpcFacade`, socket transport by default) -- the same
+(:class:`rpent.utils.rpc.RpcFacade`, http transport by default) -- the same
 wire protocol the LIBERO and LeRobot drivers use, so the agent side talks to all
 three identically.
 
@@ -892,9 +892,9 @@ def main() -> int:
         "--camera", action="append", default=None,
         help="Camera as name:serial (repeatable). Defaults to the two bench D435I.",
     )
-    p.add_argument("--transport", choices=["socket", "http"], default="socket",
-                   help="RPC transport. Socket (pickle) is the proven path for "
-                        "the numpy obs payloads; http is also supported.")
+    p.add_argument("--transport", choices=["socket", "http"], default="http",
+                   help="RPC transport (default http). Socket (pickle) is also "
+                        "available for the numpy obs payloads.")
     p.add_argument("--host", type=str, default="127.0.0.1")
     p.add_argument("--port", type=int, default=0,
                    help="RPC port. 0 asks the OS for a free port.")

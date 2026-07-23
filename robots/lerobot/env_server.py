@@ -3,7 +3,7 @@
 Drives a physical SO101 follower arm through LeRobot's synchronous Python
 API (:class:`lerobot.robots.so_follower.SO101Follower`) and exposes a minimal
 ``reset`` / ``step`` gym-style surface over an RPC server
-(:class:`rpent.utils.rpc.RpcFacade`, socket transport by default) — the same
+(:class:`rpent.utils.rpc.RpcFacade`, http transport by default) — the same
 wire protocol the LIBERO driver uses, so the agent side talks to both
 identically.
 
@@ -26,7 +26,7 @@ Hardware defaults match the current bench setup: follower on ``/dev/ttyACM1``
 
 Spawned by ``rpent/cli/main.py`` when ``--env lerobot`` is selected (requires
 the ``lerobot`` extra in the agent venv), or run manually in the ``lerobot``
-conda env and attached to via ``--env-endpoint socket://host:port``.
+conda env and attached to via ``--env-endpoint http://host:port``.
 """
 from __future__ import annotations
 
@@ -1184,9 +1184,9 @@ def _build_argparser() -> argparse.ArgumentParser:
                    help="SO101 URDF for FK / EE pose. Default: "
                         "~/.cache/huggingface/lerobot/urdf/so101.urdf")
     p.add_argument("--output-dir", required=True)
-    p.add_argument("--transport", choices=["socket", "http"], default="socket",
-                   help="RPC transport. Socket (pickle) is the proven path for "
-                        "the numpy obs/action payloads; http is also supported.")
+    p.add_argument("--transport", choices=["socket", "http"], default="http",
+                   help="RPC transport (default http). Socket (pickle) is also "
+                        "available for the numpy obs/action payloads.")
     p.add_argument("--host", type=str, default="127.0.0.1")
     p.add_argument("--port", type=int, default=0,
                    help="RPC port. 0 asks the OS for a free port.")
