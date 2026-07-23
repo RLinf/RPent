@@ -111,6 +111,11 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="API base URL. Defaults to the selected backend's base URL env var.")
     ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--max-tokens", type=int, default=8192)
+    ap.add_argument("--no-images", action="store_true",
+                    help="Never send image bytes to the model (api planner only). "
+                         "Use for text-only models that reject image input "
+                         "(e.g. 400 \"message type 'image_url' is not supported\"); "
+                         "read_image then returns the file path with a notice.")
     ap.add_argument("--planner-timeout-s", type=int, default=None,
                     help="Wall-clock cap for the claude_code/codex planner "
                          "subprocess. Defaults to CODEX_TIMEOUT_S (codex only), "
@@ -424,6 +429,7 @@ def main() -> int:
         planner_timeout_s=args.planner_timeout_s,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard=dashboard_state,
+        no_images=args.no_images,
     )
     env_spec = get_env_spec(env_name)
     prompt_bundle = env_spec.prompts

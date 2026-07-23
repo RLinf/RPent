@@ -57,8 +57,8 @@ Pick the provider by prefixing ``--model``:
    # OpenAI Responses (e.g. GPT-5.5)
    rpent --planner api --model openai:gpt-5.5 ...
 
-   # OpenAI-compatible chat (e.g. GLM 5.2)
-   rpent --planner api --model openai-chat:glm-5.2 ...
+   # OpenAI-compatible chat (e.g. GLM 5.2, text-only)
+   rpent --planner api --model openai-chat:glm-5.2 --no-images ...
 
 Environment variables it reads (override with ``--base-url`` if
 needed):
@@ -72,6 +72,11 @@ Useful ``api``-only knobs:
 - ``--max-tokens`` — cap each LLM reply (default ``8192``).
 - ``--max-turns`` — cap the number of tool-calling turns (default
   ``100``).
+- ``--no-images`` — never send image bytes; add it for text-only
+  models, which otherwise fail with
+  ``400 "message type 'image_url' is not supported"``. The agent then
+  reasons from textual state alone, so task performance may not be
+  satisfactory.
 
 The ``claude_code`` planner
 ----------------------------

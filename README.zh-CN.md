@@ -92,46 +92,7 @@ pip install -e ".[full]"
 ```
 
 `.[full]` 是默认的端到端组合（openpi Pi0.5 VLA + LIBERO-PRO 仿真器 + SAM 3.0，运行在 RLinf 运行时之上）。
-如果不需要整套，可选择更小的 extra：
-
-<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
-  <thead align="center" valign="bottom">
-    <tr>
-      <th style="min-width: 120px; text-align: left;">Extra</th>
-      <th style="min-width: 240px;">安装内容</th>
-    </tr>
-  </thead>
-  <tbody valign="top">
-    <tr>
-      <td><code>.[full]</code></td>
-      <td><code>rlinf</code> + <code>openpi</code> + <code>libero-pro</code> + <code>sam3</code> — 默认运行组合</td>
-    </tr>
-    <tr>
-      <td><code>.[libero-pro]</code></td>
-      <td>基础 LIBERO + LIBERO-PRO 仿真器</td>
-    </tr>
-    <tr>
-      <td><code>.[libero-plus]</code></td>
-      <td>基础 LIBERO + LIBERO-plus 仿真器</td>
-    </tr>
-    <tr>
-      <td><code>.[libero]</code></td>
-      <td>仅基础 LIBERO</td>
-    </tr>
-    <tr>
-      <td><code>.[openpi]</code></td>
-      <td>仅 openpi VLA</td>
-    </tr>
-    <tr>
-      <td><code>.[rlinf]</code></td>
-      <td>仅 RLinf 运行时</td>
-    </tr>
-    <tr>
-      <td><code>.[sam3]</code></td>
-      <td>仅 SAM 3.0 分割依赖</td>
-    </tr>
-  </tbody>
-</table>
+如果不需要整套，更小的 extra 见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
 
 **2. 下载 LIBERO-PRO 仿真资产。**
 
@@ -146,11 +107,9 @@ liberopro-download-assets --skip-existing
 **3. 配置密钥与 checkpoint，然后运行。**
 
 ```bash
-# 大模型 API 密钥（api 规划器）
+# Anthropic 密钥；使用官方端点时无需 export base url。
 export ANTHROPIC_BASE_URL=https://xxx
 export ANTHROPIC_API_KEY=sk-xxx
-export OPENAI_BASE_URL=https://xxx
-export OPENAI_API_KEY=sk-xxx
 
 # VLA checkpoint —— 从以下地址下载：
 # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
@@ -162,14 +121,12 @@ export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
 export LIBERO_TYPE=pro
 export CUDA_VISIBLE_DEVICES=0
 
-# 运行一个任务：libero_object_swap，task 2，seed 0，使用 api 规划器
-# 和 Anthropic 模型，最大输出 8192 token。
-#   • OpenAI-compatible chat 端点：      --model openai-chat:glm-5.2
-#   • OpenAI responses 端点：            --model openai:gpt-5.5
-#   • claude_code / codex 规划器：       不需要 provider 前缀，如 --model claude-opus-4-8
-rpent --suite libero_object_swap --task 2 --seed 0 \
-  --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
+# 运行一个任务：libero_object_swap，task 2，seed 0，使用 claude_code 规划器。
+rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+  --planner claude_code --model claude-opus-4-8
 ```
+
+其他规划器（`api`、`codex`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html)。
 
 ### 交互模式
 
@@ -177,7 +134,7 @@ rpent --suite libero_object_swap --task 2 --seed 0 \
 
 ```bash
 rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
-  --planner api --model anthropic:claude-opus-4-8 --interactive
+  --planner claude_code --model claude-opus-4-8 --interactive
 ```
 
 ### 实时 Dashboard
@@ -219,6 +176,7 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
     <tr><td><code>--model</code></td><td>—</td><td>模型 id；<code>api</code> 需带 provider 前缀（<code>anthropic:…</code>、<code>openai:…</code>、<code>openai-chat:…</code>）</td></tr>
     <tr><td><code>--max-turns</code></td><td><code>100</code></td><td>智能体最大轮数</td></tr>
     <tr><td><code>--max-tokens</code></td><td><code>8192</code></td><td>单次 LLM 回复最大 token</td></tr>
+    <tr><td><code>--no-images</code></td><td>关</td><td>纯文本模式：不向模型发送图片字节（用于不支持图片输入的模型）</td></tr>
     <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>环境最大步数</td></tr>
     <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> 或 <code>pro</code></td><td>LIBERO 类型：<code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
     <tr><td><code>--cuda-device</code></td><td>继承当前环境</td><td>env / VLA / SAM3 server 可见的 GPU 设备</td></tr>

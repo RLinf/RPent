@@ -17,7 +17,7 @@ from typing import Any
 
 from pydantic_ai import Agent, BinaryContent, ModelSettings, Tool, ToolReturn
 from pydantic_ai.capabilities import ProcessHistory, Thinking
-from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -54,11 +54,18 @@ _MIN_RECENT_IMAGES = 2
 class ApiAgentLoop:
     """Planner that runs the tool-calling loop via a pydantic-ai ``Agent``."""
 
-    def __init__(self, model: Model, max_tokens: int = 8192, dashboard: Any = None):
+    def __init__(
+        self,
+        model: Model,
+        max_tokens: int = 8192,
+        dashboard: Any = None,
+        no_images: bool = False,
+    ):
         """Store the pydantic-ai model and the output-token cap."""
         self._model = model
         self._max_tokens = max_tokens
         self._dashboard = dashboard
+        self._no_images = no_images
 
     def solve(
         self,
@@ -92,7 +99,7 @@ class ApiAgentLoop:
         agent = Agent(
             self._model,
             instructions=system_prompt or None,
-            tools=_build_tools(toolkit),
+            tools=_build_tools(toolkit, no_images=self._no_images),
             model_settings=_build_model_settings(self._model, self._max_tokens),
             capabilities=[
                 Thinking(effort="high"),
@@ -278,6 +285,14 @@ class ApiAgentLoop:
             logger.info("usage limit reached: %s", e)
         except Exception as e:  # noqa: BLE001 - surfaced via PlannerResult.error
             last_error = f"{type(e).__name__}: {e}"
+            if _is_image_rejection(e) and not self._no_images:
+                last_error += (
+                    "\n\nThe model rejected image input — it is likely a "
+                    "text-only model (no vision support). Re-run with "
+                    "--no-images: RPent will then keep every visual "
+                    "observation as a file-path text notice instead of "
+                    "sending image bytes."
+                )
             logger.error("agent run failed: %s", last_error)
 
         return PlannerResult(
@@ -352,14 +367,29 @@ def _prune_history_images(messages: list[ModelMessage]) -> list[ModelMessage]:
     return new_messages
 
 
-def _build_tools(toolkit: Toolkit) -> list[Tool]:
+def _is_image_rejection(e: Exception) -> bool:
+    """True when the provider returned a 4xx complaining about image input.
+
+    Matches errors like ``400 {'code': 10007, 'msg': "Bad Request: [message
+    type 'image_url' is not supported]"}`` from OpenAI-compatible endpoints
+    serving text-only models.
+    """
+    if not isinstance(e, ModelHTTPError):
+        return False
+    if not 400 <= e.status_code < 500:
+        return False
+    return "image" in str(e).lower()
+
+
+def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
     """Build the API-only image reader plus pydantic-ai toolkit wrappers."""
-    tools: list[Tool] = [Tool(read_image)]
+    image_reader = read_image_text_only if no_images else read_image
+    tools: list[Tool] = [Tool(image_reader, name="read_image")]
     for spec in toolkit.get_tools_spec():
         name = spec["name"]
         tools.append(
             Tool.from_schema(
-                function=_make_tool_function(toolkit, name),
+                function=_make_tool_function(toolkit, name, no_images=no_images),
                 name=name,
                 description=spec.get("description", ""),
                 json_schema=spec.get("input_schema")
@@ -378,13 +408,22 @@ def read_image(path: str) -> ToolReturn:
     )
 
 
-def _make_tool_function(toolkit: Toolkit, name: str):
+def read_image_text_only(path: str) -> str:
+    """``read_image`` stub for ``--no-images``: acknowledge, send no bytes."""
+    return (
+        f"{path} exists, but image input is disabled (--no-images, text-only "
+        "model). Reason from textual state instead: view_driver_state, "
+        "back_project, and the numeric fields in tool results."
+    )
+
+
+def _make_tool_function(toolkit: Toolkit, name: str, *, no_images: bool = False):
     """Return a callable that dispatches one tool call to the toolkit."""
 
     def _call(**kwargs: Any) -> Any:
         result = toolkit.execute_tool(name, kwargs)
         text, images = _content_blocks_to_pydantic(result.content_blocks)
-        if images:
+        if images and not no_images:
             return ToolReturn(return_value=text, content=images)
         return text
 

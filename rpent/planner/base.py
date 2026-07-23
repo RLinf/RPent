@@ -107,6 +107,7 @@ def build_planner(
     planner_timeout_s: int | None = None,
     claude_code_max_budget_usd: float | None = None,
     dashboard: Any = None,
+    no_images: bool = False,
 ):
     """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
@@ -147,7 +148,12 @@ def build_planner(
         api_model = infer_model(
             model, provider_factory=_provider_factory
         )
-        return ApiAgentLoop(model=api_model, max_tokens=max_tokens, dashboard=dashboard)
+        return ApiAgentLoop(
+            model=api_model,
+            max_tokens=max_tokens,
+            dashboard=dashboard,
+            no_images=no_images,
+        )
     if planner_type == "claude_code":
         from rpent.planner.claude_code import ClaudeCodePlanner
 
