@@ -142,11 +142,13 @@ See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/in
 **3. Configure keys and checkpoints, then run.**
 
 ```bash
-# LLM API keys (the `api` planner)
+# LLM endpoints and API keys; no need to export base urls if you use the official endpoints.
 export ANTHROPIC_BASE_URL=https://xxx
 export ANTHROPIC_API_KEY=sk-xxx
 export OPENAI_BASE_URL=https://xxx
 export OPENAI_API_KEY=sk-xxx
+export CODEX_BASE_URL=https://xxx
+export CODEX_API_KEY=sk-xxx
 
 # VLA checkpoint — download from
 # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
