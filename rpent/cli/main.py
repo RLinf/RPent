@@ -410,12 +410,12 @@ def main() -> int:
         logger.info(
             "interactive mode on: the built-in task is pre-filled — "
             "edit it and press Enter, submit it as-is, or clear it to "
-            "type your own (/default starts the default task). Once running, type to steer the agent. "
+            "type your own. Once running, type to steer the agent. "
             "/help for commands."
         )
         # Resolve the opening prompt on a background thread so the user can type
         # it while the (slow) env/VLA servers boot below.
-        await_first_prompt = start_first_prompt_resolver(input_queue, user_msg)
+        await_first_prompt = start_first_prompt_resolver(input_queue)
 
     # --- initialise environment --------------------------------------------
     daemons, primitives_kwargs = _init_libero(args, output_dir)

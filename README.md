@@ -155,11 +155,11 @@ rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
 
 ### Interactive CLI mode
 
-Add `--interactive` (`-i`) to steer the agent live from your terminal. At the `you>` prompt, type your own opening task — or `/default` to use the built-in one — then type any message while it runs to steer the agent at the next turn (`/help` lists commands; `/quit` or Ctrl-D ends). Requires an interactive terminal (TTY).
+Add `--interactive` (`-i`) to steer the agent live from your terminal. At the `you>` prompt, the built-in task is pre-filled — press Enter to use it or replace it with your own — then type any message while it runs to steer the agent at the next turn (`/help` lists commands; `/quit` or Ctrl-D ends). Requires an interactive terminal (TTY).
 
 ```bash
-python rpent/cli/main.py --interactive --suite libero_object_swap --task 2 --seed 0 \
-  --cerebrum claude_code
+rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+  --cerebrum claude_code --model claude-opus-4-8 --interactive
 ```
 
 ### Live Dashboard

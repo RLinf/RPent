@@ -2,12 +2,18 @@
 from __future__ import annotations
 
 import contextlib
-import importlib
 import logging
 import queue
 import sys
 import threading
 from collections.abc import Callable
+
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding.bindings.named_commands import get_by_name
+from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.styles import Style
 
 from rpent.utils.logging import get_logger
 
@@ -16,15 +22,13 @@ logger = get_logger("agent.tui")
 #: Interactive-mode command tokens (case-insensitive). This module is the single
 #: source of truth; ``api_loop`` imports ``QUIT_TOKENS`` for its steering checks.
 QUIT_TOKENS = frozenset({"/quit", "/exit", "/q"})
-DEFAULT_TOKENS = frozenset({"/default"})
 HELP_TOKENS = frozenset({"/help", "/h", "help", "?"})
 _HELP_TEXT = """Interactive commands:
     /help, /h, help, ? Show this help.
-    /default           Restore the built-in default task prompt.
     /quit, /exit, /q   End interactive mode.
 
 At the first prompt, the built-in task is pre-filled — edit it and press Enter,
-submit it as-is, or clear it to type your own task ('/default' starts the default task).
+submit it as-is, or clear it to type your own task.
 While the agent runs, type to steer it at the next turn.
 """
 
@@ -57,17 +61,12 @@ def _route_console_logs_to_current_stdout():
 
 def build_interactive_key_bindings():
     """Return line-editing key bindings for the interactive prompt."""
-    key_binding = importlib.import_module("prompt_toolkit.key_binding")
-    named_commands = importlib.import_module(
-        "prompt_toolkit.key_binding.bindings.named_commands"
-    )
-
-    bindings = key_binding.KeyBindings()
-    backward_word = named_commands.get_by_name("backward-word")
-    forward_word = named_commands.get_by_name("forward-word")
-    beginning_of_line = named_commands.get_by_name("beginning-of-line")
-    end_of_line = named_commands.get_by_name("end-of-line")
-    backward_kill_word = named_commands.get_by_name("backward-kill-word")
+    bindings = KeyBindings()
+    backward_word = get_by_name("backward-word")
+    forward_word = get_by_name("forward-word")
+    beginning_of_line = get_by_name("beginning-of-line")
+    end_of_line = get_by_name("end-of-line")
+    backward_kill_word = get_by_name("backward-kill-word")
 
     # Move one word left: Option/Alt+Left, Ctrl+Left, or Alt+b.
     @bindings.add("escape", "left", eager=True)
@@ -111,25 +110,15 @@ def start_interactive_reader(
             "--interactive requires a TTY; stdin is not interactive."
         )
 
-    try:
-        prompt_toolkit = importlib.import_module("prompt_toolkit")
-        history = importlib.import_module("prompt_toolkit.history")
-        patch_stdout_module = importlib.import_module("prompt_toolkit.patch_stdout")
-        styles = importlib.import_module("prompt_toolkit.styles")
-    except ImportError as exc:
-        raise RuntimeError(
-            "--interactive requires prompt-toolkit; install project dependencies first."
-        ) from exc
-
     def _read() -> None:
-        session = prompt_toolkit.PromptSession(
-            history=history.InMemoryHistory(),
+        session = PromptSession(
+            history=InMemoryHistory(),
             key_bindings=build_interactive_key_bindings(),
-            style=styles.Style.from_dict({"prompt": "ansicyan bold"}),
+            style=Style.from_dict({"prompt": "ansicyan bold"}),
         )
         pending_default = first_prompt_default
         try:
-            with patch_stdout_module.patch_stdout(raw=True):
+            with patch_stdout(raw=True):
                 with _route_console_logs_to_current_stdout():
                     while True:
                         try:
@@ -174,15 +163,13 @@ def next_user_line(input_queue: "queue.Queue[str | None]") -> str | None:
 
 
 def initial_user_message(
-    input_queue: "queue.Queue[str | None]", default_message: str
+    input_queue: "queue.Queue[str | None]",
 ) -> str | None:
     """Block for the first user turn of an interactive session.
 
-    Returns ``default_message`` when the user submits a default token
-    (``/default``), the typed text for any other non-empty line (a custom
-    opening prompt), or ``None`` when the session should end before it begins (a
-    ``/quit`` token or a ``None`` sentinel). Empty lines are skipped. Blocking
-    call.
+    Returns the typed text for any non-empty line (a custom opening prompt), or
+    ``None`` when the session should end before it begins (a ``/quit`` token or a
+    ``None`` sentinel). Empty lines are skipped. Blocking call.
     """
     while True:
         line = input_queue.get()
@@ -191,26 +178,24 @@ def initial_user_message(
         line = line.strip()
         if line.lower() in QUIT_TOKENS:
             return None
-        if line.lower() in DEFAULT_TOKENS:
-            return default_message
         if line:
             return line
 
 
 def start_first_prompt_resolver(
-    input_queue: "queue.Queue[str | None]", default_message: str
+    input_queue: "queue.Queue[str | None]",
 ) -> Callable[[], str | None]:
     """Resolve the opening user turn on a background thread.
 
     Returns a callable that blocks until the first turn is available and returns
-    it (``default_message`` on ``/default``, the typed text for a custom prompt,
-    or ``None`` if the user quit before starting). Resolving off-thread lets the
-    caller boot slow resources (e.g. env/VLA servers) while the user is typing.
+    it (the typed text for a custom prompt, or ``None`` if the user quit before
+    starting). Resolving off-thread lets the caller boot slow resources (e.g.
+    env/VLA servers) while the user is typing.
     """
     holder: dict[str, str | None] = {}
 
     def _resolve() -> None:
-        holder["message"] = initial_user_message(input_queue, default_message)
+        holder["message"] = initial_user_message(input_queue)
 
     thread = threading.Thread(target=_resolve, name="first-prompt", daemon=True)
     thread.start()
