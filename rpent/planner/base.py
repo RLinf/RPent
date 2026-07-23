@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import queue
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -68,6 +69,7 @@ class Planner(Protocol):
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
+        input_queue: queue.Queue[str | None] | None = None,
     ) -> PlannerResult:
         """Run the multi-turn agent loop until completion or budget.
 
@@ -79,6 +81,7 @@ class Planner(Protocol):
                 ``toolkit.get_tools_spec()`` and dispatch calls via
                 ``toolkit.execute_tool()``.
             max_turns: Maximum LLM turns before giving up.
+            input_queue: Optional queue of user-typed lines for interactive steering.
 
         Returns:
             ``PlannerResult`` with finish status, conversation transcript,

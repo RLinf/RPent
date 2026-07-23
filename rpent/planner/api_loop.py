@@ -12,6 +12,7 @@ import asyncio
 import base64
 import dataclasses
 import json
+import queue
 from typing import Any
 
 from pydantic_ai import Agent, BinaryContent, ModelSettings, Tool, ToolReturn
@@ -30,6 +31,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model
 from pydantic_ai.usage import RunUsage, UsageLimits
 
+from rpent.cli.tui import QUIT_TOKENS
 from rpent.planner.base import PlannerResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
@@ -65,6 +67,7 @@ class ApiAgentLoop:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
+        input_queue: queue.Queue[str | None] | None = None,
     ) -> PlannerResult:
         """Run the tool-calling loop until finish, normal stop, or budget."""
         return asyncio.run(
@@ -73,6 +76,7 @@ class ApiAgentLoop:
                 user_message=user_message,
                 toolkit=toolkit,
                 max_turns=max_turns,
+                input_queue=input_queue,
             )
         )
 
@@ -83,6 +87,7 @@ class ApiAgentLoop:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
+        input_queue: queue.Queue[str | None] | None = None,
     ) -> PlannerResult:
         agent = Agent(
             self._model,
@@ -95,104 +100,180 @@ class ApiAgentLoop:
             ],
         )
 
+        interactive = input_queue is not None
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
         finish_result: dict[str, Any] | None = None
         n_tool_calls = 0
         turns = 0
         last_error: str | None = None
         usage: RunUsage | None = None
+        quit_requested = False
 
+        def _inject_pending(run: Any) -> bool:
+            """Drain queued user lines into the live run; True => end session.
+
+            Each line is enqueued ``asap`` so it lands in the next model request
+            (the next turn boundary). This runs on the event-loop thread, so
+            mutating the run's pending-message queue here is race-free.
+            """
+            while True:
+                try:
+                    line = input_queue.get_nowait()  # type: ignore[union-attr]
+                except queue.Empty:
+                    return False
+                if line is None:
+                    return True
+                line = line.strip()
+                if line.lower() in QUIT_TOKENS:
+                    return True
+                if not line:
+                    continue
+                run.enqueue(line, priority="asap")
+                messages.append({"role": "user", "content": line})
+                logger.info("[user] %s", _clip(line, _ARGS_LOG_LIMIT))
+
+        async def _await_next() -> str | None:
+            """Block off-loop for the next user line between runs (None => end)."""
+            logger.info("awaiting input — type a message to continue, /quit to end")
+            while True:
+                line = await asyncio.to_thread(input_queue.get)  # type: ignore[union-attr]
+                if line is None:
+                    return None
+                line = line.strip()
+                if line.lower() in QUIT_TOKENS:
+                    return None
+                if line:
+                    logger.info("[user] %s", _clip(line, _ARGS_LOG_LIMIT))
+                    return line
+
+        seed = user_message
+        history: list[ModelMessage] | None = None
         try:
-            # request_limit overrides pydantic-ai's default (50) so the manual
-            # max_turns break below is what actually bounds the loop.
-            async with agent.iter(
-                user_message,
-                usage_limits=UsageLimits(request_limit=max_turns + 1),
-            ) as run:
-                async for node in run:
-                    if Agent.is_call_tools_node(node):
-                        turns += 1
-                        response = node.model_response
-                        response_message = _serialize_response(response)
-                        messages.append(response_message)
-                        _log_response(response, run.usage, turns, max_turns)
-                        if self._dashboard is not None:
-                            for block in response_message["content"]:
-                                if block["type"] == "text":
-                                    dashboard_event = {
-                                        "type": "text",
-                                        "text": block["text"],
-                                    }
-                                elif block["type"] == "thinking":
-                                    dashboard_event = {
-                                        "type": "thinking",
-                                        "text": block["thinking"],
-                                    }
-                                else:
-                                    continue
-                                self._dashboard.on_event(dashboard_event)
-                            self._dashboard.on_usage(
-                                inp=int(run.usage.input_tokens or 0),
-                                out=int(run.usage.output_tokens or 0),
-                                tool_calls=n_tool_calls,
-                            )
-
-                        async with node.stream(run.ctx) as stream:
-                            async for event in stream:
-                                if isinstance(event, FunctionToolCallEvent):
-                                    n_tool_calls += 1
-                                    if self._dashboard is not None:
-                                        self._dashboard.on_event(
-                                            {
-                                                "type": "tool_call",
-                                                "tool": event.part.tool_name,
-                                                "args": event.part.args_as_dict(),
-                                            }
-                                        )
-                                    if event.part.tool_name == "finish":
-                                        finish_result = {
-                                            "_finish": True,
-                                            **event.part.args_as_dict(),
-                                        }
-                                elif isinstance(event, FunctionToolResultEvent):
-                                    message = _serialize_tool_result(event)
-                                    messages.append(message)
-                                    _log_tool_result(message)
-                                    if self._dashboard is not None:
-                                        dashboard_result = {
-                                            "is_error": bool(
-                                                getattr(
-                                                    event.part, "is_error", False
-                                                )
-                                            ),
-                                            "size": len(message["content"]),
-                                        }
-                                        self._dashboard.on_event(
-                                            {
-                                                "type": "tool_result",
-                                                "tool": message.get("name")
-                                                or "tool_result",
-                                                "result": dashboard_result,
-                                            }
-                                        )
-                                if self._dashboard is not None:
-                                    self._dashboard.on_usage(
-                                        inp=int(run.usage.input_tokens or 0),
-                                        out=int(run.usage.output_tokens or 0),
-                                        tool_calls=n_tool_calls,
-                                    )
-
-                        if finish_result is not None:
-                            logger.info("FINISH called: %s", finish_result)
+            while True:
+                run_turns = 0
+                # request_limit overrides pydantic-ai's default (50) so the
+                # manual max_turns break below is what bounds each run.
+                async with agent.iter(
+                    seed,
+                    message_history=history,
+                    usage_limits=UsageLimits(request_limit=max_turns + 1),
+                ) as run:
+                    async for node in run:
+                        if interactive and _inject_pending(run):
+                            quit_requested = True
                             break
-                        if turns >= max_turns:
-                            logger.info("reached max_turns=%d. Stopping.", max_turns)
-                            break
-                    elif Agent.is_end_node(node):
-                        logger.info("model ended turn without a tool call. Stopping.")
-                        break
+                        if Agent.is_call_tools_node(node):
+                            turns += 1
+                            run_turns += 1
+                            response = node.model_response
+                            response_message = _serialize_response(response)
+                            messages.append(response_message)
+                            _log_response(response, run.usage, run_turns, max_turns)
+                            if self._dashboard is not None:
+                                for block in response_message["content"]:
+                                    if block["type"] == "text":
+                                        dashboard_event = {
+                                            "type": "text",
+                                            "text": block["text"],
+                                        }
+                                    elif block["type"] == "thinking":
+                                        dashboard_event = {
+                                            "type": "thinking",
+                                            "text": block["thinking"],
+                                        }
+                                    else:
+                                        continue
+                                    self._dashboard.on_event(dashboard_event)
+                                self._dashboard.on_usage(
+                                    inp=int(run.usage.input_tokens or 0),
+                                    out=int(run.usage.output_tokens or 0),
+                                    tool_calls=n_tool_calls,
+                                )
 
-                usage = run.usage
+                            async with node.stream(run.ctx) as stream:
+                                async for event in stream:
+                                    if isinstance(event, FunctionToolCallEvent):
+                                        n_tool_calls += 1
+                                        if self._dashboard is not None:
+                                            self._dashboard.on_event(
+                                                {
+                                                    "type": "tool_call",
+                                                    "tool": event.part.tool_name,
+                                                    "args": event.part.args_as_dict(),
+                                                }
+                                            )
+                                        if event.part.tool_name == "finish":
+                                            finish_result = {
+                                                "_finish": True,
+                                                **event.part.args_as_dict(),
+                                            }
+                                    elif isinstance(event, FunctionToolResultEvent):
+                                        message = _serialize_tool_result(event)
+                                        messages.append(message)
+                                        _log_tool_result(message)
+                                        if self._dashboard is not None:
+                                            dashboard_result = {
+                                                "is_error": bool(
+                                                    getattr(
+                                                        event.part, "is_error", False
+                                                    )
+                                                ),
+                                                "size": len(message["content"]),
+                                            }
+                                            self._dashboard.on_event(
+                                                {
+                                                    "type": "tool_result",
+                                                    "tool": message.get("name")
+                                                    or "tool_result",
+                                                    "result": dashboard_result,
+                                                }
+                                            )
+                                    if self._dashboard is not None:
+                                        self._dashboard.on_usage(
+                                            inp=int(run.usage.input_tokens or 0),
+                                            out=int(run.usage.output_tokens or 0),
+                                            tool_calls=n_tool_calls,
+                                        )
+
+                            if finish_result is not None:
+                                logger.info("FINISH called: %s", finish_result)
+                                break
+                            if turns >= max_turns:
+                                logger.info(
+                                    "reached max_turns=%d. Stopping.", max_turns
+                                )
+                                break
+                        elif Agent.is_end_node(node):
+                            if interactive:
+                                logger.info(
+                                    "model ended turn without a tool call "
+                                    "— awaiting your input."
+                                )
+                            else:
+                                logger.info(
+                                    "model ended turn without a tool call. Stopping."
+                                )
+                            break
+
+                    usage = run.usage
+                    if interactive:
+                        history = run.all_messages()
+
+                # finish, quit, non-interactive, or the cumulative turn budget is
+                # spent => end the whole session so max_turns is enforced across
+                # every run, not per run.
+                if (
+                    finish_result is not None
+                    or quit_requested
+                    or not interactive
+                    or turns >= max_turns
+                ):
+                    break
+                nxt = await _await_next()
+                if nxt is None:
+                    break
+                seed = nxt
+                messages.append({"role": "user", "content": seed})
         except UsageLimitExceeded as e:
             logger.info("usage limit reached: %s", e)
         except Exception as e:  # noqa: BLE001 - surfaced via PlannerResult.error
