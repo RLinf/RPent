@@ -2,8 +2,8 @@ Memory Management
 =================
 
 The LIBERO agent's global memory lives under ``resources/libero/memory/`` (a
-``MEMORY.md`` index plus leaf notes). It is a reviewed, read-only knowledge
-base, read at the start of each run.
+``MEMORY.md`` index plus the individual notes it indexes). It is a reviewed,
+read-only knowledge base, read at the start of each run.
 
 Hosting
 -------
@@ -24,6 +24,3 @@ Publishing memory is a controlled step carried out by maintainers with write
 access to the ``RLinf`` organisation; the repository ships no self-serve upload
 path. To contribute a better memory entry, open an issue with the proposed
 content and a maintainer will review and publish it.
-
-Reads need no credentials; writes require ``RLinf`` write access.
-
