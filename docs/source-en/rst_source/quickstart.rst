@@ -20,7 +20,7 @@ reasoning brain, plus the paths to the VLA and SAM3 checkpoints:
    export OPENAI_API_KEY=sk-xxx
 
    # VLA checkpoint — download from
-   # https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft
+   # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
    # SAM 3.0 checkpoint — download from either
    # https://huggingface.co/facebook/sam3

@@ -19,7 +19,7 @@
    export OPENAI_API_KEY=sk-xxx
 
    # VLA checkpoint —— 从下面地址下载
-   # https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft
+   # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
    # SAM 3.0 checkpoint —— 从以下任一地址下载
    # https://huggingface.co/facebook/sam3
