@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import tempfile
 import threading
 import time
@@ -20,6 +21,7 @@ from typing import Any
 
 import openai_codex
 
+from rpent.cli.tui import next_user_line
 from rpent.planner.base import PlannerResult, strip_mcp_prefix
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.tools.toolkit import Toolkit
@@ -68,8 +70,9 @@ class CodexPlanner:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
+        input_queue=None,
     ) -> PlannerResult:
-        """Run one Codex SDK turn for the given prompt."""
+        """Run one or more Codex SDK turns for the given prompt."""
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         if self._output_path is None:
             with tempfile.NamedTemporaryFile(
@@ -110,6 +113,7 @@ class CodexPlanner:
                 recorder,
                 state,
                 mcp_url,
+                input_queue,
             ),
             name="codex-sdk",
             daemon=True,
@@ -176,6 +180,7 @@ class CodexPlanner:
         recorder: "_Recorder",
         state: dict[str, Any],
         mcp_url: str,
+        input_queue: "queue.Queue[str | None] | None" = None,
     ) -> None:
         try:
             approval = openai_codex.ApprovalMode.deny_all
@@ -190,26 +195,74 @@ class CodexPlanner:
                     sandbox=sandbox,
                 )
                 state["thread"] = thread
-                turn = thread.turn(
-                    prompt,
-                    approval_mode=approval,
-                    cwd=self._repo_root,
-                    model=self._model,
-                    sandbox=sandbox,
-                )
-                state["turn"] = turn
 
                 with (
                     open(output_path, "w") as out_f,
                     open(raw_stream_path, "w") as raw_f,
                 ):
-                    for event in turn.stream():
-                        _write_jsonl(raw_f, _message_to_json(event))
-                        if rendered := recorder.observe(event):
-                            chunks.append(rendered)
-                            out_f.write(rendered)
-                            out_f.flush()
-                            logger.info(rendered.rstrip())
+                    write_lock = threading.Lock()
+
+                    turn = thread.turn(
+                        prompt,
+                        approval_mode=approval,
+                        cwd=self._repo_root,
+                        model=self._model,
+                        sandbox=sandbox,
+                    )
+                    state["turn"] = turn
+
+                    stop_steer: threading.Event | None = None
+                    if input_queue is not None:
+                        stop_steer = threading.Event()
+
+                        def _steer() -> None:
+                            while True:
+                                nxt = next_user_line(input_queue)
+                                if stop_steer.is_set():
+                                    return
+                                if nxt is None:
+                                    try:
+                                        turn.interrupt()
+                                    except Exception:
+                                        pass
+                                    return
+                                rendered = f"\n[user] {nxt}\n"
+                                with write_lock:
+                                    chunks.append(rendered)
+                                    out_f.write(rendered)
+                                    out_f.flush()
+                                logger.info(rendered.strip())
+                                try:
+                                    turn.steer(nxt)
+                                except Exception as e:
+                                    rendered = (
+                                        f"\n[codex-planner] steer failed: {e}\n"
+                                    )
+                                    with write_lock:
+                                        chunks.append(rendered)
+                                        out_f.write(rendered)
+                                        out_f.flush()
+                                    logger.info(rendered.strip())
+                                    return
+
+                        threading.Thread(
+                            target=_steer,
+                            name="codex-steer",
+                            daemon=True,
+                        ).start()
+
+                    try:
+                        for event in turn.stream():
+                            _write_jsonl(raw_f, _message_to_json(event))
+                            if rendered := recorder.observe(event):
+                                with write_lock:
+                                    chunks.append(rendered)
+                                    out_f.write(rendered)
+                                    out_f.flush()
+                                logger.info(rendered.strip())
+                    finally:
+                        if stop_steer is not None:
+                            stop_steer.set()
 
             state["text"] = "".join(chunks)
             if recorder.final_response is not None:
@@ -297,7 +350,11 @@ class _Recorder:
         item = _unwrap(item)
         item_type = str(_get(item, "type", ""))
 
-        if item_type in {"userMessage", "hookPrompt", "plan"}:
+        if item_type == "userMessage":
+            text = _extract_text(_get(item, "content"))
+            return f"\n[codex][user] {text}\n" if text else ""
+
+        if item_type in {"hookPrompt", "plan"}:
             return ""
 
         if item_type == "agentMessage":
