@@ -336,7 +336,6 @@ def main() -> int:
     task = args.task
     seed = args.seed
     env_name = args.env_name
-    ensure_resources(env_name)
 
     # resolve output directory
     output_dir = args.output_dir
@@ -350,6 +349,8 @@ def main() -> int:
     if launch_config is not None:
         logger.info("launcher config applied: %s", launch_config)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
+
+    ensure_resources(env_name)
 
     recipe_tag = f"{suite.replace('libero_', '')}_t{task}_s{seed}"
 
