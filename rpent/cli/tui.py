@@ -73,28 +73,28 @@ def build_interactive_key_bindings():
     @bindings.add("c-left", eager=True)
     @bindings.add("escape", "b", eager=True)
     def _word_left(event):
-        backward_word(event)
+        backward_word.call(event)
 
     # Move one word right: Option/Alt+Right, Ctrl+Right, or Alt+f.
     @bindings.add("escape", "right", eager=True)
     @bindings.add("c-right", eager=True)
     @bindings.add("escape", "f", eager=True)
     def _word_right(event):
-        forward_word(event)
+        forward_word.call(event)
 
     # Jump to line start / end: Home / End.
     @bindings.add("home", eager=True)
     def _line_start(event):
-        beginning_of_line(event)
+        beginning_of_line.call(event)
 
     @bindings.add("end", eager=True)
     def _line_end(event):
-        end_of_line(event)
+        end_of_line.call(event)
 
     # Delete the previous word: Option/Alt+Backspace.
     @bindings.add("escape", "backspace", eager=True)
     def _delete_word_left(event):
-        backward_kill_word(event)
+        backward_kill_word.call(event)
 
     return bindings
 
