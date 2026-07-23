@@ -11,20 +11,17 @@ The default VLA is **Pi0.5**, served over HTTP by
 VLA configuration
 -----------------
 
-Pi0.5 needs one thing: a checkpoint on disk. Download the recommended SFT
-checkpoint, then point at it via ``PI05_CHECKPOINT_PATH``:
+Download the recommended SFT checkpoint
+`RLinf-Pi05-LIBERO-130-fullshot-SFT
+<https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_,
+then point at it via ``PI05_CHECKPOINT_PATH``:
 
 .. code-block:: bash
 
-   hf download RLinf/rlinf-pi05-libero-130-fullshot-sft \
-     --repo-type dataset \
+   hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
      --local-dir /path/to/rlinf-pi05-libero-130-fullshot-sft
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
-
-Checkpoint page:
-`rlinf-pi05-libero-130-fullshot-sft
-<https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_.
 
 SAM3 configuration
 ------------------

@@ -10,20 +10,17 @@ LIBERO
 VLA 配置
 --------
 
-Pi0.5 只需要一件事: 磁盘上的 checkpoint。下载推荐的 SFT checkpoint，
+下载推荐的 SFT checkpoint
+`RLinf-Pi05-LIBERO-130-fullshot-SFT
+<https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_，
 再通过 ``PI05_CHECKPOINT_PATH`` 指向它:
 
 .. code-block:: bash
 
-   hf download RLinf/rlinf-pi05-libero-130-fullshot-sft \
-     --repo-type dataset \
+   hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
      --local-dir /path/to/rlinf-pi05-libero-130-fullshot-sft
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
-
-checkpoint 页面:
-`rlinf-pi05-libero-130-fullshot-sft
-<https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_。
 
 SAM3 配置
 ---------
