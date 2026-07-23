@@ -12,12 +12,11 @@ import asyncio
 import base64
 import dataclasses
 import json
-import queue
 from typing import Any
 
 from pydantic_ai import Agent, BinaryContent, ModelSettings, Tool, ToolReturn
 from pydantic_ai.capabilities import ProcessHistory, Thinking
-from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -31,7 +30,6 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model
 from pydantic_ai.usage import RunUsage, UsageLimits
 
-from rpent.cli.tui import QUIT_TOKENS
 from rpent.planner.base import PlannerResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
@@ -54,18 +52,11 @@ _MIN_RECENT_IMAGES = 2
 class ApiAgentLoop:
     """Planner that runs the tool-calling loop via a pydantic-ai ``Agent``."""
 
-    def __init__(
-        self,
-        model: Model,
-        max_tokens: int = 8192,
-        dashboard: Any = None,
-        no_images: bool = False,
-    ):
-        """Store the pydantic-ai model and the output-token cap."""
+    def __init__(self, model: Model, max_tokens: int = 8192, dashboard: Any = None):
+        """Store the pydantic-ai model, output-token cap, and dashboard hook."""
         self._model = model
         self._max_tokens = max_tokens
         self._dashboard = dashboard
-        self._no_images = no_images
 
     def solve(
         self,
@@ -74,7 +65,6 @@ class ApiAgentLoop:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue: queue.Queue[str | None] | None = None,
     ) -> PlannerResult:
         """Run the tool-calling loop until finish, normal stop, or budget."""
         return asyncio.run(
@@ -83,7 +73,6 @@ class ApiAgentLoop:
                 user_message=user_message,
                 toolkit=toolkit,
                 max_turns=max_turns,
-                input_queue=input_queue,
             )
         )
 
@@ -94,12 +83,11 @@ class ApiAgentLoop:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue: queue.Queue[str | None] | None = None,
     ) -> PlannerResult:
         agent = Agent(
             self._model,
             instructions=system_prompt or None,
-            tools=_build_tools(toolkit, no_images=self._no_images),
+            tools=_build_tools(toolkit),
             model_settings=_build_model_settings(self._model, self._max_tokens),
             capabilities=[
                 Thinking(effort="high"),
@@ -107,76 +95,57 @@ class ApiAgentLoop:
             ],
         )
 
-        interactive = input_queue is not None
+        dashboard = self._dashboard
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
         finish_result: dict[str, Any] | None = None
         n_tool_calls = 0
         turns = 0
         last_error: str | None = None
-        usage: RunUsage | None = None
-        quit_requested = False
+        # Shared usage accumulator so token stats span every injected sub-run.
+        usage = RunUsage()
 
-        def _inject_pending(run: Any) -> bool:
-            """Drain queued user lines into the live run; True => end session.
+        # Self-maintained pydantic-ai message history. It is rebuilt from the
+        # nodes we iterate (request/response alternating) so that when a user
+        # interjection breaks the run mid-flight, the history handed to the
+        # next ``agent.iter`` always ends on a balanced tool-return request —
+        # never on a dangling tool-call with no result.
+        history: list[ModelMessage] = []
+        next_prompt = user_message
 
-            Each line is enqueued ``asap`` so it lands in the next model request
-            (the next turn boundary). This runs on the event-loop thread, so
-            mutating the run's pending-message queue here is race-free.
-            """
-            while True:
-                try:
-                    line = input_queue.get_nowait()  # type: ignore[union-attr]
-                except queue.Empty:
-                    return False
-                if line is None:
-                    return True
-                line = line.strip()
-                if line.lower() in QUIT_TOKENS:
-                    return True
-                if not line:
-                    continue
-                run.enqueue(line, priority="asap")
-                messages.append({"role": "user", "content": line})
-                logger.info("[user] %s", _clip(line, _ARGS_LOG_LIMIT))
-
-        async def _await_next() -> str | None:
-            """Block off-loop for the next user line between runs (None => end)."""
-            logger.info("awaiting input — type a message to continue, /quit to end")
-            while True:
-                line = await asyncio.to_thread(input_queue.get)  # type: ignore[union-attr]
-                if line is None:
-                    return None
-                line = line.strip()
-                if line.lower() in QUIT_TOKENS:
-                    return None
-                if line:
-                    logger.info("[user] %s", _clip(line, _ARGS_LOG_LIMIT))
-                    return line
-
-        seed = user_message
-        history: list[ModelMessage] | None = None
         try:
             while True:
-                run_turns = 0
+                stop = False
+                pending_inject: list[str] = []
+                if dashboard is not None:
+                    dashboard.set_busy(True)
                 # request_limit overrides pydantic-ai's default (50) so the
-                # manual max_turns break below is what bounds each run.
+                # manual max_turns break below is what bounds the loop.
                 async with agent.iter(
-                    seed,
-                    message_history=history,
+                    next_prompt,
+                    message_history=history or None,
+                    usage=usage,
                     usage_limits=UsageLimits(request_limit=max_turns + 1),
                 ) as run:
                     async for node in run:
-                        if interactive and _inject_pending(run):
-                            quit_requested = True
-                            break
-                        if Agent.is_call_tools_node(node):
+                        if Agent.is_model_request_node(node):
+                            # A fresh model request means any prior tool returns
+                            # have landed — a safe boundary to inject a user turn
+                            # without splitting a tool call from its result.
+                            request = getattr(node, "request", None)
+                            if request is not None:
+                                history.append(request)
+                            if 0 < turns < max_turns:
+                                pending_inject = _take_injection(dashboard)
+                                if pending_inject:
+                                    break
+                        elif Agent.is_call_tools_node(node):
                             turns += 1
-                            run_turns += 1
                             response = node.model_response
+                            history.append(response)
                             response_message = _serialize_response(response)
                             messages.append(response_message)
-                            _log_response(response, run.usage, run_turns, max_turns)
-                            if self._dashboard is not None:
+                            _log_response(response, run.usage, turns, max_turns)
+                            if dashboard is not None:
                                 for block in response_message["content"]:
                                     if block["type"] == "text":
                                         dashboard_event = {
@@ -190,8 +159,8 @@ class ApiAgentLoop:
                                         }
                                     else:
                                         continue
-                                    self._dashboard.on_event(dashboard_event)
-                                self._dashboard.on_usage(
+                                    dashboard.on_event(dashboard_event)
+                                dashboard.on_usage(
                                     inp=int(run.usage.input_tokens or 0),
                                     out=int(run.usage.output_tokens or 0),
                                     tool_calls=n_tool_calls,
@@ -201,8 +170,8 @@ class ApiAgentLoop:
                                 async for event in stream:
                                     if isinstance(event, FunctionToolCallEvent):
                                         n_tool_calls += 1
-                                        if self._dashboard is not None:
-                                            self._dashboard.on_event(
+                                        if dashboard is not None:
+                                            dashboard.on_event(
                                                 {
                                                     "type": "tool_call",
                                                     "tool": event.part.tool_name,
@@ -218,7 +187,7 @@ class ApiAgentLoop:
                                         message = _serialize_tool_result(event)
                                         messages.append(message)
                                         _log_tool_result(message)
-                                        if self._dashboard is not None:
+                                        if dashboard is not None:
                                             dashboard_result = {
                                                 "is_error": bool(
                                                     getattr(
@@ -227,7 +196,7 @@ class ApiAgentLoop:
                                                 ),
                                                 "size": len(message["content"]),
                                             }
-                                            self._dashboard.on_event(
+                                            dashboard.on_event(
                                                 {
                                                     "type": "tool_result",
                                                     "tool": message.get("name")
@@ -235,8 +204,8 @@ class ApiAgentLoop:
                                                     "result": dashboard_result,
                                                 }
                                             )
-                                    if self._dashboard is not None:
-                                        self._dashboard.on_usage(
+                                    if dashboard is not None:
+                                        dashboard.on_usage(
                                             inp=int(run.usage.input_tokens or 0),
                                             out=int(run.usage.output_tokens or 0),
                                             tool_calls=n_tool_calls,
@@ -244,55 +213,39 @@ class ApiAgentLoop:
 
                             if finish_result is not None:
                                 logger.info("FINISH called: %s", finish_result)
+                                stop = True
                                 break
                             if turns >= max_turns:
                                 logger.info(
                                     "reached max_turns=%d. Stopping.", max_turns
                                 )
+                                stop = True
                                 break
                         elif Agent.is_end_node(node):
-                            if interactive:
-                                logger.info(
-                                    "model ended turn without a tool call "
-                                    "— awaiting your input."
-                                )
-                            else:
-                                logger.info(
-                                    "model ended turn without a tool call. Stopping."
-                                )
+                            logger.info("model ended turn without a tool call.")
+                            stop = True
                             break
 
-                    usage = run.usage
-                    if interactive:
-                        history = run.all_messages()
+                if dashboard is not None:
+                    dashboard.set_busy(False)
+                if stop:
+                    break
+                # Nothing consumed mid-run? Pick up any message queued after the
+                # run settled so a late submission still starts a new turn.
+                if not pending_inject:
+                    pending_inject = _take_injection(dashboard)
+                if not pending_inject:
+                    break
 
-                # finish, quit, non-interactive, or the cumulative turn budget is
-                # spent => end the whole session so max_turns is enforced across
-                # every run, not per run.
-                if (
-                    finish_result is not None
-                    or quit_requested
-                    or not interactive
-                    or turns >= max_turns
-                ):
-                    break
-                nxt = await _await_next()
-                if nxt is None:
-                    break
-                seed = nxt
-                messages.append({"role": "user", "content": seed})
+                next_prompt = "\n\n".join(pending_inject)
+                messages.append({"role": "user", "content": next_prompt})
+                logger.info(
+                    "injecting %d user message(s) as a new turn", len(pending_inject)
+                )
         except UsageLimitExceeded as e:
             logger.info("usage limit reached: %s", e)
         except Exception as e:  # noqa: BLE001 - surfaced via PlannerResult.error
             last_error = f"{type(e).__name__}: {e}"
-            if _is_image_rejection(e) and not self._no_images:
-                last_error += (
-                    "\n\nThe model rejected image input — it is likely a "
-                    "text-only model (no vision support). Re-run with "
-                    "--no-images: RPent will then keep every visual "
-                    "observation as a file-path text notice instead of "
-                    "sending image bytes."
-                )
             logger.error("agent run failed: %s", last_error)
 
         return PlannerResult(
@@ -301,6 +254,16 @@ class ApiAgentLoop:
             stats=_build_stats(usage, turns, n_tool_calls),
             error=last_error,
         )
+
+
+def _take_injection(dashboard: Any) -> list[str]:
+    """Drain queued dashboard messages, clearing any interrupt. ``[]`` if none."""
+    if dashboard is None:
+        return []
+    msgs = dashboard.take_pending_messages()
+    if msgs:
+        dashboard.clear_interrupt()
+    return msgs
 
 
 def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
@@ -367,29 +330,14 @@ def _prune_history_images(messages: list[ModelMessage]) -> list[ModelMessage]:
     return new_messages
 
 
-def _is_image_rejection(e: Exception) -> bool:
-    """True when the provider returned a 4xx complaining about image input.
-
-    Matches errors like ``400 {'code': 10007, 'msg': "Bad Request: [message
-    type 'image_url' is not supported]"}`` from OpenAI-compatible endpoints
-    serving text-only models.
-    """
-    if not isinstance(e, ModelHTTPError):
-        return False
-    if not 400 <= e.status_code < 500:
-        return False
-    return "image" in str(e).lower()
-
-
-def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
+def _build_tools(toolkit: Toolkit) -> list[Tool]:
     """Build the API-only image reader plus pydantic-ai toolkit wrappers."""
-    image_reader = read_image_text_only if no_images else read_image
-    tools: list[Tool] = [Tool(image_reader, name="read_image")]
+    tools: list[Tool] = [Tool(read_image)]
     for spec in toolkit.get_tools_spec():
         name = spec["name"]
         tools.append(
             Tool.from_schema(
-                function=_make_tool_function(toolkit, name, no_images=no_images),
+                function=_make_tool_function(toolkit, name),
                 name=name,
                 description=spec.get("description", ""),
                 json_schema=spec.get("input_schema")
@@ -408,22 +356,13 @@ def read_image(path: str) -> ToolReturn:
     )
 
 
-def read_image_text_only(path: str) -> str:
-    """``read_image`` stub for ``--no-images``: acknowledge, send no bytes."""
-    return (
-        f"{path} exists, but image input is disabled (--no-images, text-only "
-        "model). Reason from textual state instead: view_driver_state, "
-        "back_project, and the numeric fields in tool results."
-    )
-
-
-def _make_tool_function(toolkit: Toolkit, name: str, *, no_images: bool = False):
+def _make_tool_function(toolkit: Toolkit, name: str):
     """Return a callable that dispatches one tool call to the toolkit."""
 
     def _call(**kwargs: Any) -> Any:
         result = toolkit.execute_tool(name, kwargs)
         text, images = _content_blocks_to_pydantic(result.content_blocks)
-        if images and not no_images:
+        if images:
             return ToolReturn(return_value=text, content=images)
         return text
 

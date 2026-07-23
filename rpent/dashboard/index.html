@@ -20,7 +20,7 @@
   }
   header {
     display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: 0 20px 0 5px; background: var(--panel); border-bottom: 1px solid var(--border);
   }
   header h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: .3px; }
   header h1 .dot { color: var(--accent); }
@@ -187,6 +187,48 @@
   }
 
   .empty { color: var(--muted); padding: 24px 14px; font-style: italic; font-size: 14px; }
+
+  /* user interjection bubble (dashboard input box) */
+  .ev.user {
+    color: var(--fg); background: var(--panel2);
+    border: 1px solid var(--accent); border-left: 3px solid var(--accent);
+    border-radius: 6px; padding: 7px 10px; margin-bottom: 8px;
+    white-space: pre-wrap; word-wrap: break-word; font-weight: 500;
+  }
+  .ev.user::before { content: "You › "; color: var(--accent); font-weight: 700; }
+
+  /* composer (chat input box at bottom of left column) */
+  .composer {
+    flex-shrink: 0; background: var(--panel);
+    padding: 0 14px 10px; display: flex; flex-direction: column; gap: 7px;
+    height: var(--composerh, 30%);
+  }
+  /* drag handle: reuses the same .gutter/.gutter-h styling and setupSplitter
+     behaviour as the other three splitters. --composerh sizes the whole
+     composer (the textarea flexes to fill) so the handle tracks the cursor. */
+  .composer > .gutter-h { height: 6px; margin: 0 -14px 6px; flex-shrink: 0; }
+  .composer textarea {
+    resize: none; background: var(--panel2); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 11px;
+    font: inherit; font-size: 14px; width: 100%; cursor: text;
+    flex: 1 1 auto; min-height: 46px;
+  }
+  /* I-beam over the text, but a normal arrow over the scrollbar (the custom
+     ::-webkit-scrollbar otherwise inherits the textarea's text cursor). */
+  .composer textarea::-webkit-scrollbar,
+  .composer textarea::-webkit-scrollbar-track,
+  .composer textarea::-webkit-scrollbar-thumb { cursor: default; }
+  .composer textarea:focus { outline: none; border-color: var(--accent); }
+  .composer textarea:disabled { opacity: .5; cursor: not-allowed; }
+  .composer-row { display: flex; align-items: center; gap: 12px; }
+  .composer-hint { color: var(--muted); font-size: 12px; flex: 1; line-height: 1.35; }
+  .composer button {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 9px 20px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .composer button:hover { filter: brightness(1.08); }
+  .composer button:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+  .composer.interrupt button { background: var(--yellow); color: #3a2a00; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: #c9bea9; border-radius: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -195,7 +237,7 @@
 <body>
   <div id="launcher" class="hidden">
     <div class="launch-card">
-      <h2><span class="dot">●</span> RPent · New Run</h2>
+      <h2>RPent · New Run</h2>
       <div class="sub">Review the config, then click Run to start the agent.</div>
       <div class="lform">
         <div class="lfield full">
@@ -273,7 +315,7 @@
   </div>
 
   <header>
-    <h1><span class="dot">●</span> RPent <span class="meta">Live Monitor</span></h1>
+    <h1>RPent <span class="meta">Live Monitor</span></h1>
     <span id="statusBadge" class="badge b-stale">—</span>
     <span id="resultBadge" class="badge b-fail" style="display:none"></span>
     <span class="meta" id="taskMeta"></span>
@@ -296,6 +338,14 @@
         </label>
       </div>
       <div id="transcript"><div class="empty">Select a run to begin.</div></div>
+      <div class="composer" id="composer" style="display:none">
+        <div class="gutter gutter-h" id="composerGrip" title="拖动调整高度 · 双击复位"></div>
+        <textarea id="chatInput" rows="2" placeholder="Send a message to the agent…"></textarea>
+        <div class="composer-row">
+          <span class="composer-hint" id="chatHint"></span>
+          <button id="chatSend">Send</button>
+        </div>
+      </div>
     </div>
 
     <div class="gutter gutter-v" id="gutterV" title="拖动调整左右宽度"></div>
@@ -894,6 +944,8 @@ async function refreshMeta(opts = {}) {
   const r = await fetch(`/api/run?run=${encodeURIComponent(curRun)}`).then(x => x.json());
   setBadge(r.state);
   setResult(r.terminated, r.state);
+  prefillPrompt(r.prompt);
+  setComposerMode(r);
   $("#taskMeta").innerHTML = `<b>${r.suite ?? r.name}</b> · task ${r.task ?? "?"} · seed ${r.seed ?? "?"}`;
   if (r.usage) $("#usageMeta").textContent =
     `token in ${r.usage.in.toLocaleString()} · out ${r.usage.out.toLocaleString()} · ${r.usage.tool_calls} tools`;
@@ -920,6 +972,7 @@ function connectSSE() {
     const sig = JSON.parse(e.data);
     setBadge(sig.state);
     setResult(sig.terminated, sig.state);
+    setComposerMode(sig);
     if (sig.usage) $("#usageMeta").textContent =
       `tok in ${sig.usage.in.toLocaleString()} · out ${sig.usage.out.toLocaleString()} · ${sig.usage.tool_calls} tools`;
     $("#connMeta").textContent = "● live";
@@ -975,7 +1028,11 @@ function selectRun(id) {
   $("#transcript").innerHTML = '<div class="empty">Loading…</div>';
   $("#timeline").innerHTML = '<div class="empty">…</div>';
   $("#frameCap").textContent = "waiting for first frame…";
+  promptPrefilled = false;
+  $("#chatInput").value = "";
+  $("#composer").style.display = "none";
   refreshMeta({ primeAutoActionStep: true });
+  pollPromptPrefill(40);
   refreshTranscript();
   connectSSE();
 }
@@ -987,9 +1044,120 @@ $("#showtools").addEventListener("change", (e) => {
   $("#transcript").classList.toggle("alltools", e.target.checked);
 });
 
+// --- task prompt prefill + interactive composer ---
+// The initial task prompt is prefilled into the input box (once per run); the
+// user reviews/edits it and clicks Send to start the agent.
+let promptPrefilled = false;
+function prefillPrompt(text) {
+  if (promptPrefilled || !text || !text.trim()) return;
+  const input = $("#chatInput");
+  if (!input.value) input.value = text;
+  promptPrefilled = true;
+}
+// The agent produces no steps until the first send, so refreshMeta may not
+// re-run to pick up the prompt (it can lag the run's registration). Poll
+// /api/run until the prompt is available and the box is prefilled.
+function pollPromptPrefill(tries) {
+  if (promptPrefilled || !curRun || tries <= 0) return;
+  const run = curRun;
+  fetch(`/api/run?run=${encodeURIComponent(run)}`)
+    .then(x => x.json())
+    .then(r => { if (run === curRun) prefillPrompt(r.prompt); })
+    .catch(() => {})
+    .finally(() => {
+      if (!promptPrefilled && run === curRun) {
+        setTimeout(() => pollPromptPrefill(tries - 1), 500);
+      }
+    });
+}
+
+let interactMode = false;
+let composerBusy = false;
+// Composer gating:
+//  • append (no --dashboard-interact): input is disabled/grayed while the agent
+//    is generating; it re-enables only when the agent is idle AND the env has
+//    not terminated. (This is the only mode LIBERO supports today.)
+//  • interact (--dashboard-interact, reserved for other envs): while the agent
+//    is generating the button becomes an explicit "Interrupt"; once idle the
+//    user can keep sending as long as the env has not terminated — even after a
+//    success.
+function setComposerMode(sig) {
+  sig = sig || {};
+  interactMode = !!sig.interact;
+  composerBusy = !!sig.busy;
+  const terminated = !!sig.terminated;
+  const done = sig.state === "done";
+  const composer = $("#composer");
+  const send = $("#chatSend");
+  const input = $("#chatInput");
+  composer.style.display = curRun ? "flex" : "none";
+
+  let label = "Send", hint = "", enable = false, interruptBtn = false;
+  if (interactMode) {
+    if (composerBusy) {
+      interruptBtn = true; label = "Interrupt"; enable = true;
+      hint = "Agent is running — click to interrupt.";
+    } else {
+      enable = !terminated;
+      hint = enable
+        ? "Enter to send · Shift+Enter for newline"
+        : "Environment finished — input disabled.";
+    }
+  } else {
+    enable = !composerBusy && !terminated && !done;
+    hint = composerBusy
+      ? "Agent is running — please wait…"
+      : enable
+        ? "Enter to send · Shift+Enter for newline"
+        : (terminated ? "Task finished — input disabled." : "Run finished — input disabled.");
+  }
+  composer.classList.toggle("interrupt", interruptBtn);
+  send.textContent = label;
+  send.disabled = !enable;
+  input.disabled = !enable;
+  $("#chatHint").textContent = hint;
+}
+
+async function postJSON(url, body) {
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { /* transient — may still have been delivered */ }
+}
+
+async function sendChat() {
+  const input = $("#chatInput");
+  const text = input.value.trim();
+  if (!text || !curRun) return;
+  input.value = "";
+  await postJSON("/api/run/inject", { run: curRun, text });
+  refreshTranscript();  // pull the server-recorded user event promptly
+}
+
+async function interruptRun() {
+  if (!curRun) return;
+  await postJSON("/api/run/interrupt", { run: curRun });
+}
+
+// Busy + interact → the button interrupts; otherwise it sends.
+function onComposerButton() {
+  if (interactMode && composerBusy) interruptRun();
+  else sendChat();
+}
+$("#chatSend").addEventListener("click", onComposerButton);
+$("#chatInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onComposerButton(); }
+});
+
 // --- draggable splitters ---
 function setupSplitter(handle, opts) {
-  // opts: { axis:'x'|'y', container, prop, min, max, store }
+  // opts: { axis:'x'|'y', container, prop, min, max, store, fromEnd }
+  // fromEnd measures from the container's right/bottom edge instead of its
+  // left/top — used for the composer, which is anchored to the bottom and
+  // grows upward.
   const saved = localStorage.getItem(opts.store);
   if (saved) opts.container.style.setProperty(opts.prop, saved);
   handle.addEventListener("mousedown", (e) => {
@@ -999,7 +1167,9 @@ function setupSplitter(handle, opts) {
     document.body.style.cursor = opts.axis === "x" ? "col-resize" : "row-resize";
     const rect = opts.container.getBoundingClientRect();
     const move = (ev) => {
-      let v = opts.axis === "x" ? ev.clientX - rect.left : ev.clientY - rect.top;
+      let v = opts.axis === "x"
+        ? (opts.fromEnd ? rect.right - ev.clientX : ev.clientX - rect.left)
+        : (opts.fromEnd ? rect.bottom - ev.clientY : ev.clientY - rect.top);
       const limit = opts.axis === "x" ? rect.width : rect.height;
       v = Math.max(opts.min, Math.min(v, limit - opts.max));
       const px = v + "px";
@@ -1029,6 +1199,10 @@ setupSplitter($("#gutterV"), {
 setupSplitter($("#gutterH"), {
   axis: "y", container: $(".col.right"), prop: "--frameh",
   min: 120, max: 160, store: "wm.frameh",
+});
+setupSplitter($("#composerGrip"), {
+  axis: "y", fromEnd: true, container: $(".col.left"), prop: "--composerh",
+  min: 96, max: 160, store: "wm.composerh",
 });
 
 // --- launcher (start screen) ---

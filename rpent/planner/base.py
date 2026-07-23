@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import json
 import os
-import queue
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -69,7 +69,6 @@ class Planner(Protocol):
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue: queue.Queue[str | None] | None = None,
     ) -> PlannerResult:
         """Run the multi-turn agent loop until completion or budget.
 
@@ -81,7 +80,6 @@ class Planner(Protocol):
                 ``toolkit.get_tools_spec()`` and dispatch calls via
                 ``toolkit.execute_tool()``.
             max_turns: Maximum LLM turns before giving up.
-            input_queue: Optional queue of user-typed lines for interactive steering.
 
         Returns:
             ``PlannerResult`` with finish status, conversation transcript,
@@ -93,6 +91,31 @@ class Planner(Protocol):
 # ---------------------------------------------------------------------------
 # Planner construction
 # ---------------------------------------------------------------------------
+
+
+def _resolve_claude_model() -> str:
+    """Resolve the default model for the claude_code planner.
+
+    The planner runs the Claude Agent SDK with ``setting_sources=[]`` (RPent
+    owns the loop), so the operator's own ``.claude`` settings are otherwise
+    ignored — including the ``model`` they configured for their Claude Code.
+    To still honour that choice without forcing ``--model`` on every run,
+    fall back to, in order: ``ANTHROPIC_MODEL``/``CLAUDE_MODEL`` env, then the
+    ``model`` field of ``$CLAUDE_CONFIG_DIR/settings.json`` (or
+    ``~/.claude/settings.json``), then the SDK alias ``sonnet``.
+    """
+    env_model = os.environ.get("ANTHROPIC_MODEL") or os.environ.get("CLAUDE_MODEL")
+    if env_model:
+        return env_model
+    cfg_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    settings_path = Path(cfg_dir) / "settings.json"
+    try:
+        data = json.loads(settings_path.read_text())
+        if isinstance(data, dict) and data.get("model"):
+            return str(data["model"])
+    except Exception:
+        pass
+    return "sonnet"
 
 
 def build_planner(
@@ -107,7 +130,6 @@ def build_planner(
     planner_timeout_s: int | None = None,
     claude_code_max_budget_usd: float | None = None,
     dashboard: Any = None,
-    no_images: bool = False,
 ):
     """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
@@ -148,12 +170,7 @@ def build_planner(
         api_model = infer_model(
             model, provider_factory=_provider_factory
         )
-        return ApiAgentLoop(
-            model=api_model,
-            max_tokens=max_tokens,
-            dashboard=dashboard,
-            no_images=no_images,
-        )
+        return ApiAgentLoop(model=api_model, max_tokens=max_tokens, dashboard=dashboard)
     if planner_type == "claude_code":
         from rpent.planner.claude_code import ClaudeCodePlanner
 
@@ -166,7 +183,7 @@ def build_planner(
         return ClaudeCodePlanner(
             output_dir=output_dir,
             repo_root=get_repo_root(),
-            model=model or "sonnet",
+            model=model or _resolve_claude_model(),
             timeout_s=cc_timeout_s,
             max_budget_usd=cc_budget,
             extra_dirs=[str(get_memory_dir(env_name))],
