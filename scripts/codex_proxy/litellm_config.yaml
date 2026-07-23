@@ -1,25 +1,3 @@
-model_list:
-  # `openai/chat_completions/<name>` prefix triggers litellm's Responses API →
-  # Chat Completions bridge. Without this prefix, litellm tries to call the
-  # Responses API endpoint on the upstream (which doesn't exist on Infini-AI).
-  - model_name: kimi-k2.6
-    litellm_params:
-      model: openai/chat_completions/kimi-k2.6
-      api_base: https://cloud.infini-ai.com/maas/v1
-      api_key: os.environ/INFINI_API_KEY
-
-  - model_name: deepseek-v4-flash
-    litellm_params:
-      model: openai/chat_completions/deepseek-v4-flash
-      api_base: https://cloud.infini-ai.com/maas/v1
-      api_key: os.environ/INFINI_API_KEY
-
-  - model_name: deepseek-v4-pro
-    litellm_params:
-      model: openai/chat_completions/deepseek-v4-pro
-      api_base: https://cloud.infini-ai.com/maas/v1
-      api_key: os.environ/INFINI_API_KEY
-
 litellm_settings:
   drop_params: true
   set_verbose: false

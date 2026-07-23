@@ -146,11 +146,13 @@ See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/in
 **3. Configure keys and checkpoints, then run.**
 
 ```bash
-# LLM API keys (the `api` planner)
+# LLM endpoints and API keys; no need to export base urls if you use the official endpoints.
 export ANTHROPIC_BASE_URL=https://xxx
 export ANTHROPIC_API_KEY=sk-xxx
 export OPENAI_BASE_URL=https://xxx
 export OPENAI_API_KEY=sk-xxx
+export CODEX_BASE_URL=https://xxx
+export CODEX_API_KEY=sk-xxx
 
 # VLA checkpoint — download from
 # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
@@ -169,6 +171,15 @@ export CUDA_VISIBLE_DEVICES=0
 #   • claude_code / codex planners:     no provider prefix, e.g. --model claude-opus-4-8
 rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
   --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
+```
+
+### Interactive CLI mode
+
+Add `--interactive` (`-i`) to steer the agent live from your terminal. At the `you>` prompt, the built-in task is pre-filled — press Enter to use it or replace it with your own — then type any message while it runs to steer the agent at the next turn (`/help` lists commands; `/quit` or Ctrl-D ends). Requires an interactive terminal (TTY).
+
+```bash
+rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+  --planner api --model anthropic:claude-opus-4-8 --interactive
 ```
 
 ### Live Dashboard
