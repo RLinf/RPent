@@ -67,6 +67,12 @@ def _render_mapping(
     *,
     depth: int,
 ) -> str:
+    r"""Render mapping entries as titled prompt sections.
+
+    Example:
+        >>> _render_mapping({"RULES": "Be safe"}, {}, depth=1)
+        '### RULES\n\nBe safe'
+    """
     parts: list[str] = []
     for title, body in value.items():
         rendered = _render(body, variables, depth=depth + 1).strip()
@@ -93,6 +99,12 @@ def _render_list(
     depth: int,
     ordered: bool,
 ) -> str:
+    r"""Render prompt nodes as a Markdown list.
+
+    Example:
+        >>> _render_list(["inspect", "act"], {}, depth=0, ordered=True)
+        '1. inspect\n\n2. act'
+    """
     rendered_items = [
         _render(item, variables, depth=depth + 1).strip() for item in items
     ]
