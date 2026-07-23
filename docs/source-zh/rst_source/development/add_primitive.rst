@@ -2,7 +2,7 @@
 =====================
 
 在 RPent 中，*action primitive* 将一次工具调用转换成环境可以执行的动作。
-它既可以是 VLA、WAM 或扩散模型等学习策略，也可以是 ``move_to``、
+它既可以基于 VLA、WAM 或 Diffusion Policy，也可以是 ``move_to``、
 ``open_gripper`` 等脚本化程序。本页分别介绍这两类 primitive 的
 接入方法。
 
@@ -17,7 +17,7 @@
      - 运行位置
      - 例子
    * - **基于模型的**
-       (VLA / WAM / 扩散模型 / …)
+       (VLA / WAM / Diffusion Policy / …)
      - 自己的进程 (``vla_server``)。通过 toolkit 持有的 *model
        client* 调用。
      - Pi0.5 (LIBERO)、RLDX-1 (RoboCasa)
@@ -128,23 +128,22 @@ primitive driver 方法，以及调用完成后的状态快照。区别仅在于
 在多次运行间复用 vla_server
 ---------------------------
 
-模型 server 的启动时间主要用于加载权重。Runner 可以通过
-``--vla-endpoint`` 连接已经运行的实例：
+模型 server 启动通常很耗时，因此 Runner 可以通过 ``--vla-endpoint``
+连接已经运行的实例：
 
 .. code-block:: bash
 
    rpent --env libero --vla-endpoint http://vla-host:8000 ...
 
-应将 ``vla_server`` 设计为在不同 task 之间保持无状态，并通过显式的
-``vla_reset`` RPC 清除每个 episode 的状态。这样，同一个进程便可以连续
-服务多次运行。
+如果模型会保存每个 episode 的内部状态，应提供 ``vla_reset`` RPC，并在
+任务之间调用它完成重置。这样，同一个 server 进程就能安全地复用于多次
+连续运行。
 
 新 primitive 的设计原则
 -----------------------
 
 - **工具名称应描述意图，而非底层动作序列。** 例如使用 ``pi0_pick``，
-  而不是 ``execute_action_chunk_of_length_20``。LLM 会根据名称选择工具，
-  因此名称需要清楚表达用途。
+  而不是 ``execute_action_chunk_of_length_20``。
 - **每个工具执行结束后都要保存新的状态快照。** 下一轮需要读取动作执行后的
   环境状态，因此 primitive 不能在渲染完成前返回。
 - **工具只返回简短的字典。** 返回值会以文本形式提供给 LLM；图像、深度和
@@ -159,7 +158,7 @@ primitive driver 方法，以及调用完成后的状态快照。区别仅在于
 
 - **World Action Model (WAM)** —— 根据模型预测生成 rollout 和执行计划，
   再交给环境执行。接入方式与 VLA 相同：使用独立进程和独立 client。
-- **扩散模型 / MPC** —— 接口形式相同，但工具返回的动作可能是一段
+- **Diffusion Policy / MPC** —— 接口形式相同，但工具返回的动作可能是一段
   trajectory，而非单个 chunk，并由 ``env_server`` 按顺序执行。
 - **多个 primitive 共享一个 server** —— 一个 ``vla_server`` 可以承载
   多个模型，由工具通过 ``vla_infer`` 的 ``model`` kwarg 选择要调用的模型

@@ -122,8 +122,8 @@ Planner 能看到的工具
 Dashboard
 ---------
 
-加上 ``--dashboard`` 可启动本地监控服务。默认会选择一个空闲端口并在终端
-输出访问 URL；用 ``--dashboard-port <port>`` 可指定固定端口：
+加上 ``--dashboard`` 可启动本地监控服务。系统会自动选择一个空闲端口，
+并在终端输出访问 URL：
 
 .. code-block:: bash
 

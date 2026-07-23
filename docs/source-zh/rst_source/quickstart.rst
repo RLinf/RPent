@@ -25,7 +25,7 @@
 2. 跑一个 LIBERO 任务
 ---------------------
 
-使用 ``claude_code`` planner 和 Claude Opus 4.8 跑单个 LIBERO PRO 任务
+使用 ``claude_code`` planner 跑单个 LIBERO PRO 任务
 (``libero_object_swap``, 任务 ``2``, 种子 ``0``):
 
 .. code-block:: bash

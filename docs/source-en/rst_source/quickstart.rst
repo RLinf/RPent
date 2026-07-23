@@ -27,7 +27,7 @@ Export your Anthropic key, plus the path to the VLA checkpoint:
 ----------------------
 
 Run a single LIBERO PRO task (``libero_object_swap``, task ``2``, seed
-``0``) using the ``claude_code`` planner with Claude Opus 4.8:
+``0``) using the ``claude_code`` planner:
 
 .. code-block:: bash
 

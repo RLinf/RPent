@@ -131,9 +131,8 @@ tools do not advance the environment.
 Live dashboard
 --------------
 
-Add ``--dashboard`` to start a local monitor. By default, it selects an
-available port and prints the URL in the terminal; pass
-``--dashboard-port <port>`` to use a fixed port:
+Add ``--dashboard`` to start a local monitor. It selects an available
+port and prints the URL in the terminal:
 
 .. code-block:: bash
 

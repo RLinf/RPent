@@ -3,7 +3,7 @@ Add an Action Primitive
 
 An *action primitive* in RPent is anything that turns a tool call
 into an executable action for the environment. It can be a learned
-policy (a VLA, a WAM, a diffusion model) or a scripted routine
+policy (a VLA or WAM), a diffusion policy, or a scripted routine
 (``move_to``, ``open_gripper``). This page walks through how to add
 one, whichever family it falls into.
 
@@ -138,23 +138,22 @@ model runs in its own process. Pattern:
 Reuse an existing vla_server across runs
 ----------------------------------------
 
-Model servers are expensive to start (weight-loading dominates). The
-runner supports pointing at an already-running one:
+Model servers can take a long time to start, so the runner can connect
+to an existing instance:
 
 .. code-block:: bash
 
    rpent --env libero --vla-endpoint http://vla-host:8000 ...
 
-Design your ``vla_server`` to be **stateless across tasks** — reset
-its per-episode state through an explicit ``vla_reset`` RPC — so a
-single process can serve many sequential runs safely.
+If the model keeps per-episode state, expose a ``vla_reset`` RPC and
+call it between tasks. This allows the same server process to be reused
+safely across sequential runs.
 
 Design principles for a new primitive
 -------------------------------------
 
 - **Tools describe intent, not motion.** A good tool name is
-  ``pi0_pick``, not ``execute_action_chunk_of_length_20``. The LLM
-  picks tools by name; make the name self-explanatory.
+  ``pi0_pick``, not ``execute_action_chunk_of_length_20``.
 - **Every tool ends with a state dump.** The next turn depends on
   the state dump reflecting the post-action world. Don't let the
   primitive return before the render finishes.
@@ -174,7 +173,7 @@ The same pattern extends to non-VLA model primitives:
 - **World Action Models (WAM)** — imagination-based rollouts that
   produce a plan the env then executes. Wire them exactly like a
   VLA: their own process, their own client.
-- **Diffusion models / MPC** — same shape; the "action" the tool
+- **Diffusion policies / MPC** — same shape; the "action" the tool
   returns may be a trajectory rather than a single chunk, and the
   ``env_server`` steps it out.
 - **Multiple primitives sharing one server** — a single
