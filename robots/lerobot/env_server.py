@@ -2,9 +2,10 @@
 
 Drives a physical SO101 follower arm through LeRobot's synchronous Python
 API (:class:`lerobot.robots.so_follower.SO101Follower`) and exposes a minimal
-``reset`` / ``step`` gym-style surface over a pickle-framed TCP RPC server
-(:class:`rpent.utils.socket_rpc.SocketRpcServer`) — the same wire
-protocol the LIBERO driver uses, so the agent side talks to both identically.
+``reset`` / ``step`` gym-style surface over an RPC server
+(:class:`rpent.utils.rpc.RpcFacade`, socket transport by default) — the same
+wire protocol the LIBERO driver uses, so the agent side talks to both
+identically.
 
 Unlike the LIBERO driver, this server does **not** wrap an RLinf env class:
 importing ``rlinf.envs.realworld`` runs node-level ROS setup side effects at
@@ -23,17 +24,16 @@ Hardware defaults match the current bench setup: follower on ``/dev/ttyACM1``
 ``/dev/video2``, and an Intel RealSense D405 scene camera (serial
 ``409122274720``). Every default is overridable from the CLI.
 
-Launched manually for now; wiring into ``cli/main.py`` (per-env client class +
-driver script selection) is a separate step.
+Spawned by ``rpent/cli/main.py`` when ``--env lerobot`` is selected (requires
+the ``lerobot`` extra in the agent venv), or run manually in the ``lerobot``
+conda env and attached to via ``--env-endpoint socket://host:port``.
 """
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import signal
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -45,13 +45,12 @@ _PHYSICALAGENT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PHYSICALAGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PHYSICALAGENT_ROOT))
 
-from rpent.utils.socket_rpc import SocketRpcServer  # noqa: E402
-from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
-
 from robots.lerobot import calibration as scene_calib  # noqa: E402
 from robots.lerobot import geometry as geom  # noqa: E402
 from robots.lerobot.kinematics import SO101Kinematics  # noqa: E402
 from robots.lerobot.scene_camera import SceneCameraD405  # noqa: E402
+from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
+from rpent.utils.rpc import RpcFacade  # noqa: E402
 
 logger = get_logger("lerobot_driver")
 
@@ -1110,45 +1109,25 @@ class SO101LeRobotEnv:
 # RPC plumbing
 # ---------------------------------------------------------------------------
 
-_INITIAL_PPID = os.getppid()
+class LerobotEnvFacade(RpcFacade):
+    """Serve :class:`SO101LeRobotEnv` over the RPC boundary.
 
+    ``shutdown`` and ``healthz`` are handled by :class:`RpcFacade` and the
+    transport; this only routes ``env.*`` methods to the env instance.
+    """
 
-def _start_parent_watchdog(
-    server: SocketRpcServer,
-    shutdown_event: threading.Event,
-    poll_s: float = 2.0,
-) -> None:
-    """Shut the RPC server down if the agent (parent) process dies."""
+    def __init__(self, env: SO101LeRobotEnv):
+        super().__init__()
+        self._env = env
 
-    def _watch() -> None:
-        while not shutdown_event.is_set():
-            time.sleep(poll_s)
-            ppid = os.getppid()
-            if ppid != _INITIAL_PPID or ppid == 1:
-                logger.warning(
-                    "parent died (ppid %s -> %s); stopping RPC server",
-                    _INITIAL_PPID,
-                    ppid,
-                )
-                shutdown_event.set()
-                threading.Thread(target=server.shutdown, daemon=True).start()
-                return
-
-    threading.Thread(target=_watch, daemon=True).start()
-
-
-def _build_dispatcher(env: SO101LeRobotEnv, shutdown_event: threading.Event):
-    """Route ``env.*`` / ``shutdown`` to the right callable."""
-
-    def dispatch(method: str, args: tuple, kwargs: dict):
+    def _dispatch(self, method: str, args: tuple, kwargs: dict):
         if method.startswith("env."):
-            return getattr(env, method[len("env."):])(*args, **kwargs)
-        if method == "shutdown":
-            shutdown_event.set()
-            return {"ok": True}
+            return getattr(self._env, method[len("env."):])(*args, **kwargs)
         raise ValueError(f"unknown RPC method: {method!r}")
 
-    return dispatch
+    def request_shutdown(self) -> None:
+        """Signal the serve loop to exit (used by the signal handlers)."""
+        self._shutdown_event.set()
 
 
 # ---------------------------------------------------------------------------
@@ -1205,8 +1184,12 @@ def _build_argparser() -> argparse.ArgumentParser:
                    help="SO101 URDF for FK / EE pose. Default: "
                         "~/.cache/huggingface/lerobot/urdf/so101.urdf")
     p.add_argument("--output-dir", required=True)
-    p.add_argument("--transport-port", type=int, default=0,
-                   help="Socket transport port. 0 asks the OS for a free port.")
+    p.add_argument("--transport", choices=["socket", "http"], default="socket",
+                   help="RPC transport. Socket (pickle) is the proven path for "
+                        "the numpy obs/action payloads; http is also supported.")
+    p.add_argument("--host", type=str, default="127.0.0.1")
+    p.add_argument("--port", type=int, default=0,
+                   help="RPC port. 0 asks the OS for a free port.")
     return p
 
 
@@ -1262,47 +1245,27 @@ def main() -> int:
         auto_calibrate=args.auto_calibrate,
     )
 
-    shutdown_event = threading.Event()
-    dispatch = _build_dispatcher(env, shutdown_event)
-
-    server = SocketRpcServer(("127.0.0.1", args.transport_port), dispatch)
-    bound_host, bound_port = server.server_address
-    client_host = "127.0.0.1" if bound_host == "0.0.0.0" else bound_host
-    print(
-        json.dumps({
-            "event": "transport_ready",
-            "kind": "socket",
-            "host": client_host,
-            "port": bound_port,
-        }),
-        flush=True,
-    )
-    logger.info("RPC server listening on %s:%s", client_host, bound_port)
+    facade = LerobotEnvFacade(env)
 
     # Park the arm on SIGTERM / SIGINT (launcher kill, Ctrl-C). The handler
-    # only flags shutdown; the actual parking runs in the ``finally`` below,
-    # never inside the signal context. (SIGKILL / kill -9 cannot be caught.)
+    # only flags shutdown; the actual parking runs in ``env.close()`` in the
+    # ``finally`` below, never inside the signal context. (SIGKILL / kill -9
+    # cannot be caught.) RpcFacade also exits on parent death (stdin EOF) and
+    # on the ``shutdown`` RPC.
     def _handle_signal(signum, _frame):
         logger.warning(
             "received %s; parking arm and shutting down",
             signal.Signals(signum).name,
         )
-        shutdown_event.set()
+        facade.request_shutdown()
 
     for _sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(_sig, _handle_signal)
 
-    _start_parent_watchdog(server, shutdown_event)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        # Loop with a timeout so a signal landing during the wait is observed
-        # promptly even if it doesn't interrupt the blocking call.
-        while not shutdown_event.wait(timeout=1.0):
-            pass
+        facade.serve(transport=args.transport, host=args.host, port=args.port)
     finally:
         env.close()
-        server.shutdown()
-        server.server_close()
     logger.info("driver exited cleanly")
     return 0
 
