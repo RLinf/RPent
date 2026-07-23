@@ -1,4 +1,5 @@
 """Python prompt rendering primitives."""
+
 from __future__ import annotations
 
 import textwrap
@@ -74,14 +75,14 @@ def _render_mapping(
         if depth == 0:
             section = [
                 "═" * 71,
-                _title(title),
+                title,
                 "═" * 71,
                 "",
                 rendered,
             ]
             parts.append("\n".join(section))
         else:
-            parts.append(f"{'#' * min(depth + 2, 6)} {_title(title)}\n\n{rendered}")
+            parts.append(f"{'#' * min(depth + 2, 6)} {title}\n\n{rendered}")
     return "\n\n\n".join(parts)
 
 
@@ -93,22 +94,19 @@ def _render_list(
     ordered: bool,
 ) -> str:
     rendered_items = [
-        _render(item, variables, depth=depth + 1).strip()
-        for item in items
+        _render(item, variables, depth=depth + 1).strip() for item in items
     ]
     rendered_items = [item for item in rendered_items if item]
-    lines: list[str] = []
+    blocks: list[str] = []
     for index, item in enumerate(rendered_items, 1):
         prefix = f"{index}. " if ordered else "- "
         item_lines = item.splitlines()
-        lines.append(prefix + item_lines[0])
+        lines = [prefix + item_lines[0]]
         lines.extend(" " * len(prefix) + line for line in item_lines[1:])
-    return "\n".join(lines)
+        blocks.append("\n".join(lines))
+    separator = "\n\n" if ordered else "\n"
+    return separator.join(blocks)
 
 
 def _clean_text(text: str) -> str:
     return textwrap.dedent(text).strip()
-
-
-def _title(value: str) -> str:
-    return value.replace("_", " ").upper()

@@ -10,31 +10,31 @@ from rpent.context.prompt_utils import Numbered, PromptNode
 def system_prompt() -> PromptNode:
     """Assemble the LIBERO system prompt tree."""
     return {
-        "Role and Evaluation": system_parts.ROLE_AND_EVALUATION,
-        "Proven Levers & Lessons — libero_10_task seed-0 sweep solved 9/10 (Read This)": (
+        "ROLE AND EVALUATION": system_parts.ROLE_AND_EVALUATION,
+        "PROVEN LEVERS & LESSONS — libero_10_task seed-0 sweep solved 9/10 (READ THIS)": (
             system_parts.PROVEN_LEVERS
         ),
-        "Runtime": system_parts.RUNTIME,
-        "Goal": system_parts.GOAL,
-        "Rules (Non-negotiable)": system_parts.RULES,
-        "Localization — how to get an object's world xyz without GT coords": (
+        "RUNTIME": system_parts.RUNTIME,
+        "YOUR GOAL": system_parts.GOAL,
+        "RULES (NON-NEGOTIABLE)": system_parts.RULES,
+        "LOCALIZATION — how to get an object's world xyz WITHOUT GT coords": (
             system_parts.LOCALIZATION
         ),
-        "First-step Algorithm — agentview = Identity, wrist = Geometry": (
+        "FIRST-STEP ALGORITHM — agentview = IDENTITY, wrist = GEOMETRY": (
             system_parts.PERCEPTION_ALGORITHM
         ),
-        "Workflow": Numbered(system_parts.WORKFLOW_STEPS),
-        "Key Hyperparameters": system_parts.KEY_HYPERPARAMETERS,
-        "Output Discipline": system_parts.OUTPUT_DISCIPLINE,
+        "WORKFLOW": Numbered(system_parts.WORKFLOW_STEPS),
+        "KEY HYPERPARAMETERS": system_parts.KEY_HYPERPARAMETERS,
+        "OUTPUT DISCIPLINE": system_parts.OUTPUT_DISCIPLINE,
     }
 
 
 def user_prompt() -> PromptNode:
     """Assemble the LIBERO user prompt tree."""
     return {
-        "Cell": user_parts.CELL,
-        "Mode": user_parts.MODE,
-        "Begin": user_parts.BEGIN,
+        "CELL": user_parts.CELL,
+        "MODE": user_parts.MODE,
+        "BEGIN": user_parts.BEGIN,
     }
 
 

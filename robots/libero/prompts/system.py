@@ -50,7 +50,7 @@ GRASPING:
   bowls — you can wrist-segment the grasped object to measure the true held offset.)
 - Some objects grasp best with `pi0_pick` from the **DEFAULT HOME pose** (no
   pre-position) — Pi0 has its own approach trajectory; pre-positioning can hurt.
-- **`pi0_pick` is reusable and repurposable** (only `pi0_end_to_end` is forbidden):
+- **`pi0_pick` is reusable and repurposable**:
   a HIGH `lift_thresh` (e.g. 999) + `gripper_closed_thresh:0` turns it into a
   generic closed-loop CONTACT driver (used to turn the stove knob).
 - **`pi0_doubled`** = Pi0 closed-loop CONTACT skill (success :=
