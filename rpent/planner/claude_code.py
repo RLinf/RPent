@@ -10,6 +10,7 @@ no backend state of its own.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import json
 import tempfile
@@ -137,7 +138,7 @@ class ClaudeCodePlanner:
                 rendered_chunks.append(rendered)
                 out_f.write(rendered)
                 out_f.flush()
-                logger.info(rendered.rstrip())
+                logger.info(rendered.strip())
 
             try:
                 if input_queue is None:
@@ -212,33 +213,61 @@ class ClaudeCodePlanner:
         emit,
         emit_user,
     ) -> None:
-        """Drive a stateful ``ClaudeSDKClient``: one user message per turn.
+        """Drive a stateful ``ClaudeSDKClient`` with live steering.
 
-        Each ``query`` is streamed to completion, then the loop blocks for the
-        next user line and continues the same session (preserving context).
-        ``finish`` or a quit/EOF sentinel ends it. The per-turn wall-clock cap
-        still bounds each turn, but never the between-turn wait.
+        The opening prompt is sent, then the agent streams autonomously while a
+        background pump forwards each user-typed line into the same session via
+        ``client.query`` so it steers the agent at its next turn. A quit/EOF
+        sentinel (or ``/quit``) interrupts the run; the ``finish`` tool ends it
+        normally. Because a human supervises, there is no wall-clock cap here.
         """
         async with sdk.ClaudeSDKClient(options=options) as client:
+            stop = asyncio.Event()
 
-            async def consume_turn() -> None:
-                async for message in client.receive_response():
+            async def pump_input() -> None:
+                # Forward typed lines into the live session; interrupt on quit.
+                while not stop.is_set():
+                    nxt = await asyncio.to_thread(next_user_line, input_queue)
+                    if nxt is None:
+                        stop.set()
+                        with contextlib.suppress(Exception):
+                            await client.interrupt()
+                        return
+                    emit_user(nxt)
+                    # A running turn buffers further input until it ends, so
+                    # interrupt the in-flight turn first; the CLI then delivers
+                    # the steering line as the next user turn while preserving
+                    # the conversation context.
+                    recorder.suppress_next_result_error = True
+                    with contextlib.suppress(Exception):
+                        await client.interrupt()
+                    with contextlib.suppress(Exception):
+                        await client.query(nxt)
+
+            async def consume() -> None:
+                async for message in client.receive_messages():
                     emit(message)
                     if recorder.finish_result is not None:
                         logger.info("FINISH called: %s", recorder.finish_result)
                         return
 
-            seed = prompt
-            while True:
-                await client.query(seed)
-                await asyncio.wait_for(consume_turn(), timeout=self._timeout_s)
-                if recorder.finish_result is not None:
-                    break
-                nxt = await asyncio.to_thread(next_user_line, input_queue)
-                if nxt is None:
-                    break
-                emit_user(nxt)
-                seed = nxt
+            await client.query(prompt)
+            pump = asyncio.create_task(pump_input())
+            consumer = asyncio.create_task(consume())
+            stop_wait = asyncio.create_task(stop.wait())
+            try:
+                await asyncio.wait(
+                    {consumer, stop_wait}, return_when=asyncio.FIRST_COMPLETED
+                )
+            finally:
+                # Unblock the pump's blocking queue read so its worker thread
+                # exits, then cancel and drain the remaining tasks.
+                input_queue.put(None)
+                for task in (consumer, stop_wait, pump):
+                    task.cancel()
+                for task in (consumer, stop_wait, pump):
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await task
 
     # -- options + tool bridge ---------------------------------------------
 
@@ -303,6 +332,10 @@ class _Recorder:
     total_cost_usd: float | None = None
     finish_result: dict[str, Any] | None = None
     error: str | None = None
+    #: Set by the interactive loop before a user-initiated ``interrupt`` so the
+    #: next result (which the CLI may flag ``is_error``) is not mistaken for a
+    #: real failure. Cleared by the next result regardless of its outcome.
+    suppress_next_result_error: bool = False
 
     # -- public ------------------------------------------------------------
 
@@ -435,7 +468,9 @@ class _Recorder:
             self._set_usage(usage)
         if cost := _get(message, "total_cost_usd"):
             self.total_cost_usd = float(cost)
-        if _get(message, "is_error", False):
+        suppress = self.suppress_next_result_error
+        self.suppress_next_result_error = False
+        if _get(message, "is_error", False) and not suppress:
             self.error = f"Claude Agent SDK result {_get(message, 'subtype', 'error')}"
 
         parts = ["[cc-result]", str(_get(message, "subtype", ""))]
