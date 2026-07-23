@@ -1,6 +1,0 @@
-{"action": "move_to", "xyz": [0.14, -0.20, 0.15], "gripper": -1, "tol": 0.015, "step_clip": 0.025, "max_steps": 80}
-{"action": "move_to", "xyz": [0.04, -0.10, 0.15], "gripper": -1, "tol": 0.015, "step_clip": 0.025, "max_steps": 80}
-{"action": "move_to", "xyz": [0.05, -0.10, 0.10], "gripper": -1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
-{"action": "move_to", "xyz": [0.06, -0.10, 0.10], "gripper": -1, "tol": 0.01, "step_clip": 0.015, "max_steps": 40}
-{"action": "pi0_pick", "prompt": "pick up the butter", "max_chunks": 20, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
-{"action": "release", "max_steps": 20}

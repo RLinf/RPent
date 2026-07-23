@@ -1,5 +1,0 @@
-{"action": "pi0_pick", "prompt": "Open the top layer of the drawer and put the bowl inside", "max_chunks": 25, "lift_thresh": 0.08, "gripper_closed_thresh": 0.06}
-{"action": "set_gripper", "gripper": 1, "steps": 6}
-{"action": "move_to", "xyz": [-0.05, 0.05, 1.20], "gripper": 1, "tol": 0.012, "step_clip": 0.020, "max_steps": 80}
-{"action": "move_to", "xyz": [0.0, -0.09, 1.20], "gripper": 1, "tol": 0.012, "step_clip": 0.020, "max_steps": 100}
-{"action": "move_to", "xyz": [0.0, -0.09, 1.10], "gripper": 1, "tol": 0.012, "step_clip": 0.015, "max_steps": 80}

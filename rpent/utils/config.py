@@ -26,9 +26,14 @@ def get_repo_root() -> Path:
 # Paths derived from the repo root  (callable so tests can override)
 # ============================================================================
 
+def get_resources_dir(env_name: str) -> Path:
+    """Return the per-env resources directory (memory + reference corpora)."""
+    return get_repo_root() / "resources" / env_name
+
+
 def get_memory_dir(env_name: str) -> Path:
     """Return the persistent, cross-run memory directory for an env."""
-    return get_repo_root() / "resources" / env_name / "memory"
+    return get_resources_dir(env_name) / "memory"
 
 
 def get_pi05_checkpoint_path() -> str:
