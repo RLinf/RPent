@@ -91,43 +91,8 @@ git clone https://github.com/RLinf/RPent rpent && cd rpent
 pip install -e ".[full]"
 ```
 
-`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator on the RLinf runtime). 
-Pick a narrower extra if you don't need the whole stack:
-
-<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
-  <thead align="center" valign="bottom">
-    <tr>
-      <th style="min-width: 120px; text-align: left;">Extra</th>
-      <th style="min-width: 240px;">Installs</th>
-    </tr>
-  </thead>
-  <tbody valign="top">
-    <tr>
-      <td><code>.[full]</code></td>
-      <td><code>rlinf</code> + <code>openpi</code> + <code>libero-pro</code> — the default run stack</td>
-    </tr>
-    <tr>
-      <td><code>.[libero-pro]</code></td>
-      <td>Base LIBERO + LIBERO-PRO simulator</td>
-    </tr>
-    <tr>
-      <td><code>.[libero-plus]</code></td>
-      <td>Base LIBERO + LIBERO-plus simulator</td>
-    </tr>
-    <tr>
-      <td><code>.[libero]</code></td>
-      <td>Base LIBERO only</td>
-    </tr>
-    <tr>
-      <td><code>.[openpi]</code></td>
-      <td>openpi VLA only</td>
-    </tr>
-    <tr>
-      <td><code>.[rlinf]</code></td>
-      <td>RLinf runtime only</td>
-    </tr>
-  </tbody>
-</table>
+`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator on the RLinf runtime).
+If you don't need the whole stack, see the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for narrower extras.
 
 **2. Download the LIBERO-PRO simulator assets.**
 
@@ -142,13 +107,9 @@ See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/in
 **3. Configure keys and checkpoints, then run.**
 
 ```bash
-# LLM endpoints and API keys; no need to export base urls if you use the official endpoints.
+# Anthropic key; no need to export the base url if you use the official endpoint.
 export ANTHROPIC_BASE_URL=https://xxx
 export ANTHROPIC_API_KEY=sk-xxx
-export OPENAI_BASE_URL=https://xxx
-export OPENAI_API_KEY=sk-xxx
-export CODEX_BASE_URL=https://xxx
-export CODEX_API_KEY=sk-xxx
 
 # VLA checkpoint — download from
 # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
@@ -156,14 +117,12 @@ export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 export LIBERO_TYPE=pro
 export CUDA_VISIBLE_DEVICES=0
 
-# Run one task: libero_object_swap, task 2, seed 0, using the `api` planner
-# with an Anthropic model and an 8192-token cap.
-#   • OpenAI-compatible chat endpoints:  --model openai-chat:glm-5.2
-#   • OpenAI responses endpoints:        --model openai:gpt-5.5
-#   • claude_code / codex planners:     no provider prefix, e.g. --model claude-opus-4-8
+# Run one task: libero_object_swap, task 2, seed 0, using the `claude_code` planner.
 rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
-  --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
+  --planner claude_code --model claude-opus-4-8
 ```
+
+See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.
 
 ### Interactive CLI mode
 
@@ -171,7 +130,7 @@ Add `--interactive` (`-i`) to steer the agent live from your terminal. At the `y
 
 ```bash
 rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
-  --planner api --model anthropic:claude-opus-4-8 --interactive
+  --planner claude_code --model claude-opus-4-8 --interactive
 ```
 
 ### Live Dashboard

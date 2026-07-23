@@ -8,15 +8,13 @@
 1. 配置 API key 与 checkpoint
 ------------------------------
 
-导出你要用的 LLM 提供商的 API key, 以及 VLA checkpoint 的路径:
+导出 Anthropic 密钥, 以及 VLA checkpoint 的路径:
 
 .. code-block:: bash
 
-   # LLM API keys (供 `api` planner 通过 pydantic-ai 使用)
+   # Anthropic 密钥; 使用官方端点时无需 export base url。
    export ANTHROPIC_BASE_URL=https://xxx
    export ANTHROPIC_API_KEY=sk-xxx
-   export OPENAI_BASE_URL=https://xxx
-   export OPENAI_API_KEY=sk-xxx
 
    # VLA checkpoint —— 从下面地址下载
    # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
@@ -24,29 +22,19 @@
    export LIBERO_TYPE=pro
    export CUDA_VISIBLE_DEVICES=0
 
-你只需要为实际使用的 provider 设置对应的 key。例如, 只用
-``--planner claude_code`` 时, 可以不配置 ``OPENAI_*``。
-
 2. 跑一个 LIBERO 任务
 ---------------------
 
-用 ``api`` planner + Anthropic 模型, 上限 8192 tokens, 跑单个 LIBERO PRO
-任务 (``libero_object_swap``, 任务 ``2``, 种子 ``0``):
+用 ``claude_code`` planner 跑单个 LIBERO PRO 任务
+(``libero_object_swap``, 任务 ``2``, 种子 ``0``):
 
 .. code-block:: bash
 
    rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
-     --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
+     --planner claude_code --model claude-opus-4-8
 
-**模型 id 规约。** ``api`` planner 下, ``--model`` 需要带 provider
-前缀; ``claude_code`` / ``codex`` 下, 直接写裸模型名:
-
-- OpenAI 兼容 chat 接口 —— ``--model openai-chat:glm-5.2``
-- OpenAI Responses 接口 —— ``--model openai:gpt-5.5``
-- ``claude_code`` / ``codex`` —— 不加前缀, 如
-  ``--model claude-opus-4-8``
-
-完整的 brain 切换指南见 :doc:`usage/configure_planner`。
+其他 planner (``api``、``codex``) 与模型提供商的配置见
+:doc:`usage/configure_planner`。
 
 3. 用 dashboard 观察运行
 ------------------------
