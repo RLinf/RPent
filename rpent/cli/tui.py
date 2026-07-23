@@ -1,6 +1,7 @@
 """Interactive terminal input helpers for the Physical Agent CLI."""
 from __future__ import annotations
 
+import atexit
 import contextlib
 import logging
 import queue
@@ -105,6 +106,35 @@ def build_interactive_key_bindings():
     return bindings
 
 
+def _restore_tty_on_exit(fd: int) -> None:
+    """Snapshot the cooked TTY state and restore it when the process exits.
+
+    prompt-toolkit switches the terminal into raw mode (echo and canonical
+    input disabled) while it reads a line and restores it when the prompt
+    returns. The reader runs on a daemon thread, so if the process is killed
+    while a prompt is active -- e.g. Ctrl-C aborts the agent on the main thread
+    -- that thread dies without running prompt-toolkit's restore, leaving the
+    shell with no echo. Re-applying the snapshot on exit keeps the terminal
+    usable afterwards.
+    """
+    try:
+        import termios
+    except ImportError:
+        return  # Non-POSIX; prompt-toolkit manages its own restore there.
+    try:
+        cooked = termios.tcgetattr(fd)
+    except (termios.error, ValueError, OSError):
+        return
+
+    def _restore() -> None:
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, cooked)
+        except (termios.error, ValueError, OSError):
+            pass
+
+    atexit.register(_restore)
+
+
 def start_interactive_reader(
     input_queue: "queue.Queue[str | None]",
     *,
@@ -115,6 +145,10 @@ def start_interactive_reader(
         raise RuntimeError(
             "--interactive requires a TTY; stdin is not interactive."
         )
+
+    # Capture the cooked terminal state now, before the daemon reader switches
+    # it to raw mode, so it is restored even if that thread is killed mid-read.
+    _restore_tty_on_exit(sys.stdin.fileno())
 
     def _read() -> None:
         session = PromptSession(
