@@ -3,8 +3,7 @@ Installation
 
 RPent installs with a single ``pip install``. The optional-dependency
 extras install the published RLinf runtime, openpi, and LIBERO simulator
-packages from PyPI. The ``sam3`` extra installs the SAM 3.0 segmentation
-package and its runtime dependencies.
+packages from PyPI.
 
 Prerequisites
 -------------

@@ -2,8 +2,7 @@
 ====
 
 RPent 用一条 ``pip install`` 即可安装。optional-dependency extra 会从
-PyPI 安装已发布的 RLinf 运行时、openpi 与 LIBERO 仿真器包；``sam3``
-extra 会安装 SAM 3.0 分割包及其运行依赖。
+PyPI 安装已发布的 RLinf 运行时、openpi 与 LIBERO 仿真器包。
 
 先决条件
 --------
