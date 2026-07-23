@@ -18,8 +18,8 @@ Pi0.5 只需要一件事: 磁盘上的 checkpoint。通过 ``PI05_CHECKPOINT_PAT
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 
 推荐的 SFT checkpoint 可以从 HuggingFace 下载:
-`rlinf-pi05-libero-130-fullshot-sft
-<https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft>`_。
+`RLinf-Pi05-LIBERO-130-fullshot-SFT
+<https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_。
 
 任务选择
 --------

@@ -112,7 +112,7 @@ export OPENAI_BASE_URL=https://xxx
 export OPENAI_API_KEY=sk-xxx
 
 # VLA checkpoint — download from
-# https://huggingface.co/datasets/RLinf/rlinf-pi05-libero-130-fullshot-sft
+# https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
 export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 export LIBERO_TYPE=pro
 export CUDA_VISIBLE_DEVICES=0
