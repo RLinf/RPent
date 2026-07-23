@@ -21,14 +21,14 @@ Procedure (per correspondence):
 After N>=4 non-coplanar points, a rigid Kabsch fit gives ``T_base_cam`` and the
 fit RMSE (lower is better; aim for < ~1 cm).
 
-Run the env server first (note its --transport-port), then::
+Run the env server first with a fixed ``--port``, then::
 
     conda activate lerobot
-    python toolkits/lerobot/calibrate_scene_cam.py --port 53101 --num-points 6
+    python robots/lerobot/calibrate_scene_cam.py --port 53101 --num-points 6
 
 Offline self-test of the math (no hardware)::
 
-    python toolkits/lerobot/calibrate_scene_cam.py --self-test
+    python robots/lerobot/calibrate_scene_cam.py --self-test
 """
 from __future__ import annotations
 
