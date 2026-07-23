@@ -159,7 +159,7 @@ Add `--interactive` (`-i`) to steer the agent live from your terminal. At the `y
 
 ```bash
 rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
-  --cerebrum claude_code --model claude-opus-4-8 --interactive
+  --planner api --model anthropic:claude-opus-4-8 --interactive
 ```
 
 ### Live Dashboard
