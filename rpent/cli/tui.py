@@ -67,6 +67,7 @@ def build_interactive_key_bindings():
     beginning_of_line = get_by_name("beginning-of-line")
     end_of_line = get_by_name("end-of-line")
     backward_kill_word = get_by_name("backward-kill-word")
+    undo = get_by_name("undo")
 
     # Move one word left: Option/Alt+Left, Ctrl+Left, or Alt+b.
     @bindings.add("escape", "left", eager=True)
@@ -96,6 +97,11 @@ def build_interactive_key_bindings():
     def _delete_word_left(event):
         backward_kill_word.call(event)
 
+    # Undo the last edit: Ctrl+Z.
+    @bindings.add("c-z", eager=True)
+    def _undo(event):
+        undo.call(event)
+
     return bindings
 
 
@@ -116,7 +122,9 @@ def start_interactive_reader(
             key_bindings=build_interactive_key_bindings(),
             style=Style.from_dict({"prompt": "ansicyan bold"}),
         )
-        pending_default = first_prompt_default
+        # Strip trailing newlines so the cursor lands at the end of the
+        # pre-filled text, not on an empty line below it.
+        pending_default = (first_prompt_default or "").rstrip("\n")
         try:
             with patch_stdout(raw=True):
                 with _route_console_logs_to_current_stdout():
