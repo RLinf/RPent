@@ -238,7 +238,7 @@ class ApiAgentLoop:
                             if finish_result is not None:
                                 logger.info("FINISH called: %s", finish_result)
                                 break
-                            if run_turns >= max_turns:
+                            if turns >= max_turns:
                                 logger.info(
                                     "reached max_turns=%d. Stopping.", max_turns
                                 )
@@ -259,8 +259,15 @@ class ApiAgentLoop:
                     if interactive:
                         history = run.all_messages()
 
-                # finish => end the whole session immediately (chosen behavior).
-                if finish_result is not None or quit_requested or not interactive:
+                # finish, quit, non-interactive, or the cumulative turn budget is
+                # spent => end the whole session so max_turns is enforced across
+                # every run, not per run.
+                if (
+                    finish_result is not None
+                    or quit_requested
+                    or not interactive
+                    or turns >= max_turns
+                ):
                     break
                 nxt = await _await_next()
                 if nxt is None:
