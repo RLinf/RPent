@@ -58,7 +58,7 @@ Available extras:
    * - ``.[rlinf]``
      - RLinf runtime only
    * - ``.[sam3]``
-     - SAM 3.0 segmentation stack only
+     - SAM 3.0 only
 
 2. Download the simulator assets
 --------------------------------
