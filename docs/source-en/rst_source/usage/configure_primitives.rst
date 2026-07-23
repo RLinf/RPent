@@ -2,7 +2,7 @@ Action Primitives
 =================
 
 Where the planner chooses *what* to do, the **action primitive**
-chooses *how* it happens. A primitive is whatever turns a tool call
+chooses *how* it happens. A primitive turns a tool call
 (``pi0_pick``, ``move_to``, ``open_drawer``, …) into an executable
 action chunk for the environment.
 
@@ -66,8 +66,8 @@ new one each time:
 .. code-block:: bash
 
    rpent --env libero --vla-endpoint http://localhost:8000 \
-     --suite libero_object_swap --task 2 --seed 0 --planner api \
-     --model anthropic:claude-opus-4-8
+     --suite libero_object_swap --task 2 --seed 0 \
+     --planner claude_code --model claude-opus-4-8
 
 ``--vla-endpoint`` accepts ``[protocol://]host:port``. Protocol may be
 ``http`` (default) or ``socket``. The same applies to
@@ -77,5 +77,5 @@ Adding a brand-new primitive family
 -----------------------------------
 
 If the primitive you want is neither a VLA nor a scripted motion —
-say a WAM (World Action Model), a diffusion planner, or a Model
+say a WAM (World Action Model), a diffusion model, or a Model
 Predictive Control primitive — see :doc:`../development/add_primitive`.

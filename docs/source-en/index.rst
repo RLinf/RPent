@@ -46,8 +46,8 @@ Welcome to RPent
       :link-type: doc
       :text-align: center
 
-      Choose a planner, configure the agent, and run one LIBERO task
-      end-to-end.
+      Configure API keys and the VLA checkpoint, then run one LIBERO
+      task end-to-end.
 
    .. grid-item-card:: Usage Tutorial
       :link: rst_source/usage/configure_planner

@@ -1,34 +1,34 @@
 Action Primitives
 =================
 
-Planner 决定 *做什么*, 而 **action primitive** 决定 *怎么做*。所谓 primitive
-就是把一次 tool 调用 (``pi0_pick``、``move_to``、``open_drawer``…) 变成
-一段可以直接送给 environment 执行的动作。
+Planner 决定执行什么操作，而 **action primitive** 决定如何执行。每个
+primitive 都会将一次工具调用（如 ``pi0_pick``、``move_to`` 或
+``open_drawer``）转换成一段可由环境直接执行的动作。
 
-RPent 内置支持两大类 primitive:
+RPent 内置两类 primitive：
 
-- **VLA 策略** (Vision-Language-Action 模型)。跑在专门的 ``vla_server``
-  进程里, 把 GPU 权重与物理引擎隔离; toolkit 通过 per-env 的 model
-  client 调用它。例如 Pi0.5 (LIBERO)、RLDX-1 (RoboCasa)。
-- **脚本化 primitive**。确定性运动, 如 ``move_to``、``rotate_wrist``、
-  ``release`` 或 ``back_project``。它们放在 agent 侧 (不需要 VLA
-  权重), 通过 ``env_server`` 的 RPC 调用。
+- **VLA 策略**：Vision-Language-Action 模型运行在独立的 ``vla_server``
+  进程中，将 GPU 权重与物理引擎隔离。toolkit 通过各环境对应的 model
+  client 调用模型，例如 Pi0.5（LIBERO）和 RLDX-1（RoboCasa）。
+- **脚本化 primitive**：用于执行 ``move_to``、``rotate_wrist``、
+  ``release`` 和 ``back_project`` 等确定性动作。这类 primitive 位于
+  agent 侧，不需要加载 VLA 权重，并通过 RPC 调用 ``env_server``。
 
-具体到每一种机器人的配置 (哪个 VLA、checkpoint 路径、tool surface),
-参见对应的 environment 页: :doc:`libero`、:doc:`robocasa`、
+各环境的具体配置，例如使用哪个 VLA、checkpoint 路径以及对外提供的工具，
+请参考对应的环境页面：:doc:`libero`、:doc:`robocasa`、
 :doc:`franka`、:doc:`so101`。
 
-不同 environment 用哪个 VLA
----------------------------
+各环境使用的 VLA
+----------------
 
 .. list-table::
    :header-rows: 1
    :widths: 25 25 25 25
 
-   * - Environment / 机器人
+   * - 环境 / 机器人
      - 默认 VLA
      - 传输协议
-     - Server
+     - 服务实现
    * - LIBERO (仿真)
      - Pi0.5
      - HTTP 或 socket RPC (``--transport``)
@@ -46,29 +46,30 @@ RPent 内置支持两大类 primitive:
      - socket RPC
      - ``robots/so101/vla_server.py`` *(规划中)*
 
-VLA server 用同一套 ``predict`` / ``healthz`` 方法, 同时支持 HTTP (JSON)
-与 socket (pickle-framed) 两种传输, 通过 ``--transport {http,socket}``
-选择 (默认 ``http``)。设计理由参见 :doc:`../development/add_robot`。
+VLA server 通过统一的 ``predict`` 和 ``healthz`` 方法提供服务，并支持
+HTTP（JSON）和 socket（pickle-framed）两种传输方式。可通过
+``--transport {http,socket}`` 选择，默认为 ``http``。设计理由参见
+:doc:`../development/add_robot`。
 
-复用一个已在运行的 VLA server
------------------------------
+复用正在运行的 VLA server
+-------------------------
 
-每一个 VLA server 都设计成 **可跨 run 复用**。用 ``--vla-endpoint``
-指向已在跑的实例, 而不是每次都启动新实例:
+VLA server 可以在多次运行之间复用。使用 ``--vla-endpoint`` 连接已经运行的
+实例，无需每次重新启动：
 
 .. code-block:: bash
 
    rpent --env libero --vla-endpoint http://localhost:8000 \
-     --suite libero_object_swap --task 2 --seed 0 --planner api \
-     --model anthropic:claude-opus-4-8
+     --suite libero_object_swap --task 2 --seed 0 \
+     --planner claude_code --model claude-opus-4-8
 
-``--vla-endpoint`` 接受 ``[protocol://]host:port`` 格式, protocol 可为
-``http`` (默认) 或 ``socket``。同样的规则适用于 ``--env-endpoint``
-(复用已有的 env_server)。
+``--vla-endpoint`` 接受 ``[protocol://]host:port`` 格式，其中 protocol
+可以是 ``http``（默认）或 ``socket``。``--env-endpoint`` 采用相同格式，
+用于复用正在运行的 ``env_server``。
 
-新增全新的 primitive 家族
+新增全新的 primitive 类别
 -------------------------
 
 如果要接入的既不是 VLA 也不是脚本化运动 —— 比如一个
-WAM (World Action Model)、扩散规划器、或 MPC primitive ——
+WAM (World Action Model)、扩散模型或 MPC primitive ——
 参见 :doc:`../development/add_primitive`。

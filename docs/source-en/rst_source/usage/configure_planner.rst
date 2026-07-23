@@ -1,8 +1,7 @@
 Agentic Planner
 ===============
 
-RPent's reasoning brain — the *planner* — is chosen with a single CLI
-flag:
+RPent's *planner* is chosen with a single CLI flag:
 
 .. code-block:: bash
 
@@ -82,13 +81,13 @@ The ``claude_code`` planner
 ----------------------------
 
 ``--planner claude_code`` delegates the loop to the Claude Agent SDK.
-RPent's tools become an **in-process MCP server** that Claude Code
-calls; you see the same tools under the ``mcp__rpent__<name>``
-namespace.
+RPent exposes its toolkit through an **in-process MCP server** that
+Claude Code calls; you see the same tools under the
+``mcp__rpent__<name>`` namespace.
 
 .. code-block:: bash
 
-   rpent --planner claude_code \
+   rpent --env libero --planner claude_code \
      --model claude-opus-4-8 \
      --suite libero_object_swap --task 2 --seed 0
 
@@ -113,7 +112,7 @@ over an HTTP MCP server started by ``scripts/codex_proxy/``.
 
 .. code-block:: bash
 
-   rpent --planner codex \
+   rpent --env libero --planner codex \
      --model gpt-5.5 \
      --suite libero_goal_task --task 1 --seed 0
 
@@ -124,7 +123,7 @@ Notes:
 - Codex authentication uses the standard OpenAI environment
   variables.
 
-Bring your own agent
+Add a custom planner
 --------------------
 
 If none of the three planners fit — say you want to plug in an
@@ -134,7 +133,7 @@ subclass ``rpent.planner.base.Planner`` and register your factory in
 
 .. code-block:: python
 
-   # rpent/planner/mybrain.py
+   # rpent/planner/my_planner.py
    from rpent.planner.base import Planner
 
    class MyPlanner(Planner):
@@ -154,10 +153,10 @@ Any planner must:
 4. Terminate on ``finish`` or when the caps are hit.
 
 Because every planner sees the same schemas and the same prompts,
-adding a new brain never requires touching the tools or the env
+adding a new planner never requires touching the tools or the env
 servers. See :doc:`../development/architecture` for the interface, and
 :doc:`../development/add_primitive` if you want to expose new tools to
-your custom brain.
+your custom planner.
 
 Choosing max-tokens and max-turns
 ---------------------------------

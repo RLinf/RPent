@@ -9,7 +9,7 @@
 # in `pyproject.toml`):
 #
 # ```bash
-# rpent --suite libero_object_task --task 0 --seed 0 [...]
+# rpent --env libero --suite libero_object_task --task 0 --seed 0 [...]
 # ```
 #
 # ## Note
@@ -151,7 +151,7 @@ def _build_env_parser(env_name: str) -> argparse.ArgumentParser:
         ap.add_argument("--max-episode-steps", type=int, default=10000)
         ap.add_argument("--libero-type", default=None,
                         choices=["standard", "pro", "plus"],
-                        help="LIBERO variant (auto-routed from suite suffix if not set).")
+                        help="LIBERO implementation. Defaults to LIBERO_TYPE, then pro.")
         ap.add_argument("--suite", default=None,
                         help="e.g. libero_object_task, libero_spatial_swap")
         ap.add_argument("--task", type=int, default=None)

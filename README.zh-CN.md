@@ -91,8 +91,8 @@ git clone https://github.com/RLinf/RPent rpent && cd rpent
 pip install -e ".[full]"
 ```
 
-`.[full]` 是默认的端到端组合（openpi Pi0.5 VLA + LIBERO-PRO 仿真器，运行在 RLinf 运行时之上）。
-如果不需要整套，更小的 extra 见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
+`.[full]` 是默认的端到端依赖组合，包括 openpi Pi0.5 VLA、LIBERO-PRO 仿真器和 RLinf 运行时。
+如果不需要完整组合，更小的 extra 见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
 
 **2. 下载 LIBERO-PRO 仿真资产。**
 
@@ -117,7 +117,8 @@ export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 export LIBERO_TYPE=pro
 export CUDA_VISIBLE_DEVICES=0
 
-# 运行一个任务：libero_object_swap，task 2，seed 0，使用 claude_code 规划器。
+# 运行一个任务：libero_object_swap，task 2，seed 0，使用 Claude Code
+# 和 Claude Opus 4.8。
 rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
   --planner claude_code --model claude-opus-4-8
 ```
@@ -135,11 +136,12 @@ rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
 
 ### 实时 Dashboard
 
-加上 `--dashboard` 即可为本次运行打开一个浏览器监控页。它会先展示一个启动屏让你选择配置，然后实时推送推理流、实时画面与动作时间线。用 `--dashboard-language zh-cn` 切换到中文界面。
+加上 `--dashboard` 后，会启动本地监控服务，并在终端输出访问地址。打开该地址后，可以在启动页面确认配置；运行开始后，页面会实时显示智能体的推理过程、相机画面和动作时间线。使用 `--dashboard-language zh-cn` 可切换到中文界面。
 
 ```bash
 rpent --env libero --dashboard --dashboard-language zh-cn \
-  --suite libero_goal_task --task 1 --seed 0 --planner claude_code
+  --suite libero_goal_task --task 1 --seed 0 \
+  --planner claude_code --model claude-opus-4-8
 ```
 
 ### RoboCasa
@@ -170,18 +172,18 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
     <tr><td><code>--suite</code></td><td>—（必填）</td><td>任务集，如 <code>libero_object_task</code>、<code>libero_spatial_swap</code></td></tr>
     <tr><td><code>--task</code></td><td>—（必填）</td><td>任务集内的任务编号</td></tr>
     <tr><td><code>--seed</code></td><td><code>0</code></td><td>随机种子</td></tr>
-    <tr><td><code>--planner</code></td><td><code>api</code></td><td>推理大脑：<code>api</code> | <code>claude_code</code> | <code>codex</code></td></tr>
-    <tr><td><code>--model</code></td><td>—</td><td>模型 id；<code>api</code> 需带 provider 前缀（<code>anthropic:…</code>、<code>openai:…</code>、<code>openai-chat:…</code>）</td></tr>
+    <tr><td><code>--planner</code></td><td><code>api</code></td><td><code>api</code> | <code>claude_code</code> | <code>codex</code></td></tr>
+    <tr><td><code>--model</code></td><td>—</td><td>模型 ID；<code>api</code> 需带 provider 前缀（<code>anthropic:…</code>、<code>openai:…</code>、<code>openai-chat:…</code>）</td></tr>
     <tr><td><code>--max-turns</code></td><td><code>100</code></td><td>智能体最大轮数</td></tr>
     <tr><td><code>--max-tokens</code></td><td><code>8192</code></td><td>单次 LLM 回复最大 token</td></tr>
     <tr><td><code>--no-images</code></td><td>关</td><td>纯文本模式：不向模型发送图片字节（用于不支持图片输入的模型）</td></tr>
     <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>环境最大步数</td></tr>
     <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> 或 <code>pro</code></td><td>LIBERO 类型：<code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
-    <tr><td><code>--cuda-device</code></td><td>继承当前环境</td><td>env / vla server 可见的 GPU 设备</td></tr>
-    <tr><td><code>--dashboard</code></td><td>关</td><td>为本次运行启动本地 dashboard</td></tr>
+    <tr><td><code>--cuda-device</code></td><td>继承当前环境</td><td>env_server 和 vla_server 可见的 GPU 设备</td></tr>
+    <tr><td><code>--dashboard</code></td><td>关</td><td>为本次运行启动本地 Dashboard</td></tr>
     <tr><td><code>--dashboard-language</code></td><td><code>en</code></td><td>Dashboard 界面语言：<code>en</code> | <code>zh-cn</code></td></tr>
-    <tr><td><code>--env-endpoint</code></td><td>—（新起进程）</td><td>已在运行的 env_server 的 <code>[protocol://]host:port</code>（<code>protocol=http|socket</code>，默认 <code>http</code>）。留空则本地起一个。</td></tr>
-    <tr><td><code>--vla-endpoint</code></td><td>—（新起进程）</td><td>已在运行的 vla_server 的 <code>[protocol://]host:port</code>（同上）。留空则本地起一个。</td></tr>
+    <tr><td><code>--env-endpoint</code></td><td>—（自动启动）</td><td>已在运行的 env_server 的 <code>[protocol://]host:port</code>（<code>protocol=http|socket</code>，默认 <code>http</code>）。留空时自动启动本地实例。</td></tr>
+    <tr><td><code>--vla-endpoint</code></td><td>—（自动启动）</td><td>已在运行的 vla_server 的 <code>[protocol://]host:port</code>（同上）。留空时自动启动本地实例。</td></tr>
   </tbody>
 </table>
 

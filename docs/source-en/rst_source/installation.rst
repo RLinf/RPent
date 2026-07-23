@@ -15,7 +15,7 @@ Prerequisites
 You will also want:
 
 - An API key for at least one LLM provider — Anthropic, OpenAI, or an
-  OpenAI-compatible chat endpoint — for the reasoning brain.
+  OpenAI-compatible chat endpoint — for the planner.
 - A VLA checkpoint. For LIBERO / Pi0.5 the recommended checkpoint lives
   at `HuggingFace: RLinf-Pi05-LIBERO-130-fullshot-SFT
   <https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_.
@@ -88,7 +88,7 @@ Verifying the install
 
 The quickest way to confirm everything is wired correctly is to run one
 LIBERO task end-to-end — see :doc:`quickstart`. If that succeeds, the
-env server, VLA server, and reasoning brain are all healthy.
+env server, VLA server, and planner are all healthy.
 
 If something breaks:
 

@@ -1,9 +1,9 @@
 快速开始
 ========
 
-本页把 ``README.md`` 里的 Quick Start 搬到了文档中。它假设你已经完成了
-:doc:`installation` (克隆好 RPent 并执行了
-``pip install -e ".[full]"``)。
+本页是在 ``README.md`` Quick Start 基础上整理的快速入门指南。开始前，
+请先按照 :doc:`installation` 克隆 RPent，并执行
+``pip install -e ".[full]"``。
 
 1. 配置 API key 与 checkpoint
 ------------------------------
@@ -25,7 +25,7 @@
 2. 跑一个 LIBERO 任务
 ---------------------
 
-用 ``claude_code`` planner 跑单个 LIBERO PRO 任务
+使用 ``claude_code`` planner 和 Claude Opus 4.8 跑单个 LIBERO PRO 任务
 (``libero_object_swap``, 任务 ``2``, 种子 ``0``):
 
 .. code-block:: bash
@@ -36,18 +36,19 @@
 其他 planner (``api``、``codex``) 与模型提供商的配置见
 :doc:`usage/configure_planner`。
 
-1. 用 dashboard 观察运行
+3. 用 dashboard 观察运行
 ------------------------
 
-加上 ``--dashboard`` 会打开浏览器监控页面。它会先展示一个 launcher
-页面让你确认配置, 然后开始 streaming: agent 的 reasoning、实时相机
-与 Pi0 视图、动作时间线、剪辑回放。加上 ``--dashboard-language zh-cn``
-切换到中文 UI。
+添加 ``--dashboard`` 后，会启动本地监控服务，并在终端输出访问地址。
+打开该地址后，可先在启动页面确认配置；运行开始后，页面会实时显示智能体的
+推理过程、相机与 Pi0 视图、动作时间线和片段回放。使用
+``--dashboard-language zh-cn`` 可切换到中文界面。
 
 .. code-block:: bash
 
    rpent --env libero --dashboard --dashboard-language zh-cn \
-     --suite libero_goal_task --task 1 --seed 0 --planner claude_code
+     --suite libero_goal_task --task 1 --seed 0 \
+     --planner claude_code --model claude-opus-4-8
 
 关键 CLI 选项
 -------------
@@ -58,7 +59,7 @@
    :header-rows: 1
    :widths: 22 15 63
 
-   * - Flag
+   * - 参数
      - 默认值
      - 说明
    * - ``--env``
@@ -69,20 +70,20 @@
      - 任务套件, 如 ``libero_object_task``、``libero_spatial_swap``
    * - ``--task``
      - 必填
-     - 套件内的任务 id
+     - 套件内的任务编号
    * - ``--seed``
      - ``0``
      - 随机种子
    * - ``--planner``
      - ``api``
-     - Reasoning brain: ``api`` | ``claude_code`` | ``codex``
+     - ``api`` | ``claude_code`` | ``codex``
    * - ``--model``
      - —
-     - 模型 id; ``api`` 下要带 provider 前缀 (``anthropic:…``,
+     - 模型 ID; ``api`` 下要带 provider 前缀 (``anthropic:…``,
        ``openai:…``, ``openai-chat:…``)
    * - ``--max-turns``
      - ``100``
-     - Agent 最大轮数
+     - 智能体最大轮数
    * - ``--max-tokens``
      - ``8192``
      - LLM 每次回复的最大 token 数
@@ -91,7 +92,7 @@
      - 纯文本模式: 不向模型发送图片字节 (用于不支持图片输入的模型)
    * - ``--max-episode-steps``
      - ``10000``
-     - Env 最大 step 数
+     - 环境最大步数
    * - ``--libero-type``
      - ``LIBERO_TYPE`` 或 ``pro``
      - LIBERO 变体: ``standard`` | ``pro`` | ``plus``
@@ -105,25 +106,25 @@
      - ``en``
      - Dashboard UI 语言: ``en`` | ``zh-cn``
    * - ``--env-endpoint``
-     - —(自动 spawn)
+     - —（自动启动）
      - 已在运行的 env_server 的 ``[protocol://]host:port``
        (``protocol=http|socket``, 默认 ``http``). 留空则本地起一个。
    * - ``--vla-endpoint``
-     - —(自动 spawn)
+     - —（自动启动）
      - 已在运行的 vla_server 的 ``[protocol://]host:port`` (同上).
        留空则本地起一个。
 
-跑起来后应该看到什么
---------------------
+运行结果
+--------
 
-一次成功的运行:
+一次成功的运行会：
 
-1. env_server / vla_server 起来后各打印一行
+1. ``env_server`` / ``vla_server`` 启动后会分别打印一行
    ``RPC server listening on http://127.0.0.1:<port>``。
-2. 每一轮 agent 的 reasoning 会输出到终端 (或 stream 到 dashboard)。
-3. 当 LLM 调用 ``finish(success=True)`` 时结束; 或者触达
-   ``--max-turns`` / ``--max-episode-steps`` 时结束。
-4. 写出 ``<output_dir>/transcript_*.json`` (完整 turn-by-turn 记录) 和
-   ``<output_dir>/episode.mp4`` (渲染出的 rollout)。
+2. 智能体每一轮的推理过程会输出到终端，或实时传输到 Dashboard。
+3. 当 LLM 调用 ``finish(status="success", summary="任务已完成")`` 时结束；
+   或者达到 ``--max-turns`` / ``--max-episode-steps`` 时结束。
+4. 生成 ``<output_dir>/transcript_*.json``（完整的逐轮记录）和
+   ``<output_dir>/episode.mp4``（渲染得到的回合视频）。
 
 出问题时, 参考 :doc:`installation` 页底部提到的三份日志文件。

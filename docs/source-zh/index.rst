@@ -29,39 +29,39 @@
       :link-type: doc
       :text-align: center
 
-      RPent 是什么, 五芒星 + ∞ logo 的含义,
-      以及一览的高层架构。
+      RPent 的基本概念、五芒星与 ∞ logo 的含义，
+      以及高层架构概览。
 
    .. grid-item-card:: 安装
       :link: rst_source/installation
       :link-type: doc
       :text-align: center
 
-      克隆 RPent, 用一条 ``pip install``
-      装好整套依赖。
+      克隆 RPent，并通过一条 ``pip install``
+      命令安装完整依赖。
 
    .. grid-item-card:: 快速开始
       :link: rst_source/quickstart
       :link-type: doc
       :text-align: center
 
-      配置 API key, 指向 checkpoint, 端到端跑通一个 LIBERO 任务。
+      配置 API key 和 checkpoint，完整运行一个 LIBERO 任务。
 
    .. grid-item-card:: 使用教程
       :link: rst_source/usage/configure_planner
       :link-type: doc
       :text-align: center
 
-      驱动 LIBERO / RoboCasa 仿真器或 Franka / SO-101 机械臂,
-      切换 planner, 选择 action primitive。
+      使用 LIBERO / RoboCasa 仿真环境或 Franka / SO-101 机械臂，
+      切换 planner 并选择 action primitive。
 
    .. grid-item-card:: 开发教程
       :link: rst_source/development/architecture
       :link-type: doc
       :text-align: center
 
-      RPent 的实现级架构, 以及如何添加新机器人、
-      新 action primitive, 或扩展 memory。
+      了解 RPent 的实现架构，以及如何添加机器人、
+      action primitive 或扩展 memory。
 
 .. toctree::
    :maxdepth: 2

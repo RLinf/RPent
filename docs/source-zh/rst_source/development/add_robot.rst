@@ -1,46 +1,48 @@
 添加新机器人
 ============
 
-本指南说明把一个新的物理 / 仿真机器人接入 RPent 的 LLM-in-the-loop
-runner 时需要写什么。请把 ``robots/libero/`` 当作完整参考实例。
+本指南介绍如何将新的物理机器人或仿真环境接入 RPent 的 LLM-in-the-loop
+runner。完整的参考实现见 ``robots/libero/``。
 
-RPent 把一个 env 拆成两个进程:
+RPent 将每个环境的实现分为 Agent 侧和 Driver 侧：
 
-- **Agent 侧** (``robots/<env>/``) —— 跑在 agent 进程内, 提供工具 schema、
+- **Agent 侧**（``robots/<env>/``）—— 运行在 Agent 进程内，提供工具 schema、
   primitive driver 逻辑和 prompt。
-- **Driver 侧** (``robots/<env>/env_server.py``) —— 持有重量级的仿真器 /
-  机器人; 通过 :class:`rpent.utils.rpc.RpcFacade` 对外暴露 env,
-  默认走 HTTP (``--transport socket`` 可切换到 pickle-framed TCP
-  transport, 适合观测形态偏大的场景)。
+- **Driver 侧**（``robots/<env>/env_server.py``）—— 负责运行仿真器或机器人，
+  并通过 :class:`rpent.utils.rpc.RpcFacade` 对外提供环境接口。默认使用 HTTP；
+  当观测数据包含多帧历史信息或采用嵌套数据结构时，也可以通过
+  ``--transport socket`` 切换到 pickle-framed TCP。
 
-两侧通过一个 ``EnvClient`` 类相连: 每个 agent 侧方法调用对应一次到 driver 的 RPC。
+两侧通过 ``EnvClient`` 连接。Agent 侧的每次方法调用都会由 ``EnvClient``
+转换成发往 Driver 侧的 RPC 请求。
 
-VLA 模型跑在自己独立的进程里 (env / vla 分离)
----------------------------------------------
+VLA 模型运行在独立进程中
+------------------------
 
-当一个 env 使用 VLA 策略 (读取相机观测、输出动作的学习模型) 时, 该模型跑在
-**第三个独立进程** 里 —— 绝不塞进 env_server:
+当一个环境使用 VLA 策略（读取相机观测并输出动作的学习模型）时，模型运行在
+**第三个独立进程** 中，不在 ``env_server`` 中加载：
 
-- **VLA 侧** (``robots/<env>/vla_server.py``) —— 只持有 VLA 策略 (GPU 模型),
-  通过自己的 RPC/HTTP 端点暴露 ``vla_load`` / ``vla_infer`` / ``vla_reset``,
-  不 import 任何仿真器。
-- toolkit 除了 ``EnvClient`` 之外, 还接收一个 **model client** (LIBERO/Pi0.5
-  用 ``VLAClient``, RoboCasa/RLDX-1 用 ``RLDXVLAClient``) 作为 ``model`` 参数。
-  两个 client 指向两个不同的 server 进程。
+- **VLA 侧**（``robots/<env>/vla_server.py``）—— 只加载 VLA 策略及其 GPU
+  权重，通过独立的 RPC/HTTP 端点提供 ``vla_load``、``vla_infer`` 和
+  ``vla_reset``，不导入仿真器依赖。
+- toolkit 除了 ``EnvClient``，还接收一个 **model client**（LIBERO/Pi0.5
+  使用 ``VLAClient``，RoboCasa/RLDX-1 使用 ``RLDXVLAClient``）作为
+  ``model`` 参数。两个 client 分别连接不同的 server 进程。
 
-**为什么这个分离是强制的 (而非可选):** 模型 (大 GPU 权重、自己的 CUDA 上下文、
-``transformers``/``openpi`` 等重依赖) 和仿真器 (MuJoCo/robosuite、绑定主线程的 EGL
-渲染) 在进程层面的需求相互冲突。把它们放进同一进程会耦合生命周期、逼一个解释器同时
-满足两套依赖树, 且模型 OOM 会连带拖垮仿真。分开后, 任一侧都能独立重启、扩容或指向
-远程主机 (``--vla-endpoint host:port`` 可复用已在运行的模型 server)。每个 env 都
-**必须** 遵守: env_server 持有仿真, vla_server 持有模型。
+**为什么必须分离：** 模型和仿真器对 CUDA、依赖项及进程生命周期有不同要求。
+模型需要加载大规模 GPU 权重及 ``transformers``、``openpi`` 等依赖，仿真器则依赖
+MuJoCo/robosuite 和绑定主线程的 EGL 渲染。将二者放在同一进程中会耦合依赖和
+生命周期，模型发生 OOM 时也会导致仿真进程退出。分离后，模型与仿真器可以独立
+重启、扩容或部署到远程主机（``--vla-endpoint host:port`` 可复用正在运行的模型
+server）。每个环境都必须遵守这一划分：``env_server`` 运行仿真，
+``vla_server`` 加载模型。
 
-**传输协议可因 env 而异, 但架构不可变。** LIBERO 默认 env_server 和
-vla_server 都走 HTTP; 若某个机器人的观测是历史堆叠嵌套 numpy dict,
-可能更适合 pickle-framed socket (``--transport socket``), 避免 JSON
-重编码开销。两种 transport 通过 :class:`RpcFacade` 共用同一套
-``predict`` / ``env.*`` 方法表面。按观测形态选编解码, 但保持 env/vla
-进程分离一致。
+**传输协议可以因环境而异，但架构保持不变。** LIBERO 的 ``env_server`` 和
+``vla_server`` 默认都使用 HTTP。当观测数据包含多帧历史信息或嵌套的 numpy
+字典时，可以使用 pickle-framed socket（``--transport socket``），避免 JSON
+重复编码的开销。两种传输方式都通过 :class:`RpcFacade` 提供相同的
+``predict`` 和 ``env.*`` 方法接口。可以根据观测结构选择传输方式，但 env/vla
+的进程划分保持不变。
 
 **任何需要仿真 env 对象的逻辑都留在 env_server。** 对 RoboCasa 这样的 env,
 抓取检测、动作组装等操作需要活的仿真 env, 因此是 env_server 的 RPC —— **不** 属于
@@ -62,8 +64,8 @@ model client 做推理。
        env_server.py          # driver 侧 facade + RPC server (§1)
        vla_server.py          # (可选) VLA 模型 server (§1)
 
-``__init__.py`` 是这个包的入口。``rpent/envs/base.py`` 中的注册表会按需 lazily
-import ``robots.<name>``, 并调用其两个工厂函数:
+``__init__.py`` 是环境包的入口。``rpent/envs/base.py`` 中的注册表会按需导入
+``robots.<name>``，并调用其中的两个工厂函数：
 
 .. code-block:: python
 
@@ -79,26 +81,25 @@ import ``robots.<name>``, 并调用其两个工厂函数:
        from robots.myenv.toolkit import MyEnvToolkit
        return MyEnvToolkit(primitives_kwargs=primitives_kwargs, video_path=video_path)
 
-整个注册流程就是这样 —— ``_resolve_env(name)`` 通过
-``importlib.import_module(f"robots.{name}")`` 动态加载, 所以把包放在 ``robots/``
-下就够了, 没有中央列表需要维护。
+``_resolve_env(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
+动态加载环境包。因此，只需将环境包放在 ``robots/`` 下，无需维护中央注册列表。
 
 下面三章分别说明上面引用的三个模块各自需要写什么。
 
 1. ``env_client.py`` + ``env_server.py``
 -----------------------------------------
 
-这两个文件构成 agent ↔ driver 的桥梁: client 跑在 agent 进程内, 把方法调用转成
-RPC; env_server 跑在 driver 进程内, 应答这些调用。
+这两个文件组成 Agent 侧与 Driver 侧之间的桥梁。client 在 Agent 进程内将方法
+调用转换成 RPC 请求，``env_server`` 在 Driver 进程内处理请求。
 
 1.1 Env client (agent 侧)
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-类约定了两个 gym 风格的方法 (``reset``、``step``); 根据 env 需要增加其他方法
-(LIBERO 增加了 ``chunk_step``、``render_agentview``、``get_camera_meta``、
-``cached_image`` 等)。每个方法通过
-``RpcClient.call("<rpc-name>", args=..., kwargs=...)`` 转发, 并设置各自的 timeout。
-方法名要稳定 —— driver 侧 dispatcher 按名字匹配。
+基础接口包含 ``reset`` 和 ``step`` 两个 gym 风格的方法；可以根据环境需要
+添加其他方法（LIBERO 增加了 ``chunk_step``、``render_camera``、
+``get_camera_meta``、``cached_image`` 等）。每个方法通过
+``RpcClient.call("<rpc-name>", args=..., kwargs=...)`` 转发，并设置各自的
+timeout。方法名需要保持稳定，因为 Driver 侧的 dispatcher 会按名称匹配。
 
 .. code-block:: python
 
@@ -144,8 +145,8 @@ RPC; env_server 跑在 driver 进程内, 应答这些调用。
    facade = MyEnvFacade(env, meta)
    facade.serve(transport="http", host=host, port=port)
 
-``RpcFacade.serve`` 负责 transport 绑定 (http / socket)、``healthz`` 与
-``shutdown`` 方法、感知父进程死亡、以及干净收尾 —— 你只写业务方法。
+``RpcFacade.serve`` 负责绑定 transport（http / socket）、提供 ``healthz`` 与
+``shutdown`` 方法、检测父进程退出并执行资源清理；这里只需实现业务方法。
 
 当前的 ``rpent/cli/main.py`` 直接 import 了 ``LiberoEnvClient`` 和 LIBERO 的 env_server
 脚本路径。新增 env 时, 要么在 ``args.env_name`` 上分支选择 client 类和 driver
@@ -202,7 +203,8 @@ MCP allowlist。(LIBERO 中由于历史原因把这些拆到了 ``tools.py`` 和
 形式的日志。
 
 **工具 schema + handler 辅助函数** —— 模块级的 ``TOOLS_SPEC`` 列表
-(Anthropic 形状的 schema dict, 含 ``name``、``description``、``input_schema``),
+（符合 Anthropic API 格式的 schema 字典，含 ``name``、``description``、
+``input_schema``），
 以及 toolkit 引用的自由函数 (例如 ``view_driver_state``、``back_project``、
 ``finish``)。
 
@@ -218,8 +220,8 @@ MCP allowlist。(LIBERO 中由于历史原因把这些拆到了 ``tools.py`` 和
   (``view_driver_state``、``finish`` 等) 直接绑定到模块级函数; primitive 工具走
   ``_step(name, **kwargs)``, 它通过 ``getattr(self._driver, name)(**kwargs)``
   调用 driver 方法并重新渲染状态,
-- override ``close()`` 来 flush agent 侧的工件 (例如 LIBERO toolkit 在这里保存
-  agentview MP4)。
+- 重写 ``close()``，将 Agent 侧生成的文件写入磁盘（例如 LIBERO toolkit
+  在这里保存 agentview MP4）。
 
 ``primitives_kwargs`` (由 ``__init__.py:get_toolkit`` 转发进来) 是 toolkit 原样传给
 primitive driver ``__init__`` 的 dict —— 通常是
@@ -230,18 +232,19 @@ primitive driver ``__init__`` 的 dict —— 通常是
 
 - ``output_dir`` 是 per-run 的临时目录, 由 runner 创建; 所有工件 (images、
   depths、``states.json``、transcripts、``episode.mp4``) 都写在里面。
-- 工具 schema 是 Anthropic 形状 (``name`` / ``description`` / ``input_schema``)。
+- 工具 schema 使用 Anthropic API 格式（``name`` / ``description`` /
+  ``input_schema``）。
   每个用 ``self.add_tool(...)`` 注册的工具都会暴露给所有 planner。
 - Driver 侧的返回值必须可 pickle, 且不含 torch。
 - 每个 primitive 工具执行后要 dump 一次新的状态快照, 这样下一次
   ``view_driver_state`` 看到的是动作后的世界。
-- 把 ``dump_state`` 当作 agent 视角的 "事实源" —— 任何新的模态 (例如触觉、力)
-  都从它走。
+- ``dump_state`` 是 Agent 获取环境状态的唯一数据来源；任何新的模态
+  （例如触觉、力）都通过它提供。
 
 冒烟测试
 --------
 
-代码可以编译之后, 最小的冒烟回路如下:
+代码可以正常编译后，运行以下最小冒烟测试：
 
 .. code-block:: bash
 
@@ -249,5 +252,5 @@ primitive driver ``__init__`` 的 dict —— 通常是
      rpent --env myenv --suite <suite> --task <id> --seed 0 \
      --output-dir /tmp/myenv_smoke --planner api --model anthropic:claude-opus-4-8
 
-期望: agent 完成 prompt 的任务, 并调用 ``finish``。查看
-``<output_dir>/transcript_*.json`` 获取运行结束的总结。
+预期结果是 Agent 完成 prompt 指定的任务并调用 ``finish``。运行结束后，
+可在 ``<output_dir>/transcript_*.json`` 中查看总结。

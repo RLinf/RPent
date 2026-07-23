@@ -107,7 +107,7 @@ process and answers them.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The base contract is two gym-style methods (``reset``, ``step``); add whatever
-your env needs on top (LIBERO has ``chunk_step``, ``render_agentview``,
+your env needs on top (LIBERO has ``chunk_step``, ``render_camera``,
 ``get_camera_meta``, ``cached_image``, …). Each method forwards through
 ``RpcClient.call("<rpc-name>", args=..., kwargs=...)`` with a per-method
 timeout. Keep names stable — the driver-side dispatcher matches by name.

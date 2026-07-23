@@ -117,7 +117,8 @@ export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 export LIBERO_TYPE=pro
 export CUDA_VISIBLE_DEVICES=0
 
-# Run one task: libero_object_swap, task 2, seed 0, using the `claude_code` planner.
+# Run one task: libero_object_swap, task 2, seed 0, using Claude Code
+# with Claude Opus 4.8.
 rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
   --planner claude_code --model claude-opus-4-8
 ```
@@ -135,11 +136,12 @@ rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
 
 ### Live Dashboard
 
-Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard-language zh-cn` for the Chinese UI.
+Add `--dashboard` to start a local dashboard server. The command prints the URL in the terminal; open it to confirm the configuration on the launcher screen. Once the run starts, the page streams agent reasoning, camera and Pi0 views, the action timeline, and clip replays. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
 rpent --env libero --dashboard --dashboard-language zh-cn \
-  --suite libero_goal_task --task 1 --seed 0 --planner claude_code
+  --suite libero_goal_task --task 1 --seed 0 \
+  --planner claude_code --model claude-opus-4-8
 ```
 
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
@@ -159,7 +161,7 @@ For more detailed documentation, see the [RPent documentation](https://rpent.rea
     <tr><td><code>--suite</code></td><td>— (required)</td><td>Task suite, e.g. <code>libero_object_task</code>, <code>libero_spatial_swap</code></td></tr>
     <tr><td><code>--task</code></td><td>— (required)</td><td>Task id within the suite</td></tr>
     <tr><td><code>--seed</code></td><td><code>0</code></td><td>Random seed</td></tr>
-    <tr><td><code>--planner</code></td><td><code>api</code></td><td>Reasoning brain: <code>api</code> | <code>claude_code</code> | <code>codex</code></td></tr>
+    <tr><td><code>--planner</code></td><td><code>api</code></td><td><code>api</code> | <code>claude_code</code> | <code>codex</code></td></tr>
     <tr><td><code>--model</code></td><td>—</td><td>Model id; for <code>api</code>, prefix the provider (<code>anthropic:…</code>, <code>openai:…</code>, <code>openai-chat:…</code>)</td></tr>
     <tr><td><code>--max-turns</code></td><td><code>100</code></td><td>Max agent turns</td></tr>
     <tr><td><code>--max-tokens</code></td><td><code>8192</code></td><td>Max tokens per LLM reply</td></tr>
