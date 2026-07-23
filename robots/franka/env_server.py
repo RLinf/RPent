@@ -3,8 +3,8 @@
 Drives a Franka arm through the SERL cartesian-impedance ROS controller and the
 ``franka_gripper`` action topics, exposing agent-friendly *Cartesian* primitives
 (``reset`` / ``get_obs`` / ``get_ee_pose`` / ``move_to`` / ``move_delta`` /
-``open_gripper`` / ``close_gripper`` / ``get_spec``) over a pickle-framed TCP RPC
-server (:class:`rpent.utils.socket_rpc.SocketRpcServer`) -- the same
+``open_gripper`` / ``close_gripper`` / ``get_spec``) over an RPC server
+(:class:`rpent.utils.rpc.RpcFacade`, socket transport by default) -- the same
 wire protocol the LIBERO and LeRobot drivers use, so the agent side talks to all
 three identically.
 
@@ -31,8 +31,8 @@ from the CLI.
 from __future__ import annotations
 
 import argparse
-import json
 import os
+import signal
 import sys
 import threading
 import time
@@ -49,10 +49,9 @@ _PHYSICALAGENT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PHYSICALAGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PHYSICALAGENT_ROOT))
 
-from rpent.utils.socket_rpc import SocketRpcServer  # noqa: E402
-from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
-
 from robots.franka import calibration as camera_calib  # noqa: E402
+from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
+from rpent.utils.rpc import RpcFacade  # noqa: E402
 
 logger = get_logger("franka_driver")
 
@@ -826,42 +825,30 @@ class FrankaAgentEnv:
 # ---------------------------------------------------------------------------
 
 
-_INITIAL_PPID = os.getppid()
+class FrankaEnvFacade(RpcFacade):
+    """Serve :class:`FrankaAgentEnv` over the RPC boundary.
 
+    ``shutdown`` and ``healthz`` are handled by :class:`RpcFacade` and the
+    transport; this only routes ``env.*`` methods to the env instance.
+    """
 
-def _start_parent_watchdog(
-    server: SocketRpcServer, shutdown_event: threading.Event, poll_s: float = 2.0
-) -> None:
-    """Shut the RPC server down if the agent (parent) process dies."""
+    def __init__(self, env: FrankaAgentEnv):
+        super().__init__()
+        self._env = env
 
-    def _watch() -> None:
-        while not shutdown_event.is_set():
-            time.sleep(poll_s)
-            ppid = os.getppid()
-            if ppid != _INITIAL_PPID or ppid == 1:
-                logger.warning("parent died (ppid %s -> %s); stopping", _INITIAL_PPID, ppid)
-                shutdown_event.set()
-                threading.Thread(target=server.shutdown, daemon=True).start()
-                return
-
-    threading.Thread(target=_watch, daemon=True).start()
-
-
-def _build_dispatcher(env: FrankaAgentEnv, shutdown_event: threading.Event):
-    def dispatch(method: str, args: tuple, kwargs: dict):
+    def _dispatch(self, method: str, args: tuple, kwargs: dict):
         if method.startswith("env."):
             attr = method[len("env."):]
             try:
-                return getattr(env, attr)(*args, **kwargs)
+                return getattr(self._env, attr)(*args, **kwargs)
             except Exception as e:
                 logger.warning("env method %s failed: %s", method, e)
                 raise
-        if method == "shutdown":
-            shutdown_event.set()
-            return {"ok": True}
         raise ValueError(f"unknown RPC method: {method!r}")
 
-    return dispatch
+    def request_shutdown(self) -> None:
+        """Signal the serve loop to exit (used by the signal handlers)."""
+        self._shutdown_event.set()
 
 
 # ---------------------------------------------------------------------------
@@ -905,8 +892,12 @@ def main() -> int:
         "--camera", action="append", default=None,
         help="Camera as name:serial (repeatable). Defaults to the two bench D435I.",
     )
-    p.add_argument("--transport-host", type=str, default="127.0.0.1")
-    p.add_argument("--transport-port", type=int, default=0)
+    p.add_argument("--transport", choices=["socket", "http"], default="socket",
+                   help="RPC transport. Socket (pickle) is the proven path for "
+                        "the numpy obs payloads; http is also supported.")
+    p.add_argument("--host", type=str, default="127.0.0.1")
+    p.add_argument("--port", type=int, default=0,
+                   help="RPC port. 0 asks the OS for a free port.")
     args = p.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -924,27 +915,25 @@ def main() -> int:
     cameras = _build_cameras(_parse_cameras(args.camera))
     env = FrankaAgentEnv(backend, cameras)
 
-    shutdown_event = threading.Event()
-    dispatch = _build_dispatcher(env, shutdown_event)
-    server = SocketRpcServer((args.transport_host, args.transport_port), dispatch)
-    bound_host, bound_port = server.server_address
-    client_host = "127.0.0.1" if bound_host == "0.0.0.0" else bound_host
-    print(
-        json.dumps({
-            "event": "transport_ready", "kind": "socket",
-            "host": client_host, "port": bound_port,
-        }),
-        flush=True,
-    )
-    logger.info("RPC server listening on %s:%s", client_host, bound_port)
+    facade = FrankaEnvFacade(env)
 
-    _start_parent_watchdog(server, shutdown_event)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    # Release the robot + cameras cleanly on SIGTERM / SIGINT (ProcessDaemon
+    # stop, Ctrl-C). The handler only flags shutdown; ``env.close()`` runs in
+    # the ``finally`` below. RpcFacade also exits on parent death (stdin EOF)
+    # and on the ``shutdown`` RPC.
+    def _handle_signal(signum, _frame):
+        logger.warning(
+            "received %s; releasing robot and shutting down",
+            signal.Signals(signum).name,
+        )
+        facade.request_shutdown()
+
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(_sig, _handle_signal)
+
     try:
-        shutdown_event.wait()
+        facade.serve(transport=args.transport, host=args.host, port=args.port)
     finally:
-        server.shutdown()
-        server.server_close()
         env.close()
     logger.info("driver exited cleanly")
     return 0

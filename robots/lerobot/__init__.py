@@ -10,13 +10,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from rpent.envs.env_spec import EnvSpec
-from rpent.envs.prompt_bundle import PromptBundle
 from robots.lerobot.prompt import (
     system_prompt,
     user_prompt,
 )
-from rpent.utils.rpc import RpcClient
+from rpent.envs.env_spec import EnvSpec
+from rpent.envs.prompt_bundle import PromptBundle
 
 
 def get_env_spec() -> EnvSpec:
@@ -36,16 +35,20 @@ def get_env_spec() -> EnvSpec:
 
 def get_toolkit(
     *,
-    rpc_client: RpcClient,
+    primitives_kwargs: dict[str, Any],
     video_path: str | None = None,
     dashboard: Any = None,
 ):
-    """Return the SO101 toolkit (common tools + SO101 primitives)."""
-    from robots.lerobot.env_client import LerobotEnvClient
+    """Return the SO101 toolkit (common tools + SO101 primitives).
+
+    ``primitives_kwargs`` is assembled by ``_init_lerobot`` in
+    ``rpent/cli/main.py`` and carries the env RPC stub
+    (``{"env": LerobotEnvClient(...)}``, optionally plus ``"model"``).
+    """
     from robots.lerobot.toolkit import LerobotToolkit
 
     return LerobotToolkit(
-        env=LerobotEnvClient(rpc_client),
         video_path=video_path,
         dashboard=dashboard,
+        **primitives_kwargs,
     )

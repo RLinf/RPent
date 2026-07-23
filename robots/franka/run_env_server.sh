@@ -2,12 +2,14 @@
 # Launch the standalone Franka env server in the RLinf .venv with the
 # serl_franka_controllers catkin workspace sourced.
 #
-# The agent (physical/.venv) connects to this over TCP. Two ways to use it:
+# The agent (agent venv) connects to this over TCP. Two ways to use it:
 #
-#   1. Fixed port, then run the agent with --no-driver:
-#        bash robots/franka/run_env_server.sh --transport-port 5599
-#        # in the physical/.venv:
-#        python rpent/cli/main.py --env franka --no-driver --env-port 5599 ...
+#   1. Fixed port, then attach the agent via --env-endpoint:
+#        bash robots/franka/run_env_server.sh --output-dir /tmp/franka_run \
+#             --transport socket --host 127.0.0.1 --port 5599
+#        # in the agent venv:
+#        python rpent/cli/main.py --env franka \
+#             --env-endpoint socket://127.0.0.1:5599 ...
 #
 #   2. Let the agent CLI spawn it (it invokes this script automatically):
 #        python rpent/cli/main.py --env franka ...
