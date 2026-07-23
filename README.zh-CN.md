@@ -92,42 +92,7 @@ pip install -e ".[full]"
 ```
 
 `.[full]` 是默认的端到端组合（openpi Pi0.5 VLA + LIBERO-PRO 仿真器，运行在 RLinf 运行时之上）。
-如果不需要整套，可选择更小的 extra：
-
-<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
-  <thead align="center" valign="bottom">
-    <tr>
-      <th style="min-width: 120px; text-align: left;">Extra</th>
-      <th style="min-width: 240px;">安装内容</th>
-    </tr>
-  </thead>
-  <tbody valign="top">
-    <tr>
-      <td><code>.[full]</code></td>
-      <td><code>rlinf</code> + <code>openpi</code> + <code>libero-pro</code> — 默认运行组合</td>
-    </tr>
-    <tr>
-      <td><code>.[libero-pro]</code></td>
-      <td>基础 LIBERO + LIBERO-PRO 仿真器</td>
-    </tr>
-    <tr>
-      <td><code>.[libero-plus]</code></td>
-      <td>基础 LIBERO + LIBERO-plus 仿真器</td>
-    </tr>
-    <tr>
-      <td><code>.[libero]</code></td>
-      <td>仅基础 LIBERO</td>
-    </tr>
-    <tr>
-      <td><code>.[openpi]</code></td>
-      <td>仅 openpi VLA</td>
-    </tr>
-    <tr>
-      <td><code>.[rlinf]</code></td>
-      <td>仅 RLinf 运行时</td>
-    </tr>
-  </tbody>
-</table>
+如果不需要整套，更小的 extra 见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
 
 **2. 下载 LIBERO-PRO 仿真资产。**
 
@@ -142,11 +107,9 @@ liberopro-download-assets --skip-existing
 **3. 配置密钥与 checkpoint，然后运行。**
 
 ```bash
-# 大模型 API 密钥（api 规划器）
+# Anthropic 密钥；使用官方端点时无需 export base url。
 export ANTHROPIC_BASE_URL=https://xxx
 export ANTHROPIC_API_KEY=sk-xxx
-export OPENAI_BASE_URL=https://xxx
-export OPENAI_API_KEY=sk-xxx
 
 # VLA checkpoint —— 从以下地址下载：
 # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
@@ -154,13 +117,20 @@ export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 export LIBERO_TYPE=pro
 export CUDA_VISIBLE_DEVICES=0
 
-# 运行一个任务：libero_object_swap，task 2，seed 0，使用 api 规划器
-# 和 Anthropic 模型，最大输出 8192 token。
-#   • OpenAI-compatible chat 端点：      --model openai-chat:glm-5.2
-#   • OpenAI responses 端点：            --model openai:gpt-5.5
-#   • claude_code / codex 规划器：       不需要 provider 前缀，如 --model claude-opus-4-8
-rpent --suite libero_object_swap --task 2 --seed 0 \
-  --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
+# 运行一个任务：libero_object_swap，task 2，seed 0，使用 claude_code 规划器。
+rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+  --planner claude_code --model claude-opus-4-8
+```
+
+其他规划器（`api`、`codex`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html)。
+
+### 交互模式
+
+加上 `--interactive`（`-i`）即可在终端里实时引导智能体。在 `you>` 提示符处，内置任务已预填——按 Enter 直接使用，或替换为你自己的任务；智能体运行时，随时输入消息即可在下一轮引导它（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要交互式终端（TTY）。
+
+```bash
+rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+  --planner claude_code --model claude-opus-4-8 --interactive
 ```
 
 ### 实时 Dashboard
@@ -183,6 +153,8 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
 
 完整的 RoboCasa365 + RLDX-1 部署流程见 [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md)。
 
+更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
+
 ## 主要命令行参数
 
 <table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
@@ -202,6 +174,7 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
     <tr><td><code>--model</code></td><td>—</td><td>模型 id；<code>api</code> 需带 provider 前缀（<code>anthropic:…</code>、<code>openai:…</code>、<code>openai-chat:…</code>）</td></tr>
     <tr><td><code>--max-turns</code></td><td><code>100</code></td><td>智能体最大轮数</td></tr>
     <tr><td><code>--max-tokens</code></td><td><code>8192</code></td><td>单次 LLM 回复最大 token</td></tr>
+    <tr><td><code>--no-images</code></td><td>关</td><td>纯文本模式：不向模型发送图片字节（用于不支持图片输入的模型）</td></tr>
     <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>环境最大步数</td></tr>
     <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> 或 <code>pro</code></td><td>LIBERO 类型：<code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
     <tr><td><code>--cuda-device</code></td><td>继承当前环境</td><td>env / vla server 可见的 GPU 设备</td></tr>
@@ -211,12 +184,6 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
     <tr><td><code>--vla-endpoint</code></td><td>—（新起进程）</td><td>已在运行的 vla_server 的 <code>[protocol://]host:port</code>（同上）。留空则本地起一个。</td></tr>
   </tbody>
 </table>
-
-## 文档
-
-- [接入新环境](https://rpent.readthedocs.io/zh-cn/latest/rst_source/extending/new_env.html) — 把新的仿真器 / 机器人接入 runner（[English](https://rpent.readthedocs.io/en/latest/rst_source/extending/new_env.html)）。
-- [RoboCasa 安装](docs/SETUP_ROBOCASA.zh.md) — RoboCasa365 + RLDX-1 安装与运行指南。
-- [`docs/`](docs/README.md) — 本地 Sphinx 构建与预览说明。
 
 ## 引用与致谢
 

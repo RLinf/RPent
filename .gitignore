@@ -9,6 +9,8 @@ logs/
 /rlinf/
 /rlinf.egg-info/
 
+/resources/
+
 uv.lock
 
 # Documentation build artifacts and local environment.

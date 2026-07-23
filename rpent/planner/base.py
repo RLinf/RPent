@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import queue
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -68,6 +69,7 @@ class Planner(Protocol):
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
+        input_queue: queue.Queue[str | None] | None = None,
     ) -> PlannerResult:
         """Run the multi-turn agent loop until completion or budget.
 
@@ -79,6 +81,7 @@ class Planner(Protocol):
                 ``toolkit.get_tools_spec()`` and dispatch calls via
                 ``toolkit.execute_tool()``.
             max_turns: Maximum LLM turns before giving up.
+            input_queue: Optional queue of user-typed lines for interactive steering.
 
         Returns:
             ``PlannerResult`` with finish status, conversation transcript,
@@ -104,6 +107,7 @@ def build_planner(
     planner_timeout_s: int | None = None,
     claude_code_max_budget_usd: float | None = None,
     dashboard: Any = None,
+    no_images: bool = False,
 ):
     """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
@@ -144,7 +148,12 @@ def build_planner(
         api_model = infer_model(
             model, provider_factory=_provider_factory
         )
-        return ApiAgentLoop(model=api_model, max_tokens=max_tokens, dashboard=dashboard)
+        return ApiAgentLoop(
+            model=api_model,
+            max_tokens=max_tokens,
+            dashboard=dashboard,
+            no_images=no_images,
+        )
     if planner_type == "claude_code":
         from rpent.planner.claude_code import ClaudeCodePlanner
 

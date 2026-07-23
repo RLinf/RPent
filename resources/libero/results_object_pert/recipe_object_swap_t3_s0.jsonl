@@ -1,5 +1,0 @@
-{"action": "reset"}
-{"action": "move_to", "xyz": [-0.198, -0.085, 0.27], "gripper": -1, "tol": 0.012, "step_clip": 0.02, "max_steps": 80}
-{"action": "pi0_pick", "prompt": "pick up the bbq sauce", "max_chunks": 22, "lift_thresh": 0.04, "gripper_closed_thresh": 0.05}
-{"action": "move_to", "xyz": [-0.003, 0.249, 0.32], "gripper": 1, "tol": 0.012, "step_clip": 0.018, "max_steps": 120}
-{"action": "release", "max_steps": 25}
