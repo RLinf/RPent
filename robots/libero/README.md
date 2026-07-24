@@ -75,7 +75,7 @@ Both HTTP and socket RPC transports expose the same `segment` method for text
 and single-positive-point prompts.
 
 When a matching world map artifact exists, `segment` writes collision-safe
-`segment_NN_XX.json` artifacts with mask statistics and `world_xyz`; repeated
+`segments/segment_NN_XX.json` artifacts with mask statistics and `world_xyz`; repeated
 `segment()` calls on the same source step receive different `XX` indexes instead
 of overwriting earlier evidence. If the world map is missing or the mask shape
 does not match, the tool records a `world_error` instead of failing the episode.

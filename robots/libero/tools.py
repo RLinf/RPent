@@ -1759,10 +1759,12 @@ def _select_segment_artifacts(nn: int, camera: str):
 
 
 def _next_segment_artifact_paths(out_dir, nn: int):
+    segments_dir = out_dir / "segments"
+    segments_dir.mkdir(parents=True, exist_ok=True)
     idx = 0
     while True:
-        segment_path = out_dir / f"segment_{nn:02d}_{idx:02d}.json"
-        overlay_path = out_dir / f"segment_overlay_{nn:02d}_{idx:02d}.png"
+        segment_path = segments_dir / f"segment_{nn:02d}_{idx:02d}.json"
+        overlay_path = segments_dir / f"segment_overlay_{nn:02d}_{idx:02d}.png"
         if not segment_path.exists() and not overlay_path.exists():
             return segment_path, overlay_path, idx
         idx += 1

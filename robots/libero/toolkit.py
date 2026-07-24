@@ -113,6 +113,7 @@ class LiberoToolkit(Toolkit):
             "images_cam",
             "depths",
             "action_videos",
+            "segments",
             "world",
             "images_wrist",
             "depths_wrist",
