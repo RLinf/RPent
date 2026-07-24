@@ -74,6 +74,28 @@ class ProcessDaemon:
         self._proc: subprocess.Popen | None = None
         self._log_f = None
 
+    def poll(self) -> int | None:
+        """Return the subprocess exit code, or None if it's still running.
+
+        None also before ``start()``. A non-None value means the child has
+        exited — used by ``wait_for_ready`` to fail fast on early crashes.
+        """
+        return self._proc.poll() if self._proc is not None else None
+
+    def tail_log(self, max_lines: int = 20) -> str:
+        """Return the last ``max_lines`` of the subprocess log (``""`` if none).
+
+        Used to fold a crashed child's traceback into the parent's error.
+        """
+        if not self.log_path:
+            return ""
+        try:
+            with open(self.log_path) as f:
+                lines = f.readlines()
+        except OSError:
+            return ""
+        return "".join(lines[-max_lines:]).rstrip()
+
     def start(self) -> None:
         """Spawn the subprocess. Returns immediately; does not wait for readiness."""
         self._log_f = (
