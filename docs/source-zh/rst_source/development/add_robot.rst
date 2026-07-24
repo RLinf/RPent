@@ -183,25 +183,28 @@ RPC; env_server 跑在 driver 进程内, 应答这些调用。
 .. code-block:: python
 
    # robots/myenv/prompt_bundle.py
+   from robots.myenv.prompts import system as system_parts
+   from robots.myenv.prompts import user as user_parts
    from rpent.context.prompt_utils import PromptNode
-   from rpent.context.prompts import prompt as base_prompt
-   from robots.myenv import prompts as myenv_prompt
 
-   def system_prompt() -> dict[str, PromptNode]:
+   def system_prompt() -> PromptNode:
        return {
-           "Intro": myenv_prompt.PREAMBLE,
-           "Goal": myenv_prompt.GOAL,
-           "Rules": myenv_prompt.RULES,
-           "Workflow": myenv_prompt.WORKFLOW,
-           "Environment": myenv_prompt.ENVIRONMENT,
-           "Output": base_prompt.OUTPUT,
+           "INTRO": system_parts.PREAMBLE,
+           "GOAL": system_parts.GOAL,
+           "RULES": system_parts.RULES,
+           "WORKFLOW": system_parts.WORKFLOW,
+           "ENVIRONMENT": system_parts.ENVIRONMENT,
+           "OUTPUT": system_parts.OUTPUT,
        }
 
-   def user_prompt() -> dict[str, PromptNode]:
-       return dict(base_prompt.USER)
+   def user_prompt() -> PromptNode:
+       return {
+           "TASK": user_parts.TASK,
+           "BEGIN": user_parts.BEGIN,
+       }
 
-可以复用 ``rpent.context.prompts.prompt`` 中的共享分节 (``OUTPUT``、``USER``),
-也可以自己写。分节内容是普通字符串 (或 ``BulletList`` / ``Numbered``), 占位符
+将 prompt 内容放在 env 包内, 例如 ``robots/myenv/prompts/system.py`` 和
+``user.py``。分节内容是普通字符串 (或 ``BulletList`` / ``Numbered``), 占位符
 ``{{suite}}`` / ``{{task}}`` / ``{{seed}}`` / ``{{output_dir}}`` /
 ``{{recipe_tag}}`` 在渲染时填充。
 

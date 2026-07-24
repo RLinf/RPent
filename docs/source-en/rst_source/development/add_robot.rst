@@ -199,27 +199,31 @@ maintain separate CLI/API copies.
 .. code-block:: python
 
    # robots/myenv/prompt_bundle.py
+   from robots.myenv.prompts import system as system_parts
+   from robots.myenv.prompts import user as user_parts
    from rpent.context.prompt_utils import PromptNode
-   from rpent.context.prompts import prompt as base_prompt
-   from robots.myenv import prompts as myenv_prompt
 
-   def system_prompt() -> dict[str, PromptNode]:
+   def system_prompt() -> PromptNode:
        return {
-           "Intro": myenv_prompt.PREAMBLE,
-           "Goal": myenv_prompt.GOAL,
-           "Rules": myenv_prompt.RULES,
-           "Workflow": myenv_prompt.WORKFLOW,
-           "Environment": myenv_prompt.ENVIRONMENT,
-           "Output": base_prompt.OUTPUT,
+           "INTRO": system_parts.PREAMBLE,
+           "GOAL": system_parts.GOAL,
+           "RULES": system_parts.RULES,
+           "WORKFLOW": system_parts.WORKFLOW,
+           "ENVIRONMENT": system_parts.ENVIRONMENT,
+           "OUTPUT": system_parts.OUTPUT,
        }
 
-   def user_prompt() -> dict[str, PromptNode]:
-       return dict(base_prompt.USER)
+   def user_prompt() -> PromptNode:
+       return {
+           "TASK": user_parts.TASK,
+           "BEGIN": user_parts.BEGIN,
+       }
 
-Reuse the shared sections in ``rpent.context.prompts.prompt`` (``OUTPUT``,
-``USER``) or write your own. Section bodies are plain strings (or ``BulletList``
-/ ``Numbered``) with ``{{suite}}`` / ``{{task}}`` / ``{{seed}}`` /
-``{{output_dir}}`` / ``{{recipe_tag}}`` placeholders filled at render time.
+Keep the prompt content under the env package, for example in
+``robots/myenv/prompts/system.py`` and ``user.py``. Section bodies are plain
+strings (or ``BulletList`` / ``Numbered``) with ``{{suite}}`` / ``{{task}}`` /
+``{{seed}}`` / ``{{output_dir}}`` / ``{{recipe_tag}}`` placeholders filled at
+render time.
 
 3. ``toolkit.py``
 ------------------
