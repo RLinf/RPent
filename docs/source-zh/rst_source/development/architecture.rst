@@ -90,25 +90,37 @@ Runner (``rpent/cli/main.py``)
 
 ``rpent/cli/main.py`` 是编排者。每一次调用它会:
 
-1. 解析 CLI flag (:doc:`../quickstart` 说明了日常最常用的那些)。
-2. 创建 per-run 的 scratch 目录 (``--output-dir`` 或
-   ``runs/`` 下自动生成的目录)。
-3. 在 loopback 上预分配一个空闲端口, 把端口通过 CLI 传给子进程,
-   spawn **env_server**, 然后通过
-   :func:`rpent.utils.rpc.wait_for_ready` 轮询 ``healthz`` 直到子进程
-   起来。
-4. 对 **vla_server** 做同样的事; 复用已有实例时用 ``--vla-endpoint``。
-5. 通过 env 的 ``get_toolkit(primitives_kwargs=...)`` 工厂为选中的
-   env 构造 **toolkit**, 把 env client 和 VLA client 传进去。
-6. 通过 ``rpent.planner.base.build_planner`` 构造 **planner**,
+1. 用 ``parse_known_args`` 解析共享 CLI flag (:doc:`../quickstart` 说明了
+   日常最常用的那些), 提前拿到 ``--env`` 和 ``--dashboard``。
+2. 通过 ``get_env_spec(args.env_name)`` 找到 env, 调用
+   ``env_spec.add_cli_args(parser, use_dashboard=args.dashboard)`` —— env
+   把自己的 flag 加到共享 parser 上。``use_dashboard=True`` 时把原本必填
+   的 flag 变可选, 好让 dashboard 之后填。
+3. 再次调 ``parser.parse_args()`` —— 单次 argparse pass 负责全部校验并
+   产出最终的 ``args`` (argparse 自带 usage + error 输出)。
+4. 如果开了 ``--dashboard``, 用现在已填入 env CLI 值的 ``args`` 起
+   launcher, 把用户表单的选择 apply 回去。
+5. 调用 ``env_spec.parse_config(args)`` 派生
+   :class:`~rpent.envs.RunConfig`
+   (``recipe_tag`` / ``output_dir`` / ``prompt_vars`` / ``dashboard_state`` /
+   ``task_desc``)。dashboard 场景下, env 在这里强制之前变为可选的字段
+   现在必须已经填好了。
+6. 调用 ``init_output_dir`` 创建 per-run scratch 目录并挂 ``run.log``。
+7. 调用 ``env_spec.init_runtime(args, output_dir)`` —— env 自己 spawn
+   ``env_server`` + ``vla_server`` (或通过 ``--env-endpoint`` /
+   ``--vla-endpoint`` 连到已在跑的实例), 返回
+   ``(daemons, primitives_kwargs)``。
+8. 通过 env 的 ``get_toolkit(primitives_kwargs=...)`` 工厂构造 **toolkit**。
+9. 通过 ``rpent.planner.base.build_planner`` 构造 **planner**,
    根据 ``--planner`` 选出 ``api_loop.py`` / ``claude_code.py`` /
    ``codex.py`` 之一。
-7. 跑 tool-calling 循环; 如果开了 ``--dashboard`` 就 stream 到 dashboard;
-   结束时写出 ``<output_dir>/transcript_*.json`` 和
-   ``<output_dir>/episode.mp4``。
+10. 跑 tool-calling 循环; 如果开了 ``--dashboard`` 就 stream 到 dashboard;
+    结束时写出 ``<output_dir>/transcript_*.json`` 和
+    ``<output_dir>/episode.mp4``。
 
 Runner 有意保持薄: 一切与 env 相关的东西在 ``robots/<env>/`` 下,
-一切与 brain 相关的东西在 ``rpent/planner/`` 下。
+一切与 brain 相关的东西在 ``rpent/planner/`` 下。main.py 不 import
+任何 env-specific 的类或脚本。
 
 Env 侧的注册表
 --------------
@@ -120,8 +132,19 @@ Env 侧的注册表
 .. code-block:: python
 
    # robots/myenv/__init__.py
-   def get_env_spec() -> EnvSpec: ...
+   def get_env_spec() -> EnvSpec: ...           # 标识 + prompts + runner 钩子
    def get_toolkit(*, primitives_kwargs, video_path=None): ...
+
+``EnvSpec`` 有五个字段:
+
+- ``name`` / ``prompts`` —— env 标识与 :class:`PromptBundle`。
+- ``add_cli_args(parser, use_dashboard) -> None`` —— 把 env 的 flag 注册
+  到共享 argparse parser。``use_dashboard`` 控制原本必填的 flag 是否保持
+  可选 (dashboard 场景由表单填)。
+- ``parse_config(args) -> RunConfig`` —— 校验最终 ``args``
+  (dashboard 之后), 返回派生的 per-run 标识。
+- ``init_runtime(args, output_dir) -> (daemons, primitives_kwargs)`` ——
+  spawn env / VLA 子进程, 返回 toolkit 输入。
 
 env 是 **没有中央列表** 的。把包放到 ``robots/`` 下就行。这也是新增
 机器人时用的机制 (见 :doc:`add_robot`)。
