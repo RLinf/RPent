@@ -68,22 +68,44 @@ import ``robots.<name>``, 并调用其两个工厂函数:
 .. code-block:: python
 
    # robots/myenv/__init__.py
-   from rpent.envs.env_spec import EnvSpec
+   from rpent.envs.env_spec import EnvSpec, RunConfig
    from rpent.envs.prompt_bundle import PromptBundle
    from robots.myenv.prompt_bundle import system_prompt, user_prompt
 
    def get_env_spec() -> EnvSpec:
-       return EnvSpec(name="myenv", prompts=PromptBundle(system=system_prompt, user=user_prompt))
+       return EnvSpec(
+           name="myenv",
+           prompts=PromptBundle(system=system_prompt, user=user_prompt),
+           add_cli_args=_add_cli_args,
+           parse_config=_parse_config,
+           init_runtime=_init_runtime,
+       )
 
-   def get_toolkit(*, primitives_kwargs: dict[str, Any], video_path: str | None = None):
+   def get_toolkit(*, primitives_kwargs, video_path=None):
        from robots.myenv.toolkit import MyEnvToolkit
        return MyEnvToolkit(primitives_kwargs=primitives_kwargs, video_path=video_path)
+
+   def _add_cli_args(parser, use_dashboard) -> None:
+       """把 env flag 注册到共享 parser。见 §4。"""
+       ...
+
+   def _parse_config(args) -> RunConfig:
+       """校验最终 ``args``, 返回 RunConfig。见 §4。"""
+       ...
+
+   def _init_runtime(args, output_dir):
+       """启动 env_server + vla_server, 构造 primitives_kwargs。
+
+       返回 (daemons, primitives_kwargs)。见 §5。
+       """
+       ...
 
 整个注册流程就是这样 —— ``_resolve_env(name)`` 通过
 ``importlib.import_module(f"robots.{name}")`` 动态加载, 所以把包放在 ``robots/``
 下就够了, 没有中央列表需要维护。
 
-下面三章分别说明上面引用的三个模块各自需要写什么。
+下面各章分别说明上面引用的模块各自需要写什么;
+``_add_cli_args`` / ``_parse_config`` 在 §4 覆盖, ``_init_runtime`` 在 §5。
 
 1. ``env_client.py`` + ``env_server.py``
 -----------------------------------------
@@ -146,10 +168,6 @@ RPC; env_server 跑在 driver 进程内, 应答这些调用。
 
 ``RpcFacade.serve`` 负责 transport 绑定 (http / socket)、``healthz`` 与
 ``shutdown`` 方法、感知父进程死亡、以及干净收尾 —— 你只写业务方法。
-
-当前的 ``rpent/cli/main.py`` 直接 import 了 ``LiberoEnvClient`` 和 LIBERO 的 env_server
-脚本路径。新增 env 时, 要么在 ``args.env_name`` 上分支选择 client 类和 driver
-脚本, 要么把这两处调用点抽到每个 env 的小型 helper 后面。
 
 2. ``prompt_bundle.py``
 -----------------------
@@ -240,6 +258,70 @@ primitive driver ``__init__`` 的 dict —— 通常是
   ``view_driver_state`` 看到的是动作后的世界。
 - 把 ``dump_state`` 当作 agent 视角的 "事实源" —— 任何新的模态 (例如触觉、力)
   都从它走。
+
+4. ``_add_cli_args`` + ``_parse_config`` (runner 钩子)
+------------------------------------------------------
+
+``rpent/cli/main.py`` 是 env-agnostic 的。env CLI 处理拆成两个钩子, 共享
+一次 argparse pass:
+
+**``_add_cli_args(parser, use_dashboard) -> None``。** 把 env 的 flag 注册
+到 main.py 已经持有的共享 parser 上。``use_dashboard`` 控制原本必填的 flag
+是否保持可选 —— dashboard launcher 之后会填。main.py 在
+``parser.parse_args()`` 之前调用, 所以只有一次 argparse pass, 它的 usage /
+error 输出已经覆盖 env flag。
+
+**``_parse_config(args) -> RunConfig``。** 在 ``parser.parse_args()`` 和
+(如果适用) dashboard launcher 之后调用。强制 dashboard-only 可选字段
+现在已经填好, 返回一个 :class:`~rpent.envs.RunConfig`:
+
+- ``recipe_tag`` —— env 的 per-run 标签, 用于 transcript 文件名 / recipe path
+  (LIBERO: ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``)。
+- ``output_dir`` —— per-run scratch 目录路径 (main.py 之后调 ``init_output_dir``
+  做 mkdir + 装 logging)。
+- ``prompt_vars`` —— 喂给 ``PromptBundle.render`` 的 dict (通常包含 run 标识
+  加上 prompt 引用的其它变量)。
+- ``dashboard_state`` —— ``args.dashboard`` 为真时是一个
+  :class:`~rpent.dashboard.state.State`, 否则 ``None``。
+- ``task_desc`` —— env 特有的任务标识 dict, 会被原样写进 transcript JSON 的
+  record (LIBERO: ``{"suite": ..., "task": ..., "seed": ...}``)。
+
+.. code-block:: python
+
+   def _add_cli_args(parser, use_dashboard) -> None:
+       required = not use_dashboard
+       parser.add_argument("--suite", default=None, required=required)
+       parser.add_argument("--task", type=int, default=None, required=required)
+       # ... 其它 env 特定 flag ...
+
+   def _parse_config(args) -> RunConfig:
+       if not args.suite: raise ValueError("--suite is required")
+       # ... 派生 recipe_tag、output_dir、prompt_vars、dashboard_state ...
+       return RunConfig(
+           recipe_tag=recipe_tag,
+           output_dir=output_dir,
+           prompt_vars=prompt_vars,
+           dashboard_state=dashboard_state,
+           task_desc={"suite": args.suite, "task": args.task, "seed": args.seed},
+       )
+
+5. ``_init_runtime`` (runner 钩子)
+----------------------------------
+
+``parse_config`` 之后, main.py 调用 ``env_spec.init_runtime(args, output_dir)``
+把 env / VLA 进程拉起来, 并构造 toolkit 需要的 kwargs。env 自己决定要 spawn
+几个子进程 —— LIBERO 起一个 ``env_server`` + 一个 ``vla_server`` —— 只要
+最终返回 ``(daemons, primitives_kwargs)``:
+
+- ``daemons: list[ProcessDaemon]`` —— 本次 run 拥有的子进程; main.py 在
+  ``finally`` 里逐个 ``.stop()``。
+- ``primitives_kwargs: dict`` —— 原样传给 toolkit 构造器, 后者再传给
+  primitive driver 的 ``__init__``。通常是
+  ``{"env": MyEnvClient(...), "model": VLAClient(...)}``。
+
+Endpoint 解析 (``--env-endpoint``、``--vla-endpoint``) 和子进程环境组装
+(``CUDA_VISIBLE_DEVICES``、``MUJOCO_GL`` 等) 都在这里 —— main.py 完全
+不知道这些细节。参考实现见 ``robots/libero/__init__.py``。
 
 冒烟测试
 --------
