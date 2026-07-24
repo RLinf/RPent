@@ -8,7 +8,7 @@
 1. 配置 API key 与 checkpoint
 ------------------------------
 
-导出 Anthropic 密钥, 以及 VLA checkpoint 的路径:
+导出 Anthropic 密钥, 以及 VLA 与 SAM3 checkpoint 的路径:
 
 .. code-block:: bash
 
@@ -19,6 +19,10 @@
    # VLA checkpoint —— 从下面地址下载
    # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+   # SAM 3.0 checkpoint —— 从以下任一地址下载
+   # https://huggingface.co/facebook/sam3
+   # https://modelscope.cn/models/facebook/sam3
+   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
    export LIBERO_TYPE=pro
    export CUDA_VISIBLE_DEVICES=0
 
@@ -97,7 +101,7 @@
      - LIBERO 变体: ``standard`` | ``pro`` | ``plus``
    * - ``--cuda-device``
      - 继承
-     - 暴露给 env / vla server 的 GPU 设备
+     - 暴露给 env / VLA / SAM3 server 的 GPU 设备
    * - ``--dashboard``
      - 关
      - 为本次运行启动本地 dashboard
@@ -110,20 +114,25 @@
        (``protocol=http|socket``, 默认 ``http``). 留空则本地起一个。
    * - ``--vla-endpoint``
      - —(自动 spawn)
-     - 已在运行的 vla_server 的 ``[protocol://]host:port`` (同上).
-       留空则本地起一个。
+     - 已在运行的 vla_server 的 ``[protocol://]host:port``
+       (协议规则同 ``env_server``)。留空则本地起一个。
+   * - ``--sam3-endpoint``
+     - —(自动 spawn)
+     - 已在运行的 RPent SAM3 服务的 ``[protocol://]host:port``
+       (协议规则同 ``env_server``)。留空则本地起一个。
 
 跑起来后应该看到什么
 --------------------
 
 一次成功的运行:
 
-1. env_server / vla_server 起来后各打印一行
-   ``RPC server listening on http://127.0.0.1:<port>``。
+1. env_server、vla_server 和 sam3_server 就绪后，会在各自的服务日志中
+   打印一行 ``RPC server listening on http://127.0.0.1:<port>``；
+   主进程确认三个服务就绪后再进入 agent loop。
 2. 每一轮 agent 的 reasoning 会输出到终端 (或 stream 到 dashboard)。
 3. 当 LLM 调用 ``finish(success=True)`` 时结束; 或者触达
    ``--max-turns`` / ``--max-episode-steps`` 时结束。
 4. 写出 ``<output_dir>/transcript_*.json`` (完整 turn-by-turn 记录) 和
    ``<output_dir>/episode.mp4`` (渲染出的 rollout)。
 
-出问题时, 参考 :doc:`installation` 页底部提到的三份日志文件。
+出问题时, 参考 :doc:`installation` 页底部提到的服务与 agent 日志文件。

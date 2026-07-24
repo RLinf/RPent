@@ -8,7 +8,7 @@ and ``pip install -e ".[full]"`` completed).
 1. Configure keys and checkpoints
 ---------------------------------
 
-Export your Anthropic key, plus the path to the VLA checkpoint:
+Export your Anthropic key, plus the paths to the VLA and SAM3 checkpoints:
 
 .. code-block:: bash
 
@@ -20,6 +20,10 @@ Export your Anthropic key, plus the path to the VLA checkpoint:
    # VLA checkpoint — download from
    # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+   # SAM 3.0 checkpoint — download from either
+   # https://huggingface.co/facebook/sam3
+   # https://modelscope.cn/models/facebook/sam3
+   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
    export LIBERO_TYPE=pro
    export CUDA_VISIBLE_DEVICES=0
 
@@ -98,7 +102,7 @@ The most common flags of ``rpent`` at a glance:
      - LIBERO variant: ``standard`` | ``pro`` | ``plus``
    * - ``--cuda-device``
      - inherited
-     - GPU device(s) exposed to the env / vla servers
+     - GPU device(s) exposed to the env / VLA / SAM3 servers
    * - ``--dashboard``
      - off
      - Start the local dashboard for this run
@@ -114,19 +118,24 @@ The most common flags of ``rpent`` at a glance:
      - — (spawn)
      - ``[protocol://]host:port`` of an existing vla_server (same rules).
        If unset, one is spawned locally.
+   * - ``--sam3-endpoint``
+     - — (spawn)
+     - ``[protocol://]host:port`` of an existing RPent SAM3 service
+       (``protocol=http|socket``, default ``http``). If unset,
+       one is spawned locally.
 
 What you should see
 -------------------
 
 A successful run:
 
-1. Prints ``RPC server listening on http://127.0.0.1:<port>`` once each
-   subprocess (env_server, vla_server) is up.
+1. Starts env_server, vla_server, and sam3_server, then waits for their
+   RPC or health endpoints before the agent loop begins.
 2. Prints per-turn agent reasoning (or streams it to the dashboard).
 3. Ends when the LLM calls ``finish(success=True)``, or hits
    ``--max-turns`` / ``--max-episode-steps``.
 4. Writes ``<output_dir>/transcript_*.json`` with the full turn-by-turn
    record and ``<output_dir>/episode.mp4`` with the rendered rollout.
 
-If something goes wrong, inspect the three log files described at the
+If something goes wrong, inspect the service and agent log files described at the
 bottom of :doc:`installation`.

@@ -18,7 +18,6 @@ from rpent.utils.logging import get_logger, get_output_dir
 class LiberoToolkit(Toolkit):
     """Toolkit for the LIBERO environment."""
 
-
     # Tool schemas keyed by name (built once from the canonical ordered list
     # in libero_tools.TOOLS_SPEC) so each tool registers with its own spec.
     _SPECS = {spec["name"]: spec for spec in libero_tools.TOOLS_SPEC}
@@ -37,18 +36,20 @@ class LiberoToolkit(Toolkit):
         self._register_libero_tools()
 
     # ------------------------------------------------------------------
-    # Registration — one explicit add_tool per LIBERO tool.
+    # Registration
     # ------------------------------------------------------------------
     def _register_libero_tools(self) -> None:
         spec = self._SPECS  # name -> schema, built once from libero_tools.TOOLS_SPEC
-        # Stateless readers: directly point at the libero_tools module functions.
-        for name in (
-            "view_driver_state",
-            "view_camera_meta",
-            "segment",
-            "back_project",
-        ):
-            self.add_tool(name, spec[name], getattr(libero_tools, name))
+        # Inspection tools do not advance environment state. Most are stateless
+        # module functions; segment is bound to the primitives-owned SAM3 client.
+        inspection_handlers = {
+            "view_driver_state": libero_tools.view_driver_state,
+            "view_camera_meta": libero_tools.view_camera_meta,
+            "back_project": libero_tools.back_project,
+            "segment": self._primitives.segment,
+        }
+        for name, handler in inspection_handlers.items():
+            self.add_tool(name, spec[name], handler)
         # Primitive tools: each goes through _step, which looks up the
         # matching primitive method via getattr at call time.
         for name in (
@@ -112,6 +113,7 @@ class LiberoToolkit(Toolkit):
             "images_cam",
             "depths",
             "action_videos",
+            "segments",
             "world",
             "images_wrist",
             "depths_wrist",

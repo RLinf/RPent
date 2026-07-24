@@ -8,13 +8,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from rpent.envs.prompt_bundle import PromptBundle
-from rpent.envs.env_spec import EnvSpec, RunConfig
-from rpent.utils.config import get_repo_root
 from robots.libero.prompt_bundle import (
     system_prompt,
     user_prompt,
 )
+from rpent.envs.env_spec import EnvSpec, RunConfig
+from rpent.envs.prompt_bundle import PromptBundle
+from rpent.utils.config import get_repo_root
 
 if TYPE_CHECKING:
     from rpent.dashboard.state import State
@@ -81,6 +81,10 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
                         help="[protocol://]host:port of an existing vla_server "
                              "(protocol=http|socket, defaults to http). "
                              "If unset, a local vla_server is spawned.")
+    parser.add_argument("--sam3-endpoint", default=None,
+                        help="[protocol://]host:port of an existing SAM3 server "
+                             "(protocol=http|socket, defaults to http). "
+                             "If unset, a local SAM3 server is spawned.")
     parser.add_argument("--cuda-device", default=None,
                         help="GPU device(s) to expose via CUDA_VISIBLE_DEVICES.")
 
@@ -165,7 +169,7 @@ def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    """Spawn env + vla daemons and build primitives_kwargs for LIBERO.
+    """Spawn env + vla + SAM3 daemons and build clients for LIBERO.
 
     Each server can be spawned or attached-to independently: pass an
     endpoint to attach, or leave it unset to spawn a local subprocess.
@@ -174,13 +178,14 @@ def _init_runtime(
     that a bare ``import robots.libero`` (for ``get_env_spec`` /
     ``get_toolkit``) doesn't drag them in.
     """
+    from robots.libero.env_client import LiberoEnvClient
     from rpent.utils.config import get_libero_type
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
     from rpent.utils.http_rpc import HttpRpcClient
     from rpent.utils.rpc import wait_for_ready
+    from rpent.utils.sam3_client import Sam3Client
     from rpent.utils.socket_rpc import SocketRpcClient
     from rpent.utils.vla_client import VLAClient
-    from robots.libero.env_client import LiberoEnvClient
 
     daemons: list[ProcessDaemon] = []
     libero_type = args.libero_type or get_libero_type()
@@ -254,6 +259,36 @@ def _init_runtime(
                 f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
             )
 
+    # --- sam3_server -------------------------------------------------------
+    if args.sam3_endpoint is None:
+        host, port = "127.0.0.1", pick_free_port()
+        sam3_daemon = ProcessDaemon(
+            name="sam3_server",
+            cmd=[
+                sys.executable,
+                str(get_repo_root() / "robots" / "libero" / "sam3_server.py"),
+                "--transport", "http",
+                "--host", host,
+                "--port", str(port),
+            ],
+            env=_subprocess_env(args.cuda_device),
+            log_path=str(Path(output_dir) / "sam3_server.log"),
+        )
+        sam3_daemon.start()
+        daemons.append(sam3_daemon)
+        sam3_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
+    else:
+        protocol, host, port = _parse_endpoint(args.sam3_endpoint)
+        if protocol == "socket":
+            sam3_rpc = SocketRpcClient(host, port)
+        elif protocol == "http":
+            sam3_rpc = HttpRpcClient(f"http://{host}:{port}")
+        else:
+            raise ValueError(
+                f"--sam3-endpoint protocol must be socket or http, got {protocol!r}"
+            )
+    wait_for_ready(sam3_rpc)
+
     primitives_kwargs = {
         "env": LiberoEnvClient(
             env_client,
@@ -265,5 +300,6 @@ def _init_runtime(
             },
         ),
         "model": VLAClient(vla_rpc),
+        "sam3_client": Sam3Client(sam3_rpc),
     }
     return daemons, primitives_kwargs

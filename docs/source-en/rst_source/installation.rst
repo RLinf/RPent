@@ -2,7 +2,8 @@ Installation
 ============
 
 RPent installs with a single ``pip install``. The optional-dependency
-extras pull openpi and the LIBERO simulators.
+extras install the published RLinf runtime, openpi, and LIBERO simulator
+packages from PyPI.
 
 Prerequisites
 -------------
@@ -19,6 +20,9 @@ You will also want:
 - A VLA checkpoint. For LIBERO / Pi0.5 the recommended checkpoint lives
   at `HuggingFace: RLinf-Pi05-LIBERO-130-fullshot-SFT
   <https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_.
+- A local SAM 3.0 ``sam3.pt`` file, downloaded from `Hugging Face:
+  facebook/sam3 <https://huggingface.co/facebook/sam3>`_ or `ModelScope:
+  facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_.
 
 1. Install RPent with pip
 -------------------------
@@ -31,8 +35,8 @@ the stack you want:
    git clone https://github.com/RLinf/RPent rpent && cd rpent
    pip install -e ".[full]"
 
-``.[full]`` is the default end-to-end stack — the openpi Pi0.5 VLA and
-the LIBERO-PRO simulator on top of the RLinf runtime.
+``.[full]`` is the default end-to-end stack — the openpi Pi0.5 VLA,
+the LIBERO-PRO simulator, and SAM 3.0 on top of the RLinf runtime.
 
 Available extras:
 
@@ -42,7 +46,7 @@ Available extras:
    * - Extra
      - Installs
    * - ``.[full]``
-     - ``rlinf`` + ``openpi`` + ``libero-pro`` — the default run stack
+     - ``rlinf`` + ``openpi`` + ``libero-pro`` + ``sam3`` — the default run stack
    * - ``.[libero-pro]``
      - Base LIBERO + LIBERO-PRO simulator only
    * - ``.[libero-plus]``
@@ -53,6 +57,8 @@ Available extras:
      - openpi VLA only
    * - ``.[rlinf]``
      - RLinf runtime only
+   * - ``.[sam3]``
+     - SAM 3.0 only
 
 2. Download the simulator assets
 --------------------------------
@@ -87,15 +93,16 @@ Verifying the install
 ---------------------
 
 The quickest way to confirm everything is wired correctly is to run one
-LIBERO task end-to-end — see :doc:`quickstart`. If that succeeds, the
-env server, VLA server, and reasoning brain are all healthy.
+LIBERO task end-to-end — see :doc:`quickstart`. If it succeeds, the env server,
+VLA server, SAM3 server, and reasoning brain are all healthy.
 
 If something breaks:
 
 - The env server writes its stdout / stderr to
   ``<output_dir>/env_server.log``.
 - The VLA server writes to ``<output_dir>/vla_server.log``.
+- The SAM3 server writes to ``<output_dir>/sam3_server.log``.
 - The agent's own run log lives at ``<output_dir>/run.log``.
 
-The three logs are always in that per-run scratch directory, so a
+These logs are always in that per-run scratch directory, so a
 failed run is self-contained and easy to inspect.

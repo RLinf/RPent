@@ -294,8 +294,8 @@ sim) — do not start/stop it. You call MCP tools; begin by reading step 0 via
 | `world_wrist/world_wrist_NN.npy` (+ `world_wrist_hi/`) | `(256, 256, 3)` / `(1024, 1024, 3)` **precomputed wrist world xyz per pixel**, SAME world frame as agentview. ±1–2 cm when <20 cm to target. May be all-table/null until you move over the target. |
 | `wrist_meta/wrist_meta_NN.json` | wrist intrinsics + extrinsic **for THAT step only** (the wrist cam moves). Read via `view_camera_meta({"camera":"wrist","step":NN})`. |
 | `camera_meta.json` (top-level) | agentview `intrinsic_K` (3×3), `extrinsic_cam2world` (4×4), `depth_near/far`, projection recipe. Read via `view_camera_meta({"camera":"agentview"})`. |
-| `segment_NN_XX.json` | (only after a `segment` call) `{prompt, camera, source_step, score, box, centroid_pixel, world_xyz, n_pixels}` — SAM3 mask back-projected via the matching world map. `world_xyz` is a robust MEDIAN over the whole mask. On failure carries `{error, fallback}`. `XX` is a per-step index. |
-| `segment_overlay_NN_XX.png` | (only after a `segment` call) the segmented mask tinted red on the source image — read it to confirm SAM3 grabbed the right object. |
+| `segments/segment_NN_XX.json` | (after a completed `segment` response) `{found, mode, prompt|point, camera, source_step, score, box, mask_shape, centroid_pixel, world_xyz, n_pixels}` — SAM3's top mask back-projected via the matching world map. `world_xyz` is a robust MEDIAN over the whole mask. A valid no-detection response carries `{found:false, error}`. `XX` is a per-step index. |
+| `segments/segment_overlay_NN_XX.png` | (only after a successful `segment` call) the segmented mask tinted red on the source image — read it to confirm SAM3 grabbed the right object. |
 
 The command + its result + `elapsed_s` are merged INTO the `states.json[NN]`
 entry (and echoed in each primitive tool's return value) — there is no separate
@@ -376,15 +376,16 @@ move_pose({"xyz": [x, y, z], "target_pitch": 0.0, "target_yaw": 0.0,
            "gripper": 1, "step_clip": 0.02, "pitch_step": 0.08, "yaw_step": 0.08,
            "tol": 0.012, "ori_tol": 0.05, "max_steps": 150})
 
-// (OPTIONAL) SAM3-grounded localization — does NOT move the robot and does NOT
+// SAM3-grounded localization — does NOT move the robot and does NOT
 // replace manual back-projection. Segments the most-recent dumped image for the
 // prompt, back-projects the mask through the matching world map, and writes
-// segment_NN_XX.json {score, box, centroid_pixel, world_xyz (robust MEDIAN over
-// the whole mask), n_pixels} + segment_overlay_NN_XX.png. Read world_xyz
+// segments/segment_NN_XX.json {score, box, centroid_pixel, world_xyz (robust MEDIAN over
+// the whole mask), n_pixels} + segments/segment_overlay_NN_XX.png. Read world_xyz
 // directly instead of eyeballing a pixel. camera "wrist" uses the wrist world
 // map for fine refinement (move the eef over the target first). Pass
-// "point":[row,col] for a point prompt instead of text. min_score default 0.2.
-// Needs a configured SAM3 service; if it is down or finds nothing the result is
+// "point":[row,col] for a point prompt instead of text; prompt and point are
+// mutually exclusive. min_score default 0.2.
+// RPent manages the SAM3 service. If one call fails or finds nothing, the result is
 // an {"error":...,"fallback":...} dict — fall back to picking a pixel in
 // image_cam_hi_NN.png and calling back_project.
 segment({"prompt": "the black bowl on the stove", "camera": "agentview",
@@ -402,7 +403,7 @@ beats eyeballing 3–5 pixels. Workflow:
 
 1. Read `image_cam_hi_NN.png`, decide the target by the task's spatial RELATION.
 2. Call `segment` with a **plain visual phrase + the relation**, then read the
-   returned `world_xyz` and the `segment_overlay_NN_XX.png` to confirm the mask
+   returned `world_xyz` and the `segments/segment_overlay_NN_XX.png` to confirm the mask
    is on the right object before you move.
 3. **Two camera views — YOUR choice via the `"camera"` field** (`segment` works
    on either; default `"agentview"`):

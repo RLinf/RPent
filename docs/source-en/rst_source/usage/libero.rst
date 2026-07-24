@@ -11,16 +11,38 @@ The default VLA is **Pi0.5**, served over HTTP by
 VLA configuration
 -----------------
 
-Pi0.5 needs one thing: a checkpoint on disk. Point at it via
-``PI05_CHECKPOINT_PATH``:
+Download the recommended SFT checkpoint
+`RLinf-Pi05-LIBERO-130-fullshot-SFT
+<https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_,
+then point at it via ``PI05_CHECKPOINT_PATH``:
 
 .. code-block:: bash
 
+   hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
+     --local-dir /path/to/rlinf-pi05-libero-130-fullshot-sft
+
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 
-Download the recommended SFT checkpoint from HuggingFace:
-`RLinf-Pi05-LIBERO-130-fullshot-SFT
-<https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_.
+SAM3 configuration
+------------------
+
+SAM 3.0 segmentation is enabled for every LIBERO run. Download ``sam3.pt``
+from either source below, then point at it via ``SAM3_CHECKPOINT_PATH``:
+
+.. code-block:: bash
+
+   # Hugging Face (request access on the model page first)
+   hf auth login
+   hf download facebook/sam3 sam3.pt --local-dir /path/to/sam3
+
+   # ModelScope (use this instead of the Hugging Face commands above)
+   modelscope download --model facebook/sam3 sam3.pt --local_dir /path/to/sam3
+
+   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+
+Download the checkpoint from `Hugging Face: facebook/sam3
+<https://huggingface.co/facebook/sam3>`_ or `ModelScope: facebook/sam3
+<https://modelscope.cn/models/facebook/sam3>`_.
 
 Task selection
 --------------
@@ -88,6 +110,9 @@ What runs where
 - **vla_server** (``robots/libero/vla_server.py``) — owns the Pi0.5
   weights. Exposes ``predict`` over the same RPC transport (HTTP or
   socket).
+- **sam3_server** (``robots/libero/sam3_server.py``) — owns SAM 3.0 and
+  exposes text or single-positive-point segmentation through the same RPC
+  transports (HTTP or socket). It returns only the top compressed PNG mask.
 - **Toolkit** (``robots/libero/toolkit.py``) — defines the tools the
   LLM can call: ``pi0_pick`` (fed to Pi0.5), ``move_to``,
   ``rotate_wrist``, ``back_project``, ``view_driver_state``,
@@ -106,6 +131,10 @@ By default the LIBERO toolkit exposes:
 - ``release()`` — open the gripper.
 - ``back_project(pixel_x, pixel_y)`` — turn a click on the agentview
   image into a 3D point in world coordinates.
+- ``segment(prompt=..., point=...)`` — run SAM3 with exactly one text prompt
+  or one ``[row, col]`` positive point, then project the top mask to
+  ``world_xyz``. The mask remains internal; the planner receives summary and
+  artifact paths.
 - ``view_driver_state()`` — force a fresh state dump (images, depths,
   camera meta, ``states.json``).
 - ``finish(status)`` — end the episode with ``success`` / ``failure``

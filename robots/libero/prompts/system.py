@@ -472,13 +472,14 @@ USE `pi0_doubled` for the drawer/door step, alternating with short capped OSC
 pushes/aligns as needed. Re-prove the cell from scratch; do not inherit the
 dead-end verdict.
 
-OPTIONAL localization aid — `segment` (no robot motion): instead of eyeballing
+SAM3 localization aid — `segment` (no robot motion): instead of eyeballing
 a pixel, call `segment({"prompt":"the black bowl on the cookies box",
 "camera":"agentview"})`. It runs SAM3 on the current image, back-projects the
-mask via the matching world map, and writes `segment_NN_XX.json` with a robust
-median `world_xyz` (+ a `segment_overlay_NN_XX.png` to confirm the right
+mask via the matching world map, and writes `segments/segment_NN_XX.json` with a robust
+median `world_xyz` (+ a `segments/segment_overlay_NN_XX.png` to confirm the right
 object). Use `camera":"wrist"` (after parking the eef ~15–20 cm over the
 target) for ±1–2 cm refinement, or `"point":[row,col]` for a point prompt.
+Text `prompt` and `point` are mutually exclusive; provide exactly one.
 ⚠ PROMPT PHRASING (SAM3 is sensitive): use a plain colour+shape+RELATION phrase,
 NEVER the internal/brand name from `object_names`/BDDL. `"the akita black bowl"`
 scores ~0.03 (SAM3 can't ground "akita") whereas `"the black bowl on the stove"`

@@ -50,21 +50,8 @@ VLA server 用同一套 ``predict`` / ``healthz`` 方法, 同时支持 HTTP (JSO
 与 socket (pickle-framed) 两种传输, 通过 ``--transport {http,socket}``
 选择 (默认 ``http``)。设计理由参见 :doc:`../development/add_robot`。
 
-复用一个已在运行的 VLA server
------------------------------
-
-每一个 VLA server 都设计成 **可跨 run 复用**。用 ``--vla-endpoint``
-指向已在跑的实例, 而不是每次都启动新实例:
-
-.. code-block:: bash
-
-   rpent --env libero --vla-endpoint http://localhost:8000 \
-     --suite libero_object_swap --task 2 --seed 0 --planner api \
-     --model anthropic:claude-opus-4-8
-
-``--vla-endpoint`` 接受 ``[protocol://]host:port`` 格式, protocol 可为
-``http`` (默认) 或 ``socket``。同样的规则适用于 ``--env-endpoint``
-(复用已有的 env_server)。
+独立服务、远程 endpoint 与跨 run 模型复用参见
+:doc:`advanced_deployment`。
 
 新增全新的 primitive 家族
 -------------------------
