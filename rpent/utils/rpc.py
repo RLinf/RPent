@@ -49,9 +49,10 @@ def wait_for_ready(
         if daemon is not None:
             rc = daemon.poll()
             if rc is not None:
+                detail = last_err if last_err is not None else "no healthz attempt yet"
                 raise RuntimeError(
                     f"{daemon.name} exited with code {rc} before becoming "
-                    f"ready; check its log. last healthz error: {last_err}"
+                    f"ready; check its log. last healthz error: {detail}"
                 )
         try:
             client.call("healthz", timeout_s=1.0)
