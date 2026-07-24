@@ -20,12 +20,11 @@ Export your Anthropic key, plus the paths to the VLA and SAM3 checkpoints:
    # VLA checkpoint — download from
    # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+
    # SAM 3.0 checkpoint — download from either
    # https://huggingface.co/facebook/sam3
    # https://modelscope.cn/models/facebook/sam3
    export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
-   export LIBERO_TYPE=pro
-   export CUDA_VISIBLE_DEVICES=0
 
 2. Run one LIBERO task
 ----------------------
@@ -38,8 +37,8 @@ Run a single LIBERO PRO task (``libero_object_swap``, task ``2``, seed
    rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
 
-See :doc:`usage/configure_planner` to configure other planners
-(``api``, ``codex``) and model providers.
+To switch to another planner, such as ``codex`` or ``api``, see
+:doc:`Agentic Planner <usage/configure_planner>`.
 
 3. Monitor the run in the Dashboard
 -----------------------------------
@@ -59,7 +58,9 @@ replays. Use ``--dashboard-language zh-cn`` for the Chinese UI.
 Key CLI options
 ---------------
 
-The most common flags of ``rpent`` at a glance:
+The table lists only the options needed for a first run. Run
+``rpent --help`` for other general options. See the
+:doc:`LIBERO guide <usage/libero>` for detailed environment configuration.
 
 .. list-table::
    :header-rows: 1
@@ -70,7 +71,7 @@ The most common flags of ``rpent`` at a glance:
      - Description
    * - ``--env``
      - required
-     - Environment backend. Currently ``libero``.
+     - Environment backend, e.g. ``libero``
    * - ``--suite``
      - required
      - Task suite, e.g. ``libero_object_task``, ``libero_spatial_swap``
@@ -87,46 +88,9 @@ The most common flags of ``rpent`` at a glance:
      - —
      - Model id; for ``api``, prefix the provider (``anthropic:…``,
        ``openai:…``, ``openai-chat:…``)
-   * - ``--max-turns``
-     - ``100``
-     - Max agent turns
-   * - ``--max-tokens``
-     - ``8192``
-     - Max tokens per LLM reply for the ``api`` planner
-   * - ``--no-images``
-     - off
-     - Text-only mode for the ``api`` planner: never send image bytes
-       (for models that reject image input)
-   * - ``--max-episode-steps``
-     - ``10000``
-     - Max env steps
-   * - ``--libero-type``
-     - ``LIBERO_TYPE`` or ``pro``
-     - LIBERO variant: ``standard`` | ``pro`` | ``plus``
-   * - ``--cuda-device``
-     - inherited
-     - GPU device(s) exposed to ``env_server``, ``vla_server``, and
-       ``sam3_server``
    * - ``--dashboard``
      - off
      - Start a local Dashboard service for this run
-   * - ``--dashboard-language``
-     - ``en``
-     - Dashboard UI language: ``en`` | ``zh-cn``
-   * - ``--env-endpoint``
-     - — (spawn)
-     - ``[protocol://]host:port`` of an existing env_server
-       (``protocol=http|socket``, default ``http``). If unset,
-       one is spawned locally.
-   * - ``--vla-endpoint``
-     - — (spawn)
-     - ``[protocol://]host:port`` of an existing vla_server (same rules).
-       If unset, one is spawned locally.
-   * - ``--sam3-endpoint``
-     - — (spawn)
-     - ``[protocol://]host:port`` of an existing RPent SAM3 service
-       (``protocol=http|socket``, default ``http``). If unset,
-       one is spawned locally.
 
 What you should see
 -------------------

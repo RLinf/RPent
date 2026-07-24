@@ -22,7 +22,7 @@ RoboCasa 覆盖标准厨房 benchmark:
 Toolkit 与 LIBERO 的差异
 ------------------------
 
-RoboCasa toolkit 的工具 *形状* 和 LIBERO 相同 (一次 primitive 调用、
+RoboCasa toolkit 的工具 *形状* 和 LIBERO 相同 (一次原语调用、
 一次状态查看、一次 ``finish``), 但有两处是 RoboCasa 特有的:
 
 - **Env 侧的辅助方法。** 抓取检测与动作组装需要活着的仿真 env, 所以

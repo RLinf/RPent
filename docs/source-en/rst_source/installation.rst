@@ -1,9 +1,8 @@
 Installation
 ============
 
-RPent installs with a single ``pip install``. The optional-dependency
-extras install the published RLinf runtime, openpi, and LIBERO simulator
-packages from PyPI.
+RPent installs with a single ``pip install`` and provides several optional
+dependency combinations.
 
 Prerequisites
 -------------
@@ -17,12 +16,6 @@ You will also want:
 
 - An API key for at least one LLM provider — Anthropic, OpenAI, or an
   OpenAI-compatible chat endpoint — for the planner.
-- A VLA checkpoint. For LIBERO / Pi0.5 the recommended checkpoint lives
-  at `HuggingFace: RLinf-Pi05-LIBERO-130-fullshot-SFT
-  <https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_.
-- A local SAM 3.0 ``sam3.pt`` file, downloaded from `Hugging Face:
-  facebook/sam3 <https://huggingface.co/facebook/sam3>`_ or `ModelScope:
-  facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_.
 
 1. Install RPent with pip
 -------------------------
@@ -60,8 +53,8 @@ Available extras:
    * - ``.[sam3]``
      - SAM 3.0 only
 
-2. Download the LIBERO simulator assets
----------------------------------------
+2. Download the assets required to run LIBERO
+---------------------------------------------
 
 The Python packages installed with pip do not include the large resource
 files required to run LIBERO. Choose one command based on the extra

@@ -19,12 +19,11 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
    # VLA checkpoint —— 从下面地址下载
    # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+
    # SAM 3.0 checkpoint —— 从以下任一地址下载
    # https://huggingface.co/facebook/sam3
    # https://modelscope.cn/models/facebook/sam3
    export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
-   export LIBERO_TYPE=pro
-   export CUDA_VISIBLE_DEVICES=0
 
 2. 跑一个 LIBERO 任务
 ---------------------
@@ -37,8 +36,8 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
    rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
 
-其他 planner（``api``、``codex``）与模型提供商的配置见
-:doc:`usage/configure_planner`。
+若要切换到其他 planner（如 ``codex`` 或 ``api``），请参阅
+:doc:`Agentic Planner <usage/configure_planner>`。
 
 3. 通过 Dashboard 查看运行过程
 ------------------------------
@@ -54,7 +53,9 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 关键 CLI 选项
 -------------
 
-``rpent`` 日常最常用的几个选项：
+下表只列出完成首次运行需要关注的选项。其他通用选项可运行
+``rpent --help`` 查看；有关 LIBERO 环境的更多配置，请参阅
+:doc:`LIBERO 使用指南 <usage/libero>`。
 
 .. list-table::
    :header-rows: 1
@@ -65,7 +66,7 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
      - 说明
    * - ``--env``
      - 必填
-     - 环境后端。当前支持 ``libero``。
+     - 环境后端，如 ``libero``
    * - ``--suite``
      - 必填
      - 任务套件，如 ``libero_object_task``、``libero_spatial_swap``
@@ -82,42 +83,9 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
      - —
      - 模型 ID；``api`` planner 需要模型提供商前缀
        （``anthropic:…``、``openai:…``、``openai-chat:…``）
-   * - ``--max-turns``
-     - ``100``
-     - 智能体最大轮数
-   * - ``--max-tokens``
-     - ``8192``
-     - ``api`` planner 每次 LLM 回复的最大 token 数
-   * - ``--no-images``
-     - 关
-     - ``api`` planner 的纯文本模式：不向模型发送图片字节（用于不支持图片输入的模型）
-   * - ``--max-episode-steps``
-     - ``10000``
-     - 环境最大步数
-   * - ``--libero-type``
-     - ``LIBERO_TYPE`` 或 ``pro``
-     - LIBERO 变体：``standard`` | ``pro`` | ``plus``
-   * - ``--cuda-device``
-     - 继承当前环境
-     - ``env_server``、``vla_server`` 和 ``sam3_server`` 可见的 GPU 设备
    * - ``--dashboard``
      - 关
      - 为本次运行启动本地 Dashboard 服务
-   * - ``--dashboard-language``
-     - ``en``
-     - Dashboard 界面语言：``en`` | ``zh-cn``
-   * - ``--env-endpoint``
-     - —（自动启动）
-     - 已在运行的 env_server 的 ``[protocol://]host:port``
-       （``protocol=http|socket``，默认 ``http``）。留空时在本地启动一个。
-   * - ``--vla-endpoint``
-     - —（自动启动）
-     - 已在运行的 vla_server 的 ``[protocol://]host:port``\ （规则同上）。
-       留空时在本地启动一个。
-   * - ``--sam3-endpoint``
-     - —（自动启动）
-     - 已在运行的 sam3_server 的 ``[protocol://]host:port``\ （规则同上）。
-       留空时在本地启动一个。
 
 运行结果
 --------
