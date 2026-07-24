@@ -8,7 +8,7 @@ with the ``claude_code`` planner to demonstrate a complete run.
 1. Configure keys and checkpoints
 ---------------------------------
 
-Export your Anthropic key, plus the path to the VLA checkpoint:
+Export your Anthropic key, plus the paths to the VLA and SAM3 checkpoints:
 
 .. code-block:: bash
 
@@ -20,6 +20,10 @@ Export your Anthropic key, plus the path to the VLA checkpoint:
    # VLA checkpoint — download from
    # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+   # SAM 3.0 checkpoint — download from either
+   # https://huggingface.co/facebook/sam3
+   # https://modelscope.cn/models/facebook/sam3
+   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
    export LIBERO_TYPE=pro
    export CUDA_VISIBLE_DEVICES=0
 
@@ -101,7 +105,8 @@ The most common flags of ``rpent`` at a glance:
      - LIBERO variant: ``standard`` | ``pro`` | ``plus``
    * - ``--cuda-device``
      - inherited
-     - GPU device(s) exposed to ``env_server`` and ``vla_server``
+     - GPU device(s) exposed to ``env_server``, ``vla_server``, and
+       ``sam3_server``
    * - ``--dashboard``
      - off
      - Start a local Dashboard service for this run
@@ -117,13 +122,19 @@ The most common flags of ``rpent`` at a glance:
      - — (spawn)
      - ``[protocol://]host:port`` of an existing vla_server (same rules).
        If unset, one is spawned locally.
+   * - ``--sam3-endpoint``
+     - — (spawn)
+     - ``[protocol://]host:port`` of an existing RPent SAM3 service
+       (``protocol=http|socket``, default ``http``). If unset,
+       one is spawned locally.
 
 What you should see
 -------------------
 
 A successful run:
 
-1. Shows startup messages for ``env_server`` and ``vla_server`` in the terminal.
+1. Shows startup messages for ``env_server``, ``vla_server``, and
+   ``sam3_server`` in the terminal.
 2. Prints per-turn agent output and tool calls in the terminal, followed
    by the elapsed time, token usage, and path to the run record.
 3. With the Dashboard enabled, also streams agent output, camera views,
@@ -137,5 +148,5 @@ A successful run:
 After the run, inspect the final record in ``states.json``:
 ``libero_terminated`` set to ``true`` means LIBERO judged the task complete.
 You can also open ``episode.mp4`` to review the run.
-If something goes wrong, inspect the three log files described at the
+If something goes wrong, inspect the four log files described at the
 bottom of :doc:`installation`.

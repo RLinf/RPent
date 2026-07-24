@@ -22,34 +22,22 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import queue
 import shlex
 import sys
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 
-from robots.libero.env_client import LiberoEnvClient
 from rpent.cli.tui import (
     start_first_prompt_resolver,
     start_interactive_reader,
 )
 from rpent.envs import get_env_spec, get_toolkit
 from rpent.planner.base import build_planner
-from rpent.utils.config import (
-    get_libero_type,
-    get_repo_root,
-)
-from rpent.utils.daemon import ProcessDaemon, pick_free_port
-from rpent.utils.http_rpc import HttpRpcClient
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
-from rpent.utils.rpc import RpcClient, wait_for_ready
-from rpent.utils.socket_rpc import SocketRpcClient
-from rpent.utils.vla_client import VLAClient
 
 logger = get_logger("agent")
 
@@ -144,170 +132,20 @@ def _build_argparser() -> argparse.ArgumentParser:
     return ap
 
 
-def _build_env_parser(env_name: str) -> argparse.ArgumentParser:
-    """Build an env-specific argument parser for the remaining CLI args."""
-    ap = argparse.ArgumentParser()
-    if env_name == "libero":
-        ap.add_argument("--max-episode-steps", type=int, default=10000)
-        ap.add_argument("--libero-type", default=None,
-                        choices=["standard", "pro", "plus"],
-                        help="LIBERO variant. Defaults to LIBERO_TYPE, then pro.")
-        ap.add_argument("--suite", default=None,
-                        help="e.g. libero_object_task, libero_spatial_swap")
-        ap.add_argument("--task", type=int, default=None)
-        ap.add_argument("--seed", type=int, default=0)
-        ap.add_argument("--env-endpoint", default=None,
-                        help="[protocol://]host:port of an existing env_server "
-                             "(protocol=http|socket, defaults to http). "
-                             "If unset, a local env_server is spawned.")
-        ap.add_argument("--vla-endpoint", default=None,
-                        help="[protocol://]host:port of an existing vla_server "
-                             "(protocol=http|socket, defaults to http). "
-                             "If unset, a local vla_server is spawned.")
-        ap.add_argument("--cuda-device", default=None,
-                        help="GPU device(s) to expose via CUDA_VISIBLE_DEVICES.")
-    else:
-        assert False, f"unsupported env: {env_name}"
-    return ap
-
-
-def _parse_endpoint(endpoint: str) -> tuple[str, str, int]:
-    """Parse ``[protocol://]host:port`` into ``(protocol, host, port)``.
-
-    Protocol defaults to ``http`` when the prefix is omitted.
-    """
-    if "://" in endpoint:
-        protocol, _, rest = endpoint.partition("://")
-    else:
-        protocol, rest = "http", endpoint
-    host, _, port = rest.partition(":")
-    if not host or not port:
-        raise ValueError(f"endpoint must be [protocol://]host:port, got {endpoint!r}")
-    return protocol, host, int(port)
-
-
-def _subprocess_env(cuda_device: str | None, **extra: str) -> dict[str, str]:
-    """Build the env dict for a subprocess: inherit from parent, apply
-    ``--cuda-device`` uniformly, layer optional extras on top.
-
-    If ``cuda_device`` is None, ``CUDA_VISIBLE_DEVICES`` is left as inherited
-    (respecting whatever the parent shell set). If given, it wins.
-    """
-    env = os.environ.copy()
-    if cuda_device is not None:
-        env["CUDA_VISIBLE_DEVICES"] = str(cuda_device)
-    env.update(extra)
-    return env
-
-
-def _init_libero(
-    args: argparse.Namespace,
-    output_dir,
-) -> tuple[list[ProcessDaemon], dict]:
-    """Spawn env + vla daemons and build primitives_kwargs for LIBERO.
-
-    Each server can be spawned or attached-to independently: pass an
-    endpoint to attach, or leave it unset to spawn a local subprocess.
-    """
-    daemons: list[ProcessDaemon] = []
-    libero_type = args.libero_type or get_libero_type()
-
-    # --- env_server --------------------------------------------------------
-    if args.env_endpoint is None:
-        host, port = "127.0.0.1", pick_free_port()
-        env_daemon = ProcessDaemon(
-            name="env_server",
-            cmd=[
-                sys.executable,
-                str(get_repo_root() / "robots" / "libero" / "env_server.py"),
-                "--suite", args.suite,
-                "--task", str(args.task),
-                "--seed", str(args.seed),
-                "--max-episode-steps", str(args.max_episode_steps),
-                "--transport", "http",
-                "--host", host,
-                "--port", str(port),
-            ],
-            env=_subprocess_env(
-                args.cuda_device,
-                LIBERO_TYPE=libero_type,
-                MUJOCO_GL="egl",
-                ROBOT_PLATFORM="LIBERO",
-            ),
-            log_path=str(Path(output_dir) / "env_server.log"),
-        )
-        env_daemon.start()
-        daemons.append(env_daemon)
-        env_client: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-        wait_for_ready(env_client)
-    else:
-        protocol, host, port = _parse_endpoint(args.env_endpoint)
-        if protocol == "socket":
-            env_client = SocketRpcClient(host, port)
-        elif protocol == "http":
-            env_client = HttpRpcClient(f"http://{host}:{port}")
-        else:
-            raise ValueError(
-                f"--env-endpoint protocol must be socket or http, got {protocol!r}"
-            )
-
-    # --- vla_server --------------------------------------------------------
-    if args.vla_endpoint is None:
-        host, port = "127.0.0.1", pick_free_port()
-        vla_daemon = ProcessDaemon(
-            name="vla_server",
-            cmd=[
-                sys.executable,
-                str(get_repo_root() / "robots" / "libero" / "vla_server.py"),
-                "--transport", "http",
-                "--host", host,
-                "--port", str(port),
-            ],
-            env=_subprocess_env(args.cuda_device),
-            log_path=str(Path(output_dir) / "vla_server.log"),
-        )
-        vla_daemon.start()
-        daemons.append(vla_daemon)
-        vla_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-        wait_for_ready(vla_rpc)
-    else:
-        protocol, host, port = _parse_endpoint(args.vla_endpoint)
-        if protocol == "socket":
-            vla_rpc = SocketRpcClient(host, port)
-        elif protocol == "http":
-            vla_rpc = HttpRpcClient(f"http://{host}:{port}")
-        else:
-            raise ValueError(
-                f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
-            )
-
-    primitives_kwargs = {
-        "env": LiberoEnvClient(
-            env_client,
-            expected_meta={
-                "suite": args.suite,
-                "task": args.task,
-                "seed": args.seed,
-                "max_episode_steps": args.max_episode_steps,
-            },
-        ),
-        "model": VLAClient(vla_rpc),
-    }
-    return daemons, primitives_kwargs
-
-
 def main() -> int:
     parser = _build_argparser()
-    args, remaining = parser.parse_known_args()
+    # Two-phase argparse: first grab --env / --dashboard so we know which
+    # env's flags to add and whether to make its required flags optional.
+    early, _ = parser.parse_known_args()
 
-    env_parser = _build_env_parser(args.env_name)
-    env_args = env_parser.parse_args(remaining)
-    for k, v in vars(env_args).items():
-        setattr(args, k, v)
+    env_spec = get_env_spec(early.env_name)
+    env_spec.add_cli_args(parser, use_dashboard=early.dashboard)
+    args = parser.parse_args()
 
     # With --dashboard, open the launcher first: serve the start screen, then
     # block until the user clicks Run and overlay their choices onto args.
-    # Everything downstream (output_dir, State, run loop) then sees final args.
+    # parse_config runs afterwards so validation + derivation see the final
+    # config.
     dashboard_server = None
     dashboard_url = None
     launch_config = None
@@ -332,21 +170,16 @@ def main() -> int:
         )
         apply_to_args(args, launch_config)
 
-    if not args.suite:
-        parser.error("--suite is required")
-    if args.task is None:
-        parser.error("--task is required")
+    run_config = env_spec.parse_config(args)
+    recipe_tag = run_config.recipe_tag
+    output_dir = run_config.output_dir
+    prompt_vars = run_config.prompt_vars
+    dashboard_state = run_config.dashboard_state
+    task_desc = run_config.task_desc
 
-    suite = args.suite
-    task = args.task
-    seed = args.seed
     env_name = args.env_name
 
-    # resolve output directory
-    output_dir = args.output_dir
-    if output_dir is None:
-        timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
-        output_dir = get_repo_root() / "logs" / f"{timestamp}_{suite}_t{task}_s{seed}"
+    # mkdir + logging wiring (env-side already picked the path).
     output_dir = init_output_dir(output_dir, verbose=args.verbose)
     # Now that output_dir is fixed, repeat launcher details into this run's log.
     if dashboard_url is not None:
@@ -357,22 +190,8 @@ def main() -> int:
 
     ensure_resources(env_name)
 
-    recipe_tag = f"{suite.replace('libero_', '')}_t{task}_s{seed}"
-
     # --- dashboard state ---------------------------------------------------
-    dashboard_state = None
-    if args.dashboard and dashboard_server is not None:
-        from rpent.dashboard.state import State
-
-        dashboard_state = State(
-            run_id=f"{suite}/{output_dir.name}",
-            name=recipe_tag,
-            suite=suite,
-            task=task,
-            seed=seed,
-            output_dir=str(output_dir),
-            video_path=str(Path(output_dir) / "episode.mp4"),
-        )
+    if dashboard_state is not None and dashboard_server is not None:
         # Server is already serving the launcher; register the run so the
         # frontend can switch from the start screen to the live monitor.
         dashboard_server.register(dashboard_state)
@@ -390,16 +209,9 @@ def main() -> int:
         dashboard=dashboard_state,
         no_images=args.no_images,
     )
-    env_spec = get_env_spec(env_name)
     prompt_bundle = env_spec.prompts
 
-    prompt_vars = {
-        "suite": suite,
-        "task": task,
-        "seed": seed,
-        "output_dir": output_dir,
-        "recipe_tag": recipe_tag,
-    }
+    prompt_vars = {**prompt_vars, "output_dir": output_dir}
     system_prompt = prompt_bundle.render(
         "system",
         variables=prompt_vars,
@@ -427,7 +239,7 @@ def main() -> int:
         await_first_prompt = start_first_prompt_resolver(input_queue)
 
     # --- initialise environment --------------------------------------------
-    daemons, primitives_kwargs = _init_libero(args, output_dir)
+    daemons, primitives_kwargs = env_spec.init_runtime(args, output_dir)
 
     # --- toolkit -----------------------------------------------------------
     toolkit = get_toolkit(
@@ -475,7 +287,8 @@ def main() -> int:
 
     transcript_path = Path(output_dir) / f"transcript_{recipe_tag}.json"
     record = {
-        "suite": suite, "task": task, "seed": seed, "model": args.model,
+        **task_desc,
+        "model": args.model,
         "elapsed_s": round(elapsed, 1),
         "finish": finish_result,
         "stats": stats,

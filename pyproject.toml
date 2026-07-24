@@ -68,7 +68,13 @@ libero-plus = [
     "rlinf-liberoplus",
 ]
 full = [
-    "rpent[rlinf,openpi,libero-pro]",
+    "rpent[rlinf,openpi,libero-pro,sam3]",
+]
+sam3 = [
+    "sam3==0.1.4",
+    "torch",
+    "torchvision",
+    "pillow>=10",
 ]
 
 [tool.uv]

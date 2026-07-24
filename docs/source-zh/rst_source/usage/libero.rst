@@ -10,15 +10,38 @@ LIBERO
 VLA 配置
 --------
 
-使用 Pi0.5 前，将 ``PI05_CHECKPOINT_PATH`` 指向本地 checkpoint 目录：
+下载推荐的 SFT checkpoint
+`RLinf-Pi05-LIBERO-130-fullshot-SFT
+<https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_，
+再将 ``PI05_CHECKPOINT_PATH`` 指向本地 checkpoint 目录：
 
 .. code-block:: bash
 
+   hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
+     --local-dir /path/to/rlinf-pi05-libero-130-fullshot-sft
+
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 
-推荐的 SFT checkpoint 可以从 HuggingFace 下载:
-`RLinf-Pi05-LIBERO-130-fullshot-SFT
-<https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_。
+SAM3 配置
+---------
+
+每次 LIBERO 运行都默认启用 SAM 3.0 分割。可以用以下任一方式下载
+``sam3.pt``，再通过 ``SAM3_CHECKPOINT_PATH`` 指定本地 checkpoint:
+
+.. code-block:: bash
+
+   # Hugging Face（需要先在模型页面申请访问权限）
+   hf auth login
+   hf download facebook/sam3 sam3.pt --local-dir /path/to/sam3
+
+   # ModelScope（与上面的 Hugging Face 命令二选一）
+   modelscope download --model facebook/sam3 sam3.pt --local_dir /path/to/sam3
+
+   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+
+SAM 3.0 checkpoint 可以从以下页面下载:
+`Hugging Face: facebook/sam3 <https://huggingface.co/facebook/sam3>`_、
+`ModelScope: facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_。
 
 任务选择
 --------
@@ -89,6 +112,9 @@ Position/P2，``_lan`` 是 Semantic，``_object`` 是 Object。
   ``get_camera_meta``、``cached_image``…
 - **vla_server** (``robots/libero/vla_server.py``) —— 持有 Pi0.5
   权重, 通过同一套 RPC 传输 (HTTP 或 socket) 暴露 ``predict``。
+- **sam3_server** (``robots/libero/sam3_server.py``) —— 持有 SAM 3.0,
+  通过同一套 RPC 传输 (HTTP 或 socket) 支持文本或单个正点分割, 只返回
+  top-1 压缩 PNG mask。
 - **Toolkit** (``robots/libero/toolkit.py``) —— 定义 LLM 能调的工具:
   ``pi0_pick`` (交给 Pi0.5)、``move_to``、``rotate_wrist``、
   ``back_project``、``view_driver_state``、``finish``…
@@ -111,8 +137,8 @@ Planner 能看到的工具
   控制夹爪。
 - ``release(...)`` —— 打开夹爪。
 - ``back_project(row, col, ...)`` —— 将图像像素反投影到世界坐标。
-- ``segment(prompt=... / point=..., ...)`` —— 对已有图像进行文本或点提示
-  分割。
+- ``segment(prompt=... / point=..., ...)`` —— 通过 SAM3 对已有图像进行文本或
+  点提示分割。
 - ``view_driver_state(step=None)`` —— 读取已有的状态和图像记录。
 - ``view_camera_meta(camera=..., step=None)`` —— 读取已有的相机元数据。
 - ``finish(status, summary)`` —— 结束当前运行。

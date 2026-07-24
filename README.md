@@ -84,14 +84,14 @@ RPent is built upon three core design principles: **service-oriented, standardiz
 
 ## Quick Start
 
-**1. Install RPent with a single `pip install`.** 
+**1. Install RPent with a single `pip install`.**
 
 ```bash
 git clone https://github.com/RLinf/RPent rpent && cd rpent
 pip install -e ".[full]"
 ```
 
-`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator on the RLinf runtime).
+`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator + SAM 3.0 on the RLinf runtime).
 If you don't need the whole stack, see the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for narrower extras.
 
 **2. Download the LIBERO-PRO simulator assets.**
@@ -114,6 +114,10 @@ export ANTHROPIC_API_KEY=sk-xxx
 # VLA checkpoint — download from
 # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
 export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+# SAM 3.0 checkpoint — download from
+# https://huggingface.co/facebook/sam3
+# https://modelscope.cn/models/facebook/sam3
+export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
 export LIBERO_TYPE=pro
 export CUDA_VISIBLE_DEVICES=0
 
@@ -168,11 +172,12 @@ For more detailed documentation, see the [RPent documentation](https://rpent.rea
     <tr><td><code>--no-images</code></td><td>off</td><td>Text-only mode: never send image bytes (for models that reject image input)</td></tr>
     <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>Max env steps</td></tr>
     <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> or <code>pro</code></td><td>LIBERO variant: <code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
-    <tr><td><code>--cuda-device</code></td><td>inherited</td><td>GPU device(s) exposed to the env / vla servers</td></tr>
+    <tr><td><code>--cuda-device</code></td><td>inherited</td><td>GPU device(s) exposed to the env / VLA / SAM3 servers</td></tr>
     <tr><td><code>--dashboard</code></td><td>off</td><td>Start the local dashboard for this run</td></tr>
     <tr><td><code>--dashboard-language</code></td><td><code>en</code></td><td>Dashboard UI language: <code>en</code> | <code>zh-cn</code></td></tr>
     <tr><td><code>--env-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing env_server (<code>protocol=http|socket</code>, default <code>http</code>). If unset, one is spawned locally.</td></tr>
     <tr><td><code>--vla-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing vla_server (same rules). If unset, one is spawned locally.</td></tr>
+    <tr><td><code>--sam3-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing RPent SAM3 service (same rules). If unset, one is spawned locally.</td></tr>
   </tbody>
 </table>
 

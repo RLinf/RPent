@@ -122,8 +122,9 @@ primitive driver 方法，以及调用完成后的状态快照。区别仅在于
               video_path=video_path,
           )
 
-   ``rpent/cli/main.py`` 会传入 ``{"env": MyRobotEnvClient(...),
-   "model": MyModelClient(...)}``。
+   然后 env 的 ``_init_runtime`` 会构造 ``primitives_kwargs`` 为
+   ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``, 由
+   toolkit 构造器转发给 primitive driver。
 
 在多次运行间复用 vla_server
 ---------------------------

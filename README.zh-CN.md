@@ -91,8 +91,9 @@ git clone https://github.com/RLinf/RPent rpent && cd rpent
 pip install -e ".[full]"
 ```
 
-`.[full]` 是默认的端到端依赖组合，包括 openpi Pi0.5 VLA、LIBERO-PRO 仿真器和 RLinf 运行时。
-如果不需要完整组合，更小的 extra 见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
+`.[full]` 是默认的端到端依赖组合，包括 openpi Pi0.5 VLA、LIBERO-PRO 仿真器、
+SAM 3.0 和 RLinf 运行时。如果不需要完整组合，更小的 extra
+见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
 
 **2. 下载 LIBERO-PRO 仿真资产。**
 
@@ -114,6 +115,10 @@ export ANTHROPIC_API_KEY=sk-xxx
 # VLA checkpoint —— 从以下地址下载：
 # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
 export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+# SAM 3.0 checkpoint —— 从以下地址下载：
+# https://huggingface.co/facebook/sam3
+# https://modelscope.cn/models/facebook/sam3
+export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
 export LIBERO_TYPE=pro
 export CUDA_VISIBLE_DEVICES=0
 
@@ -179,11 +184,12 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
     <tr><td><code>--no-images</code></td><td>关</td><td>纯文本模式：不向模型发送图片字节（用于不支持图片输入的模型）</td></tr>
     <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>环境最大步数</td></tr>
     <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> 或 <code>pro</code></td><td>LIBERO 类型：<code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
-    <tr><td><code>--cuda-device</code></td><td>继承当前环境</td><td>env_server 和 vla_server 可见的 GPU 设备</td></tr>
+    <tr><td><code>--cuda-device</code></td><td>继承当前环境</td><td>env_server、vla_server 和 sam3_server 可见的 GPU 设备</td></tr>
     <tr><td><code>--dashboard</code></td><td>关</td><td>为本次运行启动本地 Dashboard</td></tr>
     <tr><td><code>--dashboard-language</code></td><td><code>en</code></td><td>Dashboard 界面语言：<code>en</code> | <code>zh-cn</code></td></tr>
     <tr><td><code>--env-endpoint</code></td><td>—（自动启动）</td><td>已在运行的 env_server 的 <code>[protocol://]host:port</code>（<code>protocol=http|socket</code>，默认 <code>http</code>）。留空时自动启动本地实例。</td></tr>
     <tr><td><code>--vla-endpoint</code></td><td>—（自动启动）</td><td>已在运行的 vla_server 的 <code>[protocol://]host:port</code>（同上）。留空时自动启动本地实例。</td></tr>
+    <tr><td><code>--sam3-endpoint</code></td><td>—（自动启动）</td><td>已在运行的 sam3_server 的 <code>[protocol://]host:port</code>（同上）。留空时自动启动本地实例。</td></tr>
   </tbody>
 </table>
 

@@ -51,21 +51,8 @@ HTTP（JSON）和 socket（pickle-framed）两种传输方式。可通过
 ``--transport {http,socket}`` 选择，默认为 ``http``。设计理由参见
 :doc:`../development/add_robot`。
 
-复用正在运行的 VLA server
--------------------------
-
-VLA server 可以在多次运行之间复用。使用 ``--vla-endpoint`` 连接已经运行的
-实例，无需每次重新启动：
-
-.. code-block:: bash
-
-   rpent --env libero --vla-endpoint http://localhost:8000 \
-     --suite libero_object_swap --task 2 --seed 0 \
-     --planner claude_code --model claude-opus-4-8
-
-``--vla-endpoint`` 接受 ``[protocol://]host:port`` 格式，其中 protocol
-可以是 ``http``（默认）或 ``socket``。``--env-endpoint`` 采用相同格式，
-用于复用正在运行的 ``env_server``。
+独立服务、远程 endpoint 和跨运行复用模型的方法参见
+:doc:`advanced_deployment`。
 
 新增 primitive 类别
 -------------------

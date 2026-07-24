@@ -56,22 +56,8 @@ HTTP (JSON) and socket (pickle-framed) transports; pick whichever suits
 the observation shape via ``--transport {http,socket}`` (defaults to
 ``http``). See :doc:`../development/add_robot` for the design rationale.
 
-Reusing a running VLA server
-----------------------------
-
-Every VLA server is designed to be **shared across runs**. Point at an
-already-running instance with ``--vla-endpoint`` instead of spawning a
-new one each time:
-
-.. code-block:: bash
-
-   rpent --env libero --vla-endpoint http://localhost:8000 \
-     --suite libero_object_swap --task 2 --seed 0 \
-     --planner claude_code --model claude-opus-4-8
-
-``--vla-endpoint`` accepts ``[protocol://]host:port``. Protocol may be
-``http`` (default) or ``socket``. The same applies to
-``--env-endpoint`` for reusing an env_server.
+For standalone services, remote endpoints, and cross-run model reuse, see
+:doc:`advanced_deployment`.
 
 Adding a brand-new primitive family
 -----------------------------------
