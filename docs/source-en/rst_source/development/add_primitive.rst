@@ -1,13 +1,12 @@
 Add an Action Primitive
 =======================
 
-An *action primitive* in RPent is anything that turns a tool call
-into an executable action for the environment. It can be a learned
-policy (a VLA, a WAM, a diffusion planner) or a scripted routine
-(``move_to``, ``open_gripper``). This page walks through how to add
-one, whichever family it falls into.
+An *action primitive* in RPent turns a tool call into an action that
+the environment can execute. It can be a learned policy (a VLA, a WAM,
+a diffusion planner) or a scripted routine (``move_to``,
+``open_gripper``). This page explains how to add either type.
 
-Two shapes of primitive
+Two types of primitives
 -----------------------
 
 .. list-table::
@@ -15,34 +14,34 @@ Two shapes of primitive
    :widths: 25 40 35
 
    * - Family
-     - Runs where
+     - Execution location
      - Examples
    * - **Model-based**
        (VLA / WAM / diffusion / …)
-     - Own process (``vla_server``). Called via a *model client* the
-       toolkit holds.
+     - Runs in its own process (``vla_server``) and is called through
+       a *model client* held by the toolkit.
      - Pi0.5 (LIBERO), RLDX-1 (RoboCasa)
    * - **Scripted**
        (kinematic / heuristic)
-     - Agent process, sometimes with a driver-side RPC for the
-       kinematics. No model weights.
+     - Runs in the agent process, with an optional driver-side RPC for
+       kinematics. It does not load model weights.
      - ``move_to``, ``rotate_wrist``, ``release``,
        ``back_project``
 
-Both shapes surface to the LLM in the same way: a tool schema, a
-primitive-driver method, and a state dump after the call. What
-differs is only *what the method does*.
+From the LLM's perspective, both types expose the same interface: a
+tool schema, a primitive-driver method, and a state dump after the
+call. They differ only in how the method is implemented.
 
 Add a scripted primitive
 ------------------------
 
-Scripted primitives are the fastest to add. Pattern:
+Adding a scripted primitive usually involves three steps:
 
-1. **Method on the primitive driver.** Add a method on your env's
-   primitive driver class (e.g. ``LiberoPrimitives``,
-   ``MyRobotPrimitives``). It takes the tool's kwargs, does the
-   work — usually one or more ``self._env.step(...)`` calls — and
-   returns a small ``dict`` log.
+1. **Add a method to the primitive driver.** Add the method to the
+   current environment's primitive-driver class, such as
+   ``LiberoPrimitives`` or ``MyRobotPrimitives``. The method accepts
+   the tool-call arguments, performs the work, usually through one or
+   more ``self._env.step(...)`` calls, and returns a small log ``dict``.
 
    .. code-block:: python
 
@@ -52,7 +51,7 @@ Scripted primitives are the fastest to add. Pattern:
               self._env.step(build_open_drawer_chunk(dx))
           return {"ok": True, "dx": dx}
 
-2. **Tool schema.** Add an entry to ``TOOLS_SPEC`` in
+2. **Add the tool schema.** Add an entry to ``TOOLS_SPEC`` in
    ``toolkit.py``:
 
    .. code-block:: python
@@ -68,46 +67,49 @@ Scripted primitives are the fastest to add. Pattern:
           },
       }
 
-3. **Register in the toolkit.** Route the tool through the toolkit's
-   ``_step`` helper so it re-renders state after running:
+3. **Register the tool in the toolkit.** Route it through the toolkit's
+   ``_step`` helper so that state is re-rendered after execution:
 
    .. code-block:: python
 
       self.add_tool("open_drawer", OPEN_DRAWER_SPEC,
                     lambda **kw: self._step("open_drawer", **kw))
 
-The primitive is now callable by ``api``, ``claude_code``, and
-``codex`` planners — no other changes needed.
+After these steps, the ``api``, ``claude_code``, and ``codex`` planners
+can all call the primitive without any other code changes.
+
+.. _add-primitive-model-based:
 
 Add a VLA (or other model-based primitive)
 ------------------------------------------
 
-Model-based primitives require a bit more scaffolding because the
-model runs in its own process. Pattern:
+Because the model runs in its own process, adding a model-based
+primitive requires a few additional components:
 
-1. **Write a ``vla_server.py``**. Own only the model weights and the
-   CUDA context. Subclass :class:`rpent.utils.rpc.RpcFacade` and
+1. **Write ``vla_server.py``.** This process owns only the model weights
+   and CUDA context. Subclass :class:`rpent.utils.rpc.RpcFacade` and
    expose your model methods (e.g. ``predict``) via ``_dispatch``:
 
-   - Default transport is **HTTP** (JSON over ``POST /call``); fine
-     for flat ``image + state`` payloads (LIBERO / Pi0.5 pattern).
+   - The default transport is **HTTP** (JSON over ``POST /call``),
+     which works well for flat ``image + state`` payloads such as the
+     LIBERO / Pi0.5 pattern.
    - Switch to **socket RPC** (``--transport socket``) if your obs is
      a nested dict of numpy arrays with history stacks (avoids the
      JSON re-encode overhead).
 
-   ``RpcFacade.serve`` takes care of transport binding, ``healthz``,
-   ``shutdown``, and parent-death shutdown — you only write the
-   model-specific methods.
+   ``RpcFacade.serve`` handles transport binding, ``healthz``,
+   ``shutdown``, parent-death detection, and resource cleanup. You
+   only need to implement the model-specific methods.
 
-2. **Write a model client**. A tiny class wrapping an
-   :class:`rpent.utils.rpc.RpcClient` (either
-   :class:`HttpRpcClient` or :class:`SocketRpcClient`) that exposes
-   your model's business API. See ``rpent.utils.vla_client.VLAClient``
-   as the LIBERO reference.
+2. **Write a model client.** Create a lightweight class that wraps an
+   :class:`rpent.utils.rpc.RpcClient` (either :class:`HttpRpcClient` or
+   :class:`SocketRpcClient`) and exposes the model's API.
+   See ``rpent.utils.vla_client.VLAClient`` for the LIBERO implementation.
 
-3. **Add a primitive-driver method.** In your env's primitive-driver
-   class, call the model client, forward the returned chunk to the
-   env, and return a log dict:
+3. **Add a method to the primitive driver.** In the current
+   environment's primitive-driver class, call the model client, pass
+   the returned action chunk to the environment, and return a log
+   ``dict``:
 
    .. code-block:: python
 
@@ -117,11 +119,12 @@ model runs in its own process. Pattern:
           self._env.chunk_step(chunk)
           return {"model": "mymodel", "target": target}
 
-4. **Add the tool schema** and register it in the toolkit (same
-   pattern as the scripted case above).
+4. **Add the tool schema and register it in the toolkit.** Follow the
+   same pattern as for a scripted primitive.
 
-5. **Wire it up in ``__init__.py``**. Your env's ``get_toolkit``
-   builds the toolkit with the right ``primitives_kwargs``:
+5. **Wire the components together in ``__init__.py``.** The
+   environment's ``get_toolkit`` builds the toolkit with
+   ``primitives_kwargs``:
 
    .. code-block:: python
 
@@ -132,37 +135,36 @@ model runs in its own process. Pattern:
               video_path=video_path,
           )
 
-   And the env's ``_init_runtime`` will build ``primitives_kwargs`` as
-   ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}`` for
-   the toolkit constructor to forward to the primitive driver.
+   The environment package's ``_init_runtime`` builds
+   ``primitives_kwargs``, for example
+   ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``.
+   The toolkit constructor then forwards it to the primitive driver.
 
 Reuse an existing vla_server across runs
 ----------------------------------------
 
-Model servers are expensive to start (weight-loading dominates). The
-runner supports pointing at an already-running one:
+Model servers often take a long time to start, so the runner can
+connect to an instance that is already running:
 
 .. code-block:: bash
 
    rpent --env libero --vla-endpoint http://vla-host:8000 ...
 
-Design your ``vla_server`` to be **stateless across tasks** — reset
-its per-episode state through an explicit ``vla_reset`` RPC — so a
-single process can serve many sequential runs safely.
+If the model keeps per-episode state, expose a ``vla_reset`` RPC and
+call it between tasks. The same server process can then be reused safely
+across sequential runs.
 
 Design principles for a new primitive
 -------------------------------------
 
 - **Tools describe intent, not motion.** A good tool name is
-  ``pi0_pick``, not ``execute_action_chunk_of_length_20``. The LLM
-  picks tools by name; make the name self-explanatory.
+  ``pi0_pick``, not ``execute_action_chunk_of_length_20``.
 - **Every tool ends with a state dump.** The next turn depends on
   the state dump reflecting the post-action world. Don't let the
   primitive return before the render finishes.
-- **Return small dicts.** Tool return values are fed back to the
-  LLM as text. Keep them under a few hundred bytes; large payloads
-  go into the state dump (images, depths, ``states.json``) where
-  they'll ride image content blocks instead.
+- **Return small dicts.** Tool return values are fed back to the LLM
+  as text. Store larger content, such as images, depth data, and
+  ``states.json``, in the state dump instead.
 - **Guardrails belong in env_server**, not in the toolkit. The LLM
   can and will call any tool with any arguments; workspace bounds
   and safety clamps must be enforced on the driver side.
@@ -182,6 +184,6 @@ The same pattern extends to non-VLA model primitives:
   ``vla_server`` can host several models; the tool decides which
   head to call via a ``model`` kwarg on ``vla_infer``.
 
-Whatever the shape, the framework contract is unchanged: model
-process → model client → primitive-driver method → tool schema →
-``Toolkit.add_tool``.
+Regardless of the implementation, the framework contract remains
+unchanged: model process → model client → primitive-driver method →
+tool schema → ``Toolkit.add_tool``.

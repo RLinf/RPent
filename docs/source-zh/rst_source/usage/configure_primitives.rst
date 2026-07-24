@@ -1,37 +1,37 @@
-Action Primitives
-=================
+动作原语
+========
 
-Planner 决定 *做什么*, 而 **action primitive** 决定 *怎么做*。所谓 primitive
-就是把一次 tool 调用 (``pi0_pick``、``move_to``、``open_drawer``…) 变成
-一段可以直接送给 environment 执行的动作。
+planner 决定执行什么操作，而 **动作原语** 决定如何执行。每个原语
+都会将一次工具调用（如 ``pi0_pick``、``move_to`` 或
+``rotate_wrist``）转换成一段可由环境直接执行的动作。
 
-RPent 内置支持两大类 primitive:
+RPent 内置两类原语：
 
-- **VLA 策略** (Vision-Language-Action 模型)。跑在专门的 ``vla_server``
-  进程里, 把 GPU 权重与物理引擎隔离; toolkit 通过 per-env 的 model
-  client 调用它。例如 Pi0.5 (LIBERO)、RLDX-1 (RoboCasa)。
-- **脚本化 primitive**。确定性运动, 如 ``move_to``、``rotate_wrist``、
-  ``release`` 或 ``back_project``。它们放在 agent 侧 (不需要 VLA
-  权重), 通过 ``env_server`` 的 RPC 调用。
+- **VLA 策略**：VLA 模型运行在独立的 ``vla_server``
+  进程中，将 GPU 权重与物理引擎隔离。toolkit 通过各环境对应的 model
+  client 调用模型，例如 Pi0.5（LIBERO）和 RLDX-1（RoboCasa）。
+- **脚本化原语**：用于执行 ``move_to``、``rotate_wrist``、
+  ``release`` 和 ``back_project`` 等确定性动作。这类原语位于
+  agent 侧，不需要加载 VLA 权重，并通过 RPC 调用 ``env_server``。
 
-具体到每一种机器人的配置 (哪个 VLA、checkpoint 路径、tool surface),
-参见对应的 environment 页: :doc:`libero`、:doc:`robocasa`、
+各环境的具体配置，例如使用哪个 VLA、checkpoint 路径以及对外提供的工具，
+请参考对应的环境页面：:doc:`libero`、:doc:`robocasa`、
 :doc:`franka`、:doc:`so101`。
 
-不同 environment 用哪个 VLA
----------------------------
+各环境使用的 VLA
+----------------
 
 .. list-table::
    :header-rows: 1
    :widths: 25 25 25 25
 
-   * - Environment / 机器人
+   * - 环境 / 机器人
      - 默认 VLA
      - 传输协议
-     - Server
+     - 服务实现
    * - LIBERO (仿真)
      - Pi0.5
-     - HTTP 或 socket RPC (``--transport``)
+     - HTTP 或 socket RPC
      - ``robots/libero/vla_server.py``
    * - RoboCasa (仿真)
      - RLDX-1
@@ -46,16 +46,18 @@ RPent 内置支持两大类 primitive:
      - socket RPC
      - ``robots/so101/vla_server.py`` *(规划中)*
 
-VLA server 用同一套 ``predict`` / ``healthz`` 方法, 同时支持 HTTP (JSON)
-与 socket (pickle-framed) 两种传输, 通过 ``--transport {http,socket}``
-选择 (默认 ``http``)。设计理由参见 :doc:`../development/add_robot`。
+VLA server 通过统一的 ``predict`` 和 ``healthz`` 方法提供服务，并支持
+HTTP（JSON）和 socket（pickle-framed）两种传输方式。直接启动 VLA server
+时，可通过服务端的
+``--transport {http,socket}`` 选项选择传输方式，默认为 ``http``。
+设计理由参见 :doc:`../development/add_robot`。
 
-独立服务、远程 endpoint 与跨 run 模型复用参见
+独立服务、远程 endpoint 和跨运行复用模型的方法参见
 :doc:`advanced_deployment`。
 
-新增全新的 primitive 家族
--------------------------
+新增原语类别
+------------
 
 如果要接入的既不是 VLA 也不是脚本化运动 —— 比如一个
-WAM (World Action Model)、扩散规划器、或 MPC primitive ——
+WAM (World Action Model)、Diffusion Policy 或 MPC 原语 ——
 参见 :doc:`../development/add_primitive`。
