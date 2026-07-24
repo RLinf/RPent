@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 import imageio.v2 as imageio
@@ -865,10 +866,8 @@ def _append_state(output_dir: str, blob: dict) -> None:
 def write_recipe_from_states(output_dir: str, recipe_tag: str) -> str:
     """Find a command sequence that gets ``libero_terminated=True``.
 
-    Export only non-error LIBERO primitive commands (move_to, pi0_pick,
-    release, set_gripper, rotate_*, move_pose). Exclude inspection/file/
-    finalization tools such as Read, Bash, back_project, view_driver_state,
-    write_text_file, and finish.
+    Export non-error LIBERO primitive commands from ``states.json`` and
+    successful segment calls from ``segments/segment_*.json``.
     """
     states_path = os.path.join(output_dir, "states.json")
     states = json.load(open(states_path)) if os.path.exists(states_path) else []
@@ -883,8 +882,8 @@ def write_recipe_from_states(output_dir: str, recipe_tag: str) -> str:
         "move_pose",
     }
 
-    commands = []
-    for entry in states:
+    command_events = []
+    for step_idx, entry in enumerate(states):
         if not entry:
             continue
         command = entry.get("command")
@@ -895,12 +894,34 @@ def write_recipe_from_states(output_dir: str, recipe_tag: str) -> str:
         result = entry.get("result")
         if isinstance(result, dict) and result.get("error"):
             continue
-        commands.append(command)
+        command_events.append(((step_idx, -1), command))
+
+    for artifact in (Path(output_dir) / "segments").glob("segment_*.json"):
+        with artifact.open() as f:
+            segment = json.load(f)
+        if segment.get("error"):
+            continue
+        if segment["mode"] == "text":
+            command = {
+                "action": "segment",
+                "prompt": segment["prompt"],
+                "camera": segment["camera"],
+            }
+        else:
+            command = {
+                "action": "segment",
+                "point": segment["point"],
+                "camera": segment["camera"],
+            }
+        source_step = int(segment["source_step"])
+        event_order = (source_step, int(segment["segment_index"]))
+        command_events.append((event_order, command))
 
     recipe_path = os.path.join(output_dir, f"recipe_{recipe_tag}.jsonl")
     tmp_path = recipe_path + ".tmp"
+    command_events.sort(key=lambda event: event[0])
     with open(tmp_path, "w") as f:
-        for command in commands:
+        for _, command in command_events:
             f.write(json.dumps(command, separators=(",", ":")) + "\n")
     os.replace(tmp_path, recipe_path)
     return recipe_path
