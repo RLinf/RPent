@@ -11,13 +11,7 @@
           src="https://github.com/RLinf/misc/raw/main/pic/rpent_logo.png"
           alt="RPent logo" />
      <p class="rpent-hero-subtitle">
-       RPent (Recursive Physical Agent) 是一个用于构建具身智能体的开放
-       框架, 让智能体通过与物理世界的递归交互持续演进。RPent 不预设某个
-       具体的基础模型, 而是提供一个递归智能体框架, 将异构智能能力 ——
-       感知 (perception)、推理 (reasoning)、记忆 (memory)、执行
-       (execution)、自我演进 (self-evolution) —— 统一到一个物理智能体中。
-       通过持续的交互、反思与适应, RPent 让物理智能体获得超出其初始
-       设计的新能力。
+       RPent（Recursive Physical Agent）是一个开源框架，用于构建能够在与物理世界的递归交互中持续演进的具身智能体。RPent 不限定基础模型的选择，而是提供一套递归的智能体框架，将感知（perception）、推理（reasoning）、记忆（memory）、执行（execution）和自我演进（self-evolution）等不同类型的智能能力整合到统一的物理智能体中。物理智能体在持续交互中不断反思和调整，从而获得新能力，逐步突破初始设计的能力边界。
      </p>
    </div>
 
@@ -29,8 +23,8 @@
       :link-type: doc
       :text-align: center
 
-      RPent 的基本概念、五芒星与 ∞ logo 的含义，
-      以及高层架构概览。
+      介绍 RPent 的基本概念、五芒星与 ∞ 标志的含义，
+      以及整体架构。
 
    .. grid-item-card:: 安装
       :link: rst_source/installation
@@ -45,7 +39,7 @@
       :link-type: doc
       :text-align: center
 
-      配置 API key 和 checkpoint，完整运行一个 LIBERO 任务。
+      配置 LLM API key 和 checkpoint，端到端运行一个 LIBERO 任务。
 
    .. grid-item-card:: 使用教程
       :link: rst_source/usage/configure_planner

@@ -46,7 +46,7 @@ Welcome to RPent
       :link-type: doc
       :text-align: center
 
-      Configure API keys and the VLA checkpoint, then run one LIBERO
+      Configure an LLM API key and the VLA checkpoint, then run one LIBERO
       task end-to-end.
 
    .. grid-item-card:: Usage Tutorial

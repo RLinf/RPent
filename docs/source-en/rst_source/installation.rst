@@ -54,17 +54,22 @@ Available extras:
    * - ``.[rlinf]``
      - RLinf runtime only
 
-2. Download the simulator assets
---------------------------------
+2. Download the LIBERO simulator assets
+---------------------------------------
 
-The PyPI wheels ship without the large simulation assets. Download them
-once after installing:
+The Python packages installed with pip do not include the large resource
+files required to run LIBERO. Choose one command based on the extra
+installed above. For the recommended ``.[full]`` extra, run the second
+command:
 
 .. code-block:: bash
 
-   libero-download-assets --skip-existing      # base LIBERO
-   liberopro-download-assets --skip-existing   # LIBERO-PRO — .[libero-pro] / .[full]
-   liberoplus-download-assets --skip-existing  # LIBERO-plus — .[libero-plus]
+   libero-download-assets --skip-existing      # .[libero]
+   liberopro-download-assets --skip-existing   # .[libero-pro] / .[full]
+   liberoplus-download-assets --skip-existing  # .[libero-plus]
+
+These resources usually need to be downloaded only once;
+``--skip-existing`` skips files that are already present.
 
 .. tip::
 
@@ -83,17 +88,16 @@ robot's driver ships as a package under ``robots/<name>/`` with its own
 ``README.md`` describing the SDK / firmware requirements. See
 :doc:`usage/franka` and :doc:`usage/so101` for the current status.
 
-Verifying the install
----------------------
+Checking the installation
+-------------------------
 
 The quickest way to confirm everything is wired correctly is to run one
 LIBERO task end-to-end — see :doc:`quickstart`. If that succeeds, the
-env server, VLA server, and planner are all healthy.
+env server, VLA server, and agent are all healthy.
 
 If something breaks:
 
-- The env server writes its stdout / stderr to
-  ``<output_dir>/env_server.log``.
+- The env server log is at ``<output_dir>/env_server.log``.
 - The VLA server writes to ``<output_dir>/vla_server.log``.
 - The agent's own run log lives at ``<output_dir>/run.log``.
 

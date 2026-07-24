@@ -1,9 +1,9 @@
 Quick Start
 ===========
 
-This page ports the ``README.md`` Quick Start into the documentation.
-It assumes you have already followed :doc:`installation` (RPent cloned
-and ``pip install -e ".[full]"`` completed).
+Before you begin, follow :doc:`installation` to install RPent and
+download the LIBERO-PRO simulator assets. The steps below use LIBERO-PRO
+with the ``claude_code`` planner to demonstrate a complete run.
 
 1. Configure keys and checkpoints
 ---------------------------------
@@ -37,10 +37,10 @@ Run a single LIBERO PRO task (``libero_object_swap``, task ``2``, seed
 See :doc:`usage/configure_planner` to configure other planners
 (``api``, ``codex``) and model providers.
 
-3. Watch it run in the dashboard
---------------------------------
+3. Monitor the run in the Dashboard
+-----------------------------------
 
-Add ``--dashboard`` to start a local dashboard server and print its URL
+Add ``--dashboard`` to start a local Dashboard service and print its URL
 in the terminal. Open the URL to confirm the configuration on the
 launcher screen. Once the run starts, the page streams the agent's
 reasoning, live camera and Pi0 views, an action timeline, and clip
@@ -49,7 +49,7 @@ replays. Use ``--dashboard-language zh-cn`` for the Chinese UI.
 .. code-block:: bash
 
    rpent --env libero --dashboard --dashboard-language zh-cn \
-     --suite libero_goal_task --task 1 --seed 0 \
+     --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
 
 Key CLI options
@@ -88,10 +88,11 @@ The most common flags of ``rpent`` at a glance:
      - Max agent turns
    * - ``--max-tokens``
      - ``8192``
-     - Max tokens per LLM reply
+     - Max tokens per LLM reply for the ``api`` planner
    * - ``--no-images``
      - off
-     - Text-only mode: never send image bytes (for models that reject image input)
+     - Text-only mode for the ``api`` planner: never send image bytes
+       (for models that reject image input)
    * - ``--max-episode-steps``
      - ``10000``
      - Max env steps
@@ -100,10 +101,10 @@ The most common flags of ``rpent`` at a glance:
      - LIBERO variant: ``standard`` | ``pro`` | ``plus``
    * - ``--cuda-device``
      - inherited
-     - GPU device(s) exposed to the env / vla servers
+     - GPU device(s) exposed to ``env_server`` and ``vla_server``
    * - ``--dashboard``
      - off
-     - Start the local dashboard for this run
+     - Start a local Dashboard service for this run
    * - ``--dashboard-language``
      - ``en``
      - Dashboard UI language: ``en`` | ``zh-cn``
@@ -122,14 +123,19 @@ What you should see
 
 A successful run:
 
-1. Prints ``RPC server listening on http://127.0.0.1:<port>`` once each
-   subprocess (env_server, vla_server) is up.
-2. Prints per-turn agent reasoning (or streams it to the dashboard).
-3. Ends when the LLM calls
-   ``finish(status="success", summary="task completed")``, or hits
-   ``--max-turns`` / ``--max-episode-steps``.
-4. Writes ``<output_dir>/transcript_*.json`` with the full turn-by-turn
-   record and ``<output_dir>/episode.mp4`` with the rendered rollout.
+1. Shows startup messages for ``env_server`` and ``vla_server`` in the terminal.
+2. Prints per-turn agent output and tool calls in the terminal, followed
+   by the elapsed time, token usage, and path to the run record.
+3. With the Dashboard enabled, also streams agent output, camera views,
+   the action timeline, and clip replays to the Dashboard.
+4. By default, artifacts are saved under
+   ``logs/<timestamp>_<suite>_t<task>_s<seed>/``. They include
+   ``transcript_*.json`` (run record), ``states.json`` (one record per
+   environment step), ``recipe_*.jsonl`` (action sequence), and
+   ``episode.mp4`` (episode video).
 
+After the run, inspect the final record in ``states.json``:
+``libero_terminated`` set to ``true`` means LIBERO judged the task complete.
+You can also open ``episode.mp4`` to review the run.
 If something goes wrong, inspect the three log files described at the
 bottom of :doc:`installation`.
