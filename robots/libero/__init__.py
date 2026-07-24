@@ -216,18 +216,19 @@ def _init_runtime(
         )
         env_daemon.start()
         daemons.append(env_daemon)
-        env_client: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-        wait_for_ready(env_client)
+        env_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
+        wait_for_ready(env_rpc, daemon=env_daemon)
     else:
         protocol, host, port = _parse_endpoint(args.env_endpoint)
         if protocol == "socket":
-            env_client = SocketRpcClient(host, port)
+            env_rpc = SocketRpcClient(host, port)
         elif protocol == "http":
-            env_client = HttpRpcClient(f"http://{host}:{port}")
+            env_rpc = HttpRpcClient(f"http://{host}:{port}")
         else:
             raise ValueError(
                 f"--env-endpoint protocol must be socket or http, got {protocol!r}"
             )
+        wait_for_ready(env_rpc)
 
     # --- vla_server --------------------------------------------------------
     if args.vla_endpoint is None:
@@ -247,7 +248,7 @@ def _init_runtime(
         vla_daemon.start()
         daemons.append(vla_daemon)
         vla_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-        wait_for_ready(vla_rpc)
+        wait_for_ready(vla_rpc, daemon=vla_daemon)
     else:
         protocol, host, port = _parse_endpoint(args.vla_endpoint)
         if protocol == "socket":
@@ -258,6 +259,7 @@ def _init_runtime(
             raise ValueError(
                 f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
             )
+        wait_for_ready(vla_rpc)
 
     # --- sam3_server -------------------------------------------------------
     if args.sam3_endpoint is None:
@@ -277,6 +279,7 @@ def _init_runtime(
         sam3_daemon.start()
         daemons.append(sam3_daemon)
         sam3_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
+        wait_for_ready(sam3_rpc, daemon=sam3_daemon)
     else:
         protocol, host, port = _parse_endpoint(args.sam3_endpoint)
         if protocol == "socket":
@@ -287,11 +290,11 @@ def _init_runtime(
             raise ValueError(
                 f"--sam3-endpoint protocol must be socket or http, got {protocol!r}"
             )
-    wait_for_ready(sam3_rpc)
+        wait_for_ready(sam3_rpc)
 
     primitives_kwargs = {
         "env": LiberoEnvClient(
-            env_client,
+            env_rpc,
             expected_meta={
                 "suite": args.suite,
                 "task": args.task,

@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from rpent.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from rpent.utils.daemon import ProcessDaemon
 
 logger = get_logger("rpc")
 
@@ -32,11 +35,24 @@ def wait_for_ready(
     *,
     timeout_s: float = 300.0,
     poll_interval_s: float = 0.5,
+    daemon: "ProcessDaemon | None" = None,
 ) -> None:
-    """Poll ``client.call("healthz")`` until it succeeds or ``timeout_s`` elapses."""
+    """Poll ``client.call("healthz")`` until it succeeds or ``timeout_s`` elapses.
+
+    If ``daemon`` is given and its subprocess exits before becoming ready,
+    fail fast with ``RuntimeError`` (carrying the exit code) instead of
+    blocking until ``timeout_s``.
+    """
     deadline = time.time() + timeout_s
     last_err: Exception | None = None
     while time.time() < deadline:
+        if daemon is not None:
+            rc = daemon.poll()
+            if rc is not None:
+                raise RuntimeError(
+                    f"{daemon.name} exited with code {rc} before becoming "
+                    f"ready; check its log. last healthz error: {last_err}"
+                )
         try:
             client.call("healthz", timeout_s=1.0)
             return
