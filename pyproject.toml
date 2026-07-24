@@ -16,6 +16,10 @@ keywords = [
     "agent-framework",
 ]
 classifiers = [
+    #   2 - Pre-Alpha
+    #   3 - Alpha
+    #   4 - Beta
+    #   5 - Production/Stable
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Robotics Enthusiasts",
@@ -63,12 +67,12 @@ libero-plus = [
     "rpent[libero]",
     "rlinf-liberoplus",
 ]
-full = [
-    "rpent[rlinf,openpi,libero-pro]",
-]
 lerobot = [
     "lerobot[feetech,intelrealsense,kinematics]>=0.5.2",
     "matplotlib",
+]
+full = [
+    "rpent[rlinf,openpi,libero-pro]",
 ]
 
 [tool.uv]
