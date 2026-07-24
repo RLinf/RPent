@@ -101,29 +101,42 @@ The runner (``rpent/cli/main.py``)
 
 ``rpent/cli/main.py`` is the choreographer. On each invocation it:
 
-1. Parses the CLI flags (:doc:`../quickstart` documents the ones you'll
-   use day-to-day).
-2. Creates the per-run scratch directory (``--output-dir`` or an
-   auto-generated one under ``runs/``).
-3. Pre-allocates a free port on the loopback for the **env_server**,
-   spawns it as a subprocess (with the port passed on the CLI), and
-   polls ``healthz`` via :func:`rpent.utils.rpc.wait_for_ready` until
-   the child is up.
-4. Does the same for the **vla_server**, or attaches to one via
-   ``--vla-endpoint`` when reusing a running instance.
-5. Builds the **toolkit** for the chosen env via the env's
-   ``get_toolkit(primitives_kwargs=...)`` factory, wiring in the env
-   client and the VLA client.
-6. Builds the **planner** via ``rpent.planner.base.build_planner``,
+1. Parses shared CLI flags (:doc:`../quickstart` documents the ones you'll
+   use day-to-day) with ``parse_known_args`` to grab ``--env`` and
+   ``--dashboard`` early.
+2. Resolves the env via ``get_env_spec(args.env_name)`` and calls
+   ``env_spec.add_cli_args(parser, use_dashboard=args.dashboard)`` — the env
+   registers its flags on the shared parser. ``use_dashboard=True`` makes
+   its otherwise-required flags optional so the dashboard can supply them.
+3. Runs ``parser.parse_args()`` once more against the now-complete parser —
+   a single argparse pass owns all validation and produces the final
+   ``args`` (with argparse's usual usage + error output on failure).
+4. If ``--dashboard`` is set, boots the launcher on ``args`` (whose
+   env-specific fields are populated from the CLI) and applies the user's
+   form choices back to it.
+5. Calls ``env_spec.parse_config(args)`` to derive a
+   :class:`~rpent.envs.RunConfig`
+   (``recipe_tag`` / ``output_dir`` / ``prompt_vars`` / ``dashboard_state``
+   / ``task_desc``). Under ``--dashboard``, this is where the env
+   enforces that its previously-optional flags were actually filled in.
+6. Calls ``init_output_dir`` to mkdir the per-run scratch dir and wire
+   ``run.log``.
+7. Calls ``env_spec.init_runtime(args, output_dir)`` — the env spawns its
+   own ``env_server`` + ``vla_server`` (or attaches to a running one via
+   ``--env-endpoint`` / ``--vla-endpoint``) and returns
+   ``(daemons, primitives_kwargs)``.
+8. Builds the **toolkit** via the env's ``get_toolkit(primitives_kwargs=...)``
+   factory.
+9. Builds the **planner** via ``rpent.planner.base.build_planner``,
    selecting one of ``api_loop.py`` / ``claude_code.py`` /
    ``codex.py`` based on ``--planner``.
-7. Runs the tool-calling loop, streams to the dashboard if
-   ``--dashboard`` is set, and on exit writes
-   ``<output_dir>/transcript_*.json`` plus ``<output_dir>/episode.mp4``.
+10. Runs the tool-calling loop, streams to the dashboard if
+    ``--dashboard`` is set, and on exit writes
+    ``<output_dir>/transcript_*.json`` plus ``<output_dir>/episode.mp4``.
 
 The runner is intentionally thin: everything env-specific lives under
 ``robots/<env>/``, and everything brain-specific lives under
-``rpent/planner/``.
+``rpent/planner/``. main.py imports no env-specific class or script.
 
 Env-side registry
 -----------------
@@ -136,8 +149,19 @@ factories the package exposes:
 .. code-block:: python
 
    # robots/myenv/__init__.py
-   def get_env_spec() -> EnvSpec: ...
+   def get_env_spec() -> EnvSpec: ...           # identity + prompts + runner hooks
    def get_toolkit(*, primitives_kwargs, video_path=None): ...
+
+``EnvSpec`` carries five fields:
+
+- ``name`` / ``prompts`` — env identity and the :class:`PromptBundle`.
+- ``add_cli_args(parser, use_dashboard) -> None`` — register env flags on
+  the shared argparse parser. ``use_dashboard`` toggles whether flags that
+  are normally required stay optional (dashboard fills them).
+- ``parse_config(args) -> RunConfig`` — validates final ``args``
+  (post-dashboard) and returns the derived per-run identifiers.
+- ``init_runtime(args, output_dir) -> (daemons, primitives_kwargs)`` —
+  spawns env / VLA subprocesses and returns the toolkit inputs.
 
 There is **no central list** of envs. Dropping a package under
 ``robots/`` is enough. This is the mechanism you use to add a new
