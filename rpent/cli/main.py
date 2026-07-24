@@ -83,8 +83,9 @@ def _build_argparser() -> argparse.ArgumentParser:
         description="Standalone hybrid LLM-in-the-loop agent for LIBERO PRO",
     )
 
-    ap.add_argument("--env", dest="env_name", required=True, choices=["libero"],
-                    help="Environment backend: libero.")
+    ap.add_argument("--env", dest="env_name", required=True,
+                    choices=["libero", "lerobot", "franka"],
+                    help="Environment backend: libero | lerobot | franka.")
 
     # models
     ap.add_argument("--planner", default="api",

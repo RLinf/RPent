@@ -21,8 +21,8 @@ classifiers = [
     #   4 - Beta
     #   5 - Production/Stable
     "Development Status :: 2 - Pre-Alpha",
-    "Environment :: GPU :: NVIDIA CUDA :: 12 :: 12.4",
     "Intended Audience :: Developers",
+    "Intended Audience :: Robotics Enthusiasts",
     "Programming Language :: Python :: 3",
 ]
 
@@ -67,6 +67,10 @@ libero-plus = [
     "rpent[libero]",
     "rlinf-liberoplus",
 ]
+lerobot = [
+    "lerobot[feetech,intelrealsense,kinematics]>=0.5.2",
+    "matplotlib",
+]
 full = [
     "rpent[rlinf,openpi,libero-pro]",
 ]
@@ -85,7 +89,7 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 [tool.ruff]
 line-length = 88
 indent-width = 4
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 isort = {known-first-party = ["rpent"]}
