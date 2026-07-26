@@ -328,6 +328,8 @@ def _build_argparser() -> argparse.ArgumentParser:
         default=None,
         help="GPU device(s) exposed through CUDA_VISIBLE_DEVICES.",
     )
+    parser.add_argument("--parent-watch", action="store_true",
+                        help="watch parent process via stdin pipe and exit when it dies")
     return parser
 
 
@@ -345,7 +347,8 @@ def main() -> None:
         )
     engine = Sam3Engine.load(checkpoint)
     facade = Sam3Facade(engine)
-    facade.serve(transport=args.transport, host=args.host, port=args.port)
+    facade.serve(transport=args.transport, host=args.host, port=args.port,
+                 parent_watch=args.parent_watch)
 
 
 if __name__ == "__main__":

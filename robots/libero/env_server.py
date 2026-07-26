@@ -291,6 +291,8 @@ def main():
     p.add_argument("--task", type=int, default=9)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max-episode-steps", type=int, default=600)
+    p.add_argument("--parent-watch", action="store_true",
+                   help="watch parent process via stdin pipe and exit when it dies")
     args = p.parse_args()
 
     raw_env = make_env(args.task, args.seed, suite_name=args.suite,
@@ -304,7 +306,8 @@ def main():
             "max_episode_steps": args.max_episode_steps,
         },
     )
-    facade.serve(transport=args.transport, host=args.host, port=args.port)
+    facade.serve(transport=args.transport, host=args.host, port=args.port,
+                 parent_watch=args.parent_watch)
 
 
 if __name__ == "__main__":
