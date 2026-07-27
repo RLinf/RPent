@@ -162,7 +162,7 @@ primitive driver 方法，以及调用完成后的状态快照。区别仅在于
 - **Diffusion Policy / MPC** —— 接口形式相同，但工具返回的动作可能是一段
   trajectory，而非单个 chunk，并由 ``env_server`` 按顺序执行。
 - **多个原语共享一个 server** —— 一个 ``vla_server`` 可以承载
-  多个模型，由工具通过 ``vla_infer`` 的 ``model`` kwarg 选择要调用的模型
+  多个模型，由工具通过 ``predict`` 的 ``model`` kwarg 选择要调用的模型
   或输出 head。
 
 无论具体实现如何，框架的契约都保持不变：模型进程 → model client →

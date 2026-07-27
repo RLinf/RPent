@@ -221,7 +221,7 @@ Anthropic API 的工具定义格式，包含 ``name``、``description`` 和
 - 用 ``self.add_tool(name, spec, handler)`` 注册每个工具。无状态的读取工具
   （如 ``view_driver_state``、``finish``）直接绑定模块级函数；原语工具通过
   ``_step(name, **kwargs)`` 调用。``_step`` 使用
-  ``getattr(self._driver, name)(**kwargs)`` 调用 driver 方法并重新渲染状态；
+  ``getattr(self._primitives, name)(**kwargs)`` 调用 driver 方法并重新渲染状态；
 - 重写 ``close()``，将 agent 侧生成的文件写入磁盘（例如 LIBERO toolkit
   在这里保存 agentview MP4）。
 

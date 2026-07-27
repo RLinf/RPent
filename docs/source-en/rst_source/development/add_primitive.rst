@@ -182,7 +182,7 @@ The same pattern extends to non-VLA model primitives:
   ``env_server`` steps it out.
 - **Multiple primitives sharing one server** — a single
   ``vla_server`` can host several models; the tool decides which
-  head to call via a ``model`` kwarg on ``vla_infer``.
+  head to call via a ``model`` kwarg on ``predict``.
 
 Regardless of the implementation, the framework contract remains
 unchanged: model process → model client → primitive-driver method →

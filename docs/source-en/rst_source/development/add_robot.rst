@@ -234,7 +234,7 @@ serializes whatever state the agent will read back via the ``view_*`` tools
 - register each tool with ``self.add_tool(name, spec, handler)`` — stateless
   readers (``view_driver_state``, ``finish``, …) bind directly to module-level
   functions; primitive tools route through ``_step(name, **kwargs)`` which
-  calls ``getattr(self._driver, name)(**kwargs)`` and re-renders state,
+  calls ``getattr(self._primitives, name)(**kwargs)`` and re-renders state,
 - override ``close()`` to write any remaining agent-side artifacts (e.g. the
   LIBERO toolkit saves the agentview MP4 there).
 

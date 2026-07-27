@@ -64,7 +64,7 @@ A single run is an LLM-in-the-loop cycle:
 1. The LLM reasons about the task and calls a tool
    (e.g. ``pi0_pick``).
 2. The tool's primitive driver requests an action from the ``vla_server``
-   (``predict`` / ``vla_infer``).
+   (``predict``).
 3. The ``env_server`` executes the action.
 4. The environment returns updated observations and camera frames.
 5. The results are assembled into text and image context and returned

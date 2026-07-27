@@ -54,7 +54,7 @@ LLM-in-the-loop 运行流程
 一次运行就是一段 LLM-in-the-loop 循环：
 
 1. LLM 分析任务、调一个工具 (如 ``pi0_pick``)。
-2. 工具的底层驱动向 ``vla_server`` 请求动作 (``predict`` / ``vla_infer``)。
+2. 工具的底层驱动向 ``vla_server`` 请求动作 (``predict``)。
 3. ``env_server`` 执行动作。
 4. 环境返回更新后的观测数据和相机画面。
 5. 执行结果会整理成由文本和图像组成的上下文，返回给 LLM 进行下一轮推理。
