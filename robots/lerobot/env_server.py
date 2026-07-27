@@ -1137,11 +1137,11 @@ class LerobotEnvFacade(RpcFacade):
 
 def _build_argparser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Standalone LeRobot SO101 env server")
-    p.add_argument("--port", default="/dev/ttyACM1",
+    p.add_argument("--serial-port", default="/dev/ttyACM0",
                    help="Serial port of the SO101 follower arm.")
     p.add_argument("--calibration-id", default="my_awesome_follower_arm",
                    help="LeRobot calibration id (loads <id>.json).")
-    p.add_argument("--arm-camera-path", default="/dev/video2",
+    p.add_argument("--arm-camera-path", default="/dev/v4l/by-id/usb-icSpring_icspring_camera-video-index0",
                    help="OpenCV device path for the arm/hand camera "
                         "(empty string to disable).")
     p.add_argument("--scene-camera-serial", default="409122274720",
@@ -1221,12 +1221,12 @@ def main() -> int:
     arm_camera_cfgs = _build_arm_camera_cfgs(args)
     scene_serial = None if args.no_cameras else (args.scene_camera_serial or None)
     logger.info(
-        "starting SO101 env server: port=%s output_dir=%s arm_cams=%s scene=%s",
-        args.port, args.output_dir, list(arm_camera_cfgs), scene_serial,
+        "starting SO101 env server: serial_port=%s rpc_port=%s output_dir=%s arm_cams=%s scene=%s",
+        args.serial_port, args.port, args.output_dir, list(arm_camera_cfgs), scene_serial,
     )
 
     env = SO101LeRobotEnv(
-        port=args.port,
+        port=args.serial_port,
         calibration_id=args.calibration_id,
         arm_camera_cfgs=arm_camera_cfgs,
         scene_serial=scene_serial,

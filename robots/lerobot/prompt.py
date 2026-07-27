@@ -136,11 +136,7 @@ WORKFLOW = Numbered([
 
 # --- user-prompt sections --------------------------------------------------
 
-USER_CONTEXT = {
-    "Task": """
-    Pick up the green cube on the table and place it in the white plate.
-    """,
-}
+USER_CONTEXT = """Pick up the green cube on the table."""
 
 
 # --- prompt tree factories -------------------------------------------------
@@ -160,4 +156,4 @@ def system_prompt() -> dict[str, PromptNode]:
 
 def user_prompt() -> dict[str, PromptNode]:
     """Return the first user message tree."""
-    return dict(USER_CONTEXT)
+    return USER_CONTEXT
