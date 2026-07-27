@@ -68,7 +68,7 @@ libero-plus = [
     "rlinf-liberoplus",
 ]
 lerobot = [
-    "lerobot[feetech,intelrealsense,kinematics]>=0.5.2",
+    "lerobot[feetech,intelrealsense,kinematics]>=0.4.4",
     "matplotlib",
 ]
 full = [
@@ -83,6 +83,14 @@ sam3 = [
 
 [tool.uv]
 prerelease = "allow"
+# lerobot is not co-installable with the RLinf stack (libero/openpi).
+conflicts = [
+    [{ extra = "lerobot" }, { extra = "openpi" }],
+    [{ extra = "lerobot" }, { extra = "libero" }],
+    [{ extra = "lerobot" }, { extra = "libero-pro" }],
+    [{ extra = "lerobot" }, { extra = "libero-plus" }],
+    [{ extra = "lerobot" }, { extra = "full" }],
+]
 
 [tool.setuptools]
 include-package-data = true
@@ -98,7 +106,7 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 [tool.ruff]
 line-length = 88
 indent-width = 4
-target-version = "py312"
+target-version = "py311"
 
 [tool.ruff.lint]
 isort = {known-first-party = ["rpent"]}
