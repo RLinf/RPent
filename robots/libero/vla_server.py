@@ -175,7 +175,12 @@ def main() -> None:
     )
     p.add_argument("--parent-watch", action="store_true",
                    help="watch parent process via stdin pipe and exit when it dies")
+    p.add_argument("--cuda-device", type=int, default=None,
+                   help="GPU device exposed through CUDA_VISIBLE_DEVICES.")
     args = p.parse_args()
+
+    if args.cuda_device is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
 
     model_path = args.model_path or get_pi05_checkpoint_path()
     if not model_path:
