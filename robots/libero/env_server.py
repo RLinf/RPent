@@ -25,10 +25,11 @@ if str(RLINF_REPO_PATH) not in sys.path:
     sys.path.insert(0, str(RLINF_REPO_PATH))
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
-# Heavy imports (numpy, torch, OmegaConf, LiberoEnv) are deferred into main()
-# after --cuda-device has been parsed and CUDA/EGL alignment is done.
-# All type annotations are lazy (from __future__ import annotations) and
-# function/class bodies only reference these modules at call time.
+import numpy as np
+import torch
+from omegaconf import OmegaConf
+
+from rlinf.envs.libero.libero_env import LiberoEnv
 
 
 # ---------------------------------------------------------------------------
@@ -282,8 +283,6 @@ class LiberoEnvFacade(RpcFacade):
 
 
 def main():
-    global np, torch, OmegaConf, LiberoEnv
-
     p = argparse.ArgumentParser()
     p.add_argument("--transport", choices=["socket", "http"], default="http")
     p.add_argument("--host", type=str, default="127.0.0.1")
@@ -302,12 +301,6 @@ def main():
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
         from rpent.utils.egl import configure_egl_device
         configure_egl_device(args.cuda_device)
-
-    import numpy as np
-    import torch
-    from omegaconf import OmegaConf
-
-    from rlinf.envs.libero.libero_env import LiberoEnv
 
     raw_env = make_env(args.task, args.seed, suite_name=args.suite,
                        max_episode_steps=args.max_episode_steps)

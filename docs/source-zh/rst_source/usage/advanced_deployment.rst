@@ -19,10 +19,10 @@ RPent 客户端完全一致。在环境主机上运行：
 .. code-block:: bash
 
    export LIBERO_TYPE=pro
-   export CUDA_VISIBLE_DEVICES=0
    python -m robots.libero.env_server \
      --suite libero_object_swap --task 2 --seed 0 \
      --max-episode-steps 10000 \
+     --cuda-device 0 \
      --transport http --host 0.0.0.0 --port ENV_PORT
 
 环境服务与任务绑定。需要修改上述任一参数时，请先停止旧服务再重新启动。
@@ -35,8 +35,8 @@ Pi0.5 VLA 服务
 .. code-block:: bash
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
-   export CUDA_VISIBLE_DEVICES=0
    python -m robots.libero.vla_server \
+     --cuda-device 0 \
      --transport http --host 0.0.0.0 --port VLA_PORT
 
 VLA 服务只加载一次模型，可以由多个 RPent 运行复用。
@@ -49,8 +49,8 @@ SAM3 服务
 .. code-block:: bash
 
    export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
-   export CUDA_VISIBLE_DEVICES=0
    python -m robots.libero.sam3_server \
+     --cuda-device 0 \
      --transport http --host 0.0.0.0 --port SAM3_PORT
 
 SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。

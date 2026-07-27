@@ -20,10 +20,10 @@ steps; those values must match the RPent client exactly. On the env host:
 .. code-block:: bash
 
    export LIBERO_TYPE=pro
-   export CUDA_VISIBLE_DEVICES=0
    python -m robots.libero.env_server \
      --suite libero_object_swap --task 2 --seed 0 \
      --max-episode-steps 10000 \
+     --cuda-device 0 \
      --transport http --host 0.0.0.0 --port ENV_PORT
 
 The environment service is task-bound. To change any of those parameters,
@@ -37,8 +37,8 @@ On the VLA host, set the checkpoint path and start the HTTP service:
 .. code-block:: bash
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
-   export CUDA_VISIBLE_DEVICES=0
    python -m robots.libero.vla_server \
+     --cuda-device 0 \
      --transport http --host 0.0.0.0 --port VLA_PORT
 
 The VLA service loads the model once and can be reused by multiple RPent runs.
@@ -51,8 +51,8 @@ On the SAM3 host, set the local checkpoint path and start the HTTP service:
 .. code-block:: bash
 
    export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
-   export CUDA_VISIBLE_DEVICES=0
    python -m robots.libero.sam3_server \
+     --cuda-device 0 \
      --transport http --host 0.0.0.0 --port SAM3_PORT
 
 The SAM3 service loads the model once and can be reused by multiple RPent runs.
