@@ -1,9 +1,8 @@
 Installation
 ============
 
-RPent installs with a single ``pip install``. The optional-dependency
-extras install the published RLinf runtime, openpi, and LIBERO simulator
-packages from PyPI.
+RPent installs with a single ``pip install`` and provides several optional
+dependency combinations.
 
 Prerequisites
 -------------
@@ -16,13 +15,7 @@ Prerequisites
 You will also want:
 
 - An API key for at least one LLM provider — Anthropic, OpenAI, or an
-  OpenAI-compatible chat endpoint — for the reasoning brain.
-- A VLA checkpoint. For LIBERO / Pi0.5 the recommended checkpoint lives
-  at `HuggingFace: RLinf-Pi05-LIBERO-130-fullshot-SFT
-  <https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_.
-- A local SAM 3.0 ``sam3.pt`` file, downloaded from `Hugging Face:
-  facebook/sam3 <https://huggingface.co/facebook/sam3>`_ or `ModelScope:
-  facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_.
+  OpenAI-compatible chat endpoint — for the planner.
 
 1. Install RPent with pip
 -------------------------
@@ -60,17 +53,22 @@ Available extras:
    * - ``.[sam3]``
      - SAM 3.0 only
 
-2. Download the simulator assets
---------------------------------
+2. Download the assets required to run LIBERO
+---------------------------------------------
 
-The PyPI wheels ship without the large simulation assets. Download them
-once after installing:
+The Python packages installed with pip do not include the large resource
+files required to run LIBERO. Choose one command based on the extra
+installed above. For the recommended ``.[full]`` extra, run the second
+command:
 
 .. code-block:: bash
 
-   libero-download-assets --skip-existing      # base LIBERO
-   liberopro-download-assets --skip-existing   # LIBERO-PRO — .[libero-pro] / .[full]
-   liberoplus-download-assets --skip-existing  # LIBERO-plus — .[libero-plus]
+   libero-download-assets --skip-existing      # .[libero]
+   liberopro-download-assets --skip-existing   # .[libero-pro] / .[full]
+   liberoplus-download-assets --skip-existing  # .[libero-plus]
+
+These resources usually need to be downloaded only once;
+``--skip-existing`` skips files that are already present.
 
 .. tip::
 
@@ -89,17 +87,16 @@ robot's driver ships as a package under ``robots/<name>/`` with its own
 ``README.md`` describing the SDK / firmware requirements. See
 :doc:`usage/franka` and :doc:`usage/so101` for the current status.
 
-Verifying the install
----------------------
+Checking the installation
+-------------------------
 
 The quickest way to confirm everything is wired correctly is to run one
-LIBERO task end-to-end — see :doc:`quickstart`. If it succeeds, the env server,
-VLA server, SAM3 server, and reasoning brain are all healthy.
+LIBERO task end-to-end — see :doc:`quickstart`. If that succeeds, the
+env server, VLA server, SAM3 server, and agent are all healthy.
 
 If something breaks:
 
-- The env server writes its stdout / stderr to
-  ``<output_dir>/env_server.log``.
+- The env server log is at ``<output_dir>/env_server.log``.
 - The VLA server writes to ``<output_dir>/vla_server.log``.
 - The SAM3 server writes to ``<output_dir>/sam3_server.log``.
 - The agent's own run log lives at ``<output_dir>/run.log``.

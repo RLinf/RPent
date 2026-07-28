@@ -85,8 +85,14 @@ class RpcFacade:
         transport: Literal["socket", "http"],
         host: str,
         port: int,
+        parent_watch: bool = False,
     ) -> None:
-        """Bind, announce, watch-parent, serve-forever, shut down cleanly."""
+        """Bind, announce, watch-parent, serve-forever, shut down cleanly.
+
+        When *parent_watch* is True, a background thread reads stdin (a pipe
+        from :class:`ProcessDaemon`) and triggers shutdown when the pipe
+        closes — i.e., when the parent process dies.
+        """
         from rpent.utils.daemon import watch_parent_death
         from rpent.utils.http_rpc import HttpRpcServer
         from rpent.utils.socket_rpc import SocketRpcServer
@@ -105,7 +111,8 @@ class RpcFacade:
         print(f"RPC server listening on {url}", flush=True)
         logger.info("RPC server listening on %s", url)
 
-        watch_parent_death(self._shutdown_event.set)
+        if parent_watch:
+            watch_parent_death(self._shutdown_event.set)
         try:
             threading.Thread(target=server.serve_forever, daemon=True).start()
             self._shutdown_event.wait()

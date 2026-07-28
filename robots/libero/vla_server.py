@@ -173,6 +173,8 @@ def main() -> None:
         default=None,
         help="Pi0.5 checkpoint (defaults to PI05_CHECKPOINT_PATH env)",
     )
+    p.add_argument("--parent-watch", action="store_true",
+                   help="watch parent process via stdin pipe and exit when it dies")
     args = p.parse_args()
 
     model_path = args.model_path or get_pi05_checkpoint_path()
@@ -183,7 +185,8 @@ def main() -> None:
         )
 
     facade = VLAFacade(model_path=model_path)
-    facade.serve(transport=args.transport, host=args.host, port=args.port)
+    facade.serve(transport=args.transport, host=args.host, port=args.port,
+                 parent_watch=args.parent_watch)
 
 
 if __name__ == "__main__":
