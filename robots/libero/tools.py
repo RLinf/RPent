@@ -177,8 +177,8 @@ class LiberoPrimitives:
             if descent_done and ascended and closed:
                 success = True
                 break
-            if self.env.episode_done:
-                success = True
+            if self.env.episode_terminated or self.env.episode_truncated:
+                success = self.env.episode_terminated
                 break
 
         return {
@@ -190,7 +190,7 @@ class LiberoPrimitives:
             "peak_lift_m": post_min_peak_z - min_z,  # actual post-descent ascent
             "min_gripper_opening": min_grip,
             "final_gripper_opening": last_grip,
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
             "diagnostics": {
                 "start_eef_z": round(start_z, 4),
                 "peak_eef_z": round(peak_z, 4),
@@ -223,8 +223,8 @@ class LiberoPrimitives:
         for c in range(max_chunks):
             self._vlm_chunk(instr)
             chunks_used = c + 1
-            if self.env.episode_done:
-                task_success = True
+            if self.env.episode_terminated or self.env.episode_truncated:
+                task_success = self.env.episode_terminated
                 break
 
         return {
@@ -235,7 +235,7 @@ class LiberoPrimitives:
             "contact_skill_executed": chunks_used > 0,
             "chunks_used": chunks_used,
             "max_chunks": max_chunks,
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
             "diagnostics": {
                 "mode": "contact_skill_success_by_libero_terminated",
                 "success_meaning": (
@@ -273,8 +273,8 @@ class LiberoPrimitives:
             if grip >= release_thresh:
                 success = True
                 break
-            if self.env.episode_done:
-                success = True
+            if self.env.episode_terminated or self.env.episode_truncated:
+                success = self.env.episode_terminated
                 break
 
         return {
@@ -286,7 +286,7 @@ class LiberoPrimitives:
             "peak_lift_m": peak_z - start_z,
             "min_gripper_opening": min_grip,
             "final_gripper_opening": last_grip,
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
             "diagnostics": {"release_thresh": release_thresh},
         }
 
@@ -344,7 +344,7 @@ class LiberoPrimitives:
             self.set_obs(obs)
             if self._recording:
                 self.record_frame(obs)
-            if self.env.episode_done:
+            if self.env.episode_terminated or self.env.episode_truncated:
                 break
         final = self._last_obs_eef_pos
         return {
@@ -354,7 +354,7 @@ class LiberoPrimitives:
             "final_dist_m": round(float(np.linalg.norm(target - final)), 4),
             "steps_used": len(traj),
             "max_steps": max_steps,
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
         }
 
     def rotate_wrist(
@@ -420,7 +420,7 @@ class LiberoPrimitives:
             self.set_obs(obs)
             if self._recording:
                 self.record_frame(obs)
-            if self.env.episode_done:
+            if self.env.episode_terminated or self.env.episode_truncated:
                 break
         final_yaw = _yaw_of(self.env.raw_obs()["robot0_eef_quat"])
         return {
@@ -430,7 +430,7 @@ class LiberoPrimitives:
             "final_yaw": round(final_yaw, 4),
             "final_err": round(float((target_yaw - final_yaw + np.pi) % (2 * np.pi) - np.pi), 4),
             "steps_used": len(traj),
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
         }
 
     def rotate_pitch(
@@ -503,7 +503,7 @@ class LiberoPrimitives:
             self.set_obs(obs)
             if self._recording:
                 self.record_frame(obs)
-            if self.env.episode_done:
+            if self.env.episode_terminated or self.env.episode_truncated:
                 break
         final_pitch = _pitch_of(self.env.raw_obs()["robot0_eef_quat"])
         return {
@@ -514,7 +514,7 @@ class LiberoPrimitives:
             "final_err": round(float(
                 (target_pitch - final_pitch + np.pi) % (2 * np.pi) - np.pi), 4),
             "steps_used": len(traj),
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
         }
 
     def move_pose(
@@ -577,7 +577,7 @@ class LiberoPrimitives:
             self.set_obs(obs)
             if self._recording:
                 self.record_frame(obs)
-            if self.env.episode_done:
+            if self.env.episode_terminated or self.env.episode_truncated:
                 break
         final = self._last_obs_eef_pos
         fq = self.env.raw_obs()["robot0_eef_quat"]
@@ -587,7 +587,7 @@ class LiberoPrimitives:
             "final_dist_m": round(float(np.linalg.norm(target - final)), 4),
             "final_pitch": round(_pitch_of(fq), 4),
             "steps_used": step + 1,
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
         }
 
     def release(
@@ -610,7 +610,7 @@ class LiberoPrimitives:
             if self._recording:
                 self.record_frame(obs)
             peak_grip = max(peak_grip, self._last_obs_gripper)
-            if self.env.episode_done:
+            if self.env.episode_terminated or self.env.episode_truncated:
                 break
         return {
             "name": "release",
@@ -618,7 +618,7 @@ class LiberoPrimitives:
             "start_gripper_opening": round(start_grip, 4),
             "peak_gripper_opening": round(peak_grip, 4),
             "final_gripper_opening": round(self._last_obs_gripper, 4),
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
         }
 
     def set_gripper(
@@ -637,13 +637,13 @@ class LiberoPrimitives:
             self.set_obs(obs)
             if self._recording:
                 self.record_frame(obs)
-            if self.env.episode_done:
+            if self.env.episode_terminated or self.env.episode_truncated:
                 break
         return {
             "name": "set_gripper",
             "gripper": g,
             "steps": n,
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
         }
 
     # ---- introspection helpers (for LLM-in-the-loop) ----
@@ -692,7 +692,7 @@ class LiberoPrimitives:
             self.set_obs(obs)
             chunks_used = c + 1
             peak_z = max(peak_z, self._last_obs_eef_z)
-            if self.env.episode_done:
+            if self.env.episode_terminated or self.env.episode_truncated:
                 break
         return {
             "name": "full_task",
@@ -701,7 +701,7 @@ class LiberoPrimitives:
             "max_chunks": max_chunks,
             "peak_lift_m": peak_z - start_z,
             "final_gripper_opening": self._last_obs_gripper,
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
         }
 
     def segment(
@@ -1228,7 +1228,8 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
 
     blob = {
         "step_idx": step_idx,
-        "libero_terminated": primitives.env.episode_done,
+        "libero_terminated": primitives.env.episode_terminated,
+        "episode_truncated": primitives.env.episode_truncated,
         "task_language": primitives.env.get_task_language(),
         "state": state,
         "world_map": agent_world_map,
@@ -1690,6 +1691,7 @@ def view_driver_state(step: int | None = None) -> dict:
     out["task_language"] = data.get("task_language")
     out["state"] = data.get("state", data)
     out["libero_terminated"] = data.get("libero_terminated")
+    out["episode_truncated"] = data.get("episode_truncated")
     out["world_map"] = data.get("world_map")
     out["wrist_world_map"] = data.get("wrist_world_map")
     out["world_map_hi"] = data.get("world_map_hi")
