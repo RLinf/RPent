@@ -3,13 +3,15 @@
 
 Triggers the env server's :meth:`auto_calibrate_scene_camera` routine, which:
 
-1. drives the gripper to a spread grid of base-frame positions (``move_to`` is
-   pure base-frame IK, so it needs no extrinsic),
+1. drives the gripper to a wide, non-coplanar grid of base-frame positions at
+   varied wrist orientations (``move_to`` is pure base-frame IK, so it needs no
+   extrinsic),
 2. at each pose toggles the gripper with the arm frozen and segments the motion
-   in the scene image to locate the tip (centroid + median depth -> camera
-   point); the achieved FK gives the base point,
-3. fits ``T_base_cam`` with RANSAC Kabsch and saves it (hot-loaded by the
-   server, so back_project returns world coords immediately).
+   in the temporally median-filtered scene image to locate the moving jaw (blob
+   centroid + depth at that centroid -> camera point); FK gives the tip pose,
+3. jointly fits ``T_base_cam`` and the constant centroid-vs-tip offset (RANSAC),
+   so the offset no longer inflates the residual, and saves it (hot-loaded by
+   the server, so back_project returns world coords immediately).
 
 No human input, no markers. Start the env server first, then run::
 
@@ -66,7 +68,45 @@ def _self_test() -> int:
     det = geom.detect_tip_pixel_by_motion(rgb_open, rgb_closed, depth, K)
     ok_det = det is not None and abs(det["pixel"][0] - 314.5) < 3 and abs(det["pixel"][1] - 414.5) < 3
     print(f"detect_tip: {det if det else 'None'} -> {'OK' if ok_det else 'FAIL'}")
-    return 0 if (ok_fit and ok_det) else 1
+
+    # Joint extrinsic + tip-offset recovery (solve_extrinsic_with_offset): with
+    # varied per-pose rotations the solver should recover T_base_cam AND the
+    # constant local offset, and beat the offset-blind fit, despite an outlier.
+    rng3 = np.random.default_rng(2)
+    Qc, _ = np.linalg.qr(rng3.standard_normal((3, 3)))
+    if np.linalg.det(Qc) < 0:
+        Qc[:, 0] = -Qc[:, 0]
+    T_cam = np.eye(4)
+    T_cam[:3, :3] = Qc
+    T_cam[:3, 3] = rng3.standard_normal(3)
+    d_true = np.array([0.015, -0.010, 0.020])  # constant gripper-local offset
+    n = 24
+    origins = rng3.uniform([-0.1, -0.2, 0.0], [0.35, 0.2, 0.25], size=(n, 3))
+    rots = np.empty((n, 3, 3))
+    for i in range(n):
+        Qr, _ = np.linalg.qr(rng3.standard_normal((3, 3)))
+        if np.linalg.det(Qr) < 0:
+            Qr[:, 0] = -Qr[:, 0]
+        rots[i] = Qr
+    feat_base = origins + np.einsum("nij,j->ni", rots, d_true)
+    cam_j = geom.transform_points(geom.invert_transform(T_cam), feat_base)
+    cam_j += rng3.standard_normal((n, 3)) * 1e-3       # 1 mm detection noise
+    cam_j[5] += np.array([0.18, -0.12, 0.15])          # inject an outlier
+    T_est_j, rmse_j, inl, d_est = geom.solve_extrinsic_with_offset(
+        cam_j, origins, rots, thresh_m=0.01,
+    )
+    _, rmse0, _ = geom.ransac_kabsch(cam_j, origins, thresh_m=0.01)
+    ok_solver = (
+        np.allclose(T_est_j[:3, :3], T_cam[:3, :3], atol=5e-3)
+        and np.allclose(T_est_j[:3, 3], T_cam[:3, 3], atol=5e-3)
+        and np.allclose(d_est, d_true, atol=5e-3)
+        and not bool(inl[5])
+    )
+    print(f"solve_offset: rmse={rmse_j * 1000:.2f}mm "
+          f"(offset-blind {rmse0 * 1000:.1f}mm) "
+          f"d_err={np.linalg.norm(d_est - d_true) * 1000:.2f}mm "
+          f"outlier_excluded={not bool(inl[5])} -> {'OK' if ok_solver else 'FAIL'}")
+    return 0 if (ok_fit and ok_det and ok_solver) else 1
 
 
 def main() -> int:
@@ -74,7 +114,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, help="env server transport port.")
-    ap.add_argument("--n-points", type=int, default=10,
+    ap.add_argument("--n-points", type=int, default=24,
                     help="Target number of valid correspondences to collect.")
     ap.add_argument("--no-save", action="store_true",
                     help="Compute T_base_cam but do not write it to disk.")
@@ -104,6 +144,10 @@ def main() -> int:
 
     print(f"\nUsed {result['n_used']} poses "
           f"({result['n_inliers']} inliers), RMSE = {result['rmse_m'] * 1000:.1f} mm")
+    off = result.get("tip_offset_local_m")
+    if off:
+        print("Estimated tip-detector offset (gripper frame): "
+              f"[{off[0] * 1000:.1f}, {off[1] * 1000:.1f}, {off[2] * 1000:.1f}] mm")
     if result["rmse_m"] > 0.02:
         print("WARNING: RMSE > 2 cm — check lighting / gripper visibility and rerun.")
     if result.get("saved"):

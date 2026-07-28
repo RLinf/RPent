@@ -153,6 +153,93 @@ def ransac_kabsch(
     T, rmse = kabsch_umeyama(src[best_mask], dst[best_mask])
     return T, rmse, best_mask
 
+
+def solve_extrinsic_with_offset(
+    cam_pts,
+    tip_origins,
+    tip_rotations,
+    *,
+    thresh_m: float = 0.015,
+    offset_iters: int = 15,
+    outer_iters: int = 3,
+    seed: int = 0,
+) -> tuple[np.ndarray, float, np.ndarray, np.ndarray]:
+    """Joint fit of ``T_base_cam`` AND a constant gripper-local tip offset.
+
+    The markerless routine detects the moving jaw's motion-blob centroid in the
+    camera, but matches it against the FK tip-frame ORIGIN in the base frame.
+    Those are not the same physical point: the centroid is displaced from the
+    tip-frame origin by an (approximately) constant vector ``d`` expressed in
+    the gripper LOCAL frame. In a free-orientation grid that displacement points
+    a different way in the base frame at every pose, so a single rigid
+    ``T_base_cam`` cannot absorb it -- it lands in the residual and is the main
+    driver of the ~1 cm fit RMSE.
+
+    This models the displacement explicitly. For pose ``i`` with tip-frame
+    origin ``o_i`` and rotation ``R_i`` (base frame, from FK) and detected
+    camera point ``c_i``::
+
+        T_base_cam @ c_i  ==  o_i + R_i @ d
+
+    It alternates two convex steps: (1) with ``d`` fixed, Kabsch-fit ``T`` to the
+    corrected targets ``b_i = o_i + R_i @ d``; (2) with ``T`` fixed, solve the
+    linear least squares ``R_i @ d = T @ c_i - o_i`` (closed form
+    ``d = mean_i R_i^T (T c_i - o_i)`` since each ``R_i`` is orthonormal).
+    Gross outliers (bad detections) are rejected with RANSAC. ``d`` is only
+    identifiable when the tip ROTATIONS vary across poses; with (near-)constant
+    orientation the displacement is indistinguishable from ``T``'s translation
+    and the solver returns ``d ~= 0`` (reducing to the plain rigid fit).
+
+    Args:
+        cam_pts: ``(N, 3)`` detected points in the camera frame.
+        tip_origins: ``(N, 3)`` FK tip-frame origins in the base frame.
+        tip_rotations: ``(N, 3, 3)`` FK tip-frame rotations in the base frame.
+        thresh_m: RANSAC inlier threshold (m) on the offset-corrected fit.
+        offset_iters: max inner alternations per outer round.
+        outer_iters: rounds of (refine offset -> re-select inliers).
+        seed: RANSAC RNG seed.
+
+    Returns:
+        ``(T_4x4, inlier_rmse_m, inlier_mask, d_local)``.
+    """
+    cam = np.asarray(cam_pts, dtype=np.float64)
+    o = np.asarray(tip_origins, dtype=np.float64)
+    Rs = np.asarray(tip_rotations, dtype=np.float64)
+    n = cam.shape[0]
+    if n < 4 or Rs.shape != (n, 3, 3):
+        T, rmse = kabsch_umeyama(cam, o)
+        return T, rmse, np.ones(n, dtype=bool), np.zeros(3)
+
+    # Stage 1: a loose RANSAC (tolerating the still-unknown offset) drops gross
+    # outliers -- mis-detected tips -- before we estimate the offset.
+    loose = max(thresh_m, 0.07)
+    T, rmse, mask = ransac_kabsch(cam, o, thresh_m=loose, seed=seed)
+    if int(mask.sum()) < 4:
+        mask = np.ones(n, dtype=bool)
+
+    d = np.zeros(3)
+    for _ in range(outer_iters):
+        # Alternate: solve the offset from residuals, refit T to the corrected
+        # targets, until the offset stops moving.
+        for _ in range(offset_iters):
+            r = transform_points(T, cam[mask]) - o[mask]  # (M, 3)
+            # mean_i R_i^T r_i  (R_i^T r_i via 'mba,mb->ma' since R_i is (i,j)=(row,col))
+            d_new = np.einsum("mba,mb->ma", Rs[mask], r).mean(axis=0)
+            b = o + np.einsum("nij,j->ni", Rs, d_new)  # o_i + R_i d
+            T, _ = kabsch_umeyama(cam[mask], b[mask])
+            if np.linalg.norm(d_new - d) < 1e-6:
+                d = d_new
+                break
+            d = d_new
+        # Re-select inliers with the tight threshold on the corrected targets.
+        b = o + np.einsum("nij,j->ni", Rs, d)
+        T, rmse, mask = ransac_kabsch(cam, b, thresh_m=thresh_m, seed=seed)
+        if int(mask.sum()) < 4:
+            mask = np.ones(n, dtype=bool)
+            T, rmse = kabsch_umeyama(cam, b)
+    return T, rmse, mask, d
+
+
 def rotation_to_quat(R) -> np.ndarray:
     """Convert a 3x3 rotation matrix to a quaternion ``[w, x, y, z]``."""
     R = np.asarray(R, dtype=np.float64)
@@ -241,11 +328,18 @@ def detect_tip_pixel_by_motion(
         if area < min_area or area > max_area:
             continue
         col, row = float(centroids[comp][0]), float(centroids[comp][1])
-        dvals = depth_m[labels == comp]
-        dvals = dvals[np.isfinite(dvals) & (dvals > 0)]
-        if dvals.size == 0:
-            continue
-        z = float(np.median(dvals))
+        # Depth AT the centroid (small patch), so the returned (col, row, z) all
+        # describe the SAME point. The blob spans a depth gradient under the
+        # oblique scene view, so a whole-blob median would pair the centroid
+        # pixel with some other pixel's depth and bias the back-projection.
+        z = sample_depth_patch(depth_m, int(round(col)), int(round(row)), radius=3)
+        if not np.isfinite(z):
+            # Centroid fell on a depth dropout -- fall back to the blob median.
+            dvals = depth_m[labels == comp]
+            dvals = dvals[np.isfinite(dvals) & (dvals > 0)]
+            if dvals.size == 0:
+                continue
+            z = float(np.median(dvals))
         p_cam = backproject_pixel(K, col, row, z)
         return {
             "pixel": [row, col],

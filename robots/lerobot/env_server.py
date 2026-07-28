@@ -104,11 +104,9 @@ _WORKSPACE_MAX = np.array([0.38, 0.28, 0.30], dtype=np.float64)
 # fixed side, NOT between the fingers. This vector (meters, in the
 # gripper_frame_link LOCAL frame) shifts the controlled/reported point to the
 # grasp point between the fingertips, so ``move_to`` targets and ``get_ee_pose``
-# refer to where an object is actually grasped. Derived from URDF + FK + a
-# calibrated-depth fingertip measurement (~2 cm lateral toward the moving jaw,
-# ~2.8 cm down to the fingertip plane). TUNE on hardware / via touch calibration
+# refer to where an object is actually grasped. TUNE on hardware / via touch calibration
 # if grasps land consistently off-centre; set to zeros for the raw frame.
-_TCP_OFFSET_GRIPPER = np.array([-0.028, 0.043, 0.0282], dtype=np.float64)
+_TCP_OFFSET_GRIPPER = np.array([0.025, -0.01, 0.02], dtype=np.float64)
 
 # --- motion speed / smoothness (safety) ---------------------------------
 # The arm runs in position mode. Two knobs keep motions slow and gentle:
@@ -119,8 +117,8 @@ _TCP_OFFSET_GRIPPER = np.array([-0.028, 0.043, 0.0282], dtype=np.float64)
 #    move_joints_delta) are streamed as interpolated setpoints so no joint
 #    exceeds ``_MAX_JOINT_VEL_DEG_S`` (deg/s), instead of snapping to the target
 #    at full servo speed. Both are overridable from the CLI.
-_MOTOR_ACCELERATION = 40
-_MAX_JOINT_VEL_DEG_S = 70.0
+_MOTOR_ACCELERATION = 30
+_MAX_JOINT_VEL_DEG_S = 60.0
 _PACE_DT_S = 0.05  # setpoint-streaming period (20 Hz)
 # Feetech position gain. LeRobot's configure() lowers P_Coefficient to 16 (from
 # the factory default 32) "to avoid shakiness"; that soft gain lets gravity-
@@ -908,16 +906,50 @@ class SO101LeRobotEnv:
 
     @staticmethod
     def _calibration_targets() -> list[list[float]]:
-        """A spread, non-coplanar grid of tip targets inside the workspace."""
-        xs = [0.15, 0.22, 0.28]
-        ys = [-0.12, 0.0, 0.12]
-        zs = [0.12, 0.19]
-        return [[x, y, z] for z in zs for y in ys for x in xs]
+        """A wide, non-coplanar grid of tip targets inside the workspace.
+
+        Free-orientation IK reaches these, giving a large spread in x/y/z AND a
+        variety of wrist orientations. That orientation variety is what makes
+        the constant tip-detector offset identifiable (see
+        ``geometry.solve_extrinsic_with_offset``), so the calibration keeps the
+        default free approach rather than a fixed top-down one. Ordered z-fastest
+        so an early stop (``n_points``) still spans all three heights.
+        """
+        xs = [0.15, 0.21, 0.27, 0.33]
+        ys = [-0.16, -0.05, 0.05, 0.16]
+        zs = [0.08, 0.15, 0.22]
+        return [[x, y, z] for x in xs for y in ys for z in zs]
+
+    def _capture_scene_median(
+        self, n_frames: int = 5
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Grab several scene frames and return per-pixel temporal medians.
+
+        Median-averaging across frames suppresses the camera's per-frame color
+        and depth noise, which otherwise becomes lateral error once a pixel is
+        back-projected through the oblique view. Depth invalids (<=0 /
+        non-finite) are ignored per pixel; pixels with no valid sample stay 0.
+        """
+        import warnings
+
+        rgbs: list[np.ndarray] = []
+        depths: list[np.ndarray] = []
+        for _ in range(max(1, int(n_frames))):
+            rgb, depth = self._scene_cam.read()
+            rgbs.append(np.asarray(rgb))
+            d = np.asarray(depth, dtype=np.float32)
+            depths.append(np.where(np.isfinite(d) & (d > 0), d, np.nan))
+        rgb_med = np.median(np.stack(rgbs, axis=0), axis=0).astype(np.uint8)
+        with warnings.catch_warnings():  # nanmedian warns on all-invalid pixels
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            depth_med = np.nanmedian(np.stack(depths, axis=0), axis=0)
+        depth_med = np.nan_to_num(depth_med, nan=0.0).astype(np.float32)
+        return rgb_med, depth_med
 
     def auto_calibrate_scene_camera(
         self,
         *,
-        n_points: int = 10,
+        n_points: int = 24,
         gripper_open: float = 90.0,
         gripper_closed: float = 20.0,
         settle_s: float = 0.8,
@@ -926,14 +958,20 @@ class SO101LeRobotEnv:
     ) -> dict:
         """Markerless automatic scene-cam -> base calibration.
 
-        Drives the tip to a grid of base-frame positions (move_to needs no
-        extrinsic), and at each pose toggles the gripper with the arm frozen and
-        segments the motion in the scene image to locate the tip (centroid +
-        median depth -> camera point). The achieved FK gives the base point.
-        A RANSAC Kabsch fit then yields ``T_base_cam``, which is saved and
-        hot-loaded so back_project returns world coords immediately.
+        Drives the tip to a wide, non-coplanar grid of base-frame positions
+        (move_to needs no extrinsic) at varied wrist orientations. At each pose
+        it toggles the gripper with the arm frozen and segments the motion in
+        the (temporally median-filtered) scene image to locate the moving jaw
+        (blob centroid + depth AT that centroid -> camera point); FK gives the
+        tip pose (origin + rotation). A joint fit
+        (:func:`geometry.solve_extrinsic_with_offset`) then recovers both
+        ``T_base_cam`` and the constant offset between the detected centroid and
+        the tip frame -- so that offset no longer inflates the residual -- and
+        the extrinsic is saved and hot-loaded so back_project returns world
+        coords immediately.
 
-        Returns a summary dict (``n_used``, ``rmse_m``, per-pose diagnostics).
+        Returns a summary dict (``n_used``, ``rmse_m``, ``tip_offset_local_m``,
+        per-pose diagnostics).
         """
         if self._scene_cam is None:
             return {"error": "scene camera not configured"}
@@ -942,7 +980,8 @@ class SO101LeRobotEnv:
 
         targets = self._calibration_targets()
         cam_pts: list[list[float]] = []
-        base_pts: list[list[float]] = []
+        tip_origins: list[list[float]] = []
+        tip_rots: list[list[list[float]]] = []
         poses: list[dict] = []
 
         for tgt in targets:
@@ -954,12 +993,19 @@ class SO101LeRobotEnv:
                 continue
             time.sleep(settle_s)
 
-            base = np.asarray(mv["final_xyz"], dtype=np.float64)
-            self._scene_cam.read()  # flush a frame
-            rgb_open, _ = self._scene_cam.read()
+            # Free-orientation FK tip pose (origin + rotation) at this pose. The
+            # rotation is what lets the fit solve out the constant tip-detector
+            # offset (geometry.solve_extrinsic_with_offset), so orientation must
+            # vary across the grid -- hence the free (not top-down) approach.
+            T_tip = self._kin.fk(self._read_arm_joints())
+            o_i = T_tip[:3, 3]
+            R_i = T_tip[:3, :3]
+
+            self._scene_cam.read()  # drop the in-flight frame from the move
+            rgb_open, _ = self._capture_scene_median()
             self._set_gripper_hold(gripper_closed)
             time.sleep(settle_s)
-            rgb_closed, depth = self._scene_cam.read()
+            rgb_closed, depth = self._capture_scene_median()
             self._set_gripper_hold(gripper_open)  # reopen for the next pose
 
             det = geom.detect_tip_pixel_by_motion(
@@ -969,8 +1015,9 @@ class SO101LeRobotEnv:
                 poses.append({"target": tgt, "skipped": "no_tip_detected"})
                 continue
             cam_pts.append(det["xyz_cam"])
-            base_pts.append(base.tolist())
-            poses.append({"target": tgt, "base_xyz": base.round(4).tolist(),
+            tip_origins.append(o_i.tolist())
+            tip_rots.append(R_i.tolist())
+            poses.append({"target": tgt, "base_xyz": o_i.round(4).tolist(),
                           "pixel": [round(v, 1) for v in det["pixel"]],
                           "depth_m": round(det["depth_m"], 4), "area": det["area"]})
 
@@ -978,8 +1025,11 @@ class SO101LeRobotEnv:
             return {"error": f"only {len(cam_pts)} usable points (need >= 4)",
                     "poses": poses}
 
-        T, rmse, inliers = geom.ransac_kabsch(
-            cam_pts, base_pts, thresh_m=ransac_thresh_m,
+        # Joint fit: recover T_base_cam AND the constant offset between the
+        # detected motion-blob centroid and the FK tip frame, so that offset no
+        # longer pollutes the residual (the old ~1 cm RMSE floor).
+        T, rmse, inliers, tip_offset = geom.solve_extrinsic_with_offset(
+            cam_pts, tip_origins, tip_rots, thresh_m=ransac_thresh_m,
         )
         accepted = bool(rmse <= scene_calib.MAX_ACCEPTABLE_RMSE_M)
         result = {
@@ -987,6 +1037,7 @@ class SO101LeRobotEnv:
             "n_used": len(cam_pts),
             "n_inliers": int(np.asarray(inliers).sum()),
             "rmse_m": round(float(rmse), 4),
+            "tip_offset_local_m": [round(float(v), 4) for v in tip_offset],
             "T_base_cam": T.tolist(),
             "accepted": accepted,
             "saved": False,
