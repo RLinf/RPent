@@ -162,11 +162,17 @@ new name therefore also requires updating the CLI choices. See
 Planner, Toolkit, and RPC transports
 -------------------------------------
 
-The interface contracts for the planner, the toolkit, and the RPC transports
-— ``Planner.solve``, ``Toolkit.add_tool``, ``RpcFacade._dispatch``, and the
-HTTP / socket transports — are collected in :doc:`interfaces`. See
-:doc:`../usage/configure_planner` for planner usage and :doc:`add_robot` for the
-full environment-extension procedure.
+These three layers stay decoupled, each owning one segment of the path. The
+planner only pulls the tool list via ``get_tools_spec`` and invokes tools with
+``execute_tool``, indifferent to whether a tool is scripted or a VLA. The
+toolkit translates each tool call into a primitive call, and the primitive
+driver issues ``reset`` / ``step`` / ``predict`` requests to ``env_server`` /
+``vla_server`` over RPC. The RPC transport (HTTP or socket) only ferries those
+calls and their NumPy observations across processes, transparent to the layers
+above. That is why swapping the planner leaves the tools untouched, and
+swapping the transport leaves the planner untouched. The concrete interface
+contracts (``Planner.solve``, ``Toolkit.add_tool``, ``RpcFacade._dispatch``)
+are collected in :doc:`interfaces`.
 
 Dashboard (optional)
 --------------------

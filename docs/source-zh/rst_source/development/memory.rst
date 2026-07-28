@@ -20,7 +20,7 @@ RPent 的 memory 分两层，对应 ``resources/<env>/`` 下两类只读参考�
 
 在 LIBERO 上，prompt 要求 planner 先扫 ``MEMORY.md`` 并读取相关笔记，再查看
 ``results_*_pert/`` 里同任务的 seed-0 参考（若有）。recipe 只提供命令顺序；真正适配新场景要靠
-memory 笔记里的手法、参数范围和失败模式。
+memory 笔记里的技巧、参数范围和失败模式。
 
 托管方式
 --------

@@ -142,10 +142,14 @@ planner 后端集中在 ``rpent/planner/``，
 Planner、Toolkit 与 RPC 传输层
 ------------------------------
 
-planner、toolkit 与 RPC 传输三者的接口契约——``Planner.solve``、
-``Toolkit.add_tool``、``RpcFacade._dispatch`` 以及 HTTP / socket 两种传输——
-集中在 :doc:`interfaces`。planner 的使用见 :doc:`../usage/configure_planner`；
-扩展环境的完整步骤见 :doc:`add_robot`。
+这三层各管一段、层层解耦。planner 只通过 ``get_tools_spec`` 拿到工具清单、
+用 ``execute_tool`` 逐个调用，并不关心工具背后是脚本还是 VLA；
+toolkit 把每次工具调用翻译成对 primitive 的调用，再由 primitive driver
+经 RPC 向 ``env_server`` / ``vla_server`` 发起 ``reset`` / ``step`` /
+``predict`` 请求；RPC 传输层（HTTP 或 socket）只负责把这些调用和 NumPy
+观测在进程间搬运，对上层透明。正因如此，换 planner 不影响工具，
+换传输协议也不影响 planner。三者的具体接口契约（``Planner.solve``、
+``Toolkit.add_tool``、``RpcFacade._dispatch``）集中在 :doc:`interfaces`。
 
 Dashboard（可选）
 -----------------
