@@ -1,52 +1,44 @@
 系统设计
 ========
 
-本页从实现层面看 RPent —— 核心控制链路中的三个进程各自持有什么、如何通信,
-以及 ``rpent/`` 与 ``robots/`` 下的代码如何组织。更高层的框架介绍
-见 :doc:`../overview`。
+本页从实现层面看 RPent —— 核心控制链路中的三个进程各自持有什么、
+如何通信，以及 ``rpent/`` 与 ``robots/`` 下的代码如何组织。
+更高层的框架介绍见 :doc:`../overview`。
 
 .. raw:: html
 
    <div style="text-align: center;">
-     <img src="../../architecture.svg" alt="RPent 核心三进程架构"
+     <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_framework.png" alt="RPent 框架"
           style="max-width: 95%; height: auto;" />
    </div>
 
 关键特性
 --------
 
-*（下面先概括架构的主要设计目标，后续各节再说明对应的实现方式。）*
+本节介绍让 RPent 区别于其他具身智能体框架的设计选择。
 
-- **LLM-in-the-loop 控制。** 无需对 LLM 进行微调；模型只需调用工具
-  （``pi0_pick``、``move_to``、``rotate_wrist``、``back_project``、
-  ``finish``……）即可控制机器人。每个工具的执行结果都会以多模态上下文
-  （文本和渲染图像）的形式返回给模型，使模型能够结合当前环境状态继续推理。
-- **核心三进程架构。** **Agent 进程** (LLM planner + toolkit)、
-  **env_server** (仿真器 + EGL 渲染)、**vla_server**
-  (GPU 策略权重) 是三个独立进程, 构成用轻量 RPC 串联的核心控制链路。
-  任一重量级服务进程都可以独立重启、迁到另一张 GPU、或指向远程主机。
-- **可插拔的 planner。** 通过
-  ``--planner {api, claude_code, codex}`` 参数即可切换 planner，
-  无需修改工具或提示词：
+**可重试的 VLA 工具。** RPent 不训练直接输出动作的端到端策略，
+而是让一个通用 LLM 作为 planner，把 VLA 当作 ``pi0_pick``、
+``pi0_doubled`` 这样的 action primitive 来调用，与 ``move_to``、
+``rotate_wrist``、``back_project`` 等脚本化工具同处一套工具 schema。
+每次调用的文本和图像都会回传给 LLM，让它根据实际所见决定下一步；
+配合按环境保存的 memory，planner 还能学到 VLA 在什么时候、
+什么条件下才可靠。这样既用上了 LLM 的通用推理和即时纠错，
+又不必为每个新任务重新训练模型。新增 primitive 的方法见 :doc:`add_primitive`。
 
-  - ``api`` —— 基于 `pydantic-ai <https://ai.pydantic.dev/>`_
-    实现不绑定特定模型提供商的工具调用循环，支持 Anthropic、OpenAI
-    及 OpenAI 兼容接口，并支持提示词缓存和自动移除较早的历史图像。
-  - ``claude_code`` —— 基于 `Claude Agent SDK
-    <https://docs.claude.com/en/api/agent-sdk/overview>`_，将 toolkit
-    暴露为进程内 MCP 服务。
-  - ``codex`` —— 基于 OpenAI Codex SDK，通过 HTTP MCP 服务连接
-    toolkit。
-- **两种环境、两个 VLA、一套接口约定。** LIBERO（Pi0.5，通过 HTTP 通信）
-  与 RoboCasa（RLDX-1，通过 socket-RPC 通信）采用相同的
-  ``env_server`` / ``vla_server`` 进程划分；两者仅传输协议不同，具体协议
-  根据各环境观测数据的结构和大小选择。
-- **实时 Dashboard。** 启用 ``--dashboard`` 后，RPent 会启动本地 FastAPI
-  监控页面，实时显示 agent 的推理过程、相机画面、Pi0 视图和动作时间线，
-  并支持回放动作片段。Dashboard 提供中英文界面，可通过
-  ``--dashboard-language {en, zh-cn}`` 指定语言。
-- **通过独立的环境包进行扩展。** 环境实现位于 ``robots/<env>/``，RPent
-  会按环境名称动态加载。具体接入步骤见 :doc:`add_robot`。
+**可替换的 planner。** planner 就是驱动工具调用循环的 LLM agent 运行时。
+一个 ``--planner`` 参数就能切换它，而工具和提示词保持不变。内置三种：
+``api`` 是 RPent 自研的工具调用循环（基于 pydantic-ai，为默认值，
+不绑定具体模型提供商）；``claude_code`` 复用 Claude Agent SDK 运行时；
+``codex`` 复用 Codex SDK 运行时。由于三者面对完全相同的工具，
+可以在同一套物理基准上正面对比。配置方法见 :doc:`../usage/configure_planner`。
+
+**隔离的仿真环境。** 仿真器作为独立的 env_server 运行，
+通过轻量 RPC 与 agent 通信；agent 一侧不导入任何仿真器，
+也不与具体环境绑定。更换环境只需实现同一套 env-client 接口——
+环境可以自行重启、迁到另一台机器，或替换成另一个仿真器，
+而无需改动 planner 或工具。新增环境也不需要注册代码：
+把包放到 ``robots/`` 下，框架就会自动发现。接入新环境的步骤见 :doc:`add_robot`。
 
 LLM-in-the-loop 运行流程
 ------------------------
@@ -121,8 +113,8 @@ Runner (``rpent/cli/main.py``)
     时完成回合录像等收尾工作。
 
 ``main.py`` 只负责连接上述步骤。环境相关实现集中在 ``robots/<env>/``，
-planner 后端集中在 ``rpent/planner/``，因此 ``main.py`` 不直接导入任何
-环境专用的类或脚本。
+planner 后端集中在 ``rpent/planner/``，
+因此 ``main.py`` 不直接导入任何环境专用的类或脚本。
 
 环境加载机制
 ------------
@@ -139,75 +131,25 @@ planner 后端集中在 ``rpent/planner/``，因此 ``main.py`` 不直接导入�
        *, primitives_kwargs, video_path=None, dashboard=None
    ): ...
 
-``EnvSpec`` 包含五个字段：
-
-- ``name`` 和 ``prompts``：环境名称与 :class:`PromptBundle`。
-- ``add_cli_args(parser, use_dashboard) -> None``：将环境专用参数注册到
-  共享的 argparse 解析器。``use_dashboard=True`` 时，配置页面负责填写的
-  参数可以暂时保持可选。
-- ``parse_config(args) -> RunConfig``：校验最终参数，并生成本次运行所需的
-  :class:`~rpent.envs.RunConfig`。
-- ``init_runtime(args, output_dir) -> (daemons, primitives_kwargs)``：
-  启动环境和 VLA 服务进程，或连接已有服务，并返回构造 toolkit 所需的参数。
+``EnvSpec`` 汇集了环境的标识、prompt 模板与三个 Runner 钩子
+（``add_cli_args`` / ``parse_config`` / ``init_runtime``）；各字段要填什么见
+:doc:`interfaces`。
 
 加载器本身不维护环境名称列表。不过，当前 CLI 仍将 ``--env`` 限定为
 ``libero``；接入新的环境名称时，还需要同步更新 CLI 的可选值。完整步骤见
 :doc:`add_robot`。
 
-Planner 接口
-------------
+Planner、Toolkit 与 RPC 传输层
+------------------------------
 
-所有 planner 都实现 ``rpent.planner.base.Planner`` 中定义的 ``solve`` 接口：
-
-- 接收 Runner 已经生成的系统提示词和用户消息。
-- 接收一个 ``toolkit``，通过 ``get_tools_spec()`` 获取工具定义，并通过
-  ``execute_tool()`` 执行工具。
-- 驱动多轮工具调用，并将执行结果返回给模型；结果包含图像内容时，以多模态
-  上下文传递。
-- 在调用 ``finish`` 或达到 ``max_turns`` 后结束。
-
-三个内置 planner 使用同一接口，但接入模型和工具的方式不同。使用方法见
-:doc:`../usage/configure_planner`；对应实现位于
-``rpent/planner/api_loop.py``、``claude_code.py`` 和 ``codex.py``。
-
-Toolkit 接口
-------------
-
-``rpent.tools.toolkit.Toolkit`` 是 planner 面向的工具容器：
-
-- 基类注册文件读写等通用工具，并维护工具名称、输入参数结构与处理函数之间的
-  对应关系。子类通过 ``self.add_tool(name, spec, handler)`` 添加环境专用工具。
-- 环境专用 toolkit 可以持有 primitive driver。以 LIBERO 为例，
-  ``LiberoPrimitives`` 持有环境 client、model client 和本次运行的状态；
-  需要推进环境的原语由 ``LiberoToolkit._step`` 调用。
-- 每次原语执行后，``LiberoToolkit._step`` 都会调用 ``dump_state``
-  保存状态快照，包括状态、图像、深度和执行日志。后续调用
-  ``view_driver_state`` 时读取的就是动作执行后的快照。
-
-Toolkit 基类会将工具执行结果转发给 Dashboard；回合录像
-（``episode.mp4``）和动作片段则由 ``LiberoToolkit`` 负责生成。新增环境时，
-应继承 Toolkit 基类并注册该环境需要暴露的工具。
-
-RPC 传输层
-----------
-
-RPent 内置 HTTP 和 pickle-framed socket 两种 RPC 传输方式。服务进程通过
-``--transport {http,socket}`` 选择传输方式，默认使用 HTTP；agent 侧根据
-``--env-endpoint`` 或 ``--vla-endpoint`` 中的协议前缀创建对应的客户端。
-
-- **HTTP**\ （``rpent.utils.http_rpc``）：通过 ``POST /call`` 发送 JSON
-  请求，便于使用标准负载均衡器或接入其他语言编写的客户端。NumPy 数组会编码为
-  ``{"__ndarray__": <base64>, "dtype": ..., "shape": [...]}``。
-- **Pickle-framed socket RPC**\ （``rpent.utils.socket_rpc``）：使用带长度前缀的
-  pickle 数据帧传输请求和响应，适合包含多帧历史或嵌套 NumPy 字典的观测数据，
-  可以避免重复转换为 JSON。由于 pickle 不适合不可信输入，这种方式只应连接
-  可信端点。
-
-服务端可以继承 :class:`rpent.utils.rpc.RpcFacade`，并实现业务分发方法
-``_dispatch(method, args, kwargs)``。基类负责 ``shutdown``、``healthz``、
-传输绑定、监测父进程退出和关闭服务。新增传输方式时，需要同时实现客户端和
-服务端，并将其接入 ``RpcFacade`` 及端点解析逻辑；只要继续满足
-``RpcClient`` 接口，toolkit 和 planner 无需修改。
+这三层各管一段、层层解耦。planner 只通过 ``get_tools_spec`` 拿到工具清单、
+用 ``execute_tool`` 逐个调用，并不关心工具背后是脚本还是 VLA；
+toolkit 把每次工具调用翻译成对 primitive 的调用，再由 primitive driver
+经 RPC 向 ``env_server`` / ``vla_server`` 发起 ``reset`` / ``step`` /
+``predict`` 请求；RPC 传输层（HTTP 或 socket）只负责把这些调用和 NumPy
+观测在进程间搬运，对上层透明。正因如此，换 planner 不影响工具，
+换传输协议也不影响 planner。三者的具体接口契约（``Planner.solve``、
+``Toolkit.add_tool``、``RpcFacade._dispatch``）集中在 :doc:`interfaces`。
 
 Dashboard（可选）
 -----------------

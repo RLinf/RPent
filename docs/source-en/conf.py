@@ -32,7 +32,6 @@ html_baseurl = os.environ.get(
 )
 sitemap_url_scheme = "{link}"
 html_static_path = ["_static"]
-html_extra_path = ["../architecture.svg"]
 html_css_files = ["css/custom.css"]
 html_js_files = [
     "js/version-switcher.js",
