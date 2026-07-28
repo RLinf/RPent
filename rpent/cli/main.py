@@ -242,17 +242,10 @@ def main() -> int:
     daemons, primitives_kwargs = env_spec.init_runtime(args, output_dir)
 
     # --- toolkit -----------------------------------------------------------
-    video_path = str(Path(output_dir) / "episode.mp4")
-    if env_name == "libero":
-        from robots.libero.tools import artifact_path
-
-        video_path = str(
-            artifact_path(output_dir, None, None, None, "episode_video")
-        )
     toolkit = get_toolkit(
         env_name,
         primitives_kwargs=primitives_kwargs,
-        video_path=video_path,
+        video_path=str(Path(output_dir) / "episode.mp4"),
         dashboard=dashboard_state,
     )
 
