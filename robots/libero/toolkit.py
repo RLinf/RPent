@@ -39,7 +39,7 @@ class LiberoToolkit(Toolkit):
     # Registration
     # ------------------------------------------------------------------
     def _register_libero_tools(self) -> None:
-        spec = self._SPECS  # name -> schema, built once from libero_tools.TOOLS_SPEC
+        specs = self._SPECS
         # Inspection tools do not advance environment state. Most are stateless
         # module functions; segment is bound to the primitives-owned SAM3 client.
         inspection_handlers = {
@@ -49,20 +49,11 @@ class LiberoToolkit(Toolkit):
             "segment": self._primitives.segment,
         }
         for name, handler in inspection_handlers.items():
-            self.add_tool(name, spec[name], handler)
+            self.add_tool(name, specs[name], handler)
         # Primitive tools: each goes through _step, which looks up the
         # matching primitive method via getattr at call time.
-        for name in (
-            "move_to",
-            "pi0_pick",
-            "pi0_doubled",
-            "release",
-            "set_gripper",
-            "rotate_wrist",
-            "rotate_pitch",
-            "move_pose",
-        ):
-            self.add_tool(name, spec[name], partial(self._step, name))
+        for name in libero_tools.PRIMITIVE_TOOL_NAMES:
+            self.add_tool(name, specs[name], partial(self._step, name))
 
     def _step(self, name: str, **kwargs) -> dict:
         """Run ``self._primitives.<name>(**kwargs)``, dump the new step, and
@@ -82,7 +73,9 @@ class LiberoToolkit(Toolkit):
         self._next_step += 1
         step_idx = self._next_step
         if self._dashboard is not None:
-            video_dir = get_output_dir() / "action_videos"
+            video_dir = libero_tools.artifact_path(
+                get_output_dir(), None, None, None, "action_videos"
+            )
             video_path = video_dir / f"step_{step_idx:02d}_{name}.mp4"
             try:
                 self._primitives.save_frame_slice(start_frame, str(video_path), fps=20)
@@ -108,27 +101,21 @@ class LiberoToolkit(Toolkit):
         """Wipe stale run artifacts, build the LiberoPrimitives, dump step 0."""
         out_dir = get_output_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
-        for sub in (
-            "images",
-            "images_cam",
-            "depths",
-            "action_videos",
-            "segments",
-            "world",
-            "images_wrist",
-            "depths_wrist",
-            "world_wrist",
-            "wrist_meta",
-            "images_cam_hi",
-            "world_hi",
-            "images_wrist_hi",
-            "world_wrist_hi",
-        ):
+        for sub in libero_tools.ARTIFACT_DIRECTORIES:
             target = out_dir / sub
             if target.exists():
                 shutil.rmtree(target)
-        for fname in ("states.json", "camera_meta.json", "episode.mp4"):
-            target = out_dir / fname
+        for target in (
+            libero_tools.artifact_path(
+                out_dir, None, None, None, "states"
+            ),
+            libero_tools.artifact_path(
+                out_dir, None, "agentview", "low", "metadata"
+            ),
+            libero_tools.artifact_path(
+                out_dir, None, None, None, "episode_video"
+            ),
+        ):
             if target.exists():
                 target.unlink()
 

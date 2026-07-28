@@ -17,7 +17,6 @@ from rpent.envs.prompt_bundle import PromptBundle
 from rpent.utils.config import get_repo_root
 
 if TYPE_CHECKING:
-    from rpent.dashboard.state import State
     from rpent.utils.daemon import ProcessDaemon
     from rpent.utils.rpc import RpcClient
 
@@ -117,7 +116,9 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
 
     dashboard_state = None
     if getattr(args, "dashboard", False):
+        from robots.libero.tools import artifact_path
         from rpent.dashboard.state import State
+
         dashboard_state = State(
             run_id=f"{args.suite}/{output_dir.name}",
             name=recipe_tag,
@@ -125,7 +126,9 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             task=args.task,
             seed=args.seed,
             output_dir=str(output_dir),
-            video_path=str(output_dir / "episode.mp4"),
+            video_path=str(
+                artifact_path(output_dir, None, None, None, "episode_video")
+            ),
         )
     return RunConfig(
         recipe_tag=recipe_tag,
