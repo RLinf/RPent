@@ -208,6 +208,7 @@ def _init_runtime(
                 "--transport", "http",
                 "--host", host,
                 "--port", str(port),
+                "--parent-watch",
             ],
             env=_subprocess_env(
                 args.cuda_device,
@@ -243,6 +244,7 @@ def _init_runtime(
                 "--transport", "http",
                 "--host", host,
                 "--port", str(port),
+                "--parent-watch",
             ],
             env=_subprocess_env(args.cuda_device),
             log_path=str(Path(output_dir) / "vla_server.log"),
@@ -273,6 +275,7 @@ def _init_runtime(
                 "--transport", "http",
                 "--host", host,
                 "--port", str(port),
+                "--parent-watch",
             ],
             env=_subprocess_env(args.cuda_device),
             log_path=str(Path(output_dir) / "sam3_server.log"),
