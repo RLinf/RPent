@@ -40,12 +40,12 @@ Feature Matrix
    * - - Claude Code ✅
        - Codex ✅
        - Custom planner ✅
-     - - **VLA manipulation**
+     - - **VLA**
 
          - Pi0.5 ✅
          - RLDX-1
 
-       - **WAM manipulation**
+       - **WAM**
 
          - DreamZero
      - - LIBERO-PRO ✅
@@ -53,12 +53,13 @@ Feature Matrix
      - - Franka
        - SO-101
 
-Where to go next
-----------------
+Next steps
+----------
 
-- New to RPent? Start with :doc:`installation` and then
-  :doc:`quickstart` to get a LIBERO task running end-to-end.
-- Want to drive a specific robot or change a planner? Head to
-  :doc:`usage/configure_planner`.
+- New to RPent? Complete :doc:`installation`, then follow
+  :doc:`quickstart` to run one LIBERO task end-to-end.
+- Want to use a specific robot environment? See its usage guide, such as
+  :doc:`usage/libero`.
+- Want to switch planners? See :doc:`usage/configure_planner`.
 - Extending RPent for your own scenarios? See
   :doc:`development/architecture`.

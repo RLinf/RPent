@@ -2,8 +2,8 @@ Action Primitives
 =================
 
 Where the planner chooses *what* to do, the **action primitive**
-chooses *how* it happens. A primitive is whatever turns a tool call
-(``pi0_pick``, ``move_to``, ``open_drawer``, …) into an executable
+chooses *how* it happens. A primitive turns a tool call
+(``pi0_pick``, ``move_to``, ``rotate_wrist``, …) into an executable
 action chunk for the environment.
 
 RPent supports two families of primitives out of the box:
@@ -31,11 +31,11 @@ Which VLA runs where
 
    * - Environment / robot
      - Default VLA
-     - Wire codec
+     - Transport
      - Server
    * - LIBERO (sim)
      - Pi0.5
-     - HTTP or socket RPC (``--transport``)
+     - HTTP or socket RPC
      - ``robots/libero/vla_server.py``
    * - RoboCasa (sim)
      - RLDX-1
@@ -50,11 +50,11 @@ Which VLA runs where
      - socket RPC
      - ``robots/so101/vla_server.py`` *(planned)*
 
-The wire codec is chosen per env to fit the observation shape. The
-VLA server exposes the same ``predict`` / ``healthz`` methods over both
-HTTP (JSON) and socket (pickle-framed) transports; pick whichever suits
-the observation shape via ``--transport {http,socket}`` (defaults to
-``http``). See :doc:`../development/add_robot` for the design rationale.
+The VLA server exposes the same ``predict`` / ``healthz`` methods over
+both HTTP (JSON) and socket (pickle-framed) transports. When starting
+the server directly, select the transport with the server's
+``--transport {http,socket}`` option (defaults to ``http``). See
+:doc:`../development/add_robot` for the design rationale.
 
 For standalone services, remote endpoints, and cross-run model reuse, see
 :doc:`advanced_deployment`.
