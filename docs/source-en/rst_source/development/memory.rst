@@ -19,7 +19,7 @@ Two layers
   strategy from these references but must re-perceive and recompute coordinates from
   the current scene — never replay historical xyz values.
 * **Cross-task know-how.** Markdown notes under
-  ``resources/libero/memory/`` (indexed by ``MEMORY.md``) capture operating tips,
+  ``resources/<env>/memory/`` (indexed by ``MEMORY.md``) capture operating tips,
   parameter ranges, and common failure modes across tasks. The planner reads them
   together with per-task references to understand why a sequence works and how to
   recover after a failure.

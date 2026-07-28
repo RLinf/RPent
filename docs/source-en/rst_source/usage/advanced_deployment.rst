@@ -6,23 +6,10 @@ with each LIBERO run. Keep that default for single-machine use. Configure
 external endpoints only when services live on different hosts, or when you
 want to reuse VLA and SAM3 models across tasks.
 
-The three endpoints support these transports:
-
-.. list-table::
-   :header-rows: 1
-
-   * - Service
-     - RPent flag
-     - Endpoint format
-   * - LIBERO environment
-     - ``--env-endpoint``
-     - HTTP or socket RPC, ``[protocol://]HOST:PORT``
-   * - Pi0.5 VLA
-     - ``--vla-endpoint``
-     - HTTP or socket RPC, ``[protocol://]HOST:PORT``
-   * - SAM3
-     - ``--sam3-endpoint``
-     - HTTP or socket RPC, ``[protocol://]HOST:PORT``
+Three flags set the endpoints: ``--env-endpoint`` for the LIBERO
+environment, ``--vla-endpoint`` for the Pi0.5 VLA, and ``--sam3-endpoint``
+for SAM3. Each takes ``[protocol://]HOST:PORT`` — HTTP when the protocol is
+omitted, or ``socket://`` for socket RPC.
 
 LIBERO environment service
 --------------------------

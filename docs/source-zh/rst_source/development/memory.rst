@@ -13,7 +13,7 @@ RPent 的 memory 分两层，对应 ``resources/<env>/`` 下两类只读参考�
   不含读文件、感知工具调用）。经筛选后，这些文件进入 ``results_*_pert/`` 等
   参考目录，供同任务在其他 seed 上部署时阅读。planner 参考步骤顺序与策略，但须
   根据当前画面重新感知并计算坐标，不得照搬历史 xyz。
-* **全局经验。** ``resources/libero/memory/`` 下的 Markdown 笔记
+* **全局经验。** ``resources/<env>/memory/`` 下的 Markdown 笔记
   （``MEMORY.md`` 索引及子笔记）记录跨任务的操作要点、参数范围与常见失败模式。
   planner 将它与任务级参考一并阅读，用于理解「为什么这样排步骤」以及失败后如何
   调整。

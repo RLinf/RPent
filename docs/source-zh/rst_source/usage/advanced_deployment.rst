@@ -5,23 +5,10 @@
 只有当服务分布在不同主机，或需要跨任务复用 VLA 与 SAM3 模型时，才需要配置外部
 endpoint。
 
-三个 endpoint 支持以下传输方式：
-
-.. list-table::
-   :header-rows: 1
-
-   * - 服务
-     - RPent 参数
-     - Endpoint 格式
-   * - LIBERO 环境
-     - ``--env-endpoint``
-     - HTTP 或 socket RPC，``[protocol://]HOST:PORT``
-   * - Pi0.5 VLA
-     - ``--vla-endpoint``
-     - HTTP 或 socket RPC，``[protocol://]HOST:PORT``
-   * - SAM3
-     - ``--sam3-endpoint``
-     - HTTP 或 socket RPC，``[protocol://]HOST:PORT``
+三个参数分别设置对应服务的 endpoint：LIBERO 环境用 ``--env-endpoint``，
+Pi0.5 VLA 用 ``--vla-endpoint``，SAM3 用 ``--sam3-endpoint``。每个都取
+``[protocol://]HOST:PORT``，省略 protocol 时默认 HTTP，也可用 ``socket://``
+改走 socket RPC。
 
 LIBERO 环境服务
 ---------------

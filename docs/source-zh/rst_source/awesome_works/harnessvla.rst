@@ -1,8 +1,8 @@
 Harness VLA
 ===========
 
-*Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives
-via Memory-Guided Agents*
+*Steering Frozen VLAs into Reliable Manipulation Primitives via
+Memory-Guided Agents*
 
 **资源：** `论文 <https://arxiv.org/abs/2607.08448>`_ | `项目主页
 <https://harnessvla.github.io/>`_ | `代码 <https://github.com/RLinf/RPent>`_
