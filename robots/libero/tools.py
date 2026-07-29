@@ -55,15 +55,18 @@ ARTIFACT_DIRECTORIES: tuple[str, ...] = (
 
 def artifact_path(
     output_dir: str | os.PathLike[str],
-    step: int | None,
-    camera: str | None,
-    resolution: str | None,
     kind: str,
+    *,
+    step: int | None = None,
+    camera: str | None = None,
+    resolution: str | None = None,
 ) -> Path:
-    """Resolve one artifact path from the shared layout."""
-    return Path(output_dir) / _artifact_relative_path(
-        step, camera, resolution, kind
-    )
+    """Resolve one artifact path from the shared layout.
+
+    ``kind`` identifies the artifact; the remaining fields are optional
+    qualifiers and must be passed by keyword to avoid mixing them up.
+    """
+    return Path(output_dir) / _artifact_relative_path(step, camera, resolution, kind)
 
 
 def _artifact_relative_path(
@@ -785,7 +788,7 @@ class LiberoPrimitives:
 
 def _append_state(output_dir: str, blob: dict) -> None:
     """Append *blob* to ``<output_dir>/states.json``."""
-    path = artifact_path(output_dir, None, None, None, "states")
+    path = artifact_path(output_dir, "states")
     if path.exists():
         with open(path) as f:
             states = json.load(f)
@@ -804,7 +807,7 @@ def write_recipe_from_states(output_dir: str, recipe_tag: str) -> str:
     finalization tools such as Read, Bash, back_project, view_driver_state,
     write_text_file, and finish.
     """
-    states_path = artifact_path(output_dir, None, None, None, "states")
+    states_path = artifact_path(output_dir, "states")
     if states_path.exists():
         with open(states_path) as f:
             states = json.load(f)
@@ -902,7 +905,7 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
         ),
     }
     imageio.imwrite(
-        artifact_path(output_dir, step_idx, "agentview", "low", "policy_image"),
+        artifact_path(output_dir, "policy_image", step=step_idx, camera="agentview", resolution="low"),
         primitives._last_obs["main_images"],
     )
 
@@ -912,9 +915,7 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
         height=256,
         width=256,
     ) or {}
-    camera_meta_path = artifact_path(
-        output_dir, None, "agentview", "low", "metadata"
-    )
+    camera_meta_path = artifact_path(output_dir, "metadata", camera="agentview", resolution="low")
     if agentview_meta and not camera_meta_path.exists():
         cam_meta_out = dict(agentview_meta)
         cam_meta_out["projection"] = (
@@ -941,10 +942,7 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
             ci = np.asarray(ci)
             if ci.dtype != np.uint8:
                 ci = ci.astype(np.uint8)
-            imageio.imwrite(
-                artifact_path(output_dir, step_idx, "agentview", "low", "image"),
-                ci[::-1],
-            )
+            imageio.imwrite(artifact_path(output_dir, "image", step=step_idx, camera="agentview", resolution="low"), ci[::-1])
     except Exception as e:
         logger.warning("image_cam dump failed: %s", e)
 
@@ -962,12 +960,12 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
             # image_NN.png — see camera_meta note).
             d = _metric_depth(d, agentview_meta)[::-1]
             np.save(
-                artifact_path(output_dir, step_idx, "agentview", "low", "depth"),
+                artifact_path(output_dir, "depth", step=step_idx, camera="agentview", resolution="low"),
                 d.astype(np.float32),
             )
             world = _world_from_depth(d, agentview_meta).astype(np.float32)
             np.save(
-                artifact_path(output_dir, step_idx, "agentview", "low", "world"),
+                artifact_path(output_dir, "world", step=step_idx, camera="agentview", resolution="low"),
                 world,
             )
             agent_world_map = _artifact_relative_path(
@@ -985,10 +983,7 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
             wimg = np.asarray(wimg)
             if wimg.dtype != np.uint8:
                 wimg = wimg.astype(np.uint8)
-            imageio.imwrite(
-                artifact_path(output_dir, step_idx, "wrist", "low", "image"),
-                wimg[::-1],
-            )
+            imageio.imwrite(artifact_path(output_dir, "image", step=step_idx, camera="wrist", resolution="low"), wimg[::-1])
     except Exception as e:
         logger.warning("wrist image dump failed: %s", e)
 
@@ -1009,12 +1004,12 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
             else:
                 wdpt_metric = _metric_depth(wdpt_arr, wmeta)[::-1]
                 np.save(
-                    artifact_path(output_dir, step_idx, "wrist", "low", "depth"),
+                    artifact_path(output_dir, "depth", step=step_idx, camera="wrist", resolution="low"),
                     wdpt_metric.astype(np.float32),
                 )
                 world_w = _world_from_depth(wdpt_metric, wmeta).astype(np.float32)
                 np.save(
-                    artifact_path(output_dir, step_idx, "wrist", "low", "world"),
+                    artifact_path(output_dir, "world", step=step_idx, camera="wrist", resolution="low"),
                     world_w,
                 )
                 wrist_world_map = _artifact_relative_path(
@@ -1029,7 +1024,7 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
                     "agentview world_NN.npy."
                 )
                 with open(
-                    artifact_path(output_dir, step_idx, "wrist", "low", "metadata"),
+                    artifact_path(output_dir, "metadata", step=step_idx, camera="wrist", resolution="low"),
                     "w",
                 ) as f:
                     json.dump(wmeta_out, f, indent=2)
@@ -1047,7 +1042,7 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
         if meta_hi is None:
             raise RuntimeError("agentview camera metadata missing")
         imageio.imwrite(
-            artifact_path(output_dir, step_idx, "agentview", "high", "image"),
+            artifact_path(output_dir, "image", step=step_idx, camera="agentview", resolution="high"),
             np.asarray(rgb_hi)[::-1],
         )
         world_hi = _world_from_depth(
@@ -1055,7 +1050,7 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
             meta_hi,
         ).astype(np.float16)
         np.save(
-            artifact_path(output_dir, step_idx, "agentview", "high", "world"),
+            artifact_path(output_dir, "world", step=step_idx, camera="agentview", resolution="high"),
             world_hi,
         )
         agent_world_map_hi = _artifact_relative_path(
@@ -1077,7 +1072,7 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
         if meta_wrist_hi is None:
             raise RuntimeError("robot0_eye_in_hand camera metadata missing")
         imageio.imwrite(
-            artifact_path(output_dir, step_idx, "wrist", "high", "image"),
+            artifact_path(output_dir, "image", step=step_idx, camera="wrist", resolution="high"),
             np.asarray(rgb_wrist_hi)[::-1],
         )
         world_wrist_hi = _world_from_depth(
@@ -1085,7 +1080,7 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
             meta_wrist_hi,
         ).astype(np.float16)
         np.save(
-            artifact_path(output_dir, step_idx, "wrist", "high", "world"),
+            artifact_path(output_dir, "world", step=step_idx, camera="wrist", resolution="high"),
             world_wrist_hi,
         )
         wrist_world_map_hi = _artifact_relative_path(
@@ -1096,14 +1091,10 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
 
     for old_step in range(max(0, int(step_idx) - 4)):
         for path in (
-            artifact_path(
-                output_dir, old_step, "agentview", "high", "image"
-            ),
-            artifact_path(
-                output_dir, old_step, "agentview", "high", "world"
-            ),
-            artifact_path(output_dir, old_step, "wrist", "high", "image"),
-            artifact_path(output_dir, old_step, "wrist", "high", "world"),
+            artifact_path(output_dir, "image", step=old_step, camera="agentview", resolution="high"),
+            artifact_path(output_dir, "world", step=old_step, camera="agentview", resolution="high"),
+            artifact_path(output_dir, "image", step=old_step, camera="wrist", resolution="high"),
+            artifact_path(output_dir, "world", step=old_step, camera="wrist", resolution="high"),
         ):
             try:
                 os.unlink(path)
@@ -1504,7 +1495,7 @@ TOOLS_SPEC = [
 
 def _load_states() -> list:
     """Return the parsed state trace from the local output dir."""
-    path = artifact_path(get_output_dir(), None, None, None, "states")
+    path = artifact_path(get_output_dir(), "states")
     if not path.exists():
         return []
     with open(path) as f:
@@ -1530,13 +1521,11 @@ def _load_image_path(nn: int, kind: str) -> str | None:
     """Return the path to a dumped state image. None if not present."""
     out_dir = get_output_dir()
     if kind == "agent":
-        path = artifact_path(
-            out_dir, nn, "agentview", "low", "policy_image"
-        )
+        path = artifact_path(out_dir, "policy_image", step=nn, camera="agentview", resolution="low")
     elif kind == "camera":
-        path = artifact_path(out_dir, nn, "agentview", "low", "image")
+        path = artifact_path(out_dir, "image", step=nn, camera="agentview", resolution="low")
     elif kind == "wrist":
-        path = artifact_path(out_dir, nn, "wrist", "low", "image")
+        path = artifact_path(out_dir, "image", step=nn, camera="wrist", resolution="low")
     else:
         raise ValueError(f"unknown image kind: {kind}")
     if not path.exists():
@@ -1547,11 +1536,9 @@ def _load_image_path(nn: int, kind: str) -> str | None:
 def _load_camera_meta(camera: str = "agentview", nn: int | None = None) -> dict:
     out_dir = get_output_dir()
     if camera == "agentview":
-        path = artifact_path(
-            out_dir, None, "agentview", "low", "metadata"
-        )
+        path = artifact_path(out_dir, "metadata", camera="agentview", resolution="low")
     elif camera == "wrist" and nn is not None:
-        path = artifact_path(out_dir, nn, "wrist", "low", "metadata")
+        path = artifact_path(out_dir, "metadata", step=nn, camera="wrist", resolution="low")
     else:
         raise ValueError("camera must be 'agentview' or 'wrist' with nn")
     if not path.exists():
@@ -1564,7 +1551,7 @@ def _load_depth(camera: str, nn: int) -> np.ndarray:
     out_dir = get_output_dir()
     if camera not in ("agentview", "wrist"):
         raise ValueError("camera must be 'agentview' or 'wrist'")
-    path = artifact_path(out_dir, nn, camera, "low", "depth")
+    path = artifact_path(out_dir, "depth", step=nn, camera=camera, resolution="low")
     if not path.exists():
         raise FileNotFoundError(f"{path.name} not found in {out_dir}")
     depth = np.load(path)
@@ -1608,9 +1595,7 @@ def view_driver_state(step: int | None = None) -> dict:
         ("image_cam_hi_path", "agentview"),
         ("image_wrist_hi_path", "wrist"),
     ):
-        image_path = artifact_path(
-            get_output_dir(), nn, camera, "high", "image"
-        )
+        image_path = artifact_path(get_output_dir(), "image", step=nn, camera=camera, resolution="high")
         if image_path.exists():
             out[field] = str(image_path)
     return out
@@ -1622,8 +1607,8 @@ def _select_segment_artifacts(nn: int, camera: str):
         raise ValueError(f"unknown segment camera: {camera}")
     pairs = [
         (
-            artifact_path(out_dir, nn, camera, resolution, "image"),
-            artifact_path(out_dir, nn, camera, resolution, "world"),
+            artifact_path(out_dir, "image", step=nn, camera=camera, resolution=resolution),
+            artifact_path(out_dir, "world", step=nn, camera=camera, resolution=resolution),
         )
         for resolution in ("high", "low")
     ]
@@ -1635,7 +1620,7 @@ def _select_segment_artifacts(nn: int, camera: str):
 
 
 def _next_segment_artifact_paths(out_dir: Path, nn: int):
-    segments_dir = artifact_path(out_dir, None, None, None, "segments")
+    segments_dir = artifact_path(out_dir, "segments")
     segments_dir.mkdir(parents=True, exist_ok=True)
     idx = 0
     while True:
@@ -1792,13 +1777,7 @@ def back_project(
         }
 
     try:
-        world_path = artifact_path(
-            get_output_dir(),
-            nn,
-            camera,
-            resolution,
-            "world",
-        )
+        world_path = artifact_path(get_output_dir(), "world", step=nn, camera=camera, resolution=resolution)
         world_map = np.load(world_path)
     except Exception as e:
         return {

@@ -73,9 +73,7 @@ class LiberoToolkit(Toolkit):
         self._next_step += 1
         step_idx = self._next_step
         if self._dashboard is not None:
-            video_dir = libero_tools.artifact_path(
-                get_output_dir(), None, None, None, "action_videos"
-            )
+            video_dir = libero_tools.artifact_path(get_output_dir(), "action_videos")
             video_path = video_dir / f"step_{step_idx:02d}_{name}.mp4"
             try:
                 self._primitives.save_frame_slice(start_frame, str(video_path), fps=20)
@@ -106,15 +104,9 @@ class LiberoToolkit(Toolkit):
             if target.exists():
                 shutil.rmtree(target)
         for target in (
-            libero_tools.artifact_path(
-                out_dir, None, None, None, "states"
-            ),
-            libero_tools.artifact_path(
-                out_dir, None, "agentview", "low", "metadata"
-            ),
-            libero_tools.artifact_path(
-                out_dir, None, None, None, "episode_video"
-            ),
+            libero_tools.artifact_path(out_dir, "states"),
+            libero_tools.artifact_path(out_dir, "metadata", camera="agentview", resolution="low"),
+            libero_tools.artifact_path(out_dir, "episode_video"),
         ):
             if target.exists():
                 target.unlink()

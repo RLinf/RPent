@@ -127,7 +127,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             seed=args.seed,
             output_dir=str(output_dir),
             video_path=str(
-                artifact_path(output_dir, None, None, None, "episode_video")
+                artifact_path(output_dir, "episode_video")
             ),
         )
     return RunConfig(
