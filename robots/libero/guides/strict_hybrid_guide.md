@@ -542,7 +542,9 @@ When `state.libero_terminated == true`:
 
 a. The working command recipe (`{output_dir}/recipe_{recipe_tag}.jsonl`) is
    **auto-exported by the runner** from the non-error primitive commands in
-   `states.json` — you do NOT hand-write it.
+   `states.json` plus successful segment calls recorded in
+   `segments/segment_*.json`, merged in execution order — you do NOT
+   hand-write it.
 b. Write a minimal audit JSON with `write_text_file` to
    `{output_dir}/{recipe_tag}.json` with at least: `suite`, `task_id`, `seed`,
    `regime: "strict_perception"`, `strategy_notes` (mention HOW you localized —
