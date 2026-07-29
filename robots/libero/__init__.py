@@ -136,21 +136,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
-def _parse_endpoint(endpoint: str) -> tuple[str, str, int]:
-    """Parse ``[protocol://]host:port`` into ``(protocol, host, port)``.
-
-    Protocol defaults to ``http`` when the prefix is omitted.
-    """
-    if "://" in endpoint:
-        protocol, _, rest = endpoint.partition("://")
-    else:
-        protocol, rest = "http", endpoint
-    host, _, port = rest.partition(":")
-    if not host or not port:
-        raise ValueError(f"endpoint must be [protocol://]host:port, got {endpoint!r}")
-    return protocol, host, int(port)
-
-
 def _subprocess_env(cuda_device: str | None, **extra: str) -> dict[str, str]:
     """Build the env dict for a subprocess: inherit from parent, apply
     ``--cuda-device`` uniformly, layer optional extras on top.
@@ -182,7 +167,7 @@ def _init_runtime(
     from rpent.utils.config import get_libero_type
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
     from rpent.utils.http_rpc import HttpRpcClient
-    from rpent.utils.rpc import wait_for_ready
+    from rpent.utils.rpc import parse_endpoint, wait_for_ready
     from rpent.utils.sam3_client import Sam3Client
     from rpent.utils.socket_rpc import SocketRpcClient
     from rpent.utils.vla_client import VLAClient
@@ -220,7 +205,7 @@ def _init_runtime(
         env_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
         wait_for_ready(env_rpc, daemon=env_daemon)
     else:
-        protocol, host, port = _parse_endpoint(args.env_endpoint)
+        protocol, host, port = parse_endpoint(args.env_endpoint)
         if protocol == "socket":
             env_rpc = SocketRpcClient(host, port)
         elif protocol == "http":
@@ -252,7 +237,7 @@ def _init_runtime(
         vla_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
         wait_for_ready(vla_rpc, daemon=vla_daemon)
     else:
-        protocol, host, port = _parse_endpoint(args.vla_endpoint)
+        protocol, host, port = parse_endpoint(args.vla_endpoint)
         if protocol == "socket":
             vla_rpc = SocketRpcClient(host, port)
         elif protocol == "http":
@@ -284,7 +269,7 @@ def _init_runtime(
         sam3_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
         wait_for_ready(sam3_rpc, daemon=sam3_daemon)
     else:
-        protocol, host, port = _parse_endpoint(args.sam3_endpoint)
+        protocol, host, port = parse_endpoint(args.sam3_endpoint)
         if protocol == "socket":
             sam3_rpc = SocketRpcClient(host, port)
         elif protocol == "http":

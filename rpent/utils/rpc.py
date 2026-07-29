@@ -166,11 +166,27 @@ class RpcFacade:
             server.server_close()
 
 
+def parse_endpoint(endpoint: str) -> tuple[str, str, int]:
+    """Parse ``[protocol://]host:port`` into ``(protocol, host, port)``.
+
+    Protocol defaults to ``http`` when the prefix is omitted.
+    """
+    if "://" in endpoint:
+        protocol, _, rest = endpoint.partition("://")
+    else:
+        protocol, rest = "http", endpoint
+    host, _, port = rest.partition(":")
+    if not host or not port:
+        raise ValueError(f"endpoint must be [protocol://]host:port, got {endpoint!r}")
+    return protocol, host, int(port)
+
+
 __all__ = [
     "RpcClient",
     "RpcError",
     "RpcFacade",
     "check_response",
     "make_error_response",
+    "parse_endpoint",
     "wait_for_ready",
 ]
