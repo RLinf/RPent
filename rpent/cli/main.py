@@ -122,7 +122,7 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="Dashboard port. 0 asks the OS for a free port.")
     ap.add_argument("--dashboard-language", choices=["en", "zh-cn"], default="en",
                     help="Dashboard UI language. 'zh-cn' serves the Chinese "
-                         "variant (index.zh-cn.html); defaults to English.")
+                         "translation; defaults to English.")
     ap.add_argument("--verbose", action="store_true",
                     help="Enable DEBUG-level logging for stdout and the run.log "
                          "file. Defaults to INFO when not set.")

@@ -6,6 +6,7 @@ the process is stopped.
 
 Routes mirror the fixed frontend contract in ``rpent/dashboard/index.html``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -16,14 +17,16 @@ import time
 from pathlib import Path
 from typing import Any
 
+import uvicorn
 from fastapi import Body, FastAPI
 from fastapi.responses import (
     FileResponse,
+    HTMLResponse,
     JSONResponse,
     Response,
     StreamingResponse,
 )
-import uvicorn
+from fastapi.staticfiles import StaticFiles
 
 from rpent.dashboard.state import State
 
@@ -42,7 +45,10 @@ class DashboardServer:
         self.host = host
         self.port = int(port)
         self.runs_dir = runs_dir
-        self._index_file = Path(__file__).parent / ("index.zh-cn.html" if language == "zh-cn" else "index.html")
+        dashboard_dir = Path(__file__).parent
+        self._language = "zh-cn" if language == "zh-cn" else "en"
+        self._index_html = (dashboard_dir / "index.html").read_text(encoding="utf-8")
+        self._static_dir = dashboard_dir / "static"
         self._runs: dict[str, State] = {}
         self._app = self._build_app()
         self._server: uvicorn.Server | None = None
@@ -91,10 +97,19 @@ class DashboardServer:
 
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="RPent dashboard")
+        app.mount(
+            "/static",
+            StaticFiles(directory=self._static_dir),
+            name="dashboard-static",
+        )
 
         @app.get("/")
-        def index() -> Response:
-            return FileResponse(self._index_file, media_type="text/html")
+        def index() -> HTMLResponse:
+            html = self._index_html.replace(
+                "__DASHBOARD_LANGUAGE__",
+                self._language,
+            )
+            return HTMLResponse(html)
 
         @app.get("/healthz")
         def healthz() -> JSONResponse:

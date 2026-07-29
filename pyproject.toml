@@ -88,6 +88,9 @@ where = ["."]
 include = ["rpent*"]
 exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
+[tool.setuptools.package-data]
+"rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
+
 [tool.ruff]
 line-length = 88
 indent-width = 4
