@@ -326,7 +326,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--cuda-device",
         default=None,
-        help="GPU device(s) exposed through CUDA_VISIBLE_DEVICES.",
+        help="GPU device exposed through CUDA_VISIBLE_DEVICES.",
     )
     parser.add_argument("--parent-watch", action="store_true",
                         help="watch parent process via stdin pipe and exit when it dies")

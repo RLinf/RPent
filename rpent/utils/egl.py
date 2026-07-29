@@ -6,8 +6,6 @@ process to CUDA device N (via ``--cuda-device``) without also pointing MuJoCo
 at the *matching* EGL device makes MuJoCo render on the wrong device — or on a
 software/DRM-only EGL entry — and env_server crashes. This module bridges the
 two enumerations.
-
-Must be called **before** any import that touches MuJoCo or CUDA.
 """
 from __future__ import annotations
 
@@ -31,10 +29,7 @@ def cuda_to_egl_map() -> dict[int, int]:
     which the driver reports regardless of ``CUDA_VISIBLE_DEVICES``.
     """
     os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
-    try:
-        from mujoco.egl import egl_ext as EGL            # mujoco ships a working binding
-    except Exception:
-        from OpenGL import EGL                            # fallback
+    from mujoco.egl import egl_ext as EGL
     from OpenGL import EGL as GLEGL
     from OpenGL.EGL.EXT.device_base import eglQueryDeviceStringEXT
 
@@ -61,8 +56,8 @@ def cuda_to_egl_map() -> dict[int, int]:
 def configure_egl_device(cuda_device: int) -> None:
     """Set ``MUJOCO_EGL_DEVICE_ID`` to the EGL device matching *cuda_device*.
 
-    Must be called before any MuJoCo or CUDA import. *cuda_device* is a single
-    integer CUDA device ordinal (as passed to ``--cuda-device``).
+    *cuda_device* is a single integer CUDA device ordinal (as passed to
+    ``--cuda-device``).
 
     No-op when ``MUJOCO_EGL_DEVICE_ID`` is already set.  If the EGL/CUDA
     mapping cannot be built, a warning is logged and MuJoCo falls back to its
