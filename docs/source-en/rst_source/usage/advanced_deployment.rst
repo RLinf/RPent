@@ -1,35 +1,21 @@
-Advanced Deployment
-===================
+Remote Services
+===============
 
-RPent normally starts and stops the LIBERO environment, VLA, and SAM3
-services with each run. Keep that default for a single-machine setup. Use
-external endpoints when the services run on different hosts or when the VLA
-and SAM3 models should be reused across runs.
+By default, RPent starts and stops the environment, VLA, and SAM3 services
+with each LIBERO run. Keep that default for single-machine use. Configure
+external endpoints only when services live on different hosts, or when you
+want to reuse VLA and SAM3 models across tasks.
 
-The endpoint options support the following transports:
+Three flags set the endpoints: ``--env-endpoint`` for the LIBERO
+environment, ``--vla-endpoint`` for the Pi0.5 VLA, and ``--sam3-endpoint``
+for SAM3. Each takes ``[protocol://]HOST:PORT`` — HTTP when the protocol is
+omitted, or ``socket://`` for socket RPC.
 
-.. list-table::
-   :header-rows: 1
+LIBERO environment service
+--------------------------
 
-   * - Service
-     - RPent option
-     - Endpoint format
-   * - LIBERO environment
-     - ``--env-endpoint``
-     - HTTP or socket RPC, ``[protocol://]HOST:PORT``
-   * - Pi0.5 VLA
-     - ``--vla-endpoint``
-     - HTTP or socket RPC, ``[protocol://]HOST:PORT``
-   * - SAM3
-     - ``--sam3-endpoint``
-     - HTTP or socket RPC, ``[protocol://]HOST:PORT``
-
-LIBERO environment server
--------------------------
-
-An environment server is tied to one suite, task, seed, and episode-step
-limit. These values must exactly match the RPent client command. On the
-environment host, run:
+One environment service is pinned to a suite, task, seed, and max episode
+steps; those values must match the RPent client exactly. On the env host:
 
 .. code-block:: bash
 
@@ -40,11 +26,11 @@ environment host, run:
      --max-episode-steps 10000 \
      --transport http --host 0.0.0.0 --port ENV_PORT
 
-The server is task-specific. Stop it and start a new one before changing any
-of the matching arguments.
+The environment service is task-bound. To change any of those parameters,
+stop the old service and start a new one.
 
-Pi0.5 VLA server
-----------------
+Pi0.5 VLA service
+-----------------
 
 On the VLA host, set the checkpoint path and start the HTTP service:
 
@@ -55,10 +41,10 @@ On the VLA host, set the checkpoint path and start the HTTP service:
    python -m robots.libero.vla_server \
      --transport http --host 0.0.0.0 --port VLA_PORT
 
-The VLA server loads the model once and can be shared by multiple RPent runs.
+The VLA service loads the model once and can be reused by multiple RPent runs.
 
-SAM3 server
------------
+SAM3 service
+------------
 
 On the SAM3 host, set the local checkpoint path and start the HTTP service:
 
@@ -69,14 +55,13 @@ On the SAM3 host, set the local checkpoint path and start the HTTP service:
    python -m robots.libero.sam3_server \
      --transport http --host 0.0.0.0 --port SAM3_PORT
 
-The SAM3 server loads the model once and can be shared by multiple RPent runs.
+The SAM3 service loads the model once and can be reused by multiple RPent runs.
 
 Connect RPent
 -------------
 
-On the machine running RPent, use the three endpoint options to connect to the
-services above. The suite, task, seed, and maximum episode steps must match the
-environment server command:
+On the machine that runs RPent, point at the three endpoints. Suite, task,
+seed, and max episode steps must match the environment service:
 
 .. code-block:: bash
 
@@ -87,12 +72,10 @@ environment server command:
      --env-endpoint http://ENV_HOST:ENV_PORT \
      --vla-endpoint http://VLA_HOST:VLA_PORT \
      --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
-     --planner claude_code --model claude-opus-4-7
+     --planner claude_code --model claude-opus-4-8
 
-Replace each ``*_HOST`` with the address of the machine running that service,
-and make sure it is reachable from the machine running RPent. Replace each
-``*_PORT`` with the available port selected when starting the service. The
-three endpoint options are independent; when one is omitted, RPent starts that
-service on the current machine and selects an available port automatically.
-For all three services, omit the protocol to use HTTP, or use
-``socket://HOST:PORT`` for socket RPC.
+Replace each ``*_HOST`` with a reachable address of the machine that runs
+that service, and each ``*_PORT`` with the free port you chose at startup.
+Any of the three endpoint flags can be omitted; when one is unset, RPent
+spawns that service locally on a free port. All three default to HTTP when
+the protocol is omitted, and all three accept ``socket://HOST:PORT``.

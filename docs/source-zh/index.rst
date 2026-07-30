@@ -90,6 +90,7 @@
    :caption: 开发教程
 
    系统设计 <rst_source/development/architecture>
+   核心接口 <rst_source/development/interfaces>
    添加新机器人 <rst_source/development/add_robot>
    添加动作原语 <rst_source/development/add_primitive>
    Memory 管理 <rst_source/development/memory>
@@ -101,4 +102,4 @@
    :hidden:
    :caption: 论文
 
-   Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents <rst_source/awesome_works/harnessvla>
+   Harness VLA <rst_source/awesome_works/harnessvla>
