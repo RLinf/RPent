@@ -143,7 +143,8 @@ class RpcFacade:
             if method == "healthz":
                 return {"status": "ok"}
             if method == "shutdown":
-                self._shutdown_event.set()
+                with _lock:
+                    self._shutdown_event.set()
                 return {"ok": True}
             with _lock:
                 return self._dispatch(method, args, kwargs)
