@@ -5,8 +5,9 @@ from __future__ import annotations
 import os
 import queue
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
+from rpent.dashboard.events import DashboardEventSink
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import (
     get_memory_dir,
@@ -106,7 +107,7 @@ def build_planner(
     max_tokens: int = 8192,
     planner_timeout_s: int | None = None,
     claude_code_max_budget_usd: float | None = None,
-    dashboard: Any = None,
+    dashboard: DashboardEventSink | None = None,
     no_images: bool = False,
 ):
     """Build a planner for the given backend, resolving credentials from env vars."""

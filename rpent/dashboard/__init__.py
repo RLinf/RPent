@@ -1,9 +1,5 @@
-"""Optional dashboard layer for live-monitoring a RPent run.
+"""Optional Dashboard event and live-monitoring package.
 
-Opt in via ``python rpent/cli/main.py --dashboard``; never imported on the normal
-CLI path.
+The package initializer intentionally has no eager imports so consumers of the
+lightweight event protocol do not load FastAPI or uvicorn.
 """
-from rpent.dashboard.server import DashboardServer
-from rpent.dashboard.state import State
-
-__all__ = ["DashboardServer", "State"]

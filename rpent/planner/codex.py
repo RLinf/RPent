@@ -22,6 +22,12 @@ from typing import Any
 import openai_codex
 
 from rpent.cli.tui import next_user_line
+from rpent.dashboard.events import (
+    DashboardEventSink,
+    NullDashboardEventSink,
+    TranscriptEvent,
+    UsageEvent,
+)
 from rpent.planner.base import PlannerResult, strip_mcp_prefix
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.tools.toolkit import Toolkit
@@ -50,7 +56,7 @@ class CodexPlanner:
         extra_dirs: list[str] | None = None,
         output_path: str | Path | None = None,
         model: str | None = None,
-        dashboard: Any = None,
+        dashboard: DashboardEventSink | None = None,
     ):
         """Initialize the Codex SDK backend."""
         self._output_dir = str(output_dir)
@@ -61,7 +67,9 @@ class CodexPlanner:
         self._model = model or os.environ.get("CODEX_MODEL", None)
         self._base_url = os.environ.get("CODEX_BASE_URL", None)
         self._api_key = os.environ.get("CODEX_API_KEY", None)
-        self._dashboard = dashboard
+        self._dashboard = (
+            dashboard if dashboard is not None else NullDashboardEventSink()
+        )
 
     def solve(
         self,
@@ -307,7 +315,7 @@ class _Recorder:
     """Pure adapter: consume Codex SDK events, emit text + accumulate stats."""
 
     max_turns: int
-    dashboard: Any = None
+    dashboard: DashboardEventSink = field(default_factory=NullDashboardEventSink)
     turns: int = 0
     tool_calls: int = 0
     usage: dict[str, int] = field(
@@ -363,8 +371,9 @@ class _Recorder:
                 return ""
             self.final_response = text
             self.turns += 1
-            if self.dashboard is not None:
-                self.dashboard.on_event({"type": "text", "text": text})
+            self.dashboard.emit(
+                TranscriptEvent({"type": "text", "text": text})
+            )
             return (
                 f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n"
                 f"[codex] {text}\n"
@@ -372,8 +381,10 @@ class _Recorder:
 
         if item_type == "reasoning":
             text = _extract_text(_get(item, "summary") or _get(item, "content"))
-            if text and self.dashboard is not None:
-                self.dashboard.on_event({"type": "thinking", "text": text})
+            if text:
+                self.dashboard.emit(
+                    TranscriptEvent({"type": "thinking", "text": text})
+                )
             return f"[codex-reasoning] {text}\n" if text else ""
 
         if item_type in {
@@ -391,15 +402,16 @@ class _Recorder:
             else:
                 name = "fileChange"
             payload = _summarise_item(item)
-            if self.dashboard is not None:
-                data = _jsonable(item)
-                args = data.get("arguments", {}) if isinstance(data, dict) else {}
-                self.dashboard.on_event(
-                    {"type": "tool_call", "tool": name, "args": args}
-                )
-                self.dashboard.on_event(
+            data = _jsonable(item)
+            args = data.get("arguments", {}) if isinstance(data, dict) else {}
+            self.dashboard.emit(
+                TranscriptEvent({"type": "tool_call", "tool": name, "args": args})
+            )
+            self.dashboard.emit(
+                TranscriptEvent(
                     {"type": "tool_result", "tool": name, "result": payload}
                 )
+            )
             return f"[tool<-] {name}: {json.dumps(payload, ensure_ascii=False)}\n"
 
         return ""
@@ -435,12 +447,13 @@ class _Recorder:
                 usage, "reasoning_output_tokens"
             ),
         }
-        if self.dashboard is not None:
-            self.dashboard.on_usage(
+        self.dashboard.emit(
+            UsageEvent(
                 inp=self.usage["total_input_tokens"],
                 out=self.usage["total_output_tokens"],
                 tool_calls=self.tool_calls,
             )
+        )
 
     def _maybe_capture_finish(self, name: str, item: Any) -> None:
         if self.finish_result is not None:

@@ -32,6 +32,12 @@ from pydantic_ai.models import Model
 from pydantic_ai.usage import RunUsage, UsageLimits
 
 from rpent.cli.tui import QUIT_TOKENS
+from rpent.dashboard.events import (
+    DashboardEventSink,
+    NullDashboardEventSink,
+    TranscriptEvent,
+    UsageEvent,
+)
 from rpent.planner.base import PlannerResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
@@ -58,13 +64,15 @@ class ApiAgentLoop:
         self,
         model: Model,
         max_tokens: int = 8192,
-        dashboard: Any = None,
+        dashboard: DashboardEventSink | None = None,
         no_images: bool = False,
     ):
         """Store the pydantic-ai model and the output-token cap."""
         self._model = model
         self._max_tokens = max_tokens
-        self._dashboard = dashboard
+        self._dashboard = (
+            dashboard if dashboard is not None else NullDashboardEventSink()
+        )
         self._no_images = no_images
 
     def solve(
@@ -176,39 +184,43 @@ class ApiAgentLoop:
                             response_message = _serialize_response(response)
                             messages.append(response_message)
                             _log_response(response, run.usage, run_turns, max_turns)
-                            if self._dashboard is not None:
-                                for block in response_message["content"]:
-                                    if block["type"] == "text":
-                                        dashboard_event = {
-                                            "type": "text",
-                                            "text": block["text"],
-                                        }
-                                    elif block["type"] == "thinking":
-                                        dashboard_event = {
-                                            "type": "thinking",
-                                            "text": block["thinking"],
-                                        }
-                                    else:
-                                        continue
-                                    self._dashboard.on_event(dashboard_event)
-                                self._dashboard.on_usage(
+                            for block in response_message["content"]:
+                                if block["type"] == "text":
+                                    dashboard_payload = {
+                                        "type": "text",
+                                        "text": block["text"],
+                                    }
+                                elif block["type"] == "thinking":
+                                    dashboard_payload = {
+                                        "type": "thinking",
+                                        "text": block["thinking"],
+                                    }
+                                else:
+                                    continue
+                                self._dashboard.emit(
+                                    TranscriptEvent(dashboard_payload)
+                                )
+                            self._dashboard.emit(
+                                UsageEvent(
                                     inp=int(run.usage.input_tokens or 0),
                                     out=int(run.usage.output_tokens or 0),
                                     tool_calls=n_tool_calls,
                                 )
+                            )
 
                             async with node.stream(run.ctx) as stream:
                                 async for event in stream:
                                     if isinstance(event, FunctionToolCallEvent):
                                         n_tool_calls += 1
-                                        if self._dashboard is not None:
-                                            self._dashboard.on_event(
+                                        self._dashboard.emit(
+                                            TranscriptEvent(
                                                 {
                                                     "type": "tool_call",
                                                     "tool": event.part.tool_name,
                                                     "args": event.part.args_as_dict(),
                                                 }
                                             )
+                                        )
                                         if event.part.tool_name == "finish":
                                             finish_result = {
                                                 "_finish": True,
@@ -218,16 +230,16 @@ class ApiAgentLoop:
                                         message = _serialize_tool_result(event)
                                         messages.append(message)
                                         _log_tool_result(message)
-                                        if self._dashboard is not None:
-                                            dashboard_result = {
-                                                "is_error": bool(
-                                                    getattr(
-                                                        event.part, "is_error", False
-                                                    )
-                                                ),
-                                                "size": len(message["content"]),
-                                            }
-                                            self._dashboard.on_event(
+                                        dashboard_result = {
+                                            "is_error": bool(
+                                                getattr(
+                                                    event.part, "is_error", False
+                                                )
+                                            ),
+                                            "size": len(message["content"]),
+                                        }
+                                        self._dashboard.emit(
+                                            TranscriptEvent(
                                                 {
                                                     "type": "tool_result",
                                                     "tool": message.get("name")
@@ -235,12 +247,14 @@ class ApiAgentLoop:
                                                     "result": dashboard_result,
                                                 }
                                             )
-                                    if self._dashboard is not None:
-                                        self._dashboard.on_usage(
+                                        )
+                                    self._dashboard.emit(
+                                        UsageEvent(
                                             inp=int(run.usage.input_tokens or 0),
                                             out=int(run.usage.output_tokens or 0),
                                             tool_calls=n_tool_calls,
                                         )
+                                    )
 
                             if finish_result is not None:
                                 logger.info("FINISH called: %s", finish_result)

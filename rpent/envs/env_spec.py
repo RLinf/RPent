@@ -10,6 +10,7 @@ handlers, server lifecycle, and the MCP allowlist live on
 the three runner hooks (``add_cli_args`` / ``parse_config`` /
 ``init_runtime``) that keep ``rpent/cli/main.py`` env-agnostic.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -18,10 +19,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from rpent.dashboard.events import DashboardEventSink
 from rpent.envs.prompt_bundle import PromptBundle
 
 if TYPE_CHECKING:
-    from rpent.dashboard.state import State
     from rpent.utils.daemon import ProcessDaemon
 
 
@@ -32,7 +33,6 @@ class RunConfig:
     recipe_tag: str
     output_dir: Path
     prompt_vars: dict[str, Any]
-    dashboard_state: "State | None"
     task_desc: dict[str, Any]
 
 
@@ -45,6 +45,6 @@ class EnvSpec:
     add_cli_args: Callable[[argparse.ArgumentParser, bool], None]
     parse_config: Callable[[argparse.Namespace], RunConfig]
     init_runtime: Callable[
-        [argparse.Namespace, Path, "State | None"],
+        [argparse.Namespace, Path, DashboardEventSink],
         tuple[list["ProcessDaemon"], dict[str, Any]],
     ]

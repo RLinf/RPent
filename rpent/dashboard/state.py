@@ -3,13 +3,25 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from rpent.dashboard.events import (
+    DashboardEvent,
+    RunFinishedEvent,
+    RuntimeStatusEvent,
+    ToolResultEvent,
+    TranscriptEvent,
+    UsageEvent,
+)
+
+if TYPE_CHECKING:
+    from rpent.envs.env_spec import RunConfig
 
 RUNTIME_COMPONENTS = ("env", "vla", "sam3")
 RUNTIME_STATUSES = {"pending", "starting", "ready", "failed"}
 
 
-class State:
+class DashboardState:
     """Thread-safe dashboard state for one run."""
 
     def __init__(
@@ -45,30 +57,62 @@ class State:
         self._frame_cam_png: bytes | None = None
         self._frame_idx = -1
 
-    def on_event(self, event: dict[str, Any]) -> None:
-        with self._lock:
-            self._events.append(event)
+    @classmethod
+    def from_run_config(cls, run_config: RunConfig) -> DashboardState:
+        """Build the Dashboard projection for one parsed environment run."""
+        task_desc = run_config.task_desc
+        suite = str(task_desc["suite"])
+        task = int(task_desc["task"])
+        seed = int(task_desc["seed"])
+        output_dir = run_config.output_dir
+        return cls(
+            run_id=f"{suite}/{output_dir.name}",
+            name=run_config.recipe_tag,
+            suite=suite,
+            task=task,
+            seed=seed,
+            output_dir=str(output_dir),
+            video_path=str(output_dir / "episode.mp4"),
+        )
 
-    def on_usage(self, *, inp: int, out: int, tool_calls: int) -> None:
-        with self._lock:
-            self._usage = {"in": int(inp), "out": int(out), "tool_calls": int(tool_calls)}
+    @property
+    def enabled(self) -> bool:
+        return True
 
-    def set_runtime_status(
-        self,
-        component: str,
-        status: str,
-        *,
-        error: BaseException | str | None = None,
-    ) -> None:
-        """Publish the startup status of one environment-side component."""
-        if component not in RUNTIME_COMPONENTS:
-            raise ValueError(f"unknown runtime component: {component!r}")
-        if status not in RUNTIME_STATUSES:
-            raise ValueError(f"unknown runtime status: {status!r}")
+    def emit(self, event: DashboardEvent) -> None:
+        """Project one structured event into the existing frontend state."""
+        if isinstance(event, TranscriptEvent):
+            with self._lock:
+                self._events.append(event.payload)
+            return
+        if isinstance(event, UsageEvent):
+            with self._lock:
+                self._usage = {
+                    "in": int(event.inp),
+                    "out": int(event.out),
+                    "tool_calls": int(event.tool_calls),
+                }
+            return
+        if isinstance(event, RuntimeStatusEvent):
+            self._apply_runtime_status(event)
+            return
+        if isinstance(event, ToolResultEvent):
+            self._apply_tool_result(event)
+            return
+        if isinstance(event, RunFinishedEvent):
+            self._finish(event)
+            return
+        raise TypeError(f"unsupported dashboard event: {type(event).__name__}")
+
+    def _apply_runtime_status(self, event: RuntimeStatusEvent) -> None:
+        if event.component not in RUNTIME_COMPONENTS:
+            raise ValueError(f"unknown runtime component: {event.component!r}")
+        if event.status not in RUNTIME_STATUSES:
+            raise ValueError(f"unknown runtime status: {event.status!r}")
         with self._lock:
-            self._runtime[component] = {
-                "status": status,
-                "error": None if error is None else str(error),
+            self._runtime[event.component] = {
+                "status": event.status,
+                "error": None if event.error is None else str(event.error),
             }
 
     def _runtime_snapshot(self) -> dict[str, dict[str, str | None]]:
@@ -78,7 +122,9 @@ class State:
             for component, status in self._runtime.items()
         }
 
-    def on_tool_result(self, name: str, result: Any) -> None:
+    def _apply_tool_result(self, event: ToolResultEvent) -> None:
+        name = event.name
+        result = event.result
         if not isinstance(result, dict):
             return
         image_path = result.get("overlay_path") or result.get("image_path")
@@ -137,7 +183,8 @@ class State:
             if image_cam is not None:
                 self._frame_cam_png = bytes(image_cam)
 
-    def mark_done(self, terminated: bool | None = None) -> None:
+    def _finish(self, event: RunFinishedEvent) -> None:
+        terminated = event.terminated
         with self._lock:
             self._state = "done"
             if terminated is None:

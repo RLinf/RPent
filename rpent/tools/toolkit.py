@@ -8,11 +8,16 @@ from __future__ import annotations
 
 import base64
 import json
+import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
-import traceback
 from typing import Any, ClassVar
 
+from rpent.dashboard.events import (
+    DashboardEventSink,
+    NullDashboardEventSink,
+    ToolResultEvent,
+)
 from rpent.utils.templates import substitute
 
 
@@ -94,10 +99,12 @@ class Toolkit:
     :meth:`close` to release env-side primitives / servers at the end of the run.
     """
 
-    def __init__(self, *, dashboard: Any = None) -> None:
+    def __init__(self, *, dashboard: DashboardEventSink | None = None) -> None:
         # name -> (spec, handler)
         self._tools: dict[str, tuple[dict[str, Any], Callable[..., dict[str, Any]]]] = {}
-        self._dashboard = dashboard
+        self._dashboard = (
+            dashboard if dashboard is not None else NullDashboardEventSink()
+        )
         self._register_common_tools()
 
     # ------------------------------------------------------------------
@@ -151,8 +158,7 @@ class Toolkit:
             result = {"error": f"bad arguments for {name}: {e}", "got": input_dict}
         except Exception as e:
             result = {"error": str(e), "traceback": traceback.format_exc()}
-        if self._dashboard is not None:
-            self._dashboard.on_tool_result(name, result)
+        self._dashboard.emit(ToolResultEvent(name=name, result=result))
         return ToolResult(name=name, result=result)
 
     # ------------------------------------------------------------------

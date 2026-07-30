@@ -20,6 +20,12 @@ from pathlib import Path
 from typing import Any
 
 from rpent.cli.tui import next_user_line
+from rpent.dashboard.events import (
+    DashboardEventSink,
+    NullDashboardEventSink,
+    TranscriptEvent,
+    UsageEvent,
+)
 from rpent.planner.base import (
     PlannerResult,
     add_mcp_prefix,
@@ -52,7 +58,7 @@ class ClaudeCodePlanner:
         max_budget_usd: float = 10.0,
         extra_dirs: list[str] | None = None,
         output_path: str | Path | None = None,
-        dashboard: Any = None,
+        dashboard: DashboardEventSink | None = None,
     ):
         """Initialize the Claude Agent SDK backend."""
         self._output_dir = str(output_dir)
@@ -63,7 +69,9 @@ class ClaudeCodePlanner:
         self._max_budget_usd = max_budget_usd
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
-        self._dashboard = dashboard
+        self._dashboard = (
+            dashboard if dashboard is not None else NullDashboardEventSink()
+        )
 
     def solve(
         self,
@@ -315,7 +323,7 @@ class _Recorder:
     """
 
     max_turns: int
-    dashboard: Any = None
+    dashboard: DashboardEventSink = field(default_factory=NullDashboardEventSink)
     turns: int = 0
     _seen_assistant_ids: set[str] = field(default_factory=set)
     tool_calls: int = 0
@@ -359,12 +367,13 @@ class _Recorder:
             rendered = self._result(message)
         else:
             rendered = ""
-        if self.dashboard is not None:
-            self.dashboard.on_usage(
+        self.dashboard.emit(
+            UsageEvent(
                 inp=self.usage["total_input_tokens"],
                 out=self.usage["total_output_tokens"],
                 tool_calls=self.tool_calls,
             )
+        )
         return rendered
 
     # -- per-message handlers ---------------------------------------------
@@ -394,16 +403,16 @@ class _Recorder:
                 text = str(_get(block, "text", "")).strip()
                 if text:
                     lines.append(f"[claude] {text}\n")
-                    if self.dashboard is not None:
-                        self.dashboard.on_event({"type": "text", "text": text})
+                    self.dashboard.emit(
+                        TranscriptEvent({"type": "text", "text": text})
+                    )
             elif block_kind == "ThinkingBlock":
                 thinking = str(_get(block, "thinking", "")).strip()
                 if thinking:
                     lines.append(f"[claude-thinking] {thinking}\n")
-                    if self.dashboard is not None:
-                        self.dashboard.on_event(
-                            {"type": "thinking", "text": thinking}
-                        )
+                    self.dashboard.emit(
+                        TranscriptEvent({"type": "thinking", "text": thinking})
+                    )
             elif block_kind == "ToolUseBlock":
                 tool_id = str(_get(block, "id", ""))
                 name = strip_mcp_prefix(str(_get(block, "name", "tool")))
@@ -412,10 +421,11 @@ class _Recorder:
                 if name == "finish" and isinstance(tool_input, dict):
                     self.pending_finish[tool_id] = dict(tool_input)
                 lines.append(f"[tool->] {name}: {_short_json(tool_input, limit=500)}\n")
-                if self.dashboard is not None:
-                    self.dashboard.on_event(
+                self.dashboard.emit(
+                    TranscriptEvent(
                         {"type": "tool_call", "tool": name, "args": tool_input}
                     )
+                )
             elif block_kind == "ToolResultBlock":
                 lines.append(self._tool_result(block))
         if assistant_error := _get(message, "error"):
@@ -461,14 +471,15 @@ class _Recorder:
         pending = self.pending_finish.pop(tool_use_id, None)
         if pending is not None and not is_error and self.finish_result is None:
             self.finish_result = {"_finish": True, **pending}
-        if self.dashboard is not None:
-            self.dashboard.on_event(
+        self.dashboard.emit(
+            TranscriptEvent(
                 {
                     "type": "tool_result",
                     "tool": name,
                     "result": {**summary, "is_error": bool(is_error)},
                 }
             )
+        )
         return f"[tool<-] {name}: {json.dumps(summary, ensure_ascii=False)}\n"
 
     def _result(self, message: Any) -> str:

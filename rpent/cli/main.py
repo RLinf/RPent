@@ -34,6 +34,11 @@ from rpent.cli.tui import (
     start_first_prompt_resolver,
     start_interactive_reader,
 )
+from rpent.dashboard.events import (
+    DashboardEventSink,
+    NullDashboardEventSink,
+    RunFinishedEvent,
+)
 from rpent.envs import get_env_spec, get_toolkit
 from rpent.planner.base import build_planner
 from rpent.utils.logging import get_logger, init_output_dir
@@ -150,8 +155,8 @@ def main() -> int:
     dashboard_url = None
     launch_config = None
     if args.dashboard:
-        from rpent.dashboard import DashboardServer
         from rpent.dashboard.launcher import apply_to_args, defaults_from_args
+        from rpent.dashboard.server import DashboardServer
 
         dashboard_server = DashboardServer(
             host=args.dashboard_host, port=args.dashboard_port,
@@ -174,7 +179,6 @@ def main() -> int:
     recipe_tag = run_config.recipe_tag
     output_dir = run_config.output_dir
     prompt_vars = run_config.prompt_vars
-    dashboard_state = run_config.dashboard_state
     task_desc = run_config.task_desc
 
     env_name = args.env_name
@@ -191,10 +195,15 @@ def main() -> int:
     ensure_resources(env_name)
 
     # --- dashboard state ---------------------------------------------------
-    if dashboard_state is not None and dashboard_server is not None:
+    dashboard: DashboardEventSink = NullDashboardEventSink()
+    if dashboard_server is not None:
+        from rpent.dashboard.state import DashboardState
+
+        state = DashboardState.from_run_config(run_config)
         # Server is already serving the launcher; register the run so the
         # frontend can switch from the start screen to the live monitor.
-        dashboard_server.register(dashboard_state)
+        dashboard_server.register(state)
+        dashboard = state
 
     planner = build_planner(
         args.planner,
@@ -206,7 +215,7 @@ def main() -> int:
         max_tokens=args.max_tokens,
         planner_timeout_s=args.planner_timeout_s,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
-        dashboard=dashboard_state,
+        dashboard=dashboard,
         no_images=args.no_images,
     )
     prompt_bundle = env_spec.prompts
@@ -243,13 +252,13 @@ def main() -> int:
         daemons, primitives_kwargs = env_spec.init_runtime(
             args,
             output_dir,
-            dashboard_state,
+            dashboard,
         )
     except Exception:
         logger.exception("runtime initialization failed")
-        if dashboard_state is None or dashboard_server is None:
+        dashboard.emit(RunFinishedEvent())
+        if dashboard_server is None:
             raise
-        dashboard_state.mark_done()
         logger.info(
             "Runtime initialization failed. Dashboard still serving at %s. "
             "Press Ctrl+C to stop.",
@@ -266,7 +275,7 @@ def main() -> int:
         env_name,
         primitives_kwargs=primitives_kwargs,
         video_path=str(Path(output_dir) / "episode.mp4"),
-        dashboard=dashboard_state,
+        dashboard=dashboard,
     )
 
     # --- agent loop --------------------------------------------------------
@@ -326,8 +335,8 @@ def main() -> int:
     if agent_error:
         logger.error("error: %s", agent_error)
 
-    if args.dashboard and dashboard_state is not None:
-        dashboard_state.mark_done()
+    dashboard.emit(RunFinishedEvent())
+    if dashboard_server is not None:
         logger.info(
             "Run finished. Dashboard still serving at %s. Press Ctrl+C to stop.",
             dashboard_url,

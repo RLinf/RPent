@@ -28,7 +28,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 
-from rpent.dashboard.state import State
+from rpent.dashboard.state import DashboardState
 
 
 class DashboardServer:
@@ -49,7 +49,7 @@ class DashboardServer:
         self._language = "zh-cn" if language == "zh-cn" else "en"
         self._index_html = (dashboard_dir / "index.html").read_text(encoding="utf-8")
         self._static_dir = dashboard_dir / "static"
-        self._runs: dict[str, State] = {}
+        self._runs: dict[str, DashboardState] = {}
         self._app = self._build_app()
         self._server: uvicorn.Server | None = None
 
@@ -60,7 +60,7 @@ class DashboardServer:
         self._launch_config: dict[str, Any] | None = None
         self._launch_event = threading.Event()
 
-    def register(self, run: State) -> None:
+    def register(self, run: DashboardState) -> None:
         self._runs[run.run_id] = run
         if not self.runs_dir:
             self.runs_dir = str(run.output_dir.parent)

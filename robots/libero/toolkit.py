@@ -11,6 +11,7 @@ from functools import partial
 from typing import Any
 
 from robots.libero import tools as libero_tools
+from rpent.dashboard.events import DashboardEventSink, ToolResultEvent
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
@@ -27,7 +28,7 @@ class LiberoToolkit(Toolkit):
         *,
         primitives_kwargs: dict[str, Any],
         video_path: str | None = None,
-        dashboard: Any = None,
+        dashboard: DashboardEventSink | None = None,
     ) -> None:
         super().__init__(dashboard=dashboard)
         self._next_step: int = 0
@@ -81,7 +82,7 @@ class LiberoToolkit(Toolkit):
 
         self._next_step += 1
         step_idx = self._next_step
-        if self._dashboard is not None:
+        if self._dashboard.enabled:
             video_dir = get_output_dir() / "action_videos"
             video_path = video_dir / f"step_{step_idx:02d}_{name}.mp4"
             try:
@@ -136,8 +137,12 @@ class LiberoToolkit(Toolkit):
         primitives.reset()
         primitives.start_recording()
         libero_tools.dump_state(primitives, str(out_dir), step_idx=0, log=None)
-        if self._dashboard is not None:
-            self._dashboard.on_tool_result("view_driver_state", libero_tools.view_driver_state(0))
+        self._dashboard.emit(
+            ToolResultEvent(
+                name="view_driver_state",
+                result=libero_tools.view_driver_state(0),
+            )
+        )
 
         self._primitives = primitives
 

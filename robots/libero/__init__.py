@@ -12,12 +12,16 @@ from robots.libero.prompt_bundle import (
     system_prompt,
     user_prompt,
 )
+from rpent.dashboard.events import (
+    DashboardEventSink,
+    NullDashboardEventSink,
+    RuntimeStatusEvent,
+)
 from rpent.envs.env_spec import EnvSpec, RunConfig
 from rpent.envs.prompt_bundle import PromptBundle
 from rpent.utils.config import get_repo_root
 
 if TYPE_CHECKING:
-    from rpent.dashboard.state import State
     from rpent.utils.daemon import ProcessDaemon
     from rpent.utils.rpc import RpcClient
 
@@ -44,7 +48,7 @@ def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
     video_path: str | None = None,
-    dashboard: Any = None,
+    dashboard: DashboardEventSink | None = None,
 ):
     """Return the LIBERO toolkit (common tools + LIBERO primitives)."""
     from robots.libero.toolkit import LiberoToolkit
@@ -115,23 +119,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         output_dir = get_repo_root() / "logs" / f"{timestamp}_{args.suite}_t{args.task}_s{args.seed}"
     output_dir = Path(output_dir)
 
-    dashboard_state = None
-    if getattr(args, "dashboard", False):
-        from rpent.dashboard.state import State
-        dashboard_state = State(
-            run_id=f"{args.suite}/{output_dir.name}",
-            name=recipe_tag,
-            suite=args.suite,
-            task=args.task,
-            seed=args.seed,
-            output_dir=str(output_dir),
-            video_path=str(output_dir / "episode.mp4"),
-        )
     return RunConfig(
         recipe_tag=recipe_tag,
         output_dir=output_dir,
         prompt_vars=prompt_vars,
-        dashboard_state=dashboard_state,
         task_desc={"suite": args.suite, "task": args.task, "seed": args.seed},
     )
 
@@ -153,7 +144,7 @@ def _subprocess_env(cuda_device: str | None, **extra: str) -> dict[str, str]:
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
-    dashboard: "State | None" = None,
+    dashboard: DashboardEventSink | None = None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Spawn env + vla + SAM3 daemons and build clients for LIBERO.
 
@@ -173,12 +164,13 @@ def _init_runtime(
     from rpent.utils.socket_rpc import SocketRpcClient
     from rpent.utils.vla_client import VLAClient
 
+    if dashboard is None:
+        dashboard = NullDashboardEventSink()
     daemons: list[ProcessDaemon] = []
     libero_type = args.libero_type or get_libero_type()
 
     # --- env_server --------------------------------------------------------
-    if dashboard is not None:
-        dashboard.set_runtime_status("env", "starting")
+    dashboard.emit(RuntimeStatusEvent("env", "starting"))
     try:
         if args.env_endpoint is None:
             host, port = "127.0.0.1", pick_free_port()
@@ -220,15 +212,12 @@ def _init_runtime(
                 )
             wait_for_ready(env_rpc)
     except Exception as exc:
-        if dashboard is not None:
-            dashboard.set_runtime_status("env", "failed", error=exc)
+        dashboard.emit(RuntimeStatusEvent("env", "failed", error=exc))
         raise
-    if dashboard is not None:
-        dashboard.set_runtime_status("env", "ready")
+    dashboard.emit(RuntimeStatusEvent("env", "ready"))
 
     # --- vla_server --------------------------------------------------------
-    if dashboard is not None:
-        dashboard.set_runtime_status("vla", "starting")
+    dashboard.emit(RuntimeStatusEvent("vla", "starting"))
     try:
         if args.vla_endpoint is None:
             host, port = "127.0.0.1", pick_free_port()
@@ -261,15 +250,12 @@ def _init_runtime(
                 )
             wait_for_ready(vla_rpc)
     except Exception as exc:
-        if dashboard is not None:
-            dashboard.set_runtime_status("vla", "failed", error=exc)
+        dashboard.emit(RuntimeStatusEvent("vla", "failed", error=exc))
         raise
-    if dashboard is not None:
-        dashboard.set_runtime_status("vla", "ready")
+    dashboard.emit(RuntimeStatusEvent("vla", "ready"))
 
     # --- sam3_server -------------------------------------------------------
-    if dashboard is not None:
-        dashboard.set_runtime_status("sam3", "starting")
+    dashboard.emit(RuntimeStatusEvent("sam3", "starting"))
     try:
         if args.sam3_endpoint is None:
             host, port = "127.0.0.1", pick_free_port()
@@ -302,11 +288,9 @@ def _init_runtime(
                 )
             wait_for_ready(sam3_rpc)
     except Exception as exc:
-        if dashboard is not None:
-            dashboard.set_runtime_status("sam3", "failed", error=exc)
+        dashboard.emit(RuntimeStatusEvent("sam3", "failed", error=exc))
         raise
-    if dashboard is not None:
-        dashboard.set_runtime_status("sam3", "ready")
+    dashboard.emit(RuntimeStatusEvent("sam3", "ready"))
 
     primitives_kwargs = {
         "env": LiberoEnvClient(
