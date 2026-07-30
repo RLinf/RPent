@@ -89,7 +89,7 @@ class HttpRpcClient:
             raise RpcError(method, f"HTTP request failed: {exc}") from exc
 
         try:
-            response = json.loads(raw)
+            response = _from_json(json.loads(raw))
         except json.JSONDecodeError as exc:
             raise RpcError(method, f"invalid JSON response: {exc}") from exc
 
