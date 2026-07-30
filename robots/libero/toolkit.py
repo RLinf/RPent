@@ -3,7 +3,6 @@
 Inherits the common file/IO tools from :class:`Toolkit` and registers the
 LIBERO primitives (``move_to``, ``pi0_pick``, ``release``, ...) on top.
 """
-
 from __future__ import annotations
 
 import shutil
@@ -148,7 +147,8 @@ class LiberoToolkit(Toolkit):
         self._primitives = primitives
 
     def close(self) -> None:
-        """Flush the agent-side video buffer to disk (end-of-run)."""
+        """Flush the agent-side video buffer to disk (end-of-run).
+        """
         if self._video_path is None:
             return
         try:

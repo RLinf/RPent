@@ -146,7 +146,9 @@ def build_planner(
                 kwargs["base_url"] = base_url
             return provider_cls(**kwargs)
 
-        api_model = infer_model(model, provider_factory=_provider_factory)
+        api_model = infer_model(
+            model, provider_factory=_provider_factory
+        )
         return ApiAgentLoop(
             model=api_model,
             max_tokens=max_tokens,

@@ -104,7 +104,6 @@ class ClaudeCodePlanner:
         input_queue=None,
     ) -> PlannerResult:
         import claude_agent_sdk
-
         sdk = claude_agent_sdk
         if self._output_path is None:
             with tempfile.NamedTemporaryFile(
@@ -156,7 +155,9 @@ class ClaudeCodePlanner:
                         async for message in sdk.query(prompt=prompt, options=options):
                             _emit(message)
                             if recorder.finish_result is not None:
-                                logger.info("FINISH called: %s", recorder.finish_result)
+                                logger.info(
+                                    "FINISH called: %s", recorder.finish_result
+                                )
                                 break
 
                     await asyncio.wait_for(consume_stream(), timeout=self._timeout_s)
@@ -402,7 +403,9 @@ class _Recorder:
                 text = str(_get(block, "text", "")).strip()
                 if text:
                     lines.append(f"[claude] {text}\n")
-                    self.dashboard.emit(TranscriptEvent({"type": "text", "text": text}))
+                    self.dashboard.emit(
+                        TranscriptEvent({"type": "text", "text": text})
+                    )
             elif block_kind == "ThinkingBlock":
                 thinking = str(_get(block, "thinking", "")).strip()
                 if thinking:
@@ -555,7 +558,9 @@ def _build_rpent_server(sdk: Any, *, toolkit: Toolkit) -> Any:
         run_tool.__name__ = f"rpent_{name}"
         sdk_tools.append(sdk.tool(name, description, input_schema)(run_tool))
 
-    return sdk.create_sdk_mcp_server(name="rpent", version="0.1.0", tools=sdk_tools)
+    return sdk.create_sdk_mcp_server(
+        name="rpent", version="0.1.0", tools=sdk_tools
+    )
 
 
 def _tool_result_to_mcp(tr: Any) -> dict[str, Any]:

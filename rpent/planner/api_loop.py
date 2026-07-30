@@ -197,7 +197,9 @@ class ApiAgentLoop:
                                     }
                                 else:
                                     continue
-                                self._dashboard.emit(TranscriptEvent(dashboard_payload))
+                                self._dashboard.emit(
+                                    TranscriptEvent(dashboard_payload)
+                                )
                             self._dashboard.emit(
                                 UsageEvent(
                                     inp=int(run.usage.input_tokens or 0),
@@ -230,7 +232,9 @@ class ApiAgentLoop:
                                         _log_tool_result(message)
                                         dashboard_result = {
                                             "is_error": bool(
-                                                getattr(event.part, "is_error", False)
+                                                getattr(
+                                                    event.part, "is_error", False
+                                                )
                                             ),
                                             "size": len(message["content"]),
                                         }
@@ -367,9 +371,7 @@ def _prune_history_images(messages: list[ModelMessage]) -> list[ModelMessage]:
         message = new_messages[mi]
         part = message.parts[pi]
         new_content = [
-            "[earlier camera image omitted to bound request size]"
-            if ci in drop_items
-            else item
+            "[earlier camera image omitted to bound request size]" if ci in drop_items else item
             for ci, item in enumerate(part.content)
         ]
         new_parts = list(message.parts)

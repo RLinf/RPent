@@ -243,7 +243,9 @@ class CodexPlanner:
                                 try:
                                     turn.steer(nxt)
                                 except Exception as e:
-                                    rendered = f"\n[codex-planner] steer failed: {e}\n"
+                                    rendered = (
+                                        f"\n[codex-planner] steer failed: {e}\n"
+                                    )
                                     with write_lock:
                                         chunks.append(rendered)
                                         out_f.write(rendered)
@@ -369,7 +371,9 @@ class _Recorder:
                 return ""
             self.final_response = text
             self.turns += 1
-            self.dashboard.emit(TranscriptEvent({"type": "text", "text": text}))
+            self.dashboard.emit(
+                TranscriptEvent({"type": "text", "text": text})
+            )
             return (
                 f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n"
                 f"[codex] {text}\n"
@@ -378,7 +382,9 @@ class _Recorder:
         if item_type == "reasoning":
             text = _extract_text(_get(item, "summary") or _get(item, "content"))
             if text:
-                self.dashboard.emit(TranscriptEvent({"type": "thinking", "text": text}))
+                self.dashboard.emit(
+                    TranscriptEvent({"type": "thinking", "text": text})
+                )
             return f"[codex-reasoning] {text}\n" if text else ""
 
         if item_type in {
