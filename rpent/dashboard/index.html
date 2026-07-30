@@ -111,6 +111,34 @@
         </label>
       </div>
       <div id="transcript"><div class="empty" data-i18n="selectRun">Select a run to begin.</div></div>
+      <section id="composer" class="composer" aria-label="Claude message composer" data-i18n-aria-label="composerLabel" hidden>
+        <div
+          class="gutter gutter-h composer-grip"
+          id="composerGrip"
+          title="Drag to resize composer height"
+          data-i18n-title="resizeComposer"
+        ></div>
+        <div id="interactionStatus" class="composer-status" role="status" aria-live="polite"></div>
+        <div id="pendingArea" class="pending-area" hidden>
+          <div class="pending-heading">
+            <span id="pendingHeading"></span>
+            <span class="count" id="pendingCount"></span>
+          </div>
+          <div id="pendingMessages" class="pending-messages"></div>
+        </div>
+        <textarea
+          id="chatInput"
+          rows="2"
+          placeholder="Message Claude…"
+          data-i18n-placeholder="composerPlaceholder"
+          aria-describedby="chatHint interactionStatus"
+          aria-keyshortcuts="Enter Shift+Enter Escape"
+          disabled
+        ></textarea>
+        <div class="composer-row">
+          <span class="composer-hint" id="chatHint" data-i18n="composerKeys">Enter to send · Shift+Enter for newline · Esc to interrupt Claude</span>
+        </div>
+      </section>
     </div>
 
     <div class="gutter gutter-v" id="gutterV" title="Drag to resize columns" data-i18n-title="resizeColumns"></div>

@@ -147,6 +147,8 @@ def main() -> int:
     env_spec = get_env_spec(early.env_name)
     env_spec.add_cli_args(parser, use_dashboard=early.dashboard)
     args = parser.parse_args()
+    if args.dashboard and args.interactive:
+        parser.error("--dashboard and --interactive cannot be used together")
 
     # With --dashboard, open the launcher first: serve the start screen, then
     # block until the user clicks Run and overlay their choices onto args.
@@ -201,6 +203,8 @@ def main() -> int:
         from rpent.dashboard.state import DashboardState
 
         state = DashboardState.from_run_config(run_config)
+        if args.planner == "claude_code":
+            state.enable_interaction(session_id=state.run_id)
         # Server is already serving the launcher; register the run so the
         # frontend can switch from the start screen to the live monitor.
         dashboard_server.register(state)

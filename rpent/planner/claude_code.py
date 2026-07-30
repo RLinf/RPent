@@ -87,6 +87,7 @@ class ClaudeCodePlanner:
         return asyncio.run(
             self._solve_async(
                 prompt,
+                initial_user_text=user_message,
                 toolkit=toolkit,
                 max_turns=max_turns,
                 input_queue=input_queue,
@@ -99,6 +100,7 @@ class ClaudeCodePlanner:
         self,
         prompt: str,
         *,
+        initial_user_text: str,
         toolkit: Toolkit,
         max_turns: int,
         input_queue=None,
@@ -141,26 +143,48 @@ class ClaudeCodePlanner:
                     out_f.flush()
                     logger.info(rendered.rstrip())
 
-            def _emit_user(line: str) -> None:
-                rendered = f"\n[user] {line}\n"
+            def _emit_user(line: str, *, initial_prompt: bool = False) -> None:
+                display_text = (
+                    "[initial task instructions submitted]" if initial_prompt else line
+                )
+                rendered = f"\n[user] {display_text}\n"
                 rendered_chunks.append(rendered)
                 out_f.write(rendered)
                 out_f.flush()
                 logger.info(rendered.strip())
+                payload: dict[str, Any] = {"type": "user", "text": line}
+                if initial_prompt:
+                    payload = {"type": "initial_prompt"}
+                self._dashboard.emit(TranscriptEvent(payload))
 
             try:
                 if input_queue is None:
+                    if _interaction_enabled(self._dashboard):
+                        await self._run_dashboard_session(
+                            sdk,
+                            prompt,
+                            options,
+                            recorder,
+                            initial_user_text=initial_user_text,
+                            emit=_emit,
+                            emit_user=_emit_user,
+                        )
+                    else:
 
-                    async def consume_stream() -> None:
-                        async for message in sdk.query(prompt=prompt, options=options):
-                            _emit(message)
-                            if recorder.finish_result is not None:
-                                logger.info(
-                                    "FINISH called: %s", recorder.finish_result
-                                )
-                                break
+                        async def consume_stream() -> None:
+                            async for message in sdk.query(
+                                prompt=prompt, options=options
+                            ):
+                                _emit(message)
+                                if recorder.finish_result is not None:
+                                    logger.info(
+                                        "FINISH called: %s", recorder.finish_result
+                                    )
+                                    break
 
-                    await asyncio.wait_for(consume_stream(), timeout=self._timeout_s)
+                        await asyncio.wait_for(
+                            consume_stream(), timeout=self._timeout_s
+                        )
                 else:
                     await self._run_interactive(
                         sdk,
@@ -229,53 +253,42 @@ class ClaudeCodePlanner:
         sentinel (or ``/quit``) interrupts the run; the ``finish`` tool ends it
         normally. Because a human supervises, there is no wall-clock cap here.
         """
-        async with sdk.ClaudeSDKClient(options=options) as client:
-            stop = asyncio.Event()
+        adapter = _TerminalSessionAdapter(input_queue=input_queue, emit_user=emit_user)
+        driver = _ClaudeSessionDriver(
+            sdk=sdk,
+            options=options,
+            recorder=recorder,
+            emit=emit,
+        )
+        await driver.run(prompt, adapter)
 
-            async def pump_input() -> None:
-                # Forward typed lines into the live session; interrupt on quit.
-                while not stop.is_set():
-                    nxt = await asyncio.to_thread(next_user_line, input_queue)
-                    if nxt is None:
-                        stop.set()
-                        with contextlib.suppress(Exception):
-                            await client.interrupt()
-                        return
-                    emit_user(nxt)
-                    # A running turn buffers further input until it ends, so
-                    # interrupt the in-flight turn first; the CLI then delivers
-                    # the steering line as the next user turn while preserving
-                    # the conversation context.
-                    recorder.suppress_next_result_error = True
-                    with contextlib.suppress(Exception):
-                        await client.interrupt()
-                    with contextlib.suppress(Exception):
-                        await client.query(nxt)
-
-            async def consume() -> None:
-                async for message in client.receive_messages():
-                    emit(message)
-                    if recorder.finish_result is not None:
-                        logger.info("FINISH called: %s", recorder.finish_result)
-                        return
-
-            await client.query(prompt)
-            pump = asyncio.create_task(pump_input())
-            consumer = asyncio.create_task(consume())
-            stop_wait = asyncio.create_task(stop.wait())
-            try:
-                await asyncio.wait(
-                    {consumer, stop_wait}, return_when=asyncio.FIRST_COMPLETED
-                )
-            finally:
-                # Unblock the pump's blocking queue read so its worker thread
-                # exits, then cancel and drain the remaining tasks.
-                input_queue.put(None)
-                for task in (consumer, stop_wait, pump):
-                    task.cancel()
-                for task in (consumer, stop_wait, pump):
-                    with contextlib.suppress(asyncio.CancelledError, Exception):
-                        await task
+    async def _run_dashboard_session(
+        self,
+        sdk: Any,
+        prompt: str,
+        options: Any,
+        recorder: "_Recorder",
+        *,
+        initial_user_text: str,
+        emit,
+        emit_user,
+    ) -> None:
+        """Drive the Dashboard-owned long-lived Claude session."""
+        adapter = _ClaudeDashboardBridge(
+            state=self._dashboard,
+            emit_user=emit_user,
+            emit_initial_user=lambda: emit_user(
+                initial_user_text,
+                initial_prompt=True,
+            ),
+        )
+        driver = _ClaudeSessionDriver(
+            sdk=sdk,
+            options=options,
+            recorder=recorder,
+            emit=emit,
+        )
+        await driver.run(prompt, adapter)
 
     # -- options + tool bridge ---------------------------------------------
 
@@ -307,6 +320,248 @@ class ClaudeCodePlanner:
             setting_sources=[],
             stderr=lambda line: logger.debug("[claude-sdk] %s", line.rstrip()),
         )
+
+
+# ---------------------------------------------------------------------------
+# Shared long-lived session driver
+# ---------------------------------------------------------------------------
+
+
+class _ClaudeSessionDriver:
+    """Own one SDK client and its single message consumer."""
+
+    def __init__(
+        self,
+        *,
+        sdk: Any,
+        options: Any,
+        recorder: "_Recorder",
+        emit,
+    ) -> None:
+        self._sdk = sdk
+        self._options = options
+        self._recorder = recorder
+        self._emit = emit
+        self._client: Any | None = None
+
+    async def run(self, prompt: str, adapter: Any) -> None:
+        """Open one client, submit the first query, and run one input adapter."""
+        tasks: list[asyncio.Task[Any]] = []
+        async with self._sdk.ClaudeSDKClient(options=self._options) as client:
+            self._client = client
+            try:
+                # Submit before starting the consumer, matching the SDK's
+                # streaming-client contract while its transport buffers output.
+                await self.query(prompt)
+                await adapter.initial_query_succeeded(self)
+
+                consumer = asyncio.create_task(self._consume(adapter))
+                command_pump = asyncio.create_task(adapter.run(self))
+                tasks = [consumer, command_pump]
+                done, _ = await asyncio.wait(
+                    tasks,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in done:
+                    await task
+            finally:
+                # Adapter cleanup first wakes terminal queue reads or Dashboard
+                # condition waits. Then cancel and drain both long-lived tasks
+                # before the SDK client context closes.
+                with contextlib.suppress(Exception):
+                    await adapter.close()
+                for task in tasks:
+                    task.cancel()
+                for task in tasks:
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await task
+                self._client = None
+
+    async def query(self, text: str) -> None:
+        """Submit one user turn to the owned client."""
+        if self._client is None:
+            raise RuntimeError("Claude session is not connected")
+        await self._client.query(text)
+
+    async def interrupt(self) -> None:
+        """Interrupt the owned client and suppress its expected error result."""
+        if self._client is None:
+            raise RuntimeError("Claude session is not connected")
+        self._recorder.suppress_next_result_error = True
+        try:
+            await self._client.interrupt()
+        except BaseException:
+            # A failed interrupt must not hide a later unrelated SDK error.
+            self._recorder.suppress_next_result_error = False
+            raise
+
+    async def _consume(self, adapter: Any) -> None:
+        if self._client is None:
+            raise RuntimeError("Claude session is not connected")
+        async for message in self._client.receive_messages():
+            self._emit(message)
+            # A successful finish tool result owns the boundary: end the
+            # session without giving queued Dashboard input a chance to flush.
+            if self._recorder.finish_result is not None:
+                logger.info("FINISH called: %s", self._recorder.finish_result)
+                return
+            await adapter.on_message(self, message)
+
+
+class _TerminalSessionAdapter:
+    """Preserve the terminal TUI's interrupt-then-query steering policy."""
+
+    def __init__(self, *, input_queue: Any, emit_user) -> None:
+        self._input_queue = input_queue
+        self._emit_user = emit_user
+
+    async def initial_query_succeeded(self, driver: _ClaudeSessionDriver) -> None:
+        return None
+
+    async def run(self, driver: _ClaudeSessionDriver) -> None:
+        while True:
+            nxt = await asyncio.to_thread(next_user_line, self._input_queue)
+            if nxt is None:
+                with contextlib.suppress(Exception):
+                    await driver.interrupt()
+                return
+            self._emit_user(nxt)
+            # Keep the current terminal semantics: every steering line
+            # interrupts the in-flight turn, then enters the same session.
+            with contextlib.suppress(Exception):
+                await driver.interrupt()
+            with contextlib.suppress(Exception):
+                await driver.query(nxt)
+
+    async def on_message(
+        self,
+        driver: _ClaudeSessionDriver,
+        message: Any,
+    ) -> None:
+        return None
+
+    async def close(self) -> None:
+        # Unblock next_user_line() if the consumer (for example finish) won.
+        self._input_queue.put(None)
+
+
+class _ClaudeDashboardBridge:
+    """Adapt one Dashboard Session's thread-safe commands to one SDK client."""
+
+    def __init__(
+        self,
+        *,
+        state: Any,
+        emit_user,
+        emit_initial_user=None,
+    ) -> None:
+        self._state = state
+        self._emit_user = emit_user
+        self._emit_initial_user = emit_initial_user
+        self._operation_lock = asyncio.Lock()
+        self._outstanding_queries = 0
+
+    async def initial_query_succeeded(self, driver: _ClaudeSessionDriver) -> None:
+        self._outstanding_queries = 1
+        self._state.mark_initial_query_succeeded()
+        if self._emit_initial_user is not None:
+            self._emit_initial_user()
+
+    async def run(self, driver: _ClaudeSessionDriver) -> None:
+        version = self._state.interaction_version
+        while self._state.claude_activity != "ended":
+            await self._process_commands(driver)
+            version = await asyncio.to_thread(
+                self._state.wait_for_interaction_change,
+                version,
+            )
+
+    async def on_message(
+        self,
+        driver: _ClaudeSessionDriver,
+        message: Any,
+    ) -> None:
+        is_result = _kind(message) == "ResultMessage"
+        if not is_result and not _has_tool_result(message):
+            return
+
+        async with self._operation_lock:
+            if is_result:
+                self._outstanding_queries = max(0, self._outstanding_queries - 1)
+                self._state.set_claude_activity(
+                    "busy" if self._outstanding_queries else "idle"
+                )
+
+            if await self._handle_interrupt(driver):
+                # Success already flushes. Failure deliberately leaves pending
+                # unchanged even if a boundary arrived at the same time.
+                return
+            await self._flush_pending(driver)
+
+    async def close(self) -> None:
+        self._state.seal_interaction()
+
+    async def _process_commands(self, driver: _ClaudeSessionDriver) -> None:
+        async with self._operation_lock:
+            if await self._handle_interrupt(driver):
+                return
+            if self._state.claude_activity == "idle":
+                await self._flush_pending(driver)
+
+    async def _handle_interrupt(
+        self,
+        driver: _ClaudeSessionDriver,
+    ) -> bool:
+        if not self._state.claim_interrupt_request():
+            return False
+        try:
+            await driver.interrupt()
+        except Exception as exc:
+            self._state.complete_interrupt(error=_exception_text(exc))
+            return True
+        self._state.complete_interrupt()
+        await self._flush_pending(driver)
+        return True
+
+    async def _flush_pending(self, driver: _ClaudeSessionDriver) -> None:
+        # begin_pending_batch() is the atomic pending -> sending boundary.
+        # Messages submitted after this call remain pending for a later
+        # tool/result boundary.
+        messages = self._state.begin_pending_batch()
+        for message in messages:
+            try:
+                await driver.query(message.text)
+            except Exception as exc:
+                self._state.mark_message_failed(
+                    message.message_id,
+                    _exception_text(exc),
+                )
+                continue
+            self._state.mark_message_sent(message.message_id)
+            self._outstanding_queries += 1
+            self._state.set_claude_activity("busy")
+            self._emit_user(message.text)
+
+
+def _interaction_enabled(dashboard: DashboardEventSink) -> bool:
+    return bool(getattr(dashboard, "interaction_enabled", False))
+
+
+def _has_tool_result(message: Any) -> bool:
+    """Return whether an SDK message contains a completed tool call."""
+    kind = _kind(message)
+    if kind == "UserMessage" and _get(message, "parent_tool_use_id"):
+        return True
+    if kind not in {"AssistantMessage", "UserMessage"}:
+        return False
+    content = _get(message, "content", [])
+    if not isinstance(content, list):
+        return False
+    return any(_kind(block) in {"ToolResultBlock", "tool_result"} for block in content)
+
+
+def _exception_text(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}"
 
 
 # ---------------------------------------------------------------------------

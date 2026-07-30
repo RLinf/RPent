@@ -1,3 +1,6 @@
+import { createInteractionController } from "./interaction.js";
+import { makeAssistantTextElement } from "./markdown_table.js";
+
 function $(selector) {
   return document.querySelector(selector);
 }
@@ -39,6 +42,32 @@ const COPY = {
     autoScroll: "auto-scroll",
     selectRun: "Select a run to begin.",
     resizeColumns: "Drag to resize columns",
+    composerLabel: "Claude message composer",
+    resizeComposer: "Drag to resize composer height · double-click to reset",
+    composerPlaceholder: "Message Claude…",
+    composerKeys: "Enter to send · Shift+Enter for newline · Esc to interrupt Claude",
+    interactionStarting: "Waiting for environment startup…",
+    interactionReady: "Claude is ready for another message.",
+    interactionBusy: "Claude is working; new messages will be queued.",
+    interactionUnavailable: "Claude is not accepting messages yet.",
+    interruptRequested: "Interrupt requested; it will be handled when Claude's control channel is available.",
+    interruptSucceeded: "Claude was interrupted; queued messages are being submitted.",
+    submittingMessage: "Submitting message…",
+    pendingHeading: "Messages to be submitted after next tool call",
+    inactiveMessagesHeading: "Messages not submitted",
+    messageStates: {
+      pending: "pending",
+      sending: "sending",
+      failed: "failed",
+      unsent: "unsent",
+    },
+    withdraw: "Withdraw",
+    withdrawMessage: (text) => `Withdraw queued message: ${text}`,
+    submitFailed: (error) => `Message was not submitted: ${error}`,
+    withdrawFailed: (error) => `Message was not withdrawn: ${error}`,
+    interruptFailed: (error) => `Interrupt request failed: ${error}`,
+    interactionError: (error) => `Claude interaction error: ${error}`,
+    unknownRequestError: "request failed",
     cameraView: "fixed camera",
     wristView: "wrist camera",
     waitingFrame: "waiting for first frame…",
@@ -64,6 +93,9 @@ const COPY = {
     selectModel: "select a model",
     backendDefault: "backend default",
     noTranscript: "No transcript events yet.",
+    you: "You",
+    initialTaskSubmitted:
+      "Initial task instructions were generated from the run configuration and submitted to Claude automatically.",
     loading: "Loading…",
     live: "● live",
     reconnecting: "○ reconnecting…",
@@ -132,6 +164,32 @@ const COPY = {
     autoScroll: "自动滚动",
     selectRun: "请选择一个运行以开始。",
     resizeColumns: "拖动调整左右宽度",
+    composerLabel: "Claude 消息输入区",
+    resizeComposer: "拖动调整输入区高度 · 双击复位",
+    composerPlaceholder: "向 Claude 发送消息…",
+    composerKeys: "Enter 发送 · Shift+Enter 换行 · Esc 中断 Claude",
+    interactionStarting: "正在等待环境启动…",
+    interactionReady: "Claude 已准备好接收新消息。",
+    interactionBusy: "Claude 正在工作；新消息将进入等待队列。",
+    interactionUnavailable: "Claude 暂未开始接收消息。",
+    interruptRequested: "已请求中断 Claude；控制通道可用后将处理。",
+    interruptSucceeded: "Claude 已中断；正在提交排队消息。",
+    submittingMessage: "正在提交消息…",
+    pendingHeading: "等待下次工具调用后提交的消息",
+    inactiveMessagesHeading: "未提交的消息",
+    messageStates: {
+      pending: "等待中",
+      sending: "发送中",
+      failed: "发送失败",
+      unsent: "未发送",
+    },
+    withdraw: "撤回",
+    withdrawMessage: (text) => `撤回排队消息：${text}`,
+    submitFailed: (error) => `消息未提交：${error}`,
+    withdrawFailed: (error) => `消息未撤回：${error}`,
+    interruptFailed: (error) => `中断请求失败：${error}`,
+    interactionError: (error) => `Claude 交互错误：${error}`,
+    unknownRequestError: "请求失败",
     cameraView: "固定相机",
     wristView: "腕部相机",
     waitingFrame: "等待第一帧…",
@@ -157,6 +215,8 @@ const COPY = {
     selectModel: "选择模型",
     backendDefault: "后端默认",
     noTranscript: "暂无推理记录。",
+    you: "你",
+    initialTaskSubmitted: "已根据当前任务配置，自动向 Claude 提交初始任务指令。",
     loading: "加载中…",
     live: "● 实时",
     reconnecting: "○ 正在重连…",
@@ -206,6 +266,9 @@ function applyStaticCopy() {
   }
   for (const element of document.querySelectorAll("[data-i18n-title]")) {
     element.title = copy[element.dataset.i18nTitle];
+  }
+  for (const element of document.querySelectorAll("[data-i18n-aria-label]")) {
+    element.setAttribute("aria-label", copy[element.dataset.i18nAriaLabel]);
   }
 }
 
@@ -534,6 +597,14 @@ function fmtArgs(o) {
   try { return JSON.stringify(o); } catch { return String(o); }
 }
 
+const interactionController = createInteractionController({
+  copy,
+  select: $,
+  onRefresh: () => {
+    refreshMeta().catch(() => {});
+  },
+});
+
 async function loadRun() {
   const r = await fetch("/api/runs").then(x => x.json());
   if (!r.runs.length) {
@@ -735,12 +806,22 @@ function appendEvents(events, animateNew = false) {
         const thinking = makeThinkingEl(ev);
         if (animateNew) thinking.classList.add("entering");
         box.appendChild(thinking);
+      } else if (ev.type === "text") {
+        const text = makeAssistantTextElement(ev.text);
+        if (animateNew) text.classList.add("entering");
+        box.appendChild(text);
       } else {
         const div = document.createElement("div");
         div.className = "ev " + ev.type;
         if (animateNew) div.classList.add("entering");
-        if (ev.type === "meta") div.textContent = `[${ev.tag}] ${ev.text}`;
-        else div.textContent = ev.text;
+        if (ev.type === "initial_prompt") {
+          div.classList.add("meta");
+          div.textContent = copy.initialTaskSubmitted;
+        } else if (ev.type === "meta") div.textContent = `[${ev.tag}] ${ev.text}`;
+        else {
+          div.textContent = ev.text;
+          if (ev.type === "user") div.dataset.roleLabel = `${copy.you} › `;
+        }
         box.appendChild(div);
       }
     }
@@ -941,6 +1022,7 @@ async function refreshMeta(opts = {}) {
   setBadge(r.state, r.error);
   setResult(r.terminated, r.state);
   renderRuntimeStatus(r.runtime);
+  interactionController.applySnapshot(r.interaction, r.state);
   const taskMeta = $("#taskMeta");
   const suite = document.createElement("b");
   suite.textContent = r.suite ?? r.name;
@@ -976,6 +1058,7 @@ function connectSSE() {
     setBadge(sig.state, sig.error);
     setResult(sig.terminated, sig.state);
     renderRuntimeStatus(sig.runtime);
+    interactionController.applySnapshot(sig.interaction, sig.state);
     mediaState.frameAvailable = sig.frame_available || null;
     if (sig.usage) $("#usageMeta").textContent = copy.usage(sig.usage);
     $("#connMeta").textContent = copy.live;
@@ -1022,6 +1105,7 @@ function selectRun(id) {
   resetTranscriptForRun();
   resetTimelineForRun();
   resetMediaForRun();
+  interactionController.reset();
   renderRuntimeStatus(null);
   document.querySelectorAll(".frame-tabs button").forEach(b =>
     b.classList.toggle("active", b.dataset.kind === "camera"));
@@ -1039,10 +1123,9 @@ document.querySelectorAll(".frame-tabs button").forEach(btn => {
 $("#showtools").addEventListener("change", (e) => {
   $("#transcript").classList.toggle("alltools", e.target.checked);
 });
-
 // --- draggable splitters ---
 function setupSplitter(handle, opts) {
-  // opts: { axis:'x'|'y', container, prop, min, max, store }
+  // opts: { axis:'x'|'y', container, prop, min, max, store, fromEnd }
   const saved = localStorage.getItem(opts.store);
   if (saved) opts.container.style.setProperty(opts.prop, saved);
   handle.addEventListener("mousedown", (e) => {
@@ -1052,7 +1135,12 @@ function setupSplitter(handle, opts) {
     document.body.style.cursor = opts.axis === "x" ? "col-resize" : "row-resize";
     const rect = opts.container.getBoundingClientRect();
     const move = (ev) => {
-      let v = opts.axis === "x" ? ev.clientX - rect.left : ev.clientY - rect.top;
+      let v;
+      if (opts.axis === "x") {
+        v = opts.fromEnd ? rect.right - ev.clientX : ev.clientX - rect.left;
+      } else {
+        v = opts.fromEnd ? rect.bottom - ev.clientY : ev.clientY - rect.top;
+      }
       const limit = opts.axis === "x" ? rect.width : rect.height;
       v = Math.max(opts.min, Math.min(v, limit - opts.max));
       const px = v + "px";
@@ -1082,6 +1170,10 @@ setupSplitter($("#gutterV"), {
 setupSplitter($("#gutterH"), {
   axis: "y", container: $(".col.right"), prop: "--frameh",
   min: 120, max: 160, store: "wm.frameh",
+});
+setupSplitter($("#composerGrip"), {
+  axis: "y", fromEnd: true, container: $(".col.left"), prop: "--composerh",
+  min: 132, max: 160, store: "wm.composerh",
 });
 
 // --- launcher (start screen) ---

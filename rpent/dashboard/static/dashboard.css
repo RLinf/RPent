@@ -83,6 +83,24 @@
   .ev.turn { color: var(--purple); font-weight: 600; font-size: 13.5px;
     border-top: 1px dashed var(--border); padding-top: 10px; margin-top: 10px; }
   .ev.text { white-space: pre-wrap; word-wrap: break-word; }
+  .markdown-table-wrap {
+    max-width: 100%; margin: 8px 0 10px; overflow-x: auto;
+    border: 1px solid var(--border); border-radius: 7px;
+    background: var(--panel);
+  }
+  .markdown-table {
+    width: 100%; min-width: max-content; border-collapse: collapse;
+    white-space: normal; font-size: 13.5px; line-height: 1.45;
+  }
+  .markdown-table th, .markdown-table td {
+    padding: 7px 10px; vertical-align: top; overflow-wrap: anywhere;
+    border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  }
+  .markdown-table th {
+    background: var(--panel2); color: var(--fg); font-weight: 650;
+  }
+  .markdown-table tr:last-child td { border-bottom: 0; }
+  .markdown-table th:last-child, .markdown-table td:last-child { border-right: 0; }
   .ev.thinking details {
     background: rgba(210,153,34,.08); border: 1px solid rgba(210,153,34,.35);
     border-radius: 6px; padding: 6px 9px;
@@ -96,6 +114,15 @@
     color: var(--fg); font: inherit;
   }
   .ev.meta { color: var(--muted); font-size: 13px; font-style: italic; }
+  .ev.user {
+    color: var(--fg); background: var(--panel2);
+    border: 1px solid var(--accent); border-left: 3px solid var(--accent);
+    border-radius: 6px; padding: 7px 10px; margin-bottom: 8px;
+    white-space: pre-wrap; word-wrap: break-word; font-weight: 500;
+  }
+  .ev.user::before {
+    content: attr(data-role-label); color: var(--accent); font-weight: 700;
+  }
   .ev.tool_call, .ev.tool_result {
     font-size: 13.5px;
     background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
@@ -124,6 +151,86 @@
   #transcript.alltools .tg-head::before { content: "▾ "; }
   #transcript.alltools .tg-head { pointer-events: none; }
   .tg-body .ev { margin-bottom: 5px; }
+
+  /* Claude composer */
+  .composer {
+    flex-shrink: 0; background: var(--panel); border-top: 1px solid var(--border);
+    padding: 0 14px 10px; display: flex; flex-direction: column; gap: 7px;
+    height: var(--composerh, 34%); min-height: 132px; max-height: 72%;
+  }
+  .composer[hidden] { display: none; }
+  .composer > .composer-grip {
+    height: 6px; margin: 0 -14px 1px; flex-shrink: 0;
+  }
+  .composer textarea {
+    resize: none; background: var(--panel2); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
+    font: inherit; font-size: 14px; line-height: 1.45; width: 100%;
+    flex: 1 1 auto; min-height: 52px;
+    transition: border-color .16s ease, box-shadow .16s ease, opacity .16s ease;
+  }
+  .composer textarea::-webkit-scrollbar,
+  .composer textarea::-webkit-scrollbar-track,
+  .composer textarea::-webkit-scrollbar-thumb { cursor: default; }
+  .composer textarea:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(47,111,214,.12);
+  }
+  .composer textarea:disabled {
+    opacity: .56; cursor: not-allowed; background: rgba(239,231,216,.65);
+  }
+  .composer-row { display: flex; align-items: center; min-height: 17px; }
+  .composer-hint { color: var(--muted); font-size: 12px; line-height: 1.35; }
+  .composer-status {
+    color: var(--muted); font-size: 12.5px; line-height: 1.35; min-height: 17px;
+  }
+  .composer-status.is-busy { color: var(--yellow); }
+  .composer-status.is-error { color: var(--red); }
+  .composer-status.is-ready { color: var(--green); }
+  .pending-area {
+    flex: 0 1 auto; min-height: 0; max-height: min(42%, 190px);
+    border: 1px solid var(--border); border-radius: 8px;
+    background: rgba(239,231,216,.42); overflow: hidden;
+  }
+  .pending-area[hidden] { display: none; }
+  .pending-heading {
+    display: flex; align-items: center; gap: 8px; padding: 6px 9px;
+    color: var(--muted); font-size: 11px; line-height: 1.35;
+    text-transform: uppercase; letter-spacing: .35px;
+    border-bottom: 1px solid var(--border);
+  }
+  .pending-heading .count { margin-left: auto; color: var(--fg); font-weight: 600; }
+  .pending-messages { max-height: 150px; overflow-y: auto; }
+  .pending-message {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3px 10px; padding: 7px 9px; border-bottom: 1px solid var(--border);
+  }
+  .pending-message:last-child { border-bottom: 0; }
+  .pending-message-text {
+    min-width: 0; color: var(--fg); font-size: 13px; line-height: 1.4;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .pending-message-meta {
+    color: var(--muted); font-size: 11px; line-height: 1.35;
+    font-variant-numeric: tabular-nums;
+  }
+  .pending-message-status { font-weight: 600; }
+  .pending-message[data-status="pending"] .pending-message-status { color: var(--yellow); }
+  .pending-message[data-status="sending"] .pending-message-status { color: var(--accent); }
+  .pending-message[data-status="failed"] .pending-message-status { color: var(--red); }
+  .pending-message[data-status="unsent"] .pending-message-status { color: var(--muted); }
+  .withdraw-message {
+    grid-row: 1 / span 2; grid-column: 2; align-self: center;
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
+    background: var(--panel); color: var(--accent); font: inherit; font-size: 11px;
+    cursor: pointer;
+    transition: border-color .16s ease, color .16s ease, opacity .16s ease;
+  }
+  .withdraw-message:hover:not(:disabled) { border-color: var(--accent); }
+  .withdraw-message:disabled { color: var(--muted); opacity: .55; cursor: not-allowed; }
+  .withdraw-message:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
 
   /* frame */
   .framewrap { background: #e3dccd; display: flex; align-items: center; justify-content: center;
@@ -225,7 +332,8 @@
 
   @media (prefers-reduced-motion: reduce) {
     .b-starting, .b-running { animation: none; }
-    .badge, .runtime-item, .gutter, .tg-head, .step,
+    .badge, .runtime-item, .gutter, .tg-head, .step, .composer textarea,
+    .withdraw-message,
     .frame-tabs button, #runBtn { transition: none; }
     .ev.entering, .toolgroup.entering, .step.entering { animation: none; }
     .frame-tabs button:hover, #runBtn:hover { transform: none; box-shadow: none; }
@@ -234,6 +342,7 @@
     #launcher { padding: 12px; }
     .launch-card { padding: 18px; }
     .lform { grid-template-columns: 1fr; gap: 12px; }
+    .composer { min-height: 116px; }
   }
 
   .empty { color: var(--muted); padding: 24px 14px; font-style: italic; font-size: 14px; }
