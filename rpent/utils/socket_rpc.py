@@ -14,11 +14,10 @@ import pickle
 import socket
 import socketserver
 import struct
-import threading
-import uuid
 from collections.abc import Callable
 from typing import Any
 
+from rpent.utils.rpc import check_response, make_error_response
 
 DEFAULT_CONNECT_TIMEOUT_S = 10.0
 DEFAULT_REQUEST_TIMEOUT_S = 30.0
@@ -49,15 +48,6 @@ def _write_frame(writer, obj: Any) -> None:
     writer.flush()
 
 
-class RpcError(RuntimeError):
-    """Raised when a remote method call returns an error."""
-
-    def __init__(self, method: str, message: str, *, traceback: str | None = None):
-        super().__init__(f"{method}: {message}")
-        self.method = method
-        self.server_traceback = traceback
-
-
 class SocketRpcClient:
     """One-request-per-connection pickle-framed RPC client."""
 
@@ -80,9 +70,7 @@ class SocketRpcClient:
         *,
         timeout_s: float | None = None,
     ) -> Any:
-        req_id = str(uuid.uuid4())
         payload = {
-            "id": req_id,
             "method": method,
             "args": tuple(args),
             "kwargs": dict(kwargs or {}),
@@ -95,22 +83,7 @@ class SocketRpcClient:
             with sock.makefile("rwb") as f:
                 _write_frame(f, payload)
                 response = _read_frame(f)
-        if not isinstance(response, dict):
-            raise RpcError(method, f"bad response type: {type(response).__name__}")
-        if response.get("id") != req_id:
-            raise RpcError(
-                method, f"id mismatch ({response.get('id')!r} != {req_id!r})"
-            )
-        if not response.get("ok"):
-            raise RpcError(
-                method,
-                str(response.get("error", "<no error message>")),
-                traceback=response.get("traceback"),
-            )
-        return response.get("result")
-
-    def close(self) -> None:
-        return None
+        return check_response(response, method)
 
 
 class _RequestHandler(socketserver.StreamRequestHandler):
@@ -119,22 +92,14 @@ class _RequestHandler(socketserver.StreamRequestHandler):
             payload = _read_frame(self.rfile)
         except Exception:
             return
-        req_id = None
         try:
-            req_id = payload.get("id") if isinstance(payload, dict) else None
             method = payload["method"]
             args = payload.get("args") or ()
             kwargs = payload.get("kwargs") or {}
             result = self.server.dispatch(method, args, kwargs)  # type: ignore[attr-defined]
-            response: dict = {"id": req_id, "ok": True, "result": result}
+            response: dict = {"ok": True, "result": result}
         except Exception as exc:
-            import traceback as _tb
-            response = {
-                "id": req_id,
-                "ok": False,
-                "error": str(exc),
-                "traceback": _tb.format_exc(),
-            }
+            response = make_error_response(exc)
         try:
             _write_frame(self.wfile, response)
         except Exception:
@@ -153,11 +118,4 @@ class SocketRpcServer(socketserver.ThreadingTCPServer):
         dispatch: Callable[[str, tuple, dict], Any],
     ):
         super().__init__(server_address, _RequestHandler)
-        self._dispatch = dispatch
-        self._dispatch_lock = threading.Lock()
-
-    def dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if method == "healthz":
-            return {"status": "ok"}
-        with self._dispatch_lock:
-            return self._dispatch(method, args, kwargs)
+        self.dispatch = dispatch

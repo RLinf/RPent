@@ -11,19 +11,14 @@ from __future__ import annotations
 
 import base64
 import json
-import threading
 import urllib.error
 import urllib.request
-import uuid
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import Any, Callable
 
 import numpy as np
 
-from rpent.utils.socket_rpc import RpcError
-
-
-
+from rpent.utils.rpc import RpcError, check_response, make_error_response
 
 DEFAULT_TIMEOUT_S = 30.0
 
@@ -68,9 +63,7 @@ class HttpRpcClient:
         timeout_s: float | None = None,
     ) -> Any:
         """Invoke a remote method via HTTP POST and return the result."""
-        req_id = str(uuid.uuid4())
         payload = {
-            "id": req_id,
             "method": method,
             "args": list(args),
             "kwargs": kwargs or {},
@@ -96,32 +89,11 @@ class HttpRpcClient:
             raise RpcError(method, f"HTTP request failed: {exc}") from exc
 
         try:
-            response = json.loads(raw)
+            response = _from_json(json.loads(raw))
         except json.JSONDecodeError as exc:
             raise RpcError(method, f"invalid JSON response: {exc}") from exc
 
-        if not isinstance(response, dict):
-            raise RpcError(method, f"bad response type: {type(response).__name__}")
-
-        # Check ok before id: a server that failed to parse the request echoes
-        # id=None, so id-mismatch would mask the real error.
-        if not response.get("ok"):
-            raise RpcError(
-                method,
-                str(response.get("error", "<no error message>")),
-                traceback=response.get("traceback"),
-            )
-
-        if response.get("id") != req_id:
-            raise RpcError(
-                method, f"id mismatch ({response.get('id')!r} != {req_id!r})"
-            )
-
-        return _from_json(response.get("result"))
-
-    def close(self) -> None:
-        """Release any client-side transport resources (no-op for HTTP)."""
-        return None
+        return check_response(response, method)
 
 
 # ---------------------------------------------------------------------------
@@ -160,25 +132,17 @@ class _HttpRpcHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        req_id = None
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length) if content_length > 0 else b""
         try:
             request = json.loads(body)
-            req_id = request.get("id") if isinstance(request, dict) else None
             method = request["method"]
             args = tuple(_from_json(v) for v in request.get("args", []))
             kwargs = {k: _from_json(v) for k, v in request.get("kwargs", {}).items()}
             result = self.server.dispatch(method, args, kwargs)  # type: ignore[attr-defined]
-            response: dict = {"id": req_id, "ok": True, "result": result}
+            response: dict = {"ok": True, "result": result}
         except Exception as exc:
-            import traceback as _tb
-            response = {
-                "id": req_id,
-                "ok": False,
-                "error": str(exc),
-                "traceback": _tb.format_exc(),
-            }
+            response = make_error_response(exc)
 
         # Always 200; failures are described inside the body via ok=False.
         self.send_response(200)
@@ -206,11 +170,4 @@ class HttpRpcServer(ThreadingHTTPServer):
         dispatch: Callable[[str, tuple, dict], Any],
     ) -> None:
         super().__init__(server_address, _HttpRpcHandler)
-        self._dispatch = dispatch
-        self._dispatch_lock = threading.Lock()
-
-    def dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if method == "healthz":
-            return {"status": "ok"}
-        with self._dispatch_lock:
-            return self._dispatch(method, args, kwargs)
+        self.dispatch = dispatch

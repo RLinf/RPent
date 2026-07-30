@@ -396,6 +396,14 @@ class _Recorder:
                     lines.append(f"[claude] {text}\n")
                     if self.dashboard is not None:
                         self.dashboard.on_event({"type": "text", "text": text})
+            elif block_kind == "ThinkingBlock":
+                thinking = str(_get(block, "thinking", "")).strip()
+                if thinking:
+                    lines.append(f"[claude-thinking] {thinking}\n")
+                    if self.dashboard is not None:
+                        self.dashboard.on_event(
+                            {"type": "thinking", "text": thinking}
+                        )
             elif block_kind == "ToolUseBlock":
                 tool_id = str(_get(block, "id", ""))
                 name = strip_mcp_prefix(str(_get(block, "name", "tool")))
