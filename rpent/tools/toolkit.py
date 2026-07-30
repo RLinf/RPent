@@ -4,6 +4,7 @@
 during ``__init__`` via :meth:`Toolkit.add_tool`; the planner calls the tools through :meth:`Toolkit.get_tools_spec` and
 :meth:`Toolkit.execute_tool`.
 """
+
 from __future__ import annotations
 
 import base64
@@ -56,7 +57,9 @@ class ToolResult:
         """
         result = self.result
         if not isinstance(result, dict):
-            return [{"type": "text", "text": str(result)[:self.MAX_TEXT_BYTES_IN_RESULT]}]
+            return [
+                {"type": "text", "text": str(result)[: self.MAX_TEXT_BYTES_IN_RESULT]}
+            ]
 
         result_for_text = dict(result)
         image = result_for_text.pop("_image_bytes", None)
@@ -64,20 +67,22 @@ class ToolResult:
         image_wrist = result_for_text.pop("_image_wrist_bytes", None)
         text = json.dumps(result_for_text, indent=2, default=str)
         if len(text) > self.MAX_TEXT_BYTES_IN_RESULT:
-            text = text[:self.MAX_TEXT_BYTES_IN_RESULT] + "\n[truncated]"
+            text = text[: self.MAX_TEXT_BYTES_IN_RESULT] + "\n[truncated]"
 
         blocks: list[dict[str, Any]] = [{"type": "text", "text": text}]
 
         def _add_image_bytes(data_bytes: bytes) -> None:
             data = base64.b64encode(data_bytes).decode("utf-8")
-            blocks.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": "image/png",
-                    "data": data,
-                },
-            })
+            blocks.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": data,
+                    },
+                }
+            )
 
         if image:
             _add_image_bytes(image)
@@ -101,7 +106,9 @@ class Toolkit:
 
     def __init__(self, *, dashboard: DashboardEventSink | None = None) -> None:
         # name -> (spec, handler)
-        self._tools: dict[str, tuple[dict[str, Any], Callable[..., dict[str, Any]]]] = {}
+        self._tools: dict[
+            str, tuple[dict[str, Any], Callable[..., dict[str, Any]]]
+        ] = {}
         self._dashboard = (
             dashboard if dashboard is not None else NullDashboardEventSink()
         )
@@ -142,9 +149,7 @@ class Toolkit:
 
     def get_tools_spec(self) -> list[dict[str, Any]]:
         """Return the tool schemas the LLM sees."""
-        return substitute(
-            [spec for spec, _ in self._tools.values()]
-        )
+        return substitute([spec for spec, _ in self._tools.values()])
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
         """Dispatch a tool call to its registered handler."""
