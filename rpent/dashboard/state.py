@@ -1,4 +1,5 @@
 """Thread-safe in-memory state for dashboard live runs."""
+
 from __future__ import annotations
 
 import threading
@@ -8,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from rpent.dashboard.events import (
     DashboardEvent,
     RunFinishedEvent,
+    RunStartedEvent,
     RuntimeStatusEvent,
     ToolResultEvent,
     TranscriptEvent,
@@ -19,6 +21,8 @@ if TYPE_CHECKING:
 
 RUNTIME_COMPONENTS = ("env", "vla", "sam3")
 RUNTIME_STATUSES = {"pending", "starting", "ready", "failed"}
+FRAME_KINDS = ("camera", "wrist")
+TERMINAL_RUN_STATES = {"succeeded", "failed", "cancelled"}
 
 
 class DashboardState:
@@ -42,10 +46,11 @@ class DashboardState:
         self.seed = seed
         self.output_dir = Path(output_dir)
         self.video_path = Path(video_path)
-
         self._lock = threading.Lock()
-        self._state = "running"
+        self._state = "starting"
         self._terminated = False
+        self._error: str | None = None
+        self._finish_reason: str | None = None
         self._usage = {"in": 0, "out": 0, "tool_calls": 0}
         self._runtime = {
             component: {"status": "pending", "error": None}
@@ -53,12 +58,14 @@ class DashboardState:
         }
         self._events: list[dict[str, Any]] = []
         self._timeline: list[dict[str, Any]] = []
-        self._frame_png: bytes | None = None
-        self._frame_cam_png: bytes | None = None
+        self._frames: dict[str, bytes] = {}
         self._frame_idx = -1
 
     @classmethod
-    def from_run_config(cls, run_config: RunConfig) -> DashboardState:
+    def from_run_config(
+        cls,
+        run_config: RunConfig,
+    ) -> DashboardState:
         """Build the Dashboard projection for one parsed environment run."""
         task_desc = run_config.task_desc
         suite = str(task_desc["suite"])
@@ -99,6 +106,9 @@ class DashboardState:
         if isinstance(event, ToolResultEvent):
             self._apply_tool_result(event)
             return
+        if isinstance(event, RunStartedEvent):
+            self._start()
+            return
         if isinstance(event, RunFinishedEvent):
             self._finish(event)
             return
@@ -117,23 +127,14 @@ class DashboardState:
 
     def _runtime_snapshot(self) -> dict[str, dict[str, str | None]]:
         """Return a detached copy of runtime status for a locked caller."""
-        return {
-            component: dict(status)
-            for component, status in self._runtime.items()
-        }
+        return {component: dict(status) for component, status in self._runtime.items()}
 
     def _apply_tool_result(self, event: ToolResultEvent) -> None:
         name = event.name
         result = event.result
         if not isinstance(result, dict):
             return
-        image_path = result.get("overlay_path") or result.get("image_path")
-        image_cam_path = result.get("image_cam_path")
-        self._update_frame(
-            step=result.get("step"),
-            image=Path(image_path).read_bytes() if image_path else None,
-            image_cam=Path(image_cam_path).read_bytes() if image_cam_path else None,
-        )
+        self._apply_frame_paths(result)
         log = result.get("log")
         if not isinstance(log, dict):
             return
@@ -162,44 +163,74 @@ class DashboardState:
             self._timeline.append(item)
             self._terminated = self._terminated or terminated
 
-    def _update_frame(
+    def _apply_frame_paths(self, result: dict[str, Any]) -> None:
+        path_keys = {
+            "camera": "image_cam_path",
+            "wrist": "image_wrist_path",
+        }
+        if not any(key in result for key in path_keys.values()):
+            return
+
+        frames: dict[str, bytes] = {}
+        for kind, key in path_keys.items():
+            path = result.get(key)
+            if not path:
+                continue
+            try:
+                frames[kind] = Path(path).read_bytes()
+            except (OSError, TypeError):
+                continue
+        self._update_frames(step=result.get("step"), frames=frames)
+
+    def _update_frames(
         self,
         *,
         step: Any,
-        image: bytes | None = None,
-        image_cam: bytes | None = None,
+        frames: dict[str, bytes],
     ) -> None:
-        if image is None and image_cam is None:
-            return
         try:
             frame_idx = int(step)
-        except Exception:
+        except (TypeError, ValueError):
             frame_idx = None
         with self._lock:
+            if frame_idx is not None and frame_idx < self._frame_idx:
+                return
+            self._frames = {
+                kind: bytes(data)
+                for kind, data in frames.items()
+                if kind in FRAME_KINDS
+            }
             if frame_idx is not None:
                 self._frame_idx = frame_idx
-            if image is not None:
-                self._frame_png = bytes(image)
-            if image_cam is not None:
-                self._frame_cam_png = bytes(image_cam)
+
+    def _start(self) -> None:
+        with self._lock:
+            if self._state == "starting":
+                self._state = "running"
 
     def _finish(self, event: RunFinishedEvent) -> None:
+        if event.state not in TERMINAL_RUN_STATES:
+            raise ValueError(f"invalid terminal run state: {event.state!r}")
         terminated = event.terminated
         with self._lock:
-            self._state = "done"
+            if self._state in TERMINAL_RUN_STATES:
+                return
+            self._state = event.state
             if terminated is None:
                 terminated = any(item.get("terminated") for item in self._timeline)
             self._terminated = bool(terminated)
+            self._finish_reason = event.reason
+            self._error = None if event.error is None else str(event.error)
 
     def events_since(self, since: int) -> list[dict[str, Any]]:
         with self._lock:
             return list(self._events[since:])
 
     def frame(self, kind: str) -> bytes | None:
+        if kind not in FRAME_KINDS:
+            raise ValueError(f"unknown frame kind: {kind!r}")
         with self._lock:
-            if kind == "camera":
-                return self._frame_cam_png
-            return self._frame_png
+            return self._frames.get(kind)
 
     def action_video_path(self, step: int) -> Path | None:
         with self._lock:
@@ -216,17 +247,27 @@ class DashboardState:
 
     def has_video(self) -> bool:
         with self._lock:
-            return self._state == "done" and self.video_path.exists()
+            return self._state in TERMINAL_RUN_STATES and self.video_path.exists()
+
+    def _frame_snapshot(self) -> tuple[int, dict[str, bool]]:
+        available = {kind: kind in self._frames for kind in FRAME_KINDS}
+        return self._frame_idx, available
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
+            frame_idx, frame_available = self._frame_snapshot()
             return {
                 "state": self._state,
                 "terminated": self._terminated,
+                "error": self._error,
+                "finish_reason": self._finish_reason,
                 "usage": dict(self._usage),
                 "runtime": self._runtime_snapshot(),
-                "has_video": self._state == "done" and self.video_path.exists(),
-                "frame_idx": self._frame_idx,
+                "has_video": (
+                    self._state in TERMINAL_RUN_STATES and self.video_path.exists()
+                ),
+                "frame_idx": frame_idx,
+                "frame_available": frame_available,
                 "n_steps": len(self._timeline),
             }
 
@@ -239,15 +280,20 @@ class DashboardState:
                 "task": self.task,
                 "seed": self.seed,
                 "state": self._state,
+                "error": self._error,
+                "finish_reason": self._finish_reason,
                 "runtime": self._runtime_snapshot(),
                 "n_steps": len(self._timeline),
             }
 
     def run_detail(self) -> dict[str, Any]:
         with self._lock:
+            frame_idx, frame_available = self._frame_snapshot()
             return {
                 "state": self._state,
                 "terminated": self._terminated,
+                "error": self._error,
+                "finish_reason": self._finish_reason,
                 "suite": self.suite,
                 "name": self.name,
                 "task": self.task,
@@ -255,6 +301,9 @@ class DashboardState:
                 "usage": dict(self._usage),
                 "runtime": self._runtime_snapshot(),
                 "timeline": list(self._timeline),
-                "has_video": self._state == "done" and self.video_path.exists(),
-                "frame_idx": self._frame_idx,
+                "has_video": (
+                    self._state in TERMINAL_RUN_STATES and self.video_path.exists()
+                ),
+                "frame_idx": frame_idx,
+                "frame_available": frame_available,
             }

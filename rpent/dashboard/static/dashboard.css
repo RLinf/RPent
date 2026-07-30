@@ -27,8 +27,11 @@
     transition: background-color .16s ease, color .16s ease, border-color .16s ease,
       box-shadow .16s ease;
   }
+  .b-starting { background: rgba(176,122,10,.13); color: var(--yellow); border-color: var(--yellow); animation: pulse 1.6s infinite; }
   .b-running { background: rgba(47,138,62,.14); color: var(--green); border-color: var(--green); animation: pulse 1.6s infinite; }
-  .b-done { background: rgba(47,111,214,.14); color: var(--accent); border-color: var(--accent); }
+  .b-succeeded { background: rgba(47,111,214,.14); color: var(--accent); border-color: var(--accent); }
+  .b-failed { background: rgba(200,57,47,.12); color: var(--red); border-color: var(--red); }
+  .b-cancelled { background: rgba(135,127,112,.16); color: var(--muted); border-color: var(--muted); }
   .b-stale { background: rgba(135,127,112,.16); color: var(--muted); border-color: var(--muted); }
   .b-ok { background: rgba(47,138,62,.14); color: var(--green); border-color: var(--green); }
   .b-fail { background: rgba(200,57,47,.12); color: var(--red); border-color: var(--red); }
@@ -221,7 +224,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .b-running { animation: none; }
+    .b-starting, .b-running { animation: none; }
     .badge, .runtime-item, .gutter, .tg-head, .step,
     .frame-tabs button, #runBtn { transition: none; }
     .ev.entering, .toolgroup.entering, .step.entering { animation: none; }

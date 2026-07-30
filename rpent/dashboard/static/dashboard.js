@@ -39,13 +39,22 @@ const COPY = {
     autoScroll: "auto-scroll",
     selectRun: "Select a run to begin.",
     resizeColumns: "Drag to resize columns",
-    agentView: "realtime-Pi0 view",
-    cameraView: "realtime-camera",
+    cameraView: "fixed camera",
+    wristView: "wrist camera",
     waitingFrame: "waiting for first frame…",
+    frameUnavailable: (kind) =>
+      `${kind === "wrist" ? "wrist camera" : "fixed camera"} unavailable`,
     resizeFrame: "Drag to resize frame height",
     actionTimeline: "Action timeline",
     noActions: "No actions yet.",
-    stateLabels: { running: "running", done: "done", stale: "stale" },
+    stateLabels: {
+      starting: "starting",
+      running: "running",
+      succeeded: "succeeded",
+      failed: "failed",
+      cancelled: "cancelled",
+      stale: "stale",
+    },
     solved: "TASK SOLVED",
     notSolved: "not solved",
     full: "full",
@@ -81,7 +90,10 @@ const COPY = {
     toolCalls: "tool calls",
     eventCount: (count) => `${count} events`,
     actionCaption: (step, action) => `action #${step} ${action}`,
-    frameCaption: (kind, index) => `${kind} · frame #${index}`,
+    frameCaption: (kind, index) => {
+      const label = kind === "wrist" ? "wrist camera" : "fixed camera";
+      return `${label} · frame #${index}`;
+    },
     taskDetails: (task, seed) => ` · task ${task} · seed ${seed}`,
     usage: (usage) =>
       `token in ${usage.in.toLocaleString()} · out ${usage.out.toLocaleString()} · ${usage.tool_calls} tools`,
@@ -120,13 +132,22 @@ const COPY = {
     autoScroll: "自动滚动",
     selectRun: "请选择一个运行以开始。",
     resizeColumns: "拖动调整左右宽度",
-    agentView: "实时画面·Pi0 视角",
-    cameraView: "实时画面·摄像头",
+    cameraView: "固定相机",
+    wristView: "腕部相机",
     waitingFrame: "等待第一帧…",
+    frameUnavailable: (kind) =>
+      `${kind === "wrist" ? "腕部相机" : "固定相机"}画面不可用`,
     resizeFrame: "拖动调整画面高度",
     actionTimeline: "动作时间线",
     noActions: "暂无动作。",
-    stateLabels: { running: "运行中", done: "已完成", stale: "已停止" },
+    stateLabels: {
+      starting: "启动中",
+      running: "运行中",
+      succeeded: "执行成功",
+      failed: "运行失败",
+      cancelled: "已取消",
+      stale: "已停止",
+    },
     solved: "任务完成",
     notSolved: "未完成",
     full: "全",
@@ -163,7 +184,7 @@ const COPY = {
     eventCount: (count) => `${count} 条事件`,
     actionCaption: (step, action) => `动作 #${step} ${action}`,
     frameCaption: (kind, index) => {
-      const label = kind === "camera" ? "摄像头" : "智能体视角";
+      const label = kind === "wrist" ? "腕部相机" : "固定相机";
       return `${label} · 第 ${index} 帧`;
     },
     taskDetails: (task, seed) => ` · 任务 ${task} · 种子 ${seed}`,
@@ -208,11 +229,13 @@ const timelineState = {
 };
 
 const mediaState = {
-  kind: "agent",
+  kind: "camera",
   frameIndex: -1,
+  frameAvailable: null,
+  unavailableKind: null,
   actionVideo: null,
   episodeVideoAvailable: false,
-  lastRealtimeKind: "agent",
+  lastRealtimeKind: "camera",
   lastActionStep: 0,
   autoActionPrimed: false,
   autoPlayback: null,
@@ -355,7 +378,11 @@ function _pumpSwap() {
   });
 }
 
-function _runSwap({ kind, url, cap, onReady, holdUntilEnded }, gen, done) {
+function _runSwap(
+  { kind, url, cap, errorCap, onReady, onError, holdUntilEnded },
+  gen,
+  done,
+) {
   const target = _pickTarget(kind, url);
   let finished = false;
   let fallbackTimer = null;
@@ -365,6 +392,17 @@ function _runSwap({ kind, url, cap, onReady, holdUntilEnded }, gen, done) {
     finished = true;
     if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
     if (gen !== mediaState.generation) return;   // abandoned — don't paint or advance
+    if (!ok && kind === "img") {
+      target.removeAttribute("src");
+      for (const media of document.querySelectorAll(".frame-media.visible")) {
+        media.classList.remove("visible");
+      }
+      mediaState.activeImage = null;
+      if (errorCap != null) $("#frameCap").textContent = errorCap;
+      if (onError) onError(target);
+      done();
+      return;
+    }
     target._loadedSrc = ok ? url : null;
     _showBuffer(target);
     if (cap != null) $("#frameCap").textContent = cap;
@@ -464,11 +502,13 @@ function resetMediaBuffers() {
 
 function resetMediaForRun() {
   cancelAutoActionReturn();
-  mediaState.kind = "agent";
+  mediaState.kind = "camera";
   mediaState.frameIndex = -1;
+  mediaState.frameAvailable = null;
+  mediaState.unavailableKind = null;
   mediaState.actionVideo = null;
   mediaState.episodeVideoAvailable = false;
-  mediaState.lastRealtimeKind = "agent";
+  mediaState.lastRealtimeKind = "camera";
   mediaState.lastActionStep = 0;
   mediaState.autoActionPrimed = false;
   mediaState.autoPlayback = null;
@@ -505,10 +545,15 @@ async function loadRun() {
   selectRun(run.id);
 }
 
-function setBadge(state) {
+function isRealtimeKind(kind) {
+  return kind === "camera" || kind === "wrist";
+}
+
+function setBadge(state, error = null) {
   const b = $("#statusBadge");
   b.className = "badge b-" + (state || "stale");
   b.textContent = state ? (copy.stateLabels[state] || state) : "—";
+  b.title = error || "";
 }
 
 function renderRuntimeStatus(runtime) {
@@ -539,7 +584,7 @@ function renderRuntimeStatus(runtime) {
 
 function setResult(terminated, state) {
   const b = $("#resultBadge");
-  if (state === "done" || terminated) {
+  if (state === "succeeded" || terminated) {
     b.style.display = "";
     b.className = "badge " + (terminated ? "b-ok" : "b-fail");
     b.textContent = terminated ? copy.solved : copy.notSolved;
@@ -559,7 +604,7 @@ function maybeAutoPlayNewAction(tl, nextFrameIdx) {
     s.has_action_video && (Number(s.step) || 0) > mediaState.lastActionStep);
   mediaState.lastActionStep = Math.max(mediaState.lastActionStep, maxTimelineStep(tl));
   const step = candidates[candidates.length - 1];
-  if (!step || !(mediaState.kind === "agent" || mediaState.kind === "camera")) return false;
+  if (!step || !isRealtimeKind(mediaState.kind)) return false;
   return playActionVideo(step, {
     auto: true,
     nextFrameIdx,
@@ -612,7 +657,7 @@ function renderTimeline(
       div.title = copy.actionReplayTitle;
       div.addEventListener("click", () => playActionVideo(s, {
         returnAfterEnd: true,
-        returnKind: "agent",
+        returnKind: mediaState.lastRealtimeKind,
       }));
     }
     el.appendChild(div);
@@ -737,7 +782,7 @@ async function refreshTranscript() {
 
 function setFrameKind(kind) {
   cancelAutoActionReturn();
-  if (kind === "agent" || kind === "camera") {
+  if (isRealtimeKind(kind)) {
     mediaState.lastRealtimeKind = kind;
     mediaState.autoPlayback = null;
   }
@@ -756,7 +801,7 @@ function finishAutoActionPlayback() {
     mediaState.returnTimer = null;
     if (mediaState.autoPlayback !== playback) return;
     const nextFrameIdx = playback.nextFrameIdx;
-    const returnKind = playback.returnKind || mediaState.lastRealtimeKind || "agent";
+    const returnKind = playback.returnKind || mediaState.lastRealtimeKind || "camera";
     mediaState.autoPlayback = null;
     mediaState.actionVideo = null;
     mediaState.kind = returnKind;
@@ -801,6 +846,14 @@ function playEpisodeVideo() {
   document.querySelectorAll(".frame-tabs button").forEach(b => b.classList.remove("active"));
   mediaState.frameIndex = -1;
   refreshFrame(undefined, { source: "user" });
+}
+
+function showFrameUnavailable(kind, idx) {
+  if (mediaState.unavailableKind === kind && idx === mediaState.frameIndex) return;
+  mediaState.frameIndex = idx ?? mediaState.frameIndex;
+  mediaState.unavailableKind = kind;
+  resetMediaBuffers();
+  $("#frameCap").textContent = copy.frameUnavailable(kind);
 }
 
 function refreshFrame(idx, opts = {}) {
@@ -860,23 +913,32 @@ function refreshFrame(idx, opts = {}) {
     return;
   }
 
-  // realtime agent / camera frame — PNG mutates server-side, so
+  if (mediaState.frameAvailable?.[mediaState.kind] === false) {
+    showFrameUnavailable(mediaState.kind, idx);
+    return;
+  }
+
+  // Realtime camera / wrist frame — PNG mutates server-side, so
   // ``t=Date.now()`` keeps the URL unique per tick and defeats caching.
   if (idx != null && idx === mediaState.frameIndex) return;
   mediaState.frameIndex = idx ?? mediaState.frameIndex;
+  mediaState.unavailableKind = null;
   const url = `/api/run/frame?run=${encodeURIComponent(runState.id)}&kind=${mediaState.kind}&t=${Date.now()}`;
   swapMedia({
     kind: "img",
     url,
     cap: copy.frameCaption(mediaState.kind, mediaState.frameIndex),
+    errorCap: copy.frameUnavailable(mediaState.kind),
     source,
+    onReady: () => { mediaState.unavailableKind = null; },
+    onError: () => { mediaState.unavailableKind = mediaState.kind; },
   });
 }
 
 async function refreshMeta(opts = {}) {
   if (!runState.id) return;
   const r = await fetch(`/api/run?run=${encodeURIComponent(runState.id)}`).then(x => x.json());
-  setBadge(r.state);
+  setBadge(r.state, r.error);
   setResult(r.terminated, r.state);
   renderRuntimeStatus(r.runtime);
   const taskMeta = $("#taskMeta");
@@ -886,6 +948,7 @@ async function refreshMeta(opts = {}) {
     suite,
     document.createTextNode(copy.taskDetails(r.task ?? "?", r.seed ?? "?")),
   );
+  mediaState.frameAvailable = r.frame_available || null;
   if (r.usage) $("#usageMeta").textContent = copy.usage(r.usage);
   renderTimeline(r.timeline || [], r.has_video, {
     animateNew: timelineState.initialized,
@@ -897,11 +960,11 @@ async function refreshMeta(opts = {}) {
   const autoStarted = opts.autoPlayNewAction && mediaState.autoActionPrimed && !mediaState.autoPlayback
     ? maybeAutoPlayNewAction(r.timeline || [], opts.nextFrameIdx ?? r.frame_idx)
     : false;
-  if (!r.has_video && mediaState.kind === "video") setFrameKind("agent");
+  if (!r.has_video && mediaState.kind === "video") setFrameKind("camera");
   if (
     !autoStarted
     && !mediaState.autoPlayback
-    && (mediaState.kind === "agent" || mediaState.kind === "camera")
+    && isRealtimeKind(mediaState.kind)
   ) refreshFrame(r.frame_idx);
 }
 
@@ -910,9 +973,10 @@ function connectSSE() {
   runState.eventSource = new EventSource(`/api/stream?run=${encodeURIComponent(runState.id)}`);
   runState.eventSource.onmessage = (e) => {
     const sig = JSON.parse(e.data);
-    setBadge(sig.state);
+    setBadge(sig.state, sig.error);
     setResult(sig.terminated, sig.state);
     renderRuntimeStatus(sig.runtime);
+    mediaState.frameAvailable = sig.frame_available || null;
     if (sig.usage) $("#usageMeta").textContent = copy.usage(sig.usage);
     $("#connMeta").textContent = copy.live;
     refreshTranscript();
@@ -942,7 +1006,7 @@ function connectSSE() {
     if (
       !mediaState.autoPlayback
       && !mediaState.stepTransitioning
-      && (mediaState.kind === "agent" || mediaState.kind === "camera")
+      && isRealtimeKind(mediaState.kind)
       && sig.frame_idx != null
       && sig.frame_idx !== mediaState.frameIndex
     ) refreshFrame(sig.frame_idx);
@@ -960,7 +1024,7 @@ function selectRun(id) {
   resetMediaForRun();
   renderRuntimeStatus(null);
   document.querySelectorAll(".frame-tabs button").forEach(b =>
-    b.classList.toggle("active", b.dataset.kind === "agent"));
+    b.classList.toggle("active", b.dataset.kind === "camera"));
   $("#transcript").innerHTML = `<div class="empty">${copy.loading}</div>`;
   $("#timeline").innerHTML = '<div class="empty">…</div>';
   $("#frameCap").textContent = copy.waitingFrame;

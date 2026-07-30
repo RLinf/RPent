@@ -15,7 +15,7 @@ import socket
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import uvicorn
 from fastapi import Body, FastAPI
@@ -158,7 +158,11 @@ class DashboardServer:
             return JSONResponse({"events": events})
 
         @app.get("/api/run/frame")
-        def api_frame(run: str, kind: str = "agent", t: str = "") -> Response:
+        def api_frame(
+            run: str,
+            kind: Literal["camera", "wrist"] = "camera",
+            t: str = "",
+        ) -> Response:
             live = self._runs.get(run)
             png = live.frame(kind) if live else None
             if png is None:
