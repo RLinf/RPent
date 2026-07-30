@@ -10,7 +10,6 @@ handlers, server lifecycle, and the MCP allowlist live on
 the three runner hooks (``add_cli_args`` / ``parse_config`` /
 ``init_runtime``) that keep ``rpent/cli/main.py`` env-agnostic.
 """
-
 from __future__ import annotations
 
 import argparse

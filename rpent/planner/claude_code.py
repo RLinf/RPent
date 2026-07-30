@@ -403,9 +403,7 @@ class _Recorder:
                 text = str(_get(block, "text", "")).strip()
                 if text:
                     lines.append(f"[claude] {text}\n")
-                    self.dashboard.emit(
-                        TranscriptEvent({"type": "text", "text": text})
-                    )
+                    self.dashboard.emit(TranscriptEvent({"type": "text", "text": text}))
             elif block_kind == "ThinkingBlock":
                 thinking = str(_get(block, "thinking", "")).strip()
                 if thinking:

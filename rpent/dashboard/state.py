@@ -1,5 +1,4 @@
 """Thread-safe in-memory state for dashboard live runs."""
-
 from __future__ import annotations
 
 import threading
@@ -46,6 +45,7 @@ class DashboardState:
         self.seed = seed
         self.output_dir = Path(output_dir)
         self.video_path = Path(video_path)
+
         self._lock = threading.Lock()
         self._state = "starting"
         self._terminated = False

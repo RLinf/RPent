@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import base64
 import json
-import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
+import traceback
 from typing import Any, ClassVar
 
 from rpent.dashboard.events import (

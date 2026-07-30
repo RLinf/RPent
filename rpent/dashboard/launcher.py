@@ -1,8 +1,8 @@
 """Small adapter between the dashboard launch form and CLI args."""
-
 from __future__ import annotations
 
 from typing import Any
+
 
 FIELDS = (
     "suite",

@@ -6,7 +6,6 @@ the process is stopped.
 
 Routes mirror the fixed frontend contract in ``rpent/dashboard/index.html``.
 """
-
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +16,6 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-import uvicorn
 from fastapi import Body, FastAPI
 from fastapi.responses import (
     FileResponse,
@@ -26,6 +24,7 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
+import uvicorn
 from fastapi.staticfiles import StaticFiles
 
 from rpent.dashboard.state import DashboardState
