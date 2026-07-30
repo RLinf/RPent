@@ -239,7 +239,27 @@ def main() -> int:
         await_first_prompt = start_first_prompt_resolver(input_queue)
 
     # --- initialise environment --------------------------------------------
-    daemons, primitives_kwargs = env_spec.init_runtime(args, output_dir)
+    try:
+        daemons, primitives_kwargs = env_spec.init_runtime(
+            args,
+            output_dir,
+            dashboard_state,
+        )
+    except Exception:
+        logger.exception("runtime initialization failed")
+        if dashboard_state is None or dashboard_server is None:
+            raise
+        dashboard_state.mark_done()
+        logger.info(
+            "Runtime initialization failed. Dashboard still serving at %s. "
+            "Press Ctrl+C to stop.",
+            dashboard_url,
+        )
+        try:
+            threading.Event().wait()
+        except KeyboardInterrupt:
+            pass
+        return 1
 
     # --- toolkit -----------------------------------------------------------
     toolkit = get_toolkit(

@@ -45,7 +45,6 @@ class EnvSpec:
     add_cli_args: Callable[[argparse.ArgumentParser, bool], None]
     parse_config: Callable[[argparse.Namespace], RunConfig]
     init_runtime: Callable[
-        [argparse.Namespace, Path],
+        [argparse.Namespace, Path, "State | None"],
         tuple[list["ProcessDaemon"], dict[str, Any]],
     ]
-

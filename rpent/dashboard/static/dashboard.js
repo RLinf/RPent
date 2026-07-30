@@ -27,6 +27,13 @@ const COPY = {
     defaultPlaceholder: "default",
     run: "Run",
     liveMonitor: "Live Monitor",
+    runtimeLabels: { env: "ENV", vla: "VLA", sam3: "SAM3" },
+    runtimeStates: {
+      pending: "waiting",
+      starting: "starting",
+      ready: "ready",
+      failed: "failed",
+    },
     reasoning: "Agent reasoning & tool calls",
     expandTools: "expand tool calls",
     autoScroll: "auto-scroll",
@@ -101,6 +108,13 @@ const COPY = {
     defaultPlaceholder: "默认",
     run: "开始运行",
     liveMonitor: "实时监控",
+    runtimeLabels: { env: "ENV", vla: "VLA", sam3: "SAM3" },
+    runtimeStates: {
+      pending: "等待中",
+      starting: "启动中",
+      ready: "就绪",
+      failed: "启动失败",
+    },
     reasoning: "智能体推理与工具调用",
     expandTools: "展开工具调用",
     autoScroll: "自动滚动",
@@ -159,6 +173,8 @@ const COPY = {
 };
 
 const copy = COPY[LANGUAGE];
+const RUNTIME_COMPONENTS = ["env", "vla", "sam3"];
+const RUNTIME_STATES = ["pending", "starting", "ready", "failed"];
 
 function applyStaticCopy() {
   for (const element of document.querySelectorAll("[data-i18n]")) {
@@ -183,6 +199,12 @@ const transcriptState = {
   toolGroup: null,
   inFlight: false,
   refreshAgain: false,
+  initialized: false,
+};
+
+const timelineState = {
+  initialized: false,
+  seen: new Set(),
 };
 
 const mediaState = {
@@ -208,6 +230,7 @@ const AUTO_ACTION_RETURN_DELAY_MS = 300;
 const MODEL_PRESETS = {
   api: [
     "",
+    "deepseek:deepseek-chat",
     "anthropic:claude-opus-4-7",
     "anthropic:claude-opus-4-8",
     "anthropic:claude-sonnet-4-5",
@@ -457,6 +480,12 @@ function resetTranscriptForRun() {
   transcriptState.shown = 0;
   transcriptState.toolGroup = null;
   transcriptState.refreshAgain = false;
+  transcriptState.initialized = false;
+}
+
+function resetTimelineForRun() {
+  timelineState.initialized = false;
+  timelineState.seen.clear();
 }
 
 function fmtArgs(o) {
@@ -480,6 +509,32 @@ function setBadge(state) {
   const b = $("#statusBadge");
   b.className = "badge b-" + (state || "stale");
   b.textContent = state ? (copy.stateLabels[state] || state) : "—";
+}
+
+function renderRuntimeStatus(runtime) {
+  const container = $("#runtimeStatus");
+  if (!container) return;
+  if (!runtime || typeof runtime !== "object") {
+    container.hidden = true;
+    container.replaceChildren();
+    return;
+  }
+
+  const items = RUNTIME_COMPONENTS.map(function (component) {
+    const info = runtime[component];
+    const candidate = typeof info === "string" ? info : info?.status;
+    const status = RUNTIME_STATES.includes(candidate) ? candidate : "pending";
+    const item = document.createElement("span");
+    item.className = `runtime-item runtime-${status}`;
+    item.textContent = `${copy.runtimeLabels[component]} ${copy.runtimeStates[status]}`;
+    if (info && typeof info === "object" && info.error) {
+      item.title = info.error;
+      item.setAttribute("aria-label", `${item.textContent}: ${info.error}`);
+    }
+    return item;
+  });
+  container.hidden = false;
+  container.replaceChildren(...items);
 }
 
 function setResult(terminated, state) {
@@ -512,22 +567,36 @@ function maybeAutoPlayNewAction(tl, nextFrameIdx) {
   });
 }
 
-function renderTimeline(tl, hasEpisodeVideo = mediaState.episodeVideoAvailable) {
+function timelineItemKey(item) {
+  return `${item.step ?? ""}:${item.action ?? ""}`;
+}
+
+function renderTimeline(
+  tl,
+  hasEpisodeVideo = mediaState.episodeVideoAvailable,
+  { animateNew = false } = {},
+) {
   tl = Array.isArray(tl) ? tl : [];
   mediaState.episodeVideoAvailable = !!hasEpisodeVideo;
   const el = $("#timeline");
+  const shouldAnimateNew = animateNew && timelineState.initialized;
   const total = tl.length + (mediaState.episodeVideoAvailable ? 1 : 0);
   $("#stepCount").textContent = total ? total : "";
   if (!tl.length && !mediaState.episodeVideoAvailable) {
     el.innerHTML = `<div class="empty">${copy.noActions}</div>`;
+    timelineState.initialized = true;
     return;
   }
   el.innerHTML = "";
   for (const s of tl) {
     if (s.step === 0 && !s.action) continue;
+    const key = timelineItemKey(s);
     const div = document.createElement("div");
     div.className = "step" + (s.terminated ? " term" : "");
     if (s.has_action_video) div.className += " hasclip";
+    if (shouldAnimateNew && !timelineState.seen.has(key)) {
+      div.classList.add("entering");
+    }
     const res = s.result || {};
     let det = "";
     if (res.final_dist_m != null) det += copy.distance((+res.final_dist_m).toFixed(3));
@@ -547,10 +616,14 @@ function renderTimeline(tl, hasEpisodeVideo = mediaState.episodeVideoAvailable) 
       }));
     }
     el.appendChild(div);
+    timelineState.seen.add(key);
   }
   if (mediaState.episodeVideoAvailable) {
     const div = document.createElement("div");
     div.className = "step episode";
+    if (shouldAnimateNew && !timelineState.seen.has("episode-video")) {
+      div.classList.add("entering");
+    }
     div.title = copy.episodeReplayTitle;
     div.innerHTML = `<span class="idx">${copy.full}</span>
       <div class="body"><span class="act">${copy.episodeVideo}</span>
@@ -558,7 +631,9 @@ function renderTimeline(tl, hasEpisodeVideo = mediaState.episodeVideoAvailable) 
       <span class="el">${copy.finished}</span>`;
     div.addEventListener("click", playEpisodeVideo);
     el.appendChild(div);
+    timelineState.seen.add("episode-video");
   }
+  timelineState.initialized = true;
 }
 
 
@@ -591,7 +666,7 @@ function makeThinkingEl(ev) {
   return div;
 }
 
-function appendEvents(events) {
+function appendEvents(events, animateNew = false) {
   const box = $("#transcript");
   if (transcriptState.shown === 0) { box.innerHTML = ""; transcriptState.toolGroup = null; }
   for (const ev of events) {
@@ -600,6 +675,7 @@ function appendEvents(events) {
       if (!transcriptState.toolGroup) {
         const g = document.createElement("div");
         g.className = "toolgroup";
+        if (animateNew) g.classList.add("entering");
         g.innerHTML = `<div class="tg-head"><span class="tg-count">0</span> ${copy.toolCalls}</div><div class="tg-body"></div>`;
         g.querySelector(".tg-head").addEventListener("click", () => g.classList.toggle("open"));
         box.appendChild(g);
@@ -611,10 +687,13 @@ function appendEvents(events) {
     } else {
       transcriptState.toolGroup = null;  // close the group; turn/text render at top level
       if (ev.type === "thinking") {
-        box.appendChild(makeThinkingEl(ev));
+        const thinking = makeThinkingEl(ev);
+        if (animateNew) thinking.classList.add("entering");
+        box.appendChild(thinking);
       } else {
         const div = document.createElement("div");
         div.className = "ev " + ev.type;
+        if (animateNew) div.classList.add("entering");
         if (ev.type === "meta") div.textContent = `[${ev.tag}] ${ev.text}`;
         else div.textContent = ev.text;
         box.appendChild(div);
@@ -642,10 +721,12 @@ async function refreshTranscript() {
       `/api/run/transcript?run=${encodeURIComponent(run)}&since=${transcriptState.shown}`
     ).then(x => x.json());
     if (run !== runState.id) return;            // switched run mid-flight — drop
-    if (r.events && r.events.length) appendEvents(r.events);
+    const animateNew = transcriptState.initialized;
+    if (r.events && r.events.length) appendEvents(r.events, animateNew);
     else if (transcriptState.shown === 0) {
       $("#transcript").innerHTML = `<div class="empty">${copy.noTranscript}</div>`;
     }
+    transcriptState.initialized = true;
   } catch (e) {
     /* transient — next tick retries */
   } finally {
@@ -797,6 +878,7 @@ async function refreshMeta(opts = {}) {
   const r = await fetch(`/api/run?run=${encodeURIComponent(runState.id)}`).then(x => x.json());
   setBadge(r.state);
   setResult(r.terminated, r.state);
+  renderRuntimeStatus(r.runtime);
   const taskMeta = $("#taskMeta");
   const suite = document.createElement("b");
   suite.textContent = r.suite ?? r.name;
@@ -805,7 +887,9 @@ async function refreshMeta(opts = {}) {
     document.createTextNode(copy.taskDetails(r.task ?? "?", r.seed ?? "?")),
   );
   if (r.usage) $("#usageMeta").textContent = copy.usage(r.usage);
-  renderTimeline(r.timeline || [], r.has_video);
+  renderTimeline(r.timeline || [], r.has_video, {
+    animateNew: timelineState.initialized,
+  });
   if (opts.primeAutoActionStep) {
     mediaState.lastActionStep = maxTimelineStep(r.timeline || []);
     mediaState.autoActionPrimed = true;
@@ -828,6 +912,7 @@ function connectSSE() {
     const sig = JSON.parse(e.data);
     setBadge(sig.state);
     setResult(sig.terminated, sig.state);
+    renderRuntimeStatus(sig.runtime);
     if (sig.usage) $("#usageMeta").textContent = copy.usage(sig.usage);
     $("#connMeta").textContent = copy.live;
     refreshTranscript();
@@ -871,7 +956,9 @@ function selectRun(id) {
   runState.id = id;
   runState.lastStepCount = -1;
   resetTranscriptForRun();
+  resetTimelineForRun();
   resetMediaForRun();
+  renderRuntimeStatus(null);
   document.querySelectorAll(".frame-tabs button").forEach(b =>
     b.classList.toggle("active", b.dataset.kind === "agent"));
   $("#transcript").innerHTML = `<div class="empty">${copy.loading}</div>`;

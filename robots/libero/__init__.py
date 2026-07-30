@@ -153,6 +153,7 @@ def _subprocess_env(cuda_device: str | None, **extra: str) -> dict[str, str]:
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
+    dashboard: "State | None" = None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Spawn env + vla + SAM3 daemons and build clients for LIBERO.
 
@@ -176,109 +177,136 @@ def _init_runtime(
     libero_type = args.libero_type or get_libero_type()
 
     # --- env_server --------------------------------------------------------
-    if args.env_endpoint is None:
-        host, port = "127.0.0.1", pick_free_port()
-        env_daemon = ProcessDaemon(
-            name="env_server",
-            cmd=[
-                sys.executable,
-                str(get_repo_root() / "robots" / "libero" / "env_server.py"),
-                "--suite", args.suite,
-                "--task", str(args.task),
-                "--seed", str(args.seed),
-                "--max-episode-steps", str(args.max_episode_steps),
-                "--transport", "http",
-                "--host", host,
-                "--port", str(port),
-                "--parent-watch",
-            ],
-            env=_subprocess_env(
-                args.cuda_device,
-                LIBERO_TYPE=libero_type,
-                MUJOCO_GL="egl",
-                ROBOT_PLATFORM="LIBERO",
-            ),
-            log_path=str(Path(output_dir) / "env_server.log"),
-        )
-        env_daemon.start()
-        daemons.append(env_daemon)
-        env_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-        wait_for_ready(env_rpc, daemon=env_daemon)
-    else:
-        protocol, host, port = parse_endpoint(args.env_endpoint)
-        if protocol == "socket":
-            env_rpc = SocketRpcClient(host, port)
-        elif protocol == "http":
-            env_rpc = HttpRpcClient(f"http://{host}:{port}")
-        else:
-            raise ValueError(
-                f"--env-endpoint protocol must be socket or http, got {protocol!r}"
+    if dashboard is not None:
+        dashboard.set_runtime_status("env", "starting")
+    try:
+        if args.env_endpoint is None:
+            host, port = "127.0.0.1", pick_free_port()
+            env_daemon = ProcessDaemon(
+                name="env_server",
+                cmd=[
+                    sys.executable,
+                    str(get_repo_root() / "robots" / "libero" / "env_server.py"),
+                    "--suite", args.suite,
+                    "--task", str(args.task),
+                    "--seed", str(args.seed),
+                    "--max-episode-steps", str(args.max_episode_steps),
+                    "--transport", "http",
+                    "--host", host,
+                    "--port", str(port),
+                    "--parent-watch",
+                ],
+                env=_subprocess_env(
+                    args.cuda_device,
+                    LIBERO_TYPE=libero_type,
+                    MUJOCO_GL="egl",
+                    ROBOT_PLATFORM="LIBERO",
+                ),
+                log_path=str(Path(output_dir) / "env_server.log"),
             )
-        wait_for_ready(env_rpc)
+            env_daemon.start()
+            daemons.append(env_daemon)
+            env_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
+            wait_for_ready(env_rpc, daemon=env_daemon)
+        else:
+            protocol, host, port = parse_endpoint(args.env_endpoint)
+            if protocol == "socket":
+                env_rpc = SocketRpcClient(host, port)
+            elif protocol == "http":
+                env_rpc = HttpRpcClient(f"http://{host}:{port}")
+            else:
+                raise ValueError(
+                    f"--env-endpoint protocol must be socket or http, got {protocol!r}"
+                )
+            wait_for_ready(env_rpc)
+    except Exception as exc:
+        if dashboard is not None:
+            dashboard.set_runtime_status("env", "failed", error=exc)
+        raise
+    if dashboard is not None:
+        dashboard.set_runtime_status("env", "ready")
 
     # --- vla_server --------------------------------------------------------
-    if args.vla_endpoint is None:
-        host, port = "127.0.0.1", pick_free_port()
-        vla_daemon = ProcessDaemon(
-            name="vla_server",
-            cmd=[
-                sys.executable,
-                str(get_repo_root() / "robots" / "libero" / "vla_server.py"),
-                "--transport", "http",
-                "--host", host,
-                "--port", str(port),
-                "--parent-watch",
-            ],
-            env=_subprocess_env(args.cuda_device),
-            log_path=str(Path(output_dir) / "vla_server.log"),
-        )
-        vla_daemon.start()
-        daemons.append(vla_daemon)
-        vla_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-        wait_for_ready(vla_rpc, daemon=vla_daemon)
-    else:
-        protocol, host, port = parse_endpoint(args.vla_endpoint)
-        if protocol == "socket":
-            vla_rpc = SocketRpcClient(host, port)
-        elif protocol == "http":
-            vla_rpc = HttpRpcClient(f"http://{host}:{port}")
-        else:
-            raise ValueError(
-                f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
+    if dashboard is not None:
+        dashboard.set_runtime_status("vla", "starting")
+    try:
+        if args.vla_endpoint is None:
+            host, port = "127.0.0.1", pick_free_port()
+            vla_daemon = ProcessDaemon(
+                name="vla_server",
+                cmd=[
+                    sys.executable,
+                    str(get_repo_root() / "robots" / "libero" / "vla_server.py"),
+                    "--transport", "http",
+                    "--host", host,
+                    "--port", str(port),
+                    "--parent-watch",
+                ],
+                env=_subprocess_env(args.cuda_device),
+                log_path=str(Path(output_dir) / "vla_server.log"),
             )
-        wait_for_ready(vla_rpc)
+            vla_daemon.start()
+            daemons.append(vla_daemon)
+            vla_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
+            wait_for_ready(vla_rpc, daemon=vla_daemon)
+        else:
+            protocol, host, port = parse_endpoint(args.vla_endpoint)
+            if protocol == "socket":
+                vla_rpc = SocketRpcClient(host, port)
+            elif protocol == "http":
+                vla_rpc = HttpRpcClient(f"http://{host}:{port}")
+            else:
+                raise ValueError(
+                    f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
+                )
+            wait_for_ready(vla_rpc)
+    except Exception as exc:
+        if dashboard is not None:
+            dashboard.set_runtime_status("vla", "failed", error=exc)
+        raise
+    if dashboard is not None:
+        dashboard.set_runtime_status("vla", "ready")
 
     # --- sam3_server -------------------------------------------------------
-    if args.sam3_endpoint is None:
-        host, port = "127.0.0.1", pick_free_port()
-        sam3_daemon = ProcessDaemon(
-            name="sam3_server",
-            cmd=[
-                sys.executable,
-                str(get_repo_root() / "robots" / "libero" / "sam3_server.py"),
-                "--transport", "http",
-                "--host", host,
-                "--port", str(port),
-                "--parent-watch",
-            ],
-            env=_subprocess_env(args.cuda_device),
-            log_path=str(Path(output_dir) / "sam3_server.log"),
-        )
-        sam3_daemon.start()
-        daemons.append(sam3_daemon)
-        sam3_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-        wait_for_ready(sam3_rpc, daemon=sam3_daemon)
-    else:
-        protocol, host, port = parse_endpoint(args.sam3_endpoint)
-        if protocol == "socket":
-            sam3_rpc = SocketRpcClient(host, port)
-        elif protocol == "http":
-            sam3_rpc = HttpRpcClient(f"http://{host}:{port}")
-        else:
-            raise ValueError(
-                f"--sam3-endpoint protocol must be socket or http, got {protocol!r}"
+    if dashboard is not None:
+        dashboard.set_runtime_status("sam3", "starting")
+    try:
+        if args.sam3_endpoint is None:
+            host, port = "127.0.0.1", pick_free_port()
+            sam3_daemon = ProcessDaemon(
+                name="sam3_server",
+                cmd=[
+                    sys.executable,
+                    str(get_repo_root() / "robots" / "libero" / "sam3_server.py"),
+                    "--transport", "http",
+                    "--host", host,
+                    "--port", str(port),
+                    "--parent-watch",
+                ],
+                env=_subprocess_env(args.cuda_device),
+                log_path=str(Path(output_dir) / "sam3_server.log"),
             )
-        wait_for_ready(sam3_rpc)
+            sam3_daemon.start()
+            daemons.append(sam3_daemon)
+            sam3_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
+            wait_for_ready(sam3_rpc, daemon=sam3_daemon)
+        else:
+            protocol, host, port = parse_endpoint(args.sam3_endpoint)
+            if protocol == "socket":
+                sam3_rpc = SocketRpcClient(host, port)
+            elif protocol == "http":
+                sam3_rpc = HttpRpcClient(f"http://{host}:{port}")
+            else:
+                raise ValueError(
+                    f"--sam3-endpoint protocol must be socket or http, got {protocol!r}"
+                )
+            wait_for_ready(sam3_rpc)
+    except Exception as exc:
+        if dashboard is not None:
+            dashboard.set_runtime_status("sam3", "failed", error=exc)
+        raise
+    if dashboard is not None:
+        dashboard.set_runtime_status("sam3", "ready")
 
     primitives_kwargs = {
         "env": LiberoEnvClient(

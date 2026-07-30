@@ -5,6 +5,9 @@ import threading
 from pathlib import Path
 from typing import Any
 
+RUNTIME_COMPONENTS = ("env", "vla", "sam3")
+RUNTIME_STATUSES = {"pending", "starting", "ready", "failed"}
+
 
 class State:
     """Thread-safe dashboard state for one run."""
@@ -32,6 +35,10 @@ class State:
         self._state = "running"
         self._terminated = False
         self._usage = {"in": 0, "out": 0, "tool_calls": 0}
+        self._runtime = {
+            component: {"status": "pending", "error": None}
+            for component in RUNTIME_COMPONENTS
+        }
         self._events: list[dict[str, Any]] = []
         self._timeline: list[dict[str, Any]] = []
         self._frame_png: bytes | None = None
@@ -45,6 +52,31 @@ class State:
     def on_usage(self, *, inp: int, out: int, tool_calls: int) -> None:
         with self._lock:
             self._usage = {"in": int(inp), "out": int(out), "tool_calls": int(tool_calls)}
+
+    def set_runtime_status(
+        self,
+        component: str,
+        status: str,
+        *,
+        error: BaseException | str | None = None,
+    ) -> None:
+        """Publish the startup status of one environment-side component."""
+        if component not in RUNTIME_COMPONENTS:
+            raise ValueError(f"unknown runtime component: {component!r}")
+        if status not in RUNTIME_STATUSES:
+            raise ValueError(f"unknown runtime status: {status!r}")
+        with self._lock:
+            self._runtime[component] = {
+                "status": status,
+                "error": None if error is None else str(error),
+            }
+
+    def _runtime_snapshot(self) -> dict[str, dict[str, str | None]]:
+        """Return a detached copy of runtime status for a locked caller."""
+        return {
+            component: dict(status)
+            for component, status in self._runtime.items()
+        }
 
     def on_tool_result(self, name: str, result: Any) -> None:
         if not isinstance(result, dict):
@@ -145,6 +177,7 @@ class State:
                 "state": self._state,
                 "terminated": self._terminated,
                 "usage": dict(self._usage),
+                "runtime": self._runtime_snapshot(),
                 "has_video": self._state == "done" and self.video_path.exists(),
                 "frame_idx": self._frame_idx,
                 "n_steps": len(self._timeline),
@@ -159,6 +192,7 @@ class State:
                 "task": self.task,
                 "seed": self.seed,
                 "state": self._state,
+                "runtime": self._runtime_snapshot(),
                 "n_steps": len(self._timeline),
             }
 
@@ -172,6 +206,7 @@ class State:
                 "task": self.task,
                 "seed": self.seed,
                 "usage": dict(self._usage),
+                "runtime": self._runtime_snapshot(),
                 "timeline": list(self._timeline),
                 "has_video": self._state == "done" and self.video_path.exists(),
                 "frame_idx": self._frame_idx,
