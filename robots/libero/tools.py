@@ -244,8 +244,8 @@ class LiberoPrimitives:
             if descent_done and ascended and closed:
                 success = True
                 break
-            if self.env.episode_done:
-                success = True
+            if self.env.episode_terminated or self.env.episode_truncated:
+                success = self.env.episode_terminated
                 break
 
         return {
@@ -257,7 +257,7 @@ class LiberoPrimitives:
             "peak_lift_m": post_min_peak_z - min_z,  # actual post-descent ascent
             "min_gripper_opening": min_grip,
             "final_gripper_opening": last_grip,
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
             "diagnostics": {
                 "start_eef_z": round(start_z, 4),
                 "peak_eef_z": round(peak_z, 4),
@@ -290,8 +290,8 @@ class LiberoPrimitives:
         for c in range(max_chunks):
             self._vlm_chunk(instr)
             chunks_used = c + 1
-            if self.env.episode_done:
-                task_success = True
+            if self.env.episode_terminated or self.env.episode_truncated:
+                task_success = self.env.episode_terminated
                 break
 
         return {
@@ -302,7 +302,7 @@ class LiberoPrimitives:
             "contact_skill_executed": chunks_used > 0,
             "chunks_used": chunks_used,
             "max_chunks": max_chunks,
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
             "diagnostics": {
                 "mode": "contact_skill_success_by_libero_terminated",
                 "success_meaning": (
@@ -363,7 +363,7 @@ class LiberoPrimitives:
                 action[5] = float(np.clip(step_dyaw / 0.10, -1.0, 1.0))
             action[6] = gripper
             self._step_env(action)
-            if self.env.episode_done:
+            if self.env.episode_terminated or self.env.episode_truncated:
                 break
         final = self._last_obs_eef_pos
         return {
@@ -373,7 +373,7 @@ class LiberoPrimitives:
             "final_dist_m": round(float(np.linalg.norm(target - final)), 4),
             "steps_used": len(traj),
             "max_steps": max_steps,
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
         }
 
     def rotate_wrist(
@@ -436,7 +436,7 @@ class LiberoPrimitives:
             action[5] = float(np.clip(action[5], -1.0, 1.0))
             action[6] = float(gripper)
             self._step_env(action)
-            if self.env.episode_done:
+            if self.env.episode_terminated or self.env.episode_truncated:
                 break
         final_yaw = _yaw_of(self.env.raw_obs()["robot0_eef_quat"])
         return {
@@ -446,7 +446,7 @@ class LiberoPrimitives:
             "final_yaw": round(final_yaw, 4),
             "final_err": round(float((target_yaw - final_yaw + np.pi) % (2 * np.pi) - np.pi), 4),
             "steps_used": len(traj),
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
         }
 
     def rotate_pitch(
@@ -516,7 +516,7 @@ class LiberoPrimitives:
             action[3] = float(np.clip(action[3], -1.0, 1.0))
             action[6] = float(gripper)
             self._step_env(action)
-            if self.env.episode_done:
+            if self.env.episode_terminated or self.env.episode_truncated:
                 break
         final_pitch = _pitch_of(self.env.raw_obs()["robot0_eef_quat"])
         return {
@@ -527,7 +527,7 @@ class LiberoPrimitives:
             "final_err": round(float(
                 (target_pitch - final_pitch + np.pi) % (2 * np.pi) - np.pi), 4),
             "steps_used": len(traj),
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
         }
 
     def move_pose(
@@ -587,7 +587,7 @@ class LiberoPrimitives:
             action[5] = float(np.clip(np.clip(y_err, -yaw_step, yaw_step) / 0.10, -1.0, 1.0))
             action[6] = float(gripper)
             self._step_env(action)
-            if self.env.episode_done:
+            if self.env.episode_terminated or self.env.episode_truncated:
                 break
         final = self._last_obs_eef_pos
         fq = self.env.raw_obs()["robot0_eef_quat"]
@@ -597,7 +597,7 @@ class LiberoPrimitives:
             "final_dist_m": round(float(np.linalg.norm(target - final)), 4),
             "final_pitch": round(_pitch_of(fq), 4),
             "steps_used": step + 1,
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
         }
 
     def release(
@@ -616,7 +616,7 @@ class LiberoPrimitives:
             action[6] = -1.0  # open
             self._step_env(action)
             peak_grip = max(peak_grip, self._last_obs_gripper)
-            if self.env.episode_done:
+            if self.env.episode_terminated or self.env.episode_truncated:
                 break
         return {
             "name": "release",
@@ -624,7 +624,7 @@ class LiberoPrimitives:
             "start_gripper_opening": round(start_grip, 4),
             "peak_gripper_opening": round(peak_grip, 4),
             "final_gripper_opening": round(self._last_obs_gripper, 4),
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
         }
 
     def set_gripper(
@@ -640,13 +640,13 @@ class LiberoPrimitives:
             action = np.zeros(7, dtype=np.float32)
             action[6] = g
             self._step_env(action)
-            if self.env.episode_done:
+            if self.env.episode_terminated or self.env.episode_truncated:
                 break
         return {
             "name": "set_gripper",
             "gripper": g,
             "steps": n,
-            "libero_terminated": self.env.episode_done,
+            "libero_terminated": self.env.episode_terminated,
         }
 
     # ---- introspection helpers (for LLM-in-the-loop) ----
@@ -1127,7 +1127,8 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
 
     blob = {
         "step_idx": step_idx,
-        "libero_terminated": primitives.env.episode_done,
+        "libero_terminated": primitives.env.episode_terminated,
+        "episode_truncated": primitives.env.episode_truncated,
         "task_language": primitives.env.get_task_language(),
         "state": state,
         "world_map": agent_world_map,
@@ -1598,6 +1599,7 @@ def view_driver_state(step: int | None = None) -> dict:
     out["task_language"] = data.get("task_language")
     out["state"] = data["state"]
     out["libero_terminated"] = data.get("libero_terminated")
+    out["episode_truncated"] = data.get("episode_truncated")
     out["world_map"] = data.get("world_map")
     out["wrist_world_map"] = data.get("wrist_world_map")
     out["world_map_hi"] = data.get("world_map_hi")

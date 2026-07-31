@@ -42,7 +42,7 @@ def build_env_cfg(
     task_suite_name: str = "libero_spatial",
     specific_reset_id: int = 0,
     seed: int = 0,
-    max_episode_steps: int = 600,
+    max_episode_steps: int = 10000,
 ) -> Any:
     cfg = OmegaConf.create(
         {
@@ -83,7 +83,7 @@ def build_env_cfg(
 
 
 def make_env(task_id: int, seed: int, suite_name: str = "libero_spatial",
-             max_episode_steps: int = 600) -> LiberoEnv:
+             max_episode_steps: int = 10000) -> LiberoEnv:
     """Build a single-env LiberoEnv pinned to ``task_id`` / ``seed``."""
     from rlinf.envs.libero.utils import benchmark as _bench_mod
     suite = _bench_mod.get_benchmark(suite_name)()
@@ -290,7 +290,7 @@ def main():
     p.add_argument("--suite", type=str, default="libero_spatial")
     p.add_argument("--task", type=int, default=9)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--max-episode-steps", type=int, default=600)
+    p.add_argument("--max-episode-steps", type=int, default=10000)
     p.add_argument("--parent-watch", action="store_true",
                    help="watch parent process via stdin pipe and exit when it dies")
     args = p.parse_args()
