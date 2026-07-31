@@ -787,16 +787,18 @@ class LiberoPrimitives:
 
 
 def _append_state(output_dir: str, blob: dict) -> None:
-    """Append *blob* to ``<output_dir>/states.json``."""
+    """Append *blob* to ``<output_dir>/states.json`` atomically."""
     path = artifact_path(output_dir, "states")
+    tmp_path = path.parent / f"{path.name}.tmp"
     if path.exists():
         with open(path) as f:
             states = json.load(f)
     else:
         states = []
     states.append(blob)
-    with open(path, "w") as f:
+    with open(tmp_path, "w") as f:
         json.dump(states, f, indent=2)
+    os.replace(tmp_path, path)
 
 
 def write_recipe_from_states(output_dir: str, recipe_tag: str) -> str:

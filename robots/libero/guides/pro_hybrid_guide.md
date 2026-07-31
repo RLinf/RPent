@@ -358,11 +358,9 @@ do not poll for readiness.
 ### 4.3. Pi0 fullshot baseline
 
 The baseline is Pi0.5 driving the task end-to-end with the runtime's own
-(perturbed) `task_language` — the `full_task` primitive (`run_full_task` in
-`tools.py`), the mechanism the hybrid pipeline is designed to beat by keeping Pi0
-to the grasp. There is **no standalone baseline CLI in this repo**; the numbers to
-compare against are the recorded full-shot results (the team's `SUCCESS_RATES`
-table). **Do not invent a `pi0_baseline.py` path.**
+(perturbed) `task_language`. There is **no standalone baseline CLI in this repo**;
+the numbers to compare against are the recorded full-shot results (the team's
+`SUCCESS_RATES` table). **Do not invent a `pi0_baseline.py` path.**
 
 Pi0 never sees object coords in either mode, so there is no perception variant of
 the baseline. Expected behavior:
