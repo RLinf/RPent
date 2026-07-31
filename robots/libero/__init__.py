@@ -85,7 +85,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
                         help="[protocol://]host:port of an existing SAM3 server "
                              "(protocol=http|socket, defaults to http). "
                              "If unset, a local SAM3 server is spawned.")
-    parser.add_argument("--cuda-device", default=None,
+    parser.add_argument("--cuda-device", type=int, default=None,
                         help="GPU device to expose via CUDA_VISIBLE_DEVICES.")
 
 
