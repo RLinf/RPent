@@ -180,7 +180,14 @@ def main() -> None:
     args = p.parse_args()
 
     if args.cuda_device is not None:
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
+        target = str(args.cuda_device)
+        prev = os.environ.get("CUDA_VISIBLE_DEVICES")
+        if prev is not None and prev != target:
+            logger.warning(
+                "CUDA_VISIBLE_DEVICES=%s is already set; overriding with --cuda-device=%s",
+                prev, args.cuda_device,
+            )
+        os.environ["CUDA_VISIBLE_DEVICES"] = target
 
     model_path = args.model_path or get_pi05_checkpoint_path()
     if not model_path:

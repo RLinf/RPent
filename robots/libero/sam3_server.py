@@ -338,7 +338,14 @@ def main() -> None:
     args = _build_argparser().parse_args()
     logging.basicConfig(level=logging.INFO, format="[%(name)s] %(message)s")
     if args.cuda_device is not None:
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
+        target = str(args.cuda_device)
+        prev = os.environ.get("CUDA_VISIBLE_DEVICES")
+        if prev is not None and prev != target:
+            logging.warning(
+                "CUDA_VISIBLE_DEVICES=%s is already set; overriding with --cuda-device=%s",
+                prev, args.cuda_device,
+            )
+        os.environ["CUDA_VISIBLE_DEVICES"] = target
     checkpoint = os.environ.get("SAM3_CHECKPOINT_PATH")
     if not checkpoint:
         raise RuntimeError(

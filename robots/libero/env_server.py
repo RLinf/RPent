@@ -26,10 +26,11 @@ if str(RLINF_REPO_PATH) not in sys.path:
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
 import numpy as np
-import torch
 from omegaconf import OmegaConf
 
 from rlinf.envs.libero.libero_env import LiberoEnv
+
+# torch import is deferred into main() after --cuda-device sets CUDA_VISIBLE_DEVICES.
 
 
 # ---------------------------------------------------------------------------
@@ -298,9 +299,20 @@ def main():
     args = p.parse_args()
 
     if args.cuda_device is not None:
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
+        assert "torch" not in sys.modules, \
+            "torch must not be imported before --cuda-device is applied"
+        target = str(args.cuda_device)
+        prev = os.environ.get("CUDA_VISIBLE_DEVICES")
+        if prev is not None and prev != target:
+            logger.warning(
+                "CUDA_VISIBLE_DEVICES=%s is already set; overriding with --cuda-device=%s",
+                prev, args.cuda_device,
+            )
+        os.environ["CUDA_VISIBLE_DEVICES"] = target
         from rpent.utils.egl import configure_egl_device
         configure_egl_device(args.cuda_device)
+
+    import torch
 
     raw_env = make_env(args.task, args.seed, suite_name=args.suite,
                        max_episode_steps=args.max_episode_steps)
