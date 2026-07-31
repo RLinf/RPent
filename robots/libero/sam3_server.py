@@ -325,8 +325,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=8114)
     parser.add_argument(
         "--cuda-device",
+        type=int,
         default=None,
-        help="GPU device(s) exposed through CUDA_VISIBLE_DEVICES.",
+        help="GPU device exposed through CUDA_VISIBLE_DEVICES.",
     )
     parser.add_argument("--parent-watch", action="store_true",
                         help="watch parent process via stdin pipe and exit when it dies")
@@ -338,7 +339,14 @@ def main() -> None:
     args = _build_argparser().parse_args()
     logging.basicConfig(level=logging.INFO, format="[%(name)s] %(message)s")
     if args.cuda_device is not None:
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
+        target = str(args.cuda_device)
+        prev = os.environ.get("CUDA_VISIBLE_DEVICES")
+        if prev is not None and prev != target:
+            logging.warning(
+                "CUDA_VISIBLE_DEVICES=%s is already set; overriding with --cuda-device=%s",
+                prev, args.cuda_device,
+            )
+        os.environ["CUDA_VISIBLE_DEVICES"] = target
     checkpoint = os.environ.get("SAM3_CHECKPOINT_PATH")
     if not checkpoint:
         raise RuntimeError(
