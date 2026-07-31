@@ -17,7 +17,6 @@ from rpent.envs.prompt_bundle import PromptBundle
 from rpent.utils.config import get_repo_root
 
 if TYPE_CHECKING:
-    from rpent.dashboard.state import State
     from rpent.utils.daemon import ProcessDaemon
     from rpent.utils.rpc import RpcClient
 

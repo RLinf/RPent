@@ -9,8 +9,9 @@ import sys
 import time
 from typing import Any
 
-os.environ.setdefault("MUJOCO_GL", "egl")
-os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+import numpy as np
+import torch
+from omegaconf import OmegaConf
 
 from rpent.utils.config import (
     get_pi05_checkpoint_path,
@@ -27,11 +28,6 @@ RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve
 if str(RLINF_REPO_PATH) not in sys.path:
     sys.path.insert(0, str(RLINF_REPO_PATH))
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
-
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
-from omegaconf import OmegaConf  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Config builders

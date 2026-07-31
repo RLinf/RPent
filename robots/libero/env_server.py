@@ -4,11 +4,10 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-# MuJoCo env vars must be set BEFORE importing anything that touches MuJoCo.
-os.environ.setdefault("MUJOCO_GL", "egl")
-os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+import numpy as np
+from omegaconf import OmegaConf
 
 from rpent.utils.config import (
     get_repo_root,
@@ -16,6 +15,12 @@ from rpent.utils.config import (
 )
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade
+
+# MuJoCo env vars must be set BEFORE importing anything that touches MuJoCo.
+os.environ.setdefault("MUJOCO_GL", "egl")
+os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+assert "mujoco" not in sys.modules, \
+    "mujoco must not be imported before MUJOCO_GL/PYOPENGL_PLATFORM are set"
 
 logger = get_logger("env_server")
 
@@ -25,12 +30,11 @@ if str(RLINF_REPO_PATH) not in sys.path:
     sys.path.insert(0, str(RLINF_REPO_PATH))
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
-import numpy as np
-from omegaconf import OmegaConf
-
-from rlinf.envs.libero.libero_env import LiberoEnv
-
-# torch import is deferred into main() after --cuda-device sets CUDA_VISIBLE_DEVICES.
+# torch and LiberoEnv are only imported at call time (after --cuda-device
+# sets CUDA_VISIBLE_DEVICES in main()); LiberoEnv transitively imports torch.
+if TYPE_CHECKING:
+    import torch  # noqa: F401  (referenced at runtime in _to_numpy_tree)
+    from rlinf.envs.libero.libero_env import LiberoEnv
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +90,7 @@ def build_env_cfg(
 def make_env(task_id: int, seed: int, suite_name: str = "libero_spatial",
              max_episode_steps: int = 600) -> LiberoEnv:
     """Build a single-env LiberoEnv pinned to ``task_id`` / ``seed``."""
+    from rlinf.envs.libero.libero_env import LiberoEnv
     from rlinf.envs.libero.utils import benchmark as _bench_mod
     suite = _bench_mod.get_benchmark(suite_name)()
     first_id = sum(len(suite.get_task_init_states(t)) for t in range(task_id))
@@ -109,6 +114,8 @@ def make_env(task_id: int, seed: int, suite_name: str = "libero_spatial",
 def _to_numpy_tree(x):
     """Recursively convert torch tensors to CPU numpy arrays so the result
     pickles cleanly across the agent/env_server wire."""
+    import torch
+
     if isinstance(x, torch.Tensor):
         return x.detach().cpu().numpy()
     if isinstance(x, dict):
@@ -311,8 +318,6 @@ def main():
         os.environ["CUDA_VISIBLE_DEVICES"] = target
         from rpent.utils.egl import configure_egl_device
         configure_egl_device(args.cuda_device)
-
-    import torch
 
     raw_env = make_env(args.task, args.seed, suite_name=args.suite,
                        max_episode_steps=args.max_episode_steps)
