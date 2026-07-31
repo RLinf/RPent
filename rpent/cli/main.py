@@ -213,51 +213,29 @@ def main() -> int:
         dashboard_server.register(state)
         dashboard_events = state
 
-    try:
-        planner = build_planner(
-            args.planner,
-            output_dir=output_dir,
-            recipe_tag=recipe_tag,
-            env_name=env_name,
-            base_url=args.base_url,
-            model=args.model,
-            max_tokens=args.max_tokens,
-            planner_timeout_s=args.planner_timeout_s,
-            claude_code_max_budget_usd=args.claude_code_max_budget_usd,
-            dashboard_events=dashboard_events,
-            no_images=args.no_images,
-        )
-        prompt_bundle = env_spec.prompts
-        prompt_vars = {**prompt_vars, "output_dir": output_dir}
-        system_prompt = prompt_bundle.render(
-            "system",
-            variables=prompt_vars,
-        )
-        user_msg = prompt_bundle.render(
-            "user",
-            variables=prompt_vars,
-        )
-    except Exception as exc:
-        logger.exception("planner initialization failed")
-        dashboard_events.emit(
-            RunFinishedEvent(
-                state="failed",
-                reason="planner_initialization",
-                error=exc,
-            )
-        )
-        if dashboard_server is None:
-            raise
-        logger.info(
-            "Planner initialization failed. Dashboard still serving at %s. "
-            "Press Ctrl+C to stop.",
-            dashboard_url,
-        )
-        try:
-            threading.Event().wait()
-        except KeyboardInterrupt:
-            pass
-        return 1
+    planner = build_planner(
+        args.planner,
+        output_dir=output_dir,
+        recipe_tag=recipe_tag,
+        env_name=env_name,
+        base_url=args.base_url,
+        model=args.model,
+        max_tokens=args.max_tokens,
+        planner_timeout_s=args.planner_timeout_s,
+        claude_code_max_budget_usd=args.claude_code_max_budget_usd,
+        dashboard_events=dashboard_events,
+        no_images=args.no_images,
+    )
+    prompt_bundle = env_spec.prompts
+    prompt_vars = {**prompt_vars, "output_dir": output_dir}
+    system_prompt = prompt_bundle.render(
+        "system",
+        variables=prompt_vars,
+    )
+    user_msg = prompt_bundle.render(
+        "user",
+        variables=prompt_vars,
+    )
 
     input_queue: "queue.Queue[str | None] | None" = None
     await_first_prompt: "Callable[[], str | None] | None" = None
@@ -277,87 +255,32 @@ def main() -> int:
         await_first_prompt = start_first_prompt_resolver(input_queue)
 
     # --- initialise environment --------------------------------------------
-    try:
-        daemons, primitives_kwargs = env_spec.init_runtime(
-            args,
-            output_dir,
-            dashboard_events,
-        )
-    except Exception as exc:
-        logger.exception("runtime initialization failed")
-        dashboard_events.emit(
-            RunFinishedEvent(
-                state="failed",
-                reason="runtime_initialization",
-                error=exc,
-            )
-        )
-        if dashboard_server is None:
-            raise
-        logger.info(
-            "Runtime initialization failed. Dashboard still serving at %s. "
-            "Press Ctrl+C to stop.",
-            dashboard_url,
-        )
-        try:
-            threading.Event().wait()
-        except KeyboardInterrupt:
-            pass
-        return 1
+    daemons, primitives_kwargs = env_spec.init_runtime(
+        args,
+        output_dir,
+        dashboard_events,
+    )
 
     # --- toolkit -----------------------------------------------------------
-    try:
-        toolkit = get_toolkit(
-            env_name,
-            primitives_kwargs=primitives_kwargs,
-            video_path=str(Path(output_dir) / "episode.mp4"),
-            dashboard_events=dashboard_events,
-        )
-    except Exception as exc:
-        logger.exception("toolkit initialization failed")
-        for daemon in daemons:
-            try:
-                daemon.stop()
-            except Exception:
-                logger.exception("runtime cleanup after toolkit failure failed")
-        dashboard_events.emit(
-            RunFinishedEvent(
-                state="failed",
-                reason="toolkit_initialization",
-                error=exc,
-            )
-        )
-        if dashboard_server is None:
-            raise
-        logger.info(
-            "Toolkit initialization failed. Dashboard still serving at %s. "
-            "Press Ctrl+C to stop.",
-            dashboard_url,
-        )
-        try:
-            threading.Event().wait()
-        except KeyboardInterrupt:
-            pass
-        return 1
+    toolkit = get_toolkit(
+        env_name,
+        primitives_kwargs=primitives_kwargs,
+        video_path=str(Path(output_dir) / "episode.mp4"),
+        dashboard_events=dashboard_events,
+    )
 
     # --- agent loop --------------------------------------------------------
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None
     stats: dict = {}
-    terminal_state = "succeeded"
-    finish_reason = "completed"
-    terminal_error: BaseException | str | None = None
-    interrupted = False
     first_user_msg: str | None = user_msg
-    try:
-        if await_first_prompt is not None:
-            # Block until the opening prompt typed during startup is ready.
-            first_user_msg = await_first_prompt()
+    if await_first_prompt is not None:
+        # Block until the opening prompt typed during startup is ready.
+        first_user_msg = await_first_prompt()
         if first_user_msg is None:
-            logger.info("no task entered; cancelling session before start.")
-            terminal_state = "cancelled"
-            finish_reason = "no_initial_prompt"
-        else:
+            logger.info("no task entered; ending session before start.")
+    try:
+        if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
             result = planner.solve(
                 system_prompt=system_prompt,
@@ -371,51 +294,17 @@ def main() -> int:
             messages = result.messages
             stats = result.stats
             agent_error = result.error
-            if agent_error:
-                terminal_state = "failed"
-                finish_reason = "planner_error"
-                terminal_error = agent_error
-    except KeyboardInterrupt as exc:
-        logger.info("agent run cancelled by user")
-        terminal_state = "cancelled"
-        finish_reason = "user_interrupt"
-        terminal_error = exc
-        interrupted = True
     except Exception as exc:
-        logger.exception("agent loop failed")
-        terminal_state = "failed"
-        finish_reason = "agent_exception"
-        terminal_error = exc
+        logger.error("EXCEPTION in agent loop: %s", exc)
         agent_error = str(exc)
     finally:
         # Agent-side: flush the episode video before the env+model
-        try:
-            recipe_path = toolkit.write_recipe(recipe_tag)
-            logger.info("recipe: %s", recipe_path)
-        except Exception as exc:
-            logger.exception("recipe export failed")
-            if terminal_state == "succeeded":
-                terminal_state = "failed"
-                finish_reason = "cleanup_error"
-                terminal_error = exc
+        recipe_path = toolkit.write_recipe(recipe_tag)
+        logger.info("recipe: %s", recipe_path)
 
-        try:
-            toolkit.close()
-        except Exception as exc:
-            logger.exception("toolkit cleanup failed")
-            if terminal_state == "succeeded":
-                terminal_state = "failed"
-                finish_reason = "cleanup_error"
-                terminal_error = exc
+        toolkit.close()
         for d in daemons:
-            try:
-                d.stop()
-            except Exception as exc:
-                logger.exception("runtime cleanup failed")
-                if terminal_state == "succeeded":
-                    terminal_state = "failed"
-                    finish_reason = "cleanup_error"
-                    terminal_error = exc
+            d.stop()
 
     elapsed = time.time() - t0
 
@@ -428,15 +317,8 @@ def main() -> int:
         "stats": stats,
         "messages": _serialize_messages(messages),
     }
-    try:
-        with open(transcript_path, "a") as f:
-            json.dump(record, f, indent=2, default=str)
-    except Exception as exc:
-        logger.exception("transcript export failed")
-        if terminal_state == "succeeded":
-            terminal_state = "failed"
-            finish_reason = "transcript_export"
-            terminal_error = exc
+    with open(transcript_path, "a") as f:
+        json.dump(record, f, indent=2, default=str)
 
     logger.info("elapsed: %.1fs", elapsed)
     logger.info("usage: in=%s out=%s tool_calls=%s",
@@ -449,14 +331,10 @@ def main() -> int:
 
     dashboard_events.emit(
         RunFinishedEvent(
-            state=terminal_state,
-            reason=finish_reason,
-            error=terminal_error,
+            state="failed" if agent_error else "succeeded",
+            error=agent_error,
         )
     )
-    exit_code = 1 if terminal_state == "failed" else 0
-    if interrupted:
-        return 130
     if dashboard_server is not None:
         logger.info(
             "Run finished. Dashboard still serving at %s. Press Ctrl+C to stop.",
@@ -466,7 +344,7 @@ def main() -> int:
             threading.Event().wait()
         except KeyboardInterrupt:
             pass
-    return exit_code
+    return 0
 
 
 if __name__ == "__main__":
