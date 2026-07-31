@@ -12,11 +12,7 @@ from robots.libero.prompt_bundle import (
     system_prompt,
     user_prompt,
 )
-from rpent.dashboard.events import (
-    DashboardEventSink,
-    NullDashboardEventSink,
-    RuntimeStatusEvent,
-)
+from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.envs.env_spec import EnvSpec, RunConfig
 from rpent.envs.prompt_bundle import PromptBundle
 from rpent.utils.config import get_repo_root
@@ -47,16 +43,16 @@ def get_env_spec() -> EnvSpec:
 def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
+    dashboard_events: DashboardEventSink,
     video_path: str | None = None,
-    dashboard: DashboardEventSink | None = None,
 ):
     """Return the LIBERO toolkit (common tools + LIBERO primitives)."""
     from robots.libero.toolkit import LiberoToolkit
 
     return LiberoToolkit(
         primitives_kwargs=primitives_kwargs,
+        dashboard_events=dashboard_events,
         video_path=video_path,
-        dashboard=dashboard,
     )
 
 
@@ -144,7 +140,7 @@ def _subprocess_env(cuda_device: str | None, **extra: str) -> dict[str, str]:
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
-    dashboard: DashboardEventSink | None = None,
+    dashboard_events: DashboardEventSink,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Spawn env + vla + SAM3 daemons and build clients for LIBERO.
 
@@ -164,13 +160,11 @@ def _init_runtime(
     from rpent.utils.socket_rpc import SocketRpcClient
     from rpent.utils.vla_client import VLAClient
 
-    if dashboard is None:
-        dashboard = NullDashboardEventSink()
     daemons: list[ProcessDaemon] = []
     libero_type = args.libero_type or get_libero_type()
 
     # --- env_server --------------------------------------------------------
-    dashboard.emit(RuntimeStatusEvent("env", "starting"))
+    dashboard_events.emit(RuntimeStatusEvent("env", "starting"))
     try:
         if args.env_endpoint is None:
             host, port = "127.0.0.1", pick_free_port()
@@ -212,12 +206,12 @@ def _init_runtime(
                 )
             wait_for_ready(env_rpc)
     except Exception as exc:
-        dashboard.emit(RuntimeStatusEvent("env", "failed", error=exc))
+        dashboard_events.emit(RuntimeStatusEvent("env", "failed", error=exc))
         raise
-    dashboard.emit(RuntimeStatusEvent("env", "ready"))
+    dashboard_events.emit(RuntimeStatusEvent("env", "ready"))
 
     # --- vla_server --------------------------------------------------------
-    dashboard.emit(RuntimeStatusEvent("vla", "starting"))
+    dashboard_events.emit(RuntimeStatusEvent("vla", "starting"))
     try:
         if args.vla_endpoint is None:
             host, port = "127.0.0.1", pick_free_port()
@@ -250,12 +244,12 @@ def _init_runtime(
                 )
             wait_for_ready(vla_rpc)
     except Exception as exc:
-        dashboard.emit(RuntimeStatusEvent("vla", "failed", error=exc))
+        dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
         raise
-    dashboard.emit(RuntimeStatusEvent("vla", "ready"))
+    dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
 
     # --- sam3_server -------------------------------------------------------
-    dashboard.emit(RuntimeStatusEvent("sam3", "starting"))
+    dashboard_events.emit(RuntimeStatusEvent("sam3", "starting"))
     try:
         if args.sam3_endpoint is None:
             host, port = "127.0.0.1", pick_free_port()
@@ -288,9 +282,9 @@ def _init_runtime(
                 )
             wait_for_ready(sam3_rpc)
     except Exception as exc:
-        dashboard.emit(RuntimeStatusEvent("sam3", "failed", error=exc))
+        dashboard_events.emit(RuntimeStatusEvent("sam3", "failed", error=exc))
         raise
-    dashboard.emit(RuntimeStatusEvent("sam3", "ready"))
+    dashboard_events.emit(RuntimeStatusEvent("sam3", "ready"))
 
     primitives_kwargs = {
         "env": LiberoEnvClient(

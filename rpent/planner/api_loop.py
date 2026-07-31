@@ -34,10 +34,10 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 from rpent.cli.tui import QUIT_TOKENS
 from rpent.dashboard.events import (
     DashboardEventSink,
-    NullDashboardEventSink,
     TranscriptEvent,
     UsageEvent,
 )
+from rpent.dashboard.interaction import DashboardInteractionPort
 from rpent.planner.base import PlannerResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
@@ -64,15 +64,14 @@ class ApiAgentLoop:
         self,
         model: Model,
         max_tokens: int = 8192,
-        dashboard: DashboardEventSink | None = None,
         no_images: bool = False,
+        *,
+        dashboard_events: DashboardEventSink,
     ):
         """Store the pydantic-ai model and the output-token cap."""
         self._model = model
         self._max_tokens = max_tokens
-        self._dashboard = (
-            dashboard if dashboard is not None else NullDashboardEventSink()
-        )
+        self._dashboard_events = dashboard_events
         self._no_images = no_images
 
     def solve(
@@ -83,8 +82,13 @@ class ApiAgentLoop:
         toolkit: Toolkit,
         max_turns: int,
         input_queue: queue.Queue[str | None] | None = None,
+        dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         """Run the tool-calling loop until finish, normal stop, or budget."""
+        if dashboard_interaction is not None:
+            raise NotImplementedError(
+                "ApiAgentLoop does not support Dashboard interaction"
+            )
         return asyncio.run(
             self._solve(
                 system_prompt=system_prompt,
@@ -197,10 +201,10 @@ class ApiAgentLoop:
                                     }
                                 else:
                                     continue
-                                self._dashboard.emit(
+                                self._dashboard_events.emit(
                                     TranscriptEvent(dashboard_payload)
                                 )
-                            self._dashboard.emit(
+                            self._dashboard_events.emit(
                                 UsageEvent(
                                     inp=int(run.usage.input_tokens or 0),
                                     out=int(run.usage.output_tokens or 0),
@@ -212,7 +216,7 @@ class ApiAgentLoop:
                                 async for event in stream:
                                     if isinstance(event, FunctionToolCallEvent):
                                         n_tool_calls += 1
-                                        self._dashboard.emit(
+                                        self._dashboard_events.emit(
                                             TranscriptEvent(
                                                 {
                                                     "type": "tool_call",
@@ -232,13 +236,11 @@ class ApiAgentLoop:
                                         _log_tool_result(message)
                                         dashboard_result = {
                                             "is_error": bool(
-                                                getattr(
-                                                    event.part, "is_error", False
-                                                )
+                                                getattr(event.part, "is_error", False)
                                             ),
                                             "size": len(message["content"]),
                                         }
-                                        self._dashboard.emit(
+                                        self._dashboard_events.emit(
                                             TranscriptEvent(
                                                 {
                                                     "type": "tool_result",
@@ -248,7 +250,7 @@ class ApiAgentLoop:
                                                 }
                                             )
                                         )
-                                    self._dashboard.emit(
+                                    self._dashboard_events.emit(
                                         UsageEvent(
                                             inp=int(run.usage.input_tokens or 0),
                                             out=int(run.usage.output_tokens or 0),
@@ -371,7 +373,9 @@ def _prune_history_images(messages: list[ModelMessage]) -> list[ModelMessage]:
         message = new_messages[mi]
         part = message.parts[pi]
         new_content = [
-            "[earlier camera image omitted to bound request size]" if ci in drop_items else item
+            "[earlier camera image omitted to bound request size]"
+            if ci in drop_items
+            else item
             for ci, item in enumerate(part.content)
         ]
         new_parts = list(message.parts)

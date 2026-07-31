@@ -152,7 +152,7 @@
   #transcript.alltools .tg-head { pointer-events: none; }
   .tg-body .ev { margin-bottom: 5px; }
 
-  /* Claude composer */
+  /* Agent composer */
   .composer {
     flex-shrink: 0; background: var(--panel); border-top: 1px solid var(--border);
     padding: 0 14px 10px; display: flex; flex-direction: column; gap: 7px;

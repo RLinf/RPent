@@ -27,12 +27,12 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 
-from rpent.dashboard.state import (
+from rpent.dashboard.interaction import (
     DashboardMessageConflictError,
-    DashboardState,
     InteractionUnavailableError,
     UnknownDashboardMessageError,
 )
+from rpent.dashboard.state import DashboardState
 
 
 class DashboardServer:

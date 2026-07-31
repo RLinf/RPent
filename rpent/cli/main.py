@@ -40,6 +40,7 @@ from rpent.dashboard.events import (
     RunFinishedEvent,
     RunStartedEvent,
 )
+from rpent.dashboard.interaction import DashboardInteractionPort
 from rpent.envs import get_env_spec, get_toolkit
 from rpent.planner.base import build_planner
 from rpent.utils.logging import get_logger, init_output_dir
@@ -198,17 +199,19 @@ def main() -> int:
     ensure_resources(env_name)
 
     # --- dashboard state ---------------------------------------------------
-    dashboard: DashboardEventSink = NullDashboardEventSink()
+    dashboard_events: DashboardEventSink = NullDashboardEventSink()
+    dashboard_interaction: DashboardInteractionPort | None = None
     if dashboard_server is not None:
         from rpent.dashboard.state import DashboardState
 
         state = DashboardState.from_run_config(run_config)
         if args.planner == "claude_code":
             state.enable_interaction(session_id=state.run_id)
+            dashboard_interaction = state
         # Server is already serving the launcher; register the run so the
         # frontend can switch from the start screen to the live monitor.
         dashboard_server.register(state)
-        dashboard = state
+        dashboard_events = state
 
     try:
         planner = build_planner(
@@ -221,7 +224,7 @@ def main() -> int:
             max_tokens=args.max_tokens,
             planner_timeout_s=args.planner_timeout_s,
             claude_code_max_budget_usd=args.claude_code_max_budget_usd,
-            dashboard=dashboard,
+            dashboard_events=dashboard_events,
             no_images=args.no_images,
         )
         prompt_bundle = env_spec.prompts
@@ -236,7 +239,7 @@ def main() -> int:
         )
     except Exception as exc:
         logger.exception("planner initialization failed")
-        dashboard.emit(
+        dashboard_events.emit(
             RunFinishedEvent(
                 state="failed",
                 reason="planner_initialization",
@@ -278,11 +281,11 @@ def main() -> int:
         daemons, primitives_kwargs = env_spec.init_runtime(
             args,
             output_dir,
-            dashboard,
+            dashboard_events,
         )
     except Exception as exc:
         logger.exception("runtime initialization failed")
-        dashboard.emit(
+        dashboard_events.emit(
             RunFinishedEvent(
                 state="failed",
                 reason="runtime_initialization",
@@ -308,7 +311,7 @@ def main() -> int:
             env_name,
             primitives_kwargs=primitives_kwargs,
             video_path=str(Path(output_dir) / "episode.mp4"),
-            dashboard=dashboard,
+            dashboard_events=dashboard_events,
         )
     except Exception as exc:
         logger.exception("toolkit initialization failed")
@@ -317,7 +320,7 @@ def main() -> int:
                 daemon.stop()
             except Exception:
                 logger.exception("runtime cleanup after toolkit failure failed")
-        dashboard.emit(
+        dashboard_events.emit(
             RunFinishedEvent(
                 state="failed",
                 reason="toolkit_initialization",
@@ -355,13 +358,14 @@ def main() -> int:
             terminal_state = "cancelled"
             finish_reason = "no_initial_prompt"
         else:
-            dashboard.emit(RunStartedEvent())
+            dashboard_events.emit(RunStartedEvent())
             result = planner.solve(
                 system_prompt=system_prompt,
                 user_message=first_user_msg,
                 toolkit=toolkit,
                 max_turns=args.max_turns,
                 input_queue=input_queue,
+                dashboard_interaction=dashboard_interaction,
             )
             finish_result = result.finish_result
             messages = result.messages
@@ -443,7 +447,7 @@ def main() -> int:
     if agent_error:
         logger.error("error: %s", agent_error)
 
-    dashboard.emit(
+    dashboard_events.emit(
         RunFinishedEvent(
             state=terminal_state,
             reason=finish_reason,

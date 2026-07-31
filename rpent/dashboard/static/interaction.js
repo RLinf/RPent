@@ -140,17 +140,16 @@ export function createInteractionController({ copy, select, onRefresh }) {
     const runEnded = ["done", "succeeded", "failed", "cancelled"].includes(
       state.runLifecycle
     );
-    const enabled = !!interaction?.enabled && !!interaction?.session_id;
-    const ended = interaction?.claude_activity === "ended" || runEnded;
+    const ended = interaction?.planner_activity === "ended" || runEnded;
 
-    if (!enabled || ended) {
+    if (!interaction?.session_id || ended) {
       composer.hidden = true;
       input.disabled = true;
       return;
     }
 
     composer.hidden = false;
-    const activity = interaction.claude_activity || "starting";
+    const activity = interaction.planner_activity || "starting";
     const acceptingInput = !!interaction.accepting_input && activity !== "starting";
     input.disabled = !acceptingInput || state.submissionInFlight;
     input.setAttribute("aria-busy", String(
@@ -252,8 +251,8 @@ export function createInteractionController({ copy, select, onRefresh }) {
       !text
       || !interaction?.session_id
       || !interaction.accepting_input
-      || interaction.claude_activity === "starting"
-      || interaction.claude_activity === "ended"
+      || interaction.planner_activity === "starting"
+      || interaction.planner_activity === "ended"
       || state.submissionInFlight
     ) return;
 
@@ -308,7 +307,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     const interaction = state.snapshot;
     if (
       !interaction?.session_id
-      || interaction.claude_activity !== "busy"
+      || interaction.planner_activity !== "busy"
       || interaction.interrupt_requested
       || state.interruptInFlight
     ) return;

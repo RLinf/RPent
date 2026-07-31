@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import dataclasses
 import json
+import queue
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -22,10 +23,10 @@ from typing import Any
 from rpent.cli.tui import next_user_line
 from rpent.dashboard.events import (
     DashboardEventSink,
-    NullDashboardEventSink,
     TranscriptEvent,
     UsageEvent,
 )
+from rpent.dashboard.interaction import DashboardInteractionPort
 from rpent.planner.base import (
     PlannerResult,
     add_mcp_prefix,
@@ -51,6 +52,7 @@ class ClaudeCodePlanner:
         self,
         *,
         output_dir: str,
+        dashboard_events: DashboardEventSink,
         repo_root: str | Path | None = None,
         model: str = "sonnet",
         allowed_tools: str = "Bash Read Write Glob Grep",
@@ -58,7 +60,6 @@ class ClaudeCodePlanner:
         max_budget_usd: float = 10.0,
         extra_dirs: list[str] | None = None,
         output_path: str | Path | None = None,
-        dashboard: DashboardEventSink | None = None,
     ):
         """Initialize the Claude Agent SDK backend."""
         self._output_dir = str(output_dir)
@@ -69,9 +70,7 @@ class ClaudeCodePlanner:
         self._max_budget_usd = max_budget_usd
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
-        self._dashboard = (
-            dashboard if dashboard is not None else NullDashboardEventSink()
-        )
+        self._dashboard_events = dashboard_events
 
     def solve(
         self,
@@ -80,9 +79,14 @@ class ClaudeCodePlanner:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue=None,
+        input_queue: queue.Queue[str | None] | None = None,
+        dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         """Run a Claude Agent SDK session for the given prompt."""
+        if input_queue is not None and dashboard_interaction is not None:
+            raise ValueError(
+                "input_queue and dashboard_interaction cannot be used together"
+            )
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         return asyncio.run(
             self._solve_async(
@@ -91,6 +95,7 @@ class ClaudeCodePlanner:
                 toolkit=toolkit,
                 max_turns=max_turns,
                 input_queue=input_queue,
+                dashboard_interaction=dashboard_interaction,
             )
         )
 
@@ -103,9 +108,11 @@ class ClaudeCodePlanner:
         initial_user_text: str,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue=None,
+        input_queue: queue.Queue[str | None] | None = None,
+        dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         import claude_agent_sdk
+
         sdk = claude_agent_sdk
         if self._output_path is None:
             with tempfile.NamedTemporaryFile(
@@ -116,7 +123,10 @@ class ClaudeCodePlanner:
             output_path = self._output_path
             output_path.parent.mkdir(parents=True, exist_ok=True)
         raw_stream_path = output_path.with_suffix(output_path.suffix + ".stream.jsonl")
-        recorder = _Recorder(max_turns=max_turns, dashboard=self._dashboard)
+        recorder = _Recorder(
+            max_turns=max_turns,
+            dashboard_events=self._dashboard_events,
+        )
 
         init_output_dir(self._output_dir)
         options = self._build_options(sdk, toolkit=toolkit, max_turns=max_turns)
@@ -155,16 +165,17 @@ class ClaudeCodePlanner:
                 payload: dict[str, Any] = {"type": "user", "text": line}
                 if initial_prompt:
                     payload = {"type": "initial_prompt"}
-                self._dashboard.emit(TranscriptEvent(payload))
+                self._dashboard_events.emit(TranscriptEvent(payload))
 
             try:
                 if input_queue is None:
-                    if _interaction_enabled(self._dashboard):
+                    if dashboard_interaction is not None:
                         await self._run_dashboard_session(
                             sdk,
                             prompt,
                             options,
                             recorder,
+                            dashboard_interaction=dashboard_interaction,
                             initial_user_text=initial_user_text,
                             emit=_emit,
                             emit_user=_emit_user,
@@ -269,13 +280,14 @@ class ClaudeCodePlanner:
         options: Any,
         recorder: "_Recorder",
         *,
+        dashboard_interaction: DashboardInteractionPort,
         initial_user_text: str,
         emit,
         emit_user,
     ) -> None:
         """Drive the Dashboard-owned long-lived Claude session."""
         adapter = _ClaudeDashboardBridge(
-            state=self._dashboard,
+            interaction=dashboard_interaction,
             emit_user=emit_user,
             emit_initial_user=lambda: emit_user(
                 initial_user_text,
@@ -451,11 +463,11 @@ class _ClaudeDashboardBridge:
     def __init__(
         self,
         *,
-        state: Any,
+        interaction: DashboardInteractionPort,
         emit_user,
         emit_initial_user=None,
     ) -> None:
-        self._state = state
+        self._interaction = interaction
         self._emit_user = emit_user
         self._emit_initial_user = emit_initial_user
         self._operation_lock = asyncio.Lock()
@@ -463,16 +475,16 @@ class _ClaudeDashboardBridge:
 
     async def initial_query_succeeded(self, driver: _ClaudeSessionDriver) -> None:
         self._outstanding_queries = 1
-        self._state.mark_initial_query_succeeded()
+        self._interaction.set_planner_activity("busy", accepting_input=True)
         if self._emit_initial_user is not None:
             self._emit_initial_user()
 
     async def run(self, driver: _ClaudeSessionDriver) -> None:
-        version = self._state.interaction_version
-        while self._state.claude_activity != "ended":
+        version = self._interaction.interaction_version
+        while self._interaction.planner_activity != "ended":
             await self._process_commands(driver)
             version = await asyncio.to_thread(
-                self._state.wait_for_interaction_change,
+                self._interaction.wait_for_interaction_change,
                 version,
             )
 
@@ -488,7 +500,7 @@ class _ClaudeDashboardBridge:
         async with self._operation_lock:
             if is_result:
                 self._outstanding_queries = max(0, self._outstanding_queries - 1)
-                self._state.set_claude_activity(
+                self._interaction.set_planner_activity(
                     "busy" if self._outstanding_queries else "idle"
                 )
 
@@ -499,27 +511,27 @@ class _ClaudeDashboardBridge:
             await self._flush_pending(driver)
 
     async def close(self) -> None:
-        self._state.seal_interaction()
+        self._interaction.seal_interaction()
 
     async def _process_commands(self, driver: _ClaudeSessionDriver) -> None:
         async with self._operation_lock:
             if await self._handle_interrupt(driver):
                 return
-            if self._state.claude_activity == "idle":
+            if self._interaction.planner_activity == "idle":
                 await self._flush_pending(driver)
 
     async def _handle_interrupt(
         self,
         driver: _ClaudeSessionDriver,
     ) -> bool:
-        if not self._state.claim_interrupt_request():
+        if not self._interaction.claim_interrupt_request():
             return False
         try:
             await driver.interrupt()
         except Exception as exc:
-            self._state.complete_interrupt(error=_exception_text(exc))
+            self._interaction.complete_interrupt(error=_exception_text(exc))
             return True
-        self._state.complete_interrupt()
+        self._interaction.complete_interrupt()
         await self._flush_pending(driver)
         return True
 
@@ -527,24 +539,20 @@ class _ClaudeDashboardBridge:
         # begin_pending_batch() is the atomic pending -> sending boundary.
         # Messages submitted after this call remain pending for a later
         # tool/result boundary.
-        messages = self._state.begin_pending_batch()
+        messages = self._interaction.begin_pending_batch()
         for message in messages:
             try:
                 await driver.query(message.text)
             except Exception as exc:
-                self._state.mark_message_failed(
+                self._interaction.mark_message_failed(
                     message.message_id,
                     _exception_text(exc),
                 )
                 continue
-            self._state.mark_message_sent(message.message_id)
+            self._interaction.mark_message_sent(message.message_id)
             self._outstanding_queries += 1
-            self._state.set_claude_activity("busy")
+            self._interaction.set_planner_activity("busy")
             self._emit_user(message.text)
-
-
-def _interaction_enabled(dashboard: DashboardEventSink) -> bool:
-    return bool(getattr(dashboard, "interaction_enabled", False))
 
 
 def _has_tool_result(message: Any) -> bool:
@@ -578,7 +586,7 @@ class _Recorder:
     """
 
     max_turns: int
-    dashboard: DashboardEventSink = field(default_factory=NullDashboardEventSink)
+    dashboard_events: DashboardEventSink
     turns: int = 0
     _seen_assistant_ids: set[str] = field(default_factory=set)
     tool_calls: int = 0
@@ -622,7 +630,7 @@ class _Recorder:
             rendered = self._result(message)
         else:
             rendered = ""
-        self.dashboard.emit(
+        self.dashboard_events.emit(
             UsageEvent(
                 inp=self.usage["total_input_tokens"],
                 out=self.usage["total_output_tokens"],
@@ -658,12 +666,14 @@ class _Recorder:
                 text = str(_get(block, "text", "")).strip()
                 if text:
                     lines.append(f"[claude] {text}\n")
-                    self.dashboard.emit(TranscriptEvent({"type": "text", "text": text}))
+                    self.dashboard_events.emit(
+                        TranscriptEvent({"type": "text", "text": text})
+                    )
             elif block_kind == "ThinkingBlock":
                 thinking = str(_get(block, "thinking", "")).strip()
                 if thinking:
                     lines.append(f"[claude-thinking] {thinking}\n")
-                    self.dashboard.emit(
+                    self.dashboard_events.emit(
                         TranscriptEvent({"type": "thinking", "text": thinking})
                     )
             elif block_kind == "ToolUseBlock":
@@ -674,7 +684,7 @@ class _Recorder:
                 if name == "finish" and isinstance(tool_input, dict):
                     self.pending_finish[tool_id] = dict(tool_input)
                 lines.append(f"[tool->] {name}: {_short_json(tool_input, limit=500)}\n")
-                self.dashboard.emit(
+                self.dashboard_events.emit(
                     TranscriptEvent(
                         {"type": "tool_call", "tool": name, "args": tool_input}
                     )
@@ -724,7 +734,7 @@ class _Recorder:
         pending = self.pending_finish.pop(tool_use_id, None)
         if pending is not None and not is_error and self.finish_result is None:
             self.finish_result = {"_finish": True, **pending}
-        self.dashboard.emit(
+        self.dashboard_events.emit(
             TranscriptEvent(
                 {
                     "type": "tool_result",
@@ -811,9 +821,7 @@ def _build_rpent_server(sdk: Any, *, toolkit: Toolkit) -> Any:
         run_tool.__name__ = f"rpent_{name}"
         sdk_tools.append(sdk.tool(name, description, input_schema)(run_tool))
 
-    return sdk.create_sdk_mcp_server(
-        name="rpent", version="0.1.0", tools=sdk_tools
-    )
+    return sdk.create_sdk_mcp_server(name="rpent", version="0.1.0", tools=sdk_tools)
 
 
 def _tool_result_to_mcp(tr: Any) -> dict[str, Any]:

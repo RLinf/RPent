@@ -27,10 +27,10 @@ class LiberoToolkit(Toolkit):
         self,
         *,
         primitives_kwargs: dict[str, Any],
+        dashboard_events: DashboardEventSink,
         video_path: str | None = None,
-        dashboard: DashboardEventSink | None = None,
     ) -> None:
-        super().__init__(dashboard=dashboard)
+        super().__init__(dashboard_events=dashboard_events)
         self._next_step: int = 0
         self._video_path: str | None = video_path
         self.init_primitives_clean(primitives_kwargs=primitives_kwargs)
@@ -82,18 +82,19 @@ class LiberoToolkit(Toolkit):
 
         self._next_step += 1
         step_idx = self._next_step
-        if self._dashboard.enabled:
-            video_dir = get_output_dir() / "action_videos"
-            video_path = video_dir / f"step_{step_idx:02d}_{name}.mp4"
-            try:
-                self._primitives.save_frame_slice(start_frame, str(video_path), fps=20)
-            except Exception as e:
-                get_logger("libero_toolkit").warning(
-                    f"failed to save action clip to {video_path}: {e}"
-                )
+        output_dir = get_output_dir()
+        video_path = (
+            output_dir / "action_videos" / f"step_{step_idx:02d}_{name}.mp4"
+        )
+        try:
+            self._primitives.save_frame_slice(start_frame, str(video_path), fps=20)
+        except Exception as e:
+            get_logger("libero_toolkit").warning(
+                f"failed to save action clip to {video_path}: {e}"
+            )
         libero_tools.dump_state(
             self._primitives,
-            str(get_output_dir()),
+            str(output_dir),
             step_idx=step_idx,
             log={"command": command, "result": result_dict, "elapsed_s": elapsed},
         )
@@ -137,7 +138,7 @@ class LiberoToolkit(Toolkit):
         primitives.reset()
         primitives.start_recording()
         libero_tools.dump_state(primitives, str(out_dir), step_idx=0, log=None)
-        self._dashboard.emit(
+        self._dashboard_events.emit(
             ToolResultEvent(
                 name="view_driver_state",
                 result=libero_tools.view_driver_state(0),

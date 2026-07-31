@@ -69,11 +69,6 @@ DashboardEvent: TypeAlias = (
 class DashboardEventSink(Protocol):
     """Consumer used by planners, toolkits, and environment runtimes."""
 
-    @property
-    def enabled(self) -> bool:
-        """Whether Dashboard-only artifacts should be generated."""
-        ...
-
     def emit(self, event: DashboardEvent) -> None:
         """Consume one Dashboard event."""
         ...
@@ -82,10 +77,6 @@ class DashboardEventSink(Protocol):
 @dataclass(frozen=True, slots=True)
 class NullDashboardEventSink:
     """No-op sink used when the Dashboard is disabled."""
-
-    @property
-    def enabled(self) -> bool:
-        return False
 
     def emit(self, event: DashboardEvent) -> None:
         return None

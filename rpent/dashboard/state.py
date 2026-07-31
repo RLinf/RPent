@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -17,6 +17,14 @@ from rpent.dashboard.events import (
     TranscriptEvent,
     UsageEvent,
 )
+from rpent.dashboard.interaction import (
+    DashboardInteractionError,
+    DashboardMessage,
+    DashboardMessageConflictError,
+    InteractionUnavailableError,
+    PlannerActivity,
+    UnknownDashboardMessageError,
+)
 
 if TYPE_CHECKING:
     from rpent.envs.env_spec import RunConfig
@@ -25,55 +33,8 @@ RUNTIME_COMPONENTS = ("env", "vla", "sam3")
 RUNTIME_STATUSES = {"pending", "starting", "ready", "failed"}
 FRAME_KINDS = ("camera", "wrist")
 TERMINAL_RUN_STATES = {"succeeded", "failed", "cancelled"}
-CLAUDE_ACTIVITIES = {"starting", "idle", "busy", "ended"}
-
-ClaudeActivity = Literal["starting", "idle", "busy", "ended"]
-DashboardMessageStatus = Literal[
-    "pending",
-    "sending",
-    "sent",
-    "withdrawn",
-    "failed",
-    "unsent",
-]
+_PLANNER_ACTIVITIES = {"starting", "idle", "busy", "ended"}
 InterruptRequestResult = Literal["accepted", "duplicate", "noop"]
-
-
-@dataclass(slots=True)
-class DashboardMessage:
-    """One user message submitted through a Dashboard Session."""
-
-    message_id: str
-    text: str
-    created_at: float
-    status: DashboardMessageStatus
-    error: str | None = None
-
-    def as_dict(self) -> dict[str, Any]:
-        """Return the JSON-safe representation exposed to the frontend."""
-        return {
-            "message_id": self.message_id,
-            "text": self.text,
-            "created_at": self.created_at,
-            "status": self.status,
-            "error": self.error,
-        }
-
-
-class DashboardInteractionError(RuntimeError):
-    """Base class for invalid Dashboard interaction operations."""
-
-
-class InteractionUnavailableError(DashboardInteractionError):
-    """The Session is not currently accepting Dashboard input."""
-
-
-class UnknownDashboardMessageError(DashboardInteractionError):
-    """The requested message does not belong to this Session."""
-
-
-class DashboardMessageConflictError(DashboardInteractionError):
-    """A message can no longer make the requested state transition."""
 
 
 class DashboardState:
@@ -113,10 +74,9 @@ class DashboardState:
         self._timeline: list[dict[str, Any]] = []
         self._frames: dict[str, bytes] = {}
         self._frame_idx = -1
-        self._interaction_enabled = False
         self._session_id: str | None = None
         self._accepting_input = False
-        self._claude_activity: ClaudeActivity = "starting"
+        self._planner_activity: PlannerActivity = "starting"
         self._interrupt_requested = False
         self._interrupt_in_flight = False
         self._messages: list[DashboardMessage] = []
@@ -146,26 +106,16 @@ class DashboardState:
         )
 
     @property
-    def enabled(self) -> bool:
-        return True
-
-    @property
-    def interaction_enabled(self) -> bool:
-        """Whether this run owns an interactive Claude Session."""
-        with self._lock:
-            return self._interaction_enabled
-
-    @property
     def session_id(self) -> str | None:
         """Return the Session id used by interaction HTTP routes."""
         with self._lock:
             return self._session_id
 
     @property
-    def claude_activity(self) -> ClaudeActivity:
-        """Return the current Claude input activity."""
+    def planner_activity(self) -> PlannerActivity:
+        """Return the current planner input activity."""
         with self._lock:
-            return self._claude_activity
+            return self._planner_activity
 
     @property
     def accepting_input(self) -> bool:
@@ -186,7 +136,7 @@ class DashboardState:
             return self._interaction_version
 
     def enable_interaction(self, session_id: str | None = None) -> None:
-        """Attach an initially-starting Claude interaction to this run.
+        """Attach an initially-starting planner interaction to this run.
 
         Calling this method more than once with the same Session id is
         idempotent. A run that has already finished cannot start a Session.
@@ -197,40 +147,39 @@ class DashboardState:
         with self._condition:
             if self._state in TERMINAL_RUN_STATES:
                 raise InteractionUnavailableError("run has already ended")
-            if self._interaction_enabled:
+            if self._session_id is not None:
                 if self._session_id != resolved_session_id:
                     raise DashboardInteractionError(
                         "run already has a different Dashboard Session"
                     )
                 return
-            self._interaction_enabled = True
             self._session_id = resolved_session_id
             self._accepting_input = False
-            self._claude_activity = "starting"
+            self._planner_activity = "starting"
             self._interaction_changed_locked()
 
-    def set_claude_activity(
+    def set_planner_activity(
         self,
-        activity: ClaudeActivity,
+        activity: PlannerActivity,
         *,
         accepting_input: bool | None = None,
     ) -> None:
-        """Update Claude activity from the owning planner bridge.
+        """Update planner activity from the owning planner bridge.
 
         The bridge sets ``accepting_input=True`` only after the initial
         ``query()`` succeeds. Once ended, a Session cannot be reopened.
         """
-        if activity not in CLAUDE_ACTIVITIES:
-            raise ValueError(f"unknown Claude activity: {activity!r}")
+        if activity not in _PLANNER_ACTIVITIES:
+            raise ValueError(f"unknown planner activity: {activity!r}")
         with self._condition:
             self._require_interaction_locked()
-            if self._claude_activity == "ended" and activity != "ended":
+            if self._planner_activity == "ended" and activity != "ended":
                 raise InteractionUnavailableError("Dashboard Session has ended")
             if activity == "ended":
                 self._seal_interaction_locked()
                 return
-            changed = self._claude_activity != activity
-            self._claude_activity = activity
+            changed = self._planner_activity != activity
+            self._planner_activity = activity
             if accepting_input is not None:
                 requested_accepting = bool(accepting_input)
                 if self._state in TERMINAL_RUN_STATES:
@@ -240,10 +189,6 @@ class DashboardState:
             if changed:
                 self._interaction_changed_locked()
 
-    def mark_initial_query_succeeded(self) -> None:
-        """Enable composer input after the initial Claude query succeeds."""
-        self.set_claude_activity("busy", accepting_input=True)
-
     def submit_message(self, text: str) -> DashboardMessage:
         """Create one pending user message and notify the owning bridge."""
         if not isinstance(text, str) or not text.strip():
@@ -252,7 +197,7 @@ class DashboardState:
             self._require_interaction_locked()
             if (
                 not self._accepting_input
-                or self._claude_activity == "ended"
+                or self._planner_activity == "ended"
                 or self._state in TERMINAL_RUN_STATES
             ):
                 raise InteractionUnavailableError(
@@ -287,7 +232,7 @@ class DashboardState:
         """Atomically claim all currently pending messages in creation order."""
         with self._condition:
             self._require_interaction_locked()
-            if self._claude_activity == "ended":
+            if self._planner_activity == "ended":
                 return []
             batch = [
                 message for message in self._messages if message.status == "pending"
@@ -327,12 +272,12 @@ class DashboardState:
             return replace(message)
 
     def request_interrupt(self) -> InterruptRequestResult:
-        """Record an Esc request without waiting for the Claude SDK."""
+        """Record an Esc request without waiting for the planner backend."""
         with self._condition:
             self._require_interaction_locked()
             if self._interrupt_requested:
                 return "duplicate"
-            if self._claude_activity != "busy" or self._state in TERMINAL_RUN_STATES:
+            if self._planner_activity != "busy" or self._state in TERMINAL_RUN_STATES:
                 return "noop"
             self._interrupt_requested = True
             self._interrupt_in_flight = False
@@ -549,14 +494,14 @@ class DashboardState:
             ) from exc
 
     def _require_interaction_locked(self) -> None:
-        if not self._interaction_enabled:
+        if self._session_id is None:
             raise InteractionUnavailableError(
                 "Dashboard interaction is not enabled for this run"
             )
 
     def _seal_interaction_locked(self) -> None:
-        changed = self._claude_activity != "ended" or self._accepting_input
-        self._claude_activity = "ended"
+        changed = self._planner_activity != "ended" or self._accepting_input
+        self._planner_activity = "ended"
         self._accepting_input = False
         self._interrupt_requested = False
         self._interrupt_in_flight = False
@@ -576,9 +521,8 @@ class DashboardState:
     def _interaction_snapshot_locked(self) -> dict[str, Any]:
         return {
             "session_id": self._session_id,
-            "enabled": self._interaction_enabled,
             "accepting_input": self._accepting_input,
-            "claude_activity": self._claude_activity,
+            "planner_activity": self._planner_activity,
             "interrupt_requested": self._interrupt_requested,
             "messages": [message.as_dict() for message in self._messages],
             "last_error": self._last_interaction_error,

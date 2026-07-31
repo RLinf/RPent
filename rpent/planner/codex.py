@@ -24,10 +24,10 @@ import openai_codex
 from rpent.cli.tui import next_user_line
 from rpent.dashboard.events import (
     DashboardEventSink,
-    NullDashboardEventSink,
     TranscriptEvent,
     UsageEvent,
 )
+from rpent.dashboard.interaction import DashboardInteractionPort
 from rpent.planner.base import PlannerResult, strip_mcp_prefix
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.tools.toolkit import Toolkit
@@ -51,12 +51,12 @@ class CodexPlanner:
         self,
         *,
         output_dir: str,
+        dashboard_events: DashboardEventSink,
         repo_root: str | Path | None = None,
         timeout_s: int = 600,
         extra_dirs: list[str] | None = None,
         output_path: str | Path | None = None,
         model: str | None = None,
-        dashboard: DashboardEventSink | None = None,
     ):
         """Initialize the Codex SDK backend."""
         self._output_dir = str(output_dir)
@@ -67,9 +67,7 @@ class CodexPlanner:
         self._model = model or os.environ.get("CODEX_MODEL", None)
         self._base_url = os.environ.get("CODEX_BASE_URL", None)
         self._api_key = os.environ.get("CODEX_API_KEY", None)
-        self._dashboard = (
-            dashboard if dashboard is not None else NullDashboardEventSink()
-        )
+        self._dashboard_events = dashboard_events
 
     def solve(
         self,
@@ -78,9 +76,14 @@ class CodexPlanner:
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue=None,
+        input_queue: queue.Queue[str | None] | None = None,
+        dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         """Run one or more Codex SDK turns for the given prompt."""
+        if dashboard_interaction is not None:
+            raise NotImplementedError(
+                "CodexPlanner does not support Dashboard interaction"
+            )
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         if self._output_path is None:
             with tempfile.NamedTemporaryFile(
@@ -92,7 +95,10 @@ class CodexPlanner:
             output_path.parent.mkdir(parents=True, exist_ok=True)
         raw_stream_path = output_path.with_suffix(output_path.suffix + ".stream.jsonl")
         last_message_path = output_path.with_suffix(output_path.suffix + ".last")
-        recorder = _Recorder(max_turns=max_turns, dashboard=self._dashboard)
+        recorder = _Recorder(
+            max_turns=max_turns,
+            dashboard_events=self._dashboard_events,
+        )
         state: dict[str, Any] = {}
 
         # Start the in-thread MCP HTTP server so Codex can reach the
@@ -243,9 +249,7 @@ class CodexPlanner:
                                 try:
                                     turn.steer(nxt)
                                 except Exception as e:
-                                    rendered = (
-                                        f"\n[codex-planner] steer failed: {e}\n"
-                                    )
+                                    rendered = f"\n[codex-planner] steer failed: {e}\n"
                                     with write_lock:
                                         chunks.append(rendered)
                                         out_f.write(rendered)
@@ -315,7 +319,7 @@ class _Recorder:
     """Pure adapter: consume Codex SDK events, emit text + accumulate stats."""
 
     max_turns: int
-    dashboard: DashboardEventSink = field(default_factory=NullDashboardEventSink)
+    dashboard_events: DashboardEventSink
     turns: int = 0
     tool_calls: int = 0
     usage: dict[str, int] = field(
@@ -371,7 +375,7 @@ class _Recorder:
                 return ""
             self.final_response = text
             self.turns += 1
-            self.dashboard.emit(TranscriptEvent({"type": "text", "text": text}))
+            self.dashboard_events.emit(TranscriptEvent({"type": "text", "text": text}))
             return (
                 f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n"
                 f"[codex] {text}\n"
@@ -380,7 +384,9 @@ class _Recorder:
         if item_type == "reasoning":
             text = _extract_text(_get(item, "summary") or _get(item, "content"))
             if text:
-                self.dashboard.emit(TranscriptEvent({"type": "thinking", "text": text}))
+                self.dashboard_events.emit(
+                    TranscriptEvent({"type": "thinking", "text": text})
+                )
             return f"[codex-reasoning] {text}\n" if text else ""
 
         if item_type in {
@@ -400,10 +406,10 @@ class _Recorder:
             payload = _summarise_item(item)
             data = _jsonable(item)
             args = data.get("arguments", {}) if isinstance(data, dict) else {}
-            self.dashboard.emit(
+            self.dashboard_events.emit(
                 TranscriptEvent({"type": "tool_call", "tool": name, "args": args})
             )
-            self.dashboard.emit(
+            self.dashboard_events.emit(
                 TranscriptEvent(
                     {"type": "tool_result", "tool": name, "result": payload}
                 )
@@ -443,7 +449,7 @@ class _Recorder:
                 usage, "reasoning_output_tokens"
             ),
         }
-        self.dashboard.emit(
+        self.dashboard_events.emit(
             UsageEvent(
                 inp=self.usage["total_input_tokens"],
                 out=self.usage["total_output_tokens"],
