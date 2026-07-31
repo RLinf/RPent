@@ -119,12 +119,11 @@ export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 # https://modelscope.cn/models/facebook/sam3
 export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
 export LIBERO_TYPE=pro
-export CUDA_VISIBLE_DEVICES=0
 
 # Run one task: libero_object_swap, task 2, seed 0, using Claude Code
 # with Claude Opus 4.8.
 rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
-  --planner claude_code --model claude-opus-4-8
+  --cuda-device 0 --planner claude_code --model claude-opus-4-8
 ```
 
 See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.

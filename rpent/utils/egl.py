@@ -63,7 +63,12 @@ def configure_egl_device(cuda_device: int) -> None:
     mapping cannot be built, a warning is logged and MuJoCo falls back to its
     default EGL device selection.
     """
-    if os.environ.get("MUJOCO_EGL_DEVICE_ID") is not None:
+    existing = os.environ.get("MUJOCO_EGL_DEVICE_ID")
+    if existing is not None:
+        logger.warning(
+            "MUJOCO_EGL_DEVICE_ID=%s already set; keeping it "
+            "(ignoring --cuda-device=%s)", existing, cuda_device,
+        )
         return
     cuda_ordinal = cuda_device
 

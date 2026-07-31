@@ -325,6 +325,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=8114)
     parser.add_argument(
         "--cuda-device",
+        type=int,
         default=None,
         help="GPU device exposed through CUDA_VISIBLE_DEVICES.",
     )

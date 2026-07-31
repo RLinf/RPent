@@ -328,7 +328,7 @@ subprocesses as it needs. The current LIBERO implementation starts
   for any supporting services here as well, such as LIBERO's ``sam3_client``.
 
 Endpoint parsing (``--env-endpoint``, ``--vla-endpoint``, and LIBERO's
-``--sam3-endpoint``) and subprocess env composition (``CUDA_VISIBLE_DEVICES``,
+``--sam3-endpoint``) and subprocess spawning (``--cuda-device`` passthrough,
 ``MUJOCO_GL``, ...) live here — main.py knows nothing about them. See
 ``robots/libero/__init__.py`` for the reference implementation.
 

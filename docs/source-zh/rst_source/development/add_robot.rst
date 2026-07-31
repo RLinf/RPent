@@ -310,8 +310,8 @@ toolkit 所需的参数。环境实现可以自行决定启动多少个子进程
   也在这里加入相应的 client，例如 LIBERO 的 ``sam3_client``。
 
 endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
-``--sam3-endpoint``）解析和子进程环境变量（如 ``CUDA_VISIBLE_DEVICES``、
-``MUJOCO_GL``）的设置也在这里完成，main.py 不处理这些细节。参考实现见
+``--sam3-endpoint``）解析和子进程启动（``--cuda-device`` 透传、
+``MUJOCO_GL``）也在这里完成，main.py 不处理这些细节。参考实现见
 ``robots/libero/__init__.py``。
 
 冒烟测试

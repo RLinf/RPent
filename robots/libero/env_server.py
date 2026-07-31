@@ -302,22 +302,34 @@ def main():
     p.add_argument("--parent-watch", action="store_true",
                    help="watch parent process via stdin pipe and exit when it dies")
     p.add_argument("--cuda-device", type=int, default=None,
-                   help="GPU device exposed through CUDA_VISIBLE_DEVICES.")
+                   help="GPU device to pin MuJoCo EGL rendering and the torch "
+                        "default device to (physical CUDA ordinal).")
     args = p.parse_args()
 
     if args.cuda_device is not None:
-        assert "torch" not in sys.modules, \
-            "torch must not be imported before --cuda-device is applied"
-        target = str(args.cuda_device)
+        # Deliberately do NOT set CUDA_VISIBLE_DEVICES. robosuite (imported
+        # transitively via libero) asserts at import time that
+        # ``MUJOCO_EGL_DEVICE_ID in CUDA_VISIBLE_DEVICES`` (substring check),
+        # which assumes the EGL index equals the CUDA ordinal and crashes on
+        # multi-GPU boxes where the EGL order differs. That assertion is gated
+        # on ``CUDA_VISIBLE_DEVICES != ""``, so leaving it unset skips it in
+        # both this process and the multiprocessing-spawned render workers
+        # (which inherit the env). Pin the two backends directly instead:
+        #   - MuJoCo render device <- MUJOCO_EGL_DEVICE_ID (configure_egl_device)
+        #   - torch default device  <- torch.cuda.set_device(N)
         prev = os.environ.get("CUDA_VISIBLE_DEVICES")
-        if prev is not None and prev != target:
+        if prev is not None:
             logger.warning(
-                "CUDA_VISIBLE_DEVICES=%s is already set; overriding with --cuda-device=%s",
+                "CUDA_VISIBLE_DEVICES=%s is set; clearing it and pinning via "
+                "MUJOCO_EGL_DEVICE_ID + torch.cuda.set_device(--cuda-device=%s) "
+                "instead (robosuite's CVD assertion is incompatible with EGL<->CUDA mapping)",
                 prev, args.cuda_device,
             )
-        os.environ["CUDA_VISIBLE_DEVICES"] = target
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
         from rpent.utils.egl import configure_egl_device
         configure_egl_device(args.cuda_device)
+        import torch
+        torch.cuda.set_device(args.cuda_device)
 
     raw_env = make_env(args.task, args.seed, suite_name=args.suite,
                        max_episode_steps=args.max_episode_steps)
