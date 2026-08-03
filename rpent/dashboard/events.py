@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, TypeAlias
-
-TerminalRunState: TypeAlias = Literal["succeeded", "failed", "cancelled"]
+from typing import Any, Protocol, TypeAlias
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,23 +44,12 @@ class RunStartedEvent:
     """Mark startup complete and the agent run active."""
 
 
-@dataclass(frozen=True, slots=True)
-class RunFinishedEvent:
-    """Mark the run terminal with execution and task outcomes kept separate."""
-
-    terminated: bool | None = None
-    state: TerminalRunState = "succeeded"
-    reason: str | None = None
-    error: BaseException | str | None = None
-
-
 DashboardEvent: TypeAlias = (
     TranscriptEvent
     | UsageEvent
     | RuntimeStatusEvent
     | ToolResultEvent
     | RunStartedEvent
-    | RunFinishedEvent
 )
 
 

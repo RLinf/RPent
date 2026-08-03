@@ -10,14 +10,12 @@ const LANGUAGE = document.documentElement.lang === "zh-cn" ? "zh-cn" : "en";
 const COPY = {
   en: {
     pageTitle: "RPent · Live Monitor",
-    newRun: "New Run",
-    launcherSubtitle: "Review the config, then click Run to start the agent.",
-    suite: "Suite",
-    task: "Task",
-    seed: "Seed",
+    newSession: "New Session",
+    launcherSubtitle: "Review the session config, then start the Dashboard control Session.",
     planner: "Planner (LLM backend)",
+    apiTaskControlPending: "api — task control pending",
+    codexTaskControlPending: "codex — task control pending",
     maxTurns: "Max turns",
-    maxTokens: "Max tokens",
     maxEpisodeSteps: "Max episode steps",
     modelPreset: "Model preset",
     customModel: "Custom model",
@@ -28,7 +26,7 @@ const COPY = {
     cudaDevice: "CUDA device",
     blankDefault: "(blank = default)",
     defaultPlaceholder: "default",
-    run: "Run",
+    startSession: "Start Session",
     liveMonitor: "Live Monitor",
     runtimeLabels: { env: "ENV", vla: "VLA", sam3: "SAM3" },
     runtimeStates: {
@@ -46,6 +44,13 @@ const COPY = {
     resizeComposer: "Drag to resize composer height · double-click to reset",
     composerPlaceholder: "Message the agent…",
     composerKeys: "Enter to send · Shift+Enter for newline · Esc to interrupt the agent",
+    commandPlaceholder: "/rpent-task <suite> <task> <seed>",
+    commandKeys: "Enter to submit · /rpent-task <suite> <task> <seed>",
+    sessionStarting: "Starting shared VLA and SAM3 services…",
+    commandReady: "Ready for /rpent-task <suite> <task> <seed>.",
+    taskStarting: "Starting the selected TaskRun…",
+    taskSwitchPending: (target) => `Task switch pending${target ? `: ${target}` : ""}.`,
+    sessionFatal: "The Dashboard Session is unavailable.",
     interactionStarting: "Waiting for environment startup…",
     interactionReady: "The agent is ready for another message.",
     interactionBusy: "The agent is working; new messages will be queued.",
@@ -78,6 +83,7 @@ const COPY = {
     noActions: "No actions yet.",
     stateLabels: {
       starting: "starting",
+      ready: "ready",
       running: "running",
       succeeded: "succeeded",
       failed: "failed",
@@ -90,7 +96,6 @@ const COPY = {
     episodeVideo: "episode video",
     completeRunVideo: "complete run video",
     finished: "finished",
-    selectModel: "select a model",
     backendDefault: "backend default",
     noTranscript: "No transcript events yet.",
     you: "You",
@@ -100,18 +105,14 @@ const COPY = {
     live: "● live",
     reconnecting: "○ reconnecting…",
     requiredFields: {
-      task: "Task",
-      seed: "Seed",
       maxTurns: "Max turns",
       maxEpisodeSteps: "Max episode steps",
-      maxTokens: "Max tokens",
     },
-    suiteRequired: "Suite is required.",
     fieldRequired: (field) => `${field} is required.`,
-    apiModelRequired: "API model must include a provider prefix, for example anthropic:claude-opus-4-8.",
-    starting: "starting run… this page will switch to the live monitor.",
-    startFailed: "failed to start — check the terminal.",
+    starting: "starting Session… this page will switch to the live monitor.",
+    startFailed: "failed to start Session — check the terminal.",
     noRuns: (directory) => `(no runs in ${directory})`,
+    awaitingTask: "Waiting for /rpent-task",
     distance: (value) => `dist ${value}m `,
     steps: (used, maximum) => `${used}/${maximum} steps `,
     lifted: (value) => `lifted=${value} `,
@@ -132,14 +133,12 @@ const COPY = {
   },
   "zh-cn": {
     pageTitle: "RPent · 实时监控",
-    newRun: "新建任务",
-    launcherSubtitle: "确认配置后,点击「开始运行」启动智能体。",
-    suite: "任务集",
-    task: "任务编号",
-    seed: "随机种子",
+    newSession: "新建 Session",
+    launcherSubtitle: "确认 Session 配置后，启动 Dashboard 控制 Session。",
     planner: "决策大脑(大模型后端)",
+    apiTaskControlPending: "api — 任务控制待支持",
+    codexTaskControlPending: "codex — 任务控制待支持",
     maxTurns: "最大对话轮数",
-    maxTokens: "最大 token 数",
     maxEpisodeSteps: "最大仿真步数",
     modelPreset: "模型预设",
     customModel: "自定义模型",
@@ -150,7 +149,7 @@ const COPY = {
     cudaDevice: "CUDA 设备",
     blankDefault: "(留空=默认)",
     defaultPlaceholder: "默认",
-    run: "开始运行",
+    startSession: "启动 Session",
     liveMonitor: "实时监控",
     runtimeLabels: { env: "ENV", vla: "VLA", sam3: "SAM3" },
     runtimeStates: {
@@ -168,6 +167,13 @@ const COPY = {
     resizeComposer: "拖动调整输入区高度 · 双击复位",
     composerPlaceholder: "向智能体发送消息…",
     composerKeys: "Enter 发送 · Shift+Enter 换行 · Esc 中断智能体",
+    commandPlaceholder: "/rpent-task <suite> <task> <seed>",
+    commandKeys: "Enter 提交 · /rpent-task <suite> <task> <seed>",
+    sessionStarting: "正在启动共享 VLA 和 SAM3 服务…",
+    commandReady: "可提交 /rpent-task <suite> <task> <seed>。",
+    taskStarting: "正在启动已选 TaskRun…",
+    taskSwitchPending: (target) => `任务切换等待中${target ? `：${target}` : ""}。`,
+    sessionFatal: "Dashboard Session 已不可用。",
     interactionStarting: "正在等待环境启动…",
     interactionReady: "智能体已准备好接收新消息。",
     interactionBusy: "智能体正在工作；新消息将进入等待队列。",
@@ -200,6 +206,7 @@ const COPY = {
     noActions: "暂无动作。",
     stateLabels: {
       starting: "启动中",
+      ready: "就绪",
       running: "运行中",
       succeeded: "执行成功",
       failed: "运行失败",
@@ -212,7 +219,6 @@ const COPY = {
     episodeVideo: "完整回放",
     completeRunVideo: "整段运行视频",
     finished: "已完成",
-    selectModel: "选择模型",
     backendDefault: "后端默认",
     noTranscript: "暂无推理记录。",
     you: "你",
@@ -221,18 +227,14 @@ const COPY = {
     live: "● 实时",
     reconnecting: "○ 正在重连…",
     requiredFields: {
-      task: "任务编号",
-      seed: "随机种子",
       maxTurns: "最大对话轮数",
       maxEpisodeSteps: "最大仿真步数",
-      maxTokens: "最大 token 数",
     },
-    suiteRequired: "请选择任务集。",
     fieldRequired: (field) => `请填写${field}。`,
-    apiModelRequired: "API 模型必须包含 provider 前缀,例如 anthropic:claude-opus-4-8。",
-    starting: "正在启动运行… 页面将切换到实时监控。",
-    startFailed: "启动失败,请查看终端输出。",
+    starting: "正在启动 Session… 页面将切换到实时监控。",
+    startFailed: "Session 启动失败，请查看终端输出。",
     noRuns: (directory) => `(${directory} 中暂无运行)`,
+    awaitingTask: "等待 /rpent-task",
     distance: (value) => `距离 ${value}m `,
     steps: (used, maximum) => `${used}/${maximum} 步 `,
     lifted: (value) => `已抓取=${value} `,
@@ -276,6 +278,7 @@ const runState = {
   id: null,
   eventSource: null,
   lastStepCount: -1,
+  taskGeneration: null,
 };
 
 const transcriptState = {
@@ -284,6 +287,7 @@ const transcriptState = {
   inFlight: false,
   refreshAgain: false,
   initialized: false,
+  epoch: 0,
 };
 
 const timelineState = {
@@ -313,19 +317,7 @@ const mediaState = {
 };
 
 const AUTO_ACTION_RETURN_DELAY_MS = 300;
-const MODEL_PRESETS = {
-  api: [
-    "",
-    "deepseek:deepseek-chat",
-    "anthropic:claude-opus-4-7",
-    "anthropic:claude-opus-4-8",
-    "anthropic:claude-sonnet-4-5",
-    "openai:gpt-5.5",
-    "openai-chat:glm-5.2",
-  ],
-  claude_code: ["", "claude-opus-4-7", "sonnet", "opus"],
-  codex: [""],
-};
+const MODEL_PRESETS = ["", "claude-opus-4-7", "sonnet", "opus"];
 
 // --- Double-buffered media swap ------------------------------------------
 // Two <img> + two <video> live in the DOM at the same position. Exactly one
@@ -580,6 +572,7 @@ function resetMediaForRun() {
 }
 
 function resetTranscriptForRun() {
+  transcriptState.epoch++;
   transcriptState.shown = 0;
   transcriptState.toolGroup = null;
   transcriptState.refreshAgain = false;
@@ -589,6 +582,52 @@ function resetTranscriptForRun() {
 function resetTimelineForRun() {
   timelineState.initialized = false;
   timelineState.seen.clear();
+}
+
+function resetRenderedTaskProjection() {
+  runState.lastStepCount = -1;
+  resetTranscriptForRun();
+  resetTimelineForRun();
+  resetMediaForRun();
+  interactionController.reset();
+  $("#transcript").innerHTML = `<div class="empty">${copy.noTranscript}</div>`;
+  $("#timeline").innerHTML = `<div class="empty">${copy.noActions}</div>`;
+  $("#evCount").textContent = "";
+  $("#stepCount").textContent = "";
+  $("#usageMeta").textContent = "";
+  $("#taskMeta").textContent = copy.awaitingTask;
+  $("#frameCap").textContent = copy.waitingFrame;
+  setResult(false, null);
+  document.querySelectorAll(".frame-tabs button").forEach(button =>
+    button.classList.toggle("active", button.dataset.kind === "camera")
+  );
+}
+
+function syncTaskGeneration(snapshot) {
+  const value = snapshot.task_generation;
+  if (runState.taskGeneration == null) {
+    runState.taskGeneration = value;
+    return "initial";
+  }
+  if (value < runState.taskGeneration) return "stale";
+  if (value === runState.taskGeneration) return "unchanged";
+  runState.taskGeneration = value;
+  resetRenderedTaskProjection();
+  return "changed";
+}
+
+function renderTaskMeta(task) {
+  const taskMeta = $("#taskMeta");
+  if (!task) {
+    taskMeta.textContent = copy.awaitingTask;
+    return;
+  }
+  const suite = document.createElement("b");
+  suite.textContent = task.suite;
+  taskMeta.replaceChildren(
+    suite,
+    document.createTextNode(copy.taskDetails(task.task, task.seed)),
+  );
 }
 
 function fmtArgs(o) {
@@ -842,11 +881,20 @@ async function refreshTranscript() {
   if (transcriptState.inFlight) { transcriptState.refreshAgain = true; return; }
   transcriptState.inFlight = true;
   const run = runState.id;
+  const taskGeneration = runState.taskGeneration;
+  const epoch = transcriptState.epoch;
   try {
     const r = await fetch(
       `/api/run/transcript?run=${encodeURIComponent(run)}&since=${transcriptState.shown}`
     ).then(x => x.json());
-    if (run !== runState.id) return;            // switched run mid-flight — drop
+    if (
+      run !== runState.id
+      || taskGeneration !== runState.taskGeneration
+      || epoch !== transcriptState.epoch
+    ) {
+      transcriptState.refreshAgain = true;
+      return;
+    }
     const animateNew = transcriptState.initialized;
     if (r.events && r.events.length) appendEvents(r.events, animateNew);
     else if (transcriptState.shown === 0) {
@@ -1019,17 +1067,14 @@ function refreshFrame(idx, opts = {}) {
 async function refreshMeta(opts = {}) {
   if (!runState.id) return;
   const r = await fetch(`/api/run?run=${encodeURIComponent(runState.id)}`).then(x => x.json());
-  setBadge(r.state, r.error);
+  const generationState = syncTaskGeneration(r);
+  if (generationState === "stale") return;
+  setBadge(r.state, r.control_error || r.error);
   setResult(r.terminated, r.state);
   renderRuntimeStatus(r.runtime);
-  interactionController.applySnapshot(r.interaction, r.state);
-  const taskMeta = $("#taskMeta");
-  const suite = document.createElement("b");
-  suite.textContent = r.suite ?? r.name;
-  taskMeta.replaceChildren(
-    suite,
-    document.createTextNode(copy.taskDetails(r.task ?? "?", r.seed ?? "?")),
-  );
+  interactionController.applySnapshot(r);
+  const currentTask = r.current_task;
+  renderTaskMeta(currentTask);
   mediaState.frameAvailable = r.frame_available || null;
   if (r.usage) $("#usageMeta").textContent = copy.usage(r.usage);
   renderTimeline(r.timeline || [], r.has_video, {
@@ -1047,7 +1092,9 @@ async function refreshMeta(opts = {}) {
     !autoStarted
     && !mediaState.autoPlayback
     && isRealtimeKind(mediaState.kind)
+    && currentTask
   ) refreshFrame(r.frame_idx);
+  if (generationState === "changed") refreshTranscript();
 }
 
 function connectSSE() {
@@ -1055,14 +1102,20 @@ function connectSSE() {
   runState.eventSource = new EventSource(`/api/stream?run=${encodeURIComponent(runState.id)}`);
   runState.eventSource.onmessage = (e) => {
     const sig = JSON.parse(e.data);
-    setBadge(sig.state, sig.error);
+    const generationState = syncTaskGeneration(sig);
+    if (generationState === "stale") return;
+    setBadge(sig.state, sig.control_error || sig.error);
     setResult(sig.terminated, sig.state);
     renderRuntimeStatus(sig.runtime);
-    interactionController.applySnapshot(sig.interaction, sig.state);
+    interactionController.applySnapshot(sig);
     mediaState.frameAvailable = sig.frame_available || null;
     if (sig.usage) $("#usageMeta").textContent = copy.usage(sig.usage);
     $("#connMeta").textContent = copy.live;
     refreshTranscript();
+    if (generationState === "changed") {
+      refreshMeta({ primeAutoActionStep: true });
+      return;
+    }
     // refresh timeline lazily on step change
     if (sig.n_steps !== runState.lastStepCount) {
       runState.lastStepCount = sig.n_steps;
@@ -1101,17 +1154,11 @@ function connectSSE() {
 
 function selectRun(id) {
   runState.id = id;
-  runState.lastStepCount = -1;
-  resetTranscriptForRun();
-  resetTimelineForRun();
-  resetMediaForRun();
-  interactionController.reset();
+  runState.taskGeneration = null;
+  resetRenderedTaskProjection();
   renderRuntimeStatus(null);
-  document.querySelectorAll(".frame-tabs button").forEach(b =>
-    b.classList.toggle("active", b.dataset.kind === "camera"));
   $("#transcript").innerHTML = `<div class="empty">${copy.loading}</div>`;
   $("#timeline").innerHTML = '<div class="empty">…</div>';
-  $("#frameCap").textContent = copy.waitingFrame;
   refreshMeta({ primeAutoActionStep: true });
   refreshTranscript();
   connectSSE();
@@ -1177,29 +1224,17 @@ setupSplitter($("#composerGrip"), {
 });
 
 // --- launcher (start screen) ---
-function populateModelPresets(planner, selected = "") {
+function populateModelPresets(selected = "") {
   const preset = $("#f-model_preset");
   const current = selected || preset.value || "";
   preset.innerHTML = "";
-  for (const value of (MODEL_PRESETS[planner] || [""])) {
+  for (const value of MODEL_PRESETS) {
     const option = document.createElement("option");
     option.value = value;
-    option.textContent = value || (
-      planner === "api" ? copy.selectModel : copy.backendDefault
-    );
+    option.textContent = value || copy.backendDefault;
     preset.appendChild(option);
   }
-  preset.value = (MODEL_PRESETS[planner] || []).includes(current) ? current : "";
-}
-
-function updateBackendFields() {
-  const planner = $("#f-planner").value;
-  document.querySelectorAll("[data-backends]").forEach(el => {
-    const allowed = (el.dataset.backends || "").split(/\s+/);
-    el.classList.toggle("hidden", !allowed.includes(planner));
-  });
-  const currentModel = $("#f-model_custom").value || $("#f-model_preset").value;
-  populateModelPresets(planner, currentModel);
+  preset.value = MODEL_PRESETS.includes(current) ? current : "";
 }
 
 function selectedModel() {
@@ -1208,24 +1243,19 @@ function selectedModel() {
 
 function showLauncher(defaults) {
   const d = defaults || {};
+  const defaultModel = d.model || "";
   const set = (id, val) => { $(id).value = val == null ? "" : val; };
-  set("#f-suite", d.suite);
-  set("#f-task", d.task);
-  set("#f-seed", d.seed);
-  set("#f-planner", d.planner || "claude_code");
   set("#f-max-turns", d["max-turns"]);
-  set("#f-max-tokens", d["max-tokens"]);
   set("#f-max-episode-steps", d["max-episode-steps"]);
   set("#f-planner-timeout-s", d["planner-timeout-s"]);
   set("#f-claude-code-max-budget-usd", d["claude-code-max-budget-usd"]);
   set("#f-cuda-device", d["cuda-device"]);
-  populateModelPresets($("#f-planner").value, d.model || "");
-  if ((MODEL_PRESETS[$("#f-planner").value] || []).includes(d.model || "")) {
+  populateModelPresets(defaultModel);
+  if (MODEL_PRESETS.includes(defaultModel)) {
     set("#f-model_custom", "");
   } else {
-    set("#f-model_custom", d.model);
+    set("#f-model_custom", defaultModel);
   }
-  updateBackendFields();
   $("#launcher").classList.remove("hidden");
 }
 
@@ -1235,12 +1265,7 @@ function collectLaunchConfig() {
     return v === "" ? null : Number(v);
   };
   return {
-    suite: $("#f-suite").value.trim(),
-    task: numOrNull("#f-task"),
-    seed: numOrNull("#f-seed"),
-    planner: $("#f-planner").value,
     "max-turns": numOrNull("#f-max-turns"),
-    "max-tokens": numOrNull("#f-max-tokens"),
     "max-episode-steps": numOrNull("#f-max-episode-steps"),
     model: selectedModel(),
     "planner-timeout-s": numOrNull("#f-planner-timeout-s"),
@@ -1264,23 +1289,12 @@ async function pollForRun() {
 async function onRun() {
   const config = collectLaunchConfig();
   const requiredNums = [
-    [copy.requiredFields.task, config.task],
-    [copy.requiredFields.seed, config.seed],
     [copy.requiredFields.maxTurns, config["max-turns"]],
     [copy.requiredFields.maxEpisodeSteps, config["max-episode-steps"]],
   ];
-  if (config.planner === "api") {
-    requiredNums.push([copy.requiredFields.maxTokens, config["max-tokens"]]);
-  }
   const badNum = requiredNums.find(([_, v]) => v == null || !Number.isFinite(v));
-  if (!config.suite || badNum) {
-    $("#launchStatus").textContent = !config.suite
-      ? copy.suiteRequired
-      : copy.fieldRequired(badNum[0]);
-    return;
-  }
-  if (config.planner === "api" && (!config.model || !config.model.includes(":"))) {
-    $("#launchStatus").textContent = copy.apiModelRequired;
+  if (badNum) {
+    $("#launchStatus").textContent = copy.fieldRequired(badNum[0]);
     return;
   }
   $("#runBtn").disabled = true;
@@ -1300,11 +1314,6 @@ async function onRun() {
   pollForRun();
 }
 $("#runBtn").addEventListener("click", onRun);
-$("#f-planner").addEventListener("change", () => {
-  $("#f-model_custom").value = "";
-  $("#launchStatus").textContent = "";
-  updateBackendFields();
-});
 
 async function boot() {
   applyStaticCopy();
