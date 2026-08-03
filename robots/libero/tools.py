@@ -11,7 +11,8 @@ import imageio.v2 as imageio
 import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
-from rpent.utils.logging import get_logger, get_output_dir
+from rpent.tools.state import EnvState, StepRecord
+from rpent.utils.logging import get_logger
 from rpent.utils.sam3_client import Sam3Client
 from rpent.utils.vla_client import VLAClient
 
@@ -662,6 +663,8 @@ class LiberoPrimitives:
         step: int | None = None,
         point: list[int] | None = None,
         min_score: float = 0.2,
+        *,
+        state: EnvState,
     ) -> dict:
         """Call SAM3 on an existing image artifact without advancing the env.
 
@@ -669,7 +672,7 @@ class LiberoPrimitives:
         artifacts. Errors are structured so the agent can continue with image
         inspection and ``back_project``.
         """
-        nn = _latest_step() if step is None else int(step)
+        nn = state.latest_step if step is None else int(step)
         if nn is None:
             return {"error": "no state entries; cannot select segment image"}
 
@@ -681,7 +684,7 @@ class LiberoPrimitives:
             return {"error": "segment needs exactly one of prompt or point"}
         try:
             image_path, world_path, artifact_pairs = _select_segment_artifacts(
-                nn, camera
+                state, nn, camera
             )
         except ValueError as e:
             return {"error": str(e)}
@@ -720,7 +723,7 @@ class LiberoPrimitives:
                 "fallback": "Use manual visual localization and back_project.",
             }
 
-        out_dir = get_output_dir()
+        out_dir = state.output_dir
         segment_path, overlay_candidate_path, segment_index = (
             _next_segment_artifact_paths(out_dir, nn)
         )
@@ -785,53 +788,25 @@ class LiberoPrimitives:
         return result
 
 
-# ---------------------------------------------------------------------------
-# State artifacts
-# ---------------------------------------------------------------------------
-
-
-def _append_state(output_dir: str, blob: dict) -> None:
-    """Append *blob* to ``<output_dir>/states.json`` atomically."""
-    path = artifact_path(output_dir, "states")
-    tmp_path = path.parent / f"{path.name}.tmp"
-    if path.exists():
-        with open(path) as f:
-            states = json.load(f)
-    else:
-        states = []
-    states.append(blob)
-    with open(tmp_path, "w") as f:
-        json.dump(states, f, indent=2)
-    os.replace(tmp_path, path)
-
-
-def write_recipe_from_states(output_dir: str, recipe_tag: str) -> str:
+def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:
     """Find a command sequence that gets ``libero_terminated=True``.
 
     Export non-error LIBERO primitive commands from ``states.json`` and
     successful segment calls from ``segments/segment_*.json``.
     """
-    states_path = artifact_path(output_dir, "states")
-    if states_path.exists():
-        with open(states_path) as f:
-            states = json.load(f)
-    else:
-        states = []
-
     command_events = []
-    for step_idx, entry in enumerate(states):
-        if not entry:
-            continue
-        command = entry.get("command")
+    for record in state.records():
+        command = record.command
         if command is None:
             continue
         if command.get("action") not in PRIMITIVE_TOOL_NAMES:
             continue
-        result = entry.get("result")
+        result = record.result
         if isinstance(result, dict) and result.get("error"):
             continue
-        command_events.append(((step_idx, -1), command))
+        command_events.append(((record.step_idx, -1), command))
 
+    output_dir = state.output_dir
     for artifact in artifact_path(output_dir, "segments").glob("segment_*.json"):
         with artifact.open() as f:
             segment = json.load(f)
@@ -853,7 +828,7 @@ def write_recipe_from_states(output_dir: str, recipe_tag: str) -> str:
         event_order = (source_step, int(segment["segment_index"]))
         command_events.append((event_order, command))
 
-    recipe_path = os.path.join(output_dir, f"recipe_{recipe_tag}.jsonl")
+    recipe_path = os.path.join(state.output_dir, f"recipe_{recipe_tag}.jsonl")
     tmp_path = recipe_path + ".tmp"
     command_events.sort(key=lambda event: event[0])
     with open(tmp_path, "w") as f:
@@ -889,8 +864,8 @@ def _world_from_depth(depth_metric: np.ndarray, camera_meta: dict) -> np.ndarray
     return (camera_points @ extrinsic.T)[..., :3]
 
 
-def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
-               log: dict | None = None) -> dict:
+def dump_state(primitives: LiberoPrimitives, env_state: EnvState, step_idx: int,
+               log: dict | None = None) -> StepRecord:
     """Dump state snapshot, images, and depth for step *step_idx*.
 
     Writes:
@@ -911,6 +886,7 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
     ``command``, ``result``, and ``elapsed_s`` fields are merged into the
     step blob so a single entry captures everything.
     """
+    output_dir = env_state.output_dir
     for directory in ARTIFACT_DIRECTORIES:
         (Path(output_dir) / directory).mkdir(parents=True, exist_ok=True)
 
@@ -918,6 +894,7 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
     wrist_world_map = None
     agent_world_map_hi = None
     wrist_world_map_hi = None
+    wrist_meta = None
     # Reuse one raw observation snapshot for state and per-step artifacts.
     raw = primitives.env.raw_obs()
     # Expose robot proprioception and object names, but never privileged
@@ -1056,6 +1033,7 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
                     "w",
                 ) as f:
                     json.dump(wmeta_out, f, indent=2)
+                wrist_meta = wmeta
     except Exception as e:
         logger.warning("wrist depth/world dump failed: %s", e)
 
@@ -1129,25 +1107,39 @@ def dump_state(primitives: LiberoPrimitives, output_dir: str, step_idx: int,
             except FileNotFoundError:
                 pass
 
-    blob = {
-        "step_idx": step_idx,
-        "libero_terminated": primitives.env.episode_terminated,
-        "episode_truncated": primitives.env.episode_truncated,
-        "task_language": primitives.env.get_task_language(),
-        "state": state,
-        "world_map": agent_world_map,
-        "wrist_world_map": wrist_world_map,
-        "world_map_hi": agent_world_map_hi,
-        "wrist_world_map_hi": wrist_world_map_hi,
-    }
-    # Merge the execution log (command + result + elapsed_s) into the
-    # state blob so a single entry captures everything for the step.
-    if log is not None:
-        blob["command"] = log.get("command")
-        blob["result"] = log.get("result")
-        blob["elapsed_s"] = log.get("elapsed_s")
-    _append_state(output_dir, blob)
-    return blob
+    frame_streams = [
+        stream
+        for stream in ("image", "image_cam", "image_wrist")
+        if env_state.artifact_path(step_idx, stream).exists()
+    ]
+    depth_streams = [
+        stream
+        for stream in ("depth", "depth_wrist")
+        if env_state.artifact_path(step_idx, stream).exists()
+    ]
+    camera_meta = {"agentview": agentview_meta}
+    if wrist_meta is not None:
+        camera_meta["wrist"] = wrist_meta
+    record = StepRecord(
+        step_idx=step_idx,
+        state=state,
+        frames=frame_streams,
+        depth=depth_streams,
+        camera_meta=camera_meta,
+        command=log.get("command") if log else None,
+        result=log.get("result") if log else None,
+        elapsed_s=log.get("elapsed_s") if log else None,
+        extras={
+            "libero_terminated": primitives.env.episode_terminated,
+            "episode_truncated": primitives.env.episode_truncated,
+            "task_language": primitives.env.get_task_language(),
+            "world_map": agent_world_map,
+            "wrist_world_map": wrist_world_map,
+            "world_map_hi": agent_world_map_hi,
+            "wrist_world_map_hi": wrist_world_map_hi,
+        },
+    )
+    return env_state.append(record)
 
 
 # ---------------------------------------------------------------------------
@@ -1517,38 +1509,9 @@ TOOLS_SPEC = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# State trace readers
-# ---------------------------------------------------------------------------
-
-
-def _load_states() -> list:
-    """Return the parsed state trace from the local output dir."""
-    path = artifact_path(get_output_dir(), "states")
-    if not path.exists():
-        return []
-    with open(path) as f:
-        return json.load(f)
-
-
-def _latest_step() -> int | None:
-    states = _load_states()
-    if not states:
-        return None
-    return states[-1]["step_idx"]
-
-
-def _load_step(nn: int) -> dict:
-    """Look up the state blob for step ``nn`` from states.json."""
-    for entry in _load_states():
-        if entry.get("step_idx") == nn:
-            return entry
-    raise FileNotFoundError(f"step {nn} not present in states.json")
-
-
-def _load_image_path(nn: int, kind: str) -> str | None:
+def _load_image_path(state: EnvState, nn: int, kind: str) -> str | None:
     """Return the path to a dumped state image. None if not present."""
-    out_dir = get_output_dir()
+    out_dir = state.output_dir
     if kind == "agent":
         path = artifact_path(out_dir, "policy_image", step=nn, camera="agentview", resolution="low")
     elif kind == "camera":
@@ -1562,8 +1525,12 @@ def _load_image_path(nn: int, kind: str) -> str | None:
     return str(path)
 
 
-def _load_camera_meta(camera: str = "agentview", nn: int | None = None) -> dict:
-    out_dir = get_output_dir()
+def _load_camera_meta(
+    state: EnvState,
+    camera: str = "agentview",
+    nn: int | None = None,
+) -> dict:
+    out_dir = state.output_dir
     if camera == "agentview":
         path = artifact_path(out_dir, "metadata", camera="agentview", resolution="low")
     elif camera == "wrist" and nn is not None:
@@ -1571,71 +1538,74 @@ def _load_camera_meta(camera: str = "agentview", nn: int | None = None) -> dict:
     else:
         raise ValueError("camera must be 'agentview' or 'wrist' with nn")
     if not path.exists():
-        raise FileNotFoundError(f"{path.name} not found in {out_dir}")
+        raise FileNotFoundError(f"{path.name} not found in {state.output_dir}")
     with open(path) as f:
         return json.load(f)
 
 
-def _load_depth(camera: str, nn: int) -> np.ndarray:
-    out_dir = get_output_dir()
-    if camera not in ("agentview", "wrist"):
+def _load_depth(state: EnvState, camera: str, nn: int) -> np.ndarray:
+    if camera == "agentview":
+        stream = "depth"
+    elif camera == "wrist":
+        stream = "depth_wrist"
+    else:
         raise ValueError("camera must be 'agentview' or 'wrist'")
-    path = artifact_path(out_dir, "depth", step=nn, camera=camera, resolution="low")
-    if not path.exists():
-        raise FileNotFoundError(f"{path.name} not found in {out_dir}")
-    depth = np.load(path)
+    depth = state.load_depth(nn, stream)
     if depth.ndim == 3:
         depth = depth[..., 0]
     return depth
 
 
-def view_driver_state(step: int | None = None) -> dict:
-    latest = _latest_step()
+def view_driver_state(step: int | None = None, *, state: EnvState) -> dict:
+    latest = state.latest_step
     if latest is None:
         return {"error": "no state entries; env not ready"}
     nn = latest if step is None else int(step)
     try:
-        data = _load_step(nn)
+        record = state.get(nn)
     except Exception as e:
         return {"error": f"step {nn} not present in state trace: {e}"}
 
-    out: dict = {"step": nn}
-    out["task_language"] = data.get("task_language")
-    # Default to {} (not the entire blob) when "state" is missing — otherwise
-    # command/result/vla_desync would bleed into the "state" field, confusing
-    # the LLM about what robot state actually contains.
-    out["state"] = data.get("state", {})
-    out["libero_terminated"] = data.get("libero_terminated")
-    out["episode_truncated"] = data.get("episode_truncated")
-    out["world_map"] = data.get("world_map")
-    out["wrist_world_map"] = data.get("wrist_world_map")
-    out["world_map_hi"] = data.get("world_map_hi")
-    out["wrist_world_map_hi"] = data.get("wrist_world_map_hi")
+    extras = record.extras
+    out: dict = {"step": nn, "state": record.state}
+    out["task_language"] = extras.get("task_language")
+    out["libero_terminated"] = extras.get("libero_terminated")
+    out["episode_truncated"] = extras.get("episode_truncated")
+    out["world_map"] = extras.get("world_map")
+    out["wrist_world_map"] = extras.get("wrist_world_map")
+    out["world_map_hi"] = extras.get("world_map_hi")
+    out["wrist_world_map_hi"] = extras.get("wrist_world_map_hi")
     out["log"] = {
-        "command": data.get("command"),
-        "result": data.get("result"),
-        "elapsed_s": data.get("elapsed_s"),
+        "command": record.command,
+        "result": record.result,
+        "elapsed_s": record.elapsed_s,
     }
     for field, kind in (
         ("image_path", "agent"),
         ("image_cam_path", "camera"),
         ("image_wrist_path", "wrist"),
     ):
-        image_path = _load_image_path(nn, kind)
+        image_path = _load_image_path(state, nn, kind)
         if image_path:
             out[field] = image_path
     for field, camera in (
         ("image_cam_hi_path", "agentview"),
         ("image_wrist_hi_path", "wrist"),
     ):
-        image_path = artifact_path(get_output_dir(), "image", step=nn, camera=camera, resolution="high")
+        image_path = artifact_path(
+            state.output_dir,
+            "image",
+            step=nn,
+            camera=camera,
+            resolution="high",
+        )
         if image_path.exists():
             out[field] = str(image_path)
     return out
 
 
-def _select_segment_artifacts(nn: int, camera: str):
-    out_dir = get_output_dir()
+def _select_segment_artifacts(state: EnvState, nn: int, camera: str):
+    out_dir = state.output_dir
     if camera not in ("agentview", "wrist"):
         raise ValueError(f"unknown segment camera: {camera}")
     pairs = [
@@ -1645,7 +1615,6 @@ def _select_segment_artifacts(nn: int, camera: str):
         )
         for resolution in ("high", "low")
     ]
-
     for image_path, world_path in pairs:
         if image_path.exists() and world_path.exists():
             return image_path, world_path, pairs
@@ -1737,19 +1706,24 @@ def _write_segment_overlay(image_path: Path, mask: np.ndarray,
         return False
 
 
-def view_camera_meta(camera: str = "agentview", step: int | None = None) -> dict:
+def view_camera_meta(
+    camera: str = "agentview",
+    step: int | None = None,
+    *,
+    state: EnvState,
+) -> dict:
     """Read camera calibration metadata for localization."""
     if camera not in ("agentview", "wrist"):
         return {"error": f"bad camera '{camera}' (use 'agentview' or 'wrist')"}
 
     nn = None
     if camera == "wrist":
-        nn = _latest_step() if step is None else int(step)
+        nn = state.latest_step if step is None else int(step)
         if nn is None:
             return {"error": "no wrist metadata available"}
 
     try:
-        meta = _load_camera_meta(camera, nn)
+        meta = _load_camera_meta(state, camera, nn)
     except Exception as e:
         return {"error": f"{camera} camera metadata not found: {e}"}
 
@@ -1768,6 +1742,8 @@ def back_project(
     col_range: list | None = None,
     z_min: float | None = None,
     z_max: float | None = None,
+    *,
+    state: EnvState,
 ) -> dict:
     """Look up a pixel's world XYZ in the precomputed world map."""
     if camera not in ("agentview", "wrist"):
@@ -1784,22 +1760,21 @@ def back_project(
             )
         }
 
-    latest = _latest_step()
-    nn = latest if step is None else int(step)
+    nn = state.latest_step if step is None else int(step)
     if nn is None:
         return {"error": "no depth/world-map files available"}
 
     try:
-        data = _load_step(nn)
+        record = state.get(nn)
     except Exception as e:
         return {"error": f"step {nn} not present in state trace: {e}"}
 
     if camera == "agentview":
-        hi_artifact = data.get("world_map_hi")
-        low_artifact = data.get("world_map")
+        hi_artifact = record.extras.get("world_map_hi")
+        low_artifact = record.extras.get("world_map")
     else:
-        hi_artifact = data.get("wrist_world_map_hi")
-        low_artifact = data.get("wrist_world_map")
+        hi_artifact = record.extras.get("wrist_world_map_hi")
+        low_artifact = record.extras.get("wrist_world_map")
     source_artifact = hi_artifact if resolution == "high" else low_artifact
     if not source_artifact:
         return {
@@ -1810,8 +1785,7 @@ def back_project(
         }
 
     try:
-        world_path = artifact_path(get_output_dir(), "world", step=nn, camera=camera, resolution=resolution)
-        world_map = np.load(world_path)
+        world_map = np.load(state.output_dir / source_artifact)
     except Exception as e:
         return {
             "error": (
@@ -1897,7 +1871,7 @@ def back_project(
     depth_m = None
     if source_artifact == low_artifact:
         try:
-            depth = _load_depth(camera, nn)
+            depth = _load_depth(state, camera, nn)
         except Exception as e:
             return {"error": f"{camera} depth not found for step {nn}: {e}"}
         depth_m = float(depth[row, col])

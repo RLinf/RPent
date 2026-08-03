@@ -3,9 +3,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
+
+import numpy as np
 
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_output_dir
+
+_BACKPROJECT_RADIUS = 6
+_DEPTH_BAND_M = 0.02
 
 TOOLS_SPEC: list[dict] = [
     {
@@ -132,6 +138,88 @@ def finish(status: str, summary: str) -> dict:
     :class:`rpent.planner.claude_code._Recorder`.
     """
     return {"_finish": True, "status": status, "summary": summary}
+
+
+def backproject_points(K, rows, cols, depths) -> np.ndarray:
+    """Back-project pixel coords + depths to camera-frame XYZ, shape (N, 3)."""
+    K = np.asarray(K, dtype=np.float64)
+    rows = np.asarray(rows, dtype=np.float64)
+    cols = np.asarray(cols, dtype=np.float64)
+    depths = np.asarray(depths, dtype=np.float64)
+    fx, fy = K[0, 0], K[1, 1]
+    cx, cy = K[0, 2], K[1, 2]
+    return np.stack(
+        [(cols - cx) * depths / fx, (rows - cy) * depths / fy, depths], axis=1
+    )
+
+
+def robust_surface_centroid(
+    depth: np.ndarray,
+    K,
+    T_base_cam,
+    row: int,
+    col: int,
+    *,
+    radius: int = _BACKPROJECT_RADIUS,
+    band: float = _DEPTH_BAND_M,
+) -> dict:
+    """Back-project a pixel neighbourhood to a robust 3D point.
+
+    Back-projects every valid pixel in a ``(2*radius+1)`` window, keeps those on
+    the dominant surface (depth within ``band`` of the window median, rejecting
+    background / table / dropouts), and returns the median point + diagnostics.
+    Returns world ``xyz`` when ``T_base_cam`` is given, otherwise camera-frame
+    ``xyz_cam``.
+    """
+    row, col = int(row), int(col)
+    radius = max(0, int(radius))
+    height, width = depth.shape[:2]
+    if not (0 <= row < height and 0 <= col < width):
+        return {
+            "error": (
+                f"pixel ({row},{col}) out of bounds; image is {height}x{width}"
+            )
+        }
+    row_start, row_end = max(0, row - radius), min(height, row + radius + 1)
+    col_start, col_end = max(0, col - radius), min(width, col + radius + 1)
+    rows, cols = np.mgrid[row_start:row_end, col_start:col_end]
+    depths = depth[row_start:row_end, col_start:col_end].reshape(-1).astype(
+        np.float64
+    )
+    rows = rows.reshape(-1).astype(np.float64)
+    cols = cols.reshape(-1).astype(np.float64)
+    valid = np.isfinite(depths) & (depths > 0)
+    if not np.any(valid):
+        return {"error": f"no valid depth near ({row},{col}); pick another pixel"}
+    depths, rows, cols = depths[valid], rows[valid], cols[valid]
+    median_depth = float(np.median(depths))
+    surface = np.abs(depths - median_depth) <= band
+    depths, rows, cols = depths[surface], rows[surface], cols[surface]
+    if depths.size == 0:
+        return {"error": f"no dominant surface depth near ({row},{col})"}
+
+    camera_points = backproject_points(K, rows, cols, depths)
+    camera_point = np.median(camera_points, axis=0)
+    out: dict[str, Any] = {
+        "pixel": [row, col],
+        "radius": radius,
+        "n_points": int(camera_points.shape[0]),
+        "depth_m": round(median_depth, 4),
+        "xyz_cam": [round(float(value), 4) for value in camera_point],
+    }
+    if T_base_cam is not None:
+        transform = np.asarray(T_base_cam, dtype=np.float64)
+        base_points = camera_points @ transform[:3, :3].T + transform[:3, 3]
+        base_point = np.median(base_points, axis=0)
+        out["xyz"] = [round(float(value), 4) for value in base_point]
+        out["xy_spread_m"] = round(
+            float(np.hypot(*base_points[:, :2].std(axis=0))), 4
+        )
+    else:
+        out["xy_spread_m"] = round(
+            float(np.hypot(*camera_points[:, :2].std(axis=0))), 4
+        )
+    return out
 
 
 TOOL_HANDLERS: dict = {
