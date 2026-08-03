@@ -475,7 +475,10 @@ class _ClaudeDashboardBridge:
 
     async def initial_query_succeeded(self, driver: _ClaudeSessionDriver) -> None:
         self._outstanding_queries = 1
-        self._interaction.set_planner_activity("busy", accepting_input=True)
+        self._interaction.set_planner_activity(
+            "busy",
+            accepting_input=not self._interaction.task_replacement_requested,
+        )
         if self._emit_initial_user is not None:
             self._emit_initial_user()
 
@@ -498,12 +501,16 @@ class _ClaudeDashboardBridge:
             return
 
         async with self._operation_lock:
+            if self._interaction.planner_activity == "ended":
+                return
             if is_result:
                 self._outstanding_queries = max(0, self._outstanding_queries - 1)
                 self._interaction.set_planner_activity(
                     "busy" if self._outstanding_queries else "idle"
                 )
 
+            if await self._handle_task_replacement(driver):
+                return
             if await self._handle_interrupt(driver):
                 # Success already flushes. Failure deliberately leaves pending
                 # unchanged even if a boundary arrived at the same time.
@@ -515,10 +522,30 @@ class _ClaudeDashboardBridge:
 
     async def _process_commands(self, driver: _ClaudeSessionDriver) -> None:
         async with self._operation_lock:
+            if await self._handle_task_replacement(driver):
+                return
             if await self._handle_interrupt(driver):
                 return
             if self._interaction.planner_activity == "idle":
                 await self._flush_pending(driver)
+
+    async def _handle_task_replacement(
+        self,
+        driver: _ClaudeSessionDriver,
+    ) -> bool:
+        """Yield this conversation at the next planner scheduling boundary."""
+        if not self._interaction.task_replacement_requested:
+            return False
+
+        try:
+            await driver.interrupt()
+        except Exception as exc:
+            self._interaction.complete_task_replacement(
+                error=f"planner interrupt failed: {_exception_text(exc)}"
+            )
+        else:
+            self._interaction.complete_task_replacement()
+        return True
 
     async def _handle_interrupt(
         self,
@@ -536,11 +563,11 @@ class _ClaudeDashboardBridge:
         return True
 
     async def _flush_pending(self, driver: _ClaudeSessionDriver) -> None:
-        # begin_pending_batch() is the atomic pending -> sending boundary.
-        # Messages submitted after this call remain pending for a later
-        # tool/result boundary.
-        messages = self._interaction.begin_pending_batch()
-        for message in messages:
+        message = self._interaction.claim_next_pending_message()
+        while (
+            message is not None
+            and not self._interaction.task_replacement_requested
+        ):
             try:
                 await driver.query(message.text)
             except Exception as exc:
@@ -548,11 +575,12 @@ class _ClaudeDashboardBridge:
                     message.message_id,
                     _exception_text(exc),
                 )
-                continue
-            self._interaction.mark_message_sent(message.message_id)
-            self._outstanding_queries += 1
-            self._interaction.set_planner_activity("busy")
-            self._emit_user(message.text)
+            else:
+                self._interaction.mark_message_sent(message.message_id)
+                self._outstanding_queries += 1
+                self._interaction.set_planner_activity("busy")
+                self._emit_user(message.text)
+            message = self._interaction.claim_next_pending_message()
 
 
 def _has_tool_result(message: Any) -> bool:
