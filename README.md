@@ -119,12 +119,11 @@ export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 # https://modelscope.cn/models/facebook/sam3
 export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
 export LIBERO_TYPE=pro
-export CUDA_VISIBLE_DEVICES=0
 
 # Run one task: libero_object_swap, task 2, seed 0, using Claude Code
 # with Claude Opus 4.8.
 rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
-  --planner claude_code --model claude-opus-4-8
+  --cuda-device 0 --planner claude_code --model claude-opus-4-8
 ```
 
 See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.
@@ -172,7 +171,7 @@ For more detailed documentation, see the [RPent documentation](https://rpent.rea
     <tr><td><code>--no-images</code></td><td>off</td><td>Text-only mode: never send image bytes (for models that reject image input)</td></tr>
     <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>Max env steps</td></tr>
     <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> or <code>pro</code></td><td>LIBERO variant: <code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
-    <tr><td><code>--cuda-device</code></td><td>inherited</td><td>GPU device(s) exposed to the env / VLA / SAM3 servers</td></tr>
+    <tr><td><code>--cuda-device</code></td><td>inherited</td><td>GPU device exposed to the env / VLA / SAM3 servers</td></tr>
     <tr><td><code>--dashboard</code></td><td>off</td><td>Start the local dashboard for this run</td></tr>
     <tr><td><code>--dashboard-language</code></td><td><code>en</code></td><td>Dashboard UI language: <code>en</code> | <code>zh-cn</code></td></tr>
     <tr><td><code>--env-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing env_server (<code>protocol=http|socket</code>, default <code>http</code>). If unset, one is spawned locally.</td></tr>

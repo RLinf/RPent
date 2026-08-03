@@ -85,8 +85,8 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
                         help="[protocol://]host:port of an existing SAM3 server "
                              "(protocol=http|socket, defaults to http). "
                              "If unset, a local SAM3 server is spawned.")
-    parser.add_argument("--cuda-device", default=None,
-                        help="GPU device(s) to expose via CUDA_VISIBLE_DEVICES.")
+    parser.add_argument("--cuda-device", type=int, default=None,
+                        help="GPU device to expose via CUDA_VISIBLE_DEVICES.")
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
@@ -123,16 +123,13 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
-def _subprocess_env(cuda_device: str | None, **extra: str) -> dict[str, str]:
-    """Build the env dict for a subprocess: inherit from parent, apply
-    ``--cuda-device`` uniformly, layer optional extras on top.
+def _subprocess_env(**extra: str) -> dict[str, str]:
+    """Build the env dict for a subprocess: inherit from parent, layer extras on top.
 
-    If ``cuda_device`` is None, ``CUDA_VISIBLE_DEVICES`` is left as inherited
-    (respecting whatever the parent shell set). If given, it wins.
+    CUDA device selection is passed via ``--cuda-device`` on the server command
+    line — the server itself handles ``CUDA_VISIBLE_DEVICES`` and EGL alignment.
     """
     env = os.environ.copy()
-    if cuda_device is not None:
-        env["CUDA_VISIBLE_DEVICES"] = str(cuda_device)
     env.update(extra)
     return env
 
@@ -162,6 +159,7 @@ def _init_runtime(
 
     daemons: list[ProcessDaemon] = []
     libero_type = args.libero_type or get_libero_type()
+    cuda_args = ["--cuda-device", str(args.cuda_device)] if args.cuda_device is not None else []
 
     # --- env_server --------------------------------------------------------
     dashboard_events.emit(RuntimeStatusEvent("env", "starting"))
@@ -181,9 +179,9 @@ def _init_runtime(
                     "--host", host,
                     "--port", str(port),
                     "--parent-watch",
+                    *cuda_args,
                 ],
                 env=_subprocess_env(
-                    args.cuda_device,
                     LIBERO_TYPE=libero_type,
                     MUJOCO_GL="egl",
                     ROBOT_PLATFORM="LIBERO",
@@ -224,8 +222,9 @@ def _init_runtime(
                     "--host", host,
                     "--port", str(port),
                     "--parent-watch",
+                    *cuda_args,
                 ],
-                env=_subprocess_env(args.cuda_device),
+                env=_subprocess_env(),
                 log_path=str(Path(output_dir) / "vla_server.log"),
             )
             vla_daemon.start()
@@ -262,8 +261,9 @@ def _init_runtime(
                     "--host", host,
                     "--port", str(port),
                     "--parent-watch",
+                    *cuda_args,
                 ],
-                env=_subprocess_env(args.cuda_device),
+                env=_subprocess_env(),
                 log_path=str(Path(output_dir) / "sam3_server.log"),
             )
             sam3_daemon.start()
