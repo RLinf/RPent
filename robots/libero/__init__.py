@@ -45,6 +45,7 @@ def get_toolkit(
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     video_path: str | None = None,
+    save_action_videos: bool = False,
 ):
     """Return the LIBERO toolkit (common tools + LIBERO primitives)."""
     from robots.libero.toolkit import LiberoToolkit
@@ -53,6 +54,7 @@ def get_toolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
         video_path=video_path,
+        save_action_videos=save_action_videos,
     )
 
 

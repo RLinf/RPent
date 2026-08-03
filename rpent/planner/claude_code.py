@@ -170,15 +170,18 @@ class ClaudeCodePlanner:
             try:
                 if input_queue is None:
                     if dashboard_interaction is not None:
-                        await self._run_dashboard_session(
-                            sdk,
-                            prompt,
-                            options,
-                            recorder,
-                            dashboard_interaction=dashboard_interaction,
-                            initial_user_text=initial_user_text,
-                            emit=_emit,
-                            emit_user=_emit_user,
+                        await asyncio.wait_for(
+                            self._run_dashboard_session(
+                                sdk,
+                                prompt,
+                                options,
+                                recorder,
+                                dashboard_interaction=dashboard_interaction,
+                                initial_user_text=initial_user_text,
+                                emit=_emit,
+                                emit_user=_emit_user,
+                            ),
+                            timeout=self._timeout_s,
                         )
                     else:
 

@@ -183,7 +183,7 @@ The driver writes artifacts in `{{output_dir}}/`:
 - `{{output_dir}}/camera_meta.json` — agentview intrinsics K, cam->world
   extrinsic, projection recipe.
 - `{{output_dir}}/action_videos/step_NN_<tool>.mp4` — per-action clips generated
-  by default for every run.
+  when the Dashboard is enabled.
 
 NN is zero-padded sequential (`00`, `01`, `02`, ...). Initial state step `00` is
 dumped before you begin. Use `view_driver_state({"step": 0})` to read it."""

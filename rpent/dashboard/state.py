@@ -309,7 +309,7 @@ class DashboardState:
             self._interaction_changed_locked()
 
     def seal_interaction(self) -> None:
-        """End input and preserve every unclaimed message as ``unsent``."""
+        """End input and preserve every unfinished message as ``unsent``."""
         with self._condition:
             self._seal_interaction_locked()
 
@@ -506,7 +506,7 @@ class DashboardState:
         self._interrupt_requested = False
         self._interrupt_in_flight = False
         for message in self._messages:
-            if message.status != "pending":
+            if message.status not in {"pending", "sending"}:
                 continue
             message.status = "unsent"
             message.error = None
