@@ -53,7 +53,7 @@ function parseTableAt(lines, start) {
   return { headers, alignments, rows, end };
 }
 
-function appendTableInline(parent, text) {
+function appendMarkdownInline(parent, text) {
   const strongPattern = /\*\*(.+?)\*\*/g;
   let offset = 0;
   for (const match of text.matchAll(strongPattern)) {
@@ -77,7 +77,7 @@ function makeMarkdownTable(parsed) {
   parsed.headers.forEach((text, index) => {
     const th = document.createElement("th");
     th.style.textAlign = parsed.alignments[index];
-    appendTableInline(th, text);
+    appendMarkdownInline(th, text);
     headerRow.appendChild(th);
   });
   thead.appendChild(headerRow);
@@ -90,7 +90,7 @@ function makeMarkdownTable(parsed) {
       row.forEach((text, index) => {
         const td = document.createElement("td");
         td.style.textAlign = parsed.alignments[index];
-        appendTableInline(td, text);
+        appendMarkdownInline(td, text);
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
@@ -116,14 +116,14 @@ export function makeAssistantTextElement(text) {
       continue;
     }
     if (plainStart < index) {
-      div.appendChild(document.createTextNode(lines.slice(plainStart, index).join("\n")));
+      appendMarkdownInline(div, lines.slice(plainStart, index).join("\n"));
     }
     div.appendChild(makeMarkdownTable(table));
     index = table.end;
     plainStart = index;
   }
   if (plainStart < lines.length) {
-    div.appendChild(document.createTextNode(lines.slice(plainStart).join("\n")));
+    appendMarkdownInline(div, lines.slice(plainStart).join("\n"));
   }
   return div;
 }
