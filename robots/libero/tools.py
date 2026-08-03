@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -104,10 +105,12 @@ class LiberoPrimitives:
         env: LiberoEnvClient,
         model: VLAClient,
         sam3_client: Sam3Client,
+        check_cancelled: Callable[[], None],
     ):
         self.env = env
         self.model = model
         self._sam3_client = sam3_client
+        self._check_cancelled = check_cancelled
         self._last_obs = None
         self._last_obs_eef_pos = None
         self._last_obs_eef_z = None
@@ -162,7 +165,8 @@ class LiberoPrimitives:
         return self._last_obs, info
 
     def _step_env(self, action) -> None:
-        """Execute one action and update the cached observation and video."""
+        """Execute one env action between cancellation checkpoints."""
+        self._check_cancelled()
         obs, _r, _t, _tr, _i = self.env.step(action)
         self.set_obs(obs)
         if self._recording:
@@ -170,31 +174,30 @@ class LiberoPrimitives:
 
     def _vlm_chunk(self, instruction: str):
         """One model forward + ``chunk_size`` env steps. Overrides prompt."""
-        # Stash & override task_descriptions (one prompt).
-        original_td = self._last_obs.get("task_descriptions")
-        self._last_obs["task_descriptions"] = instruction
-        self._last_obs.setdefault("extra_view_images", None)
+        self._check_cancelled()
+        original_task = self._last_obs.get("task_descriptions")
+        try:
+            self._last_obs["task_descriptions"] = instruction
+            self._last_obs.setdefault("extra_view_images", None)
 
-        actions, _ = self.model.predict_action_batch(self._last_obs, mode="eval")
-        # actions: [chunk_size, action_dim] The whole chunk
-        # runs in a single env.chunk_step RPC; the env owns the per-step
-        # loop server-side.
-        if not self._recording:
-            chunk_obs,  _r, _t, _tr, _i = self.env.chunk_step(actions)
-            obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
-        else:
-            chunk_obs,  _r, _t, _tr, _i = self.env.chunk_step(
-                actions, return_all_frames=True
-            )
-            for obs in chunk_obs:
-                self.record_frame(obs)
-            obs = chunk_obs[-1]
-        self.set_obs(obs)
-        # Restore original task_descriptions on the obs dict for fairness
-        # with future steps (no leaked state if caller switches primitives).
-        if original_td is not None:
-            self._last_obs["task_descriptions"] = original_td
-        return self._last_obs
+            actions, _ = self.model.predict_action_batch(self._last_obs, mode="eval")
+            self._check_cancelled()
+
+            if not self._recording:
+                chunk_obs,  _r, _t, _tr, _i = self.env.chunk_step(actions)
+                obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
+            else:
+                chunk_obs,  _r, _t, _tr, _i = self.env.chunk_step(
+                    actions, return_all_frames=True
+                )
+                for obs in chunk_obs:
+                    self.record_frame(obs)
+                obs = chunk_obs[-1]
+            self.set_obs(obs)
+            return self._last_obs
+        finally:
+            if original_task is not None:
+                self._last_obs["task_descriptions"] = original_task
 
     def pi0_pick(
         self,

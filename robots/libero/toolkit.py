@@ -12,7 +12,7 @@ from typing import Any
 
 from robots.libero import tools as libero_tools
 from rpent.dashboard.events import DashboardEventSink, ToolResultEvent
-from rpent.tools.toolkit import Toolkit
+from rpent.tools.toolkit import ToolCancelled, Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
 
@@ -65,7 +65,15 @@ class LiberoToolkit(Toolkit):
         command = {"action": name, **kwargs}
         t0 = time.time()
         start_frame = self._primitives.recorded_frame_count()
-        result = getattr(self._primitives, name)(**kwargs)
+        try:
+            result = getattr(self._primitives, name)(**kwargs)
+            self.raise_if_cancelled()
+        except ToolCancelled as exc:
+            result = {
+                "error": str(exc),
+                "code": "tool_cancelled",
+                "interrupted": True,
+            }
         elapsed = round(time.time() - t0, 2)
 
         if isinstance(result, dict):
@@ -93,6 +101,8 @@ class LiberoToolkit(Toolkit):
         )
         out = libero_tools.view_driver_state(step_idx)
         out["agent_elapsed_s"] = elapsed
+        if result_dict.get("interrupted"):
+            out.update(result_dict)
         return out
 
     def init_primitives_clean(
@@ -115,7 +125,10 @@ class LiberoToolkit(Toolkit):
             if target.exists():
                 target.unlink()
 
-        primitives = libero_tools.LiberoPrimitives(**primitives_kwargs)
+        primitives = libero_tools.LiberoPrimitives(
+            check_cancelled=self.raise_if_cancelled,
+            **primitives_kwargs,
+        )
         primitives.reset()
         primitives.start_recording()
         libero_tools.dump_state(primitives, str(out_dir), step_idx=0, log=None)

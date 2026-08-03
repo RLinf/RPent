@@ -176,6 +176,7 @@ class ClaudeCodePlanner:
                                 prompt,
                                 options,
                                 recorder,
+                                toolkit=toolkit,
                                 dashboard_interaction=dashboard_interaction,
                                 initial_user_text=initial_user_text,
                                 emit=_emit,
@@ -283,6 +284,7 @@ class ClaudeCodePlanner:
         options: Any,
         recorder: "_Recorder",
         *,
+        toolkit: Toolkit,
         dashboard_interaction: DashboardInteractionPort,
         initial_user_text: str,
         emit,
@@ -291,6 +293,7 @@ class ClaudeCodePlanner:
         """Drive the Dashboard-owned long-lived Claude session."""
         adapter = _ClaudeDashboardBridge(
             interaction=dashboard_interaction,
+            toolkit=toolkit,
             emit_user=emit_user,
             emit_initial_user=lambda: emit_user(
                 initial_user_text,
@@ -467,10 +470,12 @@ class _ClaudeDashboardBridge:
         self,
         *,
         interaction: DashboardInteractionPort,
+        toolkit: Toolkit,
         emit_user,
         emit_initial_user=None,
     ) -> None:
         self._interaction = interaction
+        self._toolkit = toolkit
         self._emit_user = emit_user
         self._emit_initial_user = emit_initial_user
         self._operation_lock = asyncio.Lock()
@@ -557,6 +562,7 @@ class _ClaudeDashboardBridge:
         if not self._interaction.claim_interrupt_request():
             return False
         try:
+            await asyncio.to_thread(self._toolkit.cancel_active_and_wait)
             await driver.interrupt()
         except Exception as exc:
             self._interaction.complete_interrupt(error=_exception_text(exc))
@@ -847,7 +853,12 @@ def _build_rpent_server(sdk: Any, *, toolkit: Toolkit) -> Any:
             *,
             tool_name: str = name,
         ) -> dict[str, Any]:
-            return _tool_result_to_mcp(toolkit.execute_tool(tool_name, args or {}))
+            result = await asyncio.to_thread(
+                toolkit.execute_tool,
+                tool_name,
+                args or {},
+            )
+            return _tool_result_to_mcp(result)
 
         run_tool.__name__ = f"rpent_{name}"
         sdk_tools.append(sdk.tool(name, description, input_schema)(run_tool))
