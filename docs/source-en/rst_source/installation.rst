@@ -9,7 +9,7 @@ Prerequisites
 
 - Linux with an NVIDIA GPU (LIBERO renders on EGL).
 - CUDA 12.x drivers matching your GPU.
-- Python 3.10–3.11.
+- Python 3.10–3.12 (see ``pyproject.toml``'s ``requires-python``).
 - ``git``, ``bash``, and a working C toolchain for MuJoCo / robosuite.
 
 You will also want:
@@ -83,7 +83,7 @@ These resources usually need to be downloaded only once;
 -------------------------------------------
 
 Franka and SO-101 support is being rolled in; when it lands, each
-robot's driver ships as a package under ``robots/<name>/`` with its own
+robot's env package will live under ``robots/<name>/`` with its own
 ``README.md`` describing the SDK / firmware requirements. See
 :doc:`usage/franka` and :doc:`usage/so101` for the current status.
 

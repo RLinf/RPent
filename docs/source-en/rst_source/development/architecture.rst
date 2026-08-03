@@ -55,7 +55,7 @@ A single run is an LLM-in-the-loop cycle:
 
 1. The LLM reasons about the task and calls a tool
    (e.g. ``pi0_pick``).
-2. The tool's primitive driver requests an action from the ``vla_server``
+2. The tool's primitives requests an action from the ``vla_server``
    (``predict``).
 3. The ``env_server`` executes the action.
 4. The environment returns updated observations and camera frames.
@@ -84,10 +84,12 @@ The framework code is organized by responsibility:
    robots/
      libero/         # LIBERO env_client / env_server / vla_server /
                      # toolkit / prompt_bundle. The reference env.
-     (robocasa/)     # RoboCasa driver — in progress.
-     (franka/)       # Franka driver — in progress.
-     (so101/)        # SO-101 driver — in progress.
-   scripts/          # Setup scripts (LIBERO PRO/PLUS, codex proxy).
+     robocasa/       # RoboCasa env (RLDX-1 VLA, kitchen tasks).
+     (franka/)       # Franka env — in progress.
+     (so101/)        # SO-101 env — in progress.
+   scripts/
+     codex_proxy/    # LiteLLM proxy for the codex planner.
+     robocasa/       # RoboCasa run / setup / sweep scripts.
 
 The runner (``rpent/cli/main.py``)
 ----------------------------------
@@ -155,7 +157,7 @@ three runner hooks (``add_cli_args`` / ``parse_config`` / ``init_runtime``); see
 :doc:`interfaces` for what each field must provide.
 
 The loader itself does not maintain a list of environment names. The
-current CLI, however, still restricts ``--env`` to ``libero``; adding a
+current CLI restricts ``--env`` to ``libero`` and ``robocasa``; adding a
 new name therefore also requires updating the CLI choices. See
 :doc:`add_robot` for the complete procedure.
 
@@ -165,8 +167,8 @@ Planner, Toolkit, and RPC transports
 These three layers stay decoupled, each owning one segment of the path. The
 planner only pulls the tool list via ``get_tools_spec`` and invokes tools with
 ``execute_tool``, indifferent to whether a tool is scripted or a VLA. The
-toolkit translates each tool call into a primitive call, and the primitive
-driver issues ``reset`` / ``step`` / ``predict`` requests to ``env_server`` /
+toolkit translates each tool call into a primitive call, and the primitives
+issues ``reset`` / ``step`` / ``predict`` requests to ``env_server`` /
 ``vla_server`` over RPC. The RPC transport (HTTP or socket) only ferries those
 calls and their NumPy observations across processes, transparent to the layers
 above. That is why swapping the planner leaves the tools untouched, and

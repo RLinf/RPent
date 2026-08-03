@@ -75,7 +75,9 @@ class SocketRpcClient:
             "args": tuple(args),
             "kwargs": dict(kwargs or {}),
         }
-        request_timeout_s = timeout_s or DEFAULT_REQUEST_TIMEOUT_S
+        request_timeout_s = (
+            DEFAULT_REQUEST_TIMEOUT_S if timeout_s is None else timeout_s
+        )
         with socket.create_connection(
             (self.host, self.port), timeout=self.connect_timeout_s
         ) as sock:

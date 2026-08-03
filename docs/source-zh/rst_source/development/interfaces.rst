@@ -34,7 +34,7 @@
        三项需由你正确填写（供 prompt 模板插值）。
    * - ``init_runtime``
      - 启动或连接 env 与 VLA 等子进程，构造 ``primitives_kwargs`` 字典
-       （env 客户端、模型客户端等），供 toolkit 组装 primitive driver。
+       （env 客户端、模型客户端等），供 toolkit 组装 primitives。
 
 ``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给环境子类；``video_path``、
  ``dashboard`` 由 ``main.py`` 传入，通常不用改。

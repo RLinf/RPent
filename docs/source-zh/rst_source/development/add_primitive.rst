@@ -23,20 +23,20 @@
    * - **脚本化**
        （运动学 / 启发式）
      - 在 agent 进程内运行；需要进行运动学计算时，可能通过一次
-       driver 侧 RPC 完成。不需要加载模型权重。
+       server 侧 RPC 完成。不需要加载模型权重。
      - ``move_to``、``rotate_wrist``、``release``、
        ``back_project``
 
 从 LLM 的视角看，两类原语采用相同的接口：一份工具定义、一个
-primitive driver 方法，以及调用完成后的状态快照。区别仅在于方法的具体实现。
+primitives 方法，以及调用完成后的状态快照。区别仅在于方法的具体实现。
 
 添加一个脚本化原语
 ------------------
 
 添加脚本化原语通常需要以下三个步骤：
 
-1. **在 primitive driver 中添加方法。** 在当前环境的 primitive
-   driver 类（如 ``LiberoPrimitives``、``MyRobotPrimitives``）中添加
+1. **在 primitives 中添加方法。** 在当前环境的 primitives
+   类（如 ``LiberoPrimitives``、``MyRobotPrimitives``）中添加
    一个方法。该方法接收工具调用的参数，执行一次或多次
    ``self._env.step(...)``，并返回一个简短的日志字典。
 
@@ -98,14 +98,18 @@ primitive driver 方法，以及调用完成后的状态快照。区别仅在于
    （:class:`HttpRpcClient` 或 :class:`SocketRpcClient`），并提供模型调用
    接口。LIBERO 的实现可参考 ``rpent.utils.vla_client.VLAClient``。
 
-3. **在 primitive driver 中添加方法。** 在当前环境的 primitive driver
-   类中调用 model client，将其返回的动作块交给环境执行，并返回日志字典：
+3. **在 primitives 中添加方法。** 在当前环境的 primitives
+   类中调用 model client，将其返回的动作块交给环境执行，并返回日志字典。
+   model client 的接口是
+   :meth:`rpent.utils.vla_client.VLAClient.predict_action_batch`，
+   指令从 ``env_obs["task_descriptions"]`` 中读取，不接受关键字参数：
 
    .. code-block:: python
 
       def mymodel_pick(self, target: str) -> dict:
-          obs = self._env.get_obs()
-          chunk = self._model.predict(obs, instruction=f"pick {target}")
+          env_obs = self._env.get_obs()
+          env_obs["task_descriptions"] = f"pick {target}"
+          chunk, _meta = self._model.predict_action_batch(env_obs)
           self._env.chunk_step(chunk)
           return {"model": "mymodel", "target": target}
 
@@ -125,7 +129,7 @@ primitive driver 方法，以及调用完成后的状态快照。区别仅在于
 
    环境包中的 ``_init_runtime`` 则负责构造 ``primitives_kwargs``，例如
    ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``，再由
-   toolkit 构造器将其转发给 primitive driver。
+   toolkit 构造器将其转发给 primitives。
 
 在多次运行之间复用 vla_server
 -----------------------------
@@ -166,4 +170,4 @@ primitive driver 方法，以及调用完成后的状态快照。区别仅在于
   或输出 head。
 
 无论具体实现如何，框架的契约都保持不变：模型进程 → model client →
-primitive driver 方法 → 工具定义 → ``Toolkit.add_tool``。
+primitives 方法 → 工具定义 → ``Toolkit.add_tool``。

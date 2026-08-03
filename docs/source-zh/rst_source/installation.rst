@@ -8,7 +8,7 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 
 - Linux + NVIDIA GPU (LIBERO 通过 EGL 渲染)。
 - 与显卡匹配的 CUDA 12.x 驱动。
-- Python 3.10–3.11。
+- Python 3.10–3.12 (见 ``pyproject.toml`` 中的 ``requires-python``)。
 - ``git``、``bash``、以及能编译 MuJoCo / robosuite 的 C 工具链。
 
 此外，还需要：
@@ -76,9 +76,9 @@ LIBERO-PRO 仿真器、SAM 3.0 和 RLinf 运行时。
 3. (可选) 真实机器人依赖
 ------------------------
 
-Franka 与 SO-101 的支持正在逐步接入; 每个机器人的 driver 会以一个包的
-形式放在 ``robots/<name>/`` 下, 并附带 ``README.md`` 说明其 SDK / 固件
-要求。当前进度参见 :doc:`usage/franka` 与 :doc:`usage/so101`。
+Franka 与 SO-101 的支持正在逐步接入; 每个机器人的 env 包未来会以一个
+包的形式放在 ``robots/<name>/`` 下, 并附带 ``README.md`` 说明其 SDK /
+固件要求。当前进度参见 :doc:`usage/franka` 与 :doc:`usage/so101`。
 
 检查是否安装成功
 ----------------

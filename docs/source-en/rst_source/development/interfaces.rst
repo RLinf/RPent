@@ -34,7 +34,7 @@ After you add ``robots/<env>/``, ``main.py`` calls two functions in ``__init__.p
        ``output_dir``, and ``prompt_vars`` for prompt templating.
    * - ``init_runtime``
      - Start or attach to env / VLA subprocesses; build ``primitives_kwargs``
-       (env client, model client, etc.) for the toolkit's primitive driver.
+       (env client, model client, etc.) for the toolkit's primitives.
 
 ``get_toolkit`` usually just passes ``primitives_kwargs`` into your env subclass;
 ``video_path`` and ``dashboard`` are passed by ``main.py`` — you rarely touch them.

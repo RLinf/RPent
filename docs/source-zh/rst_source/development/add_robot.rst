@@ -15,7 +15,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
    服务和 model client，参见
    :ref:`添加一个 VLA（或其他基于模型的原语）<add-primitive-model-based>`。
 3. :ref:`定义 prompt <add-robot-prompts>`。
-4. :ref:`实现 toolkit 和 primitive driver <add-robot-toolkit>`。
+4. :ref:`实现 toolkit 和 primitives <add-robot-toolkit>`。
 5. :ref:`注册环境参数并生成 RunConfig <add-robot-config>`。
 6. 在 :ref:`_init_runtime <add-robot-runtime>` 中启动或连接 ``env_server`` 与
    所需的辅助服务。
@@ -193,13 +193,13 @@ API 版本。
 3. ``toolkit.py``
 ------------------
 
-这个模块持有 LLM 能调用的一切: 工具 schema、primitive driver、每步状态 dump 以及
+这个模块持有 LLM 能调用的一切: 工具 schema、primitives、每步状态 dump 以及
 MCP allowlist。(LIBERO 中由于历史原因把这些拆到了 ``tools.py`` 和 ``toolkit.py``
 两个文件; 新增 env 时全部放在 ``toolkit.py`` 里没问题。)
 
 toolkit 模块通常包含四部分：
 
-**Primitive driver 类**\ （例如 ``MyEnvPrimitives``）是 toolkit 持有的 Python
+**Primitives 类**\ （例如 ``MyEnvPrimitives``）是 toolkit 持有的 Python
 对象。它保存 ``EnvClient``、VLA ``model`` client 和单次运行所需的状态。每个
 原语工具（``move_to``、``pi0_pick``、``release`` 等）对应一个方法，并返回
 日志字典。
@@ -209,24 +209,24 @@ Anthropic API 的工具定义格式，包含 ``name``、``description`` 和
 ``input_schema``），以及 toolkit 引用的模块级函数，例如
 ``view_driver_state``、``back_project`` 和 ``finish``。
 
-**每步状态 dump** —— ``dump_state(driver, output_dir, step_idx, log)`` 把 agent
+**每步状态 dump** —— ``dump_state(primitives, output_dir, step_idx, log)`` 把 agent
 之后会通过 ``view_*`` 工具读回的所有状态 (图像、深度、JSON 状态、camera meta)
 序列化到 ``output_dir``。
 
 **Toolkit 类** 继承 ``rpent.tools.toolkit.Toolkit``：
 
-- 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitive driver（LIBERO
+- 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitives（LIBERO
   中的方法名为 ``init_primitives_clean``；它会清理过期的 ``images/`` 等目录、
   构造原语并 dump 第 0 步）,
 - 用 ``self.add_tool(name, spec, handler)`` 注册每个工具。无状态的读取工具
   （如 ``view_driver_state``、``finish``）直接绑定模块级函数；原语工具通过
   ``_step(name, **kwargs)`` 调用。``_step`` 使用
-  ``getattr(self._primitives, name)(**kwargs)`` 调用 driver 方法并重新渲染状态；
+  ``getattr(self._primitives, name)(**kwargs)`` 调用 primitives 方法并重新渲染状态；
 - 重写 ``close()``，将 agent 侧生成的文件写入磁盘（例如 LIBERO toolkit
   在这里保存 agentview MP4）。
 
 ``primitives_kwargs`` 由 ``__init__.py:get_toolkit`` 转发给 toolkit，再原样传入
-primitive driver 的 ``__init__``。其中通常包含
+primitives 的 ``__init__``。其中通常包含
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``。
 
 建议遵循的约定
@@ -305,7 +305,7 @@ toolkit 所需的参数。环境实现可以自行决定启动多少个子进程
 - ``daemons: list[ProcessDaemon]`` —— 本次运行拥有的子进程；main.py 在
   ``finally`` 里逐个 ``.stop()``。
 - ``primitives_kwargs: dict`` —— 原样传给 toolkit 构造器，再由后者传入
-  primitive driver 的 ``__init__``。其中通常包含
+  primitives 的 ``__init__``。其中通常包含
   ``{"env": MyEnvClient(...), "model": VLAClient(...)}``；如果需要额外服务，
   也在这里加入相应的 client，例如 LIBERO 的 ``sam3_client``。
 

@@ -3,7 +3,7 @@
 ## Current LIBERO MCP Runtime Contract
 
 Use this file as a calibration reference only. For current MCP-based runs, use
-structured MCP tools, do not issue file-based driver commands, and do not manually manage
+structured MCP tools, do not issue file-based protocol commands, and do not manually manage
 `env_server.py`. Do not read BDDL files or hidden task definition files to infer
 coordinates. Do not expect object world coordinates in `states.json`; localize
 objects through images_cam + depth/back_project, segment, and wrist/high-res
@@ -148,12 +148,12 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
 Raw probe logs are preserved in:
 - `{output_dir}/states.json` (one step entry per command — the per-command
   audit; each entry has `command`, `result`, `state`, `elapsed_s`).
-- Only kept for the most recent driver session; reproduce by re-running
+- Only kept for the most recent agent session; reproduce by re-running
   the calibration with the snippet in the next section.
 
 ## Reproducer
 
-Legacy calibration notes below describe the old file-driver flow. In the
+Legacy calibration notes below describe the old file-protocol flow. In the
 current MCP runtime, use the runner-managed environment and call structured MCP
 tools instead.
 

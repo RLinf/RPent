@@ -43,7 +43,7 @@ TOOLS_SPEC: list[dict] = [
         "name": "list_dir",
         "description": (
             "List files in a directory (non-recursive). Default = {{output_dir}}. "
-            "Use to inspect the driver working directory or to discover existing "
+            "Use to inspect the working directory or to discover existing "
             "recipes in resources/libero/results_*_pert/."
         ),
         "input_schema": {

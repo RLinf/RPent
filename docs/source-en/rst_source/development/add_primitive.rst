@@ -23,13 +23,13 @@ Two types of primitives
      - Pi0.5 (LIBERO), RLDX-1 (RoboCasa)
    * - **Scripted**
        (kinematic / heuristic)
-     - Runs in the agent process, with an optional driver-side RPC for
+     - Runs in the agent process, with an optional server-side RPC for
        kinematics. It does not load model weights.
      - ``move_to``, ``rotate_wrist``, ``release``,
        ``back_project``
 
 From the LLM's perspective, both types expose the same interface: a
-tool schema, a primitive-driver method, and a state dump after the
+tool schema, a primitives method, and a state dump after the
 call. They differ only in how the method is implemented.
 
 Add a scripted primitive
@@ -37,8 +37,8 @@ Add a scripted primitive
 
 Adding a scripted primitive usually involves three steps:
 
-1. **Add a method to the primitive driver.** Add the method to the
-   current environment's primitive-driver class, such as
+1. **Add a method to the primitives.** Add the method to the
+   current environment's primitives class, such as
    ``LiberoPrimitives`` or ``MyRobotPrimitives``. The method accepts
    the tool-call arguments, performs the work, usually through one or
    more ``self._env.step(...)`` calls, and returns a small log ``dict``.
@@ -106,16 +106,20 @@ primitive requires a few additional components:
    :class:`SocketRpcClient`) and exposes the model's API.
    See ``rpent.utils.vla_client.VLAClient`` for the LIBERO implementation.
 
-3. **Add a method to the primitive driver.** In the current
-   environment's primitive-driver class, call the model client, pass
+3. **Add a method to the primitives.** In the current
+   environment's primitives class, call the model client, pass
    the returned action chunk to the environment, and return a log
-   ``dict``:
+   ``dict``. The model client API is
+   :meth:`rpent.utils.vla_client.VLAClient.predict_action_batch`, which
+   reads the instruction from ``env_obs["task_descriptions"]`` rather
+   than accepting a keyword argument:
 
    .. code-block:: python
 
       def mymodel_pick(self, target: str) -> dict:
-          obs = self._env.get_obs()
-          chunk = self._model.predict(obs, instruction=f"pick {target}")
+          env_obs = self._env.get_obs()
+          env_obs["task_descriptions"] = f"pick {target}"
+          chunk, _meta = self._model.predict_action_batch(env_obs)
           self._env.chunk_step(chunk)
           return {"model": "mymodel", "target": target}
 
@@ -138,7 +142,7 @@ primitive requires a few additional components:
    The environment package's ``_init_runtime`` builds
    ``primitives_kwargs``, for example
    ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``.
-   The toolkit constructor then forwards it to the primitive driver.
+   The toolkit constructor then forwards it to the primitives.
 
 Reuse an existing vla_server across runs
 ----------------------------------------
@@ -167,7 +171,7 @@ Design principles for a new primitive
   ``states.json``, in the state dump instead.
 - **Guardrails belong in env_server**, not in the toolkit. The LLM
   can and will call any tool with any arguments; workspace bounds
-  and safety clamps must be enforced on the driver side.
+  and safety clamps must be enforced on the server side.
 
 Beyond VLAs
 -----------
@@ -185,5 +189,5 @@ The same pattern extends to non-VLA model primitives:
   head to call via a ``model`` kwarg on ``predict``.
 
 Regardless of the implementation, the framework contract remains
-unchanged: model process → model client → primitive-driver method →
+unchanged: model process → model client → primitives method →
 tool schema → ``Toolkit.add_tool``.
