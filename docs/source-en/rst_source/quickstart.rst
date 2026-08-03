@@ -43,17 +43,18 @@ To switch to another planner, such as ``codex`` or ``api``, see
 3. Monitor the run in the Dashboard
 -----------------------------------
 
-Add ``--dashboard`` to start a local Dashboard service and print its URL
-in the terminal. Open the URL to confirm the configuration on the
-launcher screen. Once the run starts, the page streams the agent's
-reasoning, live camera and Pi0 views, an action timeline, and clip
-replays. Use ``--dashboard-language zh-cn`` for the Chinese UI.
+Add ``--dashboard`` to start a local Dashboard and print its URL in the terminal:
 
 .. code-block:: bash
 
    rpent --env libero --dashboard --dashboard-language zh-cn \
-     --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
+
+Open the URL and confirm the configuration. Once the services are ready, enter
+``/rpent-task libero_object_swap 2 0`` in the page to start a task. The Dashboard
+streams agent reasoning, camera views, and the action timeline; submit another
+task after the current one finishes. Use ``--dashboard-language zh-cn`` for the
+Chinese UI.
 
 Key CLI options
 ---------------

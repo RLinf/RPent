@@ -89,28 +89,28 @@ Runner (``rpent/cli/main.py``)
 2. 根据 ``args.env_name`` 调用 ``get_env_spec`` 加载环境定义，再通过
    ``env_spec.add_cli_args(parser, use_dashboard=args.dashboard)`` 将该环境
    的专用参数加入共享 parser。启用 Dashboard 时，原本必填的环境参数会暂时
-   设为可选，随后由配置页面填写。
+   设为可选，因为任务参数随后通过 Dashboard 命令提供。
 3. 再调用 ``parser.parse_args()``，对完整参数集合执行 argparse 层的校验，
    并生成最终的 ``args``；参数错误仍使用 argparse 的标准提示格式。
 4. 如果启用了 ``--dashboard``，启动配置页面，以当前参数作为默认值，并将
    用户提交的配置写回 ``args``。
 5. 调用 ``env_spec.parse_config(args)`` 校验运行配置，并生成
    :class:`~rpent.envs.RunConfig`，其中包含 ``recipe_tag``、``output_dir``、
-   ``prompt_vars``、``dashboard_state`` 和 ``task_desc``。启用 Dashboard
-   时，此处还会确认配置页面已经补齐所需的环境参数。
+   ``prompt_vars`` 和 ``task_desc``。
 6. 调用 ``init_output_dir`` 创建本次运行的输出目录，并配置 ``run.log``。
 7. 根据 ``--planner`` 调用 ``rpent.planner.base.build_planner`` 构造
    **planner**，并使用环境提供的 prompt bundle 生成 system prompt 和
    user prompt。
-8. 调用 ``env_spec.init_runtime(args, output_dir)``。环境实现会启动
-   ``env_server`` 和 ``vla_server``；如果指定了 ``--env-endpoint`` 或
-   ``--vla-endpoint``，则连接已有服务。该方法返回
+8. 调用 ``env_spec.init_runtime(args, output_dir, dashboard_events)``。环境实现会
+   启动 ``env_server``、``vla_server`` 和 ``sam3_server``；如果指定了对应 endpoint，
+   则连接已有服务。该方法返回
    ``(daemons, primitives_kwargs)``。
-9. 将 ``primitives_kwargs`` 传给环境的 ``get_toolkit`` 工厂，构造
-   **toolkit**。
-10. 执行工具调用循环；启用 Dashboard 时，同时将运行事件发送到监控页面。
-    循环结束后保存 ``<output_dir>/transcript_*.json``，并在清理 toolkit
-    时完成回合录像等收尾工作。
+9. 将 ``primitives_kwargs`` 和 ``dashboard_events`` 事件接收器传给环境的
+   ``get_toolkit`` 工厂，构造 **toolkit**。一次性运行链路使用不执行任何
+   操作的事件接收器。
+10. 执行工具调用循环。循环结束后保存
+    ``<output_dir>/transcript_*.json``，并在清理 toolkit 时完成回合录像等
+    收尾工作。
 
 ``main.py`` 只负责连接上述步骤。环境相关实现集中在 ``robots/<env>/``，
 planner 后端集中在 ``rpent/planner/``，
@@ -128,7 +128,7 @@ planner 后端集中在 ``rpent/planner/``，
    # robots/myenv/__init__.py
    def get_env_spec() -> EnvSpec: ...  # 环境标识、提示词模板与 Runner 钩子
    def get_toolkit(
-       *, primitives_kwargs, video_path=None, dashboard=None
+       *, primitives_kwargs, dashboard_events, video_path=None
    ): ...
 
 ``EnvSpec`` 汇集了环境的标识、prompt 模板与三个 Runner 钩子
@@ -155,19 +155,22 @@ Dashboard（可选）
 -----------------
 
 ``rpent/dashboard/`` 由 FastAPI 应用和静态前端组成。启用 ``--dashboard`` 后，
-``rpent/cli/main.py`` 会根据 ``--dashboard-host`` 和 ``--dashboard-port``
-启动 Dashboard；默认绑定 ``127.0.0.1``，并由操作系统分配可用端口。运行开始前，
-用户可以先在配置页面确认或修改参数。
+``rpent/cli/main.py`` 会将控制权交给 ``rpent/cli/dashboard.py``，由后者根据
+``--dashboard-host`` 和 ``--dashboard-port`` 启动 Dashboard，并在启动共享服务前
+确认配置。VLA 和 SAM3 会在 Dashboard 运行期间复用；通过 ``/rpent-task`` 提交的
+任务使用独立的运行环境，并按顺序执行。
 
-运行期间，Dashboard 页面提供：
+TaskRun 运行期间，Dashboard 页面提供：
 
 - planner 输出以及工具调用事件；
-- 实时相机画面和 Pi0.5 视图；
+- 实时固定相机和腕部相机画面；
 - 动作时间线和单步动作片段；
 - 运行结束后的完整回合录像（如果已生成）。
 
+页面可以提交普通 planner 消息、新任务命令和中断请求，但不会直接发出机器人
+动作。planner、toolkit 和环境运行时通过 ``dashboard_events`` 事件接收器发布
+展示更新。
 服务端通过 SSE 推送运行状态摘要，前端再按需读取详细事件、时间线和图像。
-Dashboard 使用 planner 与 toolkit 产生的状态进行展示，不直接发出机器人动作。
 
 下一步
 ------

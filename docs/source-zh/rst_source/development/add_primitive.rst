@@ -116,10 +116,11 @@ primitive driver 方法，以及调用完成后的状态快照。区别仅在于
 
    .. code-block:: python
 
-      def get_toolkit(*, primitives_kwargs, video_path=None):
+      def get_toolkit(*, primitives_kwargs, dashboard_events, video_path=None):
           from robots.myrobot.toolkit import MyRobotToolkit
           return MyRobotToolkit(
               primitives_kwargs=primitives_kwargs,
+              dashboard_events=dashboard_events,
               video_path=video_path,
           )
 

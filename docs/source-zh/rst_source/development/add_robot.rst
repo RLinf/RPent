@@ -43,6 +43,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 .. code-block:: python
 
    # robots/myenv/__init__.py
+   from rpent.dashboard.events import DashboardEventSink
    from rpent.envs.env_spec import EnvSpec, RunConfig
    from rpent.envs.prompt_bundle import PromptBundle
    from robots.myenv.prompt_bundle import system_prompt, user_prompt
@@ -56,9 +57,13 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
            init_runtime=_init_runtime,
        )
 
-   def get_toolkit(*, primitives_kwargs, video_path=None):
+   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None):
        from robots.myenv.toolkit import MyEnvToolkit
-       return MyEnvToolkit(primitives_kwargs=primitives_kwargs, video_path=video_path)
+       return MyEnvToolkit(
+           primitives_kwargs=primitives_kwargs,
+           dashboard_events=dashboard_events,
+           video_path=video_path,
+       )
 
    def _add_cli_args(parser, use_dashboard) -> None:
        """向共享 parser 注册环境参数。见第 4 节。"""
@@ -68,7 +73,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
        """校验最终的 args，返回 RunConfig。见第 4 节。"""
        ...
 
-   def _init_runtime(args, output_dir):
+   def _init_runtime(args, output_dir, dashboard_events: DashboardEventSink):
        """启动 env_server、vla_server 及所需的辅助服务，构造 primitives_kwargs。
 
        返回 (daemons, primitives_kwargs)。见第 5 节。
@@ -253,13 +258,14 @@ primitive driver 的 ``__init__``。其中通常包含
 
 **``_add_cli_args(parser, use_dashboard) -> None``。** 将环境参数注册到
 main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参数是否保持可选，
-这些值随后由 Dashboard launcher 填入。main.py 会在
-``parser.parse_args()`` 之前调用该钩子，因此 argparse 的 usage 和错误信息也会
-包含环境参数。
+每个 Dashboard TaskRun 的 ``suite`` 与 ``task`` 会在 ``parse_config`` 调用前由
+``/rpent-task`` 命令提供。main.py 会在 ``parser.parse_args()`` 之前调用该钩子，
+因此 argparse 的 usage 和错误信息也会包含环境参数。
 
-**``_parse_config(args) -> RunConfig``。** 在 ``parser.parse_args()`` 以及
-Dashboard launcher（如果启用）运行后调用。该钩子检查 Dashboard 模式下暂时设为
-可选的字段是否已经填入，并返回 :class:`~rpent.envs.RunConfig`：
+**``_parse_config(args) -> RunConfig``。** 普通 CLI 模式下，该钩子在
+``parser.parse_args()`` 后调用；Dashboard 模式下，每个 TaskRun 会先把
+``/rpent-task`` 命令提供的 ``suite`` 与 ``task`` 写入任务参数，再调用该钩子。
+该钩子校验这些字段并返回 :class:`~rpent.envs.RunConfig`：
 
 - ``recipe_tag`` —— 单次运行的环境标签，用于 transcript 文件名和 recipe 路径
   （LIBERO 使用 ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``）。
@@ -267,8 +273,6 @@ Dashboard launcher（如果启用）运行后调用。该钩子检查 Dashboard 
   ``init_output_dir`` 创建目录并配置日志。
 - ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和
   prompt 引用的其他变量。
-- ``dashboard_state`` —— ``args.dashboard`` 为真时是
-  :class:`~rpent.dashboard.state.State`，否则为 ``None``。
 - ``task_desc`` —— 环境特定的任务标识字典，会原样写入 transcript JSON 记录
   （LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
 
@@ -282,12 +286,11 @@ Dashboard launcher（如果启用）运行后调用。该钩子检查 Dashboard 
 
    def _parse_config(args) -> RunConfig:
        if not args.suite: raise ValueError("--suite is required")
-       # ... 生成 recipe_tag、output_dir、prompt_vars、dashboard_state ...
+       # ... 生成 recipe_tag、output_dir 和 prompt_vars ...
        return RunConfig(
            recipe_tag=recipe_tag,
            output_dir=output_dir,
            prompt_vars=prompt_vars,
-           dashboard_state=dashboard_state,
            task_desc={"suite": args.suite, "task": args.task, "seed": args.seed},
        )
 

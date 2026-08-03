@@ -12,7 +12,7 @@
 .. code-block:: python
 
    def get_env_spec() -> EnvSpec: ...
-   def get_toolkit(*, primitives_kwargs, video_path=None, dashboard=None): ...
+   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None): ...
 
 ``get_env_spec`` 返回 ``EnvSpec``，其中你需要提供：
 
@@ -34,10 +34,11 @@
        三项需由你正确填写（供 prompt 模板插值）。
    * - ``init_runtime``
      - 启动或连接 env 与 VLA 等子进程，构造 ``primitives_kwargs`` 字典
-       （env 客户端、模型客户端等），供 toolkit 组装 primitive driver。
+       （env 客户端、模型客户端等），供 toolkit 组装 primitive driver；
+       ``DashboardEventSink`` 用于上报运行时状态。
 
-``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给环境子类；``video_path``、
- ``dashboard`` 由 ``main.py`` 传入，通常不用改。
+``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给环境子类；
+``dashboard_events``、``video_path`` 由 ``main.py`` 传入，通常不用改。
 
 参考实现：``robots/libero/__init__.py``。
 
@@ -58,6 +59,7 @@ Planner
        toolkit: Toolkit,
        max_turns: int,
        input_queue=None,
+       dashboard_interaction=None,
    ) -> PlannerResult: ...
 
 约定：用 ``toolkit.get_tools_spec()`` 把工具交给模型；每次调用 ``toolkit.execute_tool(name, input_dict)``；

@@ -10,6 +10,9 @@ Pi0.5 VLA 用 ``--vla-endpoint``，SAM3 用 ``--sam3-endpoint``。每个都取
 ``[protocol://]HOST:PORT``，省略 protocol 时默认 HTTP，也可用 ``socket://``
 改走 socket RPC。
 
+Dashboard Session 不支持 ``--env-endpoint``，因为每个 TaskRun 都需要使用新的
+环境服务；Dashboard 模式仍可使用 ``--vla-endpoint`` 和 ``--sam3-endpoint``。
+
 LIBERO 环境服务
 ---------------
 

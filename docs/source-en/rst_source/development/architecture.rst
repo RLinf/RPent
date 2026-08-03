@@ -101,31 +101,29 @@ components required for a run. On startup, it:
 2. Resolves the env via ``get_env_spec(args.env_name)`` and calls
    ``env_spec.add_cli_args(parser, use_dashboard=args.dashboard)`` — the env
    registers its flags on the shared parser. ``use_dashboard=True`` makes
-   its otherwise-required flags optional so the dashboard can supply them.
+   task-specific flags optional because the Dashboard receives them later
+   through task commands.
 3. Runs ``parser.parse_args()`` against the complete parser to perform
    argparse-level validation and produce the final ``args``, retaining
    argparse's standard usage and error output.
 4. If ``--dashboard`` is set, starts the launcher with the current arguments
    as defaults and applies the submitted configuration back to ``args``.
 5. Calls ``env_spec.parse_config(args)`` to validate the run configuration
-   and produce a
-   :class:`~rpent.envs.RunConfig`
-   (``recipe_tag`` / ``output_dir`` / ``prompt_vars`` / ``dashboard_state``
-   / ``task_desc``). Under ``--dashboard``, this is where the env
-   enforces that its previously-optional flags were actually filled in.
+   and produce a :class:`~rpent.envs.RunConfig` (``recipe_tag`` /
+   ``output_dir`` / ``prompt_vars`` / ``task_desc``).
 6. Calls ``init_output_dir`` to create the run's output directory and
    configure ``run.log``.
 7. Builds the **planner** through ``rpent.planner.base.build_planner`` based
    on ``--planner``, then renders the system and user prompts from the env's
    prompt bundle.
-8. Calls ``env_spec.init_runtime(args, output_dir)``. The env implementation
-   starts ``env_server`` and ``vla_server``, or connects to existing services
-   when ``--env-endpoint`` / ``--vla-endpoint`` is supplied, and returns
-   ``(daemons, primitives_kwargs)``.
-9. Passes ``primitives_kwargs`` to the env's ``get_toolkit`` factory to
-   construct the **toolkit**.
-10. Runs the tool-calling loop, streams to the dashboard if
-    ``--dashboard`` is set, and then writes
+8. Calls ``env_spec.init_runtime(args, output_dir, dashboard_events)``. The env
+   implementation starts ``env_server``, ``vla_server``, and ``sam3_server``, or connects
+   to existing services when the corresponding endpoint is supplied, and
+   returns ``(daemons, primitives_kwargs)``.
+9. Passes ``primitives_kwargs`` and a ``dashboard_events`` sink to the env's
+   ``get_toolkit`` factory to construct the **toolkit**. The one-shot path
+   uses a no-op event sink.
+10. Runs the tool-calling loop, then writes
     ``<output_dir>/transcript_*.json`` and flushes toolkit recordings during
     cleanup.
 
@@ -147,7 +145,7 @@ two factories exposed by that package:
    # robots/myenv/__init__.py
    def get_env_spec() -> EnvSpec: ...  # identity, prompt bundle, and runner hooks
    def get_toolkit(
-       *, primitives_kwargs, video_path=None, dashboard=None
+       *, primitives_kwargs, dashboard_events, video_path=None
    ): ...
 
 ``EnvSpec`` gathers the environment's identity, its prompt templates, and the
@@ -178,23 +176,25 @@ Dashboard (optional)
 --------------------
 
 ``rpent/dashboard/`` contains a FastAPI application and a static
-frontend. With ``--dashboard``, ``rpent/cli/main.py`` starts the
-Dashboard using ``--dashboard-host`` and ``--dashboard-port``. It binds
-to ``127.0.0.1`` by default and lets the operating system choose a free
-port. Before the run starts, the launcher lets the user review or change
-the configuration.
+frontend. With ``--dashboard``, ``rpent/cli/main.py`` hands control to
+``rpent/cli/dashboard.py``, which starts the Dashboard with
+``--dashboard-host`` and ``--dashboard-port`` and confirms the configuration
+before shared services start. VLA and SAM3 are reused while the Dashboard is
+running; tasks submitted with ``/rpent-task`` use separate environment runtimes
+and execute sequentially.
 
-During the run, the Dashboard shows:
+During a TaskRun, the Dashboard shows:
 
 - planner output and tool-call events;
-- live camera and Pi0.5 views;
+- live fixed-camera and wrist-camera views;
 - the action timeline and per-action clips;
 - the complete episode recording after the run, if one was generated.
 
-The server sends state summaries over SSE, and the frontend fetches
-detailed events, timeline data, and images as needed. The Dashboard
-displays state produced by the planner and toolkit; it does not issue
-robot actions directly.
+The page accepts ordinary planner messages, new task commands, and interrupt
+requests, but these controls do not issue robot actions directly. Planners,
+toolkits, and environment runtimes publish display updates through a
+``dashboard_events`` sink. The server sends state summaries over SSE, and the
+frontend fetches detailed events, timeline data, and images as needed.
 
 Next steps
 ----------

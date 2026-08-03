@@ -12,7 +12,7 @@ After you add ``robots/<env>/``, ``main.py`` calls two functions in ``__init__.p
 .. code-block:: python
 
    def get_env_spec() -> EnvSpec: ...
-   def get_toolkit(*, primitives_kwargs, video_path=None, dashboard=None): ...
+   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None): ...
 
 ``get_env_spec`` returns an ``EnvSpec``. You supply:
 
@@ -34,10 +34,12 @@ After you add ``robots/<env>/``, ``main.py`` calls two functions in ``__init__.p
        ``output_dir``, and ``prompt_vars`` for prompt templating.
    * - ``init_runtime``
      - Start or attach to env / VLA subprocesses; build ``primitives_kwargs``
-       (env client, model client, etc.) for the toolkit's primitive driver.
+       (env client, model client, etc.) for the toolkit's primitive driver. A
+       ``DashboardEventSink`` reports runtime status.
 
 ``get_toolkit`` usually just passes ``primitives_kwargs`` into your env subclass;
-``video_path`` and ``dashboard`` are passed by ``main.py`` — you rarely touch them.
+``dashboard_events`` and ``video_path`` are supplied by ``main.py``, so you
+normally do not need to change them.
 
 Reference: ``robots/libero/__init__.py``.
 
@@ -58,6 +60,7 @@ Most users pick a built-in ``api``, ``claude_code``, or ``codex`` planner — se
        toolkit: Toolkit,
        max_turns: int,
        input_queue=None,
+       dashboard_interaction=None,
    ) -> PlannerResult: ...
 
 Contract: pass ``toolkit.get_tools_spec()`` to the model; dispatch each call via

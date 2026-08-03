@@ -150,17 +150,30 @@ LIBERO 工具分为物理动作工具和只读工具。
 Dashboard
 ---------
 
-加上 ``--dashboard`` 可启动本地监控服务。系统会自动选择一个空闲端口，
-并在终端输出访问 URL：
+加上 ``--dashboard`` 可启动长生命周期的本地 Dashboard Session。系统会自动
+选择一个空闲端口，并在终端输出访问 URL：
 
 .. code-block:: bash
 
    rpent --env libero --dashboard \
-     --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
 
-Dashboard 会实时展示推理过程、agentview 视图、腕部相机视图、Pi0.5
-叠加信息和动作时间线。使用 ``--dashboard-language zh-cn`` 切换中文 UI。
+打开该地址，确认 Session 配置并点击 **Start Session**。共享服务就绪后，在页面
+输入以下命令启动 TaskRun：
+
+.. code-block:: text
+
+   /rpent-task libero_object_swap 2 0
+
+每个 TaskRun 都使用新的环境，VLA 和 SAM3 服务则由 Session 复用。任务完成后可以
+继续提交另一条 ``/rpent-task``；任务运行期间提交新命令则会切换任务。Dashboard
+会实时展示智能体的推理和工具调用、固定相机与腕部相机视图、动作时间线，以及动作
+片段和完整 episode 回放。TaskRun 运行时，输入普通消息可以引导智能体，按 Esc
+可以请求中断。在终端按 Ctrl+C 可结束整个 Session。
+
+``--dashboard`` 不能与 ``--interactive`` 或 ``--env-endpoint`` 同时使用；外部
+``--vla-endpoint`` 和 ``--sam3-endpoint`` 服务仍然可用。使用
+``--dashboard-language zh-cn`` 可切换中文 UI。
 
 接入自定义 VLA
 ----------------

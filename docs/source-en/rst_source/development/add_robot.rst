@@ -49,6 +49,7 @@ two factory functions:
 .. code-block:: python
 
    # robots/myenv/__init__.py
+   from rpent.dashboard.events import DashboardEventSink
    from rpent.envs.env_spec import EnvSpec, RunConfig
    from rpent.envs.prompt_bundle import PromptBundle
    from robots.myenv.prompt_bundle import system_prompt, user_prompt
@@ -62,9 +63,13 @@ two factory functions:
            init_runtime=_init_runtime,
        )
 
-   def get_toolkit(*, primitives_kwargs, video_path=None):
+   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None):
        from robots.myenv.toolkit import MyEnvToolkit
-       return MyEnvToolkit(primitives_kwargs=primitives_kwargs, video_path=video_path)
+       return MyEnvToolkit(
+           primitives_kwargs=primitives_kwargs,
+           dashboard_events=dashboard_events,
+           video_path=video_path,
+       )
 
    def _add_cli_args(parser, use_dashboard) -> None:
        """Register env flags on the shared parser. See §4."""
@@ -74,7 +79,7 @@ two factory functions:
        """Validate final `args`, return a RunConfig. See §4."""
        ...
 
-   def _init_runtime(args, output_dir):
+   def _init_runtime(args, output_dir, dashboard_events: DashboardEventSink):
        """Spawn env_server, vla_server, and any supporting services.
 
        Returns (daemons, primitives_kwargs). See §5.
@@ -268,13 +273,15 @@ hooks and participate in the final argparse pass:
 **``_add_cli_args(parser, use_dashboard) -> None``.** Register the
 environment's arguments on the shared parser created by main.py.
 ``use_dashboard`` determines whether normally required arguments remain
-optional for the dashboard launcher to fill in later. main.py calls this hook
+optional. For each Dashboard TaskRun, the ``/rpent-task`` command supplies
+``suite`` and ``task`` before ``parse_config`` runs. main.py calls this hook
 before ``parser.parse_args()``, so argparse's usage and error output includes
 the environment arguments.
 
-**``_parse_config(args) -> RunConfig``.** Called after ``parser.parse_args()``
-and, if applicable, the dashboard launcher. Enforces any dashboard-only
-optional flags are now populated and returns a
+**``_parse_config(args) -> RunConfig``.** In normal CLI mode, this is called
+after ``parser.parse_args()``. In Dashboard mode, it is called for each
+TaskRun after the ``/rpent-task`` command's ``suite`` and ``task`` have been
+copied to the task arguments. It validates those fields and returns a
 :class:`~rpent.envs.RunConfig`:
 
 - ``recipe_tag`` — env's per-run tag, used in transcript filenames / recipe
@@ -283,8 +290,6 @@ optional flags are now populated and returns a
   calls ``init_output_dir`` to create it and configure logging).
 - ``prompt_vars`` — dict passed to ``PromptBundle.render`` (typically the run
   identifiers plus anything else the prompts reference).
-- ``dashboard_state`` — a :class:`~rpent.dashboard.state.State` when
-  ``args.dashboard`` is set, else ``None``.
 - ``task_desc`` — env-specific dict of task-identifying fields, written into
   the transcript JSON record verbatim (LIBERO:
   ``{"suite": ..., "task": ..., "seed": ...}``).
@@ -299,12 +304,11 @@ optional flags are now populated and returns a
 
    def _parse_config(args) -> RunConfig:
        if not args.suite: raise ValueError("--suite is required")
-       # ... derive recipe_tag, output_dir, prompt_vars, dashboard_state ...
+       # ... derive recipe_tag, output_dir, and prompt_vars ...
        return RunConfig(
            recipe_tag=recipe_tag,
            output_dir=output_dir,
            prompt_vars=prompt_vars,
-           dashboard_state=dashboard_state,
            task_desc={"suite": args.suite, "task": args.task, "seed": args.seed},
        )
 
