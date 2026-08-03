@@ -5,13 +5,13 @@ LIBERO primitives (``move_to``, ``pi0_pick``, ``release``, ...) on top.
 """
 from __future__ import annotations
 
-import shutil
 import time
 from functools import partial
 from typing import Any
 
 from robots.libero import tools as libero_tools
 from rpent.dashboard.events import DashboardEventSink, ToolResultEvent
+from rpent.tools.state import EnvState
 from rpent.tools.toolkit import ToolCancelled, Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
@@ -19,6 +19,22 @@ from rpent.utils.logging import get_logger, get_output_dir
 class LiberoToolkit(Toolkit):
     """Toolkit for the LIBERO environment."""
 
+    _WIPE_STREAMS = (
+        "image",
+        "image_cam",
+        "depth",
+        "world",
+        "image_wrist",
+        "depth_wrist",
+        "world_wrist",
+        "wrist_meta",
+        "image_cam_hi",
+        "world_hi",
+        "image_wrist_hi",
+        "world_wrist_hi",
+        "segments",
+        "action_videos",
+    )
     # Tool schemas keyed by name (built once from the canonical ordered list
     # in libero_tools.TOOLS_SPEC) so each tool registers with its own spec.
     _SPECS = {spec["name"]: spec for spec in libero_tools.TOOLS_SPEC}
@@ -30,8 +46,8 @@ class LiberoToolkit(Toolkit):
         dashboard_events: DashboardEventSink,
         video_path: str | None = None,
     ) -> None:
-        super().__init__(dashboard_events=dashboard_events)
-        self._next_step: int = 0
+        state = EnvState(get_output_dir())
+        super().__init__(dashboard_events=dashboard_events, state=state)
         self._video_path: str | None = video_path
         self.init_primitives_clean(primitives_kwargs=primitives_kwargs)
         self._register_libero_tools()
@@ -44,10 +60,14 @@ class LiberoToolkit(Toolkit):
         # Inspection tools do not advance environment state. Most are stateless
         # module functions; segment is bound to the primitives-owned SAM3 client.
         inspection_handlers = {
-            "view_driver_state": libero_tools.view_driver_state,
-            "view_camera_meta": libero_tools.view_camera_meta,
-            "back_project": libero_tools.back_project,
-            "segment": self._primitives.segment,
+            "view_driver_state": partial(
+                libero_tools.view_driver_state, state=self._state
+            ),
+            "view_camera_meta": partial(
+                libero_tools.view_camera_meta, state=self._state
+            ),
+            "back_project": partial(libero_tools.back_project, state=self._state),
+            "segment": partial(self._primitives.segment, state=self._state),
         }
         for name, handler in inspection_handlers.items():
             self.add_tool(name, specs[name], handler)
@@ -79,11 +99,11 @@ class LiberoToolkit(Toolkit):
         else:
             result_dict = {"value": result}
 
-        self._next_step += 1
-        step_idx = self._next_step
-        output_dir = get_output_dir()
+        step_idx = self._state.next_step_idx
         if self._dashboard_events.enabled:
-            video_dir = libero_tools.artifact_path(output_dir, "action_videos")
+            video_dir = libero_tools.artifact_path(
+                self._state.output_dir, "action_videos"
+            )
             video_path = video_dir / f"step_{step_idx:02d}_{name}.mp4"
             try:
                 self._primitives.save_frame_slice(start_frame, str(video_path), fps=20)
@@ -93,11 +113,11 @@ class LiberoToolkit(Toolkit):
                 )
         libero_tools.dump_state(
             self._primitives,
-            str(output_dir),
+            self._state,
             step_idx=step_idx,
             log={"command": command, "result": result_dict, "elapsed_s": elapsed},
         )
-        out = libero_tools.view_driver_state(step_idx)
+        out = libero_tools.view_driver_state(step_idx, state=self._state)
         out["agent_elapsed_s"] = elapsed
         if result_dict.get("interrupted"):
             out.update(result_dict)
@@ -109,14 +129,9 @@ class LiberoToolkit(Toolkit):
         primitives_kwargs: dict[str, Any],
     ) -> None:
         """Wipe stale run artifacts, build the LiberoPrimitives, dump step 0."""
-        out_dir = get_output_dir()
-        out_dir.mkdir(parents=True, exist_ok=True)
-        for sub in libero_tools.ARTIFACT_DIRECTORIES:
-            target = out_dir / sub
-            if target.exists():
-                shutil.rmtree(target)
+        self._state.reset(wipe_streams=self._WIPE_STREAMS)
+        out_dir = self._state.output_dir
         for target in (
-            libero_tools.artifact_path(out_dir, "states"),
             libero_tools.artifact_path(out_dir, "metadata", camera="agentview", resolution="low"),
             libero_tools.artifact_path(out_dir, "episode_video"),
         ):
@@ -129,11 +144,11 @@ class LiberoToolkit(Toolkit):
         )
         primitives.reset()
         primitives.start_recording()
-        libero_tools.dump_state(primitives, str(out_dir), step_idx=0, log=None)
+        libero_tools.dump_state(primitives, self._state, step_idx=0, log=None)
         self._dashboard_events.emit(
             ToolResultEvent(
                 name="view_driver_state",
-                result=libero_tools.view_driver_state(0),
+            result=libero_tools.view_driver_state(0, state=self._state),
             )
         )
 
@@ -155,4 +170,4 @@ class LiberoToolkit(Toolkit):
 
     def write_recipe(self, recipe_tag: str) -> str:
         """Write the LIBERO recipe JSONL from the dumped state trace."""
-        return libero_tools.write_recipe_from_states(str(get_output_dir()), recipe_tag)
+        return libero_tools.write_recipe_from_states(self._state, recipe_tag)
