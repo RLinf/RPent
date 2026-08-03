@@ -1,16 +1,15 @@
 """Franka tool implementation for the agent-side toolkit."""
 from __future__ import annotations
 
-import json
-import os
 import time
 from typing import Any
 
-import imageio.v2 as imageio
 import numpy as np
 
 from robots.franka.env_client import FrankaEnvClient
-from rpent.utils.logging import get_logger, get_output_dir
+from rpent.tools.common import robust_surface_centroid
+from rpent.tools.state import EnvState, StepRecord
+from rpent.utils.logging import get_logger
 
 logger = get_logger("franka")
 
@@ -18,7 +17,6 @@ _MAX_DELTA_M = 0.05
 _MAX_YAW_DELTA_DEG = 30.0
 _MAX_OBSERVE_DELAY_S = 5.0
 _BACKPROJECT_RADIUS = 6
-_DEPTH_BAND_M = 0.02
 
 
 def _to_list(value) -> list:
@@ -38,66 +36,9 @@ def _to_scalar(value) -> Any:
     return value
 
 
-def _states_path(output_dir: str) -> str:
-    return os.path.join(output_dir, "states.json")
-
-
-def _append_state(output_dir: str, blob: dict) -> None:
-    path = _states_path(output_dir)
-    states: list = []
-    if os.path.exists(path):
-        with open(path) as f:
-            states = json.load(f)
-    states.append(blob)
-    with open(path, "w") as f:
-        json.dump(states, f, indent=2, default=str)
-
-
-def _load_states() -> list:
-    path = _states_path(str(get_output_dir()))
-    if not os.path.exists(path):
-        return []
-    with open(path) as f:
-        return json.load(f)
-
-
-def _latest_step() -> int | None:
-    states = _load_states()
-    if not states:
-        return None
-    return int(states[-1]["step_idx"])
-
-
-def _load_step(step_idx: int) -> dict:
-    for state in _load_states():
-        if int(state["step_idx"]) == step_idx:
-            return state
-    raise KeyError(f"step {step_idx} not present in states.json")
-
-
-def _load_image(step_idx: int, camera: str) -> bytes | None:
-    path = os.path.join(str(get_output_dir()), "images", f"{camera}_{step_idx:02d}.png")
-    if not os.path.exists(path):
-        return None
-    with open(path, "rb") as f:
-        return f.read()
-
-
-def _load_depth(step_idx: int, camera: str) -> np.ndarray:
-    path = os.path.join(str(get_output_dir()), "depths", f"{camera}_{step_idx:02d}.npy")
-    return np.load(path)
-
-
-def _backproject_points(K, rows, cols, depths) -> np.ndarray:
-    K = np.asarray(K, dtype=np.float64)
-    rows = np.asarray(rows, dtype=np.float64)
-    cols = np.asarray(cols, dtype=np.float64)
-    depths = np.asarray(depths, dtype=np.float64)
-    fx, fy = K[0, 0], K[1, 1]
-    cx, cy = K[0, 2], K[1, 2]
-    return np.stack(
-        [(cols - cx) * depths / fx, (rows - cy) * depths / fy, depths], axis=1
-    )
+# State-trace I/O, image/depth layout, and the robust back-projection math now
+# live in :class:`rpent.tools.state.EnvState` (one owner per run). The thin
+# wrappers below delegate to it.
 
 
 class FrankaPrimitives:
@@ -240,89 +181,45 @@ class FrankaPrimitives:
 
 def dump_state(
     driver: FrankaPrimitives,
-    output_dir: str,
+    state: EnvState,
     step_idx: int,
     log: dict | None = None,
-) -> dict:
-    """Dump current camera frames and proprioceptive state to the run dir."""
-    images_dir = os.path.join(output_dir, "images")
-    depths_dir = os.path.join(output_dir, "depths")
-    os.makedirs(images_dir, exist_ok=True)
-    os.makedirs(depths_dir, exist_ok=True)
+) -> StepRecord:
+    """Dump camera frames + proprioceptive state via the EnvState owner.
 
-    saved: dict[str, str] = {}
+    Maps the Franka cameras onto the LIBERO stream layout: scene -> ``image``/
+    ``depth`` (the primary view) and wrist -> ``image_wrist``/``depth_wrist``.
+    """
+    image_streams = {"scene": "image", "wrist": "image_wrist"}
+    depth_streams = {"scene": "depth", "wrist": "depth_wrist"}
+
+    saved_frames: list[str] = []
     for camera, frame in driver.latest_frames().items():
-        arr = np.asarray(frame)
-        if arr.dtype != np.uint8:
-            arr = arr.astype(np.uint8)
-        out_path = os.path.join(images_dir, f"{camera}_{step_idx:02d}.png")
-        try:
-            imageio.imwrite(out_path, arr)
-            saved[camera] = out_path
-        except Exception as exc:
-            logger.warning("frame dump failed for camera %s: %s", camera, exc)
+        stream = image_streams.get(camera, camera)
+        if state.save_image(step_idx, stream, frame):
+            saved_frames.append(stream)
 
-    saved_depths: dict[str, str] = {}
+    saved_depths: list[str] = []
     for camera, depth in driver.latest_depths().items():
-        out_path = os.path.join(depths_dir, f"{camera}_{step_idx:02d}.npy")
-        try:
-            np.save(out_path, np.asarray(depth, dtype=np.float32))
-            saved_depths[camera] = out_path
-        except Exception as exc:
-            logger.warning("depth dump failed for camera %s: %s", camera, exc)
+        stream = depth_streams.get(camera, camera)
+        if state.save_depth(step_idx, stream, depth):
+            saved_depths.append(stream)
 
-    blob: dict[str, Any] = {
-        "step_idx": step_idx,
-        "state": driver.get_state(),
-        "frames": sorted(saved),
-        "depth": sorted(saved_depths),
-        "camera_meta": driver.latest_camera_meta(),
-    }
-    if log is not None:
-        blob["command"] = log.get("command")
-        blob["result"] = log.get("result")
-        blob["elapsed_s"] = log.get("elapsed_s")
-    _append_state(output_dir, blob)
-    return blob
+    record = StepRecord(
+        step_idx=step_idx,
+        state=driver.get_state(),
+        frames=sorted(saved_frames),
+        depth=sorted(saved_depths),
+        camera_meta=driver.latest_camera_meta(),
+        command=log.get("command") if log else None,
+        result=log.get("result") if log else None,
+        elapsed_s=log.get("elapsed_s") if log else None,
+    )
+    return state.append(record)
 
 
-def view_driver_state(step: int | None = None) -> dict:
-    """Read a dumped step and embed the scene/wrist camera images."""
-    latest = _latest_step()
-    if latest is None:
-        return {"error": "no driver state entries; driver not ready"}
-    step_idx = latest if step is None else int(step)
-    try:
-        data = _load_step(step_idx)
-    except Exception as exc:
-        return {"error": f"step {step_idx} not present in driver state trace: {exc}"}
-
-    out: dict[str, Any] = {
-        "step": step_idx,
-        "state": data.get("state", {}),
-        "frames": data.get("frames", []),
-        "depth": data.get("depth", []),
-        "camera_meta": {
-            name: {
-                key: value
-                for key, value in meta.items()
-                if key not in {"K", "T_base_cam"}
-            }
-            for name, meta in (data.get("camera_meta") or {}).items()
-        },
-        "log": {
-            "command": data.get("command"),
-            "result": data.get("result"),
-            "elapsed_s": data.get("elapsed_s"),
-        },
-    }
-    scene = _load_image(step_idx, "scene")
-    wrist = _load_image(step_idx, "wrist")
-    if scene:
-        out["_image_bytes"] = scene
-    if wrist:
-        out["_image_cam_bytes"] = wrist
-    return out
+# view_driver_state now lives on EnvState.view (bound by the toolkit with the
+# scene/wrist image slots); nothing module-level is needed here.
 
 
 def back_project(
@@ -330,85 +227,65 @@ def back_project(
     col: int,
     step: int | None = None,
     camera: str = "wrist",
-    radius: int = _BACKPROJECT_RADIUS,
+    radius: int | None = _BACKPROJECT_RADIUS,
+    *,
+    state: EnvState,
 ) -> dict:
-    """Backproject a saved RGB-D pixel into camera and robot-base coordinates."""
-    step_idx = _latest_step() if step is None else int(step)
-    if step_idx is None:
+    """Back-project a saved RGB-D pixel into camera and robot-base coordinates.
+
+    Uses :func:`rpent.tools.common.robust_surface_centroid` (median of the
+    dominant surface in a window around the pixel) so oblique-view depth noise
+    does not become ~cm lateral error. Returns robot-base ``xyz`` in
+    ``panda_link0`` when the camera has ``T_base_cam`` for the step; otherwise
+    ``xyz_cam`` plus a warning.
+    """
+    nn = state.latest_step if step is None else int(step)
+    if nn is None:
         return {"error": "no steps available"}
     try:
-        data = _load_step(step_idx)
+        rec = state.get(nn)
     except Exception as exc:
-        return {"error": f"step {step_idx} not present in driver state trace: {exc}"}
+        return {"error": f"step {nn} not present in driver state trace: {exc}"}
 
     camera = str(camera or "wrist")
-    meta = (data.get("camera_meta") or {}).get(camera)
+    meta = (rec.camera_meta or {}).get(camera)
     if not meta:
         return {
-            "error": f"camera {camera!r} has no metadata at step {step_idx}",
-            "available_cameras": sorted((data.get("camera_meta") or {}).keys()),
+            "error": f"camera {camera!r} has no metadata at step {nn}",
+            "available_cameras": sorted((rec.camera_meta or {}).keys()),
         }
+    depth_stream = "depth" if camera == "scene" else "depth_wrist"
     try:
-        depth = _load_depth(step_idx, camera)
+        depth = state.load_depth(nn, depth_stream)
     except Exception as exc:
-        return {"error": f"depth for camera {camera!r} step {step_idx} not found: {exc}"}
+        return {"error": f"depth for camera {camera!r} step {nn} not found: {exc}"}
 
-    row, col = int(row), int(col)
-    radius = max(0, int(_BACKPROJECT_RADIUS if radius is None else radius))
-    h, w = depth.shape[:2]
-    if not (0 <= row < h and 0 <= col < w):
-        return {"error": f"pixel ({row},{col}) out of bounds for {camera} image {h}x{w}"}
+    res = robust_surface_centroid(
+        depth,
+        meta["K"],
+        meta.get("T_base_cam"),
+        row,
+        col,
+        radius=_BACKPROJECT_RADIUS if radius is None else radius,
+    )
+    if "error" in res:
+        return res
 
-    r0, r1 = max(0, row - radius), min(h, row + radius + 1)
-    c0, c1 = max(0, col - radius), min(w, col + radius + 1)
-    rr, cc = np.mgrid[r0:r1, c0:c1]
-    zz = depth[r0:r1, c0:c1].reshape(-1).astype(np.float64)
-    rr = rr.reshape(-1).astype(np.float64)
-    cc = cc.reshape(-1).astype(np.float64)
-    valid = np.isfinite(zz) & (zz > 0)
-    if not np.any(valid):
-        return {"error": f"no valid depth near ({row},{col}) in {camera}; pick another pixel"}
-    zz, rr, cc = zz[valid], rr[valid], cc[valid]
-    z_med = float(np.median(zz))
-    surface = np.abs(zz - z_med) <= _DEPTH_BAND_M
-    zz, rr, cc = zz[surface], rr[surface], cc[surface]
-    if zz.size == 0:
-        return {"error": f"no dominant surface depth near ({row},{col}) in {camera}"}
-
-    pts_cam = _backproject_points(meta["K"], rr, cc, zz)
-    p_cam = np.median(pts_cam, axis=0)
-    out: dict[str, Any] = {
-        "step": step_idx,
-        "camera": camera,
-        "pixel": [row, col],
-        "radius": radius,
-        "n_points": int(pts_cam.shape[0]),
-        "depth_m": round(z_med, 4),
-        "xyz_cam": [round(float(v), 4) for v in p_cam],
-        "camera_frame": meta.get("frame", f"{camera}_camera"),
-        "calibrated": bool(meta.get("calibrated")),
-        "calibration_kind": meta.get("calibration_kind"),
-    }
-
-    T_base_cam = meta.get("T_base_cam")
-    if T_base_cam is not None:
-        T = np.asarray(T_base_cam, dtype=np.float64)
-        pts_base = pts_cam @ T[:3, :3].T + T[:3, 3]
-        p_base = np.median(pts_base, axis=0)
-        out["xyz"] = [round(float(v), 4) for v in p_base]
-        out["frame"] = "panda_link0"
-        out["xy_spread_m"] = round(
-            float(np.hypot(*pts_base[:, :2].std(axis=0))), 4
-        )
+    res["step"] = nn
+    res["camera"] = camera
+    res["camera_frame"] = meta.get("frame", f"{camera}_camera")
+    res["calibrated"] = bool(meta.get("calibrated"))
+    res["calibration_kind"] = meta.get("calibration_kind")
+    if meta.get("T_base_cam") is not None:
+        res["frame"] = "panda_link0"
     else:
-        out["frame"] = meta.get("frame", f"{camera}_camera")
-        out["xy_spread_m"] = round(float(np.hypot(*pts_cam[:, :2].std(axis=0))), 4)
-        out["note"] = (
+        res["frame"] = meta.get("frame", f"{camera}_camera")
+        res["note"] = (
             f"camera {camera!r} is not calibrated to panda_link0 for this step; "
             "do not use xyz_cam as a robot target. Add T_base_cam for a fixed "
             "camera or T_tcp_cam for a wrist camera."
         )
-    return out
+    return res
 
 
 TOOLS_SPEC: list[dict[str, Any]] = [

@@ -106,10 +106,16 @@ class Toolkit:
     :meth:`close` to release env-side primitives / servers at the end of the run.
     """
 
-    def __init__(self, *, dashboard_events: DashboardEventSink) -> None:
+    def __init__(
+        self,
+        *,
+        dashboard_events: DashboardEventSink,
+        state: Any = None,
+    ) -> None:
         # name -> (spec, handler)
         self._tools: dict[str, tuple[dict[str, Any], Callable[..., dict[str, Any]]]] = {}
         self._dashboard_events = dashboard_events
+        self._state = state
         self._operation_lock = threading.Lock()
         self._active_operation: _ToolOperation | None = None
         self._register_common_tools()

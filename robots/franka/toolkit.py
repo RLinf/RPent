@@ -1,12 +1,12 @@
 """Franka toolkit: common tools plus conservative Cartesian primitives."""
 from __future__ import annotations
 
-import shutil
 import time
 from functools import partial
 from typing import Any
 
 from robots.franka import tools as franka_tools
+from rpent.tools.state import EnvState
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_output_dir
 
@@ -14,10 +14,11 @@ from rpent.utils.logging import get_output_dir
 class FrankaToolkit(Toolkit):
     """Toolkit for the standalone Franka environment."""
 
-    _STATELESS_TOOLS = (
-        "view_driver_state",
-        "back_project",
-    )
+    # Streams wiped on init (LIBERO layout: scene=image/depth, wrist=image_wrist/depth_wrist).
+    _WIPE_STREAMS = ("image", "image_wrist", "depth", "depth_wrist")
+    # view_driver_state image slots: primary scene -> _image_bytes, wrist -> _image_cam_bytes.
+    _VIEW_IMAGE_SLOTS = {"_image_bytes": "image", "_image_cam_bytes": "image_wrist"}
+
     _DRIVER_READERS = (
         "get_ee_pose",
         "get_robot_spec",
@@ -42,16 +43,28 @@ class FrankaToolkit(Toolkit):
         video_path: str | None = None,
         dashboard: Any = None,
     ) -> None:
-        super().__init__(dashboard=dashboard)
-        self._next_step = 0
+        # EnvState owns the trace + counter for this run (explicit output_dir,
+        # no process-global). The runner will own its lifecycle in a later cut;
+        # for now the toolkit constructs it from get_output_dir().
+        state = EnvState(get_output_dir())
+        super().__init__(dashboard=dashboard, state=state)
         self._video_path = video_path
         self.init_driver_clean(env=env)
         self._register_tools()
 
     def _register_tools(self) -> None:
         spec = self._SPECS
-        for name in self._STATELESS_TOOLS:
-            self.add_tool(name, spec[name], getattr(franka_tools, name))
+        # view_driver_state / back_project read trace state -> bind to EnvState.
+        self.add_tool(
+            "view_driver_state",
+            spec["view_driver_state"],
+            partial(self._state.view, image_slots=self._VIEW_IMAGE_SLOTS),
+        )
+        self.add_tool(
+            "back_project",
+            spec["back_project"],
+            partial(franka_tools.back_project, state=self._state),
+        )
         for name in self._DRIVER_READERS:
             self.add_tool(name, spec[name], self._make_driver_reader(name))
         for name in self._PRIMITIVE_TOOLS:
@@ -71,31 +84,22 @@ class FrankaToolkit(Toolkit):
         elapsed = round(time.time() - t0, 2)
         result_dict = result if isinstance(result, dict) else {"value": result}
 
-        self._next_step += 1
-        step_idx = self._next_step
+        step_idx = self._state.next_step_idx
         franka_tools.dump_state(
             self._driver,
-            str(get_output_dir()),
+            self._state,
             step_idx=step_idx,
             log={"command": command, "result": result_dict, "elapsed_s": elapsed},
         )
-        out = franka_tools.view_driver_state(step_idx)
+        out = self._state.view(step_idx, image_slots=self._VIEW_IMAGE_SLOTS)
         out["agent_elapsed_s"] = elapsed
         return out
 
     def init_driver_clean(self, *, env: Any) -> None:
-        out_dir = get_output_dir()
-        out_dir.mkdir(parents=True, exist_ok=True)
-        images_dir = out_dir / "images"
-        if images_dir.exists():
-            shutil.rmtree(images_dir)
-        states_file = out_dir / "states.json"
-        if states_file.exists():
-            states_file.unlink()
-
+        self._state.reset(wipe_streams=self._WIPE_STREAMS)
         driver = franka_tools.FrankaPrimitives(env=env)
         driver.reset()
-        franka_tools.dump_state(driver, str(out_dir), step_idx=0, log=None)
+        franka_tools.dump_state(driver, self._state, step_idx=0, log=None)
         self._driver = driver
 
     def close(self) -> None:

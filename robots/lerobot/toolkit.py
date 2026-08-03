@@ -6,12 +6,12 @@ driver readers, and the move primitives) on top.
 """
 from __future__ import annotations
 
-import shutil
 import time
 from functools import partial
 from typing import Any
 
 from robots.lerobot import tools as lerobot_tools
+from rpent.tools.state import EnvState
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_output_dir
 
@@ -19,11 +19,8 @@ from rpent.utils.logging import get_output_dir
 class LerobotToolkit(Toolkit):
     """Toolkit for the LeRobot SO101 environment."""
 
-    # Stateless reader tools bound directly to module-level functions.
-    _STATELESS_TOOLS = (
-        "view_driver_state",
-        "back_project",
-    )
+    _WIPE_STREAMS = ("image", "image_arm", "depth")
+    _VIEW_IMAGE_SLOTS = {"_image_bytes": "image", "_image_cam_bytes": "image_arm"}
     # Read-only tools backed by a live driver call (no state dump). These query
     # the robot/scene directly: forward kinematics + scene camera calibration.
     _DRIVER_READERS = (
@@ -48,8 +45,8 @@ class LerobotToolkit(Toolkit):
         video_path: str | None = None,
         dashboard: Any = None,
     ) -> None:
-        super().__init__(dashboard=dashboard)
-        self._next_step: int = 0
+        state = EnvState(get_output_dir())
+        super().__init__(dashboard=dashboard, state=state)
         self._video_path: str | None = video_path
         self.init_driver_clean(env=env, model=model)
         self._register_tools()
@@ -59,8 +56,16 @@ class LerobotToolkit(Toolkit):
     # ------------------------------------------------------------------
     def _register_tools(self) -> None:
         spec = self._SPECS
-        for name in self._STATELESS_TOOLS:
-            self.add_tool(name, spec[name], getattr(lerobot_tools, name))
+        self.add_tool(
+            "view_driver_state",
+            spec["view_driver_state"],
+            partial(self._state.view, image_slots=self._VIEW_IMAGE_SLOTS),
+        )
+        self.add_tool(
+            "back_project",
+            spec["back_project"],
+            partial(lerobot_tools.back_project, state=self._state),
+        )
         for name in self._DRIVER_READERS:
             self.add_tool(name, spec[name], self._make_driver_reader(name))
         for name in self._PRIMITIVE_TOOLS:
@@ -84,32 +89,23 @@ class LerobotToolkit(Toolkit):
 
         result_dict = result if isinstance(result, dict) else {"value": result}
 
-        self._next_step += 1
-        step_idx = self._next_step
+        step_idx = self._state.next_step_idx
         lerobot_tools.dump_state(
             self._driver,
-            str(get_output_dir()),
+            self._state,
             step_idx=step_idx,
             log={"command": command, "result": result_dict, "elapsed_s": elapsed},
         )
-        out = lerobot_tools.view_driver_state(step_idx)
+        out = self._state.view(step_idx, image_slots=self._VIEW_IMAGE_SLOTS)
         out["agent_elapsed_s"] = elapsed
         return out
 
     def init_driver_clean(self, *, env: Any, model: Any | None = None) -> None:
         """Wipe stale run artifacts, build the primitive driver, dump step 0."""
-        out_dir = get_output_dir()
-        out_dir.mkdir(parents=True, exist_ok=True)
-        images_dir = out_dir / "images"
-        if images_dir.exists():
-            shutil.rmtree(images_dir)
-        states_file = out_dir / "states.json"
-        if states_file.exists():
-            states_file.unlink()
-
+        self._state.reset(wipe_streams=self._WIPE_STREAMS)
         driver = lerobot_tools.LerobotPrimitives(env=env, model=model)
         driver.reset()
-        lerobot_tools.dump_state(driver, str(out_dir), step_idx=0, log=None)
+        lerobot_tools.dump_state(driver, self._state, step_idx=0, log=None)
 
         self._driver = driver
 

@@ -5,8 +5,8 @@ Structure mirrors :mod:`robots.libero.tools`:
 * :class:`LerobotPrimitives` — the primitive driver the toolkit owns. Holds
   the env client (and an optional policy/VLA model) plus per-run state, and
   exposes one method per primitive tool.
-* per-step state dump (:func:`dump_state`) + stateless reader tools
-  (:func:`view_driver_state`).
+* per-step state dump (:func:`dump_state`) plus reader tools bound to the
+    run's :class:`rpent.tools.state.EnvState`.
 * :data:`TOOLS_SPEC` — Anthropic-shaped tool schemas.
 
 NOTE: this is a scaffold. The concrete robot primitives (move / grasp /
@@ -16,25 +16,18 @@ loads and the pattern is in place.
 """
 from __future__ import annotations
 
-import json
-import os
 from typing import Any
 
-import imageio.v2 as imageio
 import numpy as np
 
 from robots.lerobot.env_client import LerobotEnvClient
-from rpent.utils.logging import get_logger, get_output_dir
+from rpent.tools.common import robust_surface_centroid
+from rpent.tools.state import EnvState, StepRecord
+from rpent.utils.logging import get_logger
 
 logger = get_logger("lerobot")
 
-# back_project robust-centroid params: it back-projects every valid pixel in a
-# (2*radius+1) square window and keeps those whose depth is within
-# _DEPTH_BAND_M of the window median (the dominant / object surface), then
-# takes the world-median. This tames the scene camera's oblique-view depth
-# noise, which otherwise turns per-pixel depth error into ~cm lateral error.
 _BACKPROJECT_RADIUS = 6
-_DEPTH_BAND_M = 0.02
 
 
 def _to_list(x) -> list:
@@ -177,174 +170,60 @@ class LerobotPrimitives:
             logger.warning("obs refresh failed: %s", e)
 
 
-# ---------------------------------------------------------------------------
-# states.json + image helpers
-# ---------------------------------------------------------------------------
-
-
-def _states_path(output_dir: str) -> str:
-    return os.path.join(output_dir, "states.json")
-
-
-def _append_state(output_dir: str, blob: dict) -> None:
-    path = _states_path(output_dir)
-    states: list = []
-    if os.path.exists(path):
-        with open(path) as f:
-            states = json.load(f)
-    states.append(blob)
-    with open(path, "w") as f:
-        json.dump(states, f, indent=2, default=str)
-
-
-def _load_states() -> list:
-    path = _states_path(str(get_output_dir()))
-    if not os.path.exists(path):
-        return []
-    with open(path) as f:
-        return json.load(f)
-
-
-def _latest_step() -> int | None:
-    states = _load_states()
-    if not states:
-        return None
-    return int(states[-1]["step_idx"])
-
-
-def _load_step(nn: int) -> dict:
-    for s in _load_states():
-        if int(s["step_idx"]) == nn:
-            return s
-    raise KeyError(f"step {nn} not present in states.json")
-
-
-def _load_image(nn: int, cam: str) -> bytes | None:
-    path = os.path.join(str(get_output_dir()), "images", f"{cam}_{nn:02d}.png")
-    if not os.path.exists(path):
-        return None
-    with open(path, "rb") as f:
-        return f.read()
-
-
-def _load_depth(nn: int) -> np.ndarray:
-    path = os.path.join(str(get_output_dir()), "depths", f"scene_{nn:02d}.npy")
-    return np.load(path)
-
-
-def _load_camera_meta() -> dict:
-    path = os.path.join(str(get_output_dir()), "camera_meta.json")
-    with open(path) as f:
-        return json.load(f)
-
-
 def dump_state(
     driver: LerobotPrimitives,
-    output_dir: str,
+    state: EnvState,
     step_idx: int,
     log: dict | None = None,
-) -> dict:
+) -> StepRecord:
     """Dump the camera frames, scene depth, and proprioceptive state.
 
     Writes per step:
-      - ``<output_dir>/images/<cam>_NN.png``   (arm + scene color)
-      - ``<output_dir>/depths/scene_NN.npy``   (metric depth, aligned to color)
-    and once:
-      - ``<output_dir>/camera_meta.json``      (scene K, depth scale, T_base_cam)
-    then appends the step blob (state incl. ``ee_pose_base`` + optional command
-    log) to ``<output_dir>/states.json``.
+      - ``images/image_NN.png`` (scene color)
+      - ``images_arm/image_arm_NN.png`` (arm color)
+      - ``depths/depth_NN.npy`` (scene metric depth, aligned to scene color)
+
+    Scene calibration is stored on the step record. ``EnvState`` atomically
+    appends that record to ``states.json`` and advances the trace counter.
     """
-    images_dir = os.path.join(output_dir, "images")
-    depths_dir = os.path.join(output_dir, "depths")
-    os.makedirs(images_dir, exist_ok=True)
-    os.makedirs(depths_dir, exist_ok=True)
+    image_streams = {"scene": "image", "arm": "image_arm"}
+    saved_frames: list[str] = []
+    for camera, frame in driver.latest_frames().items():
+        stream = image_streams.get(camera, f"image_{camera}")
+        if state.save_image(step_idx, stream, frame):
+            saved_frames.append(stream)
 
-    saved: dict[str, str] = {}
-    for cam, frame in driver.latest_frames().items():
-        arr = np.asarray(frame)
-        if arr.dtype != np.uint8:
-            arr = arr.astype(np.uint8)
-        out_path = os.path.join(images_dir, f"{cam}_{step_idx:02d}.png")
-        try:
-            imageio.imwrite(out_path, arr)
-            saved[cam] = out_path
-        except Exception as e:
-            logger.warning("frame dump failed for cam %s: %s", cam, e)
-
+    saved_depths: list[str] = []
     depth = driver.latest_depth()
-    if depth is not None:
-        try:
-            np.save(os.path.join(depths_dir, f"scene_{step_idx:02d}.npy"),
-                    depth.astype(np.float32))
-        except Exception as e:
-            logger.warning("depth dump failed: %s", e)
+    if depth is not None and state.save_depth(step_idx, "depth", depth):
+        saved_depths.append("depth")
 
-    # Scene camera calibration is static — fetch + dump once.
-    meta_path = os.path.join(output_dir, "camera_meta.json")
-    if not os.path.exists(meta_path):
-        meta = driver.get_scene_camera_meta()
-        if isinstance(meta, dict) and "error" not in meta:
-            with open(meta_path, "w") as f:
-                json.dump(meta, f, indent=2, default=str)
-
-    blob: dict = {
-        "step_idx": step_idx,
-        "state": driver.get_state(),
-        "frames": sorted(saved),
-    }
-    if log is not None:
-        blob["command"] = log.get("command")
-        blob["result"] = log.get("result")
-        blob["elapsed_s"] = log.get("elapsed_s")
-    _append_state(output_dir, blob)
-    return blob
-
-
-# ---------------------------------------------------------------------------
-# Stateless reader tools
-# ---------------------------------------------------------------------------
-
-
-def view_driver_state(step: int | None = None) -> dict:
-    """Read step NN from ``states.json`` + the matching camera PNGs.
-
-    Returns the proprioceptive state and embeds the scene/arm camera frames
-    as multimodal image content blocks (via the ``_image_bytes`` /
-    ``_image_cam_bytes`` conventions consumed by ``ToolResult``).
-    """
-    latest = _latest_step()
-    if latest is None:
-        return {"error": "no driver state entries; driver not ready"}
-    nn = latest if step is None else int(step)
-    try:
-        data = _load_step(nn)
-    except Exception as e:
-        return {"error": f"step {nn} not present in driver state trace: {e}"}
-
-    out: dict = {
-        "step": nn,
-        "state": data.get("state", {}),
-        "log": {
-            "command": data.get("command"),
-            "result": data.get("result"),
-            "elapsed_s": data.get("elapsed_s"),
-        },
-    }
-    # Map the two cameras onto the two image slots ToolResult understands.
-    scene = _load_image(nn, "scene")
-    arm = _load_image(nn, "arm")
-    if scene:
-        out["_image_bytes"] = scene
-    if arm:
-        out["_image_cam_bytes"] = arm
-    return out
+    scene_meta = driver.get_scene_camera_meta()
+    camera_meta = (
+        {"scene": scene_meta}
+        if isinstance(scene_meta, dict) and "error" not in scene_meta
+        else {}
+    )
+    record = StepRecord(
+        step_idx=step_idx,
+        state=driver.get_state(),
+        frames=sorted(saved_frames),
+        depth=sorted(saved_depths),
+        camera_meta=camera_meta,
+        command=log.get("command") if log else None,
+        result=log.get("result") if log else None,
+        elapsed_s=log.get("elapsed_s") if log else None,
+    )
+    return state.append(record)
 
 
 def back_project(
     row: int,
     col: int,
     step: int | None = None,
-    radius: int = _BACKPROJECT_RADIUS,
+    radius: int | None = _BACKPROJECT_RADIUS,
+    *,
+    state: EnvState,
 ) -> dict:
     """Backproject a scene-camera pixel neighborhood to a robust world point.
 
@@ -352,77 +231,48 @@ def back_project(
     pixel's depth error becomes a large lateral error. Instead of trusting one
     pixel, this back-projects EVERY valid pixel in a ``(2*radius+1)`` square
     window around ``(row, col)``, keeps those on the dominant surface (depth
-    within ``_DEPTH_BAND_M`` of the window median -- rejecting background /
-    table / dropouts), and returns the MEDIAN world ``xyz`` of that surface: a
+    within a narrow band of the window median, rejecting background, table,
+    and dropouts), and returns the MEDIAN world ``xyz`` of that surface: a
     stable object centroid rather than one face pixel. Use ``radius=0`` for the
     old single-pixel behavior.
 
-    Pick ``(row, col)`` on the scene color image ``images/scene_NN.png``; depth
-    is aligned to it (``depths/scene_NN.npy``). Uses ``camera_meta.json`` (K +
-    ``T_base_cam``). Returns base/world ``xyz`` when calibrated, else the
-    camera-frame ``xyz_cam`` with a note. Also reports ``n_points`` (surface
-    pixels used) and ``xy_spread_m`` (their world-xy stdev) as a quality gauge.
+    Pick ``(row, col)`` on ``images/image_NN.png``; depth is aligned to it in
+    ``depths/depth_NN.npy``. Returns base/world ``xyz`` when calibrated, else
+    camera-frame ``xyz_cam`` with a note.
     """
-    try:
-        meta = _load_camera_meta()
-    except Exception as e:
-        return {"error": f"camera_meta.json not found: {e}"}
-    nn = _latest_step() if step is None else int(step)
+    nn = state.latest_step if step is None else int(step)
     if nn is None:
         return {"error": "no steps available"}
     try:
-        depth = _load_depth(nn)
-    except Exception as e:
-        return {"error": f"depth for step {nn} not found: {e}"}
+        record = state.get(nn)
+    except Exception as exc:
+        return {"error": f"step {nn} not present in driver state trace: {exc}"}
+    meta = (record.camera_meta or {}).get("scene")
+    if not meta:
+        return {"error": f"scene camera metadata not recorded for step {nn}"}
+    try:
+        depth = state.load_depth(nn, "depth")
+    except Exception as exc:
+        return {"error": f"depth for step {nn} not found: {exc}"}
 
-    row, col = int(row), int(col)
-    radius = max(0, int(radius))
-    h, w = depth.shape[:2]
-    if not (0 <= row < h and 0 <= col < w):
-        return {"error": f"pixel ({row},{col}) out of bounds; image is {h}x{w}"}
+    out = robust_surface_centroid(
+        depth,
+        meta["K"],
+        meta.get("T_base_cam"),
+        row,
+        col,
+        radius=_BACKPROJECT_RADIUS if radius is None else radius,
+    )
+    if "error" in out:
+        return out
 
-    # Gather the window, keep valid depths, then restrict to the dominant
-    # surface (depths within a band of the window median) so background / table
-    # pixels and dropouts don't drag the centroid.
-    r0, r1 = max(0, row - radius), min(h, row + radius + 1)
-    c0, c1 = max(0, col - radius), min(w, col + radius + 1)
-    rr, cc = np.mgrid[r0:r1, c0:c1]
-    zz = depth[r0:r1, c0:c1].reshape(-1).astype(np.float64)
-    rr = rr.reshape(-1).astype(np.float64)
-    cc = cc.reshape(-1).astype(np.float64)
-    valid = np.isfinite(zz) & (zz > 0)
-    if not np.any(valid):
-        return {"error": f"no valid depth near ({row},{col}); pick another pixel"}
-    zz, rr, cc = zz[valid], rr[valid], cc[valid]
-    z_med = float(np.median(zz))
-    surf = np.abs(zz - z_med) <= _DEPTH_BAND_M
-    zz, rr, cc = zz[surf], rr[surf], cc[surf]
-
-    K = np.asarray(meta["K"], dtype=np.float64)
-    fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
-    pts_cam = np.stack(
-        [(cc - cx) * zz / fx, (rr - cy) * zz / fy, zz], axis=1
-    )  # (N, 3)
-    p_cam = np.median(pts_cam, axis=0)
-
-    out: dict = {
-        "pixel": [row, col],
-        "radius": radius,
-        "n_points": int(pts_cam.shape[0]),
-        "depth_m": round(z_med, 4),
-        "xyz_cam": [round(float(v), 4) for v in p_cam],
-        "frame": "scene_cam",
-    }
-    T = meta.get("T_base_cam")
-    if T is not None:
-        T = np.asarray(T, dtype=np.float64)
-        pts_base = pts_cam @ T[:3, :3].T + T[:3, 3]
-        p_base = np.median(pts_base, axis=0)
-        out["xyz"] = [round(float(v), 4) for v in p_base]
-        out["xy_spread_m"] = round(float(np.hypot(*pts_base[:, :2].std(axis=0))), 4)
+    out["step"] = nn
+    out["camera"] = "scene"
+    out["camera_frame"] = meta.get("frame", "scene_cam")
+    if meta.get("T_base_cam") is not None:
         out["frame"] = "base_link"
     else:
-        out["xy_spread_m"] = round(float(np.hypot(*pts_cam[:, :2].std(axis=0))), 4)
+        out["frame"] = meta.get("frame", "scene_cam")
         out["note"] = (
             "scene camera not calibrated (no T_base_cam); returning camera-frame "
             "xyz only. Run robots/lerobot/calibrate_scene_cam.py."
@@ -438,9 +288,10 @@ TOOLS_SPEC: list[dict[str, Any]] = [
     {
         "name": "view_driver_state",
         "description": (
-            "Read step NN from `states.json` + the matching camera PNGs in "
-            "{output_dir}/images. If step is null, returns the latest entry. "
-            "Embeds the scene and arm camera frames as image content blocks."
+            "Read step NN from `states.json` plus the matching scene image "
+            "`images/image_NN.png` and arm image "
+            "`images_arm/image_arm_NN.png`. If step is null, returns the "
+            "latest entry. Embeds both camera frames as image content blocks."
         ),
         "input_schema": {
             "type": "object",
