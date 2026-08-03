@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -20,6 +22,36 @@ from rpent.utils.config import get_repo_root
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
     from rpent.utils.rpc import RpcClient
+
+
+@dataclass(frozen=True, slots=True)
+class LiberoSharedRuntime:
+    """Session-owned VLA/SAM3 clients and their local daemons.
+
+    ``owned_daemons`` contains only subprocesses started by this process.
+    Clients connected through external endpoints therefore remain usable by
+    their external owner after :meth:`close`.
+    """
+
+    model: Any
+    sam3_client: Any
+    owned_daemons: tuple["ProcessDaemon", ...] = ()
+
+    def close(self) -> None:
+        """Stop every locally owned shared-service daemon, best effort."""
+        _stop_owned_daemons(self.owned_daemons)
+
+
+@dataclass(frozen=True, slots=True)
+class LiberoTaskRuntime:
+    """TaskRun-owned LIBERO env client and optional local env daemon."""
+
+    env: Any
+    owned_daemons: tuple["ProcessDaemon", ...] = ()
+
+    def close(self) -> None:
+        """Stop the locally owned env daemon, if any."""
+        _stop_owned_daemons(self.owned_daemons)
 
 
 def get_env_spec() -> EnvSpec:
@@ -134,34 +166,31 @@ def _subprocess_env(**extra: str) -> dict[str, str]:
     return env
 
 
-def _init_runtime(
+def init_task_runtime(
     args: argparse.Namespace,
     output_dir: Path,
     dashboard_events: DashboardEventSink,
-) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    """Spawn env + vla + SAM3 daemons and build clients for LIBERO.
+) -> LiberoTaskRuntime:
+    """Initialize one TaskRun-owned LIBERO environment.
 
-    Each server can be spawned or attached-to independently: pass an
-    endpoint to attach, or leave it unset to spawn a local subprocess.
+    A local env server is fresh for every call. When ``--env-endpoint`` is
+    supplied, the returned handle owns no daemon and closing it leaves the
+    external service running.
 
-    Heavy deps (rpc / vla / daemon / env_client) are imported lazily so
-    that a bare ``import robots.libero`` (for ``get_env_spec`` /
-    ``get_toolkit``) doesn't drag them in.
+    Heavy runtime dependencies stay lazy so importing :mod:`robots.libero`
+    for its descriptor or toolkit does not load RPC/model packages.
     """
     from robots.libero.env_client import LiberoEnvClient
     from rpent.utils.config import get_libero_type
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
     from rpent.utils.http_rpc import HttpRpcClient
     from rpent.utils.rpc import parse_endpoint, wait_for_ready
-    from rpent.utils.sam3_client import Sam3Client
     from rpent.utils.socket_rpc import SocketRpcClient
-    from rpent.utils.vla_client import VLAClient
 
-    daemons: list[ProcessDaemon] = []
+    owned_daemons: list[ProcessDaemon] = []
     libero_type = args.libero_type or get_libero_type()
     cuda_args = ["--cuda-device", str(args.cuda_device)] if args.cuda_device is not None else []
 
-    # --- env_server --------------------------------------------------------
     dashboard_events.emit(RuntimeStatusEvent("env", "starting"))
     try:
         if args.env_endpoint is None:
@@ -189,24 +218,61 @@ def _init_runtime(
                 log_path=str(Path(output_dir) / "env_server.log"),
             )
             env_daemon.start()
-            daemons.append(env_daemon)
+            owned_daemons.append(env_daemon)
             env_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
             wait_for_ready(env_rpc, daemon=env_daemon)
         else:
-            protocol, host, port = parse_endpoint(args.env_endpoint)
-            if protocol == "socket":
-                env_rpc = SocketRpcClient(host, port)
-            elif protocol == "http":
-                env_rpc = HttpRpcClient(f"http://{host}:{port}")
-            else:
-                raise ValueError(
-                    f"--env-endpoint protocol must be socket or http, got {protocol!r}"
-                )
+            env_rpc = _external_rpc_client(
+                args.env_endpoint,
+                option="--env-endpoint",
+                parse_endpoint=parse_endpoint,
+                http_client_factory=HttpRpcClient,
+                socket_client_factory=SocketRpcClient,
+            )
             wait_for_ready(env_rpc)
+        env = LiberoEnvClient(
+            env_rpc,
+            expected_meta={
+                "suite": args.suite,
+                "task": args.task,
+                "seed": args.seed,
+                "max_episode_steps": args.max_episode_steps,
+            },
+        )
     except Exception as exc:
+        _stop_owned_daemons(owned_daemons, suppress_errors=True)
         dashboard_events.emit(RuntimeStatusEvent("env", "failed", error=exc))
         raise
     dashboard_events.emit(RuntimeStatusEvent("env", "ready"))
+    return LiberoTaskRuntime(
+        env=env,
+        owned_daemons=tuple(owned_daemons),
+    )
+
+
+def init_shared_runtime(
+    args: argparse.Namespace,
+    output_dir: Path,
+    dashboard_events: DashboardEventSink,
+) -> LiberoSharedRuntime:
+    """Initialize Session-owned VLA and SAM3 services.
+
+    Local services are started once per call and recorded in the returned
+    handle. External endpoints are connected to but never become owned.
+    """
+    from rpent.utils.daemon import ProcessDaemon, pick_free_port
+    from rpent.utils.http_rpc import HttpRpcClient
+    from rpent.utils.rpc import parse_endpoint, wait_for_ready
+    from rpent.utils.sam3_client import Sam3Client
+    from rpent.utils.socket_rpc import SocketRpcClient
+    from rpent.utils.vla_client import VLAClient
+
+    owned_daemons: list[ProcessDaemon] = []
+    cuda_args = (
+        ["--cuda-device", str(args.cuda_device)]
+        if args.cuda_device is not None
+        else []
+    )
 
     # --- vla_server --------------------------------------------------------
     dashboard_events.emit(RuntimeStatusEvent("vla", "starting"))
@@ -228,21 +294,20 @@ def _init_runtime(
                 log_path=str(Path(output_dir) / "vla_server.log"),
             )
             vla_daemon.start()
-            daemons.append(vla_daemon)
+            owned_daemons.append(vla_daemon)
             vla_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
             wait_for_ready(vla_rpc, daemon=vla_daemon)
         else:
-            protocol, host, port = parse_endpoint(args.vla_endpoint)
-            if protocol == "socket":
-                vla_rpc = SocketRpcClient(host, port)
-            elif protocol == "http":
-                vla_rpc = HttpRpcClient(f"http://{host}:{port}")
-            else:
-                raise ValueError(
-                    f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
-                )
+            vla_rpc = _external_rpc_client(
+                args.vla_endpoint,
+                option="--vla-endpoint",
+                parse_endpoint=parse_endpoint,
+                http_client_factory=HttpRpcClient,
+                socket_client_factory=SocketRpcClient,
+            )
             wait_for_ready(vla_rpc)
     except Exception as exc:
+        _stop_owned_daemons(owned_daemons, suppress_errors=True)
         dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
         raise
     dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
@@ -267,36 +332,100 @@ def _init_runtime(
                 log_path=str(Path(output_dir) / "sam3_server.log"),
             )
             sam3_daemon.start()
-            daemons.append(sam3_daemon)
+            owned_daemons.append(sam3_daemon)
             sam3_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
             wait_for_ready(sam3_rpc, daemon=sam3_daemon)
         else:
-            protocol, host, port = parse_endpoint(args.sam3_endpoint)
-            if protocol == "socket":
-                sam3_rpc = SocketRpcClient(host, port)
-            elif protocol == "http":
-                sam3_rpc = HttpRpcClient(f"http://{host}:{port}")
-            else:
-                raise ValueError(
-                    f"--sam3-endpoint protocol must be socket or http, got {protocol!r}"
-                )
+            sam3_rpc = _external_rpc_client(
+                args.sam3_endpoint,
+                option="--sam3-endpoint",
+                parse_endpoint=parse_endpoint,
+                http_client_factory=HttpRpcClient,
+                socket_client_factory=SocketRpcClient,
+            )
             wait_for_ready(sam3_rpc)
+        model = VLAClient(vla_rpc)
+        sam3_client = Sam3Client(sam3_rpc)
     except Exception as exc:
+        _stop_owned_daemons(owned_daemons, suppress_errors=True)
         dashboard_events.emit(RuntimeStatusEvent("sam3", "failed", error=exc))
         raise
     dashboard_events.emit(RuntimeStatusEvent("sam3", "ready"))
 
+    return LiberoSharedRuntime(
+        model=model,
+        sam3_client=sam3_client,
+        owned_daemons=tuple(owned_daemons),
+    )
+
+
+def _init_runtime(
+    args: argparse.Namespace,
+    output_dir: Path,
+    dashboard_events: DashboardEventSink,
+) -> tuple[list[ProcessDaemon], dict[str, Any]]:
+    """Compose task and shared runtimes for the existing one-shot runner.
+
+    The env is initialized before VLA and SAM3, preserving the established
+    one-shot startup order and return value. If a later shared service fails,
+    the already-started task env is stopped before the exception escapes.
+    """
+    task_runtime: LiberoTaskRuntime | None = None
+    try:
+        task_runtime = init_task_runtime(args, output_dir, dashboard_events)
+        shared_runtime = init_shared_runtime(args, output_dir, dashboard_events)
+    except Exception:
+        if task_runtime is not None:
+            # Preserve the shared-runtime startup error while still cleaning
+            # the env. Cleanup errors must not replace the actionable cause.
+            _stop_owned_daemons(
+                task_runtime.owned_daemons,
+                suppress_errors=True,
+            )
+        raise
+
+    daemons = [
+        *task_runtime.owned_daemons,
+        *shared_runtime.owned_daemons,
+    ]
     primitives_kwargs = {
-        "env": LiberoEnvClient(
-            env_rpc,
-            expected_meta={
-                "suite": args.suite,
-                "task": args.task,
-                "seed": args.seed,
-                "max_episode_steps": args.max_episode_steps,
-            },
-        ),
-        "model": VLAClient(vla_rpc),
-        "sam3_client": Sam3Client(sam3_rpc),
+        "env": task_runtime.env,
+        "model": shared_runtime.model,
+        "sam3_client": shared_runtime.sam3_client,
     }
     return daemons, primitives_kwargs
+
+
+def _external_rpc_client(
+    endpoint: str,
+    *,
+    option: str,
+    parse_endpoint: Callable[[str], tuple[str, str, int]],
+    http_client_factory: Callable[[str], RpcClient],
+    socket_client_factory: Callable[[str, int], RpcClient],
+) -> RpcClient:
+    """Build a non-owned RPC transport for one configured endpoint."""
+    protocol, host, port = parse_endpoint(endpoint)
+    if protocol == "socket":
+        return socket_client_factory(host, port)
+    if protocol == "http":
+        return http_client_factory(f"http://{host}:{port}")
+    raise ValueError(f"{option} protocol must be socket or http, got {protocol!r}")
+
+
+def _stop_owned_daemons(
+    daemons: Iterable[ProcessDaemon],
+    *,
+    suppress_errors: bool = False,
+) -> None:
+    """Stop owned daemons in reverse order while attempting every stop."""
+    errors: list[Exception] = []
+    for daemon in reversed(tuple(daemons)):
+        try:
+            daemon.stop()
+        except Exception as exc:
+            errors.append(exc)
+    if errors and not suppress_errors:
+        raise RuntimeError(
+            f"failed to stop {len(errors)} LIBERO runtime daemon(s)"
+        ) from errors[0]
