@@ -221,7 +221,6 @@ def main() -> int:
         primitives_kwargs=primitives_kwargs,
         video_path=str(Path(output_dir) / "episode.mp4"),
         dashboard_events=dashboard_events,
-        save_action_videos=dashboard_server is not None,
     )
 
     # --- agent loop --------------------------------------------------------

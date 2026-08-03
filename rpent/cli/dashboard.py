@@ -148,6 +148,7 @@ def _run_dashboard_task(
                 primitives_kwargs=primitives_kwargs,
                 video_path=str(output_dir / "episode.mp4"),
                 dashboard_events=state,
+                save_action_videos=True,
             )
             planner = build_planner(
                 args.planner,
