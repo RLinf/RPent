@@ -43,9 +43,9 @@ const COPY = {
     composerLabel: "Agent message composer",
     resizeComposer: "Drag to resize composer height · double-click to reset",
     composerPlaceholder: "Message the agent…",
-    composerKeys: "Enter to send · Shift+Enter for newline · Esc to interrupt the agent",
+    composerKeys: "Enter to send · Shift+Enter for newline · Tab completes /rpent-task · Esc to interrupt",
     commandPlaceholder: "/rpent-task <suite> <task> <seed>",
-    commandKeys: "Enter to submit · /rpent-task <suite> <task> <seed>",
+    commandKeys: "Enter to submit · Tab to complete command/suite · /rpent-task <suite> <task> <seed>",
     sessionStarting: "Starting shared VLA and SAM3 services…",
     commandReady: "Ready for /rpent-task <suite> <task> <seed>.",
     taskStarting: "Starting the selected TaskRun…",
@@ -166,9 +166,9 @@ const COPY = {
     composerLabel: "智能体消息输入区",
     resizeComposer: "拖动调整输入区高度 · 双击复位",
     composerPlaceholder: "向智能体发送消息…",
-    composerKeys: "Enter 发送 · Shift+Enter 换行 · Esc 中断智能体",
+    composerKeys: "Enter 发送 · Shift+Enter 换行 · Tab 补全 /rpent-task · Esc 中断",
     commandPlaceholder: "/rpent-task <suite> <task> <seed>",
-    commandKeys: "Enter 提交 · /rpent-task <suite> <task> <seed>",
+    commandKeys: "Enter 提交 · Tab 补全命令/suite · /rpent-task <suite> <task> <seed>",
     sessionStarting: "正在启动共享 VLA 和 SAM3 服务…",
     commandReady: "可提交 /rpent-task <suite> <task> <seed>。",
     taskStarting: "正在启动已选 TaskRun…",
@@ -1317,8 +1317,15 @@ $("#runBtn").addEventListener("click", onRun);
 
 async function boot() {
   applyStaticCopy();
-  let st = { enabled: false };
-  try { st = await fetch("/api/launch/state").then(x => x.json()); } catch (e) {}
+  const [st, commandCompletions] = await Promise.all([
+    fetch("/api/launch/state")
+      .then(response => response.json())
+      .catch(() => ({ enabled: false })),
+    fetch("/api/commands")
+      .then(response => response.json())
+      .catch(() => null),
+  ]);
+  interactionController.configureTaskCommandCompletion(commandCompletions?.task);
   if (st.enabled && st.pending) {
     showLauncher(st.defaults);
   } else {

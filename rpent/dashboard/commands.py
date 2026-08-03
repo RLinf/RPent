@@ -5,27 +5,26 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-LIBERO_SUITES = frozenset(
-    {
-        "libero_object_task",
-        "libero_object_swap",
-        "libero_object_lan",
-        "libero_goal_task",
-        "libero_goal_swap",
-        "libero_goal_lan",
-        "libero_spatial_task",
-        "libero_spatial_swap",
-        "libero_spatial_lan",
-        "libero_10",
-        "libero_10_task",
-        "libero_10_swap",
-        "libero_10_lan",
-    }
+LIBERO_SUITE_NAMES = (
+    "libero_object_task",
+    "libero_object_swap",
+    "libero_object_lan",
+    "libero_goal_task",
+    "libero_goal_swap",
+    "libero_goal_lan",
+    "libero_spatial_task",
+    "libero_spatial_swap",
+    "libero_spatial_lan",
+    "libero_10",
+    "libero_10_task",
+    "libero_10_swap",
+    "libero_10_lan",
 )
+LIBERO_SUITES = frozenset(LIBERO_SUITE_NAMES)
 
-_TASK_COMMAND = "/rpent-task"
+TASK_COMMAND = "/rpent-task"
 _NON_NEGATIVE_INTEGER = re.compile(r"[0-9]+")
-_TASK_COMMAND_USAGE = "/rpent-task <suite> <task> <seed>"
+_TASK_COMMAND_USAGE = f"{TASK_COMMAND} <suite> <task> <seed>"
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,14 +56,14 @@ def parse_dashboard_command(text: str) -> TaskCommand | None:
 
     command_name = tokens[0]
     if command_name.startswith("/rpent-"):
-        if command_name != _TASK_COMMAND:
+        if command_name != TASK_COMMAND:
             raise DashboardCommandError(
                 f"unknown Dashboard command: {command_name}"
             )
-    elif command_name.lower() != _TASK_COMMAND:
+    elif command_name.lower() != TASK_COMMAND:
         return None
 
-    if len(tokens) != 4 or command_name != _TASK_COMMAND:
+    if len(tokens) != 4 or command_name != TASK_COMMAND:
         raise DashboardCommandError(f"expected {_TASK_COMMAND_USAGE}")
 
     _, suite, task_text, seed_text = tokens

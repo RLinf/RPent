@@ -27,6 +27,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 
+from rpent.dashboard.commands import LIBERO_SUITE_NAMES, TASK_COMMAND
 from rpent.dashboard.interaction import (
     DashboardMessageConflictError,
     InteractionUnavailableError,
@@ -126,6 +127,17 @@ class DashboardServer:
         @app.get("/healthz")
         def healthz() -> JSONResponse:
             return JSONResponse({"ok": True})
+
+        @app.get("/api/commands")
+        def api_commands() -> JSONResponse:
+            return JSONResponse(
+                {
+                    "task": {
+                        "command": TASK_COMMAND,
+                        "suites": list(LIBERO_SUITE_NAMES),
+                    }
+                }
+            )
 
         @app.get("/api/launch/state")
         def api_launch_state() -> JSONResponse:

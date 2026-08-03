@@ -1,3 +1,5 @@
+import { createTaskCommandCompleter } from "./command_completion.js";
+
 function formatValue(value) {
   if (value == null) return "";
   if (typeof value === "string") return value;
@@ -9,6 +11,7 @@ function formatValue(value) {
 }
 
 export function createInteractionController({ copy, select, onRefresh }) {
+  const taskCommandCompleter = createTaskCommandCompleter();
   const state = {
     snapshot: null,
     submissionInFlight: false,
@@ -239,6 +242,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
   }
 
   function reset() {
+    taskCommandCompleter.reset();
     if (state.noticeTimer) clearTimeout(state.noticeTimer);
     state.snapshot = null;
     state.submissionInFlight = false;
@@ -377,6 +381,30 @@ export function createInteractionController({ copy, select, onRefresh }) {
   }
 
   function handleKeydown(event) {
+    if (
+      event.key === "Tab"
+      && !event.shiftKey
+      && !event.ctrlKey
+      && !event.altKey
+      && !event.metaKey
+      && !event.isComposing
+    ) {
+      const input = select("#chatInput");
+      const completion = taskCommandCompleter.complete(
+        input.value,
+        input.selectionStart,
+        input.selectionEnd,
+      );
+      if (completion) {
+        event.preventDefault();
+        input.value = completion.value;
+        input.setSelectionRange(completion.cursor, completion.cursor);
+        return;
+      }
+    } else {
+      taskCommandCompleter.reset();
+    }
+
     if (event.key === "Escape") {
       event.preventDefault();
       requestInterrupt();
@@ -394,5 +422,9 @@ export function createInteractionController({ copy, select, onRefresh }) {
   }
 
   select("#chatInput").addEventListener("keydown", handleKeydown);
-  return { applySnapshot, reset };
+  return {
+    applySnapshot,
+    configureTaskCommandCompletion: taskCommandCompleter.configure,
+    reset,
+  };
 }
