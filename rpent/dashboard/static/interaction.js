@@ -1,4 +1,4 @@
-import { createTaskCommandCompleter } from "./command_completion.js";
+import { createTaskSuiteSuggester } from "./command_completion.js";
 
 function formatValue(value) {
   if (value == null) return "";
@@ -11,7 +11,7 @@ function formatValue(value) {
 }
 
 export function createInteractionController({ copy, select, onRefresh }) {
-  const taskCommandCompleter = createTaskCommandCompleter();
+  const taskSuiteSuggester = createTaskSuiteSuggester();
   const state = {
     snapshot: null,
     submissionInFlight: false,
@@ -21,6 +21,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     notice: null,
     noticeTimer: null,
     pendingRenderKey: null,
+    suiteRenderKey: null,
   };
 
   function errorText(error) {
@@ -140,6 +141,50 @@ export function createInteractionController({ copy, select, onRefresh }) {
     select("#pendingMessages").replaceChildren(...elements);
   }
 
+  function renderSuiteSuggestions() {
+    const area = select("#suiteSuggestions");
+    const input = select("#chatInput");
+    const suites = input.disabled
+      ? []
+      : taskSuiteSuggester.suggest(
+        input.value,
+        input.selectionStart,
+        input.selectionEnd,
+      );
+    const renderKey = JSON.stringify(suites);
+
+    area.hidden = suites.length === 0;
+    if (renderKey === state.suiteRenderKey) return;
+    state.suiteRenderKey = renderKey;
+    if (!suites.length) {
+      area.replaceChildren();
+      return;
+    }
+
+    const candidates = suites.map(suite => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "suite-suggestion";
+      button.setAttribute("role", "option");
+      button.textContent = suite;
+      button.addEventListener("click", () => {
+        const selection = taskSuiteSuggester.select(
+          input.value,
+          input.selectionStart,
+          input.selectionEnd,
+          suite,
+        );
+        if (!selection) return;
+        input.value = selection.value;
+        input.setSelectionRange(selection.cursor, selection.cursor);
+        input.focus();
+        renderSuiteSuggestions();
+      });
+      return button;
+    });
+    area.replaceChildren(...candidates);
+  }
+
   function render() {
     const session = state.snapshot;
     const interaction = session?.interaction;
@@ -149,6 +194,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     if (!session) {
       composer.hidden = true;
       input.disabled = true;
+      renderSuiteSuggestions();
       return;
     }
 
@@ -229,6 +275,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     }
 
     renderPendingMessages(interaction.messages);
+    renderSuiteSuggestions();
   }
 
   function setNotice(message) {
@@ -242,7 +289,6 @@ export function createInteractionController({ copy, select, onRefresh }) {
   }
 
   function reset() {
-    taskCommandCompleter.reset();
     if (state.noticeTimer) clearTimeout(state.noticeTimer);
     state.snapshot = null;
     state.submissionInFlight = false;
@@ -252,11 +298,14 @@ export function createInteractionController({ copy, select, onRefresh }) {
     state.notice = null;
     state.noticeTimer = null;
     state.pendingRenderKey = null;
+    state.suiteRenderKey = null;
     select("#composer").hidden = true;
     select("#chatInput").disabled = true;
     select("#chatInput").value = "";
     select("#pendingArea").hidden = true;
     select("#pendingMessages").replaceChildren();
+    select("#suiteSuggestions").hidden = true;
+    select("#suiteSuggestions").replaceChildren();
     select("#interactionStatus").textContent = "";
   }
 
@@ -381,30 +430,6 @@ export function createInteractionController({ copy, select, onRefresh }) {
   }
 
   function handleKeydown(event) {
-    if (
-      event.key === "Tab"
-      && !event.shiftKey
-      && !event.ctrlKey
-      && !event.altKey
-      && !event.metaKey
-      && !event.isComposing
-    ) {
-      const input = select("#chatInput");
-      const completion = taskCommandCompleter.complete(
-        input.value,
-        input.selectionStart,
-        input.selectionEnd,
-      );
-      if (completion) {
-        event.preventDefault();
-        input.value = completion.value;
-        input.setSelectionRange(completion.cursor, completion.cursor);
-        return;
-      }
-    } else {
-      taskCommandCompleter.reset();
-    }
-
     if (event.key === "Escape") {
       event.preventDefault();
       requestInterrupt();
@@ -421,10 +446,14 @@ export function createInteractionController({ copy, select, onRefresh }) {
     }
   }
 
-  select("#chatInput").addEventListener("keydown", handleKeydown);
+  const input = select("#chatInput");
+  input.addEventListener("keydown", handleKeydown);
+  input.addEventListener("input", renderSuiteSuggestions);
+  input.addEventListener("click", renderSuiteSuggestions);
+  input.addEventListener("select", renderSuiteSuggestions);
   return {
     applySnapshot,
-    configureTaskCommandCompletion: taskCommandCompleter.configure,
+    configureTaskSuiteSuggestions: taskSuiteSuggester.configure,
     reset,
   };
 }

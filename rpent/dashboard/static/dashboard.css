@@ -183,6 +183,22 @@
   .composer[data-input-mode="command_only"] textarea {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
+  .suite-suggestions {
+    display: flex; flex: 0 0 auto; gap: 5px; min-width: 0;
+    padding: 1px 2px 3px; overflow-x: auto; scrollbar-width: thin;
+  }
+  .suite-suggestions[hidden] { display: none; }
+  .suite-suggestion {
+    flex: 0 0 auto; appearance: none; border: 0; border-radius: 5px;
+    padding: 2px 6px; background: transparent; color: var(--muted);
+    opacity: .5; cursor: pointer; white-space: nowrap;
+    font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    transition: opacity .16s ease, color .16s ease, background-color .16s ease;
+  }
+  .suite-suggestion:hover, .suite-suggestion:focus-visible {
+    opacity: 1; color: var(--accent); background: rgba(47,111,214,.09);
+    outline: none;
+  }
   .composer-row { display: flex; align-items: center; min-height: 17px; }
   .composer-hint { color: var(--muted); font-size: 12px; line-height: 1.35; }
   .composer-status {
@@ -339,7 +355,7 @@
   @media (prefers-reduced-motion: reduce) {
     .b-starting, .b-running { animation: none; }
     .badge, .runtime-item, .gutter, .tg-head, .step, .composer textarea,
-    .withdraw-message,
+    .withdraw-message, .suite-suggestion,
     .frame-tabs button, #runBtn { transition: none; }
     .ev.entering, .toolgroup.entering, .step.entering { animation: none; }
     .frame-tabs button:hover, #runBtn:hover { transform: none; box-shadow: none; }
