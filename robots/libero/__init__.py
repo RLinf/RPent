@@ -166,6 +166,7 @@ def _init_runtime(
     # --- env_server --------------------------------------------------------
     dashboard_events.emit(RuntimeStatusEvent("env", "starting"))
     try:
+        env_daemon: ProcessDaemon | None = None
         if args.env_endpoint is None:
             host, port = "127.0.0.1", pick_free_port()
             env_daemon = ProcessDaemon(
@@ -193,7 +194,6 @@ def _init_runtime(
             env_daemon.start()
             daemons.append(env_daemon)
             env_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-            wait_for_ready(env_rpc, daemon=env_daemon)
         else:
             protocol, host, port = parse_endpoint(args.env_endpoint)
             if protocol == "socket":
@@ -204,15 +204,14 @@ def _init_runtime(
                 raise ValueError(
                     f"--env-endpoint protocol must be socket or http, got {protocol!r}"
                 )
-            wait_for_ready(env_rpc)
     except Exception as exc:
         dashboard_events.emit(RuntimeStatusEvent("env", "failed", error=exc))
         raise
-    dashboard_events.emit(RuntimeStatusEvent("env", "ready"))
 
     # --- vla_server --------------------------------------------------------
     dashboard_events.emit(RuntimeStatusEvent("vla", "starting"))
     try:
+        vla_daemon: ProcessDaemon | None = None
         if args.vla_endpoint is None:
             host, port = "127.0.0.1", pick_free_port()
             vla_daemon = ProcessDaemon(
@@ -232,7 +231,6 @@ def _init_runtime(
             vla_daemon.start()
             daemons.append(vla_daemon)
             vla_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-            wait_for_ready(vla_rpc, daemon=vla_daemon)
         else:
             protocol, host, port = parse_endpoint(args.vla_endpoint)
             if protocol == "socket":
@@ -243,15 +241,14 @@ def _init_runtime(
                 raise ValueError(
                     f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
                 )
-            wait_for_ready(vla_rpc)
     except Exception as exc:
         dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
         raise
-    dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
 
     # --- sam3_server -------------------------------------------------------
     dashboard_events.emit(RuntimeStatusEvent("sam3", "starting"))
     try:
+        sam3_daemon: ProcessDaemon | None = None
         if args.sam3_endpoint is None:
             host, port = "127.0.0.1", pick_free_port()
             sam3_daemon = ProcessDaemon(
@@ -271,7 +268,6 @@ def _init_runtime(
             sam3_daemon.start()
             daemons.append(sam3_daemon)
             sam3_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-            wait_for_ready(sam3_rpc, daemon=sam3_daemon)
         else:
             protocol, host, port = parse_endpoint(args.sam3_endpoint)
             if protocol == "socket":
@@ -282,11 +278,25 @@ def _init_runtime(
                 raise ValueError(
                     f"--sam3-endpoint protocol must be socket or http, got {protocol!r}"
                 )
-            wait_for_ready(sam3_rpc)
     except Exception as exc:
         dashboard_events.emit(RuntimeStatusEvent("sam3", "failed", error=exc))
         raise
-    dashboard_events.emit(RuntimeStatusEvent("sam3", "ready"))
+
+    # All local daemons are running now, so they initialize concurrently while
+    # readiness is checked in a deterministic order.
+    for component, client, daemon in (
+        ("env", env_rpc, env_daemon),
+        ("sam3", sam3_rpc, sam3_daemon),
+        ("vla", vla_rpc, vla_daemon),
+    ):
+        try:
+            wait_for_ready(client, daemon=daemon)
+        except Exception as exc:
+            for started_daemon in reversed(daemons):
+                started_daemon.stop()
+            dashboard_events.emit(RuntimeStatusEvent(component, "failed", error=exc))
+            raise
+        dashboard_events.emit(RuntimeStatusEvent(component, "ready"))
 
     primitives_kwargs = {
         "env": LiberoEnvClient(
