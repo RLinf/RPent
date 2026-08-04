@@ -709,11 +709,12 @@ def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
 
 
 def read_image(path: str) -> ToolReturn | dict[str, str]:
-    """Read a local image path returned by an RPent tool as visual input.
+    """Read an explicitly provided local image file as visual input.
 
-    File-system failures are returned to the model as structured tool errors,
-    matching :func:`rpent.tools.common.read_text_file`, so a bad model-supplied
-    path does not abort the entire agent run.
+    Environment observations are already embedded by ``view_driver_state``;
+    this helper is only for other user-selected local files. File-system
+    failures are returned as structured tool errors so a bad path does not
+    abort the entire agent run.
     """
     image_path = Path(path)
     if not image_path.is_absolute():
