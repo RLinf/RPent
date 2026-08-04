@@ -546,10 +546,11 @@ class _ClaudeDashboardBridge:
             return False
 
         try:
+            await asyncio.to_thread(self._toolkit.cancel_active_and_wait)
             await driver.interrupt()
         except Exception as exc:
             self._interaction.complete_task_replacement(
-                error=f"planner interrupt failed: {_exception_text(exc)}"
+                error=f"task replacement failed: {_exception_text(exc)}"
             )
         else:
             self._interaction.complete_task_replacement()
