@@ -6,6 +6,10 @@ import re
 from dataclasses import dataclass
 
 LIBERO_SUITE_NAMES = (
+    "libero_spatial",
+    "libero_object",
+    "libero_goal",
+    "libero_90",
     "libero_object_task",
     "libero_object_swap",
     "libero_object_lan",
