@@ -5,7 +5,6 @@ import argparse
 import os
 import sys
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -22,49 +21,6 @@ from rpent.utils.config import get_repo_root
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
     from rpent.utils.rpc import RpcClient
-
-
-@dataclass(frozen=True, slots=True)
-class LiberoSharedRuntime:
-    """Session-owned VLA/SAM3 clients and their local daemons.
-
-    ``owned_daemons`` contains only subprocesses started by this process.
-    Clients connected through external endpoints therefore remain usable by
-    their external owner after :meth:`close`.
-    """
-
-    model: Any
-    sam3_client: Any
-    owned_daemons: tuple["ProcessDaemon", ...] = ()
-
-    @property
-    def primitives_kwargs(self) -> dict[str, Any]:
-        """Return the shared LIBERO primitive dependencies."""
-        return {
-            "model": self.model,
-            "sam3_client": self.sam3_client,
-        }
-
-    def close(self) -> None:
-        """Stop every locally owned shared-service daemon, best effort."""
-        _stop_owned_daemons(self.owned_daemons)
-
-
-@dataclass(frozen=True, slots=True)
-class LiberoTaskRuntime:
-    """TaskRun-owned LIBERO env client and optional local env daemon."""
-
-    env: Any
-    owned_daemons: tuple["ProcessDaemon", ...] = ()
-
-    @property
-    def primitives_kwargs(self) -> dict[str, Any]:
-        """Return the TaskRun-owned LIBERO primitive dependencies."""
-        return {"env": self.env}
-
-    def close(self) -> None:
-        """Stop the locally owned env daemon, if any."""
-        _stop_owned_daemons(self.owned_daemons)
 
 
 def get_env_spec() -> EnvSpec:
@@ -185,12 +141,12 @@ def init_task_runtime(
     args: argparse.Namespace,
     output_dir: Path,
     dashboard_events: DashboardEventSink,
-) -> LiberoTaskRuntime:
+) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize one TaskRun-owned LIBERO environment.
 
     A local env server is fresh for every call. When ``--env-endpoint`` is
-    supplied, the returned handle owns no daemon and closing it leaves the
-    external service running.
+    supplied, the returned daemon list is empty so the external service stays
+    running.
 
     Heavy runtime dependencies stay lazy so importing :mod:`robots.libero`
     for its descriptor or toolkit does not load RPC/model packages.
@@ -259,21 +215,18 @@ def init_task_runtime(
         dashboard_events.emit(RuntimeStatusEvent("env", "failed", error=exc))
         raise
     dashboard_events.emit(RuntimeStatusEvent("env", "ready"))
-    return LiberoTaskRuntime(
-        env=env,
-        owned_daemons=tuple(owned_daemons),
-    )
+    return owned_daemons, {"env": env}
 
 
 def init_shared_runtime(
     args: argparse.Namespace,
     output_dir: Path,
     dashboard_events: DashboardEventSink,
-) -> LiberoSharedRuntime:
+) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize Session-owned VLA and SAM3 services.
 
-    Local services are started once per call and recorded in the returned
-    handle. External endpoints are connected to but never become owned.
+    The returned list contains only locally started services. External
+    endpoints are connected to but never become owned.
     """
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
     from rpent.utils.http_rpc import HttpRpcClient
@@ -378,11 +331,10 @@ def init_shared_runtime(
     model = VLAClient(vla_rpc)
     sam3_client = Sam3Client(sam3_rpc)
 
-    return LiberoSharedRuntime(
-        model=model,
-        sam3_client=sam3_client,
-        owned_daemons=tuple(owned_daemons),
-    )
+    return owned_daemons, {
+        "model": model,
+        "sam3_client": sam3_client,
+    }
 
 
 def _init_runtime(

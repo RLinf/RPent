@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rpent.dashboard.state import ClaimedTask, DashboardState
 from rpent.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from rpent.utils.daemon import ProcessDaemon
 
 logger = get_logger("dashboard_session")
 
@@ -18,8 +21,14 @@ class DashboardSessionController:
         self,
         *,
         state: DashboardState,
-        start_shared: Callable[[], Any],
-        run_task: Callable[[ClaimedTask, Any], BaseException | str | None],
+        start_shared: Callable[
+            [],
+            tuple[list[ProcessDaemon], dict[str, Any]],
+        ],
+        run_task: Callable[
+            [ClaimedTask, dict[str, Any]],
+            BaseException | str | None,
+        ],
     ) -> None:
         self._state = state
         self._start_shared = start_shared
@@ -27,10 +36,10 @@ class DashboardSessionController:
 
     def run(self) -> None:
         """Start shared services, then consume last-write-wins task commands."""
-        shared: Any | None = None
+        shared_daemons: list[ProcessDaemon] = []
         try:
             try:
-                shared = self._start_shared()
+                shared_daemons, shared_primitives_kwargs = self._start_shared()
             except Exception as exc:
                 self._state.fail_session(exc)
                 return
@@ -41,7 +50,7 @@ class DashboardSessionController:
                 if claimed is None:
                     break
                 try:
-                    error = self._run_task(claimed, shared)
+                    error = self._run_task(claimed, shared_primitives_kwargs)
                 except Exception as exc:
                     error = exc
 
@@ -56,8 +65,14 @@ class DashboardSessionController:
                     error=error,
                 )
         finally:
-            if shared is not None:
+            cleanup_errors: list[str] = []
+            for daemon in reversed(shared_daemons):
                 try:
-                    shared.close()
+                    daemon.stop()
                 except Exception as exc:
-                    logger.warning("shared runtime cleanup failed: %s", exc)
+                    cleanup_errors.append(str(exc))
+            if cleanup_errors:
+                logger.warning(
+                    "shared runtime cleanup failed: %s",
+                    "; ".join(cleanup_errors),
+                )

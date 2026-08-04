@@ -44,11 +44,11 @@ class EnvSpec:
     parse_config: Callable[[argparse.Namespace], RunConfig]
     init_shared_runtime: Callable[
         [argparse.Namespace, Path, DashboardEventSink],
-        Any,
+        tuple[list["ProcessDaemon"], dict[str, Any]],
     ]
     init_task_runtime: Callable[
         [argparse.Namespace, Path, DashboardEventSink],
-        Any,
+        tuple[list["ProcessDaemon"], dict[str, Any]],
     ]
     init_runtime: Callable[
         [argparse.Namespace, Path, DashboardEventSink],

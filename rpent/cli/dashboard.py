@@ -23,6 +23,7 @@ from rpent.utils.resources import ensure_resources
 if TYPE_CHECKING:
     from rpent.dashboard.state import ClaimedTask, DashboardState
     from rpent.envs.env_spec import EnvSpec
+    from rpent.utils.daemon import ProcessDaemon
 
 logger = get_logger("agent")
 
@@ -115,7 +116,7 @@ def _run_dashboard_task(
     env_spec: EnvSpec,
     state: DashboardState,
     claimed: ClaimedTask,
-    shared: Any,
+    shared_primitives_kwargs: dict[str, Any],
     session_root: Path,
 ) -> str | None:
     """Execute one fresh Dashboard TaskRun against Session-owned services."""
@@ -132,15 +133,19 @@ def _run_dashboard_task(
     messages: list[dict] = []
     stats: dict = {}
     agent_error: str | None = None
-    task_runtime = None
+    task_daemons: list[ProcessDaemon] = []
     toolkit = None
     started = time.time()
     try:
-        task_runtime = env_spec.init_task_runtime(task_args, output_dir, state)
+        task_daemons, task_primitives_kwargs = env_spec.init_task_runtime(
+            task_args,
+            output_dir,
+            state,
+        )
         if not state.task_replacement_requested:
             primitives_kwargs = {
-                **task_runtime.primitives_kwargs,
-                **shared.primitives_kwargs,
+                **task_primitives_kwargs,
+                **shared_primitives_kwargs,
             }
             toolkit = get_toolkit(
                 args.env_name,
@@ -196,9 +201,9 @@ def _run_dashboard_task(
                 logger.info("recipe: %s", recipe_path)
             except Exception as exc:
                 cleanup_errors.append(f"Toolkit cleanup failed: {exc}")
-        if task_runtime is not None:
+        for daemon in reversed(task_daemons):
             try:
-                task_runtime.close()
+                daemon.stop()
             except Exception as exc:
                 cleanup_errors.append(f"env cleanup failed: {exc}")
         if cleanup_errors:
