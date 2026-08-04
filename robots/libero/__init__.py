@@ -229,7 +229,7 @@ def init_task_runtime(
                 http_client_factory=HttpRpcClient,
                 socket_client_factory=SocketRpcClient,
             )
-            wait_for_ready(env_rpc)
+        wait_for_ready(env_rpc, daemon=env_daemon)
         env = LiberoEnvClient(
             env_rpc,
             expected_meta={
@@ -305,7 +305,6 @@ def init_shared_runtime(
                 http_client_factory=HttpRpcClient,
                 socket_client_factory=SocketRpcClient,
             )
-            wait_for_ready(vla_rpc)
     except Exception as exc:
         _stop_owned_daemons(owned_daemons, suppress_errors=True)
         dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
@@ -342,13 +341,27 @@ def init_shared_runtime(
                 http_client_factory=HttpRpcClient,
                 socket_client_factory=SocketRpcClient,
             )
-            wait_for_ready(sam3_rpc)
-        model = VLAClient(vla_rpc)
-        sam3_client = Sam3Client(sam3_rpc)
     except Exception as exc:
         _stop_owned_daemons(owned_daemons, suppress_errors=True)
         dashboard_events.emit(RuntimeStatusEvent("sam3", "failed", error=exc))
         raise
+
+    # Start both local services before waiting so heavyweight initialization
+    # continues concurrently, matching the one-shot runtime behavior.
+    for component, client, daemon in (
+        ("sam3", sam3_rpc, sam3_daemon),
+        ("vla", vla_rpc, vla_daemon),
+    ):
+        try:
+            wait_for_ready(client, daemon=daemon)
+        except Exception as exc:
+            _stop_owned_daemons(owned_daemons, suppress_errors=True)
+            dashboard_events.emit(RuntimeStatusEvent(component, "failed", error=exc))
+            raise
+        dashboard_events.emit(RuntimeStatusEvent(component, "ready"))
+
+    model = VLAClient(vla_rpc)
+    sam3_client = Sam3Client(sam3_rpc)
 
     return LiberoSharedRuntime(
         model=model,
@@ -364,23 +377,44 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Compose task and shared runtimes for the existing one-shot runner.
 
-    The env is initialized before VLA and SAM3, preserving the established
-    one-shot startup order and return value. If a later shared service fails,
-    the already-started task env is stopped before the exception escapes.
+    Task and shared services initialize concurrently, preserving the startup
+    behavior established by the Dashboard monitoring runtime. If either side
+    fails, any successfully initialized peer runtime is stopped before the
+    exception escapes.
     """
-    task_runtime: LiberoTaskRuntime | None = None
-    try:
-        task_runtime = init_task_runtime(args, output_dir, dashboard_events)
-        shared_runtime = init_shared_runtime(args, output_dir, dashboard_events)
-    except Exception:
-        if task_runtime is not None:
-            # Preserve the shared-runtime startup error while still cleaning
-            # the env. Cleanup errors must not replace the actionable cause.
+    from concurrent.futures import ThreadPoolExecutor, wait
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        task_future = executor.submit(
+            init_task_runtime,
+            args,
+            output_dir,
+            dashboard_events,
+        )
+        shared_future = executor.submit(
+            init_shared_runtime,
+            args,
+            output_dir,
+            dashboard_events,
+        )
+        wait((task_future, shared_future))
+
+    if task_future.exception() is not None:
+        if shared_future.exception() is None:
             _stop_owned_daemons(
-                task_runtime.owned_daemons,
+                shared_future.result().owned_daemons,
                 suppress_errors=True,
             )
-        raise
+        task_future.result()
+    if shared_future.exception() is not None:
+        _stop_owned_daemons(
+            task_future.result().owned_daemons,
+            suppress_errors=True,
+        )
+        shared_future.result()
+
+    task_runtime = task_future.result()
+    shared_runtime = shared_future.result()
 
     daemons = [
         *task_runtime.owned_daemons,
