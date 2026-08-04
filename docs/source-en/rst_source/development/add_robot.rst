@@ -19,11 +19,12 @@ order:
    integrate a VLA service and model client, see :ref:`Add a VLA (or other
    model-based primitive) <add-primitive-model-based>`.
 3. :ref:`Define the prompts <add-robot-prompts>`.
-4. :ref:`Implement the toolkit and primitive driver <add-robot-toolkit>`.
+4. :ref:`Implement the toolkit and primitives <add-robot-toolkit>`.
 5. :ref:`Register environment arguments and build RunConfig
    <add-robot-config>`.
-6. In :ref:`_init_runtime <add-robot-runtime>`, start or connect to
-   ``env_server`` and any required supporting services.
+6. Implement the :ref:`runtime hooks <add-robot-runtime>`: one complete
+   runtime for normal CLI runs, plus the Dashboard-only Session/TaskRun split
+   if the environment supports Dashboard task control.
 
 .. _add-robot-entry:
 
@@ -39,7 +40,7 @@ For a new environment named ``myenv``, use the following directory layout:
        env_client.py          # MyEnvClient — agent-side RPC stub (§1)
        prompt_bundle.py       # system()/user() prompt factories         (§2)
        toolkit.py             # MyEnvToolkit + primitives + tool definitions (§3)
-       env_server.py          # driver-side facade + RPC server (§1)
+       env_server.py          # server-side facade + RPC server (§1)
        vla_server.py          # (optional) VLA model server
 
 ``__init__.py`` is the environment package's entry point. The registry in
@@ -60,6 +61,8 @@ two factory functions:
            prompts=PromptBundle(system=system_prompt, user=user_prompt),
            add_cli_args=_add_cli_args,
            parse_config=_parse_config,
+           init_shared_runtime=_init_shared_runtime,
+           init_task_runtime=_init_task_runtime,
            init_runtime=_init_runtime,
        )
 
@@ -80,10 +83,18 @@ two factory functions:
        ...
 
    def _init_runtime(args, output_dir, dashboard_events: DashboardEventSink):
-       """Spawn env_server, vla_server, and any supporting services.
+       """Normal CLI only: initialize the complete runtime.
 
        Returns (daemons, primitives_kwargs). See §5.
        """
+       ...
+
+   def _init_shared_runtime(args, output_dir, dashboard_events: DashboardEventSink):
+       """Dashboard only: initialize Session-owned reusable services."""
+       ...
+
+   def _init_task_runtime(args, output_dir, dashboard_events: DashboardEventSink):
+       """Dashboard only: initialize fresh per-TaskRun services."""
        ...
 
 That's the entire registration step — ``_resolve_env(name)`` does an
@@ -91,8 +102,8 @@ That's the entire registration step — ``_resolve_env(name)`` does an
 ``robots/`` on disk is enough. No central list to update.
 
 The sections below describe what each referenced module must contain.
-``_add_cli_args`` / ``_parse_config`` are covered in §4 and ``_init_runtime``
-in §5.
+``_add_cli_args`` / ``_parse_config`` are covered in §4 and the three runtime
+hooks in §5.
 
 .. _add-robot-env-rpc:
 
@@ -109,7 +120,7 @@ The base contract is two gym-style methods (``reset``, ``step``); add whatever
 your env needs on top (LIBERO has ``chunk_step``, ``render_camera``,
 ``get_camera_meta``, ``cached_image``, …). Each method forwards through
 ``RpcClient.call("<rpc-name>", args=..., kwargs=...)`` with a per-method
-timeout. Keep names stable — the driver-side dispatcher matches by name.
+timeout. Keep names stable — the server-side dispatcher matches by name.
 
 .. code-block:: python
 
@@ -125,10 +136,10 @@ timeout. Keep names stable — the driver-side dispatcher matches by name.
            return self._client.call("env.step", args=(action,), timeout_s=60.0)
        # ... add other env-specific methods
 
-1.2 Env server (driver side)
+1.2 Env server (server side)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Mirror the client's API in a facade class on the driver side (e.g.
+Mirror the client's API in a facade class on the server side (e.g.
 ``MyEnvFacade``). Subclass :class:`rpent.utils.rpc.RpcFacade`, implement
 ``_dispatch(method, args, kwargs)`` to route ``env.*`` calls to your
 methods, and delegate startup to ``self.serve(...)``. Methods take the
@@ -209,14 +220,14 @@ render time.
 3. ``toolkit.py``
 ------------------
 
-This module owns everything the LLM can call: the tool schemas, the primitive
-driver, the per-step state dump, and the MCP allowlist. (In the LIBERO env these
+This module owns everything the LLM can call: the tool schemas, the primitives,
+the per-step state dump, and the MCP allowlist. (In the LIBERO env these
 are split between ``tools.py`` and ``toolkit.py`` for historical reasons; for a
 new env it is fine to keep them all in ``toolkit.py``.)
 
 A toolkit module typically contains four pieces:
 
-**Primitive driver class** (e.g. ``MyEnvPrimitives``) — a Python object owned
+**Primitives class** (e.g. ``MyEnvPrimitives``) — a Python object owned
 by the toolkit. It holds the ``EnvClient``, the VLA ``model`` client, and any
 state needed for the current run. It exposes one method per primitive tool
 (``move_to``, ``pi0_pick``, ``release``, …), with each method returning a
@@ -227,13 +238,13 @@ Anthropic-style tool definitions (``name``, ``description``, ``input_schema``),
 plus any module-level functions referenced by the toolkit (e.g.
 ``view_driver_state``, ``back_project``, ``finish``).
 
-**Per-step state dump** — ``dump_state(driver, output_dir, step_idx, log)``
+**Per-step state dump** — ``dump_state(primitives, output_dir, step_idx, log)``
 serializes whatever state the agent will read back via the ``view_*`` tools
 (images, depths, JSON state, camera meta) into ``output_dir``.
 
 **Toolkit class** — subclass ``rpent.tools.toolkit.Toolkit``:
 
-- build the primitive driver in ``__init__`` through a custom initialization
+- build the primitives in ``__init__`` through a custom initialization
   helper (named ``init_primitives_clean`` in LIBERO; it wipes stale
   ``images/`` etc., constructs the primitives, and dumps step 0),
 - register each tool with ``self.add_tool(name, spec, handler)`` — stateless
@@ -244,7 +255,7 @@ serializes whatever state the agent will read back via the ``view_*`` tools
   LIBERO toolkit saves the agentview MP4 there).
 
 ``primitives_kwargs`` (forwarded from ``__init__.py:get_toolkit``) is the dict
-the toolkit passes verbatim to your primitive driver's ``__init__`` — typically
+the toolkit passes verbatim to your primitives' ``__init__`` — typically
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``.
 
 Conventions worth keeping
@@ -256,7 +267,7 @@ Conventions worth keeping
 - Tool definitions use the Anthropic format (``name`` / ``description`` /
   ``input_schema``). Every tool registered with ``self.add_tool(...)`` is
   exposed to all planners.
-- Driver-side return values must be picklable and torch-free.
+- Server-side return values must be picklable and torch-free.
 - Each primitive tool dumps a fresh state snapshot after running so the next
   ``view_driver_state`` call reflects the post-action world.
 - Treat ``dump_state`` as the source of truth for what the agent sees — any new
@@ -314,27 +325,38 @@ copied to the task arguments. It validates those fields and returns a
 
 .. _add-robot-runtime:
 
-5. ``_init_runtime`` (runner hook)
-----------------------------------
+5. Runtime initialization hooks
+-------------------------------
 
-After ``parse_config`` returns, main.py calls
-``env_spec.init_runtime(args, output_dir)`` to initialize the environment and
-VLA services and build the toolkit inputs. The environment can spawn as many
-subprocesses as it needs. The current LIBERO implementation starts
-``env_server``, ``vla_server``, and ``sam3_server``. The hook returns
-``(daemons, primitives_kwargs)``:
+All runtime hooks return ``(owned_daemons, primitives_kwargs)``:
 
-- ``daemons: list[ProcessDaemon]`` — subprocesses owned by this run; main.py
-  calls ``.stop()`` on each one in its ``finally`` block.
-- ``primitives_kwargs: dict`` — passed verbatim to the toolkit constructor
-  (which forwards it to the primitive driver's ``__init__``). It typically
-  contains ``{"env": MyEnvClient(...), "model": VLAClient(...)}``; add clients
-  for any supporting services here as well, such as LIBERO's ``sam3_client``.
+- ``owned_daemons: list[ProcessDaemon]`` contains only subprocesses started
+  by this process. The active runner stops them during cleanup. A client for an
+  external endpoint must not add that external service to this list.
+- ``primitives_kwargs: dict`` is passed to the toolkit constructor, which
+  forwards it to the primitives' ``__init__``. A complete set commonly
+  contains ``{"env": MyEnvClient(...), "model": VLAClient(...)}`` plus any
+  supporting clients.
+
+``init_runtime`` is the normal CLI hook. After ``parse_config`` returns,
+``main.py`` calls it once to initialize the complete runtime. The current
+LIBERO implementation starts or attaches to ``env_server``, ``vla_server``,
+and ``sam3_server`` and returns all primitive inputs together.
+
+``init_shared_runtime`` and ``init_task_runtime`` are **Dashboard-only**
+hooks; the normal CLI path never calls them. The Dashboard calls
+``init_shared_runtime`` once for Session-owned services, then calls
+``init_task_runtime`` for every fresh TaskRun and merges the two returned
+``primitives_kwargs`` dictionaries. The split is environment-specific. For
+LIBERO, VLA and SAM3 are Session-owned while the environment is TaskRun-owned;
+another environment should use the lifecycle split appropriate to its own
+services rather than copying that arrangement mechanically.
 
 Endpoint parsing (``--env-endpoint``, ``--vla-endpoint``, and LIBERO's
-``--sam3-endpoint``) and subprocess spawning (``--cuda-device`` passthrough,
-``MUJOCO_GL``, ...) live here — main.py knows nothing about them. See
-``robots/libero/__init__.py`` for the reference implementation.
+``--sam3-endpoint``), subprocess spawning, and runtime status events belong in
+the hook that owns the corresponding service. The runners do not handle those
+environment details. See ``robots/libero/__init__.py`` for the reference
+implementation.
 
 Smoke test
 ----------

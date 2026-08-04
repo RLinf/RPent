@@ -33,13 +33,19 @@ After you add ``robots/<env>/``, ``main.py`` calls two functions in ``__init__.p
      - Validate args and return ``RunConfig``; set at least ``recipe_tag``,
        ``output_dir``, and ``prompt_vars`` for prompt templating.
    * - ``init_runtime``
-     - Start or attach to env / VLA subprocesses; build ``primitives_kwargs``
-       (env client, model client, etc.) for the toolkit's primitive driver. A
-       ``DashboardEventSink`` reports runtime status.
+     - Normal CLI only: start or attach to the complete runtime and build
+       ``primitives_kwargs`` (env client, model client, etc.) for the toolkit's
+       primitives. A ``DashboardEventSink`` reports runtime status.
+   * - ``init_shared_runtime``
+     - Dashboard only: initialize Session-owned services that can be reused by
+       multiple TaskRuns, and return their owned daemons and primitive inputs.
+   * - ``init_task_runtime``
+     - Dashboard only: initialize the fresh per-TaskRun services and return
+       their owned daemons and primitive inputs.
 
 ``get_toolkit`` usually just passes ``primitives_kwargs`` into your env subclass;
-``dashboard_events`` and ``video_path`` are supplied by ``main.py``, so you
-normally do not need to change them.
+``dashboard_events`` and ``video_path`` are supplied by the active runner, so
+you normally do not need to change them.
 
 Reference: ``robots/libero/__init__.py``.
 
@@ -101,7 +107,8 @@ Inter-process communication
 
 Relevant when attaching to existing servers or writing ``env_server`` / ``vla_server``.
 
-Client endpoints — expose in ``add_cli_args`` or parse in ``init_runtime``:
+Client endpoints — expose in ``add_cli_args`` and parse in the applicable
+normal-CLI or Dashboard runtime hook:
 
 .. code-block:: text
 

@@ -609,6 +609,7 @@ class LiberoPrimitives:
 
         Returns once libero terminates (success) or step budget exhausted.
         """
+        assert max_steps > 0, f"max_steps must be > 0, got {max_steps}"
         start_grip = self._last_obs_gripper
         peak_grip = start_grip
         for step in range(max_steps):
@@ -1597,7 +1598,10 @@ def view_driver_state(step: int | None = None) -> dict:
 
     out: dict = {"step": nn}
     out["task_language"] = data.get("task_language")
-    out["state"] = data["state"]
+    # Default to {} (not the entire blob) when "state" is missing — otherwise
+    # command/result/vla_desync would bleed into the "state" field, confusing
+    # the LLM about what robot state actually contains.
+    out["state"] = data.get("state", {})
     out["libero_terminated"] = data.get("libero_terminated")
     out["episode_truncated"] = data.get("episode_truncated")
     out["world_map"] = data.get("world_map")

@@ -35,15 +35,15 @@ RPent 内置两类原语：
      - ``robots/libero/vla_server.py``
    * - RoboCasa (仿真)
      - RLDX-1
-     - pickle-framed socket RPC
+     - HTTP 或 socket RPC
      - ``robots/robocasa/vla_server.py`` *(规划中)*
    * - Franka (真机)
      - Pi0.5 或 RLDX-1 (依任务而定)
-     - HTTP 或 socket
+     - HTTP 或 socket RPC
      - ``robots/franka/vla_server.py`` *(规划中)*
    * - SO-101 (真机)
      - RLDX-1 (依任务而定)
-     - socket RPC
+     - HTTP 或 socket RPC
      - ``robots/so101/vla_server.py`` *(规划中)*
 
 VLA server 通过统一的 ``predict`` 和 ``healthz`` 方法提供服务，并支持

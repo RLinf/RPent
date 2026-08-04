@@ -1,10 +1,12 @@
 """Codex SDK planner.
 
-Mirror of ``claude_code.py``: a thin, SDK-first backend. ``solve()`` prepares
-artifacts, drives one Codex SDK turn, and assembles a ``PlannerResult``.
-RPent tools are exposed via the stdio MCP bridge configured through
-``_codex_mcp_config_overrides``; this backend does not register tools in
-process. Event rendering and stats live in a single ``_Recorder``.
+A thin, SDK-first backend. ``solve()`` prepares artifacts, drives one Codex
+SDK turn, and assembles a ``PlannerResult``. RPent tools are exposed via an
+in-process HTTP MCP server (``HttpMcpServer``) so the Codex binary can reach
+the shared toolkit without spawning a subprocess; this backend does not
+register tools in process. Event rendering and stats live in a single
+``_Recorder``. Compare with ``claude_code.py`` which uses the in-process
+``create_sdk_mcp_server`` instead of an HTTP transport.
 """
 
 from __future__ import annotations
@@ -133,10 +135,10 @@ class CodexPlanner:
             daemon=True,
         )
         worker.start()
+        error: str | None = None
         try:
             worker.join(timeout=self._timeout_s)
 
-            error: str | None = None
             if worker.is_alive():
                 error = f"Codex SDK timed out after {self._timeout_s}s"
                 _interrupt(state)
@@ -275,6 +277,8 @@ class CodexPlanner:
                     finally:
                         if stop_steer is not None:
                             stop_steer.set()
+                            if input_queue is not None:
+                                input_queue.put(None)
 
             state["text"] = "".join(chunks)
             if recorder.final_response is not None:
@@ -353,7 +357,8 @@ class _Recorder:
         if "requestApproval" in method:
             return f"[codex-approval] {method}\n"
         if method in {"error", "fatal"}:
-            return f"[codex-error] {_short_json(_jsonable(payload), limit=500)}\n"
+            self.error = _short_json(_jsonable(payload), limit=500)
+            return f"[codex-error] {self.error}\n"
         return ""
 
     # -- per-item handlers -------------------------------------------------
@@ -553,13 +558,6 @@ def _get(value: Any, key: str, default: Any = None) -> Any:
     if isinstance(value, dict):
         return value.get(key, default)
     return getattr(value, key, default)
-
-
-def _kind(value: Any) -> str:
-    value = _unwrap(value)
-    if isinstance(value, dict):
-        return str(value.get("type") or value.get("kind") or "")
-    return value.__class__.__name__
 
 
 def _summarise_item(item: Any) -> dict[str, Any]:

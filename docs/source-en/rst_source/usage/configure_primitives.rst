@@ -39,15 +39,15 @@ Which VLA runs where
      - ``robots/libero/vla_server.py``
    * - RoboCasa (sim)
      - RLDX-1
-     - pickle-framed socket RPC
+     - HTTP or socket RPC
      - ``robots/robocasa/vla_server.py`` *(planned)*
    * - Franka (real)
      - Pi0.5 or RLDX-1 (task-dependent)
-     - HTTP or socket
+     - HTTP or socket RPC
      - ``robots/franka/vla_server.py`` *(planned)*
    * - SO-101 (real)
      - RLDX-1 (task-dependent)
-     - socket RPC
+     - HTTP or socket RPC
      - ``robots/so101/vla_server.py`` *(planned)*
 
 The VLA server exposes the same ``predict`` / ``healthz`` methods over

@@ -18,9 +18,12 @@ from typing import Any, Callable
 
 import numpy as np
 
+from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcError, check_response, make_error_response
 
 DEFAULT_TIMEOUT_S = 30.0
+
+logger = get_logger("rpc")
 
 
 def _from_json(obj: Any) -> Any:
@@ -148,9 +151,13 @@ class _HttpRpcHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(
-            json.dumps(response, cls=_NumpyEncoder).encode("utf-8")
-        )
+        try:
+            self.wfile.write(
+                json.dumps(response, cls=_NumpyEncoder).encode("utf-8")
+            )
+        except (BrokenPipeError, ConnectionResetError) as exc:
+            # Client went away mid-response — log for visibility and move on.
+            logger.debug("rpc http write failed: %s", exc)
 
 
 class HttpRpcServer(ThreadingHTTPServer):

@@ -46,7 +46,7 @@ LLM-in-the-loop 运行流程
 一次运行就是一段 LLM-in-the-loop 循环：
 
 1. LLM 分析任务、调一个工具 (如 ``pi0_pick``)。
-2. 工具的底层驱动向 ``vla_server`` 请求动作 (``predict``)。
+2. 工具的底层 primitives 向 ``vla_server`` 请求动作 (``predict``)。
 3. ``env_server`` 执行动作。
 4. 环境返回更新后的观测数据和相机画面。
 5. 执行结果会整理成由文本和图像组成的上下文，返回给 LLM 进行下一轮推理。
@@ -72,10 +72,12 @@ LLM-in-the-loop 运行流程
    robots/
      libero/         # LIBERO 的 env_client / env_server / vla_server /
                      # toolkit / prompt_bundle。参考实现。
-     (robocasa/)     # RoboCasa 驱动——研发中。
-     (franka/)       # Franka 驱动——研发中。
-     (so101/)        # SO-101 驱动——研发中。
-   scripts/          # 安装脚本（LIBERO PRO/PLUS、Codex 代理）。
+     robocasa/       # RoboCasa env (RLDX-1 VLA，厨房任务)。
+     (franka/)       # Franka env——研发中。
+     (so101/)        # SO-101 env——研发中。
+   scripts/
+     codex_proxy/    # Codex planner 用的 LiteLLM 代理。
+     robocasa/       # RoboCasa 运行 / 安装 / 扫描脚本。
 
 Runner (``rpent/cli/main.py``)
 ------------------------------
@@ -92,9 +94,10 @@ Runner (``rpent/cli/main.py``)
    设为可选，因为任务参数随后通过 Dashboard 命令提供。
 3. 再调用 ``parser.parse_args()``，对完整参数集合执行 argparse 层的校验，
    并生成最终的 ``args``；参数错误仍使用 argparse 的标准提示格式。
-4. 如果启用了 ``--dashboard``，启动配置页面，以当前参数作为默认值，并将
-   用户提交的配置写回 ``args``。
-5. 调用 ``env_spec.parse_config(args)`` 校验运行配置，并生成
+4. 如果启用了 ``--dashboard``，将控制权交给 ``rpent/cli/dashboard.py``，并在
+   长生命周期 Session 结束后返回。Dashboard 专用生命周期见下文；后续步骤属于
+   普通 CLI 路径。
+5. 调用 ``env_spec.parse_config(args)`` 校验普通 CLI 的运行配置，并生成
    :class:`~rpent.envs.RunConfig`，其中包含 ``recipe_tag``、``output_dir``、
    ``prompt_vars`` 和 ``task_desc``。
 6. 调用 ``init_output_dir`` 创建本次运行的输出目录，并配置 ``run.log``。
@@ -131,12 +134,13 @@ planner 后端集中在 ``rpent/planner/``，
        *, primitives_kwargs, dashboard_events, video_path=None
    ): ...
 
-``EnvSpec`` 汇集了环境的标识、prompt 模板与三个 Runner 钩子
-（``add_cli_args`` / ``parse_config`` / ``init_runtime``）；各字段要填什么见
+``EnvSpec`` 汇集了环境的标识、prompt 模板与五个 Runner 钩子：
+``add_cli_args`` / ``parse_config`` / ``init_runtime``，以及仅供 Dashboard 使用的
+``init_shared_runtime`` / ``init_task_runtime``。各字段要填什么见
 :doc:`interfaces`。
 
-加载器本身不维护环境名称列表。不过，当前 CLI 仍将 ``--env`` 限定为
-``libero``；接入新的环境名称时，还需要同步更新 CLI 的可选值。完整步骤见
+加载器本身不维护环境名称列表。当前 CLI 将 ``--env`` 限定为 ``libero``
+和 ``robocasa``；接入新的环境名称时，还需要同步更新 CLI 的可选值。完整步骤见
 :doc:`add_robot`。
 
 Planner、Toolkit 与 RPC 传输层
@@ -144,7 +148,7 @@ Planner、Toolkit 与 RPC 传输层
 
 这三层各管一段、层层解耦。planner 只通过 ``get_tools_spec`` 拿到工具清单、
 用 ``execute_tool`` 逐个调用，并不关心工具背后是脚本还是 VLA；
-toolkit 把每次工具调用翻译成对 primitive 的调用，再由 primitive driver
+toolkit 把每次工具调用翻译成对 primitive 的调用，再由 primitives
 经 RPC 向 ``env_server`` / ``vla_server`` 发起 ``reset`` / ``step`` /
 ``predict`` 请求；RPC 传输层（HTTP 或 socket）只负责把这些调用和 NumPy
 观测在进程间搬运，对上层透明。正因如此，换 planner 不影响工具，
@@ -157,8 +161,13 @@ Dashboard（可选）
 ``rpent/dashboard/`` 由 FastAPI 应用和静态前端组成。启用 ``--dashboard`` 后，
 ``rpent/cli/main.py`` 会将控制权交给 ``rpent/cli/dashboard.py``，由后者根据
 ``--dashboard-host`` 和 ``--dashboard-port`` 启动 Dashboard，并在启动共享服务前
-确认配置。VLA 和 SAM3 会在 Dashboard 运行期间复用；通过 ``/rpent-task`` 提交的
-任务使用独立的运行环境，并按顺序执行。
+确认配置，然后调用一次仅供 Dashboard 使用的
+``env_spec.init_shared_runtime``。Session controller 随后等待
+``/rpent-task`` 命令；每次取得一个 TaskRun 后，Dashboard 会调用
+``parse_config`` 和仅供 Dashboard 使用的 ``env_spec.init_task_runtime``，合并
+共享与任务级 primitive 参数，并新建 toolkit 和 planner conversation。在 LIBERO
+中，VLA 和 SAM3 会在 Dashboard 运行期间复用，每个 TaskRun 使用独立环境并按顺序
+执行。
 
 TaskRun 运行期间，Dashboard 页面提供：
 

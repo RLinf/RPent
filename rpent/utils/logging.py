@@ -16,7 +16,7 @@ _output_dir: Path | None = None
 
 
 class _ColourFormatter(logging.Formatter):
-    """Minimal colour formatter for stdout (no external deps)."""
+    """Colour only the level marker; never mutates the shared record."""
 
     _COLOURS = {
         logging.DEBUG: "\033[90m",     # grey
@@ -25,18 +25,21 @@ class _ColourFormatter(logging.Formatter):
         logging.ERROR: "\033[91m",     # red
         logging.CRITICAL: "\033[95m",  # magenta
     }
+    _LEVEL_LETTERS = {
+        logging.DEBUG: "D",
+        logging.INFO: "I",
+        logging.WARNING: "W",
+        logging.ERROR: "E",
+        logging.CRITICAL: "C",
+    }
     _RESET = "\033[0m"
 
     def format(self, record: logging.LogRecord) -> str:
+        body = super().format(record)
         colour = self._COLOURS.get(record.levelno, "")
-        if not colour:
-            return super().format(record)
-        original = record.levelname
-        record.levelname = f"{colour}{original}{self._RESET}"
-        try:
-            return super().format(record)
-        finally:
-            record.levelname = original
+        letter = self._LEVEL_LETTERS.get(record.levelno, "?")
+        marker = f"{colour}{letter}{self._RESET}" if colour else letter
+        return f"{marker} {body}"
 
 
 class _CompactLevelFormatter(logging.Formatter):
@@ -125,8 +128,11 @@ def init_output_dir(log_dir: str | Path | None = None, verbose: bool = False) ->
     return _output_dir
 
 
-def get_output_dir() -> Path | None:
+def get_output_dir() -> Path:
     """Return the output directory set by the last ``init_output_dir`` call."""
+    assert _output_dir is not None, (
+        "init_output_dir must be called before get_output_dir"
+    )
     return _output_dir
 
 

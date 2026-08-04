@@ -15,10 +15,11 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
    服务和 model client，参见
    :ref:`添加一个 VLA（或其他基于模型的原语）<add-primitive-model-based>`。
 3. :ref:`定义 prompt <add-robot-prompts>`。
-4. :ref:`实现 toolkit 和 primitive driver <add-robot-toolkit>`。
+4. :ref:`实现 toolkit 和 primitives <add-robot-toolkit>`。
 5. :ref:`注册环境参数并生成 RunConfig <add-robot-config>`。
-6. 在 :ref:`_init_runtime <add-robot-runtime>` 中启动或连接 ``env_server`` 与
-   所需的辅助服务。
+6. 实现 :ref:`runtime 钩子 <add-robot-runtime>`：普通 CLI 使用完整 runtime；
+   如果环境支持 Dashboard 任务控制，再按 Session/TaskRun 生命周期实现仅供
+   Dashboard 使用的拆分钩子。
 
 .. _add-robot-entry:
 
@@ -54,6 +55,8 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
            prompts=PromptBundle(system=system_prompt, user=user_prompt),
            add_cli_args=_add_cli_args,
            parse_config=_parse_config,
+           init_shared_runtime=_init_shared_runtime,
+           init_task_runtime=_init_task_runtime,
            init_runtime=_init_runtime,
        )
 
@@ -74,17 +77,25 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
        ...
 
    def _init_runtime(args, output_dir, dashboard_events: DashboardEventSink):
-       """启动 env_server、vla_server 及所需的辅助服务，构造 primitives_kwargs。
+       """仅普通 CLI 使用：初始化完整 runtime。
 
        返回 (daemons, primitives_kwargs)。见第 5 节。
        """
+       ...
+
+   def _init_shared_runtime(args, output_dir, dashboard_events: DashboardEventSink):
+       """仅 Dashboard 使用：初始化由 Session 持有并复用的服务。"""
+       ...
+
+   def _init_task_runtime(args, output_dir, dashboard_events: DashboardEventSink):
+       """仅 Dashboard 使用：为每个 TaskRun 初始化全新的服务。"""
        ...
 
 ``_resolve_env(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
 动态加载环境包。因此，只需将环境包放在 ``robots/`` 下，无需维护中央注册列表。
 
 下文依次说明这些模块需要实现的内容。``_add_cli_args`` 和 ``_parse_config``
-见第 4 节，``_init_runtime`` 见第 5 节。
+见第 4 节，三个 runtime 钩子见第 5 节。
 
 .. _add-robot-env-rpc:
 
@@ -198,13 +209,13 @@ API 版本。
 3. ``toolkit.py``
 ------------------
 
-这个模块持有 LLM 能调用的一切: 工具 schema、primitive driver、每步状态 dump 以及
+这个模块持有 LLM 能调用的一切: 工具 schema、primitives、每步状态 dump 以及
 MCP allowlist。(LIBERO 中由于历史原因把这些拆到了 ``tools.py`` 和 ``toolkit.py``
 两个文件; 新增 env 时全部放在 ``toolkit.py`` 里没问题。)
 
 toolkit 模块通常包含四部分：
 
-**Primitive driver 类**\ （例如 ``MyEnvPrimitives``）是 toolkit 持有的 Python
+**Primitives 类**\ （例如 ``MyEnvPrimitives``）是 toolkit 持有的 Python
 对象。它保存 ``EnvClient``、VLA ``model`` client 和单次运行所需的状态。每个
 原语工具（``move_to``、``pi0_pick``、``release`` 等）对应一个方法，并返回
 日志字典。
@@ -214,24 +225,24 @@ Anthropic API 的工具定义格式，包含 ``name``、``description`` 和
 ``input_schema``），以及 toolkit 引用的模块级函数，例如
 ``view_driver_state``、``back_project`` 和 ``finish``。
 
-**每步状态 dump** —— ``dump_state(driver, output_dir, step_idx, log)`` 把 agent
+**每步状态 dump** —— ``dump_state(primitives, output_dir, step_idx, log)`` 把 agent
 之后会通过 ``view_*`` 工具读回的所有状态 (图像、深度、JSON 状态、camera meta)
 序列化到 ``output_dir``。
 
 **Toolkit 类** 继承 ``rpent.tools.toolkit.Toolkit``：
 
-- 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitive driver（LIBERO
+- 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitives（LIBERO
   中的方法名为 ``init_primitives_clean``；它会清理过期的 ``images/`` 等目录、
   构造原语并 dump 第 0 步）,
 - 用 ``self.add_tool(name, spec, handler)`` 注册每个工具。无状态的读取工具
   （如 ``view_driver_state``、``finish``）直接绑定模块级函数；原语工具通过
   ``_step(name, **kwargs)`` 调用。``_step`` 使用
-  ``getattr(self._primitives, name)(**kwargs)`` 调用 driver 方法并重新渲染状态；
+  ``getattr(self._primitives, name)(**kwargs)`` 调用 primitives 方法并重新渲染状态；
 - 重写 ``close()``，将 agent 侧生成的文件写入磁盘（例如 LIBERO toolkit
   在这里保存 agentview MP4）。
 
 ``primitives_kwargs`` 由 ``__init__.py:get_toolkit`` 转发给 toolkit，再原样传入
-primitive driver 的 ``__init__``。其中通常包含
+primitives 的 ``__init__``。其中通常包含
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``。
 
 建议遵循的约定
@@ -296,26 +307,32 @@ main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参�
 
 .. _add-robot-runtime:
 
-5. ``_init_runtime`` (runner 钩子)
-----------------------------------
+5. Runtime 初始化钩子
+---------------------
 
-``parse_config`` 返回后，main.py 调用
-``env_spec.init_runtime(args, output_dir)``，初始化环境与 VLA 服务，并构造
-toolkit 所需的参数。环境实现可以自行决定启动多少个子进程；当前 LIBERO 会启动
-``env_server``、``vla_server`` 和 ``sam3_server``。该钩子最终返回
-``(daemons, primitives_kwargs)``：
+三个 runtime 钩子都返回 ``(owned_daemons, primitives_kwargs)``：
 
-- ``daemons: list[ProcessDaemon]`` —— 本次运行拥有的子进程；main.py 在
-  ``finally`` 里逐个 ``.stop()``。
-- ``primitives_kwargs: dict`` —— 原样传给 toolkit 构造器，再由后者传入
-  primitive driver 的 ``__init__``。其中通常包含
-  ``{"env": MyEnvClient(...), "model": VLAClient(...)}``；如果需要额外服务，
-  也在这里加入相应的 client，例如 LIBERO 的 ``sam3_client``。
+- ``owned_daemons: list[ProcessDaemon]`` 只包含当前进程实际启动的子进程，
+  当前 runner 会在清理阶段停止它们。连接外部 endpoint 时，不能把外部服务加入
+  该列表。
+- ``primitives_kwargs: dict`` 会传给 toolkit 构造器，再由后者传入 primitives
+  的 ``__init__``。完整参数通常包含
+  ``{"env": MyEnvClient(...), "model": VLAClient(...)}``，以及其他辅助 client。
+
+``init_runtime`` 是普通 CLI 钩子。``parse_config`` 返回后，``main.py`` 调用它
+一次，初始化完整 runtime。当前 LIBERO 实现会启动或连接 ``env_server``、
+``vla_server`` 和 ``sam3_server``，并一次性返回全部 primitive 参数。
+
+``init_shared_runtime`` 和 ``init_task_runtime`` 是 **仅供 Dashboard 使用** 的
+钩子，普通 CLI 不会调用。Dashboard 会在每个 Session 中调用一次
+``init_shared_runtime``，初始化 Session 持有的复用服务；随后为每个全新的
+TaskRun 调用 ``init_task_runtime``，并合并两者返回的 ``primitives_kwargs``。
+具体如何拆分取决于环境自身的生命周期。LIBERO 将 VLA 和 SAM3 放在 Session
+范围，将环境放在 TaskRun 范围；其他环境应采用适合自身服务的拆分，不必机械照搬。
 
 endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
-``--sam3-endpoint``）解析和子进程启动（``--cuda-device`` 透传、
-``MUJOCO_GL``）也在这里完成，main.py 不处理这些细节。参考实现见
-``robots/libero/__init__.py``。
+``--sam3-endpoint``）解析、子进程启动和 runtime 状态事件，应放在拥有对应服务的
+钩子中，runner 不处理这些环境细节。参考实现见 ``robots/libero/__init__.py``。
 
 冒烟测试
 --------
