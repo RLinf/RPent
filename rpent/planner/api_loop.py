@@ -707,7 +707,11 @@ def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
 
 
 def read_image(path: str) -> ToolReturn:
-    """Read a local image path returned by an RPent tool as visual input."""
+    """Read an explicitly provided local image file as visual input.
+
+    Environment observations are already embedded by ``view_driver_state``;
+    this helper is only for other user-selected local files.
+    """
     return ToolReturn(
         return_value=path,
         content=[BinaryContent.from_path(path)],

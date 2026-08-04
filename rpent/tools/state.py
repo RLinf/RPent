@@ -1,44 +1,15 @@
-"""EnvState: the per-run state-trace owner.
-
-A **step** is one motion-primitive tool call that produced a dumped state
-snapshot, indexed from ``0`` where ``0`` is the post-``reset()`` baseline
-(no command). Non-motion tool calls (``get_ee_pose``, ``back_project``,
-``view_driver_state``, file/memory tools) are NOT steps and leave the trace
-untouched.
-
-``EnvState`` replaces the per-env ``_append_state`` / ``_load_states`` /
-``_latest_step`` / ``_load_step`` / ``_load_image`` / ``_load_depth`` free
-functions (and the toolkit's ``_next_step`` counter) with one explicit owner
-constructed with an ``output_dir`` (no process-global). The toolkit and the
-reader tools (``view_driver_state``, ``back_project``) hold a non-owning
-reference to one ``EnvState`` per run; the composition root owns its lifecycle.
-
-Artefact naming follows the LIBERO layout. Each saved artefact is a named
-*stream* turned into a path by a fixed rule::
-
-    stream "image"        -> images/image_NN.png
-    stream "image_wrist"  -> images_wrist/image_wrist_NN.png
-    stream "depth"         -> depths/depth_NN.npy
-    stream "depth_wrist"  -> depths_wrist/depth_wrist_NN.npy
-    stream "world"         -> world/world_NN.npy        (libero)
-    stream "wrist_meta"    -> wrist_meta/wrist_meta_NN.json
-
-i.e. the stream name is the file prefix; the directory pluralises the
-artefact type (``image``->``images``, ``depth``->``depths``; ``world`` and
-``wrist_meta`` stay singular, matching libero) and appends the camera suffix.
-Franka maps scene->``image``/``depth`` and wrist->``image_wrist``/
-``depth_wrist``; lerobot maps scene->``image``/``depth`` and
-arm->``image_arm``. No per-env layout class is needed: the env's thin
-``dump_state`` wrapper just picks the stream names.
-"""
+"""Per-run environment state and artifact storage."""
 from __future__ import annotations
 
+import copy
+import fnmatch
 import json
 import os
-import shutil
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import imageio.v2 as imageio
 import numpy as np
@@ -47,82 +18,47 @@ from rpent.utils.logging import get_logger
 
 logger = get_logger("env_state")
 
-# Artefact type (the leading segment of a stream name) -> file extension.
-_ARTIFACT_EXT: dict[str, str] = {
-    "image": ".png",
-    "depth": ".npy",
-    "world": ".npy",
-    "wrist_meta": ".json",
-}
-
-# Artefact type -> directory name (plural where libero pluralises).
-_PLURAL: dict[str, str] = {
-    "image": "images",
-    "depth": "depths",
-}
-
-def _split_stream(stream: str) -> tuple[str, str]:
-    for artifact_type in sorted(_ARTIFACT_EXT, key=len, reverse=True):
-        if stream == artifact_type:
-            return artifact_type, ""
-        prefix = artifact_type + "_"
-        if stream.startswith(prefix):
-            return artifact_type, stream[len(prefix):]
-    art, sep, suffix = stream.partition("_")
-    return art, (suffix if sep else "")
+_MANIFEST_NAME = "states.json"
+_MANIFEST_VERSION = 2
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
+_TEXT_SUFFIXES = {".txt", ".md"}
+_SUPPORTED_SUFFIXES = _IMAGE_SUFFIXES | {
+    ".npy",
+    ".json",
+    ".jsonl",
+    ".mp4",
+    ".bin",
+} | _TEXT_SUFFIXES
 
 
-def stream_dir(output_dir: Path, stream: str) -> Path:
-    """Directory for a stream's artefacts (e.g. ``images_wrist``)."""
-    art, suffix = _split_stream(stream)
-    base = _PLURAL.get(art, art)
-    return output_dir / (base if not suffix else f"{base}_{suffix}")
-
-
-def stream_path(output_dir: Path, stream: str, step_idx: int, ext: str | None = None) -> Path:
-    """Full path for one stream artefact at ``step_idx``."""
-    art, _ = _split_stream(stream)
-    if ext is None:
-        ext = _ARTIFACT_EXT.get(art, ".bin")
-    return stream_dir(output_dir, stream) / f"{stream}_{step_idx:02d}{ext}"
-
-
-# ---------------------------------------------------------------------------
-# StepRecord
-# ---------------------------------------------------------------------------
+def _json_default(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, Path):
+        return str(value)
+    raise TypeError(f"{type(value).__name__} is not JSON serializable")
 
 
 @dataclass
 class StepRecord:
-    """One dumped step: the unit the LLM reads back via ``view_driver_state``.
-
-    ``step_idx`` is the motion-primitive index (0 = post-reset baseline, which
-    has ``command``/``result``/``elapsed_s`` = None). ``frames``/``depth`` are
-    the stream names saved for this step (e.g. ``["image", "image_wrist"]``).
-    ``camera_meta`` is the per-camera metadata dict at capture time (intrinsics
-    + extrinsics + calibration status). ``extras`` absorbs env-specific fields
-    (libero's world maps, ``libero_terminated``, task_language, ...).
-    """
+    """One motion step and the artifact base names captured for it."""
 
     step_idx: int
-    state: dict
+    state: dict[str, Any]
+    artifacts: set[str] = field(default_factory=set)
     command: dict | None = None
     result: dict | None = None
     elapsed_s: float | None = None
-    frames: list[str] = field(default_factory=list)
-    depth: list[str] = field(default_factory=list)
-    camera_meta: dict | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
     def to_blob(self) -> dict[str, Any]:
         blob: dict[str, Any] = {
             "step_idx": self.step_idx,
             "state": self.state,
-            "frames": self.frames,
-            "depth": self.depth,
+            "artifacts": sorted(self.artifacts),
         }
-        if self.camera_meta is not None:
-            blob["camera_meta"] = self.camera_meta
         if self.command is not None:
             blob["command"] = self.command
         if self.result is not None:
@@ -134,215 +70,382 @@ class StepRecord:
         return blob
 
     @classmethod
-    def from_blob(cls, blob: dict) -> "StepRecord":
+    def from_blob(cls, blob: dict[str, Any]) -> "StepRecord":
         return cls(
-            step_idx=int(blob.get("step_idx", -1)),
-            state=blob.get("state", {}),
+            step_idx=int(blob["step_idx"]),
+            state=dict(blob.get("state") or {}),
+            artifacts={str(name) for name in blob.get("artifacts") or []},
             command=blob.get("command"),
             result=blob.get("result"),
             elapsed_s=blob.get("elapsed_s"),
-            frames=list(blob.get("frames", [])),
-            depth=list(blob.get("depth", [])),
-            camera_meta=blob.get("camera_meta"),
             extras=dict(blob.get("extras") or {}),
         )
 
 
-# ---------------------------------------------------------------------------
-# EnvState
-# ---------------------------------------------------------------------------
-
-
 class EnvState:
-    """Owns the on-disk state trace for one run.
-
-    Constructed with an explicit ``output_dir`` (the composition root passes
-    it; ``EnvState`` never reaches into a process-global). Owns the step
-    counter, the ``states.json`` trace (atomic append), and the image/depth
-    artefact layout. The toolkit and the reader tools (``view_driver_state``,
-    ``back_project``) hold a non-owning reference to one ``EnvState`` per run.
-    """
+    """Own a run's step trace and all state-related files in its output root."""
 
     def __init__(self, output_dir: Path | str):
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self._steps: list[dict] = self._read_states()
-        self._next_step = self._derive_next_step()
-
-    # -- internal: states.json I/O ----------------------------------------
-
-    def _states_path(self) -> Path:
-        return self.output_dir / "states.json"
-
-    def _read_states(self) -> list[dict]:
-        path = self._states_path()
-        if not path.exists():
-            return []
-        try:
-            with open(path) as f:
-                arr = json.load(f)
-            return [s for s in arr if isinstance(s, dict)] if isinstance(arr, list) else []
-        except Exception as e:
-            logger.warning("could not parse %s: %s; starting fresh", path, e)
-            return []
-
-    def _write_states_atomically(self, steps: list[dict]) -> None:
-        path = self._states_path()
-        tmp = path.with_name(path.name + ".tmp")
-        with open(tmp, "w") as f:
-            json.dump(steps, f, indent=2, default=str)
-        os.replace(tmp, path)
-
-    def _derive_next_step(self) -> int:
-        if not self._steps:
-            return 0
-        return max(int(s["step_idx"]) for s in self._steps if "step_idx" in s) + 1
-
-    # -- lifecycle --------------------------------------------------------
-
-    def reset(self, *, wipe_streams: Iterable[str] = ()) -> None:
-        """Wipe stale artefact dirs + ``states.json`` for a fresh run.
-
-        Resets the in-memory trace and counter. Step 0 (baseline) is dumped by
-        the caller right after via :meth:`append`.
-        """
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        for stream in wipe_streams:
-            d = stream_dir(self.output_dir, stream)
-            if d.exists():
-                shutil.rmtree(d)
-        states = self._states_path()
-        if states.exists():
-            states.unlink()
-        self._steps = []
+        self._output_dir = Path(output_dir)
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        self._steps: list[StepRecord] = []
+        self._pending_step: StepRecord | None = None
+        self._run_artifacts: set[str] = set()
         self._next_step = 0
+        self.reset()
 
-    # -- counter ----------------------------------------------------------
+    # -- private file resolution -----------------------------------------
+
+    @staticmethod
+    def _validate_name(name: str) -> str:
+        if not isinstance(name, str) or not name:
+            raise ValueError("artifact name must be a non-empty string")
+        path = Path(name)
+        if path.name != name or path.is_absolute() or name in {".", ".."}:
+            raise ValueError(f"artifact name must be a base filename: {name!r}")
+        if name == _MANIFEST_NAME:
+            raise ValueError(f"{_MANIFEST_NAME!r} is reserved")
+        if path.suffix.lower() not in _SUPPORTED_SUFFIXES:
+            raise ValueError(f"unsupported artifact suffix: {path.suffix or '<none>'}")
+        return name
+
+    def _artifact_file(self, name: str, step: int | None) -> Path:
+        name = self._validate_name(name)
+        if step is None:
+            return self._output_dir / name
+        if step < 0:
+            raise ValueError("artifact writes require a nonnegative step")
+        return self._output_dir / f"{step:02d}_{name}"
+
+    def _manifest_file(self) -> Path:
+        return self._output_dir / _MANIFEST_NAME
+
+    def _temporary_file(self, destination: Path) -> Path:
+        return destination.with_name(
+            f".{destination.stem}.tmp{destination.suffix}"
+        )
+
+    def _record_for_write(self, step: int) -> tuple[StepRecord, bool]:
+        if self._pending_step is not None and self._pending_step.step_idx == step:
+            return self._pending_step, False
+        for record in self._steps:
+            if record.step_idx == step:
+                return record, True
+        raise KeyError(f"step {step} not present in state trace")
+
+    # -- manifest --------------------------------------------------------
+
+    def _write_manifest(self) -> None:
+        destination = self._manifest_file()
+        temporary = self._temporary_file(destination)
+        manifest = {
+            "version": _MANIFEST_VERSION,
+            "run_artifacts": sorted(self._run_artifacts),
+            "steps": [record.to_blob() for record in self._steps],
+        }
+        try:
+            with temporary.open("w") as file:
+                json.dump(manifest, file, indent=2, default=_json_default)
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    # -- lifecycle and counters -----------------------------------------
+
+    def reset(self) -> None:
+        """Remove state-owned artifacts and start a fresh trace."""
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        records = list(self._steps)
+        if self._pending_step is not None:
+            records.append(self._pending_step)
+        for record in records:
+            for name in record.artifacts:
+                self._artifact_file(name, record.step_idx).unlink(missing_ok=True)
+        for name in self._run_artifacts:
+            self._artifact_file(name, None).unlink(missing_ok=True)
+        self._manifest_file().unlink(missing_ok=True)
+        self._steps = []
+        self._pending_step = None
+        self._run_artifacts = set()
+        self._next_step = 0
 
     @property
     def next_step_idx(self) -> int:
-        """The step_idx the next dumped step will get (does NOT advance)."""
         return self._next_step
 
     @property
     def latest_step(self) -> int | None:
-        """The highest step_idx successfully written (None if trace is empty)."""
         if not self._steps:
             return None
-        return int(self._steps[-1]["step_idx"])
+        return self._steps[-1].step_idx
 
-    # -- writing ----------------------------------------------------------
-
-    def save_image(self, step_idx: int, stream: str, frame) -> str | None:
-        """Save one RGB frame under ``<stream>_<NN>.png``; return ``stream`` on success."""
-        path = stream_path(self.output_dir, stream, step_idx)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        arr = np.asarray(frame)
-        if arr.dtype != np.uint8:
-            arr = arr.astype(np.uint8)
-        try:
-            imageio.imwrite(path, arr)
-            return stream
-        except Exception as e:
-            logger.warning("frame dump failed for stream %s: %s", stream, e)
+    def _resolve_read_step(self, step: int | None) -> int | None:
+        if step is None:
             return None
+        if step == -1:
+            latest = self.latest_step
+            if latest is None:
+                raise LookupError("no steps available")
+            return latest
+        if step < 0:
+            raise ValueError("step must be -1, None, or nonnegative")
+        return step
 
-    def save_depth(self, step_idx: int, stream: str, depth) -> str | None:
-        """Save one depth map under ``<stream>_<NN>.npy``; return ``stream`` on success."""
-        path = stream_path(self.output_dir, stream, step_idx)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            np.save(path, np.asarray(depth, dtype=np.float32))
-            return stream
-        except Exception as e:
-            logger.warning("depth dump failed for stream %s: %s", stream, e)
-            return None
+    # -- generic artifact operations ------------------------------------
 
-    def artifact_path(
+    def save(
         self,
-        step_idx: int,
-        stream: str,
+        name: str,
+        value: Any,
         *,
-        ext: str | None = None,
-    ) -> Path:
-        """Return the canonical path for one step artifact."""
-        return stream_path(self.output_dir, stream, step_idx, ext=ext)
+        step: int | None,
+        **options: Any,
+    ) -> str | None:
+        """Serialize ``value`` according to ``name`` and return its base name."""
+        destination = self._artifact_file(name, step)
+        temporary = self._temporary_file(destination)
+        suffix = destination.suffix.lower()
+        record: StepRecord | None = None
+        committed = False
+        if step is not None:
+            record, committed = self._record_for_write(step)
+        try:
+            if suffix in _IMAGE_SUFFIXES:
+                array = np.asarray(value)
+                if array.dtype != np.uint8:
+                    array = array.astype(np.uint8)
+                imageio.imwrite(temporary, array)
+            elif suffix == ".npy":
+                np.save(temporary, np.asarray(value))
+            elif suffix == ".json":
+                with temporary.open("w") as file:
+                    json.dump(value, file, indent=2, default=_json_default)
+            elif suffix == ".jsonl":
+                with temporary.open("w") as file:
+                    if isinstance(value, str):
+                        file.write(value)
+                    else:
+                        for item in value:
+                            file.write(
+                                json.dumps(item, default=_json_default) + "\n"
+                            )
+            elif suffix == ".mp4":
+                if isinstance(value, (bytes, bytearray, memoryview)):
+                    temporary.write_bytes(bytes(value))
+                else:
+                    imageio.mimwrite(
+                        temporary,
+                        list(value),
+                        fps=int(options.get("fps", 20)),
+                    )
+            elif suffix in _TEXT_SUFFIXES:
+                temporary.write_text(str(value))
+            elif suffix == ".bin":
+                temporary.write_bytes(bytes(value))
+            else:
+                raise ValueError(f"unsupported artifact suffix: {suffix}")
+            os.replace(temporary, destination)
+            if record is not None:
+                record.artifacts.add(name)
+                if committed:
+                    self._write_manifest()
+            else:
+                self._run_artifacts.add(name)
+                self._write_manifest()
+            return name
+        except Exception as exc:
+            logger.warning("failed to save artifact %s: %s", name, exc)
+            return None
+        finally:
+            temporary.unlink(missing_ok=True)
 
-    def append(self, record: StepRecord) -> StepRecord:
-        """Atomically append ``record`` to ``states.json`` and advance the counter.
+    def load(self, name: str, *, step: int | None = -1) -> Any:
+        """Load an artifact; ``step=-1`` selects the latest recorded step."""
+        resolved_step = self._resolve_read_step(step)
+        source = self._artifact_file(name, resolved_step)
+        suffix = source.suffix.lower()
+        if suffix in _IMAGE_SUFFIXES:
+            return imageio.imread(source)
+        if suffix == ".npy":
+            return np.load(source)
+        if suffix == ".json":
+            with source.open() as file:
+                return json.load(file)
+        if suffix == ".jsonl":
+            with source.open() as file:
+                return [json.loads(line) for line in file if line.strip()]
+        if suffix in _TEXT_SUFFIXES:
+            return source.read_text()
+        return source.read_bytes()
 
-        The counter and ``states.json`` are kept in sync: this write is the
-        single source of truth for "latest step". If the write raises, the
-        counter is NOT advanced (so the next caller reuses the same
-        ``step_idx``) -- no desync between the in-memory counter and disk.
-        """
-        blob = record.to_blob()
-        self._write_states_atomically(self._steps + [blob])
-        self._steps.append(blob)
-        self._next_step = max(self._next_step, record.step_idx + 1)
-        return record
+    def load_bytes(self, name: str, *, step: int | None = -1) -> bytes:
+        resolved_step = self._resolve_read_step(step)
+        return self._artifact_file(name, resolved_step).read_bytes()
 
-    # -- reading ----------------------------------------------------------
+    def exists(self, name: str, *, step: int | None = -1) -> bool:
+        try:
+            resolved_step = self._resolve_read_step(step)
+        except LookupError:
+            return False
+        return self._artifact_file(name, resolved_step).exists()
 
-    def get(self, step_idx: int) -> StepRecord:
-        """Look up the step record for ``step_idx``."""
-        for blob in self._steps:
-            if int(blob.get("step_idx", -1)) == step_idx:
-                return StepRecord.from_blob(blob)
-        raise KeyError(f"step {step_idx} not present in states.json")
+    def remove(self, name: str, *, step: int | None) -> bool:
+        destination = self._artifact_file(name, step)
+        if not destination.exists():
+            return False
+        record: StepRecord | None = None
+        committed = False
+        if step is not None:
+            record, committed = self._record_for_write(step)
+        destination.unlink()
+        if step is None and name in self._run_artifacts:
+            self._run_artifacts.remove(name)
+            self._write_manifest()
+        elif record is not None:
+            was_recorded = name in record.artifacts
+            record.artifacts.discard(name)
+            if was_recorded and committed:
+                self._write_manifest()
+        return True
+
+    def list(
+        self,
+        pattern: str = "*",
+        *,
+        step: int | None = -1,
+    ) -> list[str]:
+        resolved_step = self._resolve_read_step(step)
+        if resolved_step is None:
+            names = [
+                name
+                for name in self._run_artifacts
+                if self._artifact_file(name, None).exists()
+            ]
+        else:
+            record = self.get(resolved_step)
+            names = [
+                name
+                for name in record.artifacts
+                if self._artifact_file(name, resolved_step).exists()
+            ]
+        return sorted(name for name in names if fnmatch.fnmatch(name, pattern))
+
+    def list_all(self, pattern: str = "*") -> list[tuple[int | None, str]]:
+        artifacts: list[tuple[int | None, str]] = [
+            (None, name) for name in self.list(pattern, step=None)
+        ]
+        for record in self._steps:
+            artifacts.extend(
+                (record.step_idx, name)
+                for name in record.artifacts
+                if fnmatch.fnmatch(name, pattern)
+                and self._artifact_file(name, record.step_idx).exists()
+            )
+        return sorted(
+            artifacts,
+            key=lambda item: (-1 if item[0] is None else item[0], item[1]),
+        )
+
+    # -- step records ----------------------------------------------------
+
+    @contextmanager
+    def record_step(
+        self,
+        *,
+        state: dict[str, Any],
+        command: dict | None = None,
+        result: dict | None = None,
+        elapsed_s: float | None = None,
+        extras: dict[str, Any] | None = None,
+    ) -> Iterator[int]:
+        if self._pending_step is not None:
+            raise RuntimeError("a step record is already open")
+        record = StepRecord(
+            step_idx=self._next_step,
+            state=copy.deepcopy(state),
+            command=copy.deepcopy(command),
+            result=copy.deepcopy(result),
+            elapsed_s=elapsed_s,
+            extras=copy.deepcopy(extras or {}),
+        )
+        self._pending_step = record
+        try:
+            yield record.step_idx
+        except BaseException:
+            raise
+        else:
+            self._steps.append(record)
+            try:
+                self._write_manifest()
+            except Exception:
+                self._steps.pop()
+                raise
+            self._next_step = record.step_idx + 1
+        finally:
+            self._pending_step = None
+
+    def get(self, step: int = -1) -> StepRecord:
+        resolved_step = self._resolve_read_step(step)
+        if resolved_step is None:
+            raise ValueError("step records are not run-level artifacts")
+        for record in self._steps:
+            if record.step_idx == resolved_step:
+                return copy.deepcopy(record)
+        raise KeyError(f"step {resolved_step} not present in state trace")
 
     def records(self) -> list[StepRecord]:
-        """Return the persisted step records in trace order."""
-        return [StepRecord.from_blob(blob) for blob in self._steps]
+        return copy.deepcopy(self._steps)
 
-    def load_image_bytes(self, step_idx: int, stream: str) -> bytes | None:
-        path = stream_path(self.output_dir, stream, step_idx)
-        if not path.exists():
-            return None
-        return path.read_bytes()
+    # -- LLM-facing view -------------------------------------------------
 
-    def load_depth(self, step_idx: int, stream: str) -> np.ndarray:
-        path = stream_path(self.output_dir, stream, step_idx)
-        return np.load(path)
-
-    # -- LLM-facing view (ex-view_driver_state) ---------------------------
-
-    def view(self, step: int | None = None, *, image_slots: dict[str, str] | None = None) -> dict:
-        """Build the ``view_driver_state`` dict for one step.
-
-        ``image_slots`` maps a ToolResult image slot (``_image_bytes``,
-        ``_image_cam_bytes``, ``_image_wrist_bytes``) to a stream name whose
-        saved PNG should be embedded as bytes. The env decides which cameras
-        map to which slots.
-        """
-        latest = self.latest_step
-        if latest is None:
-            return {"error": "no driver state entries; driver not ready"}
-        nn = latest if step is None else int(step)
+    def view(
+        self,
+        step: int = -1,
+        *,
+        image_slots: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         try:
-            rec = self.get(nn)
-        except Exception as e:
-            return {"error": f"step {nn} not present in driver state trace: {e}"}
+            record = self.get(step)
+        except Exception as exc:
+            return {"error": f"state step not available: {exc}"}
+
+        metadata: dict[str, Any] = {}
+        metadata_suffix = "_metadata.json"
+        for name in sorted(record.artifacts):
+            if not name.endswith(metadata_suffix):
+                continue
+            key = name.removesuffix(metadata_suffix)
+            try:
+                loaded = self.load(name, step=record.step_idx)
+                if isinstance(loaded, dict):
+                    loaded = {
+                        field: value
+                        for field, value in loaded.items()
+                        if field not in {"K", "T_base_cam"}
+                    }
+                metadata[key] = loaded
+            except Exception as exc:
+                metadata[key] = {"error": str(exc)}
+
         out: dict[str, Any] = {
-            "step": nn,
-            "state": rec.state,
-            "frames": rec.frames,
-            "depth": rec.depth,
-            "camera_meta": {
-                name: {k: v for k, v in meta.items() if k not in {"K", "T_base_cam"}}
-                for name, meta in (rec.camera_meta or {}).items()
-            },
+            "step": record.step_idx,
+            "state": record.state,
+            "artifacts": sorted(record.artifacts),
+            "camera_meta": metadata,
             "log": {
-                "command": rec.command,
-                "result": rec.result,
-                "elapsed_s": rec.elapsed_s,
+                "command": record.command,
+                "result": record.result,
+                "elapsed_s": record.elapsed_s,
             },
         }
-        if rec.extras:
-            out["extras"] = rec.extras
+        if record.extras:
+            out["extras"] = record.extras
         if image_slots:
-            for slot, stream in image_slots.items():
-                b = self.load_image_bytes(nn, stream)
-                if b:
-                    out[slot] = b
+            for slot, name in image_slots.items():
+                if name not in record.artifacts:
+                    continue
+                try:
+                    out[slot] = self.load_bytes(name, step=record.step_idx)
+                except FileNotFoundError:
+                    continue
         return out

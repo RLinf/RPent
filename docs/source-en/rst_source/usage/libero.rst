@@ -147,8 +147,10 @@ Physical action tools advance the environment and record new state and images.
   coordinates.
 - ``segment(prompt=... / point=..., ...)`` — use SAM3 to segment an existing
   image with a text or point prompt.
-- ``view_driver_state(step=None)`` — read an existing state and image record.
-- ``view_camera_meta(camera=..., step=None)`` — read existing camera metadata.
+- ``view_driver_state(step=-1)`` — read a recorded state and its embedded
+  observation images. Step ``0`` is initial; ``-1`` is latest.
+- ``view_camera_meta(camera=..., step=-1)`` — read camera metadata for a
+  recorded step. Step ``-1`` is latest.
 - ``finish(status, summary)`` — end the current run.
 
 These tools do not advance the environment.

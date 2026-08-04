@@ -19,22 +19,6 @@ from rpent.utils.logging import get_logger, get_output_dir
 class LiberoToolkit(Toolkit):
     """Toolkit for the LIBERO environment."""
 
-    _WIPE_STREAMS = (
-        "image",
-        "image_cam",
-        "depth",
-        "world",
-        "image_wrist",
-        "depth_wrist",
-        "world_wrist",
-        "wrist_meta",
-        "image_cam_hi",
-        "world_hi",
-        "image_wrist_hi",
-        "world_wrist_hi",
-        "segments",
-        "action_videos",
-    )
     # Tool schemas keyed by name (built once from the canonical ordered list
     # in libero_tools.TOOLS_SPEC) so each tool registers with its own spec.
     _SPECS = {spec["name"]: spec for spec in libero_tools.TOOLS_SPEC}
@@ -44,11 +28,9 @@ class LiberoToolkit(Toolkit):
         *,
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
-        video_path: str | None = None,
     ) -> None:
         state = EnvState(get_output_dir())
         super().__init__(dashboard_events=dashboard_events, state=state)
-        self._video_path: str | None = video_path
         self.init_primitives_clean(primitives_kwargs=primitives_kwargs)
         self._register_libero_tools()
 
@@ -99,28 +81,36 @@ class LiberoToolkit(Toolkit):
         else:
             result_dict = {"value": result}
 
-        step_idx = self._state.next_step_idx
-        if self._dashboard_events.enabled:
-            video_dir = libero_tools.artifact_path(
-                self._state.output_dir, "action_videos"
-            )
-            video_path = video_dir / f"step_{step_idx:02d}_{name}.mp4"
-            try:
-                self._primitives.save_frame_slice(start_frame, str(video_path), fps=20)
-            except Exception as e:
-                get_logger("libero_toolkit").warning(
-                    f"failed to save action clip to {video_path}: {e}"
-                )
-        libero_tools.dump_state(
+        record = libero_tools.dump_state(
             self._primitives,
             self._state,
-            step_idx=step_idx,
             log={"command": command, "result": result_dict, "elapsed_s": elapsed},
         )
-        out = libero_tools.view_driver_state(step_idx, state=self._state)
+        action_video_name = None
+        if self._dashboard_events.enabled:
+            try:
+                frames = self._primitives.frame_slice(start_frame)
+                if frames:
+                    candidate = f"action_{name}.mp4"
+                    if self._state.save(
+                        candidate,
+                        frames,
+                        step=record.step_idx,
+                        fps=20,
+                    ):
+                        action_video_name = candidate
+            except Exception as e:
+                get_logger("libero_toolkit").warning(
+                    "failed to save action clip for step %s: %s",
+                    record.step_idx,
+                    e,
+                )
+        out = libero_tools.view_driver_state(record.step_idx, state=self._state)
         out["agent_elapsed_s"] = elapsed
         if result_dict.get("interrupted"):
             out.update(result_dict)
+        if action_video_name is not None:
+            out["action_video_artifact"] = action_video_name
         return out
 
     def init_primitives_clean(
@@ -129,14 +119,7 @@ class LiberoToolkit(Toolkit):
         primitives_kwargs: dict[str, Any],
     ) -> None:
         """Wipe stale run artifacts, build the LiberoPrimitives, dump step 0."""
-        self._state.reset(wipe_streams=self._WIPE_STREAMS)
-        out_dir = self._state.output_dir
-        for target in (
-            libero_tools.artifact_path(out_dir, "metadata", camera="agentview", resolution="low"),
-            libero_tools.artifact_path(out_dir, "episode_video"),
-        ):
-            if target.exists():
-                target.unlink()
+        self._state.reset()
 
         primitives = libero_tools.LiberoPrimitives(
             check_cancelled=self.raise_if_cancelled,
@@ -144,28 +127,25 @@ class LiberoToolkit(Toolkit):
         )
         primitives.reset()
         primitives.start_recording()
-        libero_tools.dump_state(primitives, self._state, step_idx=0, log=None)
+        libero_tools.dump_state(primitives, self._state, log=None)
         self._dashboard_events.emit(
             ToolResultEvent(
                 name="view_driver_state",
-            result=libero_tools.view_driver_state(0, state=self._state),
+                result=libero_tools.view_driver_state(0, state=self._state),
             )
         )
 
         self._primitives = primitives
 
     def close(self) -> None:
-        """Flush the agent-side video buffer to disk (end-of-run).
-        """
-        if self._video_path is None:
-            return
+        """Flush the agent-side video buffer through ``EnvState``."""
         try:
-            self._primitives.stop_recording_and_save(self._video_path)
+            frames = self._primitives.stop_recording()
+            if frames:
+                self._state.save("episode.mp4", frames, step=None, fps=20)
         except Exception as e:
-            # The runner is in the cleanup path; never let a video save
-            # abort it.
             get_logger("libero_toolkit").warning(
-                f"failed to save video to {self._video_path}: {e}"
+                f"failed to save episode video: {e}"
             )
 
     def write_recipe(self, recipe_tag: str) -> str:
