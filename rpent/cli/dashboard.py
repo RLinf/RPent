@@ -11,7 +11,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rpent.cli.main import _serialize_messages
 from rpent.dashboard.events import RunStartedEvent
@@ -21,7 +21,6 @@ from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
 
 if TYPE_CHECKING:
-    from robots.libero import LiberoSharedRuntime
     from rpent.dashboard.state import ClaimedTask, DashboardState
     from rpent.envs.env_spec import EnvSpec
 
@@ -35,7 +34,6 @@ def run_dashboard_session(
     parser: argparse.ArgumentParser,
 ) -> int:
     """Run one long-lived Dashboard Session with sequential fresh TaskRuns."""
-    from robots.libero import init_shared_runtime
     from rpent.dashboard.launcher import apply_to_args, defaults_from_args
     from rpent.dashboard.server import DashboardServer
     from rpent.dashboard.session import DashboardSessionController
@@ -83,7 +81,11 @@ def run_dashboard_session(
 
     controller = DashboardSessionController(
         state=state,
-        start_shared=lambda: init_shared_runtime(args, session_root, state),
+        start_shared=lambda: env_spec.init_shared_runtime(
+            args,
+            session_root,
+            state,
+        ),
         run_task=lambda claimed, shared: _run_dashboard_task(
             args=args,
             env_spec=env_spec,
@@ -113,12 +115,10 @@ def _run_dashboard_task(
     env_spec: EnvSpec,
     state: DashboardState,
     claimed: ClaimedTask,
-    shared: LiberoSharedRuntime,
+    shared: Any,
     session_root: Path,
 ) -> str | None:
     """Execute one fresh Dashboard TaskRun against Session-owned services."""
-    from robots.libero import init_task_runtime
-
     task_args = copy.copy(args)
     task_args.suite = claimed.command.suite
     task_args.task = claimed.command.task
@@ -136,12 +136,11 @@ def _run_dashboard_task(
     toolkit = None
     started = time.time()
     try:
-        task_runtime = init_task_runtime(task_args, output_dir, state)
+        task_runtime = env_spec.init_task_runtime(task_args, output_dir, state)
         if not state.task_replacement_requested:
             primitives_kwargs = {
-                "env": task_runtime.env,
-                "model": shared.model,
-                "sam3_client": shared.sam3_client,
+                **task_runtime.primitives_kwargs,
+                **shared.primitives_kwargs,
             }
             toolkit = get_toolkit(
                 args.env_name,

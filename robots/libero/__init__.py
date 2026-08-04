@@ -37,6 +37,14 @@ class LiberoSharedRuntime:
     sam3_client: Any
     owned_daemons: tuple["ProcessDaemon", ...] = ()
 
+    @property
+    def primitives_kwargs(self) -> dict[str, Any]:
+        """Return the shared LIBERO primitive dependencies."""
+        return {
+            "model": self.model,
+            "sam3_client": self.sam3_client,
+        }
+
     def close(self) -> None:
         """Stop every locally owned shared-service daemon, best effort."""
         _stop_owned_daemons(self.owned_daemons)
@@ -48,6 +56,11 @@ class LiberoTaskRuntime:
 
     env: Any
     owned_daemons: tuple["ProcessDaemon", ...] = ()
+
+    @property
+    def primitives_kwargs(self) -> dict[str, Any]:
+        """Return the TaskRun-owned LIBERO primitive dependencies."""
+        return {"env": self.env}
 
     def close(self) -> None:
         """Stop the locally owned env daemon, if any."""
@@ -68,6 +81,8 @@ def get_env_spec() -> EnvSpec:
         ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
+        init_shared_runtime=init_shared_runtime,
+        init_task_runtime=init_task_runtime,
         init_runtime=_init_runtime,
     )
 
@@ -375,55 +390,175 @@ def _init_runtime(
     output_dir: Path,
     dashboard_events: DashboardEventSink,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    """Compose task and shared runtimes for the existing one-shot runner.
+    """Spawn env + vla + SAM3 daemons and build clients for LIBERO.
 
-    Task and shared services initialize concurrently, preserving the startup
-    behavior established by the Dashboard monitoring runtime. If either side
-    fails, any successfully initialized peer runtime is stopped before the
-    exception escapes.
+    Each server can be spawned or attached-to independently: pass an
+    endpoint to attach, or leave it unset to spawn a local subprocess.
+
+    Heavy deps (rpc / vla / daemon / env_client) are imported lazily so
+    that a bare ``import robots.libero`` (for ``get_env_spec`` /
+    ``get_toolkit``) doesn't drag them in.
     """
-    from concurrent.futures import ThreadPoolExecutor, wait
+    from robots.libero.env_client import LiberoEnvClient
+    from rpent.utils.config import get_libero_type
+    from rpent.utils.daemon import ProcessDaemon, pick_free_port
+    from rpent.utils.http_rpc import HttpRpcClient
+    from rpent.utils.rpc import parse_endpoint, wait_for_ready
+    from rpent.utils.sam3_client import Sam3Client
+    from rpent.utils.socket_rpc import SocketRpcClient
+    from rpent.utils.vla_client import VLAClient
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        task_future = executor.submit(
-            init_task_runtime,
-            args,
-            output_dir,
-            dashboard_events,
-        )
-        shared_future = executor.submit(
-            init_shared_runtime,
-            args,
-            output_dir,
-            dashboard_events,
-        )
-        wait((task_future, shared_future))
+    daemons: list[ProcessDaemon] = []
+    libero_type = args.libero_type or get_libero_type()
+    cuda_args = ["--cuda-device", str(args.cuda_device)] if args.cuda_device is not None else []
 
-    if task_future.exception() is not None:
-        if shared_future.exception() is None:
-            _stop_owned_daemons(
-                shared_future.result().owned_daemons,
-                suppress_errors=True,
+    # --- env_server --------------------------------------------------------
+    dashboard_events.emit(RuntimeStatusEvent("env", "starting"))
+    try:
+        env_daemon: ProcessDaemon | None = None
+        if args.env_endpoint is None:
+            host, port = "127.0.0.1", pick_free_port()
+            env_daemon = ProcessDaemon(
+                name="env_server",
+                cmd=[
+                    sys.executable,
+                    str(get_repo_root() / "robots" / "libero" / "env_server.py"),
+                    "--suite", args.suite,
+                    "--task", str(args.task),
+                    "--seed", str(args.seed),
+                    "--max-episode-steps", str(args.max_episode_steps),
+                    "--transport", "http",
+                    "--host", host,
+                    "--port", str(port),
+                    "--parent-watch",
+                    *cuda_args,
+                ],
+                env=_subprocess_env(
+                    LIBERO_TYPE=libero_type,
+                    MUJOCO_GL="egl",
+                    ROBOT_PLATFORM="LIBERO",
+                ),
+                log_path=str(Path(output_dir) / "env_server.log"),
             )
-        task_future.result()
-    if shared_future.exception() is not None:
-        _stop_owned_daemons(
-            task_future.result().owned_daemons,
-            suppress_errors=True,
-        )
-        shared_future.result()
+            env_daemon.start()
+            daemons.append(env_daemon)
+            env_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
+        else:
+            protocol, host, port = parse_endpoint(args.env_endpoint)
+            if protocol == "socket":
+                env_rpc = SocketRpcClient(host, port)
+            elif protocol == "http":
+                env_rpc = HttpRpcClient(f"http://{host}:{port}")
+            else:
+                raise ValueError(
+                    f"--env-endpoint protocol must be socket or http, got {protocol!r}"
+                )
+    except Exception as exc:
+        dashboard_events.emit(RuntimeStatusEvent("env", "failed", error=exc))
+        raise
 
-    task_runtime = task_future.result()
-    shared_runtime = shared_future.result()
+    # --- vla_server --------------------------------------------------------
+    dashboard_events.emit(RuntimeStatusEvent("vla", "starting"))
+    try:
+        vla_daemon: ProcessDaemon | None = None
+        if args.vla_endpoint is None:
+            host, port = "127.0.0.1", pick_free_port()
+            vla_daemon = ProcessDaemon(
+                name="vla_server",
+                cmd=[
+                    sys.executable,
+                    str(get_repo_root() / "robots" / "libero" / "vla_server.py"),
+                    "--transport", "http",
+                    "--host", host,
+                    "--port", str(port),
+                    "--parent-watch",
+                    *cuda_args,
+                ],
+                env=_subprocess_env(),
+                log_path=str(Path(output_dir) / "vla_server.log"),
+            )
+            vla_daemon.start()
+            daemons.append(vla_daemon)
+            vla_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
+        else:
+            protocol, host, port = parse_endpoint(args.vla_endpoint)
+            if protocol == "socket":
+                vla_rpc = SocketRpcClient(host, port)
+            elif protocol == "http":
+                vla_rpc = HttpRpcClient(f"http://{host}:{port}")
+            else:
+                raise ValueError(
+                    f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
+                )
+    except Exception as exc:
+        dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
+        raise
 
-    daemons = [
-        *task_runtime.owned_daemons,
-        *shared_runtime.owned_daemons,
-    ]
+    # --- sam3_server -------------------------------------------------------
+    dashboard_events.emit(RuntimeStatusEvent("sam3", "starting"))
+    try:
+        sam3_daemon: ProcessDaemon | None = None
+        if args.sam3_endpoint is None:
+            host, port = "127.0.0.1", pick_free_port()
+            sam3_daemon = ProcessDaemon(
+                name="sam3_server",
+                cmd=[
+                    sys.executable,
+                    str(get_repo_root() / "robots" / "libero" / "sam3_server.py"),
+                    "--transport", "http",
+                    "--host", host,
+                    "--port", str(port),
+                    "--parent-watch",
+                    *cuda_args,
+                ],
+                env=_subprocess_env(),
+                log_path=str(Path(output_dir) / "sam3_server.log"),
+            )
+            sam3_daemon.start()
+            daemons.append(sam3_daemon)
+            sam3_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
+        else:
+            protocol, host, port = parse_endpoint(args.sam3_endpoint)
+            if protocol == "socket":
+                sam3_rpc = SocketRpcClient(host, port)
+            elif protocol == "http":
+                sam3_rpc = HttpRpcClient(f"http://{host}:{port}")
+            else:
+                raise ValueError(
+                    f"--sam3-endpoint protocol must be socket or http, got {protocol!r}"
+                )
+    except Exception as exc:
+        dashboard_events.emit(RuntimeStatusEvent("sam3", "failed", error=exc))
+        raise
+
+    # All local daemons are running now, so they initialize concurrently while
+    # readiness is checked in a deterministic order.
+    for component, client, daemon in (
+        ("env", env_rpc, env_daemon),
+        ("sam3", sam3_rpc, sam3_daemon),
+        ("vla", vla_rpc, vla_daemon),
+    ):
+        try:
+            wait_for_ready(client, daemon=daemon)
+        except Exception as exc:
+            for started_daemon in reversed(daemons):
+                started_daemon.stop()
+            dashboard_events.emit(RuntimeStatusEvent(component, "failed", error=exc))
+            raise
+        dashboard_events.emit(RuntimeStatusEvent(component, "ready"))
+
     primitives_kwargs = {
-        "env": task_runtime.env,
-        "model": shared_runtime.model,
-        "sam3_client": shared_runtime.sam3_client,
+        "env": LiberoEnvClient(
+            env_rpc,
+            expected_meta={
+                "suite": args.suite,
+                "task": args.task,
+                "seed": args.seed,
+                "max_episode_steps": args.max_episode_steps,
+            },
+        ),
+        "model": VLAClient(vla_rpc),
+        "sam3_client": Sam3Client(sam3_rpc),
     }
     return daemons, primitives_kwargs
 
