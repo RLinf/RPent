@@ -1209,7 +1209,12 @@ function selectedModel() {
 function showLauncher(defaults) {
   const d = defaults || {};
   const set = (id, val) => { $(id).value = val == null ? "" : val; };
-  set("#f-suite", d.suite);
+  const suite = d.suite == null ? "" : String(d.suite);
+  const suiteSelect = $("#f-suite");
+  if (suite && !Array.from(suiteSelect.options).some(option => option.value === suite)) {
+    suiteSelect.add(new Option(suite, suite));
+  }
+  set("#f-suite", suite);
   set("#f-task", d.task);
   set("#f-seed", d.seed);
   set("#f-planner", d.planner || "claude_code");
