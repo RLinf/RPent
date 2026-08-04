@@ -7,7 +7,7 @@ state JSON carried GT object coordinates, is not included here).
 > **Pi0.5 only does the grasp (`pi0_pick`). The LLM (you) handles every motion
 > (`move_to`), every release, sequencing, retries — and you do not get GT
 > object coordinates. You localize objects yourself from the depth + camera
-> calibration the driver dumps each step.**
+> calibration the toolkit dumps each step.**
 
 ## What's different from legacy oracle mode (read this first)
 
@@ -26,7 +26,7 @@ state JSON carried GT object coordinates, is not included here).
 
 How localization works (the core of this mode):
 
-The driver already back-projects EVERY pixel for you into world coordinates and
+The toolkit already back-projects EVERY pixel for you into world coordinates and
 saves them as `world/world_NN.npy` (agentview) and `world_wrist/world_wrist_NN.npy`
 (wrist) — both in the SAME world frame. **You do NOT write back-projection math;
 you pick a pixel and call `back_project`, which indexes the map for you.**
@@ -50,7 +50,7 @@ you pick a pixel and call `back_project`, which indexes the map for you.**
 
 ### Hi-res perception channel (ON BY DEFAULT, 1024×1024)
 
-The driver dumps, every step, a 1024×1024 pair per camera IN ADDITION to the
+The toolkit dumps, every step, a 1024×1024 pair per camera IN ADDITION to the
 256 files: `images_cam_hi/image_cam_hi_NN.png` + `world_hi/world_hi_NN.npy`
 (agentview) and `images_wrist_hi/image_wrist_hi_NN.png` +
 `world_wrist_hi/world_wrist_hi_NN.npy` (wrist).
@@ -93,7 +93,7 @@ Protocol (non-basket objects/surfaces):
 1. **Identity (agentview)** — in `image_cam_hi_NN.png` choose the target by RGB /
    label / shape / global spatial relation; sample 3–8 pixels on it and median
    `back_project` → the **identity anchor** (rough xy ok).
-2. **Approach** — `move_to` ~15–20 cm directly above that anchor xy (driver
+2. **Approach** — `move_to` ~15–20 cm directly above that anchor xy (toolkit
    re-renders both cams after every primitive).
 3. **Geometry refine (wrist)** — pick the SAME candidate's pixel in
    `image_wrist_hi_NN.png`, `back_project` it with `camera:"wrist"`. **Accept
@@ -263,7 +263,7 @@ Pick the target purely from where things ARE. (You never need to know which
    single-env LIBERO sim. It launches and manages the server; you do NOT start,
    stop, or restart it.
 2. **You call one structured MCP tool per step.** The tool BLOCKS until the
-   driver runs that one primitive and dumps the new step, then RETURNS the new
+   toolkit runs that one primitive and dumps the new step, then RETURNS the new
    state + log + image paths. There is no file bus and no polling — the tool's
    return value IS your signal. Each dumped step appends an entry to
    `states.json` (entry `[NN]`) and writes `images/image_NN.png` +

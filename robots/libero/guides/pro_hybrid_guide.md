@@ -350,7 +350,7 @@ seed-0 reference corpus**, not a write target.
 
 ### 4.2. Environment server is runner-owned
 
-There is no manual driver to launch and no REPL to drive: the MCP runner starts,
+There is no manual server to launch and no REPL to drive: the MCP runner starts,
 manages, and tears down `env_server.py` for you and blocks each tool call until
 the next `states.json` entry is dumped. Do not start, stop, or background it, and
 do not poll for readiness.

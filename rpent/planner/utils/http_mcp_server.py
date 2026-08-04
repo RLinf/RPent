@@ -18,8 +18,6 @@ Usage::
 from __future__ import annotations
 
 import asyncio
-import json
-import logging
 import socket
 import threading
 from typing import Any
@@ -32,8 +30,9 @@ from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 from rpent.tools.toolkit import Toolkit
+from rpent.utils.logging import get_logger
 
-logger = logging.getLogger("mcp_http")
+logger = get_logger("mcp_http")
 
 SERVER_NAME = "rpent"
 
@@ -118,7 +117,11 @@ def _build_asgi_app(toolkit: Toolkit) -> Any:
                     async with session_manager.run():
                         await send({"type": "lifespan.startup.complete"})
                         shutdown_event = await receive()
-                        assert shutdown_event["type"] == "lifespan.shutdown"
+                        # Use an explicit check rather than ``assert`` —
+                        # ``python -O`` strips asserts and would turn a
+                        # protocol violation into a silent mis-handle.
+                        if shutdown_event["type"] != "lifespan.shutdown":
+                            break
                         await send({"type": "lifespan.shutdown.complete"})
                     break
                 elif event["type"] == "lifespan.shutdown":
@@ -152,8 +155,11 @@ def _wait_for_ready(url: str, *, timeout_s: float) -> None:
     transport = httpx.HTTPTransport(retries=10)
     with httpx.Client(transport=transport, timeout=httpx.Timeout(timeout_s, connect=2)) as c:
         resp = c.post(url, json=body, headers={"Accept": "application/json"})
+        body_preview = resp.text[:200]
         if not (resp.is_success and "result" in resp.json()):
-            raise RuntimeError(f"HttpMcpServer not ready: {resp.status_code}")
+            raise RuntimeError(
+                f"HttpMcpServer not ready: code: {resp.status_code}; content: {body_preview}"
+            )
 
 
 class HttpMcpServer:
@@ -214,5 +220,11 @@ class HttpMcpServer:
             self._server.should_exit = True
         if self._thread is not None:
             self._thread.join(timeout=timeout_s)
+            if self._thread.is_alive():
+                logger.warning(
+                    "HttpMcpServer thread did not exit within %.1fs; "
+                    "leaving references intact",
+                    timeout_s,
+                )
         self._server = None
         self._thread = None
