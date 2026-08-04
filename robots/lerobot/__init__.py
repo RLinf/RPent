@@ -53,7 +53,6 @@ def get_env_spec() -> EnvSpec:
 def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
-    video_path: str | None = None,
     dashboard: Any = None,
 ):
     """Return the SO101 toolkit (common tools + SO101 primitives).
@@ -65,7 +64,6 @@ def get_toolkit(
     from robots.lerobot.toolkit import LerobotToolkit
 
     return LerobotToolkit(
-        video_path=video_path,
         dashboard=dashboard,
         **primitives_kwargs,
     )

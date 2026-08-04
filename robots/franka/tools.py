@@ -182,40 +182,38 @@ class FrankaPrimitives:
 def dump_state(
     driver: FrankaPrimitives,
     state: EnvState,
-    step_idx: int,
     log: dict | None = None,
 ) -> StepRecord:
-    """Dump camera frames + proprioceptive state via the EnvState owner.
-
-    Maps the Franka cameras onto the LIBERO stream layout: scene -> ``image``/
-    ``depth`` (the primary view) and wrist -> ``image_wrist``/``depth_wrist``.
-    """
-    image_streams = {"scene": "image", "wrist": "image_wrist"}
-    depth_streams = {"scene": "depth", "wrist": "depth_wrist"}
-
-    saved_frames: list[str] = []
-    for camera, frame in driver.latest_frames().items():
-        stream = image_streams.get(camera, camera)
-        if state.save_image(step_idx, stream, frame):
-            saved_frames.append(stream)
-
-    saved_depths: list[str] = []
-    for camera, depth in driver.latest_depths().items():
-        stream = depth_streams.get(camera, camera)
-        if state.save_depth(step_idx, stream, depth):
-            saved_depths.append(stream)
-
-    record = StepRecord(
-        step_idx=step_idx,
+    """Dump camera artifacts and proprioceptive state through ``EnvState``."""
+    log = log or {}
+    with state.record_step(
         state=driver.get_state(),
-        frames=sorted(saved_frames),
-        depth=sorted(saved_depths),
-        camera_meta=driver.latest_camera_meta(),
-        command=log.get("command") if log else None,
-        result=log.get("result") if log else None,
-        elapsed_s=log.get("elapsed_s") if log else None,
-    )
-    return state.append(record)
+        command=log.get("command"),
+        result=log.get("result"),
+        elapsed_s=log.get("elapsed_s"),
+    ) as step_idx:
+        for camera, frame in driver.latest_frames().items():
+            state.save(
+                f"{camera}.png",
+                frame,
+                step=step_idx,
+            )
+
+        for camera, depth in driver.latest_depths().items():
+            state.save(
+                f"{camera}_depth.npy",
+                depth,
+                step=step_idx,
+            )
+
+        for camera, camera_meta in driver.latest_camera_meta().items():
+            state.save(
+                f"{camera}_metadata.json",
+                camera_meta,
+                step=step_idx,
+            )
+
+    return state.get(step_idx)
 
 
 # view_driver_state now lives on EnvState.view (bound by the toolkit with the
@@ -225,7 +223,7 @@ def dump_state(
 def back_project(
     row: int,
     col: int,
-    step: int | None = None,
+    step: int = -1,
     camera: str = "wrist",
     radius: int | None = _BACKPROJECT_RADIUS,
     *,
@@ -239,24 +237,29 @@ def back_project(
     ``panda_link0`` when the camera has ``T_base_cam`` for the step; otherwise
     ``xyz_cam`` plus a warning.
     """
-    nn = state.latest_step if step is None else int(step)
-    if nn is None:
-        return {"error": "no steps available"}
     try:
-        rec = state.get(nn)
+        record = state.get(step)
     except Exception as exc:
-        return {"error": f"step {nn} not present in driver state trace: {exc}"}
+        return {"error": f"state step not available: {exc}"}
+    nn = record.step_idx
 
     camera = str(camera or "wrist")
-    meta = (rec.camera_meta or {}).get(camera)
-    if not meta:
+    metadata_name = f"{camera}_metadata.json"
+    depth_name = f"{camera}_depth.npy"
+    if metadata_name not in record.artifacts:
         return {
             "error": f"camera {camera!r} has no metadata at step {nn}",
-            "available_cameras": sorted((rec.camera_meta or {}).keys()),
+            "available_cameras": sorted(
+                name.removesuffix("_metadata.json")
+                for name in record.artifacts
+                if name.endswith("_metadata.json")
+            ),
         }
-    depth_stream = "depth" if camera == "scene" else "depth_wrist"
     try:
-        depth = state.load_depth(nn, depth_stream)
+        meta = state.load(metadata_name, step=nn)
+        if depth_name not in record.artifacts:
+            raise FileNotFoundError(depth_name)
+        depth = state.load(depth_name, step=nn)
     except Exception as exc:
         return {"error": f"depth for camera {camera!r} step {nn} not found: {exc}"}
 
@@ -292,15 +295,16 @@ TOOLS_SPEC: list[dict[str, Any]] = [
     {
         "name": "view_driver_state",
         "description": (
-            "Read step NN from states.json plus matching camera PNGs. If step "
-            "is null, returns the latest entry. Embeds scene and wrist images."
+            "Read one recorded state and its observation artifacts. Step -1 "
+            "selects the latest entry. Embeds scene and wrist images."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "step": {
-                    "type": ["integer", "null"],
-                    "description": "Step number; 0 = initial. Null = latest.",
+                    "type": "integer",
+                    "default": -1,
+                    "description": "Step number; 0 = initial, -1 = latest.",
                 }
             },
         },
@@ -322,8 +326,9 @@ TOOLS_SPEC: list[dict[str, Any]] = [
                 "row": {"type": "integer", "description": "Pixel row (y)."},
                 "col": {"type": "integer", "description": "Pixel column (x)."},
                 "step": {
-                    "type": ["integer", "null"],
-                    "description": "Step whose saved depth to use; null = latest.",
+                    "type": "integer",
+                    "default": -1,
+                    "description": "Step whose saved depth to use; -1 = latest.",
                 },
                 "camera": {
                     "type": "string",

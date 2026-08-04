@@ -220,7 +220,6 @@ def main() -> int:
     toolkit = get_toolkit(
         env_name,
         primitives_kwargs=primitives_kwargs,
-        video_path=str(Path(output_dir) / "episode.mp4"),
         dashboard_events=dashboard_events,
     )
 

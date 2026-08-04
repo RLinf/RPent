@@ -502,7 +502,14 @@ class DashboardState:
         result = event.result
         if not isinstance(result, dict):
             return
-        self._apply_frame_paths(result)
+        frames = {
+            "camera": result.get("_image_cam_bytes") or result.get("_image_bytes"),
+            "wrist": result.get("_image_wrist_bytes"),
+        }
+        self._update_frames(
+            step=result.get("step"),
+            frames={kind: data for kind, data in frames.items() if data},
+        )
         log = result.get("log")
         if not isinstance(log, dict):
             return
@@ -521,11 +528,8 @@ class DashboardState:
             "result": log.get("result"),
             "elapsed_s": log.get("elapsed_s"),
             "terminated": terminated,
-            "has_action_video": (
-                self.output_dir
-                / "action_videos"
-                / f"step_{step:02d}_{command.get('action', name)}.mp4"
-            ).exists(),
+            "action_video_artifact": result.get("action_video_artifact"),
+            "has_action_video": bool(result.get("action_video_artifact")),
         }
         with self._lock:
             self._timeline.append(item)
@@ -675,18 +679,20 @@ class DashboardState:
         with self._lock:
             return self._frames.get(kind)
 
-    def action_video_path(self, step: int) -> Path | None:
+    def action_video(self, step: int) -> bytes | None:
         with self._lock:
             for item in self._timeline:
                 if int(item.get("step", -1)) != int(step):
                     continue
-                video_path = (
-                    self.output_dir
-                    / "action_videos"
-                    / f"step_{int(step):02d}_{item.get('action', '')}.mp4"
-                )
-                return video_path if video_path.exists() else None
+                artifact = item.get("action_video_artifact")
+                if not artifact:
+                    return None
+                video_path = self.output_dir / f"{int(step):02d}_{artifact}"
+                return video_path.read_bytes() if video_path.exists() else None
         return None
+
+    def video(self) -> bytes | None:
+        return self.video_path.read_bytes() if self.video_path.exists() else None
 
     def has_video(self) -> bool:
         with self._lock:

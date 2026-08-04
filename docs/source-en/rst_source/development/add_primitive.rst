@@ -167,8 +167,10 @@ Design principles for a new primitive
   the state dump reflecting the post-action world. Don't let the
   primitive return before the render finishes.
 - **Return small dicts.** Tool return values are fed back to the LLM
-  as text. Store larger content, such as images, depth data, and
-  ``states.json``, in the state dump instead.
+  as text. Save larger observations through ``EnvState.save``; ``EnvState``
+  automatically records each logical base name in its owned
+  ``StepRecord.artifacts`` set. Expose images through ``view_driver_state`` and
+  geometry through environment tools rather than returning raw paths.
 - **Guardrails belong in env_server**, not in the toolkit. The LLM
   can and will call any tool with any arguments; workspace bounds
   and safety clamps must be enforced on the server side.

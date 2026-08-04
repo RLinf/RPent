@@ -209,21 +209,23 @@ Anthropic API 的工具定义格式，包含 ``name``、``description`` 和
 ``input_schema``），以及 toolkit 引用的模块级函数，例如
 ``view_driver_state``、``back_project`` 和 ``finish``。
 
-**每步状态 dump** —— ``dump_state(primitives, output_dir, step_idx, log)`` 把 agent
-之后会通过 ``view_*`` 工具读回的所有状态 (图像、深度、JSON 状态、camera meta)
-序列化到 ``output_dir``。
+**每步状态 dump** —— ``dump_state(driver, env_state, log)`` 通过
+``env_state.record_step(...)`` 创建由 ``EnvState`` 持有的步骤，并取得分配的
+step index。大型观测通过 ``env_state.save(..., step=step_idx)`` 保存。每次保存
+成功后，``EnvState`` 会自动把基础文件名加入该 ``StepRecord`` 的扁平
+``artifacts`` 集合并最终提交记录；读取方直接使用规范化的工件文件名。
 
 **Toolkit 类** 继承 ``rpent.tools.toolkit.Toolkit``：
 
-- 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitives（LIBERO
-  中的方法名为 ``init_primitives_clean``；它会清理过期的 ``images/`` 等目录、
-  构造原语并 dump 第 0 步）,
+- 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitive driver（LIBERO
+  中的方法名为 ``init_primitives_clean``；它会调用 ``EnvState.reset()``、构造
+  原语并 dump 第 0 步）,
 - 用 ``self.add_tool(name, spec, handler)`` 注册每个工具。无状态的读取工具
   （如 ``view_driver_state``、``finish``）直接绑定模块级函数；原语工具通过
   ``_step(name, **kwargs)`` 调用。``_step`` 使用
-  ``getattr(self._primitives, name)(**kwargs)`` 调用 primitives 方法并重新渲染状态；
-- 重写 ``close()``，将 agent 侧生成的文件写入磁盘（例如 LIBERO toolkit
-  在这里保存 agentview MP4）。
+  ``getattr(self._primitives, name)(**kwargs)`` 调用 driver 方法并重新渲染状态；
+- 重写 ``close()``，通过 ``EnvState`` 保存 agent 侧剩余工件（例如
+  ``state.save("episode.mp4", frames, step=None)``）。
 
 ``primitives_kwargs`` 由 ``__init__.py:get_toolkit`` 转发给 toolkit，再原样传入
 primitives 的 ``__init__``。其中通常包含
@@ -232,8 +234,9 @@ primitives 的 ``__init__``。其中通常包含
 建议遵循的约定
 --------------
 
-- ``output_dir`` 是 runner 为单次运行创建的临时目录。图像、深度数据、
-  ``states.json``、transcript 和 ``episode.mp4`` 等工件都写入该目录。
+- ``output_dir`` 是 runner 为单次运行创建的工作目录。环境观测由
+  ``EnvState`` 管理；调用方只使用逻辑基础文件名，不自行拼接存储路径。
+  transcript 等运行管理输出与环境工件共享该目录。
 - 工具定义使用 Anthropic API 格式（``name`` / ``description`` /
   ``input_schema``）。
   每个用 ``self.add_tool(...)`` 注册的工具都会暴露给所有 planner。

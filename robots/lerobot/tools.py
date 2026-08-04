@@ -173,54 +173,46 @@ class LerobotPrimitives:
 def dump_state(
     driver: LerobotPrimitives,
     state: EnvState,
-    step_idx: int,
     log: dict | None = None,
 ) -> StepRecord:
-    """Dump the camera frames, scene depth, and proprioceptive state.
-
-    Writes per step:
-      - ``images/image_NN.png`` (scene color)
-      - ``images_arm/image_arm_NN.png`` (arm color)
-      - ``depths/depth_NN.npy`` (scene metric depth, aligned to scene color)
-
-    Scene calibration is stored on the step record. ``EnvState`` atomically
-    appends that record to ``states.json`` and advances the trace counter.
-    """
-    image_streams = {"scene": "image", "arm": "image_arm"}
-    saved_frames: list[str] = []
-    for camera, frame in driver.latest_frames().items():
-        stream = image_streams.get(camera, f"image_{camera}")
-        if state.save_image(step_idx, stream, frame):
-            saved_frames.append(stream)
-
-    saved_depths: list[str] = []
-    depth = driver.latest_depth()
-    if depth is not None and state.save_depth(step_idx, "depth", depth):
-        saved_depths.append("depth")
-
-    scene_meta = driver.get_scene_camera_meta()
-    camera_meta = (
-        {"scene": scene_meta}
-        if isinstance(scene_meta, dict) and "error" not in scene_meta
-        else {}
-    )
-    record = StepRecord(
-        step_idx=step_idx,
+    """Dump camera artifacts and proprioceptive state through ``EnvState``."""
+    log = log or {}
+    with state.record_step(
         state=driver.get_state(),
-        frames=sorted(saved_frames),
-        depth=sorted(saved_depths),
-        camera_meta=camera_meta,
-        command=log.get("command") if log else None,
-        result=log.get("result") if log else None,
-        elapsed_s=log.get("elapsed_s") if log else None,
-    )
-    return state.append(record)
+        command=log.get("command"),
+        result=log.get("result"),
+        elapsed_s=log.get("elapsed_s"),
+    ) as step_idx:
+        for camera, frame in driver.latest_frames().items():
+            state.save(
+                f"{camera}.png",
+                frame,
+                step=step_idx,
+            )
+
+        depth = driver.latest_depth()
+        if depth is not None:
+            state.save(
+                "scene_depth.npy",
+                depth,
+                step=step_idx,
+            )
+
+        scene_meta = driver.get_scene_camera_meta()
+        if isinstance(scene_meta, dict) and "error" not in scene_meta:
+            state.save(
+                "scene_metadata.json",
+                scene_meta,
+                step=step_idx,
+            )
+
+    return state.get(step_idx)
 
 
 def back_project(
     row: int,
     col: int,
-    step: int | None = None,
+    step: int = -1,
     radius: int | None = _BACKPROJECT_RADIUS,
     *,
     state: EnvState,
@@ -236,22 +228,24 @@ def back_project(
     stable object centroid rather than one face pixel. Use ``radius=0`` for the
     old single-pixel behavior.
 
-    Pick ``(row, col)`` on ``images/image_NN.png``; depth is aligned to it in
-    ``depths/depth_NN.npy``. Returns base/world ``xyz`` when calibrated, else
+    Pick ``(row, col)`` on the saved ``scene.png`` observation; depth is
+    aligned in ``scene_depth.npy``. Returns base/world ``xyz`` when calibrated, else
     camera-frame ``xyz_cam`` with a note.
     """
-    nn = state.latest_step if step is None else int(step)
-    if nn is None:
-        return {"error": "no steps available"}
     try:
-        record = state.get(nn)
+        record = state.get(step)
     except Exception as exc:
-        return {"error": f"step {nn} not present in driver state trace: {exc}"}
-    meta = (record.camera_meta or {}).get("scene")
-    if not meta:
+        return {"error": f"state step not available: {exc}"}
+    nn = record.step_idx
+    metadata_name = "scene_metadata.json"
+    depth_name = "scene_depth.npy"
+    if metadata_name not in record.artifacts:
         return {"error": f"scene camera metadata not recorded for step {nn}"}
     try:
-        depth = state.load_depth(nn, "depth")
+        meta = state.load(metadata_name, step=nn)
+        if depth_name not in record.artifacts:
+            raise FileNotFoundError(depth_name)
+        depth = state.load(depth_name, step=nn)
     except Exception as exc:
         return {"error": f"depth for step {nn} not found: {exc}"}
 
@@ -288,17 +282,16 @@ TOOLS_SPEC: list[dict[str, Any]] = [
     {
         "name": "view_driver_state",
         "description": (
-            "Read step NN from `states.json` plus the matching scene image "
-            "`images/image_NN.png` and arm image "
-            "`images_arm/image_arm_NN.png`. If step is null, returns the "
-            "latest entry. Embeds both camera frames as image content blocks."
+            "Read one recorded state and its observation artifacts. Step -1 "
+            "selects the latest entry. Embeds scene and arm camera frames."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "step": {
-                    "type": ["integer", "null"],
-                    "description": "Step number; 0 = initial. Null = latest.",
+                    "type": "integer",
+                    "default": -1,
+                    "description": "Step number; 0 = initial, -1 = latest.",
                 },
             },
         },
@@ -340,8 +333,9 @@ TOOLS_SPEC: list[dict[str, Any]] = [
                 "row": {"type": "integer", "description": "Pixel row (y) in the scene image, near the target center."},
                 "col": {"type": "integer", "description": "Pixel column (x) in the scene image, near the target center."},
                 "step": {
-                    "type": ["integer", "null"],
-                    "description": "Step whose depth to use; null = latest.",
+                    "type": "integer",
+                    "default": -1,
+                    "description": "Step whose depth to use; -1 = latest.",
                 },
                 "radius": {
                     "type": ["integer", "null"],

@@ -14,10 +14,11 @@ from rpent.utils.logging import get_output_dir
 class FrankaToolkit(Toolkit):
     """Toolkit for the standalone Franka environment."""
 
-    # Streams wiped on init (LIBERO layout: scene=image/depth, wrist=image_wrist/depth_wrist).
-    _WIPE_STREAMS = ("image", "image_wrist", "depth", "depth_wrist")
     # view_driver_state image slots: primary scene -> _image_bytes, wrist -> _image_cam_bytes.
-    _VIEW_IMAGE_SLOTS = {"_image_bytes": "image", "_image_cam_bytes": "image_wrist"}
+    _VIEW_IMAGE_SLOTS = {
+        "_image_bytes": "scene.png",
+        "_image_cam_bytes": "wrist.png",
+    }
 
     _DRIVER_READERS = (
         "get_ee_pose",
@@ -40,7 +41,6 @@ class FrankaToolkit(Toolkit):
         self,
         *,
         env: Any,
-        video_path: str | None = None,
         dashboard: Any = None,
     ) -> None:
         # EnvState owns the trace + counter for this run (explicit output_dir,
@@ -48,7 +48,6 @@ class FrankaToolkit(Toolkit):
         # for now the toolkit constructs it from get_output_dir().
         state = EnvState(get_output_dir())
         super().__init__(dashboard=dashboard, state=state)
-        self._video_path = video_path
         self.init_driver_clean(env=env)
         self._register_tools()
 
@@ -84,22 +83,20 @@ class FrankaToolkit(Toolkit):
         elapsed = round(time.time() - t0, 2)
         result_dict = result if isinstance(result, dict) else {"value": result}
 
-        step_idx = self._state.next_step_idx
-        franka_tools.dump_state(
+        record = franka_tools.dump_state(
             self._driver,
             self._state,
-            step_idx=step_idx,
             log={"command": command, "result": result_dict, "elapsed_s": elapsed},
         )
-        out = self._state.view(step_idx, image_slots=self._VIEW_IMAGE_SLOTS)
+        out = self._state.view(record.step_idx, image_slots=self._VIEW_IMAGE_SLOTS)
         out["agent_elapsed_s"] = elapsed
         return out
 
     def init_driver_clean(self, *, env: Any) -> None:
-        self._state.reset(wipe_streams=self._WIPE_STREAMS)
+        self._state.reset()
         driver = franka_tools.FrankaPrimitives(env=env)
         driver.reset()
-        franka_tools.dump_state(driver, self._state, step_idx=0, log=None)
+        franka_tools.dump_state(driver, self._state, log=None)
         self._driver = driver
 
     def close(self) -> None:

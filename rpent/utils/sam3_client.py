@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import io
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import imageio.v2 as imageio
@@ -35,7 +34,7 @@ class Sam3Client:
 
     def segment(
         self,
-        image_path: str | Path,
+        image: bytes | bytearray | memoryview | np.ndarray,
         *,
         text_prompt: str | None = None,
         point: list[int] | None = None,
@@ -55,7 +54,12 @@ class Sam3Client:
         if not 0.0 <= float(min_score) <= 1.0:
             raise ValueError("min_score must be between 0 and 1")
 
-        image_bytes = Path(image_path).read_bytes()
+        if isinstance(image, np.ndarray):
+            buffer = io.BytesIO()
+            imageio.imwrite(buffer, image, format="png")
+            image_bytes = buffer.getvalue()
+        else:
+            image_bytes = bytes(image)
         body: dict[str, Any] = {
             "image_base64": base64.b64encode(image_bytes).decode("ascii"),
             "min_score": float(min_score),

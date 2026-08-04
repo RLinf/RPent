@@ -42,7 +42,6 @@ def get_env_spec() -> EnvSpec:
 def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
-    video_path: str | None = None,
     dashboard: Any = None,
 ):
     """Return the Franka toolkit (common tools + Cartesian primitives).
@@ -53,7 +52,6 @@ def get_toolkit(
     from robots.franka.toolkit import FrankaToolkit
 
     return FrankaToolkit(
-        video_path=video_path,
         dashboard=dashboard,
         **primitives_kwargs,
     )
