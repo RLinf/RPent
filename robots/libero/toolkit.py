@@ -29,12 +29,10 @@ class LiberoToolkit(Toolkit):
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         video_path: str | None = None,
-        save_action_videos: bool = False,
     ) -> None:
         super().__init__(dashboard_events=dashboard_events)
         self._next_step: int = 0
         self._video_path: str | None = video_path
-        self._save_action_videos = save_action_videos
         self.init_primitives_clean(primitives_kwargs=primitives_kwargs)
         self._register_libero_tools()
 
@@ -84,7 +82,7 @@ class LiberoToolkit(Toolkit):
         self._next_step += 1
         step_idx = self._next_step
         output_dir = get_output_dir()
-        if self._save_action_videos:
+        if self._dashboard_events.enabled:
             video_dir = libero_tools.artifact_path(output_dir, "action_videos")
             video_path = video_dir / f"step_{step_idx:02d}_{name}.mp4"
             try:

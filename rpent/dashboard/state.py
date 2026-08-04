@@ -48,6 +48,10 @@ class ClaimedTask:
 class DashboardState:
     """Thread-safe projection for one sequential Dashboard Session."""
 
+    @property
+    def enabled(self) -> bool:
+        return True
+
     def __init__(
         self,
         *,
