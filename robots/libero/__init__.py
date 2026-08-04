@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -193,13 +192,15 @@ def init_task_runtime(
             owned_daemons.append(env_daemon)
             env_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
         else:
-            env_rpc = _external_rpc_client(
-                args.env_endpoint,
-                option="--env-endpoint",
-                parse_endpoint=parse_endpoint,
-                http_client_factory=HttpRpcClient,
-                socket_client_factory=SocketRpcClient,
-            )
+            protocol, host, port = parse_endpoint(args.env_endpoint)
+            if protocol == "socket":
+                env_rpc = SocketRpcClient(host, port)
+            elif protocol == "http":
+                env_rpc = HttpRpcClient(f"http://{host}:{port}")
+            else:
+                raise ValueError(
+                    f"--env-endpoint protocol must be socket or http, got {protocol!r}"
+                )
         wait_for_ready(env_rpc, daemon=env_daemon)
         env = LiberoEnvClient(
             env_rpc,
@@ -211,7 +212,7 @@ def init_task_runtime(
             },
         )
     except Exception as exc:
-        _stop_owned_daemons(owned_daemons, suppress_errors=True)
+        _stop_owned_daemons(owned_daemons)
         dashboard_events.emit(RuntimeStatusEvent("env", "failed", error=exc))
         raise
     dashboard_events.emit(RuntimeStatusEvent("env", "ready"))
@@ -266,15 +267,17 @@ def init_shared_runtime(
             owned_daemons.append(vla_daemon)
             vla_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
         else:
-            vla_rpc = _external_rpc_client(
-                args.vla_endpoint,
-                option="--vla-endpoint",
-                parse_endpoint=parse_endpoint,
-                http_client_factory=HttpRpcClient,
-                socket_client_factory=SocketRpcClient,
-            )
+            protocol, host, port = parse_endpoint(args.vla_endpoint)
+            if protocol == "socket":
+                vla_rpc = SocketRpcClient(host, port)
+            elif protocol == "http":
+                vla_rpc = HttpRpcClient(f"http://{host}:{port}")
+            else:
+                raise ValueError(
+                    f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
+                )
     except Exception as exc:
-        _stop_owned_daemons(owned_daemons, suppress_errors=True)
+        _stop_owned_daemons(owned_daemons)
         dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
         raise
 
@@ -302,15 +305,17 @@ def init_shared_runtime(
             owned_daemons.append(sam3_daemon)
             sam3_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
         else:
-            sam3_rpc = _external_rpc_client(
-                args.sam3_endpoint,
-                option="--sam3-endpoint",
-                parse_endpoint=parse_endpoint,
-                http_client_factory=HttpRpcClient,
-                socket_client_factory=SocketRpcClient,
-            )
+            protocol, host, port = parse_endpoint(args.sam3_endpoint)
+            if protocol == "socket":
+                sam3_rpc = SocketRpcClient(host, port)
+            elif protocol == "http":
+                sam3_rpc = HttpRpcClient(f"http://{host}:{port}")
+            else:
+                raise ValueError(
+                    f"--sam3-endpoint protocol must be socket or http, got {protocol!r}"
+                )
     except Exception as exc:
-        _stop_owned_daemons(owned_daemons, suppress_errors=True)
+        _stop_owned_daemons(owned_daemons)
         dashboard_events.emit(RuntimeStatusEvent("sam3", "failed", error=exc))
         raise
 
@@ -323,7 +328,7 @@ def init_shared_runtime(
         try:
             wait_for_ready(client, daemon=daemon)
         except Exception as exc:
-            _stop_owned_daemons(owned_daemons, suppress_errors=True)
+            _stop_owned_daemons(owned_daemons)
             dashboard_events.emit(RuntimeStatusEvent(component, "failed", error=exc))
             raise
         dashboard_events.emit(RuntimeStatusEvent(component, "ready"))
@@ -515,36 +520,10 @@ def _init_runtime(
     return daemons, primitives_kwargs
 
 
-def _external_rpc_client(
-    endpoint: str,
-    *,
-    option: str,
-    parse_endpoint: Callable[[str], tuple[str, str, int]],
-    http_client_factory: Callable[[str], RpcClient],
-    socket_client_factory: Callable[[str, int], RpcClient],
-) -> RpcClient:
-    """Build a non-owned RPC transport for one configured endpoint."""
-    protocol, host, port = parse_endpoint(endpoint)
-    if protocol == "socket":
-        return socket_client_factory(host, port)
-    if protocol == "http":
-        return http_client_factory(f"http://{host}:{port}")
-    raise ValueError(f"{option} protocol must be socket or http, got {protocol!r}")
-
-
-def _stop_owned_daemons(
-    daemons: Iterable[ProcessDaemon],
-    *,
-    suppress_errors: bool = False,
-) -> None:
-    """Stop owned daemons in reverse order while attempting every stop."""
-    errors: list[Exception] = []
-    for daemon in reversed(tuple(daemons)):
+def _stop_owned_daemons(daemons: list[ProcessDaemon]) -> None:
+    """Stop owned daemons in reverse order without masking startup errors."""
+    for daemon in reversed(daemons):
         try:
             daemon.stop()
-        except Exception as exc:
-            errors.append(exc)
-    if errors and not suppress_errors:
-        raise RuntimeError(
-            f"failed to stop {len(errors)} LIBERO runtime daemon(s)"
-        ) from errors[0]
+        except Exception:
+            pass
