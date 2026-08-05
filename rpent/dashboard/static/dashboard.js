@@ -45,13 +45,14 @@ const COPY = {
     resizeComposer: "Drag to resize composer height · double-click to reset",
     composerPlaceholder: "Message the agent…",
     composerKeys: "Enter to send · Shift+Enter for newline · Esc to interrupt",
-    commandPlaceholder: (usage) => usage || "/rpent-task …",
-    commandKeys: (usage) => `Enter to submit · ${usage || "/rpent-task …"}`,
+    commandPlaceholder: (usage) => usage,
+    commandKeys: (usage) => `Enter to submit · ${usage}`,
     sessionStarting: "Starting shared environment services…",
-    commandReady: (usage) => `Ready for ${usage || "/rpent-task …"}.`,
+    commandReady: (usage) => `Ready for ${usage}.`,
     taskStarting: "Starting the selected TaskRun…",
     taskSwitchPending: (target) => `Task switch pending${target ? `: ${target}` : ""}.`,
     sessionFatal: "The Dashboard Session is unavailable.",
+    dashboardConfigFailed: "Dashboard configuration is unavailable.",
     interactionStarting: "Waiting for environment startup…",
     interactionReady: "The agent is ready for another message.",
     interactionBusy: "The agent is working; new messages will be queued.",
@@ -74,8 +75,6 @@ const COPY = {
     interruptFailed: (error) => `Interrupt request failed: ${error}`,
     interactionError: (error) => `Agent interaction error: ${error}`,
     unknownRequestError: "request failed",
-    cameraView: "fixed camera",
-    wristView: "wrist camera",
     waitingFrame: "waiting for first frame…",
     frameUnavailable: (label) => `${label} unavailable`,
     resizeFrame: "Drag to resize frame height",
@@ -112,7 +111,7 @@ const COPY = {
     starting: "starting Session… this page will switch to the live monitor.",
     startFailed: "failed to start Session — check the terminal.",
     noRuns: (directory) => `(no runs in ${directory})`,
-    awaitingTask: (usage) => `Waiting for ${usage || "/rpent-task"}`,
+    awaitingTask: (usage) => `Waiting for ${usage}`,
     distance: (value) => `dist ${value}m `,
     steps: (used, maximum) => `${used}/${maximum} steps `,
     lifted: (value) => `lifted=${value} `,
@@ -164,13 +163,14 @@ const COPY = {
     resizeComposer: "拖动调整输入区高度 · 双击复位",
     composerPlaceholder: "向智能体发送消息…",
     composerKeys: "Enter 发送 · Shift+Enter 换行 · Esc 中断",
-    commandPlaceholder: (usage) => usage || "/rpent-task …",
-    commandKeys: (usage) => `Enter 提交 · ${usage || "/rpent-task …"}`,
+    commandPlaceholder: (usage) => usage,
+    commandKeys: (usage) => `Enter 提交 · ${usage}`,
     sessionStarting: "正在启动共享环境服务…",
-    commandReady: (usage) => `可提交 ${usage || "/rpent-task …"}。`,
+    commandReady: (usage) => `可提交 ${usage}。`,
     taskStarting: "正在启动已选 TaskRun…",
     taskSwitchPending: (target) => `任务切换等待中${target ? `：${target}` : ""}。`,
     sessionFatal: "Dashboard Session 已不可用。",
+    dashboardConfigFailed: "Dashboard 配置不可用。",
     interactionStarting: "正在等待环境启动…",
     interactionReady: "智能体已准备好接收新消息。",
     interactionBusy: "智能体正在工作；新消息将进入等待队列。",
@@ -193,8 +193,6 @@ const COPY = {
     interruptFailed: (error) => `中断请求失败：${error}`,
     interactionError: (error) => `智能体交互错误：${error}`,
     unknownRequestError: "请求失败",
-    cameraView: "固定相机",
-    wristView: "腕部相机",
     waitingFrame: "等待第一帧…",
     frameUnavailable: (label) => `${label}画面不可用`,
     resizeFrame: "拖动调整画面高度",
@@ -230,7 +228,7 @@ const COPY = {
     starting: "正在启动 Session… 页面将切换到实时监控。",
     startFailed: "Session 启动失败，请查看终端输出。",
     noRuns: (directory) => `(${directory} 中暂无运行)`,
-    awaitingTask: (usage) => `等待 ${usage || "/rpent-task"}`,
+    awaitingTask: (usage) => `等待 ${usage}`,
     distance: (value) => `距离 ${value}m `,
     steps: (used, maximum) => `${used}/${maximum} 步 `,
     lifted: (value) => `已抓取=${value} `,
@@ -249,18 +247,9 @@ const COPY = {
 
 const copy = COPY[LANGUAGE];
 const RUNTIME_STATES = ["pending", "starting", "ready", "failed"];
-const DEFAULT_RUNTIME_COMPONENTS = [
-  { name: "env", label: "ENV" },
-  { name: "vla", label: "VLA" },
-  { name: "sam3", label: "SAM3" },
-];
-const DEFAULT_FRAME_CHANNELS = [
-  { name: "camera", label: "fixed camera" },
-  { name: "wrist", label: "wrist camera" },
-];
-let runtimeComponents = DEFAULT_RUNTIME_COMPONENTS;
-let frameChannels = DEFAULT_FRAME_CHANNELS;
-let taskCommandUsage = "/rpent-task <suite> <task> <seed>";
+let runtimeComponents = [];
+let frameChannels = [];
+let taskCommandUsage = "";
 
 function applyStaticCopy() {
   for (const element of document.querySelectorAll("[data-i18n]")) {
@@ -278,13 +267,11 @@ function applyStaticCopy() {
 }
 
 function frameChannelLabel(kind) {
-  if (kind === "camera") return copy.cameraView;
-  if (kind === "wrist") return copy.wristView;
   return frameChannels.find(channel => channel.name === kind)?.label || kind;
 }
 
 function defaultFrameKind() {
-  return frameChannels[0]?.name || "camera";
+  return frameChannels[0].name;
 }
 
 function renderFrameTabs() {
@@ -300,21 +287,10 @@ function renderFrameTabs() {
   container.replaceChildren(...buttons);
 }
 
-function configuredItems(value, fallback) {
-  if (!Array.isArray(value)) return fallback;
-  const items = value.filter(item => typeof item?.name === "string");
-  return items.length ? items : fallback;
-}
-
 function configureDashboardSpec(spec) {
-  runtimeComponents = configuredItems(
-    spec?.runtime_components,
-    DEFAULT_RUNTIME_COMPONENTS,
-  );
-  frameChannels = configuredItems(spec?.frame_channels, DEFAULT_FRAME_CHANNELS);
-  taskCommandUsage = typeof spec?.task?.usage === "string"
-    ? spec.task.usage
-    : taskCommandUsage;
+  runtimeComponents = spec.runtime_components;
+  frameChannels = spec.frame_channels;
+  taskCommandUsage = spec.task.usage;
   const initialFrameKind = defaultFrameKind();
   mediaState.kind = initialFrameKind;
   mediaState.lastRealtimeKind = initialFrameKind;
@@ -343,13 +319,13 @@ const timelineState = {
 };
 
 const mediaState = {
-  kind: "camera",
+  kind: null,
   frameIndex: -1,
   frameAvailable: null,
   unavailableKind: null,
   actionVideo: null,
   episodeVideoAvailable: false,
-  lastRealtimeKind: "camera",
+  lastRealtimeKind: null,
   lastActionStep: 0,
   autoActionPrimed: false,
   autoPlayback: null,
@@ -1421,16 +1397,27 @@ $("#f-planner").addEventListener("change", () => {
 
 async function boot() {
   applyStaticCopy();
-  const [st, dashboardSpec] = await Promise.all([
-    fetch("/api/launch/state")
-      .then(response => response.json())
-      .catch(() => ({ enabled: false })),
-    fetch("/api/commands")
-      .then(response => response.json())
-      .catch(() => null),
-  ]);
+  let st;
+  let dashboardSpec;
+  try {
+    [st, dashboardSpec] = await Promise.all([
+      fetch("/api/launch/state")
+        .then(response => response.json())
+        .catch(() => ({ enabled: false })),
+      fetch("/api/commands").then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      }),
+    ]);
+  } catch (error) {
+    console.error("Failed to load Dashboard configuration", error);
+    $("#launcher").classList.remove("hidden");
+    $("#runBtn").disabled = true;
+    $("#launchStatus").textContent = copy.dashboardConfigFailed;
+    return;
+  }
   configureDashboardSpec(dashboardSpec);
-  interactionController.configureTaskCommand(dashboardSpec?.task);
+  interactionController.configureTaskCommand(dashboardSpec.task);
   if (st.enabled && st.pending) {
     showLauncher(st.defaults);
   } else {
