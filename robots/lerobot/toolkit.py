@@ -6,7 +6,6 @@ driver readers, and the move primitives) on top.
 """
 from __future__ import annotations
 
-import time
 from functools import partial
 from typing import Any
 
@@ -29,8 +28,7 @@ class LerobotToolkit(Toolkit):
         "get_ee_pose",
         "get_scene_camera_meta",
     )
-    # Primitive tools routed through ``_step`` (look up driver method by name).
-    # Each moves the robot and re-renders state after running.
+    # Primitive tools move the robot; get_state refreshes and records state.
     _PRIMITIVE_TOOLS: tuple[str, ...] = (
         "move_to",
         "move_joints_delta",
@@ -60,16 +58,28 @@ class LerobotToolkit(Toolkit):
             "view_driver_state",
             spec["view_driver_state"],
             partial(self._state.view, image_slots=self._VIEW_IMAGE_SLOTS),
+            captures_state=False,
         )
         self.add_tool(
             "back_project",
             spec["back_project"],
             partial(lerobot_tools.back_project, state=self._state),
+            captures_state=False,
         )
         for name in self._DRIVER_READERS:
-            self.add_tool(name, spec[name], self._make_driver_reader(name))
+            self.add_tool(
+                name,
+                spec[name],
+                self._make_driver_reader(name),
+                captures_state=False,
+            )
         for name in self._PRIMITIVE_TOOLS:
-            self.add_tool(name, spec[name], partial(self._step, name))
+            self.add_tool(
+                name,
+                spec[name],
+                getattr(self._driver, name),
+                captures_state=True,
+            )
 
     def _make_driver_reader(self, name: str):
         """Bind a read-only tool to ``self._driver.<name>`` (no state dump)."""
@@ -78,24 +88,21 @@ class LerobotToolkit(Toolkit):
             return result if isinstance(result, dict) else {"value": result}
         return _reader
 
-    def _step(self, name: str, **kwargs) -> dict:
-        """Run ``self._driver.<name>(**kwargs)``, dump the new step, and
-        return the rendered state view + log.
-        """
-        command = {"action": name, **kwargs}
-        t0 = time.time()
-        result = getattr(self._driver, name)(**kwargs)
-        elapsed = round(time.time() - t0, 2)
-
-        result_dict = result if isinstance(result, dict) else {"value": result}
-
+    def get_state(
+        self,
+        *,
+        command: dict[str, Any],
+        result: dict[str, Any],
+        elapsed_s: float,
+    ) -> dict[str, Any]:
+        self._driver._refresh()
         record = lerobot_tools.dump_state(
             self._driver,
             self._state,
-            log={"command": command, "result": result_dict, "elapsed_s": elapsed},
+            log={"command": command, "result": result, "elapsed_s": elapsed_s},
         )
         out = self._state.view(record.step_idx, image_slots=self._VIEW_IMAGE_SLOTS)
-        out["agent_elapsed_s"] = elapsed
+        out["agent_elapsed_s"] = elapsed_s
         return out
 
     def init_driver_clean(self, *, env: Any, model: Any | None = None) -> None:

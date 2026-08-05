@@ -132,7 +132,7 @@ class LerobotPrimitives:
             self._scene_meta = self.env.get_scene_camera_meta()
         return self._scene_meta
 
-    # -- primitives (move the robot, then refresh the cached observation) ---
+    # -- primitives (move the robot; toolkit capture refreshes observation) --
 
     def move_to(
         self,
@@ -146,11 +146,9 @@ class LerobotPrimitives:
         ``approach="down"`` keeps the gripper pointing straight down (for
         grasping); ``yaw_deg`` sets the jaw heading. See the driver for details.
         """
-        result = self.env.move_to(
+        return self.env.move_to(
             xyz, gripper=gripper, approach=approach, yaw_deg=yaw_deg
         )
-        self._refresh()
-        return result
 
     def move_joints_delta(
         self,
@@ -158,12 +156,13 @@ class LerobotPrimitives:
         gripper_delta: float | None = None,
     ) -> dict:
         """Nudge each arm joint relatively (degrees) for fine alignment."""
-        result = self.env.move_joints_delta(delta_deg, gripper_delta=gripper_delta)
-        self._refresh()
-        return result
+        return self.env.move_joints_delta(
+            delta_deg,
+            gripper_delta=gripper_delta,
+        )
 
     def _refresh(self) -> None:
-        """Refresh the cached observation after a motion primitive."""
+        """Refresh the cached observation for toolkit state capture."""
         try:
             self._last_obs = self.env.get_obs()
         except Exception as e:

@@ -59,11 +59,10 @@ class FrankaPrimitives:
         return obs, info
 
     def observe(self, delay_s: float = 0.0) -> dict:
-        """Refresh the cached observation without moving."""
+        """Wait before the toolkit captures a fresh observation."""
         delay = float(np.clip(delay_s, 0.0, _MAX_OBSERVE_DELAY_S))
         if delay > 0:
             time.sleep(delay)
-        self._last_obs = self.env.get_obs()
         return {"delay_s": delay}
 
     def get_robot_spec(self) -> dict:
@@ -88,9 +87,7 @@ class FrankaPrimitives:
         gripper: str | None = None,
     ) -> dict:
         """Move to an absolute base-frame Cartesian target."""
-        result = self.env.move_to(xyz, yaw_deg=yaw_deg, gripper=gripper)
-        self._refresh()
-        return result
+        return self.env.move_to(xyz, yaw_deg=yaw_deg, gripper=gripper)
 
     def move_delta(
         self,
@@ -106,7 +103,6 @@ class FrankaPrimitives:
             result = dict(result)
             result["requested_dxyz"] = _to_list(requested)
             result["clipped_dxyz"] = _to_list(clipped)
-        self._refresh()
         return result
 
     def rotate_wrist_yaw(self, delta_deg: float) -> dict:
@@ -118,7 +114,6 @@ class FrankaPrimitives:
             result = dict(result)
             result["requested_delta_deg"] = round(requested, 3)
             result["clipped_delta_deg"] = round(clipped, 3)
-        self._refresh()
         return result
 
     def rotate_gripper(self, delta_deg: float) -> dict:
@@ -126,14 +121,10 @@ class FrankaPrimitives:
         return self.rotate_wrist_yaw(delta_deg)
 
     def open_gripper(self) -> dict:
-        result = self.env.open_gripper()
-        self._refresh()
-        return result
+        return self.env.open_gripper()
 
     def close_gripper(self) -> dict:
-        result = self.env.close_gripper()
-        self._refresh()
-        return result
+        return self.env.close_gripper()
 
     def get_state(self) -> dict:
         """Return compact proprioception from the latest observation."""
@@ -171,10 +162,12 @@ class FrankaPrimitives:
             return {}
         return dict(self._last_obs.get("camera_meta", {}))
 
-    def _refresh(self) -> None:
+    def _refresh(self, *, increment_step: bool = True) -> None:
+        """Refresh the cached observation for toolkit state capture."""
         try:
             self._last_obs = self.env.get_obs()
-            self._num_steps += 1
+            if increment_step:
+                self._num_steps += 1
         except Exception as exc:
             logger.warning("obs refresh failed: %s", exc)
 

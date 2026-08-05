@@ -1,7 +1,6 @@
 """Franka toolkit: common tools plus conservative Cartesian primitives."""
 from __future__ import annotations
 
-import time
 from functools import partial
 from typing import Any
 
@@ -58,16 +57,28 @@ class FrankaToolkit(Toolkit):
             "view_driver_state",
             spec["view_driver_state"],
             partial(self._state.view, image_slots=self._VIEW_IMAGE_SLOTS),
+            captures_state=False,
         )
         self.add_tool(
             "back_project",
             spec["back_project"],
             partial(franka_tools.back_project, state=self._state),
+            captures_state=False,
         )
         for name in self._DRIVER_READERS:
-            self.add_tool(name, spec[name], self._make_driver_reader(name))
+            self.add_tool(
+                name,
+                spec[name],
+                self._make_driver_reader(name),
+                captures_state=False,
+            )
         for name in self._PRIMITIVE_TOOLS:
-            self.add_tool(name, spec[name], partial(self._step, name))
+            self.add_tool(
+                name,
+                spec[name],
+                getattr(self._driver, name),
+                captures_state=True,
+            )
 
     def _make_driver_reader(self, name: str):
         def _reader(**kwargs) -> dict:
@@ -76,20 +87,21 @@ class FrankaToolkit(Toolkit):
 
         return _reader
 
-    def _step(self, name: str, **kwargs) -> dict:
-        command = {"action": name, **kwargs}
-        t0 = time.time()
-        result = getattr(self._driver, name)(**kwargs)
-        elapsed = round(time.time() - t0, 2)
-        result_dict = result if isinstance(result, dict) else {"value": result}
-
+    def get_state(
+        self,
+        *,
+        command: dict[str, Any],
+        result: dict[str, Any],
+        elapsed_s: float,
+    ) -> dict[str, Any]:
+        self._driver._refresh(increment_step=command["action"] != "observe")
         record = franka_tools.dump_state(
             self._driver,
             self._state,
-            log={"command": command, "result": result_dict, "elapsed_s": elapsed},
+            log={"command": command, "result": result, "elapsed_s": elapsed_s},
         )
         out = self._state.view(record.step_idx, image_slots=self._VIEW_IMAGE_SLOTS)
-        out["agent_elapsed_s"] = elapsed
+        out["agent_elapsed_s"] = elapsed_s
         return out
 
     def init_driver_clean(self, *, env: Any) -> None:
