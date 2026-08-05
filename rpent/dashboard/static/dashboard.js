@@ -41,14 +41,14 @@ const COPY = {
     selectRun: "Select a run to begin.",
     resizeColumns: "Drag to resize columns",
     composerLabel: "Agent message composer",
-    suiteSuggestionsLabel: "LIBERO suite suggestions",
+    suiteSuggestionsLabel: "Task value suggestions",
     resizeComposer: "Drag to resize composer height · double-click to reset",
     composerPlaceholder: "Message the agent…",
-    composerKeys: "Enter to send · Shift+Enter for newline · suite suggestions appear below · Esc to interrupt",
-    commandPlaceholder: "/rpent-task <suite> <task> <seed>",
-    commandKeys: "Enter to submit · suite suggestions appear below · /rpent-task <suite> <task> <seed>",
-    sessionStarting: "Starting shared VLA and SAM3 services…",
-    commandReady: "Ready for /rpent-task <suite> <task> <seed>.",
+    composerKeys: "Enter to send · Shift+Enter for newline · Esc to interrupt",
+    commandPlaceholder: (usage) => usage || "/rpent-task …",
+    commandKeys: (usage) => `Enter to submit · ${usage || "/rpent-task …"}`,
+    sessionStarting: "Starting shared environment services…",
+    commandReady: (usage) => `Ready for ${usage || "/rpent-task …"}.`,
     taskStarting: "Starting the selected TaskRun…",
     taskSwitchPending: (target) => `Task switch pending${target ? `: ${target}` : ""}.`,
     sessionFatal: "The Dashboard Session is unavailable.",
@@ -77,8 +77,7 @@ const COPY = {
     cameraView: "fixed camera",
     wristView: "wrist camera",
     waitingFrame: "waiting for first frame…",
-    frameUnavailable: (kind) =>
-      `${kind === "wrist" ? "wrist camera" : "fixed camera"} unavailable`,
+    frameUnavailable: (label) => `${label} unavailable`,
     resizeFrame: "Drag to resize frame height",
     actionTimeline: "Action timeline",
     noActions: "No actions yet.",
@@ -113,7 +112,7 @@ const COPY = {
     starting: "starting Session… this page will switch to the live monitor.",
     startFailed: "failed to start Session — check the terminal.",
     noRuns: (directory) => `(no runs in ${directory})`,
-    awaitingTask: "Waiting for /rpent-task",
+    awaitingTask: (usage) => `Waiting for ${usage || "/rpent-task"}`,
     distance: (value) => `dist ${value}m `,
     steps: (used, maximum) => `${used}/${maximum} steps `,
     lifted: (value) => `lifted=${value} `,
@@ -124,11 +123,7 @@ const COPY = {
     toolCalls: "tool calls",
     eventCount: (count) => `${count} events`,
     actionCaption: (step, action) => `action #${step} ${action}`,
-    frameCaption: (kind, index) => {
-      const label = kind === "wrist" ? "wrist camera" : "fixed camera";
-      return `${label} · frame #${index}`;
-    },
-    taskDetails: (task, seed) => ` · task ${task} · seed ${seed}`,
+    frameCaption: (label, index) => `${label} · frame #${index}`,
     usage: (usage) =>
       `token in ${usage.in.toLocaleString()} · out ${usage.out.toLocaleString()} · ${usage.tool_calls} tools`,
   },
@@ -165,14 +160,14 @@ const COPY = {
     selectRun: "请选择一个运行以开始。",
     resizeColumns: "拖动调整左右宽度",
     composerLabel: "智能体消息输入区",
-    suiteSuggestionsLabel: "LIBERO suite 候选",
+    suiteSuggestionsLabel: "任务参数候选",
     resizeComposer: "拖动调整输入区高度 · 双击复位",
     composerPlaceholder: "向智能体发送消息…",
-    composerKeys: "Enter 发送 · Shift+Enter 换行 · suite 候选显示在下方 · Esc 中断",
-    commandPlaceholder: "/rpent-task <suite> <task> <seed>",
-    commandKeys: "Enter 提交 · suite 候选显示在下方 · /rpent-task <suite> <task> <seed>",
-    sessionStarting: "正在启动共享 VLA 和 SAM3 服务…",
-    commandReady: "可提交 /rpent-task <suite> <task> <seed>。",
+    composerKeys: "Enter 发送 · Shift+Enter 换行 · Esc 中断",
+    commandPlaceholder: (usage) => usage || "/rpent-task …",
+    commandKeys: (usage) => `Enter 提交 · ${usage || "/rpent-task …"}`,
+    sessionStarting: "正在启动共享环境服务…",
+    commandReady: (usage) => `可提交 ${usage || "/rpent-task …"}。`,
     taskStarting: "正在启动已选 TaskRun…",
     taskSwitchPending: (target) => `任务切换等待中${target ? `：${target}` : ""}。`,
     sessionFatal: "Dashboard Session 已不可用。",
@@ -201,8 +196,7 @@ const COPY = {
     cameraView: "固定相机",
     wristView: "腕部相机",
     waitingFrame: "等待第一帧…",
-    frameUnavailable: (kind) =>
-      `${kind === "wrist" ? "腕部相机" : "固定相机"}画面不可用`,
+    frameUnavailable: (label) => `${label}画面不可用`,
     resizeFrame: "拖动调整画面高度",
     actionTimeline: "动作时间线",
     noActions: "暂无动作。",
@@ -236,7 +230,7 @@ const COPY = {
     starting: "正在启动 Session… 页面将切换到实时监控。",
     startFailed: "Session 启动失败，请查看终端输出。",
     noRuns: (directory) => `(${directory} 中暂无运行)`,
-    awaitingTask: "等待 /rpent-task",
+    awaitingTask: (usage) => `等待 ${usage || "/rpent-task"}`,
     distance: (value) => `距离 ${value}m `,
     steps: (used, maximum) => `${used}/${maximum} 步 `,
     lifted: (value) => `已抓取=${value} `,
@@ -247,19 +241,26 @@ const COPY = {
     toolCalls: "次工具调用",
     eventCount: (count) => `${count} 条事件`,
     actionCaption: (step, action) => `动作 #${step} ${action}`,
-    frameCaption: (kind, index) => {
-      const label = kind === "wrist" ? "腕部相机" : "固定相机";
-      return `${label} · 第 ${index} 帧`;
-    },
-    taskDetails: (task, seed) => ` · 任务 ${task} · 种子 ${seed}`,
+    frameCaption: (label, index) => `${label} · 第 ${index} 帧`,
     usage: (usage) =>
       `输入 ${usage.in.toLocaleString()} · 输出 ${usage.out.toLocaleString()} · ${usage.tool_calls} 次工具调用`,
   },
 };
 
 const copy = COPY[LANGUAGE];
-const RUNTIME_COMPONENTS = ["env", "vla", "sam3"];
 const RUNTIME_STATES = ["pending", "starting", "ready", "failed"];
+const DEFAULT_RUNTIME_COMPONENTS = [
+  { name: "env", label: "ENV" },
+  { name: "vla", label: "VLA" },
+  { name: "sam3", label: "SAM3" },
+];
+const DEFAULT_FRAME_CHANNELS = [
+  { name: "camera", label: "fixed camera" },
+  { name: "wrist", label: "wrist camera" },
+];
+let runtimeComponents = DEFAULT_RUNTIME_COMPONENTS;
+let frameChannels = DEFAULT_FRAME_CHANNELS;
+let taskCommandUsage = "/rpent-task <suite> <task> <seed>";
 
 function applyStaticCopy() {
   for (const element of document.querySelectorAll("[data-i18n]")) {
@@ -274,6 +275,50 @@ function applyStaticCopy() {
   for (const element of document.querySelectorAll("[data-i18n-aria-label]")) {
     element.setAttribute("aria-label", copy[element.dataset.i18nAriaLabel]);
   }
+}
+
+function frameChannelLabel(kind) {
+  if (kind === "camera") return copy.cameraView;
+  if (kind === "wrist") return copy.wristView;
+  return frameChannels.find(channel => channel.name === kind)?.label || kind;
+}
+
+function defaultFrameKind() {
+  return frameChannels[0]?.name || "camera";
+}
+
+function renderFrameTabs() {
+  const container = $(".frame-tabs");
+  const buttons = frameChannels.map(channel => {
+    const button = document.createElement("button");
+    button.dataset.kind = channel.name;
+    button.textContent = frameChannelLabel(channel.name);
+    button.classList.toggle("active", channel.name === mediaState.kind);
+    button.addEventListener("click", () => setFrameKind(channel.name));
+    return button;
+  });
+  container.replaceChildren(...buttons);
+}
+
+function configuredItems(value, fallback) {
+  if (!Array.isArray(value)) return fallback;
+  const items = value.filter(item => typeof item?.name === "string");
+  return items.length ? items : fallback;
+}
+
+function configureDashboardSpec(spec) {
+  runtimeComponents = configuredItems(
+    spec?.runtime_components,
+    DEFAULT_RUNTIME_COMPONENTS,
+  );
+  frameChannels = configuredItems(spec?.frame_channels, DEFAULT_FRAME_CHANNELS);
+  taskCommandUsage = typeof spec?.task?.usage === "string"
+    ? spec.task.usage
+    : taskCommandUsage;
+  const initialFrameKind = defaultFrameKind();
+  mediaState.kind = initialFrameKind;
+  mediaState.lastRealtimeKind = initialFrameKind;
+  renderFrameTabs();
 }
 
 const runState = {
@@ -582,13 +627,13 @@ function resetMediaBuffers() {
 
 function resetMediaForRun() {
   cancelAutoActionReturn();
-  mediaState.kind = "camera";
+  mediaState.kind = defaultFrameKind();
   mediaState.frameIndex = -1;
   mediaState.frameAvailable = null;
   mediaState.unavailableKind = null;
   mediaState.actionVideo = null;
   mediaState.episodeVideoAvailable = false;
-  mediaState.lastRealtimeKind = "camera";
+  mediaState.lastRealtimeKind = defaultFrameKind();
   mediaState.lastActionStep = 0;
   mediaState.autoActionPrimed = false;
   mediaState.autoPlayback = null;
@@ -620,11 +665,11 @@ function resetRenderedTaskProjection() {
   $("#evCount").textContent = "";
   $("#stepCount").textContent = "";
   $("#usageMeta").textContent = "";
-  $("#taskMeta").textContent = copy.awaitingTask;
+  $("#taskMeta").textContent = copy.awaitingTask(taskCommandUsage);
   $("#frameCap").textContent = copy.waitingFrame;
   setResult(false, null);
   document.querySelectorAll(".frame-tabs button").forEach(button =>
-    button.classList.toggle("active", button.dataset.kind === "camera")
+    button.classList.toggle("active", button.dataset.kind === defaultFrameKind())
   );
 }
 
@@ -644,15 +689,12 @@ function syncTaskGeneration(snapshot) {
 function renderTaskMeta(task) {
   const taskMeta = $("#taskMeta");
   if (!task) {
-    taskMeta.textContent = copy.awaitingTask;
+    taskMeta.textContent = copy.awaitingTask(taskCommandUsage);
     return;
   }
-  const suite = document.createElement("b");
-  suite.textContent = task.suite;
-  taskMeta.replaceChildren(
-    suite,
-    document.createTextNode(copy.taskDetails(task.task, task.seed)),
-  );
+  const label = document.createElement("b");
+  label.textContent = task.label || fmtArgs(task.parameters || task);
+  taskMeta.replaceChildren(label);
 }
 
 function fmtArgs(o) {
@@ -681,7 +723,7 @@ async function loadRun() {
 }
 
 function isRealtimeKind(kind) {
-  return kind === "camera" || kind === "wrist";
+  return frameChannels.some(channel => channel.name === kind);
 }
 
 function setBadge(state, error = null) {
@@ -700,13 +742,14 @@ function renderRuntimeStatus(runtime) {
     return;
   }
 
-  const items = RUNTIME_COMPONENTS.map(function (component) {
-    const info = runtime[component];
+  const items = runtimeComponents.map(function (component) {
+    const info = runtime[component.name];
     const candidate = typeof info === "string" ? info : info?.status;
     const status = RUNTIME_STATES.includes(candidate) ? candidate : "pending";
     const item = document.createElement("span");
     item.className = `runtime-item runtime-${status}`;
-    item.textContent = `${copy.runtimeLabels[component]} ${copy.runtimeStates[status]}`;
+    const label = copy.runtimeLabels[component.name] || component.label || component.name;
+    item.textContent = `${label} ${copy.runtimeStates[status]}`;
     if (info && typeof info === "object" && info.error) {
       item.title = info.error;
       item.setAttribute("aria-label", `${item.textContent}: ${info.error}`);
@@ -955,7 +998,9 @@ function finishAutoActionPlayback() {
     mediaState.returnTimer = null;
     if (mediaState.autoPlayback !== playback) return;
     const nextFrameIdx = playback.nextFrameIdx;
-    const returnKind = playback.returnKind || mediaState.lastRealtimeKind || "camera";
+    const returnKind = (
+      playback.returnKind || mediaState.lastRealtimeKind || defaultFrameKind()
+    );
     mediaState.autoPlayback = null;
     mediaState.actionVideo = null;
     mediaState.kind = returnKind;
@@ -1007,7 +1052,7 @@ function showFrameUnavailable(kind, idx) {
   mediaState.frameIndex = idx ?? mediaState.frameIndex;
   mediaState.unavailableKind = kind;
   resetMediaBuffers();
-  $("#frameCap").textContent = copy.frameUnavailable(kind);
+  $("#frameCap").textContent = copy.frameUnavailable(frameChannelLabel(kind));
 }
 
 function refreshFrame(idx, opts = {}) {
@@ -1081,8 +1126,11 @@ function refreshFrame(idx, opts = {}) {
   swapMedia({
     kind: "img",
     url,
-    cap: copy.frameCaption(mediaState.kind, mediaState.frameIndex),
-    errorCap: copy.frameUnavailable(mediaState.kind),
+    cap: copy.frameCaption(
+      frameChannelLabel(mediaState.kind),
+      mediaState.frameIndex,
+    ),
+    errorCap: copy.frameUnavailable(frameChannelLabel(mediaState.kind)),
     source,
     onReady: () => { mediaState.unavailableKind = null; },
     onError: () => { mediaState.unavailableKind = mediaState.kind; },
@@ -1112,7 +1160,7 @@ async function refreshMeta(opts = {}) {
   const autoStarted = opts.autoPlayNewAction && mediaState.autoActionPrimed && !mediaState.autoPlayback
     ? maybeAutoPlayNewAction(r.timeline || [], opts.nextFrameIdx ?? r.frame_idx)
     : false;
-  if (!r.has_video && mediaState.kind === "video") setFrameKind("camera");
+  if (!r.has_video && mediaState.kind === "video") setFrameKind(defaultFrameKind());
   if (
     !autoStarted
     && !mediaState.autoPlayback
@@ -1189,9 +1237,6 @@ function selectRun(id) {
   connectSSE();
 }
 
-document.querySelectorAll(".frame-tabs button").forEach(btn => {
-  btn.addEventListener("click", () => setFrameKind(btn.dataset.kind));
-});
 $("#showtools").addEventListener("change", (e) => {
   $("#transcript").classList.toggle("alltools", e.target.checked);
 });
@@ -1376,7 +1421,7 @@ $("#f-planner").addEventListener("change", () => {
 
 async function boot() {
   applyStaticCopy();
-  const [st, commandCompletions] = await Promise.all([
+  const [st, dashboardSpec] = await Promise.all([
     fetch("/api/launch/state")
       .then(response => response.json())
       .catch(() => ({ enabled: false })),
@@ -1384,7 +1429,8 @@ async function boot() {
       .then(response => response.json())
       .catch(() => null),
   ]);
-  interactionController.configureTaskSuiteSuggestions(commandCompletions?.task);
+  configureDashboardSpec(dashboardSpec);
+  interactionController.configureTaskCommand(dashboardSpec?.task);
   if (st.enabled && st.pending) {
     showLauncher(st.defaults);
   } else {

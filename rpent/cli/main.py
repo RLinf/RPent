@@ -83,7 +83,7 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
 
 def _build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        description="Standalone hybrid LLM-in-the-loop agent for LIBERO PRO",
+        description="Standalone hybrid LLM-in-the-loop physical agent",
     )
 
     ap.add_argument("--env", dest="env_name", required=True, choices=["libero"],
