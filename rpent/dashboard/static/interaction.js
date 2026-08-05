@@ -1,3 +1,5 @@
+import { createTaskSuiteSuggester } from "./command_completion.js";
+
 function formatValue(value) {
   if (value == null) return "";
   if (typeof value === "string") return value;
@@ -9,9 +11,9 @@ function formatValue(value) {
 }
 
 export function createInteractionController({ copy, select, onRefresh }) {
+  const taskSuiteSuggester = createTaskSuiteSuggester();
   const state = {
     snapshot: null,
-    runLifecycle: null,
     submissionInFlight: false,
     interruptInFlight: false,
     withdrawalsInFlight: new Set(),
@@ -19,6 +21,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     notice: null,
     noticeTimer: null,
     pendingRenderKey: null,
+    suiteRenderKey: null,
   };
 
   function errorText(error) {
@@ -62,6 +65,11 @@ export function createInteractionController({ copy, select, onRefresh }) {
     } catch {
       return text;
     }
+  }
+
+  function taskTargetLabel(target) {
+    if (!target) return "";
+    return `${target.suite} / task ${target.task} / seed ${target.seed}`;
   }
 
   function renderPendingMessages(messages) {
@@ -133,25 +141,79 @@ export function createInteractionController({ copy, select, onRefresh }) {
     select("#pendingMessages").replaceChildren(...elements);
   }
 
+  function renderSuiteSuggestions() {
+    const area = select("#suiteSuggestions");
+    const input = select("#chatInput");
+    const suites = input.disabled
+      ? []
+      : taskSuiteSuggester.suggest(
+        input.value,
+        input.selectionStart,
+        input.selectionEnd,
+      );
+    const renderKey = JSON.stringify(suites);
+
+    area.hidden = suites.length === 0;
+    if (renderKey === state.suiteRenderKey) return;
+    state.suiteRenderKey = renderKey;
+    if (!suites.length) {
+      area.replaceChildren();
+      return;
+    }
+
+    const candidates = suites.map(suite => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "suite-suggestion";
+      button.setAttribute("role", "option");
+      button.textContent = suite;
+      button.addEventListener("click", () => {
+        const selection = taskSuiteSuggester.select(
+          input.value,
+          input.selectionStart,
+          input.selectionEnd,
+          suite,
+        );
+        if (!selection) return;
+        input.value = selection.value;
+        input.setSelectionRange(selection.cursor, selection.cursor);
+        input.focus();
+        renderSuiteSuggestions();
+      });
+      return button;
+    });
+    area.replaceChildren(...candidates);
+  }
+
   function render() {
-    const interaction = state.snapshot;
+    const session = state.snapshot;
+    const interaction = session?.interaction;
     const composer = select("#composer");
     const input = select("#chatInput");
-    const runEnded = ["done", "succeeded", "failed", "cancelled"].includes(
-      state.runLifecycle
-    );
-    const ended = interaction?.planner_activity === "ended" || runEnded;
 
-    if (!interaction?.session_id || ended) {
+    if (!session) {
       composer.hidden = true;
       input.disabled = true;
+      renderSuiteSuggestions();
       return;
     }
 
     composer.hidden = false;
-    const activity = interaction.planner_activity || "starting";
-    const acceptingInput = !!interaction.accepting_input && activity !== "starting";
-    input.disabled = !acceptingInput || state.submissionInFlight;
+    const activity = interaction.planner_activity;
+    const mode = interaction.input_mode;
+    const fatal = session.session_state === "fatal";
+    const commandContext = mode === "command_only"
+      || session.session_state !== "running";
+    const inputEnabled = !!interaction.session_id
+      && mode !== "disabled";
+    composer.dataset.inputMode = mode;
+    input.placeholder = commandContext
+      ? copy.commandPlaceholder
+      : copy.composerPlaceholder;
+    select("#chatHint").textContent = commandContext
+      ? copy.commandKeys
+      : copy.composerKeys;
+    input.disabled = !inputEnabled || state.submissionInFlight;
     input.setAttribute("aria-busy", String(
       state.submissionInFlight || state.interruptInFlight
     ));
@@ -159,28 +221,53 @@ export function createInteractionController({ copy, select, onRefresh }) {
     const status = select("#interactionStatus");
     status.className = "composer-status";
     const backendError = errorText(interaction.last_error);
+    const controlError = errorText(session.control_error);
+    const feedback = session.control_feedback.map(errorText).filter(Boolean);
     if (state.requestError) {
       status.textContent = state.requestError;
+      status.classList.add("is-error");
+    } else if (controlError) {
+      status.textContent = controlError;
       status.classList.add("is-error");
     } else if (backendError) {
       status.textContent = copy.interactionError(backendError);
       status.classList.add("is-error");
-    } else if (state.notice) {
-      status.textContent = state.notice;
-      status.classList.add("is-ready");
+    } else if (fatal) {
+      status.textContent = copy.sessionFatal;
+      status.classList.add("is-error");
     } else if (state.submissionInFlight) {
       status.textContent = copy.submittingMessage;
       status.classList.add("is-busy");
     } else if (interaction.interrupt_requested || state.interruptInFlight) {
       status.textContent = copy.interruptRequested;
       status.classList.add("is-busy");
+    } else if (state.notice) {
+      status.textContent = state.notice;
+      status.classList.add("is-ready");
+    } else if (feedback.length) {
+      status.textContent = feedback.join("\n");
+      status.classList.add("is-ready", "is-control-feedback");
+    } else if (session.session_state === "starting_shared_services") {
+      status.textContent = copy.sessionStarting;
+      status.classList.add("is-busy");
+    } else if (session.session_state === "task_starting") {
+      status.textContent = copy.taskStarting;
+      status.classList.add("is-busy");
+    } else if (session.session_state === "switch_pending") {
+      status.textContent = copy.taskSwitchPending(
+        taskTargetLabel(session.pending_task)
+      );
+      status.classList.add("is-busy");
+    } else if (mode === "command_only") {
+      status.textContent = copy.commandReady;
+      status.classList.add("is-ready");
     } else if (activity === "starting") {
       status.textContent = copy.interactionStarting;
       status.classList.add("is-busy");
     } else if (activity === "busy") {
       status.textContent = copy.interactionBusy;
       status.classList.add("is-busy");
-    } else if (acceptingInput) {
+    } else if (inputEnabled) {
       status.textContent = copy.interactionReady;
       status.classList.add("is-ready");
     } else {
@@ -188,6 +275,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     }
 
     renderPendingMessages(interaction.messages);
+    renderSuiteSuggestions();
   }
 
   function setNotice(message) {
@@ -203,7 +291,6 @@ export function createInteractionController({ copy, select, onRefresh }) {
   function reset() {
     if (state.noticeTimer) clearTimeout(state.noticeTimer);
     state.snapshot = null;
-    state.runLifecycle = null;
     state.submissionInFlight = false;
     state.interruptInFlight = false;
     state.withdrawalsInFlight.clear();
@@ -211,28 +298,29 @@ export function createInteractionController({ copy, select, onRefresh }) {
     state.notice = null;
     state.noticeTimer = null;
     state.pendingRenderKey = null;
+    state.suiteRenderKey = null;
     select("#composer").hidden = true;
     select("#chatInput").disabled = true;
     select("#chatInput").value = "";
     select("#pendingArea").hidden = true;
     select("#pendingMessages").replaceChildren();
+    select("#suiteSuggestions").hidden = true;
+    select("#suiteSuggestions").replaceChildren();
     select("#interactionStatus").textContent = "";
   }
 
-  function applySnapshot(interaction, runLifecycle) {
-    const previous = state.snapshot;
-    if (runLifecycle !== undefined) state.runLifecycle = runLifecycle;
-    state.snapshot =
-      interaction && typeof interaction === "object" ? interaction : null;
+  function applySnapshot(snapshot) {
+    const previous = state.snapshot?.interaction;
+    state.snapshot = snapshot;
+    const interaction = snapshot.interaction;
 
     if (
       previous?.interrupt_requested
-      && state.snapshot
-      && !state.snapshot.interrupt_requested
-      && !errorText(state.snapshot.last_error)
+      && !interaction.interrupt_requested
+      && !errorText(interaction.last_error)
     ) {
       setNotice(copy.interruptSucceeded);
-    } else if (state.snapshot?.interrupt_requested) {
+    } else if (interaction.interrupt_requested) {
       state.notice = null;
       if (state.noticeTimer) {
         clearTimeout(state.noticeTimer);
@@ -243,16 +331,14 @@ export function createInteractionController({ copy, select, onRefresh }) {
   }
 
   async function submitMessage() {
-    const interaction = state.snapshot;
+    const interaction = state.snapshot?.interaction;
     const input = select("#chatInput");
     const draft = input.value;
     const text = draft.trim();
     if (
       !text
       || !interaction?.session_id
-      || !interaction.accepting_input
-      || interaction.planner_activity === "starting"
-      || interaction.planner_activity === "ended"
+      || interaction.input_mode === "disabled"
       || state.submissionInFlight
     ) return;
 
@@ -277,7 +363,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
   }
 
   async function withdrawMessage(messageId) {
-    const interaction = state.snapshot;
+    const interaction = state.snapshot?.interaction;
     if (
       !interaction?.session_id
       || !messageId
@@ -304,7 +390,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
   }
 
   async function requestInterrupt() {
-    const interaction = state.snapshot;
+    const interaction = state.snapshot?.interaction;
     if (
       !interaction?.session_id
       || interaction.planner_activity !== "busy"
@@ -322,11 +408,14 @@ export function createInteractionController({ copy, select, onRefresh }) {
       );
       if (
         result?.interrupt_requested
-        && state.snapshot?.session_id === interaction.session_id
+        && state.snapshot?.interaction.session_id === interaction.session_id
       ) {
         applySnapshot({
           ...state.snapshot,
-          interrupt_requested: true,
+          interaction: {
+            ...state.snapshot.interaction,
+            interrupt_requested: true,
+          },
         });
       }
       onRefresh();
@@ -357,6 +446,14 @@ export function createInteractionController({ copy, select, onRefresh }) {
     }
   }
 
-  select("#chatInput").addEventListener("keydown", handleKeydown);
-  return { applySnapshot, reset };
+  const input = select("#chatInput");
+  input.addEventListener("keydown", handleKeydown);
+  input.addEventListener("input", renderSuiteSuggestions);
+  input.addEventListener("click", renderSuiteSuggestions);
+  input.addEventListener("select", renderSuiteSuggestions);
+  return {
+    applySnapshot,
+    configureTaskSuiteSuggestions: taskSuiteSuggester.configure,
+    reset,
+  };
 }

@@ -2,15 +2,13 @@
 from __future__ import annotations
 
 import threading
-import time
 import uuid
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from rpent.dashboard.events import (
     DashboardEvent,
-    RunFinishedEvent,
     RunStartedEvent,
     RuntimeStatusEvent,
     ToolResultEvent,
@@ -27,7 +25,7 @@ from rpent.dashboard.interaction import (
 )
 
 if TYPE_CHECKING:
-    from rpent.envs.env_spec import RunConfig
+    from rpent.dashboard.commands import TaskCommand
 
 RUNTIME_COMPONENTS = ("env", "vla", "sam3")
 RUNTIME_STATUSES = {"pending", "starting", "ready", "failed"}
@@ -35,36 +33,42 @@ FRAME_KINDS = ("camera", "wrist")
 TERMINAL_RUN_STATES = {"succeeded", "failed", "cancelled"}
 _PLANNER_ACTIVITIES = {"starting", "idle", "busy", "ended"}
 InterruptRequestResult = Literal["accepted", "duplicate", "noop"]
+InputMode = Literal["command_only", "conversation", "disabled"]
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimedTask:
+    """One last-write-wins task command claimed by the Session controller."""
+
+    number: int
+    command: TaskCommand
+    output_dir: Path
 
 
 class DashboardState:
-    """Thread-safe dashboard state for one run."""
+    """Thread-safe projection for one sequential Dashboard Session."""
+
+    @property
+    def enabled(self) -> bool:
+        return True
 
     def __init__(
         self,
         *,
         run_id: str,
-        name: str,
-        suite: str,
-        task: int,
-        seed: int,
-        output_dir: str,
-        video_path: str,
+        output_dir: str | Path,
     ) -> None:
+        root = Path(output_dir)
         self.run_id = run_id
-        self.name = name
-        self.suite = suite
-        self.task = task
-        self.seed = seed
-        self.output_dir = Path(output_dir)
-        self.video_path = Path(video_path)
+        self.output_dir = root
+        self.video_path = root / "episode.mp4"
+        self._session_root = root
 
         self._lock = threading.Lock()
         self._condition = threading.Condition(self._lock)
-        self._state = "starting"
+        self._task_state: str | None = None
         self._terminated = False
         self._error: str | None = None
-        self._finish_reason: str | None = None
         self._usage = {"in": 0, "out": 0, "tool_calls": 0}
         self._runtime = {
             component: {"status": "pending", "error": None}
@@ -74,7 +78,6 @@ class DashboardState:
         self._timeline: list[dict[str, Any]] = []
         self._frames: dict[str, bytes] = {}
         self._frame_idx = -1
-        self._session_id: str | None = None
         self._accepting_input = False
         self._planner_activity: PlannerActivity = "starting"
         self._interrupt_requested = False
@@ -83,33 +86,198 @@ class DashboardState:
         self._messages_by_id: dict[str, DashboardMessage] = {}
         self._last_interaction_error: str | None = None
         self._interaction_version = 0
-
-    @classmethod
-    def from_run_config(
-        cls,
-        run_config: RunConfig,
-    ) -> DashboardState:
-        """Build the Dashboard projection for one parsed environment run."""
-        task_desc = run_config.task_desc
-        suite = str(task_desc["suite"])
-        task = int(task_desc["task"])
-        seed = int(task_desc["seed"])
-        output_dir = run_config.output_dir
-        return cls(
-            run_id=f"{suite}/{output_dir.name}",
-            name=run_config.recipe_tag,
-            suite=suite,
-            task=task,
-            seed=seed,
-            output_dir=str(output_dir),
-            video_path=str(output_dir / "episode.mp4"),
-        )
+        self._session_state = "starting_shared_services"
+        self._task_generation = 0
+        self._pending_task: TaskCommand | None = None
+        self._current_task: TaskCommand | None = None
+        self._task_replacement_requested = False
+        self._control_feedback: list[str] = []
+        self._control_error: str | None = None
+        self._shutdown_requested = False
 
     @property
-    def session_id(self) -> str | None:
-        """Return the Session id used by interaction HTTP routes."""
+    def session_state(self) -> str:
         with self._lock:
-            return self._session_id
+            return self._session_state
+
+    @property
+    def task_replacement_requested(self) -> bool:
+        with self._lock:
+            return self._task_replacement_requested
+
+    def shared_services_ready(self) -> None:
+        """Open the command channel after shared services have started."""
+        with self._condition:
+            if self._session_state == "fatal":
+                return
+            self._session_state = "ready"
+            self._planner_activity = "ended"
+            self._accepting_input = False
+            self._control_error = None
+            self._interaction_changed_locked()
+
+    def fail_session(self, error: BaseException | str) -> None:
+        """Make a shared-service failure fatal for this in-memory Session."""
+        with self._condition:
+            self._session_state = "fatal"
+            self._error = str(error)
+            self._control_error = str(error)
+            self._pending_task = None
+            self._task_replacement_requested = False
+            self._seal_interaction_locked()
+            self._interaction_changed_locked()
+
+    def request_shutdown(self) -> None:
+        """Wake the controller so process-level cleanup can proceed."""
+        with self._condition:
+            self._shutdown_requested = True
+            self._interaction_changed_locked()
+
+    def submit_input(self, text: str) -> DashboardMessage | TaskCommand:
+        """Route a local task command or a normal conversation message."""
+        from rpent.dashboard.commands import parse_dashboard_command
+
+        if not isinstance(text, str) or not text.strip():
+            return self._submit_message(text)
+        try:
+            command = parse_dashboard_command(text)
+        except ValueError as exc:
+            with self._condition:
+                self._control_error = str(exc)
+                self._interaction_changed_locked()
+            raise
+        if command is not None:
+            self.request_task(command)
+            return command
+        return self._submit_message(text)
+
+    def request_task(self, command: TaskCommand) -> None:
+        """Atomically record the latest desired TaskRun and close old input."""
+        with self._condition:
+            if self._session_state == "fatal":
+                raise InteractionUnavailableError("Dashboard Session is fatal")
+            if self._session_state == "starting_shared_services":
+                raise InteractionUnavailableError(
+                    "Dashboard Session is still starting shared services"
+                )
+
+            self._pending_task = command
+            self._control_error = None
+            self._control_feedback = [
+                f"Task selected: {command.suite} / task {command.task} / seed {command.seed}"
+            ]
+
+            active = self._task_state in {"starting", "running"}
+            if active:
+                self._session_state = "switch_pending"
+                self._task_replacement_requested = True
+                self._accepting_input = False
+                for message in self._messages:
+                    if message.status == "pending":
+                        message.status = "unsent"
+                        message.error = None
+            else:
+                self._session_state = "task_starting"
+            self._interaction_changed_locked()
+
+    def wait_for_task(self, timeout: float | None = None) -> ClaimedTask | None:
+        """Block until the controller can claim the latest pending task."""
+        with self._condition:
+            self._condition.wait_for(
+                lambda: (
+                    self._pending_task is not None
+                    or self._shutdown_requested
+                    or self._session_state == "fatal"
+                ),
+                timeout=timeout,
+            )
+            if self._shutdown_requested or self._session_state == "fatal":
+                return None
+            if self._pending_task is None:
+                return None
+
+            command = self._pending_task
+            self._pending_task = None
+            self._task_generation += 1
+            number = self._task_generation
+            output_dir = (
+                self._session_root
+                / "tasks"
+                / f"{number:04d}_{command.suite}_t{command.task}_s{command.seed}"
+            )
+            self._begin_task_locked(command, number=number, output_dir=output_dir)
+            return ClaimedTask(
+                number=number,
+                command=command,
+                output_dir=output_dir,
+            )
+
+    def complete_task_replacement(self, error: str | None = None) -> None:
+        """Seal the old planner at the current scheduling boundary."""
+        with self._condition:
+            if not self._task_replacement_requested:
+                return
+            if error is not None:
+                self._last_interaction_error = str(error)
+            self._seal_interaction_locked()
+            self._interaction_changed_locked()
+
+    def complete_task(
+        self,
+        *,
+        state: Literal["succeeded", "failed", "cancelled"],
+        error: BaseException | str | None = None,
+    ) -> None:
+        """Finish only the current TaskRun and reopen the command channel."""
+        if state not in TERMINAL_RUN_STATES:
+            raise ValueError(f"invalid terminal run state: {state!r}")
+        with self._condition:
+            self._task_state = state
+            self._terminated = any(
+                item.get("terminated") for item in self._timeline
+            )
+            self._error = None if error is None else str(error)
+            self._task_replacement_requested = False
+            self._seal_interaction_locked()
+            self._runtime["env"] = {"status": "pending", "error": None}
+            self._session_state = (
+                "task_starting" if self._pending_task is not None else "ready"
+            )
+            if error is not None:
+                self._control_error = str(error)
+            self._interaction_changed_locked()
+
+    def _begin_task_locked(
+        self,
+        command: TaskCommand,
+        *,
+        number: int,
+        output_dir: Path,
+    ) -> None:
+        self._current_task = command
+        self.output_dir = output_dir
+        self.video_path = output_dir / "episode.mp4"
+        self._session_state = "task_starting"
+        self._task_state = "starting"
+        self._task_replacement_requested = False
+        self._terminated = False
+        self._error = None
+        self._usage = {"in": 0, "out": 0, "tool_calls": 0}
+        self._runtime["env"] = {"status": "pending", "error": None}
+        self._events = []
+        self._timeline = []
+        self._frames = {}
+        self._frame_idx = -1
+        self._accepting_input = False
+        self._planner_activity = "starting"
+        self._interrupt_requested = False
+        self._interrupt_in_flight = False
+        self._messages = []
+        self._messages_by_id = {}
+        self._last_interaction_error = None
+        self._control_error = None
+        self._control_feedback.append(f"TaskRun {number:04d} starting…")
+        self._interaction_changed_locked()
 
     @property
     def planner_activity(self) -> PlannerActivity:
@@ -118,45 +286,10 @@ class DashboardState:
             return self._planner_activity
 
     @property
-    def accepting_input(self) -> bool:
-        """Whether the Session currently accepts new user messages."""
-        with self._lock:
-            return self._accepting_input
-
-    @property
-    def interrupt_requested(self) -> bool:
-        """Whether an Esc request is queued or being handled."""
-        with self._lock:
-            return self._interrupt_requested
-
-    @property
     def interaction_version(self) -> int:
         """Monotonic version for bridges waiting on interaction changes."""
         with self._lock:
             return self._interaction_version
-
-    def enable_interaction(self, session_id: str | None = None) -> None:
-        """Attach an initially-starting planner interaction to this run.
-
-        Calling this method more than once with the same Session id is
-        idempotent. A run that has already finished cannot start a Session.
-        """
-        resolved_session_id = self.run_id if session_id is None else str(session_id)
-        if not resolved_session_id.strip():
-            raise ValueError("session_id must not be blank")
-        with self._condition:
-            if self._state in TERMINAL_RUN_STATES:
-                raise InteractionUnavailableError("run has already ended")
-            if self._session_id is not None:
-                if self._session_id != resolved_session_id:
-                    raise DashboardInteractionError(
-                        "run already has a different Dashboard Session"
-                    )
-                return
-            self._session_id = resolved_session_id
-            self._accepting_input = False
-            self._planner_activity = "starting"
-            self._interaction_changed_locked()
 
     def set_planner_activity(
         self,
@@ -172,33 +305,32 @@ class DashboardState:
         if activity not in _PLANNER_ACTIVITIES:
             raise ValueError(f"unknown planner activity: {activity!r}")
         with self._condition:
-            self._require_interaction_locked()
             if self._planner_activity == "ended" and activity != "ended":
                 raise InteractionUnavailableError("Dashboard Session has ended")
             if activity == "ended":
                 self._seal_interaction_locked()
+                self._interaction_changed_locked()
                 return
             changed = self._planner_activity != activity
             self._planner_activity = activity
             if accepting_input is not None:
                 requested_accepting = bool(accepting_input)
-                if self._state in TERMINAL_RUN_STATES:
+                if self._task_state in TERMINAL_RUN_STATES:
                     requested_accepting = False
                 changed = changed or self._accepting_input != requested_accepting
                 self._accepting_input = requested_accepting
             if changed:
                 self._interaction_changed_locked()
 
-    def submit_message(self, text: str) -> DashboardMessage:
+    def _submit_message(self, text: str) -> DashboardMessage:
         """Create one pending user message and notify the owning bridge."""
         if not isinstance(text, str) or not text.strip():
             raise ValueError("message text must not be blank")
         with self._condition:
-            self._require_interaction_locked()
             if (
                 not self._accepting_input
                 or self._planner_activity == "ended"
-                or self._state in TERMINAL_RUN_STATES
+                or self._task_state in TERMINAL_RUN_STATES
             ):
                 raise InteractionUnavailableError(
                     "Dashboard Session is not accepting input"
@@ -206,7 +338,6 @@ class DashboardState:
             message = DashboardMessage(
                 message_id=f"msg_{uuid.uuid4().hex}",
                 text=text,
-                created_at=time.time(),
                 status="pending",
             )
             self._messages.append(message)
@@ -217,7 +348,6 @@ class DashboardState:
     def withdraw_message(self, message_id: str) -> DashboardMessage:
         """Atomically withdraw a message that is still pending."""
         with self._condition:
-            self._require_interaction_locked()
             message = self._message_locked(message_id)
             if message.status != "pending":
                 raise DashboardMessageConflictError(
@@ -228,21 +358,21 @@ class DashboardState:
             self._interaction_changed_locked()
             return replace(message)
 
-    def begin_pending_batch(self) -> list[DashboardMessage]:
-        """Atomically claim all currently pending messages in creation order."""
+    def claim_next_pending_message(self) -> DashboardMessage | None:
+        """Claim one message so task replacement can stop later sends."""
         with self._condition:
-            self._require_interaction_locked()
-            if self._planner_activity == "ended":
-                return []
-            batch = [
-                message for message in self._messages if message.status == "pending"
-            ]
-            for message in batch:
-                message.status = "sending"
-                message.error = None
-            if batch:
-                self._interaction_changed_locked()
-            return [replace(message) for message in batch]
+            if self._planner_activity == "ended" or self._task_replacement_requested:
+                return None
+            message = next(
+                (item for item in self._messages if item.status == "pending"),
+                None,
+            )
+            if message is None:
+                return None
+            message.status = "sending"
+            message.error = None
+            self._interaction_changed_locked()
+            return replace(message)
 
     def mark_message_sent(self, message_id: str) -> DashboardMessage:
         """Commit one successfully queried message."""
@@ -274,10 +404,12 @@ class DashboardState:
     def request_interrupt(self) -> InterruptRequestResult:
         """Record an Esc request without waiting for the planner backend."""
         with self._condition:
-            self._require_interaction_locked()
             if self._interrupt_requested:
                 return "duplicate"
-            if self._planner_activity != "busy" or self._state in TERMINAL_RUN_STATES:
+            if (
+                self._planner_activity != "busy"
+                or self._task_state in TERMINAL_RUN_STATES
+            ):
                 return "noop"
             self._interrupt_requested = True
             self._interrupt_in_flight = False
@@ -287,7 +419,6 @@ class DashboardState:
     def claim_interrupt_request(self) -> bool:
         """Claim a queued interrupt while keeping it visibly requested."""
         with self._condition:
-            self._require_interaction_locked()
             if not self._interrupt_requested or self._interrupt_in_flight:
                 return False
             self._interrupt_in_flight = True
@@ -297,7 +428,6 @@ class DashboardState:
     def complete_interrupt(self, error: str | None = None) -> None:
         """Complete the claimed SDK interrupt, successfully or with an error."""
         with self._condition:
-            self._require_interaction_locked()
             if not self._interrupt_requested or not self._interrupt_in_flight:
                 raise DashboardInteractionError("no interrupt request is in flight")
             self._interrupt_requested = False
@@ -312,6 +442,7 @@ class DashboardState:
         """End input and preserve every unfinished message as ``unsent``."""
         with self._condition:
             self._seal_interaction_locked()
+            self._interaction_changed_locked()
 
     def wait_for_interaction_change(
         self,
@@ -325,11 +456,6 @@ class DashboardState:
                 timeout=timeout,
             )
             return self._interaction_version
-
-    def interaction_snapshot(self) -> dict[str, Any]:
-        """Return a detached, refresh-safe view of Session interaction state."""
-        with self._lock:
-            return self._interaction_snapshot_locked()
 
     def emit(self, event: DashboardEvent) -> None:
         """Project one structured event into the existing frontend state."""
@@ -353,9 +479,6 @@ class DashboardState:
             return
         if isinstance(event, RunStartedEvent):
             self._start()
-            return
-        if isinstance(event, RunFinishedEvent):
-            self._finish(event)
             return
         raise TypeError(f"unsupported dashboard event: {type(event).__name__}")
 
@@ -449,24 +572,11 @@ class DashboardState:
                 self._frame_idx = frame_idx
 
     def _start(self) -> None:
-        with self._lock:
-            if self._state == "starting":
-                self._state = "running"
-
-    def _finish(self, event: RunFinishedEvent) -> None:
-        if event.state not in TERMINAL_RUN_STATES:
-            raise ValueError(f"invalid terminal run state: {event.state!r}")
-        terminated = event.terminated
         with self._condition:
-            if self._state in TERMINAL_RUN_STATES:
-                return
-            self._state = event.state
-            if terminated is None:
-                terminated = any(item.get("terminated") for item in self._timeline)
-            self._terminated = bool(terminated)
-            self._finish_reason = event.reason
-            self._error = None if event.error is None else str(event.error)
-            self._seal_interaction_locked()
+            self._task_state = "running"
+            if not self._task_replacement_requested:
+                self._session_state = "running"
+            self._interaction_changed_locked()
 
     def _transition_sending_message_locked(
         self,
@@ -475,7 +585,6 @@ class DashboardState:
         status: Literal["sent", "failed"],
         error: str | None,
     ) -> DashboardMessage:
-        self._require_interaction_locked()
         message = self._message_locked(message_id)
         if message.status != "sending":
             raise DashboardMessageConflictError(
@@ -493,14 +602,7 @@ class DashboardState:
                 f"unknown Dashboard message: {message_id}"
             ) from exc
 
-    def _require_interaction_locked(self) -> None:
-        if self._session_id is None:
-            raise InteractionUnavailableError(
-                "Dashboard interaction is not enabled for this run"
-            )
-
     def _seal_interaction_locked(self) -> None:
-        changed = self._planner_activity != "ended" or self._accepting_input
         self._planner_activity = "ended"
         self._accepting_input = False
         self._interrupt_requested = False
@@ -510,9 +612,6 @@ class DashboardState:
                 continue
             message.status = "unsent"
             message.error = None
-            changed = True
-        if changed:
-            self._interaction_changed_locked()
 
     def _interaction_changed_locked(self) -> None:
         self._interaction_version += 1
@@ -520,13 +619,51 @@ class DashboardState:
 
     def _interaction_snapshot_locked(self) -> dict[str, Any]:
         return {
-            "session_id": self._session_id,
-            "accepting_input": self._accepting_input,
+            "session_id": self.run_id,
+            "input_mode": self._input_mode_locked(),
             "planner_activity": self._planner_activity,
             "interrupt_requested": self._interrupt_requested,
             "messages": [message.as_dict() for message in self._messages],
             "last_error": self._last_interaction_error,
         }
+
+    def _input_mode_locked(self) -> InputMode:
+        if self._session_state in {"starting_shared_services", "fatal"}:
+            return "disabled"
+        if (
+            self._session_state == "running"
+            and self._accepting_input
+            and not self._task_replacement_requested
+        ):
+            return "conversation"
+        return "command_only"
+
+    @staticmethod
+    def _command_snapshot(command: TaskCommand | None) -> dict[str, Any] | None:
+        if command is None:
+            return None
+        return {
+            "suite": command.suite,
+            "task": command.task,
+            "seed": command.seed,
+        }
+
+    def _session_fields_locked(self) -> dict[str, Any]:
+        return {
+            "session_state": self._session_state,
+            "task_generation": self._task_generation,
+            "current_task": self._command_snapshot(self._current_task),
+            "pending_task": self._command_snapshot(self._pending_task),
+            "control_feedback": list(self._control_feedback),
+            "control_error": self._control_error,
+        }
+
+    def _visible_state_locked(self) -> str:
+        if self._session_state == "fatal":
+            return "failed"
+        if self._session_state in {"starting_shared_services", "task_starting"}:
+            return "starting"
+        return self._task_state or self._session_state
 
     def events_since(self, since: int) -> list[dict[str, Any]]:
         with self._lock:
@@ -553,7 +690,10 @@ class DashboardState:
 
     def has_video(self) -> bool:
         with self._lock:
-            return self._state in TERMINAL_RUN_STATES and self.video_path.exists()
+            return (
+                self._task_state in TERMINAL_RUN_STATES
+                and self.video_path.exists()
+            )
 
     def _frame_snapshot(self) -> tuple[int, dict[str, bool]]:
         available = {kind: kind in self._frames for kind in FRAME_KINDS}
@@ -563,55 +703,41 @@ class DashboardState:
         with self._lock:
             frame_idx, frame_available = self._frame_snapshot()
             return {
-                "state": self._state,
+                "state": self._visible_state_locked(),
                 "terminated": self._terminated,
                 "error": self._error,
-                "finish_reason": self._finish_reason,
                 "usage": dict(self._usage),
                 "runtime": self._runtime_snapshot(),
                 "has_video": (
-                    self._state in TERMINAL_RUN_STATES and self.video_path.exists()
+                    self._task_state in TERMINAL_RUN_STATES
+                    and self.video_path.exists()
                 ),
                 "frame_idx": frame_idx,
                 "frame_available": frame_available,
                 "n_steps": len(self._timeline),
                 "interaction": self._interaction_snapshot_locked(),
+                **self._session_fields_locked(),
             }
 
     def run_info(self) -> dict[str, Any]:
-        with self._lock:
-            return {
-                "id": self.run_id,
-                "name": self.name,
-                "suite": self.suite,
-                "task": self.task,
-                "seed": self.seed,
-                "state": self._state,
-                "error": self._error,
-                "finish_reason": self._finish_reason,
-                "runtime": self._runtime_snapshot(),
-                "n_steps": len(self._timeline),
-            }
+        return {"id": self.run_id}
 
     def run_detail(self) -> dict[str, Any]:
         with self._lock:
             frame_idx, frame_available = self._frame_snapshot()
             return {
-                "state": self._state,
+                "state": self._visible_state_locked(),
                 "terminated": self._terminated,
                 "error": self._error,
-                "finish_reason": self._finish_reason,
-                "suite": self.suite,
-                "name": self.name,
-                "task": self.task,
-                "seed": self.seed,
                 "usage": dict(self._usage),
                 "runtime": self._runtime_snapshot(),
                 "timeline": list(self._timeline),
                 "has_video": (
-                    self._state in TERMINAL_RUN_STATES and self.video_path.exists()
+                    self._task_state in TERMINAL_RUN_STATES
+                    and self.video_path.exists()
                 ),
                 "frame_idx": frame_idx,
                 "frame_available": frame_available,
                 "interaction": self._interaction_snapshot_locked(),
+                **self._session_fields_locked(),
             }

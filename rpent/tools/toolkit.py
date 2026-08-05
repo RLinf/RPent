@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -15,6 +16,16 @@ from typing import Any, ClassVar
 
 from rpent.dashboard.events import DashboardEventSink, ToolResultEvent
 from rpent.utils.templates import substitute
+
+
+@dataclass(slots=True)
+class _ToolOperation:
+    cancel_event: threading.Event = field(default_factory=threading.Event)
+    done_event: threading.Event = field(default_factory=threading.Event)
+
+
+class ToolCancelled(Exception):
+    """Raised when an environment reaches a safe cancellation boundary."""
 
 
 @dataclass
@@ -99,6 +110,8 @@ class Toolkit:
         # name -> (spec, handler)
         self._tools: dict[str, tuple[dict[str, Any], Callable[..., dict[str, Any]]]] = {}
         self._dashboard_events = dashboard_events
+        self._operation_lock = threading.Lock()
+        self._active_operation: _ToolOperation | None = None
         self._register_common_tools()
 
     # ------------------------------------------------------------------
@@ -146,18 +159,49 @@ class Toolkit:
         if entry is None:
             return ToolResult(name=name, result={"error": f"unknown tool: {name}"})
         handler = entry[1]
+
+        with self._operation_lock:
+            if self._active_operation is not None:
+                return ToolResult(
+                    name=name,
+                    result={"error": "another tool operation is still active"},
+                )
+            operation = _ToolOperation()
+            self._active_operation = operation
+
         try:
-            result = handler(**input_dict)
-        except TypeError as e:
-            result = {"error": f"bad arguments for {name}: {e}", "got": input_dict}
-        except Exception as e:
-            result = {"error": str(e), "traceback": traceback.format_exc()}
-        self._dashboard_events.emit(ToolResultEvent(name=name, result=result))
-        return ToolResult(name=name, result=result)
+            try:
+                result = handler(**input_dict)
+            except TypeError as e:
+                result = {"error": f"bad arguments for {name}: {e}", "got": input_dict}
+            except Exception as e:
+                result = {"error": str(e), "traceback": traceback.format_exc()}
+            self._dashboard_events.emit(ToolResultEvent(name=name, result=result))
+            return ToolResult(name=name, result=result)
+        finally:
+            with self._operation_lock:
+                self._active_operation = None
+                operation.done_event.set()
 
     # ------------------------------------------------------------------
     # Server lifecycle hooks (overridden by env toolkits)
     # ------------------------------------------------------------------
+
+    def cancel_active_and_wait(self) -> None:
+        """Request cancellation and wait for the active tool to return."""
+        with self._operation_lock:
+            operation = self._active_operation
+            if operation is None:
+                return
+            operation.cancel_event.set()
+        operation.done_event.wait()
+
+    def raise_if_cancelled(self) -> None:
+        """Raise at an environment-defined safe cancellation boundary."""
+        with self._operation_lock:
+            operation = self._active_operation
+        if operation is not None and operation.cancel_event.is_set():
+            raise ToolCancelled("tool operation interrupted")
 
     def close(self) -> None:
         """Release the env-side primitives / servers at end of run. Default: no-op."""

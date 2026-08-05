@@ -27,6 +27,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 
+from rpent.dashboard.commands import LIBERO_SUITE_NAMES, TASK_COMMAND
 from rpent.dashboard.interaction import (
     DashboardMessageConflictError,
     InteractionUnavailableError,
@@ -53,9 +54,7 @@ class DashboardServer:
         self._language = "zh-cn" if language == "zh-cn" else "en"
         self._index_html = (dashboard_dir / "index.html").read_text(encoding="utf-8")
         self._static_dir = dashboard_dir / "static"
-        self._runs: dict[str, DashboardState] = {}
-        self._sessions: dict[str, DashboardState] = {}
-        self._registry_lock = threading.Lock()
+        self._state: DashboardState | None = None
         self._app = self._build_app()
         self._server: uvicorn.Server | None = None
 
@@ -66,21 +65,18 @@ class DashboardServer:
         self._launch_config: dict[str, Any] | None = None
         self._launch_event = threading.Event()
 
-    def register(self, run: DashboardState) -> None:
-        with self._registry_lock:
-            if session_id := run.session_id:
-                existing = self._sessions.get(session_id)
-                if existing is not None and existing is not run:
-                    raise ValueError(f"duplicate Dashboard Session id: {session_id}")
-                self._sessions[session_id] = run
-            self._runs[run.run_id] = run
-            if not self.runs_dir:
-                self.runs_dir = str(run.output_dir.parent)
+    def register(self, state: DashboardState) -> None:
+        if self._state is not None and self._state is not state:
+            raise ValueError("Dashboard Session is already registered")
+        self._state = state
+        if not self.runs_dir:
+            self.runs_dir = str(state.output_dir.parent)
 
-    def _session(self, session_id: str) -> DashboardState | None:
-        """Resolve an interaction Session registered with its run."""
-        with self._registry_lock:
-            return self._sessions.get(session_id)
+    def _resolve(self, state_id: str) -> DashboardState | None:
+        state = self._state
+        if state is None or state.run_id != state_id:
+            return None
+        return state
 
     def wait_for_launch(self, defaults: dict[str, Any]) -> dict[str, Any]:
         """Arm the launcher and block until the user submits the start form.
@@ -132,6 +128,17 @@ class DashboardServer:
         def healthz() -> JSONResponse:
             return JSONResponse({"ok": True})
 
+        @app.get("/api/commands")
+        def api_commands() -> JSONResponse:
+            return JSONResponse(
+                {
+                    "task": {
+                        "command": TASK_COMMAND,
+                        "suites": list(LIBERO_SUITE_NAMES),
+                    }
+                }
+            )
+
         @app.get("/api/launch/state")
         def api_launch_state() -> JSONResponse:
             return JSONResponse(
@@ -148,18 +155,20 @@ class DashboardServer:
                 return JSONResponse({"error": "launcher not armed"}, status_code=409)
             if self._launch_event.is_set():
                 return JSONResponse({"error": "already launched"}, status_code=409)
-            self._launch_config = dict(payload or {})
+            self._launch_config = {
+                **self._launch_defaults,
+                **payload,
+            }
             self._launch_event.set()
             return JSONResponse({"ok": True})
 
         @app.get("/api/runs")
         def api_runs() -> JSONResponse:
-            with self._registry_lock:
-                runs = list(self._runs.values())
+            state = self._state
             return JSONResponse(
                 {
                     "runs_dir": self.runs_dir,
-                    "runs": [run.run_info() for run in runs],
+                    "runs": [] if state is None else [state.run_info()],
                 }
             )
 
@@ -168,21 +177,16 @@ class DashboardServer:
             session_id: str,
             payload: dict[str, Any] = Body(default={}),
         ) -> JSONResponse:
-            live = self._session(session_id)
+            live = self._resolve(session_id)
             if live is None:
                 return JSONResponse({"error": "unknown session"}, status_code=404)
             try:
-                message = live.submit_message(payload.get("text"))
+                live.submit_input(payload.get("text"))
             except ValueError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=422)
             except InteractionUnavailableError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=409)
-            return JSONResponse(
-                {
-                    "message_id": message.message_id,
-                    "status": message.status,
-                }
-            )
+            return JSONResponse({"ok": True}, status_code=202)
 
         @app.delete(
             "/api/sessions/{session_id:path}/messages/{message_id}",
@@ -191,25 +195,20 @@ class DashboardServer:
             session_id: str,
             message_id: str,
         ) -> JSONResponse:
-            live = self._session(session_id)
+            live = self._resolve(session_id)
             if live is None:
                 return JSONResponse({"error": "unknown session"}, status_code=404)
             try:
-                message = live.withdraw_message(message_id)
+                live.withdraw_message(message_id)
             except UnknownDashboardMessageError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=404)
             except (DashboardMessageConflictError, InteractionUnavailableError) as exc:
                 return JSONResponse({"error": str(exc)}, status_code=409)
-            return JSONResponse(
-                {
-                    "message_id": message.message_id,
-                    "status": message.status,
-                }
-            )
+            return JSONResponse({"ok": True})
 
         @app.post("/api/sessions/{session_id:path}/interrupt")
         def api_interrupt(session_id: str) -> JSONResponse:
-            live = self._session(session_id)
+            live = self._resolve(session_id)
             if live is None:
                 return JSONResponse({"error": "unknown session"}, status_code=404)
             try:
@@ -234,14 +233,14 @@ class DashboardServer:
 
         @app.get("/api/run")
         def api_run(run: str) -> JSONResponse:
-            live = self._runs.get(run)
+            live = self._resolve(run)
             if live is None:
                 return JSONResponse({"error": "unknown run"}, status_code=404)
             return JSONResponse(live.run_detail())
 
         @app.get("/api/run/transcript")
         def api_transcript(run: str, since: int = 0) -> JSONResponse:
-            live = self._runs.get(run)
+            live = self._resolve(run)
             events = live.events_since(since) if live else []
             return JSONResponse({"events": events})
 
@@ -251,7 +250,7 @@ class DashboardServer:
             kind: Literal["camera", "wrist"] = "camera",
             t: str = "",
         ) -> Response:
-            live = self._runs.get(run)
+            live = self._resolve(run)
             png = live.frame(kind) if live else None
             if png is None:
                 return Response(status_code=404)
@@ -259,7 +258,7 @@ class DashboardServer:
 
         @app.get("/api/run/video")
         def api_video(run: str) -> Response:
-            live = self._runs.get(run)
+            live = self._resolve(run)
             if live is None or not live.has_video():
                 return Response(status_code=404)
             return FileResponse(
@@ -270,7 +269,7 @@ class DashboardServer:
 
         @app.get("/api/run/action-video")
         def api_action_video(run: str, step: int) -> Response:
-            live = self._runs.get(run)
+            live = self._resolve(run)
             path = live.action_video_path(step) if live else None
             if path is None:
                 return Response(status_code=404)
@@ -284,7 +283,7 @@ class DashboardServer:
         def api_stream(run: str) -> StreamingResponse:
             async def gen():
                 while True:
-                    live = self._runs.get(run)
+                    live = self._resolve(run)
                     if live is not None:
                         yield f"data: {json.dumps(live.snapshot())}\n\n"
                     else:

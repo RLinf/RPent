@@ -25,7 +25,6 @@ import json
 import queue
 import shlex
 import sys
-import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -35,12 +34,9 @@ from rpent.cli.tui import (
     start_interactive_reader,
 )
 from rpent.dashboard.events import (
-    DashboardEventSink,
     NullDashboardEventSink,
-    RunFinishedEvent,
     RunStartedEvent,
 )
-from rpent.dashboard.interaction import DashboardInteractionPort
 from rpent.envs import get_env_spec, get_toolkit
 from rpent.planner.base import build_planner
 from rpent.utils.logging import get_logger, init_output_dir
@@ -150,34 +146,10 @@ def main() -> int:
     args = parser.parse_args()
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
-
-    # With --dashboard, open the launcher first: serve the start screen, then
-    # block until the user clicks Run and overlay their choices onto args.
-    # parse_config runs afterwards so validation + derivation see the final
-    # config.
-    dashboard_server = None
-    dashboard_url = None
-    launch_config = None
     if args.dashboard:
-        from rpent.dashboard.launcher import apply_to_args, defaults_from_args
-        from rpent.dashboard.server import DashboardServer
+        from rpent.cli.dashboard import run_dashboard_session
 
-        dashboard_server = DashboardServer(
-            host=args.dashboard_host, port=args.dashboard_port,
-            language=args.dashboard_language,
-        )
-        dashboard_url = dashboard_server.start()
-        # The run directory is not final until the launcher form is submitted, so
-        # print the pre-launch URL without initializing the run.log file handler.
-        print(
-            f"Dashboard: {dashboard_url}. "
-            "Open it, adjust the run config, and click Run to start.",
-            flush=True,
-        )
-        launch_config = dashboard_server.wait_for_launch(
-            defaults=defaults_from_args(args)
-        )
-        apply_to_args(args, launch_config)
+        return run_dashboard_session(args, env_spec, parser=parser)
 
     run_config = env_spec.parse_config(args)
     recipe_tag = run_config.recipe_tag
@@ -189,29 +161,11 @@ def main() -> int:
 
     # mkdir + logging wiring (env-side already picked the path).
     output_dir = init_output_dir(output_dir, verbose=args.verbose)
-    # Now that output_dir is fixed, repeat launcher details into this run's log.
-    if dashboard_url is not None:
-        logger.info("Dashboard: %s", dashboard_url)
-    if launch_config is not None:
-        logger.info("launcher config applied: %s", launch_config)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
     ensure_resources(env_name)
 
-    # --- dashboard state ---------------------------------------------------
-    dashboard_events: DashboardEventSink = NullDashboardEventSink()
-    dashboard_interaction: DashboardInteractionPort | None = None
-    if dashboard_server is not None:
-        from rpent.dashboard.state import DashboardState
-
-        state = DashboardState.from_run_config(run_config)
-        if args.planner == "claude_code":
-            state.enable_interaction(session_id=state.run_id)
-            dashboard_interaction = state
-        # Server is already serving the launcher; register the run so the
-        # frontend can switch from the start screen to the live monitor.
-        dashboard_server.register(state)
-        dashboard_events = state
+    dashboard_events = NullDashboardEventSink()
 
     planner = build_planner(
         args.planner,
@@ -267,7 +221,6 @@ def main() -> int:
         primitives_kwargs=primitives_kwargs,
         video_path=str(Path(output_dir) / "episode.mp4"),
         dashboard_events=dashboard_events,
-        save_action_videos=dashboard_server is not None,
     )
 
     # --- agent loop --------------------------------------------------------
@@ -289,7 +242,6 @@ def main() -> int:
                 toolkit=toolkit,
                 max_turns=args.max_turns,
                 input_queue=input_queue,
-                dashboard_interaction=dashboard_interaction,
             )
             finish_result = result.finish_result
             messages = result.messages
@@ -330,21 +282,6 @@ def main() -> int:
     if agent_error:
         logger.error("error: %s", agent_error)
 
-    dashboard_events.emit(
-        RunFinishedEvent(
-            state="failed" if agent_error else "succeeded",
-            error=agent_error,
-        )
-    )
-    if dashboard_server is not None:
-        logger.info(
-            "Run finished. Dashboard still serving at %s. Press Ctrl+C to stop.",
-            dashboard_url,
-        )
-        try:
-            threading.Event().wait()
-        except KeyboardInterrupt:
-            pass
     return 0
 
 

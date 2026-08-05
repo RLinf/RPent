@@ -28,6 +28,7 @@
       box-shadow .16s ease;
   }
   .b-starting { background: rgba(176,122,10,.13); color: var(--yellow); border-color: var(--yellow); animation: pulse 1.6s infinite; }
+  .b-ready { background: rgba(47,138,62,.14); color: var(--green); border-color: var(--green); }
   .b-running { background: rgba(47,138,62,.14); color: var(--green); border-color: var(--green); animation: pulse 1.6s infinite; }
   .b-succeeded { background: rgba(47,111,214,.14); color: var(--accent); border-color: var(--accent); }
   .b-failed { background: rgba(200,57,47,.12); color: var(--red); border-color: var(--red); }
@@ -179,10 +180,30 @@
   .composer textarea:disabled {
     opacity: .56; cursor: not-allowed; background: rgba(239,231,216,.65);
   }
+  .composer[data-input-mode="command_only"] textarea {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .suite-suggestions {
+    display: flex; flex: 0 0 auto; gap: 5px; min-width: 0;
+    padding: 1px 2px 3px; overflow-x: auto; scrollbar-width: thin;
+  }
+  .suite-suggestions[hidden] { display: none; }
+  .suite-suggestion {
+    flex: 0 0 auto; appearance: none; border: 0; border-radius: 5px;
+    padding: 2px 6px; background: transparent; color: var(--muted);
+    opacity: .5; cursor: pointer; white-space: nowrap;
+    font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    transition: opacity .16s ease, color .16s ease, background-color .16s ease;
+  }
+  .suite-suggestion:hover, .suite-suggestion:focus-visible {
+    opacity: 1; color: var(--accent); background: rgba(47,111,214,.09);
+    outline: none;
+  }
   .composer-row { display: flex; align-items: center; min-height: 17px; }
   .composer-hint { color: var(--muted); font-size: 12px; line-height: 1.35; }
   .composer-status {
     color: var(--muted); font-size: 12.5px; line-height: 1.35; min-height: 17px;
+    white-space: pre-line;
   }
   .composer-status.is-busy { color: var(--yellow); }
   .composer-status.is-error { color: var(--red); }
@@ -298,6 +319,7 @@
     background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
     border-radius: 6px; padding: 9px 11px; font-size: 15px; width: 100%; max-width: none;
   }
+  .lfield select option:disabled { color: var(--muted); }
   .lcheck { flex-direction: row; align-items: center; gap: 8px; }
   .lcheck label { text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--fg); }
   .launch-actions { display: flex; align-items: center; gap: 14px; margin-top: 24px; }
@@ -333,7 +355,7 @@
   @media (prefers-reduced-motion: reduce) {
     .b-starting, .b-running { animation: none; }
     .badge, .runtime-item, .gutter, .tg-head, .step, .composer textarea,
-    .withdraw-message,
+    .withdraw-message, .suite-suggestion,
     .frame-tabs button, #runBtn { transition: none; }
     .ev.entering, .toolgroup.entering, .step.entering { animation: none; }
     .frame-tabs button:hover, #runBtn:hover { transform: none; box-shadow: none; }

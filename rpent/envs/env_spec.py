@@ -6,9 +6,8 @@ and planners can both import it without pulling in
 :mod:`rpent.tools` or the RPC transport layer. Tool schemas,
 handlers, server lifecycle, and the MCP allowlist live on
 :class:`rpent.tools.toolkit.Toolkit` and its env subclasses —
-``EnvSpec`` carries the env identity, the prompt bundle, and
-the three runner hooks (``add_cli_args`` / ``parse_config`` /
-``init_runtime``) that keep ``rpent/cli/main.py`` env-agnostic.
+``EnvSpec`` carries the env identity, the prompt bundle, and runner hooks
+that keep CLI orchestration independent of concrete robot implementations.
 """
 from __future__ import annotations
 
@@ -43,6 +42,14 @@ class EnvSpec:
     prompts: PromptBundle
     add_cli_args: Callable[[argparse.ArgumentParser, bool], None]
     parse_config: Callable[[argparse.Namespace], RunConfig]
+    init_shared_runtime: Callable[
+        [argparse.Namespace, Path, DashboardEventSink],
+        tuple[list["ProcessDaemon"], dict[str, Any]],
+    ]
+    init_task_runtime: Callable[
+        [argparse.Namespace, Path, DashboardEventSink],
+        tuple[list["ProcessDaemon"], dict[str, Any]],
+    ]
     init_runtime: Callable[
         [argparse.Namespace, Path, DashboardEventSink],
         tuple[list["ProcessDaemon"], dict[str, Any]],

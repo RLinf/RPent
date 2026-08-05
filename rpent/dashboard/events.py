@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, TypeAlias
-
-TerminalRunState: TypeAlias = Literal["succeeded", "failed", "cancelled"]
+from typing import Any, Protocol, TypeAlias
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,28 +44,22 @@ class RunStartedEvent:
     """Mark startup complete and the agent run active."""
 
 
-@dataclass(frozen=True, slots=True)
-class RunFinishedEvent:
-    """Mark the run terminal with execution and task outcomes kept separate."""
-
-    terminated: bool | None = None
-    state: TerminalRunState = "succeeded"
-    reason: str | None = None
-    error: BaseException | str | None = None
-
-
 DashboardEvent: TypeAlias = (
     TranscriptEvent
     | UsageEvent
     | RuntimeStatusEvent
     | ToolResultEvent
     | RunStartedEvent
-    | RunFinishedEvent
 )
 
 
 class DashboardEventSink(Protocol):
     """Consumer used by planners, toolkits, and environment runtimes."""
+
+    @property
+    def enabled(self) -> bool:
+        """Whether Dashboard-only projections and artifacts are needed."""
+        ...
 
     def emit(self, event: DashboardEvent) -> None:
         """Consume one Dashboard event."""
@@ -77,6 +69,10 @@ class DashboardEventSink(Protocol):
 @dataclass(frozen=True, slots=True)
 class NullDashboardEventSink:
     """No-op sink used when the Dashboard is disabled."""
+
+    @property
+    def enabled(self) -> bool:
+        return False
 
     def emit(self, event: DashboardEvent) -> None:
         return None

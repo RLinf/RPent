@@ -22,7 +22,6 @@ class DashboardMessage:
 
     message_id: str
     text: str
-    created_at: float
     status: DashboardMessageStatus
     error: str | None = None
 
@@ -31,7 +30,6 @@ class DashboardMessage:
         return {
             "message_id": self.message_id,
             "text": self.text,
-            "created_at": self.created_at,
             "status": self.status,
             "error": self.error,
         }
@@ -58,8 +56,8 @@ class DashboardInteractionPort(Protocol):
         """Wait for an interaction change and return the latest version."""
         ...
 
-    def begin_pending_batch(self) -> list[DashboardMessage]:
-        """Claim all currently pending messages in creation order."""
+    def claim_next_pending_message(self) -> DashboardMessage | None:
+        """Claim the next pending message, if task replacement is not pending."""
         ...
 
     def mark_message_sent(self, message_id: str) -> DashboardMessage:
@@ -93,6 +91,15 @@ class DashboardInteractionPort(Protocol):
 
     def seal_interaction(self) -> None:
         """End the interaction Session."""
+        ...
+
+    @property
+    def task_replacement_requested(self) -> bool:
+        """Whether this TaskRun must yield to a newer task command."""
+        ...
+
+    def complete_task_replacement(self, error: str | None = None) -> None:
+        """Seal the old conversation after reaching a safe boundary."""
         ...
 
 

@@ -176,6 +176,7 @@ class ClaudeCodePlanner:
                                 prompt,
                                 options,
                                 recorder,
+                                toolkit=toolkit,
                                 dashboard_interaction=dashboard_interaction,
                                 initial_user_text=initial_user_text,
                                 emit=_emit,
@@ -283,6 +284,7 @@ class ClaudeCodePlanner:
         options: Any,
         recorder: "_Recorder",
         *,
+        toolkit: Toolkit,
         dashboard_interaction: DashboardInteractionPort,
         initial_user_text: str,
         emit,
@@ -291,6 +293,7 @@ class ClaudeCodePlanner:
         """Drive the Dashboard-owned long-lived Claude session."""
         adapter = _ClaudeDashboardBridge(
             interaction=dashboard_interaction,
+            toolkit=toolkit,
             emit_user=emit_user,
             emit_initial_user=lambda: emit_user(
                 initial_user_text,
@@ -467,10 +470,12 @@ class _ClaudeDashboardBridge:
         self,
         *,
         interaction: DashboardInteractionPort,
+        toolkit: Toolkit,
         emit_user,
         emit_initial_user=None,
     ) -> None:
         self._interaction = interaction
+        self._toolkit = toolkit
         self._emit_user = emit_user
         self._emit_initial_user = emit_initial_user
         self._operation_lock = asyncio.Lock()
@@ -478,7 +483,10 @@ class _ClaudeDashboardBridge:
 
     async def initial_query_succeeded(self, driver: _ClaudeSessionDriver) -> None:
         self._outstanding_queries = 1
-        self._interaction.set_planner_activity("busy", accepting_input=True)
+        self._interaction.set_planner_activity(
+            "busy",
+            accepting_input=not self._interaction.task_replacement_requested,
+        )
         if self._emit_initial_user is not None:
             self._emit_initial_user()
 
@@ -501,12 +509,16 @@ class _ClaudeDashboardBridge:
             return
 
         async with self._operation_lock:
+            if self._interaction.planner_activity == "ended":
+                return
             if is_result:
                 self._outstanding_queries = max(0, self._outstanding_queries - 1)
                 self._interaction.set_planner_activity(
                     "busy" if self._outstanding_queries else "idle"
                 )
 
+            if await self._handle_task_replacement(driver):
+                return
             if await self._handle_interrupt(driver):
                 # Success already flushes. Failure deliberately leaves pending
                 # unchanged even if a boundary arrived at the same time.
@@ -518,10 +530,31 @@ class _ClaudeDashboardBridge:
 
     async def _process_commands(self, driver: _ClaudeSessionDriver) -> None:
         async with self._operation_lock:
+            if await self._handle_task_replacement(driver):
+                return
             if await self._handle_interrupt(driver):
                 return
             if self._interaction.planner_activity == "idle":
                 await self._flush_pending(driver)
+
+    async def _handle_task_replacement(
+        self,
+        driver: _ClaudeSessionDriver,
+    ) -> bool:
+        """Yield this conversation at the next planner scheduling boundary."""
+        if not self._interaction.task_replacement_requested:
+            return False
+
+        try:
+            await asyncio.to_thread(self._toolkit.cancel_active_and_wait)
+            await driver.interrupt()
+        except Exception as exc:
+            self._interaction.complete_task_replacement(
+                error=f"task replacement failed: {_exception_text(exc)}"
+            )
+        else:
+            self._interaction.complete_task_replacement()
+        return True
 
     async def _handle_interrupt(
         self,
@@ -530,6 +563,7 @@ class _ClaudeDashboardBridge:
         if not self._interaction.claim_interrupt_request():
             return False
         try:
+            await asyncio.to_thread(self._toolkit.cancel_active_and_wait)
             await driver.interrupt()
         except Exception as exc:
             self._interaction.complete_interrupt(error=_exception_text(exc))
@@ -539,11 +573,11 @@ class _ClaudeDashboardBridge:
         return True
 
     async def _flush_pending(self, driver: _ClaudeSessionDriver) -> None:
-        # begin_pending_batch() is the atomic pending -> sending boundary.
-        # Messages submitted after this call remain pending for a later
-        # tool/result boundary.
-        messages = self._interaction.begin_pending_batch()
-        for message in messages:
+        message = self._interaction.claim_next_pending_message()
+        while (
+            message is not None
+            and not self._interaction.task_replacement_requested
+        ):
             try:
                 await driver.query(message.text)
             except Exception as exc:
@@ -551,11 +585,12 @@ class _ClaudeDashboardBridge:
                     message.message_id,
                     _exception_text(exc),
                 )
-                continue
-            self._interaction.mark_message_sent(message.message_id)
-            self._outstanding_queries += 1
-            self._interaction.set_planner_activity("busy")
-            self._emit_user(message.text)
+            else:
+                self._interaction.mark_message_sent(message.message_id)
+                self._outstanding_queries += 1
+                self._interaction.set_planner_activity("busy")
+                self._emit_user(message.text)
+            message = self._interaction.claim_next_pending_message()
 
 
 def _has_tool_result(message: Any) -> bool:
@@ -809,6 +844,7 @@ class _Recorder:
 
 def _build_rpent_server(sdk: Any, *, toolkit: Toolkit) -> Any:
     sdk_tools = []
+    tool_execution_lock = asyncio.Lock()
     for spec in toolkit.get_tools_spec():
         name = str(spec["name"])
         description = str(spec.get("description", ""))
@@ -819,7 +855,13 @@ def _build_rpent_server(sdk: Any, *, toolkit: Toolkit) -> Any:
             *,
             tool_name: str = name,
         ) -> dict[str, Any]:
-            return _tool_result_to_mcp(toolkit.execute_tool(tool_name, args or {}))
+            async with tool_execution_lock:
+                result = await asyncio.to_thread(
+                    toolkit.execute_tool,
+                    tool_name,
+                    args or {},
+                )
+            return _tool_result_to_mcp(result)
 
         run_tool.__name__ = f"rpent_{name}"
         sdk_tools.append(sdk.tool(name, description, input_schema)(run_tool))

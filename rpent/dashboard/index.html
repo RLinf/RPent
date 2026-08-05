@@ -9,74 +9,40 @@
 <body>
   <div id="launcher" class="hidden">
     <div class="launch-card">
-      <h2><span class="dot">●</span> RPent · <span data-i18n="newRun">New Run</span></h2>
-      <div class="sub" data-i18n="launcherSubtitle">Review the config, then click Run to start the agent.</div>
+      <h2><span class="dot">●</span> RPent · <span data-i18n="newSession">New Session</span></h2>
+      <div class="sub" data-i18n="launcherSubtitle">Review the session config, then start the Dashboard control Session.</div>
       <div class="lform">
         <div class="lfield full">
-          <label for="f-suite" data-i18n="suite">Suite</label>
-          <select id="f-suite">
-            <option value="libero_spatial">libero_spatial</option>
-            <option value="libero_object">libero_object</option>
-            <option value="libero_goal">libero_goal</option>
-            <option value="libero_90">libero_90</option>
-            <option value="libero_object_task">libero_object_task</option>
-            <option value="libero_object_swap">libero_object_swap</option>
-            <option value="libero_object_lan">libero_object_lan</option>
-            <option value="libero_goal_task">libero_goal_task</option>
-            <option value="libero_goal_swap">libero_goal_swap</option>
-            <option value="libero_goal_lan">libero_goal_lan</option>
-            <option value="libero_spatial_task">libero_spatial_task</option>
-            <option value="libero_spatial_swap">libero_spatial_swap</option>
-            <option value="libero_spatial_lan">libero_spatial_lan</option>
-            <option value="libero_10">libero_10</option>
-            <option value="libero_10_task">libero_10_task</option>
-            <option value="libero_10_swap">libero_10_swap</option>
-            <option value="libero_10_lan">libero_10_lan</option>
-          </select>
-        </div>
-        <div class="lfield">
-          <label for="f-task" data-i18n="task">Task</label>
-          <input type="number" id="f-task" min="0" step="1" />
-        </div>
-        <div class="lfield">
-          <label for="f-seed" data-i18n="seed">Seed</label>
-          <input type="number" id="f-seed" min="0" step="1" />
-        </div>
-        <div class="lfield">
           <label for="f-planner" data-i18n="planner">Planner (LLM backend)</label>
           <select id="f-planner">
-            <option value="api">api</option>
-            <option value="claude_code">claude_code</option>
-            <option value="codex">codex</option>
+            <option value="claude_code" selected>claude_code</option>
+            <option value="api" disabled data-i18n="apiTaskControlPending">api — task control pending</option>
+            <option value="codex" disabled data-i18n="codexTaskControlPending">codex — task control pending</option>
           </select>
         </div>
         <div class="lfield">
           <label for="f-max-turns" data-i18n="maxTurns">Max turns</label>
           <input type="number" id="f-max-turns" min="1" step="1" />
         </div>
-        <div class="lfield backend-field" data-backends="api">
-          <label for="f-max-tokens" data-i18n="maxTokens">Max tokens</label>
-          <input type="number" id="f-max-tokens" min="1" step="1" />
-        </div>
         <div class="lfield">
           <label for="f-max-episode-steps" data-i18n="maxEpisodeSteps">Max episode steps</label>
           <input type="number" id="f-max-episode-steps" min="1" step="1" />
         </div>
-        <div class="lfield backend-field full" data-backends="api claude_code codex">
+        <div class="lfield full">
           <label for="f-model_preset" data-i18n="modelPreset">Model preset</label>
           <select id="f-model_preset"></select>
         </div>
-        <div class="lfield backend-field full" data-backends="api claude_code codex">
+        <div class="lfield full">
           <label for="f-model_custom"><span data-i18n="customModel">Custom model</span> <span data-i18n="optional" style="text-transform:none">(optional)</span></label>
           <input type="text" id="f-model_custom" placeholder="provider:model or alias" data-i18n-placeholder="customModelPlaceholder" />
         </div>
-        <div class="lfield backend-field" data-backends="claude_code">
+        <div class="lfield">
           <label for="f-claude-code-max-budget-usd" data-i18n="claudeBudget">Claude Code budget USD</label>
           <input type="number" id="f-claude-code-max-budget-usd" min="0" step="0.01" placeholder="MAX_BUDGET_USD" />
         </div>
-        <div class="lfield backend-field" data-backends="claude_code codex">
+        <div class="lfield">
           <label for="f-planner-timeout-s" data-i18n="plannerTimeout">Planner timeout s</label>
-          <input type="number" id="f-planner-timeout-s" min="1" step="1" placeholder="CELL_TIMEOUT_S / CODEX_TIMEOUT_S" />
+          <input type="number" id="f-planner-timeout-s" min="1" step="1" placeholder="CELL_TIMEOUT_S" />
         </div>
         <div class="lfield">
           <label for="f-cuda-device"><span data-i18n="cudaDevice">CUDA device</span> <span data-i18n="blankDefault" style="text-transform:none">(blank = default)</span></label>
@@ -84,7 +50,7 @@
         </div>
       </div>
       <div class="launch-actions">
-        <button id="runBtn" data-i18n="run">Run</button>
+        <button id="runBtn" data-i18n="startSession">Start Session</button>
         <span id="launchStatus"></span>
       </div>
     </div>
@@ -135,10 +101,18 @@
           rows="2"
           placeholder="Message the agent…"
           data-i18n-placeholder="composerPlaceholder"
-          aria-describedby="chatHint interactionStatus"
+          aria-describedby="chatHint interactionStatus suiteSuggestions"
           aria-keyshortcuts="Enter Shift+Enter Escape"
           disabled
         ></textarea>
+        <div
+          id="suiteSuggestions"
+          class="suite-suggestions"
+          role="listbox"
+          aria-label="LIBERO suite suggestions"
+          data-i18n-aria-label="suiteSuggestionsLabel"
+          hidden
+        ></div>
         <div class="composer-row">
           <span class="composer-hint" id="chatHint" data-i18n="composerKeys">Enter to send · Shift+Enter for newline · Esc to interrupt the agent</span>
         </div>
