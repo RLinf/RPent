@@ -26,13 +26,13 @@ from typing import Any
 import openai_codex
 
 from rpent.cli.tui import next_user_line
-from rpent.dashboard.control import DashboardControl
 from rpent.dashboard.events import (
     DashboardEventSink,
     TranscriptEvent,
     UsageEvent,
 )
 from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import PlannerResult, strip_mcp_prefix
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.tools.toolkit import Toolkit
@@ -345,7 +345,7 @@ class CodexPlanner:
                         )
                     )
 
-                control = DashboardControl(
+                control = DashboardPlannerControl(
                     interaction=interaction,
                     cancel_active_and_wait=toolkit.cancel_active_and_wait,
                     emit_user=emit_user,
@@ -440,7 +440,7 @@ class _CodexDashboardSession:
         options: dict[str, Any],
         recorder: "_Recorder",
         emit_event,
-        control: DashboardControl,
+        control: DashboardPlannerControl,
     ) -> None:
         self._config = config
         self._options = options

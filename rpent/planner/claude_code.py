@@ -22,13 +22,13 @@ from pathlib import Path
 from typing import Any
 
 from rpent.cli.tui import next_user_line
-from rpent.dashboard.control import DashboardControl
 from rpent.dashboard.events import (
     DashboardEventSink,
     TranscriptEvent,
     UsageEvent,
 )
 from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import (
     PlannerResult,
     add_mcp_prefix,
@@ -484,7 +484,7 @@ class _ClaudeDashboardAdapter:
         emit_user: Callable[[str], None],
         emit_initial_user: Callable[[], None],
     ) -> None:
-        self._control = DashboardControl(
+        self._control = DashboardPlannerControl(
             interaction=interaction,
             cancel_active_and_wait=cancel_active_and_wait,
             emit_user=emit_user,

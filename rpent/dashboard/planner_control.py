@@ -9,7 +9,7 @@ from typing import Any
 from rpent.dashboard.interaction import DashboardInteractionPort
 
 
-class DashboardControl:
+class DashboardPlannerControl:
     """Coordinate queued input, interrupts, and task replacement."""
 
     def __init__(

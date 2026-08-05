@@ -34,13 +34,13 @@ from pydantic_ai.run import AgentRun
 from pydantic_ai.usage import RunUsage, UsageLimits
 
 from rpent.cli.tui import QUIT_TOKENS
-from rpent.dashboard.control import DashboardControl
 from rpent.dashboard.events import (
     DashboardEventSink,
     TranscriptEvent,
     UsageEvent,
 )
 from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import PlannerResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
@@ -286,7 +286,7 @@ class ApiAgentLoop:
                 )
             )
 
-        control = DashboardControl(
+        control = DashboardPlannerControl(
             interaction=interaction,
             cancel_active_and_wait=toolkit.cancel_active_and_wait,
             emit_user=emit_user,
@@ -440,7 +440,7 @@ class _ApiDashboardSession:
         self,
         *,
         agent: Agent,
-        control: DashboardControl,
+        control: DashboardPlannerControl,
         observer: _ApiRunObserver,
         max_turns: int,
         no_images: bool,
