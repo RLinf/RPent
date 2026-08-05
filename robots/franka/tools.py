@@ -9,6 +9,7 @@ import numpy as np
 from robots.franka.env_client import FrankaEnvClient
 from rpent.tools.common import robust_surface_centroid
 from rpent.tools.state import EnvState, StepRecord
+from rpent.tools.toolkit import updatestate
 from rpent.utils.logging import get_logger
 
 logger = get_logger("franka")
@@ -58,6 +59,7 @@ class FrankaPrimitives:
         self._num_steps = 0
         return obs, info
 
+    @updatestate
     def observe(self, delay_s: float = 0.0) -> dict:
         """Wait before the toolkit captures a fresh observation."""
         delay = float(np.clip(delay_s, 0.0, _MAX_OBSERVE_DELAY_S))
@@ -79,6 +81,7 @@ class FrankaPrimitives:
         """Return live camera intrinsics/extrinsics metadata."""
         return self.env.get_camera_meta()
 
+    @updatestate
     def move_to(
         self,
         xyz,
@@ -89,6 +92,7 @@ class FrankaPrimitives:
         """Move to an absolute base-frame Cartesian target."""
         return self.env.move_to(xyz, yaw_deg=yaw_deg, gripper=gripper)
 
+    @updatestate
     def move_delta(
         self,
         dxyz,
@@ -105,6 +109,7 @@ class FrankaPrimitives:
             result["clipped_dxyz"] = _to_list(clipped)
         return result
 
+    @updatestate
     def rotate_wrist_yaw(self, delta_deg: float) -> dict:
         """Rotate the wrist yaw relatively, capped for safety."""
         requested = float(delta_deg)
@@ -116,13 +121,16 @@ class FrankaPrimitives:
             result["clipped_delta_deg"] = round(clipped, 3)
         return result
 
+    @updatestate
     def rotate_gripper(self, delta_deg: float) -> dict:
         """Rotate the gripper jaw heading relatively, capped for safety."""
         return self.rotate_wrist_yaw(delta_deg)
 
+    @updatestate
     def open_gripper(self) -> dict:
         return self.env.open_gripper()
 
+    @updatestate
     def close_gripper(self) -> dict:
         return self.env.close_gripper()
 

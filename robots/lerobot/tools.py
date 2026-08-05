@@ -23,6 +23,7 @@ import numpy as np
 from robots.lerobot.env_client import LerobotEnvClient
 from rpent.tools.common import robust_surface_centroid
 from rpent.tools.state import EnvState, StepRecord
+from rpent.tools.toolkit import updatestate
 from rpent.utils.logging import get_logger
 
 logger = get_logger("lerobot")
@@ -134,6 +135,7 @@ class LerobotPrimitives:
 
     # -- primitives (move the robot; toolkit capture refreshes observation) --
 
+    @updatestate
     def move_to(
         self,
         xyz,
@@ -150,6 +152,7 @@ class LerobotPrimitives:
             xyz, gripper=gripper, approach=approach, yaw_deg=yaw_deg
         )
 
+    @updatestate
     def move_joints_delta(
         self,
         delta_deg,

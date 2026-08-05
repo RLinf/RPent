@@ -19,23 +19,6 @@ class FrankaToolkit(Toolkit):
         "_image_cam_bytes": "wrist.png",
     }
 
-    _DRIVER_READERS = (
-        "get_ee_pose",
-        "get_robot_spec",
-        "get_camera_meta",
-    )
-    _PRIMITIVE_TOOLS = (
-        "observe",
-        "move_to",
-        "move_delta",
-        "rotate_wrist_yaw",
-        "rotate_gripper",
-        "open_gripper",
-        "close_gripper",
-    )
-
-    _SPECS = {spec["name"]: spec for spec in franka_tools.TOOLS_SPEC}
-
     def __init__(
         self,
         *,
@@ -51,41 +34,24 @@ class FrankaToolkit(Toolkit):
         self._register_tools()
 
     def _register_tools(self) -> None:
-        spec = self._SPECS
-        # view_driver_state / back_project read trace state -> bind to EnvState.
-        self.add_tool(
-            "view_driver_state",
-            spec["view_driver_state"],
-            partial(self._state.view, image_slots=self._VIEW_IMAGE_SLOTS),
-            captures_state=False,
-        )
-        self.add_tool(
-            "back_project",
-            spec["back_project"],
-            partial(franka_tools.back_project, state=self._state),
-            captures_state=False,
-        )
-        for name in self._DRIVER_READERS:
-            self.add_tool(
-                name,
-                spec[name],
-                self._make_driver_reader(name),
-                captures_state=False,
-            )
-        for name in self._PRIMITIVE_TOOLS:
-            self.add_tool(
-                name,
-                spec[name],
-                getattr(self._driver, name),
-                captures_state=True,
-            )
-
-    def _make_driver_reader(self, name: str):
-        def _reader(**kwargs) -> dict:
-            result = getattr(self._driver, name)(**kwargs)
-            return result if isinstance(result, dict) else {"value": result}
-
-        return _reader
+        # Read-only tools whose handlers aren't driver methods (they need the
+        # run's EnvState bound in). Every other spec binds to its primitive-
+        # driver method; @updatestate on the method decides state capture.
+        state_handlers = {
+            "view_driver_state": partial(
+                self._state.view, image_slots=self._VIEW_IMAGE_SLOTS
+            ),
+            "back_project": partial(franka_tools.back_project, state=self._state),
+        }
+        for spec in franka_tools.TOOLS_SPEC:
+            name = spec["name"]
+            if name in state_handlers:
+                handler = state_handlers[name]
+            else:
+                handler = getattr(self._driver, name, None)
+                if handler is None:
+                    continue  # spec without a backing driver method
+            self.add_tool(name, spec, handler)
 
     def get_state(
         self,

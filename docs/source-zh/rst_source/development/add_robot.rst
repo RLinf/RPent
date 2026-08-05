@@ -211,9 +211,11 @@ Anthropic API 的工具定义格式，包含 ``name``、``description`` 和
 
 **每步状态 dump** —— ``dump_state(driver, env_state, log)`` 通过
 ``env_state.record_step(...)`` 创建由 ``EnvState`` 持有的步骤，并取得分配的
-step index。大型观测通过 ``env_state.save(..., step=step_idx)`` 保存。每次保存
-成功后，``EnvState`` 会自动把基础文件名加入该 ``StepRecord`` 的扁平
-``artifacts`` 集合并最终提交记录；读取方直接使用规范化的工件文件名。
+step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过
+``env_state.save(...)`` 保存——在 ``record_step`` 块内可省略 ``step`` 参数
+（默认指向刚创建的步骤），传显式 ``step=<int>`` 可指定其它步骤，``step=None``
+用于运行级工件。每次保存成功后，``EnvState`` 会自动把基础文件名加入该
+``StepRecord`` 的扁平 ``artifacts`` 集合；读取方直接使用规范化的工件文件名。
 
 **Toolkit 类** 继承 ``rpent.tools.toolkit.Toolkit``：
 

@@ -89,8 +89,8 @@ class EnvState:
         self._output_dir = Path(output_dir)
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._steps: list[StepRecord] = []
-        self._pending_step: StepRecord | None = None
         self._run_artifacts: set[str] = set()
+        self._open_count = 0
         self._next_step = 0
         self.reset()
 
@@ -125,12 +125,11 @@ class EnvState:
             f".{destination.stem}.tmp{destination.suffix}"
         )
 
-    def _record_for_write(self, step: int) -> tuple[StepRecord, bool]:
-        if self._pending_step is not None and self._pending_step.step_idx == step:
-            return self._pending_step, False
+    def _record_for(self, step: int) -> StepRecord:
+        """Return the live step record at ``step`` for in-place updates."""
         for record in self._steps:
             if record.step_idx == step:
-                return record, True
+                return record
         raise KeyError(f"step {step} not present in state trace")
 
     # -- manifest --------------------------------------------------------
@@ -155,18 +154,15 @@ class EnvState:
     def reset(self) -> None:
         """Remove state-owned artifacts and start a fresh trace."""
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        records = list(self._steps)
-        if self._pending_step is not None:
-            records.append(self._pending_step)
-        for record in records:
+        for record in self._steps:
             for name in record.artifacts:
                 self._artifact_file(name, record.step_idx).unlink(missing_ok=True)
         for name in self._run_artifacts:
             self._artifact_file(name, None).unlink(missing_ok=True)
         self._manifest_file().unlink(missing_ok=True)
         self._steps = []
-        self._pending_step = None
         self._run_artifacts = set()
+        self._open_count = 0
         self._next_step = 0
 
     @property
@@ -198,17 +194,23 @@ class EnvState:
         name: str,
         value: Any,
         *,
-        step: int | None,
+        step: int | None = -1,
         **options: Any,
     ) -> str | None:
-        """Serialize ``value`` according to ``name`` and return its base name."""
+        """Serialize ``value`` according to ``name`` and return its base name.
+
+        ``step`` defaults to ``-1`` (the most recently recorded step), so calls
+        made inside (or right after) a :meth:`record_step` block attach to that
+        step without an explicit index. Pass an ``int`` to target a specific
+        step, or ``None`` for a run-level artifact such as an episode video.
+        """
+        step = self._resolve_read_step(step)
         destination = self._artifact_file(name, step)
         temporary = self._temporary_file(destination)
         suffix = destination.suffix.lower()
-        record: StepRecord | None = None
-        committed = False
-        if step is not None:
-            record, committed = self._record_for_write(step)
+        record: StepRecord | None = (
+            self._record_for(step) if step is not None else None
+        )
         try:
             if suffix in _IMAGE_SUFFIXES:
                 array = np.asarray(value)
@@ -247,11 +249,9 @@ class EnvState:
             os.replace(temporary, destination)
             if record is not None:
                 record.artifacts.add(name)
-                if committed:
-                    self._write_manifest()
             else:
                 self._run_artifacts.add(name)
-                self._write_manifest()
+            self._write_manifest()
             return name
         except Exception as exc:
             logger.warning("failed to save artifact %s: %s", name, exc)
@@ -293,19 +293,12 @@ class EnvState:
         destination = self._artifact_file(name, step)
         if not destination.exists():
             return False
-        record: StepRecord | None = None
-        committed = False
-        if step is not None:
-            record, committed = self._record_for_write(step)
+        if step is None:
+            self._run_artifacts.discard(name)
+        else:
+            self._record_for(step).artifacts.discard(name)
         destination.unlink()
-        if step is None and name in self._run_artifacts:
-            self._run_artifacts.remove(name)
-            self._write_manifest()
-        elif record is not None:
-            was_recorded = name in record.artifacts
-            record.artifacts.discard(name)
-            if was_recorded and committed:
-                self._write_manifest()
+        self._write_manifest()
         return True
 
     def list(
@@ -358,7 +351,13 @@ class EnvState:
         elapsed_s: float | None = None,
         extras: dict[str, Any] | None = None,
     ) -> Iterator[int]:
-        if self._pending_step is not None:
+        """Append a new step record and yield its index.
+
+        The step is committed to the trace immediately, so any subsequent
+        :meth:`save` without an explicit ``step`` attaches to it. If the block
+        raises, the step and any artifacts written to it are rolled back.
+        """
+        if self._open_count:
             raise RuntimeError("a step record is already open")
         record = StepRecord(
             step_idx=self._next_step,
@@ -368,21 +367,27 @@ class EnvState:
             elapsed_s=elapsed_s,
             extras=copy.deepcopy(extras or {}),
         )
-        self._pending_step = record
+        self._steps.append(record)
+        self._next_step = record.step_idx + 1
+        self._open_count += 1
+        self._write_manifest()
         try:
             yield record.step_idx
         except BaseException:
-            raise
-        else:
-            self._steps.append(record)
+            for name in list(record.artifacts):
+                self._artifact_file(name, record.step_idx).unlink(missing_ok=True)
+            if self._steps and self._steps[-1] is record:
+                self._steps.pop()
+            self._next_step = record.step_idx
             try:
                 self._write_manifest()
-            except Exception:
-                self._steps.pop()
-                raise
-            self._next_step = record.step_idx + 1
+            except Exception as exc:
+                logger.warning(
+                    "failed to rewrite manifest after step rollback: %s", exc
+                )
+            raise
         finally:
-            self._pending_step = None
+            self._open_count -= 1
 
     def get(self, step: int = -1) -> StepRecord:
         resolved_step = self._resolve_read_step(step)

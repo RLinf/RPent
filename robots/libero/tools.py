@@ -8,6 +8,7 @@ import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
 from rpent.tools.state import EnvState, StepRecord
+from rpent.tools.toolkit import updatestate
 from rpent.utils.logging import get_logger
 from rpent.utils.sam3_client import Sam3Client
 from rpent.utils.vla_client import VLAClient
@@ -124,6 +125,7 @@ class LiberoPrimitives:
             if original_task is not None:
                 self._last_obs["task_descriptions"] = original_task
 
+    @updatestate
     def pi0_pick(
         self,
         prompt: str,
@@ -199,6 +201,7 @@ class LiberoPrimitives:
             },
         }
 
+    @updatestate
     def pi0_doubled(
         self,
         prompt: str,
@@ -240,6 +243,7 @@ class LiberoPrimitives:
             },
         }
 
+    @updatestate
     def move_to(
         self,
         xyz,
@@ -304,6 +308,7 @@ class LiberoPrimitives:
             "libero_terminated": self.env.episode_terminated,
         }
 
+    @updatestate
     def rotate_wrist(
         self,
         *,
@@ -377,6 +382,7 @@ class LiberoPrimitives:
             "libero_terminated": self.env.episode_terminated,
         }
 
+    @updatestate
     def rotate_pitch(
         self,
         *,
@@ -458,6 +464,7 @@ class LiberoPrimitives:
             "libero_terminated": self.env.episode_terminated,
         }
 
+    @updatestate
     def move_pose(
         self,
         xyz,
@@ -528,6 +535,7 @@ class LiberoPrimitives:
             "libero_terminated": self.env.episode_terminated,
         }
 
+    @updatestate
     def release(
         self,
         *,
@@ -556,6 +564,7 @@ class LiberoPrimitives:
             "libero_terminated": self.env.episode_terminated,
         }
 
+    @updatestate
     def set_gripper(
         self,
         *,
@@ -725,6 +734,19 @@ class LiberoPrimitives:
         return result
 
 
+def _is_primitive_action(name: object) -> bool:
+    """Whether ``name`` is a state-advancing LIBERO primitive.
+
+    A primitive is any ``@updatestate``-marked method on
+    :class:`LiberoPrimitives`; read-only tools (``view_driver_state``,
+    ``back_project``, ``segment``, ...) and non-strings read as ``False``.
+    """
+    if not isinstance(name, str):
+        return False
+    method = getattr(LiberoPrimitives, name, None)
+    return method is not None and bool(getattr(method, "_captures_state", False))
+
+
 def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:
     """Find a command sequence that gets ``libero_terminated=True``.
 
@@ -736,7 +758,7 @@ def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:
         result = record.result
         if (
             command is not None
-            and command.get("action") in PRIMITIVE_TOOL_NAMES
+            and _is_primitive_action(command.get("action"))
             and not (isinstance(result, dict) and result.get("error"))
         ):
             command_events.append(((record.step_idx, -1), command))
@@ -1031,17 +1053,6 @@ def _save_observation_artifacts(
 # ---------------------------------------------------------------------------
 # Tool schema declarations (Anthropic-shaped canonical schema)
 # ---------------------------------------------------------------------------
-
-PRIMITIVE_TOOL_NAMES: tuple[str, ...] = (
-    "move_to",
-    "pi0_pick",
-    "pi0_doubled",
-    "release",
-    "set_gripper",
-    "rotate_wrist",
-    "rotate_pitch",
-    "move_pose",
-)
 
 TOOLS_SPEC = [
     {

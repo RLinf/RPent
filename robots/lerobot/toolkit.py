@@ -22,20 +22,6 @@ class LerobotToolkit(Toolkit):
         "_image_bytes": "scene.png",
         "_image_cam_bytes": "arm.png",
     }
-    # Read-only tools backed by a live driver call (no state dump). These query
-    # the robot/scene directly: forward kinematics + scene camera calibration.
-    _DRIVER_READERS = (
-        "get_ee_pose",
-        "get_scene_camera_meta",
-    )
-    # Primitive tools move the robot; get_state refreshes and records state.
-    _PRIMITIVE_TOOLS: tuple[str, ...] = (
-        "move_to",
-        "move_joints_delta",
-    )
-
-    # Tool schemas keyed by name, built once from the canonical ordered list.
-    _SPECS = {spec["name"]: spec for spec in lerobot_tools.TOOLS_SPEC}
 
     def __init__(
         self,
@@ -53,40 +39,24 @@ class LerobotToolkit(Toolkit):
     # Registration
     # ------------------------------------------------------------------
     def _register_tools(self) -> None:
-        spec = self._SPECS
-        self.add_tool(
-            "view_driver_state",
-            spec["view_driver_state"],
-            partial(self._state.view, image_slots=self._VIEW_IMAGE_SLOTS),
-            captures_state=False,
-        )
-        self.add_tool(
-            "back_project",
-            spec["back_project"],
-            partial(lerobot_tools.back_project, state=self._state),
-            captures_state=False,
-        )
-        for name in self._DRIVER_READERS:
-            self.add_tool(
-                name,
-                spec[name],
-                self._make_driver_reader(name),
-                captures_state=False,
-            )
-        for name in self._PRIMITIVE_TOOLS:
-            self.add_tool(
-                name,
-                spec[name],
-                getattr(self._driver, name),
-                captures_state=True,
-            )
-
-    def _make_driver_reader(self, name: str):
-        """Bind a read-only tool to ``self._driver.<name>`` (no state dump)."""
-        def _reader(**kwargs) -> dict:
-            result = getattr(self._driver, name)(**kwargs)
-            return result if isinstance(result, dict) else {"value": result}
-        return _reader
+        # Read-only tools whose handlers aren't driver methods (they need the
+        # run's EnvState bound in). Every other spec binds to its primitive-
+        # driver method; @updatestate on the method decides state capture.
+        state_handlers = {
+            "view_driver_state": partial(
+                self._state.view, image_slots=self._VIEW_IMAGE_SLOTS
+            ),
+            "back_project": partial(lerobot_tools.back_project, state=self._state),
+        }
+        for spec in lerobot_tools.TOOLS_SPEC:
+            name = spec["name"]
+            if name in state_handlers:
+                handler = state_handlers[name]
+            else:
+                handler = getattr(self._driver, name, None)
+                if handler is None:
+                    continue  # spec without a backing driver method
+            self.add_tool(name, spec, handler)
 
     def get_state(
         self,
