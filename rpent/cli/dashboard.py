@@ -92,7 +92,7 @@ def run_dashboard_session(
             env_spec=env_spec,
             state=state,
             claimed=claimed,
-            shared=shared,
+            shared_primitives_kwargs=shared,
             session_root=session_root,
         ),
     )
