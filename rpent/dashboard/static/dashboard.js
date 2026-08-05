@@ -903,7 +903,7 @@ function appendEvents(events, animateNew = false) {
         } else if (ev.type === "meta") div.textContent = `[${ev.tag}] ${ev.text}`;
         else {
           div.textContent = ev.text;
-          if (ev.type === "user") div.dataset.roleLabel = `${copy.you} › `;
+          if (ev.type === "user") div.dataset.roleLabel = copy.you;
         }
         box.appendChild(div);
       }
