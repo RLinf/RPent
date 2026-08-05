@@ -1,5 +1,8 @@
-Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents
-================================================================================================
+Harness VLA
+===========
+
+*Steering Frozen VLAs into Reliable Manipulation Primitives via
+Memory-Guided Agents*
 
 **Resources:** `Paper <https://arxiv.org/abs/2607.08448>`_ | `Project Page
 <https://harnessvla.github.io/>`_ | `Code <https://github.com/RLinf/RPent>`_
@@ -10,7 +13,7 @@ Overview
 Modern vision-language-action (VLA) models perform strongly on standard robot
 benchmarks, yet can degrade sharply when instructions, target bindings, or
 spatial layouts change. π\ :sub:`RLinf` achieves 95.3% success on standard
-LIBERO but drops to 50.0% on LIBERO-Pro under perturbations. Many such failures
+LIBERO but drops to 50.0% on LIBERO-PRO under perturbations. Many such failures
 do not arise because the VLA cannot grasp or place an object. Instead, the
 model applies a locally plausible action to the wrong target, from an
 unfavorable state, or at the wrong stage of a long-horizon task.
@@ -25,8 +28,7 @@ remain frozen throughout.
 
 Harness VLA is RPent's first publication. Without updating the VLA or expanding
 the primitive library during deployment, it reaches **82.4%** success on
-LIBERO-Pro, **55.4%** on RoboCasa365, and **58.4%** on the RoboTwin 2.0
-clean-to-randomized setting.
+LIBERO-PRO, **55.4%** on RoboCasa365, and **58.4%** on RoboTwin C2R.
 
 .. figure:: https://github.com/RLinf/misc/raw/main/pic/harnessvla_scheme.png
    :alt: Overview of the Harness VLA framework
@@ -90,21 +92,21 @@ manipulation. Representative success rates are summarized below.
    * - LIBERO
      - Standard task suites
      - Harness VLA: **96.0%**; π\ :sub:`RLinf`: 95.3%
-   * - LIBERO-Pro
+   * - LIBERO-PRO
      - Perturbed tabletop manipulation
      - Harness VLA: **82.4%**; π\ :sub:`RLinf`: 50.0%; RATS: 43.8%; Cap-X: 18.2%
    * - RoboCasa365
      - Household-kitchen manipulation
      - Harness VLA: **55.4%**; RLDX-1: 30.0%
-   * - RoboTwin 2.0 C2R
+   * - RoboTwin C2R
      - Clean-to-randomized bimanual manipulation
      - Harness VLA: **58.4%**; LingBot-VLA: 50.4%
 
 Harness VLA reaches 96.0% success on standard LIBERO, comparable to the 95.3%
-of π\ :sub:`RLinf`. On the more challenging LIBERO-Pro benchmark, Harness VLA
+of π\ :sub:`RLinf`. On the more challenging LIBERO-PRO benchmark, Harness VLA
 reaches 82.4%, outperforming π\ :sub:`RLinf` at 50.0%, RATS at 43.8%, and Cap-X
 at 18.2%. On RoboCasa365, Harness VLA raises the task-weighted overall success
-rate from 30.0% with RLDX-1 to 55.4%. On RoboTwin 2.0 C2R, Harness VLA reaches
+rate from 30.0% with RLDX-1 to 55.4%. On RoboTwin C2R, Harness VLA reaches
 58.4%, outperforming LingBot-VLA at 50.4%. These gains come from three
 complementary mechanisms: semantic re-grounding by the planner, sparse and
 targeted VLA retries after restaging, and Analytic Primitives that isolate

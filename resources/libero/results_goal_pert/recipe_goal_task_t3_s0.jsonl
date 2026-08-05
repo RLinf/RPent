@@ -1,9 +1,0 @@
-{"action": "pi0_pick", "prompt": "open the top drawer of the wooden cabinet", "max_chunks": 25, "lift_thresh": 0.5, "gripper_closed_thresh": 0.06}
-{"action": "move_to", "xyz": [-0.2, 0.1, 1.15], "gripper": -1, "tol": 0.02, "step_clip": 0.025, "max_steps": 100}
-{"action": "move_to", "xyz": [-0.08, 0.13, 1.05], "gripper": -1, "tol": 0.015, "step_clip": 0.025, "max_steps": 100}
-{"action": "move_to", "xyz": [-0.06, 0.15, 1.0], "gripper": -1, "tol": 0.012, "step_clip": 0.02, "max_steps": 100}
-{"action": "pi0_pick", "prompt": "pick up the cream cheese", "max_chunks": 20, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
-{"action": "set_gripper", "gripper": 1, "steps": 5}
-{"action": "move_to", "xyz": [-0.1, 0.0, 1.2], "gripper": 1, "tol": 0.015, "step_clip": 0.025, "max_steps": 100}
-{"action": "move_to", "xyz": [0.01, -0.1, 1.2], "gripper": 1, "tol": 0.015, "step_clip": 0.02, "max_steps": 100}
-{"action": "release", "max_steps": 20}

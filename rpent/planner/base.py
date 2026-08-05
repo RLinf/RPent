@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+import queue
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
+from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.interaction import DashboardInteractionPort
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import (
     get_memory_dir,
@@ -68,6 +71,8 @@ class Planner(Protocol):
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
+        input_queue: queue.Queue[str | None] | None = None,
+        dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         """Run the multi-turn agent loop until completion or budget.
 
@@ -79,6 +84,8 @@ class Planner(Protocol):
                 ``toolkit.get_tools_spec()`` and dispatch calls via
                 ``toolkit.execute_tool()``.
             max_turns: Maximum LLM turns before giving up.
+            input_queue: Optional queue of user-typed lines for interactive steering.
+            dashboard_interaction: Optional Dashboard interaction channel.
 
         Returns:
             ``PlannerResult`` with finish status, conversation transcript,
@@ -103,7 +110,8 @@ def build_planner(
     max_tokens: int = 8192,
     planner_timeout_s: int | None = None,
     claude_code_max_budget_usd: float | None = None,
-    dashboard: Any = None,
+    dashboard_events: DashboardEventSink,
+    no_images: bool = False,
 ):
     """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
@@ -141,10 +149,13 @@ def build_planner(
                 kwargs["base_url"] = base_url
             return provider_cls(**kwargs)
 
-        api_model = infer_model(
-            model, provider_factory=_provider_factory
+        api_model = infer_model(model, provider_factory=_provider_factory)
+        return ApiAgentLoop(
+            model=api_model,
+            max_tokens=max_tokens,
+            dashboard_events=dashboard_events,
+            no_images=no_images,
         )
-        return ApiAgentLoop(model=api_model, max_tokens=max_tokens, dashboard=dashboard)
     if planner_type == "claude_code":
         from rpent.planner.claude_code import ClaudeCodePlanner
 
@@ -162,7 +173,7 @@ def build_planner(
             max_budget_usd=cc_budget,
             extra_dirs=[str(get_memory_dir(env_name))],
             output_path=Path(output_dir) / f"claude_{recipe_tag}.txt",
-            dashboard=dashboard,
+            dashboard_events=dashboard_events,
         )
     if planner_type == "codex":
         from rpent.planner.codex import CodexPlanner
@@ -182,6 +193,6 @@ def build_planner(
             timeout_s=cx_timeout_s,
             extra_dirs=[str(get_memory_dir(env_name))],
             output_path=Path(output_dir) / f"codex_{recipe_tag}.txt",
-            dashboard=dashboard,
+            dashboard_events=dashboard_events,
         )
     raise ValueError(f"unknown planner_type: {planner_type}")

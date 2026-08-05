@@ -4,11 +4,10 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-# MuJoCo env vars must be set BEFORE importing anything that touches MuJoCo.
-os.environ.setdefault("MUJOCO_GL", "egl")
-os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+import numpy as np
+from omegaconf import OmegaConf
 
 from rpent.utils.config import (
     get_repo_root,
@@ -16,6 +15,12 @@ from rpent.utils.config import (
 )
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade
+
+# MuJoCo env vars must be set BEFORE importing anything that touches MuJoCo.
+os.environ.setdefault("MUJOCO_GL", "egl")
+os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+assert "mujoco" not in sys.modules, \
+    "mujoco must not be imported before MUJOCO_GL/PYOPENGL_PLATFORM are set"
 
 logger = get_logger("env_server")
 
@@ -25,11 +30,11 @@ if str(RLINF_REPO_PATH) not in sys.path:
     sys.path.insert(0, str(RLINF_REPO_PATH))
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
-from omegaconf import OmegaConf  # noqa: E402
-
-from rlinf.envs.libero.libero_env import LiberoEnv  # noqa: E402
+# torch and LiberoEnv are only imported at call time (after --cuda-device
+# sets CUDA_VISIBLE_DEVICES in main()); LiberoEnv transitively imports torch.
+if TYPE_CHECKING:
+    import torch  # noqa: F401  (referenced at runtime in _to_numpy_tree)
+    from rlinf.envs.libero.libero_env import LiberoEnv
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +47,7 @@ def build_env_cfg(
     task_suite_name: str = "libero_spatial",
     specific_reset_id: int = 0,
     seed: int = 0,
-    max_episode_steps: int = 600,
+    max_episode_steps: int = 10000,
 ) -> Any:
     cfg = OmegaConf.create(
         {
@@ -83,8 +88,9 @@ def build_env_cfg(
 
 
 def make_env(task_id: int, seed: int, suite_name: str = "libero_spatial",
-             max_episode_steps: int = 600) -> LiberoEnv:
+             max_episode_steps: int = 10000) -> LiberoEnv:
     """Build a single-env LiberoEnv pinned to ``task_id`` / ``seed``."""
+    from rlinf.envs.libero.libero_env import LiberoEnv
     from rlinf.envs.libero.utils import benchmark as _bench_mod
     suite = _bench_mod.get_benchmark(suite_name)()
     first_id = sum(len(suite.get_task_init_states(t)) for t in range(task_id))
@@ -108,6 +114,8 @@ def make_env(task_id: int, seed: int, suite_name: str = "libero_spatial",
 def _to_numpy_tree(x):
     """Recursively convert torch tensors to CPU numpy arrays so the result
     pickles cleanly across the agent/env_server wire."""
+    import torch
+
     if isinstance(x, torch.Tensor):
         return x.detach().cpu().numpy()
     if isinstance(x, dict):
@@ -290,8 +298,38 @@ def main():
     p.add_argument("--suite", type=str, default="libero_spatial")
     p.add_argument("--task", type=int, default=9)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--max-episode-steps", type=int, default=600)
+    p.add_argument("--max-episode-steps", type=int, default=10000)
+    p.add_argument("--parent-watch", action="store_true",
+                   help="watch parent process via stdin pipe and exit when it dies")
+    p.add_argument("--cuda-device", type=int, default=None,
+                   help="GPU device to pin MuJoCo EGL rendering and the torch "
+                        "default device to (physical CUDA ordinal).")
     args = p.parse_args()
+
+    if args.cuda_device is not None:
+        # Deliberately do NOT set CUDA_VISIBLE_DEVICES. robosuite (imported
+        # transitively via libero) asserts at import time that
+        # ``MUJOCO_EGL_DEVICE_ID in CUDA_VISIBLE_DEVICES`` (substring check),
+        # which assumes the EGL index equals the CUDA ordinal and crashes on
+        # multi-GPU boxes where the EGL order differs. That assertion is gated
+        # on ``CUDA_VISIBLE_DEVICES != ""``, so leaving it unset skips it in
+        # both this process and the multiprocessing-spawned render workers
+        # (which inherit the env). Pin the two backends directly instead:
+        #   - MuJoCo render device <- MUJOCO_EGL_DEVICE_ID (configure_egl_device)
+        #   - torch default device  <- torch.cuda.set_device(N)
+        prev = os.environ.get("CUDA_VISIBLE_DEVICES")
+        if prev is not None:
+            logger.warning(
+                "CUDA_VISIBLE_DEVICES=%s is set; clearing it and pinning via "
+                "MUJOCO_EGL_DEVICE_ID + torch.cuda.set_device(--cuda-device=%s) "
+                "instead (robosuite's CVD assertion is incompatible with EGL<->CUDA mapping)",
+                prev, args.cuda_device,
+            )
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+        from rpent.utils.egl import configure_egl_device
+        configure_egl_device(args.cuda_device)
+        import torch
+        torch.cuda.set_device(args.cuda_device)
 
     raw_env = make_env(args.task, args.seed, suite_name=args.suite,
                        max_episode_steps=args.max_episode_steps)
@@ -304,7 +342,8 @@ def main():
             "max_episode_steps": args.max_episode_steps,
         },
     )
-    facade.serve(transport=args.transport, host=args.host, port=args.port)
+    facade.serve(transport=args.transport, host=args.host, port=args.port,
+                 parent_watch=args.parent_watch)
 
 
 if __name__ == "__main__":

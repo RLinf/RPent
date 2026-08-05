@@ -1,9 +1,0 @@
-{"action":"move_to","xyz":[0.074,-0.098,1.30],"gripper":-1,"step_clip":0.025}
-{"action":"pi0_pick","prompt":"pick up the black bowl in the drawer","max_chunks":15,"lift_thresh":0.05,"gripper_closed_thresh":0.06}
-{"action":"pi0_pick","prompt":"pick up the black bowl in the drawer","max_chunks":15,"lift_thresh":0.05,"gripper_closed_thresh":0.06}
-{"action":"move_to","xyz":[0.074,-0.098,1.10],"gripper":-1,"step_clip":0.015,"max_steps":80}
-{"action":"set_gripper","gripper":1,"steps":12}
-{"action":"move_to","xyz":[0.074,-0.098,1.28],"gripper":1,"step_clip":0.02,"max_steps":80}
-{"action":"move_to","xyz":[0.08,0.033,1.30],"gripper":1,"step_clip":0.02,"max_steps":120}
-{"action":"move_to","xyz":[0.08,0.033,1.30],"gripper":1,"step_clip":0.02,"max_steps":80}
-{"action":"pi0_doubled","prompt":"place the black bowl on the plate","max_chunks":40}

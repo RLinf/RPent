@@ -2,9 +2,10 @@
 
 Env implementations live in the top-level ``robots/`` directory (a sibling of
 the ``rpent`` package); an env is resolved by importing ``robots.<name>``. The
-``EnvSpec`` / ``PromptBundle`` dataclasses themselves live in :mod:`rpent.envs`
-so planners and envs share the same contract types without crossing module
-layers.
+``EnvSpec`` / ``PromptBundle`` / ``RunConfig`` contract types themselves live in
+:mod:`rpent.envs` so planners and envs share the same contract types without
+crossing module layers. ``EnvSpec`` also carries the runner hooks that keep
+CLI orchestration independent of concrete robot implementations.
 """
 from __future__ import annotations
 

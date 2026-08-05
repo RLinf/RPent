@@ -84,50 +84,15 @@ RPent is built upon three core design principles: **service-oriented, standardiz
 
 ## Quick Start
 
-**1. Install RPent with a single `pip install`.** 
+**1. Install RPent with a single `pip install`.**
 
 ```bash
 git clone https://github.com/RLinf/RPent rpent && cd rpent
 pip install -e ".[full]"
 ```
 
-`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator on the RLinf runtime). 
-Pick a narrower extra if you don't need the whole stack:
-
-<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
-  <thead align="center" valign="bottom">
-    <tr>
-      <th style="min-width: 120px; text-align: left;">Extra</th>
-      <th style="min-width: 240px;">Installs</th>
-    </tr>
-  </thead>
-  <tbody valign="top">
-    <tr>
-      <td><code>.[full]</code></td>
-      <td><code>rlinf</code> + <code>openpi</code> + <code>libero-pro</code> — the default run stack</td>
-    </tr>
-    <tr>
-      <td><code>.[libero-pro]</code></td>
-      <td>Base LIBERO + LIBERO-PRO simulator</td>
-    </tr>
-    <tr>
-      <td><code>.[libero-plus]</code></td>
-      <td>Base LIBERO + LIBERO-plus simulator</td>
-    </tr>
-    <tr>
-      <td><code>.[libero]</code></td>
-      <td>Base LIBERO only</td>
-    </tr>
-    <tr>
-      <td><code>.[openpi]</code></td>
-      <td>openpi VLA only</td>
-    </tr>
-    <tr>
-      <td><code>.[rlinf]</code></td>
-      <td>RLinf runtime only</td>
-    </tr>
-  </tbody>
-</table>
+`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator + SAM 3.0 on the RLinf runtime).
+If you don't need the whole stack, see the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for narrower extras.
 
 **2. Download the LIBERO-PRO simulator assets.**
 
@@ -142,34 +107,44 @@ See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/in
 **3. Configure keys and checkpoints, then run.**
 
 ```bash
-# LLM API keys (the `api` planner)
+# Anthropic key; no need to export the base url if you use the official endpoint.
 export ANTHROPIC_BASE_URL=https://xxx
 export ANTHROPIC_API_KEY=sk-xxx
-export OPENAI_BASE_URL=https://xxx
-export OPENAI_API_KEY=sk-xxx
 
 # VLA checkpoint — download from
 # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
 export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+# SAM 3.0 checkpoint — download from
+# https://huggingface.co/facebook/sam3
+# https://modelscope.cn/models/facebook/sam3
+export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
 export LIBERO_TYPE=pro
-export CUDA_VISIBLE_DEVICES=0
 
-# Run one task: libero_object_swap, task 2, seed 0, using the `api` planner
-# with an Anthropic model and an 8192-token cap.
-#   • OpenAI-compatible chat endpoints:  --model openai-chat:glm-5.2
-#   • OpenAI responses endpoints:        --model openai:gpt-5.5
-#   • claude_code / codex planners:     no provider prefix, e.g. --model claude-opus-4-8
+# Run one task: libero_object_swap, task 2, seed 0, using Claude Code
+# with Claude Opus 4.8.
 rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
-  --planner api --model anthropic:claude-opus-4-8 --max-tokens 8192
+  --cuda-device 0 --planner claude_code --model claude-opus-4-8
+```
+
+See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.
+
+### Interactive CLI mode
+
+Add `--interactive` (`-i`) to steer the agent live from your terminal. At the `you>` prompt, the built-in task is pre-filled — press Enter to use it or replace it with your own — then type any message while it runs to steer the agent at the next turn (`/help` lists commands; `/quit` or Ctrl-D ends). Requires an interactive terminal (TTY).
+
+```bash
+rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+  --planner claude_code --model claude-opus-4-8 --interactive
 ```
 
 ### Live Dashboard
 
-Add `--dashboard` to open a browser monitor for the run. It boots a launcher screen where you pick the config, then streams reasoning, live views, and the action timeline. Use `--dashboard-language zh-cn` for the Chinese UI.
+Add `--dashboard` to start a local dashboard server. The command prints the URL in the terminal; open it to confirm the configuration on the launcher screen. Once the run starts, the page streams agent reasoning, camera and Pi0 views, the action timeline, and clip replays. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
 rpent --env libero --dashboard --dashboard-language zh-cn \
-  --suite libero_goal_task --task 1 --seed 0 --planner claude_code
+  --suite libero_goal_task --task 1 --seed 0 \
+  --planner claude_code --model claude-opus-4-8
 ```
 
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
@@ -189,17 +164,19 @@ For more detailed documentation, see the [RPent documentation](https://rpent.rea
     <tr><td><code>--suite</code></td><td>— (required)</td><td>Task suite, e.g. <code>libero_object_task</code>, <code>libero_spatial_swap</code></td></tr>
     <tr><td><code>--task</code></td><td>— (required)</td><td>Task id within the suite</td></tr>
     <tr><td><code>--seed</code></td><td><code>0</code></td><td>Random seed</td></tr>
-    <tr><td><code>--planner</code></td><td><code>api</code></td><td>Reasoning brain: <code>api</code> | <code>claude_code</code> | <code>codex</code></td></tr>
+    <tr><td><code>--planner</code></td><td><code>api</code></td><td><code>api</code> | <code>claude_code</code> | <code>codex</code></td></tr>
     <tr><td><code>--model</code></td><td>—</td><td>Model id; for <code>api</code>, prefix the provider (<code>anthropic:…</code>, <code>openai:…</code>, <code>openai-chat:…</code>)</td></tr>
     <tr><td><code>--max-turns</code></td><td><code>100</code></td><td>Max agent turns</td></tr>
     <tr><td><code>--max-tokens</code></td><td><code>8192</code></td><td>Max tokens per LLM reply</td></tr>
+    <tr><td><code>--no-images</code></td><td>off</td><td>Text-only mode: never send image bytes (for models that reject image input)</td></tr>
     <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>Max env steps</td></tr>
     <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> or <code>pro</code></td><td>LIBERO variant: <code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
-    <tr><td><code>--cuda-device</code></td><td>inherited</td><td>GPU device(s) exposed to the env / vla servers</td></tr>
+    <tr><td><code>--cuda-device</code></td><td>inherited</td><td>GPU device exposed to the env / VLA / SAM3 servers</td></tr>
     <tr><td><code>--dashboard</code></td><td>off</td><td>Start the local dashboard for this run</td></tr>
     <tr><td><code>--dashboard-language</code></td><td><code>en</code></td><td>Dashboard UI language: <code>en</code> | <code>zh-cn</code></td></tr>
     <tr><td><code>--env-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing env_server (<code>protocol=http|socket</code>, default <code>http</code>). If unset, one is spawned locally.</td></tr>
     <tr><td><code>--vla-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing vla_server (same rules). If unset, one is spawned locally.</td></tr>
+    <tr><td><code>--sam3-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing RPent SAM3 service (same rules). If unset, one is spawned locally.</td></tr>
   </tbody>
 </table>
 

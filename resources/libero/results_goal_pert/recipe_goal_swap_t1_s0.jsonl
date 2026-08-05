@@ -1,5 +1,0 @@
-{"action": "move_to", "xyz": [-0.083, -0.025, 1.10], "gripper": -1}
-{"action": "pi0_pick", "prompt": "pick up the black bowl", "max_chunks": 22, "lift_thresh": 0.06, "gripper_closed_thresh": 0.06}
-{"action": "move_to", "xyz": [-0.05, -0.20, 1.10], "gripper": 1, "max_steps": 150}
-{"action": "move_to", "xyz": [-0.05, -0.20, 1.00], "gripper": 1, "max_steps": 100}
-{"action": "release"}

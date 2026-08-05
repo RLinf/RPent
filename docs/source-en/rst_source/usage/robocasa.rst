@@ -1,11 +1,18 @@
 RoboCasa
 ========
 
+.. note::
+
+   RoboCasa support is **in progress** and not yet available. The design
+   described below is the *planned* integration — there is no
+   ``robots/robocasa/`` package yet. See the Feature Matrix for current status.
+
 `RoboCasa <https://robocasa.ai>`_ is the kitchen-scale, long-horizon
-manipulation environment. In RPent it is driven by the **RLDX-1** VLA
+manipulation environment. In RPent it **will be** driven by the **RLDX-1** VLA
 policy, served over a pickle-framed socket RPC (rather than HTTP as
 LIBERO uses), because RLDX observations are history-stacked nested
-numpy dicts that ride sockets natively.
+numpy dicts that ride sockets natively; forcing them through HTTP would
+mean designing an extra wire format.
 
 Task families
 -------------
@@ -13,10 +20,10 @@ Task families
 RoboCasa covers the standard kitchen benchmarks:
 
 - ``PickPlace*`` — pick objects from a source, place them at a target
-  (counter → cabinet, sink → counter, …).
-- ``Open*`` / ``Close*`` — open and close cabinet doors, drawers, and
+  (counter to cabinet, sink to counter, and so on).
+- ``Open*`` and ``Close*`` — open and close cabinet doors, drawers, and
   appliances.
-- ``TurnOn*`` / ``TurnOff*`` — operate stove burners, microwave
+- ``TurnOn*`` and ``TurnOff*`` — operate stove burners, microwave
   buttons, kettle switches, and similar toggles.
 
 The exact catalog depends on the RoboCasa release; see the

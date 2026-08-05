@@ -1,7 +1,0 @@
-{"action": "move_to", "xyz": [-0.125, 0.07, 0.22], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
-{"action": "pi0_pick", "prompt": "pick up the orange juice", "max_chunks": 25, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
-{"action": "set_gripper", "gripper": 1, "steps": 5}
-{"action": "move_to", "xyz": [-0.125, 0.07, 0.26], "gripper": 1, "tol": 0.012, "step_clip": 0.020, "max_steps": 80}
-{"action": "move_to", "xyz": [0.085, 0.25, 0.26], "gripper": 1, "tol": 0.012, "step_clip": 0.020, "max_steps": 100}
-{"action": "release", "max_steps": 20}
-{"action": "move_to", "xyz": [0.0, 0.0, 0.26], "gripper": -1, "tol": 0.02, "step_clip": 0.020, "max_steps": 80}

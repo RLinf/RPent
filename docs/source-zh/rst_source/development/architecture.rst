@@ -1,203 +1,179 @@
 系统设计
 ========
 
-本页从实现层面看 RPent —— 三个进程各自持有什么、如何通信,
-以及 ``rpent/`` 与 ``robots/`` 下的代码如何组织。更高层的框架介绍
-见 :doc:`../overview`。
+本页从实现层面看 RPent —— 核心控制链路中的三个进程各自持有什么、
+如何通信，以及 ``rpent/`` 与 ``robots/`` 下的代码如何组织。
+更高层的框架介绍见 :doc:`../overview`。
 
 .. raw:: html
 
    <div style="text-align: center;">
-     <img src="../../architecture.svg" alt="RPent 三进程架构"
+     <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_framework.png" alt="RPent 框架"
           style="max-width: 95%; height: auto;" />
    </div>
 
 关键特性
 --------
 
-*(这些是架构设计围绕的框架级承诺; 下面各节则展示每一项是如何落地的。)*
+本节介绍让 RPent 区别于其他具身智能体框架的设计选择。
 
-- **LLM-in-the-loop 控制。** LLM 不做微调 —— 它纯粹通过调工具
-  (``pi0_pick``、``move_to``、``rotate_wrist``、``back_project``、
-  ``finish``…) 来驱动机器人。每个工具的返回都以多模态上下文
-  (文本 + 渲染图) 喂回, 让模型基于 *看到的世界* 推理。
-- **三进程架构。** **Agent 进程** (LLM planner + toolkit, 不 import
-  ``torch``)、**env_server** (仿真器 + EGL 渲染)、**vla_server**
-  (GPU 策略权重) 是三个独立进程, 用轻量 RPC 串起来。任一重量级
-  进程都可以独立重启、迁到另一张 GPU、或指向远程主机。
-- **可插拔的 reasoning brain (planner)。** 用一个 flag ——
-  ``--planner {api, claude_code, codex}`` —— 就能换决策 brain, 不用
-  动 tool 或 prompt:
+**可重试的 VLA 工具。** RPent 不训练直接输出动作的端到端策略，
+而是让一个通用 LLM 作为 planner，把 VLA 当作 ``pi0_pick``、
+``pi0_doubled`` 这样的 action primitive 来调用，与 ``move_to``、
+``rotate_wrist``、``back_project`` 等脚本化工具同处一套工具 schema。
+每次调用的文本和图像都会回传给 LLM，让它根据实际所见决定下一步；
+配合按环境保存的 memory，planner 还能学到 VLA 在什么时候、
+什么条件下才可靠。这样既用上了 LLM 的通用推理和即时纠错，
+又不必为每个新任务重新训练模型。新增 primitive 的方法见 :doc:`add_primitive`。
 
-  - ``api`` —— 基于 `pydantic-ai <https://ai.pydantic.dev/>`_ 的
-    provider-无关 tool-calling 循环 (Anthropic / OpenAI / OpenAI 兼容),
-    带 prompt 缓存和历史图片剪枝。
-  - ``claude_code`` —— `Claude Agent SDK
-    <https://docs.claude.com/en/api/agent-sdk/overview>`_,
-    把 toolkit 暴露为 in-process MCP server。
-  - ``codex`` —— OpenAI Codex SDK, 通过 HTTP MCP server 桥接到
-    toolkit。
-- **两个 environment、两个 VLA、一份契约。** LIBERO (Pi0.5 走 HTTP) 和
-  RoboCasa (RLDX-1 走 socket-RPC) 共享 *完全一致* 的 env/vla 进程划分;
-  只有传输协议不同, 且是按各自 observation 形状选出来的。
-- **实时 dashboard。** 可选的 ``--dashboard`` 会起一个本地 FastAPI
-  监控页, 实时展示 agent 的 reasoning、相机 / Pi0 视图、动作时间线、
-  剪辑回放 —— 提供 **双语 UI** (``--dashboard-language {en, zh-cn}``)。
-- **加一个 environment 只需把包放进硬盘。** 没有中央注册表要改 ——
-  见 :doc:`add_robot`。
+**可替换的 planner。** planner 就是驱动工具调用循环的 LLM agent 运行时。
+一个 ``--planner`` 参数就能切换它，而工具和提示词保持不变。内置三种：
+``api`` 是 RPent 自研的工具调用循环（基于 pydantic-ai，为默认值，
+不绑定具体模型提供商）；``claude_code`` 复用 Claude Agent SDK 运行时；
+``codex`` 复用 Codex SDK 运行时。由于三者面对完全相同的工具，
+可以在同一套物理基准上正面对比。配置方法见 :doc:`../usage/configure_planner`。
 
-单轮循环是怎么发生的
---------------------
+**隔离的仿真环境。** 仿真器作为独立的 env_server 运行，
+通过轻量 RPC 与 agent 通信；agent 一侧不导入任何仿真器，
+也不与具体环境绑定。更换环境只需实现同一套 env-client 接口——
+环境可以自行重启、迁到另一台机器，或替换成另一个仿真器，
+而无需改动 planner 或工具。新增环境也不需要注册代码：
+把包放到 ``robots/`` 下，框架就会自动发现。接入新环境的步骤见 :doc:`add_robot`。
 
-一次运行就是一段 LLM-in-the-loop 循环:
+LLM-in-the-loop 运行流程
+------------------------
+
+一次运行就是一段 LLM-in-the-loop 循环：
 
 1. LLM 分析任务、调一个工具 (如 ``pi0_pick``)。
-2. 工具的 **primitive driver** 向 ``vla_server`` 请求一个 action
-   chunk (``predict`` / ``vla_infer``)。
-3. ``env_server`` 执行这段 chunk (LIBERO 是 ``chunk_step``, RoboCasa
-   是逐步 ``step``)。
-4. Env 渲染出新的 observation 与相机帧。
-5. 结果被组装成 text + image content block, 喂回 LLM 进入下一轮。
+2. 工具的底层 primitives 向 ``vla_server`` 请求动作 (``predict``)。
+3. ``env_server`` 执行动作。
+4. 环境返回更新后的观测数据和相机画面。
+5. 执行结果会整理成由文本和图像组成的上下文，返回给 LLM 进行下一轮推理。
 
 循环在 LLM 调 ``finish`` (``success`` / ``failure`` / ``stuck``)
-或触达 ``--max-turns`` / ``--max-episode-steps`` 时结束。
+或达到 ``--max-turns`` / ``--max-episode-steps`` 时结束。
 
 仓库布局
 --------
 
-实现按关注点拆分得比较干净:
+代码按职责组织如下：
 
 .. code-block:: text
 
    rpent/
-     planner/       # Reasoning brains: api_loop, claude_code, codex, base.
-     cli/            # main.py 入口 (无 __init__.py, 不是 subpackage)。
-     context/        # Prompt bundles、prompt 工具、共享 prompt 分节。
-     dashboard/      # FastAPI 监控 + SSE stream (可选)。
-     envs/           # EnvSpec、PromptBundle、以及 env 的 lazy 注册表。
+     planner/       # planner 实现：api_loop、claude_code、codex、base。
+     cli/            # main.py 入口和交互式终端。
+     context/        # 提示词工具和共享提示词片段。
+     dashboard/      # FastAPI 监控页面和 SSE 事件流（可选）。
+     envs/           # EnvSpec、PromptBundle 和按需加载环境的逻辑。
      tools/          # Toolkit 基类和共享 tool 辅助函数。
-     utils/          # 配置、日志、RPC client/server、VLA HTTP shim。
+     utils/          # 配置、日志、RPC 客户端/服务端和 VLA 客户端。
    robots/
      libero/         # LIBERO 的 env_client / env_server / vla_server /
                      # toolkit / prompt_bundle。参考实现。
-     (robocasa/)     # RoboCasa driver —— 研发中。
-     (franka/)       # Franka driver —— 研发中。
-     (so101/)        # SO-101 driver —— 研发中。
-   scripts/          # 安装脚本 (LIBERO PRO/PLUS、codex proxy)。
+     robocasa/       # RoboCasa env (RLDX-1 VLA，厨房任务)。
+     (franka/)       # Franka env——研发中。
+     (so101/)        # SO-101 env——研发中。
+   scripts/
+     codex_proxy/    # Codex planner 用的 LiteLLM 代理。
+     robocasa/       # RoboCasa 运行 / 安装 / 扫描脚本。
 
 Runner (``rpent/cli/main.py``)
 ------------------------------
 
-``rpent/cli/main.py`` 是编排者。每一次调用它会:
+``rpent/cli/main.py`` 负责串联一次运行所需的配置、服务和模型组件。
+启动后，它依次执行以下步骤：
 
-1. 解析 CLI flag (:doc:`../quickstart` 说明了日常最常用的那些)。
-2. 创建 per-run 的 scratch 目录 (``--output-dir`` 或
-   ``runs/`` 下自动生成的目录)。
-3. 在 loopback 上预分配一个空闲端口, 把端口通过 CLI 传给子进程,
-   spawn **env_server**, 然后通过
-   :func:`rpent.utils.rpc.wait_for_ready` 轮询 ``healthz`` 直到子进程
-   起来。
-4. 对 **vla_server** 做同样的事; 复用已有实例时用 ``--vla-endpoint``。
-5. 通过 env 的 ``get_toolkit(primitives_kwargs=...)`` 工厂为选中的
-   env 构造 **toolkit**, 把 env client 和 VLA client 传进去。
-6. 通过 ``rpent.planner.base.build_planner`` 构造 **planner**,
-   根据 ``--planner`` 选出 ``api_loop.py`` / ``claude_code.py`` /
-   ``codex.py`` 之一。
-7. 跑 tool-calling 循环; 如果开了 ``--dashboard`` 就 stream 到 dashboard;
-   结束时写出 ``<output_dir>/transcript_*.json`` 和
-   ``<output_dir>/episode.mp4``。
+1. 调用 ``parse_known_args`` 初步解析通用 CLI 参数
+   （常用参数见 :doc:`../quickstart`），先读取 ``--env`` 和
+   ``--dashboard``。
+2. 根据 ``args.env_name`` 调用 ``get_env_spec`` 加载环境定义，再通过
+   ``env_spec.add_cli_args(parser, use_dashboard=args.dashboard)`` 将该环境
+   的专用参数加入共享 parser。启用 Dashboard 时，原本必填的环境参数会暂时
+   设为可选，随后由配置页面填写。
+3. 再调用 ``parser.parse_args()``，对完整参数集合执行 argparse 层的校验，
+   并生成最终的 ``args``；参数错误仍使用 argparse 的标准提示格式。
+4. 如果启用了 ``--dashboard``，启动配置页面，以当前参数作为默认值，并将
+   用户提交的配置写回 ``args``。
+5. 调用 ``env_spec.parse_config(args)`` 校验运行配置，并生成
+   :class:`~rpent.envs.RunConfig`，其中包含 ``recipe_tag``、``output_dir``、
+   ``prompt_vars``、``dashboard_state`` 和 ``task_desc``。启用 Dashboard
+   时，此处还会确认配置页面已经补齐所需的环境参数。
+6. 调用 ``init_output_dir`` 创建本次运行的输出目录，并配置 ``run.log``。
+7. 根据 ``--planner`` 调用 ``rpent.planner.base.build_planner`` 构造
+   **planner**，并使用环境提供的 prompt bundle 生成 system prompt 和
+   user prompt。
+8. 调用 ``env_spec.init_runtime(args, output_dir)``。环境实现会启动
+   ``env_server`` 和 ``vla_server``；如果指定了 ``--env-endpoint`` 或
+   ``--vla-endpoint``，则连接已有服务。该方法返回
+   ``(daemons, primitives_kwargs)``。
+9. 将 ``primitives_kwargs`` 传给环境的 ``get_toolkit`` 工厂，构造
+   **toolkit**。
+10. 执行工具调用循环；启用 Dashboard 时，同时将运行事件发送到监控页面。
+    循环结束后保存 ``<output_dir>/transcript_*.json``，并在清理 toolkit
+    时完成回合录像等收尾工作。
 
-Runner 有意保持薄: 一切与 env 相关的东西在 ``robots/<env>/`` 下,
-一切与 brain 相关的东西在 ``rpent/planner/`` 下。
+``main.py`` 只负责连接上述步骤。环境相关实现集中在 ``robots/<env>/``，
+planner 后端集中在 ``rpent/planner/``，
+因此 ``main.py`` 不直接导入任何环境专用的类或脚本。
 
-Env 侧的注册表
---------------
+环境加载机制
+------------
 
-``rpent/envs/base.py`` 维护一个以 env 名为 key 的 **lazy** 注册表。
-传入 ``--env myenv`` 时, 它会执行
-``importlib.import_module("robots.myenv")``, 然后调用包暴露的两个工厂:
+``rpent/envs/base.py`` 根据环境名称按需加载对应的实现。传入的环境名称为
+``myenv`` 时，它会执行 ``importlib.import_module("robots.myenv")``，
+再调用该包提供的两个工厂：
 
 .. code-block:: python
 
    # robots/myenv/__init__.py
-   def get_env_spec() -> EnvSpec: ...
-   def get_toolkit(*, primitives_kwargs, video_path=None): ...
+   def get_env_spec() -> EnvSpec: ...  # 环境标识、提示词模板与 Runner 钩子
+   def get_toolkit(
+       *, primitives_kwargs, video_path=None, dashboard=None
+   ): ...
 
-env 是 **没有中央列表** 的。把包放到 ``robots/`` 下就行。这也是新增
-机器人时用的机制 (见 :doc:`add_robot`)。
+``EnvSpec`` 汇集了环境的标识、prompt 模板与三个 Runner 钩子
+（``add_cli_args`` / ``parse_config`` / ``init_runtime``）；各字段要填什么见
+:doc:`interfaces`。
 
-Planner 接口
-------------
+加载器本身不维护环境名称列表。当前 CLI 将 ``--env`` 限定为 ``libero``
+和 ``robocasa``；接入新的环境名称时，还需要同步更新 CLI 的可选值。完整步骤见
+:doc:`add_robot`。
 
-每个 planner 实现同一个很小的接口 (见 ``rpent.planner.base``):
+Planner、Toolkit 与 RPC 传输层
+------------------------------
 
-- 接受渲染好的 ``prompt_bundle`` (system + user 分节)。
-- 接受一个 ``toolkit`` (暴露 tool schema 和 ``dispatch`` 方法)。
-- 驱动 tool-calling 循环。
-- 把每个 tool 返回值以多模态上下文喂回。
-- 遇到 ``finish`` 或触达上限时终止。
+这三层各管一段、层层解耦。planner 只通过 ``get_tools_spec`` 拿到工具清单、
+用 ``execute_tool`` 逐个调用，并不关心工具背后是脚本还是 VLA；
+toolkit 把每次工具调用翻译成对 primitive 的调用，再由 primitives
+经 RPC 向 ``env_server`` / ``vla_server`` 发起 ``reset`` / ``step`` /
+``predict`` 请求；RPC 传输层（HTTP 或 socket）只负责把这些调用和 NumPy
+观测在进程间搬运，对上层透明。正因如此，换 planner 不影响工具，
+换传输协议也不影响 planner。三者的具体接口契约（``Planner.solve``、
+``Toolkit.add_tool``、``RpcFacade._dispatch``）集中在 :doc:`interfaces`。
 
-抽象就这些。三个内置 planner 只在 *如何满足契约* 上不同 —— 用户视角
-见 :doc:`../usage/configure_planner`, 源码见
-``rpent/planner/api_loop.py`` / ``claude_code.py`` / ``codex.py``。
+Dashboard（可选）
+-----------------
 
-Toolkit 接口
-------------
+``rpent/dashboard/`` 由 FastAPI 应用和静态前端组成。启用 ``--dashboard`` 后，
+``rpent/cli/main.py`` 会根据 ``--dashboard-host`` 和 ``--dashboard-port``
+启动 Dashboard；默认绑定 ``127.0.0.1``，并由操作系统分配可用端口。运行开始前，
+用户可以先在配置页面确认或修改参数。
 
-一个 toolkit (``rpent.tools.toolkit.Toolkit``) 持有:
+运行期间，Dashboard 页面提供：
 
-- 一个 **primitive driver** —— 一个普通 Python 对象, 持有 env
-  client、VLA client 和任何 per-run 状态。LLM 能调的每个工具对应
-  它的一个方法。
-- 一组 **tool schema** (Anthropic 形状: ``name``、``description``、
-  ``input_schema``), 通过 ``self.add_tool(name, spec, handler)``
-  注册。
-- 每步的 **状态 dump** —— 每个 primitive tool 跑完后重新渲染世界,
-  这样下一次 ``view_driver_state`` 看到的就是动作后的状态。
+- planner 输出以及工具调用事件；
+- 实时相机画面和 Pi0.5 视图；
+- 动作时间线和单步动作片段；
+- 运行结束后的完整回合录像（如果已生成）。
 
-基类还处理 video 录制 (``episode.mp4``) 与 dashboard 事件流。
-新增 env 的 ``toolkit.py`` 继承此基类并注册该 env 暴露的工具。
-
-传输层
-------
-
-内置支持两种编码, 通过 server 端 ``--transport {http,socket}``
-(默认 ``http``) 选择, client 端由 ``--env-endpoint`` /
-``--vla-endpoint`` 里的 protocol 前缀对应:
-
-- **HTTP** (``rpent.utils.http_rpc``) —— JSON body 走
-  ``POST /call``, 方便做标准负载均衡, 也方便跨语言 client。
-  Numpy 数组在 wire 上带标签 ``{"__ndarray__": <base64>, "dtype": ..., "shape": [...]}``。
-- **Pickle-framed socket RPC** (``rpent.utils.socket_rpc``) ——
-  适合历史堆叠的嵌套 numpy dict 和宽泛、形状多变的载荷 (JSON 重编码
-  在这种情况下太浪费)。
-
-Server 端继承 :class:`rpent.utils.rpc.RpcFacade` 并实现
-``_dispatch(method, args, kwargs)`` 即可; base 负责 shutdown、healthz、
-transport 绑定、感知父进程死亡、以及干净收尾。新增一个传输只需要实现
-两个方法的 ``RpcClient`` 接口 (``call(method, args, kwargs, timeout_s)``);
-toolkit 和 planner 不用动。
-
-Dashboard (可选)
-----------------
-
-``rpent/dashboard/`` 是一个 FastAPI app 加一份静态前端。
-开了 ``--dashboard`` 时, ``rpent/cli/main.py`` 会把它绑在
-``--dashboard-host:--dashboard-port`` 上 (默认 localhost, 随机端口),
-先起 launcher 页面选配置, 然后 stream:
-
-- Agent 的 reasoning token (SSE)。
-- 实时相机 / Pi0.5 叠加帧。
-- 动作时间线。
-- 结束时的剪辑回放。
-
-Dashboard 是 *观察性的* —— 永远不影响循环 —— 所以 dashboard 内部
-出错也不会拖垮 run。
+服务端通过 SSE 推送运行状态摘要，前端再按需读取详细事件、时间线和图像。
+Dashboard 使用 planner 与 toolkit 产生的状态进行展示，不直接发出机器人动作。
 
 下一步
 ------
 
-- 新增机器人? —— :doc:`add_robot`。
-- 新增 VLA / action primitive? —— :doc:`add_primitive`。
-- 想了解 memory 的设计与接入点? —— :doc:`memory`。
-- 需要完整的扩展 checklist? —— :doc:`add_robot`。
+- 接入新的机器人或仿真环境：:doc:`add_robot`。
+- 添加 VLA 或原语：:doc:`add_primitive`。
+- 了解记忆功能的设计与扩展点：:doc:`memory`。

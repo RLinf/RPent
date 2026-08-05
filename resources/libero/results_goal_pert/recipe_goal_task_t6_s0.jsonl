@@ -1,7 +1,0 @@
-{"action": "move_to", "xyz": [-0.18, -0.045, 1.13], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
-{"action": "pi0_pick", "prompt": "put the wine bottle in the bowl", "max_chunks": 20, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
-{"action": "set_gripper", "gripper": 1, "steps": 8}
-{"action": "move_to", "xyz": [-0.16, -0.054, 1.25], "gripper": 1, "tol": 0.012, "step_clip": 0.018, "max_steps": 80}
-{"action": "move_to", "xyz": [-0.105, -0.013, 1.25], "gripper": 1, "tol": 0.010, "step_clip": 0.015, "max_steps": 80}
-{"action": "move_to", "xyz": [-0.105, -0.013, 1.05], "gripper": 1, "tol": 0.008, "step_clip": 0.012, "max_steps": 120}
-{"action": "release", "max_steps": 30}

@@ -1,3 +1,0 @@
-{"action":"move_to","xyz":[0.135,0.017,1.05],"gripper":-1,"tol":0.010,"step_clip":0.022,"max_steps":80}
-{"action":"pi0_pick","prompt":"Put the plate on the stove","max_chunks":22,"lift_thresh":0.05,"gripper_closed_thresh":0.06}
-{"action":"move_pose","xyz":[-0.24,0.23,1.05],"target_pitch":0.0,"target_yaw":0.0,"gripper":1,"step_clip":0.008,"pitch_step":0.04,"yaw_step":0.04,"tol":0.020,"ori_tol":0.10,"max_steps":300}

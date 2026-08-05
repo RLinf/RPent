@@ -1,9 +1,0 @@
-{"action": "move_to", "xyz": [-0.011, -0.235, 1.18], "gripper": -1, "step_clip": 0.02, "max_steps": 150}
-{"action": "move_to", "xyz": [-0.011, -0.235, 0.97], "gripper": -1, "step_clip": 0.01, "max_steps": 150}
-{"action": "set_gripper", "gripper": 1, "steps": 20}
-{"action": "move_to", "xyz": [-0.006, -0.235, 1.18], "gripper": 1, "step_clip": 0.012, "max_steps": 100}
-{"action": "move_to", "xyz": [-0.05, 0.199, 1.18], "gripper": 1, "step_clip": 0.015, "max_steps": 150}
-{"action": "move_to", "xyz": [-0.05, 0.199, 1.04], "gripper": 1, "step_clip": 0.01, "max_steps": 100}
-{"action": "set_gripper", "gripper": -1, "steps": 12}
-{"action": "move_to", "xyz": [-0.21, 0.0, 1.18], "gripper": -1, "step_clip": 0.025, "max_steps": 100}
-{"action": "pi0_doubled", "prompt": "turn on the stove", "max_chunks": 40}

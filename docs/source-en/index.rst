@@ -46,8 +46,8 @@ Welcome to RPent
       :link-type: doc
       :text-align: center
 
-      Choose a planner, configure the agent, and run one LIBERO task
-      end-to-end.
+      Configure an LLM API key and the VLA checkpoint, then run one LIBERO
+      task end-to-end.
 
    .. grid-item-card:: Usage Tutorial
       :link: rst_source/usage/configure_planner
@@ -88,6 +88,7 @@ Welcome to RPent
    RoboCasa <rst_source/usage/robocasa>
    Franka <rst_source/usage/franka>
    SO-101 <rst_source/usage/so101>
+   Advanced Deployment <rst_source/usage/advanced_deployment>
 
 .. toctree::
    :maxdepth: 2
@@ -97,6 +98,7 @@ Welcome to RPent
    :caption: Development Tutorial
 
    System Internals <rst_source/development/architecture>
+   Core Interfaces <rst_source/development/interfaces>
    Add a New Robot <rst_source/development/add_robot>
    Add an Action Primitive <rst_source/development/add_primitive>
    Memory Management <rst_source/development/memory>
@@ -108,4 +110,4 @@ Welcome to RPent
    :hidden:
    :caption: Publications
 
-   Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents <rst_source/awesome_works/harnessvla>
+   Harness VLA <rst_source/awesome_works/harnessvla>

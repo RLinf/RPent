@@ -1,14 +1,15 @@
 Agentic Planner
 ===============
 
-RPent 的 reasoning brain —— 也叫 planner —— 用一个 CLI flag 选择:
+RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
 
 .. code-block:: bash
 
    --planner {api, claude_code, codex}
 
-三种 planner 看到的是同一份 tool schema 和同一份 prompt bundle。它们只在
-tool-calling 循环 *如何* 被编排, 以及能触达哪些 LLM / SDK 上有区别。
+三种 planner 接收相同的系统提示词和用户提示词，也使用同一套 RPent 工具定义。
+它们的区别在于如何将这些工具接入模型、如何组织工具调用循环，以及使用哪个模型
+SDK。
 
 .. list-table::
    :header-rows: 1
@@ -18,31 +19,32 @@ tool-calling 循环 *如何* 被编排, 以及能触达哪些 LLM / SDK 上有�
      - 它是什么
      - 什么时候选它
    * - ``api``
-     - 基于 `pydantic-ai <https://ai.pydantic.dev/>`_ 的与 provider
-       无关的 tool-calling 循环。支持 Anthropic、OpenAI Responses、
-       OpenAI 兼容 chat 接口, 内置 prompt 缓存和历史图片剪枝。
-     - 需要最细的调用控制、最广的 provider 覆盖, 或最省钱的
-       per-turn 开销。
+     - 基于 `Pydantic AI <https://pydantic.dev/docs/ai/>`_ 实现的工具调用循环，
+       不绑定特定模型提供商。当前支持 Anthropic Messages API、OpenAI Responses
+       API 和 OpenAI 兼容的 Chat Completions API，内置 prompt 缓存和历史图片剪枝。
+     - 需要精细控制模型调用、支持更多模型提供商，或降低单轮调用成本。
    * - ``claude_code``
      - `Claude Agent SDK
-       <https://docs.claude.com/en/api/agent-sdk/overview>`_。
-       把 RPent 的 toolkit 暴露为 in-process MCP server, 由 Claude
+       <https://code.claude.com/docs/en/agent-sdk/overview>`_。
+       把 RPent 的 toolkit 暴露为进程内 MCP 服务，由 Claude Agent SDK
        驱动循环。
-     - 想用 Claude 的原生 agent runtime (memory、thinking-mode
-       预算、健壮的 tool 重试)。
+     - 想使用 Claude Code 原生提供的 agent 能力（memory、thinking-mode
+       预算和更完善的工具重试机制）。
    * - ``codex``
-     - OpenAI **Codex SDK**, 通过 HTTP MCP server 桥接到 toolkit。
-     - 想用 Codex 的 agent runtime, 或者已经有 OpenAI / Codex
-       配额可用。
+     - OpenAI **Codex Python SDK**。RPent 在进程内启动
+       Streamable HTTP MCP 服务，把 toolkit 接入 Codex。
+     - 想使用 Codex 原生提供的 agent 能力，或者已有可用的 OpenAI
+       或 Codex 配额。
 
-``api`` planner (自定义 / 轻量)
---------------------------------
+``api`` planner（直接调用模型 API）
+-------------------------------------
 
-``--planner api`` 跑一个手写的 pydantic-ai 循环。它是默认值, 也是
-可移植性最好的一个 —— 任何讲 Anthropic Messages API、OpenAI Responses API,
-或 OpenAI 兼容 chat API 的 provider 都能用。
+``--planner api`` 是默认选项。它使用 Pydantic AI 实现工具调用循环，并要求
+``--model`` 带有模型提供商前缀。当前项目安装的依赖包含 Anthropic 和 OpenAI
+集成，因此可以直接使用 Anthropic Messages API、OpenAI Responses API，
+以及 OpenAI 兼容的 Chat Completions API。
 
-通过 ``--model`` 前缀选择 provider:
+通过 ``--model`` 前缀选择模型提供商：
 
 .. code-block:: bash
 
@@ -52,102 +54,134 @@ tool-calling 循环 *如何* 被编排, 以及能触达哪些 LLM / SDK 上有�
    # OpenAI Responses (例如 GPT-5.5)
    rpent --planner api --model openai:gpt-5.5 ...
 
-   # OpenAI 兼容 chat (例如 GLM 5.2)
-   rpent --planner api --model openai-chat:glm-5.2 ...
+   # OpenAI 兼容的 Chat Completions（例如 GLM 5.2，纯文本）
+   rpent --planner api --model openai-chat:glm-5.2 --no-images ...
 
-它读取的环境变量 (需要覆盖时用 ``--base-url``):
+它读取以下环境变量；需要覆盖 API 地址时使用 ``--base-url``：
 
 - ``anthropic:*`` → ``ANTHROPIC_BASE_URL`` / ``ANTHROPIC_API_KEY``
 - ``openai:*`` / ``openai-chat:*`` → ``OPENAI_BASE_URL`` /
   ``OPENAI_API_KEY``
 
-``api`` 专属的调节参数:
+``api`` planner 的相关调节参数：
 
-- ``--max-tokens`` —— 单次 LLM 回复的 token 上限 (默认 ``8192``)。
-- ``--max-turns`` —— tool-calling 轮数上限 (默认 ``100``)。
+- ``--max-tokens`` —— 单次 LLM 回复的 token 上限（默认 ``8192``）。
+- ``--max-turns`` —— 工具调用轮数上限（默认 ``100``）。
+- ``--no-images`` —— 不向模型发送图片字节；纯文本模型必须加此参数。此时
+  智能体只依赖文本状态推理，任务表现可能不够理想。
 
 ``claude_code`` planner
 ------------------------
 
-``--planner claude_code`` 把循环委托给 Claude Agent SDK。RPent 的 tools
-变成一个 **in-process MCP server**, Claude Code 直接调用; 它看到的工具名
-带有 ``mcp__rpent__<name>`` 命名空间。
+``--planner claude_code`` 将工具调用循环交给 Claude Agent SDK。
+RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
+``mcp__rpent__<name>`` 命名空间。
 
 .. code-block:: bash
 
-   rpent --planner claude_code \
+   rpent --env libero --planner claude_code \
      --model claude-opus-4-8 \
      --suite libero_object_swap --task 2 --seed 0
 
-注意事项:
+注意事项：
 
-- ``--model`` **不要** 加 provider 前缀 —— 直接写 ``claude-opus-4-8``。
-- 子进程有 wall-clock 上限 (``--planner-timeout-s``, 默认取
-  ``CODEX_TIMEOUT_S`` / ``CELL_TIMEOUT_S`` / ``1200``)。
-- 通过 ``--claude-code-max-budget-usd`` 设置美元预算 (默认取
-  ``MAX_BUDGET_USD`` 环境变量或 ``10``)。
-- Claude Code 需要单独安装和登录; 见
+- ``--model`` **不要** 加模型提供商前缀；省略时默认使用 ``sonnet``。
+- ``--max-turns`` 会传给 Claude Agent SDK，默认 ``100``。
+- 非交互运行受 ``--planner-timeout-s`` 限制；默认读取
+  ``CELL_TIMEOUT_S``，未设置时为 ``1200`` 秒。``--interactive`` 模式
+  不应用这一时限。
+- 通过 ``--claude-code-max-budget-usd`` 设置美元预算（默认取
+  ``MAX_BUDGET_USD`` 环境变量或 ``10``）。
+- RPent 的依赖中已包含 Claude Agent SDK；该 SDK 自带 Claude Code
+  二进制文件，无需单独安装 CLI。认证通常使用 ``ANTHROPIC_API_KEY``，详见
   `Claude Agent SDK 文档
-  <https://docs.claude.com/en/api/agent-sdk/overview>`_。
+  <https://code.claude.com/docs/en/agent-sdk/overview>`_。
 
 ``codex`` planner
 ------------------
 
-``--planner codex`` 通过 ``scripts/codex_proxy/`` 起的 HTTP MCP server
-把同一个 toolkit 桥接到 OpenAI Codex SDK。
+``--planner codex`` 使用 OpenAI Codex Python SDK。每次运行时，RPent
+会在当前进程的后台线程中启动本地 Streamable HTTP MCP 服务，Codex 通过
+该服务调用同一个 toolkit；无需预先启动 ``scripts/codex_proxy/``。
 
 .. code-block:: bash
 
-   rpent --planner codex \
+   rpent --env libero --planner codex \
      --model gpt-5.5 \
      --suite libero_goal_task --task 1 --seed 0
 
-注意事项:
+注意事项：
 
-- ``--planner-timeout-s`` 的语义与 ``claude_code`` 相同。
-- Codex 用标准的 OpenAI 环境变量做认证。
+- ``--model`` 会覆盖 ``CODEX_MODEL``；两者都未设置时使用 Codex SDK
+  配置的默认模型。
+- ``--planner-timeout-s`` 限制 Codex 运行时间。默认依次读取
+  ``CODEX_TIMEOUT_S``、``CELL_TIMEOUT_S``，均未设置时为 ``1200`` 秒。
+- 默认情况下，Codex SDK 会复用已有的 Codex 认证。若要接入自定义的
+  Responses API 兼容端点，请设置 ``CODEX_BASE_URL`` 和
+  ``CODEX_API_KEY``；这里不读取 ``OPENAI_BASE_URL`` 或
+  ``OPENAI_API_KEY``。
 
-自带 agent
-----------
+接入自定义 planner
+------------------
 
-如果这三种 planner 都不合适 —— 例如想接入内部的 planner、实验性的
-研究原型、或另一种 agent SDK —— 继承 ``rpent.planner.base.Planner``,
-并在 ``rpent.planner.base.build_planner`` 中注册工厂:
+如果三种内置 planner 都不合适，例如需要接入内部 planner、研究原型或其他
+agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
+``rpent.planner.base.build_planner`` 中增加对应的构造分支：
 
 .. code-block:: python
 
-   # rpent/planner/mybrain.py
-   from rpent.planner.base import Planner
+   # rpent/planner/my_planner.py
+   from rpent.planner.base import PlannerResult
 
-   class MyPlanner(Planner):
-       async def run(self, *, prompt_bundle, toolkit, output_dir, ...):
-           # 自己驱动 tool-calling 循环。
-           # 用 toolkit.dispatch(tool_name, **kwargs) 调工具。
+   class MyPlanner:
+       def solve(
+           self,
+           *,
+           system_prompt,
+           user_message,
+           toolkit,
+           max_turns,
+           input_queue=None,
+       ):
+           tool_specs = toolkit.get_tools_spec()
+           # 使用 system_prompt、user_message 和 tool_specs 调用模型。
+           # 每次工具调用都通过下面的接口执行：
+           tool_result = toolkit.execute_tool(tool_name, arguments)
            ...
+           return PlannerResult(
+               finish_result=finish_result,
+               messages=messages,
+               stats=stats,
+               error=error,
+           )
 
-任何 planner 必须:
+任何 planner 必须：
 
-1. 拿到渲染好的 ``prompt_bundle`` (来自
-   ``robots/<env>/prompt_bundle.py`` 的 system + user 分节)。
-2. 循环处理 LLM 回复、抽出 tool call、通过 ``toolkit.dispatch(...)``
-   转发到 toolkit。
-3. 把每个 tool 的返回值以 multimodal 上下文 (text + images) 的形式
-   喂回 LLM。
-4. 遇到 ``finish`` 或达到上限时终止。
+1. 接收已经渲染好的 ``system_prompt`` 和 ``user_message``。
+2. 从 ``toolkit.get_tools_spec()`` 取得工具定义，并通过
+   ``toolkit.execute_tool(name, arguments)`` 执行工具。
+3. 将 ``ToolResult.content_blocks`` 中的文本和图片转换成模型 SDK
+   所需的格式。
+4. 识别 ``ToolResult.is_finish``，并按 ``max_turns`` 等限制终止循环。
+5. 返回包含结束状态、消息、统计信息和可选错误的 ``PlannerResult``。
 
-因为所有 planner 看到的是同一份 schema 和 prompt, 新增 brain 不需要
-改动 tool 或 env server。接口参见 :doc:`../development/architecture`;
-想给自定义 brain 暴露新工具, 见 :doc:`../development/add_primitive`。
+由于 RPent 工具定义和 prompt 渲染流程保持不变，新增 planner 不需要修改
+工具或环境服务。接口参见
+:doc:`../development/architecture`；想给
+自定义 planner 暴露新工具，见 :doc:`../development/add_primitive`。
 
-选择 max-tokens 与 max-turns
-----------------------------
+设置 planner 的运行限制
+-----------------------
 
-两个 knob 圈定每次 planner 运行的规模:
+以下参数的作用范围并不相同：
 
-- ``--max-tokens`` 限制 *每次回复* 的 token 数。LIBERO 类任务通常
-  ``8192`` 就够; 更长时序的 RoboCasa episode 如果模型支持可以调大。
-- ``--max-turns`` 限制 *tool-calling 总轮数*。单个 LIBERO 任务通常
-  不会超过 30 轮; RoboCasa 的长时序任务可能接近默认的 ``100``。
+- ``--max-tokens`` 只限制 ``api`` planner *每次回复* 的 token 数。
+  LIBERO 类任务通常 ``8192`` 就够；更长时序的 RoboCasa episode
+  如果模型支持可以调大。
+- ``--max-turns`` 限制工具调用的总轮数。单个 LIBERO 任务通常
+  不会超过 30 轮；RoboCasa 的长时序任务可能接近默认的 ``100``。
+- ``--planner-timeout-s`` 限制 planner 的运行时间。
 
-两个上限都会以 ``finish(stuck)`` 优雅收尾, 不会硬崩, 因此可以放心
-调参 —— transcript 不会丢。
+模型调用 ``finish`` 工具后，planner 会记录相应的结束状态。达到轮数上限或
+超时时，运行结束，主程序仍会保存 transcript。超时或 SDK 异常会写入
+planner 结果，并输出到日志。

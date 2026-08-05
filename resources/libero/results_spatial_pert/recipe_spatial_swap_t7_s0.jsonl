@@ -1,3 +1,0 @@
-{"action":"move_to","xyz":[-0.30,-0.15,1.20],"gripper":-1,"max_steps":40,"step_clip":0.025}
-{"action":"pi0_pick","prompt":"pick up the bowl","max_chunks":15,"lift_thresh":0.04,"gripper_closed_thresh":0.05}
-{"action":"pi0_pick","prompt":"place the bowl on the plate","max_chunks":30,"lift_thresh":999,"gripper_closed_thresh":0}

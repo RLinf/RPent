@@ -328,8 +328,8 @@ Launch a cell with the CLI; the runner owns `env_server.py`, exposes the
 structured tools, and runs single-attempt:
 
 ```bash
-python rpent/cli/main.py --suite <suite> --task <n> --seed <k> \
-    --libero-type pro --planner claude_code --model claude-opus-4-7
+python rpent/cli/main.py --env libero --suite <suite> --task <n> --seed <k> \
+    --libero-type pro --planner claude_code --model claude-opus-4-8
 
 # e.g. --suite libero_spatial_task 0 (P1) · libero_spatial_swap 0 (P2) ·
 #      libero_goal_swap 2 (P2 fixture swap) · libero_10_task 5 (long horizon)
@@ -350,7 +350,7 @@ seed-0 reference corpus**, not a write target.
 
 ### 4.2. Environment server is runner-owned
 
-There is no manual driver to launch and no REPL to drive: the MCP runner starts,
+There is no manual server to launch and no REPL to drive: the MCP runner starts,
 manages, and tears down `env_server.py` for you and blocks each tool call until
 the next `states.json` entry is dumped. Do not start, stop, or background it, and
 do not poll for readiness.
@@ -358,11 +358,9 @@ do not poll for readiness.
 ### 4.3. Pi0 fullshot baseline
 
 The baseline is Pi0.5 driving the task end-to-end with the runtime's own
-(perturbed) `task_language` — the `full_task` primitive (`run_full_task` in
-`tools.py`), the mechanism the hybrid pipeline is designed to beat by keeping Pi0
-to the grasp. There is **no standalone baseline CLI in this repo**; the numbers to
-compare against are the recorded full-shot results (the team's `SUCCESS_RATES`
-table). **Do not invent a `pi0_baseline.py` path.**
+(perturbed) `task_language`. There is **no standalone baseline CLI in this repo**;
+the numbers to compare against are the recorded full-shot results (the team's
+`SUCCESS_RATES` table). **Do not invent a `pi0_baseline.py` path.**
 
 Pi0 never sees object coords in either mode, so there is no perception variant of
 the baseline. Expected behavior:
@@ -482,8 +480,8 @@ LIBERO_TYPE=pro python -c \
 # 2. Read the auto-memory: resources/libero/memory/MEMORY.md
 
 # 3. Launch a perception cell (runner owns env_server; single-attempt)
-python rpent/cli/main.py --suite libero_spatial_swap --task <N> --seed 0 \
-    --libero-type pro --planner claude_code --model claude-opus-4-7
+python rpent/cli/main.py --env libero --suite libero_spatial_swap --task <N> --seed 0 \
+    --libero-type pro --planner claude_code --model claude-opus-4-8
 ```
 
 Then, inside the run:

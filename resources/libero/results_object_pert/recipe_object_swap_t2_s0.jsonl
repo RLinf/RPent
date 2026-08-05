@@ -1,5 +1,0 @@
-{"action": "reset"}
-{"action": "move_to", "xyz": [-0.185, -0.088, 0.20], "gripper": -1, "tol": 0.012, "step_clip": 0.025, "max_steps": 80}
-{"action": "pi0_pick", "prompt": "pick up the salad dressing", "max_chunks": 10, "lift_thresh": 0.05, "gripper_closed_thresh": 0.06}
-{"action": "move_to", "xyz": [0.076, 0.231, 0.35], "gripper": 1, "tol": 0.012, "step_clip": 0.025, "max_steps": 100}
-{"action": "release", "max_steps": 30}
