@@ -1,7 +1,7 @@
 """Provider-independent tool-use agent loop built on pydantic-ai.
 
 The loop wraps the agent's :class:`~rpent.tools.toolkit.Toolkit` as
-pydantic-ai function tools and drives a single :class:`pydantic_ai.Agent` run,
+pydantic-ai function tools and drives :class:`pydantic_ai.Agent` runs,
 streaming each turn so progress is logged in real time. Task completion is
 signalled by the env-provided ``finish`` tool, whose result carries ``_finish``.
 """
@@ -14,6 +14,7 @@ import contextlib
 import dataclasses
 import json
 import queue
+from collections import deque
 from typing import Any
 
 from pydantic_ai import Agent, BinaryContent, ModelSettings, Tool, ToolReturn
@@ -30,7 +31,6 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models import Model
-from pydantic_ai.run import AgentRun
 from pydantic_ai.usage import RunUsage, UsageLimits
 
 from rpent.cli.tui import QUIT_TOKENS
@@ -434,7 +434,7 @@ class _ApiRunObserver:
 
 
 class _ApiDashboardSession:
-    """Own cancellable PydanticAI runs for one Dashboard TaskRun."""
+    """Own serial, independent PydanticAI runs for one Dashboard TaskRun."""
 
     def __init__(
         self,
@@ -452,9 +452,9 @@ class _ApiDashboardSession:
         self._observer = observer
         self._history: list[ModelMessage] = []
         self.usage = RunUsage()
-        self._agent_run: AgentRun[Any, Any] | None = None
+        self._pending_prompts: deque[str] = deque()
         self._run_task: asyncio.Task[Any] | None = None
-        self._run_ready: asyncio.Event | None = None
+        self._active_prompt = False
         self._closing = False
         self.error: str | None = None
 
@@ -464,41 +464,30 @@ class _ApiDashboardSession:
         await self._control.run(self)
 
     async def submit(self, text: str) -> int:
-        while True:
-            if self._closing:
-                raise RuntimeError("API conversation is closed")
-            if self.error is not None:
-                raise RuntimeError(self.error)
-            if self._run_task is None:
-                ready = asyncio.Event()
-                self._run_ready = ready
-                self._run_task = asyncio.create_task(self._run_agent(text, ready))
-                return 1
-            if self._agent_run is None:
-                ready = self._run_ready
-                if ready is None:
-                    raise RuntimeError("API run readiness state is unavailable")
-                await ready.wait()
-                continue
-            self._agent_run.enqueue(text, priority="asap")
-            return 0
+        """Queue Dashboard input as a new independent API run."""
+        if self._closing:
+            raise RuntimeError("API conversation is closed")
+        if self.error is not None:
+            raise RuntimeError(self.error)
+        self._pending_prompts.append(text)
+        if self._run_task is None:
+            self._run_task = asyncio.create_task(self._run_pending_prompts())
+        return 1
 
     async def interrupt(self) -> int:
         run_task = self._run_task
         if run_task is None or run_task.done():
             return 0
+        interrupted = int(self._active_prompt) + len(self._pending_prompts)
+        self._pending_prompts.clear()
         run_task.cancel()
         try:
             with contextlib.suppress(asyncio.CancelledError):
                 await run_task
         finally:
             if self._run_task is run_task:
-                if self._run_ready is not None:
-                    self._run_ready.set()
                 self._run_task = None
-                self._agent_run = None
-                self._run_ready = None
-        return 1
+        return interrupted
 
     async def close(self) -> None:
         if self._closing:
@@ -506,9 +495,26 @@ class _ApiDashboardSession:
         self._closing = True
         await self.interrupt()
 
-    async def _run_agent(self, seed: str, ready: asyncio.Event) -> None:
+    async def _run_pending_prompts(self) -> None:
+        task = asyncio.current_task()
+        try:
+            while self._pending_prompts and not self._closing:
+                seed = self._pending_prompts.popleft()
+                self._active_prompt = True
+                try:
+                    if not await self._run_agent(seed):
+                        self._pending_prompts.clear()
+                        return
+                    await self._control.complete(self)
+                finally:
+                    self._active_prompt = False
+        finally:
+            if self._run_task is task:
+                self._run_task = None
+
+    async def _run_agent(self, seed: str) -> bool:
         run_completed = False
-        run: AgentRun[Any, Any] | None = None
+        run: Any | None = None
         try:
             async with self._agent.iter(
                 seed,
@@ -516,9 +522,6 @@ class _ApiDashboardSession:
                 usage=self.usage,
                 usage_limits=UsageLimits(request_limit=self._max_turns + 1),
             ) as run:
-                self._agent_run = run
-                ready.set()
-
                 node = run.next_node
                 while not Agent.is_end_node(node):
                     if Agent.is_call_tools_node(node):
@@ -528,7 +531,11 @@ class _ApiDashboardSession:
                         or self._observer.turns >= self._max_turns
                     ):
                         self._control.end()
-                        return
+                        return False
+                    if self._pending_prompts:
+                        # Dashboard input accepted at this tool boundary starts
+                        # a fresh run from the checkpoint captured below.
+                        break
                     node = await run.next(node)
 
                 run_completed = True
@@ -550,14 +557,7 @@ class _ApiDashboardSession:
                 ):
                     history.pop()
                 self._history = history
-            ready.set()
-            if self._run_task is asyncio.current_task():
-                self._run_task = None
-                self._agent_run = None
-                self._run_ready = None
-
-        if run_completed and not self._closing:
-            await self._control.complete(self)
+        return run_completed and not self._closing
 
     async def _process_tool_node(self, run: Any, node: Any) -> None:
         self._observer.observe_response(node.model_response, run.usage)
