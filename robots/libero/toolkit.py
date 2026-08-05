@@ -39,8 +39,8 @@ class LiberoToolkit(Toolkit):
         # to its primitive-driver method; @updatestate on the method decides
         # whether state is captured.
         state_handlers = {
-            "view_driver_state": partial(
-                libero_tools.view_driver_state, state=self._state
+            "view_env_state": partial(
+                libero_tools.view_env_state, state=self._state
             ),
             "view_camera_meta": partial(
                 libero_tools.view_camera_meta, state=self._state
@@ -58,7 +58,7 @@ class LiberoToolkit(Toolkit):
                     continue  # spec without a backing primitive method
             self.add_tool(name, spec, handler)
 
-    def get_state(
+    def get_env_state(
         self,
         *,
         command: dict[str, Any],
@@ -91,7 +91,7 @@ class LiberoToolkit(Toolkit):
                     record.step_idx,
                     e,
                 )
-        out = libero_tools.view_driver_state(record.step_idx, state=self._state)
+        out = libero_tools.view_env_state(record.step_idx, state=self._state)
         out["agent_elapsed_s"] = elapsed_s
         if result.get("interrupted"):
             out.update(result)
@@ -117,8 +117,8 @@ class LiberoToolkit(Toolkit):
         libero_tools.dump_state(primitives, self._state, log=None)
         self._dashboard_events.emit(
             ToolResultEvent(
-                name="view_driver_state",
-                result=libero_tools.view_driver_state(0, state=self._state),
+                name="view_env_state",
+                result=libero_tools.view_env_state(0, state=self._state),
             )
         )
 

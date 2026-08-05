@@ -7,7 +7,7 @@ owns the environment server and the `EnvState` lifecycle. Do not issue
 file-based driver commands, inspect observation storage directly, or read BDDL
 files for coordinates.
 
-Start with `view_driver_state({"step": 0})`. It returns the initial robot state,
+Start with `view_env_state({"step": 0})`. It returns the initial robot state,
 top-level task language, logical observation references, and embedded camera
 images. Use `back_project` or `segment` for geometry and `view_camera_meta` for
 calibration. Step `-1` selects the latest record.
@@ -21,7 +21,7 @@ Measured 2026-05-20 on `libero_10_with_mug` t0 (LIVING_ROOM frame) and t8
 Each task scene uses one of the table fixtures below, which sets the entire
 world-frame z origin. The OSC workspace and all pick/place altitudes shift
 accordingly. **Check `state.robot0_eef_pos[2]` in the result of
-`view_driver_state({"step": 0})` and branch on it.** Do not read BDDL files for
+`view_env_state({"step": 0})` and branch on it.** Do not read BDDL files for
 this; use runtime state and visual evidence.
 
 | Fixture | eef home z | Table top z | Used by tasks |
@@ -150,7 +150,7 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
 
 Each calibration motion returns its state, command result, elapsed time, and
 embedded observation. Use that tool result immediately. To revisit a recorded
-step, call `view_driver_state({"step": N})`; use `-1` for the latest step.
+step, call `view_env_state({"step": N})`; use `-1` for the latest step.
 
 The internal `states.json` file is a versioned manifest owned by `EnvState`, not
 a list for manual indexing. Calibration analysis should use structured tool
@@ -166,5 +166,5 @@ move_to({"xyz": [-0.20, 0.10, 0.65],
          "gripper": -1, "tol": 0.008, "step_clip": 0.010,
          "max_steps": 80})
 # Inspect the returned result for final_eef_pos and final_dist_m.
-# Call view_driver_state({"step": -1}) only when the latest state is needed again.
+# Call view_env_state({"step": -1}) only when the latest state is needed again.
 ```

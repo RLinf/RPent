@@ -22,7 +22,7 @@ Every motion primitive appends a `StepRecord`. The record contains:
 Artifact storage is private to `EnvState`. Do not construct filenames or read
 observation files manually. Use the structured tools:
 
-- `view_driver_state`: state, artifact names, log, and embedded images;
+- `view_env_state`: state, artifact names, log, and embedded images;
 - `view_camera_meta`: calibration data for one camera and step;
 - `back_project`: matching image pixel or region to world coordinates;
 - `segment`: text- or point-prompted mask plus projected `world_xyz`.
@@ -35,7 +35,7 @@ API and should not be indexed directly.
 
 ## Camera Roles
 
-`view_driver_state` embeds the best available images for the selected step:
+`view_env_state` embeds the best available images for the selected step:
 
 - **policy image**: the Pi0-oriented agentview input;
 - **agentview image**: fixed global view, high resolution when available;
@@ -53,7 +53,7 @@ specified in the call. The tool selects the matching world map internally.
 
 Before the first manipulation primitive:
 
-1. Call `view_driver_state({"step": 0})`.
+1. Call `view_env_state({"step": 0})`.
 2. Read the returned top-level `task_language` verbatim.
 3. Identify every movable target, destination, support, and relation landmark
    named by the task.

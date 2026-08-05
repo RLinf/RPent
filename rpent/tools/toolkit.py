@@ -32,10 +32,10 @@ class ToolCancelled(Exception):
 def updatestate(func):
     """Mark a tool handler as one that advances environment state.
 
-    The toolkit captures a fresh observation (:meth:`Toolkit.get_state`)
+    The toolkit captures a fresh observation (:meth:`Toolkit.get_env_state`)
     after a handler carrying this marker runs (or raises). Apply it to
     primitive-driver methods that move the robot; read-only tools (file IO,
-    ``view_driver_state``, ``back_project``, ``segment``, ...) are left
+    ``view_env_state``, ``back_project``, ``segment``, ...) are left
     unmarked and skip state capture.
 
     The marker is read off the underlying function, so registering a bound
@@ -44,11 +44,11 @@ def updatestate(func):
     wrapping a marked method is treated as read-only (intentional -- see the
     LIBERO ``segment`` tool).
     """
-    func._captures_state = True
+    func._updates_state = True
     return func
 
 
-def _captures_state(handler: Callable[..., Any]) -> bool:
+def _updates_state(handler: Callable[..., Any]) -> bool:
     """Whether ``handler`` was marked with :func:`updatestate`.
 
     Resolves through ``__func__`` so bound methods (the common case for
@@ -57,7 +57,7 @@ def _captures_state(handler: Callable[..., Any]) -> bool:
     do not delegate, so undecorated read-only handlers read as ``False``.
     """
     target = getattr(handler, "__func__", handler)
-    return bool(getattr(target, "_captures_state", False))
+    return bool(getattr(target, "_updates_state", False))
 
 
 @dataclass
@@ -174,7 +174,7 @@ class Toolkit:
                 a result dict. Decorate state-advancing primitives with
                 :func:`updatestate`.
         """
-        self._tools[name] = (spec, handler, _captures_state(handler))
+        self._tools[name] = (spec, handler, _updates_state(handler))
 
     def _register_common_tools(self) -> None:
         """Register the file/IO tools shared by every run."""
@@ -236,7 +236,7 @@ class Toolkit:
                 result_dict = result if isinstance(result, dict) else {"value": result}
                 command = {"action": name, **input_dict}
                 try:
-                    captured = self.get_state(
+                    captured = self.get_env_state(
                         command=command,
                         result=result_dict,
                         elapsed_s=elapsed_s,
@@ -264,7 +264,7 @@ class Toolkit:
         self._dashboard_events.emit(ToolResultEvent(name=name, result=result))
         return ToolResult(name=name, result=result)
 
-    def get_state(
+    def get_env_state(
         self,
         *,
         command: dict[str, Any],

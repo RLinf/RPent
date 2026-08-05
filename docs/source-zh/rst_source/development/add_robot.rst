@@ -207,7 +207,7 @@ toolkit 模块通常包含四部分：
 **工具定义和处理函数** 包括模块级的 ``TOOLS_SPEC`` 列表（列表元素采用
 Anthropic API 的工具定义格式，包含 ``name``、``description`` 和
 ``input_schema``），以及 toolkit 引用的模块级函数，例如
-``view_driver_state``、``back_project`` 和 ``finish``。
+``view_env_state``、``back_project`` 和 ``finish``。
 
 **每步状态 dump** —— ``dump_state(driver, env_state, log)`` 通过
 ``env_state.record_step(...)`` 创建由 ``EnvState`` 持有的步骤，并取得分配的
@@ -223,7 +223,7 @@ step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过
   中的方法名为 ``init_primitives_clean``；它会调用 ``EnvState.reset()``、构造
   原语并 dump 第 0 步）,
 - 用 ``self.add_tool(name, spec, handler)`` 注册每个工具。无状态的读取工具
-  （如 ``view_driver_state``、``finish``）直接绑定模块级函数；原语工具通过
+  （如 ``view_env_state``、``finish``）直接绑定模块级函数；原语工具通过
   ``_step(name, **kwargs)`` 调用。``_step`` 使用
   ``getattr(self._primitives, name)(**kwargs)`` 调用 driver 方法并重新渲染状态；
 - 重写 ``close()``，通过 ``EnvState`` 保存 agent 侧剩余工件（例如
@@ -244,7 +244,7 @@ primitives 的 ``__init__``。其中通常包含
   每个用 ``self.add_tool(...)`` 注册的工具都会暴露给所有 planner。
 - 环境侧的返回值必须可 pickle，且不包含 torch 对象。
 - 每个原语工具执行后要 dump 一次新的状态快照, 这样下一次
-  ``view_driver_state`` 看到的是动作后的世界。
+  ``view_env_state`` 看到的是动作后的世界。
 - ``dump_state`` 是 Agent 获取环境状态的唯一数据来源；任何新的模态
   （例如触觉、力）都通过它提供。
 
