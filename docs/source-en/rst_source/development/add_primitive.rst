@@ -44,7 +44,7 @@ Adding a scripted primitive usually involves two steps:
    more ``self._env.step(...)`` calls, and returns a small log ``dict``.
 
    Mark the method with :func:`~rpent.tools.toolkit.updatestate` so the
-   toolkit re-renders state (``get_state``) automatically after it runs:
+   toolkit re-renders state (``get_env_state``) automatically after it runs:
 
    .. code-block:: python
 
@@ -57,7 +57,7 @@ Adding a scripted primitive usually involves two steps:
               self._env.step(build_open_drawer_chunk(dx))
           return {"ok": True, "dx": dx}
 
-   Read-only tools (``view_driver_state``, ``back_project``, ``segment``,
+   Read-only tools (``view_env_state``, ``back_project``, ``segment``,
    ...) are simply left unmarked -- the toolkit skips state capture for them.
 
 2. **Add the tool schema.** Add an entry to ``TOOLS_SPEC`` in
@@ -175,7 +175,7 @@ Design principles for a new primitive
 - **Return small dicts.** Tool return values are fed back to the LLM
   as text. Save larger observations through ``EnvState.save``; ``EnvState``
   automatically records each logical base name in its owned
-  ``StepRecord.artifacts`` set. Expose images through ``view_driver_state`` and
+  ``StepRecord.artifacts`` set. Expose images through ``view_env_state`` and
   geometry through environment tools rather than returning raw paths.
 - **Guardrails belong in env_server**, not in the toolkit. The LLM
   can and will call any tool with any arguments; workspace bounds

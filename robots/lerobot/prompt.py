@@ -44,7 +44,7 @@ ENVIRONMENT = BulletList([
     depth — so never back_project it.
     """,
     """
-    Tools: view_driver_state (state + scene/arm images), get_scene_camera_meta
+    Tools: view_env_state (state + scene/arm images), get_scene_camera_meta
     (intrinsics + calibration flag), back_project (scene pixel -> world xyz),
     get_ee_pose (the fingertip point's xyz in world), move_to, move_joints_delta,
     finish. Plus read_text_file / write_text_file / list_dir for the scratch
@@ -70,7 +70,7 @@ RULES = BulletList([
     """,
     """
     The scene image is your ground truth: study it to confirm each result (the
-    view updates after every move_to; call view_driver_state only when you need
+    view updates after every move_to; call view_env_state only when you need
     another look). Verify each sub-goal before building on it — that you are
     positioned correctly before committing an action, and that the action
     succeeded before the next one; if a precondition isn't met, re-localize or

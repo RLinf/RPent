@@ -282,7 +282,7 @@ def back_project(
 
 TOOLS_SPEC: list[dict[str, Any]] = [
     {
-        "name": "view_driver_state",
+        "name": "view_env_state",
         "description": (
             "Read one recorded state and its observation artifacts. Step -1 "
             "selects the latest entry. Embeds scene and arm camera frames."
@@ -321,7 +321,7 @@ TOOLS_SPEC: list[dict[str, Any]] = [
         "description": (
             "Backproject a SCENE-camera pixel to a 3D point in the WORLD frame "
             "(arm base_link), using the saved aligned depth. Pick (row, col) on "
-            "the scene color image from view_driver_state, near the CENTER of "
+            "the scene color image from view_env_state, near the CENTER of "
             "the target. It samples a small window around the pixel and returns "
             "the robust MEDIAN world `xyz` of the object surface (not one noisy "
             "pixel), plus `n_points` and `xy_spread_m` (a small spread means a "

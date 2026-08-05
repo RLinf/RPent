@@ -220,7 +220,7 @@ state needed for the current run. It exposes one method per primitive tool
 **Tool definitions and handlers** — a module-level ``TOOLS_SPEC`` list of
 Anthropic-style tool definitions (``name``, ``description``, ``input_schema``),
 plus any module-level functions referenced by the toolkit (e.g.
-``view_driver_state``, ``back_project``, ``finish``).
+``view_env_state``, ``back_project``, ``finish``).
 
 **Per-step state dump** — ``dump_state(driver, env_state, log)`` opens
 ``env_state.record_step(...)`` and receives the allocated step index; the
@@ -238,7 +238,7 @@ filenames rather than maintaining a parallel observation index.
   helper (named ``init_primitives_clean`` in LIBERO; it calls
   ``EnvState.reset()``, constructs the primitives, and dumps step 0),
 - register each tool with ``self.add_tool(name, spec, handler)`` — stateless
-  readers (``view_driver_state``, ``finish``, …) bind directly to module-level
+  readers (``view_env_state``, ``finish``, …) bind directly to module-level
   functions; primitive tools route through ``_step(name, **kwargs)`` which
   calls ``getattr(self._primitives, name)(**kwargs)`` and re-renders state,
 - override ``close()`` to save remaining agent-side artifacts through
@@ -260,7 +260,7 @@ Conventions worth keeping
   exposed to all planners.
 - Server-side return values must be picklable and torch-free.
 - Each primitive tool dumps a fresh state snapshot after running so the next
-  ``view_driver_state`` call reflects the post-action world.
+  ``view_env_state`` call reflects the post-action world.
 - Treat ``dump_state`` as the source of truth for what the agent sees — any new
   modality (e.g. tactile, force) goes through it.
 

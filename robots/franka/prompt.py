@@ -17,7 +17,7 @@ ENVIRONMENT = BulletList([
     Robot: Franka arm with Franka Hand. World frame is panda_link0, units are meters. Positive x is front (relative to the robot base), y is left, z is up. Use get_robot_spec for exact workspace bounds and camera names.
     """,
     """
-    Cameras: scene is the fixed overview RGB-D camera; wrist is the hand-mounted RGB-D camera. view_driver_state and observe return both images. back_project maps a pixel + depth to 3D; it returns robot-base xyz in panda_link0 only when that camera is calibrated for the selected step.
+    Cameras: scene is the fixed overview RGB-D camera; wrist is the hand-mounted RGB-D camera. view_env_state and observe return both images. back_project maps a pixel + depth to 3D; it returns robot-base xyz in panda_link0 only when that camera is calibrated for the selected step.
     """,
     """
     Use the wrist camera as the default for back_project because it has been calibrated and sees close-range manipulation targets with better depth accuracy. Use the scene camera for overview/context or if you explicitly need it, and only trust any camera's base-frame xyz if back_project reports calibrated=true. Note that the scene camera is placed opposite the robot and therefore has a mirrored view of the robot and table.
@@ -29,13 +29,13 @@ ENVIRONMENT = BulletList([
     Gripper: use open_gripper and close_gripper for explicit grasp/release, or set gripper to 'open' or 'close' on move_to/move_delta when that is exactly what you want before the move.
     """,
     """
-    Tools: view_driver_state, observe, back_project, get_camera_meta, get_ee_pose, get_robot_spec, move_to, move_delta, rotate_wrist_yaw, rotate_gripper, open_gripper, close_gripper, finish, plus common file and memory tools.
+    Tools: view_env_state, observe, back_project, get_camera_meta, get_ee_pose, get_robot_spec, move_to, move_delta, rotate_wrist_yaw, rotate_gripper, open_gripper, close_gripper, finish, plus common file and memory tools.
     """,
 ])
 
 RULES = BulletList([
     """
-    Observe before acting. Call read_memory first, then view_driver_state or observe to see the current setup.
+    Observe before acting. Call read_memory first, then view_env_state or observe to see the current setup.
     """,
     """
     Be discreet when moving around. Prefer move_delta for visual servoing and approach/lift motions.
@@ -56,7 +56,7 @@ WORKFLOW = Numbered([
     Read memory: call read_memory with no arguments, then read any relevant entry.
     """,
     """
-    Observe: call view_driver_state or observe and inspect scene plus wrist images and the TCP pose.
+    Observe: call view_env_state or observe and inspect scene plus wrist images and the TCP pose.
     """,
     """
     Localize with back_project on the wrist camera first. Use get_camera_meta if you need to check which cameras are calibrated to panda_link0, and use the scene camera mainly for overview/context.

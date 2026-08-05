@@ -13,7 +13,7 @@ from rpent.utils.logging import get_output_dir
 class FrankaToolkit(Toolkit):
     """Toolkit for the standalone Franka environment."""
 
-    # view_driver_state image slots: primary scene -> _image_bytes, wrist -> _image_cam_bytes.
+    # view_env_state image slots: primary scene -> _image_bytes, wrist -> _image_cam_bytes.
     _VIEW_IMAGE_SLOTS = {
         "_image_bytes": "scene.png",
         "_image_cam_bytes": "wrist.png",
@@ -38,7 +38,7 @@ class FrankaToolkit(Toolkit):
         # run's EnvState bound in). Every other spec binds to its primitive-
         # driver method; @updatestate on the method decides state capture.
         state_handlers = {
-            "view_driver_state": partial(
+            "view_env_state": partial(
                 self._state.view, image_slots=self._VIEW_IMAGE_SLOTS
             ),
             "back_project": partial(franka_tools.back_project, state=self._state),
@@ -53,7 +53,7 @@ class FrankaToolkit(Toolkit):
                     continue  # spec without a backing driver method
             self.add_tool(name, spec, handler)
 
-    def get_state(
+    def get_env_state(
         self,
         *,
         command: dict[str, Any],

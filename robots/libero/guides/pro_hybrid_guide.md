@@ -16,7 +16,7 @@ Call:
 {"step": 0}
 ```
 
-through `view_driver_state`. From the returned tool result:
+through `view_env_state`. From the returned tool result:
 
 - read top-level `task_language` verbatim;
 - inspect `state.robot0_eef_pos` to identify the scene frame;
@@ -64,7 +64,7 @@ The initial end-effector height distinguishes the principal scene frames:
 | approximately 0.68 m | living-room table | plates, baskets, pudding |
 | approximately 1.17 m | kitchen table | stove, cabinet, drawer, microwave |
 
-Use `view_driver_state({"step": 0})["state"]["robot0_eef_pos"][2]` as the
+Use `view_env_state({"step": 0})["state"]["robot0_eef_pos"][2]` as the
 measurement. Then use the matching safe-height guidance from
 [env_calibration.md](./env_calibration.md).
 
@@ -117,7 +117,7 @@ for coordinates.
 Long-horizon Pro tasks often move or occlude objects during earlier steps.
 Before each new pick or placement:
 
-1. call `view_driver_state({"step": -1})` if the previous primitive result is
+1. call `view_env_state({"step": -1})` if the previous primitive result is
    no longer in context;
 2. inspect the newest embedded images;
 3. re-localize any entity that may have moved;
@@ -186,7 +186,7 @@ traceability, not manual file access.
 ## Quick Checklist
 
 - Read strict guide and relevant memory.
-- Call `view_driver_state({"step": 0})`.
+- Call `view_env_state({"step": 0})`.
 - Select the scene frame from initial EEF z.
 - Read top-level `task_language`.
 - Build the complete perception table.

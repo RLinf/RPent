@@ -1,7 +1,7 @@
 """LeRobot SO101 toolkit: common tools + SO101 primitives.
 
 Inherits the common file/IO tools (including ``finish``) from :class:`Toolkit`
-and registers the SO101-specific tools (``view_driver_state``, ``back_project``,
+and registers the SO101-specific tools (``view_env_state``, ``back_project``,
 driver readers, and the move primitives) on top.
 """
 from __future__ import annotations
@@ -43,7 +43,7 @@ class LerobotToolkit(Toolkit):
         # run's EnvState bound in). Every other spec binds to its primitive-
         # driver method; @updatestate on the method decides state capture.
         state_handlers = {
-            "view_driver_state": partial(
+            "view_env_state": partial(
                 self._state.view, image_slots=self._VIEW_IMAGE_SLOTS
             ),
             "back_project": partial(lerobot_tools.back_project, state=self._state),
@@ -58,7 +58,7 @@ class LerobotToolkit(Toolkit):
                     continue  # spec without a backing driver method
             self.add_tool(name, spec, handler)
 
-    def get_state(
+    def get_env_state(
         self,
         *,
         command: dict[str, Any],

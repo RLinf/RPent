@@ -217,7 +217,7 @@ def dump_state(
     return state.get(step_idx)
 
 
-# view_driver_state now lives on EnvState.view (bound by the toolkit with the
+# view_env_state now lives on EnvState.view (bound by the toolkit with the
 # scene/wrist image slots); nothing module-level is needed here.
 
 
@@ -294,7 +294,7 @@ def back_project(
 
 TOOLS_SPEC: list[dict[str, Any]] = [
     {
-        "name": "view_driver_state",
+        "name": "view_env_state",
         "description": (
             "Read one recorded state and its observation artifacts. Step -1 "
             "selects the latest entry. Embeds scene and wrist images."
@@ -319,7 +319,7 @@ TOOLS_SPEC: list[dict[str, Any]] = [
             "`xyz` in panda_link0 only when that camera has calibration for "
             "the selected step; otherwise returns "
             "xyz_cam plus a warning. Pick row/col on the image returned by "
-            "view_driver_state."
+            "view_env_state."
         ),
         "input_schema": {
             "type": "object",
