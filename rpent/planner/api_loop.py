@@ -711,7 +711,7 @@ def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
 def read_image(path: str) -> ToolReturn | dict[str, str]:
     """Read an explicitly provided local image file as visual input.
 
-    Environment observations are already embedded by ``view_driver_state``;
+    Environment observations are already embedded by ``view_env_state``;
     this helper is only for other user-selected local files. File-system
     failures are returned as structured tool errors so a bad path does not
     abort the entire agent run.
@@ -737,7 +737,7 @@ def read_image_text_only(path: str) -> str:
     """``read_image`` stub for ``--no-images``: acknowledge, send no bytes."""
     return (
         f"{path} exists, but image input is disabled (--no-images, text-only "
-        "model). Reason from textual state instead: view_driver_state, "
+        "model). Reason from textual state instead: view_env_state, "
         "back_project, and the numeric fields in tool results."
     )
 

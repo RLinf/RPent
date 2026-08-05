@@ -141,7 +141,7 @@ tools. Do not start, stop, restart, or otherwise manage `env_server.py`.
 - Call the real structured tools exposed by the runtime.
 - Use bare tool names in this prompt: `move_to`, `pi0_pick`, `release`,
   `set_gripper`, `rotate_wrist`, `rotate_pitch`, `move_pose`, `pi0_doubled`,
-  `view_driver_state`, `view_camera_meta`, `back_project`, `segment`,
+  `view_env_state`, `view_camera_meta`, `back_project`, `segment`,
   `read_text_file`, `write_text_file`, `list_dir`, `finish`.
 - Under some runtimes these same tools may appear namespaced; call the actual tool
   name shown in your tool list, preserving the same arguments and semantics.
@@ -151,7 +151,7 @@ step. Observation entries name the available policy, agentview, wrist, depth,
 world-map, and metadata artifacts, but storage paths are internal to the
 runtime. Do not construct or read artifact paths manually.
 
-Use `view_driver_state` to retrieve a state. It embeds the policy image and the
+Use `view_env_state` to retrieve a state. It embeds the policy image and the
 best available agentview and wrist images, preferring high resolution. Use
 `view_camera_meta`, `back_project`, and `segment` to consume metadata, depth,
 and world maps. These tools guarantee that the selected camera, resolution,
@@ -164,7 +164,7 @@ GOAL = """YOUR GOAL: produce top-level `libero_terminated == true` in ONE episod
 supersedes any reset/retry wording in the Rules below)."""
 
 RULES = """Rule 0 — USE IMAGES. After every primitive tool call, inspect the returned state
-  and embedded images. If you need a state again, call `view_driver_state`.
+  and embedded images. If you need a state again, call `view_env_state`.
   Use agentview for global layout and wrist for close-range geometry. The image
   is your spatial-reasoning input; the JSON state only gives proprioception +
   object names.
@@ -194,7 +194,7 @@ Rule 1b — JUDGE THE GRASP from perception, NOT from a name. After a pick, deci
    `pi0_pick.success` (eef-lift + gripper-closure heuristic) is a HINT, not
    proof — always confirm with the wrist cam before carrying.
 
-Rule 2 — Inspect THEN act. Call `view_driver_state({"step": 0})`, inspect the
+Rule 2 — Inspect THEN act. Call `view_env_state({"step": 0})`, inspect the
   returned high-resolution images, and inspect the relevant memory/guides
   BEFORE your first primitive. **Your task is the returned `task_language`;
   read it and obey it verbatim.** This is the authoritative instruction (the BDDL
@@ -399,7 +399,7 @@ qualitative target zones. They were built on different scenes and sometimes
 with older/oracle assumptions; do NOT copy coordinates and do NOT replay stale
 command lists. Re-derive every coordinate from THIS scene.
 """,
-    """INSPECT INITIAL STATE: call `view_driver_state({"step": 0})`; inspect
+    """INSPECT INITIAL STATE: call `view_env_state({"step": 0})`; inspect
   `task_language`, object_names, eef pose, the returned agentview and wrist images,
   and call `view_camera_meta` if needed. Identify ALL target
 objects, destination surfaces, and relation landmarks named by task_language.
@@ -488,7 +488,7 @@ KEY_HYPERPARAMETERS = """- Single-step xy within ±0.30 or OSC flips IK; split l
 
 OUTPUT_DISCIPLINE = """- Brief reasoning before each tool call (1-2 sentences): observation → decision.
 - Don't re-read files already in this session.
-- Don't call `view_driver_state` immediately after a primitive tool already
+- Don't call `view_env_state` immediately after a primitive tool already
   returned the new state.
 - Save the audit BEFORE calling `finish`.
 - Stop immediately after writing the audit and calling `finish`. Do not chat further."""

@@ -11,10 +11,10 @@ CELL = """- suite:      {{suite}}
 
 
 MODE = """Inspect the embedded high-resolution images returned by
-view_driver_state, then use back_project or segment to localize objects before
+view_env_state, then use back_project or segment to localize objects before
 motion."""
 
 
 BEGIN = """Read MEMORY.md and the guides, then call
-`view_driver_state({"step": 0})` and inspect its embedded images. Localize every
+`view_env_state({"step": 0})` and inspect its embedded images. Localize every
 task-relevant entity before planning and execution."""

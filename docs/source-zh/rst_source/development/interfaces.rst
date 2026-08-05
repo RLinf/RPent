@@ -87,7 +87,7 @@ Planner
        需要回传相机图时可设 ``_image_bytes`` 等字段。
 
 基类已注册公共文件工具；子类 ``super().__init__()`` 后追加本环境工具即可。逐步状态与
-``view_driver_state`` 见 :doc:`add_primitive`。
+``view_env_state`` 见 :doc:`add_primitive`。
 
 进程间通信
 ----------

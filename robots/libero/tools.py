@@ -738,13 +738,13 @@ def _is_primitive_action(name: object) -> bool:
     """Whether ``name`` is a state-advancing LIBERO primitive.
 
     A primitive is any ``@updatestate``-marked method on
-    :class:`LiberoPrimitives`; read-only tools (``view_driver_state``,
+    :class:`LiberoPrimitives`; read-only tools (``view_env_state``,
     ``back_project``, ``segment``, ...) and non-strings read as ``False``.
     """
     if not isinstance(name, str):
         return False
     method = getattr(LiberoPrimitives, name, None)
-    return method is not None and bool(getattr(method, "_captures_state", False))
+    return method is not None and bool(getattr(method, "_updates_state", False))
 
 
 def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:
@@ -1056,7 +1056,7 @@ def _save_observation_artifacts(
 
 TOOLS_SPEC = [
     {
-        "name": "view_driver_state",
+        "name": "view_env_state",
         "description": (
             "Read one recorded state and its observation artifacts. Step -1 "
             "selects the latest entry. Embeds policy, agentview, and wrist "
@@ -1330,7 +1330,7 @@ TOOLS_SPEC = [
             "selected camera's precomputed world map. Row 0 = top of image, "
             "col 0 = left. Returns world_xyz in meters.\n\n"
             "USE THIS to find where an object is in the world — look at "
-            "the embedded high-resolution image returned by view_driver_state "
+            "the embedded high-resolution image returned by view_env_state "
             "to pick a pixel on the target object, then call back_project. "
             "The default resolution is high (1024x1024). Pass "
             "resolution='low' only for pixels from the embedded/standard "
@@ -1401,7 +1401,7 @@ TOOLS_SPEC = [
 ]
 
 
-def view_driver_state(step: int = -1, *, state: EnvState) -> dict:
+def view_env_state(step: int = -1, *, state: EnvState) -> dict:
     try:
         record = state.get(step)
     except Exception as exc:
