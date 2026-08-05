@@ -7,7 +7,6 @@ during ``__init__`` via :meth:`Toolkit.add_tool`; the planner calls the tools th
 from __future__ import annotations
 
 import base64
-import inspect
 import json
 import threading
 import time
@@ -28,6 +27,37 @@ class _ToolOperation:
 
 class ToolCancelled(Exception):
     """Raised when an environment reaches a safe cancellation boundary."""
+
+
+def updatestate(func):
+    """Mark a tool handler as one that advances environment state.
+
+    The toolkit captures a fresh observation (:meth:`Toolkit.get_state`)
+    after a handler carrying this marker runs (or raises). Apply it to
+    primitive-driver methods that move the robot; read-only tools (file IO,
+    ``view_driver_state``, ``back_project``, ``segment``, ...) are left
+    unmarked and skip state capture.
+
+    The marker is read off the underlying function, so registering a bound
+    method (``getattr(self._driver, name)``) inherits it automatically.
+    ``functools.partial`` does not delegate attribute access, so a partial
+    wrapping a marked method is treated as read-only (intentional -- see the
+    LIBERO ``segment`` tool).
+    """
+    func._captures_state = True
+    return func
+
+
+def _captures_state(handler: Callable[..., Any]) -> bool:
+    """Whether ``handler`` was marked with :func:`updatestate`.
+
+    Resolves through ``__func__`` so bound methods (the common case for
+    primitive-driver tools) report the marker set on their underlying
+    function. Plain functions, closures, and ``functools.partial`` objects
+    do not delegate, so undecorated read-only handlers read as ``False``.
+    """
+    target = getattr(handler, "__func__", handler)
+    return bool(getattr(target, "_captures_state", False))
 
 
 @dataclass
@@ -133,8 +163,6 @@ class Toolkit:
         name: str,
         spec: dict[str, Any],
         handler: Callable[..., Any],
-        *,
-        captures_state: bool,
     ) -> None:
         """Register one tool under ``name`` with its schema and handler.
 
@@ -143,11 +171,10 @@ class Toolkit:
             spec: Anthropic-shaped tool schema dict (``name``,
                 ``description``, ``input_schema``).
             handler: Callable invoked with the tool's input kwargs; returns
-                a result dict.
-            captures_state: Whether the tool updates environment state
-                that must be captured after the handler returns or raises.
+                a result dict. Decorate state-advancing primitives with
+                :func:`updatestate`.
         """
-        self._tools[name] = (spec, handler, captures_state)
+        self._tools[name] = (spec, handler, _captures_state(handler))
 
     def _register_common_tools(self) -> None:
         """Register the file/IO tools shared by every run."""
@@ -155,12 +182,7 @@ class Toolkit:
 
         for spec in common.TOOLS_SPEC:
             name = spec["name"]
-            self.add_tool(
-                name,
-                spec,
-                common.TOOL_HANDLERS[name],
-                captures_state=False,
-            )
+            self.add_tool(name, spec, common.TOOL_HANDLERS[name])
 
     # ------------------------------------------------------------------
     # Planner-facing API
