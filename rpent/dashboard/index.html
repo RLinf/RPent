@@ -36,6 +36,10 @@
           <label for="f-model_custom"><span data-i18n="customModel">Custom model</span> <span id="modelRequirement" data-i18n="optional" style="text-transform:none">(optional)</span></label>
           <input type="text" id="f-model_custom" placeholder="provider:model or alias" data-i18n-placeholder="customModelPlaceholder" />
         </div>
+        <div class="lfield full lcheck" data-planner="api">
+          <input type="checkbox" id="f-no-images" />
+          <label for="f-no-images" data-i18n="noImages">Disable image input (required for text-only models)</label>
+        </div>
         <div class="lfield" data-planner="claude_code">
           <label for="f-claude-code-max-budget-usd" data-i18n="claudeBudget">Claude Code budget USD</label>
           <input type="number" id="f-claude-code-max-budget-usd" min="0" step="0.01" placeholder="MAX_BUDGET_USD" />

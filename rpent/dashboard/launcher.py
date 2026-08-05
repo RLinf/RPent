@@ -15,6 +15,7 @@ def defaults_from_args(args: Any) -> dict[str, Any]:
         "max-episode-steps": args.max_episode_steps,
         "planner-timeout-s": args.planner_timeout_s,
         "claude-code-max-budget-usd": args.claude_code_max_budget_usd,
+        "no-images": args.no_images,
     }
 
 
@@ -27,6 +28,7 @@ def apply_to_args(args: Any, payload: dict[str, Any]) -> None:
     args.max_episode_steps = int(payload["max-episode-steps"])
     timeout = payload.get("planner-timeout-s")
     args.planner_timeout_s = None if timeout in ("", None) else int(timeout)
+    args.no_images = bool(payload.get("no-images", False))
     if args.planner == "claude_code":
         budget = payload.get("claude-code-max-budget-usd")
         args.claude_code_max_budget_usd = (

@@ -103,15 +103,25 @@ class ApiAgentLoop:
                     interaction=dashboard_interaction,
                 )
             )
-        return asyncio.run(
-            self._solve(
-                system_prompt=system_prompt,
-                user_message=user_message,
-                toolkit=toolkit,
-                max_turns=max_turns,
-                input_queue=input_queue,
-            )
+        solve = self._solve(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            toolkit=toolkit,
+            max_turns=max_turns,
+            input_queue=input_queue,
         )
+        if input_queue is not None:
+            return asyncio.run(solve)
+        try:
+            return asyncio.run(asyncio.wait_for(solve, timeout=self._timeout_s))
+        except asyncio.TimeoutError:
+            toolkit.cancel_active_and_wait()
+            return PlannerResult(
+                finish_result=None,
+                messages=[{"role": "user", "content": user_message}],
+                stats={},
+                error=f"API planner timed out after {self._timeout_s}s",
+            )
 
     async def _solve(
         self,
