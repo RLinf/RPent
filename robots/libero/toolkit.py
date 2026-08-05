@@ -5,14 +5,13 @@ LIBERO primitives (``move_to``, ``pi0_pick``, ``release``, ...) on top.
 """
 from __future__ import annotations
 
-import time
 from functools import partial
 from typing import Any
 
 from robots.libero import tools as libero_tools
 from rpent.dashboard.events import DashboardEventSink, ToolResultEvent
 from rpent.tools.state import EnvState
-from rpent.tools.toolkit import ToolCancelled, Toolkit
+from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
 
@@ -52,46 +51,40 @@ class LiberoToolkit(Toolkit):
             "segment": partial(self._primitives.segment, state=self._state),
         }
         for name, handler in inspection_handlers.items():
-            self.add_tool(name, specs[name], handler)
-        # Primitive tools: each goes through _step, which looks up the
-        # matching primitive method via getattr at call time.
+            self.add_tool(
+                name,
+                specs[name],
+                handler,
+                captures_state=False,
+            )
         for name in libero_tools.PRIMITIVE_TOOL_NAMES:
-            self.add_tool(name, specs[name], partial(self._step, name))
+            self.add_tool(
+                name,
+                specs[name],
+                getattr(self._primitives, name),
+                captures_state=True,
+            )
 
-    def _step(self, name: str, **kwargs) -> dict:
-        """Run ``self._primitives.<name>(**kwargs)``, dump the new step, and
-        return the rendered state view + log.
-        """
-        command = {"action": name, **kwargs}
-        t0 = time.time()
-        start_frame = self._primitives.recorded_frame_count()
-        try:
-            result = getattr(self._primitives, name)(**kwargs)
-            self.raise_if_cancelled()
-        except ToolCancelled as exc:
-            result = {
-                "error": str(exc),
-                "code": "tool_cancelled",
-                "interrupted": True,
-            }
-        elapsed = round(time.time() - t0, 2)
-
-        if isinstance(result, dict):
-            result_dict = result
-        else:
-            result_dict = {"value": result}
-
+    def get_state(
+        self,
+        *,
+        command: dict[str, Any],
+        result: dict[str, Any],
+        elapsed_s: float,
+    ) -> dict[str, Any]:
+        frame_start = self._action_frame_cursor
+        self._action_frame_cursor = self._primitives.recorded_frame_count()
         record = libero_tools.dump_state(
             self._primitives,
             self._state,
-            log={"command": command, "result": result_dict, "elapsed_s": elapsed},
+            log={"command": command, "result": result, "elapsed_s": elapsed_s},
         )
         action_video_name = None
         if self._dashboard_events.enabled:
             try:
-                frames = self._primitives.frame_slice(start_frame)
+                frames = self._primitives.frame_slice(frame_start)
                 if frames:
-                    candidate = f"action_{name}.mp4"
+                    candidate = f"action_{command['action']}.mp4"
                     if self._state.save(
                         candidate,
                         frames,
@@ -106,9 +99,9 @@ class LiberoToolkit(Toolkit):
                     e,
                 )
         out = libero_tools.view_driver_state(record.step_idx, state=self._state)
-        out["agent_elapsed_s"] = elapsed
-        if result_dict.get("interrupted"):
-            out.update(result_dict)
+        out["agent_elapsed_s"] = elapsed_s
+        if result.get("interrupted"):
+            out.update(result)
         if action_video_name is not None:
             out["action_video_artifact"] = action_video_name
         return out
@@ -127,6 +120,7 @@ class LiberoToolkit(Toolkit):
         )
         primitives.reset()
         primitives.start_recording()
+        self._action_frame_cursor = primitives.recorded_frame_count()
         libero_tools.dump_state(primitives, self._state, log=None)
         self._dashboard_events.emit(
             ToolResultEvent(

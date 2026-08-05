@@ -7,8 +7,10 @@ during ``__init__`` via :meth:`Toolkit.add_tool`; the planner calls the tools th
 from __future__ import annotations
 
 import base64
+import inspect
 import json
 import threading
+import time
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -112,8 +114,10 @@ class Toolkit:
         dashboard_events: DashboardEventSink,
         state: Any = None,
     ) -> None:
-        # name -> (spec, handler)
-        self._tools: dict[str, tuple[dict[str, Any], Callable[..., dict[str, Any]]]] = {}
+        self._tools: dict[
+            str,
+            tuple[dict[str, Any], Callable[..., Any], bool],
+        ] = {}
         self._dashboard_events = dashboard_events
         self._state = state
         self._operation_lock = threading.Lock()
@@ -128,7 +132,9 @@ class Toolkit:
         self,
         name: str,
         spec: dict[str, Any],
-        handler: Callable[..., dict[str, Any]],
+        handler: Callable[..., Any],
+        *,
+        captures_state: bool,
     ) -> None:
         """Register one tool under ``name`` with its schema and handler.
 
@@ -138,8 +144,10 @@ class Toolkit:
                 ``description``, ``input_schema``).
             handler: Callable invoked with the tool's input kwargs; returns
                 a result dict.
+            captures_state: Whether the tool updates environment state
+                that must be captured after the handler returns or raises.
         """
-        self._tools[name] = (spec, handler)
+        self._tools[name] = (spec, handler, captures_state)
 
     def _register_common_tools(self) -> None:
         """Register the file/IO tools shared by every run."""
@@ -147,7 +155,12 @@ class Toolkit:
 
         for spec in common.TOOLS_SPEC:
             name = spec["name"]
-            self.add_tool(name, spec, common.TOOL_HANDLERS[name])
+            self.add_tool(
+                name,
+                spec,
+                common.TOOL_HANDLERS[name],
+                captures_state=False,
+            )
 
     # ------------------------------------------------------------------
     # Planner-facing API
@@ -156,38 +169,88 @@ class Toolkit:
     def get_tools_spec(self) -> list[dict[str, Any]]:
         """Return the tool schemas the LLM sees."""
         return substitute(
-            [spec for spec, _ in self._tools.values()]
+            [spec for spec, _, _ in self._tools.values()]
         )
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
         """Dispatch a tool call to its registered handler."""
         entry = self._tools.get(name)
         if entry is None:
-            return ToolResult(name=name, result={"error": f"unknown tool: {name}"})
-        handler = entry[1]
+            return self._finish_tool(name, {"error": f"unknown tool: {name}"})
+        _, handler, captures_state = entry
 
         with self._operation_lock:
             if self._active_operation is not None:
-                return ToolResult(
-                    name=name,
-                    result={"error": "another tool operation is still active"},
+                return self._finish_tool(
+                    name,
+                    {"error": "another tool operation is still active"},
                 )
             operation = _ToolOperation()
             self._active_operation = operation
 
         try:
+            started = time.perf_counter()
+            failed = False
             try:
                 result = handler(**input_dict)
             except TypeError as e:
-                result = {"error": f"bad arguments for {name}: {e}", "got": input_dict}
+                return self._finish_tool(
+                    name,
+                    {"error": f"bad arguments for {name}: {e}", "got": input_dict},
+                )
+            except ToolCancelled as e:
+                result = {
+                    "error": str(e),
+                    "code": "tool_cancelled",
+                    "interrupted": True,
+                }
+                failed = True
             except Exception as e:
                 result = {"error": str(e), "traceback": traceback.format_exc()}
-            self._dashboard_events.emit(ToolResultEvent(name=name, result=result))
-            return ToolResult(name=name, result=result)
+                failed = True
+
+            if captures_state:
+                elapsed_s = round(time.perf_counter() - started, 2)
+                result_dict = result if isinstance(result, dict) else {"value": result}
+                command = {"action": name, **input_dict}
+                try:
+                    captured = self.get_state(
+                        command=command,
+                        result=result_dict,
+                        elapsed_s=elapsed_s,
+                    )
+                except Exception as e:
+                    captured = result_dict
+                    captured["state_capture_error"] = str(e)
+                    captured.setdefault(
+                        "error", f"failed to capture state after {name}: {e}"
+                    )
+                    captured.setdefault("traceback", traceback.format_exc())
+                result = captured
+                if failed:
+                    result.setdefault("error", result_dict["error"])
+                    if "traceback" in result_dict:
+                        result.setdefault("traceback", result_dict["traceback"])
+
+            return self._finish_tool(name, result)
         finally:
             with self._operation_lock:
                 self._active_operation = None
                 operation.done_event.set()
+
+    def _finish_tool(self, name: str, result: Any) -> ToolResult:
+        self._dashboard_events.emit(ToolResultEvent(name=name, result=result))
+        return ToolResult(name=name, result=result)
+
+    def get_state(
+        self,
+        *,
+        command: dict[str, Any],
+        result: dict[str, Any],
+        elapsed_s: float,
+    ) -> dict[str, Any]:
+        """Capture and return the observation produced by a stateful tool."""
+        raise NotImplementedError
 
     # ------------------------------------------------------------------
     # Server lifecycle hooks (overridden by env toolkits)
