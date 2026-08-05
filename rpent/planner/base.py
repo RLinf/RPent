@@ -150,11 +150,15 @@ def build_planner(
             return provider_cls(**kwargs)
 
         api_model = infer_model(model, provider_factory=_provider_factory)
+        api_timeout_s = planner_timeout_s
+        if api_timeout_s is None:
+            api_timeout_s = int(os.environ.get("CELL_TIMEOUT_S", "1200"))
         return ApiAgentLoop(
             model=api_model,
             max_tokens=max_tokens,
             dashboard_events=dashboard_events,
             no_images=no_images,
+            timeout_s=api_timeout_s,
         )
     if planner_type == "claude_code":
         from rpent.planner.claude_code import ClaudeCodePlanner

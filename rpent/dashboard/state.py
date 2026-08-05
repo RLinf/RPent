@@ -361,7 +361,11 @@ class DashboardState:
     def claim_next_pending_message(self) -> DashboardMessage | None:
         """Claim one message so task replacement can stop later sends."""
         with self._condition:
-            if self._planner_activity == "ended" or self._task_replacement_requested:
+            if (
+                self._planner_activity == "ended"
+                or self._task_replacement_requested
+                or self._interrupt_requested
+            ):
                 return None
             message = next(
                 (item for item in self._messages if item.status == "pending"),

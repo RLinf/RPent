@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import dataclasses
 import json
 import queue
@@ -29,9 +30,11 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models import Model
+from pydantic_ai.run import AgentRun
 from pydantic_ai.usage import RunUsage, UsageLimits
 
 from rpent.cli.tui import QUIT_TOKENS
+from rpent.dashboard.control import DashboardControl
 from rpent.dashboard.events import (
     DashboardEventSink,
     TranscriptEvent,
@@ -48,7 +51,6 @@ logger = get_logger("api_loop")
 _TEXT_LOG_LIMIT = 500
 _ARGS_LOG_LIMIT = 250
 _TOOL_LOG_LIMIT = 350
-
 #: Cap on cumulative decoded image bytes kept in the resent request history.
 _MAX_HISTORY_IMAGE_BYTES = 4 * 1024 * 1024
 
@@ -67,12 +69,14 @@ class ApiAgentLoop:
         no_images: bool = False,
         *,
         dashboard_events: DashboardEventSink,
+        timeout_s: int | None = None,
     ):
         """Store the pydantic-ai model and the output-token cap."""
         self._model = model
         self._max_tokens = max_tokens
         self._dashboard_events = dashboard_events
         self._no_images = no_images
+        self._timeout_s = timeout_s
 
     def solve(
         self,
@@ -85,9 +89,19 @@ class ApiAgentLoop:
         dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         """Run the tool-calling loop until finish, normal stop, or budget."""
+        if input_queue is not None and dashboard_interaction is not None:
+            raise ValueError(
+                "input_queue and dashboard_interaction cannot be used together"
+            )
         if dashboard_interaction is not None:
-            raise NotImplementedError(
-                "ApiAgentLoop does not support Dashboard interaction"
+            return asyncio.run(
+                self._solve_dashboard(
+                    system_prompt=system_prompt,
+                    user_message=user_message,
+                    toolkit=toolkit,
+                    max_turns=max_turns,
+                    interaction=dashboard_interaction,
+                )
             )
         return asyncio.run(
             self._solve(
@@ -108,22 +122,15 @@ class ApiAgentLoop:
         max_turns: int,
         input_queue: queue.Queue[str | None] | None = None,
     ) -> PlannerResult:
-        agent = Agent(
-            self._model,
-            instructions=system_prompt or None,
-            tools=_build_tools(toolkit, no_images=self._no_images),
-            model_settings=_build_model_settings(self._model, self._max_tokens),
-            capabilities=[
-                Thinking(effort="high"),
-                ProcessHistory(processor=_prune_history_images),
-            ],
-        )
+        agent = self._build_agent(system_prompt, toolkit)
 
         interactive = input_queue is not None
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
-        finish_result: dict[str, Any] | None = None
-        n_tool_calls = 0
-        turns = 0
+        observer = _ApiRunObserver(
+            dashboard_events=self._dashboard_events,
+            messages=messages,
+            max_turns=max_turns,
+        )
         last_error: str | None = None
         usage: RunUsage | None = None
         quit_requested = False
@@ -182,86 +189,21 @@ class ApiAgentLoop:
                             quit_requested = True
                             break
                         if Agent.is_call_tools_node(node):
-                            turns += 1
                             run_turns += 1
-                            response = node.model_response
-                            response_message = _serialize_response(response)
-                            messages.append(response_message)
-                            _log_response(response, run.usage, run_turns, max_turns)
-                            for block in response_message["content"]:
-                                if block["type"] == "text":
-                                    dashboard_payload = {
-                                        "type": "text",
-                                        "text": block["text"],
-                                    }
-                                elif block["type"] == "thinking":
-                                    dashboard_payload = {
-                                        "type": "thinking",
-                                        "text": block["thinking"],
-                                    }
-                                else:
-                                    continue
-                                self._dashboard_events.emit(
-                                    TranscriptEvent(dashboard_payload)
-                                )
-                            self._dashboard_events.emit(
-                                UsageEvent(
-                                    inp=int(run.usage.input_tokens or 0),
-                                    out=int(run.usage.output_tokens or 0),
-                                    tool_calls=n_tool_calls,
-                                )
+                            observer.observe_response(
+                                node.model_response,
+                                run.usage,
+                                log_turn=run_turns,
                             )
 
                             async with node.stream(run.ctx) as stream:
                                 async for event in stream:
-                                    if isinstance(event, FunctionToolCallEvent):
-                                        n_tool_calls += 1
-                                        self._dashboard_events.emit(
-                                            TranscriptEvent(
-                                                {
-                                                    "type": "tool_call",
-                                                    "tool": event.part.tool_name,
-                                                    "args": event.part.args_as_dict(),
-                                                }
-                                            )
-                                        )
-                                        if event.part.tool_name == "finish":
-                                            finish_result = {
-                                                "_finish": True,
-                                                **event.part.args_as_dict(),
-                                            }
-                                    elif isinstance(event, FunctionToolResultEvent):
-                                        message = _serialize_tool_result(event)
-                                        messages.append(message)
-                                        _log_tool_result(message)
-                                        dashboard_result = {
-                                            "is_error": bool(
-                                                getattr(event.part, "is_error", False)
-                                            ),
-                                            "size": len(message["content"]),
-                                        }
-                                        self._dashboard_events.emit(
-                                            TranscriptEvent(
-                                                {
-                                                    "type": "tool_result",
-                                                    "tool": message.get("name")
-                                                    or "tool_result",
-                                                    "result": dashboard_result,
-                                                }
-                                            )
-                                        )
-                                    self._dashboard_events.emit(
-                                        UsageEvent(
-                                            inp=int(run.usage.input_tokens or 0),
-                                            out=int(run.usage.output_tokens or 0),
-                                            tool_calls=n_tool_calls,
-                                        )
-                                    )
+                                    observer.observe_tool(event, run.usage)
 
-                            if finish_result is not None:
-                                logger.info("FINISH called: %s", finish_result)
+                            if observer.finish_result is not None:
+                                logger.info("FINISH called: %s", observer.finish_result)
                                 break
-                            if turns >= max_turns:
+                            if observer.turns >= max_turns:
                                 logger.info(
                                     "reached max_turns=%d. Stopping.", max_turns
                                 )
@@ -286,10 +228,10 @@ class ApiAgentLoop:
                 # spent => end the whole session so max_turns is enforced across
                 # every run, not per run.
                 if (
-                    finish_result is not None
+                    observer.finish_result is not None
                     or quit_requested
                     or not interactive
-                    or turns >= max_turns
+                    or observer.turns >= max_turns
                 ):
                     break
                 nxt = await _await_next()
@@ -300,23 +242,325 @@ class ApiAgentLoop:
         except UsageLimitExceeded as e:
             logger.info("usage limit reached: %s", e)
         except Exception as e:  # noqa: BLE001 - surfaced via PlannerResult.error
-            last_error = f"{type(e).__name__}: {e}"
-            if _is_image_rejection(e) and not self._no_images:
-                last_error += (
-                    "\n\nThe model rejected image input — it is likely a "
-                    "text-only model (no vision support). Re-run with "
-                    "--no-images: RPent will then keep every visual "
-                    "observation as a file-path text notice instead of "
-                    "sending image bytes."
-                )
+            last_error = _api_error_text(e, no_images=self._no_images)
             logger.error("agent run failed: %s", last_error)
 
         return PlannerResult(
-            finish_result=finish_result,
+            finish_result=observer.finish_result,
             messages=messages,
-            stats=_build_stats(usage, turns, n_tool_calls),
+            stats=_build_stats(usage, observer.turns, observer.tool_calls),
             error=last_error,
         )
+
+    async def _solve_dashboard(
+        self,
+        *,
+        system_prompt: str,
+        user_message: str,
+        toolkit: Toolkit,
+        max_turns: int,
+        interaction: DashboardInteractionPort,
+    ) -> PlannerResult:
+        """Drive cancellable PydanticAI runs from complete history checkpoints."""
+        agent = self._build_agent(system_prompt, toolkit)
+        messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
+
+        def emit_user(text: str, *, initial: bool = False) -> None:
+            if not initial:
+                messages.append({"role": "user", "content": text})
+            self._dashboard_events.emit(
+                TranscriptEvent(
+                    {"type": "initial_prompt"}
+                    if initial
+                    else {"type": "user", "text": text}
+                )
+            )
+
+        control = DashboardControl(
+            interaction=interaction,
+            cancel_active_and_wait=toolkit.cancel_active_and_wait,
+            emit_user=emit_user,
+            emit_initial_user=lambda: emit_user(user_message, initial=True),
+        )
+        observer = _ApiRunObserver(
+            dashboard_events=self._dashboard_events,
+            messages=messages,
+            max_turns=max_turns,
+        )
+        session = _ApiDashboardSession(
+            agent=agent,
+            control=control,
+            observer=observer,
+            max_turns=max_turns,
+            no_images=self._no_images,
+        )
+        error: str | None = None
+        try:
+            await asyncio.wait_for(
+                session.run(user_message),
+                timeout=self._timeout_s,
+            )
+        except asyncio.TimeoutError:
+            error = f"API planner timed out after {self._timeout_s}s"
+            control.end()
+        except Exception as exc:
+            error = _api_error_text(exc, no_images=self._no_images)
+            control.end()
+        finally:
+            try:
+                await control.cancel_active_toolkit()
+            except Exception as exc:
+                cleanup_error = (
+                    f"API toolkit cancellation failed: {type(exc).__name__}: {exc}"
+                )
+                logger.warning(cleanup_error)
+                error = error or cleanup_error
+            await session.close()
+
+        return PlannerResult(
+            finish_result=observer.finish_result,
+            messages=messages,
+            stats={
+                "backend": "api",
+                **_build_stats(session.usage, observer.turns, observer.tool_calls),
+            },
+            error=error or session.error,
+        )
+
+    def _build_agent(self, system_prompt: str, toolkit: Toolkit) -> Agent:
+        """Build an Agent for terminal or Dashboard execution."""
+        return Agent(
+            self._model,
+            instructions=system_prompt or None,
+            tools=_build_tools(toolkit, no_images=self._no_images),
+            model_settings=_build_model_settings(self._model, self._max_tokens),
+            capabilities=[
+                Thinking(effort="high"),
+                ProcessHistory(processor=_prune_history_images),
+            ],
+        )
+
+
+@dataclasses.dataclass
+class _ApiRunObserver:
+    """Record model/tool events shared by terminal and Dashboard runs."""
+
+    dashboard_events: DashboardEventSink
+    messages: list[dict[str, Any]]
+    max_turns: int
+    turns: int = 0
+    tool_calls: int = 0
+    finish_result: dict[str, Any] | None = None
+
+    def observe_response(
+        self,
+        response: ModelResponse,
+        usage: RunUsage,
+        *,
+        log_turn: int | None = None,
+    ) -> None:
+        self.turns += 1
+        message = _serialize_response(response)
+        self.messages.append(message)
+        _log_response(
+            response,
+            usage,
+            self.turns if log_turn is None else log_turn,
+            self.max_turns,
+        )
+        for block in message["content"]:
+            if block["type"] == "text":
+                payload = {"type": "text", "text": block["text"]}
+            elif block["type"] == "thinking":
+                payload = {"type": "thinking", "text": block["thinking"]}
+            else:
+                continue
+            self.dashboard_events.emit(TranscriptEvent(payload))
+        self.emit_usage(usage)
+
+    def observe_tool(self, event: Any, usage: RunUsage) -> bool:
+        completed = False
+        if isinstance(event, FunctionToolCallEvent):
+            self.tool_calls += 1
+            part = event.part
+            args = part.args_as_dict()
+            self.dashboard_events.emit(
+                TranscriptEvent(
+                    {"type": "tool_call", "tool": part.tool_name, "args": args}
+                )
+            )
+            if part.tool_name == "finish":
+                self.finish_result = {"_finish": True, **args}
+        elif isinstance(event, FunctionToolResultEvent):
+            completed = True
+            message = _serialize_tool_result(event)
+            self.messages.append(message)
+            _log_tool_result(message)
+            part = event.part
+            is_error = bool(getattr(part, "is_error", False))
+            self.dashboard_events.emit(
+                TranscriptEvent(
+                    {
+                        "type": "tool_result",
+                        "tool": message.get("name") or "tool_result",
+                        "result": {
+                            "is_error": is_error,
+                            "size": len(message["content"]),
+                        },
+                    }
+                )
+            )
+        self.emit_usage(usage)
+        return completed
+
+    def emit_usage(self, usage: RunUsage) -> None:
+        self.dashboard_events.emit(
+            UsageEvent(
+                inp=int(usage.input_tokens or 0),
+                out=int(usage.output_tokens or 0),
+                tool_calls=self.tool_calls,
+            )
+        )
+
+
+class _ApiDashboardSession:
+    """Own cancellable PydanticAI runs for one Dashboard TaskRun."""
+
+    def __init__(
+        self,
+        *,
+        agent: Agent,
+        control: DashboardControl,
+        observer: _ApiRunObserver,
+        max_turns: int,
+        no_images: bool,
+    ) -> None:
+        self._agent = agent
+        self._control = control
+        self._max_turns = max_turns
+        self._no_images = no_images
+        self._observer = observer
+        self._history: list[ModelMessage] = []
+        self.usage = RunUsage()
+        self._agent_run: AgentRun[Any, Any] | None = None
+        self._run_task: asyncio.Task[Any] | None = None
+        self._run_ready: asyncio.Event | None = None
+        self._closing = False
+        self.error: str | None = None
+
+    async def run(self, prompt: str) -> None:
+        await self.submit(prompt)
+        await self._control.start()
+        await self._control.run(self)
+
+    async def submit(self, text: str) -> int:
+        while True:
+            if self._closing:
+                raise RuntimeError("API conversation is closed")
+            if self.error is not None:
+                raise RuntimeError(self.error)
+            if self._run_task is None:
+                ready = asyncio.Event()
+                self._run_ready = ready
+                self._run_task = asyncio.create_task(self._run_agent(text, ready))
+                return 1
+            if self._agent_run is None:
+                ready = self._run_ready
+                if ready is None:
+                    raise RuntimeError("API run readiness state is unavailable")
+                await ready.wait()
+                continue
+            self._agent_run.enqueue(text, priority="asap")
+            return 0
+
+    async def interrupt(self) -> int:
+        run_task = self._run_task
+        if run_task is None or run_task.done():
+            return 0
+        run_task.cancel()
+        try:
+            with contextlib.suppress(asyncio.CancelledError):
+                await run_task
+        finally:
+            if self._run_task is run_task:
+                if self._run_ready is not None:
+                    self._run_ready.set()
+                self._run_task = None
+                self._agent_run = None
+                self._run_ready = None
+        return 1
+
+    async def close(self) -> None:
+        if self._closing:
+            return
+        self._closing = True
+        await self.interrupt()
+
+    async def _run_agent(self, seed: str, ready: asyncio.Event) -> None:
+        run_completed = False
+        run: AgentRun[Any, Any] | None = None
+        try:
+            async with self._agent.iter(
+                seed,
+                message_history=list(self._history),
+                usage=self.usage,
+                usage_limits=UsageLimits(request_limit=self._max_turns + 1),
+            ) as run:
+                self._agent_run = run
+                ready.set()
+
+                node = run.next_node
+                while not Agent.is_end_node(node):
+                    if Agent.is_call_tools_node(node):
+                        await self._process_tool_node(run, node)
+                    if (
+                        self._observer.finish_result is not None
+                        or self._observer.turns >= self._max_turns
+                    ):
+                        self._control.end()
+                        return
+                    node = await run.next(node)
+
+                run_completed = True
+        except Exception as exc:
+            self.error = _api_error_text(exc, no_images=self._no_images)
+            if not self._closing:
+                self._control.end()
+        finally:
+            # Preserve interrupted tool results for PydanticAI to repair on the
+            # next run. Older supported releases can leave a bare tool-call
+            # response when cancellation wins before any tool returns; remove
+            # only that unusable frontier.
+            if run is not None:
+                history = list(run.all_messages())
+                if (
+                    history
+                    and isinstance(history[-1], ModelResponse)
+                    and history[-1].tool_calls
+                ):
+                    history.pop()
+                self._history = history
+            ready.set()
+            if self._run_task is asyncio.current_task():
+                self._run_task = None
+                self._agent_run = None
+                self._run_ready = None
+
+        if run_completed and not self._closing:
+            await self._control.complete(self)
+
+    async def _process_tool_node(self, run: Any, node: Any) -> None:
+        self._observer.observe_response(node.model_response, run.usage)
+
+        async with node.stream(run.ctx) as stream:
+            async for event in stream:
+                tool_completed = self._observer.observe_tool(event, run.usage)
+                if (
+                    tool_completed
+                    and self._observer.finish_result is None
+                    and self._observer.turns < self._max_turns
+                ):
+                    await self._control.tool_completed(self)
 
 
 def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
@@ -397,6 +641,18 @@ def _is_image_rejection(e: Exception) -> bool:
     if not 400 <= e.status_code < 500:
         return False
     return "image" in str(e).lower()
+
+
+def _api_error_text(error: Exception, *, no_images: bool) -> str:
+    text = f"{type(error).__name__}: {error}"
+    if not no_images and _is_image_rejection(error):
+        text += (
+            "\n\nThe model rejected image input — it is likely a text-only "
+            "model (no vision support). Re-run with --no-images: RPent will "
+            "then keep every visual observation as a file-path text notice "
+            "instead of sending image bytes."
+        )
+    return text
 
 
 def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:

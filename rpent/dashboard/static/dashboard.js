@@ -13,13 +13,12 @@ const COPY = {
     newSession: "New Session",
     launcherSubtitle: "Review the session config, then start the Dashboard control Session.",
     planner: "Planner (LLM backend)",
-    apiTaskControlPending: "api — task control pending",
-    codexTaskControlPending: "codex — task control pending",
     maxTurns: "Max turns",
     maxEpisodeSteps: "Max episode steps",
-    modelPreset: "Model preset",
+    modelPreset: "Model",
     customModel: "Custom model",
     optional: "(optional)",
+    required: "(required)",
     customModelPlaceholder: "provider:model or alias",
     claudeBudget: "Claude Code budget USD",
     plannerTimeout: "Planner timeout s",
@@ -97,7 +96,6 @@ const COPY = {
     episodeVideo: "episode video",
     completeRunVideo: "complete run video",
     finished: "finished",
-    backendDefault: "backend default",
     noTranscript: "No transcript events yet.",
     you: "You",
     initialTaskSubmitted:
@@ -108,6 +106,7 @@ const COPY = {
     requiredFields: {
       maxTurns: "Max turns",
       maxEpisodeSteps: "Max episode steps",
+      apiModel: "API model (provider:model)",
     },
     fieldRequired: (field) => `${field} is required.`,
     starting: "starting Session… this page will switch to the live monitor.",
@@ -137,13 +136,12 @@ const COPY = {
     newSession: "新建 Session",
     launcherSubtitle: "确认 Session 配置后，启动 Dashboard 控制 Session。",
     planner: "决策大脑(大模型后端)",
-    apiTaskControlPending: "api — 任务控制待支持",
-    codexTaskControlPending: "codex — 任务控制待支持",
     maxTurns: "最大对话轮数",
     maxEpisodeSteps: "最大仿真步数",
-    modelPreset: "模型预设",
+    modelPreset: "模型",
     customModel: "自定义模型",
     optional: "(可选)",
+    required: "(必填)",
     customModelPlaceholder: "provider:model 或别名",
     claudeBudget: "Claude Code 预算 USD",
     plannerTimeout: "Planner 超时秒数",
@@ -221,7 +219,6 @@ const COPY = {
     episodeVideo: "完整回放",
     completeRunVideo: "整段运行视频",
     finished: "已完成",
-    backendDefault: "后端默认",
     noTranscript: "暂无推理记录。",
     you: "你",
     initialTaskSubmitted: "已根据当前任务配置，自动向智能体提交初始任务指令。",
@@ -231,6 +228,7 @@ const COPY = {
     requiredFields: {
       maxTurns: "最大对话轮数",
       maxEpisodeSteps: "最大仿真步数",
+      apiModel: "API 模型（provider:model）",
     },
     fieldRequired: (field) => `请填写${field}。`,
     starting: "正在启动 Session… 页面将切换到实时监控。",
@@ -319,7 +317,30 @@ const mediaState = {
 };
 
 const AUTO_ACTION_RETURN_DELAY_MS = 300;
-const MODEL_PRESETS = ["", "claude-opus-4-7", "sonnet", "opus"];
+const MODEL_PRESETS = {
+  claude_code: [
+    "deepseek-v4-flash",
+    "kimi-k3",
+    "claude-opus-4-7",
+    "sonnet",
+    "opus",
+  ],
+  codex: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.3-codex"],
+  api: [
+    "openai-chat:deepseek-v4-flash",
+    "openai-chat:deepseek-v4-pro",
+    "openai-chat:kimi-k3",
+    "anthropic:claude-opus-4-7",
+    "openai:gpt-5.6-sol",
+    "openai:gpt-5.6-terra",
+    "openai:gpt-5.6-luna",
+    "openai-chat:glm-5.2",
+  ],
+};
+const launcherModelSelections = Object.fromEntries(
+  Object.entries(MODEL_PRESETS).map(([planner, models]) => [planner, models[0]]),
+);
+let activeLauncherPlanner = "claude_code";
 
 // --- Double-buffered media swap ------------------------------------------
 // Two <img> + two <video> live in the DOM at the same position. Exactly one
@@ -1226,17 +1247,20 @@ setupSplitter($("#composerGrip"), {
 });
 
 // --- launcher (start screen) ---
-function populateModelPresets(selected = "") {
+function populateModelPresets(planner, selected = "") {
   const preset = $("#f-model_preset");
-  const current = selected || preset.value || "";
+  const values = MODEL_PRESETS[planner];
+  const model = selected || values[0];
   preset.innerHTML = "";
-  for (const value of MODEL_PRESETS) {
+  for (const value of values) {
     const option = document.createElement("option");
     option.value = value;
-    option.textContent = value || copy.backendDefault;
+    option.textContent = value;
     preset.appendChild(option);
   }
-  preset.value = MODEL_PRESETS.includes(current) ? current : "";
+  const selectedPreset = values.includes(model);
+  preset.value = selectedPreset ? model : values[0];
+  $("#f-model_custom").value = selectedPreset ? "" : model;
 }
 
 function selectedModel() {
@@ -1245,20 +1269,31 @@ function selectedModel() {
 
 function showLauncher(defaults) {
   const d = defaults || {};
-  const defaultModel = d.model || "";
+  const planner = MODEL_PRESETS[d.planner] ? d.planner : "claude_code";
+  const defaultModel = d.model || MODEL_PRESETS[planner][0];
   const set = (id, val) => { $(id).value = val == null ? "" : val; };
   set("#f-max-turns", d["max-turns"]);
   set("#f-max-episode-steps", d["max-episode-steps"]);
   set("#f-planner-timeout-s", d["planner-timeout-s"]);
   set("#f-claude-code-max-budget-usd", d["claude-code-max-budget-usd"]);
   set("#f-cuda-device", d["cuda-device"]);
-  populateModelPresets(defaultModel);
-  if (MODEL_PRESETS.includes(defaultModel)) {
-    set("#f-model_custom", "");
-  } else {
-    set("#f-model_custom", defaultModel);
+  for (const name of Object.keys(launcherModelSelections)) {
+    launcherModelSelections[name] = MODEL_PRESETS[name][0];
   }
+  launcherModelSelections[planner] = defaultModel;
+  activeLauncherPlanner = planner;
+  $("#f-planner").value = planner;
+  populateModelPresets(planner, defaultModel);
+  updatePlannerFields();
   $("#launcher").classList.remove("hidden");
+}
+
+function updatePlannerFields() {
+  const planner = $("#f-planner").value;
+  $("#modelRequirement").textContent = planner === "api" ? copy.required : copy.optional;
+  for (const field of document.querySelectorAll("[data-planner]")) {
+    field.classList.toggle("hidden", field.dataset.planner !== planner);
+  }
 }
 
 function collectLaunchConfig() {
@@ -1266,14 +1301,19 @@ function collectLaunchConfig() {
     const v = $(id).value.trim();
     return v === "" ? null : Number(v);
   };
-  return {
+  const planner = $("#f-planner").value;
+  const config = {
+    planner,
     "max-turns": numOrNull("#f-max-turns"),
     "max-episode-steps": numOrNull("#f-max-episode-steps"),
     model: selectedModel(),
     "planner-timeout-s": numOrNull("#f-planner-timeout-s"),
-    "claude-code-max-budget-usd": numOrNull("#f-claude-code-max-budget-usd"),
     "cuda-device": $("#f-cuda-device").value.trim(),
   };
+  if (planner === "claude_code") {
+    config["claude-code-max-budget-usd"] = numOrNull("#f-claude-code-max-budget-usd");
+  }
+  return config;
 }
 
 async function pollForRun() {
@@ -1294,6 +1334,10 @@ async function onRun() {
     [copy.requiredFields.maxTurns, config["max-turns"]],
     [copy.requiredFields.maxEpisodeSteps, config["max-episode-steps"]],
   ];
+  if (config.planner === "api" && !/^[^:]+:.+$/.test(config.model)) {
+    $("#launchStatus").textContent = copy.fieldRequired(copy.requiredFields.apiModel);
+    return;
+  }
   const badNum = requiredNums.find(([_, v]) => v == null || !Number.isFinite(v));
   if (badNum) {
     $("#launchStatus").textContent = copy.fieldRequired(badNum[0]);
@@ -1316,6 +1360,15 @@ async function onRun() {
   pollForRun();
 }
 $("#runBtn").addEventListener("click", onRun);
+$("#f-planner").addEventListener("change", () => {
+  launcherModelSelections[activeLauncherPlanner] = selectedModel();
+  activeLauncherPlanner = $("#f-planner").value;
+  populateModelPresets(
+    activeLauncherPlanner,
+    launcherModelSelections[activeLauncherPlanner],
+  );
+  updatePlannerFields();
+});
 
 async function boot() {
   applyStaticCopy();
