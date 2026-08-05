@@ -18,10 +18,6 @@ from rpent.utils.logging import get_logger, get_output_dir
 class LiberoToolkit(Toolkit):
     """Toolkit for the LIBERO environment."""
 
-    # Tool schemas keyed by name (built once from the canonical ordered list
-    # in libero_tools.TOOLS_SPEC) so each tool registers with its own spec.
-    _SPECS = {spec["name"]: spec for spec in libero_tools.TOOLS_SPEC}
-
     def __init__(
         self,
         *,
@@ -37,10 +33,12 @@ class LiberoToolkit(Toolkit):
     # Registration
     # ------------------------------------------------------------------
     def _register_libero_tools(self) -> None:
-        specs = self._SPECS
-        # Inspection tools do not advance environment state. Most are stateless
-        # module functions; segment is bound to the primitives-owned SAM3 client.
-        inspection_handlers = {
+        # Read-only tools whose handlers aren't primitive methods (they need
+        # the run's EnvState bound in, or -- like segment -- must stay
+        # read-only despite being a primitives method). Every other spec binds
+        # to its primitive-driver method; @updatestate on the method decides
+        # whether state is captured.
+        state_handlers = {
             "view_driver_state": partial(
                 libero_tools.view_driver_state, state=self._state
             ),
@@ -50,20 +48,15 @@ class LiberoToolkit(Toolkit):
             "back_project": partial(libero_tools.back_project, state=self._state),
             "segment": partial(self._primitives.segment, state=self._state),
         }
-        for name, handler in inspection_handlers.items():
-            self.add_tool(
-                name,
-                specs[name],
-                handler,
-                captures_state=False,
-            )
-        for name in libero_tools.PRIMITIVE_TOOL_NAMES:
-            self.add_tool(
-                name,
-                specs[name],
-                getattr(self._primitives, name),
-                captures_state=True,
-            )
+        for spec in libero_tools.TOOLS_SPEC:
+            name = spec["name"]
+            if name in state_handlers:
+                handler = state_handlers[name]
+            else:
+                handler = getattr(self._primitives, name, None)
+                if handler is None:
+                    continue  # spec without a backing primitive method
+            self.add_tool(name, spec, handler)
 
     def get_state(
         self,

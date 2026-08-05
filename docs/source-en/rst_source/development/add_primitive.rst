@@ -35,7 +35,7 @@ call. They differ only in how the method is implemented.
 Add a scripted primitive
 ------------------------
 
-Adding a scripted primitive usually involves three steps:
+Adding a scripted primitive usually involves two steps:
 
 1. **Add a method to the primitives.** Add the method to the
    current environment's primitives class, such as
@@ -43,16 +43,25 @@ Adding a scripted primitive usually involves three steps:
    the tool-call arguments, performs the work, usually through one or
    more ``self._env.step(...)`` calls, and returns a small log ``dict``.
 
+   Mark the method with :func:`~rpent.tools.toolkit.updatestate` so the
+   toolkit re-renders state (``get_state``) automatically after it runs:
+
    .. code-block:: python
 
+      from rpent.tools.toolkit import updatestate
+
+      @updatestate
       def open_drawer(self, dx: float = 0.15) -> dict:
           # Move end-effector back by dx while gripper is closed.
           for _ in range(N):
               self._env.step(build_open_drawer_chunk(dx))
           return {"ok": True, "dx": dx}
 
+   Read-only tools (``view_driver_state``, ``back_project``, ``segment``,
+   ...) are simply left unmarked -- the toolkit skips state capture for them.
+
 2. **Add the tool schema.** Add an entry to ``TOOLS_SPEC`` in
-   ``toolkit.py``:
+   ``robots/<env>/tools.py``:
 
    .. code-block:: python
 
@@ -67,13 +76,10 @@ Adding a scripted primitive usually involves three steps:
           },
       }
 
-3. **Register the tool in the toolkit.** Route it through the toolkit's
-   ``_step`` helper so that state is re-rendered after execution:
-
-   .. code-block:: python
-
-      self.add_tool("open_drawer", OPEN_DRAWER_SPEC,
-                    lambda **kw: self._step("open_drawer", **kw))
+Once both exist, the toolkit registers the tool automatically: it iterates
+``TOOLS_SPEC`` and binds each spec to the matching primitive-driver method
+(e.g. ``getattr(self._primitives, name)``); ``@updatestate`` decides whether
+state is captured -- no explicit ``add_tool`` call is needed.
 
 After these steps, the ``api``, ``claude_code``, and ``codex`` planners
 can all call the primitive without any other code changes.

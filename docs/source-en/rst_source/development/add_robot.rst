@@ -223,10 +223,13 @@ plus any module-level functions referenced by the toolkit (e.g.
 ``view_driver_state``, ``back_project``, ``finish``).
 
 **Per-step state dump** — ``dump_state(driver, env_state, log)`` opens
-``env_state.record_step(...)`` and receives the allocated step index. Save
-large observations through ``env_state.save(..., step=step_idx)``. ``EnvState``
-owns and commits the ``StepRecord`` and adds every successfully saved base name
-to its flat ``artifacts`` set automatically. Readers use the canonical artifact
+``env_state.record_step(...)`` and receives the allocated step index; the
+``StepRecord`` is appended and committed immediately. Save large observations
+through ``env_state.save(...)`` — inside a ``record_step`` block the ``step``
+argument may be omitted (it defaults to the new step), pass an explicit
+``step=<int>`` to target a different step, and ``step=None`` for run-level
+artifacts. ``EnvState`` adds every successfully saved base name to the step's
+flat ``artifacts`` set automatically. Readers use the canonical artifact
 filenames rather than maintaining a parallel observation index.
 
 **Toolkit class** — subclass ``rpent.tools.toolkit.Toolkit``:
