@@ -43,13 +43,13 @@ Feature Matrix
      - - **VLA**
 
          - Pi0.5 ✅
-         - RLDX-1
+         - RLDX-1 ✅
 
        - **WAM**
 
          - DreamZero
      - - LIBERO-PRO ✅
-       - RoboCasa
+       - RoboCasa ✅
      - - Franka
        - SO-101
 

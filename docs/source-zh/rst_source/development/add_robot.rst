@@ -359,5 +359,12 @@ endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
      rpent --env myenv --suite <suite> --task <id> --seed 0 \
      --output-dir /tmp/myenv_smoke --planner api --model anthropic:claude-opus-4-8
 
+.. note::
+
+   共享 CLI parser 将 ``--env`` 限定为 ``libero`` 和 ``robocasa``
+   (见 ``rpent/cli/main.py``)。要让上面这条命令在全新的 ``myenv`` 上跑通，
+   需要先把新名字加到 ``rpent/cli/main.py`` 中 ``--env`` 的
+   ``choices=[...]`` 列表里。
+
 预期结果是 agent 完成 prompt 中指定的任务并调用 ``finish``。运行结束后，
 可在 ``<output_dir>/transcript_*.json`` 中查看总结。

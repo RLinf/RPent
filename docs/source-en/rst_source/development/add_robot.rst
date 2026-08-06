@@ -386,6 +386,13 @@ Once everything compiles, run this minimal smoke test:
      rpent --env myenv --suite <suite> --task <id> --seed 0 \
      --output-dir /tmp/myenv_smoke --planner api --model anthropic:claude-opus-4-8
 
+.. note::
+
+   The shared CLI parser restricts ``--env`` to ``libero`` and
+   ``robocasa`` (see ``rpent/cli/main.py``). Before this smoke test can
+   succeed with a brand-new ``myenv``, add the new name to the
+   ``choices=[...]`` list on ``--env`` in ``rpent/cli/main.py``.
+
 Expect the agent to complete the prompted task, and ``finish`` to be
 invoked. Check ``<output_dir>/transcript_*.json`` for the post-run
 summary.

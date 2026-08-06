@@ -36,13 +36,13 @@ RPent 建立在三条核心设计原则之上: **服务化、标准化、可组�
      - - **VLA**
 
          - Pi0.5 ✅
-         - RLDX-1
+         - RLDX-1 ✅
 
        - **WAM**
 
          - DreamZero
      - - LIBERO-PRO ✅
-       - RoboCasa
+       - RoboCasa ✅
      - - Franka
        - SO-101
 

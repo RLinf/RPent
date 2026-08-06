@@ -68,14 +68,22 @@ libero-plus = [
     "rpent[libero]",
     "rlinf-liberoplus",
 ]
-full = [
-    "rpent[rlinf,openpi,libero-pro,sam3]",
-]
 sam3 = [
     "sam3==0.1.4",
     "torch",
     "torchvision",
     "pillow>=10",
+]
+libero-full = [
+    "rpent[rlinf,openpi,libero-pro,sam3]",
+]
+robocasa = [
+    "rpent[rlinf]",
+    "mujoco==3.3.1",
+    "protobuf==6.33.0",
+    "lerobot @ git+https://github.com/huggingface/lerobot.git@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5",
+    "robosuite @ git+https://github.com/ARISE-Initiative/robosuite.git@master",
+    "rinf-robocasa @ git+https://github.com/qurakchin/robocasa.git@v1.0.1_rlinf",
 ]
 
 [tool.uv]
