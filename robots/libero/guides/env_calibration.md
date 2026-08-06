@@ -2,15 +2,12 @@
 
 ## Current LIBERO MCP Runtime Contract
 
-Use this file as a calibration reference for structured-tool runs. The runner
-owns the environment server and the `EnvState` lifecycle. Do not issue
-file-based driver commands, inspect observation storage directly, or read BDDL
-files for coordinates.
-
-Start with `view_env_state({"step": 0})`. It returns the initial robot state,
-top-level task language, logical observation references, and embedded camera
-images. Use `back_project` or `segment` for geometry and `view_camera_meta` for
-calibration. Step `-1` selects the latest record.
+Use this file as a calibration reference only. For current MCP-based runs, use
+structured MCP tools, do not issue file-based protocol commands, and do not
+manually manage `env_server.py`. Do not read BDDL files or hidden task
+definition files to infer coordinates. Start with
+`view_env_state({"step": 0})`; localize objects from `agentview_high.png` or
+`wrist_high.png` through `back_project` or `segment`.
 
 Measured 2026-05-20 on `libero_10_with_mug` t0 (LIVING_ROOM frame) and t8
 (KITCHEN frame). All probes use `move_to` with `gripper=-1` and tight
@@ -133,7 +130,7 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
 4. **`set_gripper` after a stalled `move_to` is unsafe.** The previous
    t0 attempt closed the gripper above the bottle (eef stalled high)
    then opened it; this returned ok but the env was effectively desynced.
-   Treat any `move_to` with `final_dist_m > 0.02` as a failure and
+   Treat any `move_to` with `log.result.final_dist_m > 0.02` as a failure and
    recover (back to safe altitude, re-plan) before proceeding.
 5. **Drop height matters for basket tasks.** Release at eef z=0.58 in
    LIVING_ROOM frame caused basket displacement Δ≈4–5 cm; z=0.53 keeps
@@ -146,25 +143,23 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
    `move_to` + `set_gripper` (last resort; unreliable for objects <6 cm — see
    `resources/libero/memory/feedback_scripted_pick_limits.md`).
 
-## Calibration Records
+## Calibration records
 
-Each calibration motion returns its state, command result, elapsed time, and
-embedded observation. Use that tool result immediately. To revisit a recorded
-step, call `view_env_state({"step": N})`; use `-1` for the latest step.
-
-The internal `states.json` file is a versioned manifest owned by `EnvState`, not
-a list for manual indexing. Calibration analysis should use structured tool
-results rather than parsing storage files.
+Each calibration motion returns its state and `log` immediately. To revisit a
+recorded step, call `view_env_state({"step": N})`; use `-1` for the latest.
+The internal `states.json` file is a versioned `EnvState` manifest, not an
+agent-facing list for manual indexing.
 
 ## Reproducer
 
-Use the runner-managed environment and call structured tools:
+Legacy calibration notes below describe the old file-protocol flow. In the
+current MCP runtime, use the runner-managed environment and call structured MCP
+tools instead.
 
 ```bash
 # For each z in 0.65 .. 0.42, call the MCP tool:
 move_to({"xyz": [-0.20, 0.10, 0.65],
          "gripper": -1, "tol": 0.008, "step_clip": 0.010,
          "max_steps": 80})
-# Inspect the returned result for final_eef_pos and final_dist_m.
-# Call view_env_state({"step": -1}) only when the latest state is needed again.
+# Inspect the returned log for final_eef_pos and final_dist_m.
 ```
