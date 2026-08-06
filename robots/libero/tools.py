@@ -708,7 +708,7 @@ class LiberoPrimitives:
         if not data.found:
             segment_blob["error"] = data.reason or "SAM3 found no mask"
         segment_blob.update(world_result)
-        state.save(
+        saved_segment = state.save(
             segment_name,
             segment_blob,
             step=nn,
@@ -719,13 +719,21 @@ class LiberoPrimitives:
             "step": nn,
             "camera": camera,
             "image_artifact": image_name,
-            "segment_artifact": segment_name,
             "score": segment_blob["score"],
             "box": segment_blob["box"],
             "world_xyz": segment_blob["world_xyz"],
             "world_error": segment_blob.get("world_error"),
         }
-        if "error" in segment_blob:
+        if saved_segment is None:
+            result["error"] = f"failed to persist segment artifact {segment_name}"
+            result["code"] = "segment_artifact_save_failed"
+            result["attempted_segment_artifact"] = segment_name
+            if "error" in segment_blob:
+                result["segmentation_error"] = segment_blob["error"]
+            result["fallback"] = "Use manual visual localization and back_project."
+        else:
+            result["segment_artifact"] = saved_segment
+        if saved_segment is not None and "error" in segment_blob:
             result["error"] = segment_blob["error"]
             result["fallback"] = "Use manual visual localization and back_project."
         if saved_overlay is not None:
