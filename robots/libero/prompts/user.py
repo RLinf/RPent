@@ -10,11 +10,10 @@ CELL = """- suite:      {{suite}}
 - recipe:     {{output_dir}}/recipe_{{recipe_tag}}.jsonl"""
 
 
-MODE = """Inspect the embedded high-resolution images returned by
-view_env_state, then use back_project or segment to localize objects before
-motion."""
+MODE = """Inspect `agentview_high.png` returned by `view_env_state`, then use
+`back_project` or `segment` to localize objects before motion."""
 
 
 BEGIN = """Read MEMORY.md and the guides, then call
-`view_env_state({"step": 0})` and inspect its embedded images. Localize every
-task-relevant entity before planning and execution."""
+`view_env_state({"step": 0})` and inspect `agentview_high.png`. Localize the
+target, then plan and execute."""
