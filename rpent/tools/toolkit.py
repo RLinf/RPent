@@ -13,10 +13,13 @@ import time
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from rpent.dashboard.events import DashboardEventSink, ToolResultEvent
+from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
 from rpent.utils.templates import substitute
+
+if TYPE_CHECKING:
+    from rpent.tools.state import StepRecord
 
 
 @dataclass(slots=True)
@@ -235,6 +238,7 @@ class Toolkit:
                 elapsed_s = round(time.perf_counter() - started, 2)
                 result_dict = result if isinstance(result, dict) else {"value": result}
                 command = {"action": name, **input_dict}
+                record: StepRecord | None = None
                 try:
                     captured = self.get_env_state(
                         command=command,
@@ -248,11 +252,15 @@ class Toolkit:
                         "error", f"failed to capture state after {name}: {e}"
                     )
                     captured.setdefault("traceback", traceback.format_exc())
+                else:
+                    record = self._state.latest_record()
                 result = captured
                 if failed:
                     result.setdefault("error", result_dict["error"])
                     if "traceback" in result_dict:
                         result.setdefault("traceback", result_dict["traceback"])
+                if record is not None:
+                    self._publish_step(record)
 
             return self._finish_tool(name, result)
         finally:
@@ -260,8 +268,17 @@ class Toolkit:
                 self._active_operation = None
                 operation.done_event.set()
 
+    def _publish_step(self, record: StepRecord) -> None:
+        """Publish one recorded environment step to the dashboard sink."""
+        self._dashboard_events.emit(
+            StepRecordEvent(
+                record=record,
+                env_state=self._state,
+                frame_artifacts=dict(getattr(type(self), "_FRAME_ARTIFACTS", {})),
+            )
+        )
+
     def _finish_tool(self, name: str, result: Any) -> ToolResult:
-        self._dashboard_events.emit(ToolResultEvent(name=name, result=result))
         return ToolResult(name=name, result=result)
 
     def get_env_state(

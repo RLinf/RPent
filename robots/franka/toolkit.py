@@ -5,6 +5,7 @@ from functools import partial
 from typing import Any
 
 from robots.franka import tools as franka_tools
+from rpent.dashboard.events import DashboardEventSink
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_output_dir
@@ -18,18 +19,23 @@ class FrankaToolkit(Toolkit):
         "_image_bytes": "scene.png",
         "_image_cam_bytes": "wrist.png",
     }
+    # Per-env artifact names for the dashboard's live frame images.
+    _FRAME_ARTIFACTS = {
+        "camera": "scene.png",
+        "wrist": "wrist.png",
+    }
 
     def __init__(
         self,
         *,
         env: Any,
-        dashboard: Any = None,
+        dashboard_events: DashboardEventSink,
     ) -> None:
         # EnvState owns the trace + counter for this run (explicit output_dir,
         # no process-global). The runner will own its lifecycle in a later cut;
         # for now the toolkit constructs it from get_output_dir().
         state = EnvState(get_output_dir())
-        super().__init__(dashboard=dashboard, state=state)
+        super().__init__(dashboard_events=dashboard_events, state=state)
         self.init_driver_clean(env=env)
         self._register_tools()
 
@@ -74,8 +80,9 @@ class FrankaToolkit(Toolkit):
         self._state.reset()
         driver = franka_tools.FrankaPrimitives(env=env)
         driver.reset()
-        franka_tools.dump_state(driver, self._state, log=None)
+        record = franka_tools.dump_state(driver, self._state, log=None)
         self._driver = driver
+        self._publish_step(record)
 
     def close(self) -> None:
         return None

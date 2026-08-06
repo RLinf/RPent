@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.franka.prompt import system_prompt, user_prompt
+from rpent.dashboard.events import DashboardEventSink
 from rpent.envs.env_spec import EnvSpec, RunConfig
 from rpent.envs.prompt_bundle import PromptBundle
 from rpent.utils.config import get_repo_root
@@ -42,7 +43,7 @@ def get_env_spec() -> EnvSpec:
 def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
-    dashboard: Any = None,
+    dashboard_events: DashboardEventSink,
 ):
     """Return the Franka toolkit (common tools + Cartesian primitives).
 
@@ -52,7 +53,7 @@ def get_toolkit(
     from robots.franka.toolkit import FrankaToolkit
 
     return FrankaToolkit(
-        dashboard=dashboard,
+        dashboard_events=dashboard_events,
         **primitives_kwargs,
     )
 

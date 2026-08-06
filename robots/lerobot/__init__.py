@@ -18,6 +18,7 @@ from robots.lerobot.prompt import (
     system_prompt,
     user_prompt,
 )
+from rpent.dashboard.events import DashboardEventSink
 from rpent.envs.env_spec import EnvSpec, RunConfig
 from rpent.envs.prompt_bundle import PromptBundle
 from rpent.utils.config import get_repo_root
@@ -53,7 +54,7 @@ def get_env_spec() -> EnvSpec:
 def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
-    dashboard: Any = None,
+    dashboard_events: DashboardEventSink,
 ):
     """Return the SO101 toolkit (common tools + SO101 primitives).
 
@@ -64,7 +65,7 @@ def get_toolkit(
     from robots.lerobot.toolkit import LerobotToolkit
 
     return LerobotToolkit(
-        dashboard=dashboard,
+        dashboard_events=dashboard_events,
         **primitives_kwargs,
     )
 

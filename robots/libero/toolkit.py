@@ -9,7 +9,7 @@ from functools import partial
 from typing import Any
 
 from robots.libero import tools as libero_tools
-from rpent.dashboard.events import DashboardEventSink, ToolResultEvent
+from rpent.dashboard.events import DashboardEventSink
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
@@ -17,6 +17,11 @@ from rpent.utils.logging import get_logger, get_output_dir
 
 class LiberoToolkit(Toolkit):
     """Toolkit for the LIBERO environment."""
+
+    _FRAME_ARTIFACTS = {
+        "camera": "agentview.png",
+        "wrist": "wrist.png",
+    }
 
     def __init__(
         self,
@@ -72,19 +77,17 @@ class LiberoToolkit(Toolkit):
             self._state,
             log={"command": command, "result": result, "elapsed_s": elapsed_s},
         )
-        action_video_name = None
         if self._dashboard_events.enabled:
             try:
                 frames = self._primitives.frame_slice(frame_start)
                 if frames:
                     candidate = f"action_{command['action']}.mp4"
-                    if self._state.save(
+                    self._state.save(
                         candidate,
                         frames,
                         step=record.step_idx,
                         fps=20,
-                    ):
-                        action_video_name = candidate
+                    )
             except Exception as e:
                 get_logger("libero_toolkit").warning(
                     "failed to save action clip for step %s: %s",
@@ -95,8 +98,6 @@ class LiberoToolkit(Toolkit):
         out["agent_elapsed_s"] = elapsed_s
         if result.get("interrupted"):
             out.update(result)
-        if action_video_name is not None:
-            out["action_video_artifact"] = action_video_name
         return out
 
     def init_primitives_clean(
@@ -114,15 +115,9 @@ class LiberoToolkit(Toolkit):
         primitives.reset()
         primitives.start_recording()
         self._action_frame_cursor = primitives.recorded_frame_count()
-        libero_tools.dump_state(primitives, self._state, log=None)
-        self._dashboard_events.emit(
-            ToolResultEvent(
-                name="view_env_state",
-                result=libero_tools.view_env_state(0, state=self._state),
-            )
-        )
-
+        record = libero_tools.dump_state(primitives, self._state, log=None)
         self._primitives = primitives
+        self._publish_step(record)
 
     def close(self) -> None:
         """Flush the agent-side video buffer through ``EnvState``."""

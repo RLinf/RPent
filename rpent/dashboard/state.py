@@ -11,6 +11,7 @@ from rpent.dashboard.events import (
     DashboardEvent,
     RunStartedEvent,
     RuntimeStatusEvent,
+    StepRecordEvent,
     ToolResultEvent,
     TranscriptEvent,
     UsageEvent,
@@ -26,6 +27,7 @@ from rpent.dashboard.interaction import (
 
 if TYPE_CHECKING:
     from rpent.dashboard.commands import TaskCommand
+    from rpent.tools.state import EnvState, StepRecord
 
 RUNTIME_COMPONENTS = ("env", "vla", "sam3")
 RUNTIME_STATUSES = {"pending", "starting", "ready", "failed"}
@@ -78,6 +80,8 @@ class DashboardState:
         self._timeline: list[dict[str, Any]] = []
         self._frames: dict[str, bytes] = {}
         self._frame_idx = -1
+        self.env_state: EnvState | None = None
+        self.frame_artifacts: dict[str, str] = {}
         self._accepting_input = False
         self._planner_activity: PlannerActivity = "starting"
         self._interrupt_requested = False
@@ -268,6 +272,8 @@ class DashboardState:
         self._timeline = []
         self._frames = {}
         self._frame_idx = -1
+        self.env_state = None
+        self.frame_artifacts = {}
         self._accepting_input = False
         self._planner_activity = "starting"
         self._interrupt_requested = False
@@ -477,6 +483,11 @@ class DashboardState:
         if isinstance(event, ToolResultEvent):
             self._apply_tool_result(event)
             return
+        if isinstance(event, StepRecordEvent):
+            self.env_state = event.env_state
+            self.frame_artifacts = dict(event.frame_artifacts)
+            self.on_step(event.record)
+            return
         if isinstance(event, RunStartedEvent):
             self._start()
             return
@@ -534,6 +545,46 @@ class DashboardState:
         with self._lock:
             self._timeline.append(item)
             self._terminated = self._terminated or terminated
+
+    def on_step(self, record: StepRecord) -> None:
+        """Project one recorded environment step into frames and timeline."""
+        self._update_step_frames(record)
+        command = record.command
+        if not isinstance(command, dict) or not command.get("action"):
+            return
+        terminated = bool(record.extras.get("terminated"))
+        action_video = next(
+            (name for name in sorted(record.artifacts) if name.endswith(".mp4")),
+            None,
+        )
+        item = {
+            "step": record.step_idx,
+            "action": str(command.get("action")),
+            "args": {key: value for key, value in command.items() if key != "action"},
+            "result": record.result,
+            "elapsed_s": record.elapsed_s,
+            "terminated": terminated,
+            "action_video_artifact": action_video,
+            "has_action_video": action_video is not None,
+        }
+        with self._lock:
+            self._timeline.append(item)
+            self._terminated = self._terminated or terminated
+
+    def _update_step_frames(self, record: StepRecord) -> None:
+        """Load dashboard frame bytes from the step's canonical artifacts."""
+        env_state = self.env_state
+        if env_state is None:
+            return
+        frames: dict[str, bytes] = {}
+        for kind, artifact in self.frame_artifacts.items():
+            if kind not in FRAME_KINDS or artifact not in record.artifacts:
+                continue
+            try:
+                frames[kind] = env_state.load_bytes(artifact, step=record.step_idx)
+            except FileNotFoundError:
+                continue
+        self._update_frames(step=record.step_idx, frames=frames)
 
     def _apply_frame_paths(self, result: dict[str, Any]) -> None:
         path_keys = {
@@ -680,16 +731,22 @@ class DashboardState:
             return self._frames.get(kind)
 
     def action_video(self, step: int) -> bytes | None:
+        env_state = self.env_state
+        if env_state is None:
+            return None
         with self._lock:
+            artifact = None
             for item in self._timeline:
                 if int(item.get("step", -1)) != int(step):
                     continue
                 artifact = item.get("action_video_artifact")
-                if not artifact:
-                    return None
-                video_path = self.output_dir / f"{int(step):02d}_{artifact}"
-                return video_path.read_bytes() if video_path.exists() else None
-        return None
+                break
+        if not artifact:
+            return None
+        try:
+            return env_state.load_bytes(artifact, step=int(step))
+        except FileNotFoundError:
+            return None
 
     def video(self) -> bytes | None:
         return self.video_path.read_bytes() if self.video_path.exists() else None

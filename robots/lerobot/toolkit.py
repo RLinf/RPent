@@ -10,6 +10,7 @@ from functools import partial
 from typing import Any
 
 from robots.lerobot import tools as lerobot_tools
+from rpent.dashboard.events import DashboardEventSink
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_output_dir
@@ -22,16 +23,21 @@ class LerobotToolkit(Toolkit):
         "_image_bytes": "scene.png",
         "_image_cam_bytes": "arm.png",
     }
+    # Per-env artifact names for the dashboard's live frame images.
+    _FRAME_ARTIFACTS = {
+        "camera": "scene.png",
+        "wrist": "arm.png",
+    }
 
     def __init__(
         self,
         *,
         env: Any,
         model: Any | None = None,
-        dashboard: Any = None,
+        dashboard_events: DashboardEventSink,
     ) -> None:
         state = EnvState(get_output_dir())
-        super().__init__(dashboard=dashboard, state=state)
+        super().__init__(dashboard_events=dashboard_events, state=state)
         self.init_driver_clean(env=env, model=model)
         self._register_tools()
 
@@ -80,9 +86,9 @@ class LerobotToolkit(Toolkit):
         self._state.reset()
         driver = lerobot_tools.LerobotPrimitives(env=env, model=model)
         driver.reset()
-        lerobot_tools.dump_state(driver, self._state, log=None)
-
+        record = lerobot_tools.dump_state(driver, self._state, log=None)
         self._driver = driver
+        self._publish_step(record)
 
     def close(self) -> None:
         """End-of-run cleanup hook. TODO: flush an episode video if desired."""
