@@ -2,12 +2,15 @@
 
 ## Current LIBERO MCP Runtime Contract
 
-Use this file as a calibration reference only. For current MCP-based runs, use
-structured MCP tools, do not issue file-based protocol commands, and do not manually manage
-`env_server.py`. Do not read BDDL files or hidden task definition files to infer
-coordinates. Do not expect object world coordinates in `states.json`; localize
-objects through images_cam + depth/back_project, segment, and wrist/high-res
-artifacts when available.
+Use this file as a calibration reference for structured-tool runs. The runner
+owns the environment server and the `EnvState` lifecycle. Do not issue
+file-based driver commands, inspect observation storage directly, or read BDDL
+files for coordinates.
+
+Start with `view_env_state({"step": 0})`. It returns the initial robot state,
+top-level task language, logical observation references, and embedded camera
+images. Use `back_project` or `segment` for geometry and `view_camera_meta` for
+calibration. Step `-1` selects the latest record.
 
 Measured 2026-05-20 on `libero_10_with_mug` t0 (LIVING_ROOM frame) and t8
 (KITCHEN frame). All probes use `move_to` with `gripper=-1` and tight
@@ -17,9 +20,9 @@ Measured 2026-05-20 on `libero_10_with_mug` t0 (LIVING_ROOM frame) and t8
 
 Each task scene uses one of the table fixtures below, which sets the entire
 world-frame z origin. The OSC workspace and all pick/place altitudes shift
-accordingly. **Check `states.json[0].state.robot0_eef_pos[2]` in the initial
-state and branch on it.** Do not read BDDL files for this; use runtime state and
-visual evidence.
+accordingly. **Check `state.robot0_eef_pos[2]` in the result of
+`view_env_state({"step": 0})` and branch on it.** Do not read BDDL files for
+this; use runtime state and visual evidence.
 
 | Fixture | eef home z | Table top z | Used by tasks |
 |---|---|---|---|
@@ -119,7 +122,7 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
 
 ## Practical rules going forward
 
-1. **Always read `states.json[0].state.robot0_eef_pos[2]` before computing any z target.**
+1. **Always inspect the initial returned `state.robot0_eef_pos[2]` before computing any z target.**
    ≈ 0.68 → LIVING_ROOM; ≈ 1.17 → KITCHEN; ≈ 0.26 → OBJECT. Use the matching
    frame table above.
 2. **Never command an eef z below the per-frame floor.** Going to z=0.42
@@ -143,24 +146,25 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
    `move_to` + `set_gripper` (last resort; unreliable for objects <6 cm — see
    `resources/libero/memory/feedback_scripted_pick_limits.md`).
 
-## Calibration log files
+## Calibration Records
 
-Raw probe logs are preserved in:
-- `{output_dir}/states.json` (one step entry per command — the per-command
-  audit; each entry has `command`, `result`, `state`, `elapsed_s`).
-- Only kept for the most recent agent session; reproduce by re-running
-  the calibration with the snippet in the next section.
+Each calibration motion returns its state, command result, elapsed time, and
+embedded observation. Use that tool result immediately. To revisit a recorded
+step, call `view_env_state({"step": N})`; use `-1` for the latest step.
+
+The internal `states.json` file is a versioned manifest owned by `EnvState`, not
+a list for manual indexing. Calibration analysis should use structured tool
+results rather than parsing storage files.
 
 ## Reproducer
 
-Legacy calibration notes below describe the old file-protocol flow. In the
-current MCP runtime, use the runner-managed environment and call structured MCP
-tools instead.
+Use the runner-managed environment and call structured tools:
 
 ```bash
 # For each z in 0.65 .. 0.42, call the MCP tool:
 move_to({"xyz": [-0.20, 0.10, 0.65],
          "gripper": -1, "tol": 0.008, "step_clip": 0.010,
          "max_steps": 80})
-# Then read states.json entry NN for final_eef_pos & final_dist_m.
+# Inspect the returned result for final_eef_pos and final_dist_m.
+# Call view_env_state({"step": -1}) only when the latest state is needed again.
 ```

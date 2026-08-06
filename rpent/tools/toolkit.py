@@ -9,13 +9,17 @@ from __future__ import annotations
 import base64
 import json
 import threading
+import time
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from rpent.dashboard.events import DashboardEventSink, ToolResultEvent
+from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
 from rpent.utils.templates import substitute
+
+if TYPE_CHECKING:
+    from rpent.tools.state import StepRecord
 
 
 @dataclass(slots=True)
@@ -26,6 +30,37 @@ class _ToolOperation:
 
 class ToolCancelled(Exception):
     """Raised when an environment reaches a safe cancellation boundary."""
+
+
+def updatestate(func):
+    """Mark a tool handler as one that advances environment state.
+
+    The toolkit captures a fresh observation (:meth:`Toolkit.get_env_state`)
+    after a handler carrying this marker runs (or raises). Apply it to
+    primitive-driver methods that move the robot; read-only tools (file IO,
+    ``view_env_state``, ``back_project``, ``segment``, ...) are left
+    unmarked and skip state capture.
+
+    The marker is read off the underlying function, so registering a bound
+    method (``getattr(self._driver, name)``) inherits it automatically.
+    ``functools.partial`` does not delegate attribute access, so a partial
+    wrapping a marked method is treated as read-only (intentional -- see the
+    LIBERO ``segment`` tool).
+    """
+    func._updates_state = True
+    return func
+
+
+def _updates_state(handler: Callable[..., Any]) -> bool:
+    """Whether ``handler`` was marked with :func:`updatestate`.
+
+    Resolves through ``__func__`` so bound methods (the common case for
+    primitive-driver tools) report the marker set on their underlying
+    function. Plain functions, closures, and ``functools.partial`` objects
+    do not delegate, so undecorated read-only handlers read as ``False``.
+    """
+    target = getattr(handler, "__func__", handler)
+    return bool(getattr(target, "_updates_state", False))
 
 
 @dataclass
@@ -106,10 +141,18 @@ class Toolkit:
     :meth:`close` to release env-side primitives / servers at the end of the run.
     """
 
-    def __init__(self, *, dashboard_events: DashboardEventSink) -> None:
-        # name -> (spec, handler)
-        self._tools: dict[str, tuple[dict[str, Any], Callable[..., dict[str, Any]]]] = {}
+    def __init__(
+        self,
+        *,
+        dashboard_events: DashboardEventSink,
+        state: Any = None,
+    ) -> None:
+        self._tools: dict[
+            str,
+            tuple[dict[str, Any], Callable[..., Any], bool],
+        ] = {}
         self._dashboard_events = dashboard_events
+        self._state = state
         self._operation_lock = threading.Lock()
         self._active_operation: _ToolOperation | None = None
         self._register_common_tools()
@@ -122,7 +165,7 @@ class Toolkit:
         self,
         name: str,
         spec: dict[str, Any],
-        handler: Callable[..., dict[str, Any]],
+        handler: Callable[..., Any],
     ) -> None:
         """Register one tool under ``name`` with its schema and handler.
 
@@ -131,9 +174,10 @@ class Toolkit:
             spec: Anthropic-shaped tool schema dict (``name``,
                 ``description``, ``input_schema``).
             handler: Callable invoked with the tool's input kwargs; returns
-                a result dict.
+                a result dict. Decorate state-advancing primitives with
+                :func:`updatestate`.
         """
-        self._tools[name] = (spec, handler)
+        self._tools[name] = (spec, handler, _updates_state(handler))
 
     def _register_common_tools(self) -> None:
         """Register the file/IO tools shared by every run."""
@@ -150,38 +194,102 @@ class Toolkit:
     def get_tools_spec(self) -> list[dict[str, Any]]:
         """Return the tool schemas the LLM sees."""
         return substitute(
-            [spec for spec, _ in self._tools.values()]
+            [spec for spec, _, _ in self._tools.values()]
         )
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
         """Dispatch a tool call to its registered handler."""
         entry = self._tools.get(name)
         if entry is None:
-            return ToolResult(name=name, result={"error": f"unknown tool: {name}"})
-        handler = entry[1]
+            return self._finish_tool(name, {"error": f"unknown tool: {name}"})
+        _, handler, captures_state = entry
 
         with self._operation_lock:
             if self._active_operation is not None:
-                return ToolResult(
-                    name=name,
-                    result={"error": "another tool operation is still active"},
+                return self._finish_tool(
+                    name,
+                    {"error": "another tool operation is still active"},
                 )
             operation = _ToolOperation()
             self._active_operation = operation
 
         try:
+            started = time.perf_counter()
+            failed = False
             try:
                 result = handler(**input_dict)
             except TypeError as e:
-                result = {"error": f"bad arguments for {name}: {e}", "got": input_dict}
+                return self._finish_tool(
+                    name,
+                    {"error": f"bad arguments for {name}: {e}", "got": input_dict},
+                )
+            except ToolCancelled as e:
+                result = {
+                    "error": str(e),
+                    "code": "tool_cancelled",
+                    "interrupted": True,
+                }
+                failed = True
             except Exception as e:
                 result = {"error": str(e), "traceback": traceback.format_exc()}
-            self._dashboard_events.emit(ToolResultEvent(name=name, result=result))
-            return ToolResult(name=name, result=result)
+                failed = True
+
+            if captures_state:
+                elapsed_s = round(time.perf_counter() - started, 2)
+                result_dict = result if isinstance(result, dict) else {"value": result}
+                command = {"action": name, **input_dict}
+                record: StepRecord | None = None
+                try:
+                    captured = self.get_env_state(
+                        command=command,
+                        result=result_dict,
+                        elapsed_s=elapsed_s,
+                    )
+                except Exception as e:
+                    captured = result_dict
+                    captured["state_capture_error"] = str(e)
+                    captured.setdefault(
+                        "error", f"failed to capture state after {name}: {e}"
+                    )
+                    captured.setdefault("traceback", traceback.format_exc())
+                else:
+                    record = self._state.latest_record()
+                result = captured
+                if failed:
+                    result.setdefault("error", result_dict["error"])
+                    if "traceback" in result_dict:
+                        result.setdefault("traceback", result_dict["traceback"])
+                if record is not None:
+                    self._publish_step(record)
+
+            return self._finish_tool(name, result)
         finally:
             with self._operation_lock:
                 self._active_operation = None
                 operation.done_event.set()
+
+    def _publish_step(self, record: StepRecord) -> None:
+        """Publish one recorded environment step to the dashboard sink."""
+        self._dashboard_events.emit(
+            StepRecordEvent(
+                record=record,
+                env_state=self._state,
+                frame_artifacts=dict(getattr(type(self), "_FRAME_ARTIFACTS", {})),
+            )
+        )
+
+    def _finish_tool(self, name: str, result: Any) -> ToolResult:
+        return ToolResult(name=name, result=result)
+
+    def get_env_state(
+        self,
+        *,
+        command: dict[str, Any],
+        result: dict[str, Any],
+        elapsed_s: float,
+    ) -> dict[str, Any]:
+        """Capture and return the observation produced by a stateful tool."""
+        raise NotImplementedError
 
     # ------------------------------------------------------------------
     # Server lifecycle hooks (overridden by env toolkits)

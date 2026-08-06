@@ -90,7 +90,7 @@ Subclass ``Toolkit`` in ``robots/<env>/toolkit.py`` and register env tools with
        ends; optional ``_image_bytes`` (etc.) to return camera images.
 
 The base class already registers common file tools; call ``super().__init__()`` then
-``add_tool`` for env tools. Per-step state and ``view_driver_state`` are in
+``add_tool`` for env tools. Per-step state and ``view_env_state`` are in
 :doc:`add_primitive`.
 
 Inter-process communication

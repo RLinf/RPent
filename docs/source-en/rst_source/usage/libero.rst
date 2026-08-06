@@ -116,7 +116,7 @@ What runs where
   transports (HTTP or socket). It returns only the top compressed PNG mask.
 - **toolkit** (``robots/libero/toolkit.py``) — defines the tools the
   LLM can call: ``pi0_pick`` (fed to Pi0.5), ``move_to``,
-  ``rotate_wrist``, ``back_project``, ``view_driver_state``,
+  ``rotate_wrist``, ``back_project``, ``view_env_state``,
   ``finish``, …
 
 Tools the planner can call
@@ -147,8 +147,10 @@ Physical action tools advance the environment and record new state and images.
   coordinates.
 - ``segment(prompt=... / point=..., ...)`` — use SAM3 to segment an existing
   image with a text or point prompt.
-- ``view_driver_state(step=None)`` — read an existing state and image record.
-- ``view_camera_meta(camera=..., step=None)`` — read existing camera metadata.
+- ``view_env_state(step=-1)`` — read a recorded state and its embedded
+  observation images. Step ``0`` is initial; ``-1`` is latest.
+- ``view_camera_meta(camera=..., step=-1)`` — read camera metadata for a
+  recorded step. Step ``-1`` is latest.
 - ``finish(status, summary)`` — end the current run.
 
 These tools do not advance the environment.

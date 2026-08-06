@@ -40,6 +40,15 @@ class ToolResultEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class StepRecordEvent:
+    """Publish one recorded environment step and its artifact context."""
+
+    record: Any
+    env_state: Any
+    frame_artifacts: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
 class RunStartedEvent:
     """Mark startup complete and the agent run active."""
 
@@ -49,6 +58,7 @@ DashboardEvent: TypeAlias = (
     | UsageEvent
     | RuntimeStatusEvent
     | ToolResultEvent
+    | StepRecordEvent
     | RunStartedEvent
 )
 
