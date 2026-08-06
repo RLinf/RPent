@@ -451,6 +451,17 @@ class DashboardState:
             self._interaction_changed_locked()
             return replace(message)
 
+    def mark_message_unsent(self, message_id: str) -> DashboardMessage:
+        """Restore one queued backend submission that never started."""
+        with self._condition:
+            message = self._transition_sending_message_locked(
+                message_id,
+                status="unsent",
+                error=None,
+            )
+            self._interaction_changed_locked()
+            return replace(message)
+
     def request_interrupt(self) -> InterruptRequestResult:
         """Record an Esc request without waiting for the planner backend."""
         with self._condition:
@@ -670,7 +681,7 @@ class DashboardState:
         self,
         message_id: str,
         *,
-        status: Literal["sent", "failed"],
+        status: Literal["sent", "failed", "unsent"],
         error: str | None,
     ) -> DashboardMessage:
         message = self._message_locked(message_id)

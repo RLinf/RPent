@@ -19,11 +19,13 @@ class DashboardPlannerControl:
         cancel_active_and_wait: Callable[[], None],
         emit_user: Callable[[str], None],
         emit_initial_user: Callable[[], None],
+        defer_message_ack: bool = False,
     ) -> None:
         self._interaction = interaction
         self._cancel_active_and_wait = cancel_active_and_wait
         self._emit_user = emit_user
         self._emit_initial_user = emit_initial_user
+        self._defer_message_ack = defer_message_ack
         self._lock = asyncio.Lock()
         self._outstanding_completions = 0
 
@@ -65,6 +67,16 @@ class DashboardPlannerControl:
     def end(self) -> None:
         """Seal the interaction and preserve unfinished messages as unsent."""
         self._interaction.seal_interaction()
+
+    def message_started(self, message_id: str, text: str) -> None:
+        """Acknowledge one deferred submission when execution starts."""
+        self._interaction.mark_message_sent(message_id)
+        self._emit_user(text)
+
+    def message_discarded(self, message_id: str) -> None:
+        """Restore one deferred submission that never started."""
+        if self._interaction.planner_activity != "ended":
+            self._interaction.mark_message_unsent(message_id)
 
     async def cancel_active_toolkit(self) -> None:
         """Cancel and drain the active toolkit operation off the event loop."""
@@ -108,17 +120,20 @@ class DashboardPlannerControl:
         message = self._interaction.claim_next_pending_message()
         while message is not None and not self._interaction.task_replacement_requested:
             try:
-                added_completions = await driver.submit(message.text)
+                if self._defer_message_ack:
+                    added_completions = await driver.submit_dashboard_message(message)
+                else:
+                    added_completions = await driver.submit(message.text)
             except Exception as exc:
                 self._interaction.mark_message_failed(
                     message.message_id,
                     _exception_text(exc),
                 )
             else:
-                self._interaction.mark_message_sent(message.message_id)
+                if not self._defer_message_ack:
+                    self.message_started(message.message_id, message.text)
                 self._outstanding_completions += added_completions
                 self._interaction.set_planner_activity("busy")
-                self._emit_user(message.text)
             message = self._interaction.claim_next_pending_message()
 
 

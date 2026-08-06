@@ -39,7 +39,7 @@ from rpent.dashboard.events import (
     TranscriptEvent,
     UsageEvent,
 )
-from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import PlannerResult
 from rpent.tools.toolkit import Toolkit
@@ -291,6 +291,7 @@ class ApiAgentLoop:
             cancel_active_and_wait=toolkit.cancel_active_and_wait,
             emit_user=emit_user,
             emit_initial_user=lambda: emit_user(user_message, initial=True),
+            defer_message_ack=True,
         )
         observer = _ApiRunObserver(
             dashboard_events=self._dashboard_events,
@@ -452,7 +453,7 @@ class _ApiDashboardSession:
         self._observer = observer
         self._history: list[ModelMessage] = []
         self.usage = RunUsage()
-        self._pending_prompts: deque[str] = deque()
+        self._pending_prompts: deque[tuple[str | None, str]] = deque()
         self._run_task: asyncio.Task[Any] | None = None
         self._active_prompt = False
         self._closing = False
@@ -465,21 +466,35 @@ class _ApiDashboardSession:
 
     async def submit(self, text: str) -> int:
         """Queue Dashboard input as a new independent API run."""
+        return self._queue_prompt(text)
+
+    async def submit_dashboard_message(self, message: DashboardMessage) -> int:
+        """Queue Dashboard input and defer acknowledgement until it starts."""
+        return self._queue_prompt(message.text, message_id=message.message_id)
+
+    def _queue_prompt(self, text: str, *, message_id: str | None = None) -> int:
         if self._closing:
             raise RuntimeError("API conversation is closed")
         if self.error is not None:
             raise RuntimeError(self.error)
-        self._pending_prompts.append(text)
+        self._pending_prompts.append((message_id, text))
         if self._run_task is None:
             self._run_task = asyncio.create_task(self._run_pending_prompts())
         return 1
 
     async def interrupt(self) -> int:
         run_task = self._run_task
-        if run_task is None or run_task.done():
-            return 0
         interrupted = int(self._active_prompt) + len(self._pending_prompts)
+        discarded_message_ids = tuple(
+            message_id
+            for message_id, _ in self._pending_prompts
+            if message_id is not None
+        )
         self._pending_prompts.clear()
+        for message_id in discarded_message_ids:
+            self._control.message_discarded(message_id)
+        if run_task is None or run_task.done():
+            return interrupted
         run_task.cancel()
         try:
             with contextlib.suppress(asyncio.CancelledError):
@@ -499,9 +514,11 @@ class _ApiDashboardSession:
         task = asyncio.current_task()
         try:
             while self._pending_prompts and not self._closing:
-                seed = self._pending_prompts.popleft()
+                message_id, seed = self._pending_prompts.popleft()
                 self._active_prompt = True
                 try:
+                    if message_id is not None:
+                        self._control.message_started(message_id, seed)
                     if not await self._run_agent(seed):
                         self._pending_prompts.clear()
                         return
