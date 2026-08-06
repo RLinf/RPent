@@ -614,7 +614,9 @@ class DashboardState:
 
     def _resolve_output_path(self, value: Any) -> Path:
         path = Path(value)
-        return path if path.is_absolute() else self.output_dir / path
+        if path.is_absolute() or path.is_relative_to(self.output_dir):
+            return path
+        return self.output_dir / path
 
     def _apply_frame_paths(self, result: dict[str, Any]) -> None:
         projected = result.get("frames")
