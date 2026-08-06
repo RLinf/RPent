@@ -835,7 +835,7 @@ class DashboardState:
         with self._lock:
             return self._frames.get(kind)
 
-    def action_video(self, step: int) -> bytes | None:
+    def action_video_path(self, step: int) -> Path | None:
         env_state = self.env_state
         with self._lock:
             artifact = None
@@ -848,16 +848,14 @@ class DashboardState:
                 break
         if artifact and env_state is not None:
             try:
-                return env_state.load_bytes(artifact, step=int(step))
-            except FileNotFoundError:
+                path = env_state.artifact_path(artifact, step=int(step))
+            except (LookupError, ValueError):
                 return None
+            return path if path.exists() else None
         if raw_path:
             video_path = Path(raw_path)
-            return video_path.read_bytes() if video_path.exists() else None
+            return video_path if video_path.exists() else None
         return None
-
-    def video(self) -> bytes | None:
-        return self.video_path.read_bytes() if self.video_path.exists() else None
 
     def has_video(self) -> bool:
         with self._lock:

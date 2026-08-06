@@ -286,6 +286,11 @@ class EnvState:
         resolved_step = self._resolve_read_step(step)
         return self._artifact_file(name, resolved_step).read_bytes()
 
+    def artifact_path(self, name: str, *, step: int | None = -1) -> Path:
+        """Return the canonical filesystem path for an artifact."""
+        resolved_step = self._resolve_read_step(step)
+        return self._artifact_file(name, resolved_step)
+
     def exists(self, name: str, *, step: int | None = -1) -> bool:
         try:
             resolved_step = self._resolve_read_step(step)
