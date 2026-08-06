@@ -246,7 +246,10 @@ class DashboardServer:
             t: str = "",
         ) -> Response:
             live = self._resolve(run)
-            png = live.frame(kind) if live else None
+            try:
+                png = live.frame(kind) if live else None
+            except ValueError as exc:
+                return JSONResponse({"detail": str(exc)}, status_code=422)
             if png is None:
                 return Response(status_code=404)
             return Response(png, media_type="image/png")

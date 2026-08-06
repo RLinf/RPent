@@ -481,7 +481,17 @@ class _CodexDashboardSession:
         if turn is None or done is None:
             return 0
         await turn.interrupt()
-        await asyncio.wait_for(done.wait(), timeout=15)
+        try:
+            await asyncio.wait_for(done.wait(), timeout=15)
+        except asyncio.TimeoutError:
+            if self._turn_task is not None:
+                self._turn_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._turn_task
+            self._turn = None
+            self._turn_done = None
+            self._turn_task = None
+            return 1
         # ``_consume_turn`` reports the matching completed turn boundary.
         return 0
 

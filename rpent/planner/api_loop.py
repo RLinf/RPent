@@ -515,6 +515,7 @@ class _ApiDashboardSession:
     async def _run_agent(self, seed: str) -> bool:
         run_completed = False
         run: Any | None = None
+        node: Any | None = None
         try:
             async with self._agent.iter(
                 seed,
@@ -535,6 +536,7 @@ class _ApiDashboardSession:
                     if self._pending_prompts:
                         # Dashboard input accepted at this tool boundary starts
                         # a fresh run from the checkpoint captured below.
+                        node = await run.next(node)
                         break
                     node = await run.next(node)
 
@@ -555,7 +557,10 @@ class _ApiDashboardSession:
                     and isinstance(history[-1], ModelResponse)
                     and history[-1].tool_calls
                 ):
-                    history.pop()
+                    if request := getattr(node, "request", None):
+                        history.append(request)
+                    else:
+                        history.pop()
                 self._history = history
         return run_completed and not self._closing
 
