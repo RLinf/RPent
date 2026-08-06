@@ -43,8 +43,9 @@ Adding a scripted primitive usually involves two steps:
    the tool-call arguments, performs the work, usually through one or
    more ``self._env.step(...)`` calls, and returns a small log ``dict``.
 
-   Mark the method with :func:`~rpent.tools.toolkit.updatestate` so the
-   toolkit re-renders state (``get_env_state``) automatically after it runs:
+   You should mark all methods that change environment state with 
+   :func:`~rpent.tools.toolkit.updatestate`, so the toolkit re-renders 
+   state (``get_env_state``) automatically after it runs:
 
    .. code-block:: python
 
@@ -57,8 +58,9 @@ Adding a scripted primitive usually involves two steps:
               self._env.step(build_open_drawer_chunk(dx))
           return {"ok": True, "dx": dx}
 
+   Failing to do so will result in the next tool call seeing stale state information.
    Read-only tools (``view_env_state``, ``back_project``, ``segment``,
-   ...) are simply left unmarked -- the toolkit skips state capture for them.
+   ...) can be left unmarked -- the toolkit skips state capture for them.
 
 2. **Add the tool schema.** Add an entry to ``TOOLS_SPEC`` in
    ``robots/<env>/tools.py``:
@@ -78,8 +80,7 @@ Adding a scripted primitive usually involves two steps:
 
 Once both exist, the toolkit registers the tool automatically: it iterates
 ``TOOLS_SPEC`` and binds each spec to the matching primitive-driver method
-(e.g. ``getattr(self._primitives, name)``); ``@updatestate`` decides whether
-state is captured -- no explicit ``add_tool`` call is needed.
+(e.g. ``getattr(self._primitives, name)``).
 
 After these steps, the ``api``, ``claude_code``, and ``codex`` planners
 can all call the primitive without any other code changes.

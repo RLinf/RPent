@@ -40,7 +40,8 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
    一个方法。该方法接收工具调用的参数，执行一次或多次
    ``self._env.step(...)``，并返回一个简短的日志字典。
 
-   为该方法加上 :func:`~rpent.tools.toolkit.updatestate` 装饰器，
+   您需要为所有可能改变环境状态的方法加上 
+   :func:`~rpent.tools.toolkit.updatestate` 装饰器，
    toolkit 会在其执行后自动重新渲染状态（``get_env_state``）：
 
    .. code-block:: python
@@ -54,6 +55,7 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
               self._env.step(build_open_drawer_chunk(dx))
           return {"ok": True, "dx": dx}
 
+   若不这样做，之后的工具调用可能将看到过时的环境状态信息。
    只读工具（``view_env_state``、``back_project``、``segment`` 等）
    无需装饰——toolkit 会跳过它们的状态捕获。
 
@@ -73,8 +75,7 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
       }
 
 两者就位后，toolkit 会自动注册该工具：它遍历 ``TOOLS_SPEC``，把每个定义
-绑定到对应的 primitive driver 方法（如 ``getattr(self._primitives, name)``），
-由 ``@updatestate`` 决定是否捕获状态——无需显式调用 ``add_tool``。
+绑定到对应的 primitive 方法（如 ``getattr(self._primitives, name)``）。
 
 完成以上步骤后，``api``、``claude_code`` 和 ``codex`` 三种 planner
 都可以调用该工具，无需修改其他代码。

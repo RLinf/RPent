@@ -234,7 +234,7 @@ filenames rather than maintaining a parallel observation index.
 
 **Toolkit class** — subclass ``rpent.tools.toolkit.Toolkit``:
 
-- build the primitive driver in ``__init__`` through a custom initialization
+- build the primitives in ``__init__`` through a custom initialization
   helper (named ``init_primitives_clean`` in LIBERO; it calls
   ``EnvState.reset()``, constructs the primitives, and dumps step 0),
 - register each tool with ``self.add_tool(name, spec, handler)`` — stateless
