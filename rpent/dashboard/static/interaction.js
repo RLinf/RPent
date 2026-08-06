@@ -99,6 +99,19 @@ export function createInteractionController({ copy, select, onRefresh }) {
     return formatValue(error);
   }
 
+  function controlFeedbackText(feedback) {
+    const text = errorText(feedback);
+    const taskSelectedPrefix = "Task selected: ";
+    if (text.startsWith(taskSelectedPrefix)) {
+      return copy.taskSelectedFeedback(text.slice(taskSelectedPrefix.length));
+    }
+    const taskRunStarting = /^TaskRun (\d+) starting(?:…|\.\.\.)$/.exec(text);
+    if (taskRunStarting) {
+      return copy.taskRunStartingFeedback(taskRunStarting[1]);
+    }
+    return text;
+  }
+
   async function responseErrorText(response) {
     let body = "";
     try {
@@ -287,7 +300,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     status.className = "composer-status";
     const backendError = errorText(interaction.last_error);
     const controlError = errorText(session.control_error);
-    const feedback = session.control_feedback.map(errorText).filter(Boolean);
+    const feedback = session.control_feedback.map(controlFeedbackText).filter(Boolean);
     if (state.requestError) {
       status.textContent = state.requestError;
       status.classList.add("is-error");

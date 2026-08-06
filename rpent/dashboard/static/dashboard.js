@@ -51,6 +51,8 @@ const COPY = {
     commandReady: (usage) => `Ready for ${usage}.`,
     taskStarting: "Starting the selected TaskRun…",
     taskSwitchPending: (target) => `Task switch pending${target ? `: ${target}` : ""}.`,
+    taskSelectedFeedback: (target) => `Task selected: ${target}`,
+    taskRunStartingFeedback: (number) => `TaskRun ${number} starting…`,
     sessionFatal: "The Dashboard Session is unavailable.",
     dashboardConfigFailed: "Dashboard configuration is unavailable.",
     interactionStarting: "Waiting for environment startup…",
@@ -169,6 +171,10 @@ const COPY = {
     commandReady: (usage) => `可提交 ${usage}。`,
     taskStarting: "正在启动已选 TaskRun…",
     taskSwitchPending: (target) => `任务切换等待中${target ? `：${target}` : ""}。`,
+    taskSelectedFeedback: (target) => `已选择任务：${target
+      .replace(/\/ task /g, "/ 任务 ")
+      .replace(/\/ seed /g, "/ 种子 ")}`,
+    taskRunStartingFeedback: (number) => `任务运行 ${number} 正在启动…`,
     sessionFatal: "Dashboard Session 已不可用。",
     dashboardConfigFailed: "Dashboard 配置不可用。",
     interactionStarting: "正在等待环境启动…",
