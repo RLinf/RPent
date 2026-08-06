@@ -175,6 +175,10 @@ class EnvState:
             return None
         return self._steps[-1].step_idx
 
+    def latest_record(self) -> StepRecord | None:
+        """Return the most recently recorded step (live reference, no copy)."""
+        return self._steps[-1] if self._steps else None
+
     def _resolve_read_step(self, step: int | None) -> int | None:
         if step is None:
             return None

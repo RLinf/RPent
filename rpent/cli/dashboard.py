@@ -155,7 +155,6 @@ def _run_dashboard_task(
             toolkit = get_toolkit(
                 args.env_name,
                 primitives_kwargs=primitives_kwargs,
-                video_path=str(output_dir / "episode.mp4"),
                 dashboard_events=state,
             )
             planner = build_planner(
