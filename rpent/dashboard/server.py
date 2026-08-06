@@ -257,11 +257,10 @@ class DashboardServer:
         @app.get("/api/run/video")
         def api_video(run: str) -> Response:
             live = self._resolve(run)
-            video = live.video() if live else None
-            if video is None:
+            if live is None or not live.has_video():
                 return Response(status_code=404)
-            return Response(
-                video,
+            return FileResponse(
+                live.video_path,
                 media_type="video/mp4",
                 headers={"Cache-Control": "no-store, max-age=0"},
             )
@@ -269,11 +268,11 @@ class DashboardServer:
         @app.get("/api/run/action-video")
         def api_action_video(run: str, step: int) -> Response:
             live = self._resolve(run)
-            video = live.action_video(step) if live else None
-            if video is None:
+            path = live.action_video_path(step) if live else None
+            if path is None:
                 return Response(status_code=404)
-            return Response(
-                video,
+            return FileResponse(
+                path,
                 media_type="video/mp4",
                 headers={"Cache-Control": "no-store, max-age=0"},
             )
