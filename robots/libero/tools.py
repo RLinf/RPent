@@ -844,7 +844,7 @@ def dump_state(
         result=log.get("result"),
         elapsed_s=log.get("elapsed_s"),
         extras={
-            "libero_terminated": primitives.env.episode_terminated,
+            "terminated": primitives.env.episode_terminated,
             "episode_truncated": primitives.env.episode_truncated,
             "task_language": primitives.env.get_task_language(),
         },
@@ -1415,7 +1415,7 @@ def view_env_state(step: int = -1, *, state: EnvState) -> dict:
         "artifacts": sorted(record.artifacts),
     }
     out["task_language"] = extras.get("task_language")
-    out["libero_terminated"] = extras.get("libero_terminated")
+    out["libero_terminated"] = extras.get("terminated")
     out["episode_truncated"] = extras.get("episode_truncated")
     out["log"] = {
         "command": record.command,
