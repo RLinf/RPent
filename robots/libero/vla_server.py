@@ -162,17 +162,17 @@ class VLAFacade(RpcFacade):
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--transport", choices=["socket", "http"], default="http")
-    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--host", type=str, default="127.0.0.1")
     p.add_argument("--port", type=int, default=0)
+    p.add_argument("--parent-watch", action="store_true",
+                   help="watch parent process via stdin pipe and exit when it dies")
+    p.add_argument("--cuda-device", type=int, default=None,
+                   help="GPU device exposed through CUDA_VISIBLE_DEVICES.")
     p.add_argument(
         "--model-path",
         default=None,
         help="Pi0.5 checkpoint (defaults to PI05_CHECKPOINT_PATH env)",
     )
-    p.add_argument("--parent-watch", action="store_true",
-                   help="watch parent process via stdin pipe and exit when it dies")
-    p.add_argument("--cuda-device", type=int, default=None,
-                   help="GPU device exposed through CUDA_VISIBLE_DEVICES.")
     args = p.parse_args()
 
     if args.cuda_device is not None:
@@ -193,8 +193,12 @@ def main() -> None:
         )
 
     facade = VLAFacade(model_path=model_path)
-    facade.serve(transport=args.transport, host=args.host, port=args.port,
-                 parent_watch=args.parent_watch)
+    facade.serve(
+        transport=args.transport,
+        host=args.host,
+        port=args.port,
+        parent_watch=args.parent_watch,
+    )
 
 
 if __name__ == "__main__":

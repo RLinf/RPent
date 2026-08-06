@@ -50,6 +50,8 @@ Available extras:
      - openpi VLA only
    * - ``.[rlinf]``
      - RLinf runtime only
+   * - ``.[robocasa]``
+     - RLinf + RoboCasa365 simulator
    * - ``.[sam3]``
      - SAM 3.0 only
 
@@ -79,7 +81,36 @@ These resources usually need to be downloaded only once;
 
       HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing
 
-3. (Optional) Real-world robot dependencies
+3. (Optional) Install the RoboCasa365 stack
+-------------------------------------------
+
+The ``.[robocasa]`` extra installs the full RoboCasa365 stack — MuJoCo
+3.3.1, the ARISE-Initiative robosuite fork, the pinned lerobot commit,
+protobuf, and the ``robocasa`` package itself (a wheel from the
+``github.com/qurakchin/robocasa`` fork, branch ``v1.0.1_rlinf``). The
+fork is patched so that ``macros_private`` and ``assets`` are loaded
+from env vars (``ROBOCASA_MACROS_PATH``, ``ROBOCASA_ASSETS_PATH``),
+which means a non-editable wheel install works — no local clone needed.
+
+.. code-block:: bash
+
+   # install rpent + rlinf + robocasa wheel + all deps
+   uv pip install -e ".[robocasa]"
+
+   # write macros_private.py + print env-var hints
+   bash scripts/robocasa/install_robocasa.sh
+
+After the helper script runs, set the two env vars it prints before
+launching ``rpent``:
+
+- ``ROBOCASA_MACROS_PATH`` — defaults to ``<repo_root>/.robocasa/macros_private.py``
+  (the helper writes the file to ``.robocasa/`` in the project, not ``$HOME``).
+- ``ROBOCASA_ASSETS_PATH`` — the 19G kitchen assets directory. The
+  ``robocasa`` wheel ships only the 3.4M base assets; the large
+  kitchen assets must come from elsewhere (e.g. an existing RoboCasa
+  checkout, or downloaded separately).
+
+4. (Optional) Real-world robot dependencies
 -------------------------------------------
 
 Franka and SO-101 support is being rolled in; when it lands, each

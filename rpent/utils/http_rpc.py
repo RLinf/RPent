@@ -45,7 +45,7 @@ def _from_json(obj: Any) -> Any:
 
 
 class HttpRpcClient:
-    """RPC client that talks to a driver server via HTTP POST.
+    """RPC client that talks to an RPC server via HTTP POST.
 
     Parameters
     ----------
