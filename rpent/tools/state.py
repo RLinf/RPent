@@ -5,7 +5,7 @@ import copy
 import fnmatch
 import json
 import os
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -92,11 +92,6 @@ class EnvState:
 
     def __init__(self, output_dir: Path | str):
         self._output_dir = Path(output_dir)
-        self._output_dir.mkdir(parents=True, exist_ok=True)
-        self._steps: list[StepRecord] = []
-        self._run_artifacts: set[str] = set()
-        self._open_count = 0
-        self._next_step = 0
         self.reset()
 
     # -- private file resolution -----------------------------------------
@@ -133,9 +128,8 @@ class EnvState:
 
     def _record_for(self, step: int) -> StepRecord:
         """Return the live step record at ``step`` for in-place updates."""
-        for record in self._steps:
-            if record.step_idx == step:
-                return record
+        if 0 <= step < len(self._steps):
+            return self._steps[step]
         raise KeyError(f"step {step} not present in state trace")
 
     # -- manifest --------------------------------------------------------
@@ -159,14 +153,9 @@ class EnvState:
     def reset(self) -> None:
         """Reset the in-memory trace without removing on-disk artifacts."""
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        self._steps = []
-        self._run_artifacts = set()
-        self._open_count = 0
-        self._next_step = 0
-
-    @property
-    def next_step_idx(self) -> int:
-        return self._next_step
+        self._steps: list[StepRecord] = []
+        self._run_artifacts: set[str] = set()
+        self._step_open = False
 
     @property
     def latest_step(self) -> int | None:
@@ -366,17 +355,17 @@ class EnvState:
         result: dict | None = None,
         elapsed_s: float | None = None,
         extras: dict[str, Any] | None = None,
-    ) -> Iterator[int]:
+    ) -> Generator[int, None, None]:
         """Append a new step record and yield its index.
 
         The step is committed to the trace immediately, so any subsequent
         :meth:`save` without an explicit ``step`` attaches to it. If the block
         raises, the step and any artifacts written to it are rolled back.
         """
-        if self._open_count:
+        if self._step_open:
             raise RuntimeError("a step record is already open")
         record = StepRecord(
-            step_idx=self._next_step,
+            step_idx=len(self._steps),
             state=copy.deepcopy(state),
             terminated=terminated,
             truncated=truncated,
@@ -386,8 +375,7 @@ class EnvState:
             extras=copy.deepcopy(extras or {}),
         )
         self._steps.append(record)
-        self._next_step = record.step_idx + 1
-        self._open_count += 1
+        self._step_open = True
         self._write_manifest()
         try:
             yield record.step_idx
@@ -397,7 +385,6 @@ class EnvState:
                 destination.unlink(missing_ok=True)
             if self._steps and self._steps[-1] is record:
                 self._steps.pop()
-            self._next_step = record.step_idx
             try:
                 self._write_manifest()
             except Exception as exc:
@@ -406,16 +393,13 @@ class EnvState:
                 )
             raise
         finally:
-            self._open_count -= 1
+            self._step_open = False
 
     def get(self, step: int = -1) -> StepRecord:
         resolved_step = self._resolve_read_step(step)
         if resolved_step is None:
             raise ValueError("step records are not run-level artifacts")
-        for record in self._steps:
-            if record.step_idx == resolved_step:
-                return copy.deepcopy(record)
-        raise KeyError(f"step {resolved_step} not present in state trace")
+        return copy.deepcopy(self._record_for(resolved_step))
 
     def records(self) -> list[StepRecord]:
         return copy.deepcopy(self._steps)
