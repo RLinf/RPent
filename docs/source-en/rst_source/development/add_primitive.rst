@@ -132,10 +132,11 @@ primitive requires a few additional components:
 
    .. code-block:: python
 
-      def get_toolkit(*, primitives_kwargs, video_path=None):
+      def get_toolkit(*, primitives_kwargs, dashboard_events, video_path=None):
           from robots.myrobot.toolkit import MyRobotToolkit
           return MyRobotToolkit(
               primitives_kwargs=primitives_kwargs,
+              dashboard_events=dashboard_events,
               video_path=video_path,
           )
 

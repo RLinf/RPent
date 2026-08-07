@@ -12,7 +12,7 @@ After you add ``robots/<env>/``, ``main.py`` calls two functions in ``__init__.p
 .. code-block:: python
 
    def get_env_spec() -> EnvSpec: ...
-   def get_toolkit(*, primitives_kwargs, video_path=None, dashboard=None): ...
+   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None): ...
 
 ``get_env_spec`` returns an ``EnvSpec``. You supply:
 
@@ -33,11 +33,19 @@ After you add ``robots/<env>/``, ``main.py`` calls two functions in ``__init__.p
      - Validate args and return ``RunConfig``; set at least ``recipe_tag``,
        ``output_dir``, and ``prompt_vars`` for prompt templating.
    * - ``init_runtime``
-     - Start or attach to env / VLA subprocesses; build ``primitives_kwargs``
-       (env client, model client, etc.) for the toolkit's primitives.
+     - Normal CLI only: start or attach to the complete runtime and build
+       ``primitives_kwargs`` (env client, model client, etc.) for the toolkit's
+       primitives. A ``DashboardEventSink`` reports runtime status.
+   * - ``init_shared_runtime``
+     - Dashboard only: initialize Session-owned services that can be reused by
+       multiple TaskRuns, and return their owned daemons and primitive inputs.
+   * - ``init_task_runtime``
+     - Dashboard only: initialize the fresh per-TaskRun services and return
+       their owned daemons and primitive inputs.
 
 ``get_toolkit`` usually just passes ``primitives_kwargs`` into your env subclass;
-``video_path`` and ``dashboard`` are passed by ``main.py`` — you rarely touch them.
+``dashboard_events`` and ``video_path`` are supplied by the active runner, so
+you normally do not need to change them.
 
 Reference: ``robots/libero/__init__.py``.
 
@@ -58,6 +66,7 @@ Most users pick a built-in ``api``, ``claude_code``, or ``codex`` planner — se
        toolkit: Toolkit,
        max_turns: int,
        input_queue=None,
+       dashboard_interaction=None,
    ) -> PlannerResult: ...
 
 Contract: pass ``toolkit.get_tools_spec()`` to the model; dispatch each call via
@@ -98,7 +107,8 @@ Inter-process communication
 
 Relevant when attaching to existing servers or writing ``env_server`` / ``vla_server``.
 
-Client endpoints — expose in ``add_cli_args`` or parse in ``init_runtime``:
+Client endpoints — expose in ``add_cli_args`` and parse in the applicable
+normal-CLI or Dashboard runtime hook:
 
 .. code-block:: text
 

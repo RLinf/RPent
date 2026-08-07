@@ -42,13 +42,17 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 3. 通过 Dashboard 查看运行过程
 ------------------------------
 
-添加 ``--dashboard`` 后，RPent 会启动本地 Dashboard 服务，并在终端输出访问地址。打开该地址后，可以先在启动页面确认配置。运行开始后，Dashboard 会实时显示智能体的推理过程、相机与 Pi0 视图、动作时间线和片段回放。使用 ``--dashboard-language zh-cn`` 可切换到中文界面。
+添加 ``--dashboard`` 后，RPent 会启动本地 Dashboard，并在终端输出访问地址：
 
 .. code-block:: bash
 
    rpent --env libero --dashboard --dashboard-language zh-cn \
-     --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
+
+打开该地址并确认配置；服务就绪后，在页面输入
+``/rpent-task libero_object_swap 2 0`` 启动任务。Dashboard 会实时显示智能体的
+推理过程、相机画面和动作时间线；任务结束后可以继续提交下一任务。使用
+``--dashboard-language zh-cn`` 可切换到中文界面。
 
 关键 CLI 选项
 -------------

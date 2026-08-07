@@ -17,8 +17,9 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 3. :ref:`定义 prompt <add-robot-prompts>`。
 4. :ref:`实现 toolkit 和 primitives <add-robot-toolkit>`。
 5. :ref:`注册环境参数并生成 RunConfig <add-robot-config>`。
-6. 在 :ref:`_init_runtime <add-robot-runtime>` 中启动或连接 ``env_server`` 与
-   所需的辅助服务。
+6. 实现 :ref:`runtime 钩子 <add-robot-runtime>`：普通 CLI 使用完整 runtime；
+   如果环境支持 Dashboard 任务控制，再按 Session/TaskRun 生命周期实现仅供
+   Dashboard 使用的拆分钩子。
 
 .. _add-robot-entry:
 
@@ -43,6 +44,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 .. code-block:: python
 
    # robots/myenv/__init__.py
+   from rpent.dashboard.events import DashboardEventSink
    from rpent.envs.env_spec import EnvSpec, RunConfig
    from rpent.envs.prompt_bundle import PromptBundle
    from robots.myenv.prompt_bundle import system_prompt, user_prompt
@@ -53,12 +55,18 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
            prompts=PromptBundle(system=system_prompt, user=user_prompt),
            add_cli_args=_add_cli_args,
            parse_config=_parse_config,
+           init_shared_runtime=_init_shared_runtime,
+           init_task_runtime=_init_task_runtime,
            init_runtime=_init_runtime,
        )
 
-   def get_toolkit(*, primitives_kwargs, video_path=None):
+   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None):
        from robots.myenv.toolkit import MyEnvToolkit
-       return MyEnvToolkit(primitives_kwargs=primitives_kwargs, video_path=video_path)
+       return MyEnvToolkit(
+           primitives_kwargs=primitives_kwargs,
+           dashboard_events=dashboard_events,
+           video_path=video_path,
+       )
 
    def _add_cli_args(parser, use_dashboard) -> None:
        """向共享 parser 注册环境参数。见第 4 节。"""
@@ -68,18 +76,26 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
        """校验最终的 args，返回 RunConfig。见第 4 节。"""
        ...
 
-   def _init_runtime(args, output_dir):
-       """启动 env_server、vla_server 及所需的辅助服务，构造 primitives_kwargs。
+   def _init_runtime(args, output_dir, dashboard_events: DashboardEventSink):
+       """仅普通 CLI 使用：初始化完整 runtime。
 
        返回 (daemons, primitives_kwargs)。见第 5 节。
        """
+       ...
+
+   def _init_shared_runtime(args, output_dir, dashboard_events: DashboardEventSink):
+       """仅 Dashboard 使用：初始化由 Session 持有并复用的服务。"""
+       ...
+
+   def _init_task_runtime(args, output_dir, dashboard_events: DashboardEventSink):
+       """仅 Dashboard 使用：为每个 TaskRun 初始化全新的服务。"""
        ...
 
 ``_resolve_env(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
 动态加载环境包。因此，只需将环境包放在 ``robots/`` 下，无需维护中央注册列表。
 
 下文依次说明这些模块需要实现的内容。``_add_cli_args`` 和 ``_parse_config``
-见第 4 节，``_init_runtime`` 见第 5 节。
+见第 4 节，三个 runtime 钩子见第 5 节。
 
 .. _add-robot-env-rpc:
 
@@ -253,13 +269,14 @@ primitives 的 ``__init__``。其中通常包含
 
 **``_add_cli_args(parser, use_dashboard) -> None``。** 将环境参数注册到
 main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参数是否保持可选，
-这些值随后由 Dashboard launcher 填入。main.py 会在
-``parser.parse_args()`` 之前调用该钩子，因此 argparse 的 usage 和错误信息也会
-包含环境参数。
+每个 Dashboard TaskRun 的 ``suite`` 与 ``task`` 会在 ``parse_config`` 调用前由
+``/rpent-task`` 命令提供。main.py 会在 ``parser.parse_args()`` 之前调用该钩子，
+因此 argparse 的 usage 和错误信息也会包含环境参数。
 
-**``_parse_config(args) -> RunConfig``。** 在 ``parser.parse_args()`` 以及
-Dashboard launcher（如果启用）运行后调用。该钩子检查 Dashboard 模式下暂时设为
-可选的字段是否已经填入，并返回 :class:`~rpent.envs.RunConfig`：
+**``_parse_config(args) -> RunConfig``。** 普通 CLI 模式下，该钩子在
+``parser.parse_args()`` 后调用；Dashboard 模式下，每个 TaskRun 会先把
+``/rpent-task`` 命令提供的 ``suite`` 与 ``task`` 写入任务参数，再调用该钩子。
+该钩子校验这些字段并返回 :class:`~rpent.envs.RunConfig`：
 
 - ``recipe_tag`` —— 单次运行的环境标签，用于 transcript 文件名和 recipe 路径
   （LIBERO 使用 ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``）。
@@ -267,8 +284,6 @@ Dashboard launcher（如果启用）运行后调用。该钩子检查 Dashboard 
   ``init_output_dir`` 创建目录并配置日志。
 - ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和
   prompt 引用的其他变量。
-- ``dashboard_state`` —— ``args.dashboard`` 为真时是
-  :class:`~rpent.dashboard.state.State`，否则为 ``None``。
 - ``task_desc`` —— 环境特定的任务标识字典，会原样写入 transcript JSON 记录
   （LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
 
@@ -282,37 +297,42 @@ Dashboard launcher（如果启用）运行后调用。该钩子检查 Dashboard 
 
    def _parse_config(args) -> RunConfig:
        if not args.suite: raise ValueError("--suite is required")
-       # ... 生成 recipe_tag、output_dir、prompt_vars、dashboard_state ...
+       # ... 生成 recipe_tag、output_dir 和 prompt_vars ...
        return RunConfig(
            recipe_tag=recipe_tag,
            output_dir=output_dir,
            prompt_vars=prompt_vars,
-           dashboard_state=dashboard_state,
            task_desc={"suite": args.suite, "task": args.task, "seed": args.seed},
        )
 
 .. _add-robot-runtime:
 
-5. ``_init_runtime`` (runner 钩子)
-----------------------------------
+5. Runtime 初始化钩子
+---------------------
 
-``parse_config`` 返回后，main.py 调用
-``env_spec.init_runtime(args, output_dir)``，初始化环境与 VLA 服务，并构造
-toolkit 所需的参数。环境实现可以自行决定启动多少个子进程；当前 LIBERO 会启动
-``env_server``、``vla_server`` 和 ``sam3_server``。该钩子最终返回
-``(daemons, primitives_kwargs)``：
+三个 runtime 钩子都返回 ``(owned_daemons, primitives_kwargs)``：
 
-- ``daemons: list[ProcessDaemon]`` —— 本次运行拥有的子进程；main.py 在
-  ``finally`` 里逐个 ``.stop()``。
-- ``primitives_kwargs: dict`` —— 原样传给 toolkit 构造器，再由后者传入
-  primitives 的 ``__init__``。其中通常包含
-  ``{"env": MyEnvClient(...), "model": VLAClient(...)}``；如果需要额外服务，
-  也在这里加入相应的 client，例如 LIBERO 的 ``sam3_client``。
+- ``owned_daemons: list[ProcessDaemon]`` 只包含当前进程实际启动的子进程，
+  当前 runner 会在清理阶段停止它们。连接外部 endpoint 时，不能把外部服务加入
+  该列表。
+- ``primitives_kwargs: dict`` 会传给 toolkit 构造器，再由后者传入 primitives
+  的 ``__init__``。完整参数通常包含
+  ``{"env": MyEnvClient(...), "model": VLAClient(...)}``，以及其他辅助 client。
+
+``init_runtime`` 是普通 CLI 钩子。``parse_config`` 返回后，``main.py`` 调用它
+一次，初始化完整 runtime。当前 LIBERO 实现会启动或连接 ``env_server``、
+``vla_server`` 和 ``sam3_server``，并一次性返回全部 primitive 参数。
+
+``init_shared_runtime`` 和 ``init_task_runtime`` 是 **仅供 Dashboard 使用** 的
+钩子，普通 CLI 不会调用。Dashboard 会在每个 Session 中调用一次
+``init_shared_runtime``，初始化 Session 持有的复用服务；随后为每个全新的
+TaskRun 调用 ``init_task_runtime``，并合并两者返回的 ``primitives_kwargs``。
+具体如何拆分取决于环境自身的生命周期。LIBERO 将 VLA 和 SAM3 放在 Session
+范围，将环境放在 TaskRun 范围；其他环境应采用适合自身服务的拆分，不必机械照搬。
 
 endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
-``--sam3-endpoint``）解析和子进程启动（``--cuda-device`` 透传、
-``MUJOCO_GL``）也在这里完成，main.py 不处理这些细节。参考实现见
-``robots/libero/__init__.py``。
+``--sam3-endpoint``）解析、子进程启动和 runtime 状态事件，应放在拥有对应服务的
+钩子中，runner 不处理这些环境细节。参考实现见 ``robots/libero/__init__.py``。
 
 冒烟测试
 --------

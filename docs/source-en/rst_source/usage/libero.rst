@@ -156,18 +156,33 @@ These tools do not advance the environment.
 Live dashboard
 --------------
 
-Add ``--dashboard`` to start a local monitor. It selects an available
-port and prints the URL in the terminal:
+Add ``--dashboard`` to start a long-lived local Dashboard Session. It
+selects an available port and prints the URL in the terminal:
 
 .. code-block:: bash
 
    rpent --env libero --dashboard \
-     --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
 
-The dashboard streams reasoning, agentview + wrist camera + Pi0.5
-overlays, and an action timeline. Use
-``--dashboard-language zh-cn`` for the Chinese UI.
+Open the URL, confirm the Session configuration, and click **Start Session**.
+After the shared services are ready, start a TaskRun from the page with:
+
+.. code-block:: text
+
+   /rpent-task libero_object_swap 2 0
+
+Each TaskRun gets a fresh environment while the VLA and SAM3 services are
+reused by the Session. Submit another ``/rpent-task`` after completion, or
+submit one while a task is running to switch tasks. The Dashboard streams
+agent reasoning and tool calls, fixed and wrist camera views, the action
+timeline, and action and full-episode replays. During a TaskRun, normal
+messages steer the agent and Esc requests an interruption. Press Ctrl+C in
+the terminal to stop the Session.
+
+``--dashboard`` cannot be combined with ``--interactive`` or
+``--env-endpoint``. External ``--vla-endpoint`` and ``--sam3-endpoint``
+services remain supported. Use ``--dashboard-language zh-cn`` for the
+Chinese UI.
 
 Bringing your own VLA
 ---------------------

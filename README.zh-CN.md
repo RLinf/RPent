@@ -140,11 +140,10 @@ rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
 
 ### 实时 Dashboard
 
-加上 `--dashboard` 后，会启动本地监控服务，并在终端输出访问地址。打开该地址后，可以在启动页面确认配置；运行开始后，页面会实时显示智能体的推理过程、相机画面和动作时间线。使用 `--dashboard-language zh-cn` 可切换到中文界面。
+加上 `--dashboard` 后，会启动本地 Dashboard，并在终端输出访问地址。打开该地址并确认配置；服务就绪后，通过 `/rpent-task <suite> <task> <seed>` 启动任务。页面会实时显示智能体的推理过程、相机画面和动作时间线，任务结束后可以继续提交下一任务。使用 `--dashboard-language zh-cn` 可切换到中文界面。
 
 ```bash
 rpent --env libero --dashboard --dashboard-language zh-cn \
-  --suite libero_goal_task --task 1 --seed 0 \
   --planner claude_code --model claude-opus-4-8
 ```
 
@@ -184,7 +183,7 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
     <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>环境最大步数</td></tr>
     <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> 或 <code>pro</code></td><td>LIBERO 类型：<code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
     <tr><td><code>--cuda-device</code></td><td>继承当前环境</td><td>env_server、vla_server 和 sam3_server 可见的 GPU 设备</td></tr>
-    <tr><td><code>--dashboard</code></td><td>关</td><td>为本次运行启动本地 Dashboard</td></tr>
+    <tr><td><code>--dashboard</code></td><td>关</td><td>启动本地 Dashboard</td></tr>
     <tr><td><code>--dashboard-language</code></td><td><code>en</code></td><td>Dashboard 界面语言：<code>en</code> | <code>zh-cn</code></td></tr>
     <tr><td><code>--env-endpoint</code></td><td>—（自动启动）</td><td>已在运行的 env_server 的 <code>[protocol://]host:port</code>（<code>protocol=http|socket</code>，默认 <code>http</code>）。留空时自动启动本地实例。</td></tr>
     <tr><td><code>--vla-endpoint</code></td><td>—（自动启动）</td><td>已在运行的 vla_server 的 <code>[protocol://]host:port</code>（同上）。留空时自动启动本地实例。</td></tr>

@@ -12,7 +12,7 @@
 .. code-block:: python
 
    def get_env_spec() -> EnvSpec: ...
-   def get_toolkit(*, primitives_kwargs, video_path=None, dashboard=None): ...
+   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None): ...
 
 ``get_env_spec`` 返回 ``EnvSpec``，其中你需要提供：
 
@@ -33,11 +33,18 @@
      - 校验参数并返回 ``RunConfig``；``recipe_tag``、``output_dir``、``prompt_vars``
        三项需由你正确填写（供 prompt 模板插值）。
    * - ``init_runtime``
-     - 启动或连接 env 与 VLA 等子进程，构造 ``primitives_kwargs`` 字典
-       （env 客户端、模型客户端等），供 toolkit 组装 primitives。
+     - 仅普通 CLI 使用：启动或连接完整 runtime，构造 ``primitives_kwargs``
+       字典（env 客户端、模型客户端等），供 toolkit 组装 primitives；
+       ``DashboardEventSink`` 用于上报运行时状态。
+   * - ``init_shared_runtime``
+     - 仅 Dashboard 使用：初始化可供多个 TaskRun 复用、由 Session 持有的服务，
+       并返回其本地 daemon 与 primitive 参数。
+   * - ``init_task_runtime``
+     - 仅 Dashboard 使用：为每个 TaskRun 初始化全新的任务级服务，并返回其本地
+       daemon 与 primitive 参数。
 
-``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给环境子类；``video_path``、
- ``dashboard`` 由 ``main.py`` 传入，通常不用改。
+``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给环境子类；
+``dashboard_events``、``video_path`` 由当前 runner 传入，通常不用改。
 
 参考实现：``robots/libero/__init__.py``。
 
@@ -58,6 +65,7 @@ Planner
        toolkit: Toolkit,
        max_turns: int,
        input_queue=None,
+       dashboard_interaction=None,
    ) -> PlannerResult: ...
 
 约定：用 ``toolkit.get_tools_spec()`` 把工具交给模型；每次调用 ``toolkit.execute_tool(name, input_dict)``；
@@ -94,7 +102,8 @@ Planner
 
 接已有server或写 ``env_server`` / ``vla_server`` 时关注下面两点。
 
-客户端端点（在 ``add_cli_args`` 里暴露，或在 ``init_runtime`` 里解析）：
+客户端端点（在 ``add_cli_args`` 中暴露，并在适用的普通 CLI 或 Dashboard
+runtime 钩子中解析）：
 
 .. code-block:: text
 
