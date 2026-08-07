@@ -37,7 +37,7 @@ from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
 )
-from rpent.envs import get_env_spec, get_toolkit
+from rpent.envs import enumerate_envs, get_env_spec, get_toolkit
 from rpent.planner.base import build_planner
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
@@ -82,12 +82,19 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
 
 
 def _build_argparser() -> argparse.ArgumentParser:
+    known_envs = enumerate_envs()
+    known_envs_text = ", ".join(known_envs) if known_envs else "none"
     ap = argparse.ArgumentParser(
-        description="Standalone hybrid LLM-in-the-loop physical agent",
+        description="RPent: Agentic Infrastructure for the Physical World",
     )
 
-    ap.add_argument("--env", dest="env_name", required=True, choices=["libero"],
-                    help="Environment backend: libero.")
+    ap.add_argument(
+        "--env",
+        dest="env_name",
+        required=True,
+        choices=known_envs,
+        help=f"Environment backend. Known environments: {known_envs_text}.",
+    )
 
     # models
     ap.add_argument("--planner", default="api",
@@ -106,7 +113,7 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="Never send image bytes to the model (api planner only). "
                          "Use for text-only models that reject image input "
                          "(e.g. 400 \"message type 'image_url' is not supported\"); "
-                         "read_image then returns the file path with a notice.")
+                        "read_image then returns the image name instead, with a notice.")
     ap.add_argument("--planner-timeout-s", type=int, default=None,
                     help="Wall-clock cap for api/claude_code/codex planner runs. "
                          "Terminal interactive API/Claude sessions are exempt. "
@@ -220,7 +227,6 @@ def main() -> int:
     toolkit = get_toolkit(
         env_name,
         primitives_kwargs=primitives_kwargs,
-        video_path=str(Path(output_dir) / "episode.mp4"),
         dashboard_events=dashboard_events,
     )
 

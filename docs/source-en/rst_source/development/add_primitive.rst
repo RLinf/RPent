@@ -35,13 +35,16 @@ call. They differ only in how the method is implemented.
 Add a scripted primitive
 ------------------------
 
-Adding a scripted primitive usually involves three steps:
+Adding a scripted primitive usually involves two steps:
 
 1. **Add a method to the primitives.** Add the method to the
    current environment's primitives class, such as
    ``LiberoPrimitives`` or ``MyRobotPrimitives``. The method accepts
    the tool-call arguments, performs the work, usually through one or
    more ``self._env.step(...)`` calls, and returns a small log ``dict``.
+
+  Primitive methods capture and re-render state (``get_env_state``)
+  automatically after they run:
 
    .. code-block:: python
 
@@ -51,8 +54,12 @@ Adding a scripted primitive usually involves three steps:
               self._env.step(build_open_drawer_chunk(dx))
           return {"ok": True, "dx": dx}
 
+  You can mark read-only tools (``view_env_state``, ``back_project``, ``segment``,
+  ...) with :func:`~rpent.tools.toolkit.readonly` so the toolkit skips state
+  capture for them, improving performance.
+
 2. **Add the tool schema.** Add an entry to ``TOOLS_SPEC`` in
-   ``toolkit.py``:
+   ``robots/<env>/tools.py``:
 
    .. code-block:: python
 
@@ -67,13 +74,9 @@ Adding a scripted primitive usually involves three steps:
           },
       }
 
-3. **Register the tool in the toolkit.** Route it through the toolkit's
-   ``_step`` helper so that state is re-rendered after execution:
-
-   .. code-block:: python
-
-      self.add_tool("open_drawer", OPEN_DRAWER_SPEC,
-                    lambda **kw: self._step("open_drawer", **kw))
+Once both exist, the toolkit registers the tool automatically: it iterates
+``TOOLS_SPEC`` and binds each spec to the matching primitive-driver method
+(e.g. ``getattr(self._primitives, name)``).
 
 After these steps, the ``api``, ``claude_code``, and ``codex`` planners
 can all call the primitive without any other code changes.
@@ -167,8 +170,10 @@ Design principles for a new primitive
   the state dump reflecting the post-action world. Don't let the
   primitive return before the render finishes.
 - **Return small dicts.** Tool return values are fed back to the LLM
-  as text. Store larger content, such as images, depth data, and
-  ``states.json``, in the state dump instead.
+  as text. Save larger observations through ``EnvState.save``; ``EnvState``
+  automatically records each logical base name in its owned
+  ``StepRecord.artifacts`` set. Expose images through ``view_env_state`` and
+  geometry through environment tools rather than returning raw paths.
 - **Guardrails belong in env_server**, not in the toolkit. The LLM
   can and will call any tool with any arguments; workspace bounds
   and safety clamps must be enforced on the server side.

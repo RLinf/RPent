@@ -103,14 +103,11 @@ A successful run:
    by the elapsed time, token usage, and path to the run record.
 3. With the Dashboard enabled, also streams agent output, camera views,
    the action timeline, and clip replays to the Dashboard.
-4. By default, artifacts are saved under
-   ``logs/<timestamp>_<suite>_t<task>_s<seed>/``. They include
-   ``transcript_*.json`` (run record), ``states.json`` (one record per
-   environment step), ``recipe_*.jsonl`` (action sequence), and
-   ``episode.mp4`` (episode video).
+4. By default, artifacts are saved under ``logs/<timestamp>_<suite>_t<task>_s<seed>/``. They include ``transcript_*.json`` (run record), ``states.json`` (the ``EnvState`` manifest), ``recipe_*.jsonl`` (action sequence), and ``episode.mp4`` (episode video). Each step artifact has a directory named after its logical artifact name; zero-padded step files live inside it, for example ``agentview_depth.npy/00.npy`` and ``agentview_depth.npy/01.npy``. Run-level artifacts remain at the output root.
 
-After the run, inspect the final record in ``states.json``:
-``libero_terminated`` set to ``true`` means LIBERO judged the task complete.
-You can also open ``episode.mp4`` to review the run.
+Inspect the final state through the Dashboard or
+``view_env_state(step=-1)``. Its top-level ``terminated`` value is the
+benchmark outcome. ``states.json`` is internal ``EnvState`` storage and should
+not be parsed by callers. You can also open ``episode.mp4`` to review the run.
 If something goes wrong, inspect the four log files described at the
 bottom of :doc:`installation`.

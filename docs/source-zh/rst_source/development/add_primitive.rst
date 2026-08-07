@@ -33,12 +33,15 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 添加一个脚本化原语
 ------------------
 
-添加脚本化原语通常需要以下三个步骤：
+添加脚本化原语通常需要以下两个步骤：
 
 1. **在 primitives 中添加方法。** 在当前环境的 primitives
    类（如 ``LiberoPrimitives``、``MyRobotPrimitives``）中添加
    一个方法。该方法接收工具调用的参数，执行一次或多次
    ``self._env.step(...)``，并返回一个简短的日志字典。
+
+     primitive 方法执行后默认会自动捕获并重新渲染状态
+     （``get_env_state``）：
 
    .. code-block:: python
 
@@ -48,7 +51,11 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
               self._env.step(build_open_drawer_chunk(dx))
           return {"ok": True, "dx": dx}
 
-2. **添加工具定义。** 在 ``toolkit.py`` 的 ``TOOLS_SPEC`` 中新增一项：
+   只读工具（``view_env_state``、``back_project``、``segment`` 等）
+     可以使用 :func:`~rpent.tools.toolkit.readonly` 标记，toolkit 会跳过
+     它们的状态捕获，提升性能。
+
+2. **添加工具定义。** 在 ``robots/<env>/tools.py`` 的 ``TOOLS_SPEC`` 中新增一项：
 
    .. code-block:: python
 
@@ -63,13 +70,8 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
           },
       }
 
-3. **在 toolkit 中注册工具。** 通过 toolkit 的 ``_step`` 辅助函数运行
-   该工具，使其在执行结束后自动重新渲染状态：
-
-   .. code-block:: python
-
-      self.add_tool("open_drawer", OPEN_DRAWER_SPEC,
-                    lambda **kw: self._step("open_drawer", **kw))
+两者就位后，toolkit 会自动注册该工具：它遍历 ``TOOLS_SPEC``，把每个定义
+绑定到对应的 primitive 方法（如 ``getattr(self._primitives, name)``）。
 
 完成以上步骤后，``api``、``claude_code`` 和 ``codex`` 三种 planner
 都可以调用该工具，无需修改其他代码。
@@ -152,7 +154,9 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 - **每个工具执行结束后都要保存新的状态快照。** 下一轮需要读取动作执行后的
   环境状态，因此原语不能在渲染完成前返回。
 - **工具只返回简短的字典。** 返回值会以文本形式提供给 LLM；图像、深度数据和
-  ``states.json`` 等较大的内容则通过状态快照提供。
+  其他大型观测应通过 ``EnvState.save`` 保存；``EnvState`` 会把每个逻辑基础
+  文件名自动加入其持有的 ``StepRecord.artifacts`` 集合。图像通过
+  ``view_env_state`` 提供，几何数据通过环境工具访问，不返回原始路径。
 - **安全限制由 ``env_server`` 强制执行。** LLM 可能使用任意参数调用工具，
   因此工作空间边界和安全限制不能只依赖 toolkit。
 

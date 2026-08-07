@@ -220,23 +220,29 @@ state needed for the current run. It exposes one method per primitive tool
 **Tool definitions and handlers** — a module-level ``TOOLS_SPEC`` list of
 Anthropic-style tool definitions (``name``, ``description``, ``input_schema``),
 plus any module-level functions referenced by the toolkit (e.g.
-``view_driver_state``, ``back_project``, ``finish``).
+``view_env_state``, ``back_project``, ``finish``).
 
-**Per-step state dump** — ``dump_state(primitives, output_dir, step_idx, log)``
-serializes whatever state the agent will read back via the ``view_*`` tools
-(images, depths, JSON state, camera meta) into ``output_dir``.
+**Per-step state dump** — ``dump_state(driver, env_state, log)`` opens
+``env_state.record_step(...)`` and receives the allocated step index; the
+``StepRecord`` is appended and committed immediately. Save large observations
+through ``env_state.save(...)`` — inside a ``record_step`` block the ``step``
+argument may be omitted (it defaults to the new step), pass an explicit
+``step=<int>`` to target a different step, and ``step=None`` for run-level
+artifacts. ``EnvState`` adds every successfully saved base name to the step's
+flat ``artifacts`` set automatically. Readers use the canonical artifact
+filenames rather than maintaining a parallel observation index.
 
 **Toolkit class** — subclass ``rpent.tools.toolkit.Toolkit``:
 
 - build the primitives in ``__init__`` through a custom initialization
-  helper (named ``init_primitives_clean`` in LIBERO; it wipes stale
-  ``images/`` etc., constructs the primitives, and dumps step 0),
+  helper (named ``init_primitives_clean`` in LIBERO; it calls
+  ``EnvState.reset()``, constructs the primitives, and dumps step 0),
 - register each tool with ``self.add_tool(name, spec, handler)`` — stateless
-  readers (``view_driver_state``, ``finish``, …) bind directly to module-level
+  readers (``view_env_state``, ``finish``, …) bind directly to module-level
   functions; primitive tools route through ``_step(name, **kwargs)`` which
   calls ``getattr(self._primitives, name)(**kwargs)`` and re-renders state,
-- override ``close()`` to write any remaining agent-side artifacts (e.g. the
-  LIBERO toolkit saves the agentview MP4 there).
+- override ``close()`` to save remaining agent-side artifacts through
+  ``EnvState`` (for example ``state.save("episode.mp4", frames, step=None)``).
 
 ``primitives_kwargs`` (forwarded from ``__init__.py:get_toolkit``) is the dict
 the toolkit passes verbatim to your primitives' ``__init__`` — typically
@@ -246,14 +252,15 @@ Conventions worth keeping
 -------------------------
 
 - ``output_dir`` is the working directory that the runner creates for each
-  run. Images, depths, ``states.json``, transcripts, ``episode.mp4``, and other
-  artifacts go there.
+  run. Environment observations are owned by ``EnvState``; callers use logical
+  base names and never construct storage paths. Transcripts and other
+  run-management outputs share the same run directory.
 - Tool definitions use the Anthropic format (``name`` / ``description`` /
   ``input_schema``). Every tool registered with ``self.add_tool(...)`` is
   exposed to all planners.
 - Server-side return values must be picklable and torch-free.
 - Each primitive tool dumps a fresh state snapshot after running so the next
-  ``view_driver_state`` call reflects the post-action world.
+  ``view_env_state`` call reflects the post-action world.
 - Treat ``dump_state`` as the source of truth for what the agent sees — any new
   modality (e.g. tactile, force) goes through it.
 

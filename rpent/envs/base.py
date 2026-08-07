@@ -10,6 +10,7 @@ CLI orchestration independent of concrete robot implementations.
 from __future__ import annotations
 
 import importlib
+import pkgutil
 import sys
 from typing import Any
 
@@ -34,6 +35,17 @@ def _resolve_env(name: str) -> Any:
         return importlib.import_module(f"robots.{env_name}")
     except ModuleNotFoundError as e:
         raise ValueError(f"unknown env: {env_name!r}") from e
+
+
+def enumerate_envs() -> tuple[str, ...]:
+    """Return the names of importable environment packages under ``robots``."""
+    import robots
+
+    return tuple(sorted(
+        module.name
+        for module in pkgutil.iter_modules(robots.__path__)
+        if module.ispkg and not module.name.startswith("_")
+    ))
 
 
 def get_env_spec(name: str) -> EnvSpec:

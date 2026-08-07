@@ -92,7 +92,7 @@ def _extract_mcp_namespace_map(data: dict) -> dict[str, str]:
 
     Example::
         {"back_project": "mcp__rpent",
-         "view_driver_state": "mcp__rpent"}
+         "view_env_state": "mcp__rpent"}
     """
     tools = data.get("tools")
     if not isinstance(tools, list):

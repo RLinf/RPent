@@ -15,6 +15,8 @@ import dataclasses
 import json
 import queue
 from collections import deque
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from pydantic_ai import Agent, BinaryContent, ModelSettings, Tool, ToolReturn
@@ -42,6 +44,7 @@ from rpent.dashboard.events import (
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import PlannerResult
+from rpent.tools.state import EnvState
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
 
@@ -689,7 +692,7 @@ def _api_error_text(error: Exception, *, no_images: bool) -> str:
 
 def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
     """Build the API-only image reader plus pydantic-ai toolkit wrappers."""
-    image_reader = read_image_text_only if no_images else read_image
+    image_reader = _make_image_reader(toolkit.state, no_images=no_images)
     tools: list[Tool] = [Tool(image_reader, name="read_image")]
     for spec in toolkit.get_tools_spec():
         name = spec["name"]
@@ -706,21 +709,70 @@ def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
     return tools
 
 
-def read_image(path: str) -> ToolReturn:
-    """Read a local image path returned by an RPent tool as visual input."""
+def _make_image_reader(
+    state: EnvState,
+    *,
+    no_images: bool,
+) -> Callable[[str, int], ToolReturn | str]:
+    if no_images:
+
+        def read_image_tool(name: str, step: int = -1) -> str:
+            return read_image_text_only(name, step, state=state)
+
+        read_image_tool.__name__ = "read_image"
+        read_image_tool.__doc__ = read_image_text_only.__doc__
+        return read_image_tool
+
+    def read_image_tool(name: str, step: int = -1) -> ToolReturn:
+        return read_image(name, step, state=state)
+
+    read_image_tool.__name__ = "read_image"
+    read_image_tool.__doc__ = read_image.__doc__
+    return read_image_tool
+
+
+def read_image(name: str, step: int = -1, *, state: EnvState) -> ToolReturn:
+    """Read a step-scoped image artifact as visual input."""
+    resolved_step, path = _resolve_image_artifact(state, name, step)
     return ToolReturn(
-        return_value=path,
-        content=[BinaryContent.from_path(path)],
+        return_value={"artifact": name, "step": resolved_step},
+        content=[
+            BinaryContent(
+                data=state.load_bytes(name, step=resolved_step),
+                media_type=_image_media_type(path),
+            )
+        ],
     )
 
 
-def read_image_text_only(path: str) -> str:
-    """``read_image`` stub for ``--no-images``: acknowledge, send no bytes."""
+def read_image_text_only(name: str, step: int = -1, *, state: EnvState) -> str:
+    """Acknowledge an image artifact without sending bytes to the model."""
+    resolved_step, _ = _resolve_image_artifact(state, name, step)
     return (
-        f"{path} exists, but image input is disabled (--no-images, text-only "
-        "model). Reason from textual state instead: view_driver_state, "
-        "back_project, and the numeric fields in tool results."
+        f"Image artifact {name!r} exists at step {resolved_step}, but image "
+        "input is disabled (--no-images, text-only model). Reason from textual "
+        "state instead: view_env_state, back_project, and numeric tool results."
     )
+
+
+def _resolve_image_artifact(
+    state: EnvState,
+    name: str,
+    step: int,
+) -> tuple[int, Path]:
+    record = state.get(step)
+    path = state.artifact_path(name, step=record.step_idx)
+    if name not in record.artifacts or not path.is_file():
+        raise FileNotFoundError(
+            f"image artifact {name!r} is not available at step {step}"
+        )
+    if path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+        raise ValueError(f"artifact {name!r} is not an image")
+    return record.step_idx, path
+
+
+def _image_media_type(path: Path) -> str:
+    return "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
 
 
 def _make_tool_function(toolkit: Toolkit, name: str, *, no_images: bool = False):

@@ -95,7 +95,9 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 1. 终端会先显示 ``env_server``、``vla_server`` 和 ``sam3_server`` 的启动信息。
 2. 智能体的逐轮输出和工具调用会显示在终端中；运行结束时还会显示耗时、token 用量和运行记录的路径。
 3. 启用 Dashboard 后，智能体的输出、相机视图、动作时间线和片段回放也会实时显示在 Dashboard 中。
-4. 默认输出目录为 ``logs/<timestamp>_<suite>_t<task>_s<seed>/``，其中包含 ``transcript_*.json``\ （运行记录）、``states.json``\ （每个环境步的记录）、``recipe_*.jsonl``\ （动作序列）和 ``episode.mp4``\ （回合录像）。
+4. 默认输出目录为 ``logs/<timestamp>_<suite>_t<task>_s<seed>/``，其中包含 ``transcript_*.json``\ （运行记录）、``states.json``\ （``EnvState`` 清单）、``recipe_*.jsonl``\ （动作序列）和 ``episode.mp4``\ （回合录像）。每种逐步工件使用一个与逻辑工件同名的目录，目录内按步骤保存零填充文件，例如 ``agentview_depth.npy/00.npy`` 和 ``agentview_depth.npy/01.npy``；运行级工件仍保存在输出目录根部。
 
-运行结束后，查看 ``states.json`` 的最后一条记录：``libero_terminated`` 为 ``true`` 表示 LIBERO 已判定任务完成；也可以打开 ``episode.mp4`` 复核运行过程。
+通过 Dashboard 或 ``view_env_state(step=-1)`` 查看最终状态；其顶层
+``terminated`` 即为基准任务结果。``states.json`` 是 ``EnvState`` 的内部
+存储，调用方不应直接解析。也可以打开 ``episode.mp4`` 复核运行过程。
 出问题时，参考 :doc:`installation` 页底部提到的四份日志文件。

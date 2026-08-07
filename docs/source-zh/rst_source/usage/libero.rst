@@ -112,7 +112,7 @@ LIBERO-PRO 核心套件一览
   排名第一的压缩 PNG mask。
 - **toolkit（工具集）** （``robots/libero/toolkit.py``）—— 定义 LLM
   能调用的工具：``pi0_pick``（交给 Pi0.5）、``move_to``、``rotate_wrist``、
-  ``back_project``、``view_driver_state``、``finish``…
+  ``back_project``、``view_env_state``、``finish``…
 
 Planner 能调用的工具
 --------------------
@@ -141,8 +141,10 @@ LIBERO 工具分为物理动作工具和只读工具。
 - ``back_project(row, col, ...)`` —— 将图像像素反投影到世界坐标。
 - ``segment(prompt=... / point=..., ...)`` —— 通过 SAM3 对已有图像进行文本或
   点提示分割。
-- ``view_driver_state(step=None)`` —— 读取已有的状态和图像记录。
-- ``view_camera_meta(camera=..., step=None)`` —— 读取已有的相机元数据。
+- ``view_env_state(step=-1)`` —— 读取已记录的状态和内嵌观测图像；第 0 步为
+  初始状态，``-1`` 表示最新状态。
+- ``view_camera_meta(camera=..., step=-1)`` —— 读取指定步骤的相机元数据；
+  ``-1`` 表示最新状态。
 - ``finish(status, summary)`` —— 结束当前运行。
 
 这些工具不会推进环境。
