@@ -150,14 +150,11 @@ class EnvState:
     # -- lifecycle and counters -----------------------------------------
 
     def reset(self) -> None:
-        """Remove state-owned artifacts and start a fresh trace."""
+        """Remove all artifacts and start a fresh trace."""
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        for record in self._steps:
-            for name in record.artifacts:
-                self._artifact_file(name, record.step_idx).unlink(missing_ok=True)
-        for name in self._run_artifacts:
-            self._artifact_file(name, None).unlink(missing_ok=True)
-        self._manifest_file().unlink(missing_ok=True)
+        for path in self._output_dir.iterdir():
+            if path.is_file() and path.suffix.lower() != ".log":
+                path.unlink()
         self._steps = []
         self._run_artifacts = set()
         self._open_count = 0
