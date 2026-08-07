@@ -201,14 +201,14 @@ class Toolkit:
         """Dispatch a tool call to its registered handler."""
         entry = self._tools.get(name)
         if entry is None:
-            return self._finish_tool(name, {"error": f"unknown tool: {name}"})
+            return ToolResult(name=name, result={"error": f"unknown tool: {name}"})
         _, handler, captures_state = entry
 
         with self._operation_lock:
             if self._active_operation is not None:
-                return self._finish_tool(
-                    name,
-                    {"error": "another tool operation is still active"},
+                return ToolResult(
+                    name=name,
+                    result={"error": "another tool operation is still active"},
                 )
             operation = _ToolOperation()
             self._active_operation = operation
@@ -219,9 +219,12 @@ class Toolkit:
             try:
                 result = handler(**input_dict)
             except TypeError as e:
-                return self._finish_tool(
-                    name,
-                    {"error": f"bad arguments for {name}: {e}", "got": input_dict},
+                return ToolResult(
+                    name=name,
+                    result={
+                        "error": f"bad arguments for {name}: {e}",
+                        "got": input_dict,
+                    },
                 )
             except ToolCancelled as e:
                 result = {
@@ -262,7 +265,7 @@ class Toolkit:
                 if record is not None:
                     self._publish_step(record)
 
-            return self._finish_tool(name, result)
+            return ToolResult(name=name, result=result)
         finally:
             with self._operation_lock:
                 self._active_operation = None
@@ -277,9 +280,6 @@ class Toolkit:
                 frame_artifacts=dict(getattr(type(self), "_FRAME_ARTIFACTS", {})),
             )
         )
-
-    def _finish_tool(self, name: str, result: Any) -> ToolResult:
-        return ToolResult(name=name, result=result)
 
     def get_env_state(
         self,
