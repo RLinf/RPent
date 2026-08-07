@@ -209,13 +209,11 @@ class Toolkit:
             try:
                 result = handler(**input_dict)
             except TypeError as e:
-                return ToolResult(
-                    name=name,
-                    result={
-                        "error": f"bad arguments for {name}: {e}",
-                        "got": input_dict,
-                    },
-                )
+                result = {
+                    "error": f"bad arguments for {name}: {e}",
+                    "got": input_dict,
+                }
+                failed = True
             except ToolCancelled as e:
                 result = {
                     "error": str(e),
@@ -249,9 +247,8 @@ class Toolkit:
                     record = self._state.latest_record()
                 result = captured
                 if failed:
-                    result.setdefault("error", result_dict["error"])
-                    if "traceback" in result_dict:
-                        result.setdefault("traceback", result_dict["traceback"])
+                    for key, value in result_dict.items():
+                        result.setdefault(key, value)
                 if record is not None:
                     self._publish_step(record)
 
