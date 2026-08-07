@@ -19,7 +19,6 @@ from rpent.utils.logging import get_logger
 logger = get_logger("env_state")
 
 _MANIFEST_NAME = "states.json"
-_MANIFEST_VERSION = 2
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 _TEXT_SUFFIXES = {".txt", ".md"}
 _SUPPORTED_SUFFIXES = _IMAGE_SUFFIXES | {
@@ -138,7 +137,6 @@ class EnvState:
         destination = self._manifest_file()
         temporary = self._temporary_file(destination)
         manifest = {
-            "version": _MANIFEST_VERSION,
             "run_artifacts": sorted(self._run_artifacts),
             "steps": [record.to_blob() for record in self._steps],
         }
