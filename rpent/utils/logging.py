@@ -87,6 +87,12 @@ def init_output_dir(log_dir: str | Path | None = None, verbose: bool = False) ->
     if log_dir is None:
         log_dir = get_repo_root() / "logs"
     _output_dir = Path(log_dir)
+    if not _log_initialized and _output_dir.exists() and any(_output_dir.iterdir()):
+        print(
+            f"Warning: RPent output directory is not empty: {_output_dir}; existing files may be overwritten!",
+            file=sys.stderr,
+            flush=True,
+        )
     _output_dir.mkdir(parents=True, exist_ok=True)
 
     if _log_initialized:
