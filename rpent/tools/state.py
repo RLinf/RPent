@@ -120,7 +120,8 @@ class EnvState:
             return self._output_dir / name
         if step < 0:
             raise ValueError("artifact writes require a nonnegative step")
-        return self._output_dir / f"{step:02d}_{name}"
+        artifact = Path(name)
+        return self._output_dir / name / f"{step:02d}{artifact.suffix}"
 
     def _manifest_file(self) -> Path:
         return self._output_dir / _MANIFEST_NAME
@@ -156,11 +157,8 @@ class EnvState:
     # -- lifecycle and counters -----------------------------------------
 
     def reset(self) -> None:
-        """Remove all artifacts and start a fresh trace."""
+        """Reset the in-memory trace without removing on-disk artifacts."""
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        for path in self._output_dir.iterdir():
-            if path.is_file() and path.suffix.lower() != ".log":
-                path.unlink()
         self._steps = []
         self._run_artifacts = set()
         self._open_count = 0
@@ -211,6 +209,7 @@ class EnvState:
         """
         step = self._resolve_read_step(step)
         destination = self._artifact_file(name, step)
+        destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = self._temporary_file(destination)
         suffix = destination.suffix.lower()
         record: StepRecord | None = (
@@ -308,6 +307,11 @@ class EnvState:
         else:
             self._record_for(step).artifacts.discard(name)
         destination.unlink()
+        if step is not None:
+            try:
+                destination.parent.rmdir()
+            except OSError:
+                pass
         self._write_manifest()
         return True
 
@@ -389,7 +393,8 @@ class EnvState:
             yield record.step_idx
         except BaseException:
             for name in list(record.artifacts):
-                self._artifact_file(name, record.step_idx).unlink(missing_ok=True)
+                destination = self._artifact_file(name, record.step_idx)
+                destination.unlink(missing_ok=True)
             if self._steps and self._steps[-1] is record:
                 self._steps.pop()
             self._next_step = record.step_idx
