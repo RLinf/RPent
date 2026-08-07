@@ -15,6 +15,7 @@ import dataclasses
 import json
 import queue
 from collections import deque
+from pathlib import Path
 from typing import Any
 
 from pydantic_ai import Agent, BinaryContent, ModelSettings, Tool, ToolReturn
@@ -43,6 +44,7 @@ from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessa
 from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import PlannerResult
 from rpent.tools.toolkit import Toolkit
+from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
 
 logger = get_logger("api_loop")
@@ -706,11 +708,27 @@ def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
     return tools
 
 
-def read_image(path: str) -> ToolReturn:
-    """Read a local image path returned by an RPent tool as visual input."""
+def read_image(path: str) -> ToolReturn | dict[str, str]:
+    """Read a local image path returned by an RPent tool as visual input.
+
+    File-system failures are returned to the model as structured tool errors,
+    matching :func:`rpent.tools.common.read_text_file`, so a bad model-supplied
+    path does not abort the entire agent run.
+    """
+    image_path = Path(path)
+    if not image_path.is_absolute():
+        image_path = get_repo_root() / image_path
+    if not image_path.exists():
+        return {"error": f"file not found: {image_path}"}
+    if image_path.is_dir():
+        return {"error": f"is a directory: {image_path}"}
+    try:
+        content = BinaryContent.from_path(image_path)
+    except Exception as e:
+        return {"error": str(e)}
     return ToolReturn(
-        return_value=path,
-        content=[BinaryContent.from_path(path)],
+        return_value=str(image_path),
+        content=[content],
     )
 
 
