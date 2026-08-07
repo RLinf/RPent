@@ -13,6 +13,7 @@ import time
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
@@ -32,35 +33,24 @@ class ToolCancelled(Exception):
     """Raised when an environment reaches a safe cancellation boundary."""
 
 
-def updatestate(func):
-    """Mark a tool handler as one that advances environment state.
+def readonly(func):
+    """Mark a tool handler as not advancing environment state.
 
-    The toolkit captures a fresh observation (:meth:`Toolkit.get_env_state`)
-    after a handler carrying this marker runs (or raises). Apply it to
-    primitive-driver methods that move the robot; read-only tools (file IO,
-    ``view_env_state``, ``back_project``, ``segment``, ...) are left
-    unmarked and skip state capture.
-
-    The marker is read off the underlying function, so registering a bound
-    method (``getattr(self._driver, name)``) inherits it automatically.
-    ``functools.partial`` does not delegate attribute access, so a partial
-    wrapping a marked method is treated as read-only (intentional -- see the
-    LIBERO ``segment`` tool).
+    Tool handlers capture a fresh observation (:meth:`Toolkit.get_env_state`)
+    by default. Apply this marker to observational and file/IO tools that do
+    not move the robot or otherwise change the environment.
     """
-    func._updates_state = True
+    func._readonly = True
     return func
 
 
-def _updates_state(handler: Callable[..., Any]) -> bool:
-    """Whether ``handler`` was marked with :func:`updatestate`.
-
-    Resolves through ``__func__`` so bound methods (the common case for
-    primitive-driver tools) report the marker set on their underlying
-    function. Plain functions, closures, and ``functools.partial`` objects
-    do not delegate, so undecorated read-only handlers read as ``False``.
-    """
-    target = getattr(handler, "__func__", handler)
-    return bool(getattr(target, "_updates_state", False))
+def _is_readonly(handler: Callable[..., Any]) -> bool:
+    """Whether ``handler`` was marked with :func:`readonly`."""
+    target = handler
+    while isinstance(target, partial):
+        target = target.func
+    target = getattr(target, "__func__", target)
+    return bool(getattr(target, "_readonly", False))
 
 
 @dataclass
@@ -174,10 +164,10 @@ class Toolkit:
             spec: Anthropic-shaped tool schema dict (``name``,
                 ``description``, ``input_schema``).
             handler: Callable invoked with the tool's input kwargs; returns
-                a result dict. Decorate state-advancing primitives with
-                :func:`updatestate`.
+                a result dict. Decorate read-only handlers with
+                :func:`readonly`; all other handlers capture state.
         """
-        self._tools[name] = (spec, handler, _updates_state(handler))
+        self._tools[name] = (spec, handler, not _is_readonly(handler))
 
     def _register_common_tools(self) -> None:
         """Register the file/IO tools shared by every run."""

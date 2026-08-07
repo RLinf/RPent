@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from rpent.tools.toolkit import readonly
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_output_dir
 
@@ -93,6 +94,7 @@ def _truncate(text: str, max_chars: int) -> str:
     )
 
 
+@readonly
 def read_text_file(path: str, max_chars: int = 40000) -> dict:
     p = _resolve(path)
     if not p.exists():
@@ -106,6 +108,7 @@ def read_text_file(path: str, max_chars: int = 40000) -> dict:
     return {"path": str(p), "size": len(text), "content": _truncate(text, max_chars)}
 
 
+@readonly
 def write_text_file(path: str, content: str) -> dict:
     p = _resolve(path)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -113,6 +116,7 @@ def write_text_file(path: str, content: str) -> dict:
     return {"path": str(p), "bytes_written": len(content.encode("utf-8"))}
 
 
+@readonly
 def list_dir(path: str = "") -> dict:
     # Default to the current output dir (so parallel agents see their own).
     p = _resolve(path) if path else get_output_dir()
@@ -122,6 +126,7 @@ def list_dir(path: str = "") -> dict:
     return {"path": str(p), "count": len(files), "files": files}
 
 
+@readonly
 def finish(status: str, summary: str) -> dict:
     """Signal that the run is complete. Halts the agent loop.
 

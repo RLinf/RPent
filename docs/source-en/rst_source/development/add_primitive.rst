@@ -43,24 +43,20 @@ Adding a scripted primitive usually involves two steps:
    the tool-call arguments, performs the work, usually through one or
    more ``self._env.step(...)`` calls, and returns a small log ``dict``.
 
-   You should mark all methods that change environment state with 
-   :func:`~rpent.tools.toolkit.updatestate`, so the toolkit re-renders 
-   state (``get_env_state``) automatically after it runs:
+  Primitive methods capture and re-render state (``get_env_state``)
+  automatically after they run:
 
    .. code-block:: python
 
-      from rpent.tools.toolkit import updatestate
-
-      @updatestate
       def open_drawer(self, dx: float = 0.15) -> dict:
           # Move end-effector back by dx while gripper is closed.
           for _ in range(N):
               self._env.step(build_open_drawer_chunk(dx))
           return {"ok": True, "dx": dx}
 
-   Failing to do so will result in the next tool call seeing stale state information.
-   Read-only tools (``view_env_state``, ``back_project``, ``segment``,
-   ...) can be left unmarked -- the toolkit skips state capture for them.
+  You can mark read-only tools (``view_env_state``, ``back_project``, ``segment``,
+  ...) with :func:`~rpent.tools.toolkit.readonly` so the toolkit skips state
+  capture for them, improving performance.
 
 2. **Add the tool schema.** Add an entry to ``TOOLS_SPEC`` in
    ``robots/<env>/tools.py``:

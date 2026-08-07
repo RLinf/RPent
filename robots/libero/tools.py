@@ -8,7 +8,7 @@ import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
 from rpent.tools.state import EnvState, StepRecord
-from rpent.tools.toolkit import updatestate
+from rpent.tools.toolkit import readonly
 from rpent.utils.logging import get_logger
 from rpent.utils.sam3_client import Sam3Client
 from rpent.utils.vla_client import VLAClient
@@ -125,7 +125,6 @@ class LiberoPrimitives:
             if original_task is not None:
                 self._last_obs["task_descriptions"] = original_task
 
-    @updatestate
     def pi0_pick(
         self,
         prompt: str,
@@ -201,7 +200,6 @@ class LiberoPrimitives:
             },
         }
 
-    @updatestate
     def pi0_doubled(
         self,
         prompt: str,
@@ -243,7 +241,6 @@ class LiberoPrimitives:
             },
         }
 
-    @updatestate
     def move_to(
         self,
         xyz,
@@ -308,7 +305,6 @@ class LiberoPrimitives:
             "libero_terminated": self.env.episode_terminated,
         }
 
-    @updatestate
     def rotate_wrist(
         self,
         *,
@@ -382,7 +378,6 @@ class LiberoPrimitives:
             "libero_terminated": self.env.episode_terminated,
         }
 
-    @updatestate
     def rotate_pitch(
         self,
         *,
@@ -464,7 +459,6 @@ class LiberoPrimitives:
             "libero_terminated": self.env.episode_terminated,
         }
 
-    @updatestate
     def move_pose(
         self,
         xyz,
@@ -535,7 +529,6 @@ class LiberoPrimitives:
             "libero_terminated": self.env.episode_terminated,
         }
 
-    @updatestate
     def release(
         self,
         *,
@@ -564,7 +557,6 @@ class LiberoPrimitives:
             "libero_terminated": self.env.episode_terminated,
         }
 
-    @updatestate
     def set_gripper(
         self,
         *,
@@ -589,6 +581,7 @@ class LiberoPrimitives:
 
     # ---- introspection helpers (for LLM-in-the-loop) ----
 
+    @readonly
     def segment(
         self,
         prompt: str = "",
@@ -745,14 +738,13 @@ class LiberoPrimitives:
 def _is_primitive_action(name: object) -> bool:
     """Whether ``name`` is a state-advancing LIBERO primitive.
 
-    A primitive is any ``@updatestate``-marked method on
-    :class:`LiberoPrimitives`; read-only tools (``view_env_state``,
-    ``back_project``, ``segment``, ...) and non-strings read as ``False``.
+    A primitive is any non-read-only method on :class:`LiberoPrimitives`;
+    read-only tools and non-strings read as ``False``.
     """
     if not isinstance(name, str):
         return False
     method = getattr(LiberoPrimitives, name, None)
-    return method is not None and bool(getattr(method, "_updates_state", False))
+    return method is not None and not bool(getattr(method, "_readonly", False))
 
 
 def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:
@@ -1409,6 +1401,7 @@ TOOLS_SPEC = [
 ]
 
 
+@readonly
 def view_env_state(step: int = -1, *, state: EnvState) -> dict:
     try:
         record = state.get(step)
@@ -1543,6 +1536,7 @@ def _make_segment_overlay(
     return overlay
 
 
+@readonly
 def view_camera_meta(
     camera: str = "agentview",
     step: int = -1,
@@ -1567,6 +1561,7 @@ def view_camera_meta(
     return {"camera": "wrist", "step": record.step_idx, "camera_meta": meta}
 
 
+@readonly
 def back_project(
     row: int | None = None,
     col: int | None = None,
