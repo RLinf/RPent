@@ -11,12 +11,12 @@ must localize objects yourself from the camera image + depth + calibration.
 > ONE-SHOT evaluation: you get **exactly ONE episode**. You MUST NOT call
 > `reset`, and you must not restart the episode. Plan carefully, then execute
 > your single best manipulation sequence toward top-level
-> `libero_terminated == true`.
+> `terminated == true`.
 > You MAY recover *within* this one episode (re-pre-position, re-`pi0_pick` a
 > missed grasp, walk the Pi0 prompt ladder, `rotate_pitch`/`move_pose`) — that is
 > all one continuous attempt — but the instant you would want to reset/start over,
 > **STOP instead and write the audit** (success or honest
-> `libero_terminated:false`). Do NOT call `reset`. Use the PROVEN LEVERS below to
+> `terminated:false`). Do NOT call `reset`. Use the PROVEN LEVERS below to
 > get the single attempt right the first time."""
 
 PROVEN_LEVERS = """These are battle-tested on seed 0 of THIS suite. You are now running a DIFFERENT
@@ -55,7 +55,7 @@ GRASPING:
   a HIGH `lift_thresh` (e.g. 999) + `gripper_closed_thresh:0` turns it into a
   generic closed-loop CONTACT skill (used to turn the stove knob).
 - **`pi0_doubled`** = Pi0 closed-loop CONTACT skill (success :=
-  `libero_terminated`). Use it for drawer/door open-close AND insertions; call it
+  `terminated`). Use it for drawer/door open-close AND insertions; call it
   repeatedly.
 
 DISAMBIGUATION / TARGETING:
@@ -131,7 +131,7 @@ PER-TASK RECIPES THAT WORKED AT SEED 0 (adapt coords to your seed):
 - mug→microwave + close (t9): the only UNSOLVED seed-0 cell — the round mug-in-hand
   walls ~3cm short of the In() threshold (deep narrow cavity). Try every lever
   (`pi0_doubled`, `move_pose`, push) and if it still walls, write an honest
-  `libero_terminated:false` with the max eef-y reached."""
+  `terminated:false` with the max eef-y reached."""
 
 RUNTIME = """A server process (`env_server.py`) is already running. It has Pi0.5 loaded and a
 single-env LIBERO sim. The runner manages the server and exposes structured
@@ -148,7 +148,7 @@ tools. Do not start, stop, restart, or otherwise manage `env_server.py`.
   name shown in your tool list, preserving the same arguments and semantics.
 
 Each state record exposes `step`, top-level `task_language`,
-`libero_terminated`, `episode_truncated`, coord-free `state`, an `artifacts`
+`terminated`, `truncated`, coord-free `state`, an `artifacts`
 list of logical base names, and a `log`. Storage paths are internal; do not
 construct or parse them.
 
@@ -164,7 +164,7 @@ artifact. Use `view_camera_meta`, `back_project`, and `segment` to consume
 metadata and world maps without opening artifacts directly. Step `0` is the
 initial state; step `-1` selects the latest state."""
 
-GOAL = """YOUR GOAL: produce top-level `libero_terminated == true` in ONE episode. ⛔ NO
+GOAL = """YOUR GOAL: produce top-level `terminated == true` in ONE episode. ⛔ NO
 `reset`, NO retry (SINGLE-ATTEMPT MODE — see the override at the very top; it
 supersedes any reset/retry wording in the Rules below)."""
 
@@ -260,7 +260,7 @@ Rule 4 — ⛔ SINGLE ATTEMPT, NO RESET (overrides any reset/retry text). This i
    `rotate_pitch`/`move_pose`) — that is still one continuous attempt — but you
    may NOT restart the episode. When the task terminates, OR when your single best
    sequence is exhausted (you'd otherwise want to reset), STOP and write the audit
-   (success or honest `libero_terminated:false`), then call `finish`.
+   (success or honest `terminated:false`), then call `finish`.
    NO teleport primitives (set_object_pose / articulate_to / js_move_to /
    carry_object — deleted/forbidden; a goal past OSC reach is approached
    physically or honestly reported, never warped). NO object world coords are
@@ -439,7 +439,7 @@ the new state view, log, and embedded images. Inspect `agentview_high.png` and
 
 ⚠ INFRA NOTE: `pi0_doubled` IS implemented and callable in this runtime —
 verified. It runs the Pi0 VLA on a CONTACT skill (drawer/door open-close, knob
-turn) with success := `libero_terminated` (no lift / no gripper-close
+turn) with success := `terminated` (no lift / no gripper-close
 assumption — unlike `pi0_pick`). If ANY prior note or reference for this cell
 concluded that `pi0_doubled` is "unknown action" / missing / that
 drawer-or-door articulation is an unsolvable "structural dead-end" BECAUSE no
@@ -473,16 +473,16 @@ re-pre-position + re-pi0_pick on the next prompt-ladder rung; split long
 traversals into <0.30 xy waypoints; for a door/drawer/knob use a SHORT capped
 OSC push or `pi0_doubled`, never one long push — it NaNs MuJoCo. If the task is
 unrecoverable within this one episode, do NOT reset — write an honest
-stuck-audit (`libero_terminated:false`) and call `finish`. Never warp.
+stuck-audit (`terminated:false`) and call `finish`. Never warp.
 """,
-    """WHEN top-level `libero_terminated == true` in the latest tool result:
+    """WHEN top-level `terminated == true` in the latest tool result:
 a. Write audit `{{output_dir}}/{{recipe_tag}}.json` with:
    suite, task_id, seed, regime:"strict_perception", strategy_notes (incl. how
    you localized), pick_result, final_state (latest state's `state`),
-   libero_terminated:true.
+   terminated:true.
 b. Call `finish`.
 If your single attempt does not solve it, write `{{output_dir}}/{{recipe_tag}}.json` with
-libero_terminated:false + strategy_notes describing what you tried in this one
+terminated:false + strategy_notes describing what you tried in this one
 episode and where it stalled. Then call `finish`. (NO reset, NO second attempt.)""",
 )
 

@@ -368,7 +368,7 @@ Pi0 never sees object coords in either mode, so there is no perception variant o
 the baseline. Expected behavior:
 
 - **P1 (task):** Pi0 "succeeds at the wrong task" — it picks the *base*-task
-  target object, places it on the plate, and `libero_terminated=False` because the
+  target object, places it on the plate, and `terminated=False` because the
   goal predicate names a different object. This is exactly the gap the hybrid
   closes.
 - **P2 (position):** Pi0 picks / places at the *base* (un-swapped) location.
@@ -391,14 +391,14 @@ add the PRO fields:
   "strategy_notes": "HOW you localized — which pixel(s) in agentview_high.png, back-projected world xyz; for swap, how you found the relocated object/fixture",
   "pick_result": { /* the pi0_pick step's result */ },
   "final_state": { /* latest view_env_state result's `state` field */ },
-  "libero_terminated": true
+  "terminated": true
 }
 ```
 
 `strategy_notes` **must** describe the localization (pixel → `back_project` →
 world xyz). For swap cells, explicitly note that the relocated object/fixture was
 found by perception, not by reading coords. If unrecoverable after honest
-exploration, write `libero_terminated: false` with what you tried and which step
+exploration, write `terminated: false` with what you tried and which step
 failed — never warp (teleport primitives are deleted; see Rule 4 in the
 perception protocol). Write the audit with `write_text_file` to
 `{output_dir}/{recipe_tag}.json`, then call `finish`.
@@ -421,7 +421,7 @@ perception protocol). Write the audit with `write_text_file` to
   `finish`. `_swap` typically needs an in-episode retry — document it.
 - **Rule 4 (no teleport).** `set_object_pose`, `articulate_to`, `js_move_to`,
   `carry_object` are deleted. A goal past OSC reach with no physical approach →
-  honest `libero_terminated:false`.
+  honest `terminated:false`.
 - **Rule 5 (assume solvable).** A localization that moves the gripper into thin
   air means you picked a wrong pixel (a reflection, a rim, a decoy object under
   the Object perturbation), not that the cell is unreachable. Re-look, re-pick,

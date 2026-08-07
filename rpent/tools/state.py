@@ -46,6 +46,8 @@ class StepRecord:
 
     step_idx: int
     state: dict[str, Any]
+    terminated: bool = False
+    truncated: bool = False
     artifacts: set[str] = field(default_factory=set)
     command: dict | None = None
     result: dict | None = None
@@ -56,6 +58,8 @@ class StepRecord:
         blob: dict[str, Any] = {
             "step_idx": self.step_idx,
             "state": self.state,
+            "terminated": self.terminated,
+            "truncated": self.truncated,
             "artifacts": sorted(self.artifacts),
         }
         if self.command is not None:
@@ -73,6 +77,8 @@ class StepRecord:
         return cls(
             step_idx=int(blob["step_idx"]),
             state=dict(blob.get("state") or {}),
+            terminated=bool(blob["terminated"]),
+            truncated=bool(blob["truncated"]),
             artifacts={str(name) for name in blob.get("artifacts") or []},
             command=blob.get("command"),
             result=blob.get("result"),
@@ -350,6 +356,8 @@ class EnvState:
         self,
         *,
         state: dict[str, Any],
+        terminated: bool = False,
+        truncated: bool = False,
         command: dict | None = None,
         result: dict | None = None,
         elapsed_s: float | None = None,
@@ -366,6 +374,8 @@ class EnvState:
         record = StepRecord(
             step_idx=self._next_step,
             state=copy.deepcopy(state),
+            terminated=terminated,
+            truncated=truncated,
             command=copy.deepcopy(command),
             result=copy.deepcopy(result),
             elapsed_s=elapsed_s,
@@ -438,6 +448,8 @@ class EnvState:
 
         out: dict[str, Any] = {
             "step": record.step_idx,
+            "terminated": record.terminated,
+            "truncated": record.truncated,
             "state": record.state,
             "artifacts": sorted(record.artifacts),
             "camera_meta": metadata,

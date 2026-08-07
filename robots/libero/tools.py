@@ -173,8 +173,8 @@ class LiberoPrimitives:
             if descent_done and ascended and closed:
                 success = True
                 break
-            if self.env.episode_terminated or self.env.episode_truncated:
-                success = self.env.episode_terminated
+            if self.env.terminated or self.env.truncated:
+                success = self.env.terminated
                 break
 
         return {
@@ -186,7 +186,8 @@ class LiberoPrimitives:
             "peak_lift_m": post_min_peak_z - min_z,  # actual post-descent ascent
             "min_gripper_opening": min_grip,
             "final_gripper_opening": last_grip,
-            "libero_terminated": self.env.episode_terminated,
+            "terminated": self.env.terminated,
+            "truncated": self.env.truncated,
             "diagnostics": {
                 "start_eef_z": round(start_z, 4),
                 "peak_eef_z": round(peak_z, 4),
@@ -219,8 +220,8 @@ class LiberoPrimitives:
         for c in range(max_chunks):
             self._vlm_chunk(instr)
             chunks_used = c + 1
-            if self.env.episode_terminated or self.env.episode_truncated:
-                task_success = self.env.episode_terminated
+            if self.env.terminated or self.env.truncated:
+                task_success = self.env.terminated
                 break
 
         return {
@@ -231,9 +232,10 @@ class LiberoPrimitives:
             "contact_skill_executed": chunks_used > 0,
             "chunks_used": chunks_used,
             "max_chunks": max_chunks,
-            "libero_terminated": self.env.episode_terminated,
+            "terminated": self.env.terminated,
+            "truncated": self.env.truncated,
             "diagnostics": {
-                "mode": "contact_skill_success_by_libero_terminated",
+                "mode": "contact_skill_success_by_termination",
                 "success_meaning": (
                     "`success` mirrors official LIBERO task termination only; "
                     "for intermediate contact skills, inspect image/state evidence."
@@ -292,7 +294,7 @@ class LiberoPrimitives:
                 action[5] = float(np.clip(step_dyaw / 0.10, -1.0, 1.0))
             action[6] = gripper
             self._step_env(action)
-            if self.env.episode_terminated or self.env.episode_truncated:
+            if self.env.terminated or self.env.truncated:
                 break
         final = self._last_obs_eef_pos
         return {
@@ -302,7 +304,8 @@ class LiberoPrimitives:
             "final_dist_m": round(float(np.linalg.norm(target - final)), 4),
             "steps_used": len(traj),
             "max_steps": max_steps,
-            "libero_terminated": self.env.episode_terminated,
+            "terminated": self.env.terminated,
+            "truncated": self.env.truncated,
         }
 
     def rotate_wrist(
@@ -365,7 +368,7 @@ class LiberoPrimitives:
             action[5] = float(np.clip(action[5], -1.0, 1.0))
             action[6] = float(gripper)
             self._step_env(action)
-            if self.env.episode_terminated or self.env.episode_truncated:
+            if self.env.terminated or self.env.truncated:
                 break
         final_yaw = _yaw_of(self.env.raw_obs()["robot0_eef_quat"])
         return {
@@ -375,7 +378,8 @@ class LiberoPrimitives:
             "final_yaw": round(final_yaw, 4),
             "final_err": round(float((target_yaw - final_yaw + np.pi) % (2 * np.pi) - np.pi), 4),
             "steps_used": len(traj),
-            "libero_terminated": self.env.episode_terminated,
+            "terminated": self.env.terminated,
+            "truncated": self.env.truncated,
         }
 
     def rotate_pitch(
@@ -445,7 +449,7 @@ class LiberoPrimitives:
             action[3] = float(np.clip(action[3], -1.0, 1.0))
             action[6] = float(gripper)
             self._step_env(action)
-            if self.env.episode_terminated or self.env.episode_truncated:
+            if self.env.terminated or self.env.truncated:
                 break
         final_pitch = _pitch_of(self.env.raw_obs()["robot0_eef_quat"])
         return {
@@ -456,7 +460,8 @@ class LiberoPrimitives:
             "final_err": round(float(
                 (target_pitch - final_pitch + np.pi) % (2 * np.pi) - np.pi), 4),
             "steps_used": len(traj),
-            "libero_terminated": self.env.episode_terminated,
+            "terminated": self.env.terminated,
+            "truncated": self.env.truncated,
         }
 
     def move_pose(
@@ -516,7 +521,7 @@ class LiberoPrimitives:
             action[5] = float(np.clip(np.clip(y_err, -yaw_step, yaw_step) / 0.10, -1.0, 1.0))
             action[6] = float(gripper)
             self._step_env(action)
-            if self.env.episode_terminated or self.env.episode_truncated:
+            if self.env.terminated or self.env.truncated:
                 break
         final = self._last_obs_eef_pos
         fq = self.env.raw_obs()["robot0_eef_quat"]
@@ -526,7 +531,8 @@ class LiberoPrimitives:
             "final_dist_m": round(float(np.linalg.norm(target - final)), 4),
             "final_pitch": round(_pitch_of(fq), 4),
             "steps_used": step + 1,
-            "libero_terminated": self.env.episode_terminated,
+            "terminated": self.env.terminated,
+            "truncated": self.env.truncated,
         }
 
     def release(
@@ -546,7 +552,7 @@ class LiberoPrimitives:
             action[6] = -1.0  # open
             self._step_env(action)
             peak_grip = max(peak_grip, self._last_obs_gripper)
-            if self.env.episode_terminated or self.env.episode_truncated:
+            if self.env.terminated or self.env.truncated:
                 break
         return {
             "name": "release",
@@ -554,7 +560,8 @@ class LiberoPrimitives:
             "start_gripper_opening": round(start_grip, 4),
             "peak_gripper_opening": round(peak_grip, 4),
             "final_gripper_opening": round(self._last_obs_gripper, 4),
-            "libero_terminated": self.env.episode_terminated,
+            "terminated": self.env.terminated,
+            "truncated": self.env.truncated,
         }
 
     def set_gripper(
@@ -570,13 +577,14 @@ class LiberoPrimitives:
             action = np.zeros(7, dtype=np.float32)
             action[6] = g
             self._step_env(action)
-            if self.env.episode_terminated or self.env.episode_truncated:
+            if self.env.terminated or self.env.truncated:
                 break
         return {
             "name": "set_gripper",
             "gripper": g,
             "steps": n,
-            "libero_terminated": self.env.episode_terminated,
+            "terminated": self.env.terminated,
+            "truncated": self.env.truncated,
         }
 
     # ---- introspection helpers (for LLM-in-the-loop) ----
@@ -748,7 +756,7 @@ def _is_primitive_action(name: object) -> bool:
 
 
 def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:
-    """Find a command sequence that gets ``libero_terminated=True``.
+    """Find a command sequence that gets ``terminated=True``.
 
     Export non-error LIBERO primitive commands and successful segment calls.
     """
@@ -840,12 +848,12 @@ def dump_state(
     log = log or {}
     with env_state.record_step(
         state=state,
+        terminated=primitives.env.terminated,
+        truncated=primitives.env.truncated,
         command=log.get("command"),
         result=log.get("result"),
         elapsed_s=log.get("elapsed_s"),
         extras={
-            "terminated": primitives.env.episode_terminated,
-            "episode_truncated": primitives.env.episode_truncated,
             "task_language": primitives.env.get_task_language(),
         },
     ) as step_idx:
@@ -1140,7 +1148,7 @@ TOOLS_SPEC = [
         "description": (
             "Pi0.5 closed-loop contact skill for non-pick interactions "
             "(e.g. stove/knob/button/short push). Returned success/task_success "
-            "only mirrors official libero_terminated; for intermediate contact "
+            "only mirrors official termination; for intermediate contact "
             "skills, success=false does not necessarily mean the contact "
             "interaction failed. Inspect image/state evidence. Do not use it "
             "as a general pick/place shortcut."
@@ -1412,12 +1420,12 @@ def view_env_state(step: int = -1, *, state: EnvState) -> dict:
     extras = record.extras
     out: dict = {
         "step": nn,
+        "terminated": record.terminated,
+        "truncated": record.truncated,
         "state": record.state,
         "artifacts": sorted(record.artifacts),
     }
     out["task_language"] = extras.get("task_language")
-    out["libero_terminated"] = extras.get("terminated")
-    out["episode_truncated"] = extras.get("episode_truncated")
     out["log"] = {
         "command": record.command,
         "result": record.result,
