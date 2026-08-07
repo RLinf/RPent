@@ -139,7 +139,7 @@ class Toolkit:
     ) -> None:
         self._tools: dict[
             str,
-            tuple[dict[str, Any], Callable[..., Any], bool],
+            tuple[dict[str, Any], Callable[..., Any]],
         ] = {}
         self._dashboard_events = dashboard_events
         self._state = state
@@ -167,7 +167,7 @@ class Toolkit:
                 a result dict. Decorate read-only handlers with
                 :func:`readonly`; all other handlers capture state.
         """
-        self._tools[name] = (spec, handler, not _is_readonly(handler))
+        self._tools[name] = (spec, handler)
 
     def _register_common_tools(self) -> None:
         """Register the file/IO tools shared by every run."""
@@ -192,7 +192,7 @@ class Toolkit:
         entry = self._tools.get(name)
         if entry is None:
             return ToolResult(name=name, result={"error": f"unknown tool: {name}"})
-        _, handler, captures_state = entry
+        _, handler = entry
 
         with self._operation_lock:
             if self._active_operation is not None:
@@ -227,7 +227,7 @@ class Toolkit:
                 result = {"error": str(e), "traceback": traceback.format_exc()}
                 failed = True
 
-            if captures_state:
+            if not _is_readonly(handler):
                 elapsed_s = round(time.perf_counter() - started, 2)
                 result_dict = result if isinstance(result, dict) else {"value": result}
                 command = {"action": name, **input_dict}
