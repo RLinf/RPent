@@ -98,6 +98,6 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 4. 默认输出目录为 ``logs/<timestamp>_<suite>_t<task>_s<seed>/``，其中包含 ``transcript_*.json``\ （运行记录）、``states.json``\ （带版本号的 ``EnvState`` 清单）、``recipe_*.jsonl``\ （动作序列）和 ``episode.mp4``\ （回合录像）。每步工件文件采用至少两位、零填充的步骤前缀扁平命名，并由 ``EnvState`` 在内部管理。
 
 通过 Dashboard 或 ``view_env_state(step=-1)`` 查看最终状态；其顶层
-``libero_terminated`` 即为基准任务结果。``states.json`` 是 ``EnvState`` 的内部
+``terminated`` 即为基准任务结果。``states.json`` 是 ``EnvState`` 的内部
 存储，调用方不应直接解析。也可以打开 ``episode.mp4`` 复核运行过程。
 出问题时，参考 :doc:`installation` 页底部提到的四份日志文件。

@@ -174,14 +174,14 @@ After a pick, decide "did I grab the target?" from two coord-free signals:
 `pi0_pick`'s returned `success` (an eef-lift + gripper-closure heuristic, pure
 proprioception) is a HINT, not proof — confirm with the wrist cam before
 carrying. The only authoritative TASK-success signal is
-top-level `libero_terminated` (the benchmark predicate), which is name-independent.
+top-level `terminated` (the benchmark predicate), which is name-independent.
 
 ## Rule 4 — NO TELEPORT primitives (physics-only)
 
 `set_object_pose`, `articulate_to`, `js_move_to`, `carry_object` are **deleted
 from the codebase**. They are not callable and are not in the tool list. If a
 goal is past OSC reach and no physical approach works, write an honest
-`libero_terminated:false` audit — never warp.
+`terminated:false` audit — never warp.
 
 ## Rule 0 — Use images for reasoning, not just JSON state
 
@@ -205,7 +205,7 @@ and do NOT restart the episode. You MAY recover *within* this one episode
 grasp; walk the next rung of the Pi0 prompt ladder in Rule 3; re-firm the grip;
 `rotate_pitch`/`move_pose`) — that is all one continuous attempt. But the
 instant you would want to start over, **STOP instead and write the audit**
-(success or an honest `libero_terminated:false`), then call `finish`. Never
+(success or an honest `terminated:false`), then call `finish`. Never
 warp; never reset.
 
 ## Rule 5 — Assume every task is physically solvable
@@ -273,7 +273,7 @@ sim) — do not start/stop it. You call MCP tools; begin by reading step 0 via
 
 | logical artifact or field | what's in it |
 |---|---|
-| `view_env_state` result | `step`, top-level `task_language`, `libero_terminated`, `episode_truncated`, `state.{robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos, object_names}`, `artifacts`, and nested `log.{command,result,elapsed_s}`. **No object coordinates.** Step `-1` selects latest. |
+| `view_env_state` result | `step`, top-level `task_language`, `terminated`, `truncated`, `state.{robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos, object_names}`, `artifacts`, and nested `log.{command,result,elapsed_s}`. **No object coordinates.** Step `-1` selects latest. |
 | `agentview_policy.png` | RGB in Pi0 frame. *Do not pick pixels here for back-projection.* |
 | `agentview.png` | 256×256 agentview RGB in **calibration frame**. Pick object pixels HERE only with `back_project(..., resolution:"low")`. |
 | `agentview_high.png` | **HI-RES 1024×1024** agentview RGB, calibration frame. **PREFER this for looking / identification**; `back_project` defaults to `resolution:"high"`. |
@@ -341,7 +341,7 @@ pi0_pick({"prompt": "pick up the X", "max_chunks": 20,
           "lift_thresh": 0.05, "gripper_closed_thresh": 0.06})
 
 // Pi0.5 for a contact skill (knob turn, drawer/door open-close — rare here).
-// success mirrors libero_terminated only; inspect image/state for intermediates.
+// success mirrors terminated only; inspect image/state for intermediates.
 pi0_doubled({"prompt": "turn off the stove", "max_chunks": 20})
 
 // Open gripper to place. Triggers libero termination if the On/In predicate met.
@@ -442,7 +442,7 @@ A typical bowl→plate cell looks like:
 7. Localize the placement region (basket / plate / drawer slot) the same way.
 8. `move_to([place_x, place_y, carry_z])` to traverse at constant height.
 9. Optionally descend `move_to([place_x, place_y, place_z])`.
-10. `release` — predicate (`On`/`In`) checks → `libero_terminated=True` if hit.
+10. `release` — predicate (`On`/`In`) checks → `terminated=True` if hit.
 11. Light retreat (`move_to` upward) so the next step's image is clean.
 
 > **Predicate fire timing.** Most LIBERO `On(X, Y)` predicates fire on
@@ -491,7 +491,7 @@ you do **not** need a separate read. When you need an older step, call
 2. Inspect the embedded `agentview_high.png` image → visual confirmation; pick
    pixels for any new localization.
 3. Check `state.robot0_eef_pos`, `state.robot0_gripper_qpos`, and top-level
-  `libero_terminated` in the returned view.
+  `terminated` in the returned view.
 
 You **do not** open the depth maps yourself — feed a pixel to `back_project`.
 Don't call `view_env_state` immediately after a primitive that already
@@ -504,7 +504,7 @@ returned the new state.
   lower or shifted; retry
   Pi0 with next prompt-ladder rung.
 - **Object slipped mid-carry.** `release` returns top-level
-  `libero_terminated=false` and the object
+  `terminated=false` and the object
   is no longer where you `release`d it. `release`, re-pre-pos above it,
   `pi0_pick` again, traverse again.
 - **OSC stuck.** `move_to` returns `log.result.final_dist_m > 0.05` at
@@ -530,7 +530,7 @@ allowed physics primitives (`move_to`, `pi0_pick`, `pi0_doubled`, `release`,
 
 ## Persisting successful runs as audit JSONs
 
-When top-level `libero_terminated == true`:
+When top-level `terminated == true`:
 
 a. The working command recipe (`{output_dir}/recipe_{recipe_tag}.jsonl`) is
   **auto-exported by the runner** from non-error primitive commands in the
@@ -542,11 +542,11 @@ b. Write a minimal audit JSON with `write_text_file` to
    `regime: "strict_perception"`, `strategy_notes` (mention HOW you localized —
    which pixel, depth, back-projected world xyz), `pick_result` (the `result`
   from your `pi0_pick`), `final_state` (the latest returned `state` field),
-  `libero_terminated: true`.
+  `terminated: true`.
 c. Call `finish({"status":"success","summary":"…"})`.
 
 If unrecoverable after honest exploration in this one episode, write
-`{output_dir}/{recipe_tag}.json` with `libero_terminated: false` +
+`{output_dir}/{recipe_tag}.json` with `terminated: false` +
 `strategy_notes` describing what you tried, the back-projected xyz you used, and
 which step failed. Then call `finish` (NO reset, NO second attempt).
 
@@ -580,7 +580,7 @@ which step failed. Then call `finish` (NO reset, NO second attempt).
 - **Fully oracle-free, including the grasp.** There is no GT-lift oracle —
   `pi0_pick` reads NO GT object pose and takes no tracking argument. You judge
   the grasp from gripper width + the wrist cam, and TASK success from
-  top-level `libero_terminated` (the benchmark predicate).
+  top-level `terminated` (the benchmark predicate).
 - **Single attempt.** One episode, no reset (Rule 2).
 - The expected audit `regime` is `strict_perception`.
 

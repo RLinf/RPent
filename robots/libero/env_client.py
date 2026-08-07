@@ -13,7 +13,6 @@ import numpy as np
 
 from rpent.utils.rpc import RpcClient
 
-
 _TIMEOUT_S = {
     "default": 30.0,
     "env.reset": 120.0,
@@ -35,8 +34,8 @@ class LiberoEnvClient:
     ):
         self._client = client
         self.return_all_frames = return_all_frames
-        self.episode_terminated = False
-        self.episode_truncated = False
+        self.terminated = False
+        self.truncated = False
         server_meta = self._client.call(
             "env.get_env_meta", timeout_s=_TIMEOUT_S["default"]
         )
@@ -49,17 +48,17 @@ class LiberoEnvClient:
         self.reset()
 
     def check_done(self, term, trunc) -> None:
-        self.episode_terminated |= bool(np.asarray(term).any())
-        self.episode_truncated |= bool(np.asarray(trunc).any())
+        self.terminated |= bool(np.asarray(term).any())
+        self.truncated |= bool(np.asarray(trunc).any())
 
     def reset(self) -> tuple[dict, Any]:
         ret = self._client.call("env.reset", timeout_s=_TIMEOUT_S["env.reset"])
-        self.episode_terminated = False
-        self.episode_truncated = False
+        self.terminated = False
+        self.truncated = False
         return ret
 
     def step(self, action) -> tuple[dict, Any, np.ndarray, Any, Any]:
-        assert not (self.episode_terminated or self.episode_truncated), (
+        assert not (self.terminated or self.truncated), (
             "env.step called after the episode signaled term/trunc"
         )
         ret = self._client.call(
@@ -78,7 +77,7 @@ class LiberoEnvClient:
         Terminated / truncated have shape ``[chunk_size]`` after the
         server strips the env dim.
         """
-        assert not (self.episode_terminated or self.episode_truncated), (
+        assert not (self.terminated or self.truncated), (
             "env.chunk_step called after the episode signaled term/trunc"
         )
         if return_all_frames is None:

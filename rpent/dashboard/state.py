@@ -115,6 +115,7 @@ class DashboardState:
         self._condition = threading.Condition(self._lock)
         self._task_state: str | None = None
         self._terminated = False
+        self._truncated = False
         self._error: str | None = None
         self._usage = {"in": 0, "out": 0, "tool_calls": 0}
         self._runtime = {
@@ -280,7 +281,12 @@ class DashboardState:
             raise ValueError(f"invalid terminal run state: {state!r}")
         with self._condition:
             self._task_state = state
-            self._terminated = any(item.get("terminated") for item in self._timeline)
+            self._terminated = any(
+                item.get("terminated") for item in self._timeline
+            )
+            self._truncated = any(
+                item.get("truncated") for item in self._timeline
+            )
             self._error = None if error is None else str(error)
             self._task_replacement_requested = False
             self._seal_interaction_locked()
@@ -306,6 +312,7 @@ class DashboardState:
         self._task_state = "starting"
         self._task_replacement_requested = False
         self._terminated = False
+        self._truncated = False
         self._error = None
         self._usage = {"in": 0, "out": 0, "tool_calls": 0}
         self._reset_task_runtime_locked()
@@ -604,9 +611,8 @@ class DashboardState:
         except Exception:
             return
         action = str(command.get("action", name))
-        terminated = bool(
-            result.get("terminated", result.get("libero_terminated", False))
-        )
+        terminated = bool(result.get("terminated"))
+        truncated = bool(result.get("truncated"))
         action_video_path = self._action_video_from_result(
             result,
             step=step,
@@ -621,6 +627,7 @@ class DashboardState:
             "result": log.get("result"),
             "elapsed_s": log.get("elapsed_s"),
             "terminated": terminated,
+            "truncated": truncated,
             "action_video_path": action_video,
             "action_video_artifact": action_video_artifact,
             "has_action_video": bool(action_video_artifact or action_video_path),
@@ -628,6 +635,7 @@ class DashboardState:
         with self._lock:
             self._timeline.append(item)
             self._terminated = self._terminated or terminated
+            self._truncated = self._truncated or truncated
 
     def _action_video_from_result(
         self,
@@ -651,7 +659,6 @@ class DashboardState:
         command = record.command
         if not isinstance(command, dict) or not command.get("action"):
             return
-        terminated = bool(record.extras.get("terminated"))
         action_video = next(
             (name for name in sorted(record.artifacts) if name.endswith(".mp4")),
             None,
@@ -662,13 +669,15 @@ class DashboardState:
             "args": {key: value for key, value in command.items() if key != "action"},
             "result": record.result,
             "elapsed_s": record.elapsed_s,
-            "terminated": terminated,
+            "terminated": record.terminated,
+            "truncated": record.truncated,
             "action_video_artifact": action_video,
             "has_action_video": action_video is not None,
         }
         with self._lock:
             self._timeline.append(item)
-            self._terminated = self._terminated or terminated
+            self._terminated = self._terminated or record.terminated
+            self._truncated = self._truncated or record.truncated
 
     def _update_step_frames(self, record: StepRecord) -> None:
         """Load dashboard frame bytes from the step's canonical artifacts."""
@@ -874,6 +883,7 @@ class DashboardState:
             return {
                 "state": self._visible_state_locked(),
                 "terminated": self._terminated,
+                "truncated": self._truncated,
                 "error": self._error,
                 "usage": dict(self._usage),
                 "runtime": self._runtime_snapshot(),
@@ -896,6 +906,7 @@ class DashboardState:
             return {
                 "state": self._visible_state_locked(),
                 "terminated": self._terminated,
+                "truncated": self._truncated,
                 "error": self._error,
                 "usage": dict(self._usage),
                 "runtime": self._runtime_snapshot(),
