@@ -38,11 +38,9 @@ class LiberoToolkit(Toolkit):
     # Registration
     # ------------------------------------------------------------------
     def _register_libero_tools(self) -> None:
-        # Read-only tools whose handlers aren't primitive methods (they need
-        # the run's EnvState bound in, or -- like segment -- must stay
-        # read-only despite being a primitives method). Every other spec binds
-        # to its primitive-driver method; @updatestate on the method decides
-        # whether state is captured.
+        # These read-only handlers need the run's EnvState bound in. Every
+        # other spec binds to a primitive-driver method and captures state by
+        # default unless that method is explicitly marked @readonly.
         state_handlers = {
             "view_env_state": partial(
                 libero_tools.view_env_state, state=self._state

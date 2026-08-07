@@ -40,24 +40,20 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
    一个方法。该方法接收工具调用的参数，执行一次或多次
    ``self._env.step(...)``，并返回一个简短的日志字典。
 
-   您需要为所有可能改变环境状态的方法加上 
-   :func:`~rpent.tools.toolkit.updatestate` 装饰器，
-   toolkit 会在其执行后自动重新渲染状态（``get_env_state``）：
+     primitive 方法执行后默认会自动捕获并重新渲染状态
+     （``get_env_state``）：
 
    .. code-block:: python
 
-      from rpent.tools.toolkit import updatestate
-
-      @updatestate
       def open_drawer(self, dx: float = 0.15) -> dict:
           # 保持夹爪闭合，沿 -x 方向后拉 dx 米。
           for _ in range(N):
               self._env.step(build_open_drawer_chunk(dx))
           return {"ok": True, "dx": dx}
 
-   若不这样做，之后的工具调用可能将看到过时的环境状态信息。
    只读工具（``view_env_state``、``back_project``、``segment`` 等）
-   无需装饰——toolkit 会跳过它们的状态捕获。
+     可以使用 :func:`~rpent.tools.toolkit.readonly` 标记，toolkit 会跳过
+     它们的状态捕获，提升性能。
 
 2. **添加工具定义。** 在 ``robots/<env>/tools.py`` 的 ``TOOLS_SPEC`` 中新增一项：
 
