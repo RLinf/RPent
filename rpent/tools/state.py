@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import copy
-import fnmatch
 import json
 import os
 from collections.abc import Generator
@@ -71,21 +70,6 @@ class StepRecord:
         if self.extras:
             blob["extras"] = self.extras
         return blob
-
-    @classmethod
-    def from_blob(cls, blob: dict[str, Any]) -> "StepRecord":
-        return cls(
-            step_idx=int(blob["step_idx"]),
-            state=dict(blob.get("state") or {}),
-            terminated=bool(blob["terminated"]),
-            truncated=bool(blob["truncated"]),
-            artifacts={str(name) for name in blob.get("artifacts") or []},
-            command=blob.get("command"),
-            result=blob.get("result"),
-            elapsed_s=blob.get("elapsed_s"),
-            extras=dict(blob.get("extras") or {}),
-        )
-
 
 class EnvState:
     """Own a run's step trace and all state-related files in its output root."""
@@ -287,61 +271,6 @@ class EnvState:
             return False
         return self._artifact_file(name, resolved_step).exists()
 
-    def remove(self, name: str, *, step: int | None) -> bool:
-        destination = self._artifact_file(name, step)
-        if not destination.exists():
-            return False
-        if step is None:
-            self._run_artifacts.discard(name)
-        else:
-            self._record_for(step).artifacts.discard(name)
-        destination.unlink()
-        if step is not None:
-            try:
-                destination.parent.rmdir()
-            except OSError:
-                pass
-        self._write_manifest()
-        return True
-
-    def list(
-        self,
-        pattern: str = "*",
-        *,
-        step: int | None = -1,
-    ) -> list[str]:
-        resolved_step = self._resolve_read_step(step)
-        if resolved_step is None:
-            names = [
-                name
-                for name in self._run_artifacts
-                if self._artifact_file(name, None).exists()
-            ]
-        else:
-            record = self.get(resolved_step)
-            names = [
-                name
-                for name in record.artifacts
-                if self._artifact_file(name, resolved_step).exists()
-            ]
-        return sorted(name for name in names if fnmatch.fnmatch(name, pattern))
-
-    def list_all(self, pattern: str = "*") -> list[tuple[int | None, str]]:
-        artifacts: list[tuple[int | None, str]] = [
-            (None, name) for name in self.list(pattern, step=None)
-        ]
-        for record in self._steps:
-            artifacts.extend(
-                (record.step_idx, name)
-                for name in record.artifacts
-                if fnmatch.fnmatch(name, pattern)
-                and self._artifact_file(name, record.step_idx).exists()
-            )
-        return sorted(
-            artifacts,
-            key=lambda item: (-1 if item[0] is None else item[0], item[1]),
-        )
-
     # -- step records ----------------------------------------------------
 
     @contextmanager
@@ -403,59 +332,3 @@ class EnvState:
 
     def records(self) -> list[StepRecord]:
         return copy.deepcopy(self._steps)
-
-    # -- LLM-facing view -------------------------------------------------
-
-    def view(
-        self,
-        step: int = -1,
-        *,
-        image_slots: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
-        try:
-            record = self.get(step)
-        except Exception as exc:
-            return {"error": f"state step not available: {exc}"}
-
-        metadata: dict[str, Any] = {}
-        metadata_suffix = "_metadata.json"
-        for name in sorted(record.artifacts):
-            if not name.endswith(metadata_suffix):
-                continue
-            key = name.removesuffix(metadata_suffix)
-            try:
-                loaded = self.load(name, step=record.step_idx)
-                if isinstance(loaded, dict):
-                    loaded = {
-                        field: value
-                        for field, value in loaded.items()
-                        if field not in {"K", "T_base_cam"}
-                    }
-                metadata[key] = loaded
-            except Exception as exc:
-                metadata[key] = {"error": str(exc)}
-
-        out: dict[str, Any] = {
-            "step": record.step_idx,
-            "terminated": record.terminated,
-            "truncated": record.truncated,
-            "state": record.state,
-            "artifacts": sorted(record.artifacts),
-            "camera_meta": metadata,
-            "log": {
-                "command": record.command,
-                "result": record.result,
-                "elapsed_s": record.elapsed_s,
-            },
-        }
-        if record.extras:
-            out["extras"] = record.extras
-        if image_slots:
-            for slot, name in image_slots.items():
-                if name not in record.artifacts:
-                    continue
-                try:
-                    out[slot] = self.load_bytes(name, step=record.step_idx)
-                except FileNotFoundError:
-                    continue
-        return out
