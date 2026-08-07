@@ -184,7 +184,7 @@ class Toolkit:
     def get_tools_spec(self) -> list[dict[str, Any]]:
         """Return the tool schemas the LLM sees."""
         return substitute(
-            [spec for spec, _, _ in self._tools.values()]
+            [spec for spec, _ in self._tools.values()]
         )
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
