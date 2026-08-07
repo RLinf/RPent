@@ -37,7 +37,7 @@ from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
 )
-from rpent.envs import get_env_spec, get_toolkit
+from rpent.envs import enumerate_envs, get_env_spec, get_toolkit
 from rpent.planner.base import build_planner
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
@@ -82,12 +82,19 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
 
 
 def _build_argparser() -> argparse.ArgumentParser:
+    known_envs = enumerate_envs()
+    known_envs_text = ", ".join(known_envs) if known_envs else "none"
     ap = argparse.ArgumentParser(
-        description="Standalone hybrid LLM-in-the-loop physical agent",
+        description="RPent: Agentic Infrastructure for the Physical World",
     )
 
-    ap.add_argument("--env", dest="env_name", required=True, choices=["libero"],
-                    help="Environment backend: libero.")
+    ap.add_argument(
+        "--env",
+        dest="env_name",
+        required=True,
+        choices=known_envs,
+        help=f"Environment backend. Known environments: {known_envs_text}.",
+    )
 
     # models
     ap.add_argument("--planner", default="api",
