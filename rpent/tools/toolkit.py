@@ -20,7 +20,7 @@ from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
 from rpent.utils.templates import substitute
 
 if TYPE_CHECKING:
-    from rpent.tools.state import StepRecord
+    from rpent.tools.state import EnvState, StepRecord
 
 
 @dataclass(slots=True)
@@ -180,6 +180,13 @@ class Toolkit:
     # ------------------------------------------------------------------
     # Planner-facing API
     # ------------------------------------------------------------------
+
+    @property
+    def state(self) -> EnvState:
+        """Return the run's artifact and step store."""
+        if self._state is None:
+            raise RuntimeError("toolkit has no environment state")
+        return self._state
 
     def get_tools_spec(self) -> list[dict[str, Any]]:
         """Return the tool schemas the LLM sees."""
