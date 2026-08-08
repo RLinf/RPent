@@ -106,11 +106,13 @@ class LiberoPrimitives:
         model: VLAClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
+        sam3_reviewer: Any | None = None,
     ):
         self.env = env
         self.model = model
         self._sam3_client = sam3_client
         self._check_cancelled = check_cancelled
+        self._sam3_reviewer = sam3_reviewer
         self._last_obs = None
         self._last_obs_eef_pos = None
         self._last_obs_eef_z = None
@@ -726,7 +728,15 @@ class LiberoPrimitives:
         )
         overlay_path = None
         mask = data.mask
+        review_metadata = None
         if data.found and isinstance(mask, np.ndarray):
+            raw_mask = mask.astype(bool)
+            mask = raw_mask
+            overlay_path = overlay_candidate_path
+            if not _write_segment_overlay(image_path, raw_mask, overlay_path):
+                overlay_path = None
+
+            world_map = None
             if world_path is None or not world_path.exists():
                 world_result = {
                     "world_xyz": None,
@@ -734,11 +744,80 @@ class LiberoPrimitives:
                     "expected_world_path": str(world_path) if world_path else None,
                 }
             else:
-                world_result = _mask_to_world(mask, np.load(world_path))
+                world_map = np.load(world_path)
+                world_result = _mask_to_world(raw_mask, world_map)
                 world_result["world_path"] = str(world_path)
-            overlay_path = overlay_candidate_path
-            if not _write_segment_overlay(image_path, mask, overlay_path):
-                overlay_path = None
+
+            if has_prompt and self._sam3_reviewer is not None and overlay_path:
+                try:
+                    review = self._sam3_reviewer.review(
+                        raw_mask,
+                        overlay_path,
+                        prompt,
+                        (_load_step(nn).get("task_language") or "").strip(),
+                        self._check_cancelled,
+                    )
+                    candidate = np.asarray(review.mask, dtype=bool)
+                    review_metadata = dict(review.metadata)
+                    fallback_reason = None
+                    if candidate.shape != raw_mask.shape or np.any(candidate & ~raw_mask):
+                        fallback_reason = "invalid_review_mask"
+                    elif not np.array_equal(candidate, raw_mask):
+                        projection_mask = getattr(review, "projection_mask", None)
+                        projection_mask = (
+                            candidate
+                            if projection_mask is None
+                            else np.asarray(projection_mask, dtype=bool)
+                        )
+                        if (
+                            projection_mask.shape != candidate.shape
+                            or not projection_mask.any()
+                            or np.any(projection_mask & ~candidate)
+                        ):
+                            projection_mask = np.zeros_like(candidate)
+                        candidate_world = (
+                            _mask_to_world(projection_mask, world_map)
+                            if world_map is not None
+                            else {"world_xyz": None}
+                        )
+                        if candidate_world.get("world_xyz") is None:
+                            fallback_reason = "invalid_review_projection"
+                        else:
+                            mask = candidate
+                            world_result = candidate_world
+                            world_result["world_path"] = str(world_path)
+                            review_metadata["projection_pixels"] = int(
+                                projection_mask.sum()
+                            )
+                            review_metadata["applied"] = True
+                            if not _write_segment_overlay(image_path, mask, overlay_path):
+                                overlay_path = None
+                    if fallback_reason:
+                        review_metadata.update(
+                            status="fallback",
+                            applied=False,
+                            reason=fallback_reason,
+                            final_pixels=int(raw_mask.sum()),
+                        )
+                except Exception:
+                    self._check_cancelled()
+                    logger.exception("SAM3 review failed; using the original mask")
+                    review_metadata = {
+                        "status": "fallback",
+                        "applied": False,
+                        "reason": "review_failed",
+                    }
+            if review_metadata is not None:
+                ys, xs = np.where(mask)
+                review_metadata.update(
+                    raw_box=data.box,
+                    raw_score=data.score,
+                    effective_box=(
+                        [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())]
+                        if xs.size
+                        else None
+                    ),
+                )
         else:
             world_result = {
                 "world_xyz": None,
@@ -764,6 +843,8 @@ class LiberoPrimitives:
         if not data.found:
             segment_blob["error"] = data.reason or "SAM3 found no mask"
         segment_blob.update(world_result)
+        if review_metadata is not None:
+            segment_blob["sam3_review"] = review_metadata
         segment_path.write_text(json.dumps(segment_blob, indent=2, default=str))
 
         result = {
@@ -777,6 +858,8 @@ class LiberoPrimitives:
             "world_xyz": segment_blob["world_xyz"],
             "world_error": segment_blob.get("world_error"),
         }
+        if review_metadata is not None:
+            result["sam3_review"] = review_metadata
         if "error" in segment_blob:
             result["error"] = segment_blob["error"]
             result["fallback"] = "Use manual visual localization and back_project."
