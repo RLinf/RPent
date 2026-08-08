@@ -135,6 +135,19 @@ def _subprocess_env(**extra: str) -> dict[str, str]:
     return env
 
 
+def _build_sam3_reviewer(args: argparse.Namespace) -> Any:
+    if args.no_images:
+        return None
+    from robots.libero.sam3_review import build_sam3_reviewer
+
+    return build_sam3_reviewer(
+        planner_type=args.planner,
+        model=args.model,
+        base_url=args.base_url,
+        no_images=False,
+    )
+
+
 def init_task_runtime(
     args: argparse.Namespace,
     output_dir: Path,
@@ -338,6 +351,7 @@ def init_shared_runtime(
     return owned_daemons, {
         "model": model,
         "sam3_client": sam3_client,
+        "sam3_reviewer": _build_sam3_reviewer(args),
     }
 
 
@@ -515,6 +529,7 @@ def _init_runtime(
         ),
         "model": VLAClient(vla_rpc),
         "sam3_client": Sam3Client(sam3_rpc),
+        "sam3_reviewer": _build_sam3_reviewer(args),
     }
     return daemons, primitives_kwargs
 

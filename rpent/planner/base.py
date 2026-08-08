@@ -99,6 +99,15 @@ class Planner(Protocol):
 # ---------------------------------------------------------------------------
 
 
+def resolve_planner_model(planner_type: str, model: str | None) -> str | None:
+    """Resolve the model exactly once for the planner and visual review."""
+    if planner_type == "codex":
+        return model or os.environ.get("CODEX_MODEL")
+    if planner_type == "claude_code":
+        return model or "sonnet"
+    return model
+
+
 def build_planner(
     planner_type: str,
     *,
@@ -117,6 +126,7 @@ def build_planner(
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
     # codex all import from this module (PlannerResult).
 
+    model = resolve_planner_model(planner_type, model)
     if planner_type == "api":
         if not model:
             raise ValueError(
@@ -172,7 +182,7 @@ def build_planner(
         return ClaudeCodePlanner(
             output_dir=output_dir,
             repo_root=get_repo_root(),
-            model=model or "sonnet",
+            model=model,
             timeout_s=cc_timeout_s,
             max_budget_usd=cc_budget,
             extra_dirs=[str(get_memory_dir(env_name))],
