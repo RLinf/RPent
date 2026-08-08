@@ -54,3 +54,4 @@ class EnvSpec:
         [argparse.Namespace, Path, DashboardEventSink],
         tuple[list["ProcessDaemon"], dict[str, Any]],
     ]
+    dashboard: dict[str, Any] | None = None

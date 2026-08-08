@@ -6,6 +6,7 @@ the process is stopped.
 
 Routes mirror the fixed frontend contract in ``rpent/dashboard/index.html``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -14,7 +15,7 @@ import socket
 import threading
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import uvicorn
 from fastapi import Body, FastAPI
@@ -27,7 +28,6 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 
-from rpent.dashboard.commands import LIBERO_SUITE_NAMES, TASK_COMMAND
 from rpent.dashboard.interaction import (
     DashboardMessageConflictError,
     InteractionUnavailableError,
@@ -46,10 +46,12 @@ class DashboardServer:
         port: int = 0,
         runs_dir: str = "",
         language: str = "en",
+        dashboard_spec: dict[str, Any],
     ) -> None:
         self.host = host
         self.port = int(port)
         self.runs_dir = runs_dir
+        self._dashboard_spec = dashboard_spec
         dashboard_dir = Path(__file__).parent
         self._language = "zh-cn" if language == "zh-cn" else "en"
         self._index_html = (dashboard_dir / "index.html").read_text(encoding="utf-8")
@@ -130,14 +132,7 @@ class DashboardServer:
 
         @app.get("/api/commands")
         def api_commands() -> JSONResponse:
-            return JSONResponse(
-                {
-                    "task": {
-                        "command": TASK_COMMAND,
-                        "suites": list(LIBERO_SUITE_NAMES),
-                    }
-                }
-            )
+            return JSONResponse(self._dashboard_spec)
 
         @app.get("/api/launch/state")
         def api_launch_state() -> JSONResponse:
@@ -247,11 +242,14 @@ class DashboardServer:
         @app.get("/api/run/frame")
         def api_frame(
             run: str,
-            kind: Literal["camera", "wrist"] = "camera",
+            kind: str = self._dashboard_spec["frame_channels"][0]["name"],
             t: str = "",
         ) -> Response:
             live = self._resolve(run)
-            png = live.frame(kind) if live else None
+            try:
+                png = live.frame(kind) if live else None
+            except ValueError as exc:
+                return JSONResponse({"detail": str(exc)}, status_code=422)
             if png is None:
                 return Response(status_code=404)
             return Response(png, media_type="image/png")

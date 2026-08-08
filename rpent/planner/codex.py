@@ -11,6 +11,8 @@ register tools in process. Event rendering and stats live in a single
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import os
 import queue
@@ -30,6 +32,7 @@ from rpent.dashboard.events import (
     UsageEvent,
 )
 from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import PlannerResult, strip_mcp_prefix
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.tools.toolkit import Toolkit
@@ -70,6 +73,12 @@ class CodexPlanner:
         self._base_url = os.environ.get("CODEX_BASE_URL", None)
         self._api_key = os.environ.get("CODEX_API_KEY", None)
         self._dashboard_events = dashboard_events
+        self._turn_options = {
+            "approval_mode": openai_codex.ApprovalMode.deny_all,
+            "cwd": self._repo_root,
+            "model": self._model,
+            "sandbox": openai_codex.Sandbox.full_access,
+        }
 
     def solve(
         self,
@@ -82,21 +91,22 @@ class CodexPlanner:
         dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         """Run one or more Codex SDK turns for the given prompt."""
-        if dashboard_interaction is not None:
-            raise NotImplementedError(
-                "CodexPlanner does not support Dashboard interaction"
+        if input_queue is not None and dashboard_interaction is not None:
+            raise ValueError(
+                "input_queue and dashboard_interaction cannot be used together"
             )
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
-        if self._output_path is None:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".out", prefix="codex_sdk_task_", delete=False
-            ) as f:
-                output_path = Path(f.name)
-        else:
-            output_path = self._output_path
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-        raw_stream_path = output_path.with_suffix(output_path.suffix + ".stream.jsonl")
-        last_message_path = output_path.with_suffix(output_path.suffix + ".last")
+        if dashboard_interaction is not None:
+            return asyncio.run(
+                self._solve_dashboard(
+                    prompt=prompt,
+                    initial_user_text=user_message,
+                    toolkit=toolkit,
+                    max_turns=max_turns,
+                    interaction=dashboard_interaction,
+                )
+            )
+        output_path, raw_stream_path, last_message_path = self._output_paths()
         recorder = _Recorder(
             max_turns=max_turns,
             dashboard_events=self._dashboard_events,
@@ -187,6 +197,21 @@ class CodexPlanner:
 
     # -- internal session --------------------------------------------------
 
+    def _output_paths(self) -> tuple[Path, Path, Path]:
+        if self._output_path is None:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".out", prefix="codex_sdk_task_", delete=False
+            ) as file_obj:
+                output_path = Path(file_obj.name)
+        else:
+            output_path = self._output_path
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+        return (
+            output_path,
+            output_path.with_suffix(output_path.suffix + ".stream.jsonl"),
+            output_path.with_suffix(output_path.suffix + ".last"),
+        )
+
     def _run_session(
         self,
         prompt: str,
@@ -199,17 +224,10 @@ class CodexPlanner:
         input_queue: "queue.Queue[str | None] | None" = None,
     ) -> None:
         try:
-            approval = openai_codex.ApprovalMode.deny_all
-            sandbox = openai_codex.Sandbox.full_access
             chunks: list[str] = []
             with openai_codex.Codex(config=self._build_config(mcp_url)) as codex:
                 state["codex"] = codex
-                thread = codex.thread_start(
-                    approval_mode=approval,
-                    cwd=self._repo_root,
-                    model=self._model,
-                    sandbox=sandbox,
-                )
+                thread = codex.thread_start(**self._turn_options)
                 state["thread"] = thread
 
                 with (
@@ -218,13 +236,7 @@ class CodexPlanner:
                 ):
                     write_lock = threading.Lock()
 
-                    turn = thread.turn(
-                        prompt,
-                        approval_mode=approval,
-                        cwd=self._repo_root,
-                        model=self._model,
-                        sandbox=sandbox,
-                    )
+                    turn = thread.turn(prompt, **self._turn_options)
                     state["turn"] = turn
 
                     stop_steer: threading.Event | None = None
@@ -286,6 +298,111 @@ class CodexPlanner:
         except Exception as e:
             state["error"] = e
 
+    async def _solve_dashboard(
+        self,
+        *,
+        prompt: str,
+        initial_user_text: str,
+        toolkit: Toolkit,
+        max_turns: int,
+        interaction: DashboardInteractionPort,
+    ) -> PlannerResult:
+        """Run a controllable sequence of turns on one Codex thread."""
+        output_path, raw_stream_path, last_message_path = self._output_paths()
+        recorder = _Recorder(
+            max_turns=max_turns, dashboard_events=self._dashboard_events
+        )
+        chunks: list[str] = []
+        error: str | None = None
+        started = time.time()
+
+        mcp_server = HttpMcpServer(toolkit)
+        mcp_url = mcp_server.start()
+        try:
+            with open(output_path, "w") as out_f, open(raw_stream_path, "w") as raw_f:
+
+                def emit_event(event: Any) -> None:
+                    _write_jsonl(raw_f, _message_to_json(event))
+                    rendered = recorder.observe(event)
+                    if rendered:
+                        chunks.append(rendered)
+                        out_f.write(rendered)
+                        out_f.flush()
+
+                def emit_user(text: str, *, initial: bool = False) -> None:
+                    display = (
+                        "[initial task instructions submitted]" if initial else text
+                    )
+                    rendered = f"\n[user] {display}\n"
+                    chunks.append(rendered)
+                    out_f.write(rendered)
+                    out_f.flush()
+                    self._dashboard_events.emit(
+                        TranscriptEvent(
+                            {"type": "initial_prompt"}
+                            if initial
+                            else {"type": "user", "text": text}
+                        )
+                    )
+
+                control = DashboardPlannerControl(
+                    interaction=interaction,
+                    cancel_active_and_wait=toolkit.cancel_active_and_wait,
+                    emit_user=emit_user,
+                    emit_initial_user=lambda: emit_user(
+                        initial_user_text, initial=True
+                    ),
+                )
+                session = _CodexDashboardSession(
+                    config=self._build_config(mcp_url),
+                    options=self._turn_options,
+                    recorder=recorder,
+                    emit_event=emit_event,
+                    control=control,
+                )
+                try:
+                    await asyncio.wait_for(session.run(prompt), timeout=self._timeout_s)
+                except asyncio.TimeoutError:
+                    error = f"Codex SDK timed out after {self._timeout_s}s"
+                    control.end()
+                    _write_jsonl(raw_f, {"type": "timeout", "message": error})
+                except Exception as exc:
+                    error = f"{type(exc).__name__}: {exc}"
+                    control.end()
+                    _write_jsonl(raw_f, {"type": "error", "message": error})
+                finally:
+                    try:
+                        await control.cancel_active_toolkit()
+                    except Exception as exc:
+                        cleanup_error = (
+                            "Codex toolkit cancellation failed: "
+                            f"{type(exc).__name__}: {exc}"
+                        )
+                        logger.warning(cleanup_error)
+                        error = error or cleanup_error
+                    await session.close()
+        finally:
+            mcp_server.stop()
+
+        if recorder.final_response is not None:
+            last_message_path.write_text(recorder.final_response)
+        text = "".join(chunks)
+        return PlannerResult(
+            finish_result=recorder.finish_result,
+            messages=[{"role": "codex_sdk", "content": text}],
+            stats={
+                "backend": "codex_sdk",
+                "elapsed_s": round(time.time() - started, 1),
+                "output_chars": len(text),
+                "output_path": str(output_path),
+                "raw_stream_path": str(raw_stream_path),
+                "last_message_path": str(last_message_path),
+                "last_message_chars": len(recorder.final_response or ""),
+                **recorder.stats(),
+            },
+            error=error or session.error or recorder.error,
+        )
+
     # -- config builder ----------------------------------------------------
 
     def _build_config(self, mcp_url: str) -> Any:
@@ -311,6 +428,146 @@ class CodexPlanner:
         if codex_bin := os.environ.get("CODEX_BIN"):
             kwargs["codex_bin"] = codex_bin
         return openai_codex.CodexConfig(**kwargs)
+
+
+class _CodexDashboardSession:
+    """Own one Codex thread and its current interruptible turn."""
+
+    def __init__(
+        self,
+        *,
+        config: Any,
+        options: dict[str, Any],
+        recorder: "_Recorder",
+        emit_event,
+        control: DashboardPlannerControl,
+    ) -> None:
+        self._config = config
+        self._options = options
+        self._recorder = recorder
+        self._emit_event = emit_event
+        self._control = control
+        self._codex: Any | None = None
+        self._thread: Any | None = None
+        self._turn: Any | None = None
+        self._turn_done: asyncio.Event | None = None
+        self._turn_task: asyncio.Task[Any] | None = None
+        self._closing = False
+        self.error: str | None = None
+
+    async def run(self, prompt: str) -> None:
+        self._codex = openai_codex.AsyncCodex(self._config)
+        self._thread = await self._codex.thread_start(**self._options)
+        await self.submit(prompt)
+        await self._control.start()
+        await self._control.run(self)
+
+    async def submit(self, text: str) -> int:
+        if self._closing or self._thread is None:
+            raise RuntimeError("Codex conversation is closed")
+        if self._turn is not None:
+            await self._turn.steer(text)
+            return 0
+        self._turn = await self._thread.turn(text, **self._options)
+        self._turn_done = asyncio.Event()
+        self._turn_task = asyncio.create_task(
+            self._consume_turn(self._turn, self._turn_done)
+        )
+        return 1
+
+    async def interrupt(self) -> int:
+        turn = self._turn
+        done = self._turn_done
+        if turn is None or done is None:
+            return 0
+        await turn.interrupt()
+        try:
+            await asyncio.wait_for(done.wait(), timeout=15)
+        except asyncio.TimeoutError:
+            if self._turn_task is not None:
+                self._turn_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._turn_task
+            self._turn = None
+            self._turn_done = None
+            self._turn_task = None
+            return 1
+        # ``_consume_turn`` reports the matching completed turn boundary.
+        return 0
+
+    async def close(self) -> None:
+        if self._closing:
+            return
+        self._closing = True
+        turn = self._turn
+        done = self._turn_done
+        if turn is not None and done is not None:
+            with contextlib.suppress(Exception):
+                await turn.interrupt()
+            try:
+                await asyncio.wait_for(done.wait(), timeout=15)
+            except asyncio.TimeoutError:
+                if self._turn_task is not None:
+                    self._turn_task.cancel()
+        if self._turn_task is not None:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._turn_task
+        if self._codex is not None:
+            with contextlib.suppress(Exception):
+                await self._codex.close()
+
+    async def _consume_turn(self, turn: Any, done: asyncio.Event) -> None:
+        limit_reached = False
+        try:
+            async for event in turn.stream():
+                self._emit_event(event)
+                method = str(_get(event, "method", ""))
+                payload = _get(event, "payload")
+
+                if (
+                    method == "item/completed"
+                    and _is_tool_item(_get(payload, "item"))
+                    and self._recorder.finish_result is None
+                    and self._recorder.turns < self._recorder.max_turns
+                ):
+                    await self._control.tool_completed(self)
+
+                if (
+                    method != "turn/completed"
+                    and not limit_reached
+                    and self._recorder.finish_result is None
+                    and self._recorder.turns >= self._recorder.max_turns
+                ):
+                    limit_reached = True
+                    await turn.interrupt()
+
+                if method != "turn/completed":
+                    continue
+                status = _status(_get(payload, "turn"))
+                self._turn = None
+                self._turn_done = None
+                done.set()
+                if self._closing:
+                    return
+                if status == "failed":
+                    self.error = self._recorder.error or "Codex turn failed"
+                if (
+                    self.error is not None
+                    or self._recorder.finish_result is not None
+                    or self._recorder.turns >= self._recorder.max_turns
+                ):
+                    self._control.end()
+                else:
+                    await self._control.complete(self)
+                return
+            raise RuntimeError("Codex turn stream ended without turn/completed")
+        except Exception as exc:
+            self._turn = None
+            self._turn_done = None
+            done.set()
+            self.error = f"{type(exc).__name__}: {exc}"
+            if not self._closing:
+                self._control.end()
 
 
 # ---------------------------------------------------------------------------
@@ -394,12 +651,7 @@ class _Recorder:
                 )
             return f"[codex-reasoning] {text}\n" if text else ""
 
-        if item_type in {
-            "mcpToolCall",
-            "dynamicToolCall",
-            "commandExecution",
-            "fileChange",
-        }:
+        if _is_tool_item(item):
             self.tool_calls += 1
             if item_type in {"mcpToolCall", "dynamicToolCall"}:
                 name = strip_mcp_prefix(str(_get(item, "tool", item_type)))
@@ -446,12 +698,13 @@ class _Recorder:
     def _set_usage(self, usage: Any) -> None:
         if usage is None:
             return
+        total = _get(usage, "total", usage)
         self.usage = {
-            "total_input_tokens": _int_attr(usage, "input_tokens"),
-            "total_cached_input_tokens": _int_attr(usage, "cached_input_tokens"),
-            "total_output_tokens": _int_attr(usage, "output_tokens"),
+            "total_input_tokens": _int_attr(total, "input_tokens"),
+            "total_cached_input_tokens": _int_attr(total, "cached_input_tokens"),
+            "total_output_tokens": _int_attr(total, "output_tokens"),
             "total_reasoning_output_tokens": _int_attr(
-                usage, "reasoning_output_tokens"
+                total, "reasoning_output_tokens"
             ),
         }
         self.dashboard_events.emit(
@@ -466,6 +719,11 @@ class _Recorder:
         if self.finish_result is not None:
             return
         if name.lower() != "finish":
+            return
+        status = _status(item)
+        if status and status != "completed":
+            return
+        if _get(item, "error") not in (None, ""):
             return
         data = _jsonable(item)
         args = data.get("arguments") if isinstance(data, dict) else None
@@ -558,6 +816,20 @@ def _get(value: Any, key: str, default: Any = None) -> Any:
     if isinstance(value, dict):
         return value.get(key, default)
     return getattr(value, key, default)
+
+
+def _is_tool_item(item: Any) -> bool:
+    return str(_get(_unwrap(item), "type", "")) in {
+        "mcpToolCall",
+        "dynamicToolCall",
+        "commandExecution",
+        "fileChange",
+    }
+
+
+def _status(item: Any) -> str:
+    value = _get(item, "status", "")
+    return str(getattr(value, "value", value))
 
 
 def _summarise_item(item: Any) -> dict[str, Any]:

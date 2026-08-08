@@ -83,7 +83,7 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
 
 def _build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        description="Standalone hybrid LLM-in-the-loop agent for LIBERO PRO",
+        description="Standalone hybrid LLM-in-the-loop physical agent",
     )
 
     ap.add_argument("--env", dest="env_name", required=True, choices=["libero"],
@@ -108,8 +108,9 @@ def _build_argparser() -> argparse.ArgumentParser:
                          "(e.g. 400 \"message type 'image_url' is not supported\"); "
                          "read_image then returns the file path with a notice.")
     ap.add_argument("--planner-timeout-s", type=int, default=None,
-                    help="Wall-clock cap for the claude_code/codex planner "
-                         "subprocess. Defaults to CODEX_TIMEOUT_S (codex only), "
+                    help="Wall-clock cap for api/claude_code/codex planner runs. "
+                         "Terminal interactive API/Claude sessions are exempt. "
+                         "Defaults to CODEX_TIMEOUT_S (codex only), "
                          "CELL_TIMEOUT_S, or 1200.")
     ap.add_argument("--claude-code-max-budget-usd", type=float, default=None,
                     help="Budget passed to claude -p --max-budget-usd. "

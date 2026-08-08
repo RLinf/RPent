@@ -41,10 +41,17 @@ def run_dashboard_session(
     from rpent.dashboard.state import DashboardState
     from rpent.utils.config import get_repo_root
 
+    dashboard_spec = env_spec.dashboard
+    if dashboard_spec is None:
+        parser.error(
+            f"environment {env_spec.name!r} does not support Dashboard control"
+        )
+
     dashboard_server = DashboardServer(
         host=args.dashboard_host,
         port=args.dashboard_port,
         language=args.dashboard_language,
+        dashboard_spec=dashboard_spec,
     )
     dashboard_url = dashboard_server.start()
     print(
@@ -52,9 +59,7 @@ def run_dashboard_session(
         "and click Start Session.",
         flush=True,
     )
-    launch_config = dashboard_server.wait_for_launch(
-        defaults=defaults_from_args(args)
-    )
+    launch_config = dashboard_server.wait_for_launch(defaults=defaults_from_args(args))
     apply_to_args(args, launch_config)
 
     if args.env_endpoint is not None:
@@ -77,6 +82,7 @@ def run_dashboard_session(
     state = DashboardState(
         run_id=f"dashboard-session/{session_root.name}",
         output_dir=session_root,
+        dashboard_spec=dashboard_spec,
     )
     dashboard_server.register(state)
 
@@ -92,7 +98,7 @@ def run_dashboard_session(
             env_spec=env_spec,
             state=state,
             claimed=claimed,
-            shared=shared,
+            shared_primitives_kwargs=shared,
             session_root=session_root,
         ),
     )
@@ -121,9 +127,8 @@ def _run_dashboard_task(
 ) -> str | None:
     """Execute one fresh Dashboard TaskRun against Session-owned services."""
     task_args = copy.copy(args)
-    task_args.suite = claimed.command.suite
-    task_args.task = claimed.command.task
-    task_args.seed = claimed.command.seed
+    for name, value in claimed.request.items():
+        setattr(task_args, name, value)
     task_args.output_dir = str(claimed.output_dir)
     run_config = env_spec.parse_config(task_args)
     output_dir = init_output_dir(run_config.output_dir, verbose=args.verbose)
@@ -226,7 +231,9 @@ def _run_dashboard_task(
             with open(transcript_path, "a") as transcript_file:
                 json.dump(record, transcript_file, indent=2, default=str)
         except Exception as exc:
-            logger.warning("failed to write TaskRun transcript %s: %s", transcript_path, exc)
+            logger.warning(
+                "failed to write TaskRun transcript %s: %s", transcript_path, exc
+            )
         init_output_dir(session_root, verbose=args.verbose)
 
     return agent_error
