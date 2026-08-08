@@ -759,13 +759,9 @@ class LiberoPrimitives:
                     )
                     candidate = np.asarray(review.mask, dtype=bool)
                     review_metadata = dict(review.metadata)
+                    fallback_reason = None
                     if candidate.shape != raw_mask.shape or np.any(candidate & ~raw_mask):
-                        review_metadata.update(
-                            status="fallback",
-                            applied=False,
-                            reason="invalid_review_mask",
-                            final_pixels=int(raw_mask.sum()),
-                        )
+                        fallback_reason = "invalid_review_mask"
                     elif not np.array_equal(candidate, raw_mask):
                         projection_mask = getattr(review, "projection_mask", None)
                         projection_mask = (
@@ -785,12 +781,7 @@ class LiberoPrimitives:
                             else {"world_xyz": None}
                         )
                         if candidate_world.get("world_xyz") is None:
-                            review_metadata.update(
-                                status="fallback",
-                                applied=False,
-                                reason="invalid_review_projection",
-                                final_pixels=int(raw_mask.sum()),
-                            )
+                            fallback_reason = "invalid_review_projection"
                         else:
                             mask = candidate
                             world_result = candidate_world
@@ -801,6 +792,13 @@ class LiberoPrimitives:
                             review_metadata["applied"] = True
                             if not _write_segment_overlay(image_path, mask, overlay_path):
                                 overlay_path = None
+                    if fallback_reason:
+                        review_metadata.update(
+                            status="fallback",
+                            applied=False,
+                            reason=fallback_reason,
+                            final_pixels=int(raw_mask.sum()),
+                        )
                 except Exception:
                     self._check_cancelled()
                     logger.exception("SAM3 review failed; using the original mask")

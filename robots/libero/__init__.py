@@ -144,7 +144,6 @@ def _build_sam3_reviewer(args: argparse.Namespace) -> Any:
         planner_type=args.planner,
         model=args.model,
         base_url=args.base_url,
-        no_images=False,
     )
 
 
