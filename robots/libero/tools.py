@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,8 @@ from rpent.utils.sam3_client import Sam3Client
 from rpent.utils.vla_client import VLAClient
 
 logger = get_logger("libero")
+
+_MOKA_PROMPT = "the silver octagonal moka pot"
 
 ARTIFACT_LAYOUT: dict[tuple[str | None, str | None, str], str] = {
     ("agentview", "low", "policy_image"): "images/image_{step:02d}.png",
@@ -727,6 +730,37 @@ class LiberoPrimitives:
         overlay_path = None
         mask = data.mask
         if data.found and isinstance(mask, np.ndarray):
+            strict_refinement = (
+                has_prompt
+                and prompt.lower() == _MOKA_PROMPT
+                and os.environ.get("RPENT_LIBERO_MOKA_LLM_SUBTRACTIVE") == "1"
+            )
+            if strict_refinement:
+                overlay_path = overlay_candidate_path
+                if not _write_segment_overlay(image_path, mask, overlay_path):
+                    return {
+                        "error": "moka LLM subtractive refinement needs a SAM3 overlay",
+                        "step": nn,
+                        "camera": camera,
+                        "image_path": str(image_path),
+                    }
+                try:
+                    mask, refinement = _refine_moka_mask_with_codex(
+                        mask, overlay_path, segment_path
+                    )
+                except Exception as exc:
+                    return {
+                        "error": f"moka LLM subtractive refinement failed: {exc}",
+                        "step": nn,
+                        "camera": camera,
+                        "image_path": str(image_path),
+                    }
+                refinement["sam3_box"] = data.box
+                refinement["sam3_score"] = data.score
+                if not _write_segment_overlay(image_path, mask, overlay_path):
+                    overlay_path = None
+            else:
+                refinement = None
             if world_path is None or not world_path.exists():
                 world_result = {
                     "world_xyz": None,
@@ -736,10 +770,12 @@ class LiberoPrimitives:
             else:
                 world_result = _mask_to_world(mask, np.load(world_path))
                 world_result["world_path"] = str(world_path)
-            overlay_path = overlay_candidate_path
-            if not _write_segment_overlay(image_path, mask, overlay_path):
-                overlay_path = None
+            if not strict_refinement:
+                overlay_path = overlay_candidate_path
+                if not _write_segment_overlay(image_path, mask, overlay_path):
+                    overlay_path = None
         else:
+            refinement = None
             world_result = {
                 "world_xyz": None,
                 "world_error": data.reason or "segmentation did not find a mask",
@@ -754,7 +790,7 @@ class LiberoPrimitives:
             "image_path": str(image_path),
             "min_score": min_score,
             "score": round(float(data.score), 3) if data.score is not None else None,
-            "box": data.box,
+            "box": refinement["refined_box"] if refinement else data.box,
             "mask_shape": list(data.mask_shape) if data.mask_shape else None,
         }
         if has_prompt:
@@ -764,6 +800,8 @@ class LiberoPrimitives:
         if not data.found:
             segment_blob["error"] = data.reason or "SAM3 found no mask"
         segment_blob.update(world_result)
+        if refinement is not None:
+            segment_blob["llm_subtractive_refinement"] = refinement
         segment_path.write_text(json.dumps(segment_blob, indent=2, default=str))
 
         result = {
@@ -1662,6 +1700,118 @@ def _next_segment_artifact_paths(out_dir: Path, nn: int):
         if not segment_path.exists() and not overlay_path.exists():
             return segment_path, overlay_path, idx
         idx += 1
+
+
+def _refine_moka_mask_with_codex(
+    sam_mask: np.ndarray,
+    sam_overlay_path: Path,
+    segment_path: Path,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Use GPT only to subtract pixels from a SAM moka candidate mask."""
+    from PIL import Image, ImageDraw
+
+    stem = segment_path.stem.removeprefix("segment_")
+    artifact_dir = segment_path.parent
+    raw_overlay_path = artifact_dir / f"llm_subtractive_{stem}_sam3_raw.png"
+    raw_overlay_path.write_bytes(sam_overlay_path.read_bytes())
+    schema_path = artifact_dir / f"llm_subtractive_{stem}_schema.json"
+    output_path = artifact_dir / f"llm_subtractive_{stem}_response.json"
+    mask_path = artifact_dir / f"llm_subtractive_{stem}_mask.png"
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "image_width": {"type": "integer"},
+            "image_height": {"type": "integer"},
+            "polygon": {
+                "type": "array",
+                "minItems": 8,
+                "items": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {"type": "integer"},
+                },
+            },
+            "confidence": {"type": "number"},
+            "notes": {"type": "string"},
+        },
+        "required": [
+            "image_width",
+            "image_height",
+            "polygon",
+            "confidence",
+            "notes",
+        ],
+    }
+    schema_path.write_text(json.dumps(schema), encoding="utf-8")
+    prompt = (
+        f"The only input is this {sam_mask.shape[1]}x{sam_mask.shape[0]} SAM3 "
+        "overlay. You may only SUBTRACT from the existing red candidate. "
+        "Select the red pixels belonging to the center silver octagonal moka "
+        "pot and reject all red pixels belonging to the left frying pan and "
+        "its long handle. Do not add any area that is not already red. Return "
+        "one tight polygon enclosing only the moka portion, including its lid, "
+        "body, spout, and its own curved handle where already red. Polygon "
+        "points must be [x, y] pixels from the top-left origin. Use no tools, "
+        "original RGB, depth, files, or external information."
+    )
+    command = [
+        os.environ.get("CODEX_BIN", "codex"),
+        "exec",
+        "--ephemeral",
+        "--skip-git-repo-check",
+        "--ignore-rules",
+        "-s",
+        "read-only",
+        "-m",
+        "gpt-5.5",
+        "-c",
+        'model_reasoning_effort="xhigh"',
+        "-i",
+        str(raw_overlay_path),
+        "--output-schema",
+        str(schema_path),
+        "-o",
+        str(output_path),
+        prompt,
+    ]
+    completed = subprocess.run(
+        command, capture_output=True, text=True, timeout=300, check=False
+    )
+    if completed.returncode != 0 or not output_path.exists():
+        detail = (completed.stderr or completed.stdout)[-1000:]
+        raise RuntimeError(f"codex exit={completed.returncode}: {detail}")
+    response = json.loads(output_path.read_text(encoding="utf-8"))
+    if response.get("image_width") != sam_mask.shape[1] or response.get(
+        "image_height"
+    ) != sam_mask.shape[0]:
+        raise ValueError("LLM polygon dimensions do not match SAM mask")
+    polygon = [tuple(map(int, point)) for point in response["polygon"]]
+    polygon_image = Image.new("1", (sam_mask.shape[1], sam_mask.shape[0]), 0)
+    ImageDraw.Draw(polygon_image).polygon(polygon, fill=1)
+    sam_bool = sam_mask.astype(bool)
+    refined = sam_bool & np.asarray(polygon_image, dtype=bool)
+    retained = int(refined.sum())
+    sam_pixels = int(sam_bool.sum())
+    if retained < 100:
+        raise ValueError(f"LLM refinement retained too few pixels: {retained}")
+    ys, xs = np.where(refined)
+    refined_box = [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())]
+    imageio.imwrite(mask_path, refined.astype(np.uint8) * 255)
+    return refined, {
+        "model": "gpt-5.5",
+        "reasoning_effort": "xhigh",
+        "mode": "strict_subtractive",
+        "confidence": response.get("confidence"),
+        "sam_pixels": sam_pixels,
+        "retained_pixels": retained,
+        "retained_fraction": round(retained / sam_pixels, 4),
+        "refined_box": refined_box,
+        "raw_overlay_path": str(raw_overlay_path),
+        "response_path": str(output_path),
+        "mask_path": str(mask_path),
+    }
 
 
 def _mask_to_world(mask: np.ndarray, world_map: np.ndarray,
