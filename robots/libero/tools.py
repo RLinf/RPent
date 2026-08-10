@@ -888,7 +888,7 @@ def _save_observation_artifacts(
             "256x256 calibration-frame image."
         )
         cam_meta_out["note"] = (
-            "The agentview_depth.npy observation is aligned with agentview.png. "
+            "The agentview_depth.npz observation is aligned with agentview.png. "
             "agentview_policy.png uses the Pi0 orientation and must not supply "
             "pixels for back-projection."
         )
@@ -924,11 +924,11 @@ def _save_observation_artifacts(
             # depth map in this frame. VERIFIED 5/5: projecting each GT object
             # world pos via M lands on a pixel whose depth_flip[row,col] matches
             # the object's surface depth (plate Δ6mm, cookies Δ14mm). So
-            # Pixels in agentview.png align with agentview_depth.npy and the
+            # Pixels in agentview.png align with agentview_depth.npz and the
             # per-step agentview metadata saved with the record artifacts.
             d = _metric_depth(d, agentview_meta)[::-1]
             env_state.save(
-                "agentview_depth.npy",
+                "agentview_depth.npz",
                 d.astype(np.float32),
                 step=step_idx,
             )
@@ -975,7 +975,7 @@ def _save_observation_artifacts(
             else:
                 wdpt_metric = _metric_depth(wdpt_arr, wmeta)[::-1]
                 env_state.save(
-                    "wrist_depth.npy",
+                    "wrist_depth.npz",
                     wdpt_metric.astype(np.float32),
                     step=step_idx,
                 )
@@ -1702,7 +1702,7 @@ def back_project(
     depth_m = None
     if source_artifact == low_artifact:
         try:
-            depth_artifact = f"{camera}_depth.npy"
+            depth_artifact = f"{camera}_depth.npz"
             if depth_artifact not in record.artifacts:
                 raise FileNotFoundError(depth_artifact)
             depth = state.load(depth_artifact, step=nn)

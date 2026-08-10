@@ -22,6 +22,7 @@ _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 _TEXT_SUFFIXES = {".txt", ".md"}
 _SUPPORTED_SUFFIXES = _IMAGE_SUFFIXES | {
     ".npy",
+    ".npz",
     ".json",
     ".jsonl",
     ".mp4",
@@ -196,6 +197,8 @@ class EnvState:
                 imageio.imwrite(temporary, array)
             elif suffix == ".npy":
                 np.save(temporary, np.asarray(value))
+            elif suffix == ".npz":
+                np.savez_compressed(temporary, array=np.asarray(value))
             elif suffix == ".json":
                 with temporary.open("w") as file:
                     json.dump(value, file, indent=2, default=_json_default)
@@ -246,6 +249,9 @@ class EnvState:
             return imageio.imread(source)
         if suffix == ".npy":
             return np.load(source)
+        if suffix == ".npz":
+            with np.load(source) as archive:
+                return archive["array"]
         if suffix == ".json":
             with source.open() as file:
                 return json.load(file)

@@ -277,10 +277,10 @@ sim) — do not start/stop it. You call MCP tools; begin by reading step 0 via
 | `agentview_policy.png` | RGB in Pi0 frame. *Do not pick pixels here for back-projection.* |
 | `agentview.png` | 256×256 agentview RGB in **calibration frame**. Pick object pixels HERE only with `back_project(..., resolution:"low")`. |
 | `agentview_high.png` | **HI-RES 1024×1024** agentview RGB, calibration frame. **PREFER this for looking / identification**; `back_project` defaults to `resolution:"high"`. |
-| `agentview_depth.npy` | 256×256 agentview metric depth (m), aligned with `agentview.png`. Consume through `back_project`. |
+| `agentview_depth.npz` | Losslessly compressed 256×256 agentview metric depth (m), aligned with `agentview.png`. Consume through `back_project`. |
 | `agentview_world.npy` / `agentview_world_high.npy` | Precomputed agentview world xyz per low/high-resolution pixel. Prefer `back_project`; do not open them manually. |
 | `wrist.png` / `wrist_high.png` | **Wrist (eye-in-hand) RGB**, calibration frame. Moves with the gripper. |
-| `wrist_depth.npy` | Wrist metric depth (m), aligned with `wrist.png`. |
+| `wrist_depth.npz` | Losslessly compressed wrist metric depth (m), aligned with `wrist.png`. |
 | `wrist_world.npy` / `wrist_world_high.npy` | Precomputed wrist world xyz per low/high-resolution pixel in the SAME world frame as agentview. May be all-table until you move over the target. |
 | `wrist_metadata.json` | Wrist intrinsics + extrinsic **for THAT step only**. Read via `view_camera_meta({"camera":"wrist","step":NN})`. |
 | `agentview_metadata.json` | Agentview intrinsics, cam-to-world extrinsic, depth range, and projection notes. Read via `view_camera_meta({"camera":"agentview","step":NN})`. |
