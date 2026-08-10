@@ -1,11 +1,13 @@
 """Thread-safe in-memory state for dashboard live runs."""
+
 from __future__ import annotations
 
+import re
 import threading
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from rpent.dashboard.events import (
     DashboardEvent,
@@ -24,16 +26,49 @@ from rpent.dashboard.interaction import (
     UnknownDashboardMessageError,
 )
 
-if TYPE_CHECKING:
-    from rpent.dashboard.commands import TaskCommand
-
-RUNTIME_COMPONENTS = ("env", "vla", "sam3")
 RUNTIME_STATUSES = {"pending", "starting", "ready", "failed"}
-FRAME_KINDS = ("camera", "wrist")
 TERMINAL_RUN_STATES = {"succeeded", "failed", "cancelled"}
 _PLANNER_ACTIVITIES = {"starting", "idle", "busy", "ended"}
 InterruptRequestResult = Literal["accepted", "duplicate", "noop"]
 InputMode = Literal["command_only", "conversation", "disabled"]
+TaskRequest = dict[str, Any]
+_INTEGER = re.compile(r"-?[0-9]+")
+_UNSAFE_SLUG = re.compile(r"[^A-Za-z0-9_.-]+")
+
+
+def _parse_task(task_spec: dict[str, Any], text: str) -> TaskRequest | None:
+    tokens = text.split()
+    command = task_spec["command"]
+    if tokens[0].startswith("/rpent-") and tokens[0] != command:
+        raise ValueError(f"unknown Dashboard command: {tokens[0]}")
+    if tokens[0] != command:
+        return None
+
+    fields = task_spec["fields"]
+    if len(tokens) != len(fields) + 1:
+        raise ValueError(f"expected {task_spec['usage']}")
+
+    request: TaskRequest = {}
+    for field, raw in zip(fields, tokens[1:], strict=True):
+        name = field["name"]
+        suggestions = field.get("suggestions", ())
+        if suggestions and raw not in suggestions:
+            raise ValueError(f"unsupported {name}: {raw}")
+        if field.get("kind") != "integer":
+            request[name] = raw
+            continue
+        if _INTEGER.fullmatch(raw) is None:
+            raise ValueError(f"{name} must be an integer, got {raw!r}")
+        value = int(raw)
+        minimum = field.get("minimum")
+        if minimum is not None and value < minimum:
+            raise ValueError(f"{name} must be at least {minimum}, got {value}")
+        request[name] = value
+    return request
+
+
+def _format_task(task_spec: dict[str, Any], key: str, request: TaskRequest) -> str:
+    return task_spec[key].format(**request)
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,7 +76,7 @@ class ClaimedTask:
     """One last-write-wins task command claimed by the Session controller."""
 
     number: int
-    command: TaskCommand
+    request: TaskRequest
     output_dir: Path
 
 
@@ -57,12 +92,20 @@ class DashboardState:
         *,
         run_id: str,
         output_dir: str | Path,
+        dashboard_spec: dict[str, Any],
     ) -> None:
         root = Path(output_dir)
         self.run_id = run_id
         self.output_dir = root
         self.video_path = root / "episode.mp4"
         self._session_root = root
+        self._task_spec = dashboard_spec["task"]
+        self._runtime_components = dashboard_spec["runtime_components"]
+        self._frame_channels = dashboard_spec["frame_channels"]
+        self._runtime_names = {
+            component["name"] for component in self._runtime_components
+        }
+        self._frame_names = {channel["name"] for channel in self._frame_channels}
 
         self._lock = threading.Lock()
         self._condition = threading.Condition(self._lock)
@@ -71,8 +114,8 @@ class DashboardState:
         self._error: str | None = None
         self._usage = {"in": 0, "out": 0, "tool_calls": 0}
         self._runtime = {
-            component: {"status": "pending", "error": None}
-            for component in RUNTIME_COMPONENTS
+            component["name"]: {"status": "pending", "error": None}
+            for component in self._runtime_components
         }
         self._events: list[dict[str, Any]] = []
         self._timeline: list[dict[str, Any]] = []
@@ -88,8 +131,8 @@ class DashboardState:
         self._interaction_version = 0
         self._session_state = "starting_shared_services"
         self._task_generation = 0
-        self._pending_task: TaskCommand | None = None
-        self._current_task: TaskCommand | None = None
+        self._pending_task: TaskRequest | None = None
+        self._current_task: TaskRequest | None = None
         self._task_replacement_requested = False
         self._control_feedback: list[str] = []
         self._control_error: str | None = None
@@ -133,25 +176,23 @@ class DashboardState:
             self._shutdown_requested = True
             self._interaction_changed_locked()
 
-    def submit_input(self, text: str) -> DashboardMessage | TaskCommand:
+    def submit_input(self, text: str) -> DashboardMessage | TaskRequest:
         """Route a local task command or a normal conversation message."""
-        from rpent.dashboard.commands import parse_dashboard_command
-
         if not isinstance(text, str) or not text.strip():
             return self._submit_message(text)
         try:
-            command = parse_dashboard_command(text)
+            request = _parse_task(self._task_spec, text)
         except ValueError as exc:
             with self._condition:
                 self._control_error = str(exc)
                 self._interaction_changed_locked()
             raise
-        if command is not None:
-            self.request_task(command)
-            return command
+        if request is not None:
+            self.request_task(request)
+            return request
         return self._submit_message(text)
 
-    def request_task(self, command: TaskCommand) -> None:
+    def request_task(self, request: TaskRequest) -> None:
         """Atomically record the latest desired TaskRun and close old input."""
         with self._condition:
             if self._session_state == "fatal":
@@ -161,10 +202,10 @@ class DashboardState:
                     "Dashboard Session is still starting shared services"
                 )
 
-            self._pending_task = command
+            self._pending_task = dict(request)
             self._control_error = None
             self._control_feedback = [
-                f"Task selected: {command.suite} / task {command.task} / seed {command.seed}"
+                f"Task selected: {_format_task(self._task_spec, 'display', request)}"
             ]
 
             active = self._task_state in {"starting", "running"}
@@ -196,19 +237,19 @@ class DashboardState:
             if self._pending_task is None:
                 return None
 
-            command = self._pending_task
+            request = self._pending_task
             self._pending_task = None
             self._task_generation += 1
             number = self._task_generation
             output_dir = (
                 self._session_root
                 / "tasks"
-                / f"{number:04d}_{command.suite}_t{command.task}_s{command.seed}"
+                / f"{number:04d}_{self._task_output_slug(request)}"
             )
-            self._begin_task_locked(command, number=number, output_dir=output_dir)
+            self._begin_task_locked(request, number=number, output_dir=output_dir)
             return ClaimedTask(
                 number=number,
-                command=command,
+                request=request,
                 output_dir=output_dir,
             )
 
@@ -233,13 +274,11 @@ class DashboardState:
             raise ValueError(f"invalid terminal run state: {state!r}")
         with self._condition:
             self._task_state = state
-            self._terminated = any(
-                item.get("terminated") for item in self._timeline
-            )
+            self._terminated = any(item.get("terminated") for item in self._timeline)
             self._error = None if error is None else str(error)
             self._task_replacement_requested = False
             self._seal_interaction_locked()
-            self._runtime["env"] = {"status": "pending", "error": None}
+            self._reset_task_runtime_locked()
             self._session_state = (
                 "task_starting" if self._pending_task is not None else "ready"
             )
@@ -249,12 +288,12 @@ class DashboardState:
 
     def _begin_task_locked(
         self,
-        command: TaskCommand,
+        request: TaskRequest,
         *,
         number: int,
         output_dir: Path,
     ) -> None:
-        self._current_task = command
+        self._current_task = request
         self.output_dir = output_dir
         self.video_path = output_dir / "episode.mp4"
         self._session_state = "task_starting"
@@ -263,7 +302,7 @@ class DashboardState:
         self._terminated = False
         self._error = None
         self._usage = {"in": 0, "out": 0, "tool_calls": 0}
-        self._runtime["env"] = {"status": "pending", "error": None}
+        self._reset_task_runtime_locked()
         self._events = []
         self._timeline = []
         self._frames = {}
@@ -278,6 +317,13 @@ class DashboardState:
         self._control_error = None
         self._control_feedback.append(f"TaskRun {number:04d} starting…")
         self._interaction_changed_locked()
+
+    def _task_output_slug(self, request: TaskRequest) -> str:
+        raw = _format_task(self._task_spec, "output_slug", request)
+        slug = _UNSAFE_SLUG.sub("_", raw).strip("._")
+        if not slug:
+            raise ValueError("Dashboard task output slug must not be empty")
+        return slug
 
     @property
     def planner_activity(self) -> PlannerActivity:
@@ -361,7 +407,11 @@ class DashboardState:
     def claim_next_pending_message(self) -> DashboardMessage | None:
         """Claim one message so task replacement can stop later sends."""
         with self._condition:
-            if self._planner_activity == "ended" or self._task_replacement_requested:
+            if (
+                self._planner_activity == "ended"
+                or self._task_replacement_requested
+                or self._interrupt_requested
+            ):
                 return None
             message = next(
                 (item for item in self._messages if item.status == "pending"),
@@ -397,6 +447,17 @@ class DashboardState:
                 message_id,
                 status="failed",
                 error=error_text,
+            )
+            self._interaction_changed_locked()
+            return replace(message)
+
+    def mark_message_unsent(self, message_id: str) -> DashboardMessage:
+        """Restore one queued backend submission that never started."""
+        with self._condition:
+            message = self._transition_sending_message_locked(
+                message_id,
+                status="unsent",
+                error=None,
             )
             self._interaction_changed_locked()
             return replace(message)
@@ -483,7 +544,7 @@ class DashboardState:
         raise TypeError(f"unsupported dashboard event: {type(event).__name__}")
 
     def _apply_runtime_status(self, event: RuntimeStatusEvent) -> None:
-        if event.component not in RUNTIME_COMPONENTS:
+        if event.component not in self._runtime_names:
             raise ValueError(f"unknown runtime component: {event.component!r}")
         if event.status not in RUNTIME_STATUSES:
             raise ValueError(f"unknown runtime status: {event.status!r}")
@@ -496,6 +557,15 @@ class DashboardState:
     def _runtime_snapshot(self) -> dict[str, dict[str, str | None]]:
         """Return a detached copy of runtime status for a locked caller."""
         return {component: dict(status) for component, status in self._runtime.items()}
+
+    def _reset_task_runtime_locked(self) -> None:
+        for component in self._runtime_components:
+            if component.get("scope", "shared") != "task":
+                continue
+            self._runtime[component["name"]] = {
+                "status": "pending",
+                "error": None,
+            }
 
     def _apply_tool_result(self, event: ToolResultEvent) -> None:
         name = event.name
@@ -513,39 +583,72 @@ class DashboardState:
             step = int(result["step"])
         except Exception:
             return
-        terminated = bool(result.get("libero_terminated"))
+        action = str(command.get("action", name))
+        terminated = bool(
+            result.get("terminated", result.get("libero_terminated", False))
+        )
+        action_video_path = self._action_video_from_result(
+            result,
+            step=step,
+            action=action,
+        )
+        action_video = str(action_video_path) if action_video_path is not None else None
         item = {
             "step": step,
-            "action": str(command.get("action", name)),
+            "action": action,
             "args": {k: v for k, v in command.items() if k != "action"},
             "result": log.get("result"),
             "elapsed_s": log.get("elapsed_s"),
             "terminated": terminated,
-            "has_action_video": (
-                self.output_dir
-                / "action_videos"
-                / f"step_{step:02d}_{command.get('action', name)}.mp4"
-            ).exists(),
+            "has_action_video": action_video_path is not None,
+            "action_video_path": action_video,
         }
         with self._lock:
             self._timeline.append(item)
             self._terminated = self._terminated or terminated
 
-    def _apply_frame_paths(self, result: dict[str, Any]) -> None:
-        path_keys = {
-            "camera": "image_cam_path",
-            "wrist": "image_wrist_path",
-        }
-        if not any(key in result for key in path_keys.values()):
-            return
+    def _action_video_from_result(
+        self,
+        result: dict[str, Any],
+        *,
+        step: int,
+        action: str,
+    ) -> Path | None:
+        raw_path = result.get("action_video_path")
+        if not raw_path:
+            raw_path = f"action_videos/step_{step:02d}_{action}.mp4"
+        try:
+            path = self._resolve_output_path(raw_path)
+        except TypeError:
+            return None
+        return path if path.exists() else None
 
+    def _resolve_output_path(self, value: Any) -> Path:
+        path = Path(value)
+        if path.is_absolute() or path.is_relative_to(self.output_dir):
+            return path
+        return self.output_dir / path
+
+    def _apply_frame_paths(self, result: dict[str, Any]) -> None:
+        projected = result.get("frames")
+        frame_paths = dict(projected) if isinstance(projected, dict) else {}
+        for channel in self._frame_channels:
+            name = channel["name"]
+            path_key = channel.get("legacy_path_key")
+            if name in frame_paths or path_key is None:
+                continue
+            if path_key in result:
+                frame_paths[name] = result[path_key]
+        if not frame_paths:
+            return
         frames: dict[str, bytes] = {}
-        for kind, key in path_keys.items():
-            path = result.get(key)
+        for kind, path in frame_paths.items():
+            if kind not in self._frame_names:
+                continue
             if not path:
                 continue
             try:
-                frames[kind] = Path(path).read_bytes()
+                frames[kind] = self._resolve_output_path(path).read_bytes()
             except (OSError, TypeError):
                 continue
         self._update_frames(step=result.get("step"), frames=frames)
@@ -563,11 +666,7 @@ class DashboardState:
         with self._lock:
             if frame_idx is not None and frame_idx < self._frame_idx:
                 return
-            self._frames = {
-                kind: bytes(data)
-                for kind, data in frames.items()
-                if kind in FRAME_KINDS
-            }
+            self._frames = dict(frames)
             if frame_idx is not None:
                 self._frame_idx = frame_idx
 
@@ -582,7 +681,7 @@ class DashboardState:
         self,
         message_id: str,
         *,
-        status: Literal["sent", "failed"],
+        status: Literal["sent", "failed", "unsent"],
         error: str | None,
     ) -> DashboardMessage:
         message = self._message_locked(message_id)
@@ -638,14 +737,13 @@ class DashboardState:
             return "conversation"
         return "command_only"
 
-    @staticmethod
-    def _command_snapshot(command: TaskCommand | None) -> dict[str, Any] | None:
-        if command is None:
+    def _command_snapshot(self, request: TaskRequest | None) -> dict[str, Any] | None:
+        if request is None:
             return None
         return {
-            "suite": command.suite,
-            "task": command.task,
-            "seed": command.seed,
+            **request,
+            "parameters": dict(request),
+            "label": _format_task(self._task_spec, "display", request),
         }
 
     def _session_fields_locked(self) -> dict[str, Any]:
@@ -670,7 +768,7 @@ class DashboardState:
             return list(self._events[since:])
 
     def frame(self, kind: str) -> bytes | None:
-        if kind not in FRAME_KINDS:
+        if kind not in self._frame_names:
             raise ValueError(f"unknown frame kind: {kind!r}")
         with self._lock:
             return self._frames.get(kind)
@@ -680,23 +778,22 @@ class DashboardState:
             for item in self._timeline:
                 if int(item.get("step", -1)) != int(step):
                     continue
-                video_path = (
-                    self.output_dir
-                    / "action_videos"
-                    / f"step_{int(step):02d}_{item.get('action', '')}.mp4"
-                )
+                raw_path = item.get("action_video_path")
+                if not raw_path:
+                    return None
+                video_path = Path(raw_path)
                 return video_path if video_path.exists() else None
         return None
 
     def has_video(self) -> bool:
         with self._lock:
-            return (
-                self._task_state in TERMINAL_RUN_STATES
-                and self.video_path.exists()
-            )
+            return self._task_state in TERMINAL_RUN_STATES and self.video_path.exists()
 
     def _frame_snapshot(self) -> tuple[int, dict[str, bool]]:
-        available = {kind: kind in self._frames for kind in FRAME_KINDS}
+        available = {
+            channel["name"]: channel["name"] in self._frames
+            for channel in self._frame_channels
+        }
         return self._frame_idx, available
 
     def snapshot(self) -> dict[str, Any]:
@@ -709,8 +806,7 @@ class DashboardState:
                 "usage": dict(self._usage),
                 "runtime": self._runtime_snapshot(),
                 "has_video": (
-                    self._task_state in TERMINAL_RUN_STATES
-                    and self.video_path.exists()
+                    self._task_state in TERMINAL_RUN_STATES and self.video_path.exists()
                 ),
                 "frame_idx": frame_idx,
                 "frame_available": frame_available,
@@ -733,8 +829,7 @@ class DashboardState:
                 "runtime": self._runtime_snapshot(),
                 "timeline": list(self._timeline),
                 "has_video": (
-                    self._task_state in TERMINAL_RUN_STATES
-                    and self.video_path.exists()
+                    self._task_state in TERMINAL_RUN_STATES and self.video_path.exists()
                 ),
                 "frame_idx": frame_idx,
                 "frame_available": frame_available,

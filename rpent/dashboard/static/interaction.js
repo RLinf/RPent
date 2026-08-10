@@ -1,5 +1,3 @@
-import { createTaskSuiteSuggester } from "./command_completion.js";
-
 function formatValue(value) {
   if (value == null) return "";
   if (typeof value === "string") return value;
@@ -10,8 +8,73 @@ function formatValue(value) {
   }
 }
 
+function createTaskCommandSuggester() {
+  let command = "";
+  let fields = [];
+
+  function configure(config) {
+    command = typeof config?.command === "string" ? config.command : "";
+    if (!Array.isArray(config?.fields)) {
+      fields = [];
+      return;
+    }
+    fields = config.fields.map(field => ({
+      ...field,
+      suggestions: Array.isArray(field?.suggestions)
+        ? [...new Set(field.suggestions.filter(item => typeof item === "string"))]
+        : [],
+    }));
+  }
+
+  function suggestionContext(value, selectionStart, selectionEnd) {
+    if (
+      !command
+      || value.includes("\n")
+      || selectionStart !== selectionEnd
+      || selectionEnd !== value.length
+      || !value.startsWith(command)
+    ) return null;
+
+    const suffix = value.slice(command.length);
+    if (!/^[\t ]/.test(suffix)) return null;
+    const body = suffix.trimStart();
+    const endsInSpace = /[\t ]$/.test(value);
+    const tokens = body ? body.split(/[\t ]+/) : [];
+    const fieldIndex = endsInSpace ? tokens.length : Math.max(tokens.length - 1, 0);
+    const field = fields[fieldIndex];
+    const suggestions = field?.suggestions || [];
+    if (!suggestions.length) return null;
+
+    const prefix = endsInSpace || !tokens.length ? "" : tokens[tokens.length - 1];
+    return {
+      leading: value.slice(0, value.length - prefix.length),
+      prefix,
+      suggestions,
+    };
+  }
+
+  function suggest(value, selectionStart, selectionEnd) {
+    const context = suggestionContext(value, selectionStart, selectionEnd);
+    if (!context) return [];
+    return context.suggestions.filter(item => item.startsWith(context.prefix));
+  }
+
+  function select(value, selectionStart, selectionEnd, item) {
+    const context = suggestionContext(value, selectionStart, selectionEnd);
+    if (
+      !context
+      || !context.suggestions.includes(item)
+      || !item.startsWith(context.prefix)
+    ) return null;
+    const selected = `${context.leading}${item} `;
+    return { value: selected, cursor: selected.length };
+  }
+
+  return { configure, select, suggest };
+}
+
 export function createInteractionController({ copy, select, onRefresh }) {
-  const taskSuiteSuggester = createTaskSuiteSuggester();
+  const taskCommandSuggester = createTaskCommandSuggester();
   const state = {
     snapshot: null,
     submissionInFlight: false,
@@ -21,7 +84,8 @@ export function createInteractionController({ copy, select, onRefresh }) {
     notice: null,
     noticeTimer: null,
     pendingRenderKey: null,
-    suiteRenderKey: null,
+    suggestionRenderKey: null,
+    taskUsage: "",
   };
 
   function errorText(error) {
@@ -33,6 +97,19 @@ export function createInteractionController({ copy, select, onRefresh }) {
       if (typeof error.error === "string") return error.error;
     }
     return formatValue(error);
+  }
+
+  function controlFeedbackText(feedback) {
+    const text = errorText(feedback);
+    const taskSelectedPrefix = "Task selected: ";
+    if (text.startsWith(taskSelectedPrefix)) {
+      return copy.taskSelectedFeedback(text.slice(taskSelectedPrefix.length));
+    }
+    const taskRunStarting = /^TaskRun (\d+) starting(?:…|\.\.\.)$/.exec(text);
+    if (taskRunStarting) {
+      return copy.taskRunStartingFeedback(taskRunStarting[1]);
+    }
+    return text;
   }
 
   async function responseErrorText(response) {
@@ -69,7 +146,8 @@ export function createInteractionController({ copy, select, onRefresh }) {
 
   function taskTargetLabel(target) {
     if (!target) return "";
-    return `${target.suite} / task ${target.task} / seed ${target.seed}`;
+    if (typeof target.label === "string") return target.label;
+    return formatValue(target.parameters || target);
   }
 
   function renderPendingMessages(messages) {
@@ -141,44 +219,44 @@ export function createInteractionController({ copy, select, onRefresh }) {
     select("#pendingMessages").replaceChildren(...elements);
   }
 
-  function renderSuiteSuggestions() {
+  function renderTaskSuggestions() {
     const area = select("#suiteSuggestions");
     const input = select("#chatInput");
-    const suites = input.disabled
+    const suggestions = input.disabled
       ? []
-      : taskSuiteSuggester.suggest(
+      : taskCommandSuggester.suggest(
         input.value,
         input.selectionStart,
         input.selectionEnd,
       );
-    const renderKey = JSON.stringify(suites);
+    const renderKey = JSON.stringify(suggestions);
 
-    area.hidden = suites.length === 0;
-    if (renderKey === state.suiteRenderKey) return;
-    state.suiteRenderKey = renderKey;
-    if (!suites.length) {
+    area.hidden = suggestions.length === 0;
+    if (renderKey === state.suggestionRenderKey) return;
+    state.suggestionRenderKey = renderKey;
+    if (!suggestions.length) {
       area.replaceChildren();
       return;
     }
 
-    const candidates = suites.map(suite => {
+    const candidates = suggestions.map(suggestion => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "suite-suggestion";
       button.setAttribute("role", "option");
-      button.textContent = suite;
+      button.textContent = suggestion;
       button.addEventListener("click", () => {
-        const selection = taskSuiteSuggester.select(
+        const selection = taskCommandSuggester.select(
           input.value,
           input.selectionStart,
           input.selectionEnd,
-          suite,
+          suggestion,
         );
         if (!selection) return;
         input.value = selection.value;
         input.setSelectionRange(selection.cursor, selection.cursor);
         input.focus();
-        renderSuiteSuggestions();
+        renderTaskSuggestions();
       });
       return button;
     });
@@ -194,7 +272,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     if (!session) {
       composer.hidden = true;
       input.disabled = true;
-      renderSuiteSuggestions();
+      renderTaskSuggestions();
       return;
     }
 
@@ -208,10 +286,10 @@ export function createInteractionController({ copy, select, onRefresh }) {
       && mode !== "disabled";
     composer.dataset.inputMode = mode;
     input.placeholder = commandContext
-      ? copy.commandPlaceholder
+      ? copy.commandPlaceholder(state.taskUsage)
       : copy.composerPlaceholder;
     select("#chatHint").textContent = commandContext
-      ? copy.commandKeys
+      ? copy.commandKeys(state.taskUsage)
       : copy.composerKeys;
     input.disabled = !inputEnabled || state.submissionInFlight;
     input.setAttribute("aria-busy", String(
@@ -222,7 +300,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     status.className = "composer-status";
     const backendError = errorText(interaction.last_error);
     const controlError = errorText(session.control_error);
-    const feedback = session.control_feedback.map(errorText).filter(Boolean);
+    const feedback = session.control_feedback.map(controlFeedbackText).filter(Boolean);
     if (state.requestError) {
       status.textContent = state.requestError;
       status.classList.add("is-error");
@@ -259,7 +337,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
       );
       status.classList.add("is-busy");
     } else if (mode === "command_only") {
-      status.textContent = copy.commandReady;
+      status.textContent = copy.commandReady(state.taskUsage);
       status.classList.add("is-ready");
     } else if (activity === "starting") {
       status.textContent = copy.interactionStarting;
@@ -275,7 +353,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     }
 
     renderPendingMessages(interaction.messages);
-    renderSuiteSuggestions();
+    renderTaskSuggestions();
   }
 
   function setNotice(message) {
@@ -298,7 +376,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     state.notice = null;
     state.noticeTimer = null;
     state.pendingRenderKey = null;
-    state.suiteRenderKey = null;
+    state.suggestionRenderKey = null;
     select("#composer").hidden = true;
     select("#chatInput").disabled = true;
     select("#chatInput").value = "";
@@ -327,6 +405,13 @@ export function createInteractionController({ copy, select, onRefresh }) {
         state.noticeTimer = null;
       }
     }
+    render();
+  }
+
+  function configureTaskCommand(config) {
+    taskCommandSuggester.configure(config);
+    state.taskUsage = typeof config?.usage === "string" ? config.usage : "";
+    state.suggestionRenderKey = null;
     render();
   }
 
@@ -448,12 +533,12 @@ export function createInteractionController({ copy, select, onRefresh }) {
 
   const input = select("#chatInput");
   input.addEventListener("keydown", handleKeydown);
-  input.addEventListener("input", renderSuiteSuggestions);
-  input.addEventListener("click", renderSuiteSuggestions);
-  input.addEventListener("select", renderSuiteSuggestions);
+  input.addEventListener("input", renderTaskSuggestions);
+  input.addEventListener("click", renderTaskSuggestions);
+  input.addEventListener("select", renderTaskSuggestions);
   return {
     applySnapshot,
-    configureTaskSuiteSuggestions: taskSuiteSuggester.configure,
+    configureTaskCommand,
     reset,
   };
 }

@@ -8,10 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from robots.libero.prompt_bundle import (
-    system_prompt,
-    user_prompt,
-)
+from robots.libero.prompt_bundle import system_prompt, user_prompt
+from robots.libero.spec import LIBERO_DASHBOARD_SPEC
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.envs.env_spec import EnvSpec, RunConfig
 from rpent.envs.prompt_bundle import PromptBundle
@@ -39,6 +37,7 @@ def get_env_spec() -> EnvSpec:
         init_shared_runtime=init_shared_runtime,
         init_task_runtime=init_task_runtime,
         init_runtime=_init_runtime,
+        dashboard=LIBERO_DASHBOARD_SPEC,
     )
 
 

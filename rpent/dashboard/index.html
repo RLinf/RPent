@@ -16,8 +16,8 @@
           <label for="f-planner" data-i18n="planner">Planner (LLM backend)</label>
           <select id="f-planner">
             <option value="claude_code" selected>claude_code</option>
-            <option value="api" disabled data-i18n="apiTaskControlPending">api — task control pending</option>
-            <option value="codex" disabled data-i18n="codexTaskControlPending">codex — task control pending</option>
+            <option value="codex">codex</option>
+            <option value="api">api</option>
           </select>
         </div>
         <div class="lfield">
@@ -29,14 +29,18 @@
           <input type="number" id="f-max-episode-steps" min="1" step="1" />
         </div>
         <div class="lfield full">
-          <label for="f-model_preset" data-i18n="modelPreset">Model preset</label>
+          <label for="f-model_preset" data-i18n="modelPreset">Model</label>
           <select id="f-model_preset"></select>
         </div>
         <div class="lfield full">
-          <label for="f-model_custom"><span data-i18n="customModel">Custom model</span> <span data-i18n="optional" style="text-transform:none">(optional)</span></label>
+          <label for="f-model_custom"><span data-i18n="customModel">Custom model</span> <span id="modelRequirement" data-i18n="optional" style="text-transform:none">(optional)</span></label>
           <input type="text" id="f-model_custom" placeholder="provider:model or alias" data-i18n-placeholder="customModelPlaceholder" />
         </div>
-        <div class="lfield">
+        <div class="lfield full lcheck" data-planner="api">
+          <input type="checkbox" id="f-no-images" />
+          <label for="f-no-images" data-i18n="noImages">Disable image input (required for text-only models)</label>
+        </div>
+        <div class="lfield" data-planner="claude_code">
           <label for="f-claude-code-max-budget-usd" data-i18n="claudeBudget">Claude Code budget USD</label>
           <input type="number" id="f-claude-code-max-budget-usd" min="0" step="0.01" placeholder="MAX_BUDGET_USD" />
         </div>

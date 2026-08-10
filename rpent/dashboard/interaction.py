@@ -72,6 +72,10 @@ class DashboardInteractionPort(Protocol):
         """Record one failed message submission."""
         ...
 
+    def mark_message_unsent(self, message_id: str) -> DashboardMessage:
+        """Restore one queued submission that never started."""
+        ...
+
     def claim_interrupt_request(self) -> bool:
         """Claim a queued interrupt request."""
         ...

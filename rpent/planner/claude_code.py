@@ -16,6 +16,7 @@ import json
 import queue
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ from rpent.dashboard.events import (
     UsageEvent,
 )
 from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import (
     PlannerResult,
     add_mcp_prefix,
@@ -291,9 +293,9 @@ class ClaudeCodePlanner:
         emit_user,
     ) -> None:
         """Drive the Dashboard-owned long-lived Claude session."""
-        adapter = _ClaudeDashboardBridge(
+        adapter = _ClaudeDashboardAdapter(
             interaction=dashboard_interaction,
-            toolkit=toolkit,
+            cancel_active_and_wait=toolkit.cancel_active_and_wait,
             emit_user=emit_user,
             emit_initial_user=lambda: emit_user(
                 initial_user_text,
@@ -354,7 +356,7 @@ class _ClaudeSessionDriver:
         sdk: Any,
         options: Any,
         recorder: "_Recorder",
-        emit,
+        emit: Callable[[Any], None],
     ) -> None:
         self._sdk = sdk
         self._options = options
@@ -401,7 +403,12 @@ class _ClaudeSessionDriver:
             raise RuntimeError("Claude session is not connected")
         await self._client.query(text)
 
-    async def interrupt(self) -> None:
+    async def submit(self, text: str) -> int:
+        """Submit Dashboard input as a new Claude query."""
+        await self.query(text)
+        return 1
+
+    async def interrupt(self) -> int:
         """Interrupt the owned client and suppress its expected error result."""
         if self._client is None:
             raise RuntimeError("Claude session is not connected")
@@ -412,6 +419,9 @@ class _ClaudeSessionDriver:
             # A failed interrupt must not hide a later unrelated SDK error.
             self._recorder.suppress_next_result_error = False
             raise
+        # Claude emits a ResultMessage for the interrupted query, so the
+        # matching completion is accounted for by the normal message path.
+        return 0
 
     async def _consume(self, adapter: Any) -> None:
         if self._client is None:
@@ -463,151 +473,57 @@ class _TerminalSessionAdapter:
         self._input_queue.put(None)
 
 
-class _ClaudeDashboardBridge:
-    """Adapt one Dashboard Session's thread-safe commands to one SDK client."""
+class _ClaudeDashboardAdapter:
+    """Translate Claude SDK lifecycle events into shared control boundaries."""
 
     def __init__(
         self,
         *,
         interaction: DashboardInteractionPort,
-        toolkit: Toolkit,
-        emit_user,
-        emit_initial_user=None,
+        cancel_active_and_wait: Callable[[], None],
+        emit_user: Callable[[str], None],
+        emit_initial_user: Callable[[], None],
     ) -> None:
-        self._interaction = interaction
-        self._toolkit = toolkit
-        self._emit_user = emit_user
-        self._emit_initial_user = emit_initial_user
-        self._operation_lock = asyncio.Lock()
-        self._outstanding_queries = 0
+        self._control = DashboardPlannerControl(
+            interaction=interaction,
+            cancel_active_and_wait=cancel_active_and_wait,
+            emit_user=emit_user,
+            emit_initial_user=emit_initial_user,
+        )
 
     async def initial_query_succeeded(self, driver: _ClaudeSessionDriver) -> None:
-        self._outstanding_queries = 1
-        self._interaction.set_planner_activity(
-            "busy",
-            accepting_input=not self._interaction.task_replacement_requested,
-        )
-        if self._emit_initial_user is not None:
-            self._emit_initial_user()
+        await self._control.start()
 
     async def run(self, driver: _ClaudeSessionDriver) -> None:
-        version = self._interaction.interaction_version
-        while self._interaction.planner_activity != "ended":
-            await self._process_commands(driver)
-            version = await asyncio.to_thread(
-                self._interaction.wait_for_interaction_change,
-                version,
-            )
+        await self._control.run(driver)
 
     async def on_message(
         self,
         driver: _ClaudeSessionDriver,
         message: Any,
     ) -> None:
-        is_result = _kind(message) == "ResultMessage"
-        if not is_result and not _has_tool_result(message):
-            return
-
-        async with self._operation_lock:
-            if self._interaction.planner_activity == "ended":
-                return
-            if is_result:
-                self._outstanding_queries = max(0, self._outstanding_queries - 1)
-                self._interaction.set_planner_activity(
-                    "busy" if self._outstanding_queries else "idle"
-                )
-
-            if await self._handle_task_replacement(driver):
-                return
-            if await self._handle_interrupt(driver):
-                # Success already flushes. Failure deliberately leaves pending
-                # unchanged even if a boundary arrived at the same time.
-                return
-            await self._flush_pending(driver)
+        if _kind(message) == "ResultMessage":
+            await self._control.complete(driver)
+        elif _has_tool_result(message):
+            await self._control.tool_completed(driver)
 
     async def close(self) -> None:
-        self._interaction.seal_interaction()
-
-    async def _process_commands(self, driver: _ClaudeSessionDriver) -> None:
-        async with self._operation_lock:
-            if await self._handle_task_replacement(driver):
-                return
-            if await self._handle_interrupt(driver):
-                return
-            if self._interaction.planner_activity == "idle":
-                await self._flush_pending(driver)
-
-    async def _handle_task_replacement(
-        self,
-        driver: _ClaudeSessionDriver,
-    ) -> bool:
-        """Yield this conversation at the next planner scheduling boundary."""
-        if not self._interaction.task_replacement_requested:
-            return False
-
         try:
-            await asyncio.to_thread(self._toolkit.cancel_active_and_wait)
-            await driver.interrupt()
-        except Exception as exc:
-            self._interaction.complete_task_replacement(
-                error=f"task replacement failed: {_exception_text(exc)}"
-            )
-        else:
-            self._interaction.complete_task_replacement()
-        return True
-
-    async def _handle_interrupt(
-        self,
-        driver: _ClaudeSessionDriver,
-    ) -> bool:
-        if not self._interaction.claim_interrupt_request():
-            return False
-        try:
-            await asyncio.to_thread(self._toolkit.cancel_active_and_wait)
-            await driver.interrupt()
-        except Exception as exc:
-            self._interaction.complete_interrupt(error=_exception_text(exc))
-            return True
-        self._interaction.complete_interrupt()
-        await self._flush_pending(driver)
-        return True
-
-    async def _flush_pending(self, driver: _ClaudeSessionDriver) -> None:
-        message = self._interaction.claim_next_pending_message()
-        while (
-            message is not None
-            and not self._interaction.task_replacement_requested
-        ):
-            try:
-                await driver.query(message.text)
-            except Exception as exc:
-                self._interaction.mark_message_failed(
-                    message.message_id,
-                    _exception_text(exc),
-                )
-            else:
-                self._interaction.mark_message_sent(message.message_id)
-                self._outstanding_queries += 1
-                self._interaction.set_planner_activity("busy")
-                self._emit_user(message.text)
-            message = self._interaction.claim_next_pending_message()
+            await self._control.cancel_active_toolkit()
+        finally:
+            self._control.end()
 
 
 def _has_tool_result(message: Any) -> bool:
-    """Return whether an SDK message contains a completed tool call."""
     kind = _kind(message)
     if kind == "UserMessage" and _get(message, "parent_tool_use_id"):
         return True
     if kind not in {"AssistantMessage", "UserMessage"}:
         return False
     content = _get(message, "content", [])
-    if not isinstance(content, list):
-        return False
-    return any(_kind(block) in {"ToolResultBlock", "tool_result"} for block in content)
-
-
-def _exception_text(exc: BaseException) -> str:
-    return f"{type(exc).__name__}: {exc}"
+    return isinstance(content, list) and any(
+        _kind(block) in {"ToolResultBlock", "tool_result"} for block in content
+    )
 
 
 # ---------------------------------------------------------------------------
