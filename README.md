@@ -123,7 +123,7 @@ export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
 
 # SAM 3.0 checkpoint — download from
 # https://modelscope.cn/models/facebook/sam3
-python -m pip install -U modelscope
+pip install -U modelscope
 
 modelscope download facebook/sam3 \
   --local-dir ./checkpoints/sam3

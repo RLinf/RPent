@@ -30,7 +30,7 @@ checkpoints:
 
    # SAM 3.0 checkpoint — download from
    # https://modelscope.cn/models/facebook/sam3
-   python -m pip install -U modelscope
+   pip install -U modelscope
 
    modelscope download facebook/sam3 \
      --local-dir ./checkpoints/sam3

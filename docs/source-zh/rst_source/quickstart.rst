@@ -28,7 +28,7 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 
    # SAM 3.0 checkpoint —— 从以下地址下载
    # https://modelscope.cn/models/facebook/sam3
-   python -m pip install -U modelscope
+   pip install -U modelscope
 
    modelscope download facebook/sam3 \
      --local-dir ./checkpoints/sam3
