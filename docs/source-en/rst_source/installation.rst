@@ -87,28 +87,15 @@ These resources usually need to be downloaded only once;
 The ``.[robocasa]`` extra installs the full RoboCasa365 stack — MuJoCo
 3.3.1, the ARISE-Initiative robosuite fork, the pinned lerobot commit,
 protobuf, and the ``robocasa`` package itself (a wheel from the
-``github.com/qurakchin/robocasa`` fork, branch ``v1.0.1_rlinf``). The
-fork is patched so that ``macros_private`` and ``assets`` are loaded
-from env vars (``ROBOCASA_MACROS_PATH``, ``ROBOCASA_ASSETS_PATH``),
-which means a non-editable wheel install works — no local clone needed.
+``github.com/qurakchin/robocasa`` fork, branch ``v1.0.1_rlinf``).
+RLDX-1 needs specific PyTorch / torchvision / flash-attn versions
+installed **before** the extra, plus a post-install setup (macros,
+kitchen assets, env vars) and an ``RLDX-1-FT-RC365`` checkpoint. See
+:doc:`usage/robocasa` for the full walkthrough.
 
 .. code-block:: bash
 
-   # install rpent + rlinf + robocasa wheel + all deps
    uv pip install -e ".[robocasa]"
-
-   # write macros_private.py + print env-var hints
-   bash scripts/robocasa/install_robocasa.sh
-
-After the helper script runs, set the two env vars it prints before
-launching ``rpent``:
-
-- ``ROBOCASA_MACROS_PATH`` — defaults to ``<repo_root>/.robocasa/macros_private.py``
-  (the helper writes the file to ``.robocasa/`` in the project, not ``$HOME``).
-- ``ROBOCASA_ASSETS_PATH`` — the 19G kitchen assets directory. The
-  ``robocasa`` wheel ships only the 3.4M base assets; the large
-  kitchen assets must come from elsewhere (e.g. an existing RoboCasa
-  checkout, or downloaded separately).
 
 4. (Optional) Real-world robot dependencies
 -------------------------------------------

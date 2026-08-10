@@ -11,10 +11,14 @@ OSC_ROT_SCALE = 0.5    # action 1.0 -> 0.5 rad
 
 
 class RoboCasaPrimitives:
-    def __init__(self, env_client, workdir, hi_res, vla_client):
+    def __init__(self, env_client, workdir, hi_res, vla_client, check_cancelled=None):
         self.env = env_client
         self.workdir = workdir
         self.hi_res = hi_res
+        # Cancellation checkpoint callback (e.g. Toolkit.raise_if_cancelled),
+        # invoked before long-running env.step loops so an interrupted tool
+        # operation stops promptly instead of draining the whole episode.
+        self._check_cancelled = check_cancelled
         # World maps (per-pixel world xyz) are dumped EVERY step — they are how the agent
         # localizes every object, so they are never optional. Disk is bounded by keeping only
         # the last `_keep_heavy` steps' heavy npy on disk (pruned in dump_state) + each
@@ -29,7 +33,7 @@ class RoboCasaPrimitives:
         self._pos_jac = None          # 3x3 action(arm xyz) -> world dpos
         self._fwd_offset = None       # world_forward_heading = base_yaw + offset
         self._cam_meta_cache = {}
-        self._rldx = RLDXSkill(self.env, vla_client=vla_client)
+        self._rldx = RLDXSkill(self.env, vla_client=vla_client, check_cancelled=check_cancelled)
         # "中间调用" desync guard: True whenever a NON-VLA primitive (move/navigate/
         # manual grasp) or a reset has stepped the env since the last rldx_skill call.
         # The next rldx_skill then reseeds its per-sim-step frame history (else the VLA
@@ -107,6 +111,8 @@ class RoboCasaPrimitives:
         a[3:6] = np.clip(np.asarray(drot) / OSC_ROT_SCALE, -1, 1)
         a[6] = self._hold_gripper_val(gripper)
         for _ in range(n):
+            if self._check_cancelled is not None:
+                self._check_cancelled()
             self.env.step(a)
             self.record_frame()
         return self.env.eef_pos
@@ -122,6 +128,8 @@ class RoboCasaPrimitives:
             a[axis] = 0.4
             a[6] = gripper
             for _ in range(3):
+                if self._check_cancelled is not None:
+                    self._check_cancelled()
                 self.env.step(a)
             d = (self.env.eef_pos - p0) / (0.4 * 3)   # world dpos per unit action
             cols.append(d)
@@ -152,6 +160,8 @@ class RoboCasaPrimitives:
             a = self._zero()
             a[0:3] = a_xyz
             a[6] = self._resolve_grip(gripper, target_q)
+            if self._check_cancelled is not None:
+                self._check_cancelled()
             self.env.step(a)
             self.record_frame()
         cur = self.env.eef_pos
@@ -176,6 +186,8 @@ class RoboCasaPrimitives:
         a = self._zero()
         a[6] = g
         for _ in range(steps):
+            if self._check_cancelled is not None:
+                self._check_cancelled()
             self.env.step(a)
         return {"ok": True, "gripper_qpos": self.env.gripper_qpos.tolist()}
 
@@ -211,6 +223,8 @@ class RoboCasaPrimitives:
         bp0, _ = self._base_pose()
         for _ in range(steps):
             a[6] = self._resolve_grip(gripper, target_q)
+            if self._check_cancelled is not None:
+                self._check_cancelled()
             self.env.step(a)
         bp1, _ = self._base_pose()
         return {"ok": True, "base_moved": (bp1 - bp0).tolist(), "base_pos": bp1.tolist()}
@@ -228,6 +242,8 @@ class RoboCasaPrimitives:
         a[6] = self._hold_gripper_val(gripper)
         a[7] = 1.0
         for _ in range(6):
+            if self._check_cancelled is not None:
+                self._check_cancelled()
             self.env.step(a)
         p1, _ = self._base_pose()
         disp = (p1 - p0)[:2]
@@ -267,6 +283,8 @@ class RoboCasaPrimitives:
             else:                                        # drive forward + small steer
                 a[7] = 1.0
                 a[9] = float(np.clip(dyaw * 1.5, -0.4, 0.4))
+            if self._check_cancelled is not None:
+                self._check_cancelled()
             self.env.step(a)
         bp, _ = self._base_pose()
         self._pos_jac = None

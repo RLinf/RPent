@@ -16,10 +16,44 @@ from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.envs.env_spec import EnvSpec, RunConfig
 from rpent.envs.prompt_bundle import PromptBundle
 from rpent.utils.config import get_repo_root
+from rpent.utils.daemon import ProcessDaemon, pick_free_port
+from rpent.utils.http_rpc import HttpRpcClient
+from rpent.utils.rpc import parse_endpoint, wait_for_ready
+from rpent.utils.socket_rpc import SocketRpcClient
 
 if TYPE_CHECKING:
-    from rpent.utils.daemon import ProcessDaemon
     from rpent.utils.rpc import RpcClient
+
+
+ROBOCASA_DASHBOARD_SPEC = {
+    "task": {
+        "command": "/rpent-task",
+        "usage": "/rpent-task <env> <split> <seed>",
+        "fields": (
+            {"name": "robocasa_env"},
+            {"name": "robocasa_split", "suggestions": ("target", "pretrain", "all")},
+            {"name": "robocasa_seed", "kind": "integer", "minimum": 0},
+        ),
+        "display": "{robocasa_env} / {robocasa_split} / seed {robocasa_seed}",
+        "output_slug": "{robocasa_env}_{robocasa_split}_s{robocasa_seed}",
+    },
+    "runtime_components": (
+        {"name": "env", "label": "ENV", "scope": "task"},
+        {"name": "vla", "label": "VLA"},
+    ),
+    "frame_channels": (
+        {
+            "name": "camera",
+            "label": "fixed camera",
+            "legacy_path_key": "image_cam_path",
+        },
+        {
+            "name": "wrist",
+            "label": "wrist camera",
+            "legacy_path_key": "image_wrist_path",
+        },
+    ),
+}
 
 
 def get_env_spec() -> EnvSpec:
@@ -36,7 +70,10 @@ def get_env_spec() -> EnvSpec:
         ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
+        init_shared_runtime=init_shared_runtime,
+        init_task_runtime=init_task_runtime,
         init_runtime=_init_runtime,
+        dashboard=ROBOCASA_DASHBOARD_SPEC,
     )
 
 
@@ -45,7 +82,6 @@ def get_toolkit(
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     video_path: str | None = None,
-    save_action_videos: bool = False,
 ):
     """Return the RoboCasa toolkit (common tools + RoboCasa primitives)."""
     from robots.robocasa.toolkit import RoboCasaToolkit
@@ -54,7 +90,6 @@ def get_toolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
         video_path=video_path,
-        save_action_videos=save_action_videos,
     )
 
 
@@ -119,6 +154,182 @@ def _subprocess_env(**extra: str) -> dict[str, str]:
     return env
 
 
+def _cuda_args(args: argparse.Namespace) -> list[str]:
+    """Return the ``--cuda-device`` CLI args for spawned servers."""
+    return (
+        ["--cuda-device", str(args.cuda_device)]
+        if args.cuda_device is not None
+        else []
+    )
+
+
+def _spawn_env_server(
+    args: argparse.Namespace,
+    output_dir: Path,
+) -> tuple[ProcessDaemon | None, RpcClient]:
+    """Spawn (or attach to) the RoboCasa env_server.
+
+    Returns ``(daemon, rpc)`` — the daemon is ``None`` when an external
+    endpoint was attached (the caller must not own it).
+    """
+    if args.env_endpoint is None:
+        host, port = "127.0.0.1", pick_free_port()
+        daemon = ProcessDaemon(
+            name="env_server",
+            cmd=[
+                sys.executable,
+                str(get_repo_root() / "robots" / "robocasa" / "env_server.py"),
+                "--env", args.robocasa_env,
+                "--split", args.robocasa_split,
+                "--seed", str(args.robocasa_seed),
+                "--transport", "http",
+                "--host", host,
+                "--port", str(port),
+                "--parent-watch",
+                *_cuda_args(args),
+            ],
+            env=_subprocess_env(
+                MUJOCO_GL="egl",
+                ROBOT_PLATFORM="ROBOCASA",
+            ),
+            log_path=str(Path(output_dir) / "env_server.log"),
+        )
+        daemon.start()
+        return daemon, HttpRpcClient(f"http://{host}:{port}")
+    protocol, host, port = parse_endpoint(args.env_endpoint)
+    if protocol == "socket":
+        return None, SocketRpcClient(host, port)
+    if protocol == "http":
+        return None, HttpRpcClient(f"http://{host}:{port}")
+    raise ValueError(
+        f"--env-endpoint protocol must be socket or http, got {protocol!r}"
+    )
+
+
+def _spawn_vla_server(
+    args: argparse.Namespace,
+    output_dir: Path,
+) -> tuple[ProcessDaemon | None, RpcClient]:
+    """Spawn (or attach to) the RoboCasa vla_server.
+
+    Returns ``(daemon, rpc)`` — the daemon is ``None`` when an external
+    endpoint was attached (the caller must not own it).
+    """
+    if args.vla_endpoint is None:
+        if not args.vla_model_path:
+            raise ValueError(
+                "--vla-model-path is required when spawning a local vla_server"
+            )
+        host, port = "127.0.0.1", pick_free_port()
+        daemon = ProcessDaemon(
+            name="vla_server",
+            cmd=[
+                sys.executable,
+                str(get_repo_root() / "robots" / "robocasa" / "vla_server.py"),
+                "--model-path", args.vla_model_path,
+                "--transport", "http",
+                "--host", host,
+                "--port", str(port),
+                "--parent-watch",
+                *_cuda_args(args),
+            ],
+            env=_subprocess_env(),
+            log_path=str(Path(output_dir) / "vla_server.log"),
+        )
+        daemon.start()
+        return daemon, HttpRpcClient(f"http://{host}:{port}")
+    protocol, host, port = parse_endpoint(args.vla_endpoint)
+    if protocol == "socket":
+        return None, SocketRpcClient(host, port)
+    if protocol == "http":
+        return None, HttpRpcClient(f"http://{host}:{port}")
+    raise ValueError(
+        f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
+    )
+
+
+def _stop_owned_daemons(daemons: list[ProcessDaemon]) -> None:
+    """Stop owned daemons in reverse order without masking startup errors."""
+    for daemon in reversed(daemons):
+        try:
+            daemon.stop()
+        except Exception:
+            pass
+
+
+def init_task_runtime(
+    args: argparse.Namespace,
+    output_dir: Path,
+    dashboard_events: DashboardEventSink,
+) -> tuple[list[ProcessDaemon], dict[str, Any]]:
+    """Initialize one TaskRun-owned RoboCasa environment.
+
+    A local env server is fresh for every call. When ``--env-endpoint`` is
+    supplied, the returned daemon list is empty so the external service stays
+    running. The VLA service is Session-owned and comes from
+    :func:`init_shared_runtime`.
+    """
+    from robots.robocasa.env_client import RoboCasaEnvClient
+
+    owned_daemons: list[ProcessDaemon] = []
+
+    dashboard_events.emit(RuntimeStatusEvent("env", "starting"))
+    try:
+        env_daemon, env_rpc = _spawn_env_server(args, output_dir)
+        if env_daemon is not None:
+            owned_daemons.append(env_daemon)
+        wait_for_ready(env_rpc, daemon=env_daemon, timeout_s=120.0)
+        env_client = RoboCasaEnvClient(
+            env_rpc,
+            expected_meta={
+                "env_name": args.robocasa_env,
+                "split": args.robocasa_split,
+                "seed": args.robocasa_seed,
+                "camera_h": 256,
+                "camera_w": 256,
+            },
+        )
+    except Exception as exc:
+        _stop_owned_daemons(owned_daemons)
+        dashboard_events.emit(RuntimeStatusEvent("env", "failed", error=exc))
+        raise
+    dashboard_events.emit(RuntimeStatusEvent("env", "ready"))
+    return owned_daemons, {
+        "env_client": env_client,
+        "workdir": str(output_dir),
+        "hi_res": args.hi_res or None,
+    }
+
+
+def init_shared_runtime(
+    args: argparse.Namespace,
+    output_dir: Path,
+    dashboard_events: DashboardEventSink,
+) -> tuple[list[ProcessDaemon], dict[str, Any]]:
+    """Initialize the Session-owned RoboCasa VLA service.
+
+    The returned list contains only locally started services. External
+    endpoints are connected to but never become owned.
+    """
+    from robots.robocasa.vla_client import RoboCasaVLAClient
+
+    owned_daemons: list[ProcessDaemon] = []
+
+    dashboard_events.emit(RuntimeStatusEvent("vla", "starting"))
+    try:
+        vla_daemon, vla_rpc = _spawn_vla_server(args, output_dir)
+        if vla_daemon is not None:
+            owned_daemons.append(vla_daemon)
+        wait_for_ready(vla_rpc, daemon=vla_daemon, timeout_s=300.0)
+        vla_client = RoboCasaVLAClient(vla_rpc)
+    except Exception as exc:
+        _stop_owned_daemons(owned_daemons)
+        dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
+        raise
+    dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
+    return owned_daemons, {"vla_client": vla_client}
+
+
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
@@ -129,101 +340,35 @@ def _init_runtime(
     Each server can be spawned or attached-to independently: pass an
     endpoint to attach, or leave it unset to spawn a local subprocess.
 
-    Heavy deps (rpc / vla / daemon / env_client) are imported lazily so
-    that a bare ``import robots.robocasa`` (for ``get_env_spec`` /
-    ``get_toolkit``) doesn't drag them in.
+    Heavy deps (vla / env_client) are imported lazily so that a bare
+    ``import robots.robocasa`` (for ``get_env_spec`` / ``get_toolkit``)
+    doesn't drag them in. ``rpent.utils`` helpers are imported at module
+    top level.
     """
     from robots.robocasa.env_client import RoboCasaEnvClient
     from robots.robocasa.vla_client import RoboCasaVLAClient
-    from rpent.utils.daemon import ProcessDaemon, pick_free_port
-    from rpent.utils.http_rpc import HttpRpcClient
-    from rpent.utils.rpc import parse_endpoint, wait_for_ready
-    from rpent.utils.socket_rpc import SocketRpcClient
 
     daemons: list[ProcessDaemon] = []
-    cuda_args = ["--cuda-device", str(args.cuda_device)] if args.cuda_device is not None else []
 
     # --- env_server --------------------------------------------------------
     dashboard_events.emit(RuntimeStatusEvent("env", "starting"))
     try:
-        env_daemon: ProcessDaemon | None = None
-        if args.env_endpoint is None:
-            host, port = "127.0.0.1", pick_free_port()
-            env_daemon = ProcessDaemon(
-                name="env_server",
-                cmd=[
-                    sys.executable,
-                    str(get_repo_root() / "robots" / "robocasa" / "env_server.py"),
-                    "--env", args.robocasa_env,
-                    "--split", args.robocasa_split,
-                    "--seed", str(args.robocasa_seed),
-                    "--transport", "http",
-                    "--host", host,
-                    "--port", str(port),
-                    "--parent-watch",
-                    *cuda_args,
-                ],
-                env=_subprocess_env(
-                    MUJOCO_GL="egl",
-                ),
-                log_path=str(Path(output_dir) / "env_server.log"),
-            )
-            env_daemon.start()
+        env_daemon, env_rpc = _spawn_env_server(args, output_dir)
+        if env_daemon is not None:
             daemons.append(env_daemon)
-            env_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-        else:
-            protocol, host, port = parse_endpoint(args.env_endpoint)
-            if protocol == "socket":
-                env_rpc = SocketRpcClient(host, port)
-            elif protocol == "http":
-                env_rpc = HttpRpcClient(f"http://{host}:{port}")
-            else:
-                raise ValueError(
-                    f"--env-endpoint protocol must be socket or http, got {protocol!r}"
-                )
     except Exception as exc:
+        _stop_owned_daemons(daemons)
         dashboard_events.emit(RuntimeStatusEvent("env", "failed", error=exc))
         raise
 
     # --- vla_server --------------------------------------------------------
     dashboard_events.emit(RuntimeStatusEvent("vla", "starting"))
     try:
-        vla_daemon: ProcessDaemon | None = None
-        if args.vla_endpoint is None:
-            if not args.vla_model_path:
-                raise ValueError(
-                    "--vla-model-path is required when spawning a local vla_server"
-                )
-            host, port = "127.0.0.1", pick_free_port()
-            vla_daemon = ProcessDaemon(
-                name="vla_server",
-                cmd=[
-                    sys.executable,
-                    str(get_repo_root() / "robots" / "robocasa" / "vla_server.py"),
-                    "--model-path", args.vla_model_path,
-                    "--transport", "http",
-                    "--host", host,
-                    "--port", str(port),
-                    "--parent-watch",
-                    *cuda_args,
-                ],
-                env=_subprocess_env(),
-                log_path=str(Path(output_dir) / "vla_server.log"),
-            )
-            vla_daemon.start()
+        vla_daemon, vla_rpc = _spawn_vla_server(args, output_dir)
+        if vla_daemon is not None:
             daemons.append(vla_daemon)
-            vla_rpc: RpcClient = HttpRpcClient(f"http://{host}:{port}")
-        else:
-            protocol, host, port = parse_endpoint(args.vla_endpoint)
-            if protocol == "socket":
-                vla_rpc = SocketRpcClient(host, port)
-            elif protocol == "http":
-                vla_rpc = HttpRpcClient(f"http://{host}:{port}")
-            else:
-                raise ValueError(
-                    f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
-                )
     except Exception as exc:
+        _stop_owned_daemons(daemons)
         dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
         raise
 
@@ -236,8 +381,7 @@ def _init_runtime(
         try:
             wait_for_ready(client, daemon=daemon, timeout_s=timeout_s)
         except Exception as exc:
-            for started_daemon in reversed(daemons):
-                started_daemon.stop()
+            _stop_owned_daemons(daemons)
             dashboard_events.emit(RuntimeStatusEvent(component, "failed", error=exc))
             raise
         dashboard_events.emit(RuntimeStatusEvent(component, "ready"))
@@ -258,3 +402,4 @@ def _init_runtime(
         "vla_client": RoboCasaVLAClient(vla_rpc),
     }
     return daemons, primitives_kwargs
+

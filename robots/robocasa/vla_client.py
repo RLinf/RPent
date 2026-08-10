@@ -22,7 +22,7 @@ class RoboCasaVLAClient:
     def predict(self, obs_dict: dict, options: dict) -> dict:
         """Run inference; returns raw actions dict.
 
-        Actions are numpy arrays, already converted by ``_to_numpy_tree`` on the server.
+        Actions are numpy arrays.
         """
         return self._client.call("env.predict", args=(obs_dict, options),
                                  timeout_s=_TIMEOUT_S["predict"])

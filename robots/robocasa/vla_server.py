@@ -22,10 +22,8 @@ class RoboCasaVLAFacade(RpcFacade):
         from rldx.data.embodiment_tags import EmbodimentTag
         from rldx.eval.rollout_policy import create_rldx_sim_policy
 
-        import torch
         self.policy = create_rldx_sim_policy(
             model_path, EmbodimentTag.GENERAL_EMBODIMENT, "", None,
-            device=torch.cuda.current_device(),
         )
         mod = self.policy.get_modality_config()
         self._vdi = np.asarray(mod["video"].delta_indices)
@@ -56,6 +54,11 @@ class RoboCasaVLAFacade(RpcFacade):
         }
 
     def predict(self, obs_dict, options):
+        # policy.get_action returns dict[str, np.ndarray] because RLDX's
+        # PolicyRuntime._decode already .cpu().numpy()s torch internally, and
+        # _NumpyEncoder (http_rpc) tags numpy arrays at JSON time. If you ever
+        # bypass _decode (e.g. call the model forward directly), you must
+        # .cpu().numpy() the result here — _NumpyEncoder raises on torch.Tensor.
         actions, info = self.policy.get_action(obs_dict, options=options)
         return actions
 
@@ -87,18 +90,16 @@ def main():
     args = p.parse_args()
 
     if args.cuda_device is not None:
-        # Do NOT set CUDA_VISIBLE_DEVICES: it remaps the physical GPU to cuda:0
-        # while device_map=<int> then asks for cuda:<int> -> "invalid device ordinal".
-        # Keep both GPUs visible and pin the current device instead (env_server pattern).
+        # New RLDX create_rldx_sim_policy hardcodes device=0 internally and
+        # does not accept a device argument. Map physical GPU to cuda:0
+        # via CUDA_VISIBLE_DEVICES instead.
         prev = os.environ.get("CUDA_VISIBLE_DEVICES")
-        if prev is not None and prev != args.cuda_device:
+        if prev is not None:
             logger.warning(
                 "CUDA_VISIBLE_DEVICES=%s is already set; overriding with --cuda-device=%s",
                 prev, args.cuda_device,
             )
-        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
-        import torch
-        torch.cuda.set_device(args.cuda_device)
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
 
     facade = RoboCasaVLAFacade(args.model_path)
     facade.serve(

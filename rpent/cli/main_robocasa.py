@@ -10,7 +10,6 @@ def main():
     _add_cli_args(ap, False)
     ap.add_argument("--workdir", required=True,
                     help="run directory (commands + evidence)")
-    ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
     if not args.workdir:
