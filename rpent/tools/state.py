@@ -228,7 +228,8 @@ class EnvState:
                 record.artifacts.add(name)
             else:
                 self._run_artifacts.add(name)
-            self._write_manifest()
+            if not self._step_open:
+                self._write_manifest()
             return name
         except Exception as exc:
             logger.warning("failed to save artifact %s: %s", name, exc)
@@ -305,29 +306,20 @@ class EnvState:
         )
         self._steps.append(record)
         self._step_open = True
-        self._write_manifest()
         try:
             yield record.step_idx
-        except BaseException:
-            for name in list(record.artifacts):
-                destination = self._artifact_file(name, record.step_idx)
-                destination.unlink(missing_ok=True)
+        except BaseException as e:
             if self._steps and self._steps[-1] is record:
                 self._steps.pop()
-            try:
-                self._write_manifest()
-            except Exception as exc:
-                logger.warning(
-                    "failed to rewrite manifest after step rollback: %s", exc
-                )
-            raise
+            logger.warning("step %d is discarded due to exception during record: %s", record.step_idx, e)
         finally:
             self._step_open = False
+            self._write_manifest()
 
     def get(self, step: int = -1) -> StepRecord:
         resolved_step = self._resolve_read_step(step)
         if resolved_step is None:
-            raise ValueError("step records are not run-level artifacts")
+            raise ValueError(f"step {step} must be -1 or nonnegative")
         return copy.deepcopy(self._record_for(resolved_step))
 
     def records(self) -> list[StepRecord]:
