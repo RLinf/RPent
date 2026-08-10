@@ -178,12 +178,9 @@ planners. Configure ``--planner`` and ``--model`` as for a normal run; see
 :doc:`configure_planner`.
 
 Each TaskRun gets a fresh environment while the VLA and SAM3 services are
-reused by the Session. Submit another ``/rpent-task`` after completion, or
-submit one while a task is running to switch tasks. The Dashboard streams
-agent reasoning and tool calls, fixed and wrist camera views, the action
-timeline, and action and full-episode replays. During a TaskRun, normal
-messages steer the agent and Esc requests an interruption. Press Ctrl+C in
-the terminal to stop the Session.
+reused by the Session. Submit a new ``/rpent-task`` to start or switch tasks;
+during a run, normal messages steer the agent and Esc requests an interruption.
+Press Ctrl+C in the terminal to stop the Session.
 
 ``--dashboard`` cannot be combined with ``--interactive`` or
 ``--env-endpoint``. External ``--vla-endpoint`` and ``--sam3-endpoint``
