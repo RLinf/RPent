@@ -1,15 +1,19 @@
-"""RoboCasa tool schemas and handler stubs."""
+"""RoboCasa tool schemas and handlers backed by the run's ``EnvState``.
+
+The state trace (``states.json`` manifest + per-step artifact files under
+``<step:02d>/``) is owned by :class:`rpent.tools.state.EnvState`. Tool handlers
+that need to read it take a ``state: EnvState`` keyword argument (bound by the
+toolkit via :func:`functools.partial`); state-advancing primitive tools capture
+state automatically through :meth:`RoboCasaToolkit.get_env_state`.
+"""
 from __future__ import annotations
 
-import glob
-import json
-import os
-import re
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from rpent.utils.logging import get_output_dir
+from rpent.tools.state import EnvState, StepRecord
+from rpent.tools.toolkit import readonly
 
 if TYPE_CHECKING:
     from robots.robocasa.primitives import RoboCasaPrimitives
@@ -21,7 +25,7 @@ if TYPE_CHECKING:
 
 TOOLS_SPEC = [
     # ======================================================================
-    # Primitive tools (11) — dispatched via _step() in RoboCasaToolkit
+    # Primitive tools (11) — dispatched by the toolkit base to primitives.<name>
     # ======================================================================
     {
         "name": "move_to",
@@ -406,7 +410,7 @@ TOOLS_SPEC = [
         },
     },
     # ======================================================================
-    # Perception tools (6) — module-level handler functions
+    # Perception tools (6) — module-level @readonly handlers
     # ======================================================================
     {
         "name": "view_driver_state",
@@ -627,262 +631,290 @@ TOOLS_SPEC = [
     },
 ]
 
-# ---------------------------------------------------------------------------
-# State reader helpers — accesses dumped run data from the output directory
-# ---------------------------------------------------------------------------
-
-
-def _load_states() -> list:
-    """Return the parsed state trace from ``states.json``."""
-    out_dir = get_output_dir()
-    if out_dir is None:
-        return []
-    path = out_dir / "states.json"
-    if not path.exists():
-        return []
-    with open(path) as f:
-        return json.load(f)
-
-
-def _latest_step() -> int | None:
-    """Return the highest step index among dumped states, or None."""
-    out_dir = get_output_dir()
-    if out_dir is None:
-        return None
-    # Try consolidated states.json first
-    states = _load_states()
-    if states:
-        return int(states[-1]["step"])
-    # Fallback: scan done_*.flag files created by dump_state
-    matches = sorted(glob.glob(str(out_dir / "done_*.flag")))
-    if not matches:
-        return None
-    m = re.search(r"done_(\d+)\.flag$", matches[-1])
-    return int(m.group(1)) if m else None
-
-
-def _load_step(nn: int) -> dict:
-    """Return the state blob for step *nn*.
-
-    Tries the individual ``state_{nn:02d}.json`` written by ``dump_state``
-    first, then falls back to searching the consolidated ``states.json``.
-    """
-    out_dir = get_output_dir()
-    if out_dir is None:
-        raise FileNotFoundError("no output directory configured")
-
-    path = out_dir / f"state_{nn:02d}.json"
-    if path.exists():
-        with open(path) as f:
-            return json.load(f)
-
-    for entry in _load_states():
-        if int(entry.get("step", -1)) == nn:
-            return entry
-    raise FileNotFoundError(f"step {nn} not present in states.json or state_{nn:02d}.json")
-
-
-def _load_image(nn: int, kind: str) -> bytes | None:
-    """Return PNG bytes for a dumped state image, or None if not present.
-
-    Kind values:
-        ``"camera"`` — agentview calibration frame (``image_cam_{nn}.png``)
-        ``"agent"``  — Pi0-frame (same as camera for RoboCasa)
-        ``"nav"``    — navview (``image_nav_{nn}.png``)
-        ``"wrist"``  — wrist (``image_cam_wrist_{nn}.png``)
-    """
-    out_dir = get_output_dir()
-    if out_dir is None:
-        return None
-    if kind in ("camera", "agent"):
-        path = out_dir / f"image_cam_{nn:02d}.png"
-    elif kind == "nav":
-        path = out_dir / f"image_nav_{nn:02d}.png"
-    elif kind == "wrist":
-        path = out_dir / f"image_cam_wrist_{nn:02d}.png"
-    else:
-        raise ValueError(f"unknown image kind: {kind!r}")
-    if not path.exists():
-        return None
-    return path.read_bytes()
-
-
-def _load_camera_meta(camera: str = "agentview", nn: int | None = None) -> dict:
-    """Read camera calibration metadata JSON for *camera* at step *nn*.
-
-    When *nn* is ``None`` (default) the latest available step is used.
-    Camera values: ``"agentview"``, ``"navview"``, ``"wrist"``.
-    """
-    out_dir = get_output_dir()
-    if out_dir is None:
-        raise FileNotFoundError("no output directory configured")
-    if nn is None:
-        latest = _latest_step()
-        if latest is None:
-            raise FileNotFoundError("no steps available to infer camera meta step")
-        nn = latest
-    if camera == "agentview":
-        path = out_dir / f"camera_meta_{nn:02d}.json"
-    elif camera == "wrist":
-        path = out_dir / f"camera_meta_wrist_{nn:02d}.json"
-    elif camera == "navview":
-        path = out_dir / f"camera_meta_nav_{nn:02d}.json"
-    else:
-        raise ValueError(f"unknown camera: {camera!r}")
-    if not path.exists():
-        raise FileNotFoundError(f"camera_meta for {camera} step {nn} not found at {path}")
-    with open(path) as f:
-        return json.load(f)
-
-
-def _load_world_map(camera: str, nn: int, resolution: str = "low") -> np.ndarray | None:
-    """Load a per-pixel world XYZ map as a float32 numpy array, or None.
-
-    Camera values: ``"agentview"``, ``"navview"``, ``"wrist"``.
-    Resolution: ``"low"`` (default) or ``"high"`` (agentview only).
-    """
-    out_dir = get_output_dir()
-    if out_dir is None:
-        return None
-    if camera == "agentview":
-        if resolution == "low":
-            path = out_dir / f"world_{nn:02d}.npy"
-        elif resolution == "high":
-            path = out_dir / f"world_hi_{nn:02d}.npy"
-        else:
-            raise ValueError(f"unknown resolution: {resolution!r}")
-    elif camera == "navview":
-        path = out_dir / f"world_nav_{nn:02d}.npy"
-    elif camera == "wrist":
-        path = out_dir / f"world_wrist_{nn:02d}.npy"
-    else:
-        raise ValueError(f"unknown camera: {camera!r}")
-    if not path.exists():
-        return None
-    return np.load(path)
-
 
 # ---------------------------------------------------------------------------
-# State persistence — _append_state + dump_state
+# State persistence — dump_state writes through the run's EnvState
 # ---------------------------------------------------------------------------
 
+# Heavy npy artifacts pruned after the ``_keep_heavy`` window elapses (the
+# agent localizes from the latest frame; old world/depth maps are dead weight
+# that once filled the 100GB root and deadlocked everything).
+_HEAVY_ARTIFACTS = (
+    "agentview_depth.npz",
+    "agentview_world.npz",
+    "wrist_depth.npz",
+    "wrist_world.npz",
+    "agentview_world_high.npz",
+    "navview_world.npz",
+)
 
-def _append_state(output_dir: str, blob: dict) -> None:
-    """Append *blob* to ``<output_dir>/states.json`` atomically.
+# Artifact base names exposed to the agent for each camera (high-res first).
+_CAMERA_IMAGE_ARTIFACTS = {
+    "agentview": ("agentview_high.png", "agentview.png"),
+    "navview": ("navview.png",),
+    "wrist": ("wrist_high.png", "wrist.png"),
+}
 
-    The merged trace is a top-level JSON array (one entry per step). The
-    file is rewritten via a tmp + rename so a reader never sees partial
-    content. The entry index equals ``blob['step_idx']``.
-    """
-    path = os.path.join(output_dir, "states.json")
-    tmp = path + ".tmp"
-    if os.path.exists(path):
-        try:
-            with open(path) as f:
-                arr = json.load(f)
-            if not isinstance(arr, list):
-                arr = []
-        except Exception:
-            arr = []
-    else:
-        arr = []
-    idx = int(blob.get("step_idx", len(arr)))
-    # Pad with None if the agent ever skips a step (shouldn't happen,
-    # but keeps array index == step_idx).
-    while len(arr) < idx:
-        arr.append(None)
-    if len(arr) == idx:
-        arr.append(blob)
-    else:
-        arr[idx] = blob
-    with open(tmp, "w") as f:
-        json.dump(arr, f, indent=2)
-    os.replace(tmp, path)
+# Camera -> (low-res world map artifact, high-res world map artifact or None)
+_CAMERA_WORLD_ARTIFACTS = {
+    "agentview": ("agentview_world.npz", "agentview_world_high.npz"),
+    "navview": ("navview_world.npz", None),
+    "wrist": ("wrist_world.npz", None),
+}
 
 
 def dump_state(
     primitives: RoboCasaPrimitives,
-    output_dir: str,
-    step_idx: int,
+    env_state: EnvState,
     log: dict | None = None,
-) -> dict:
-    """Call ``primitives.dump_state()`` then append to ``states.json`` with artifact paths.
+) -> StepRecord:
+    """Record one RoboCasa observation through its owned state record.
 
-    Writes:
-      - Standard files via ``RoboCasaPrimitives.dump_state()`` (state json,
-        images, depth, world maps, camera meta, navview, hi-res, disk pruning)
-      - Appends a step blob to ``<output_dir>/states.json`` that records
-        world_map / nav_map / hi_map paths so the agent can locate artifacts.
-
-    If *log* is provided (the return value of :func:`execute`), its
-    ``command``, ``result``, and ``elapsed_s`` fields are merged into the
-    step blob so a single entry captures everything.
+    Appends a new :class:`StepRecord` (proprio + task + success + vla_desync)
+    via :meth:`EnvState.record_step`, saves the rendered RGB / depth / world
+    artifacts for that step, and prunes heavy npy artifacts that fell out of
+    the ``_keep_heavy`` window.
     """
-    # Call the existing dump_state to write standard files
-    state = primitives.dump_state(step_idx)
+    state_dict = primitives.current_state_dict()
+    log = log or {}
+    with env_state.record_step(
+        state=state_dict["state"],
+        terminated=state_dict["robocasa_terminated"],
+        truncated=False,
+        command=log.get("command"),
+        result=log.get("result"),
+        elapsed_s=log.get("elapsed_s"),
+        extras={
+            "task_language": state_dict["task_language"],
+            "success": state_dict["success"],
+            "task_progress": state_dict["task_progress"],
+            "vla_desync": primitives._vla_desync,
+        },
+    ) as step_idx:
+        _save_observation_artifacts(primitives, env_state, step_idx)
+        _prune_heavy_artifacts(primitives, env_state, step_idx)
+    return env_state.get(step_idx)
 
-    # Build states.json blob with artifact paths
-    nn = f"{step_idx:02d}"
-    blob = {
-        "step_idx": step_idx,
-        "robocasa_terminated": primitives.env.terminated,
-        "task_language": state.get("task_language", ""),
-        "state": state.get("state", {}),
-        "task_progress": state.get("task_progress", {}),
-        "success": state.get("success", False),
-        "world_map": (
-            f"world_{nn}.npy"
-            if os.path.exists(os.path.join(output_dir, f"world_{nn}.npy"))
-            else None
-        ),
-        "world_nav_map": (
-            f"world_nav_{nn}.npy"
-            if os.path.exists(os.path.join(output_dir, f"world_nav_{nn}.npy"))
-            else None
-        ),
-        "world_hi_map": (
-            f"world_hi_{nn}.npy"
-            if os.path.exists(os.path.join(output_dir, f"world_hi_{nn}.npy"))
-            else None
-        ),
+
+def _save_observation_artifacts(
+    primitives: RoboCasaPrimitives,
+    env_state: EnvState,
+    step_idx: int,
+) -> None:
+    """Render and save all per-step observation artifacts for ``step_idx``."""
+    env = primitives.env
+    hi_res = primitives.hi_res
+
+    # --- agentview + wrist: rgb, depth, world map, camera meta ---
+    for cam, image_name, depth_name, world_name, meta_name in (
+        ("agentview", "agentview.png", "agentview_depth.npz",
+         "agentview_world.npz", "agentview_metadata.json"),
+        ("wrist", "wrist.png", "wrist_depth.npz",
+         "wrist_world.npz", "wrist_metadata.json"),
+    ):
+        rgb, depth = env.render_camera(cam, depth=True)
+        env_state.save(image_name, rgb, step=step_idx)
+        env_state.save(depth_name, depth.astype(np.float32), step=step_idx)
+        env_state.save(world_name, env.world_map(cam).astype(np.float32), step=step_idx)
+        if cam not in primitives._cam_meta_cache or cam == "wrist":
+            primitives._cam_meta_cache[cam] = env.get_camera_meta(cam)
+        env_state.save(meta_name, primitives._cam_meta_cache[cam], step=step_idx)
+
+    # --- hi-res agentview (SAM grounding / fine localize) ---
+    if hi_res:
+        hrgb, _ = env.render_camera("agentview", hi_res, hi_res, depth=True)
+        env_state.save("agentview_high.png", hrgb, step=step_idx)
+        env_state.save(
+            "agentview_world_high.npz",
+            env.world_map("agentview", hi_res, hi_res).astype(np.float16),
+            step=step_idx,
+        )
+
+    # --- navview: base-mounted forward-down floor camera (follows the base) ---
+    try:
+        nrgb, _ = env.render_camera("navview", depth=True)
+        nworld = env.world_map("navview").astype(np.float32)
+        env_state.save("navview.png", nrgb, step=step_idx)
+        env_state.save("navview_world.npz", nworld, step=step_idx)
+        floor = (nworld[:, :, 2] < 0.12) & (nworld[:, :, 2] > -0.2)
+        overlay = nrgb.copy()
+        overlay[floor] = [0, 255, 0]
+        env_state.save("navview_floor.png", overlay, step=step_idx)
+    except Exception as e:
+        print(f"[tools] navcam render failed at step {step_idx}: {e}", flush=True)
+
+
+def _prune_heavy_artifacts(
+    primitives: RoboCasaPrimitives,
+    env_state: EnvState,
+    step_idx: int,
+) -> None:
+    """Delete heavy npy artifacts for the step that fell out of the window."""
+    old = step_idx - primitives._keep_heavy
+    if old < 0:
+        return
+    for name in _HEAVY_ARTIFACTS:
+        try:
+            env_state.artifact_path(name, step=old).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Tool handlers — @readonly perception tools take ``state: EnvState``
+# ---------------------------------------------------------------------------
+
+
+@readonly
+def view_driver_state(step: int | None = None, *, state: EnvState) -> dict:
+    """Read one recorded state with embedded camera / navview / wrist images."""
+    try:
+        record = state.get(step if step is not None else -1)
+    except Exception as exc:
+        return {"error": f"state step not available: {exc}"}
+
+    nn = record.step_idx
+    extras = record.extras
+    out: dict = {
+        "step": nn,
+        "task_progress": extras.get("task_progress", {}),
+        "task_language": extras.get("task_language", ""),
+        "state": record.state,
+        "robocasa_terminated": record.terminated,
+        "vla_desync": extras.get("vla_desync", False),
+        "success": extras.get("success", False),
+        "log": {
+            "command": record.command,
+            "result": record.result,
+            "elapsed_s": record.elapsed_s,
+        },
+        "images": [],
     }
-    if log is not None:
-        blob["command"] = log.get("command")
-        blob["result"] = log.get("result")
-        blob["elapsed_s"] = log.get("elapsed_s")
-    _append_state(output_dir, blob)
-    return state
+
+    for kind, candidates in (
+        ("_image_cam_bytes", _CAMERA_IMAGE_ARTIFACTS["agentview"]),
+        ("_image_nav_bytes", _CAMERA_IMAGE_ARTIFACTS["navview"]),
+        ("_image_wrist_bytes", _CAMERA_IMAGE_ARTIFACTS["wrist"]),
+    ):
+        for name in candidates:
+            if name not in record.artifacts:
+                continue
+            try:
+                out[kind] = state.load_bytes(name, step=nn)
+            except FileNotFoundError:
+                continue
+            label = {
+                "_image_cam_bytes": ("calibration_frame", "agentview"),
+                "_image_nav_bytes": ("nav_view", "navview"),
+                "_image_wrist_bytes": ("calibration_frame", "wrist"),
+            }[kind]
+            out["images"].append({
+                "role": label[0],
+                "camera": label[1],
+                "artifact": name,
+            })
+            break
+
+    return out
 
 
-# ---------------------------------------------------------------------------
-# Handler skeletons — fleshed out in later waves
-# ---------------------------------------------------------------------------
+@readonly
+def view_camera_meta(
+    camera: str = "agentview",
+    step: int | None = None,
+    *,
+    state: EnvState,
+) -> dict:
+    """Read camera calibration metadata. Skeleton — returns error."""
+    return {"error": "not implemented"}
 
 
+@readonly
 def back_project(
     row: int,
     col: int,
     step: int | None = None,
     camera: str = "agentview",
     resolution: str = "high",
+    *,
+    state: EnvState,
 ) -> dict:
     """Back-project a single pixel to world XYZ. Skeleton — returns error."""
     return {"error": "not implemented"}
 
 
-def view_camera_meta(
-    camera: str = "agentview",
+@readonly
+def back_project_batch(
+    pixels: list[list[int]],
     step: int | None = None,
+    camera: str = "agentview",
+    resolution: str = "low",
+    *,
+    state: EnvState,
 ) -> dict:
-    """Read camera calibration metadata. Skeleton — returns error."""
-    return {"error": "not implemented"}
+    """Back-project multiple pixels to world XYZ in a single call.
+
+    Loads the precomputed world map once and queries all *pixels*, returning
+    each result individually plus a summary with the median of valid points.
+    """
+    camera = camera or "agentview"
+    resolution = resolution or "low"
+    if camera not in _CAMERA_WORLD_ARTIFACTS:
+        return {"error": f"bad camera '{camera}' (use agentview, navview, or wrist)"}
+    low_name, hi_name = _CAMERA_WORLD_ARTIFACTS[camera]
+    source_artifact = hi_name if resolution == "high" else low_name
+    if source_artifact is None:
+        return {"error": f"{camera} has no {resolution}-resolution world map"}
+
+    try:
+        record = state.get(step if step is not None else -1)
+    except Exception as exc:
+        return {"error": f"state step not available: {exc}"}
+    nn = record.step_idx
+    if source_artifact not in record.artifacts:
+        return {"error": f"{camera} {resolution}-resolution world map not recorded for step {nn}"}
+
+    try:
+        world_map = state.load(source_artifact, step=nn)
+    except Exception as exc:
+        return {"error": f"{source_artifact} not found for step {nn}: {exc}"}
+
+    results = []
+    valid_xyzs = []
+    for pixel in pixels:
+        if not isinstance(pixel, (list, tuple)) or len(pixel) != 2:
+            results.append({"pixel": pixel, "world_xyz": None, "valid": False,
+                            "error": "pixel must be [row, col]"})
+            continue
+        row, col = int(pixel[0]), int(pixel[1])
+        h, w = world_map.shape[:2]
+        if row < 0 or row >= h or col < 0 or col >= w:
+            results.append({"pixel": pixel, "world_xyz": None, "valid": False,
+                            "error": f"pixel ({row},{col}) out of bounds ({h}x{w})"})
+            continue
+        xyz = world_map[row, col, :3]
+        if not np.isfinite(xyz).all() or abs(float(xyz.sum())) <= 1e-6:
+            results.append({"pixel": pixel, "world_xyz": None, "valid": False,
+                            "error": "invalid world xyz at pixel"})
+            continue
+        results.append({
+            "pixel": [row, col],
+            "world_xyz": [round(float(xyz[0]), 4), round(float(xyz[1]), 4), round(float(xyz[2]), 4)],
+            "valid": True,
+            "error": None,
+        })
+        valid_xyzs.append([float(xyz[0]), float(xyz[1]), float(xyz[2])])
+
+    summary: dict = {"valid_count": len(valid_xyzs), "total_count": len(pixels)}
+    if valid_xyzs:
+        median = np.median(valid_xyzs, axis=0)
+        summary["median_xyz"] = [round(float(median[0]), 4), round(float(median[1]), 4),
+                                  round(float(median[2]), 4)]
+    return {"results": results, "summary": summary, "step": nn,
+            "camera": camera, "resolution": resolution}
 
 
-def finish(status: str, summary: str) -> dict:
-    """Declare the task finished."""
-    return {"_finish": True, "status": status, "summary": summary}
-
-
+@readonly
 def query_world_map(
     z_min: float = 0.85,
     z_max: float = 0.95,
@@ -891,14 +923,28 @@ def query_world_map(
     camera: str = "agentview",
     resolution: str = "low",
     min_cluster_size: int = 10,
+    *,
+    state: EnvState,
 ) -> dict:
     """Query the world map by z-range and/or region to find objects."""
-    nn = _latest_step()
-    if nn is None:
+    if camera not in _CAMERA_WORLD_ARTIFACTS:
+        return {"error": f"bad camera '{camera}' (use agentview, navview, or wrist)"}
+    low_name, hi_name = _CAMERA_WORLD_ARTIFACTS[camera]
+    source_artifact = hi_name if resolution == "high" else low_name
+    if source_artifact is None:
+        return {"error": f"{camera} has no {resolution}-resolution world map"}
+
+    try:
+        record = state.get(-1)
+    except Exception:
         return {"error": "no state trace available"}
-    world_map = _load_world_map(camera, nn, resolution)
-    if world_map is None:
-        return {"error": f"{camera} {resolution}-resolution world map not found"}
+    nn = record.step_idx
+    if source_artifact not in record.artifacts:
+        return {"error": f"{camera} {resolution}-resolution world map not found for step {nn}"}
+    try:
+        world_map = state.load(source_artifact, step=nn)
+    except Exception:
+        return {"error": f"{camera} {resolution}-resolution world map not found for step {nn}"}
 
     z = world_map[:, :, 2]
     mask = (z >= z_min) & (z <= z_max) & np.isfinite(z)
@@ -914,12 +960,11 @@ def query_world_map(
     if total_pixels < min_cluster_size:
         return {"clusters": [], "summary": {"total_clusters": 0, "total_pixels_matched": 0}}
 
-    # Grid-based clustering
     h, w = world_map.shape[:2]
     grid_cells = max(8, min(32, h // 32))
     cell_h = max(1, h // grid_cells)
     cell_w = max(1, w // grid_cells)
-    cells = {}
+    cells: dict[tuple[int, int], dict] = {}
     for i in range(0, len(ys), 5):
         y, x = int(ys[i]), int(xs[i])
         gy, gx = y // cell_h, x // cell_w
@@ -930,7 +975,7 @@ def query_world_map(
         cells[key]["world_pts"].append(world_map[y, x, :3])
 
     clusters = []
-    for key, data in cells.items():
+    for data in cells.values():
         if len(data["pixels"]) < min_cluster_size:
             continue
         pts = np.array(data["world_pts"])
@@ -939,23 +984,14 @@ def query_world_map(
         bbox_max = pts.max(axis=0)
         center_idx = len(data["pixels"]) // 2
         clusters.append({
-            "center_xyz": [
-                round(float(center[0]), 4),
-                round(float(center[1]), 4),
-                round(float(center[2]), 4),
-            ],
+            "center_xyz": [round(float(center[0]), 4), round(float(center[1]), 4),
+                           round(float(center[2]), 4)],
             "pixel_count": len(data["pixels"]),
             "bbox_xyz": {
-                "min": [
-                    round(float(bbox_min[0]), 4),
-                    round(float(bbox_min[1]), 4),
-                    round(float(bbox_min[2]), 4),
-                ],
-                "max": [
-                    round(float(bbox_max[0]), 4),
-                    round(float(bbox_max[1]), 4),
-                    round(float(bbox_max[2]), 4),
-                ],
+                "min": [round(float(bbox_min[0]), 4), round(float(bbox_min[1]), 4),
+                        round(float(bbox_min[2]), 4)],
+                "max": [round(float(bbox_max[0]), 4), round(float(bbox_max[1]), 4),
+                        round(float(bbox_max[2]), 4)],
             },
             "sample_pixels": [list(data["pixels"][center_idx])],
         })
@@ -963,209 +999,39 @@ def query_world_map(
     clusters.sort(key=lambda c: -c["pixel_count"])
     return {
         "clusters": clusters[:20],
-        "summary": {
-            "total_clusters": len(clusters[:20]),
-            "total_pixels_matched": total_pixels,
-        },
+        "summary": {"total_clusters": len(clusters[:20]), "total_pixels_matched": total_pixels},
     }
 
 
-def view_driver_state(step: int | None = None) -> dict:
-    """Read state trace with embedded images and role-labeled image metadata."""
-    nn = _latest_step() if step is None else int(step)
-    if nn is None:
-        return {"error": "no state entries; primitives not ready"}
-    try:
-        data = _load_step(nn)
-    except Exception as e:
-        return {"error": f"step {nn} not found: {e}"}
-
-    out = {
-        "step": nn,
-        "task_progress": data.get("task_progress", {}),
-        "task_language": data.get("task_language", ""),
-        "state": data.get("state", data),
-        "robocasa_terminated": data.get("robocasa_terminated", False),
-        "vla_desync": data.get("vla_desync", data.get("state", {}).get("vla_desync", False)),
-        "log": {"command": data.get("command"), "result": data.get("result"), "elapsed_s": data.get("elapsed_s")},
-        "images": [],
-    }
-
-    # Load images and build role-labeled image list
-    img_camera = _load_image(nn, "camera")
-    if img_camera:
-        out["_image_cam_bytes"] = img_camera
-        out["images"].append({"role": "calibration_frame", "camera": "agentview", "resolution": "low", "note": "USE THIS IMAGE for back_project pixel picking. Vertical-flipped raw buffer."})
-
-    img_nav = _load_image(nn, "nav")
-    if img_nav:
-        out["_image_nav_bytes"] = img_nav
-        out["images"].append({"role": "nav_view", "camera": "navview", "resolution": "low", "note": "Base-mounted ground camera. Floor pixels (z=0) are walkable."})
-
-    img_wrist = _load_image(nn, "wrist")
-    if img_wrist:
-        out["_image_wrist_bytes"] = img_wrist
-        out["images"].append({"role": "calibration_frame", "camera": "wrist", "resolution": "low", "note": "Eye-in-hand camera. MOVES with gripper. Good for close-range refinement."})
-
-    # Check for hi-res agentview
-    out_dir = get_output_dir()
-    if out_dir:
-        hi_path = out_dir / "images_cam_hi" / f"image_cam_hi_{nn:02d}.png"
-        if hi_path.exists():
-            out["image_cam_hi_path"] = str(hi_path)
-            out["images"].append({"role": "calibration_frame", "camera": "agentview", "resolution": "high", "path": str(hi_path), "note": "High-res version. Divide pixel coords by 4 to convert to low-res."})
-
-    return out
+@readonly
+def finish(status: str, summary: str) -> dict:
+    """Declare the task finished."""
+    return {"_finish": True, "status": status, "summary": summary}
 
 
-def back_project_batch(
-    pixels: list[list[int]],
-    step: int | None = None,
-    camera: str = "agentview",
-    resolution: str = "low",
-) -> dict:
-    """Back-project multiple pixels to world XYZ in a single call.
+# ---------------------------------------------------------------------------
+# Recipe export
+# ---------------------------------------------------------------------------
 
-    Loads the precomputed world map once and queries all *pixels*, returning
-    each result individually plus a summary with the median of valid points.
-
-    Args:
-        pixels: List of ``[row, col]`` pixel coordinates.
-        step: Step index; ``None`` (default) uses the latest available step.
-        camera: Camera view — ``"agentview"`` (default), ``"navview"``, or ``"wrist"``.
-        resolution: ``"low"`` (default) or ``"high"`` (agentview only).
-
-    Returns:
-        A dict with keys:
-        - ``results``: list of per-pixel results (each with ``pixel``,
-          ``world_xyz``, ``valid``, ``error``)
-        - ``summary``: ``{median_xyz, valid_count, total_count}``
-        - ``step``, ``camera``, ``resolution``
-    """
-    camera = camera or "agentview"
-    resolution = resolution or "low"
-    nn = _latest_step() if step is None else int(step)
-    if nn is None:
-        return {"error": "no state trace available"}
-
-    world_map = _load_world_map(camera, nn, resolution)
-    if world_map is None:
-        return {
-            "error": (
-                f"{camera} {resolution}-resolution world map not found "
-                f"for step {nn}"
-            )
-        }
-
-    results = []
-    valid_xyzs = []
-    for pixel in pixels:
-        if not isinstance(pixel, (list, tuple)) or len(pixel) != 2:
-            results.append(
-                {
-                    "pixel": pixel,
-                    "world_xyz": None,
-                    "valid": False,
-                    "error": "pixel must be [row, col]",
-                }
-            )
-            continue
-        row, col = int(pixel[0]), int(pixel[1])
-        h, w = world_map.shape[:2]
-        if row < 0 or row >= h or col < 0 or col >= w:
-            results.append(
-                {
-                    "pixel": pixel,
-                    "world_xyz": None,
-                    "valid": False,
-                    "error": (
-                        f"pixel ({row},{col}) out of bounds ({h}x{w})"
-                    ),
-                }
-            )
-            continue
-        xyz = world_map[row, col, :3]
-        if not np.isfinite(xyz).all() or abs(float(xyz.sum())) <= 1e-6:
-            results.append(
-                {
-                    "pixel": pixel,
-                    "world_xyz": None,
-                    "valid": False,
-                    "error": "invalid world xyz at pixel",
-                }
-            )
-            continue
-        result = {
-            "pixel": [row, col],
-            "world_xyz": [
-                round(float(xyz[0]), 4),
-                round(float(xyz[1]), 4),
-                round(float(xyz[2]), 4),
-            ],
-            "valid": True,
-            "error": None,
-        }
-        results.append(result)
-        valid_xyzs.append([float(xyz[0]), float(xyz[1]), float(xyz[2])])
-
-    summary = {
-        "valid_count": len(valid_xyzs),
-        "total_count": len(pixels),
-    }
-    if valid_xyzs:
-        median = np.median(valid_xyzs, axis=0)
-        summary["median_xyz"] = [
-            round(float(median[0]), 4),
-            round(float(median[1]), 4),
-            round(float(median[2]), 4),
-        ]
-
-    return {
-        "results": results,
-        "summary": summary,
-        "step": nn,
-        "camera": camera,
-        "resolution": resolution,
-    }
+_PRIMITIVE_ACTIONS = frozenset({
+    "move_to", "move_delta", "rotate_pitch", "set_gripper", "release",
+    "scripted_grasp", "rldx_skill", "rldx_arm", "navigate_to", "move_base", "reset",
+})
 
 
-def write_recipe_from_states(output_dir: str, recipe_tag: str) -> str:
+def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:
     """Export non-error RoboCasa primitive commands from the state trace as JSONL."""
-    states_path = os.path.join(output_dir, "states.json")
-    states = json.load(open(states_path)) if os.path.exists(states_path) else []
-
-    primitive_actions = {
-        "move_to",
-        "move_delta",
-        "rotate_pitch",
-        "set_gripper",
-        "release",
-        "scripted_grasp",
-        "rldx_skill",
-        "rldx_arm",
-        "navigate_to",
-        "move_base",
-        "reset",
-    }
-
     commands = []
-    for entry in states:
-        if not entry:
+    for record in state.records():
+        command = record.command
+        if not isinstance(command, dict):
             continue
-        command = entry.get("command")
-        if command is None:
+        if command.get("action") not in _PRIMITIVE_ACTIONS:
             continue
-        if command.get("action") not in primitive_actions:
-            continue
-        result = entry.get("result")
+        result = record.result
         if isinstance(result, dict) and result.get("error"):
             continue
         commands.append(command)
-
-    recipe_path = os.path.join(output_dir, f"recipe_{recipe_tag}.jsonl")
-    tmp_path = recipe_path + ".tmp"
-    with open(tmp_path, "w") as f:
-        for command in commands:
-            f.write(json.dumps(command, separators=(",", ":")) + "\n")
-    os.replace(tmp_path, recipe_path)
-    return recipe_path
+    recipe_name = f"recipe_{recipe_tag}.jsonl"
+    state.save(recipe_name, commands, step=None)
+    return recipe_name
