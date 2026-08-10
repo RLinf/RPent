@@ -91,7 +91,8 @@ primitive requires a few additional components:
 
 1. **Write ``vla_server.py``.** This process owns only the model weights
    and CUDA context. Subclass :class:`rpent.utils.rpc.RpcFacade` and
-   expose your model methods (e.g. ``predict``) via ``_dispatch``:
+   expose your model methods (e.g. ``predict``) via
+   ``_dispatch(method, args, kwargs, *, session_id=None)``:
 
    - The default transport is **HTTP** (JSON over ``POST /call``),
      which works well for flat ``image + state`` payloads such as the
@@ -99,6 +100,13 @@ primitive requires a few additional components:
    - Switch to **socket RPC** (``--transport socket``) if your obs is
      a nested dict of numpy arrays with history stacks (avoids the
      JSON re-encode overhead).
+   - If the model holds per-client state (memory buffers, RTC chunks),
+     pass ``enable_sessions=True`` to the base ``__init__`` so each
+     caller gets an isolated session; the server injects the caller's
+     private session id into ``_dispatch`` as ``session_id``, and
+     :meth:`_on_session_drop` is fired on ``session.close`` and idle
+     expiry to clean up. See :ref:`add-robot-sessions` for the full
+     lifecycle.
 
    ``RpcFacade.serve`` handles transport binding, ``healthz``,
    ``shutdown``, parent-death detection, and resource cleanup. You
@@ -157,9 +165,11 @@ connect to an instance that is already running:
 
    rpent --env libero --vla-endpoint http://vla-host:8000 ...
 
-If the model keeps per-episode state, expose a ``vla_reset`` RPC and
-call it between tasks. The same server process can then be reused safely
-across sequential runs.
+If the model keeps per-episode state, enable per-client sessions on the
+server (``enable_sessions=True`` + :meth:`_on_session_drop`) so each
+caller's policy state is isolated and cleaned up on close or idle expiry.
+The same server process can then be reused safely across sequential runs.
+See :ref:`add-robot-sessions` for the full lifecycle.
 
 Design principles for a new primitive
 -------------------------------------

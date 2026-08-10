@@ -38,7 +38,7 @@ class RoboCasaEnvClient:
         )
         self.camera_h = server_meta["camera_h"]
         self.camera_w = server_meta["camera_w"]
-        self._last_obs = self._client.call("env.raw_obs", timeout_s=_TIMEOUT_S["default"])
+        self.reset()
 
     def _resolve_cam(self, name):
         return CAM_ALIAS.get(name, name)

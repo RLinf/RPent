@@ -105,7 +105,13 @@ Planner
 观测数据很大、或是多帧堆叠的嵌套 NumPy 字典时可改 ``socket``，用带长度前缀的
 pickle 数据帧传输，省掉反复的 JSON 编解码。pickle 不适合不可信输入，socket 只应连接可信端点。
 
-服务端：继承 ``rpent.utils.rpc.RpcFacade``，实现 ``_dispatch`` 分发业务 RPC
-（如 ``reset``、``step``、``predict``）。``healthz`` / ``shutdown`` 不必在子类里写。
+服务端：继承 ``rpent.utils.rpc.RpcFacade``，实现
+``_dispatch(method, args, kwargs, *, session_id=None)`` 分发业务 RPC（如
+``reset``、``step``、``predict``）。``session_id`` 关键字对无状态 env server
+来说始终是 ``None``；对需要按 client 隔离状态的 server（如带 memory buffer
+的 VLA），在 ``__init__`` 传 ``enable_sessions=True`` 并重写
+``_on_session_drop``。``healthz`` / ``shutdown`` 不必在子类里写 —— base
+会处理；启用 session 时 ``session.register`` / ``session.close`` 也由 base
+处理。
 
-细节见 :doc:`add_robot` 中的env_server与vla_server章节。
+细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。

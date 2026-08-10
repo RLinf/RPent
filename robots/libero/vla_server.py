@@ -132,10 +132,11 @@ class VLAFacade(RpcFacade):
         self._model = get_openpi_model(cfg, torch_dtype=None).cuda().eval()
         logger.info("model ready in %.1fs", time.time() - t0)
 
-    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if method == "predict":
-            return self.predict(*args, **kwargs)
-        raise ValueError(f"unknown RPC method: {method!r}")
+    def _dispatch(self, method: str, args: tuple, kwargs: dict, *, session_id: str | None = None) -> Any:
+        with self._lock:
+            if method == "predict":
+                return self.predict(*args, **kwargs)
+            raise ValueError(f"unknown RPC method: {method!r}")
 
     def predict(self, instruction: str, images: dict[str, Any], state: list,
                 mode: str = "eval") -> dict[str, Any]:

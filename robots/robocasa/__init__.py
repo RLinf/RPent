@@ -233,12 +233,12 @@ def _spawn_vla_server(
             log_path=str(Path(output_dir) / "vla_server.log"),
         )
         daemon.start()
-        return daemon, HttpRpcClient(f"http://{host}:{port}")
+        return daemon, HttpRpcClient(f"http://{host}:{port}", enable_sessions=True)
     protocol, host, port = parse_endpoint(args.vla_endpoint)
     if protocol == "socket":
-        return None, SocketRpcClient(host, port)
+        return None, SocketRpcClient(host, port, enable_sessions=True)
     if protocol == "http":
-        return None, HttpRpcClient(f"http://{host}:{port}")
+        return None, HttpRpcClient(f"http://{host}:{port}", enable_sessions=True)
     raise ValueError(
         f"--vla-endpoint protocol must be socket or http, got {protocol!r}"
     )
