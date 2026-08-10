@@ -153,10 +153,10 @@ list of logical base names, and a `log`. Storage paths are internal; do not
 construct or parse them.
 
 Canonical observation keys include `agentview_policy.png`, `agentview.png`,
-`agentview_high.png`, `agentview_depth.npz`, `agentview_world.npy`,
-`agentview_world_high.npy`, `agentview_metadata.json`, `wrist.png`,
-`wrist_high.png`, `wrist_depth.npz`, `wrist_world.npy`,
-`wrist_world_high.npy`, and `wrist_metadata.json`.
+`agentview_high.png`, `agentview_depth.npz`, `agentview_world.npz`,
+`agentview_world_high.npz`, `agentview_metadata.json`, `wrist.png`,
+`wrist_high.png`, `wrist_depth.npz`, `wrist_world.npz`,
+`wrist_world_high.npz`, and `wrist_metadata.json`.
 
 Use `view_env_state` to retrieve a record. It embeds the policy image and the
 best available agentview and wrist images, preferring the matching `*_high.png`

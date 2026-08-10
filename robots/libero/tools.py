@@ -934,7 +934,7 @@ def _save_observation_artifacts(
             )
             world = _world_from_depth(d, agentview_meta).astype(np.float32)
             env_state.save(
-                "agentview_world.npy",
+                "agentview_world.npz",
                 world,
                 step=step_idx,
             )
@@ -981,7 +981,7 @@ def _save_observation_artifacts(
                 )
                 world_w = _world_from_depth(wdpt_metric, wmeta).astype(np.float32)
                 env_state.save(
-                    "wrist_world.npy",
+                    "wrist_world.npz",
                     world_w,
                     step=step_idx,
                 )
@@ -1021,7 +1021,7 @@ def _save_observation_artifacts(
             meta_hi,
         ).astype(np.float16)
         env_state.save(
-            "agentview_world_high.npy",
+            "agentview_world_high.npz",
             world_hi,
             step=step_idx,
         )
@@ -1050,7 +1050,7 @@ def _save_observation_artifacts(
             meta_wrist_hi,
         ).astype(np.float16)
         env_state.save(
-            "wrist_world_high.npy",
+            "wrist_world_high.npz",
             world_wrist_hi,
             step=step_idx,
         )
@@ -1453,8 +1453,8 @@ def _select_segment_artifacts(
     if camera not in ("agentview", "wrist"):
         raise ValueError(f"unknown segment camera: {camera}")
     pairs = [
-        (f"{camera}_high.png", f"{camera}_world_high.npy"),
-        (f"{camera}.png", f"{camera}_world.npy"),
+        (f"{camera}_high.png", f"{camera}_world_high.npz"),
+        (f"{camera}.png", f"{camera}_world.npz"),
     ]
     for image_name, world_name in pairs:
         if (
@@ -1604,8 +1604,8 @@ def back_project(
         return {"error": f"state step not available: {e}"}
     nn = record.step_idx
 
-    hi_artifact = f"{camera}_world_high.npy"
-    low_artifact = f"{camera}_world.npy"
+    hi_artifact = f"{camera}_world_high.npz"
+    low_artifact = f"{camera}_world.npz"
     source_artifact = hi_artifact if resolution == "high" else low_artifact
     if source_artifact not in record.artifacts:
         return {

@@ -27,8 +27,8 @@ state JSON carried GT object coordinates, is not included here).
 How localization works (the core of this mode):
 
 The toolkit already back-projects EVERY pixel for you through
-`agentview_world.npy` / `agentview_world_high.npy` or
-`wrist_world.npy` / `wrist_world_high.npy` — all in the SAME world frame.
+`agentview_world.npz` / `agentview_world_high.npz` or
+`wrist_world.npz` / `wrist_world_high.npz` — all in the SAME world frame.
 These are logical artifact names scoped by step, not paths to construct.
 **You do NOT write back-projection math; you pick a pixel and call
 `back_project`, which selects the matching map for you.**
@@ -45,8 +45,8 @@ These are logical artifact names scoped by step, not paths to construct.
 ### Hi-res perception channel (ON BY DEFAULT, 1024×1024)
 
 The toolkit records, every step, a 1024×1024 pair per camera IN ADDITION to the
-256 artifacts: `agentview_high.png` + `agentview_world_high.npy` and
-`wrist_high.png` + `wrist_world_high.npy`.
+256 artifacts: `agentview_high.png` + `agentview_world_high.npz` and
+`wrist_high.png` + `wrist_world_high.npz`.
 **PREFER the hi pair for looking and identification** — a far object spans 4×
 more pixels, and package text/label art is actually legible (e.g. "Cream
 Cheese" vs "BUTTER" boxes are readable at 1024 and indistinguishable smears
@@ -69,12 +69,12 @@ at 256). If the hi files are absent, everything below works unchanged at 256.
 
 **Roles are NOT symmetric (this is the core discipline, from the 80-task
 localization sweep):**
-- **agentview** (`agentview_high.png` + `agentview_world_high.npy`, ~1 m away):
+- **agentview** (`agentview_high.png` + `agentview_world_high.npz`, ~1 m away):
   the **semantic IDENTITY authority** — decides WHICH object/surface satisfies
   the task language + spatial relation. At 1024 a far object spans enough pixels
   to read labels/shape. Its metric precision is only ±8–13 cm, but identity is
   its job, not millimetres.
-- **wrist** (`wrist_high.png` + `wrist_world_high.npy`,
+- **wrist** (`wrist_high.png` + `wrist_world_high.npz`,
   <20 cm → ±1–2 cm): a **GEOMETRY refinement** camera for the SAME candidate
   agentview already chose. It is near-vertical and **bad at identity** — it
   cannot read side labels or tell duplicate/similar items apart, and in failed
@@ -258,8 +258,8 @@ Pick the target purely from where things ARE. (You never need to know which
    toolkit runs that one primitive and dumps the new step, then RETURNS the new
   state + log + embedded images. There is no file bus and no polling — the
   tool's return value IS your signal. Each dumped step records logical artifact
-  names such as `agentview_high.png`, `agentview_world_high.npy`,
-  `wrist_high.png`, and `wrist_world_high.npy` in that step's `artifacts` list.
+  names such as `agentview_high.png`, `agentview_world_high.npz`,
+  `wrist_high.png`, and `wrist_world_high.npz` in that step's `artifacts` list.
 3. **You read the returned state, localize via `back_project`, decide the next
    move, and call the next tool.**
 
@@ -278,10 +278,10 @@ sim) — do not start/stop it. You call MCP tools; begin by reading step 0 via
 | `agentview.png` | 256×256 agentview RGB in **calibration frame**. Pick object pixels HERE only with `back_project(..., resolution:"low")`. |
 | `agentview_high.png` | **HI-RES 1024×1024** agentview RGB, calibration frame. **PREFER this for looking / identification**; `back_project` defaults to `resolution:"high"`. |
 | `agentview_depth.npz` | Losslessly compressed 256×256 agentview metric depth (m), aligned with `agentview.png`. Consume through `back_project`. |
-| `agentview_world.npy` / `agentview_world_high.npy` | Precomputed agentview world xyz per low/high-resolution pixel. Prefer `back_project`; do not open them manually. |
+| `agentview_world.npz` / `agentview_world_high.npz` | Losslessly compressed, precomputed agentview world xyz per low/high-resolution pixel. Prefer `back_project`; do not open them manually. |
 | `wrist.png` / `wrist_high.png` | **Wrist (eye-in-hand) RGB**, calibration frame. Moves with the gripper. |
 | `wrist_depth.npz` | Losslessly compressed wrist metric depth (m), aligned with `wrist.png`. |
-| `wrist_world.npy` / `wrist_world_high.npy` | Precomputed wrist world xyz per low/high-resolution pixel in the SAME world frame as agentview. May be all-table until you move over the target. |
+| `wrist_world.npz` / `wrist_world_high.npz` | Losslessly compressed, precomputed wrist world xyz per low/high-resolution pixel in the SAME world frame as agentview. May be all-table until you move over the target. |
 | `wrist_metadata.json` | Wrist intrinsics + extrinsic **for THAT step only**. Read via `view_camera_meta({"camera":"wrist","step":NN})`. |
 | `agentview_metadata.json` | Agentview intrinsics, cam-to-world extrinsic, depth range, and projection notes. Read via `view_camera_meta({"camera":"agentview","step":NN})`. |
 | `segment_XX.json` | Per-step segment record named by the returned `segment_artifact`; includes mode, camera, source step, score, box, centroid, and `world_xyz`. |

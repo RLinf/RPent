@@ -13,7 +13,7 @@ This document layers on the base playbook. Read it first:
 
 - [`strict_hybrid_guide.md`](./strict_hybrid_guide.md) — the perception protocol:
   back-projection localization, the perception artifacts
-  (`agentview_high.png`, `agentview_world_high.npy`, and
+  (`agentview_high.png`, `agentview_world_high.npz`, and
   `agentview_metadata.json`),
   the primitive vocabulary, the Rules (0/1/2/4/5), and the `strict_perception`
   audit format. **This is the source of truth for *how you localize*.**
