@@ -134,9 +134,9 @@ planner 后端集中在 ``rpent/planner/``，
        *, primitives_kwargs, dashboard_events, video_path=None
    ): ...
 
-``EnvSpec`` 汇集了环境的标识、prompt 模板与五个 Runner 钩子：
-``add_cli_args`` / ``parse_config`` / ``init_runtime``，以及仅供 Dashboard 使用的
-``init_shared_runtime`` / ``init_task_runtime``。各字段要填什么见
+``EnvSpec`` 汇集了环境标识、prompt 模板、可选的 Dashboard 描述与五个 Runner
+钩子：``add_cli_args`` / ``parse_config`` / ``init_runtime``，以及仅供 Dashboard
+使用的 ``init_shared_runtime`` / ``init_task_runtime``。各字段要填什么见
 :doc:`interfaces`。
 
 加载器本身不维护环境名称列表。当前 CLI 将 ``--env`` 限定为 ``libero``
@@ -162,12 +162,13 @@ Dashboard（可选）
 ``rpent/cli/main.py`` 会将控制权交给 ``rpent/cli/dashboard.py``，由后者根据
 ``--dashboard-host`` 和 ``--dashboard-port`` 启动 Dashboard，并在启动共享服务前
 确认配置，然后调用一次仅供 Dashboard 使用的
-``env_spec.init_shared_runtime``。Session controller 随后等待
-``/rpent-task`` 命令；每次取得一个 TaskRun 后，Dashboard 会调用
-``parse_config`` 和仅供 Dashboard 使用的 ``env_spec.init_task_runtime``，合并
-共享与任务级 primitive 参数，并新建 toolkit 和 planner conversation。在 LIBERO
-中，VLA 和 SAM3 会在 Dashboard 运行期间复用，每个 TaskRun 使用独立环境并按顺序
-执行。
+``env_spec.init_shared_runtime``。环境必须提供 ``env_spec.dashboard``，由它定义
+前端使用的任务命令与字段、runtime components 和 frame channels。Session
+controller 随后等待该环境定义的命令（LIBERO 使用 ``/rpent-task``）；每次取得一个
+TaskRun 后，Dashboard 会调用 ``parse_config`` 和仅供 Dashboard 使用的
+``env_spec.init_task_runtime``，合并共享与任务级 primitive 参数，并新建 toolkit
+和 planner conversation。在 LIBERO 中，VLA 和 SAM3 会在 Dashboard 运行期间
+复用，每个 TaskRun 使用独立环境并按顺序执行。
 
 TaskRun 运行期间，Dashboard 页面提供：
 

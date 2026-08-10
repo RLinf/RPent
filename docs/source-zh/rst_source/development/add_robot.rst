@@ -37,6 +37,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
        toolkit.py             # MyEnvToolkit + primitives + 工具定义     (§3)
        env_server.py          # 环境侧 facade + RPC 服务                 (§1)
        vla_server.py          # （可选）VLA 模型服务
+       spec.py                # （可选）Dashboard 描述
 
 ``__init__.py`` 是环境包的入口。``rpent/envs/base.py`` 中的注册表会按需导入
 ``robots.<name>``，并调用其中的两个工厂函数：
@@ -48,6 +49,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
    from rpent.envs.env_spec import EnvSpec, RunConfig
    from rpent.envs.prompt_bundle import PromptBundle
    from robots.myenv.prompt_bundle import system_prompt, user_prompt
+   from robots.myenv.spec import MYENV_DASHBOARD_SPEC
 
    def get_env_spec() -> EnvSpec:
        return EnvSpec(
@@ -58,6 +60,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
            init_shared_runtime=_init_shared_runtime,
            init_task_runtime=_init_task_runtime,
            init_runtime=_init_runtime,
+           dashboard=MYENV_DASHBOARD_SPEC,
        )
 
    def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None):
@@ -91,11 +94,17 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
        """仅 Dashboard 使用：为每个 TaskRun 初始化全新的服务。"""
        ...
 
+``dashboard`` 是可选项；环境不支持 Dashboard 控制时保持为 ``None``。支持时，
+在环境包中定义该 spec：其中 ``task`` 描述命令、校验字段、展示模板和输出目录
+slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境专用服务行
+和相机视图。完整结构参考 ``robots/libero/spec.py``。
+
 ``_resolve_env(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
 动态加载环境包。因此，只需将环境包放在 ``robots/`` 下，无需维护中央注册列表。
 
 下文依次说明这些模块需要实现的内容。``_add_cli_args`` 和 ``_parse_config``
-见第 4 节，三个 runtime 钩子见第 5 节。
+见第 4 节，三个 runtime 钩子见第 5 节。Dashboard spec 只由 Dashboard runner
+使用。
 
 .. _add-robot-env-rpc:
 
@@ -268,15 +277,15 @@ primitives 的 ``__init__``。其中通常包含
 最终的 argparse 解析：
 
 **``_add_cli_args(parser, use_dashboard) -> None``。** 将环境参数注册到
-main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参数是否保持可选，
-每个 Dashboard TaskRun 的 ``suite`` 与 ``task`` 会在 ``parse_config`` 调用前由
-``/rpent-task`` 命令提供。main.py 会在 ``parser.parse_args()`` 之前调用该钩子，
-因此 argparse 的 usage 和错误信息也会包含环境参数。
+main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参数是否保持可选。
+每个 Dashboard TaskRun 会在 ``parse_config`` 调用前，由环境 Dashboard spec
+定义的任务命令提供其声明的字段。main.py 会在 ``parser.parse_args()`` 之前调用
+该钩子，因此 argparse 的 usage 和错误信息也会包含环境参数。
 
 **``_parse_config(args) -> RunConfig``。** 普通 CLI 模式下，该钩子在
-``parser.parse_args()`` 后调用；Dashboard 模式下，每个 TaskRun 会先把
-``/rpent-task`` 命令提供的 ``suite`` 与 ``task`` 写入任务参数，再调用该钩子。
-该钩子校验这些字段并返回 :class:`~rpent.envs.RunConfig`：
+``parser.parse_args()`` 后调用；Dashboard 模式下，每个 TaskRun 会先把请求字段
+写入任务参数，再调用该钩子。该钩子校验这些字段并返回
+:class:`~rpent.envs.RunConfig`：
 
 - ``recipe_tag`` —— 单次运行的环境标签，用于 transcript 文件名和 recipe 路径
   （LIBERO 使用 ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``）。

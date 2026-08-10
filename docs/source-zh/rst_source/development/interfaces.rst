@@ -27,6 +27,9 @@
    * - ``prompts``
      - ``PromptBundle``：``system`` 与 ``user`` 两套 prompt 工厂（见
        ``robots/<env>/prompt_bundle.py``）。
+   * - ``dashboard``
+     - 可选的 Dashboard 描述。设为 ``None`` 时，该环境不支持 Dashboard 控制；
+       否则由该 spec 定义任务命令与字段、runtime components 和 frame channels。
    * - ``add_cli_args``
      - 注册本环境的 CLI 参数（如 ``--suite``、``--env-endpoint``）。
    * - ``parse_config``
@@ -46,7 +49,7 @@
 ``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给环境子类；
 ``dashboard_events``、``video_path`` 由当前 runner 传入，通常不用改。
 
-参考实现：``robots/libero/__init__.py``。
+参考实现：``robots/libero/__init__.py`` 和 ``robots/libero/spec.py``。
 
 Planner
 -------

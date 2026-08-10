@@ -42,6 +42,7 @@ For a new environment named ``myenv``, use the following directory layout:
        toolkit.py             # MyEnvToolkit + primitives + tool definitions (§3)
        env_server.py          # server-side facade + RPC server (§1)
        vla_server.py          # (optional) VLA model server
+       spec.py                # (optional) Dashboard description
 
 ``__init__.py`` is the environment package's entry point. The registry in
 ``rpent/envs/base.py`` lazily imports ``robots.<name>`` on demand and calls its
@@ -54,6 +55,7 @@ two factory functions:
    from rpent.envs.env_spec import EnvSpec, RunConfig
    from rpent.envs.prompt_bundle import PromptBundle
    from robots.myenv.prompt_bundle import system_prompt, user_prompt
+   from robots.myenv.spec import MYENV_DASHBOARD_SPEC
 
    def get_env_spec() -> EnvSpec:
        return EnvSpec(
@@ -64,6 +66,7 @@ two factory functions:
            init_shared_runtime=_init_shared_runtime,
            init_task_runtime=_init_task_runtime,
            init_runtime=_init_runtime,
+           dashboard=MYENV_DASHBOARD_SPEC,
        )
 
    def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None):
@@ -97,13 +100,20 @@ two factory functions:
        """Dashboard only: initialize fresh per-TaskRun services."""
        ...
 
+``dashboard`` is optional. Leave it as ``None`` if the environment does not
+support Dashboard control. Otherwise, define the spec in the environment
+package: its ``task`` section describes the command, validated fields, display
+template, and output slug; ``runtime_components`` and ``frame_channels``
+describe the environment-specific rows and camera views rendered by the
+frontend. See ``robots/libero/spec.py`` for the reference shape.
+
 That's the entire registration step — ``_resolve_env(name)`` does an
 ``importlib.import_module(f"robots.{name}")``, so dropping the package under
 ``robots/`` on disk is enough. No central list to update.
 
 The sections below describe what each referenced module must contain.
 ``_add_cli_args`` / ``_parse_config`` are covered in §4 and the three runtime
-hooks in §5.
+hooks in §5. The Dashboard spec is consumed only by the Dashboard runner.
 
 .. _add-robot-env-rpc:
 
@@ -284,15 +294,15 @@ hooks and participate in the final argparse pass:
 **``_add_cli_args(parser, use_dashboard) -> None``.** Register the
 environment's arguments on the shared parser created by main.py.
 ``use_dashboard`` determines whether normally required arguments remain
-optional. For each Dashboard TaskRun, the ``/rpent-task`` command supplies
-``suite`` and ``task`` before ``parse_config`` runs. main.py calls this hook
-before ``parser.parse_args()``, so argparse's usage and error output includes
-the environment arguments.
+optional. For each Dashboard TaskRun, the environment's Dashboard task command
+supplies the fields declared by its spec before ``parse_config`` runs. main.py
+calls this hook before ``parser.parse_args()``, so argparse's usage and error
+output includes the environment arguments.
 
 **``_parse_config(args) -> RunConfig``.** In normal CLI mode, this is called
 after ``parser.parse_args()``. In Dashboard mode, it is called for each
-TaskRun after the ``/rpent-task`` command's ``suite`` and ``task`` have been
-copied to the task arguments. It validates those fields and returns a
+TaskRun after the requested fields have been copied to the task arguments. It
+validates those fields and returns a
 :class:`~rpent.envs.RunConfig`:
 
 - ``recipe_tag`` — env's per-run tag, used in transcript filenames / recipe

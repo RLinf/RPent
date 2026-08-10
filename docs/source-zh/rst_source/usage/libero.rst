@@ -165,6 +165,10 @@ Dashboard
 
    /rpent-task libero_object_swap 2 0
 
+Dashboard launcher 支持 ``api``、``claude_code`` 和 ``codex`` planner。
+``--planner`` 与 ``--model`` 的配置方式和普通运行一致，详见
+:doc:`configure_planner`。
+
 每个 TaskRun 都使用新的环境，VLA 和 SAM3 服务则由 Session 复用。任务完成后可以
 继续提交另一条 ``/rpent-task``；任务运行期间提交新命令则会切换任务。Dashboard
 会实时展示智能体的推理和工具调用、固定相机与腕部相机视图、动作时间线，以及动作

@@ -152,10 +152,11 @@ two factories exposed by that package:
        *, primitives_kwargs, dashboard_events, video_path=None
    ): ...
 
-``EnvSpec`` gathers the environment's identity, its prompt templates, and five
-runner hooks: ``add_cli_args`` / ``parse_config`` / ``init_runtime``, plus the
-Dashboard-only ``init_shared_runtime`` / ``init_task_runtime`` pair. See
-:doc:`interfaces` for what each field must provide.
+``EnvSpec`` gathers the environment's identity, prompt templates, optional
+Dashboard description, and five runner hooks: ``add_cli_args`` /
+``parse_config`` / ``init_runtime``, plus the Dashboard-only
+``init_shared_runtime`` / ``init_task_runtime`` pair. See :doc:`interfaces` for
+what each field must provide.
 
 The loader itself does not maintain a list of environment names. The
 current CLI restricts ``--env`` to ``libero`` and ``robocasa``; adding a
@@ -185,12 +186,15 @@ frontend. With ``--dashboard``, ``rpent/cli/main.py`` hands control to
 ``rpent/cli/dashboard.py``, which starts the Dashboard with
 ``--dashboard-host`` and ``--dashboard-port`` and confirms the configuration
 before calling the Dashboard-only ``env_spec.init_shared_runtime`` hook once.
-The Session controller then waits for ``/rpent-task`` commands. For every
-claimed TaskRun, the Dashboard calls ``parse_config`` and the Dashboard-only
-``env_spec.init_task_runtime`` hook, merges the shared and task primitive
-inputs, and creates a fresh toolkit and planner conversation. In LIBERO, VLA
-and SAM3 are reused while the Dashboard is running, while every TaskRun gets a
-separate environment runtime and executes sequentially.
+The environment must provide ``env_spec.dashboard``; it defines the task
+command and fields, runtime components, and frame channels exposed by the
+frontend. The Session controller waits for that environment-defined command
+(``/rpent-task`` for LIBERO). For every claimed TaskRun, the Dashboard calls
+``parse_config`` and the Dashboard-only ``env_spec.init_task_runtime`` hook,
+merges the shared and task primitive inputs, and creates a fresh toolkit and
+planner conversation. In LIBERO, VLA and SAM3 are reused while the Dashboard
+is running, while every TaskRun gets a separate environment runtime and
+executes sequentially.
 
 During a TaskRun, the Dashboard shows:
 

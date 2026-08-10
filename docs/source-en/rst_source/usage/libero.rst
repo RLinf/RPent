@@ -171,6 +171,10 @@ After the shared services are ready, start a TaskRun from the page with:
 
    /rpent-task libero_object_swap 2 0
 
+The Dashboard launcher supports the ``api``, ``claude_code``, and ``codex``
+planners. Configure ``--planner`` and ``--model`` as for a normal run; see
+:doc:`configure_planner`.
+
 Each TaskRun gets a fresh environment while the VLA and SAM3 services are
 reused by the Session. Submit another ``/rpent-task`` after completion, or
 submit one while a task is running to switch tasks. The Dashboard streams

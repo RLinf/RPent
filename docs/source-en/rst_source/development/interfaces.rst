@@ -27,6 +27,10 @@ After you add ``robots/<env>/``, ``main.py`` calls two functions in ``__init__.p
    * - ``prompts``
      - A ``PromptBundle`` with ``system`` and ``user`` prompt factories (see
        ``robots/<env>/prompt_bundle.py``).
+   * - ``dashboard``
+     - Optional Dashboard description. ``None`` disables Dashboard control for
+       the environment. Otherwise, the spec defines its task command and
+       fields, runtime components, and frame channels.
    * - ``add_cli_args``
      - Register this env's CLI flags (e.g. ``--suite``, ``--env-endpoint``).
    * - ``parse_config``
@@ -47,7 +51,7 @@ After you add ``robots/<env>/``, ``main.py`` calls two functions in ``__init__.p
 ``dashboard_events`` and ``video_path`` are supplied by the active runner, so
 you normally do not need to change them.
 
-Reference: ``robots/libero/__init__.py``.
+References: ``robots/libero/__init__.py`` and ``robots/libero/spec.py``.
 
 Planner
 -------
