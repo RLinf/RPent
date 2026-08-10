@@ -114,7 +114,7 @@ export ANTHROPIC_API_KEY=sk-xxx
 
 # VLA checkpoint —— 从以下地址下载：
 # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
-python -m pip install "huggingface_hub>=0.34,<1.0"
+pip install "huggingface_hub>=0.34,<1.0"
 
 hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
   --exclude optimizer.pt \

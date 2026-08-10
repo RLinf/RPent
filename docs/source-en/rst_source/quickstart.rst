@@ -20,7 +20,7 @@ checkpoints:
 
    # VLA checkpoint — download from
    # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
-   python -m pip install "huggingface_hub>=0.34,<1.0"
+   pip install "huggingface_hub>=0.34,<1.0"
 
    hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
      --exclude optimizer.pt \
