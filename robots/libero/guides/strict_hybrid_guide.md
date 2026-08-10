@@ -13,10 +13,10 @@ state JSON carried GT object coordinates, is not included here).
 
 | | legacy oracle mode (not in this repo) | **perception (this guide)** |
 |---|---|---|
-| how object coords are withheld | (none — full GT coords in `state`) | **the runner withholds them: `states.json` carries `object_names` only, no coordinates** |
-| `states.json` objects | full `objects:{name:[x,y,z]}` | **`object_names:[…]` only — NO coords** |
-| how you learn the task | env prompt / BDDL | **`states.json[NN].task_language`** (authoritative `:language`, coord-free) — never scrape the BDDL |
-| extra obs artifacts | `images/image_NN.png` only | **+ `images_cam/`, `depths/`, `world/` (agentview); `images_wrist/`, `depths_wrist/`, `world_wrist/`, `wrist_meta/` (wrist); top-level `camera_meta.json`; hi-res `images_cam_hi/`, `world_hi/`, `images_wrist_hi/`, `world_wrist_hi/`** |
+| how object coords are withheld | (none — full GT coords in `state`) | **the returned `state` carries `object_names` only, no coordinates** |
+| returned `state` objects | full `objects:{name:[x,y,z]}` | **`object_names:[…]` only — NO coords** |
+| how you learn the task | env prompt / BDDL | **top-level `task_language` returned by `view_env_state`** (authoritative `:language`, coord-free) — never scrape the BDDL |
+| extra obs artifacts | policy image only | **logical agentview/wrist image, depth, world-map, and metadata keys, including `agentview_high.png` and `wrist_high.png`** |
 | cameras | agentview only | **agentview (fixed, ~1m → ±8–13 cm) + eye-in-hand wrist (moves with gripper, ±1–2 cm when <20 cm to target)** — coarse→fine, see below |
 | how you get an object's xyz | read `state["objects"][name]` | **pick the object pixel, then `back_project({"row":ROW,"col":COL,"step":NN})` (K⁻¹+extrinsic already done); refine with the wrist map up close** |
 | how you confirm the grasp | GT object-lift oracle | **grasp-only, no oracle — you judge the grasp from gripper width + wrist cam (Rule 1 / 1b)** |
@@ -26,22 +26,16 @@ state JSON carried GT object coordinates, is not included here).
 
 How localization works (the core of this mode):
 
-The toolkit already back-projects EVERY pixel for you into world coordinates and
-saves them as `world/world_NN.npy` (agentview) and `world_wrist/world_wrist_NN.npy`
-(wrist) — both in the SAME world frame. **You do NOT write back-projection math;
-you pick a pixel and call `back_project`, which indexes the map for you.**
+The toolkit already back-projects EVERY pixel for you through
+`agentview_world.npz` / `agentview_world_high.npz` or
+`wrist_world.npz` / `wrist_world_high.npz` — all in the SAME world frame.
+These are logical artifact names scoped by step, not paths to construct.
+**You do NOT write back-projection math; you pick a pixel and call
+`back_project`, which selects the matching map for you.**
 
-> **Path convention:** below, a bare file name refers to the file inside its own
-> `output_dir` subdirectory — e.g. `image_cam_hi_NN.png` lives at
-> `images_cam_hi/image_cam_hi_NN.png`, `world_NN.npy` at `world/world_NN.npy`,
-> `image_wrist_hi_NN.png` at `images_wrist_hi/image_wrist_hi_NN.png` (see the obs
-> artifacts row above for the full directory list). `NN` is the zero-padded step
-> index. In practice you rarely hand-build these paths — each primitive tool
-> already returns the resolved `image_cam_hi_path` etc. for the new step.
-
-1. Read `image_cam_hi_NN.png` — agentview RGB **in the calibration frame**
+1. Inspect `agentview_high.png` — agentview RGB **in the calibration frame**
    (vertical-flip of the raw buffer). This is the image you pick pixels in.
-   `image_NN.png` is the Pi0-rotation frame; **do not pick pixels there**.
+  `agentview_policy.png` is the Pi0 frame; **do not pick pixels there**.
 2. Find the target object visually → pixel `(row, col)`.
 3. Read its world xyz directly: `back_project({"row":ROW,"col":COL,"step":NN})`.
    Sample 3–5 pixels on the object's top surface and median the returned xy
@@ -50,10 +44,9 @@ you pick a pixel and call `back_project`, which indexes the map for you.**
 
 ### Hi-res perception channel (ON BY DEFAULT, 1024×1024)
 
-The toolkit dumps, every step, a 1024×1024 pair per camera IN ADDITION to the
-256 files: `images_cam_hi/image_cam_hi_NN.png` + `world_hi/world_hi_NN.npy`
-(agentview) and `images_wrist_hi/image_wrist_hi_NN.png` +
-`world_wrist_hi/world_wrist_hi_NN.npy` (wrist).
+The toolkit records, every step, a 1024×1024 pair per camera IN ADDITION to the
+256 artifacts: `agentview_high.png` + `agentview_world_high.npz` and
+`wrist_high.png` + `wrist_world_high.npz`.
 **PREFER the hi pair for looking and identification** — a far object spans 4×
 more pixels, and package text/label art is actually legible (e.g. "Cream
 Cheese" vs "BUTTER" boxes are readable at 1024 and indistinguishable smears
@@ -69,20 +62,19 @@ at 256). If the hi files are absent, everything below works unchanged at 256.
   (the residual ~2 cm error is the surface-vs-center offset, not pixel size) —
   the hi channel is for **identification**, not for replacing the wrist-cam
   fine-localization protocol.
-- Disk note: hi files keep only the LAST ~5 steps (rolling window); the 256
-  history is complete. If the hi files are absent, everything below works
-  unchanged at 256.
+- If a high-resolution artifact is absent, everything below works unchanged
+  with `agentview.png` or `wrist.png` and `resolution:"low"`.
 
 ### Two cameras — agentview = IDENTITY, wrist = GEOMETRY
 
 **Roles are NOT symmetric (this is the core discipline, from the 80-task
 localization sweep):**
-- **agentview** (`image_cam_hi_NN.png` + `world_hi/world_hi_NN.npy`, ~1 m away):
+- **agentview** (`agentview_high.png` + `agentview_world_high.npz`, ~1 m away):
   the **semantic IDENTITY authority** — decides WHICH object/surface satisfies
   the task language + spatial relation. At 1024 a far object spans enough pixels
   to read labels/shape. Its metric precision is only ±8–13 cm, but identity is
   its job, not millimetres.
-- **wrist** (`image_wrist_hi_NN.png` + `world_wrist_hi/world_wrist_hi_NN.npy`,
+- **wrist** (`wrist_high.png` + `wrist_world_high.npz`,
   <20 cm → ±1–2 cm): a **GEOMETRY refinement** camera for the SAME candidate
   agentview already chose. It is near-vertical and **bad at identity** — it
   cannot read side labels or tell duplicate/similar items apart, and in failed
@@ -90,13 +82,13 @@ localization sweep):**
   wrist freely re-identify a non-basket target.**
 
 Protocol (non-basket objects/surfaces):
-1. **Identity (agentview)** — in `image_cam_hi_NN.png` choose the target by RGB /
+1. **Identity (agentview)** — in `agentview_high.png` choose the target by RGB /
    label / shape / global spatial relation; sample 3–8 pixels on it and median
    `back_project` → the **identity anchor** (rough xy ok).
 2. **Approach** — `move_to` ~15–20 cm directly above that anchor xy (toolkit
    re-renders both cams after every primitive).
 3. **Geometry refine (wrist)** — pick the SAME candidate's pixel in
-   `image_wrist_hi_NN.png`, `back_project` it with `camera:"wrist"`. **Accept
+  `wrist_high.png`, `back_project` it with `camera:"wrist"`. **Accept
    this corrected xy ONLY if it is within ~3–5 cm of the agentview anchor**; if
    it jumps >5 cm, REJECT it (it hit a look-alike/background) and keep the
    agentview xyz. The wrist may sharpen coordinates but may NOT override the
@@ -124,7 +116,8 @@ entities up front instead of recovering later.
 > (row−cy)·z/fy, z]` with `z=depth[row,col]`, then `P_world =
 > extrinsic_cam2world @ [cam,1]`. You must invert `K` BEFORE the extrinsic — the
 > old `E @ [col·z, row·z, z, 1]` recipe (no `K⁻¹`) is **wrong** (metres off).
-> The `world/` and `world_wrist/` maps bake in the correct `K⁻¹`+extrinsic, and
+> The agentview and wrist world-map artifacts bake in the correct
+> `K⁻¹`+extrinsic, and
 > `back_project` reads them for you — that is precisely why `back_project`
 > exists; you never write this math yourself. Forward world→pixel was verified
 > 5/5 vs GT at design time (plate Δ=6 mm). The wrist map may be all-table/null
@@ -170,10 +163,10 @@ place — YOU do every `move_to` and the `release`.
 
 After a pick, decide "did I grab the target?" from two coord-free signals:
 
-- **Gripper** (`state.robot0_gripper_qpos` from the latest `states.json`
-  entry): fingers closed but NOT fully shut (~0.01–0.05 gap) ⇒ holding an
+- **Gripper** (`state.robot0_gripper_qpos` from the latest returned state
+  record): fingers closed but NOT fully shut (~0.01–0.05 gap) ⇒ holding an
   object; fully closed (~0.0) ⇒ grasped air.
-- **Wrist cam**: after the lift, read `image_wrist_hi_NN.png` — the target
+- **Wrist cam**: after the lift, inspect `wrist_high.png` — the target
   should be raised into the gripper and the spot it came from now empty (its
   surface z jumps up by your lift distance). If needed, `back_project` wrist
   pixels to confirm the surface z jumped.
@@ -181,29 +174,28 @@ After a pick, decide "did I grab the target?" from two coord-free signals:
 `pi0_pick`'s returned `success` (an eef-lift + gripper-closure heuristic, pure
 proprioception) is a HINT, not proof — confirm with the wrist cam before
 carrying. The only authoritative TASK-success signal is
-`state.libero_terminated` (the benchmark predicate), which is name-independent.
+top-level `terminated` (the benchmark predicate), which is name-independent.
 
 ## Rule 4 — NO TELEPORT primitives (physics-only)
 
 `set_object_pose`, `articulate_to`, `js_move_to`, `carry_object` are **deleted
 from the codebase**. They are not callable and are not in the tool list. If a
 goal is past OSC reach and no physical approach works, write an honest
-`libero_terminated:false` audit — never warp.
+`terminated:false` audit — never warp.
 
 ## Rule 0 — Use images for reasoning, not just JSON state
 
-After every primitive tool call, inspect the returned state and image paths
-(the tool returns them — no separate read needed). Read the new
-`image_cam_hi_NN.png` path (calibration frame — the one you pick pixels in)
-and, when close to a target, the `image_wrist_hi_NN.png` path. Even more
+After every primitive tool call, inspect the returned state and embedded images
+(the tool returns them — no separate read needed). Inspect
+`agentview_high.png` (calibration frame — the one you pick pixels in)
+and, when close to a target, `wrist_high.png`. Even more
 important here than in oracle mode: this is *the* signal you use to find
 objects.
 
-`image_cam_hi_NN.png` (and its 256 counterpart `image_cam_NN.png`) is the
-calibration-frame RGB — same scene as `image_NN.png` but vertically flipped so
-that pixel coordinates align with the camera matrices in `camera_meta.json`.
-Pick object pixels from these; `states.json` alone gives only proprioception +
-object names.
+`agentview_high.png` (and its 256 counterpart `agentview.png`) is the
+calibration-frame RGB — the same scene as `agentview_policy.png`, oriented so
+that pixel coordinates align with `agentview_metadata.json`. Pick object pixels
+from these; the returned JSON `state` gives only proprioception + object names.
 
 ## Rule 2 — SINGLE EPISODE, NO RESET
 
@@ -213,20 +205,20 @@ and do NOT restart the episode. You MAY recover *within* this one episode
 grasp; walk the next rung of the Pi0 prompt ladder in Rule 3; re-firm the grip;
 `rotate_pitch`/`move_pose`) — that is all one continuous attempt. But the
 instant you would want to start over, **STOP instead and write the audit**
-(success or an honest `libero_terminated:false`), then call `finish`. Never
+(success or an honest `terminated:false`), then call `finish`. Never
 warp; never reset.
 
 ## Rule 5 — Assume every task is physically solvable
 
 Same as oracle mode. A localization that "looks right" but moves the gripper
 into thin air usually means your pixel was on a wrong surface (e.g. picked the
-bowl's reflection on the table). Re-look at `image_cam_hi_NN.png`, pick a
+bowl's reflection on the table). Re-look at `agentview_high.png`, pick a
 different pixel firmly on the target's top, re-`back_project`. Don't conclude
 "unreachable" until you've validated localization.
 
 ## Rule 6 — Your task is `task_language`; the BDDL is FORBIDDEN
 
-Each `states.json[NN]` entry carries a **`task_language`** field — the
+Each state view carries a top-level **`task_language`** field — the
 authoritative task instruction (the BDDL's `:language` tag, which contains
 **no** coordinates). **Read it and obey it verbatim.** Do not infer the task
 from object names, from sibling recipes, or by guessing a `task_map` index —
@@ -264,11 +256,10 @@ Pick the target purely from where things ARE. (You never need to know which
    stop, or restart it.
 2. **You call one structured MCP tool per step.** The tool BLOCKS until the
    toolkit runs that one primitive and dumps the new step, then RETURNS the new
-   state + log + image paths. There is no file bus and no polling — the tool's
-   return value IS your signal. Each dumped step appends an entry to
-   `states.json` (entry `[NN]`) and writes `images/image_NN.png` +
-   `images_cam/image_cam_NN.png` + `depths/depth_NN.npy` + `world/world_NN.npy`
-   (+ the wrist and hi-res dirs) and, once, top-level `camera_meta.json`.
+  state + log + embedded images. There is no file bus and no polling — the
+  tool's return value IS your signal. Each dumped step records logical artifact
+  names such as `agentview_high.png`, `agentview_world_high.npz`,
+  `wrist_high.png`, and `wrist_world_high.npz` in that step's `artifacts` list.
 3. **You read the returned state, localize via `back_project`, decide the next
    move, and call the next tool.**
 
@@ -276,30 +267,28 @@ Pick the target purely from where things ARE. (You never need to know which
 
 The runner (`rpent/cli/main.py`) launches and owns the env server (Pi0.5 + single-env
 sim) — do not start/stop it. You call MCP tools; begin by reading step 0 via
-`view_driver_state({"step":0})`.
+`view_env_state({"step": 0})`.
 
 ## The perception artifacts you read each step
 
-| artifact | what's in it |
+| logical artifact or field | what's in it |
 |---|---|
-| `states.json` (entry `[NN]`) | `step_idx`, `libero_terminated`, **`task_language` (your authoritative task instruction — the BDDL `:language` tag, coord-free; obey it verbatim)**, `state.{robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos, object_names}`, and the merged `command`/`result`/`elapsed_s` for that step. **No object coordinates.** Read via `view_driver_state({"step": NN})` (omit `step` = latest). |
-| `images/image_NN.png` | RGB in Pi0 frame (180° rotated). *Do not pick pixels here for back-projection.* |
-| `images_cam/image_cam_NN.png` | agentview RGB in **calibration frame** (vertical flip). Pick object pixels HERE (256 grid → `back_project` with `resolution:"low"`). |
-| `images_cam_hi/image_cam_hi_NN.png` | **HI-RES 1024×1024** agentview RGB, calibration frame. **PREFER this for looking / identification**; `back_project` its pixels at the default `resolution:"high"`. |
-| `depths/depth_NN.npy` | `(256, 256) float32` agentview metric depth (m), calibration frame. Same row/col as `image_cam_NN.png`. |
-| `world/world_NN.npy` | `(256, 256, 3) float32` — **precomputed agentview world xyz per pixel** (K⁻¹+extrinsic done). Prefer `back_project`; read this manually only for debugging. Fixed cam (~1 m). |
-| `world_hi/world_hi_NN.npy` | `(1024, 1024, 3) float16` — precomputed agentview world xyz per hi-res pixel. |
-| `images_wrist/image_wrist_NN.png` (+ `images_wrist_hi/`) | **wrist (eye-in-hand) RGB**, calibration frame. Moves with the gripper. |
-| `depths_wrist/depth_wrist_NN.npy` | wrist metric depth (m). |
-| `world_wrist/world_wrist_NN.npy` (+ `world_wrist_hi/`) | `(256, 256, 3)` / `(1024, 1024, 3)` **precomputed wrist world xyz per pixel**, SAME world frame as agentview. ±1–2 cm when <20 cm to target. May be all-table/null until you move over the target. |
-| `wrist_meta/wrist_meta_NN.json` | wrist intrinsics + extrinsic **for THAT step only** (the wrist cam moves). Read via `view_camera_meta({"camera":"wrist","step":NN})`. |
-| `camera_meta.json` (top-level) | agentview `intrinsic_K` (3×3), `extrinsic_cam2world` (4×4), `depth_near/far`, projection recipe. Read via `view_camera_meta({"camera":"agentview"})`. |
-| `segments/segment_NN_XX.json` | (after a completed `segment` response) `{found, mode, prompt|point, camera, source_step, score, box, mask_shape, centroid_pixel, world_xyz, n_pixels}` — SAM3's top mask back-projected via the matching world map. `world_xyz` is a robust MEDIAN over the whole mask. A valid no-detection response carries `{found:false, error}`. `XX` is a per-step index. |
-| `segments/segment_overlay_NN_XX.png` | (only after a successful `segment` call) the segmented mask tinted red on the source image — read it to confirm SAM3 grabbed the right object. |
+| `view_env_state` result | `step`, top-level `task_language`, `terminated`, `truncated`, `state.{robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos, object_names}`, `artifacts`, and nested `log.{command,result,elapsed_s}`. **No object coordinates.** Step `-1` selects latest. |
+| `agentview_policy.png` | RGB in Pi0 frame. *Do not pick pixels here for back-projection.* |
+| `agentview.png` | 256×256 agentview RGB in **calibration frame**. Pick object pixels HERE only with `back_project(..., resolution:"low")`. |
+| `agentview_high.png` | **HI-RES 1024×1024** agentview RGB, calibration frame. **PREFER this for looking / identification**; `back_project` defaults to `resolution:"high"`. |
+| `agentview_depth.npz` | Losslessly compressed 256×256 agentview metric depth (m), aligned with `agentview.png`. Consume through `back_project`. |
+| `agentview_world.npz` / `agentview_world_high.npz` | Losslessly compressed, precomputed agentview world xyz per low/high-resolution pixel. Prefer `back_project`; do not open them manually. |
+| `wrist.png` / `wrist_high.png` | **Wrist (eye-in-hand) RGB**, calibration frame. Moves with the gripper. |
+| `wrist_depth.npz` | Losslessly compressed wrist metric depth (m), aligned with `wrist.png`. |
+| `wrist_world.npz` / `wrist_world_high.npz` | Losslessly compressed, precomputed wrist world xyz per low/high-resolution pixel in the SAME world frame as agentview. May be all-table until you move over the target. |
+| `wrist_metadata.json` | Wrist intrinsics + extrinsic **for THAT step only**. Read via `view_camera_meta({"camera":"wrist","step":NN})`. |
+| `agentview_metadata.json` | Agentview intrinsics, cam-to-world extrinsic, depth range, and projection notes. Read via `view_camera_meta({"camera":"agentview","step":NN})`. |
+| `segment_XX.json` | Per-step segment record named by the returned `segment_artifact`; includes mode, camera, source step, score, box, centroid, and `world_xyz`. |
+| `segment_overlay_XX.png` | Per-step overlay named by `overlay_artifact` and embedded by a successful `segment` result for visual confirmation. |
 
-The command + its result + `elapsed_s` are merged INTO the `states.json[NN]`
-entry (and echoed in each primitive tool's return value) — there is no separate
-per-step log file to read.
+The command, result, and `elapsed_s` are returned under `log`; there is no
+separate per-step log file to read.
 
 ## Localization with `back_project` (coarse agentview → fine wrist)
 
@@ -311,7 +300,7 @@ You index the precomputed map through `back_project` — no K⁻¹ math. Coarse
 back_project({"row": ROW, "col": COL, "step": NN})
 
 # FINE: wrist — after move_to ~15-20cm above the target, pick its pixel in
-# image_wrist_hi_NN.png and back_project it (±1-2cm; refines the SAME candidate).
+# wrist_high.png and back_project it (±1-2cm; refines the SAME candidate).
 back_project({"row": ROW, "col": COL, "step": NN, "camera": "wrist"})
 ```
 
@@ -335,7 +324,7 @@ Tips:
 
 Call one structured tool per step. The full primitive set (only the *control
 signals* are listed here) — every one blocks until the step is dumped and
-returns the new state + log + image paths:
+returns the new state, log, artifact names, and embedded images:
 
 ```jsonc
 // === physics-only primitives (the entire allowed set) =====================
@@ -352,7 +341,7 @@ pi0_pick({"prompt": "pick up the X", "max_chunks": 20,
           "lift_thresh": 0.05, "gripper_closed_thresh": 0.06})
 
 // Pi0.5 for a contact skill (knob turn, drawer/door open-close — rare here).
-// success mirrors libero_terminated only; inspect image/state for intermediates.
+// success mirrors terminated only; inspect image/state for intermediates.
 pi0_doubled({"prompt": "turn off the stove", "max_chunks": 20})
 
 // Open gripper to place. Triggers libero termination if the On/In predicate met.
@@ -379,15 +368,15 @@ move_pose({"xyz": [x, y, z], "target_pitch": 0.0, "target_yaw": 0.0,
 // SAM3-grounded localization — does NOT move the robot and does NOT
 // replace manual back-projection. Segments the most-recent dumped image for the
 // prompt, back-projects the mask through the matching world map, and writes
-// segments/segment_NN_XX.json {score, box, centroid_pixel, world_xyz (robust MEDIAN over
-// the whole mask), n_pixels} + segments/segment_overlay_NN_XX.png. Read world_xyz
+// segment_XX.json {score, box, centroid_pixel, world_xyz (robust MEDIAN over
+// the whole mask), n_pixels} + segment_overlay_XX.png. Read world_xyz
 // directly instead of eyeballing a pixel. camera "wrist" uses the wrist world
 // map for fine refinement (move the eef over the target first). Pass
 // "point":[row,col] for a point prompt instead of text; prompt and point are
 // mutually exclusive. min_score default 0.2.
 // RPent manages the SAM3 service. If one call fails or finds nothing, the result is
 // an {"error":...,"fallback":...} dict — fall back to picking a pixel in
-// image_cam_hi_NN.png and calling back_project.
+// agentview_high.png and calling back_project.
 segment({"prompt": "the black bowl on the stove", "camera": "agentview",
          "point": null, "min_score": 0.2})
 
@@ -401,9 +390,9 @@ segment({"prompt": "the black bowl on the stove", "camera": "agentview",
 that is a robust MEDIAN over the whole object mask (hundreds of pixels), which
 beats eyeballing 3–5 pixels. Workflow:
 
-1. Read `image_cam_hi_NN.png`, decide the target by the task's spatial RELATION.
+1. Inspect `agentview_high.png`, decide the target by the task's spatial RELATION.
 2. Call `segment` with a **plain visual phrase + the relation**, then read the
-   returned `world_xyz` and the `segments/segment_overlay_NN_XX.png` to confirm the mask
+  returned `world_xyz` and embedded overlay image to confirm the mask
    is on the right object before you move.
 3. **Two camera views — YOUR choice via the `"camera"` field** (`segment` works
    on either; default `"agentview"`):
@@ -438,10 +427,10 @@ beats eyeballing 3–5 pixels. Workflow:
 
 A typical bowl→plate cell looks like:
 
-1. `view_driver_state({"step":0})`; inspect `task_language`,
-   `image_cam_hi_00.png`, and `camera_meta.json`.
+1. `view_env_state({"step": 0})`; inspect `task_language`,
+   `agentview_high.png`, and call `view_camera_meta` if needed.
 2. Identify the target by the task's spatial RELATION, not its name (Rule 7).
-3. Localize it — pick its pixel in `image_cam_hi_00.png`,
+3. Localize it — pick its pixel in `agentview_high.png`,
    `back_project({"row":ROW,"col":COL,"step":0})` (coarse). Refine with the
    wrist cam after pre-positioning (fine).
 4. **Pre-position** ~15–20 cm above it: `move_to([obj_x, obj_y, carry_z])`,
@@ -453,7 +442,7 @@ A typical bowl→plate cell looks like:
 7. Localize the placement region (basket / plate / drawer slot) the same way.
 8. `move_to([place_x, place_y, carry_z])` to traverse at constant height.
 9. Optionally descend `move_to([place_x, place_y, place_z])`.
-10. `release` — predicate (`On`/`In`) checks → `libero_terminated=True` if hit.
+10. `release` — predicate (`On`/`In`) checks → `terminated=True` if hit.
 11. Light retreat (`move_to` upward) so the next step's image is clean.
 
 > **Predicate fire timing.** Most LIBERO `On(X, Y)` predicates fire on
@@ -492,34 +481,38 @@ qualifier** for elevated picks (stove, cabinet-top, drawer). See
 ## Reading state
 
 After every primitive tool call, the return value already carries the new
-`state`, the merged `command`/`result`/`elapsed_s` log, and the image paths —
+`state`, nested `log.{command,result,elapsed_s}`, artifact names, and embedded
+images —
 you do **not** need a separate read. When you need an older step, call
-`view_driver_state({"step":NN})` (omit `step` for the latest):
+`view_env_state({"step": NN})` (use `step: -1` for the latest):
 
-1. Check `result.success`, `final_dist_m`, `peak_lift_m`, etc. in the returned
-   log.
-2. Read the returned `image_cam_hi_NN.png` path → visual confirmation; pick
+1. Check `log.result.success`, `log.result.final_dist_m`,
+  `log.result.peak_lift_m`, etc.
+2. Inspect the embedded `agentview_high.png` image → visual confirmation; pick
    pixels for any new localization.
-3. Check `state.robot0_eef_pos` / `robot0_gripper_qpos` / `libero_terminated`
-   in the returned `state`.
+3. Check `state.robot0_eef_pos`, `state.robot0_gripper_qpos`, and top-level
+  `terminated` in the returned view.
 
 You **do not** open the depth maps yourself — feed a pixel to `back_project`.
-Don't call `view_driver_state` immediately after a primitive that already
+Don't call `view_env_state` immediately after a primitive that already
 returned the new state.
 
 ## Common failure modes
 
-- **Pick missed (gripper closed empty).** `result.peak_lift_m` < `lift_thresh`,
-  `min_gripper_opening` ≈ 0. Re-pre-position 1–2 cm lower or shifted; retry
+- **Pick missed (gripper closed empty).** `log.result.peak_lift_m` <
+  `lift_thresh`, `log.result.min_gripper_opening` ≈ 0. Re-pre-position 1–2 cm
+  lower or shifted; retry
   Pi0 with next prompt-ladder rung.
-- **Object slipped mid-carry.** `release` returns `term=False` and the object
+- **Object slipped mid-carry.** `release` returns top-level
+  `terminated=false` and the object
   is no longer where you `release`d it. `release`, re-pre-pos above it,
   `pi0_pick` again, traverse again.
-- **OSC stuck.** `move_to` returns `final_dist_m > 0.05` at `max_steps` and
+- **OSC stuck.** `move_to` returns `log.result.final_dist_m > 0.05` at
+  `log.result.max_steps` and
   same xy twice → try `rotate_pitch`, split into more waypoints, or
   `move_pose` (co-varying) for the cabinet-front singularity.
 - **Placement off because localization was wrong.** The release puts the
-  object on bare table instead of on the plate. Re-read `image_cam_hi_NN.png`,
+  object on bare table instead of on the plate. Re-inspect `agentview_high.png`,
   pick a different pixel on the target region (sample 3 pixels on the plate's
   flat top, median the back-projected xy), redo. Tip: if depth at your chosen
   pixel is much closer than the table z, you picked the camera's near edge /
@@ -528,33 +521,32 @@ returned the new state.
 ## Verifying strict compliance
 
 Before saving the audit, confirm your command history is physics-only. The
-teleport primitives are not even in the tool list, but audit it anyway: read
-the `command` field of every `states.json` entry (via
-`view_driver_state({"step":NN})` per step, or `read_text_file` on
-`{output_dir}/states.json`) and confirm every `command.action` is one of the
+teleport primitives are not even in the tool list, but audit it anyway: inspect
+each recorded step with `view_env_state` and confirm every `log.command.action`
+is one of the
 allowed physics primitives (`move_to`, `pi0_pick`, `pi0_doubled`, `release`,
 `set_gripper`, `rotate_wrist`, `rotate_pitch`, `move_pose`) — no
 `set_object_pose` / `articulate_to` / `js_move_to` / `carry_object` appears.
 
 ## Persisting successful runs as audit JSONs
 
-When `state.libero_terminated == true`:
+When top-level `terminated == true`:
 
 a. The working command recipe (`{output_dir}/recipe_{recipe_tag}.jsonl`) is
-   **auto-exported by the runner** from the non-error primitive commands in
-   `states.json` plus successful segment calls recorded in
-   `segments/segment_*.json`, merged in execution order — you do NOT
+  **auto-exported by the runner** from non-error primitive commands in the
+  recorded state trace plus successful `segment_XX.json` artifacts, merged in
+  execution order — you do NOT
    hand-write it.
 b. Write a minimal audit JSON with `write_text_file` to
    `{output_dir}/{recipe_tag}.json` with at least: `suite`, `task_id`, `seed`,
    `regime: "strict_perception"`, `strategy_notes` (mention HOW you localized —
    which pixel, depth, back-projected world xyz), `pick_result` (the `result`
-   from your `pi0_pick`), `final_state` (the latest `states.json` entry's
-   `state` field), `libero_terminated: true`.
+  from your `pi0_pick`), `final_state` (the latest returned `state` field),
+  `terminated: true`.
 c. Call `finish({"status":"success","summary":"…"})`.
 
 If unrecoverable after honest exploration in this one episode, write
-`{output_dir}/{recipe_tag}.json` with `libero_terminated: false` +
+`{output_dir}/{recipe_tag}.json` with `terminated: false` +
 `strategy_notes` describing what you tried, the back-projected xyz you used, and
 which step failed. Then call `finish` (NO reset, NO second attempt).
 
@@ -564,7 +556,7 @@ which step failed. Then call `finish` (NO reset, NO second attempt).
 ## Iteration heuristics
 
 - After 2 failed retries on the same step, **stop tuning numerics** and
-  inspect images: read `image_cam_hi_NN.png` at pick / pre-release /
+  inspect `agentview_high.png` at pick / pre-release /
   post-release. The visual disagreement is usually the bug (you picked the
   wrong pixel, or Pi0 grabbed the decoy). This is the lesson of
   `feedback_failure_forensics.md` — applies even more strongly here.
@@ -581,14 +573,14 @@ which step failed. Then call `finish` (NO reset, NO second attempt).
 
 - **No GT object coordinates anywhere in your reasoning.** The `state` you
   read has none; the only legitimate sources of object xyz are the camera
-  images + depth + the precomputed `world/` and `world_wrist/` maps (via
+  images + depth + the precomputed agentview and wrist world maps (via
   `back_project`).
 - **No teleport primitives.** The four are deleted.
 - **Pi0 only does the grasp.** You script every motion + release.
 - **Fully oracle-free, including the grasp.** There is no GT-lift oracle —
   `pi0_pick` reads NO GT object pose and takes no tracking argument. You judge
   the grasp from gripper width + the wrist cam, and TASK success from
-  `state.libero_terminated` (the benchmark predicate).
+  top-level `terminated` (the benchmark predicate).
 - **Single attempt.** One episode, no reset (Rule 2).
 - The expected audit `regime` is `strict_perception`.
 
@@ -606,6 +598,6 @@ When you write a new audit, browse a sibling cell's `recipe_{tag}.jsonl` as a
 `back_project` from THIS scene's depth.
 
 Begin by reading `resources/libero/memory/MEMORY.md`, then call
-`view_driver_state({"step":0})` and inspect the returned `image_cam_hi_00.png`
-(+ `camera_meta.json` via `view_camera_meta`); localize the target object via
+`view_env_state({"step": 0})` and inspect `agentview_high.png`
+(+ metadata via `view_camera_meta`); localize the target object via
 `back_project`, then plan and execute.

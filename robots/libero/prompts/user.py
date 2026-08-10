@@ -10,9 +10,10 @@ CELL = """- suite:      {{suite}}
 - recipe:     {{output_dir}}/recipe_{{recipe_tag}}.jsonl"""
 
 
-MODE = """Use the high-resolution image paths returned by view_driver_state and
-back_project to localize objects before motion."""
+MODE = """Inspect `agentview_high.png` returned by `view_env_state`, then use
+`back_project` or `segment` to localize objects before motion."""
 
 
-BEGIN = """read MEMORY.md, the guides, then `view_driver_state({"step":0})` and the
-returned high-resolution images. Localize the target, then plan and execute."""
+BEGIN = """Read MEMORY.md and the guides, then call
+`view_env_state({"step": 0})` and inspect `agentview_high.png`. Localize the
+target, then plan and execute."""

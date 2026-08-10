@@ -7,12 +7,13 @@ import threading
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from rpent.dashboard.events import (
     DashboardEvent,
     RunStartedEvent,
     RuntimeStatusEvent,
+    StepRecordEvent,
     ToolResultEvent,
     TranscriptEvent,
     UsageEvent,
@@ -25,6 +26,9 @@ from rpent.dashboard.interaction import (
     PlannerActivity,
     UnknownDashboardMessageError,
 )
+
+if TYPE_CHECKING:
+    from rpent.tools.state import EnvState, StepRecord
 
 RUNTIME_STATUSES = {"pending", "starting", "ready", "failed"}
 TERMINAL_RUN_STATES = {"succeeded", "failed", "cancelled"}
@@ -111,6 +115,7 @@ class DashboardState:
         self._condition = threading.Condition(self._lock)
         self._task_state: str | None = None
         self._terminated = False
+        self._truncated = False
         self._error: str | None = None
         self._usage = {"in": 0, "out": 0, "tool_calls": 0}
         self._runtime = {
@@ -121,6 +126,8 @@ class DashboardState:
         self._timeline: list[dict[str, Any]] = []
         self._frames: dict[str, bytes] = {}
         self._frame_idx = -1
+        self.env_state: EnvState | None = None
+        self.frame_artifacts: dict[str, str] = {}
         self._accepting_input = False
         self._planner_activity: PlannerActivity = "starting"
         self._interrupt_requested = False
@@ -274,7 +281,12 @@ class DashboardState:
             raise ValueError(f"invalid terminal run state: {state!r}")
         with self._condition:
             self._task_state = state
-            self._terminated = any(item.get("terminated") for item in self._timeline)
+            self._terminated = any(
+                item.get("terminated") for item in self._timeline
+            )
+            self._truncated = any(
+                item.get("truncated") for item in self._timeline
+            )
             self._error = None if error is None else str(error)
             self._task_replacement_requested = False
             self._seal_interaction_locked()
@@ -300,6 +312,7 @@ class DashboardState:
         self._task_state = "starting"
         self._task_replacement_requested = False
         self._terminated = False
+        self._truncated = False
         self._error = None
         self._usage = {"in": 0, "out": 0, "tool_calls": 0}
         self._reset_task_runtime_locked()
@@ -307,6 +320,8 @@ class DashboardState:
         self._timeline = []
         self._frames = {}
         self._frame_idx = -1
+        self.env_state = None
+        self.frame_artifacts = {}
         self._accepting_input = False
         self._planner_activity = "starting"
         self._interrupt_requested = False
@@ -538,6 +553,11 @@ class DashboardState:
         if isinstance(event, ToolResultEvent):
             self._apply_tool_result(event)
             return
+        if isinstance(event, StepRecordEvent):
+            self.env_state = event.env_state
+            self.frame_artifacts = dict(event.frame_artifacts)
+            self.on_step(event.record)
+            return
         if isinstance(event, RunStartedEvent):
             self._start()
             return
@@ -572,7 +592,14 @@ class DashboardState:
         result = event.result
         if not isinstance(result, dict):
             return
-        self._apply_frame_paths(result)
+        frames = {
+            "camera": result.get("_image_cam_bytes") or result.get("_image_bytes"),
+            "wrist": result.get("_image_wrist_bytes"),
+        }
+        self._update_frames(
+            step=result.get("step"),
+            frames={kind: data for kind, data in frames.items() if data},
+        )
         log = result.get("log")
         if not isinstance(log, dict):
             return
@@ -584,15 +611,15 @@ class DashboardState:
         except Exception:
             return
         action = str(command.get("action", name))
-        terminated = bool(
-            result.get("terminated", result.get("libero_terminated", False))
-        )
+        terminated = bool(result.get("terminated"))
+        truncated = bool(result.get("truncated"))
         action_video_path = self._action_video_from_result(
             result,
             step=step,
             action=action,
         )
         action_video = str(action_video_path) if action_video_path is not None else None
+        action_video_artifact = result.get("action_video_artifact")
         item = {
             "step": step,
             "action": action,
@@ -600,12 +627,15 @@ class DashboardState:
             "result": log.get("result"),
             "elapsed_s": log.get("elapsed_s"),
             "terminated": terminated,
-            "has_action_video": action_video_path is not None,
+            "truncated": truncated,
             "action_video_path": action_video,
+            "action_video_artifact": action_video_artifact,
+            "has_action_video": bool(action_video_artifact or action_video_path),
         }
         with self._lock:
             self._timeline.append(item)
             self._terminated = self._terminated or terminated
+            self._truncated = self._truncated or truncated
 
     def _action_video_from_result(
         self,
@@ -622,6 +652,47 @@ class DashboardState:
         except TypeError:
             return None
         return path if path.exists() else None
+
+    def on_step(self, record: StepRecord) -> None:
+        """Project one recorded environment step into frames and timeline."""
+        self._update_step_frames(record)
+        command = record.command
+        if not isinstance(command, dict) or not command.get("action"):
+            return
+        action_video = next(
+            (name for name in sorted(record.artifacts) if name.endswith(".mp4")),
+            None,
+        )
+        item = {
+            "step": record.step_idx,
+            "action": str(command.get("action")),
+            "args": {key: value for key, value in command.items() if key != "action"},
+            "result": record.result,
+            "elapsed_s": record.elapsed_s,
+            "terminated": record.terminated,
+            "truncated": record.truncated,
+            "action_video_artifact": action_video,
+            "has_action_video": action_video is not None,
+        }
+        with self._lock:
+            self._timeline.append(item)
+            self._terminated = self._terminated or record.terminated
+            self._truncated = self._truncated or record.truncated
+
+    def _update_step_frames(self, record: StepRecord) -> None:
+        """Load dashboard frame bytes from the step's canonical artifacts."""
+        env_state = self.env_state
+        if env_state is None:
+            return
+        frames: dict[str, bytes] = {}
+        for kind, artifact in self.frame_artifacts.items():
+            if kind not in self._frame_names or artifact not in record.artifacts:
+                continue
+            try:
+                frames[kind] = env_state.load_bytes(artifact, step=record.step_idx)
+            except FileNotFoundError:
+                continue
+        self._update_frames(step=record.step_idx, frames=frames)
 
     def _resolve_output_path(self, value: Any) -> Path:
         path = Path(value)
@@ -774,15 +845,25 @@ class DashboardState:
             return self._frames.get(kind)
 
     def action_video_path(self, step: int) -> Path | None:
+        env_state = self.env_state
         with self._lock:
+            artifact = None
+            raw_path = None
             for item in self._timeline:
                 if int(item.get("step", -1)) != int(step):
                     continue
+                artifact = item.get("action_video_artifact")
                 raw_path = item.get("action_video_path")
-                if not raw_path:
-                    return None
-                video_path = Path(raw_path)
-                return video_path if video_path.exists() else None
+                break
+        if artifact and env_state is not None:
+            try:
+                path = env_state.artifact_path(artifact, step=int(step))
+            except (LookupError, ValueError):
+                return None
+            return path if path.exists() else None
+        if raw_path:
+            video_path = Path(raw_path)
+            return video_path if video_path.exists() else None
         return None
 
     def has_video(self) -> bool:
@@ -802,6 +883,7 @@ class DashboardState:
             return {
                 "state": self._visible_state_locked(),
                 "terminated": self._terminated,
+                "truncated": self._truncated,
                 "error": self._error,
                 "usage": dict(self._usage),
                 "runtime": self._runtime_snapshot(),
@@ -824,6 +906,7 @@ class DashboardState:
             return {
                 "state": self._visible_state_locked(),
                 "terminated": self._terminated,
+                "truncated": self._truncated,
                 "error": self._error,
                 "usage": dict(self._usage),
                 "runtime": self._runtime_snapshot(),

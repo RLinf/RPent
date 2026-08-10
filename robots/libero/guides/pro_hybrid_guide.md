@@ -13,14 +13,16 @@ This document layers on the base playbook. Read it first:
 
 - [`strict_hybrid_guide.md`](./strict_hybrid_guide.md) — the perception protocol:
   back-projection localization, the perception artifacts
-  (`images_cam/image_cam_NN.png` / `depths/depth_NN.npy` / `camera_meta.json`),
+  (`agentview_high.png`, `agentview_world_high.npz`, and
+  `agentview_metadata.json`),
   the primitive vocabulary, the Rules (0/1/2/4/5), and the `strict_perception`
   audit format. **This is the source of truth for *how you localize*.**
 - **This file** — LIBERO-Pro–specific setup, the four perturbation axes, the Pi0
   fullshot baseline, the frame split, and how perception isolation changes the
   P2-swap story.
 
-> Your task comes from `states.json[0].task_language`; the BDDL is FORBIDDEN.
+> Your task comes from the initial `view_env_state` result's `task_language`;
+> the BDDL is FORBIDDEN.
 > Read the authoritative instruction (the BDDL `:language` tag, coord-free) that
 > the runtime injects and obey it verbatim. Do **not** scrape the BDDL or import
 > the benchmark: that is error-prone (wrong task-map index → wrong task) and a
@@ -42,19 +44,19 @@ recover in place or write an honest failure audit and `finish`.
 | | oracle mode (not in this repo) | **perception (this guide)** |
 |---|---|---|
 | how launched | oracle-state run | `rpent/cli/main.py --libero-type pro` (or `LIBERO_TYPE=pro`); perception artifacts always dumped, coords withheld |
-| `states.json` objects | full `objects:{name:[x,y,z]}` | **`object_names:[…]` only — NO coords** |
-| how you learn the task | env prompt / scrape BDDL | **`states.json[0].task_language`** (authoritative `:language`, coord-free) — never read the BDDL |
-| extra obs artifacts | agentview RGB only | **+ `images_cam/`, `depths/`, `world/` (agentview); `images_wrist/`, `depths_wrist/`, `world_wrist/` (wrist); hi-res pairs; `camera_meta.json`** — all via `back_project` |
+| returned `state` objects | full `objects:{name:[x,y,z]}` | **`object_names:[…]` only — NO coords** |
+| how you learn the task | env prompt / scrape BDDL | **initial `task_language` returned by `view_env_state`** (authoritative `:language`, coord-free) — never read the BDDL |
+| extra obs artifacts | agentview RGB only | **logical agentview/wrist image, depth, world-map, and metadata keys, including `agentview_high.png` and `wrist_high.png`** — geometry consumed through `back_project` |
 | cameras | agentview only | **agentview (fixed, ~1m → ±8-13cm) + eye-in-hand wrist (moves with gripper, ±1-2cm when <20cm to target)** — see §3.6 |
-| how P2 swap is solved | read swapped coords from `states.json[0]` | **localize the swapped objects by `back_project`** |
+| how P2 swap is solved | read swapped coords from oracle state | **localize the swapped objects by `back_project`** |
 | how a swapped *fixture* site is found | read the swap BDDL `:init` block | **localize the fixture visually** (see §3.5) |
 | run budget | short | **larger** — perception localization + manipulation is slower (raise `--max-turns` / `--planner-timeout-s`) |
 | audit `regime` | `strict` | `strict_perception` |
-| which image you pick pixels in | agentview RGB | `images_cam/image_cam_NN.png` (or hi-res) for **pixel-picking**; `images/image_NN.png` only for a sanity glance |
+| which image you pick pixels in | agentview RGB | `agentview_high.png` (or `agentview.png` at low resolution) for **pixel-picking**; never use `agentview_policy.png` for back-projection |
 
 **The single most important conceptual shift.** In oracle PRO mode the headline
 is "the hybrid beats Pi0 on P2 because it reads the *swapped* coordinates straight
-out of `states.json[0]`, while Pi0 is prompt-/memory-blind." In **perception**
+out of oracle state, while Pi0 is prompt-/memory-blind." In **perception**
 mode there are no coordinates to read — so the hybrid's P2 win now comes from
 **seeing where the object is and back-projecting it**. This is a *stronger* claim
 (no oracle state at all), and it is the whole point of running PRO in perception
@@ -186,8 +188,8 @@ PRO scenes use one of three table fixtures; the eef home z differs by up to
 | `kitchen_table` | ≈ 1.17 | ≈ 0.90 | `(x∈±0.30, y∈±0.30)` | stove / cabinet / drawer / microwave |
 | `object` (low table) | ≈ 0.26 | ≈ 0.0 | `(x∈±0.30, y∈±0.30)` | `libero_object` grocery-into-basket |
 
-**Mandatory check at session start: read `states.json[0].state.robot0_eef_pos[2]`**
-(via `view_driver_state({"step": 0})`). ≈ 0.68 → LIVING_ROOM; ≈ 1.17 → KITCHEN;
+**Mandatory check at session start: read `state.robot0_eef_pos[2]` from
+`view_env_state({"step": 0})`.** ≈ 0.68 → LIVING_ROOM; ≈ 1.17 → KITCHEN;
 ≈ 0.26 → OBJECT. Pick `pre_pos_z` / `carry_z` / `release_z` accordingly (per-item
 OBJECT-frame altitudes are in
 `resources/libero/memory/project_libero_object_pro_done.md`). Sending a
@@ -195,7 +197,7 @@ wrong-frame z (e.g. KITCHEN coordinates while the env is in LIVING_ROOM frame)
 crashes the env worker (EOFError, silent state loss).
 
 > **Perception note.** This proprioceptive z is *not* an object coordinate — it's
-> the robot's own pose, which `states.json` still gives you in perception mode.
+> the robot's own pose, which the returned `state` still gives you in perception mode.
 > Reading it to pick the frame is fine. It also doubles as a free depth sanity
 > check: your back-projected table z should sit ≈0.25 m below eef home z (≈0.43 in
 > LIVING_ROOM, ≈0.90 in KITCHEN). If a back-projection lands far from that, you
@@ -228,15 +230,15 @@ slip in the gripper and the object ends up centimetres off target. Mitigation
 - `carry_z = 1.15` (higher than usual 1.10)
 - `step_clip = 0.020` (slower)
 - **Re-localize mid-travel** instead of trusting a cached `object_xyz - eef_xyz`
-  offset: `Read images_cam/image_cam_NN.png` (or the hi-res `images_cam_hi/`)
-  mid-carry and call `back_project` on the carried object's pixel; if the
+  offset: inspect `agentview_high.png` mid-carry and call `back_project` on the
+  carried object's pixel; if the
   perceived offset drifted >5 mm from post-pick, re-pre-position and re-`pi0_pick`.
 
 ### 3.4. Task language is from BDDL, not filename
 
 After the patch, `get_task(i).language` returns the perturbed `:language` tag, and
-the env passes it to Pi0 as the prompt (surfaced to you as
-`states.json[0].task_language`). For `_task` and `_lan` this is the perturbed
+the env passes it to Pi0 as the prompt (surfaced as top-level `task_language`
+in each returned state view). For `_task` and `_lan` this is the perturbed
 instruction. **Don't override it** — falsifying the VLA's prompt-blindness is the
 point. You read the same language to decide *which* object to localize and place.
 
@@ -246,7 +248,7 @@ This is the biggest perception-mode trap, and it is **specific to `_swap`**. The
 P2 perturbation does not only swap loose objects; for `libero_goal_swap` it swaps
 entire **fixtures** (stove ↔ cabinet ↔ wine_rack), so a goal predicate like
 `On(bowl, flat_stove_1_cook_region)` now points at wherever the *stove* was
-relocated to, and there are no coordinates in `states.json` to read. See
+relocated to, and there are no coordinates in the returned `state`. See
 `resources/libero/memory/feedback_swap_perturbs_fixtures.md`.
 
 In **oracle** mode the documented fix is to read the swap BDDL `:init` block and
@@ -256,7 +258,7 @@ recompute the fixture site's world coordinates. **That is forbidden here** — t
 1. Identify the target fixture by name from the (perturbed) task language and
    `state.object_names`.
 2. **Localize the fixture's predicate site visually** in
-   `images_cam_hi/image_cam_hi_NN.png`: pick pixels on the stove's cook region /
+  `agentview_high.png`: pick pixels on the stove's cook region /
    cabinet top surface / rack top shelf, then `back_project` (sample 3–5 pixels,
    median the xy — fixtures are large and the surface you want is the *placement*
    surface, not the nearest edge).
@@ -272,9 +274,9 @@ where only bowls/plates move) are simpler: just localize each object by
 ### 3.6. Two cameras — agentview = IDENTITY, wrist = GEOMETRY
 
 Do **not** restate the two-camera protocol here — the strict guide's **First-step
-perception protocol** is the source of truth: agentview / agentview-hi is the
+perception protocol** is the source of truth: `agentview.png` / `agentview_high.png` is the
 semantic identity authority (decides *which* object/surface satisfies the task
-language + relation); wrist / wrist-hi refines geometry for the *same* candidate
+language + relation); `wrist.png` / `wrist_high.png` refines geometry for the *same* candidate
 (accept only within ~3–5 cm of the agentview anchor, never average, basket/cavity
 excepted). Both maps share one world frame, read via
 `back_project({"camera":"wrist"})`; the optional `segment` honours both cameras
@@ -352,7 +354,7 @@ seed-0 reference corpus**, not a write target.
 
 There is no manual server to launch and no REPL to drive: the MCP runner starts,
 manages, and tears down `env_server.py` for you and blocks each tool call until
-the next `states.json` entry is dumped. Do not start, stop, or background it, and
+the next state record is dumped. Do not start, stop, or background it, and
 do not poll for readiness.
 
 ### 4.3. Pi0 fullshot baseline
@@ -366,7 +368,7 @@ Pi0 never sees object coords in either mode, so there is no perception variant o
 the baseline. Expected behavior:
 
 - **P1 (task):** Pi0 "succeeds at the wrong task" — it picks the *base*-task
-  target object, places it on the plate, and `libero_terminated=False` because the
+  target object, places it on the plate, and `terminated=False` because the
   goal predicate names a different object. This is exactly the gap the hybrid
   closes.
 - **P2 (position):** Pi0 picks / places at the *base* (un-swapped) location.
@@ -383,20 +385,20 @@ add the PRO fields:
   "seed": 0,
   "regime": "strict_perception",
   "perturbation_type": "swap (P2 Position perturbation)",
-  "perturbed_task_language": "<actual :language from states.json[0].task_language>",
+  "perturbed_task_language": "<actual task_language returned by view_env_state(step=0)>",
   "perturbation_semantics": "<what swapped — objects and/or fixtures>",
   "expected_baseline_behavior": "<predicted Pi0 failure: e.g. picks base location>",
-  "strategy_notes": "HOW you localized — which pixel(s) in images_cam, back-projected world xyz; for swap, how you found the relocated object/fixture",
+  "strategy_notes": "HOW you localized — which pixel(s) in agentview_high.png, back-projected world xyz; for swap, how you found the relocated object/fixture",
   "pick_result": { /* the pi0_pick step's result */ },
-  "final_state": { /* latest states.json entry's `state` field */ },
-  "libero_terminated": true
+  "final_state": { /* latest view_env_state result's `state` field */ },
+  "terminated": true
 }
 ```
 
 `strategy_notes` **must** describe the localization (pixel → `back_project` →
 world xyz). For swap cells, explicitly note that the relocated object/fixture was
 found by perception, not by reading coords. If unrecoverable after honest
-exploration, write `libero_terminated: false` with what you tried and which step
+exploration, write `terminated: false` with what you tried and which step
 failed — never warp (teleport primitives are deleted; see Rule 4 in the
 perception protocol). Write the audit with `write_text_file` to
 `{output_dir}/{recipe_tag}.json`, then call `finish`.
@@ -405,8 +407,8 @@ perception protocol). Write the audit with `write_text_file` to
 
 - **Rule 0 (use images for reasoning).** Even more critical under PRO: P2 swap can
   move a large object/fixture clear across the table, and you have *no*
-  coordinates to fall back on. `images_cam/image_cam_NN.png` + depth are your only
-  spatial truth — open `images_cam/` and describe the scene before deciding
+  coordinates to fall back on. `agentview_high.png` plus `back_project` are your
+  spatial truth — inspect the embedded image and describe the scene before deciding
   targets.
 - **Rule 1 (no `pi0_end_to_end`).** Pi0 does the grasp via `pi0_pick`; the LLM
   scripts every motion + release. Under PRO this is doubly important — handing
@@ -419,7 +421,7 @@ perception protocol). Write the audit with `write_text_file` to
   `finish`. `_swap` typically needs an in-episode retry — document it.
 - **Rule 4 (no teleport).** `set_object_pose`, `articulate_to`, `js_move_to`,
   `carry_object` are deleted. A goal past OSC reach with no physical approach →
-  honest `libero_terminated:false`.
+  honest `terminated:false`.
 - **Rule 5 (assume solvable).** A localization that moves the gripper into thin
   air means you picked a wrong pixel (a reflection, a rim, a decoy object under
   the Object perturbation), not that the cell is unreachable. Re-look, re-pick,
@@ -461,7 +463,7 @@ coordinates (re-derive every xyz from THIS scene) and never write there.
    scene; a perception recipe is *data-flow* (perceive → plan → act), never
    hard-coded xyz.
 3. **Replicate on `libero_object`, `libero_goal`, `libero_10`.** Frame split
-   applies (read `states.json[0].state.robot0_eef_pos[2]`). For
+  applies (read the initial returned `state.robot0_eef_pos[2]`). For
    `libero_goal_swap`, apply §3.5 — localize the **swapped fixture** visually.
 4. **Aggregate into a main table** `(suite × perturbation × {Pi0, hybrid})`. The
    headline number is the conditional: of the seeds Pi0 fails on, what fraction
@@ -486,8 +488,8 @@ python rpent/cli/main.py --env libero --suite libero_spatial_swap --task <N> --s
 
 Then, inside the run:
 
-4. `view_driver_state({"step": 0})` → read `state.robot0_eef_pos[2]` to pick the
-   frame (§3.1). `Read images_cam/image_cam_00.png` (or hi-res) and
+4. `view_env_state({"step": 0})` → read `state.robot0_eef_pos[2]` to pick the
+  frame (§3.1). Inspect `agentview_high.png` and call
    `view_camera_meta`. Localize the target (and, for `_swap`, the relocated
    object/fixture) with `back_project` — run the mandatory pre-task perception pass
    (§3.6c). Plan, then execute one structured tool at a time.

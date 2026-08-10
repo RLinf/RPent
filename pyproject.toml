@@ -58,6 +58,7 @@ openpi = [
 ]
 libero = [
     "rlinf-libero",
+    "h5py",
 ]
 libero-pro = [
     "rpent[libero]",

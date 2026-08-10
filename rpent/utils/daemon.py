@@ -28,6 +28,7 @@ def watch_parent_death(on_death: Callable[[], None]) -> None:
     if stdin is redirected from ``/dev/null`` or already closed, it fires
     immediately.
     """
+
     def _watch() -> None:
         try:
             sys.stdin.buffer.read()

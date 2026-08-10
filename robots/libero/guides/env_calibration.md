@@ -3,11 +3,11 @@
 ## Current LIBERO MCP Runtime Contract
 
 Use this file as a calibration reference only. For current MCP-based runs, use
-structured MCP tools, do not issue file-based protocol commands, and do not manually manage
-`env_server.py`. Do not read BDDL files or hidden task definition files to infer
-coordinates. Do not expect object world coordinates in `states.json`; localize
-objects through images_cam + depth/back_project, segment, and wrist/high-res
-artifacts when available.
+structured MCP tools, do not issue file-based protocol commands, and do not
+manually manage `env_server.py`. Do not read BDDL files or hidden task
+definition files to infer coordinates. Start with
+`view_env_state({"step": 0})`; localize objects from `agentview_high.png` or
+`wrist_high.png` through `back_project` or `segment`.
 
 Measured 2026-05-20 on `libero_10_with_mug` t0 (LIVING_ROOM frame) and t8
 (KITCHEN frame). All probes use `move_to` with `gripper=-1` and tight
@@ -17,9 +17,9 @@ Measured 2026-05-20 on `libero_10_with_mug` t0 (LIVING_ROOM frame) and t8
 
 Each task scene uses one of the table fixtures below, which sets the entire
 world-frame z origin. The OSC workspace and all pick/place altitudes shift
-accordingly. **Check `states.json[0].state.robot0_eef_pos[2]` in the initial
-state and branch on it.** Do not read BDDL files for this; use runtime state and
-visual evidence.
+accordingly. **Check `state.robot0_eef_pos[2]` in the result of
+`view_env_state({"step": 0})` and branch on it.** Do not read BDDL files for
+this; use runtime state and visual evidence.
 
 | Fixture | eef home z | Table top z | Used by tasks |
 |---|---|---|---|
@@ -119,7 +119,7 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
 
 ## Practical rules going forward
 
-1. **Always read `states.json[0].state.robot0_eef_pos[2]` before computing any z target.**
+1. **Always inspect the initial returned `state.robot0_eef_pos[2]` before computing any z target.**
    ≈ 0.68 → LIVING_ROOM; ≈ 1.17 → KITCHEN; ≈ 0.26 → OBJECT. Use the matching
    frame table above.
 2. **Never command an eef z below the per-frame floor.** Going to z=0.42
@@ -130,7 +130,7 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
 4. **`set_gripper` after a stalled `move_to` is unsafe.** The previous
    t0 attempt closed the gripper above the bottle (eef stalled high)
    then opened it; this returned ok but the env was effectively desynced.
-   Treat any `move_to` with `final_dist_m > 0.02` as a failure and
+   Treat any `move_to` with `log.result.final_dist_m > 0.02` as a failure and
    recover (back to safe altitude, re-plan) before proceeding.
 5. **Drop height matters for basket tasks.** Release at eef z=0.58 in
    LIVING_ROOM frame caused basket displacement Δ≈4–5 cm; z=0.53 keeps
@@ -143,13 +143,12 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
    `move_to` + `set_gripper` (last resort; unreliable for objects <6 cm — see
    `resources/libero/memory/feedback_scripted_pick_limits.md`).
 
-## Calibration log files
+## Calibration records
 
-Raw probe logs are preserved in:
-- `{output_dir}/states.json` (one step entry per command — the per-command
-  audit; each entry has `command`, `result`, `state`, `elapsed_s`).
-- Only kept for the most recent agent session; reproduce by re-running
-  the calibration with the snippet in the next section.
+Each calibration motion returns its state and `log` immediately. To revisit a
+recorded step, call `view_env_state({"step": N})`; use `-1` for the latest.
+The internal `states.json` file is a versioned `EnvState` manifest, not an
+agent-facing list for manual indexing.
 
 ## Reproducer
 
@@ -162,5 +161,5 @@ tools instead.
 move_to({"xyz": [-0.20, 0.10, 0.65],
          "gripper": -1, "tol": 0.008, "step_clip": 0.010,
          "max_steps": 80})
-# Then read states.json entry NN for final_eef_pos & final_dist_m.
+# Inspect the returned log for final_eef_pos and final_dist_m.
 ```
