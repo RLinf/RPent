@@ -15,9 +15,10 @@ import imageio.v2 as imageio
 
 
 class RLDXSkill:
-    def __init__(self, env_adapter, vla_client=None):
+    def __init__(self, env_adapter, vla_client=None, check_cancelled=None):
         self.env = env_adapter            # RoboCasaInteractiveEnv
         self._vla_client = vla_client     # VLA RPC client (when set, _load() uses it instead of loading the model directly)
+        self._check_cancelled = check_cancelled  # optional cancellation checkpoint callback
         self._vdi = None                  # video delta indices, e.g. [-6,-4,-2,0]
         self._hist = None                 # deque of raw frame dicts
         self._sid = "rc_agent_rldx_0"     # TODO: fix for vla, single server multi client
@@ -206,6 +207,8 @@ class RLDXSkill:
             obs = self._build_obs(prompt)
             options = {"reset_memory": [fresh], "session_ids": [self._sid]}
             fresh = False
+            if self._check_cancelled is not None:
+                self._check_cancelled()
             actions = self._vla_client.predict(obs, options)
             # gym Dict -> native flat 12-d [eef_pos(3),eef_rot(3),gripper(1),base(4),mode(1)]
             horizon = actions["action.gripper_close"].shape[1]
@@ -226,6 +229,8 @@ class RLDXSkill:
                     base_motion,
                     np.asarray(actions["action.control_mode"])[0, step],
                 )
+                if self._check_cancelled is not None:
+                    self._check_cancelled()
                 self.env.step(a)
                 applied += 1
                 self._record_frame(prompt)        # PER-SIM-STEP history (matches eval cadence)
@@ -286,7 +291,6 @@ class RLDXSkill:
                 self._vla_client.reset_session(self._sid)
             except Exception:
                 pass
-        self._first = True
         self._last_prompt = None          # post-reset: next call is a fresh task
         if self._hist is not None:
             self._hist.clear()

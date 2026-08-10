@@ -11,8 +11,8 @@ from functools import partial
 from typing import Any
 
 from robots.robocasa import tools as robocasa_tools
-from rpent.dashboard.events import DashboardEventSink
-from rpent.tools.toolkit import Toolkit
+from rpent.dashboard.events import DashboardEventSink, ToolResultEvent
+from rpent.tools.toolkit import ToolCancelled, Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
 logger = get_logger("robocasa_toolkit")
@@ -29,13 +29,11 @@ class RoboCasaToolkit(Toolkit):
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         video_path: str | None = None,
-        save_action_videos: bool = False,
     ) -> None:
         """Create a RoboCasa toolkit, wiring the primitives and tools."""
         super().__init__(dashboard_events=dashboard_events)
         self._next_step: int = 0
         self._video_path: str | None = video_path
-        self._save_action_videos = save_action_videos
         self.init_primitives(primitives_kwargs=primitives_kwargs)
         self._register_robocasa_tools()
 
@@ -80,7 +78,15 @@ class RoboCasaToolkit(Toolkit):
         command = {"action": name, **kwargs}
         t0 = time.time()
         start_frame = self._primitives.recorded_frame_count()
-        result = getattr(self._primitives, name)(**kwargs)
+        try:
+            result = getattr(self._primitives, name)(**kwargs)
+            self.raise_if_cancelled()
+        except ToolCancelled as exc:
+            result = {
+                "error": str(exc),
+                "code": "tool_cancelled",
+                "interrupted": True,
+            }
         elapsed = round(time.time() - t0, 2)
 
         if isinstance(result, dict):
@@ -90,7 +96,7 @@ class RoboCasaToolkit(Toolkit):
 
         self._next_step += 1
         step_idx = self._next_step
-        if self._save_action_videos:
+        if self._dashboard_events.enabled:
             video_dir = get_output_dir() / "action_videos"
             video_path = video_dir / f"step_{step_idx:02d}_{name}.mp4"
             try:
@@ -107,6 +113,8 @@ class RoboCasaToolkit(Toolkit):
         )
         out = robocasa_tools.view_driver_state(step_idx)
         out["agent_elapsed_s"] = elapsed
+        if result_dict.get("interrupted"):
+            out.update(result_dict)
         return out
 
     def init_primitives(
@@ -142,7 +150,10 @@ class RoboCasaToolkit(Toolkit):
                 if target.exists():
                     target.unlink()
 
-        primitives = RoboCasaPrimitives(**primitives_kwargs)
+        primitives = RoboCasaPrimitives(
+            check_cancelled=self.raise_if_cancelled,
+            **primitives_kwargs,
+        )
         primitives.reset()
         primitives.start_recording()
         robocasa_tools.dump_state(
@@ -150,6 +161,12 @@ class RoboCasaToolkit(Toolkit):
             str(out_dir) if out_dir else "/tmp",
             step_idx=0,
             log=None,
+        )
+        self._dashboard_events.emit(
+            ToolResultEvent(
+                name="view_driver_state",
+                result=robocasa_tools.view_driver_state(0),
+            )
         )
         self._primitives = primitives
 

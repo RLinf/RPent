@@ -81,26 +81,14 @@ LIBERO-PRO 仿真器、SAM 3.0 和 RLinf 运行时。
 ``.[robocasa]`` extra 装齐整个 RoboCasa365 stack —— MuJoCo 3.3.1、
 ARISE-Initiative robosuite fork、pinned lerobot commit、protobuf，
 以及 ``robocasa`` 包本身（从 ``github.com/qurakchin/robocasa`` fork
-的 ``v1.0.1_rlinf`` 分支装的 wheel）。fork 改造过，让 ``macros_private``
-和 ``assets`` 都从 env var 加载（``ROBOCASA_MACROS_PATH``、
-``ROBOCASA_ASSETS_PATH``），所以非 editable 的 wheel 装也能用，不需要
-本地 clone。
+的 ``v1.0.1_rlinf`` 分支装的 wheel）。RLDX-1 需要特定版本的
+PyTorch / torchvision / flash-attn 在 extra **之前** 装好，还要做
+安装后处理（macros、厨房 assets、env vars）并下一个
+``RLDX-1-FT-RC365`` checkpoint。完整步骤见 :doc:`usage/robocasa`。
 
 .. code-block:: bash
 
-   # 装 rpent + rlinf + robocasa wheel + 所有依赖
    uv pip install -e ".[robocasa]"
-
-   # 写 macros_private.py + print env var 提示
-   bash scripts/robocasa/install_robocasa.sh
-
-helper 跑完后，按它 print 的提示设两个 env var 再启动 ``rpent``:
-
-- ``ROBOCASA_MACROS_PATH`` —— 默认 ``<repo_root>/.robocasa/macros_private.py``
-  （helper 把文件写到项目内的 ``.robocasa/`` 下，不污染 ``$HOME``）。
-- ``ROBOCASA_ASSETS_PATH`` —— 19G 厨房 assets 目录。robocasa wheel
-  里只带 3.4M 的 base assets；19G 的厨房 assets 需要从别处来
-  （比如已有的 robocasa checkout，或单独下载）。
 
 4. (可选) 真实机器人依赖
 ------------------------
