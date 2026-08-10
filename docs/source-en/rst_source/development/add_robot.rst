@@ -125,11 +125,15 @@ timeout. Keep names stable — the server-side dispatcher matches by name.
 
 Mirror the client's API in a facade class on the server side (e.g.
 ``MyEnvFacade``). Subclass :class:`rpent.utils.rpc.RpcFacade`, implement
-``_dispatch(method, args, kwargs)`` to route ``env.*`` calls to your
-methods, and delegate startup to ``self.serve(...)``. Methods take the
-same positional / keyword arguments the client sends and return
-pickleable values (numpy, not torch — the agent side does not import
+``_dispatch(method, args, kwargs, *, session_id=None)`` to route ``env.*``
+calls to your methods, and delegate startup to ``self.serve(...)``.
+Methods take the same positional / keyword arguments the client sends and
+return pickleable values (numpy, not torch — the agent side does not import
 torch).
+
+The ``session_id`` keyword is ``None`` for env servers (they don't isolate
+per-client state) but **must** be in the signature so the base class can
+pass it through. See :ref:`add-robot-sessions` below for when to use it.
 
 .. code-block:: python
 
@@ -137,14 +141,19 @@ torch).
 
    class MyEnvFacade(RpcFacade):
        def __init__(self, env, meta):
-           super().__init__()
+           super().__init__()  # enable_sessions=False by default
            self._env = env
            self._meta = meta
 
-       def _dispatch(self, method, args, kwargs):
-           if method.startswith("env."):
-               return getattr(self, method[len("env."):])(*args, **kwargs)
-           raise ValueError(f"unknown RPC method: {method!r}")
+       def _dispatch(self, method, args, kwargs, *, session_id=None):
+           # Subclasses MUST take self._lock around the body — the
+           # ThreadingHTTPServer dispatches each request on its own thread,
+           # and most env servers touch a single subprocess worker / EGL
+           # context that is not safe for concurrent access.
+           with self._lock:
+               if method.startswith("env."):
+                   return getattr(self, method[len("env."):])(*args, **kwargs)
+               raise ValueError(f"unknown RPC method: {method!r}")
 
        def reset(self): ...
        def step(self, action): ...
@@ -155,6 +164,71 @@ torch).
 ``RpcFacade.serve`` handles transport binding (HTTP or socket), the
 ``healthz`` / ``shutdown`` methods, parent-death detection, and clean
 teardown. The subclass only needs to implement the environment methods.
+
+.. _add-robot-sessions:
+
+1.3 Per-client sessions (optional)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Enable sessions when a server holds per-client state that must be isolated
+across callers — e.g. a VLA server with RLDX memory/RTC buffers, where two
+agents sharing a server must not bleed policy state into each other's
+rollouts. Leave them off for stateless env servers.
+
+Server side — pass ``enable_sessions=True`` to the base ``__init__`` and a
+positive ``session_sweep_s`` to :meth:`serve`. Override
+:meth:`_on_session_drop` to clean up per-client state on close or idle
+expiry:
+
+.. code-block:: python
+
+   class MyVLAFacade(RpcFacade):
+       def __init__(self, model_path):
+           super().__init__(enable_sessions=True,
+                            session_timeout_s=3600.0)
+           self._model = load_model(model_path)
+
+       def _dispatch(self, method, args, kwargs, *, session_id=None):
+           with self._lock:
+               # Business methods that need the caller's sid accept it
+               # explicitly; others ignore it.
+               if method == "env.predict":
+                   return self.predict(*args, session_id=session_id, **kwargs)
+               raise ValueError(f"unknown RPC method: {method!r}")
+
+       def predict(self, obs, *, session_id):
+           # Server injects the sid; the caller never supplies it.
+           return self._model.predict(obs, session_ids=[session_id])
+
+       def _on_session_drop(self, session_id):
+           # Fired on session.close RPC (client atexit) and on idle expiry
+           # by the sweep thread.
+           self._model.reset(session_ids=[session_id])
+
+       def serve(self, ...):
+           super().serve(..., session_sweep_s=60.0)
+
+Client side — construct the transport with ``enable_sessions=True`` so it
+auto-generates a private session id, registers it on connect via
+:func:`wait_for_ready`, carries it on every call, and closes it at
+process exit:
+
+.. code-block:: python
+
+   from rpent.utils.http_rpc import HttpRpcClient
+   from rpent.utils.rpc import wait_for_ready
+
+   rpc = HttpRpcClient(f"http://{host}:{port}", enable_sessions=True)
+   wait_for_ready(rpc, daemon=vla_daemon)
+   # The sid is private to the client; business code never sees it.
+
+When sessions are enabled, the base ``dispatch`` rejects unbound business
+calls (``session_id is None``) with an ``RpcError`` — the caller must
+``session.register`` first, which :func:`wait_for_ready` does automatically
+for session-aware clients. The sweep thread drops idle-expired sessions
+every ``session_sweep_s`` seconds and fires ``_on_session_drop``; idle
+timeout is server-owned (``session_timeout_s`` at construction), not
+client-owned.
 
 .. _add-robot-prompts:
 

@@ -17,8 +17,11 @@ logger = get_logger("vla_server")
 class RoboCasaVLAFacade(RpcFacade):
     """Loads RLDX model and exposes inference-only RPC methods."""
 
-    def __init__(self, model_path):
-        super().__init__()
+    def __init__(self, model_path, *, session_timeout_s=None):
+        super().__init__(
+            enable_sessions=True,
+            session_timeout_s=session_timeout_s,
+        )
         from rldx.data.embodiment_tags import EmbodimentTag
         from rldx.eval.rollout_policy import create_rldx_sim_policy
 
@@ -36,16 +39,25 @@ class RoboCasaVLAFacade(RpcFacade):
 
     # ---- RPC methods (exposed via env.* dispatch) ----
 
-    def _dispatch(self, method: str, args: tuple, kwargs: dict):
-        """Route ``env.*`` calls to the matching VLA method."""
-        if method.startswith("env."):
-            attr = method[len("env."):]
-            try:
-                return getattr(self, attr)(*args, **kwargs)
-            except Exception as e:
-                logger.warning("run method %s failed: %s", method, e)
-                raise
-        raise ValueError(f"unknown RPC method: {method!r}")
+    def _dispatch(
+        self, method: str, args: tuple, kwargs: dict, *, session_id: str | None = None
+    ):
+        """Route ``env.*`` calls to the matching VLA method.
+
+        ``predict`` and ``reset_session`` receive the caller's session id explicitly
+        (they need it to isolate RLDX state); the other methods ignore it.
+        """
+        with self._lock:
+            if method.startswith("env."):
+                attr = method[len("env."):]
+                try:
+                    if attr in ("predict", "reset_session"):
+                        return getattr(self, attr)(*args, session_id=session_id, **kwargs)
+                    return getattr(self, attr)(*args, **kwargs)
+                except Exception as e:
+                    logger.warning("run method %s failed: %s", method, e)
+                    raise
+            raise ValueError(f"unknown RPC method: {method!r}")
 
     def get_modality_config(self):
         return {
@@ -53,18 +65,39 @@ class RoboCasaVLAFacade(RpcFacade):
             "hist_maxlen": self._hist_maxlen,
         }
 
-    def predict(self, obs_dict, options):
+    def predict(self, obs_dict, options, *, session_id):
         # policy.get_action returns dict[str, np.ndarray] because RLDX's
         # PolicyRuntime._decode already .cpu().numpy()s torch internally, and
         # _NumpyEncoder (http_rpc) tags numpy arrays at JSON time. If you ever
         # bypass _decode (e.g. call the model forward directly), you must
         # .cpu().numpy() the result here — _NumpyEncoder raises on torch.Tensor.
+        # The caller's session id is injected by the RPC facade and is the
+        # single source of truth for RLDX memory/RTC isolation; reject any
+        # caller-supplied session_ids so it cannot shadow the server-side one.
+        options = dict(options or {})
+        if "session_ids" in options:
+            raise ValueError(
+                "predict options must not contain 'session_ids'; the server "
+                "injects the caller's private session id from the RPC facade"
+            )
+        options["session_ids"] = [session_id]
         actions, info = self.policy.get_action(obs_dict, options=options)
         return actions
 
-    def reset_session(self, session_id):
+    def reset_session(self, *, session_id):
+        """Reset RLDX internal state (memory/RTC) for this session.
+
+        Does NOT destroy the session — only resets the policy state. The
+        session stays live for subsequent calls. Mirror of predict's
+        session_ids injection.
+        """
         self.policy.reset({"session_ids": [session_id]})
         return {"ok": True}
+
+    # ---- session cleanup hooks (invoked by the RPC facade) ----
+
+    def _on_session_drop(self, session_id):
+        self.policy.reset({"session_ids": [session_id]})
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +120,18 @@ def main():
     p.add_argument("--cuda-device", type=int, default=None,
                    help="GPU device exposed through CUDA_VISIBLE_DEVICES.")
     p.add_argument("--model-path", required=True, help="RLDX checkpoint path")
+    p.add_argument(
+        "--session-timeout-s",
+        type=float,
+        default=3600.0,
+        help="session idle-timeout in seconds (default: 3600)",
+    )
+    p.add_argument(
+        "--session-sweep-s",
+        type=float,
+        default=60.0,
+        help="period (s) to sweep idle-expired sessions; must be > 0 (default: 60)",
+    )
     args = p.parse_args()
 
     if args.cuda_device is not None:
@@ -101,12 +146,15 @@ def main():
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
 
-    facade = RoboCasaVLAFacade(args.model_path)
+    facade = RoboCasaVLAFacade(
+        args.model_path, session_timeout_s=args.session_timeout_s
+    )
     facade.serve(
         transport=args.transport,
         host=args.host,
         port=args.port,
         parent_watch=args.parent_watch,
+        session_sweep_s=args.session_sweep_s,
     )
 
 

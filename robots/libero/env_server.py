@@ -146,15 +146,16 @@ class LiberoEnvFacade(RpcFacade):
         # and refuses to talk to a stale or mis-configured server.
         self._meta = dict(meta)
 
-    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if method.startswith("env."):
-            attr = method[len("env."):]
-            try:
-                return getattr(self, attr)(*args, **kwargs)
-            except Exception as e:
-                logger.warning("run method %s failed: %s", method, e)
-                raise e
-        raise ValueError(f"unknown RPC method: {method!r}")
+    def _dispatch(self, method: str, args: tuple, kwargs: dict, *, session_id: str | None = None) -> Any:
+        with self._lock:
+            if method.startswith("env."):
+                attr = method[len("env."):]
+                try:
+                    return getattr(self, attr)(*args, **kwargs)
+                except Exception as e:
+                    logger.warning("run method %s failed: %s", method, e)
+                    raise e
+            raise ValueError(f"unknown RPC method: {method!r}")
 
     # ---- shape helpers ----
 

@@ -6,6 +6,7 @@ import queue
 import re
 import threading
 import traceback
+from typing import Any
 import numpy as np
 
 from rpent.utils.logging import get_logger
@@ -94,16 +95,17 @@ class RoboCasaEnvFacade(RpcFacade):
         return self._meta
 
     # ---- RPC dispatch ----
-    def _dispatch(self, method: str, args: tuple, kwargs: dict):
+    def _dispatch(self, method: str, args: tuple, kwargs: dict, *, session_id: str | None = None) -> Any:
         """Route ``env.*`` calls to the matching facade method."""
-        if method.startswith("env."):
-            attr = method[len("env."):]
-            try:
-                return getattr(self, attr)(*args, **kwargs)
-            except Exception as e:
-                logger.warning("run method %s failed: %s", method, e)
-                raise e
-        raise ValueError(f"unknown RPC method: {method!r}")
+        with self._lock:
+            if method.startswith("env."):
+                attr = method[len("env."):]
+                try:
+                    return getattr(self, attr)(*args, **kwargs)
+                except Exception as e:
+                    logger.warning("run method %s failed: %s", method, e)
+                    raise e
+            raise ValueError(f"unknown RPC method: {method!r}")
 
     # ---- lifecycle ----
     def reset(self):
@@ -329,21 +331,28 @@ class RoboCasaEnvFacade(RpcFacade):
             while (item := work_queue.get()) is not None:
                 event, req = item
                 try:
-                    req["result"] = self._dispatch(req["method"], req["args"], req["kwargs"])
+                    req["result"] = self._dispatch(
+                        req["method"], req["args"], req["kwargs"],
+                        session_id=req["session_id"],
+                    )
                 except Exception:
                     req["error"] = traceback.format_exc()
                 event.set()
 
         threading.Thread(target=render_loop, name="egl-render", daemon=True).start()
 
-        def dispatch(method, args, kwargs):
+        def dispatch(method, args, kwargs, *, session_id=None):
             if method == "healthz":
                 return {"status": "ok"}
             if method == "shutdown":
                 self._shutdown_event.set()
                 return {"ok": True}
             event = threading.Event()
-            req = {"method": method, "args": args, "kwargs": kwargs, "result": None, "error": None}
+            req = {
+                "method": method, "args": args, "kwargs": kwargs,
+                "session_id": session_id,
+                "result": None, "error": None,
+            }
             work_queue.put((event, req))
             event.wait()
             if req["error"]:

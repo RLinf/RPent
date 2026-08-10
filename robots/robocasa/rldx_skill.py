@@ -21,7 +21,6 @@ class RLDXSkill:
         self._check_cancelled = check_cancelled  # optional cancellation checkpoint callback
         self._vdi = None                  # video delta indices, e.g. [-6,-4,-2,0]
         self._hist = None                 # deque of raw frame dicts
-        self._sid = "rc_agent_rldx_0"     # TODO: fix for vla, single server multi client
         self._unmap = None                # lazy: eval's PandaOmronKeyConverter.unmap_action
         # OPTIONAL per-sim-step video capture. OFF by default (env RLDX_VIDEO_DIR unset):
         # the VLA rollout is closed-loop over 100s of sim-steps but the primitives only dump
@@ -205,7 +204,13 @@ class RLDXSkill:
         last_cmd_close = False
         for c in range(max_chunks):
             obs = self._build_obs(prompt)
-            options = {"reset_memory": [fresh], "session_ids": [self._sid]}
+            # Do NOT set options["session_ids"] — the vla_server injects the
+            # caller's private session id (owned by the RpcClient) so RLDX
+            # memory/RTC state is isolated per client. Setting it here would
+            # shadow the server-side injection and break isolation.
+            # See vla_server.predict for the injection + rejection of
+            # caller-supplied session_ids.
+            options = {"reset_memory": [fresh]}
             fresh = False
             if self._check_cancelled is not None:
                 self._check_cancelled()
@@ -288,7 +293,7 @@ class RLDXSkill:
     def reset_session(self):
         if self._vla_client is not None:
             try:
-                self._vla_client.reset_session(self._sid)
+                self._vla_client.reset_session()
             except Exception:
                 pass
         self._last_prompt = None          # post-reset: next call is a fresh task
