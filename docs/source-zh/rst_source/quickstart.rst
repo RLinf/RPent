@@ -18,7 +18,7 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 
    # VLA checkpoint —— 从下面地址下载
    # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
-   python -m pip install -U "huggingface_hub>=0.34"
+   python -m pip install "huggingface_hub>=0.34,<1.0"
 
    hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
      --exclude optimizer.pt \
