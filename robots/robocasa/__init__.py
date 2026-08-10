@@ -81,7 +81,6 @@ def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
-    video_path: str | None = None,
 ):
     """Return the RoboCasa toolkit (common tools + RoboCasa primitives)."""
     from robots.robocasa.toolkit import RoboCasaToolkit
@@ -89,7 +88,6 @@ def get_toolkit(
     return RoboCasaToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
-        video_path=video_path,
     )
 
 

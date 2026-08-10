@@ -1,7 +1,6 @@
 """RoboCasaPrimitives — action primitives, perception, and VLA execution for RoboCasa."""
-import json
 import os
-import imageio.v2 as imageio
+
 import numpy as np
 
 from robots.robocasa.rldx_skill import RLDXSkill
@@ -64,22 +63,14 @@ class RoboCasaPrimitives:
     def recorded_frame_count(self) -> int:
         return len(self._frames)
 
-    def stop_recording_and_save(self, path: str, fps: int = 20):
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        n = len(self._frames)
-        if n > 0:
-            imageio.mimwrite(path, self._frames, fps=fps)
+    def frame_slice(self, start: int) -> list[np.ndarray]:
+        return list(self._frames[int(start):])
+
+    def stop_recording(self) -> list[np.ndarray]:
+        frames = list(self._frames)
         self._recording = False
         self._frames = []
-        return {"path": path, "n_frames": n}
-
-    def save_frame_slice(self, start: int, path: str, fps: int = 20):
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        frames = list(self._frames[int(start):])
-        n = len(frames)
-        if n > 0:
-            imageio.mimwrite(path, frames, fps=fps)
-        return {"path": path, "n_frames": n, "fps": fps}
+        return frames
 
     # ---------- action helpers ----------
     def _zero(self, base_mode=-1.0):
@@ -295,14 +286,12 @@ class RoboCasaPrimitives:
                 "base_pos": bp.tolist()}
 
     def dump_success_criteria(self):
-        """Write this task's EXACT success condition (the env's _check_success + the
-        helper/fixture predicates it calls) to success_criteria.md, so the agent knows
-        WHAT counts as done. This is the success LOGIC (conditions on named objects/
-        fixtures + thresholds) — it does NOT reveal GT object COORDINATES (the agent
-        still localizes every object from perception)."""
-        text = self.env.get_success_criteria_text()
-        with open(f"{self.workdir}/success_criteria.md", "w") as f:
-            f.write(text)
+        """Return this task's EXACT success condition text (the env's _check_success +
+        the helper/fixture predicates it calls), so the agent knows WHAT counts as done.
+        This is the success LOGIC (conditions on named objects/fixtures + thresholds) —
+        it does NOT reveal GT object COORDINATES (the agent still localizes every object
+        from perception). The caller writes it to the run's EnvState."""
+        return self.env.get_success_criteria_text()
 
     def task_progress(self):
         """NUMERIC progress signal toward this task's success — generic for ALL tasks.
@@ -326,18 +315,18 @@ class RoboCasaPrimitives:
         except Exception:
             return {}
 
-    # ---------- Phase 1: perception dump (file protocol) ----------
-    def dump_state(self, step_idx):
-        wd = self.workdir
-        nn = f"{step_idx:02d}"
+    # ---------- Phase 1: perception (state dict + rendered arrays) ----------
+    def current_state_dict(self) -> dict:
+        """Return the proprio + task + success state dict (NO object coords).
+
+        Rendered RGB/depth/world arrays are produced by the caller via
+        ``_render_observation_artifacts`` (kept out of primitives so the primitives
+        object stays free of any output-dir / file-IO concern).
+        """
         o = self.env.current_raw_obs
-        # state json (proprio + task + success; NO object coords)
-        state = {
-            "step": step_idx,
+        return {
             "task_language": o.get("language", self.env.get_ep_meta().get("lang", "")),
             "success": self.env.check_success(),
-            # NUMERIC progress toward success (counters/sub-predicates the env's own
-            # _check_success computes) so the agent has a feedback loop, not just a bool.
             "task_progress": self._safe_progress(),
             "robocasa_terminated": self.env.terminated,
             "state": {
@@ -348,55 +337,6 @@ class RoboCasaPrimitives:
                 "robot0_base_quat": np.asarray(o["robot0_base_quat"]).tolist(),
             },
         }
-        with open(f"{wd}/state_{nn}.json", "w") as f:
-            json.dump(state, f, indent=2)
-        # agentview + wrist: rgb, depth, world map, hi-res, camera meta
-        from PIL import Image
-        for tag, cam in (("", "agentview"), ("_wrist", "wrist")):
-            rgb, depth = self.env.render_camera(cam, depth=True)
-            Image.fromarray(rgb).save(f"{wd}/image_cam{tag}_{nn}.png")
-            np.save(f"{wd}/depth{tag}_{nn}.npy", depth.astype(np.float32))
-            np.save(f"{wd}/world{tag}_{nn}.npy", self.env.world_map(cam).astype(np.float32))
-            if cam not in self._cam_meta_cache or cam == "wrist":
-                self._cam_meta_cache[cam] = self.env.get_camera_meta(cam)
-            with open(f"{wd}/camera_meta{tag}_{nn}.json", "w") as f:
-                json.dump(self._cam_meta_cache[cam], f)
-            # hi-res for the agentview (SAM-grounding / fine localize)
-            if cam == "agentview" and self.hi_res:
-                hrgb, _ = self.env.render_camera(cam, self.hi_res, self.hi_res, depth=True)
-                Image.fromarray(hrgb).save(f"{wd}/image_cam_hi_{nn}.png")
-                np.save(f"{wd}/world_hi_{nn}.npy",
-                        self.env.world_map(cam, self.hi_res, self.hi_res).astype(np.float16))
-        # NAV camera (mobilebase0_navview): base-mounted forward-down floor view, same
-        # robosuite render pipeline + verified world_map as the other cams (follows the
-        # base as it drives/turns). Per-pixel world xyz -> floor pixels (z≈0) = walkable
-        # waypoints. Wrapped so a render glitch degrades gracefully, not kills the agent.
-        try:
-            nrgb, _ = self.env.render_camera("navview", depth=True)
-            nworld = self.env.world_map("navview").astype(np.float32)
-            Image.fromarray(nrgb).save(f"{wd}/image_nav_{nn}.png")
-            np.save(f"{wd}/world_nav_{nn}.npy", nworld)
-            floor = (nworld[:, :, 2] < 0.12) & (nworld[:, :, 2] > -0.2)  # walkable = z≈0
-            ov = nrgb.copy()
-            ov[floor] = [0, 255, 0]                    # green = walkable
-            Image.fromarray(ov).save(f"{wd}/image_nav_floor_{nn}.png")
-        except Exception as e:
-            print(f"[primitives] navcam render failed at step {step_idx}: {e}", flush=True)
-        # DISK SAFETY (replaces light dump): keep only the last `_keep_heavy` steps' heavy
-        # npy on disk. The agent localizes from the LATEST frame's world map; old ones are
-        # dead weight that once filled the 100GB root and deadlocked everything. Prune the
-        # step that just fell out of the window. PNGs/state/log/camera_meta are tiny -> kept.
-        old = step_idx - self._keep_heavy
-        if old >= 0:
-            on = f"{old:02d}"
-            for p in (f"depth_{on}.npy", f"world_{on}.npy", f"depth_wrist_{on}.npy",
-                      f"world_wrist_{on}.npy", f"world_hi_{on}.npy", f"world_nav_{on}.npy"):
-                try:
-                    os.remove(f"{wd}/{p}")
-                except OSError:
-                    pass
-        open(f"{wd}/done_{nn}.flag", "w").close()
-        return state
 
     # ---------- VLA execution ----------
     def run_rldx_skill(self, base_clip, max_chunks, use_prompt, prompt, force_reset,
