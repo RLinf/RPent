@@ -20,14 +20,18 @@ checkpoints:
 
    # VLA checkpoint — download from
    # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
+   python -m pip install -U "huggingface_hub>=0.34"
+
    hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
+     --exclude optimizer.pt \
      --local-dir ./checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
 
    export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
 
    # SAM 3.0 checkpoint — download from
    # https://modelscope.cn/models/facebook/sam3
-   pip install modelscope
+   python -m pip install -U modelscope
+
    modelscope download facebook/sam3 \
      --local-dir ./checkpoints/sam3
 
