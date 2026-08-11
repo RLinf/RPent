@@ -22,7 +22,6 @@ from rpent.utils.templates import substitute
 if TYPE_CHECKING:
     from rpent.tools.state import EnvState, StepRecord
 
-
 @dataclass(slots=True)
 class _ToolOperation:
     cancel_event: threading.Event = field(default_factory=threading.Event)
@@ -120,6 +119,14 @@ class ToolResult:
         return blocks
 
 
+@dataclass(frozen=True, slots=True)
+class RunFinalization:
+    """Environment-neutral result derived after planner execution."""
+
+    final_result: dict[str, Any] | None
+    error: str | None = None
+
+
 class Toolkit:
     """Base toolkit: registers common tools and dispatches tool calls.
 
@@ -211,6 +218,16 @@ class Toolkit:
             self._active_operation = operation
 
         try:
+            try:
+                blocked = self.before_execute_tool(name, input_dict)
+            except Exception as error:  # noqa: BLE001
+                blocked = {
+                    "error": f"tool precondition failed: {error}",
+                    "traceback": traceback.format_exc(),
+                }
+            if blocked is not None:
+                return ToolResult(name=name, result=blocked)
+
             started = time.perf_counter()
             failed = False
             try:
@@ -264,6 +281,23 @@ class Toolkit:
             with self._operation_lock:
                 self._active_operation = None
                 operation.done_event.set()
+
+    def before_execute_tool(
+        self,
+        name: str,
+        input_dict: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Reject a tool call before its handler runs. Default: allow it."""
+        return None
+
+    def finalize_run(
+        self,
+        *,
+        planner_result: dict[str, Any] | None,
+        planner_error: str | None,
+    ) -> RunFinalization:
+        """Aggregate facts from an already-finished planner run."""
+        return RunFinalization(final_result=planner_result)
 
     def _publish_step(self, record: StepRecord) -> None:
         """Publish one recorded environment step to the dashboard sink."""

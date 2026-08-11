@@ -1,3 +1,4 @@
+# Copyright 2026 RPent Contributors
 """CLI orchestration for one long-lived Dashboard Session."""
 
 from __future__ import annotations
@@ -13,7 +14,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from rpent.cli.main import _serialize_messages
+from rpent.cli.main import (
+    _finalize_and_cleanup,
+    _merge_errors,
+    _serialize_messages,
+)
 from rpent.dashboard.events import RunStartedEvent
 from rpent.envs import get_toolkit
 from rpent.planner.base import build_planner
@@ -134,6 +139,7 @@ def _run_dashboard_task(
     output_dir = init_output_dir(run_config.output_dir, verbose=args.verbose)
 
     recipe_tag = run_config.recipe_tag
+    planner_result = None
     finish_result = None
     messages: list[dict] = []
     stats: dict = {}
@@ -189,7 +195,8 @@ def _run_dashboard_task(
                     max_turns=args.max_turns,
                     dashboard_interaction=state,
                 )
-                finish_result = result.finish_result
+                planner_result = result.finish_result
+                finish_result = planner_result
                 messages = result.messages
                 stats = result.stats
                 agent_error = result.error
@@ -199,23 +206,30 @@ def _run_dashboard_task(
     finally:
         cleanup_errors: list[str] = []
         if toolkit is not None:
-            try:
-                toolkit.close()
-                recipe_path = toolkit.write_recipe(recipe_tag)
-                logger.info("recipe: %s", recipe_path)
-            except Exception as exc:
-                cleanup_errors.append(f"Toolkit cleanup failed: {exc}")
-        for daemon in reversed(task_daemons):
-            try:
-                daemon.stop()
-            except Exception as exc:
-                cleanup_errors.append(f"env cleanup failed: {exc}")
+            finalization, finalization_error, cleanup_errors = _finalize_and_cleanup(
+                toolkit=toolkit,
+                recipe_tag=recipe_tag,
+                planner_result=planner_result,
+                planner_error=agent_error,
+                daemons=reversed(task_daemons),
+            )
+            if finalization is not None:
+                finish_result = finalization.final_result
+            agent_error = _merge_errors(agent_error, finalization_error)
+        else:
+            _, _, cleanup_errors = _finalize_and_cleanup(
+                toolkit=None,
+                recipe_tag=recipe_tag,
+                planner_result=planner_result,
+                planner_error=agent_error,
+                daemons=reversed(task_daemons),
+            )
         if cleanup_errors:
             cleanup_error = "; ".join(cleanup_errors)
             if agent_error is None:
                 agent_error = cleanup_error
             else:
-                logger.warning("%s", cleanup_error)
+                logger.warning("TaskRun cleanup failed: %s", cleanup_error)
 
         transcript_path = output_dir / f"transcript_{run_config.recipe_tag}.json"
         record = {
@@ -225,6 +239,8 @@ def _run_dashboard_task(
             "finish": finish_result,
             "stats": stats,
             "messages": _serialize_messages(messages),
+            "run_error": agent_error,
+            "cleanup_errors": cleanup_errors,
         }
         try:
             with open(transcript_path, "a") as transcript_file:
