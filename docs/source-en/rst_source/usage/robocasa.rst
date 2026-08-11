@@ -12,55 +12,55 @@ Installation
 ------------
 
 RoboCasa365 is not part of ``.[full]``. The ``.[robocasa]`` extra pulls
-the full stack — MuJoCo 3.3.1, the ARISE-Initiative robosuite fork, the
-pinned lerobot commit, protobuf, and the ``robocasa`` package itself
-(a wheel from the ``github.com/qurakchin/robocasa`` fork, branch
-``v1.0.1_rlinf``). The fork is patched to load ``macros_private`` and
-``assets`` from env vars, so a non-editable wheel install works — no
-local clone needed.
+two things on top of the RLinf runtime:
 
-**Prerequisites — Python, PyTorch, torchvision, flash-attn**
+- ``rlinf-robocasa365`` — the simulator, published to PyPI from the
+  ``rlinf`` branch of `RLinf/robocasa <https://github.com/RLinf/robocasa/tree/rlinf>`_.
+  It brings its own robosuite, MuJoCo, NumPy and SciPy, so RPent does
+  not restate those versions. The fork is patched to load
+  ``macros_private`` and ``assets`` from env vars, so the wheel install
+  needs no local clone.
+- ``rlinf-rldx`` — the RLDX-1 VLA policy, published to PyPI from the
+  ``rpent`` branch of `RLinf/RLDX-1 <https://github.com/RLinf/RLDX-1/tree/rpent>`_.
+  It declares its own Python, torch, torchvision, transformers, numpy
+  and flash-attn requirements.
+- ``robosuite`` from git — the only direct reference left. RoboCasa365
+  needs three APIs that are on the robosuite development line but not in
+  the 1.5.2 release (``load_model_on_init``,
+  ``ManipulationTask(enable_multiccd=...)`` and the
+  ``JOINT_VELOCITY_LEGACY`` mobile-base controller), and master reports
+  ``__version__ == "1.5.2"`` as well, so no version specifier can select
+  it. ``rlinf-robocasa365`` checks for those APIs on import and raises an
+  actionable error if the released robosuite is installed instead.
 
-RLDX-1 hard-pins these versions: Python ``3.10.*``, ``torch==2.7.0``,
-``torchvision==0.22.0``, ``transformers==4.57.0``,
-``flash-attn==2.7.4.post1``. The steps below are a recommended path —
-PyTorch, torchvision, and flash-attn may be installed via any tool
-(uv, pip, conda, system packages, …) as long as the versions match
-the pins. Then run the main ``.[robocasa]`` install, which pulls in
-the rest of the stack.
+.. note::
+
+   ``.[robocasa]`` needs its own virtualenv — it cannot share one with
+   the LIBERO extras. RoboCasa365 requires ``robosuite>=1.5.2`` for the
+   composite controllers, while ``rlinf-libero`` requires
+   ``robosuite<1.5``; the two cannot be resolved together.
+
+Everything, including PyTorch and the robosuite pin, comes from the
+extra. RLDX-1 requires Python ``3.10``:
 
 .. code-block:: bash
 
-   # Create a Python 3.10 venv — 3.11/3.12 will fail dependency resolution.
    uv venv --python 3.10
-
-   # PyTorch + torchvision — cu124 is the recommended default; cu121/cu126/cu128
-   # are interchangeable for CUDA 12.x drivers. cu118 (CUDA 11.8) has no
-   # prebuilt flash-attn wheel and forces a source build in the next step.
-   uv pip install torch==2.7.0 torchvision==0.22.0 \
-       --index-url https://download.pytorch.org/whl/cu124
-
-   # flash-attn prebuilt wheel from the upstream GitHub release
-   # (cu12 + torch 2.7 + py3.10 + cxx11abi=TRUE). PyPI only ships the
-   # sdist, so a bare `uv pip install flash-attn==2.7.4.post1` would
-   # build from source — needs nvcc and takes 10-20 min.
-   uv pip install \
-       https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
-
-Once the prerequisites above are installed, run the main install:
-
-.. code-block:: bash
-
-   # uv sees the flash-attn wheel from above as satisfying the
-   # `flash-attn==2.7.4.post1` pin in pyproject.toml (PEP 440 `==`
-   # ignores the local-version segment) and skips re-fetch.
    uv pip install -e ".[robocasa]"
 
-**Note**: The prebuilt flash-attn wheel ships SM_80 and SM_90 kernels
-only — it imports on Ampere/Hopper but crashes on Blackwell
-(``sm_120``). RTX 5090 users must build flash-attn from source; see the
-`flash-attn install docs
-<https://github.com/Dao-AILab/flash-attention#installation>`_.
+.. note::
+
+   flash-attn is **not** required. RLDX-1 falls back to PyTorch SDPA
+   when it is absent. To opt in for a faster policy forward pass,
+   install the prebuilt wheel afterwards — PyPI ships only an sdist, so
+   a plain ``pip install flash-attn`` would compile for 10-20 minutes:
+
+   .. code-block:: bash
+
+      uv pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
+
+   That wheel carries SM_80 and SM_90 kernels only; on Blackwell
+   (``sm_120``) build from source or stay on SDPA.
 
 **Post-install setup**
 

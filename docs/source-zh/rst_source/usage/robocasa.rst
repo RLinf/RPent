@@ -10,68 +10,54 @@ RoboCasa
 安装
 ----
 
-RoboCasa365 不在 ``.[full]`` 里。``.[robocasa]`` extra 装齐整个 stack
-—— MuJoCo 3.3.1、ARISE-Initiative robosuite fork、pinned lerobot commit、
-protobuf，以及 ``robocasa`` 包本身（从 ``github.com/qurakchin/robocasa``
-fork 的 ``v1.0.1_rlinf`` 分支装的 wheel）。fork 改造过，让
-``macros_private`` 和 ``assets`` 都从 env var 加载，所以非 editable 的
-wheel 装也能用，不需要本地 clone。
+RoboCasa365 不在 ``.[full]`` 里。``.[robocasa]`` extra 在 RLinf runtime
+之上只额外装两样东西：
 
-**前置依赖 —— Python、PyTorch、torchvision、flash-attn**
+- ``rlinf-robocasa365``\ —— 仿真器本体，由 `RLinf/robocasa
+  <https://github.com/RLinf/robocasa/tree/rlinf>`_ 的 ``rlinf`` 分支发布
+  到 PyPI。它自带 robosuite、MuJoCo、NumPy、SciPy，因此 RPent 不再重复
+  声明这些版本。该 fork 改造过，让 ``macros_private`` 和 ``assets`` 都从
+  env var 加载，所以 wheel 安装不需要本地 clone。
+- ``rlinf-rldx``\ —— RLDX-1 VLA 策略，由 `RLinf/RLDX-1
+  <https://github.com/RLinf/RLDX-1/tree/rpent>`_ 的 ``rpent`` 分支发布到
+  PyPI。它自带 Python、torch、torchvision、transformers、numpy 与
+  flash-attn 的版本要求。
+- 从 git 安装的 ``robosuite``\ —— 仅剩的一条直链。RoboCasa365 依赖三个只存在
+  于 robosuite 开发分支、而 1.5.2 正式版没有的 API（``load_model_on_init``\ 、
+  ``ManipulationTask(enable_multiccd=...)`` 以及 ``JOINT_VELOCITY_LEGACY``
+  底盘控制器），且 master 的 ``__version__`` 同样是 ``1.5.2``\ ，任何版本约束
+  都无法区分两者。``rlinf-robocasa365`` 会在 import 时检查这些 API，若装成正式
+  版会直接报错并给出修复命令。
 
-RLDX-1 硬 pin 了这些版本：Python ``3.10.*``、``torch==2.7.0``、
-``torchvision==0.22.0``、``transformers==4.57.0``、
-``flash-attn==2.7.4.post1``。下面的步骤是推荐路径 —— PyTorch、
-torchvision、flash-attn 可通过任意工具安装（uv、pip、conda、系统包
-等），版本须匹配上述 pin。最后运行主 ``.[robocasa]`` 安装命令，把
-stack 剩下的部分装齐。
+.. note::
 
-**国内镜像**
+   ``.[robocasa]`` 需要独立的 virtualenv，不能和 LIBERO 系列 extra 共用：
+   RoboCasa365 的 composite controller 需要 ``robosuite>=1.5.2``\ ，而
+   ``rlinf-libero`` 要求 ``robosuite<1.5``\ ，两者无法同时解析。
 
-国内网络建议先设好 PyPI 镜像加速普通包下载（覆盖 ``.[robocasa]`` 主
-安装的大部分依赖）。PyTorch cu124 wheel 可用阿里云镜像；flash-attn
-GitHub release wheel 可用 ``ghfast.top`` 反代加速。
+包括 PyTorch 和 robosuite 在内的所有依赖都由 extra 负责安装。RLDX-1
+要求 Python ``3.10``\ ：
 
 .. code-block:: bash
 
-   # 清华 TUNA PyPI 镜像
-   export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-
-.. code-block:: bash
-
-   # 建一个 Python 3.10 venv —— 3.11/3.12 会在依赖解析阶段直接失败
    uv venv --python 3.10
-
-   # PyTorch + torchvision —— cu124 是推荐默认；对 CUDA 12.x driver
-   # 来说 cu121/cu126/cu128 可互换。cu118 (CUDA 11.8) 没有对应的
-   # flash-attn 预编译 wheel，下一步必须源码编译。
-   # 国内可用阿里云镜像替代官方源，把 --index-url 换成:
-   #   https://mirrors.aliyun.com/pytorch-wheels/cu124
-   uv pip install torch==2.7.0 torchvision==0.22.0 \
-       --index-url https://download.pytorch.org/whl/cu124
-
-   # 从 flash-attn 上游 GitHub release 装预编译 wheel
-   # (cu12 + torch 2.7 + py3.10 + cxx11abi=TRUE)。PyPI 上只有 sdist，
-   # 直接 `uv pip install flash-attn==2.7.4.post1` 会触发源码编译 ——
-   # 需要 nvcc，且耗时 10-20 分钟。
-   # 国内访问 GitHub 慢时可用 ghfast.top 反代加速，把下面的 URL 换成:
-   #   https://ghfast.top/https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
-   uv pip install \
-       https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
-
-前置依赖装好后，运行主安装命令：
-
-.. code-block:: bash
-
-   # uv 会把上面装上的 flash-attn wheel 当作满足 pyproject.toml 里的
-   # `flash-attn==2.7.4.post1` pin (PEP 440 的 == 忽略 local version
-   # segment)，跳过重新拉取。
    uv pip install -e ".[robocasa]"
 
-**注意**: flash-attn 预编译 wheel 只带 SM_80 和 SM_90 kernel —— 在
-Ampere/Hopper 上能 import 但在 Blackwell (``sm_120``) 上会崩。RTX 5090
-用户必须从源码编译，见 `flash-attn 安装文档
-<https://github.com/Dao-AILab/flash-attention#installation>`_。
+国内网络可先设 PyPI 镜像加速：\ ``export
+UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple``\ 。
+
+.. note::
+
+   flash-attn **不是** 必需的。缺少时 RLDX-1 会回退到 PyTorch SDPA。
+   若要启用以加快策略前向，安装预编译 wheel 即可 —— PyPI 上只有
+   sdist，直接 ``pip install flash-attn`` 会源码编译 10-20 分钟：
+
+   .. code-block:: bash
+
+      uv pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
+
+   该 wheel 只带 SM_80 与 SM_90 kernel；Blackwell (``sm_120``) 需从源码
+   编译，或继续使用 SDPA。
 
 **安装后处理**
 

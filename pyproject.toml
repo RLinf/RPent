@@ -74,21 +74,20 @@ sam3 = [
     "torchvision",
     "pillow>=10",
 ]
-libero-full = [
+full = [
+    # robocasa is deliberately not here: rpent-liberopro requires
+    # robosuite>=1.4.0,<1.5.0 and RoboCasa365 requires >=1.5.2, so the two
+    # cannot resolve together. Install .[robocasa] in its own venv.
     "rpent[rlinf,openpi,libero-pro,sam3]",
 ]
 robocasa = [
     "rpent[rlinf]",
-    "mujoco==3.3.1",
-    "protobuf>=3.19,<4",                              # tianshou (from rinf-robocasa) requires protobuf<3.20
-    "torch==2.7.0",                                   # RLDX-1 requirement
-    "torchvision==0.22.0",                            # RLDX-1 requirement
-    "numpy==2.2.5",                                   # robocasa enforces numpy==2.2.5 (__init__.py:1011 assert)
-    "transformers==4.57.0",                           # RLDX-1 requirement
-    "lerobot @ git+https://github.com/huggingface/lerobot.git@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5",
-    "robosuite @ git+https://github.com/ARISE-Initiative/robosuite.git@master",
-    "rinf-robocasa @ git+https://github.com/qurakchin/robocasa.git@v1.0.1_rlinf",
-    "rldx @ git+https://github.com/qurakchin/RLDX-1.git@dcdf03e50614b4d9f8decfbb5ca6213139dfc6cd",
+    "rlinf-robocasa365",                              # simulator; declares its own mujoco/numpy/scipy
+    "rlinf-rldx",                                     # VLA; declares its own python/torch/transformers
+    # RoboCasa365 needs robosuite master; the 1.5.2 release lacks the APIs and
+    # reports the same version, so no specifier can select it. Pinned to a sha
+    # on the RLinf fork, not upstream @master, so the build is reproducible.
+    "robosuite @ git+https://github.com/RLinf/robosuite.git@5ce6643f3092639d08f7b0f90ed1c6a84f50552c",
 ]
 
 [tool.uv]
