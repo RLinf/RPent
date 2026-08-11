@@ -20,7 +20,7 @@ RPent supports two families of primitives out of the box:
 For the concrete per-environment configuration (which VLA runs
 against which robot, checkpoint paths, tool surface), see the
 environment pages: :doc:`libero`, :doc:`robocasa`, :doc:`franka`,
-:doc:`so101`.
+:doc:`dual_franka`, :doc:`so101`.
 
 Which VLA runs where
 --------------------

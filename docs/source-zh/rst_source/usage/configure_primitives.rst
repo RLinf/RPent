@@ -16,7 +16,7 @@ RPent 内置两类原语：
 
 各环境的具体配置，例如使用哪个 VLA、checkpoint 路径以及对外提供的工具，
 请参考对应的环境页面：:doc:`libero`、:doc:`robocasa`、
-:doc:`franka`、:doc:`so101`。
+:doc:`franka`、:doc:`dual_franka`、:doc:`so101`。
 
 各环境使用的 VLA
 ----------------
