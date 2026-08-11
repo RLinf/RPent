@@ -8,7 +8,8 @@ with the ``claude_code`` planner to demonstrate a complete run.
 1. Configure keys and checkpoints
 ---------------------------------
 
-Export your Anthropic key, plus the paths to the VLA and SAM3 checkpoints:
+Export your Anthropic key, then download and configure the VLA and SAM3
+checkpoints:
 
 .. code-block:: bash
 
@@ -19,12 +20,22 @@ Export your Anthropic key, plus the paths to the VLA and SAM3 checkpoints:
 
    # VLA checkpoint — download from
    # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
-   export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+   pip install "huggingface_hub>=0.34,<1.0"
 
-   # SAM 3.0 checkpoint — download from either
-   # https://huggingface.co/facebook/sam3
+   hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
+     --exclude optimizer.pt \
+     --local-dir ./checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+
+   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+
+   # SAM 3.0 checkpoint — download from
    # https://modelscope.cn/models/facebook/sam3
-   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+   pip install -U modelscope
+
+   modelscope download facebook/sam3 \
+     --local-dir ./checkpoints/sam3
+
+   export SAM3_CHECKPOINT_PATH=$PWD/checkpoints/sam3/sam3.pt
 
 2. Run one LIBERO task
 ----------------------

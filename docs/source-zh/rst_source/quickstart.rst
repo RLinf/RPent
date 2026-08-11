@@ -8,7 +8,7 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 1. 配置 API key 与 checkpoint
 ------------------------------
 
-设置 Anthropic API key、VLA checkpoint 和 SAM 3.0 checkpoint 路径：
+导出 Anthropic API key，然后下载并配置 VLA 和 SAM 3.0 checkpoint：
 
 .. code-block:: bash
 
@@ -18,12 +18,22 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 
    # VLA checkpoint —— 从下面地址下载
    # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
-   export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+   pip install "huggingface_hub>=0.34,<1.0"
 
-   # SAM 3.0 checkpoint —— 从以下任一地址下载
-   # https://huggingface.co/facebook/sam3
+   hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
+     --exclude optimizer.pt \
+     --local-dir ./checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+
+   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+
+   # SAM 3.0 checkpoint —— 从以下地址下载
    # https://modelscope.cn/models/facebook/sam3
-   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+   pip install -U modelscope
+
+   modelscope download facebook/sam3 \
+     --local-dir ./checkpoints/sam3
+
+   export SAM3_CHECKPOINT_PATH=$PWD/checkpoints/sam3/sam3.pt
 
 2. 跑一个 LIBERO 任务
 ---------------------
