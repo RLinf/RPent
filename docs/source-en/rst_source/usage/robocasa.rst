@@ -19,27 +19,48 @@ pinned lerobot commit, protobuf, and the ``robocasa`` package itself
 ``assets`` from env vars, so a non-editable wheel install works — no
 local clone needed.
 
-**Prerequisites — PyTorch, torchvision, flash-attn**
+**Prerequisites — Python, PyTorch, torchvision, flash-attn**
 
-RLDX-1 requires specific versions of PyTorch, torchvision, and
-flash-attn. Install them **before** the main ``.[robocasa]`` install,
-choosing a CUDA version that has a pre-built flash-attn wheel:
+RLDX-1 hard-pins these versions: Python ``3.10.*``, ``torch==2.7.0``,
+``torchvision==0.22.0``, ``transformers==4.57.0``,
+``flash-attn==2.7.4.post1``. The steps below are a recommended path —
+PyTorch, torchvision, and flash-attn may be installed via any tool
+(uv, pip, conda, system packages, …) as long as the versions match
+the pins. Then run the main ``.[robocasa]`` install, which pulls in
+the rest of the stack.
 
 .. code-block:: bash
 
-   # Install PyTorch + torchvision (choose cu124 for pre-built flash-attn)
-   uv pip install torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu124
+   # Create a Python 3.10 venv — 3.11/3.12 will fail dependency resolution.
+   uv venv --python 3.10
 
-   # Install flash-attn (pre-built cu124 wheel, no source build needed)
-   uv pip install flash-attn==2.7.4.post1
+   # PyTorch + torchvision — cu124 is the recommended default; cu121/cu126/cu128
+   # are interchangeable for CUDA 12.x drivers. cu118 (CUDA 11.8) has no
+   # prebuilt flash-attn wheel and forces a source build in the next step.
+   uv pip install torch==2.7.0 torchvision==0.22.0 \
+       --index-url https://download.pytorch.org/whl/cu124
 
-   # Then install the RPent RoboCasa stack
+   # flash-attn prebuilt wheel from the upstream GitHub release
+   # (cu12 + torch 2.7 + py3.10 + cxx11abi=TRUE). PyPI only ships the
+   # sdist, so a bare `uv pip install flash-attn==2.7.4.post1` would
+   # build from source — needs nvcc and takes 10-20 min.
+   uv pip install \
+       https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
+
+Once the prerequisites above are installed, run the main install:
+
+.. code-block:: bash
+
+   # uv sees the flash-attn wheel from above as satisfying the
+   # `flash-attn==2.7.4.post1` pin in pyproject.toml (PEP 440 `==`
+   # ignores the local-version segment) and skips re-fetch.
    uv pip install -e ".[robocasa]"
 
-**Note**: If you use a different CUDA version (e.g. cu126), flash-attn
-will need to be built from source, which requires a CUDA compiler.
-Pre-built wheels are available for cu118, cu121, and cu124 — prefer
-``cu124`` for a seamless experience.
+**Note**: The prebuilt flash-attn wheel ships SM_80 and SM_90 kernels
+only — it imports on Ampere/Hopper but crashes on Blackwell
+(``sm_120``). RTX 5090 users must build flash-attn from source; see the
+`flash-attn install docs
+<https://github.com/Dao-AILab/flash-attention#installation>`_.
 
 **Post-install setup**
 
