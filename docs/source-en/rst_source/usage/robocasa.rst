@@ -153,7 +153,7 @@ The 50 tasks used in RPent split into three groups:
   ``SeparateFreezerRack``, ``WaffleReheat``, ``WashFruitColander``,
   ``WeighIngredients``.
 
-Pass any of these to ``--robocasa-env``. The full RoboCasa catalog is
+Pass any of these to ``--task-name``. The full RoboCasa catalog is
 larger; see the `RoboCasa <https://robocasa.ai>`_ upstream.
 
 Running a task
@@ -165,9 +165,9 @@ are visible under ``rpent --env robocasa --help``:
 .. code-block:: bash
 
    rpent --env robocasa \
-         --robocasa-env OpenDrawer \
-         --robocasa-split target \
-         --robocasa-seed 0 \
+         --task-name OpenDrawer \
+         --split target \
+         --seed 0 \
          --vla-model-path /path/to/rldx \
          --planner claude_code \
          --model claude-opus-4-8
