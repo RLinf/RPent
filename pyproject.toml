@@ -54,15 +54,26 @@ rlinf = [
     "rpent-rlinf",
 ]
 openpi = [
-    "rlinf-openpi",
+    # rpent-openpi imports the Pi0.5 model code instead of copying it over
+    # transformers/, so it runs on stock transformers 4.57 and can share an
+    # environment with RLDX-1 (which needs qwen3_vl, added in 4.57).
+    # Verified bit-identical to the 4.53 fork it was rebased from.
+    # TODO: swap to "rpent-openpi>=0.2.0" once it is on PyPI.
+    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@f640522",
 ]
 libero = [
-    "rlinf-libero",
+    # LIBERO on robosuite 1.5, so it can share an environment with
+    # RoboCasa365. Verified to reproduce the robosuite 1.4 observation
+    # contract and action space exactly. rlinf-libero stays on 1.4 for
+    # RLinf's own use.
+    # TODO: swap to "rpent-libero>=0.2.0" once it is on PyPI.
+    "rpent-libero @ git+https://github.com/RLinf/LIBERO.git@ef63e6ee25c7e99feb6a5dcdb40dd4e3d169b2fd",
     "h5py",
 ]
 libero-pro = [
     "rpent[libero]",
-    "rpent-liberopro",
+    # TODO: swap to "rpent-liberopro>=0.2.0" once uv sees it on PyPI.
+    "rpent-liberopro @ git+https://github.com/RLinf/LIBERO-PRO.git@209f5cb35833093cb8c9051032e4c246866382b4",
 ]
 libero-plus = [
     "rpent[libero]",
@@ -75,12 +86,7 @@ sam3 = [
     "pillow>=10",
 ]
 full = [
-    # robocasa is not here. RLDX-1's backbone imports
-    # transformers.models.qwen3_vl, which first appears in transformers
-    # 4.57, while rlinf-openpi requires a 4.53-based transformers fork that
-    # has no such module. Verified by import, not just by resolution.
-    # Install .[robocasa] in its own venv.
-    "rpent[rlinf,openpi,libero-pro,sam3]",
+    "rpent[rlinf,openpi,libero-pro,sam3,robocasa]",
 ]
 robocasa = [
     "rpent[rlinf]",

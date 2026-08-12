@@ -11,7 +11,7 @@ for the wire/transport selection.
 Installation
 ------------
 
-RoboCasa365 is not part of ``.[full]`` and needs its own virtualenv. The
+RoboCasa365 is included in ``.[full]``. Installed on its own, the
 ``.[robocasa]`` extra pulls three things on top of the RLinf runtime:
 
 - ``rlinf-robocasa365`` — the simulator, published to PyPI from the
@@ -35,10 +35,15 @@ RoboCasa365 is not part of ``.[full]`` and needs its own virtualenv. The
 
 .. note::
 
-   ``.[robocasa]`` cannot share a virtualenv with ``.[full]``. RLDX-1's
-   backbone imports ``transformers.models.qwen3_vl``, which first appears
-   in transformers 4.57, while ``rlinf-openpi`` requires a 4.53-based
-   transformers fork that does not contain it.
+   RoboCasa365, LIBERO and openpi share one environment. Two changes made
+   that possible: ``rpent-libero`` / ``rpent-liberopro`` port LIBERO to
+   robosuite 1.5, and ``rpent-openpi`` imports its Pi0.5 model code instead
+   of copying it over ``transformers``. Nothing shadows that module now, so
+   one stock transformers 4.57 serves both PaliGemma and RLDX-1's Qwen3-VL
+   backbone.
+
+   ``rlinf-openpi`` and ``rlinf-libero`` are unchanged for RLinf's own use
+   and are not installable alongside RoboCasa365.
 
    LIBERO itself is no longer the obstacle: ``rpent-libero`` and
    ``rpent-liberopro`` are ports to robosuite 1.5, verified to reproduce

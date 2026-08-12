@@ -10,8 +10,8 @@ RoboCasa
 安装
 ----
 
-RoboCasa365 不在 ``.[full]`` 中，需要独立的 virtualenv。``.[robocasa]`` extra
-会在 RLinf runtime 之上额外装三样东西：
+RoboCasa365 已包含在 ``.[full]`` 中。若单独安装，``.[robocasa]`` extra 会在
+RLinf runtime 之上额外装三样东西：
 
 - ``rlinf-robocasa365``\ —— 仿真器本体，由 `RLinf/robocasa
   <https://github.com/RLinf/robocasa/tree/rlinf>`_ 的 ``rlinf`` 分支发布
@@ -30,10 +30,14 @@ RoboCasa365 不在 ``.[full]`` 中，需要独立的 virtualenv。``.[robocasa]`
 
 .. note::
 
-   ``.[robocasa]`` 不能和 ``.[full]`` 共用一个 virtualenv：RLDX-1 的 backbone
-   会 import ``transformers.models.qwen3_vl``\ ，该模块自 transformers 4.57
-   才有，而 ``rlinf-openpi`` 需要基于 4.53 的 transformers fork，其中并不包含
-   它。
+   RoboCasa365、LIBERO 与 openpi 可共用同一个环境。有两处改动使之可行：
+   ``rpent-libero`` / ``rpent-liberopro`` 把 LIBERO 移植到 robosuite 1.5；
+   ``rpent-openpi`` 改为 import 自带的 Pi0.5 模型代码，而不再覆盖
+   ``transformers``\ 。由于不再有任何包遮蔽该模块，一份官方 transformers 4.57
+   即可同时支持 PaliGemma 与 RLDX-1 的 Qwen3-VL backbone。
+
+   ``rlinf-openpi`` 与 ``rlinf-libero`` 保持原样供 RLinf 自身使用，不能与
+   RoboCasa365 共存。
 
    LIBERO 本身已不再是障碍：\ ``rpent-libero`` 与 ``rpent-liberopro`` 是到
    robosuite 1.5 的移植，已验证观测契约与动作空间与 robosuite 1.4 完全一致，

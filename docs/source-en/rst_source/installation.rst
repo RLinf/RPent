@@ -29,7 +29,8 @@ the stack you want:
    pip install -e ".[full]"
 
 ``.[full]`` is the default end-to-end stack — the openpi Pi0.5 VLA, the
-LIBERO-PRO simulator, and SAM 3.0 on top of the RLinf runtime.
+LIBERO-PRO and RoboCasa365 simulators, and SAM 3.0 on top of the RLinf
+runtime.
 
 Available extras:
 
@@ -39,7 +40,7 @@ Available extras:
    * - Extra
      - Installs
    * - ``.[full]``
-     - ``rlinf`` + ``openpi`` + ``libero-pro`` + ``sam3`` — the default run stack
+     - ``rlinf`` + ``openpi`` + ``libero-pro`` + ``robocasa`` + ``sam3`` — the default run stack
    * - ``.[libero-pro]``
      - Base LIBERO + LIBERO-PRO simulator only
    * - ``.[libero-plus]``
@@ -84,8 +85,8 @@ These resources usually need to be downloaded only once;
 3. (Optional) Install the RoboCasa365 stack
 -------------------------------------------
 
-``.[robocasa]`` is a separate virtualenv from ``.[full]`` — see
-:doc:`usage/robocasa` for why. It brings the simulator
+``.[robocasa]`` is already part of ``.[full]``; install it on its own if
+you only want RoboCasa365. It brings the simulator
 (``rlinf-robocasa365``) and the RLDX-1 VLA (``rlinf-rldx``), each of
 which declares its own PyTorch, MuJoCo and NumPy versions — nothing has
 to be installed beforehand. RLDX-1 requires Python ``3.10``.

@@ -37,7 +37,7 @@ LIBERO-PRO 仿真器、SAM 3.0 和 RLinf 运行时。
    * - Extra
      - 安装内容
    * - ``.[full]``
-     - ``rlinf`` + ``openpi`` + ``libero-pro`` + ``sam3`` —— 默认运行组合
+     - ``rlinf`` + ``openpi`` + ``libero-pro`` + ``robocasa`` + ``sam3`` —— 默认运行组合
    * - ``.[libero-pro]``
      - 仅基础 LIBERO + LIBERO-PRO 仿真器
    * - ``.[libero-plus]``
@@ -78,8 +78,8 @@ LIBERO-PRO 仿真器、SAM 3.0 和 RLinf 运行时。
 3. (可选) 安装 RoboCasa365 stack
 ---------------------------------
 
-``.[robocasa]`` 需要与 ``.[full]`` 分开的 virtualenv，原因见
-:doc:`usage/robocasa`\ 。它会装上仿真器（``rlinf-robocasa365``\ ）和 RLDX-1 VLA（``rlinf-rldx``\ ），
+``.[robocasa]`` 已包含在 ``.[full]`` 中；只需要 RoboCasa365 时才单独安装。
+它会装上仿真器（``rlinf-robocasa365``\ ）和 RLDX-1 VLA（``rlinf-rldx``\ ），
 两者各自声明所需的 PyTorch、MuJoCo、NumPy 版本，无需事先手工安装。
 RLDX-1 要求 Python ``3.10``\ 。
 

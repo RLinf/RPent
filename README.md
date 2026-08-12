@@ -91,7 +91,7 @@ git clone https://github.com/RLinf/RPent rpent && cd rpent
 pip install -e ".[full]"
 ```
 
-`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator + SAM 3.0 on the RLinf runtime). RoboCasa365 installs separately via `.[robocasa]`.
+`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO and RoboCasa365 simulators + SAM 3.0 on the RLinf runtime).
 If you don't need the whole stack, see the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for narrower extras.
 
 **2. Download the LIBERO-PRO simulator assets.**
