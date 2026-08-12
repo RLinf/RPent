@@ -83,7 +83,7 @@ full = [
 robocasa = [
     "rpent[rlinf]",
     "rlinf-robocasa365",                              # simulator; declares its own mujoco/numpy/scipy
-    "rlinf-rldx",                                     # VLA; declares its own python/torch/transformers
+    "rlinf-rldx>=1.0.1.post1",                        # VLA; flash-attn optional from this version
     # RoboCasa365 needs robosuite master; the 1.5.2 release lacks the APIs and
     # reports the same version, so no specifier can select it. Pinned to a sha
     # on the RLinf fork, not upstream @master, so the build is reproducible.

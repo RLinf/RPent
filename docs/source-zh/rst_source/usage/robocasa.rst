@@ -11,12 +11,11 @@ RoboCasa
 ----
 
 RoboCasa365 不在 ``.[full]`` 里。``.[robocasa]`` extra 在 RLinf runtime
-之上只额外装两样东西：
+之上额外装三样东西：
 
 - ``rlinf-robocasa365``\ —— 仿真器本体，由 `RLinf/robocasa
   <https://github.com/RLinf/robocasa/tree/rlinf>`_ 的 ``rlinf`` 分支发布
-  到 PyPI。它自带 robosuite、MuJoCo、NumPy、SciPy，因此 RPent 不再重复
-  声明这些版本。该 fork 改造过，让 ``macros_private`` 和 ``assets`` 都从
+  到 PyPI。它自带 MuJoCo、NumPy、SciPy，因此 RPent 不再重复声明这些版本。该 fork 改造过，让 ``macros_private`` 和 ``assets`` 都从
   env var 加载，所以 wheel 安装不需要本地 clone。
 - ``rlinf-rldx``\ —— RLDX-1 VLA 策略，由 `RLinf/RLDX-1
   <https://github.com/RLinf/RLDX-1/tree/rpent>`_ 的 ``rpent`` 分支发布到
@@ -26,8 +25,8 @@ RoboCasa365 不在 ``.[full]`` 里。``.[robocasa]`` extra 在 RLinf runtime
   于 robosuite 开发分支、而 1.5.2 正式版没有的 API（``load_model_on_init``\ 、
   ``ManipulationTask(enable_multiccd=...)`` 以及 ``JOINT_VELOCITY_LEGACY``
   底盘控制器），且 master 的 ``__version__`` 同样是 ``1.5.2``\ ，任何版本约束
-  都无法区分两者。``rlinf-robocasa365`` 会在 import 时检查这些 API，若装成正式
-  版会直接报错并给出修复命令。
+  都无法区分两者。该直链指向 RLinf fork 上的一个固定 commit，而非上游
+  ``@master``\ ，以保证构建可复现。
 
 .. note::
 
@@ -61,45 +60,23 @@ UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple``\ 。
 
 **安装后处理**
 
-装完 ``.[robocasa]`` 后，RoboCasa 还需要 ``macros_private.py`` 和
-厨房 assets 才能运行 ``rpent``:
+一条命令即可生成 ``macros_private.py`` 并下载厨房 assets（约 10 GB）。
+建议放在 ``site-packages`` 之外，这样重装不会丢，也能在多个 venv 间共享：
 
-1. 生成 ``macros_private.py`` 并导出路径:
+.. code-block:: bash
 
-   .. code-block:: bash
+   robocasa-download-assets --assets-path ~/.robocasa/assets -y
 
-      # 默认写到 <repo_root>/.robocasa/macros_private.py
-      export ROBOCASA_MACROS_PATH=$PWD/.robocasa/macros_private.py
-      python -m robocasa.scripts.setup_macros
+命令结束时会打印需要导出的两个环境变量，把它们加到启动 ``rpent`` 的
+shell 里：
 
-   fork 的 ``macros.py`` 在 import 时读 ``$ROBOCASA_MACROS_PATH``，所以
-   任何启动 ``rpent`` 的 shell 都要设这个 env var —— 加到你的
-   ``.bashrc`` / ``.zshrc`` 里。
+.. code-block:: bash
 
-2. 下载厨房 assets（10+ GB），可选地移出 ``site-packages``:
+   export ROBOCASA_MACROS_PATH=~/.robocasa/macros_private.py
+   export ROBOCASA_ASSETS_PATH=~/.robocasa/assets
 
-   .. code-block:: bash
-
-      # 下载到 wheel 自带的 robocasa/models/assets/
-      python -m robocasa.scripts.download_kitchen_assets --type all
-
-      # 可选: 移到外部目录，避免 wheel 重装时丢失，也可跨 venv 共享
-      export ROBOCASA_ASSETS_PATH=$PWD/.robocasa/assets
-      WHEEL_ASSETS=$(python -c "import robocasa; print(robocasa.__path__[0])")/models/assets
-      mkdir -p "$ROBOCASA_ASSETS_PATH"
-      mv "$WHEEL_ASSETS"/* "$ROBOCASA_ASSETS_PATH"/
-
-   不设 ``ROBOCASA_ASSETS_PATH`` 时，robocasa 会 fallback 到 wheel 自带
-   的 ``models/assets/`` —— 光下载就够跑。只有移走了 assets 才需要
-   导出这个 env var。
-
-3. （可选）验证 import 作为 sanity check:
-
-   .. code-block:: bash
-
-      python -c "import robosuite, robocasa; print(robosuite.__version__, robocasa.__path__[0])"
-
-安装时的默认值见 :doc:`../installation`。
+加 ``--skip-existing`` 重跑会跳过已下载的目录；``--no-assets`` 只生成
+macros 文件；``--type`` 下载指定子集；不传 ``--assets-path`` 则装在包内。
 
 **RLDX-1 checkpoint**
 

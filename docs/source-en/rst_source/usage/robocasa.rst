@@ -12,12 +12,12 @@ Installation
 ------------
 
 RoboCasa365 is not part of ``.[full]``. The ``.[robocasa]`` extra pulls
-two things on top of the RLinf runtime:
+three things on top of the RLinf runtime:
 
 - ``rlinf-robocasa365`` — the simulator, published to PyPI from the
   ``rlinf`` branch of `RLinf/robocasa <https://github.com/RLinf/robocasa/tree/rlinf>`_.
-  It brings its own robosuite, MuJoCo, NumPy and SciPy, so RPent does
-  not restate those versions. The fork is patched to load
+  It brings its own MuJoCo, NumPy and SciPy, so RPent does not restate
+  those versions. The fork is patched to load
   ``macros_private`` and ``assets`` from env vars, so the wheel install
   needs no local clone.
 - ``rlinf-rldx`` — the RLDX-1 VLA policy, published to PyPI from the
@@ -30,8 +30,8 @@ two things on top of the RLinf runtime:
   ``ManipulationTask(enable_multiccd=...)`` and the
   ``JOINT_VELOCITY_LEGACY`` mobile-base controller), and master reports
   ``__version__ == "1.5.2"`` as well, so no version specifier can select
-  it. ``rlinf-robocasa365`` checks for those APIs on import and raises an
-  actionable error if the released robosuite is installed instead.
+  it. Pinned to a commit on the RLinf fork rather than upstream
+  ``@master``, so the resolved build is reproducible.
 
 .. note::
 
@@ -64,48 +64,26 @@ extra. RLDX-1 requires Python ``3.10``:
 
 **Post-install setup**
 
-After the ``.[robocasa]`` install, RoboCasa still needs a
-``macros_private.py`` and the kitchen assets before ``rpent`` can
-run:
+One command writes ``macros_private.py`` and downloads the kitchen assets
+(~10 GB). Point it somewhere outside ``site-packages`` so the assets
+survive reinstalls and can be shared between virtualenvs:
 
-1. Generate ``macros_private.py`` and export its path:
+.. code-block:: bash
 
-   .. code-block:: bash
+   robocasa-download-assets --assets-path ~/.robocasa/assets -y
 
-      # Default destination: <repo_root>/.robocasa/macros_private.py
-      export ROBOCASA_MACROS_PATH=$PWD/.robocasa/macros_private.py
-      python -m robocasa.scripts.setup_macros
+It prints the two environment variables to export afterwards; add them to
+the shell that launches ``rpent``:
 
-   The fork's ``macros.py`` reads ``$ROBOCASA_MACROS_PATH`` at import
-   time, so the env var must be set in any shell that launches
-   ``rpent`` — add it to your ``.bashrc`` / ``.zshrc``.
+.. code-block:: bash
 
-2. Download the kitchen assets (10+ GB) and, optionally, relocate
-   them outside ``site-packages``:
+   export ROBOCASA_MACROS_PATH=~/.robocasa/macros_private.py
+   export ROBOCASA_ASSETS_PATH=~/.robocasa/assets
 
-   .. code-block:: bash
-
-      # Downloads into the wheel's bundled robocasa/models/assets/
-      python -m robocasa.scripts.download_kitchen_assets --type all
-
-      # Optional: relocate so assets survive wheel reinstalls and can
-      # be shared across venvs
-      export ROBOCASA_ASSETS_PATH=$PWD/.robocasa/assets
-      WHEEL_ASSETS=$(python -c "import robocasa; print(robocasa.__path__[0])")/models/assets
-      mkdir -p "$ROBOCASA_ASSETS_PATH"
-      mv "$WHEEL_ASSETS"/* "$ROBOCASA_ASSETS_PATH"/
-
-   With ``ROBOCASA_ASSETS_PATH`` unset, robocasa falls back to the
-   wheel's bundled ``models/assets/`` — so the download alone is
-   enough to run. Export the var only if you relocated the files.
-
-3. (Optional) Sanity-check the imports:
-
-   .. code-block:: bash
-
-      python -c "import robosuite, robocasa; print(robosuite.__version__, robocasa.__path__[0])"
-
-See :doc:`../installation` for the install-time defaults.
+Re-running with ``--skip-existing`` leaves already-downloaded folders
+alone. Use ``--no-assets`` to only write the macros file, ``--type`` to
+fetch a subset, and ``--assets-path`` unset to keep everything inside the
+package.
 
 **RLDX-1 checkpoint**
 
