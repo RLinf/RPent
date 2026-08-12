@@ -74,7 +74,7 @@ sam3 = [
     "torchvision",
     "pillow>=10",
 ]
-libero-full = [
+full = [
     "rpent[rlinf,openpi,libero-pro,sam3]",
 ]
 robocasa = [

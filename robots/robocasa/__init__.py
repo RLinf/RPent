@@ -175,7 +175,7 @@ def _spawn_env_server(
             cmd=[
                 sys.executable,
                 str(get_repo_root() / "robots" / "robocasa" / "env_server.py"),
-                "--env", args.task_name,
+                "--task-name", args.task_name,
                 "--split", args.split,
                 "--seed", str(args.seed),
                 "--transport", "http",
