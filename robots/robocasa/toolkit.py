@@ -35,7 +35,7 @@ class RoboCasaToolkit(Toolkit):
         """Create a RoboCasa toolkit, wiring the primitives and tools."""
         state = EnvState(get_output_dir())
         super().__init__(dashboard_events=dashboard_events, state=state)
-        self.init_primitives_clean(primitives_kwargs=primitives_kwargs)
+        self.init_primitives(primitives_kwargs=primitives_kwargs)
         self._register_robocasa_tools()
 
     # ------------------------------------------------------------------
@@ -107,7 +107,7 @@ class RoboCasaToolkit(Toolkit):
             out.update(result)
         return out
 
-    def init_primitives_clean(
+    def init_primitives(
         self,
         *,
         primitives_kwargs: dict[str, Any],
