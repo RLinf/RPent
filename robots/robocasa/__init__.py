@@ -119,9 +119,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
 
     recipe_tag = f"{args.task_name}_{args.split}_s{args.seed}"
     prompt_vars = {
-        "suite": args.split,
-        "task": args.task_name,
-        "env_name": args.task_name,
+        "task_name": args.task_name,
         "split": args.split,
         "seed": args.seed,
         "recipe_tag": recipe_tag,
@@ -137,7 +135,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         recipe_tag=recipe_tag,
         output_dir=output_dir,
         prompt_vars=prompt_vars,
-        task_desc={"env_name": args.task_name, "split": args.split, "seed": args.seed},
+        task_desc={"task_name": args.task_name, "split": args.split, "seed": args.seed},
     )
 
 
@@ -280,7 +278,7 @@ def init_task_runtime(
         env_client = RoboCasaEnvClient(
             env_rpc,
             expected_meta={
-                "env_name": args.task_name,
+                "task_name": args.task_name,
                 "split": args.split,
                 "seed": args.seed,
                 "camera_h": 256,
@@ -388,7 +386,7 @@ def _init_runtime(
         "env_client": RoboCasaEnvClient(
             env_rpc,
             expected_meta={
-                "env_name": args.task_name,
+                "task_name": args.task_name,
                 "split": args.split,
                 "seed": args.seed,
                 "camera_h": 256,
