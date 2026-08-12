@@ -12,7 +12,7 @@ RoboCasa
 
 RoboCasa365 不在 ``.[full]`` 里。``.[robocasa]`` extra 装齐整个 stack
 —— MuJoCo 3.3.1、ARISE-Initiative robosuite fork、pinned lerobot commit、
-protobuf，以及 ``robocasa`` 包本身（从 ``github.com/qurakchin/robocasa``
+protobuf，以及 ``robocasa`` 包本身（从 ``github.com/rlinf/robocasa``
 fork 的 ``v1.0.1_rlinf`` 分支装的 wheel）。fork 改造过，让
 ``macros_private`` 和 ``assets`` 都从 env var 加载，所以非 editable 的
 wheel 装也能用，不需要本地 clone。

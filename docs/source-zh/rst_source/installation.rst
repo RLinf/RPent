@@ -80,7 +80,7 @@ LIBERO-PRO 仿真器、SAM 3.0 和 RLinf 运行时。
 
 ``.[robocasa]`` extra 装齐整个 RoboCasa365 stack —— MuJoCo 3.3.1、
 ARISE-Initiative robosuite fork、pinned lerobot commit、protobuf，
-以及 ``robocasa`` 包本身（从 ``github.com/qurakchin/robocasa`` fork
+以及 ``robocasa`` 包本身（从 ``github.com/rlinf/robocasa`` fork
 的 ``v1.0.1_rlinf`` 分支装的 wheel）。RLDX-1 需要特定版本的
 PyTorch / torchvision / flash-attn 在 extra **之前** 装好，还要做
 安装后处理（macros、厨房 assets、env vars）并下一个
