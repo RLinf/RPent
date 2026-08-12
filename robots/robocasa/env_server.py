@@ -48,7 +48,7 @@ def _split_kwargs(split):
 class RoboCasaEnvFacade(RpcFacade):
     """Wraps the raw robosuite env and exposes ONLY basic calls via RPC."""
 
-    def __init__(self, env_name, split="target", seed=0, camera_h=256, camera_w=256,
+    def __init__(self, task_name, split="target", seed=0, camera_h=256, camera_w=256,
                  cameras=None, use_camera_obs=False):
         super().__init__()
         import robosuite
@@ -56,7 +56,7 @@ class RoboCasaEnvFacade(RpcFacade):
         import robosuite.utils.camera_utils as CU
         from robosuite.controllers import load_composite_controller_config
 
-        self.env_name = env_name
+        self.task_name = task_name
         self.split = split
         self.seed = seed
         self.cameras = list(cameras) if cameras else list(DEFAULT_CAMS)
@@ -66,7 +66,7 @@ class RoboCasaEnvFacade(RpcFacade):
 
         controller_config = load_composite_controller_config(controller=None, robot="PandaOmron")
         env_kwargs = dict(
-            env_name=env_name,
+            env_name=task_name,
             robots="PandaOmron",
             controller_configs=controller_config,
             camera_names=self.cameras,
@@ -83,7 +83,7 @@ class RoboCasaEnvFacade(RpcFacade):
         )
         self.env = robosuite.make(**env_kwargs)
         self._meta = {
-            "env_name": self.env_name,
+            "task_name": self.task_name,
             "split": self.split,
             "seed": self.seed,
             "camera_h": self.camera_h,
@@ -385,7 +385,7 @@ def main():
     p.add_argument("--cuda-device", type=int, default=None,
                    help="GPU device to pin MuJoCo EGL rendering and the torch "
                         "default device to (physical CUDA ordinal).")
-    p.add_argument("--env", dest="env_name", default="OpenDrawer")
+    p.add_argument("--task-name", default="OpenDrawer")
     p.add_argument("--split", default="target")
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
@@ -416,7 +416,7 @@ def main():
         torch.cuda.set_device(args.cuda_device)
 
     facade = RoboCasaEnvFacade(
-        args.env_name,
+        args.task_name,
         split=args.split,
         seed=args.seed,
     )
