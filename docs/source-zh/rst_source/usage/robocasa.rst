@@ -10,8 +10,8 @@ RoboCasa
 安装
 ----
 
-RoboCasa365 不在 ``.[full]`` 里。``.[robocasa]`` extra 在 RLinf runtime
-之上额外装三样东西：
+RoboCasa365 已包含在 ``.[full]`` 中。若单独安装，``.[robocasa]`` extra 会在
+RLinf runtime 之上额外装三样东西：
 
 - ``rlinf-robocasa365``\ —— 仿真器本体，由 `RLinf/robocasa
   <https://github.com/RLinf/robocasa/tree/rlinf>`_ 的 ``rlinf`` 分支发布
@@ -30,9 +30,11 @@ RoboCasa365 不在 ``.[full]`` 里。``.[robocasa]`` extra 在 RLinf runtime
 
 .. note::
 
-   ``.[robocasa]`` 需要独立的 virtualenv，不能和 LIBERO 系列 extra 共用：
-   RoboCasa365 的 composite controller 需要 ``robosuite>=1.5.2``\ ，而
-   ``rlinf-libero`` 要求 ``robosuite<1.5``\ ，两者无法同时解析。
+   RoboCasa365 与 LIBERO 现在可以共用同一个环境：两者都跑在 robosuite 1.5 上。
+   ``rpent-libero`` 和 ``rpent-liberopro`` 是 LIBERO / LIBERO-PRO 到该版本的
+   移植，已验证其观测契约与动作空间与 robosuite 1.4 完全一致。
+   ``rlinf-libero`` 仍停留在 robosuite 1.4 供 RLinf 自身使用，不能与
+   RoboCasa365 共存。
 
 包括 PyTorch 和 robosuite 在内的所有依赖都由 extra 负责安装。RLDX-1
 要求 Python ``3.10``\ ：

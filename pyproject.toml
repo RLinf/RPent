@@ -57,7 +57,9 @@ openpi = [
     "rlinf-openpi",
 ]
 libero = [
-    "rlinf-libero",
+    # rpent-libero is LIBERO on robosuite 1.5, so it can share an environment
+    # with RoboCasa365. rlinf-libero stays on 1.4 for RLinf's own use.
+    "rpent-libero>=0.2.0",
     "h5py",
 ]
 libero-pro = [
@@ -75,10 +77,7 @@ sam3 = [
     "pillow>=10",
 ]
 full = [
-    # robocasa is deliberately not here: rpent-liberopro requires
-    # robosuite>=1.4.0,<1.5.0 and RoboCasa365 requires >=1.5.2, so the two
-    # cannot resolve together. Install .[robocasa] in its own venv.
-    "rpent[rlinf,openpi,libero-pro,sam3]",
+    "rpent[rlinf,openpi,libero-pro,sam3,robocasa]",
 ]
 robocasa = [
     "rpent[rlinf]",

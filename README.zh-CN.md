@@ -159,14 +159,15 @@ rpent --env libero --dashboard --dashboard-language zh-cn \
 
 ### RoboCasa
 
-RoboCasa 使用独立入口与安装指南。
-
 ```bash
-bash scripts/setup_robocasa.sh                                # 一次性安装
-bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <种子>
+robocasa-download-assets --assets-path ~/.robocasa/assets -y   # 一次性安装 assets
+
+rpent --env robocasa --robocasa-env PickPlaceCounterToCabinet \
+  --robocasa-seed 0 --vla-model-path /path/to/rldx \
+  --planner claude_code --model claude-opus-4-8
 ```
 
-完整的 RoboCasa365 + RLDX-1 部署流程见 [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md)。
+完整的 RoboCasa365 + RLDX-1 部署流程见 [RoboCasa 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
 
 更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
 

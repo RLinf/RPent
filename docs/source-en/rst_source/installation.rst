@@ -28,8 +28,9 @@ the stack you want:
    git clone https://github.com/RLinf/RPent rpent && cd rpent
    pip install -e ".[full]"
 
-``.[full]`` is the default end-to-end stack — the openpi Pi0.5 VLA,
-the LIBERO-PRO simulator, and SAM 3.0 on top of the RLinf runtime.
+``.[full]`` is the default end-to-end stack — the openpi Pi0.5 VLA, the
+LIBERO-PRO and RoboCasa365 simulators, and SAM 3.0 on top of the RLinf
+runtime.
 
 Available extras:
 
@@ -39,7 +40,7 @@ Available extras:
    * - Extra
      - Installs
    * - ``.[full]``
-     - ``rlinf`` + ``openpi`` + ``libero-pro`` + ``sam3`` — the default run stack
+     - ``rlinf`` + ``openpi`` + ``libero-pro`` + ``robocasa`` + ``sam3`` — the default run stack
    * - ``.[libero-pro]``
      - Base LIBERO + LIBERO-PRO simulator only
    * - ``.[libero-plus]``
@@ -51,7 +52,7 @@ Available extras:
    * - ``.[rlinf]``
      - RLinf runtime only
    * - ``.[robocasa]``
-     - RLinf + RoboCasa365 simulator
+     - RLinf + RoboCasa365 simulator + the RLDX-1 VLA
    * - ``.[sam3]``
      - SAM 3.0 only
 
@@ -84,14 +85,15 @@ These resources usually need to be downloaded only once;
 3. (Optional) Install the RoboCasa365 stack
 -------------------------------------------
 
-The ``.[robocasa]`` extra installs the full RoboCasa365 stack — MuJoCo
-3.3.1, the ARISE-Initiative robosuite fork, the pinned lerobot commit,
-protobuf, and the ``robocasa`` package itself (a wheel from the
-``github.com/qurakchin/robocasa`` fork, branch ``v1.0.1_rlinf``).
-RLDX-1 needs specific PyTorch / torchvision / flash-attn versions
-installed **before** the extra, plus a post-install setup (macros,
-kitchen assets, env vars) and an ``RLDX-1-FT-RC365`` checkpoint. See
-:doc:`usage/robocasa` for the full walkthrough.
+``.[robocasa]`` is already part of ``.[full]``; install it on its own if
+you only want RoboCasa365. It brings the simulator
+(``rlinf-robocasa365``) and the RLDX-1 VLA (``rlinf-rldx``), each of
+which declares its own PyTorch, MuJoCo and NumPy versions — nothing has
+to be installed beforehand. RLDX-1 requires Python ``3.10``.
+
+Afterwards, ``robocasa-download-assets`` writes ``macros_private.py``
+and fetches the kitchen assets, and the ``RLDX-1-FT-RC365`` checkpoint
+is downloaded separately. See :doc:`usage/robocasa` for the walkthrough.
 
 .. code-block:: bash
 

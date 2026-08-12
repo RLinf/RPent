@@ -11,8 +11,8 @@ for the wire/transport selection.
 Installation
 ------------
 
-RoboCasa365 is not part of ``.[full]``. The ``.[robocasa]`` extra pulls
-three things on top of the RLinf runtime:
+RoboCasa365 is included in ``.[full]``. Installed on its own, the
+``.[robocasa]`` extra pulls three things on top of the RLinf runtime:
 
 - ``rlinf-robocasa365`` — the simulator, published to PyPI from the
   ``rlinf`` branch of `RLinf/robocasa <https://github.com/RLinf/robocasa/tree/rlinf>`_.
@@ -35,10 +35,12 @@ three things on top of the RLinf runtime:
 
 .. note::
 
-   ``.[robocasa]`` needs its own virtualenv — it cannot share one with
-   the LIBERO extras. RoboCasa365 requires ``robosuite>=1.5.2`` for the
-   composite controllers, while ``rlinf-libero`` requires
-   ``robosuite<1.5``; the two cannot be resolved together.
+   RoboCasa365 and LIBERO can now share one environment. Both run on
+   robosuite 1.5: ``rpent-libero`` and ``rpent-liberopro`` are ports of
+   LIBERO and LIBERO-PRO to that version, verified to reproduce the
+   robosuite 1.4 observation contract and action space exactly.
+   ``rlinf-libero`` stays on robosuite 1.4 for RLinf's own use and is not
+   installable alongside RoboCasa365.
 
 Everything, including PyTorch and the robosuite pin, comes from the
 extra. RLDX-1 requires Python ``3.10``:
