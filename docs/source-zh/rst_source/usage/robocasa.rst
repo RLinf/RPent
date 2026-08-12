@@ -159,7 +159,7 @@ RPent 用的 50 个任务分三组:
   ``SeparateFreezerRack``、``WaffleReheat``、``WashFruitColander``、
   ``WeighIngredients``。
 
-任选一个传给 ``--robocasa-env`` 即可。RoboCasa 完整目录更大，参见
+任选一个传给 ``--task-name`` 即可。RoboCasa 完整目录更大，参见
 `RoboCasa <https://robocasa.ai>`_ 上游。
 
 运行一个任务
@@ -171,9 +171,9 @@ RoboCasa 的 CLI 参数由 ``robots/robocasa/__init__`` 注册，可通过
 .. code-block:: bash
 
    rpent --env robocasa \
-         --robocasa-env OpenDrawer \
-         --robocasa-split target \
-         --robocasa-seed 0 \
+         --task-name OpenDrawer \
+         --split target \
+         --seed 0 \
          --vla-model-path /path/to/rldx \
          --planner claude_code \
          --model claude-opus-4-8

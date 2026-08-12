@@ -30,12 +30,12 @@ ROBOCASA_DASHBOARD_SPEC = {
         "command": "/rpent-task",
         "usage": "/rpent-task <env> <split> <seed>",
         "fields": (
-            {"name": "robocasa_env"},
-            {"name": "robocasa_split", "suggestions": ("target", "pretrain", "all")},
-            {"name": "robocasa_seed", "kind": "integer", "minimum": 0},
+            {"name": "task_name"},
+            {"name": "split", "suggestions": ("target", "pretrain", "all")},
+            {"name": "seed", "kind": "integer", "minimum": 0},
         ),
-        "display": "{robocasa_env} / {robocasa_split} / seed {robocasa_seed}",
-        "output_slug": "{robocasa_env}_{robocasa_split}_s{robocasa_seed}",
+        "display": "{task_name} / {split} / seed {seed}",
+        "output_slug": "{task_name}_{split}_s{seed}",
     },
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "task"},
@@ -94,12 +94,12 @@ def get_toolkit(
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """Register RoboCasa CLI flags on the shared ``parser``."""
     required = not use_dashboard
-    parser.add_argument("--robocasa-env", default=None, required=required,
+    parser.add_argument("--task-name", default=None, required=required,
                         help="RoboCasa task name, e.g. OpenDrawer")
-    parser.add_argument("--robocasa-split", default="target",
+    parser.add_argument("--split", default="target",
                         choices=["target", "pretrain", "all"],
                         help="RoboCasa data split (default: target)")
-    parser.add_argument("--robocasa-seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--hi-res", type=int, default=0,
                         help="Hi-res agentview resolution (0=off)")
     parser.add_argument("--env-endpoint", default=None,
@@ -114,30 +114,30 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     """Validate final ``args`` and derive per-run identifiers."""
-    if not args.robocasa_env:
-        raise ValueError("--robocasa-env is required")
+    if not args.task_name:
+        raise ValueError("--task-name is required")
 
-    recipe_tag = f"{args.robocasa_env}_{args.robocasa_split}_s{args.robocasa_seed}"
+    recipe_tag = f"{args.task_name}_{args.split}_s{args.seed}"
     prompt_vars = {
-        "suite": args.robocasa_split,
-        "task": args.robocasa_env,
-        "env_name": args.robocasa_env,
-        "split": args.robocasa_split,
-        "seed": args.robocasa_seed,
+        "suite": args.split,
+        "task": args.task_name,
+        "env_name": args.task_name,
+        "split": args.split,
+        "seed": args.seed,
         "recipe_tag": recipe_tag,
     }
 
     output_dir = args.output_dir
     if output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
-        output_dir = get_repo_root() / "logs" / f"{timestamp}_{args.robocasa_env}_{args.robocasa_split}_s{args.robocasa_seed}"
+        output_dir = get_repo_root() / "logs" / f"{timestamp}_{args.task_name}_{args.split}_s{args.seed}"
     output_dir = Path(output_dir)
 
     return RunConfig(
         recipe_tag=recipe_tag,
         output_dir=output_dir,
         prompt_vars=prompt_vars,
-        task_desc={"env_name": args.robocasa_env, "split": args.robocasa_split, "seed": args.robocasa_seed},
+        task_desc={"env_name": args.task_name, "split": args.split, "seed": args.seed},
     )
 
 
@@ -177,9 +177,9 @@ def _spawn_env_server(
             cmd=[
                 sys.executable,
                 str(get_repo_root() / "robots" / "robocasa" / "env_server.py"),
-                "--env", args.robocasa_env,
-                "--split", args.robocasa_split,
-                "--seed", str(args.robocasa_seed),
+                "--env", args.task_name,
+                "--split", args.split,
+                "--seed", str(args.seed),
                 "--transport", "http",
                 "--host", host,
                 "--port", str(port),
@@ -280,9 +280,9 @@ def init_task_runtime(
         env_client = RoboCasaEnvClient(
             env_rpc,
             expected_meta={
-                "env_name": args.robocasa_env,
-                "split": args.robocasa_split,
-                "seed": args.robocasa_seed,
+                "env_name": args.task_name,
+                "split": args.split,
+                "seed": args.seed,
                 "camera_h": 256,
                 "camera_w": 256,
             },
@@ -388,9 +388,9 @@ def _init_runtime(
         "env_client": RoboCasaEnvClient(
             env_rpc,
             expected_meta={
-                "env_name": args.robocasa_env,
-                "split": args.robocasa_split,
-                "seed": args.robocasa_seed,
+                "env_name": args.task_name,
+                "split": args.split,
+                "seed": args.seed,
                 "camera_h": 256,
                 "camera_w": 256,
             },
