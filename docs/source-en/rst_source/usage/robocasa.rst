@@ -14,7 +14,7 @@ Installation
 RoboCasa365 is not part of ``.[full]``. The ``.[robocasa]`` extra pulls
 the full stack — MuJoCo 3.3.1, the ARISE-Initiative robosuite fork, the
 pinned lerobot commit, protobuf, and the ``robocasa`` package itself
-(a wheel from the ``github.com/qurakchin/robocasa`` fork, branch
+(a wheel from the ``github.com/rlinf/robocasa`` fork, branch
 ``v1.0.1_rlinf``). The fork is patched to load ``macros_private`` and
 ``assets`` from env vars, so a non-editable wheel install works — no
 local clone needed.

@@ -87,8 +87,8 @@ robocasa = [
     "transformers==4.57.0",                           # RLDX-1 requirement
     "lerobot @ git+https://github.com/huggingface/lerobot.git@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5",
     "robosuite @ git+https://github.com/ARISE-Initiative/robosuite.git@master",
-    "rinf-robocasa @ git+https://github.com/qurakchin/robocasa.git@v1.0.1_rlinf",
-    "rldx @ git+https://github.com/qurakchin/RLDX-1.git@24fe332973c0ef1278f6c1de4a4a2cdb92fa6906",
+    "rinf-robocasa @ git+https://github.com/rlinf/robocasa.git@v1.0.1_rlinf",
+    "rldx @ git+https://github.com/rlinf/RLDX-1.git@24fe332973c0ef1278f6c1de4a4a2cdb92fa6906",
 ]
 
 [tool.uv]
