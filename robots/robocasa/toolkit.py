@@ -44,8 +44,8 @@ class RoboCasaToolkit(Toolkit):
     def _register_robocasa_tools(self) -> None:
         # Stateless perception tools: bind a state= kwarg via partial.
         state_handlers = {
-            "view_driver_state": partial(
-                robocasa_tools.view_driver_state, state=self._state
+            "view_env_state": partial(
+                robocasa_tools.view_env_state, state=self._state
             ),
             "view_camera_meta": partial(
                 robocasa_tools.view_camera_meta, state=self._state
@@ -101,7 +101,7 @@ class RoboCasaToolkit(Toolkit):
                     record.step_idx,
                     e,
                 )
-        out = robocasa_tools.view_driver_state(record.step_idx, state=self._state)
+        out = robocasa_tools.view_env_state(record.step_idx, state=self._state)
         out["agent_elapsed_s"] = elapsed_s
         if result.get("interrupted"):
             out.update(result)

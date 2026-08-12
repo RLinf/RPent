@@ -413,7 +413,7 @@ TOOLS_SPEC = [
     # Perception tools (6) — module-level @readonly handlers
     # ======================================================================
     {
-        "name": "view_driver_state",
+        "name": "view_env_state",
         "description": (
             "Read step NN from states.json + the matching state images "
             "in the output dir. If step is null, returns the latest entry. "
@@ -766,7 +766,7 @@ def _prune_heavy_artifacts(
 
 
 @readonly
-def view_driver_state(step: int | None = None, *, state: EnvState) -> dict:
+def view_env_state(step: int | None = None, *, state: EnvState) -> dict:
     """Read one recorded state with embedded camera / navview / wrist images."""
     try:
         record = state.get(step if step is not None else -1)

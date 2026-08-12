@@ -51,9 +51,7 @@ Once the prerequisites above are installed, run the main install:
 
 .. code-block:: bash
 
-   # uv sees the flash-attn wheel from above as satisfying the
-   # `flash-attn==2.7.4.post1` pin in pyproject.toml (PEP 440 `==`
-   # ignores the local-version segment) and skips re-fetch.
+   # uv reuses the flash-attn wheel installed above — no rebuild.
    uv pip install -e ".[robocasa]"
 
 **Note**: The prebuilt flash-attn wheel ships SM_80 and SM_90 kernels
@@ -115,13 +113,13 @@ fine-tune). Download it from HuggingFace:
 
 .. code-block:: bash
 
-   huggingface-cli download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
+   hf download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
 
 If the download is slow, use the HF mirror:
 
 .. code-block:: bash
 
-   HF_ENDPOINT=https://hf-mirror.com huggingface-cli download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
+   HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
 
 Available task list
 -------------------

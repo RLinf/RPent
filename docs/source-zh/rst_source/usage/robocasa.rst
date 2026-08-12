@@ -1,7 +1,7 @@
 RoboCasa
 ========
 
-`RoboCasa <https://robocasa.ai>`_ 是厨房尺度、长时序的操作 environment。
+`RoboCasa <https://robocasa.ai>`_ 是面向厨房场景的长时序操作仿真环境。
 在 RPent 中由 **RLDX-1** VLA 策略驱动，默认通过 HTTP RPC 提供服务
 （与 LIBERO 一致），也支持 pickle-framed socket 传输。详见
 ``robots/robocasa/vla_server.py`` 与 ``robots/robocasa/__init__.py``
@@ -10,20 +10,20 @@ RoboCasa
 安装
 ----
 
-RoboCasa365 不在 ``.[full]`` 里。``.[robocasa]`` extra 装齐整个 stack
-—— MuJoCo 3.3.1、ARISE-Initiative robosuite fork、pinned lerobot commit、
-protobuf，以及 ``robocasa`` 包本身（从 ``github.com/rlinf/robocasa``
+RoboCasa365 不在 ``.[full]`` 里。``.[robocasa]`` 这一依赖组合会装好
+整套 stack —— MuJoCo 3.3.1、ARISE-Initiative robosuite fork、pinned lerobot
+commit、protobuf，以及 ``robocasa`` 包本身（从 ``github.com/rlinf/robocasa``
 fork 的 ``v1.0.1_rlinf`` 分支装的 wheel）。fork 改造过，让
 ``macros_private`` 和 ``assets`` 都从 env var 加载，所以非 editable 的
 wheel 装也能用，不需要本地 clone。
 
 **前置依赖 —— Python、PyTorch、torchvision、flash-attn**
 
-RLDX-1 硬 pin 了这些版本：Python ``3.10.*``、``torch==2.7.0``、
+RLDX-1 对这些版本有严格要求：Python ``3.10.*``、``torch==2.7.0``、
 ``torchvision==0.22.0``、``transformers==4.57.0``、
 ``flash-attn==2.7.4.post1``。下面的步骤是推荐路径 —— PyTorch、
 torchvision、flash-attn 可通过任意工具安装（uv、pip、conda、系统包
-等），版本须匹配上述 pin。最后运行主 ``.[robocasa]`` 安装命令，把
+等），版本须与上述一致。最后运行主 ``.[robocasa]`` 安装命令，把
 stack 剩下的部分装齐。
 
 **国内镜像**
@@ -63,9 +63,7 @@ GitHub release wheel 可用 ``ghfast.top`` 反代加速。
 
 .. code-block:: bash
 
-   # uv 会把上面装上的 flash-attn wheel 当作满足 pyproject.toml 里的
-   # `flash-attn==2.7.4.post1` pin (PEP 440 的 == 忽略 local version
-   # segment)，跳过重新拉取。
+   # uv 会复用上面装好的 flash-attn wheel，不会重新编译。
    uv pip install -e ".[robocasa]"
 
 **注意**: flash-attn 预编译 wheel 只带 SM_80 和 SM_90 kernel —— 在
@@ -107,7 +105,7 @@ Ampere/Hopper 上能 import 但在 Blackwell (``sm_120``) 上会崩。RTX 5090
    的 ``models/assets/`` —— 光下载就够跑。只有移走了 assets 才需要
    导出这个 env var。
 
-3. （可选）验证 import 作为 sanity check:
+3. （可选）检查依赖是否可以正常导入:
 
    .. code-block:: bash
 
@@ -122,13 +120,13 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
 
 .. code-block:: bash
 
-   huggingface-cli download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
+   hf download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
 
 下载慢的话用 HF 镜像:
 
 .. code-block:: bash
 
-   HF_ENDPOINT=https://hf-mirror.com huggingface-cli download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
+   HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
 
 可用任务列表
 ------------
@@ -186,8 +184,8 @@ RoboCasa 的 CLI 参数由 ``robots/robocasa/__init__`` 注册，可通过
 Toolkit 与 LIBERO 的差异
 ------------------------
 
-RoboCasa toolkit 的工具 *形状* 和 LIBERO 相同 (一次原语调用、
-一次状态查看、一次 ``finish``), 但有两处是 RoboCasa 特有的:
+RoboCasa toolkit 提供的工具 *形式* 与 LIBERO 相同（一次原语调用、
+一次状态查看、一次 ``finish``），但有两处 RoboCasa 特有的差异:
 
 - **Env 侧的辅助方法。** 抓取检测与动作组装需要活着的仿真 env, 所以
   它们是 env_server 的 RPC。Agent 侧的 skill 因此同时持有 **两个**

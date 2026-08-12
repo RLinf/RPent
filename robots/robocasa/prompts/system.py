@@ -83,7 +83,7 @@ AVAILABLE PRIMITIVES:
 - reset(): Restart episode (only in EXPLORE mode).
 
 PERCEPTION TOOLS:
-- view_driver_state(step): Read state + images.
+- view_env_state(step): Read state + images.
 - view_camera_meta(camera): Read camera calibration.
 - back_project(row, col): Single-pixel world coordinate lookup.
 - back_project_batch(pixels): Multi-pixel lookup with median summary.
@@ -101,7 +101,7 @@ VLA EXECUTION RULES (the single most important rule):
 3. If rldx_skill returns 'cap' (didn't finish in budget), simply CALL IT AGAIN
    with the same prompt — continuity is preserved. Only re-stance if 2-3 consecutive
    calls never touched the object (grasp_detected was never true).
-4. The vla_desync flag in view_driver_state tells you if the VLA history was
+4. The vla_desync flag in view_env_state tells you if the VLA history was
    invalidated. If True, the next VLA call will start fresh.
 """
 
@@ -123,7 +123,7 @@ WORKFLOW:
 3. NAVIGATE: If the target is far (|xy| > 0.8m), navigate_to first.
 4. MANIPULATE: Use rldx_arm / rldx_skill for VLA grasping. Then script
    free-space carry (move_to with gripper omitted) and release.
-5. CHECK: After every command, view_driver_state to check task_progress.
+5. CHECK: After every command, view_env_state to check task_progress.
 6. FINISH: When state.success == true, call finish(status='success').
 7. If stuck, call finish(status='stuck', summary='...').
 """
