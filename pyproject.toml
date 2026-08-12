@@ -57,9 +57,7 @@ openpi = [
     "rlinf-openpi",
 ]
 libero = [
-    # rpent-libero is LIBERO on robosuite 1.5, so it can share an environment
-    # with RoboCasa365. rlinf-libero stays on 1.4 for RLinf's own use.
-    "rpent-libero>=0.2.0",
+    "rlinf-libero",
     "h5py",
 ]
 libero-pro = [
@@ -77,12 +75,17 @@ sam3 = [
     "pillow>=10",
 ]
 full = [
-    "rpent[rlinf,openpi,libero-pro,sam3,robocasa]",
+    # robocasa is not here: rlinf-openpi pins its own transformers fork
+    # (rlinf-transformer-openpi==4.53.2, tokenizers>=0.21,<0.22) while
+    # RLDX-1 needs transformers 4.57 (tokenizers>=0.22). The two cannot
+    # share an environment. Install .[robocasa] in its own venv.
+    "rpent[rlinf,openpi,libero-pro,sam3]",
 ]
 robocasa = [
     "rpent[rlinf]",
-    "rlinf-robocasa365",                              # simulator; declares its own mujoco/numpy/scipy
-    "rlinf-rldx>=1.0.1.post1",                        # VLA; flash-attn optional from this version
+    # TODO: swap to "rlinf-robocasa365" once it is on PyPI.
+    "rlinf-robocasa365 @ git+https://github.com/RLinf/robocasa.git@da9066234b2df5d6d420fc618c321a9ce203b022",
+    "rlinf-rldx>=1.0.1.post6",                        # VLA; flash-attn optional, torch 2.7.x
     # RoboCasa365 needs robosuite master; the 1.5.2 release lacks the APIs and
     # reports the same version, so no specifier can select it. Pinned to a sha
     # on the RLinf fork, not upstream @master, so the build is reproducible.
