@@ -287,10 +287,11 @@ class Sam3Facade(RpcFacade):
         super().__init__()
         self._engine = engine
 
-    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if method == "segment":
-            return self.segment(*args, **kwargs)
-        raise ValueError(f"unknown RPC method: {method!r}")
+    def _dispatch(self, method: str, args: tuple, kwargs: dict, *, session_id: str | None = None) -> Any:
+        with self._lock:
+            if method == "segment":
+                return self.segment(*args, **kwargs)
+            raise ValueError(f"unknown RPC method: {method!r}")
 
     def segment(
         self,
@@ -355,8 +356,12 @@ def main() -> None:
         )
     engine = Sam3Engine.load(checkpoint)
     facade = Sam3Facade(engine)
-    facade.serve(transport=args.transport, host=args.host, port=args.port,
-                 parent_watch=args.parent_watch)
+    facade.serve(
+        transport=args.transport,
+        host=args.host,
+        port=args.port,
+        parent_watch=args.parent_watch,
+    )
 
 
 if __name__ == "__main__":

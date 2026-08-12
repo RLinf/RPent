@@ -7,6 +7,7 @@ import queue
 import re
 import threading
 import traceback
+from typing import Any
 import numpy as np
 
 from rpent.tools.env_facade_base import BaseEnvFacade
@@ -325,21 +326,28 @@ class RoboCasaEnvFacade(BaseEnvFacade):
             while (item := work_queue.get()) is not None:
                 event, req = item
                 try:
-                    req["result"] = self._dispatch(req["method"], req["args"], req["kwargs"])
+                    req["result"] = self._dispatch(
+                        req["method"], req["args"], req["kwargs"],
+                        session_id=req["session_id"],
+                    )
                 except Exception:
                     req["error"] = traceback.format_exc()
                 event.set()
 
         threading.Thread(target=render_loop, name="egl-render", daemon=True).start()
 
-        def dispatch(method, args, kwargs):
+        def dispatch(method, args, kwargs, *, session_id=None):
             if method == "healthz":
                 return {"status": "ok"}
             if method == "shutdown":
                 self._shutdown_event.set()
                 return {"ok": True}
             event = threading.Event()
-            req = {"method": method, "args": args, "kwargs": kwargs, "result": None, "error": None}
+            req = {
+                "method": method, "args": args, "kwargs": kwargs,
+                "session_id": session_id,
+                "result": None, "error": None,
+            }
             work_queue.put((event, req))
             event.wait()
             if req["error"]:
