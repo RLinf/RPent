@@ -142,9 +142,14 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的机器
 
 在 ``env_server`` 中定义与 client API 对应的 facade 类，例如
 ``MyEnvFacade``。该类继承 :class:`rpent.utils.rpc.RpcFacade`，实现
-``_dispatch(method, args, kwargs)``，将 ``env.*`` 请求分派给对应方法，再通过
-``self.serve(...)`` 启动服务。方法接收与 client 一致的位置参数和关键字参数，
-返回可 pickle 的值（使用 numpy，不要返回 torch；agent 进程不导入 torch）。
+``_dispatch(method, args, kwargs, *, session_id=None)``，将 ``env.*`` 请求
+分派给对应方法，再通过 ``self.serve(...)`` 启动服务。方法接收与 client 一致
+的位置参数和关键字参数，返回可 pickle 的值（使用 numpy，不要返回 torch；
+agent 进程不导入 torch）。
+
+``session_id`` 关键字对 env server 来说始终是 ``None``（env server 不做按
+client 的状态隔离），但**必须**写在签名里，base class 才能把该参数透传过来。
+何时需要启用 sessions 见下方 :ref:`add-robot-sessions-zh`。
 
 .. code-block:: python
 
@@ -152,14 +157,18 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的机器
 
    class MyEnvFacade(RpcFacade):
        def __init__(self, env, meta):
-           super().__init__()
+           super().__init__()  # enable_sessions=False 是默认
            self._env = env
            self._meta = meta
 
-       def _dispatch(self, method, args, kwargs):
-           if method.startswith("env."):
-               return getattr(self, method[len("env."):])(*args, **kwargs)
-           raise ValueError(f"unknown RPC method: {method!r}")
+       def _dispatch(self, method, args, kwargs, *, session_id=None):
+           # subclass 必须用 self._lock 包住 dispatch 体 ——
+           # ThreadingHTTPServer 会把每个请求派到独立线程，而绝大多数 env
+           # server 访问的是单个子进程 worker / EGL context，并发不安全。
+           with self._lock:
+               if method.startswith("env."):
+                   return getattr(self, method[len("env."):])(*args, **kwargs)
+               raise ValueError(f"unknown RPC method: {method!r}")
 
        def reset(self): ...
        def step(self, action): ...
@@ -169,6 +178,65 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的机器
 
 ``RpcFacade.serve`` 负责绑定传输方式（HTTP 或 socket）、提供 ``healthz`` 和
 ``shutdown`` 方法、检测父进程退出并执行资源清理；这里只需实现业务方法。
+
+.. _add-robot-sessions-zh:
+
+1.3 按 client 隔离的 session（可选）
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+当 server 持有需要按 client 隔离的状态时启用 session —— 例如带 RLDX
+memory/RTC buffer 的 VLA server，两个 agent 共用一个 server 时不能让各自的
+policy state 串话。无状态的 env server 不要开。
+
+Server 侧 —— 在 ``__init__`` 传 ``enable_sessions=True``，并在 :meth:`serve`
+传正数 ``session_sweep_s``。重写 :meth:`_on_session_drop`，在 session close
+或 idle 过期时清理该 client 的状态：
+
+.. code-block:: python
+
+   class MyVLAFacade(RpcFacade):
+       def __init__(self, model_path):
+           super().__init__(enable_sessions=True,
+                            session_timeout_s=3600.0)
+           self._model = load_model(model_path)
+
+       def _dispatch(self, method, args, kwargs, *, session_id=None):
+           with self._lock:
+               # 需要 sid 的业务方法显式接收；其他方法忽略它。
+               if method == "env.predict":
+                   return self.predict(*args, session_id=session_id, **kwargs)
+               raise ValueError(f"unknown RPC method: {method!r}")
+
+       def predict(self, obs, *, session_id):
+           # 由 server 注入 sid，caller 永远不传。
+           return self._model.predict(obs, session_ids=[session_id])
+
+       def _on_session_drop(self, session_id):
+           # 在 session.close RPC（client atexit）和 idle 过期被 sweep 线程
+           # 删除时都会触发。
+           self._model.reset(session_ids=[session_id])
+
+       def serve(self, ...):
+           super().serve(..., session_sweep_s=60.0)
+
+Client 侧 —— 构造 transport 时传 ``enable_sessions=True``，client 会自动
+生成私有 session id、在连接时通过 :func:`wait_for_ready` 注册、每次调用都
+带上、进程退出时关闭：
+
+.. code-block:: python
+
+   from rpent.utils.http_rpc import HttpRpcClient
+   from rpent.utils.rpc import wait_for_ready
+
+   rpc = HttpRpcClient(f"http://{host}:{port}", enable_sessions=True)
+   wait_for_ready(rpc, daemon=vla_daemon)
+   # sid 对 client 私有，业务代码看不到。
+
+启用 session 后，base ``dispatch`` 会拒绝 ``session_id is None`` 的业务调用
+（抛 ``RpcError``），caller 必须先 ``session.register`` —— 对 session-aware
+client，:func:`wait_for_ready` 会自动完成。sweep 线程按 ``session_sweep_s``
+周期删除 idle 过期的 session 并触发 ``_on_session_drop``；idle timeout 由
+server 持有（构造时的 ``session_timeout_s``），而非 client 持有。
 
 .. _add-robot-prompts:
 
