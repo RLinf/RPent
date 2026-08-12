@@ -75,10 +75,11 @@ sam3 = [
     "pillow>=10",
 ]
 full = [
-    # robocasa is not here: rlinf-openpi pins its own transformers fork
-    # (rlinf-transformer-openpi==4.53.2, tokenizers>=0.21,<0.22) while
-    # RLDX-1 needs transformers 4.57 (tokenizers>=0.22). The two cannot
-    # share an environment. Install .[robocasa] in its own venv.
+    # robocasa is not here. RLDX-1's backbone imports
+    # transformers.models.qwen3_vl, which first appears in transformers
+    # 4.57, while rlinf-openpi requires a 4.53-based transformers fork that
+    # has no such module. Verified by import, not just by resolution.
+    # Install .[robocasa] in its own venv.
     "rpent[rlinf,openpi,libero-pro,sam3]",
 ]
 robocasa = [

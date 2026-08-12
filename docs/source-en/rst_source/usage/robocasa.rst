@@ -35,11 +35,10 @@ RoboCasa365 is not part of ``.[full]`` and needs its own virtualenv. The
 
 .. note::
 
-   ``.[robocasa]`` cannot share a virtualenv with ``.[full]``.
-   ``rlinf-openpi`` pins its own transformers fork
-   (``rlinf-transformer-openpi==4.53.2``, which requires
-   ``tokenizers>=0.21,<0.22``) while RLDX-1 needs transformers 4.57
-   (``tokenizers>=0.22``); the two ranges are disjoint.
+   ``.[robocasa]`` cannot share a virtualenv with ``.[full]``. RLDX-1's
+   backbone imports ``transformers.models.qwen3_vl``, which first appears
+   in transformers 4.57, while ``rlinf-openpi`` requires a 4.53-based
+   transformers fork that does not contain it.
 
    LIBERO itself is no longer the obstacle: ``rpent-libero`` and
    ``rpent-liberopro`` are ports to robosuite 1.5, verified to reproduce

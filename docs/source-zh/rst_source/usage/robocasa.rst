@@ -30,10 +30,10 @@ RoboCasa365 不在 ``.[full]`` 中，需要独立的 virtualenv。``.[robocasa]`
 
 .. note::
 
-   ``.[robocasa]`` 不能和 ``.[full]`` 共用一个 virtualenv：\ ``rlinf-openpi``
-   固定使用自己的 transformers fork（``rlinf-transformer-openpi==4.53.2``\ ，
-   要求 ``tokenizers>=0.21,<0.22``\ ），而 RLDX-1 需要 transformers 4.57
-   （``tokenizers>=0.22``\ ），两者区间不相交。
+   ``.[robocasa]`` 不能和 ``.[full]`` 共用一个 virtualenv：RLDX-1 的 backbone
+   会 import ``transformers.models.qwen3_vl``\ ，该模块自 transformers 4.57
+   才有，而 ``rlinf-openpi`` 需要基于 4.53 的 transformers fork，其中并不包含
+   它。
 
    LIBERO 本身已不再是障碍：\ ``rpent-libero`` 与 ``rpent-liberopro`` 是到
    robosuite 1.5 的移植，已验证观测契约与动作空间与 robosuite 1.4 完全一致，
