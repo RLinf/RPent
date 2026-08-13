@@ -59,6 +59,16 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument("--vla-endpoint", default=None)
     parser.add_argument(
+        "--vla-model-path",
+        default=os.environ.get("DUAL_FRANKA_CHECKPOINT_PATH"),
+    )
+    parser.add_argument(
+        "--vla-repo-id",
+        default=os.environ.get("DUAL_FRANKA_REPO_ID"),
+        help="SFT dataset repo ID used to locate norm_stats.json",
+    )
+    parser.add_argument("--cuda-device", type=int, default=None)
+    parser.add_argument(
         "--rlinf-config-name", default="realworld_physical_agent_eval_dual_franka"
     )
     parser.add_argument("--rlinf-override", action="append", default=[])
@@ -134,24 +144,75 @@ def _env_server_command(
     return command
 
 
+def _vla_server_command(
+    args: argparse.Namespace,
+    *,
+    host: str,
+    port: int,
+) -> list[str]:
+    command = [
+        sys.executable,
+        str(get_repo_root() / "robots" / "dual_franka" / "vla_server.py"),
+        "--transport",
+        "http",
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--model-path",
+        args.vla_model_path,
+        "--repo-id",
+        args.vla_repo_id,
+        "--parent-watch",
+    ]
+    if args.cuda_device is not None:
+        command.extend(["--cuda-device", str(args.cuda_device)])
+    return command
+
+
 def init_shared_runtime(
     args: argparse.Namespace,
     output_dir: Path,
     dashboard_events: DashboardEventSink,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    """Connect to an optional externally managed dual-Franka VLA service."""
-    del output_dir
-    if args.vla_endpoint is None:
+    """Spawn or connect to the dual-Franka VLA service for VLA tasks."""
+    task = get_dual_franka_task(args.task_id)
+    if task.name != "vla_grasp" and args.vla_endpoint is None:
         dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
         return [], {"model": None}
+    from rpent.utils.daemon import ProcessDaemon, pick_free_port
     from rpent.utils.rpc import wait_for_ready
     from rpent.utils.vla_client import VLAClient
 
     dashboard_events.emit(RuntimeStatusEvent("vla", "starting"))
-    client = _rpc_client(args.vla_endpoint)
-    wait_for_ready(client)
+    daemon: ProcessDaemon | None = None
+    try:
+        endpoint = args.vla_endpoint
+        if endpoint is None:
+            if not args.vla_model_path or not args.vla_repo_id:
+                raise ValueError(
+                    "dual-Franka VLA auto-start requires --vla-model-path and "
+                    "--vla-repo-id (or DUAL_FRANKA_CHECKPOINT_PATH and "
+                    "DUAL_FRANKA_REPO_ID)"
+                )
+            host, port = "127.0.0.1", pick_free_port()
+            daemon = ProcessDaemon(
+                name="dual_franka_vla_server",
+                cmd=_vla_server_command(args, host=host, port=port),
+                env=os.environ.copy(),
+                log_path=str(output_dir / "dual_franka_vla_server.log"),
+            )
+            daemon.start()
+            endpoint = f"http://{host}:{port}"
+        client = _rpc_client(endpoint)
+        wait_for_ready(client, daemon=daemon)
+    except Exception as exc:
+        if daemon is not None:
+            daemon.stop()
+        dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
+        raise
     dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
-    return [], {"model": VLAClient(client)}
+    return ([daemon] if daemon is not None else []), {"model": VLAClient(client)}
 
 
 def init_task_runtime(

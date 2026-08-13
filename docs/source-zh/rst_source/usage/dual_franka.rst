@@ -51,18 +51,38 @@ Runner 会使用 RPent 解释器启动 ``robots/dual_franka/env_server.py``，�
 	  --env-endpoint http://ROBOT_HOST:PORT \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-任务 ``1`` 会暴露 ``vla_grasp``。它需要外部双臂 VLA 服务，并且该服务的观测键、
-状态布局、动作维度、归一化和 checkpoint 必须与当前双臂 Franka 配置一致：
+任务 ``1`` 会暴露 ``vla_grasp``。将 RPent 指向双臂 Franka SFT checkpoint，
+并提供计算归一化统计时使用的数据集 repo ID：
 
 .. code-block:: bash
 
+	export DUAL_FRANKA_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
+	export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
+
 	rpent --env dual_franka --task-id 1 \
 	  --env-endpoint http://ROBOT_HOST:PORT \
-	  --vla-endpoint http://VLA_HOST:PORT \
+	  --cuda-device 0 \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-RPent 不会为双臂 Franka 自动启动 VLA server。省略 ``--vla-endpoint`` 时，
-解析式运动和夹爪工具仍然可用；调用 ``vla_grasp`` 会返回明确的运行时错误。
+任务 ``1`` 未设置 ``--vla-endpoint`` 时，RPent 会在本地启动
+``robots/dual_franka/vla_server.py``。该服务只加载一次
+``pi05_dualfranka_tcp_rot6d``，使用 20 维状态/动作布局以及 left-wrist、base、
+right-wrist 三路相机。checkpoint 必须包含
+``actor/model_state_dict/full_weights.pt`` 和
+``<DUAL_FRANKA_REPO_ID>/norm_stats.json``。
+
+也可以单独启动 VLA 服务：
+
+.. code-block:: bash
+
+	python -m robots.dual_franka.vla_server \
+	  --model-path /path/to/checkpoints/global_step_N \
+	  --repo-id org/dual-franka-tcp-rot6d \
+	  --cuda-device 0 --transport http --host 0.0.0.0 --port 6000
+
+然后向 ``rpent`` 传入 ``--vla-endpoint http://VLA_HOST:6000``。外部 endpoint
+始终优先于本地自动启动。任务 ``0`` 只提供解析式 smoke-test primitives，
+因此不会加载 VLA。
 
 工具与状态产物
 --------------

@@ -54,20 +54,38 @@ Use an existing environment server instead of spawning one:
 	  --env-endpoint http://ROBOT_HOST:PORT \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-Task ``1`` exposes ``vla_grasp``. It requires an external dual-arm VLA service
-whose observation keys, state layout, action dimension, normalization, and
-checkpoint were trained for this dual-Franka setup:
+Task ``1`` exposes ``vla_grasp``. Point RPent at the dual-Franka SFT checkpoint
+and the dataset repo ID used to compute its normalization statistics:
 
 .. code-block:: bash
 
+	export DUAL_FRANKA_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
+	export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
+
 	rpent --env dual_franka --task-id 1 \
 	  --env-endpoint http://ROBOT_HOST:PORT \
-	  --vla-endpoint http://VLA_HOST:PORT \
+	  --cuda-device 0 \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-RPent does not automatically launch a VLA server for dual Franka. Omitting
-``--vla-endpoint`` leaves analytic motion and gripper tools available, while
-``vla_grasp`` reports a clear runtime error.
+When ``--vla-endpoint`` is omitted for task ``1``, RPent starts
+``robots/dual_franka/vla_server.py`` locally. The server loads
+``pi05_dualfranka_tcp_rot6d`` once, using the 20-D state/action layout and the
+left-wrist, base, and right-wrist camera views. The checkpoint must contain
+``actor/model_state_dict/full_weights.pt`` and
+``<DUAL_FRANKA_REPO_ID>/norm_stats.json``.
+
+To run the VLA service separately:
+
+.. code-block:: bash
+
+	python -m robots.dual_franka.vla_server \
+	  --model-path /path/to/checkpoints/global_step_N \
+	  --repo-id org/dual-franka-tcp-rot6d \
+	  --cuda-device 0 --transport http --host 0.0.0.0 --port 6000
+
+Then pass ``--vla-endpoint http://VLA_HOST:6000`` to ``rpent``. An external
+endpoint always takes precedence over local auto-start. Task ``0`` does not
+load the VLA because it exposes only analytic smoke-test primitives.
 
 Tools and artifacts
 -------------------
