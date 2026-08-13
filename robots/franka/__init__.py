@@ -15,7 +15,7 @@ from robots.franka.tasks import FRANKA_TASKS, get_franka_task
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.envs.env_spec import EnvSpec, RunConfig
 from rpent.envs.prompt_bundle import PromptBundle
-from rpent.utils.config import get_repo_root
+from rpent.utils.config import build_rpent_subprocess_env, get_repo_root
 
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
@@ -60,6 +60,11 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--vla-endpoint", default=None)
     parser.add_argument("--rlinf-config-name", default="realworld_physical_agent_eval")
     parser.add_argument("--rlinf-override", action="append", default=[])
+    parser.add_argument(
+        "--rlinf-root",
+        default=os.environ.get("RLINF_REPO_PATH"),
+        help="Local RLinf source checkout to prepend for development testing",
+    )
     parser.add_argument("--controller-config", default=None)
 
 
@@ -175,9 +180,8 @@ def init_task_runtime(
                 port=port,
                 output_dir=output_dir,
             )
-            env = os.environ.copy()
-            env["PYTHONPATH"] = os.pathsep.join(
-                [str(get_repo_root()), env.get("PYTHONPATH", "")]
+            env = build_rpent_subprocess_env(
+                rlinf_root=args.rlinf_root,
             )
             daemon = ProcessDaemon(
                 name="franka_env_server",

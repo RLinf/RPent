@@ -15,7 +15,7 @@ from robots.dual_franka.tasks import DUAL_FRANKA_TASKS, get_dual_franka_task
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.envs.env_spec import EnvSpec, RunConfig
 from rpent.envs.prompt_bundle import PromptBundle
-from rpent.utils.config import get_repo_root
+from rpent.utils.config import build_rpent_subprocess_env, get_repo_root
 
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
@@ -72,6 +72,11 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "--rlinf-config-name", default="realworld_physical_agent_eval_dual_franka"
     )
     parser.add_argument("--rlinf-override", action="append", default=[])
+    parser.add_argument(
+        "--rlinf-root",
+        default=os.environ.get("RLINF_REPO_PATH"),
+        help="Local RLinf source checkout to prepend for development testing",
+    )
     parser.add_argument("--controller-config", default=None)
 
 
@@ -199,7 +204,7 @@ def init_shared_runtime(
             daemon = ProcessDaemon(
                 name="dual_franka_vla_server",
                 cmd=_vla_server_command(args, host=host, port=port),
-                env=os.environ.copy(),
+                env=build_rpent_subprocess_env(rlinf_root=args.rlinf_root),
                 log_path=str(output_dir / "dual_franka_vla_server.log"),
             )
             daemon.start()
@@ -238,9 +243,8 @@ def init_task_runtime(
                 port=port,
                 output_dir=output_dir,
             )
-            env = os.environ.copy()
-            env["PYTHONPATH"] = os.pathsep.join(
-                [str(get_repo_root()), env.get("PYTHONPATH", "")]
+            env = build_rpent_subprocess_env(
+                rlinf_root=args.rlinf_root,
             )
             daemon = ProcessDaemon(
                 name="dual_franka_env_server",

@@ -38,6 +38,54 @@ reset pose、边界或标定。
 ``--rlinf-override`` 和 ``--controller-config`` 仍作为开发调试入口保留，
 但不再需要单独维护 RLinf 配置。
 
+使用本地 RLinf checkout
+------------------------
+
+开发测试时，需要在启动 Ray 前让两个控制节点都能访问本地 checkout。两个节点
+可以使用不同的绝对路径，但各自的 ``PYTHONPATH`` 必须指向该节点上的源码副本。
+
+节点 ``0``：
+
+.. code-block:: bash
+
+	export RLINF_REPO_PATH=/path/to/RLinf
+	export PYTHONPATH=$RLINF_REPO_PATH:${PYTHONPATH:-}
+	export RLINF_NODE_RANK=0
+	ray stop --force
+	ray start --head --port=6379 --node-ip-address=HEAD_IP
+
+节点 ``1``：
+
+.. code-block:: bash
+
+	export PYTHONPATH=/path/to/RLinf:${PYTHONPATH:-}
+	export RLINF_NODE_RANK=1
+	ray stop --force
+	ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
+
+在节点 ``0`` 使用显式 override 运行 RPent：
+
+.. code-block:: bash
+
+	uv run --extra franka rpent --env dual_franka --task-id 0 \
+	  --rlinf-root $RLINF_REPO_PATH \
+	  --planner api --model anthropic:claude-sonnet-4-5
+
+该 override 同时作用于自动启动的 ``env_server.py`` 和 ``vla_server.py``。
+在 ``ray start`` 前导出 ``PYTHONPATH``，可让远程 Ray worker 加载同一 checkout。
+源码路径发生变化时，必须在所有节点重启 Ray。
+
+可以在每个节点运行以下命令确认实际加载位置：
+
+.. code-block:: bash
+
+	PYTHONPATH=/path/to/RLinf:$PYTHONPATH \
+	  uv run --extra franka python -c \
+	  'import rlinf; print(rlinf.__file__)'
+
+若要让本地子进程恢复使用 ``.venv`` 中安装的版本，请省略 ``--rlinf-root``，
+并取消设置 ``RLINF_REPO_PATH``。
+
 启动双节点 Ray 集群
 --------------------
 

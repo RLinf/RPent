@@ -42,6 +42,56 @@ The normal RPent command uses these files directly. ``--rlinf-config-name``,
 development escape hatches, but no separate RLinf configuration workflow is
 needed.
 
+Use a local RLinf checkout
+--------------------------
+
+For development, make the same local checkout available on both controller
+nodes before starting Ray. The checkout may use different absolute paths on the
+two nodes, but each node's ``PYTHONPATH`` must point to its local copy.
+
+Node ``0``:
+
+.. code-block:: bash
+
+	export RLINF_REPO_PATH=/path/to/RLinf
+	export PYTHONPATH=$RLINF_REPO_PATH:${PYTHONPATH:-}
+	export RLINF_NODE_RANK=0
+	ray stop --force
+	ray start --head --port=6379 --node-ip-address=HEAD_IP
+
+Node ``1``:
+
+.. code-block:: bash
+
+	export PYTHONPATH=/path/to/RLinf:${PYTHONPATH:-}
+	export RLINF_NODE_RANK=1
+	ray stop --force
+	ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
+
+Run RPent on node ``0`` with the explicit override:
+
+.. code-block:: bash
+
+	uv run --extra franka rpent --env dual_franka --task-id 0 \
+	  --rlinf-root $RLINF_REPO_PATH \
+	  --planner api --model anthropic:claude-sonnet-4-5
+
+The override applies to both auto-started ``env_server.py`` and
+``vla_server.py``. Exporting ``PYTHONPATH`` before ``ray start`` makes remote
+Ray workers import the matching checkout. Restart Ray on every node whenever
+the source path changes.
+
+Verify each node with:
+
+.. code-block:: bash
+
+	PYTHONPATH=/path/to/RLinf:$PYTHONPATH \
+	  uv run --extra franka python -c \
+	  'import rlinf; print(rlinf.__file__)'
+
+Omit ``--rlinf-root`` and unset ``RLINF_REPO_PATH`` to
+return the local subprocesses to the version installed in ``.venv``.
+
 Start the two-node Ray cluster
 ------------------------------
 

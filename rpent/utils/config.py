@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
-
 
 # ============================================================================
 # Repository / package roots
@@ -46,7 +46,34 @@ def get_libero_type() -> str:
 
 def get_rlinf_repo_path() -> Path | None:
     """Return the configured RLinf checkout path, or *None*."""
-    env = os.environ.get("RPENT_RLINF_ROOT") or os.environ.get("RLINF_REPO_PATH")
+    env = os.environ.get("RLINF_REPO_PATH")
     if env:
         return Path(env).expanduser().resolve()
     return None
+
+
+def build_rpent_subprocess_env(
+    *,
+    rlinf_root: str | Path | None = None,
+    base_env: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Build a subprocess environment with an optional RLinf source override."""
+    env = dict(base_env or os.environ)
+    root = (
+        Path(rlinf_root).expanduser().resolve()
+        if rlinf_root
+        else get_rlinf_repo_path()
+    )
+    python_paths = [str(get_repo_root())]
+    if root is not None:
+        if not (root / "rlinf" / "__init__.py").is_file():
+            raise ValueError(
+                f"RLinf source override must contain rlinf/__init__.py: {root}"
+            )
+        env["RLINF_REPO_PATH"] = str(root)
+        python_paths.append(str(root))
+    existing = env.get("PYTHONPATH")
+    if existing:
+        python_paths.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(python_paths)
+    return env

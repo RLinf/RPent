@@ -44,6 +44,40 @@ The normal RPent command uses these files directly. ``--rlinf-config-name``,
 development escape hatches, but no separate RLinf configuration workflow is
 needed.
 
+Use a local RLinf checkout
+--------------------------
+
+To patch RLinf without reinstalling the ``franka`` extra, prepend the checkout
+to ``PYTHONPATH`` before starting Ray and pass the same path to RPent:
+
+.. code-block:: bash
+
+	export RLINF_REPO_PATH=/path/to/RLinf
+	export PYTHONPATH=$RLINF_REPO_PATH:${PYTHONPATH:-}
+	export RLINF_NODE_RANK=0
+	ray stop --force
+	ray start --head
+
+	uv run --extra franka rpent --env franka --task-id 0 \
+	  --rlinf-root $RLINF_REPO_PATH \
+	  --planner api --model anthropic:claude-sonnet-4-5
+
+``--rlinf-root`` prepends the checkout for RPent's environment subprocess.
+Exporting ``PYTHONPATH`` before ``ray start`` makes Ray workers import the same
+checkout. Restart Ray after changing this path; an already-running Ray process
+keeps the environment it captured at startup.
+
+Verify the selected source with:
+
+.. code-block:: bash
+
+	PYTHONPATH=$RLINF_REPO_PATH:$PYTHONPATH \
+	  uv run --extra franka python -c \
+	  'import rlinf; print(rlinf.__file__)'
+
+Omit ``--rlinf-root`` and unset ``RLINF_REPO_PATH`` to
+return to the version installed in ``.venv``.
+
 Start Ray
 ---------
 

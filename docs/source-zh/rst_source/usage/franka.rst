@@ -37,6 +37,39 @@ RLinf/OpenPI 分支。不需要单独的 RLinf checkout、虚拟环境或安装�
 ``--rlinf-override`` 和 ``--controller-config`` 仍作为开发调试入口保留，
 但不再需要单独维护 RLinf 配置。
 
+使用本地 RLinf checkout
+------------------------
+
+如果需要修改 RLinf 并直接测试，而不重新安装 ``franka`` extra，请在启动 Ray
+前将 checkout 放到 ``PYTHONPATH`` 最前面，并向 RPent 传入同一路径：
+
+.. code-block:: bash
+
+	export RLINF_REPO_PATH=/path/to/RLinf
+	export PYTHONPATH=$RLINF_REPO_PATH:${PYTHONPATH:-}
+	export RLINF_NODE_RANK=0
+	ray stop --force
+	ray start --head
+
+	uv run --extra franka rpent --env franka --task-id 0 \
+	  --rlinf-root $RLINF_REPO_PATH \
+	  --planner api --model anthropic:claude-sonnet-4-5
+
+``--rlinf-root`` 会为 RPent 启动的环境子进程优先加载该 checkout；在
+``ray start`` 前导出 ``PYTHONPATH``，可让 Ray worker 使用同一份源码。
+修改路径后必须重启 Ray；已经运行的 Ray 进程会继续使用启动时捕获的环境。
+
+可以用以下命令确认实际加载位置：
+
+.. code-block:: bash
+
+	PYTHONPATH=$RLINF_REPO_PATH:$PYTHONPATH \
+	  uv run --extra franka python -c \
+	  'import rlinf; print(rlinf.__file__)'
+
+若要恢复使用 ``.venv`` 中安装的版本，请省略 ``--rlinf-root``，并取消设置
+``RLINF_REPO_PATH``。
+
 启动 Ray
 --------
 

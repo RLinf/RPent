@@ -57,6 +57,18 @@ def test_franka_cli_uses_current_interpreter_without_override_option():
     assert command[0] == sys.executable
 
 
+def test_franka_cli_accepts_local_rlinf_checkout(monkeypatch, tmp_path: Path):
+    (tmp_path / "rlinf").mkdir()
+    (tmp_path / "rlinf/__init__.py").touch()
+    monkeypatch.setenv("RLINF_REPO_PATH", str(tmp_path))
+    parser = argparse.ArgumentParser()
+    _add_cli_args(parser, use_dashboard=False)
+
+    args = parser.parse_args([])
+
+    assert args.rlinf_root == str(tmp_path)
+
+
 def test_franka_uses_rpent_owned_runtime_config():
     config_path = (
         Path(__file__).parents[3]

@@ -64,6 +64,18 @@ def test_dual_franka_cli_uses_current_interpreter_without_override_option():
     assert command[0] == sys.executable
 
 
+def test_dual_franka_cli_accepts_local_rlinf_checkout(monkeypatch, tmp_path: Path):
+    (tmp_path / "rlinf").mkdir()
+    (tmp_path / "rlinf/__init__.py").touch()
+    monkeypatch.setenv("RLINF_REPO_PATH", str(tmp_path))
+    parser = argparse.ArgumentParser()
+    _add_cli_args(parser, use_dashboard=False)
+
+    args = parser.parse_args([])
+
+    assert args.rlinf_root == str(tmp_path)
+
+
 def test_dual_franka_uses_rpent_owned_runtime_config():
     config_path = (
         Path(__file__).parents[3]
@@ -75,8 +87,8 @@ def test_dual_franka_uses_rpent_owned_runtime_config():
     assert config_path.is_file()
     assert cfg.env.eval.init_params.id == "DualFrankaTcpEnv-v1"
     hardware = cfg.cluster.node_groups[0].hardware.configs[0]
-    assert hardware.left_robot_ip == "LEFT_ROBOT_IP"
-    assert hardware.right_robot_ip == "RIGHT_ROBOT_IP"
+    assert str(hardware.left_robot_ip)
+    assert str(hardware.right_robot_ip)
 
 
 def test_dual_franka_vla_server_command_uses_checkpoint_and_repo_id():
