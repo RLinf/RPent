@@ -68,14 +68,27 @@ libero-plus = [
     "rpent[libero]",
     "rlinf-liberoplus",
 ]
-full = [
-    "rpent[rlinf,openpi,libero-pro,sam3]",
-]
 sam3 = [
     "sam3==0.1.4",
     "torch",
     "torchvision",
     "pillow>=10",
+]
+full = [
+    "rpent[rlinf,openpi,libero-pro,sam3]",
+]
+robocasa = [
+    "rpent[rlinf]",
+    "mujoco==3.3.1",
+    "protobuf>=3.19,<4",                              # tianshou (from rinf-robocasa) requires protobuf<3.20
+    "torch==2.7.0",                                   # RLDX-1 requirement
+    "torchvision==0.22.0",                            # RLDX-1 requirement
+    "numpy==2.2.5",                                   # robocasa enforces numpy==2.2.5 (__init__.py:1011 assert)
+    "transformers==4.57.0",                           # RLDX-1 requirement
+    "lerobot @ git+https://github.com/huggingface/lerobot.git@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5",
+    "robosuite @ git+https://github.com/ARISE-Initiative/robosuite.git@master",
+    "rinf-robocasa @ git+https://github.com/rlinf/robocasa.git@v1.0.1_rlinf",
+    "rldx @ git+https://github.com/rlinf/RLDX-1.git@24fe332973c0ef1278f6c1de4a4a2cdb92fa6906",
 ]
 
 [tool.uv]

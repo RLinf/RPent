@@ -50,6 +50,8 @@ Available extras:
      - openpi VLA only
    * - ``.[rlinf]``
      - RLinf runtime only
+   * - ``.[robocasa]``
+     - RLinf + RoboCasa365 simulator
    * - ``.[sam3]``
      - SAM 3.0 only
 
@@ -79,7 +81,23 @@ These resources usually need to be downloaded only once;
 
       HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing
 
-3. (Optional) Real-world robot dependencies
+3. (Optional) Install the RoboCasa365 stack
+-------------------------------------------
+
+The ``.[robocasa]`` extra installs the full RoboCasa365 stack — MuJoCo
+3.3.1, the ARISE-Initiative robosuite fork, the pinned lerobot commit,
+protobuf, and the ``robocasa`` package itself (a wheel from the
+``github.com/rlinf/robocasa`` fork, branch ``v1.0.1_rlinf``).
+RLDX-1 needs specific PyTorch / torchvision / flash-attn versions
+installed **before** the extra, plus a post-install setup (macros,
+kitchen assets, env vars) and an ``RLDX-1-FT-RC365`` checkpoint. See
+:doc:`usage/robocasa` for the full walkthrough.
+
+.. code-block:: bash
+
+   uv pip install -e ".[robocasa]"
+
+4. (Optional) Real-world robot dependencies
 -------------------------------------------
 
 Franka and SO-101 support is being rolled in; when it lands, each
