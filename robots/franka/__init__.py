@@ -15,7 +15,7 @@ from robots.franka.tasks import FRANKA_TASKS, get_franka_task
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.envs.env_spec import EnvSpec, RunConfig
 from rpent.envs.prompt_bundle import PromptBundle
-from rpent.utils.config import get_repo_root, get_rlinf_repo_path
+from rpent.utils.config import get_repo_root
 
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
@@ -169,7 +169,6 @@ def init_task_runtime(
         daemon: ProcessDaemon | None = None
         if args.env_endpoint is None:
             host, port = "127.0.0.1", pick_free_port()
-            rlinf_root = get_rlinf_repo_path() or (get_repo_root().parent / "rlinf")
             command = _env_server_command(
                 args,
                 host=host,
@@ -178,7 +177,7 @@ def init_task_runtime(
             )
             env = os.environ.copy()
             env["PYTHONPATH"] = os.pathsep.join(
-                [str(get_repo_root()), str(rlinf_root), env.get("PYTHONPATH", "")]
+                [str(get_repo_root()), env.get("PYTHONPATH", "")]
             )
             daemon = ProcessDaemon(
                 name="franka_env_server",

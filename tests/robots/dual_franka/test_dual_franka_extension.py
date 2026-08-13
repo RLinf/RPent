@@ -19,6 +19,7 @@ from robots.dual_franka import (
     _vla_server_command,
     get_env_spec,
 )
+from robots.dual_franka.env_server import _compose_config
 from robots.dual_franka.vla_server import _build_env_obs, build_model_cfg
 from rpent.envs.base import enumerate_envs
 from rpent.envs.base import get_env_spec as resolve_env_spec
@@ -61,6 +62,21 @@ def test_dual_franka_cli_uses_current_interpreter_without_override_option():
         output_dir=Path("logs/test"),
     )
     assert command[0] == sys.executable
+
+
+def test_dual_franka_uses_rpent_owned_runtime_config():
+    config_path = (
+        Path(__file__).parents[3]
+        / "robots/dual_franka/config/realworld_physical_agent_eval_dual_franka.yaml"
+    )
+
+    cfg = _compose_config("realworld_physical_agent_eval_dual_franka", [])
+
+    assert config_path.is_file()
+    assert cfg.env.eval.init_params.id == "DualFrankaTcpEnv-v1"
+    hardware = cfg.cluster.node_groups[0].hardware.configs[0]
+    assert hardware.left_robot_ip == "LEFT_ROBOT_IP"
+    assert hardware.right_robot_ip == "RIGHT_ROBOT_IP"
 
 
 def test_dual_franka_vla_server_command_uses_checkpoint_and_repo_id():

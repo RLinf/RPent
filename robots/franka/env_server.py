@@ -4,19 +4,15 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import os
-import sys
 import time
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from rpent.utils.config import get_rlinf_repo_path
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade
 
-RPENT_ROOT = Path(__file__).resolve().parents[2]
 logger = get_logger("franka_env_server")
 DEFAULT_CONTROLLER_CONFIG = Path(__file__).with_name("controller_config.yaml")
 
@@ -369,23 +365,15 @@ def _create_worker_class():
     return FrankaEnvWorker
 
 
-def _compose_config(rlinf_root: Path, config_name: str, overrides: list[str]):
+def _compose_config(config_name: str, overrides: list[str]):
     import hydra
 
-    config_dir = rlinf_root / "examples" / "embodiment" / "config"
-    previous = os.environ.get("EMBODIED_PATH")
-    os.environ["EMBODIED_PATH"] = str(config_dir.parent)
-    try:
-        with hydra.initialize_config_dir(
-            version_base="1.1",
-            config_dir=str(config_dir),
-        ):
-            return hydra.compose(config_name=config_name, overrides=overrides)
-    finally:
-        if previous is None:
-            os.environ.pop("EMBODIED_PATH", None)
-        else:
-            os.environ["EMBODIED_PATH"] = previous
+    config_dir = Path(__file__).with_name("config")
+    with hydra.initialize_config_dir(
+        version_base="1.1",
+        config_dir=str(config_dir),
+    ):
+        return hydra.compose(config_name=config_name, overrides=overrides)
 
 
 def _launch_worker(cfg: Any, controller_config: str | None):
@@ -416,10 +404,7 @@ def main() -> int:
     args = parser.parse_args()
 
     del args.output_dir
-    rlinf_root = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
-    if str(rlinf_root) not in sys.path:
-        sys.path.insert(0, str(rlinf_root))
-    cfg = _compose_config(rlinf_root, args.config_name, list(args.override))
+    cfg = _compose_config(args.config_name, list(args.override))
     worker = _launch_worker(cfg, args.controller_config)
     facade = FrankaEnvFacade(_RayBackend(worker))
     try:

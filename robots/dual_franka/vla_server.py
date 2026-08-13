@@ -6,7 +6,6 @@ import argparse
 import base64
 import io
 import os
-import sys
 import time
 from typing import Any
 
@@ -14,16 +13,10 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from rpent.utils.config import get_repo_root, get_rlinf_repo_path
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade
 
 logger = get_logger("dual_franka_vla_server")
-
-RPENT_ROOT = get_repo_root()
-RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
-if str(RLINF_REPO_PATH) not in sys.path:
-    sys.path.insert(0, str(RLINF_REPO_PATH))
 
 
 def build_model_cfg(model_path: str, repo_id: str) -> Any:

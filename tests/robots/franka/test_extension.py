@@ -13,6 +13,7 @@ from robots.franka import (
     _parse_config,
     get_env_spec,
 )
+from robots.franka.env_server import _compose_config
 from rpent.envs.base import enumerate_envs
 from rpent.envs.base import get_env_spec as resolve_env_spec
 
@@ -54,3 +55,16 @@ def test_franka_cli_uses_current_interpreter_without_override_option():
         output_dir=Path("logs/test"),
     )
     assert command[0] == sys.executable
+
+
+def test_franka_uses_rpent_owned_runtime_config():
+    config_path = (
+        Path(__file__).parents[3]
+        / "robots/franka/config/realworld_physical_agent_eval.yaml"
+    )
+
+    cfg = _compose_config("realworld_physical_agent_eval", [])
+
+    assert config_path.is_file()
+    assert cfg.env.eval.init_params.id == "PhysicalAgentFrankaEnv-v1"
+    assert cfg.cluster.node_groups[0].hardware.configs[0].robot_ip == "ROBOT_IP"
