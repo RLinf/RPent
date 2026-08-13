@@ -18,8 +18,14 @@ Python ``3.10``\ ：
    uv venv --python 3.10
    uv pip install -e ".[robocasa]"
 
-国内网络可先设 PyPI 镜像加速：\ ``export
-UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple``\ 。
+国内网络可使用 PyPI 镜像加速：\ 
+
+.. code-block:: bash
+
+   uv pip install -e ".[robocasa]" \
+      --default-index https://mirrors.aliyun.com/pypi/simple \
+      --index https://pypi.tuna.tsinghua.edu.cn/simple \
+      --index https://mirrors.aliyun.com/pytorch-wheels/cu126
 
 .. note::
 
