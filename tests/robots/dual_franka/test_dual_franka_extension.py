@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import argparse
+import sys
 from argparse import Namespace
 from pathlib import Path
 
-from robots.dual_franka import _parse_config, get_env_spec
+from robots.dual_franka import (
+    _add_cli_args,
+    _env_server_command,
+    _parse_config,
+    get_env_spec,
+)
 from rpent.envs.base import enumerate_envs
 from rpent.envs.base import get_env_spec as resolve_env_spec
 
@@ -31,3 +38,19 @@ def test_dual_franka_extension_is_discoverable_and_renders_task_prompt(tmp_path:
 
 def test_direct_dual_franka_spec_matches_registry_resolution():
     assert get_env_spec().name == resolve_env_spec("dual_franka").name
+
+
+def test_dual_franka_cli_uses_current_interpreter_without_override_option():
+    parser = argparse.ArgumentParser()
+    _add_cli_args(parser, use_dashboard=False)
+
+    args = parser.parse_args([])
+
+    assert not hasattr(args, "rlinf_python")
+    command = _env_server_command(
+        args,
+        host="127.0.0.1",
+        port=5556,
+        output_dir=Path("logs/test"),
+    )
+    assert command[0] == sys.executable

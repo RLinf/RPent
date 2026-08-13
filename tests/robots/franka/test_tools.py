@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from robots.franka.perception import back_project
 from robots.franka.tools import (
     FrankaPrimitives,
     coerce_vec3,
@@ -122,3 +123,29 @@ def test_vla_grasp_runs_bounded_chunks():
 
     assert result["chunks_executed"] == 3
     assert len(env.chunks) == 3
+
+
+def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
+    state = EnvState(tmp_path)
+    with state.record_step(
+        state={"raw_base_state": {"tcp_pose": [0, 0, 0, 0, 0, 0, 1]}}
+    ) as step:
+        state.save("wrist_depth.npy", np.full((4, 4), 0.5), step=step)
+        state.save(
+            "camera_meta.json",
+            {
+                "observation_camera_map": {"main": "wrist_cam"},
+                "cameras": {
+                    "wrist_cam": {
+                        "intrinsic_K": [[100, 0, 2], [0, 100, 2], [0, 0, 1]]
+                    }
+                },
+            },
+            step=step,
+        )
+
+    result = back_project(row=2, col=2, camera="wrist", state=state)
+
+    assert result["coordinate_frame"] == "franka_base"
+    assert result["depth_m"] == 0.5
+    assert len(result["point_base"]) == 3

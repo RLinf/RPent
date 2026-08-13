@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from robots.dual_franka.perception import back_project_base_pixel
 from robots.dual_franka.tools import (
     DualFrankaPrimitives,
     coerce_arm,
@@ -44,6 +45,10 @@ class FakeEnv:
         return {
             "main_images": np.zeros((8, 8, 3), dtype=np.uint8),
             "extra_view_images": np.ones((2, 8, 8, 3), dtype=np.uint8),
+            "main_depths": np.ones((8, 8), dtype=np.float32),
+            "extra_view_depths": np.ones((2, 8, 8), dtype=np.float32) * 2,
+            "d455_images": np.ones((8, 8, 3), dtype=np.uint8) * 3,
+            "d455_depths": np.ones((8, 8), dtype=np.float32) * 4,
             "states": np.zeros(20, dtype=np.float32),
         }
 
@@ -116,8 +121,13 @@ def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
 
     assert record.artifacts == {
         "left_wrist.png",
+        "left_wrist_depth.npy",
         "base.png",
+        "base_depth.npy",
         "right_wrist.png",
+        "right_wrist_depth.npy",
+        "d455.png",
+        "d455_depth.npy",
         "camera_meta.json",
     }
     output = view_env_state(state=state)
@@ -126,6 +136,39 @@ def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
     assert output["_image_right_wrist_bytes"]
     camera_meta = view_camera_meta(state=state)["camera_meta"]
     assert camera_meta["observation_camera_map"]["main"] == "left_wrist_0_rgb"
+
+
+def test_back_project_base_pixel_reads_rpent_state_artifacts(tmp_path: Path):
+    state = EnvState(tmp_path)
+    with state.record_step(
+        state={
+            "raw": {
+                "left": {"tcp_pose": [0, 0, 0, 0, 0, 0, 1]},
+                "right": {"tcp_pose": [0, 0, 0, 0, 0, 0, 1]},
+            }
+        }
+    ) as step:
+        state.save("base_depth.npy", np.full((4, 4), 0.5), step=step)
+        state.save(
+            "camera_meta.json",
+            {
+                "base_0_rgb": {
+                    "color_intrinsics": {
+                        "fx": 100,
+                        "fy": 100,
+                        "ppx": 2,
+                        "ppy": 2,
+                    }
+                }
+            },
+            step=step,
+        )
+
+    result = back_project_base_pixel(row=2, col=2, state=state)
+
+    assert result["coordinate_frame"] == "right_base"
+    assert result["depth_m"] == 0.5
+    assert len(result["point_xyz"]) == 3
 
 
 def test_vla_grasp_runs_bounded_chunks():
