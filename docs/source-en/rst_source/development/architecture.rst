@@ -120,10 +120,11 @@ components required for a run. On startup, it:
 7. Builds the **planner** through ``rpent.planner.base.build_planner`` based
    on ``--planner``, then renders the system and user prompts from the env's
    prompt bundle.
-8. Calls ``env_spec.init_runtime(args, output_dir, dashboard_events)``. The env
-   implementation starts ``env_server``, ``vla_server``, and ``sam3_server``, or connects
-   to existing services when the corresponding endpoint is supplied, and
-   returns ``(daemons, primitives_kwargs)``.
+8. Calls ``env_spec.init_runtime(args, output_dir, dashboard_events)``. The
+   environment implementation starts or connects to the runtime services
+   required by that environment, such as ``env_server``, ``vla_server``, and
+   optional supporting services (for example, LIBERO's ``sam3_server`` for
+   segmentation), and returns ``(daemons, primitives_kwargs)``.
 9. Passes ``primitives_kwargs`` and a ``dashboard_events`` sink to the env's
    ``get_toolkit`` factory to construct the **toolkit**. The one-shot path
    uses a no-op event sink.

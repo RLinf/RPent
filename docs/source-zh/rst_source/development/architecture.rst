@@ -105,8 +105,8 @@ Runner (``rpent/cli/main.py``)
    **planner**，并使用环境提供的 prompt bundle 生成 system prompt 和
    user prompt。
 8. 调用 ``env_spec.init_runtime(args, output_dir, dashboard_events)``。环境实现会
-   启动 ``env_server``、``vla_server`` 和 ``sam3_server``；如果指定了对应 endpoint，
-   则连接已有服务。该方法返回
+   启动或连接该环境所需的运行时服务，例如 ``env_server``、``vla_server``，
+   以及可选的辅助服务（如 LIBERO 用于分割的 ``sam3_server``），并返回
    ``(daemons, primitives_kwargs)``。
 9. 将 ``primitives_kwargs`` 和 ``dashboard_events`` 事件接收器传给环境的
    ``get_toolkit`` 工厂，构造 **toolkit**。一次性运行链路使用不执行任何
