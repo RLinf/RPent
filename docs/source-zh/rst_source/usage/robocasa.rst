@@ -121,10 +121,12 @@ RoboCasa 的 CLI 参数由 ``robots/robocasa/__init__`` 注册，可通过
          --planner claude_code \
          --model claude-opus-4-8
 
-使用 ``--env-endpoint`` / ``--vla-endpoint`` 指向已运行的服务器
-(``[protocol://]host:port``)；不指定时，RPent 会就地启动 env 和 VLA
-子进程，日志分别写到 ``<output_dir>/env_server.log`` 和
-``<output_dir>/vla_server.log``。
+.. note::
+
+   使用 ``--env-endpoint`` / ``--vla-endpoint`` 指向已运行的服务器
+   (``[protocol://]host:port``)；不指定时，RPent 会就地启动 env 和 VLA
+   子进程，日志分别写到 ``<output_dir>/env_server.log`` 和
+   ``<output_dir>/vla_server.log``。
 
 Toolkit 与 LIBERO 的差异
 ------------------------

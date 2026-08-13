@@ -307,11 +307,8 @@ class RoboCasaPrimitives:
              read-only call of _check_success.
         This is the success CRITERION's current value — NOT ground-truth object coords
         (the agent still localizes objects from perception)."""
-        return self.env.get_task_progress()
-
-    def _safe_progress(self):
         try:
-            return self.task_progress()
+            return self.env.get_task_progress()
         except Exception:
             return {}
 
@@ -327,7 +324,9 @@ class RoboCasaPrimitives:
         return {
             "task_language": o.get("language", self.env.get_ep_meta().get("lang", "")),
             "success": self.env.check_success(),
-            "task_progress": self._safe_progress(),
+            # NUMERIC progress toward success (counters/sub-predicates the env's own
+            # _check_success computes) so the agent has a feedback loop, not just a bool.
+            "task_progress": self.task_progress(),
             "robocasa_terminated": self.env.terminated,
             "state": {
                 "robot0_eef_pos": self.env.eef_pos.tolist(),

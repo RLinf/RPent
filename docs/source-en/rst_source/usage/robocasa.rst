@@ -118,10 +118,12 @@ are visible under ``rpent --env robocasa --help``:
          --planner claude_code \
          --model claude-opus-4-8
 
-Use ``--env-endpoint`` / ``--vla-endpoint`` to point at already-running
-servers (``[protocol://]host:port``); when omitted, RPent spawns the env
-and VLA daemons in-process and writes their logs to
-``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
+.. note::
+
+   Use ``--env-endpoint`` / ``--vla-endpoint`` to point at already-running
+   servers (``[protocol://]host:port``); when omitted, RPent spawns the env
+   and VLA daemons in-process and writes their logs to
+   ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
 
 Toolkit design vs. LIBERO
 -------------------------
