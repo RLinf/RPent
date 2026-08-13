@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import partial
 from typing import Any
 
+from robots.dual_franka import perception as dual_franka_perception
 from robots.dual_franka import tools as dual_franka_tools
 from rpent.dashboard.events import DashboardEventSink
 from rpent.tools.state import EnvState
@@ -46,6 +47,14 @@ class DualFrankaToolkit(Toolkit):
             ),
             "view_camera_meta": partial(
                 dual_franka_tools.view_camera_meta,
+                state=self._state,
+            ),
+            "back_project_base_pixel": partial(
+                dual_franka_perception.back_project_base_pixel,
+                state=self._state,
+            ),
+            "back_project_d455_pixel": partial(
+                dual_franka_perception.back_project_d455_pixel,
                 state=self._state,
             ),
         }

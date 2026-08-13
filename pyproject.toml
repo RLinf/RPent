@@ -68,6 +68,11 @@ libero-plus = [
     "rpent[libero]",
     "rlinf-liberoplus",
 ]
+franka = [
+    "rpent-rlinf[franka]",
+    "matplotlib>=3.8",
+    "pillow>=10",
+]
 full = [
     "rpent[rlinf,openpi,libero-pro,sam3]",
 ]

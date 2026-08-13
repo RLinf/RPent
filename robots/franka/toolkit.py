@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import partial
 from typing import Any
 
+from robots.franka import perception as franka_perception
 from robots.franka import tools as franka_tools
 from rpent.dashboard.events import DashboardEventSink
 from rpent.tools.state import EnvState
@@ -44,6 +45,18 @@ class FrankaToolkit(Toolkit):
             "view_env_state": partial(franka_tools.view_env_state, state=self._state),
             "view_camera_meta": partial(
                 franka_tools.view_camera_meta,
+                state=self._state,
+            ),
+            "view_perception_setup": partial(
+                franka_perception.view_perception_setup,
+                state=self._state,
+            ),
+            "back_project": partial(
+                franka_perception.back_project,
+                state=self._state,
+            ),
+            "back_project_correspondence": partial(
+                franka_perception.back_project_correspondence,
                 state=self._state,
             ),
         }

@@ -28,6 +28,45 @@ TOOLS_SPEC = [
         },
     },
     {
+        "name": "view_perception_setup",
+        "description": "Read calibrated camera geometry and projection conventions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"step": {"type": "integer", "default": -1}},
+        },
+    },
+    {
+        "name": "back_project",
+        "description": "Back-project one wrist or external-camera pixel into Franka base coordinates.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "row": {"type": "integer", "minimum": 0},
+                "col": {"type": "integer", "minimum": 0},
+                "step": {"type": "integer"},
+                "camera": {"type": "string", "enum": ["wrist", "third_person"]},
+                "debug": {"type": "boolean", "default": False},
+            },
+            "required": ["row", "col"],
+        },
+    },
+    {
+        "name": "back_project_correspondence",
+        "description": "Fuse matched wrist and external-camera pixels into a Franka base point.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "third_person_row": {"type": "integer", "minimum": 0},
+                "third_person_col": {"type": "integer", "minimum": 0},
+                "wrist_row": {"type": "integer", "minimum": 0},
+                "wrist_col": {"type": "integer", "minimum": 0},
+                "pixels": {"type": "array", "items": {"type": "object"}},
+                "step": {"type": "integer"},
+                "debug": {"type": "boolean", "default": False},
+            },
+        },
+    },
+    {
         "name": "move_delta",
         "description": "Move the Franka TCP by a bounded base-frame xyz delta in meters.",
         "input_schema": {

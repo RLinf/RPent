@@ -13,3 +13,12 @@ gripper:
   settle_s: 0.4
   timeout_s: 10.0
   max_iterations: 4
+perception:
+  cameras:
+    d455:
+      enabled: true
+      camera_type: realsense
+      serial_number: "311322304048"
+      resolution: [640, 480]
+      fps: 15
+      enable_depth: true

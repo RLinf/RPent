@@ -13,13 +13,14 @@ Use an RLinf checkout that contains ``DualFrankaTcpEnv-v1`` and the
 both Franka controllers, the ROS workspace, camera drivers, and RLinf
 environment before allowing agent motion.
 
-RPent and RLinf may use different Python environments. Point RPent at the RLinf
-checkout and interpreter:
+Install RPent with the Franka extra in the Python environment that will run
+RPent. The environment server uses this same interpreter. Point RPent at the
+RLinf checkout when it is not installed from a wheel:
 
 .. code-block:: bash
 
+	pip install -e '.[franka]'
 	export RPENT_RLINF_ROOT=/path/to/RLinf
-	export RPENT_RLINF_PYTHON=/path/to/RLinf/requirements/.venv/bin/python
 
 Calibrate the left and right robot IPs, base/left/right camera serials, per-arm
 reset joints, and safety bounds in the RLinf configuration. Do not use another
@@ -38,7 +39,7 @@ values with repeated ``--rlinf-override`` arguments:
 	  --rlinf-override 'cluster.node_groups[0].hardware.configs[0].right_robot_ip=RIGHT_ROBOT_IP' \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-The runner starts ``robots/dual_franka/env_server.py`` under the RLinf
+The runner starts ``robots/dual_franka/env_server.py`` under the RPent
 interpreter, waits for its ``healthz`` endpoint, and then creates the planner
 toolkit. The initial state is recorded as step ``0``.
 

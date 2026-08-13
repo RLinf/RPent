@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import os
+import queue
 import sys
 import time
 from pathlib import Path
@@ -135,11 +136,13 @@ def _load_controller_config(path: str | Path | None) -> dict[str, Any]:
         "gripper_settle_s": float(raw["gripper"]["settle_s"]),
         "gripper_timeout_s": float(raw["gripper"]["timeout_s"]),
         "gripper_max_iterations": int(raw["gripper"]["max_iterations"]),
+        "perception": dict(raw.get("perception") or {}),
     }
 
 
 def _create_worker_class():
     """Build the Worker subclass only inside the RLinf server environment."""
+    from rlinf.envs.realworld.common.camera import CameraInfo, create_camera
     from rlinf.envs.realworld.realworld_env import RealWorldEnv
     from rlinf.scheduler import Worker
     from scipy.spatial.transform import Rotation as Rotation
@@ -174,6 +177,14 @@ def _create_worker_class():
             env_config = self.env.env.call("get_wrapper_attr", "config")[0]
             self.action_scale = np.asarray(env_config.action_scale, dtype=np.float32)
             self.last_obs: dict[str, Any] | None = None
+            self._perception_cameras: dict[str, Any] = {}
+            self._perception_camera_last_frames: dict[str, np.ndarray] = {}
+            self._perception_camera_meta: dict[str, dict[str, Any]] = {}
+            try:
+                self._open_perception_cameras()
+            except Exception:
+                self.env.close()
+                raise
 
         # ------------------------------------------------------------ lifecycle
 
@@ -184,9 +195,16 @@ def _create_worker_class():
                 "per_arm_dim": self.per_arm_dim,
                 "action_scale": self.action_scale.tolist(),
                 "arms": ["left", "right"],
+                "perception_cameras": sorted(self._perception_cameras),
             }
 
         def close_env(self) -> None:
+            for camera in self._perception_cameras.values():
+                try:
+                    camera.close()
+                except Exception:
+                    pass
+            self._perception_cameras.clear()
             try:
                 self.env.close()
             except Exception:
@@ -230,6 +248,13 @@ def _create_worker_class():
                 and value.shape[0] == 1
             ):
                 output["extra_view_images"] = value[0]
+            perception = self._capture_perception_camera_snapshot()
+            for raw_key, frame in perception["raw_frames"].items():
+                alias = raw_key.removesuffix("_rgb")
+                output[f"{alias}_images"] = frame
+            for raw_key, depth in perception["raw_depths"].items():
+                alias = raw_key.removesuffix("_rgb")
+                output[f"{alias}_depths"] = depth
             return output
 
         # --------------------------------------------------------- arm state
@@ -268,26 +293,116 @@ def _create_worker_class():
             }
 
         def get_camera_metadata(self) -> dict[str, Any] | None:
+            metadata = dict(self._perception_camera_meta)
             try:
                 specs_getter = self.env.env.call(
                     "get_wrapper_attr", "_all_camera_specs"
                 )[0]
                 specs = list(specs_getter())
             except Exception as exc:
-                return {"error": str(exc), "error_type": type(exc).__name__}
+                return metadata or {
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                }
             cameras = {
                 name: {"serial": serial, "type": camera_type}
                 for name, serial, camera_type in specs
             }
             main_key = self.cfg.env.eval.get("main_image_key")
             extras = [name for name, _, _ in specs if name != main_key]
+            metadata.update({
+                name: {"serial": serial, "type": camera_type}
+                for name, serial, camera_type in specs
+            })
             return {
                 "cameras": cameras,
                 "observation_camera_map": {
                     "main": main_key,
                     **{f"extra_{index}": name for index, name in enumerate(extras)},
                 },
+                **metadata,
             }
+
+        def _open_perception_cameras(self) -> None:
+            cameras = self.controller["perception"].get("cameras")
+            if not isinstance(cameras, dict):
+                return
+            for alias, raw_config in cameras.items():
+                if not isinstance(raw_config, dict) or not bool(
+                    raw_config.get("enabled", True)
+                ):
+                    continue
+                resolution = tuple(
+                    int(value) for value in raw_config.get("resolution", [640, 480])
+                )
+                if len(resolution) != 2:
+                    raise ValueError(
+                        f"perception camera {alias!r} resolution must have two values"
+                    )
+                info = CameraInfo(
+                    name=f"{alias}_rgb",
+                    serial_number=str(raw_config["serial_number"]),
+                    camera_type=str(raw_config.get("camera_type", "realsense")),
+                    resolution=resolution,
+                    fps=int(raw_config.get("fps", 15)),
+                    enable_depth=bool(raw_config.get("enable_depth", True)),
+                )
+                camera = create_camera(info)
+                camera.open()
+                try:
+                    first_frame = camera.get_frame(timeout=8)
+                except Exception:
+                    camera.close()
+                    raise
+                self._perception_cameras[str(alias)] = camera
+                self._perception_camera_last_frames[str(alias)] = np.asarray(
+                    first_frame
+                )
+
+        def _capture_perception_camera_snapshot(self) -> dict[str, dict[str, Any]]:
+            output: dict[str, dict[str, Any]] = {
+                "raw_frames": {},
+                "raw_depths": {},
+                "camera_meta": {},
+            }
+            for alias, camera in self._perception_cameras.items():
+                try:
+                    frame = camera.get_frame(timeout=2)
+                    self._perception_camera_last_frames[alias] = np.asarray(frame)
+                except queue.Empty:
+                    frame = self._perception_camera_last_frames.get(alias)
+                    if frame is None:
+                        continue
+                frame = np.asarray(frame)
+                if frame.ndim != 3 or frame.shape[-1] < 3:
+                    continue
+                rgb = frame[..., :3][..., ::-1].astype(np.uint8, copy=True)
+                raw_key = f"{alias}_rgb"
+                output["raw_frames"][raw_key] = rgb
+                depth = None
+                if frame.shape[-1] >= 4:
+                    depth_scale = float(getattr(camera, "depth_scale", 1.0))
+                    depth = frame[..., 3].astype(np.float32) * depth_scale
+                    output["raw_depths"][raw_key] = depth
+                intrinsics_getter = getattr(camera, "get_color_intrinsics", None)
+                intrinsics = (
+                    intrinsics_getter() if callable(intrinsics_getter) else None
+                )
+                info = camera._camera_info
+                meta = {
+                    "name": raw_key,
+                    "camera_alias": alias,
+                    "camera_type": info.camera_type,
+                    "serial_number": info.serial_number,
+                    "rgb_shape": list(rgb.shape),
+                    "depth_shape": list(depth.shape) if depth is not None else None,
+                    "depth_enabled": bool(info.enable_depth),
+                    "depth_available": depth is not None,
+                    "color_intrinsics": intrinsics,
+                }
+                output["camera_meta"][raw_key] = meta
+                self._perception_camera_meta[raw_key] = meta
+            return output
 
         # --------------------------------------------------------- primitives
 

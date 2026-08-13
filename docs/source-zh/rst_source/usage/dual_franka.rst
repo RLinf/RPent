@@ -13,13 +13,13 @@ RPent 负责规划、工具、提示词与状态产物；RLinf 负责 Ray、ROS�
 智能体运动前，必须先独立验证两台 Franka 控制器、ROS 工作空间、相机驱动和
 RLinf 环境。
 
-RPent 与 RLinf 可以使用不同的 Python 环境。通过以下变量指定 RLinf checkout
-和解释器：
+请在运行 RPent 的同一个 Python 环境中安装 Franka extra。环境服务也会使用
+这个解释器。如果 RLinf 不是通过 wheel 安装，请指定 RLinf checkout：
 
 .. code-block:: bash
 
+	pip install -e '.[franka]'
 	export RPENT_RLINF_ROOT=/path/to/RLinf
-	export RPENT_RLINF_PYTHON=/path/to/RLinf/requirements/.venv/bin/python
 
 请在 RLinf 配置中校准左右机器人 IP、base/left/right 相机序列号、每条臂的
 reset 关节位姿和安全边界。不要直接复用其他工作空间的位姿或相机标定。
@@ -37,7 +37,7 @@ reset 关节位姿和安全边界。不要直接复用其他工作空间的位�
 	  --rlinf-override 'cluster.node_groups[0].hardware.configs[0].right_robot_ip=RIGHT_ROBOT_IP' \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-Runner 会使用 RLinf 解释器启动 ``robots/dual_franka/env_server.py``，等待其
+Runner 会使用 RPent 解释器启动 ``robots/dual_franka/env_server.py``，等待其
 ``healthz`` 端点就绪，然后创建 planner toolkit。初始状态记录为 step ``0``。
 
 连接已有服务

@@ -1,0 +1,18 @@
+parameters:
+  eye_on_hand: false
+  freehand_robot_movement: true
+  move_group: manipulator
+  move_group_namespace: /
+  namespace: /d455_to_right_base_eye_on_base/
+  robot_base_frame: right_base
+  robot_effector_frame: right_ee
+  tracking_base_frame: d455_color_optical_frame
+  tracking_marker_frame: tag_0
+transformation:
+  qw: 0.5846891204182749
+  qx: -0.7326935448819889
+  qy: -0.3328489017830779
+  qz: 0.10252029230629359
+  x: 1.0742812281624636
+  y: -0.48059006109294633
+  z: 0.7710512624107811

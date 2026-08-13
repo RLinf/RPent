@@ -27,10 +27,40 @@ TOOLS_SPEC = [
     },
     {
         "name": "view_camera_meta",
-        "description": "Read camera names, serials, and types for the dual-Franka rig.",
+        "description": "Read camera intrinsics, serials, and projection metadata for the dual-Franka rig.",
         "input_schema": {
             "type": "object",
             "properties": {"step": {"type": "integer", "default": -1}},
+        },
+    },
+    {
+        "name": "back_project_base_pixel",
+        "description": "Back-project one base-camera pixel into shared right-base coordinates.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "row": {"type": "integer", "minimum": 0},
+                "col": {"type": "integer", "minimum": 0},
+                "target_name": {"type": "string", "default": "target"},
+                "step": {"type": "integer"},
+                "window_radius": {"type": "integer", "minimum": 0, "default": 2},
+            },
+            "required": ["row", "col"],
+        },
+    },
+    {
+        "name": "back_project_d455_pixel",
+        "description": "Back-project one D455 pixel into shared right-base coordinates.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "row": {"type": "integer", "minimum": 0},
+                "col": {"type": "integer", "minimum": 0},
+                "target_name": {"type": "string", "default": "target"},
+                "step": {"type": "integer"},
+                "window_radius": {"type": "integer", "minimum": 0, "default": 2},
+            },
+            "required": ["row", "col"],
         },
     },
     {
@@ -215,6 +245,25 @@ def dump_state(
                     state.save("base.png", extra_array[0], step=step)
                 if extra_array.shape[0] >= 2:
                     state.save("right_wrist.png", extra_array[1], step=step)
+        main_depth = observation.get("main_depths")
+        if main_depth is not None:
+            state.save("left_wrist_depth.npy", np.asarray(main_depth), step=step)
+        extra_depths = observation.get("extra_view_depths")
+        if extra_depths is not None:
+            depth_array = np.asarray(extra_depths)
+            if depth_array.ndim == 4 and depth_array.shape[0] == 1:
+                depth_array = depth_array[0]
+            if depth_array.ndim == 3:
+                if depth_array.shape[0] >= 1:
+                    state.save("base_depth.npy", depth_array[0], step=step)
+                if depth_array.shape[0] >= 2:
+                    state.save("right_wrist_depth.npy", depth_array[1], step=step)
+        d455_image = observation.get("d455_images")
+        if d455_image is not None:
+            state.save("d455.png", np.asarray(d455_image), step=step)
+        d455_depth = observation.get("d455_depths")
+        if d455_depth is not None:
+            state.save("d455_depth.npy", np.asarray(d455_depth), step=step)
         if metadata is not None:
             state.save("camera_meta.json", metadata, step=step)
     return state.get(step)

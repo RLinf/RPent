@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "convention": "Base RealSense points are back-projected in the color optical frame and transformed with T_right_base_base_camera. right_base is the shared world frame exposed to the agent. Left-arm local controller coordinates are converted internally with explicit base-frame transforms.",
+  "base_camera": {
+    "source_name": "third_to_right_base_calib_eye_on_base.yaml",
+    "camera_alias": "base",
+    "robot_base_frame": "right_base",
+    "tracking_base_frame": "third_camera_color_optical_frame",
+    "transformation": {
+      "qw": 0.39683199797658536,
+      "qx": -0.5953705982581375,
+      "qy": 0.5978248726823736,
+      "qz": -0.36147425594911003,
+      "x": 0.21805217194241686,
+      "y": 0.3410047286324316,
+      "z": 0.789199431837733
+    },
+    "localization_validity": {
+      "depth_m": [0.15, 1.25],
+      "right_base_xyz_min": [0.1, -0.85, 0.0],
+      "right_base_xyz_max": [1.15, 0.85, 0.85]
+    }
+  },
+  "d455_camera": {
+    "source_name": "d455_to_right_base_eye_on_base.yaml",
+    "camera_alias": "d455",
+    "serial_number": "311322304048",
+    "robot_base_frame": "right_base",
+    "tracking_base_frame": "d455_color_optical_frame",
+    "transformation": {
+      "qw": 0.5846891204182749,
+      "qx": -0.7326935448819889,
+      "qy": -0.3328489017830779,
+      "qz": 0.10252029230629359,
+      "x": 1.0742812281624636,
+      "y": -0.48059006109294633,
+      "z": 0.7710512624107811
+    },
+    "localization_validity": {
+      "depth_m": [0.15, 1.5],
+      "right_base_xyz_min": [0.1, -0.85, 0.0],
+      "right_base_xyz_max": [1.15, 1.25, 0.85]
+    }
+  },
+  "base_frames": {
+    "T_right_base_left_base": {
+      "matrix": [
+        [1.0, 0.0, 0.0, 0.01],
+        [0.0, 1.0, 0.0, 0.69],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0]
+      ]
+    },
+    "left_base_in_right_base_xyz_m": [0.01, 0.69, 0.0],
+    "right_base_in_left_base_xyz_m": [-0.01, -0.69, 0.0],
+    "point_conversion": {
+      "right_to_left": "P_left = inv(T_right_base_left_base) @ P_right_h",
+      "left_to_right": "P_right = T_right_base_left_base @ P_left_h"
+    }
+  },
+  "wrist_cameras": {
+    "left_wrist": {
+      "source_name": "left_wrist_calib_eye_on_hand.yaml",
+      "robot_base_frame": "left_base",
+      "robot_effector_frame": "left_ee",
+      "tracking_base_frame": "left_wrist_camera_color_optical_frame",
+      "transformation": {
+        "qw": 0.7455758880737159,
+        "qx": -0.0060499621127771495,
+        "qy": 0.015271504090483612,
+        "qz": 0.6662182632173466,
+        "x": 0.051083207684947944,
+        "y": 0.06192850709526208,
+        "z": 0.03451344313359885
+      }
+    },
+    "right_wrist": {
+      "source_name": "right_wrist_calib_eye_on_hand.yaml",
+      "robot_base_frame": "right_base",
+      "robot_effector_frame": "right_ee",
+      "tracking_base_frame": "right_wrist_camera_color_optical_frame",
+      "transformation": {
+        "qw": 0.7491087562790311,
+        "qx": -0.002805037918553066,
+        "qy": -0.017702443944581647,
+        "qz": 0.6622045201497402,
+        "x": 0.06725343919082509,
+        "y": 0.08563113127271876,
+        "z": 0.11069152657177096
+      }
+    }
+  }
+}
