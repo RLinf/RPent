@@ -149,7 +149,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument(
         "--model-path",
-        default=os.environ.get("DUAL_FRANKA_CHECKPOINT_PATH"),
+        default=os.environ.get("PI05_CHECKPOINT_PATH"),
     )
     parser.add_argument(
         "--repo-id",
@@ -162,7 +162,7 @@ def main() -> None:
 
     if not args.model_path:
         raise RuntimeError(
-            "provide --model-path or set DUAL_FRANKA_CHECKPOINT_PATH"
+            "provide --model-path or set PI05_CHECKPOINT_PATH"
         )
     if not args.repo_id:
         raise RuntimeError("provide --repo-id or set DUAL_FRANKA_REPO_ID")

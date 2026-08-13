@@ -59,7 +59,7 @@ and the dataset repo ID used to compute its normalization statistics:
 
 .. code-block:: bash
 
-	export DUAL_FRANKA_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
+	export PI05_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
 	export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
 
 	rpent --env dual_franka --task-id 1 \

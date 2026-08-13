@@ -60,7 +60,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--vla-endpoint", default=None)
     parser.add_argument(
         "--vla-model-path",
-        default=os.environ.get("DUAL_FRANKA_CHECKPOINT_PATH"),
+        default=os.environ.get("PI05_CHECKPOINT_PATH"),
     )
     parser.add_argument(
         "--vla-repo-id",
@@ -192,7 +192,7 @@ def init_shared_runtime(
             if not args.vla_model_path or not args.vla_repo_id:
                 raise ValueError(
                     "dual-Franka VLA auto-start requires --vla-model-path and "
-                    "--vla-repo-id (or DUAL_FRANKA_CHECKPOINT_PATH and "
+                    "--vla-repo-id (or PI05_CHECKPOINT_PATH and "
                     "DUAL_FRANKA_REPO_ID)"
                 )
             host, port = "127.0.0.1", pick_free_port()
