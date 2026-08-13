@@ -49,7 +49,7 @@ LIBERO-PRO 仿真器、SAM 3.0 和 RLinf 运行时。
    * - ``.[rlinf]``
      - 仅 RLinf 运行时
    * - ``.[robocasa]``
-     - RLinf + RoboCasa365 仿真器
+     - RoboCasa365 仿真器 + RLDX-1 VLA，详见 :doc:`usage/robocasa`
    * - ``.[sam3]``
      - 仅 SAM 3.0
 
@@ -75,19 +75,7 @@ LIBERO-PRO 仿真器、SAM 3.0 和 RLinf 运行时。
 
       HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing
 
-3. (可选) 安装 RoboCasa365 stack
----------------------------------
-
-``.[robocasa]`` 已包含在 ``.[full]`` 中；只需要 RoboCasa365 时才单独安装。
-RLDX-1 要求 Python ``3.10``\ 。装完后用 ``robocasa-download-assets`` 生成
-``macros_private.py`` 并下载厨房 assets，``RLDX-1-FT-RC365`` checkpoint 另行
-下载 —— 详见 :doc:`usage/robocasa`\ 。
-
-.. code-block:: bash
-
-   uv pip install -e ".[robocasa]"
-
-4. (可选) 真实机器人依赖
+3. (可选) 真实机器人依赖
 ------------------------
 
 Franka 与 SO-101 的支持正在逐步接入; 每个机器人的 env 包未来会以一个

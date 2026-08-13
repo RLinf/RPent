@@ -54,17 +54,9 @@ rlinf = [
     "rpent-rlinf",
 ]
 openpi = [
-    # Imports its Pi0.5 model code instead of copying it over transformers/,
-    # so it runs on stock transformers 4.57 and can share an environment with
-    # RLDX-1. Verified bit-identical to the 4.53 fork it was rebased from.
-    # TODO: swap to "rpent-openpi>=0.2.0" once it is on PyPI.
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
 ]
 libero = [
-    # LIBERO on robosuite 1.5, so it can share an environment with
-    # RoboCasa365. Verified to reproduce the robosuite 1.4 observation
-    # contract and action space exactly. rlinf-libero stays on 1.4 for
-    # RLinf's own use.
     "rpent-libero>=0.2.0",
     "h5py",
 ]
@@ -85,16 +77,13 @@ sam3 = [
 robocasa = [
     "rpent[rlinf]",
     "rlinf-robocasa365",
-    "rlinf-rldx>=1.0.1.post10",                       # VLA; flash-attn optional, transformers 4.57
-    # RoboCasa365 needs robosuite master; the 1.5.2 release lacks the APIs and
-    # reports the same version, so no specifier can select it. Tracked on the
-    # RLinf fork rather than upstream @master.
+    "rlinf-rldx>=1.0.1.post10",
     "robosuite @ git+https://github.com/RLinf/robosuite.git@rlinf",
 ]
-
 full = [
     "rpent[rlinf,openpi,libero-pro,sam3,robocasa]",
 ]
+
 [tool.uv]
 prerelease = "allow"
 

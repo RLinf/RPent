@@ -52,7 +52,7 @@ Available extras:
    * - ``.[rlinf]``
      - RLinf runtime only
    * - ``.[robocasa]``
-     - RLinf + RoboCasa365 simulator
+     - RoboCasa365 simulator + the RLDX-1 VLA; see :doc:`usage/robocasa`
    * - ``.[sam3]``
      - SAM 3.0 only
 
@@ -82,20 +82,7 @@ These resources usually need to be downloaded only once;
 
       HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing
 
-3. (Optional) Install the RoboCasa365 stack
--------------------------------------------
-
-``.[robocasa]`` is part of ``.[full]``; install it alone if you only want
-RoboCasa365. RLDX-1 requires Python ``3.10``. Afterwards,
-``robocasa-download-assets`` writes ``macros_private.py`` and fetches the
-kitchen assets, and the ``RLDX-1-FT-RC365`` checkpoint is downloaded
-separately — see :doc:`usage/robocasa`.
-
-.. code-block:: bash
-
-   uv pip install -e ".[robocasa]"
-
-4. (Optional) Real-world robot dependencies
+3. (Optional) Real-world robot dependencies
 -------------------------------------------
 
 Franka and SO-101 support is being rolled in; when it lands, each
