@@ -59,21 +59,19 @@ openpi = [
     # environment with RLDX-1 (which needs qwen3_vl, added in 4.57).
     # Verified bit-identical to the 4.53 fork it was rebased from.
     # TODO: swap to "rpent-openpi>=0.2.0" once it is on PyPI.
-    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@f640522",
+    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
 ]
 libero = [
     # LIBERO on robosuite 1.5, so it can share an environment with
     # RoboCasa365. Verified to reproduce the robosuite 1.4 observation
     # contract and action space exactly. rlinf-libero stays on 1.4 for
     # RLinf's own use.
-    # TODO: swap to "rpent-libero>=0.2.0" once it is on PyPI.
-    "rpent-libero @ git+https://github.com/RLinf/LIBERO.git@ef63e6ee25c7e99feb6a5dcdb40dd4e3d169b2fd",
+    "rpent-libero>=0.2.0",
     "h5py",
 ]
 libero-pro = [
     "rpent[libero]",
-    # TODO: swap to "rpent-liberopro>=0.2.0" once uv sees it on PyPI.
-    "rpent-liberopro @ git+https://github.com/RLinf/LIBERO-PRO.git@209f5cb35833093cb8c9051032e4c246866382b4",
+    "rpent-liberopro>=0.2.0",
 ]
 libero-plus = [
     "rpent[libero]",
@@ -85,20 +83,19 @@ sam3 = [
     "torchvision",
     "pillow>=10",
 ]
+robocasa = [
+    "rpent[rlinf]",
+    "rlinf-robocasa365",
+    "rlinf-rldx>=1.0.1.post10",                       # VLA; flash-attn optional, transformers 4.57
+    # RoboCasa365 needs robosuite master; the 1.5.2 release lacks the APIs and
+    # reports the same version, so no specifier can select it. Tracked on the
+    # RLinf fork rather than upstream @master.
+    "robosuite @ git+https://github.com/RLinf/robosuite.git@rlinf",
+]
+
 full = [
     "rpent[rlinf,openpi,libero-pro,sam3,robocasa]",
 ]
-robocasa = [
-    "rpent[rlinf]",
-    # TODO: swap to "rlinf-robocasa365" once it is on PyPI.
-    "rlinf-robocasa365 @ git+https://github.com/RLinf/robocasa.git@da9066234b2df5d6d420fc618c321a9ce203b022",
-    "rlinf-rldx>=1.0.1.post6",                        # VLA; flash-attn optional, torch 2.7.x
-    # RoboCasa365 needs robosuite master; the 1.5.2 release lacks the APIs and
-    # reports the same version, so no specifier can select it. Pinned to a sha
-    # on the RLinf fork, not upstream @master, so the build is reproducible.
-    "robosuite @ git+https://github.com/RLinf/robosuite.git@5ce6643f3092639d08f7b0f90ed1c6a84f50552c",
-]
-
 [tool.uv]
 prerelease = "allow"
 
