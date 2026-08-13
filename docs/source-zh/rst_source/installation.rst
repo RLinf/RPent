@@ -37,7 +37,7 @@ LIBERO-PRO 仿真器、SAM 3.0 和 RLinf 运行时。
    * - Extra
      - 安装内容
    * - ``.[full]``
-     - ``rlinf`` + ``openpi`` + ``libero-pro`` + ``sam3`` —— 默认运行组合
+     - ``rlinf`` + ``openpi`` + ``libero-pro`` + ``robocasa`` + ``sam3`` —— 默认运行组合
    * - ``.[libero-pro]``
      - 仅基础 LIBERO + LIBERO-PRO 仿真器
    * - ``.[libero-plus]``
@@ -78,13 +78,10 @@ LIBERO-PRO 仿真器、SAM 3.0 和 RLinf 运行时。
 3. (可选) 安装 RoboCasa365 stack
 ---------------------------------
 
-``.[robocasa]`` extra 装齐整个 RoboCasa365 stack —— MuJoCo 3.3.1、
-ARISE-Initiative robosuite fork、pinned lerobot commit、protobuf，
-以及 ``robocasa`` 包本身（从 ``github.com/rlinf/robocasa`` fork
-的 ``v1.0.1_rlinf`` 分支装的 wheel）。RLDX-1 需要特定版本的
-PyTorch / torchvision / flash-attn 在 extra **之前** 装好，还要做
-安装后处理（macros、厨房 assets、env vars）并下一个
-``RLDX-1-FT-RC365`` checkpoint。完整步骤见 :doc:`usage/robocasa`。
+``.[robocasa]`` 已包含在 ``.[full]`` 中；只需要 RoboCasa365 时才单独安装。
+RLDX-1 要求 Python ``3.10``\ 。装完后用 ``robocasa-download-assets`` 生成
+``macros_private.py`` 并下载厨房 assets，``RLDX-1-FT-RC365`` checkpoint 另行
+下载 —— 详见 :doc:`usage/robocasa`\ 。
 
 .. code-block:: bash
 

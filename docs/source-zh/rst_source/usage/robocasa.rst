@@ -10,108 +10,47 @@ RoboCasa
 安装
 ----
 
-RoboCasa365 不在 ``.[full]`` 里。``.[robocasa]`` 这一依赖组合会装好
-整套 stack —— MuJoCo 3.3.1、ARISE-Initiative robosuite fork、pinned lerobot
-commit、protobuf，以及 ``robocasa`` 包本身（从 ``github.com/rlinf/robocasa``
-fork 的 ``v1.0.1_rlinf`` 分支装的 wheel）。fork 改造过，让
-``macros_private`` 和 ``assets`` 都从 env var 加载，所以非 editable 的
-wheel 装也能用，不需要本地 clone。
-
-**前置依赖 —— Python、PyTorch、torchvision、flash-attn**
-
-RLDX-1 对这些版本有严格要求：Python ``3.10.*``、``torch==2.7.0``、
-``torchvision==0.22.0``、``transformers==4.57.0``、
-``flash-attn==2.7.4.post1``。下面的步骤是推荐路径 —— PyTorch、
-torchvision、flash-attn 可通过任意工具安装（uv、pip、conda、系统包
-等），版本须与上述一致。最后运行主 ``.[robocasa]`` 安装命令，把
-stack 剩下的部分装齐。
-
-**国内镜像**
-
-国内网络建议先设好 PyPI 镜像加速普通包下载（覆盖 ``.[robocasa]`` 主
-安装的大部分依赖）。PyTorch cu124 wheel 可用阿里云镜像；flash-attn
-GitHub release wheel 可用 ``ghfast.top`` 反代加速。
+RoboCasa365 已包含在 ``.[full]`` 中。若要单独安装 —— RLDX-1 要求
+Python ``3.10``\ ：
 
 .. code-block:: bash
 
-   # 清华 TUNA PyPI 镜像
-   export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-
-.. code-block:: bash
-
-   # 建一个 Python 3.10 venv —— 3.11/3.12 会在依赖解析阶段直接失败
    uv venv --python 3.10
-
-   # PyTorch + torchvision —— cu124 是推荐默认；对 CUDA 12.x driver
-   # 来说 cu121/cu126/cu128 可互换。cu118 (CUDA 11.8) 没有对应的
-   # flash-attn 预编译 wheel，下一步必须源码编译。
-   # 国内可用阿里云镜像替代官方源，把 --index-url 换成:
-   #   https://mirrors.aliyun.com/pytorch-wheels/cu124
-   uv pip install torch==2.7.0 torchvision==0.22.0 \
-       --index-url https://download.pytorch.org/whl/cu124
-
-   # 从 flash-attn 上游 GitHub release 装预编译 wheel
-   # (cu12 + torch 2.7 + py3.10 + cxx11abi=TRUE)。PyPI 上只有 sdist，
-   # 直接 `uv pip install flash-attn==2.7.4.post1` 会触发源码编译 ——
-   # 需要 nvcc，且耗时 10-20 分钟。
-   # 国内访问 GitHub 慢时可用 ghfast.top 反代加速，把下面的 URL 换成:
-   #   https://ghfast.top/https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
-   uv pip install \
-       https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
-
-前置依赖装好后，运行主安装命令：
-
-.. code-block:: bash
-
-   # uv 会复用上面装好的 flash-attn wheel，不会重新编译。
    uv pip install -e ".[robocasa]"
 
-**注意**: flash-attn 预编译 wheel 只带 SM_80 和 SM_90 kernel —— 在
-Ampere/Hopper 上能 import 但在 Blackwell (``sm_120``) 上会崩。RTX 5090
-用户必须从源码编译，见 `flash-attn 安装文档
-<https://github.com/Dao-AILab/flash-attention#installation>`_。
+国内网络可先设 PyPI 镜像加速：\ ``export
+UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple``\ 。
+
+.. note::
+
+   flash-attn 是可选的，缺少时 RLDX-1 会回退到 PyTorch SDPA。若要加快策略
+   前向，可安装预编译 wheel —— PyPI 上只有 sdist，直接
+   ``pip install flash-attn`` 会源码编译 10-20 分钟：
+
+   .. code-block:: bash
+
+      uv pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
+
+   该 wheel 只带 SM_80 与 SM_90 kernel；Blackwell (``sm_120``) 需从源码编译，
+   或继续使用 SDPA。
 
 **安装后处理**
 
-装完 ``.[robocasa]`` 后，RoboCasa 还需要 ``macros_private.py`` 和
-厨房 assets 才能运行 ``rpent``:
+一条命令即可生成 ``macros_private.py`` 并下载厨房 assets（约 10 GB）。建议
+放在 ``site-packages`` 之外，重装不会丢：
 
-1. 生成 ``macros_private.py`` 并导出路径:
+.. code-block:: bash
 
-   .. code-block:: bash
+   robocasa-download-assets --assets-path ~/.robocasa/assets -y
 
-      # 默认写到 <repo_root>/.robocasa/macros_private.py
-      export ROBOCASA_MACROS_PATH=$PWD/.robocasa/macros_private.py
-      python -m robocasa.scripts.setup_macros
+命令结束时会打印需要导出的环境变量，把它们加到启动 ``rpent`` 的 shell 里：
 
-   fork 的 ``macros.py`` 在 import 时读 ``$ROBOCASA_MACROS_PATH``，所以
-   任何启动 ``rpent`` 的 shell 都要设这个 env var —— 加到你的
-   ``.bashrc`` / ``.zshrc`` 里。
+.. code-block:: bash
 
-2. 下载厨房 assets（10+ GB），可选地移出 ``site-packages``:
+   export ROBOCASA_MACROS_PATH=~/.robocasa/macros_private.py
+   export ROBOCASA_ASSETS_PATH=~/.robocasa/assets
 
-   .. code-block:: bash
-
-      # 下载到 wheel 自带的 robocasa/models/assets/
-      python -m robocasa.scripts.download_kitchen_assets --type all
-
-      # 可选: 移到外部目录，避免 wheel 重装时丢失，也可跨 venv 共享
-      export ROBOCASA_ASSETS_PATH=$PWD/.robocasa/assets
-      WHEEL_ASSETS=$(python -c "import robocasa; print(robocasa.__path__[0])")/models/assets
-      mkdir -p "$ROBOCASA_ASSETS_PATH"
-      mv "$WHEEL_ASSETS"/* "$ROBOCASA_ASSETS_PATH"/
-
-   不设 ``ROBOCASA_ASSETS_PATH`` 时，robocasa 会 fallback 到 wheel 自带
-   的 ``models/assets/`` —— 光下载就够跑。只有移走了 assets 才需要
-   导出这个 env var。
-
-3. （可选）检查依赖是否可以正常导入:
-
-   .. code-block:: bash
-
-      python -c "import robosuite, robocasa; print(robosuite.__version__, robocasa.__path__[0])"
-
-安装时的默认值见 :doc:`../installation`。
+加 ``--skip-existing`` 重跑会跳过已下载的目录。
 
 **RLDX-1 checkpoint**
 
