@@ -20,18 +20,18 @@ cluster:
       hardware:
         type: DualFranka
         configs:
-          - left_robot_ip: LEFT_ROBOT_IP
-            right_robot_ip: RIGHT_ROBOT_IP
-            base_camera_serials: [BASE_CAMERA_SERIAL]
+          - left_robot_ip: "172.16.0.2"
+            right_robot_ip: "172.16.0.2"
+            base_camera_serials: ["141722070657"]
             base_camera_type: realsense
-            left_camera_serials: [LEFT_CAMERA_SERIAL]
-            left_camera_type: realsense
-            right_camera_serials: [RIGHT_CAMERA_SERIAL]
-            right_camera_type: realsense
+            left_camera_serials: ["usb-XVisio_Technology_XVisio_vSLAM_250801DR48FB26001216-video-index0"]
+            left_camera_type: lumos
+            right_camera_serials: ["usb-XVisio_Technology_XVisio_vSLAM_250801DR48FB26001242-video-index0"]
+            right_camera_type: lumos
             left_gripper_type: robotiq
             right_gripper_type: robotiq
-            left_gripper_connection: LEFT_GRIPPER_CONNECTION
-            right_gripper_connection: RIGHT_GRIPPER_CONNECTION
+            left_gripper_connection: "/dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAIR00N-if00-port0"
+            right_gripper_connection: "/dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAIT8PU-if00-port0"
             left_controller_node_rank: 0
             right_controller_node_rank: 1
             node_rank: 0
