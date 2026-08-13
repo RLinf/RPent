@@ -69,7 +69,8 @@ libero-plus = [
     "rlinf-liberoplus",
 ]
 franka = [
-    "rpent-rlinf[franka]",
+    "rlinf[franka] @ git+https://github.com/jx-qiu/RLinf.git@port/franka",
+    "rlinf-openpi",
     "matplotlib>=3.8",
     "pillow>=10",
 ]
