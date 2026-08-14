@@ -13,14 +13,14 @@ model, see :doc:`System Design <architecture>`. This guide focuses on the
 extension points required to add a robot. Complete them in the following
 order:
 
-1. Register the ``EnvSpec`` and toolkit factory in the
+1. Register the ``RobotSpec`` and toolkit factory in the
    :ref:`entry point <add-robot-entry>`.
 2. Implement :ref:`env_client and env_server <add-robot-env-rpc>`. To
    integrate a VLA service and model client, see :ref:`Add a VLA (or other
    model-based primitive) <add-primitive-model-based>`.
 3. :ref:`Define the prompts <add-robot-prompts>`.
 4. :ref:`Implement the toolkit and primitives <add-robot-toolkit>`.
-5. :ref:`Register environment arguments and build RunConfig
+5. :ref:`Register robot arguments and build RunConfig
    <add-robot-config>`.
 6. In :ref:`_init_runtime <add-robot-runtime>`, start or connect to
    ``env_server`` and any required supporting services.
@@ -30,31 +30,31 @@ order:
 Entry point
 -----------
 
-For a new environment named ``myenv``, use the following directory layout:
+For a new robot named ``myenv``, use the following directory layout:
 
 .. code-block:: text
 
    robots/myenv/
-       __init__.py            # entry point — get_env_spec() / get_toolkit() factories
+       __init__.py            # entry point — get_robot_spec() / get_toolkit() factories
        env_client.py          # MyEnvClient — agent-side RPC stub (§1)
        prompt_bundle.py       # system()/user() prompt factories         (§2)
        toolkit.py             # MyEnvToolkit + primitives + tool definitions (§3)
        env_server.py          # server-side facade + RPC server (§1)
        vla_server.py          # (optional) VLA model server
 
-``__init__.py`` is the environment package's entry point. The registry in
-``rpent/envs/base.py`` lazily imports ``robots.<name>`` on demand and calls its
+``__init__.py`` is the robot package's entry point. The registry in
+``rpent/robots/base.py`` lazily imports ``robots.<name>`` on demand and calls its
 two factory functions:
 
 .. code-block:: python
 
    # robots/myenv/__init__.py
-   from rpent.envs.env_spec import EnvSpec, RunConfig
-   from rpent.envs.prompt_bundle import PromptBundle
+   from rpent.robots.robot_spec import RobotSpec, RunConfig
+   from rpent.robots.prompt_bundle import PromptBundle
    from robots.myenv.prompt_bundle import system_prompt, user_prompt
 
-   def get_env_spec() -> EnvSpec:
-       return EnvSpec(
+   def get_robot_spec() -> RobotSpec:
+       return RobotSpec(
            name="myenv",
            prompts=PromptBundle(system=system_prompt, user=user_prompt),
            add_cli_args=_add_cli_args,
@@ -67,7 +67,7 @@ two factory functions:
        return MyEnvToolkit(primitives_kwargs=primitives_kwargs, video_path=video_path)
 
    def _add_cli_args(parser, use_dashboard) -> None:
-       """Register env flags on the shared parser. See §4."""
+       """Register robot flags on the shared parser. See §4."""
        ...
 
    def _parse_config(args) -> RunConfig:
@@ -81,7 +81,7 @@ two factory functions:
        """
        ...
 
-That's the entire registration step — ``_resolve_env(name)`` does an
+That's the entire registration step — ``_resolve_robot(name)`` does an
 ``importlib.import_module(f"robots.{name}")``, so dropping the package under
 ``robots/`` on disk is enough. No central list to update.
 
@@ -163,7 +163,7 @@ teardown. The subclass only needs to implement the environment methods.
 
 Define two prompt factories, ``system_prompt()`` and ``user_prompt()``, and
 build a ``PromptBundle(system=system_prompt, user=user_prompt)`` in the
-environment's ``__init__.py`` (see the entry point above). Each factory returns an ordered
+robot's ``__init__.py`` (see the entry point above). Each factory returns an ordered
 ``dict[str, PromptNode]`` of titled sections; ``PromptBundle.render`` assembles
 and fills them. One prompt serves every planner (API loop, Claude Code, Codex):
 refer to tools by their bare names (``move_to``, ...) and note once that the
@@ -193,7 +193,7 @@ maintain separate prompt copies for CLI and API planners.
            "BEGIN": user_parts.BEGIN,
        }
 
-Keep the prompt content under the env package, for example in
+Keep the prompt content under the robot package, for example in
 ``robots/myenv/prompts/system.py`` and ``user.py``. Section bodies are plain
 strings (or ``BulletList`` / ``Numbered``) with ``{{suite}}`` / ``{{task}}`` /
 ``{{seed}}`` / ``{{output_dir}}`` / ``{{recipe_tag}}`` placeholders filled at
@@ -205,9 +205,9 @@ render time.
 ------------------
 
 This module owns everything the LLM can call: the tool schemas, the primitives,
-the per-step state dump, and the MCP allowlist. (In the LIBERO env these
+the per-step state dump, and the MCP allowlist. (In the LIBERO robot these
 are split between ``tools.py`` and ``toolkit.py`` for historical reasons; for a
-new env it is fine to keep them all in ``toolkit.py``.)
+new robot it is fine to keep them all in ``toolkit.py``.)
 
 A toolkit module typically contains four pieces:
 
@@ -269,22 +269,22 @@ Conventions worth keeping
 4. ``_add_cli_args`` + ``_parse_config`` (runner hooks)
 -------------------------------------------------------
 
-Environment-specific CLI arguments enter ``rpent/cli/main.py`` through two
+Robot-specific CLI arguments enter ``rpent/cli/main.py`` through two
 hooks and participate in the final argparse pass:
 
 **``_add_cli_args(parser, use_dashboard) -> None``.** Register the
-environment's arguments on the shared parser created by main.py.
+robot's arguments on the shared parser created by main.py.
 ``use_dashboard`` determines whether normally required arguments remain
 optional for the dashboard launcher to fill in later. main.py calls this hook
 before ``parser.parse_args()``, so argparse's usage and error output includes
-the environment arguments.
+the robot arguments.
 
 **``_parse_config(args) -> RunConfig``.** Called after ``parser.parse_args()``
 and, if applicable, the dashboard launcher. Enforces any dashboard-only
 optional flags are now populated and returns a
-:class:`~rpent.envs.RunConfig`:
+:class:`~rpent.robots.RunConfig`:
 
-- ``recipe_tag`` — env's per-run tag, used in transcript filenames / recipe
+- ``recipe_tag`` — robot's per-run tag, used in transcript filenames / recipe
   path (LIBERO: ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``).
 - ``output_dir`` — path to the working directory for this run (main.py then
   calls ``init_output_dir`` to create it and configure logging).
@@ -292,7 +292,7 @@ optional flags are now populated and returns a
   identifiers plus anything else the prompts reference).
 - ``dashboard_state`` — a :class:`~rpent.dashboard.state.State` when
   ``args.dashboard`` is set, else ``None``.
-- ``task_desc`` — env-specific dict of task-identifying fields, written into
+- ``task_desc`` — robot-specific dict of task-identifying fields, written into
   the transcript JSON record verbatim (LIBERO:
   ``{"suite": ..., "task": ..., "seed": ...}``).
 
@@ -302,7 +302,7 @@ optional flags are now populated and returns a
        required = not use_dashboard
        parser.add_argument("--suite", default=None, required=required)
        parser.add_argument("--task", type=int, default=None, required=required)
-       # ... other env-specific flags ...
+       # ... other robot-specific flags ...
 
    def _parse_config(args) -> RunConfig:
        if not args.suite: raise ValueError("--suite is required")
@@ -321,8 +321,8 @@ optional flags are now populated and returns a
 ----------------------------------
 
 After ``parse_config`` returns, main.py calls
-``env_spec.init_runtime(args, output_dir)`` to initialize the environment and
-VLA services and build the toolkit inputs. The environment can spawn as many
+``robot_spec.init_runtime(args, output_dir)`` to initialize the robot and
+VLA services and build the toolkit inputs. The robot can spawn as many
 subprocesses as it needs. The current LIBERO implementation starts
 ``env_server``, ``vla_server``, and ``sam3_server``. The hook returns
 ``(daemons, primitives_kwargs)``:
@@ -347,7 +347,7 @@ Once everything compiles, run this minimal smoke test:
 .. code-block:: bash
 
    PI05_CHECKPOINT_PATH=<path> ANTHROPIC_API_KEY=<key> \
-     rpent --env myenv --suite <suite> --task <id> --seed 0 \
+     rpent --robot myenv --suite <suite> --task <id> --seed 0 \
      --output-dir /tmp/myenv_smoke --planner api --model anthropic:claude-opus-4-8
 
 Expect the agent to complete the prompted task, and ``finish`` to be

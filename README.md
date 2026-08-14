@@ -131,7 +131,7 @@ export LIBERO_TYPE=pro
 
 # Run one task: libero_object_swap, task 2, seed 0, using Claude Code
 # with Claude Opus 4.8.
-rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --cuda-device 0 --planner claude_code --model claude-opus-4-8
 ```
 
@@ -142,7 +142,7 @@ See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/c
 Add `--interactive` (`-i`) to steer the agent live from your terminal. At the `you>` prompt, the built-in task is pre-filled — press Enter to use it or replace it with your own — then type any message while it runs to steer the agent at the next turn (`/help` lists commands; `/quit` or Ctrl-D ends). Requires an interactive terminal (TTY).
 
 ```bash
-rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --planner claude_code --model claude-opus-4-8 --interactive
 ```
 
@@ -151,7 +151,7 @@ rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
 Add `--dashboard` to start a local dashboard server. The command prints the URL in the terminal; open it to confirm the configuration on the launcher screen. Once the run starts, the page streams agent reasoning, camera and Pi0 views, the action timeline, and clip replays. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
-rpent --env libero --dashboard --dashboard-language zh-cn \
+rpent --robot libero --dashboard --dashboard-language zh-cn \
   --suite libero_goal_task --task 1 --seed 0 \
   --planner claude_code --model claude-opus-4-8
 ```
@@ -169,7 +169,7 @@ For more detailed documentation, see the [RPent documentation](https://rpent.rea
     </tr>
   </thead>
   <tbody valign="top">
-    <tr><td><code>--env</code></td><td>— (required)</td><td>Environment backend. Currently <code>libero</code>.</td></tr>
+    <tr><td><code>--robot</code></td><td>— (required)</td><td>Robot backend. Currently <code>libero</code>.</td></tr>
     <tr><td><code>--suite</code></td><td>— (required)</td><td>Task suite, e.g. <code>libero_object_task</code>, <code>libero_spatial_swap</code></td></tr>
     <tr><td><code>--task</code></td><td>— (required)</td><td>Task id within the suite</td></tr>
     <tr><td><code>--seed</code></td><td><code>0</code></td><td>Random seed</td></tr>

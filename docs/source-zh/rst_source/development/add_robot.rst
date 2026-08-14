@@ -10,13 +10,13 @@ runner。完整的参考实现见 ``robots/libero/``。
 RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 <architecture>`。
 本页不再重复设计原理，只说明接入新机器人需要实现的扩展点。建议按以下顺序完成：
 
-1. 在 :ref:`入口 <add-robot-entry>` 中注册 ``EnvSpec`` 和 toolkit 工厂。
+1. 在 :ref:`入口 <add-robot-entry>` 中注册 ``RobotSpec`` 和 toolkit 工厂。
 2. 实现 :ref:`env_client 和 env_server <add-robot-env-rpc>`。如需接入 VLA
    服务和 model client，参见
    :ref:`添加一个 VLA（或其他基于模型的原语）<add-primitive-model-based>`。
 3. :ref:`定义 prompt <add-robot-prompts>`。
 4. :ref:`实现 toolkit 和 primitives <add-robot-toolkit>`。
-5. :ref:`注册环境参数并生成 RunConfig <add-robot-config>`。
+5. :ref:`注册机器人参数并生成 RunConfig <add-robot-config>`。
 6. 在 :ref:`_init_runtime <add-robot-runtime>` 中启动或连接 ``env_server`` 与
    所需的辅助服务。
 
@@ -25,30 +25,30 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 入口
 ----
 
-新增名为 ``myenv`` 的环境时，目录结构如下：
+新增名为 ``myenv`` 的机器人时，目录结构如下：
 
 .. code-block:: text
 
    robots/myenv/
-       __init__.py            # 入口 —— get_env_spec() / get_toolkit() 工厂
+       __init__.py            # 入口 —— get_robot_spec() / get_toolkit() 工厂
        env_client.py          # MyEnvClient —— agent 侧 RPC client (§1)
        prompt_bundle.py       # system()/user() prompt 工厂              (§2)
        toolkit.py             # MyEnvToolkit + primitives + 工具定义     (§3)
        env_server.py          # 环境侧 facade + RPC 服务                 (§1)
        vla_server.py          # （可选）VLA 模型服务
 
-``__init__.py`` 是环境包的入口。``rpent/envs/base.py`` 中的注册表会按需导入
+``__init__.py`` 是机器人包的入口。``rpent/robots/base.py`` 中的注册表会按需导入
 ``robots.<name>``，并调用其中的两个工厂函数：
 
 .. code-block:: python
 
    # robots/myenv/__init__.py
-   from rpent.envs.env_spec import EnvSpec, RunConfig
-   from rpent.envs.prompt_bundle import PromptBundle
+   from rpent.robots.robot_spec import RobotSpec, RunConfig
+   from rpent.robots.prompt_bundle import PromptBundle
    from robots.myenv.prompt_bundle import system_prompt, user_prompt
 
-   def get_env_spec() -> EnvSpec:
-       return EnvSpec(
+   def get_robot_spec() -> RobotSpec:
+       return RobotSpec(
            name="myenv",
            prompts=PromptBundle(system=system_prompt, user=user_prompt),
            add_cli_args=_add_cli_args,
@@ -61,7 +61,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
        return MyEnvToolkit(primitives_kwargs=primitives_kwargs, video_path=video_path)
 
    def _add_cli_args(parser, use_dashboard) -> None:
-       """向共享 parser 注册环境参数。见第 4 节。"""
+       """向共享 parser 注册机器人参数。见第 4 节。"""
        ...
 
    def _parse_config(args) -> RunConfig:
@@ -75,8 +75,8 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
        """
        ...
 
-``_resolve_env(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
-动态加载环境包。因此，只需将环境包放在 ``robots/`` 下，无需维护中央注册列表。
+``_resolve_robot(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
+动态加载机器人包。因此，只需将机器人包放在 ``robots/`` 下，无需维护中央注册列表。
 
 下文依次说明这些模块需要实现的内容。``_add_cli_args`` 和 ``_parse_config``
 见第 4 节，``_init_runtime`` 见第 5 节。
@@ -150,7 +150,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 2. ``prompt_bundle.py``
 -----------------------
 
-定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在环境的
+定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在机器人的
 ``__init__.py`` 中构造
 ``PromptBundle(system=system_prompt, user=user_prompt)``（见上面的“入口”）。
 每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节；
@@ -182,7 +182,7 @@ API 版本。
            "BEGIN": user_parts.BEGIN,
        }
 
-将 prompt 内容保存在环境包内，例如 ``robots/myenv/prompts/system.py`` 和
+将 prompt 内容保存在机器人包内，例如 ``robots/myenv/prompts/system.py`` 和
 ``user.py``。分节内容可以是普通字符串，也可以使用 ``BulletList`` 或
 ``Numbered``。占位符
 ``{{suite}}`` / ``{{task}}`` / ``{{seed}}`` / ``{{output_dir}}`` /
@@ -195,7 +195,7 @@ API 版本。
 
 这个模块持有 LLM 能调用的一切: 工具 schema、primitives、每步状态 dump 以及
 MCP allowlist。(LIBERO 中由于历史原因把这些拆到了 ``tools.py`` 和 ``toolkit.py``
-两个文件; 新增 env 时全部放在 ``toolkit.py`` 里没问题。)
+两个文件; 新增 robot 时全部放在 ``toolkit.py`` 里没问题。)
 
 toolkit 模块通常包含四部分：
 
@@ -253,20 +253,20 @@ primitives 的 ``__init__``。其中通常包含
 4. ``_add_cli_args`` + ``_parse_config`` (runner 钩子)
 ------------------------------------------------------
 
-环境特有的 CLI 参数通过两个钩子接入 ``rpent/cli/main.py`` 的解析流程，并参与
+机器人特有的 CLI 参数通过两个钩子接入 ``rpent/cli/main.py`` 的解析流程，并参与
 最终的 argparse 解析：
 
-**``_add_cli_args(parser, use_dashboard) -> None``。** 将环境参数注册到
+**``_add_cli_args(parser, use_dashboard) -> None``。** 将机器人参数注册到
 main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参数是否保持可选，
 这些值随后由 Dashboard launcher 填入。main.py 会在
 ``parser.parse_args()`` 之前调用该钩子，因此 argparse 的 usage 和错误信息也会
-包含环境参数。
+包含机器人参数。
 
 **``_parse_config(args) -> RunConfig``。** 在 ``parser.parse_args()`` 以及
 Dashboard launcher（如果启用）运行后调用。该钩子检查 Dashboard 模式下暂时设为
-可选的字段是否已经填入，并返回 :class:`~rpent.envs.RunConfig`：
+可选的字段是否已经填入，并返回 :class:`~rpent.robots.RunConfig`：
 
-- ``recipe_tag`` —— 单次运行的环境标签，用于 transcript 文件名和 recipe 路径
+- ``recipe_tag`` —— 单次运行的机器人标签，用于 transcript 文件名和 recipe 路径
   （LIBERO 使用 ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``）。
 - ``output_dir`` —— 单次运行的临时目录路径。main.py 随后调用
   ``init_output_dir`` 创建目录并配置日志。
@@ -274,7 +274,7 @@ Dashboard launcher（如果启用）运行后调用。该钩子检查 Dashboard 
   prompt 引用的其他变量。
 - ``dashboard_state`` —— ``args.dashboard`` 为真时是
   :class:`~rpent.dashboard.state.State`，否则为 ``None``。
-- ``task_desc`` —— 环境特定的任务标识字典，会原样写入 transcript JSON 记录
+- ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录
   （LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
 
 .. code-block:: python
@@ -283,7 +283,7 @@ Dashboard launcher（如果启用）运行后调用。该钩子检查 Dashboard 
        required = not use_dashboard
        parser.add_argument("--suite", default=None, required=required)
        parser.add_argument("--task", type=int, default=None, required=required)
-       # ... 其他环境参数 ...
+       # ... 其他机器人参数 ...
 
    def _parse_config(args) -> RunConfig:
        if not args.suite: raise ValueError("--suite is required")
@@ -302,8 +302,8 @@ Dashboard launcher（如果启用）运行后调用。该钩子检查 Dashboard 
 ----------------------------------
 
 ``parse_config`` 返回后，main.py 调用
-``env_spec.init_runtime(args, output_dir)``，初始化环境与 VLA 服务，并构造
-toolkit 所需的参数。环境实现可以自行决定启动多少个子进程；当前 LIBERO 会启动
+``robot_spec.init_runtime(args, output_dir)``，初始化机器人与 VLA 服务，并构造
+toolkit 所需的参数。机器人实现可以自行决定启动多少个子进程；当前 LIBERO 会启动
 ``env_server``、``vla_server`` 和 ``sam3_server``。该钩子最终返回
 ``(daemons, primitives_kwargs)``：
 
@@ -327,7 +327,7 @@ endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
 .. code-block:: bash
 
    PI05_CHECKPOINT_PATH=<path> ANTHROPIC_API_KEY=<key> \
-     rpent --env myenv --suite <suite> --task <id> --seed 0 \
+     rpent --robot myenv --suite <suite> --task <id> --seed 0 \
      --output-dir /tmp/myenv_smoke --planner api --model anthropic:claude-opus-4-8
 
 预期结果是 agent 完成 prompt 中指定的任务并调用 ``finish``。运行结束后，

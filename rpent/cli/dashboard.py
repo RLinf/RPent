@@ -15,14 +15,14 @@ from typing import TYPE_CHECKING, Any
 
 from rpent.cli.main import _serialize_messages
 from rpent.dashboard.events import RunStartedEvent
-from rpent.envs import get_toolkit
+from rpent.robots import get_toolkit
 from rpent.planner.base import build_planner
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
 
 if TYPE_CHECKING:
     from rpent.dashboard.state import ClaimedTask, DashboardState
-    from rpent.envs.env_spec import EnvSpec
+    from rpent.robots.robot_spec import RobotSpec
     from rpent.utils.daemon import ProcessDaemon
 
 logger = get_logger("agent")
@@ -30,7 +30,7 @@ logger = get_logger("agent")
 
 def run_dashboard_session(
     args: argparse.Namespace,
-    env_spec: EnvSpec,
+    robot_spec: RobotSpec,
     *,
     parser: argparse.ArgumentParser,
 ) -> int:
@@ -41,10 +41,10 @@ def run_dashboard_session(
     from rpent.dashboard.state import DashboardState
     from rpent.utils.config import get_repo_root
 
-    dashboard_spec = env_spec.dashboard
+    dashboard_spec = robot_spec.dashboard
     if dashboard_spec is None:
         parser.error(
-            f"environment {env_spec.name!r} does not support Dashboard control"
+            f"robot {robot_spec.name!r} does not support Dashboard control"
         )
 
     dashboard_server = DashboardServer(
@@ -78,7 +78,7 @@ def run_dashboard_session(
     logger.info("launcher Session config applied: %s", launch_config)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
-    ensure_resources(args.env_name)
+    ensure_resources(args.robot_name)
     state = DashboardState(
         run_id=f"dashboard-session/{session_root.name}",
         output_dir=session_root,
@@ -88,14 +88,14 @@ def run_dashboard_session(
 
     controller = DashboardSessionController(
         state=state,
-        start_shared=lambda: env_spec.init_shared_runtime(
+        start_shared=lambda: robot_spec.init_shared_runtime(
             args,
             session_root,
             state,
         ),
         run_task=lambda claimed, shared: _run_dashboard_task(
             args=args,
-            env_spec=env_spec,
+            robot_spec=robot_spec,
             state=state,
             claimed=claimed,
             shared_primitives_kwargs=shared,
@@ -119,7 +119,7 @@ def run_dashboard_session(
 def _run_dashboard_task(
     *,
     args: argparse.Namespace,
-    env_spec: EnvSpec,
+    robot_spec: RobotSpec,
     state: DashboardState,
     claimed: ClaimedTask,
     shared_primitives_kwargs: dict[str, Any],
@@ -130,7 +130,7 @@ def _run_dashboard_task(
     for name, value in claimed.request.items():
         setattr(task_args, name, value)
     task_args.output_dir = str(claimed.output_dir)
-    run_config = env_spec.parse_config(task_args)
+    run_config = robot_spec.parse_config(task_args)
     output_dir = init_output_dir(run_config.output_dir, verbose=args.verbose)
 
     recipe_tag = run_config.recipe_tag
@@ -142,7 +142,7 @@ def _run_dashboard_task(
     toolkit = None
     started = time.time()
     try:
-        task_daemons, task_primitives_kwargs = env_spec.init_task_runtime(
+        task_daemons, task_primitives_kwargs = robot_spec.init_task_runtime(
             task_args,
             output_dir,
             state,
@@ -153,7 +153,7 @@ def _run_dashboard_task(
                 **shared_primitives_kwargs,
             }
             toolkit = get_toolkit(
-                args.env_name,
+                args.robot_name,
                 primitives_kwargs=primitives_kwargs,
                 dashboard_events=state,
             )
@@ -161,7 +161,7 @@ def _run_dashboard_task(
                 args.planner,
                 output_dir=output_dir,
                 recipe_tag=recipe_tag,
-                env_name=args.env_name,
+                robot_name=args.robot_name,
                 base_url=args.base_url,
                 model=args.model,
                 max_tokens=args.max_tokens,
@@ -172,11 +172,11 @@ def _run_dashboard_task(
             )
 
             prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
-            system_prompt = env_spec.prompts.render(
+            system_prompt = robot_spec.prompts.render(
                 "system",
                 variables=prompt_vars,
             )
-            user_message = env_spec.prompts.render(
+            user_message = robot_spec.prompts.render(
                 "user",
                 variables=prompt_vars,
             )

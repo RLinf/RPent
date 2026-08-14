@@ -44,9 +44,9 @@ env_server that talks to the agent over lightweight RPC; the agent side imports
 no simulator and is not tied to any specific environment. Swapping environments
 only means implementing the same env-client interface — the env can be
 restarted on its own, moved to another machine, or replaced with a different
-simulator, without touching the planner or tools. Adding an environment needs
+simulator, without touching the planner or tools. Adding a robot needs
 no registration code either: drop a package under ``robots/`` and the framework
-discovers it. See :doc:`add_robot` for how to wire up a new environment.
+discovers it. See :doc:`add_robot` for how to wire up a new robot.
 
 The LLM-in-the-loop cycle
 -------------------------
@@ -78,15 +78,15 @@ The framework code is organized by responsibility:
      cli/            # main.py entrypoint and interactive terminal support.
      context/        # Prompt utilities and shared prompt sections.
      dashboard/      # FastAPI monitor + SSE streams (optional).
-     envs/           # EnvSpec, PromptBundle, and on-demand env loading.
+     robots/         # RobotSpec, PromptBundle, and on-demand robot loading.
      tools/          # Toolkit base class and shared tool helpers.
      utils/          # Config, logging, RPC, and VLA client helpers.
    robots/
      libero/         # LIBERO env_client / env_server / vla_server /
-                     # toolkit / prompt_bundle. The reference env.
-     robocasa/       # RoboCasa env (RLDX-1 VLA, kitchen tasks).
-     (franka/)       # Franka env — in progress.
-     (so101/)        # SO-101 env — in progress.
+                     # toolkit / prompt_bundle. The reference robot.
+     robocasa/       # RoboCasa robot (RLDX-1 VLA, kitchen tasks).
+     (franka/)       # Franka robot — in progress.
+     (so101/)        # SO-101 robot — in progress.
    scripts/
      codex_proxy/    # LiteLLM proxy for the codex planner.
      robocasa/       # RoboCasa run / setup / sweep scripts.
@@ -98,10 +98,10 @@ The runner (``rpent/cli/main.py``)
 components required for a run. On startup, it:
 
 1. Parses shared CLI flags (:doc:`../quickstart` documents the ones you'll
-   use day-to-day) with ``parse_known_args`` to grab ``--env`` and
+   use day-to-day) with ``parse_known_args`` to grab ``--robot`` and
    ``--dashboard`` early.
-2. Resolves the env via ``get_env_spec(args.env_name)`` and calls
-   ``env_spec.add_cli_args(parser, use_dashboard=args.dashboard)`` — the env
+2. Resolves the robot via ``get_robot_spec(args.robot_name)`` and calls
+   ``robot_spec.add_cli_args(parser, use_dashboard=args.dashboard)`` — the robot
    registers its flags on the shared parser. ``use_dashboard=True`` makes
    its otherwise-required flags optional so the dashboard can supply them.
 3. Runs ``parser.parse_args()`` against the complete parser to perform
@@ -109,55 +109,55 @@ components required for a run. On startup, it:
    argparse's standard usage and error output.
 4. If ``--dashboard`` is set, starts the launcher with the current arguments
    as defaults and applies the submitted configuration back to ``args``.
-5. Calls ``env_spec.parse_config(args)`` to validate the run configuration
+5. Calls ``robot_spec.parse_config(args)`` to validate the run configuration
    and produce a
-   :class:`~rpent.envs.RunConfig`
+   :class:`~rpent.robots.RunConfig`
    (``recipe_tag`` / ``output_dir`` / ``prompt_vars`` / ``dashboard_state``
-   / ``task_desc``). Under ``--dashboard``, this is where the env
+   / ``task_desc``). Under ``--dashboard``, this is where the robot
    enforces that its previously-optional flags were actually filled in.
 6. Calls ``init_output_dir`` to create the run's output directory and
    configure ``run.log``.
 7. Builds the **planner** through ``rpent.planner.base.build_planner`` based
-   on ``--planner``, then renders the system and user prompts from the env's
+   on ``--planner``, then renders the system and user prompts from the robot's
    prompt bundle.
-8. Calls ``env_spec.init_runtime(args, output_dir)``. The env implementation
+8. Calls ``robot_spec.init_runtime(args, output_dir)``. The robot implementation
    starts ``env_server`` and ``vla_server``, or connects to existing services
    when ``--env-endpoint`` / ``--vla-endpoint`` is supplied, and returns
    ``(daemons, primitives_kwargs)``.
-9. Passes ``primitives_kwargs`` to the env's ``get_toolkit`` factory to
+9. Passes ``primitives_kwargs`` to the robot's ``get_toolkit`` factory to
    construct the **toolkit**.
 10. Runs the tool-calling loop, streams to the dashboard if
     ``--dashboard`` is set, and then writes
     ``<output_dir>/transcript_*.json`` and flushes toolkit recordings during
     cleanup.
 
-``main.py`` only connects these stages. Environment-specific code lives
-under ``robots/<env>/``, while planner backends live under
-``rpent/planner/``. As a result, ``main.py`` imports no environment-specific
+``main.py`` only connects these stages. Robot-specific code lives
+under ``robots/<robot>/``, while planner backends live under
+``rpent/planner/``. As a result, ``main.py`` imports no robot-specific
 class or script.
 
-Environment loading
--------------------
+Robot loading
+-------------
 
-``rpent/envs/base.py`` resolves environment implementations on demand.
-For an environment name of ``myenv``, it imports
+``rpent/robots/base.py`` resolves robot implementations on demand.
+For a robot name of ``myenv``, it imports
 ``robots.myenv`` with ``importlib.import_module`` and then calls the
 two factories exposed by that package:
 
 .. code-block:: python
 
    # robots/myenv/__init__.py
-   def get_env_spec() -> EnvSpec: ...  # identity, prompt bundle, and runner hooks
+   def get_robot_spec() -> RobotSpec: ...  # identity, prompt bundle, and runner hooks
    def get_toolkit(
        *, primitives_kwargs, video_path=None, dashboard=None
    ): ...
 
-``EnvSpec`` gathers the environment's identity, its prompt templates, and the
+``RobotSpec`` gathers the robot's identity, its prompt templates, and the
 three runner hooks (``add_cli_args`` / ``parse_config`` / ``init_runtime``); see
 :doc:`interfaces` for what each field must provide.
 
-The loader itself does not maintain a list of environment names. The
-current CLI restricts ``--env`` to ``libero`` and ``robocasa``; adding a
+The loader itself does not maintain a list of robot names. The
+current CLI restricts ``--robot`` to ``libero`` and ``robocasa``; adding a
 new name therefore also requires updating the CLI choices. See
 :doc:`add_robot` for the complete procedure.
 

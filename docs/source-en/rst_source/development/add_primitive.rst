@@ -155,7 +155,7 @@ connect to an instance that is already running:
 
 .. code-block:: bash
 
-   rpent --env libero --vla-endpoint http://vla-host:8000 ...
+   rpent --robot libero --vla-endpoint http://vla-host:8000 ...
 
 If the model keeps per-episode state, expose a ``vla_reset`` RPC and
 call it between tasks. The same server process can then be reused safely

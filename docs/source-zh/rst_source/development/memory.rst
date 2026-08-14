@@ -26,10 +26,10 @@ memory 笔记里的技巧、参数范围和失败模式。
 --------
 
 ``resources/`` 不随 git 仓库分发，而是托管在 Hugging Face 数据集 ``RLinf/RPent-memory``
-上（按环境分层，例如 ``libero/memory/`` 与 ``libero/results_*_pert/``）。``rpent.utils.resources.ensure_resources``
-会在每次运行时从数据集增量同步该环境的子目录（只下载有变化的文件），使本地副本保持最新。
+上（按机器人分层，例如 ``libero/memory/`` 与 ``libero/results_*_pert/``）。``rpent.utils.resources.ensure_resources``
+会在每次运行时从数据集增量同步该机器人的子目录（只下载有变化的文件），使本地副本保持最新。
 数据集是公开的，无需 token 即可下载；设 ``HF_HUB_OFFLINE=1`` 则跳过同步、仅使用本地副本。
-memory 是可选的：若某环境在数据集上没有 memory，或同步失败，运行也会用本地已有的内容继续。
+memory 是可选的：若某机器人在数据集上没有 memory，或同步失败，运行也会用本地已有的内容继续。
 
 更新 memory
 -----------

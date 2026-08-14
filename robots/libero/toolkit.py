@@ -16,7 +16,7 @@ from rpent.utils.logging import get_logger, get_output_dir
 
 
 class LiberoToolkit(Toolkit):
-    """Toolkit for the LIBERO environment."""
+    """Toolkit for the LIBERO robot."""
 
     _FRAME_ARTIFACTS = {
         "camera": "agentview.png",

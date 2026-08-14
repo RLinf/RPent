@@ -9,13 +9,13 @@
 # in `pyproject.toml`):
 #
 # ```bash
-# rpent --env libero --suite libero_object_task --task 0 --seed 0 [...]
+# rpent --robot libero --suite libero_object_task --task 0 --seed 0 [...]
 # ```
 #
 # ## Note
 #
 # Do not import `rpent.cli` from other `rpent` modules. `main.py` pulls in
-# `rpent.planner`, `rpent.envs`, `rpent.utils`, `rpent.dashboard`, and
+# `rpent.planner`, `rpent.robots`, `rpent.utils`, `rpent.dashboard`, and
 # `rpent.tools`, so importing the CLI back into any of them would create an
 # import cycle. Nothing else should depend on this package.
 from __future__ import annotations
@@ -37,7 +37,7 @@ from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
 )
-from rpent.envs import enumerate_envs, get_env_spec, get_toolkit
+from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.planner.base import build_planner
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
@@ -82,18 +82,18 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
 
 
 def _build_argparser() -> argparse.ArgumentParser:
-    known_envs = enumerate_envs()
-    known_envs_text = ", ".join(known_envs) if known_envs else "none"
+    known_robots = enumerate_robots()
+    known_robots_text = ", ".join(known_robots) if known_robots else "none"
     ap = argparse.ArgumentParser(
         description="RPent: Agentic Infrastructure for the Physical World",
     )
 
     ap.add_argument(
-        "--env",
-        dest="env_name",
+        "--robot",
+        dest="robot_name",
         required=True,
-        choices=known_envs,
-        help=f"Environment backend. Known environments: {known_envs_text}.",
+        choices=known_robots,
+        help=f"Robot backend. Known robots: {known_robots_text}.",
     )
 
     # models
@@ -145,33 +145,33 @@ def _build_argparser() -> argparse.ArgumentParser:
 
 def main() -> int:
     parser = _build_argparser()
-    # Two-phase argparse: first grab --env / --dashboard so we know which
-    # env's flags to add and whether to make its required flags optional.
+    # Two-phase argparse: first grab --robot / --dashboard so we know which
+    # robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
 
-    env_spec = get_env_spec(early.env_name)
-    env_spec.add_cli_args(parser, use_dashboard=early.dashboard)
+    robot_spec = get_robot_spec(early.robot_name)
+    robot_spec.add_cli_args(parser, use_dashboard=early.dashboard)
     args = parser.parse_args()
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
     if args.dashboard:
         from rpent.cli.dashboard import run_dashboard_session
 
-        return run_dashboard_session(args, env_spec, parser=parser)
+        return run_dashboard_session(args, robot_spec, parser=parser)
 
-    run_config = env_spec.parse_config(args)
+    run_config = robot_spec.parse_config(args)
     recipe_tag = run_config.recipe_tag
     output_dir = run_config.output_dir
     prompt_vars = run_config.prompt_vars
     task_desc = run_config.task_desc
 
-    env_name = args.env_name
+    robot_name = args.robot_name
 
-    # mkdir + logging wiring (env-side already picked the path).
+    # mkdir + logging wiring (robot-side already picked the path).
     output_dir = init_output_dir(output_dir, verbose=args.verbose)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
-    ensure_resources(env_name)
+    ensure_resources(robot_name)
 
     dashboard_events = NullDashboardEventSink()
 
@@ -179,7 +179,7 @@ def main() -> int:
         args.planner,
         output_dir=output_dir,
         recipe_tag=recipe_tag,
-        env_name=env_name,
+        robot_name=robot_name,
         base_url=args.base_url,
         model=args.model,
         max_tokens=args.max_tokens,
@@ -188,7 +188,7 @@ def main() -> int:
         dashboard_events=dashboard_events,
         no_images=args.no_images,
     )
-    prompt_bundle = env_spec.prompts
+    prompt_bundle = robot_spec.prompts
     prompt_vars = {**prompt_vars, "output_dir": output_dir}
     system_prompt = prompt_bundle.render(
         "system",
@@ -216,8 +216,8 @@ def main() -> int:
         # it while the (slow) env/VLA servers boot below.
         await_first_prompt = start_first_prompt_resolver(input_queue)
 
-    # --- initialise environment --------------------------------------------
-    daemons, primitives_kwargs = env_spec.init_runtime(
+    # --- initialise robot ---------------------------------------------------
+    daemons, primitives_kwargs = robot_spec.init_runtime(
         args,
         output_dir,
         dashboard_events,
@@ -225,7 +225,7 @@ def main() -> int:
 
     # --- toolkit -----------------------------------------------------------
     toolkit = get_toolkit(
-        env_name,
+        robot_name,
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
     )

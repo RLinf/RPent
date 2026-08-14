@@ -129,7 +129,7 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
               video_path=video_path,
           )
 
-   环境包中的 ``_init_runtime`` 则负责构造 ``primitives_kwargs``，例如
+   机器人包中的 ``_init_runtime`` 则负责构造 ``primitives_kwargs``，例如
    ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``，再由
    toolkit 构造器将其转发给 primitives。
 
@@ -141,7 +141,7 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 
 .. code-block:: bash
 
-   rpent --env libero --vla-endpoint http://vla-host:8000 ...
+   rpent --robot libero --vla-endpoint http://vla-host:8000 ...
 
 如果模型会保存每个回合的内部状态，应提供 ``vla_reset`` RPC，并在任务之间
 调用它完成重置。这样，同一个服务进程就能安全地复用于多次连续运行。

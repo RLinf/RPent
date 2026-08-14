@@ -1,20 +1,20 @@
 Core interfaces
 ===============
 
-When you wire a new env or primitive into RPent, you implement the interfaces below.
+When you wire a new robot or primitive into RPent, you implement the interfaces below.
 Walkthroughs: :doc:`add_robot`, :doc:`add_primitive`. Repo layout: :doc:`architecture`.
 
-Environment entry
------------------
+Robot entry
+-----------
 
-After you add ``robots/<env>/``, ``main.py`` calls two functions in ``__init__.py``:
+After you add ``robots/<robot>/``, ``main.py`` calls two functions in ``__init__.py``:
 
 .. code-block:: python
 
-   def get_env_spec() -> EnvSpec: ...
+   def get_robot_spec() -> RobotSpec: ...
    def get_toolkit(*, primitives_kwargs, video_path=None, dashboard=None): ...
 
-``get_env_spec`` returns an ``EnvSpec``. You supply:
+``get_robot_spec`` returns a ``RobotSpec``. You supply:
 
 .. list-table::
    :header-rows: 1
@@ -23,12 +23,12 @@ After you add ``robots/<env>/``, ``main.py`` calls two functions in ``__init__.p
    * - Field / hook
      - What you provide
    * - ``name``
-     - Env name for ``--env``.
+     - Robot name for ``--robot``.
    * - ``prompts``
      - A ``PromptBundle`` with ``system`` and ``user`` prompt factories (see
-       ``robots/<env>/prompt_bundle.py``).
+       ``robots/<robot>/prompt_bundle.py``).
    * - ``add_cli_args``
-     - Register this env's CLI flags (e.g. ``--suite``, ``--env-endpoint``).
+     - Register this robot's CLI flags (e.g. ``--suite``, ``--env-endpoint``).
    * - ``parse_config``
      - Validate args and return ``RunConfig``; set at least ``recipe_tag``,
        ``output_dir``, and ``prompt_vars`` for prompt templating.
@@ -36,7 +36,7 @@ After you add ``robots/<env>/``, ``main.py`` calls two functions in ``__init__.p
      - Start or attach to env / VLA subprocesses; build ``primitives_kwargs``
        (env client, model client, etc.) for the toolkit's primitives.
 
-``get_toolkit`` usually just passes ``primitives_kwargs`` into your env subclass;
+``get_toolkit`` usually just passes ``primitives_kwargs`` into your robot subclass;
 ``video_path`` and ``dashboard`` are passed by ``main.py`` — you rarely touch them.
 
 Reference: ``robots/libero/__init__.py``.
@@ -67,7 +67,7 @@ Contract: pass ``toolkit.get_tools_spec()`` to the model; dispatch each call via
 Toolkit
 -------
 
-Subclass ``Toolkit`` in ``robots/<env>/toolkit.py`` and register env tools with
+Subclass ``Toolkit`` in ``robots/<robot>/toolkit.py`` and register robot tools with
 ``add_tool``:
 
 .. code-block:: python
@@ -90,7 +90,7 @@ Subclass ``Toolkit`` in ``robots/<env>/toolkit.py`` and register env tools with
        ends; optional ``_image_bytes`` (etc.) to return camera images.
 
 The base class already registers common file tools; call ``super().__init__()`` then
-``add_tool`` for env tools. Per-step state and ``view_env_state`` are in
+``add_tool`` for robot tools. Per-step state and ``view_env_state`` are in
 :doc:`add_primitive`.
 
 Inter-process communication
