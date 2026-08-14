@@ -3,10 +3,10 @@ backend: ``docs/source-zh/rst_source/development/add_env.rst``.
 """
 from __future__ import annotations
 
-import threading
 from typing import Any, Callable
 
 from rpent.utils.rpc import RpcFacade
+from rpent.utils.rwlock import RWLock
 
 
 class EnvFacade(RpcFacade):
@@ -24,12 +24,6 @@ class EnvFacade(RpcFacade):
         2. Clear responsibilities: the server only executes and returns; the
            client owns the caching policy.
 
-        TODO: the current robocasa ``robots/robocasa/env_server.py`` already
-        partially violates this principle (the server-side ``_last_obs`` is
-        used for chunk_step's embedded rendering). After unification, chunk_step's
-        embedded rendering should use a temporary local variable within the
-        current RPC call, not ``self``.
-
     RPC routing:
         ``_dispatch`` uses a registration dict (``self._rpc``) instead of
         dynamic ``getattr`` routing. Subclasses register their own methods in
@@ -43,9 +37,10 @@ class EnvFacade(RpcFacade):
 
     def __init__(self):
         super().__init__()
-        self._dispatch_lock = threading.Lock()
+        self._dispatch_lock = RWLock()
         # server side does not cache obs / terminated — only the client caches
         self._rpc: dict[str, Callable] = {}
+        self._readonly_methods: set[str] = set()
         self._register_rpc()
 
     # ---- lifecycle ----
@@ -65,12 +60,16 @@ class EnvFacade(RpcFacade):
         self._rpc["env.close"] = self.close
         self._rpc["env.step"] = self.step
         self._rpc["env.chunk_step"] = self.chunk_step
+        self._readonly_methods.add("env.get_env_meta")
 
     def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
         handler = self._rpc.get(method)
         if handler is None:
             raise ValueError(f"unknown RPC method: {method!r}")
-        with self._dispatch_lock:
+        if method in self._readonly_methods:
+            with self._rwlock.read():
+                return handler(*args, **kwargs)
+        with self._rwlock.write():
             return handler(*args, **kwargs)
 
     # ---- functionality (subclasses must override) ----
@@ -80,13 +79,12 @@ class EnvFacade(RpcFacade):
         raise NotImplementedError
 
     def step(self, flat_action):
-        """Execute one env action. Returns the gym 5-tuple
-        ``(obs, reward, term, trunc, info)``.
+        """Execute one env action. Returns the gym 5-tuple result.
         """
         raise NotImplementedError
 
     def chunk_step(self, flat_actions, *, return_all_frames: bool = False):
-        """Execute N actions in one batch. Returns the 5-tuple.
+        """Execute N actions in one batch. Returns the 5-tuple result.
 
         - ``obs_or_list``: ``list[Obs]`` when ``return_all_frames=True`` (one
           per step, carrying the per-step render); the final obs dict when
