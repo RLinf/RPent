@@ -290,9 +290,10 @@ robotwin 的 env facade 和 env client）应继承并实现抽象方法:
 .. note::
 
    基类只固化三者共有的接口（``reset`` / ``step`` / ``chunk_step`` /
-   ``get_env_meta`` / ``close``）+ 框架层（``_dispatch`` 注册字典 /
-   ``_to_numpy_tree`` / ``serve`` 带 ``enable_egl_thread`` 开关）.
-   R only / T only 的方法**不放基类**, 由子类自行定义并通过
+   ``get_env_meta`` / ``close``，均为抽象方法，子类必须实现）+ 框架层
+   （``__init__`` 初始化 ``self._rpc`` 注册字典、``_register_rpc`` 注册
+   共有方法、``_dispatch`` 用注册字典 + ``self._lock`` 串行化）.
+   后端特有的方法**不放基类**, 由子类自行定义并通过
    ``_register_rpc`` 注册.
 
 各 env 接入迭代差异
@@ -393,34 +394,34 @@ robotwin（PR #84，第三次迭代 — 异类路径）
 ------------
 
 1. **基类** :class:`~rpent.tools.env_facade_base.EnvFacade` ``(RpcFacade)``:
-   固化 ``_to_numpy_tree``、``_dispatch``（**注册字典** ``self._rpc`` +
-   ``self._lock``）、``get_env_meta``、``serve``（带 ``enable_egl_thread``
-   开关）; EGL 单线程队列**内联到** ``serve``（robocasa 重写
-   ``enable_egl_thread = True``）。**状态缓存原则**: server 侧不缓存
-   ``_last_obs`` / ``_terminated``, 所有缓存只在 client 侧
-2. **抽象方法**: ``reset``、``get_env_meta``、``close``; **不要强求 robotwin
-   套 gym step** — 把"动作执行"抽象为 ``execute(action)`` 而非 ``step``,
-   让 robotwin 只实现 ``execute`` + ``apply_qpos_updates``。
-   ``get_action_dim`` 是 R only, **不上提到基类**（由子类按需暴露 + 在
+   固化 5 个抽象方法（``reset`` / ``step`` / ``chunk_step`` /
+   ``get_env_meta`` / ``close``）+ 框架层（``__init__`` 初始化
+   ``self._rpc`` 注册字典、``_register_rpc`` 注册共有方法、``_dispatch``
+   用注册字典 ``self._rpc`` + ``self._lock`` 串行化）。**状态缓存原则**:
+   server 侧不缓存 ``_last_obs`` / ``_terminated``, 所有缓存只在 client 侧
+2. **抽象方法**: ``reset``、``step``、``chunk_step``、``get_env_meta``、
+   ``close``（共 5 个，子类必须实现）; **不要强求 robotwin 套 gym step** —
+   robotwin 的 ``step`` 抛 ``NotImplementedError`` 让调用方走 ``chunk_step``
+   （适配层把 ``execute_action_chunk`` 包装成 ``chunk_step``）。
+   ``get_action_dim`` **不上提到基类**（由子类按需暴露 + 在
    ``_register_rpc`` 中注册）
 3. **可选 hook**: ``chunk_step`` 作为基类抽象方法（子类必须重写, 不再提供
-   默认循环实现）。R only 的 ``render_raw`` / ``render_camera`` /
+   默认循环实现）。``render_raw`` / ``render_camera`` /
    ``get_camera_transform`` / ``world_map`` / ``check_success`` /
    ``get_terminated`` / ``grasp_contact`` / ``get_success_criteria_text`` /
    ``get_task_progress`` / ``get_action_dim`` / ``get_ep_meta`` **不放基类**,
-   由 R 子类自行定义并通过 ``_register_rpc`` 注册
+   由子类自行定义并通过 ``_register_rpc`` 注册
 4. **``chunk_step`` 契约**: 采用 robocasa 的 5 元组
    ``(obs_or_list, reward, done, info, n_applied)``; ``done`` 由后端决定语义
    （term OR trunc OR success）; ``return_all_frames`` 作为标准 perf-vs-video
    开关; robotwin 通过适配层把 ``execute_action_chunk`` 包装成 ``chunk_step``
    （``n_applied = chunk_size``, ``done = episode_status.agent_valid``）
 5. **客户端基类** :class:`~rpent.tools.env_client_base.EnvClient`:
-   上提 ``expected_meta`` 握手 + 初始 ``reset``、``_TIMEOUT_S`` 字典（融合
-   robotwin 的 read/state_change 两档超时）、``last_obs`` **client 侧缓存**
-   （状态缓存原则）。
-   ``eef_pos`` / ``gripper_qpos`` / ``_resolve_cam`` 是 R only, **不上提到
-   基类**（由 R client 子类自行实现）。采纳 robotwin 的 ``_fatal_error`` 毒化
-   模式用于所有状态变更 RPC
+   上提 ``expected_meta`` 握手 + 初始 ``reset``、``_TIMEOUT_S`` 字典
+   （``default`` / ``env.reset`` / ``env.step`` / ``env.chunk_step``）、
+   ``last_obs`` **client 侧缓存**（状态缓存原则）。
+   ``eef_pos`` / ``gripper_qpos`` / ``_resolve_cam`` **不上提到基类**（由
+   子类自行实现）
 6. **robotwin 适配层**: 在 ``EnvFacade`` 子类内 delegate 到原生
    ``RoboTwinEnv``, 把 ``execute_action_chunk`` / ``apply_qpos_updates`` /
    ``reset_exact`` 包装成 ``env.execute`` / ``env.apply_state`` / ``env.reset``,

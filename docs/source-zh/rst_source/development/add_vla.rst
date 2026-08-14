@@ -90,14 +90,13 @@ robocasa 的 ``predict`` 拒绝客户端传入的 ``options["session_ids"]``,
 **4. predict 的 obs / options / 返回值结构后端特有.**
 
 当前三者 predict 的入参和返回值结构都不同（见下文"后端特有部分"）.
-基类只暴露抽象 ``predict``, 用 ``**kwargs`` / 后端特有 dict 容纳差异.
-统一设计建议在基类加 ``_normalize_return`` normalize 成统一结构, 当前
-未实装.
+基类只暴露抽象 ``predict(obs, options, *, session_id=None)``, 用后端特有
+dict 容纳差异.
 
 共有 RPC 接口
 -------------
 
-框架层（libero + robocasa 共有）
+框架层
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - 继承 ``RpcFacade``, 构造时 ``super().__init__(enable_sessions=...)``
@@ -220,19 +219,21 @@ robotwin 的 VLA facade 和 VLA client）应继承并实现抽象方法:
 
 .. note::
 
-   基类只固化三者共有的接口（``predict``）+ 框架层（``_dispatch`` 注册
-   字典 / ``_to_numpy_tree`` / ``serve``）. R only / L only / T only 的
-   方法**不放基类**, 由子类自行定义并通过 ``_register_rpc`` 注册.
+   基类只固化三者共有的接口（``predict``，抽象方法）+ 框架层（``__init__``
+   初始化 ``self._model`` / ``self._rpc``、``_register_rpc`` 注册
+   ``vla.predict``、``_dispatch`` 用注册字典 + ``self._lock`` 串行化并注入
+   ``session_id``）. 后端特有的方法**不放基类**, 由子类
+   自行定义并通过 ``_register_rpc`` 注册.
 
 统一设计建议
 ------------
 
 1. **抽** :class:`~rpent.tools.vla_facade_base.BaseVLAFacade` ``(RpcFacade)``
    **基类**: 固化 ``_dispatch``（**注册字典** ``self._rpc`` +
-   ``self._lock``）+ ``session_id`` 注入策略 + ``serve(...)`` 入口;
-   libero 和 robocasa 直接继承; robotwin 在 ``BaseVLAFacade`` 内部
-   delegate 到官方 WS server（把 ``_dispatch`` 实现成 WS 转发）, 保留
-   对外统一的 ``vla.predict`` / ``vla.reset_session`` 接口
+   ``self._lock``）+ ``session_id`` 注入策略; libero 和 robocasa 直接继承;
+   robotwin 在 ``BaseVLAFacade`` 内部 delegate 到官方 WS server（把
+   ``_dispatch`` 实现成 WS 转发）, 保留对外统一的 ``vla.predict`` /
+   ``vla.reset_session`` 接口
 2. **统一** ``predict`` **obs schema**: 标准化为
    ``predict(obs_dict, options, *, session_id?)``, 其中 ``obs_dict`` 至少
    包含 ``{instruction, images{main, wrist, extra}, state}``; 把图像解码
@@ -251,9 +252,7 @@ robotwin 的 VLA facade 和 VLA client）应继承并实现抽象方法:
    实现（即便返回空 video_delta_indices）, 让 env_client 能统一查询
 5. **统一返回值结构**: ``predict`` 一律返回
    ``{actions: ndarray, shape, dtype, horizon, n_action_steps}``, 客户端
-   按 ``n_action_steps`` 取前 N 步; 当前 libero 已包成
-   ``{actions, shape, dtype}`` / robocasa 返回 RLDX 原生 dict / robotwin
-   返回裸 ndarray — 三方都需要在基类里 normalize（``_normalize_return``）
+   按 ``n_action_steps`` 取前 N 步
 6. **``reset_memory`` 语义统一**: ``options["reset_memory"]`` 作为标准
    reset 信号, libero / robotwin 也实现（即便映射到 ``reset_session``
    或 no-op）, 让 primitives 层的 ``force_reset`` 逻辑能跨后端复用

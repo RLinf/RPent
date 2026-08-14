@@ -35,7 +35,7 @@ class EnvFacade(RpcFacade):
     EGL 单线程:
         需要保证 egl 单线程的子类必须重写 ``serve``, 
         把所有 dispatch 派发到专用渲染线程, 保证 MuJoCo EGL context 留在
-        同一线程. 可以参考 robocasa
+        同一线程. 可以参考 robocasa 的重写实现.
 
     子类特有的方法不放基类, 由子类自行定义, 通过 _register_rpc 注册.
     """
@@ -54,12 +54,6 @@ class EnvFacade(RpcFacade):
         raise NotImplementedError
 
     def _register_rpc(self):
-        """子类可重写以注册更多 RPC 方法 (如 robocasa 的 ``render_raw`` /
-        ``check_success`` / ``get_action_dim``). 默认只注册三者共有的.
-
-        子类重写时应 ``super()._register_rpc()`` 后再追加自己的 handler, 或
-        在重写中完整列出 (含基类已注册的). 推荐前者, 避免漏注册.
-        """
         self._rpc["env.reset"] = self.reset
         self._rpc["env.get_env_meta"] = self.get_env_meta
         self._rpc["env.close"] = self.close
@@ -77,18 +71,12 @@ class EnvFacade(RpcFacade):
     # ---- 功能实现 (子类必须重写) ----
     def reset(self):
         """重置 env 到初始状态. 返回初始 obs dict.
-
-        robotwin 的 ``reset_exact(seed)`` 语义不同 (重新生成确定场景),
-        适配层应包装成 ``reset`` 对外暴露统一接口.
         """
         raise NotImplementedError
 
     def step(self, flat_action):
-        """执行一步 env 动作. 返回 ``(obs, reward, done, info)`` 或 gym
-        5-tuple ``(obs, rew, term, trunc, info)`` (后端决定).
-
-        robotwin 无 gym step, 适配层应把 ``execute_action_chunk`` 包装成
-        ``step`` 或直接抛 ``NotImplementedError`` 让调用方走 ``chunk_step``.
+        """执行一步 env 动作. gym
+        5-tuple ``(obs, rew, term, trunc, info)``.
         """
         raise NotImplementedError
 
@@ -103,9 +91,6 @@ class EnvFacade(RpcFacade):
           或 episode 结束).
         - ``return_all_frames``: 标准 perf-vs-video 开关. ``True`` 每步渲染
           agentview (高密度视频, 多 RPC); ``False`` 只渲染最终 obs (快).
-
-        robotwin 通过适配层把 ``execute_action_chunk`` 包装成 ``chunk_step``
-        (``n_applied = chunk_size``, ``done = episode_status.agent_valid``).
 
         **不在 server 侧缓存 obs** — 返回值由 client 决定如何缓存 (见状态
         缓存原则).

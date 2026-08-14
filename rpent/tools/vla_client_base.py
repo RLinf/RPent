@@ -1,9 +1,5 @@
 """统一 VLA 客户端基类.
-
-对比 ``robots/libero/``（Pi0.5）、``robots/robocasa/``（RLDX-1）、
-``robots/robotwin/``（LingBot-VLA, PR #84）三个后端的 VLA client 层后提炼
-的共有结构. 设计参考见
-``docs/source-zh/rst_source/development/add_vla.rst``.
+设计参考见 ``docs/source-zh/rst_source/development/add_vla.rst``.
 """
 from __future__ import annotations
 
