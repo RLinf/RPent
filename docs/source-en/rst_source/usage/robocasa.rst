@@ -25,6 +25,20 @@ requires Python ``3.10``:
    uv venv --python 3.10
    uv pip install -e ".[robocasa]"
 
+To avoid a CUDA-build mismatch between PyPI's torch wheel and the local
+driver, pass ``--index`` to pin a PyTorch CUDA index, e.g.
+``uv pip install -e ".[robocasa]" --index https://download.pytorch.org/whl/cu126``;
+on CUDA 13-only hosts use ``cu130``.
+
+For networks closer to Chinese mirrors:
+
+.. code-block:: bash
+
+   uv pip install -e ".[robocasa]" \
+      --default-index https://mirrors.aliyun.com/pypi/simple \
+      --index https://pypi.tuna.tsinghua.edu.cn/simple \
+      --index https://mirrors.aliyun.com/pytorch-wheels/cu126
+
 .. note::
 
    flash-attn is optional; RLDX-1 falls back to PyTorch SDPA without it.

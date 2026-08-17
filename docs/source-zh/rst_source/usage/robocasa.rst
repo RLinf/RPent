@@ -23,7 +23,12 @@ Python ``3.10``\ ：
    uv venv --python 3.10
    uv pip install -e ".[robocasa]"
 
-国内网络可使用 PyPI 镜像加速：\ 
+为避免 PyPI 上 torch 的 CUDA build 与本地驱动不匹配，建议通过
+``--index`` 指定 PyTorch CUDA 索引，例如
+``uv pip install -e ".[robocasa]" --index https://download.pytorch.org/whl/cu126``；
+CUDA 13-only 的机器换成 ``cu130``。
+
+国内网络可使用 PyPI 镜像加速：\
 
 .. code-block:: bash
 
