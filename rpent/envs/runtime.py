@@ -50,7 +50,7 @@ def try_spawn_server(
     except Exception as exc:
         stop_owned_daemons(daemons, dashboard_events)
         dashboard_events.emit(RuntimeStatusEvent(component, "failed", error=exc))
-        raise
+        raise RuntimeError(f"[{component}] spawn failed: {exc}") from exc
 
 
 def try_wait_server(
@@ -71,6 +71,6 @@ def try_wait_server(
     except Exception as exc:
         stop_owned_daemons(daemons, dashboard_events)
         dashboard_events.emit(RuntimeStatusEvent(component, "failed", error=exc))
-        raise
+        raise RuntimeError(f"[{component}] wait / client connect failed: {exc}") from exc
     dashboard_events.emit(RuntimeStatusEvent(component, "ready"))
     return result

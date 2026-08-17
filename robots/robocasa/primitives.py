@@ -33,7 +33,7 @@ class RoboCasaPrimitives:
         self._fwd_offset = None       # world_forward_heading = base_yaw + offset
         self._cam_meta_cache = {}
         self._rldx = RLDXSkill(self.env, vla_client=vla_client, check_cancelled=check_cancelled)
-        # "中间调用" desync guard: True whenever a NON-VLA primitive (move/navigate/
+        # "mid-call" desync guard: True whenever a NON-VLA primitive (move/navigate/
         # manual grasp) or a reset has stepped the env since the last rldx_skill call.
         # The next rldx_skill then reseeds its per-sim-step frame history (else the VLA
         # sees a pre-manual history stitched onto a post-manual current frame -> OOD).
