@@ -4,7 +4,7 @@ backend: ``docs/source-zh/rst_source/development/add_env.rst``.
 from __future__ import annotations
 
 
-class EnvClient:
+class BaseEnvClient:
     """Unified env client base class.
     """
 

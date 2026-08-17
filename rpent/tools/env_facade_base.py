@@ -9,13 +9,13 @@ from rpent.utils.rpc import RpcFacade
 from rpent.utils.rwlock import RWLock
 
 
-class EnvFacade(RpcFacade):
+class BaseEnvFacade(RpcFacade):
     """Unified env backend base class.
 
     State-caching principle:
         The server side does **not** cache any observation results. Cache
         variables such as ``_last_obs`` / ``_terminated`` live only on the
-        client side (see ``EnvClient`` in ``rpent/tools/env_client_base.py``).
+        client side (see ``BaseEnvClient`` in ``rpent/tools/env_client_base.py``).
         The server is stateless (apart from the env's own physical state) and
         re-reads the env on every request.
 
