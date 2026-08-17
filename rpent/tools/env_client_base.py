@@ -20,7 +20,7 @@ class EnvClient:
             "The env_server was launched with different args than this client "
             "expects — kill the stale env_server and relaunch."
         )
-        self.last_obs = self.reset()
+        self.reset()
 
     def reset(self):
         """Reset the env and return the initial obs. Also updates the

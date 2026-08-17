@@ -67,9 +67,9 @@ class EnvFacade(RpcFacade):
         if handler is None:
             raise ValueError(f"unknown RPC method: {method!r}")
         if method in self._readonly_methods:
-            with self._rwlock.read():
+            with self._dispatch_lock.read():
                 return handler(*args, **kwargs)
-        with self._rwlock.write():
+        with self._dispatch_lock.write():
             return handler(*args, **kwargs)
 
     # ---- functionality (subclasses must override) ----
