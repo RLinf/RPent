@@ -38,9 +38,7 @@ class RoboCasaToolkit(Toolkit):
         self.init_primitives(primitives_kwargs=primitives_kwargs)
         self._register_robocasa_tools()
 
-    # ------------------------------------------------------------------
-    # Registration — one explicit add_tool per RoboCasa tool.
-    # ------------------------------------------------------------------
+    # ---- registration: one explicit add_tool per RoboCasa tool ----
     def _register_robocasa_tools(self) -> None:
         # Stateless perception tools: bind a state= kwarg via partial.
         state_handlers = {

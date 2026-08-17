@@ -43,7 +43,7 @@ class RoboCasaPrimitives:
         self._recording = False
         self._frames = []
 
-    # ---------- recording methods ----------
+    # ---- recording methods ----
     def start_recording(self):
         self._recording = True
         self._frames = []
@@ -73,7 +73,7 @@ class RoboCasaPrimitives:
         self._frames = []
         return frames
 
-    # ---------- action helpers ----------
+    # ---- action helpers ----
     def _zero(self, base_mode=-1.0):
         a = np.zeros(12)
         a[11] = base_mode
@@ -110,7 +110,7 @@ class RoboCasaPrimitives:
                 self.record_frame()
         return self.env.eef_pos
 
-    # ---------- Phase 2: online jacobian + move_to ----------
+    # ---- Phase 2: online jacobian + move_to ----
     def _calibrate_pos_jacobian(self, gripper=-1.0):
         """Probe 3 unit arm-xyz actions, measure world dpos -> 3x3 jacobian J s.t.
         world_dpos ~= J @ action_xyz. move_to inverts J to map desired world delta."""
@@ -188,7 +188,7 @@ class RoboCasaPrimitives:
     def release(self, steps=10):
         return self.set_gripper(-1.0, steps=steps)
 
-    # ---------- Phase 4: scripted grasp ----------
+    # ---- Phase 4: scripted grasp ----
     def scripted_grasp(self, xyz, approach_z=0.10, grasp_z_offset=0.0, step_clip=0.02):
         """Open -> hover above target -> descend -> close -> lift. Coarse; replace
         with RLDX closed-loop grasp for hard objects."""
@@ -201,7 +201,7 @@ class RoboCasaPrimitives:
         return {"ok": True, "gripper_qpos": self.env.gripper_qpos.tolist(),
                 "eef": self.env.eef_pos.tolist()}
 
-    # ---------- Phase 3: navigation ----------
+    # ---- Phase 3: navigation ----
     def _base_pose(self):
         o = self.env.current_raw_obs
         return (np.asarray(o["robot0_base_pos"], dtype=np.float64),
@@ -315,7 +315,7 @@ class RoboCasaPrimitives:
         except Exception:
             return {}
 
-    # ---------- Phase 1: perception (state dict + rendered arrays) ----------
+    # ---- Phase 1: perception (state dict + rendered arrays) ----
     def current_state_dict(self) -> dict:
         """Return the proprio + task + success state dict (NO object coords).
 
@@ -340,7 +340,7 @@ class RoboCasaPrimitives:
             },
         }
 
-    # ---------- VLA execution ----------
+    # ---- VLA execution ----
     def run_rldx_skill(self, base_clip, max_chunks, use_prompt, prompt, force_reset,
                        n_action_steps, settle_patience, settle_eps):
         """Execute a VLA skill (RLDX). Resolves task_lang, computes force_reset with
@@ -362,7 +362,7 @@ class RoboCasaPrimitives:
                               recording=self._recording,
                               record_frame=self.record_frame)
 
-    # ---------- reset ----------
+    # ---- reset ----
     def reset(self):
         # reset is ONLY for EXPLORE mode (reset-based multi-attempt recipe search).
         # In no-reset / matched-scene evaluation it is a give-up-and-restart and is
@@ -380,7 +380,7 @@ class RoboCasaPrimitives:
         self._rldx.reset_session()
         return {"ok": True, "reset": True, "eef": self.env.eef_pos.tolist()}
 
-    # ---------- VLA wrappers (public API for execute) ----------
+    # ---- VLA wrappers (public API for execute) ----
     def rldx_skill(self, base_clip=None,
                    max_chunks=int(os.environ.get("RLDX_MAX_CHUNKS", 70)),
                    use_prompt=None, prompt="", force_reset=False,

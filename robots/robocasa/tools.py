@@ -18,15 +18,10 @@ from rpent.tools.toolkit import readonly
 if TYPE_CHECKING:
     from robots.robocasa.primitives import RoboCasaPrimitives
 
-# ---------------------------------------------------------------------------
-# TOOLS_SPEC — 17 Anthropic-shaped tool schemas
-# 11 primitive tools + 6 perception tools
-# ---------------------------------------------------------------------------
+# ---- TOOLS_SPEC: 17 Anthropic-shaped tool schemas ----
 
 TOOLS_SPEC = [
-    # ======================================================================
-    # Primitive tools (11) — dispatched by the toolkit base to primitives.<name>
-    # ======================================================================
+    # ---- primitive tools (11): dispatched by the toolkit base to primitives.<name> ----
     {
         "name": "move_to",
         "description": (
@@ -409,9 +404,7 @@ TOOLS_SPEC = [
             "properties": {},
         },
     },
-    # ======================================================================
-    # Perception tools (6) — module-level @readonly handlers
-    # ======================================================================
+    # ---- perception tools (6) -- module-level @readonly handlers ----
     {
         "name": "view_env_state",
         "description": (
@@ -632,9 +625,7 @@ TOOLS_SPEC = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# State persistence — dump_state writes through the run's EnvState
-# ---------------------------------------------------------------------------
+# ---- state persistence (dump_state writes through the run's EnvState) ----
 
 # Heavy npy artifacts pruned after the ``_keep_heavy`` window elapses (the
 # agent localizes from the latest frame; old world/depth maps are dead weight
@@ -705,7 +696,7 @@ def _save_observation_artifacts(
     env = primitives.env
     hi_res = primitives.hi_res
 
-    # --- agentview + wrist: rgb, depth, world map, camera meta ---
+    # ---- agentview + wrist: rgb, depth, world map, camera meta ----
     for cam, image_name, depth_name, world_name, meta_name in (
         ("agentview", "agentview.png", "agentview_depth.npz",
          "agentview_world.npz", "agentview_metadata.json"),
@@ -720,7 +711,7 @@ def _save_observation_artifacts(
             primitives._cam_meta_cache[cam] = env.get_camera_meta(cam)
         env_state.save(meta_name, primitives._cam_meta_cache[cam], step=step_idx)
 
-    # --- hi-res agentview (SAM grounding / fine localize) ---
+    # ---- hi-res agentview (SAM grounding / fine localize) ----
     if hi_res:
         hrgb, _ = env.render_camera("agentview", hi_res, hi_res, depth=True)
         env_state.save("agentview_high.png", hrgb, step=step_idx)
@@ -730,7 +721,7 @@ def _save_observation_artifacts(
             step=step_idx,
         )
 
-    # --- navview: base-mounted forward-down floor camera (follows the base) ---
+    # ---- navview: base-mounted forward-down floor camera (follows the base) ----
     try:
         nrgb, _ = env.render_camera("navview", depth=True)
         nworld = env.world_map("navview").astype(np.float32)
@@ -760,9 +751,7 @@ def _prune_heavy_artifacts(
             pass
 
 
-# ---------------------------------------------------------------------------
-# Tool handlers — @readonly perception tools take ``state: EnvState``
-# ---------------------------------------------------------------------------
+# ---- tool handlers (@readonly perception tools take state: EnvState) ----
 
 
 @readonly
@@ -1009,9 +998,7 @@ def finish(status: str, summary: str) -> dict:
     return {"_finish": True, "status": status, "summary": summary}
 
 
-# ---------------------------------------------------------------------------
-# Recipe export
-# ---------------------------------------------------------------------------
+# ---- recipe export ----
 
 _PRIMITIVE_ACTIONS = frozenset({
     "move_to", "move_delta", "rotate_pitch", "set_gripper", "release",
