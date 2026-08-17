@@ -7,6 +7,11 @@ RoboCasa
 ``robots/robocasa/vla_server.py`` 与 ``robots/robocasa/__init__.py``
 中的传输选择逻辑。
 
+.. note::
+
+   当前代码尚未完全对齐 `harnessvla.github.io <https://harnessvla.github.io>`_
+   展示的效果，完整复现将在后续放出。
+
 安装
 ----
 

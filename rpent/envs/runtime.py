@@ -9,7 +9,7 @@ the dashboard UI stays in sync with the actual processes.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.utils.daemon import ProcessDaemon
@@ -61,7 +61,7 @@ def try_wait_server(
     daemon: ProcessDaemon | None,
     timeout_s: float,
     *,
-    post_fn: Callable | None = None,
+    post_fn: Callable[[], Any] | None = None,
 ):
     try:
         wait_for_ready(rpc, daemon=daemon, timeout_s=timeout_s)

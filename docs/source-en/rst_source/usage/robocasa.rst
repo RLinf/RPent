@@ -8,6 +8,12 @@ pickle-framed socket transport is also supported. See
 ``robots/robocasa/vla_server.py`` and ``robots/robocasa/__init__.py``
 for the wire/transport selection.
 
+.. note::
+
+   The current code does not yet fully match the results shown at
+   `harnessvla.github.io <https://harnessvla.github.io>`_; a full
+   reproduction will be released later.
+
 Installation
 ------------
 
