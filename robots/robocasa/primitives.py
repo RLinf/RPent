@@ -194,10 +194,16 @@ class RoboCasaPrimitives:
         with RLDX closed-loop grasp for hard objects."""
         t = np.asarray(xyz, dtype=np.float64)
         self.set_gripper(-1.0, steps=4)
-        self.move_to(t + [0, 0, approach_z], gripper=-1.0, step_clip=step_clip)
-        self.move_to(t + [0, 0, grasp_z_offset], gripper=-1.0, step_clip=0.012, tol=0.01)
+        r = self.move_to(t + [0, 0, approach_z], gripper=-1.0, step_clip=step_clip)
+        if not r["ok"]:
+            return {**r, "stage": "approach"}
+        r = self.move_to(t + [0, 0, grasp_z_offset], gripper=-1.0, step_clip=0.012, tol=0.01)
+        if not r["ok"]:
+            return {**r, "stage": "descent"}
         self.set_gripper(+1.0, steps=14)
-        self.move_to(t + [0, 0, approach_z + 0.05], gripper="hold", step_clip=0.015)
+        r = self.move_to(t + [0, 0, approach_z + 0.05], gripper="hold", step_clip=0.015)
+        if not r["ok"]:
+            return {**r, "stage": "lift"}
         return {"ok": True, "gripper_qpos": self.env.gripper_qpos.tolist(),
                 "eef": self.env.eef_pos.tolist()}
 
