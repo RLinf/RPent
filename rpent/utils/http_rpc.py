@@ -19,11 +19,11 @@ from typing import Any, Callable
 import numpy as np
 
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc import RpcError, check_response, make_error_response
+from rpent.utils.rpc import RpcClient, RpcError, check_response, make_error_response
 
 DEFAULT_TIMEOUT_S = 30.0
 
-logger = get_logger("rpc")
+logger = get_logger("http_rpc")
 
 
 def _from_json(obj: Any) -> Any:
@@ -44,17 +44,22 @@ def _from_json(obj: Any) -> Any:
     return obj
 
 
-class HttpRpcClient:
-    """RPC client that talks to a driver server via HTTP POST.
+class HttpRpcClient(RpcClient):
+    """RPC client that talks to an RPC server via HTTP POST.
 
     Parameters
     ----------
     base_url : str
         Server address, e.g. ``"http://127.0.0.1:8080"``.
+    enable_sessions : bool
+        If True, the client is session-aware: it auto-generates a session id
+        and carries it on every call; :func:`wait_for_ready` registers it
+        with the server on connect. If False, the client sends no session_id
+        and is fully session-unaware.
     """
 
-    def __init__(self, base_url: str) -> None:
-        """Initialize with a base URL, e.g. ``"http://127.0.0.1:8080"``."""
+    def __init__(self, base_url: str, *, enable_sessions: bool = False) -> None:
+        super().__init__(enable_sessions=enable_sessions)
         self._base_url = base_url.rstrip("/")
 
     def call(
@@ -70,6 +75,7 @@ class HttpRpcClient:
             "method": method,
             "args": list(args),
             "kwargs": kwargs or {},
+            "session_id": self._session_id,
         }
         body = json.dumps(payload, cls=_NumpyEncoder).encode("utf-8")
         url = f"{self._base_url}/call"
@@ -135,14 +141,22 @@ class _HttpRpcHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        content_length = int(self.headers.get("Content-Length", 0))
+        # A malformed Content-Length (non-numeric) used to ValueError out
+        # and tear down the connection with no log; treat as empty body.
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            content_length = 0
         body = self.rfile.read(content_length) if content_length > 0 else b""
         try:
             request = json.loads(body)
             method = request["method"]
             args = tuple(_from_json(v) for v in request.get("args", []))
             kwargs = {k: _from_json(v) for k, v in request.get("kwargs", {}).items()}
-            result = self.server.dispatch(method, args, kwargs)  # type: ignore[attr-defined]
+            session_id = request.get("session_id")
+            result = self.server.dispatch(  # type: ignore[attr-defined]
+                method, args, kwargs, session_id=session_id
+            )
             response: dict = {"ok": True, "result": result}
         except Exception as exc:
             response = make_error_response(exc)
@@ -174,7 +188,7 @@ class HttpRpcServer(ThreadingHTTPServer):
     def __init__(
         self,
         server_address: tuple[str, int],
-        dispatch: Callable[[str, tuple, dict], Any],
+        dispatch: Callable[..., Any],
     ) -> None:
         super().__init__(server_address, _HttpRpcHandler)
         self.dispatch = dispatch

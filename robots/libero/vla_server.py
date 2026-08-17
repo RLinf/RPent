@@ -132,10 +132,11 @@ class VLAFacade(RpcFacade):
         self._model = get_openpi_model(cfg, torch_dtype=None).cuda().eval()
         logger.info("model ready in %.1fs", time.time() - t0)
 
-    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if method == "predict":
-            return self.predict(*args, **kwargs)
-        raise ValueError(f"unknown RPC method: {method!r}")
+    def _dispatch(self, method: str, args: tuple, kwargs: dict, *, session_id: str | None = None) -> Any:
+        with self._lock:
+            if method == "predict":
+                return self.predict(*args, **kwargs)
+            raise ValueError(f"unknown RPC method: {method!r}")
 
     def predict(self, instruction: str, images: dict[str, Any], state: list,
                 mode: str = "eval") -> dict[str, Any]:
@@ -162,17 +163,17 @@ class VLAFacade(RpcFacade):
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--transport", choices=["socket", "http"], default="http")
-    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--host", type=str, default="127.0.0.1")
     p.add_argument("--port", type=int, default=0)
+    p.add_argument("--parent-watch", action="store_true",
+                   help="watch parent process via stdin pipe and exit when it dies")
+    p.add_argument("--cuda-device", type=int, default=None,
+                   help="GPU device exposed through CUDA_VISIBLE_DEVICES.")
     p.add_argument(
         "--model-path",
         default=None,
         help="Pi0.5 checkpoint (defaults to PI05_CHECKPOINT_PATH env)",
     )
-    p.add_argument("--parent-watch", action="store_true",
-                   help="watch parent process via stdin pipe and exit when it dies")
-    p.add_argument("--cuda-device", type=int, default=None,
-                   help="GPU device exposed through CUDA_VISIBLE_DEVICES.")
     args = p.parse_args()
 
     if args.cuda_device is not None:
@@ -193,8 +194,12 @@ def main() -> None:
         )
 
     facade = VLAFacade(model_path=model_path)
-    facade.serve(transport=args.transport, host=args.host, port=args.port,
-                 parent_watch=args.parent_watch)
+    facade.serve(
+        transport=args.transport,
+        host=args.host,
+        port=args.port,
+        parent_watch=args.parent_watch,
+    )
 
 
 if __name__ == "__main__":
