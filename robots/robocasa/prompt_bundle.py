@@ -26,6 +26,13 @@ def system_prompt() -> dict[str, PromptNode]:
 
 def user_prompt() -> dict[str, PromptNode]:
     """Return the first user message tree."""
-    sections = dict(base_prompt.USER)
-    sections["Mode"] = robocasa_prompt.USER_MODE
-    return sections
+    return {
+        "Task": """
+        - task:    {{task_name}} / {{split}}
+        - seed:    {{seed}}
+        - output_dir: {{output_dir}}
+        - output:  {{output_dir}}/
+          - audit filename:  {{recipe_tag}}.json
+        """,
+        "Mode": robocasa_prompt.USER_MODE,
+    }
