@@ -10,7 +10,7 @@ from rpent.utils.rpc import RpcFacade
 
 
 class BaseVLAFacade(RpcFacade):
-    """Unified VLA backend base class. Only fixes the shared interface + framework.
+    """Unified VLA backend base class.
 
     Methods subclasses must implement:
         ``predict`` — the subclass performs the actual inference.
@@ -29,9 +29,8 @@ class BaseVLAFacade(RpcFacade):
         evict expired sessions.
     """
 
-    def __init__(self, *, device: str = "cuda"):
+    def __init__(self):
         super().__init__()
-        self.device = device
         # Serializes ``predict`` execution: the model is not thread-safe and
         # concurrent RPC requests must not interleave. Kept at the facade level
         # so it still applies when a subclass overrides ``serve``.

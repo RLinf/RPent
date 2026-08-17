@@ -60,11 +60,17 @@ def try_wait_server(
     rpc: RpcClient,
     daemon: ProcessDaemon | None,
     timeout_s: float,
-) -> None:
+    *,
+    post_fn: Callable | None = None,
+):
     try:
         wait_for_ready(rpc, daemon=daemon, timeout_s=timeout_s)
+        result = None
+        if post_fn is not None:
+            result = post_fn()
     except Exception as exc:
         stop_owned_daemons(daemons, dashboard_events)
         dashboard_events.emit(RuntimeStatusEvent(component, "failed", error=exc))
         raise
     dashboard_events.emit(RuntimeStatusEvent(component, "ready"))
+    return result

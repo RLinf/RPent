@@ -27,7 +27,7 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
    pip install -e ".[full]"
 
 ``.[full]`` 是默认的端到端依赖组合，包括 openpi Pi0.5 VLA、
-LIBERO-PRO 仿真器、SAM 3.0 和 RLinf 运行时。
+LIBERO-PRO 和 RoboCasa365 仿真器、SAM 3.0 和 RLinf 运行时。
 
 可选的依赖组合：
 

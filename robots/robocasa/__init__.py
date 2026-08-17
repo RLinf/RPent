@@ -12,13 +12,14 @@ from robots.robocasa.prompt_bundle import (
     system_prompt,
     user_prompt,
 )
-from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.dashboard.events import DashboardEventSink
 from rpent.envs.env_spec import EnvSpec, RunConfig
 from rpent.envs.prompt_bundle import PromptBundle
+from rpent.envs.runtime import try_spawn_server, try_wait_server
 from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.http_rpc import HttpRpcClient
-from rpent.utils.rpc import parse_endpoint, wait_for_ready
+from rpent.utils.rpc import parse_endpoint
 from rpent.utils.socket_rpc import SocketRpcClient
 
 if TYPE_CHECKING:
@@ -244,15 +245,6 @@ def _spawn_vla_server(
     )
 
 
-def _stop_owned_daemons(daemons: list[ProcessDaemon]) -> None:
-    """Stop owned daemons in reverse order without masking startup errors."""
-    for daemon in reversed(daemons):
-        try:
-            daemon.stop()
-        except Exception:
-            pass
-
-
 def init_task_runtime(
     args: argparse.Namespace,
     output_dir: Path,
@@ -267,30 +259,30 @@ def init_task_runtime(
     """
     from robots.robocasa.env_client import RoboCasaEnvClient
 
-    owned_daemons: list[ProcessDaemon] = []
+    owned_daemons: dict[str, ProcessDaemon] = {}
 
-    dashboard_events.emit(RuntimeStatusEvent("env", "starting"))
-    try:
-        env_daemon, env_rpc = _spawn_env_server(args, output_dir)
-        if env_daemon is not None:
-            owned_daemons.append(env_daemon)
-        wait_for_ready(env_rpc, daemon=env_daemon, timeout_s=120.0)
-        env_client = RoboCasaEnvClient(
-            env_rpc,
-            expected_meta={
-                "task_name": args.task_name,
-                "split": args.split,
-                "seed": args.seed,
-                "camera_h": 256,
-                "camera_w": 256,
-            },
-        )
-    except Exception as exc:
-        _stop_owned_daemons(owned_daemons)
-        dashboard_events.emit(RuntimeStatusEvent("env", "failed", error=exc))
-        raise
-    dashboard_events.emit(RuntimeStatusEvent("env", "ready"))
-    return owned_daemons, {
+    env_daemon, env_rpc = try_spawn_server(
+        owned_daemons,
+        dashboard_events,
+        "env",
+        lambda: _spawn_env_server(args, output_dir),
+    )
+
+    env_post_fn = lambda: RoboCasaEnvClient(
+        env_rpc,
+        expected_meta={
+            "task_name": args.task_name,
+            "split": args.split,
+            "seed": args.seed,
+            "camera_h": 256,
+            "camera_w": 256,
+        },
+    )
+    env_client = try_wait_server(
+        owned_daemons, dashboard_events, "env", env_rpc, env_daemon, 120.0,
+        post_fn = env_post_fn,
+    )
+    return list(owned_daemons.values()), {
         "env_client": env_client,
         "workdir": str(output_dir),
         "hi_res": args.hi_res or None,
@@ -309,21 +301,21 @@ def init_shared_runtime(
     """
     from robots.robocasa.vla_client import RoboCasaVLAClient
 
-    owned_daemons: list[ProcessDaemon] = []
+    owned_daemons: dict[str, ProcessDaemon] = {}
 
-    dashboard_events.emit(RuntimeStatusEvent("vla", "starting"))
-    try:
-        vla_daemon, vla_rpc = _spawn_vla_server(args, output_dir)
-        if vla_daemon is not None:
-            owned_daemons.append(vla_daemon)
-        wait_for_ready(vla_rpc, daemon=vla_daemon, timeout_s=300.0)
-        vla_client = RoboCasaVLAClient(vla_rpc)
-    except Exception as exc:
-        _stop_owned_daemons(owned_daemons)
-        dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
-        raise
-    dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
-    return owned_daemons, {"vla_client": vla_client}
+    vla_daemon, vla_rpc = try_spawn_server(
+        owned_daemons,
+        dashboard_events,
+        "vla",
+        lambda: _spawn_vla_server(args, output_dir),
+    )
+
+    vla_post_fn = lambda: RoboCasaVLAClient(vla_rpc)
+    vla_client = try_wait_server(
+        owned_daemons, dashboard_events, "vla", vla_rpc, vla_daemon, 300.0,
+        post_fn = vla_post_fn,
+    )
+    return list(owned_daemons.values()), {"vla_client": vla_client}
 
 
 def _init_runtime(
@@ -344,58 +336,49 @@ def _init_runtime(
     from robots.robocasa.env_client import RoboCasaEnvClient
     from robots.robocasa.vla_client import RoboCasaVLAClient
 
-    daemons: list[ProcessDaemon] = []
+    owned_daemons: dict[str, ProcessDaemon] = {}
 
-    # --- env_server --------------------------------------------------------
-    dashboard_events.emit(RuntimeStatusEvent("env", "starting"))
-    try:
-        env_daemon, env_rpc = _spawn_env_server(args, output_dir)
-        if env_daemon is not None:
-            daemons.append(env_daemon)
-    except Exception as exc:
-        _stop_owned_daemons(daemons)
-        dashboard_events.emit(RuntimeStatusEvent("env", "failed", error=exc))
-        raise
+    env_daemon, env_rpc = try_spawn_server(
+        owned_daemons,
+        dashboard_events,
+        "env",
+        lambda: _spawn_env_server(args, output_dir),
+    )
 
-    # --- vla_server --------------------------------------------------------
-    dashboard_events.emit(RuntimeStatusEvent("vla", "starting"))
-    try:
-        vla_daemon, vla_rpc = _spawn_vla_server(args, output_dir)
-        if vla_daemon is not None:
-            daemons.append(vla_daemon)
-    except Exception as exc:
-        _stop_owned_daemons(daemons)
-        dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
-        raise
+    vla_daemon, vla_rpc = try_spawn_server(
+        owned_daemons,
+        dashboard_events,
+        "vla",
+        lambda: _spawn_vla_server(args, output_dir),
+    )
 
     # All local daemons are running, so they initialize concurrently while
     # readiness is checked in a deterministic order.
-    for component, client, daemon, timeout_s in (
-        ("env", env_rpc, env_daemon, 120.0),
-        ("vla", vla_rpc, vla_daemon, 300.0),
+    env_post_fn = lambda: RoboCasaEnvClient(
+        env_rpc,
+        expected_meta={
+            "task_name": args.task_name,
+            "split": args.split,
+            "seed": args.seed,
+            "camera_h": 256,
+            "camera_w": 256,
+        },
+    )
+    vla_post_fn = lambda: RoboCasaVLAClient(vla_rpc)
+    results = {}
+    for component, rpc, daemon, post_fn, timeout_s in (
+        ("env", env_rpc, env_daemon, env_post_fn, 120.0),
+        ("vla", vla_rpc, vla_daemon, vla_post_fn, 300.0),
     ):
-        try:
-            wait_for_ready(client, daemon=daemon, timeout_s=timeout_s)
-        except Exception as exc:
-            _stop_owned_daemons(daemons)
-            dashboard_events.emit(RuntimeStatusEvent(component, "failed", error=exc))
-            raise
-        dashboard_events.emit(RuntimeStatusEvent(component, "ready"))
+        results[component] = try_wait_server(
+            owned_daemons, dashboard_events, component, rpc, daemon, timeout_s,
+            post_fn = post_fn,
+        )
 
-    primitives_kwargs = {
-        "env_client": RoboCasaEnvClient(
-            env_rpc,
-            expected_meta={
-                "task_name": args.task_name,
-                "split": args.split,
-                "seed": args.seed,
-                "camera_h": 256,
-                "camera_w": 256,
-            },
-        ),
+    return list(owned_daemons.values()), {
+        "env_client": results["env"],
+        "vla_client": results["vla"],
         "workdir": str(output_dir),
         "hi_res": args.hi_res or None,
-        "vla_client": RoboCasaVLAClient(vla_rpc),
     }
-    return daemons, primitives_kwargs
 

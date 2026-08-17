@@ -11,12 +11,13 @@ with a per-call session id + reset_memory for the RLDX memory module.
 import os
 import numpy as np
 from collections import deque
+from robots.robocasa.env_client import RoboCasaEnvClient
 import imageio.v2 as imageio
 
 
 class RLDXSkill:
-    def __init__(self, env_adapter, vla_client=None, check_cancelled=None):
-        self.env = env_adapter            # RoboCasaInteractiveEnv
+    def __init__(self, env_client: RoboCasaEnvClient, vla_client=None, check_cancelled=None):
+        self.env = env_client             # RoboCasaEnvClient
         self._vla_client = vla_client     # VLA RPC client (when set, _load() uses it instead of loading the model directly)
         self._check_cancelled = check_cancelled  # optional cancellation checkpoint callback
         self._vdi = None                  # video delta indices, e.g. [-6,-4,-2,0]
@@ -161,7 +162,8 @@ class RLDXSkill:
 
     # ---- the skill ----
     def run(self, prompt, max_chunks=15, n_action_steps=8, base_clip=None,
-            settle_eps=0.012, settle_patience=2, force_reset=False):
+            settle_eps=0.012, settle_patience=2, force_reset=False,
+            recording=False, record_frame=None):
         """Drive RLDX-1 closed-loop until it FINISHES, not a fixed tiny budget. The VLA
         has no terminate signal (like the eval, which runs to env-success), so we stop
         on a completion criterion and report WHY — so a closed-empty gripper means the
@@ -232,6 +234,8 @@ class RLDXSkill:
                 if self._check_cancelled is not None:
                     self._check_cancelled()
                 self.env.step(a)
+                if recording:
+                    record_frame()
                 applied += 1
                 self._record_frame(prompt)        # PER-SIM-STEP history (matches eval cadence)
                 self._capture_video_frame()       # OPTIONAL video (no-op if RLDX_VIDEO_DIR unset)

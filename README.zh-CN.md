@@ -58,7 +58,7 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
           <li><b>VLA</b></li>
           <ul>
             <li>Pi0.5 ✅</li>
-            <li>RLDX-1</li>
+            <li>RLDX-1 ✅</li>
           </ul>
           <li><b>WAM</b></li>
           <ul>
@@ -69,7 +69,7 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
       <td style="text-align: left; padding-left: 8px;">
         <ul style="margin-left: 0; padding-left: 16px;">
           <li>LIBERO-PRO ✅</li>
-          <li>RoboCasa </li>
+          <li>RoboCasa ✅</li>
         </ul>
       </td>
       <td>
@@ -91,7 +91,7 @@ git clone https://github.com/RLinf/RPent rpent && cd rpent
 pip install -e ".[full]"
 ```
 
-`.[full]` 是默认的端到端依赖组合，包括 openpi Pi0.5 VLA、LIBERO-PRO 仿真器、
+`.[full]` 是默认的端到端依赖组合，包括 openpi Pi0.5 VLA、LIBERO-PRO 和 RoboCasa365 仿真器、
 SAM 3.0 和 RLinf 运行时。如果不需要完整组合，更小的 extra
 见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
 

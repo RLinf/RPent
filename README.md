@@ -58,7 +58,7 @@ RPent is built upon three core design principles: **service-oriented, standardiz
           <li><b>VLA</b></li>
           <ul>
             <li>Pi0.5 ✅</li>
-            <li>RLDX-1</li>
+            <li>RLDX-1 ✅</li>
           </ul>
           <li><b>WAM</b></li>
           <ul>
@@ -69,7 +69,7 @@ RPent is built upon three core design principles: **service-oriented, standardiz
       <td style="text-align: left; padding-left: 8px;">
         <ul style="margin-left: 0; padding-left: 16px;">
           <li>LIBERO-PRO ✅</li>
-          <li>RoboCasa </li>
+          <li>RoboCasa ✅</li>
         </ul>
       </td>
       <td>
@@ -91,7 +91,7 @@ git clone https://github.com/RLinf/RPent rpent && cd rpent
 pip install -e ".[full]"
 ```
 
-`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO simulator + SAM 3.0 on the RLinf runtime).
+`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO and RoboCasa365 simulators + SAM 3.0 on the RLinf runtime).
 If you don't need the whole stack, see the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for narrower extras.
 
 **2. Download the LIBERO-PRO simulator assets.**
@@ -156,6 +156,10 @@ rpent --env libero --dashboard --dashboard-language zh-cn \
 ```
 
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
+
+### RoboCasa
+
+RoboCasa uses a separate entrypoint and install guide. See the [RoboCasa usage docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html) for installation and running instructions.
 
 ## Key CLI Options
 

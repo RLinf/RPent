@@ -2,14 +2,15 @@
 import argparse
 import inspect
 import os
+import sys
 import queue
 import re
 import threading
 import traceback
 import numpy as np
 
+from rpent.tools.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc import RpcFacade
 from rpent.utils.daemon import watch_parent_death
 from rpent.utils.http_rpc import HttpRpcServer
 from rpent.utils.socket_rpc import SocketRpcServer
@@ -40,12 +41,8 @@ def _split_kwargs(split):
                     layout_and_style_ids=None)
     raise ValueError('split must be {None,"all","pretrain","target"}')
 
-# ---------------------------------------------------------------------------
-# Facade
-# ---------------------------------------------------------------------------
 
-
-class RoboCasaEnvFacade(RpcFacade):
+class RoboCasaEnvFacade(BaseEnvFacade):
     """Wraps the raw robosuite env and exposes ONLY basic calls via RPC."""
 
     def __init__(self, task_name, split="target", seed=0, camera_h=256, camera_w=256,
@@ -61,8 +58,6 @@ class RoboCasaEnvFacade(RpcFacade):
         self.seed = seed
         self.cameras = list(cameras) if cameras else list(DEFAULT_CAMS)
         self.camera_h, self.camera_w = camera_h, camera_w
-        self._last_obs = None
-        self._terminated = False
 
         controller_config = load_composite_controller_config(controller=None, robot="PandaOmron")
         env_kwargs = dict(
@@ -90,20 +85,33 @@ class RoboCasaEnvFacade(RpcFacade):
             "camera_w": self.camera_w,
         }
 
+    def _register_rpc(self):
+        """Register all RPC methods."""
+        super()._register_rpc()
+        self._rpc["env.check_success"] = self.check_success
+        self._rpc["env.render_raw"] = self.render_raw
+        self._rpc["env.get_camera_meta"] = self.get_camera_meta
+        self._rpc["env.get_camera_transform"] = self.get_camera_transform
+        self._rpc["env.get_ep_meta"] = self.get_ep_meta
+        self._rpc["env.get_action_dim"] = self.get_action_dim
+        self._rpc["env.grasp_contact"] = self.grasp_contact
+        self._rpc["env.reassemble_env_action"] = self.reassemble_env_action
+        self._rpc["env.get_success_criteria_text"] = self.get_success_criteria_text
+        self._rpc["env.get_task_progress"] = self.get_task_progress
+        # Read-only methods
+        self._readonly_methods.update([
+            "env.get_camera_meta",
+            "env.get_camera_transform",
+            "env.get_ep_meta",
+            "env.get_action_dim",
+            "env.check_success",
+            "env.grasp_contact",
+            "env.get_success_criteria_text",
+            "env.get_task_progress",
+        ])
+
     def get_env_meta(self):
         return self._meta
-
-    # ---- RPC dispatch ----
-    def _dispatch(self, method: str, args: tuple, kwargs: dict):
-        """Route ``env.*`` calls to the matching facade method."""
-        if method.startswith("env."):
-            attr = method[len("env."):]
-            try:
-                return getattr(self, attr)(*args, **kwargs)
-            except Exception as e:
-                logger.warning("run method %s failed: %s", method, e)
-                raise e
-        raise ValueError(f"unknown RPC method: {method!r}")
 
     # ---- lifecycle ----
     def reset(self):
@@ -122,9 +130,7 @@ class RoboCasaEnvFacade(RpcFacade):
                 self.env.seed = sd
             if hasattr(self.env, "rng"):
                 self.env.rng = np.random.default_rng(sd)
-        self._last_obs = self.env.reset()
-        self._terminated = False
-        return self._last_obs
+        return self.env.reset()
 
     def step(self, flat_action):
         """flat_action: np.ndarray[12] = [eef_pos(3), eef_rot(3), gripper(1),
@@ -133,16 +139,10 @@ class RoboCasaEnvFacade(RpcFacade):
         assert a.shape[0] == self.env.action_dim, (
             f"action dim {a.shape[0]} != env.action_dim {self.env.action_dim}")
         obs, reward, done, info = self.env.step(a)
-        self._last_obs = obs
-        if self.env._check_success():
-            self._terminated = True
         return obs, reward, done, info
 
     def check_success(self):
         return bool(self.env._check_success())
-
-    def raw_obs(self):
-        return self._last_obs
 
     def render_raw(self, cam, h, w, depth):
         """sim.render in ROBOSUITE-NATIVE orientation (matches the camera
@@ -185,9 +185,6 @@ class RoboCasaEnvFacade(RpcFacade):
 
     def get_ep_meta(self):
         return self.env.get_ep_meta()
-
-    def get_terminated(self):
-        return self._terminated or self.check_success()
 
     def get_action_dim(self):
         return self.env.action_dim
@@ -295,15 +292,14 @@ class RoboCasaEnvFacade(RpcFacade):
                     return _local
                 return _local
             return None
-        import sys as _sys
-        old = _sys.gettrace()
+        old = sys.gettrace()
         try:
-            _sys.settrace(_tracer)
+            sys.settrace(_tracer)
             env._check_success()
         except Exception:
             pass
         finally:
-            _sys.settrace(old)
+            sys.settrace(old)
         for k, v in captured.items():
             if k == "self" or k in prog:
                 continue
@@ -368,11 +364,6 @@ class RoboCasaEnvFacade(RpcFacade):
             work_queue.put(None)
             server.shutdown()
             server.server_close()
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def main():

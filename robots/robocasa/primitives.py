@@ -48,9 +48,9 @@ class RoboCasaPrimitives:
         self._recording = True
         self._frames = []
 
-    def record_frame(self):
+    def record_frame(self, img=None):
         """Snapshot the current agentview to the frame buffer, if recording."""
-        if self._recording:
+        if img is None:
             img = self.env.render_camera(
                 camera_name="agentview",
                 height=256,
@@ -58,7 +58,8 @@ class RoboCasaPrimitives:
                 depth=False,
             )
             img = np.asarray(img, dtype=np.uint8)
-            self._frames.append(np.ascontiguousarray(img[::-1, ::-1]))
+            img = np.ascontiguousarray(img[::-1, ::-1])
+        self._frames.append(img)
 
     def recorded_frame_count(self) -> int:
         return len(self._frames)
@@ -105,7 +106,8 @@ class RoboCasaPrimitives:
             if self._check_cancelled is not None:
                 self._check_cancelled()
             self.env.step(a)
-            self.record_frame()
+            if self._recording:
+                self.record_frame()
         return self.env.eef_pos
 
     # ---------- Phase 2: online jacobian + move_to ----------
@@ -154,7 +156,8 @@ class RoboCasaPrimitives:
             if self._check_cancelled is not None:
                 self._check_cancelled()
             self.env.step(a)
-            self.record_frame()
+            if self._recording:
+                self.record_frame()
         cur = self.env.eef_pos
         return {"ok": False, "steps": max_steps, "final_dist": float(np.linalg.norm(target - cur)),
                 "eef": cur.tolist(), "gripper_qpos": round(float(self.env.gripper_qpos[0]), 4)}
@@ -355,7 +358,9 @@ class RoboCasaPrimitives:
                               base_clip=base_clip,
                               settle_patience=settle_patience,
                               settle_eps=settle_eps,
-                              force_reset=fr)
+                              force_reset=fr,
+                              recording=self._recording,
+                              record_frame=self.record_frame)
 
     # ---------- reset ----------
     def reset(self):

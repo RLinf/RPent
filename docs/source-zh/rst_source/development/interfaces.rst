@@ -120,4 +120,4 @@ pickle 数据帧传输，省掉反复的 JSON 编解码。pickle 不适合不可
 服务端：继承 ``rpent.utils.rpc.RpcFacade``，实现 ``_dispatch`` 分发业务 RPC
 （如 ``reset``、``step``、``predict``）。``healthz`` / ``shutdown`` 不必在子类里写。
 
-细节见 :doc:`add_robot` 中的env_server与vla_server章节。
+细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。

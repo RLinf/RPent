@@ -3,18 +3,13 @@ import argparse
 import os
 
 import numpy as np
+from rpent.tools.vla_facade_base import BaseVLAFacade
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc import RpcFacade
 
 logger = get_logger("vla_server")
 
 
-# ---------------------------------------------------------------------------
-# Facade
-# ---------------------------------------------------------------------------
-
-
-class RoboCasaVLAFacade(RpcFacade):
+class RoboCasaVLAFacade(BaseVLAFacade):
     """Loads RLDX model and exposes inference-only RPC methods."""
 
     def __init__(self, model_path):
@@ -34,18 +29,12 @@ class RoboCasaVLAFacade(RpcFacade):
             flush=True,
         )
 
-    # ---- RPC methods (exposed via env.* dispatch) ----
-
-    def _dispatch(self, method: str, args: tuple, kwargs: dict):
-        """Route ``env.*`` calls to the matching VLA method."""
-        if method.startswith("env."):
-            attr = method[len("env."):]
-            try:
-                return getattr(self, attr)(*args, **kwargs)
-            except Exception as e:
-                logger.warning("run method %s failed: %s", method, e)
-                raise
-        raise ValueError(f"unknown RPC method: {method!r}")
+    def _register_rpc(self):
+        super()._register_rpc()
+        self._rpc["vla.get_modality_config"] = self.get_modality_config
+        self._rpc["vla.predict"] = self.predict
+        self._rpc["vla.reset_session"] = self.reset_session
+        self._readonly_methods.add("vla.get_modality_config")
 
     def get_modality_config(self):
         return {
@@ -65,11 +54,6 @@ class RoboCasaVLAFacade(RpcFacade):
     def reset_session(self, session_id):
         self.policy.reset({"session_ids": [session_id]})
         return {"ok": True}
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def main():
