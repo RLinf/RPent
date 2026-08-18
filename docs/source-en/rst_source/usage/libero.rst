@@ -100,6 +100,31 @@ Minimal command
 
 To switch planners, see :doc:`configure_planner`.
 
+Reference reproduction results
+------------------------------
+
+On the `reproduce/libero
+<https://github.com/RLinf/RPent/tree/reproduce/libero>`_ branch, use
+``gpt-5.5`` to reproduce the following results:
+
+- ``libero_10_task``: 70% (70/100)
+- ``libero_10_swap``: 55% (55/100)
+
+Reproduction command:
+
+.. code-block:: bash
+
+   rpent --env libero \
+     --suite libero_10_task --task "task" --seed "seed" \
+     --planner codex \
+     --model gpt-5.5 \
+     --max-turns 100 \
+     --planner-timeout-s 5000 \
+     --max-episode-steps 10000 \
+     --libero-type pro \
+     --vla-endpoint http://127.0.0.1:8220 \
+     --sam3-endpoint http://127.0.0.1:8114
+
 What runs where
 ---------------
 
