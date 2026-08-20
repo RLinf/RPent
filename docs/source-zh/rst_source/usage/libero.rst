@@ -193,8 +193,8 @@ Dashboard launcher 支持 ``api``、``claude_code`` 和 ``codex`` planner。
 
 完整流程见 :doc:`../development/add_primitive`。
 
-Harness VLA 复现结果
---------------------
+结果复现
+--------
 
 以下是在两个 LIBERO-PRO 套件上复现
 :doc:`Harness VLA <../awesome_works/harnessvla>` 得到的结果。实验使用

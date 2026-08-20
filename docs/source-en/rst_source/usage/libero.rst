@@ -201,8 +201,8 @@ client without touching the env by:
 
 See :doc:`../development/add_primitive` for the full walkthrough.
 
-Harness VLA reproduction results
---------------------------------
+Reproducing results
+-------------------
 
 The following results reproduce
 :doc:`Harness VLA <../awesome_works/harnessvla>` on two LIBERO-PRO suites.
