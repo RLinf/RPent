@@ -46,6 +46,17 @@ def run_dashboard_session(
         parser.error(
             f"environment {env_spec.name!r} does not support Dashboard control"
         )
+    runtime_components = dashboard_spec["runtime_components"]
+    shared_components = {
+        component["name"]
+        for component in runtime_components
+        if component["scope"] == "shared"
+    }
+    env_components = {
+        component["name"]
+        for component in runtime_components
+        if component["scope"] == "env"
+    }
 
     dashboard_server = DashboardServer(
         host=args.dashboard_host,
@@ -88,10 +99,11 @@ def run_dashboard_session(
 
     controller = DashboardSessionController(
         state=state,
-        start_shared=lambda: env_spec.init_shared_runtime(
+        start_shared=lambda: env_spec.init_runtime(
             args,
             session_root,
             state,
+            shared_components,
         ),
         run_task=lambda claimed, shared: _run_dashboard_task(
             args=args,
@@ -99,6 +111,7 @@ def run_dashboard_session(
             state=state,
             claimed=claimed,
             shared_primitives_kwargs=shared,
+            env_components=env_components,
             session_root=session_root,
         ),
     )
@@ -123,6 +136,7 @@ def _run_dashboard_task(
     state: DashboardState,
     claimed: ClaimedTask,
     shared_primitives_kwargs: dict[str, Any],
+    env_components: set[str],
     session_root: Path,
 ) -> str | None:
     """Execute one fresh Dashboard TaskRun against Session-owned services."""
@@ -142,10 +156,11 @@ def _run_dashboard_task(
     toolkit = None
     started = time.time()
     try:
-        task_daemons, task_primitives_kwargs = env_spec.init_task_runtime(
+        task_daemons, task_primitives_kwargs = env_spec.init_runtime(
             task_args,
             output_dir,
             state,
+            env_components,
         )
         if not state.task_replacement_requested:
             primitives_kwargs = {

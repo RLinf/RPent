@@ -22,9 +22,9 @@ order:
 4. :ref:`Implement the toolkit and primitives <add-robot-toolkit>`.
 5. :ref:`Register environment arguments and build RunConfig
    <add-robot-config>`.
-6. Implement the :ref:`runtime hooks <add-robot-runtime>`: one complete
-   runtime for normal CLI runs, plus the Dashboard-only Session/TaskRun split
-   if the environment supports Dashboard task control.
+6. Implement the :ref:`runtime hook <add-robot-runtime>`. The same hook starts
+   the complete runtime for normal CLI runs or a selected component subset for
+   the Dashboard.
 
 .. _add-robot-entry:
 
@@ -63,8 +63,6 @@ two factory functions:
            prompts=PromptBundle(system=system_prompt, user=user_prompt),
            add_cli_args=_add_cli_args,
            parse_config=_parse_config,
-           init_shared_runtime=_init_shared_runtime,
-           init_task_runtime=_init_task_runtime,
            init_runtime=_init_runtime,
            dashboard=MYENV_DASHBOARD_SPEC,
        )
@@ -85,19 +83,16 @@ two factory functions:
        """Validate final `args`, return a RunConfig. See §4."""
        ...
 
-   def _init_runtime(args, output_dir, dashboard_events: DashboardEventSink):
-       """Normal CLI only: initialize the complete runtime.
+   def _init_runtime(
+       args,
+       output_dir,
+       dashboard_events: DashboardEventSink,
+       components: set[str] | None,
+   ):
+       """Initialize all runtime components, or only the selected subset.
 
        Returns (daemons, primitives_kwargs). See §5.
        """
-       ...
-
-   def _init_shared_runtime(args, output_dir, dashboard_events: DashboardEventSink):
-       """Dashboard only: initialize Session-owned reusable services."""
-       ...
-
-   def _init_task_runtime(args, output_dir, dashboard_events: DashboardEventSink):
-       """Dashboard only: initialize fresh per-TaskRun services."""
        ...
 
 ``dashboard`` is optional. Leave it as ``None`` if the environment does not
@@ -112,8 +107,8 @@ That's the entire registration step — ``_resolve_env(name)`` does an
 ``robots/`` on disk is enough. No central list to update.
 
 The sections below describe what each referenced module must contain.
-``_add_cli_args`` / ``_parse_config`` are covered in §4 and the three runtime
-hooks in §5. The Dashboard spec is consumed only by the Dashboard runner.
+``_add_cli_args`` / ``_parse_config`` are covered in §4 and the runtime hook
+in §5. The Dashboard spec is consumed only by the Dashboard runner.
 
 .. _add-robot-env-rpc:
 
@@ -342,10 +337,10 @@ validates those fields and returns a
 
 .. _add-robot-runtime:
 
-5. Runtime initialization hooks
--------------------------------
+5. Runtime initialization hook
+------------------------------
 
-All runtime hooks return ``(owned_daemons, primitives_kwargs)``:
+``init_runtime`` returns ``(owned_daemons, primitives_kwargs)``:
 
 - ``owned_daemons: list[ProcessDaemon]`` contains only subprocesses started
   by this process. The active runner stops them during cleanup. A client for an
@@ -355,25 +350,25 @@ All runtime hooks return ``(owned_daemons, primitives_kwargs)``:
   contains ``{"env": MyEnvClient(...), "model": VLAClient(...)}`` plus any
   supporting clients.
 
-``init_runtime`` is the normal CLI hook. After ``parse_config`` returns,
-``main.py`` calls it once to initialize the complete runtime. The current
-LIBERO implementation starts or attaches to ``env_server``, ``vla_server``,
-and ``sam3_server`` and returns all primitive inputs together.
+The fourth argument, ``components``, selects which named services to
+initialize. ``None`` means all services and is what the normal CLI passes.
+The Dashboard derives two subsets from ``dashboard.runtime_components``. Every
+component declares either ``scope: "shared"`` or ``scope: "env"`` explicitly.
+The Dashboard initializes shared components once, then initializes env-scoped
+components for every fresh environment instance. It calls this same hook for
+both subsets and merges the returned ``primitives_kwargs`` dictionaries. For
+LIBERO, the subsets are ``{"vla", "sam3"}`` and ``{"env"}``.
 
-``init_shared_runtime`` and ``init_task_runtime`` are **Dashboard-only**
-hooks; the normal CLI path never calls them. The Dashboard calls
-``init_shared_runtime`` once for Session-owned services, then calls
-``init_task_runtime`` for every fresh TaskRun and merges the two returned
-``primitives_kwargs`` dictionaries. The split is environment-specific. For
-LIBERO, VLA and SAM3 are Session-owned while the environment is TaskRun-owned;
-another environment should use the lifecycle split appropriate to its own
-services rather than copying that arrangement mechanically.
+An implementation should reject unknown component names before starting
+anything. When several selected local services are expensive to initialize,
+start them all before waiting for readiness so their initialization can
+overlap. See ``robots/libero/__init__.py`` for the ordered component registry
+used by the reference implementation.
 
 Endpoint parsing (``--env-endpoint``, ``--vla-endpoint``, and LIBERO's
 ``--sam3-endpoint``), subprocess spawning, and runtime status events belong in
-the hook that owns the corresponding service. The runners do not handle those
-environment details. See ``robots/libero/__init__.py`` for the reference
-implementation.
+the code for the corresponding component. The runners do not handle those
+environment details.
 
 Smoke test
 ----------
