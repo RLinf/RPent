@@ -91,7 +91,7 @@ LIBERO-PRO 核心套件一览
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 
-   rpent --env libero \
+   rpent --robot libero \
      --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
 
@@ -214,7 +214,7 @@ Dashboard
 
 .. code-block:: bash
 
-   rpent --env libero --dashboard \
+   rpent --robot libero --dashboard \
      --planner claude_code --model claude-opus-4-8
 
 打开该地址，确认 Session 配置并点击 **Start Session**。共享服务就绪后，在页面

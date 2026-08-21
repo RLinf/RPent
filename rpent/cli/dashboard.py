@@ -15,14 +15,14 @@ from typing import TYPE_CHECKING, Any
 
 from rpent.cli.main import _handoff_message, _serialize_messages
 from rpent.dashboard.events import RunStartedEvent
-from rpent.envs import get_toolkit
+from rpent.robots import get_toolkit
 from rpent.planner.base import build_planner
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
 
 if TYPE_CHECKING:
     from rpent.dashboard.state import ClaimedTask, DashboardState
-    from rpent.envs.env_spec import EnvSpec
+    from rpent.robots.robot_spec import RobotSpec
     from rpent.utils.daemon import ProcessDaemon
 
 logger = get_logger("agent")
@@ -30,7 +30,7 @@ logger = get_logger("agent")
 
 def run_dashboard_session(
     args: argparse.Namespace,
-    env_spec: EnvSpec,
+    robot_spec: RobotSpec,
     *,
     parser: argparse.ArgumentParser,
 ) -> int:
@@ -41,10 +41,10 @@ def run_dashboard_session(
     from rpent.dashboard.state import DashboardState
     from rpent.utils.config import get_repo_root
 
-    dashboard_spec = env_spec.dashboard
+    dashboard_spec = robot_spec.dashboard
     if dashboard_spec is None:
         parser.error(
-            f"environment {env_spec.name!r} does not support Dashboard control"
+            f"robot {robot_spec.name!r} does not support Dashboard control"
         )
 
     dashboard_server = DashboardServer(
@@ -82,7 +82,7 @@ def run_dashboard_session(
         not getattr(args, "explore", False)
         and getattr(args, "memory_profile", "hf") == "hf"
     ):
-        ensure_resources(args.env_name)
+        ensure_resources(args.robot_name)
     state = DashboardState(
         run_id=f"dashboard-session/{session_root.name}",
         output_dir=session_root,
@@ -92,14 +92,14 @@ def run_dashboard_session(
 
     controller = DashboardSessionController(
         state=state,
-        start_shared=lambda: env_spec.init_shared_runtime(
+        start_shared=lambda: robot_spec.init_shared_runtime(
             args,
             session_root,
             state,
         ),
         run_task=lambda claimed, shared: _run_dashboard_task(
             args=args,
-            env_spec=env_spec,
+            robot_spec=robot_spec,
             state=state,
             claimed=claimed,
             shared_primitives_kwargs=shared,
@@ -123,7 +123,7 @@ def run_dashboard_session(
 def _run_dashboard_task(
     *,
     args: argparse.Namespace,
-    env_spec: EnvSpec,
+    robot_spec: RobotSpec,
     state: DashboardState,
     claimed: ClaimedTask,
     shared_primitives_kwargs: dict[str, Any],
@@ -134,7 +134,7 @@ def _run_dashboard_task(
     for name, value in claimed.request.items():
         setattr(task_args, name, value)
     task_args.output_dir = str(claimed.output_dir)
-    run_config = env_spec.parse_config(task_args)
+    run_config = robot_spec.parse_config(task_args)
     output_dir = init_output_dir(run_config.output_dir, verbose=args.verbose)
 
     recipe_tag = run_config.recipe_tag
@@ -146,7 +146,7 @@ def _run_dashboard_task(
     recipe_path = ""
     started = time.time()
     try:
-        task_daemons, task_primitives_kwargs = env_spec.init_task_runtime(
+        task_daemons, task_primitives_kwargs = robot_spec.init_task_runtime(
             task_args,
             output_dir,
             state,
@@ -157,7 +157,7 @@ def _run_dashboard_task(
                 **shared_primitives_kwargs,
             }
             prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
-            session_message = env_spec.prompts.render("user", variables=prompt_vars)
+            session_message = robot_spec.prompts.render("user", variables=prompt_vars)
             sessions = max(
                 1,
                 int(getattr(task_args, "explore_sessions", 1) or 1),
@@ -180,7 +180,7 @@ def _run_dashboard_task(
                         session_number,
                         sessions,
                     )
-                system_prompt = env_spec.prompts.render(
+                system_prompt = robot_spec.prompts.render(
                     "system",
                     variables={
                         **prompt_vars,
@@ -198,9 +198,9 @@ def _run_dashboard_task(
                     state.begin_planner_session(
                         video_path=state_output_dir / "episode.mp4",
                     )
-                if args.env_name == "libero":
+                if args.robot_name == "libero":
                     toolkit = get_toolkit(
-                        args.env_name,
+                        args.robot_name,
                         primitives_kwargs=primitives_kwargs,
                         dashboard_events=state,
                         mode=(
@@ -215,7 +215,7 @@ def _run_dashboard_task(
                     )
                 else:
                     toolkit = get_toolkit(
-                        args.env_name,
+                        args.robot_name,
                         primitives_kwargs=primitives_kwargs,
                         dashboard_events=state,
                     )
@@ -225,7 +225,7 @@ def _run_dashboard_task(
                         args.planner,
                         output_dir=output_dir,
                         recipe_tag=recipe_tag,
-                        env_name=args.env_name,
+                        robot_name=args.robot_name,
                         base_url=args.base_url,
                         model=args.model,
                         max_tokens=args.max_tokens,
@@ -245,7 +245,7 @@ def _run_dashboard_task(
                     messages += result.messages
                     stats = result.stats
                     agent_error = result.error
-                    if args.env_name == "libero":
+                    if args.robot_name == "libero":
                         solved = toolkit.solved()
                         if solved:
                             recipe_path = toolkit.write_recipe(recipe_tag)
@@ -278,7 +278,7 @@ def _run_dashboard_task(
             try:
                 daemon.stop()
             except Exception as exc:
-                cleanup_errors.append(f"env cleanup failed: {exc}")
+                cleanup_errors.append(f"robot cleanup failed: {exc}")
         if cleanup_errors:
             cleanup_error = "; ".join(cleanup_errors)
             if agent_error is None:
@@ -305,12 +305,12 @@ def _run_dashboard_task(
         init_output_dir(session_root, verbose=args.verbose)
 
     if (
-        env_spec.finalize_run is not None
+        robot_spec.finalize_run is not None
         and not agent_error
         and not state.task_replacement_requested
     ):
         try:
-            finalized = env_spec.finalize_run(task_args, run_config)
+            finalized = robot_spec.finalize_run(task_args, run_config)
             if finalized is not None:
                 logger.info("run finalized: %s", finalized)
         except Exception as exc:
