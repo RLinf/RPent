@@ -33,8 +33,8 @@ class SO101Kinematics:
         urdf = os.path.expanduser(urdf_path or _DEFAULT_URDF)
         if not os.path.isfile(urdf):
             raise FileNotFoundError(
-                f"SO101 URDF not found at {urdf}. Set urdf_path or download the "
-                "SO101 URDF (see toolkits/lerobot/compute_ee_pose.py --urdf help)."
+                f"SO101 URDF not found at {urdf}. Pass --urdf-path or place the "
+                f"URDF at {_DEFAULT_URDF}."
             )
         self._kin = RobotKinematics(
             urdf_path=urdf,

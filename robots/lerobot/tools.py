@@ -34,11 +34,6 @@ def _to_list(x) -> list:
     return [round(float(v), 4) for v in arr]
 
 
-# ---------------------------------------------------------------------------
-# Primitive driver
-# ---------------------------------------------------------------------------
-
-
 class LerobotPrimitives:
     """Wrap a single SO101 env client with primitive-level methods.
 
@@ -52,15 +47,11 @@ class LerobotPrimitives:
         self._last_obs: dict | None = None
         self._scene_meta: dict | None = None
 
-    # -- lifecycle ---------------------------------------------------------
-
     def reset(self) -> tuple[dict, Any]:
         """Reset the env (arm → rest) and cache the first observation."""
         obs, info = self.env.reset()
         self._last_obs = obs
         return obs, info
-
-    # -- state accessors used by dump_state --------------------------------
 
     def get_state(self) -> dict:
         """Return the robot proprioceptive state from the last observation."""
@@ -91,8 +82,6 @@ class LerobotPrimitives:
         scene = depth.get("scene") if isinstance(depth, dict) else None
         return None if scene is None else np.asarray(scene, dtype=np.float32)
 
-    # -- localization (base/world frame) -----------------------------------
-
     @readonly
     def get_ee_pose(self) -> dict:
         """Live FK: gripper pose in the base (world) frame."""
@@ -104,8 +93,6 @@ class LerobotPrimitives:
         if self._scene_meta is None:
             self._scene_meta = self.env.get_scene_camera_meta()
         return self._scene_meta
-
-    # -- primitives (move the robot; toolkit capture refreshes observation) --
 
     def move_to(
         self,

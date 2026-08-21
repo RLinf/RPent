@@ -23,7 +23,6 @@ class LerobotToolkit(Toolkit):
         "_image_bytes": "scene.png",
         "_image_cam_bytes": "arm.png",
     }
-    # Per-env artifact names for the dashboard's live frame images.
     _FRAME_ARTIFACTS = {
         "camera": "scene.png",
         "wrist": "arm.png",
@@ -40,9 +39,6 @@ class LerobotToolkit(Toolkit):
         self.init_driver_clean(env=env)
         self._register_tools()
 
-    # ------------------------------------------------------------------
-    # Registration
-    # ------------------------------------------------------------------
     def _register_tools(self) -> None:
         # State-backed readers need the run's EnvState bound in. Every other
         # spec binds to its primitive-driver method; @readonly decides capture.
@@ -93,7 +89,3 @@ class LerobotToolkit(Toolkit):
         record = lerobot_tools.dump_state(driver, self._state, log=None)
         self._driver = driver
         self._publish_step(record)
-
-    def close(self) -> None:
-        """End-of-run cleanup hook. TODO: flush an episode video if desired."""
-        return None

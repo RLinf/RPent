@@ -1,8 +1,7 @@
-"""LeRobot SO101 env client that forwards calls over a driver RPC client.
+"""Typed agent-facing client for the LeRobot SO101 driver.
 
-Mirrors the RPC surface exposed by ``robots/lerobot/env_server.py``
-(:class:`SO101LeRobotEnv`). Each method turns one agent-side call into one RPC
-against the driver process via :class:`RpcClient`.
+Each method turns one agent-side call into one RPC against the driver process
+via :class:`RpcClient`.
 
 The agent process does not import torch; the driver returns plain numpy /
 floats, so values cross the wire unchanged.
@@ -12,7 +11,6 @@ from __future__ import annotations
 from typing import Any
 
 from rpent.utils.rpc import RpcClient
-
 
 # Per-method RPC timeouts (seconds). ``reset`` moves the arm to its rest pose.
 _TIMEOUT_S = {

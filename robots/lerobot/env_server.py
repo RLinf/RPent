@@ -1,11 +1,8 @@
-"""Standalone LeRobot SO101 env host for the LLM-in-the-loop agent (env-only).
+"""Standalone LeRobot SO101 server for the LLM-in-the-loop agent.
 
 Drives a physical SO101 follower arm through LeRobot's synchronous Python
-API (:class:`lerobot.robots.so_follower.SO101Follower`) and exposes a minimal
-``reset`` / ``step`` gym-style surface over an RPC server
-(:class:`rpent.utils.rpc.RpcFacade`, http transport by default) — the same
-wire protocol the LIBERO driver uses, so the agent side talks to both
-identically.
+API (:class:`lerobot.robots.so_follower.SO101Follower`) and exposes robot,
+camera, motion, and calibration operations over :class:`rpent.utils.rpc.RpcFacade`.
 
 Unlike the LIBERO driver, this server does **not** wrap an RLinf env class:
 importing ``rlinf.envs.realworld`` runs node-level ROS setup side effects at
@@ -54,10 +51,6 @@ from rpent.utils.rpc import RpcFacade  # noqa: E402
 
 logger = get_logger("lerobot_driver")
 
-
-# ---------------------------------------------------------------------------
-# SO101 joint / limit constants (mirrors rlinf SO101Env defaults)
-# ---------------------------------------------------------------------------
 
 # Arm joints in bus-ID order; LeRobot keys obs/action by ``<name>.pos``.
 _ARM_JOINTS = (
@@ -247,7 +240,7 @@ def _slerp_rotation(R0: np.ndarray, R1: np.ndarray, t: float) -> np.ndarray:
 
 
 class SO101LeRobotEnv:
-    """Minimal ``reset`` / ``step`` driver for a physical SO101 arm.
+    """RPC driver for a physical SO101 arm.
 
     Observation::
 
