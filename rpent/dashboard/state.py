@@ -654,7 +654,7 @@ class DashboardState:
         return path if path.exists() else None
 
     def on_step(self, record: StepRecord) -> None:
-        """Project one recorded environment step into frames and timeline."""
+        """Project one recorded robot step into frames and timeline."""
         self._update_step_frames(record)
         command = record.command
         if not isinstance(command, dict) or not command.get("action"):

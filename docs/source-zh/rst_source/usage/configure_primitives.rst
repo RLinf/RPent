@@ -8,18 +8,18 @@ planner 决定执行什么操作，而 **动作原语** 决定如何执行。每
 RPent 内置两类原语：
 
 - **VLA 策略**：VLA 模型运行在独立的 ``vla_server``
-  进程中，将 GPU 权重与物理引擎隔离。toolkit 通过各环境对应的 model
+  进程中，将 GPU 权重与物理引擎隔离。toolkit 通过各机器人对应的 model
   client 调用模型，例如 Pi0.5（LIBERO）和 RLDX-1（RoboCasa）。
 - **脚本化原语**：用于执行 ``move_to``、``rotate_wrist``、
   ``release`` 和 ``back_project`` 等确定性动作。这类原语位于
   agent 侧，不需要加载 VLA 权重，并通过 RPC 调用 ``env_server``。
 
-各环境的具体配置，例如使用哪个 VLA、checkpoint 路径以及对外提供的工具，
-请参考对应的环境页面：:doc:`libero`、:doc:`robocasa`、
+各机器人的具体配置，例如使用哪个 VLA、checkpoint 路径以及对外提供的工具，
+请参考对应的机器人页面：:doc:`libero`、:doc:`robocasa`、
 :doc:`franka`、:doc:`so101`。
 
-各环境使用的 VLA
-----------------
+各机器人使用的 VLA
+-----------------
 
 .. list-table::
    :header-rows: 1

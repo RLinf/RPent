@@ -87,7 +87,7 @@ the toolkit's tools under the ``mcp__rpent__<name>`` namespace.
 
 .. code-block:: bash
 
-   rpent --env libero --planner claude_code \
+   rpent --robot libero --planner claude_code \
      --model claude-opus-4-8 \
      --suite libero_object_swap --task 2 --seed 0
 
@@ -118,7 +118,7 @@ server. You do not need to start ``scripts/codex_proxy/`` first.
 
 .. code-block:: bash
 
-   rpent --env libero --planner codex \
+   rpent --robot libero --planner codex \
      --model gpt-5.5 \
      --suite libero_goal_task --task 1 --seed 0
 
