@@ -13,20 +13,21 @@ RPent 内置两类原语：
 - **脚本化原语**：用于执行 ``move_to``、``rotate_wrist``、
   ``release`` 和 ``back_project`` 等确定性动作。这类原语位于
   agent 侧，不需要加载 VLA 权重，并通过 RPC 调用 ``env_server``。
+  SO-101 当前完全使用这一类原语。
 
 各环境的具体配置，例如使用哪个 VLA、checkpoint 路径以及对外提供的工具，
 请参考对应的环境页面：:doc:`libero`、:doc:`robocasa`、
 :doc:`franka`、:doc:`so101`。
 
-各环境使用的 VLA
-----------------
+各环境的默认原语后端
+--------------------
 
 .. list-table::
    :header-rows: 1
    :widths: 25 25 25 25
 
    * - 环境 / 机器人
-     - 默认 VLA
+    - 默认原语后端
      - 传输协议
      - 服务实现
    * - LIBERO (仿真)
@@ -42,9 +43,9 @@ RPent 内置两类原语：
      - HTTP 或 socket RPC
      - ``robots/franka/vla_server.py`` *(规划中)*
    * - SO-101 (真机)
-     - RLDX-1 (依任务而定)
-     - HTTP 或 socket RPC
-     - ``robots/so101/vla_server.py`` *(规划中)*
+     - 暂无
+     - 暂无
+     - 暂无
 
 VLA server 通过统一的 ``predict`` 和 ``healthz`` 方法提供服务，并支持
 HTTP（JSON）和 socket（pickle-framed）两种传输方式。直接启动 VLA server
