@@ -2,7 +2,8 @@
 
 ``T_base_cam`` is the fixed rigid transform that maps a point in the scene
 camera frame into the arm ``base_link`` world frame. It is produced once by the
-touch/Kabsch calibration (``robots/lerobot/calibrate_scene_cam.py``) and
+automatic or manual calibration scripts (``calibrate_scene_cam_auto.py`` and
+``calibrate_scene_cam_manual.py``) and
 loaded by the env server so ``back_project`` can return world coordinates.
 
 Stored per camera serial under the LeRobot cache so it survives across runs.

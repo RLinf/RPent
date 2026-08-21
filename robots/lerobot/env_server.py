@@ -369,8 +369,8 @@ class SO101LeRobotEnv:
                     logger.warning(
                         "scene-cam extrinsic REJECTED: rmse=%.3fm > %.3fm limit; "
                         "back_project would be unreliable. Recalibrate with "
-                        "robots/lerobot/auto_calibrate_scene_cam.py "
-                        "(or calibrate_scene_cam.py).",
+                        "robots/lerobot/calibrate_scene_cam_auto.py "
+                        "(or calibrate_scene_cam_manual.py).",
                         rmse, scene_calib.MAX_ACCEPTABLE_RMSE_M,
                     )
                 else:
@@ -480,6 +480,39 @@ class SO101LeRobotEnv:
             return {"error": "scene camera not configured"}
         rgb, depth = self._scene_cam.read()
         return {"color": rgb, "depth": depth, "K": self._scene_cam.K.tolist()}
+
+    def save_scene_camera_calibration(
+        self,
+        T_base_cam,
+        *,
+        rmse_m: float,
+        num_points: int,
+    ) -> dict:
+        """Persist and activate a validated scene-camera extrinsic."""
+        if self._scene_cam is None or not self._scene_serial:
+            return {"error": "scene camera not configured"}
+        transform = np.asarray(T_base_cam, dtype=np.float64)
+        if transform.shape != (4, 4):
+            return {"error": f"T_base_cam must be 4x4; got {transform.shape}"}
+        rmse = float(rmse_m)
+        if not np.isfinite(rmse) or rmse > scene_calib.MAX_ACCEPTABLE_RMSE_M:
+            return {
+                "error": (
+                    f"calibration RMSE must be <= "
+                    f"{scene_calib.MAX_ACCEPTABLE_RMSE_M:.3f}m; got {rmse}"
+                )
+            }
+        path = scene_calib.save_extrinsic(
+            self._scene_serial,
+            transform,
+            K=self._scene_cam.K,
+            rmse_m=rmse,
+            num_points=int(num_points),
+        )
+        self._T_base_cam = transform
+        self._calib_rmse_m = rmse
+        logger.info("scene-cam calibrated: rmse=%.4fm, saved %s", rmse, path)
+        return {"path": str(path), "calibrated": True}
 
     def get_obs(self) -> dict:
         """Return the current observation without moving the arm.
@@ -816,196 +849,16 @@ class SO101LeRobotEnv:
             result["approach_tilt_deg"] = round(_approach_tilt_deg(ee["T"][:3, :3]), 1)
         return result
 
-    # ------------------------------------------------------------------
-    # automatic scene-camera calibration (markerless, gripper-motion)
-    # ------------------------------------------------------------------
-
-    def _set_gripper_hold(self, gripper_value: float) -> None:
+    def set_gripper(self, gripper_value: float) -> dict:
         """Set the gripper opening while freezing the arm at its current joints.
 
-        Used during calibration so that between the two capture frames ONLY the
-        gripper fingers move (clean motion segmentation).
+        This is useful for operations that need finger motion without changing
+        the arm pose, such as scene-camera calibration.
         """
         obs = self._robot.get_observation()
         q = np.array([obs.get(f"{n}.pos", 0.0) for n in _ARM_JOINTS], dtype=np.float64)
         self._robot.send_action(_to_lerobot_action(q, float(gripper_value)))
-
-    @staticmethod
-    def _calibration_targets() -> list[list[float]]:
-        """A wide, non-coplanar grid of tip targets inside the workspace.
-
-        Free-orientation IK reaches these, giving a large spread in x/y/z AND a
-        variety of wrist orientations. That orientation variety is what makes
-        the constant tip-detector offset identifiable (see
-        ``geometry.solve_extrinsic_with_offset``), so the calibration keeps the
-        default free approach rather than a fixed top-down one. Ordered z-fastest
-        so an early stop (``n_points``) still spans all three heights.
-        """
-        xs = [0.15, 0.21, 0.27, 0.33]
-        ys = [-0.16, -0.05, 0.05, 0.16]
-        zs = [0.08, 0.15, 0.22]
-        return [[x, y, z] for x in xs for y in ys for z in zs]
-
-    def _capture_scene_median(
-        self, n_frames: int = 5
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Grab several scene frames and return per-pixel temporal medians.
-
-        Median-averaging across frames suppresses the camera's per-frame color
-        and depth noise, which otherwise becomes lateral error once a pixel is
-        back-projected through the oblique view. Depth invalids (<=0 /
-        non-finite) are ignored per pixel; pixels with no valid sample stay 0.
-        """
-        import warnings
-
-        rgbs: list[np.ndarray] = []
-        depths: list[np.ndarray] = []
-        for _ in range(max(1, int(n_frames))):
-            rgb, depth = self._scene_cam.read()
-            rgbs.append(np.asarray(rgb))
-            d = np.asarray(depth, dtype=np.float32)
-            depths.append(np.where(np.isfinite(d) & (d > 0), d, np.nan))
-        rgb_med = np.median(np.stack(rgbs, axis=0), axis=0).astype(np.uint8)
-        with warnings.catch_warnings():  # nanmedian warns on all-invalid pixels
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            depth_med = np.nanmedian(np.stack(depths, axis=0), axis=0)
-        depth_med = np.nan_to_num(depth_med, nan=0.0).astype(np.float32)
-        return rgb_med, depth_med
-
-    def auto_calibrate_scene_camera(
-        self,
-        *,
-        n_points: int = 24,
-        gripper_open: float = 90.0,
-        gripper_closed: float = 20.0,
-        settle_s: float = 0.8,
-        ransac_thresh_m: float = 0.015,
-        save: bool = True,
-    ) -> dict:
-        """Markerless automatic scene-cam -> base calibration.
-
-        Drives the tip to a wide, non-coplanar grid of base-frame positions
-        (move_to needs no extrinsic) at varied wrist orientations. At each pose
-        it toggles the gripper with the arm frozen and segments the motion in
-        the (temporally median-filtered) scene image to locate the moving jaw
-        (blob centroid + depth AT that centroid -> camera point); FK gives the
-        tip pose (origin + rotation). A joint fit
-        (:func:`geometry.solve_extrinsic_with_offset`) then recovers both
-        ``T_base_cam`` and the constant offset between the detected centroid and
-        the tip frame -- so that offset no longer inflates the residual -- and
-        the extrinsic is saved and hot-loaded so back_project returns world
-        coords immediately.
-
-        Returns a summary dict (``n_used``, ``rmse_m``, ``tip_offset_local_m``,
-        per-pose diagnostics).
-        """
-        if self._scene_cam is None:
-            return {"error": "scene camera not configured"}
-        if self._kin is None:
-            return {"error": "IK unavailable (URDF/placo missing)"}
-
-        targets = self._calibration_targets()
-        cam_pts: list[list[float]] = []
-        tip_origins: list[list[float]] = []
-        tip_rots: list[list[list[float]]] = []
-        poses: list[dict] = []
-
-        for tgt in targets:
-            if len(cam_pts) >= n_points:
-                break
-            mv = self.move_to(tgt, gripper=gripper_open, settle_s=settle_s)
-            if "error" in mv or not mv.get("reached"):
-                poses.append({"target": tgt, "skipped": "unreachable"})
-                continue
-            time.sleep(settle_s)
-
-            # Free-orientation FK tip pose (origin + rotation) at this pose. The
-            # rotation is what lets the fit solve out the constant tip-detector
-            # offset (geometry.solve_extrinsic_with_offset), so orientation must
-            # vary across the grid -- hence the free (not top-down) approach.
-            T_tip = self._kin.fk(self._read_arm_joints())
-            o_i = T_tip[:3, 3]
-            R_i = T_tip[:3, :3]
-
-            self._scene_cam.read()  # drop the in-flight frame from the move
-            rgb_open, _ = self._capture_scene_median()
-            self._set_gripper_hold(gripper_closed)
-            time.sleep(settle_s)
-            rgb_closed, depth = self._capture_scene_median()
-            self._set_gripper_hold(gripper_open)  # reopen for the next pose
-
-            det = geom.detect_tip_pixel_by_motion(
-                rgb_open, rgb_closed, depth, self._scene_cam.K,
-            )
-            if det is None:
-                poses.append({"target": tgt, "skipped": "no_tip_detected"})
-                continue
-            cam_pts.append(det["xyz_cam"])
-            tip_origins.append(o_i.tolist())
-            tip_rots.append(R_i.tolist())
-            poses.append({"target": tgt, "base_xyz": o_i.round(4).tolist(),
-                          "pixel": [round(v, 1) for v in det["pixel"]],
-                          "depth_m": round(det["depth_m"], 4), "area": det["area"]})
-
-        if len(cam_pts) < 4:
-            return {"error": f"only {len(cam_pts)} usable points (need >= 4)",
-                    "poses": poses}
-
-        # Joint fit: recover T_base_cam AND the constant offset between the
-        # detected motion-blob centroid and the FK tip frame, so that offset no
-        # longer pollutes the residual (the old ~1 cm RMSE floor).
-        T, rmse, inliers, tip_offset = geom.solve_extrinsic_with_offset(
-            cam_pts, tip_origins, tip_rots, thresh_m=ransac_thresh_m,
-        )
-        accepted = bool(rmse <= scene_calib.MAX_ACCEPTABLE_RMSE_M)
-        result = {
-            "n_targets": len(targets),
-            "n_used": len(cam_pts),
-            "n_inliers": int(np.asarray(inliers).sum()),
-            "rmse_m": round(float(rmse), 4),
-            "tip_offset_local_m": [round(float(v), 4) for v in tip_offset],
-            "T_base_cam": T.tolist(),
-            "accepted": accepted,
-            "saved": False,
-            "poses": poses,
-        }
-        if not accepted:
-            # A high RMSE means the cam/base correspondences are inconsistent
-            # (poor tip detection, lighting, or occlusion). Saving it would
-            # silently corrupt every back_project, so refuse and ask for a rerun.
-            result["error"] = (
-                f"calibration RMSE {rmse * 1000:.1f} mm exceeds the "
-                f"{scene_calib.MAX_ACCEPTABLE_RMSE_M * 1000:.0f} mm limit; not "
-                "saved. Clear the workspace, improve gripper visibility/lighting, "
-                "and rerun."
-            )
-            logger.warning(
-                "scene-cam calibration REJECTED: rmse=%.4fm (> %.3fm); not saved",
-                rmse, scene_calib.MAX_ACCEPTABLE_RMSE_M,
-            )
-        elif save:
-            path = scene_calib.save_extrinsic(
-                self._scene_serial, T, K=self._scene_cam.K,
-                rmse_m=rmse, num_points=int(np.asarray(inliers).sum()),
-            )
-            self._T_base_cam = T  # hot-load so back_project works immediately
-            self._calib_rmse_m = round(float(rmse), 4)
-            result["saved"] = True
-            result["path"] = str(path)
-            logger.info("scene-cam calibrated: rmse=%.4fm, saved %s", rmse, path)
-
-        # Park the arm at rest after the sweep (paced, gentle).
-        try:
-            obs = self._robot.get_observation()
-            cur = np.array(
-                [obs.get(f"{n}.pos", 0.0) for n in _ARM_JOINTS], dtype=np.float64
-            )
-            self._stream_joint_path(
-                cur, _RESET_QPOS[:_NUM_ARM_JOINTS], float(_RESET_QPOS[_NUM_ARM_JOINTS])
-            )
-        except Exception:
-            pass
-        return result
+        return {"gripper": float(gripper_value)}
 
     def close(self) -> None:
         """Park the arm at rest (paced + torque held) and disconnect cleanly."""

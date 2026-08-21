@@ -264,7 +264,8 @@ def back_project(
         out["frame"] = meta.get("frame", "scene_cam")
         out["note"] = (
             "scene camera not calibrated (no T_base_cam); returning camera-frame "
-            "xyz only. Run robots/lerobot/calibrate_scene_cam.py."
+            "xyz only. Run robots/lerobot/calibrate_scene_cam_auto.py or "
+            "calibrate_scene_cam_manual.py."
         )
     return out
 
