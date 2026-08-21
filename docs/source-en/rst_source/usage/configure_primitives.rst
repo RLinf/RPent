@@ -46,9 +46,9 @@ Which VLA runs where
      - HTTP or socket RPC
      - ``robots/franka/vla_server.py`` *(planned)*
    * - SO-101 (real)
-     - RLDX-1 (task-dependent)
-     - HTTP or socket RPC
-     - ``robots/so101/vla_server.py`` *(planned)*
+     - None
+     - None
+     - None
 
 The VLA server exposes the same ``predict`` / ``healthz`` methods over
 both HTTP (JSON) and socket (pickle-framed) transports. When starting

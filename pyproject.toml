@@ -21,8 +21,8 @@ classifiers = [
     #   4 - Beta
     #   5 - Production/Stable
     "Development Status :: 2 - Pre-Alpha",
-    "Environment :: GPU :: NVIDIA CUDA :: 12 :: 12.4",
     "Intended Audience :: Developers",
+    "Intended Audience :: Robotics Enthusiasts",
     "Programming Language :: Python :: 3",
 ]
 
@@ -68,6 +68,10 @@ libero-plus = [
     "rpent[libero]",
     "rlinf-liberoplus",
 ]
+lerobot = [
+    "lerobot[feetech,intelrealsense,kinematics]>=0.4.4",
+    "matplotlib",
+]
 sam3 = [
     "sam3==0.1.4",
     "torch",
@@ -86,6 +90,14 @@ full = [
 
 [tool.uv]
 prerelease = "allow"
+# lerobot is not co-installable with the RLinf stack (libero/openpi).
+conflicts = [
+    [{ extra = "lerobot" }, { extra = "openpi" }],
+    [{ extra = "lerobot" }, { extra = "libero" }],
+    [{ extra = "lerobot" }, { extra = "libero-pro" }],
+    [{ extra = "lerobot" }, { extra = "libero-plus" }],
+    [{ extra = "lerobot" }, { extra = "full" }],
+]
 
 [tool.setuptools]
 include-package-data = true
