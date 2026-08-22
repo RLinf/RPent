@@ -73,7 +73,7 @@ robotwin = [
     "huggingface-hub[cli]>=0.34,<1.0",
     "rlinf @ git+https://github.com/RLinf/RLinf.git@f58b28155f07da3409a5129820e2403c887cc46c",
     "rlinf-robotwin-runtime @ git+https://github.com/RoboTwin-Platform/RoboTwin.git@11d2d4ba1ba4819ebf63bb91ba0c5dfd4b0f81f2",
-    "rlinf-lingbotvla @ git+https://github.com/Sonorous281/lingbot-vla.git@1784a513edf1454e4dd26f982bd67db5d4fc0e95",
+    "rlinf-lingbotvla @ git+https://github.com/RLinf/lingbot-vla.git@1784a513edf1454e4dd26f982bd67db5d4fc0e95",
 ]
 sam3 = [
     "sam3==0.1.4",
