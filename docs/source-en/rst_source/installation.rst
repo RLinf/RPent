@@ -7,9 +7,12 @@ dependency combinations.
 Prerequisites
 -------------
 
-- Linux with an NVIDIA GPU (LIBERO renders on EGL).
-- CUDA 12.x drivers matching your GPU.
-- Python 3.10–3.12 (see ``pyproject.toml``'s ``requires-python``).
+- Linux with an NVIDIA GPU (LIBERO and RoboTwin render on EGL).
+- CUDA 12.x drivers matching your GPU. RoboTwin also requires a matching CUDA
+  toolkit/NVCC, compiler toolchain, and the GL/EGL/Vulkan development libraries
+  used by its headless renderer and native extensions.
+- Python 3.10–3.12 (see ``pyproject.toml``'s ``requires-python``). For RoboTwin,
+  use Python 3.11, which is the version covered by the full runtime validation.
 - ``git``, ``bash``, and a working C toolchain for MuJoCo / robosuite.
 
 You will also want:
@@ -53,8 +56,19 @@ Available extras:
      - RLinf runtime only
    * - ``.[robocasa]``
      - RoboCasa365 simulator + the RLDX-1 VLA; see :doc:`usage/robocasa`
+   * - ``.[robotwin]``
+     - RoboTwin simulation and LingBot inference dependencies
    * - ``.[sam3]``
      - SAM 3.0 only
+
+``.[robotwin]`` installs the complete supported Python runtime and does not
+require running RLinf's unified installer or cloning RoboTwin. The large
+RoboTwin assets and LingBot checkpoint remain external resources and are
+prepared with the commands in :doc:`usage/robotwin`.
+
+During the pre-release period, this extra installs several dependencies from
+fixed Git commits, so the installation needs access to GitHub. These will be
+replaced by released package versions after publication.
 
 2. Download the assets required to run LIBERO
 ---------------------------------------------

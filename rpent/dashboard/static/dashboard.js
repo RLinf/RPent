@@ -1298,11 +1298,14 @@ function selectedModel() {
 
 function showLauncher(defaults) {
   const d = defaults || {};
+  const hasMaxEpisodeSteps = Object.hasOwn(d, "max-episode-steps");
   const planner = MODEL_PRESETS[d.planner] ? d.planner : "claude_code";
   const defaultModel = d.model || MODEL_PRESETS[planner][0];
   const set = (id, val) => { $(id).value = val == null ? "" : val; };
   set("#f-max-turns", d["max-turns"]);
   set("#f-max-episode-steps", d["max-episode-steps"]);
+  $("#maxEpisodeStepsField").classList.toggle("hidden", !hasMaxEpisodeSteps);
+  $("#f-max-episode-steps").disabled = !hasMaxEpisodeSteps;
   set("#f-planner-timeout-s", d["planner-timeout-s"]);
   set("#f-claude-code-max-budget-usd", d["claude-code-max-budget-usd"]);
   set("#f-cuda-device", d["cuda-device"]);
@@ -1335,12 +1338,14 @@ function collectLaunchConfig() {
   const config = {
     planner,
     "max-turns": numOrNull("#f-max-turns"),
-    "max-episode-steps": numOrNull("#f-max-episode-steps"),
     model: selectedModel(),
     "planner-timeout-s": numOrNull("#f-planner-timeout-s"),
     "no-images": $("#f-no-images").checked,
     "cuda-device": $("#f-cuda-device").value.trim(),
   };
+  if (!$("#f-max-episode-steps").disabled) {
+    config["max-episode-steps"] = numOrNull("#f-max-episode-steps");
+  }
   if (planner === "claude_code") {
     config["claude-code-max-budget-usd"] = numOrNull("#f-claude-code-max-budget-usd");
   }
@@ -1363,8 +1368,13 @@ async function onRun() {
   const config = collectLaunchConfig();
   const requiredNums = [
     [copy.requiredFields.maxTurns, config["max-turns"]],
-    [copy.requiredFields.maxEpisodeSteps, config["max-episode-steps"]],
   ];
+  if (Object.hasOwn(config, "max-episode-steps")) {
+    requiredNums.push([
+      copy.requiredFields.maxEpisodeSteps,
+      config["max-episode-steps"],
+    ]);
+  }
   if (config.planner === "api" && !/^[^:]+:.+$/.test(config.model)) {
     $("#launchStatus").textContent = copy.fieldRequired(copy.requiredFields.apiModel);
     return;

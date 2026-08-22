@@ -156,6 +156,11 @@ rpent --env libero --dashboard --dashboard-language zh-cn \
   --planner claude_code --model claude-opus-4-8
 ```
 
+### RoboTwin
+
+RoboTwin 使用独立的安装与运行入口。完整流程见
+[RoboTwin 使用文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html)。
+
 ### RoboCasa
 
 RoboCasa 使用独立入口与安装指南。安装与运行流程见 [RoboCasa 使用文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。

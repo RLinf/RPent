@@ -21,3 +21,6 @@ docs/build/
 
 build/
 .claude/settings.json
+
+# Local review-only diff notes (概览/diff/验证小结) — never commit/push.
+*.diff.md

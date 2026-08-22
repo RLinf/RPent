@@ -1,3 +1,4 @@
+# Copyright 2026 RPent Contributors
 """Sync the env's resources/ payload from its HuggingFace dataset."""
 from __future__ import annotations
 
@@ -12,11 +13,26 @@ RESOURCES_HF_REPO = os.environ.get("RPENT_RESOURCES_HF_REPO", "RLinf/RPent-memor
 logger = get_logger("resources")
 
 
+def _has_local_resources(resources_dir: Path) -> bool:
+    return resources_dir.is_dir() and any(path.is_file() for path in resources_dir.rglob("*"))
+
+
 def ensure_resources(env_name: str) -> Path:
-    """Sync the env's resources from HuggingFace each run; set HF_HUB_OFFLINE=1 to use the local copy only. Memory is optional."""
+    """Sync an environment's optional resources, or use a pre-downloaded copy."""
     resources_dir = get_resources_dir(env_name)
 
     if os.environ.get("HF_HUB_OFFLINE") == "1":
+        if not _has_local_resources(resources_dir):
+            logger.warning(
+                "HF_HUB_OFFLINE=1 but no local resources were found under %s; "
+                "curated memory and task references for '%s' will be unavailable. "
+                "Download the '%s/**' subtree from dataset '%s' before running "
+                "offline.",
+                resources_dir,
+                env_name,
+                env_name,
+                RESOURCES_HF_REPO,
+            )
         return resources_dir
 
     try:
@@ -29,9 +45,23 @@ def ensure_resources(env_name: str) -> Path:
             allow_patterns=[f"{env_name}/**"],
         )
     except Exception as exc:
-        logger.warning(
-            "could not sync '%s' from '%s': %s; continuing with local files under %s",
-            env_name, RESOURCES_HF_REPO, exc, resources_dir,
-        )
+        if _has_local_resources(resources_dir):
+            logger.warning(
+                "could not sync '%s' from '%s': %s; continuing with local files "
+                "under %s",
+                env_name,
+                RESOURCES_HF_REPO,
+                exc,
+                resources_dir,
+            )
+        else:
+            logger.warning(
+                "could not sync '%s' from '%s': %s; no local resources were found "
+                "under %s, so curated memory and task references will be unavailable",
+                env_name,
+                RESOURCES_HF_REPO,
+                exc,
+                resources_dir,
+            )
 
     return resources_dir

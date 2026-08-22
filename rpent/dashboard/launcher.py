@@ -7,16 +7,18 @@ from typing import Any
 
 def defaults_from_args(args: Any) -> dict[str, Any]:
     """Build form defaults for the selected planner."""
-    return {
+    defaults = {
         "planner": args.planner,
         "model": args.model,
         "cuda-device": args.cuda_device,
         "max-turns": args.max_turns,
-        "max-episode-steps": args.max_episode_steps,
         "planner-timeout-s": args.planner_timeout_s,
         "claude-code-max-budget-usd": args.claude_code_max_budget_usd,
         "no-images": args.no_images,
     }
+    if hasattr(args, "max_episode_steps"):
+        defaults["max-episode-steps"] = args.max_episode_steps
+    return defaults
 
 
 def apply_to_args(args: Any, payload: dict[str, Any]) -> None:
@@ -25,7 +27,8 @@ def apply_to_args(args: Any, payload: dict[str, Any]) -> None:
     args.model = payload.get("model") or None
     args.cuda_device = payload.get("cuda-device") or None
     args.max_turns = int(payload["max-turns"])
-    args.max_episode_steps = int(payload["max-episode-steps"])
+    if hasattr(args, "max_episode_steps") and "max-episode-steps" in payload:
+        args.max_episode_steps = int(payload["max-episode-steps"])
     timeout = payload.get("planner-timeout-s")
     args.planner_timeout_s = None if timeout in ("", None) else int(timeout)
     args.no_images = bool(payload.get("no-images", False))
