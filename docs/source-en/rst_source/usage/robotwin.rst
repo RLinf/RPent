@@ -21,6 +21,14 @@ Create an environment and install the RoboTwin dependency set:
 
 You do not need to run the RLinf installer or clone RoboTwin separately.
 
+For networks closer to Chinese mirrors:
+
+.. code-block:: bash
+
+   uv pip install -e ".[robotwin]" \
+      --default-index https://mirrors.aliyun.com/pypi/simple \
+      --index https://pypi.tuna.tsinghua.edu.cn/simple
+
 .. note::
 
    ``.[robotwin]`` uses SAPIEN 3.0.0b1. Other versions can change simulator
@@ -35,6 +43,8 @@ Download the supported RoboTwin asset snapshot and set its location:
 
    robotwin-download-assets --output ~/.robotwin/assets
    export ROBOTWIN_ASSETS_PATH=~/.robotwin/assets
+   # use the following command for users in mainland China
+   # HF_ENDPOINT=https://hf-mirror.com robotwin-download-assets --output ~/.robotwin/assets
 
 The downloader validates existing files and skips the download when the target
 directory already contains a complete RoboTwin asset set.
@@ -46,6 +56,7 @@ Download the LingBot checkpoint and set its location:
 
 .. code-block:: bash
 
+   # add HF_ENDPOINT=https://hf-mirror.com for mainland China users
    hf download RLinf/LingBot-VLA-RoboTwin-EEF-ckpt1500 \
       --revision e727b46cd220b66981ea4d2fd9ba84adc189e2cc \
       --local-dir /path/to/LingBot-VLA-RoboTwin-EEF-ckpt1500
@@ -60,6 +71,8 @@ Run one episode from the activated environment:
 
 .. code-block:: bash
 
+   # add HF_ENDPOINT=https://hf-mirror.com for mainland China users,
+   # as it will download robotwin task related memory data
    rpent --env robotwin \
       --task-name beat_block_hammer \
       --seed 100000 \

@@ -192,3 +192,29 @@ Dashboard launcher 支持 ``api``、``claude_code`` 和 ``codex`` planner。
    相应更新 ``robots/libero/toolkit.py``。
 
 完整流程见 :doc:`../development/add_primitive`。
+
+结果复现
+--------
+
+以下是在两个 LIBERO-PRO 套件上复现
+:doc:`Harness VLA <../awesome_works/harnessvla>` 得到的结果。实验使用
+`reproduce/libero <https://github.com/RLinf/RPent/tree/reproduce/libero>`_
+分支和 ``gpt-5.5`` 模型：
+
+- ``libero_10_task``：70%（70/100）
+- ``libero_10_swap``：55%（55/100）
+
+复现命令如下：
+
+.. code-block:: bash
+
+   rpent --env libero \
+     --suite libero_10_task --task "task" --seed "seed" \
+     --planner codex \
+     --model gpt-5.5 \
+     --max-turns 100 \
+     --planner-timeout-s 5000 \
+     --max-episode-steps 10000 \
+     --libero-type pro \
+     --vla-endpoint http://127.0.0.1:8220 \
+     --sam3-endpoint http://127.0.0.1:8114

@@ -20,6 +20,14 @@ RoboTwin
 
 用户不需要运行 RLinf 安装器，也不需要单独克隆 RoboTwin。
 
+国内网络可使用 PyPI 镜像加速：\
+
+.. code-block:: bash
+
+   uv pip install -e ".[robotwin]" \
+      --default-index https://mirrors.aliyun.com/pypi/simple \
+      --index https://pypi.tuna.tsinghua.edu.cn/simple
+
 .. note::
 
    ``.[robotwin]`` 使用 SAPIEN 3.0.0b1。其他版本可能改变仿真观测，导致模型
@@ -34,6 +42,8 @@ RoboTwin
 
    robotwin-download-assets --output ~/.robotwin/assets
    export ROBOTWIN_ASSETS_PATH=~/.robotwin/assets
+   # 国内用户可以使用下面的命令
+   # HF_ENDPOINT=https://hf-mirror.com robotwin-download-assets --output ~/.robotwin/assets
 
 下载工具会先校验已有文件；如果目标目录中的 RoboTwin 资源已经完整，
 则不会重复下载。
@@ -45,6 +55,7 @@ RoboTwin
 
 .. code-block:: bash
 
+   # 国内用户在可以加上 HF_ENDPOINT=https://hf-mirror.com
    hf download RLinf/LingBot-VLA-RoboTwin-EEF-ckpt1500 \
       --revision e727b46cd220b66981ea4d2fd9ba84adc189e2cc \
       --local-dir /path/to/LingBot-VLA-RoboTwin-EEF-ckpt1500
@@ -59,6 +70,8 @@ RoboTwin
 
 .. code-block:: bash
 
+   # 国内用户在可以加上 HF_ENDPOINT=https://hf-mirror.com,
+   # 因为下面的命令运行过程中会下载相关的memory数据
    rpent --env robotwin \
       --task-name beat_block_hammer \
       --seed 100000 \
