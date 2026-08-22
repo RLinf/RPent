@@ -365,6 +365,7 @@ class _ApiRunObserver:
     turns: int = 0
     tool_calls: int = 0
     finish_result: dict[str, Any] | None = None
+    pending_finish: dict[str, Any] | None = None
 
     def observe_response(
         self,
@@ -404,7 +405,7 @@ class _ApiRunObserver:
                 )
             )
             if part.tool_name == "finish":
-                self.finish_result = {"_finish": True, **args}
+                self.pending_finish = {"_finish": True, **args}
         elif isinstance(event, FunctionToolResultEvent):
             completed = True
             message = _serialize_tool_result(event)
@@ -412,6 +413,10 @@ class _ApiRunObserver:
             _log_tool_result(message)
             part = event.part
             is_error = bool(getattr(part, "is_error", False))
+            if self.pending_finish is not None:
+                if not is_error and "finish refused" not in str(message):
+                    self.finish_result = self.pending_finish
+                self.pending_finish = None
             self.dashboard_events.emit(
                 TranscriptEvent(
                     {

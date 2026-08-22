@@ -27,6 +27,5 @@ class PromptBundle:
         variables: Mapping[str, object] | None = None,
     ) -> str:
         """Render one prompt variant (``"system"`` or ``"user"``)."""
-        prompt = getattr(self, variant)()
+        prompt = getattr(self, variant)(variables)
         return format_prompt(prompt, variables=variables)
-

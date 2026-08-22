@@ -137,6 +137,30 @@ rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
 
 See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.
 
+### Exploration and local-memory evaluation
+
+Evaluation remains the default. Add `--memory-profile local` to evaluate
+against a local global/suite/task memory corpus:
+
+```bash
+rpent --env libero --suite libero_10_task --task 0 --seed 1 \
+  --planner codex --memory-profile local \
+  --memory-dir /path/to/libero-memory
+```
+
+Use the same entrypoint with `--explore` to enable resettable attempts, fresh
+planner sessions, memory distillation, and automatic merge:
+
+```bash
+rpent --env libero --suite libero_10_task --task 0 --seed 0 \
+  --planner api --model anthropic:claude-opus-4-8 \
+  --explore --explore-sessions 3 --explore-attempts-per-session 5 \
+  --memory-dir /path/to/libero-memory
+```
+
+The original Hugging Face memory and prompt remain the default
+(`--memory-profile hf`). See the [LIBERO docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html) for memory maintenance commands.
+
 ### Interactive CLI mode
 
 Add `--interactive` (`-i`) to steer the agent live from your terminal. At the `you>` prompt, the built-in task is pre-filled — press Enter to use it or replace it with your own — then type any message while it runs to steer the agent at the next turn (`/help` lists commands; `/quit` or Ctrl-D ends). Requires an interactive terminal (TTY).

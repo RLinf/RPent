@@ -1,7 +1,9 @@
 """LIBERO + OpenPI tool implementation."""
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -97,6 +99,15 @@ class LiberoPrimitives:
         self.set_obs(obs)
         if self._recording:
             self.record_frame(obs)
+
+    def reset_episode(self, reason: str = "") -> dict:
+        """Restart an episode and return an explore-tool-compatible result."""
+        self.reset()
+        return {
+            "action": "reset",
+            "reason": reason,
+            "libero_terminated": self.env.episode_done,
+        }
 
     def _vlm_chunk(self, instruction: str):
         """One model forward + ``chunk_size`` env steps. Overrides prompt."""
@@ -754,14 +765,30 @@ def _is_primitive_action(name: object) -> bool:
     method = getattr(LiberoPrimitives, name, None)
     return method is not None and not bool(getattr(method, "_readonly", False))
 
-
-def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:
+def write_recipe_from_states(state: EnvState, recipe_tag: str, *, output_dir: Path | str) -> str:
     """Find a command sequence that gets ``terminated=True``.
 
     Export non-error LIBERO primitive commands and successful segment calls.
     """
+    records = state.records()
+    last_reset = max(
+        (
+            record.step_idx
+            for record in records
+            if (
+                (record.command or {}).get("action") == "reset"
+                and not (
+                    isinstance(record.result, dict)
+                    and record.result.get("error")
+                )
+            )
+        ),
+        default=-1,
+    )
     command_events = []
-    for record in state.records():
+    for record in records:
+        if record.step_idx <= last_reset:
+            continue
         command = record.command
         result = record.result
         if (
@@ -792,13 +819,20 @@ def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:
             event_order = (record.step_idx, int(segment["segment_index"]))
             command_events.append((event_order, segment_command))
 
+    # Never publish a failed trajectory as a recipe. The environment trace is
+    # authoritative; an agent's self-reported finish status is not.
+    solved = any(
+        record.terminated
+        for record in records
+        if record.step_idx > last_reset
+    )
+    if not solved:
+        return ""
     command_events.sort(key=lambda event: event[0])
     recipe_name = f"recipe_{recipe_tag}.jsonl"
-    state.save(
-        recipe_name,
-        [command for _, command in command_events],
-        step=None,
-    )
+    recipe_path = Path(output_dir) / recipe_name
+    recipe_path.parent.mkdir(parents=True, exist_ok=True)
+    recipe_path.write_text("".join(json.dumps(command) + "\n" for _, command in command_events))
     return recipe_name
 
 
@@ -1063,6 +1097,26 @@ def _save_observation_artifacts(
 # ---------------------------------------------------------------------------
 
 TOOLS_SPEC = [
+    {
+        "name": "reset",
+        "description": (
+            "EXPLORE MODE ONLY. Abandon the current episode and restore the "
+            "same initial scene. Archive the failed attempt first and state "
+            "which strategy lever will change in the next attempt."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": (
+                        "Why this episode is unrecoverable and what will change."
+                    ),
+                }
+            },
+            "required": ["reason"],
+        },
+    },
     {
         "name": "view_env_state",
         "description": (
