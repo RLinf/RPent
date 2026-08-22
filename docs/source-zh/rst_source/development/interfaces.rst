@@ -36,15 +36,9 @@
      - 校验参数并返回 ``RunConfig``；``recipe_tag``、``output_dir``、``prompt_vars``
        三项需由你正确填写（供 prompt 模板插值）。
    * - ``init_runtime``
-     - 仅普通 CLI 使用：启动或连接完整 runtime，构造 ``primitives_kwargs``
-       字典（env 客户端、模型客户端等），供 toolkit 组装 primitives；
-       ``DashboardEventSink`` 用于上报运行时状态。
-   * - ``init_shared_runtime``
-     - 仅 Dashboard 使用：初始化可供多个 TaskRun 复用、由 Session 持有的服务，
-       并返回其本地 daemon 与 primitive 参数。
-   * - ``init_task_runtime``
-     - 仅 Dashboard 使用：为每个 TaskRun 初始化全新的任务级服务，并返回其本地
-       daemon 与 primitive 参数。
+     - 启动或连接全部 runtime components，或只处理指定名称的子集，并构造对应的
+       ``primitives_kwargs``。普通 CLI 传 ``None``；Dashboard 从 spec 得到显式声明
+       的 shared 和 env 子集后分别传入。``DashboardEventSink`` 用于上报运行时状态。
 
 ``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给环境子类；
 ``dashboard_events``、``video_path`` 由当前 runner 传入，通常不用改。

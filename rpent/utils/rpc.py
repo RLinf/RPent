@@ -182,12 +182,26 @@ def parse_endpoint(endpoint: str) -> tuple[str, str, int]:
     return protocol, host, int(port)
 
 
+def make_rpc_client(endpoint: str) -> RpcClient:
+    """Build an HTTP or socket client for ``endpoint``."""
+    from rpent.utils.http_rpc import HttpRpcClient
+    from rpent.utils.socket_rpc import SocketRpcClient
+
+    protocol, host, port = parse_endpoint(endpoint)
+    if protocol == "http":
+        return HttpRpcClient(f"http://{host}:{port}")
+    if protocol == "socket":
+        return SocketRpcClient(host, port)
+    raise ValueError(f"endpoint protocol must be http or socket, got {protocol!r}")
+
+
 __all__ = [
     "RpcClient",
     "RpcError",
     "RpcFacade",
     "check_response",
     "make_error_response",
+    "make_rpc_client",
     "parse_endpoint",
     "wait_for_ready",
 ]
