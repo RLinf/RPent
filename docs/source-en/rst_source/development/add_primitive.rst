@@ -38,7 +38,7 @@ Add a scripted primitive
 Adding a scripted primitive usually involves two steps:
 
 1. **Add a method to the primitives.** Add the method to the
-   current environment's primitives class, such as
+   current robot's primitives class, such as
    ``LiberoPrimitives`` or ``MyRobotPrimitives``. The method accepts
    the tool-call arguments, performs the work, usually through one or
    more ``self._env.step(...)`` calls, and returns a small log ``dict``.
@@ -59,7 +59,7 @@ Adding a scripted primitive usually involves two steps:
   capture for them, improving performance.
 
 2. **Add the tool schema.** Add an entry to ``TOOLS_SPEC`` in
-   ``robots/<env>/tools.py``:
+   ``robots/<robot>/tools.py``:
 
    .. code-block:: python
 
@@ -110,7 +110,7 @@ primitive requires a few additional components:
    See ``rpent.utils.vla_client.VLAClient`` for the LIBERO implementation.
 
 3. **Add a method to the primitives.** In the current
-   environment's primitives class, call the model client, pass
+   robot's primitives class, call the model client, pass
    the returned action chunk to the environment, and return a log
    ``dict``. The model client API is
    :meth:`rpent.utils.vla_client.VLAClient.predict_action_batch`, which
@@ -130,7 +130,7 @@ primitive requires a few additional components:
    same pattern as for a scripted primitive.
 
 5. **Wire the components together in ``__init__.py``.** The
-   environment's ``get_toolkit`` builds the toolkit with
+   robot's ``get_toolkit`` builds the toolkit with
    ``primitives_kwargs``:
 
    .. code-block:: python
@@ -143,7 +143,7 @@ primitive requires a few additional components:
               video_path=video_path,
           )
 
-   The environment package's ``_init_runtime`` builds
+   The robot package's ``_init_runtime`` builds
    ``primitives_kwargs``, for example
    ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``.
    The toolkit constructor then forwards it to the primitives.
@@ -156,7 +156,7 @@ connect to an instance that is already running:
 
 .. code-block:: bash
 
-   rpent --env libero --vla-endpoint http://vla-host:8000 ...
+   rpent --robot libero --vla-endpoint http://vla-host:8000 ...
 
 If the model keeps per-episode state, expose a ``vla_reset`` RPC and
 call it between tasks. The same server process can then be reused safely

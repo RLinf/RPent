@@ -80,7 +80,7 @@ class Planner(Protocol):
             system_prompt: System-level instructions (role, rules, workflow).
             user_message: Initial user message (task description, first steps).
             toolkit: The full :class:`~rpent.tools.toolkit.Toolkit`
-                (common + env tools). Backends derive ``tools_spec`` via
+                (common + robot tools). Backends derive ``tools_spec`` via
                 ``toolkit.get_tools_spec()`` and dispatch calls via
                 ``toolkit.execute_tool()``.
             max_turns: Maximum LLM turns before giving up.
@@ -104,7 +104,7 @@ def build_planner(
     *,
     output_dir: str | Path,
     recipe_tag: str,
-    env_name: str,
+    robot_name: str,
     base_url: str | None = None,
     model: str | None = None,
     max_tokens: int = 8192,
@@ -175,7 +175,7 @@ def build_planner(
             model=model or "sonnet",
             timeout_s=cc_timeout_s,
             max_budget_usd=cc_budget,
-            extra_dirs=[str(get_memory_dir(env_name))],
+            extra_dirs=[str(get_memory_dir(robot_name))],
             output_path=Path(output_dir) / f"claude_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
         )
@@ -195,7 +195,7 @@ def build_planner(
             repo_root=get_repo_root(),
             model=model,
             timeout_s=cx_timeout_s,
-            extra_dirs=[str(get_memory_dir(env_name))],
+            extra_dirs=[str(get_memory_dir(robot_name))],
             output_path=Path(output_dir) / f"codex_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
         )
