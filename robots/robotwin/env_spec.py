@@ -277,8 +277,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         prompt_vars={
             "task_name": args.task_name,
             "seed": args.seed,
-            "initial_seed": initial_seed,
-            "seed_mode": "exact",
             "task_config": task_config,
             "instruction": "<native task_language from state_00>",
         },
@@ -515,7 +513,7 @@ def _init_shared_runtime_impl(
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
 
     _, vla_cuda_device = _resolve_cuda_devices(args)
-    model_path = _resolve_vla_runtime_path(args)
+    model_path = args._robotwin_runtime_paths.model_path
     if args.vla_endpoint is None:
         assert model_path is not None
         robot_config = _resolve_lingbot_robot_config(args, model_path)
@@ -569,7 +567,7 @@ def _spawn_task_env(
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
 
     env_cuda_device, _ = _resolve_cuda_devices(args)
-    resolved_assets = _resolve_env_runtime_path(args)
+    resolved_assets = args._robotwin_runtime_paths.assets_path
     assets_path = str(resolved_assets) if resolved_assets else None
     initial_seed = int(args.seed)
 

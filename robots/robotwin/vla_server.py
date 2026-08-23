@@ -17,37 +17,10 @@ from rpent.tools.vla_facade_base import BaseVLAFacade
 from rpent.utils.daemon import watch_parent_death
 
 
-def _build_policy(
-    policy_cls,
-    *,
-    model_path: str,
-    norm_path: str,
-    use_length: int,
-    num_denoising_step: int,
-    use_compile: bool,
-    robot_config: Path,
-) -> Any:
-    return policy_cls(
-        model_path,
-        use_length=use_length,
-        robot_norm_path=norm_path,
-        num_denoising_step=num_denoising_step,
-        use_compile=use_compile,
-        robot_config=robot_config,
-    )
-
-
-def _parent_watch_callback(
-    *,
-    exit_fn=os._exit,
-):
-    """Return the callback used when the parent closes stdin."""
-
-    def _on_parent_death() -> None:
-        print("parent_watch_triggered=true", flush=True)
-        exit_fn(0)
-
-    return _on_parent_death
+def _on_parent_death() -> None:
+    """Print a marker and exit when the parent process closes stdin."""
+    print("parent_watch_triggered=true", flush=True)
+    os._exit(0)
 
 
 class LingBotVLAFacade(BaseVLAFacade):
@@ -96,16 +69,15 @@ def main() -> None:
     if args.parent_watch:
         # The upstream server has no shutdown API. Ending this process when its
         # parent exits releases the socket and CUDA context.
-        watch_parent_death(_parent_watch_callback())
+        watch_parent_death(_on_parent_death)
 
     from deploy.lingbot_vla_policy import LingbotVLAServer
     from deploy.websocket_policy_server import WebsocketPolicyServer
 
-    native_policy = _build_policy(
-        LingbotVLAServer,
-        model_path=args.model_path,
-        norm_path=args.norm_path,
+    native_policy = LingbotVLAServer(
+        args.model_path,
         use_length=args.use_length,
+        robot_norm_path=args.norm_path,
         num_denoising_step=args.num_denoising_step,
         use_compile=args.use_compile,
         robot_config=robot_config,

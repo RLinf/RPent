@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from functools import partial
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -14,8 +13,18 @@ from robots.robotwin.primitives import RoboTwinPrimitives
 from rpent.dashboard.events import DashboardEventSink
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import Toolkit, readonly
-from rpent.utils.config import get_resources_dir
 from rpent.utils.logging import get_output_dir
+
+# State-advancing RoboTwin primitives eligible for the recipe. ``reset``,
+# ``render``, and read-only tools are intentionally excluded so the recipe
+# records only commands that actually move the robot.
+_RECIPE_ACTIONS = {
+    "lingbot_act",
+    "move_to",
+    "rotate_wrist",
+    "set_gripper",
+    "release",
+}
 
 
 def _world_from_depth(
@@ -57,94 +66,6 @@ def _world_from_depth(
     return world.astype(np.float32)
 
 
-MAX_RESOURCE_CHARS = 40_000
-_REPO_PREFIX = ("resources", "robotwin")
-
-
-def _truncate(text: str, max_chars: int) -> str:
-    if len(text) <= max_chars:
-        return text
-    return (
-        text[:max_chars]
-        + f"\n\n[TRUNCATED — file is {len(text)} chars, showed first {max_chars}]"
-    )
-
-
-class _RoboTwinResourceReader:
-    """Expose only files below ``resources/robotwin`` to the Planner."""
-
-    def __init__(self, root: Path) -> None:
-        self._root = root.resolve()
-
-    def _resolve(
-        self,
-        path: str,
-        *,
-        allow_root: bool = False,
-    ) -> tuple[Path | None, str | None]:
-        relative = Path(path)
-        if relative.is_absolute():
-            return None, "absolute paths are not allowed"
-        parts = relative.parts
-        if parts[:2] == _REPO_PREFIX:
-            relative = Path(*parts[2:])
-        if not relative.parts:
-            if allow_root:
-                return self._root, None
-            return None, "path must name a file under resources/robotwin"
-        if ".." in relative.parts:
-            return None, "path must stay under resources/robotwin"
-        resolved = (self._root / relative).resolve()
-        try:
-            resolved.relative_to(self._root)
-        except ValueError:
-            return None, "path must stay under resources/robotwin"
-        return resolved, None
-
-    @readonly
-    def read_text_file(
-        self,
-        path: str,
-        max_chars: int = MAX_RESOURCE_CHARS,
-    ) -> dict[str, Any]:
-        resolved, error = self._resolve(path)
-        if error is not None:
-            return {"error": error, "path": path}
-        assert resolved is not None
-        if not resolved.exists():
-            return {"error": "file not found", "path": path}
-        if not resolved.is_file():
-            return {"error": "is not a file", "path": path}
-        try:
-            text = resolved.read_text(encoding="utf-8", errors="replace")
-        except OSError as exc:
-            return {"error": str(exc), "path": path}
-        limit = min(max(1, int(max_chars)), MAX_RESOURCE_CHARS)
-        return {
-            "path": str(resolved.relative_to(self._root)),
-            "size": len(text),
-            "content": _truncate(text, limit),
-        }
-
-    @readonly
-    def list_dir(self, path: str = ".") -> dict[str, Any]:
-        resolved, error = self._resolve(path, allow_root=True)
-        if error is not None:
-            return {"error": error, "path": path}
-        assert resolved is not None
-        if not resolved.exists():
-            return {"error": "directory not found", "path": path}
-        if not resolved.is_dir():
-            return {"error": "is not a directory", "path": path}
-        entries = sorted(child.name for child in resolved.iterdir())
-        relative = resolved.relative_to(self._root)
-        return {
-            "path": "." if str(relative) == "." else str(relative),
-            "count": len(entries),
-            "files": entries,
-        }
-
-
 class RoboTwinToolkit(Toolkit):
     """Common RPent tools plus RoboTwin primitives."""
 
@@ -163,9 +84,7 @@ class RoboTwinToolkit(Toolkit):
     ):
         state = EnvState(get_output_dir())
         super().__init__(dashboard_events=dashboard_events, state=state)
-        self._recipe: list[dict[str, Any]] = []
         self._latest_status: dict[str, Any] = {}
-        self._resource_reader = _RoboTwinResourceReader(get_resources_dir("robotwin"))
         self._primitives = RoboTwinPrimitives(
             check_cancelled=self.raise_if_cancelled,
             **primitives_kwargs,
@@ -175,7 +94,11 @@ class RoboTwinToolkit(Toolkit):
             "success": True,
         }
         self._register_robotwin_tools()
-        initial = self._capture("reset", reset_result, elapsed_s=0.0)
+        initial = self.get_env_state(
+            command={"action": "reset"},
+            result=reset_result,
+            elapsed_s=0.0,
+        )
         record = self._state.latest_record()
         if record is not None:
             self._publish_step(record)
@@ -186,18 +109,7 @@ class RoboTwinToolkit(Toolkit):
             )
 
     def _register_robotwin_tools(self) -> None:
-        self._remove_generic_file_tools()
         self._tools.pop("finish", None)
-        self.add_tool(
-            "read_text_file",
-            self._SPECS["read_text_file"],
-            self._resource_reader.read_text_file,
-        )
-        self.add_tool(
-            "list_dir",
-            self._SPECS["list_dir"],
-            self._resource_reader.list_dir,
-        )
         self.add_tool(
             "view_env_state",
             self._SPECS["view_env_state"],
@@ -213,8 +125,8 @@ class RoboTwinToolkit(Toolkit):
             self._SPECS["query_world_map"],
             partial(tools.query_world_map, self._state),
         )
-        self.add_tool("render", self._SPECS["render"], partial(self._step, "render"))
         for name in (
+            "render",
             "lingbot_act",
             "move_to",
             "rotate_wrist",
@@ -227,10 +139,6 @@ class RoboTwinToolkit(Toolkit):
     @readonly
     def _finish(self, *, status: str, summary: str) -> dict[str, Any]:
         return self._primitives.finish(status=status, summary=summary)
-
-    def _remove_generic_file_tools(self) -> None:
-        for name in ("read_text_file", "write_text_file", "list_dir"):
-            self._tools.pop(name, None)
 
     def _capture_full_observation(self) -> dict[str, Any]:
         """Assemble the full observation (rgb + depth + camera_meta + world_xyz).
@@ -266,8 +174,12 @@ class RoboTwinToolkit(Toolkit):
             "world_frame": "world",
         }
 
-    def _capture(
-        self, command: str, result: dict[str, Any], *, elapsed_s: float
+    def get_env_state(
+        self,
+        *,
+        command: dict[str, Any],
+        result: dict[str, Any],
+        elapsed_s: float,
     ) -> dict[str, Any]:
         status = self._primitives.status()
         self._latest_status = status
@@ -284,29 +196,30 @@ class RoboTwinToolkit(Toolkit):
         )
         return tools.view_env_state(record.step_idx, state=self._state)
 
-    def get_env_state(
-        self,
-        *,
-        command: dict[str, Any],
-        result: dict[str, Any],
-        elapsed_s: float,
-    ) -> dict[str, Any]:
-        return self._capture(
-            str(command.get("action", "unknown")),
-            result,
-            elapsed_s=elapsed_s,
-        )
-
     def _step(self, name: str, **kwargs) -> dict[str, Any]:
-        self._recipe.append({"action": name, **kwargs})
         self.raise_if_cancelled()
         if name == "render":
             return {"success": True}
         return getattr(self._primitives, name)(**kwargs)
 
     def write_recipe(self, recipe_tag: str) -> str:
+        """Export state-advancing RoboTwin primitives with no error and no
+        explicit ``success=False`` from ``EnvState.records()``."""
+        recipe = [
+            record.command
+            for record in self._state.records()
+            if isinstance(record.command, dict)
+            and record.command.get("action") in _RECIPE_ACTIONS
+            and not (
+                isinstance(record.result, dict)
+                and (
+                    record.result.get("error")
+                    or record.result.get("success") is False
+                )
+            )
+        ]
         name = f"recipe_{recipe_tag}.jsonl"
-        saved = self._state.save(name, self._recipe, step=None)
+        saved = self._state.save(name, recipe, step=None)
         if saved is None:
             raise RuntimeError(f"failed to save RoboTwin recipe artifact: {name}")
         return str(self._state.artifact_path(name, step=None))

@@ -2,8 +2,6 @@
 
 CELL = """- task: {{task_name}}
 - requested_seed: {{seed}}
-- initial_native_seed: {{initial_seed}}
-- seed_mode: {{seed_mode}}
 - task_config: {{task_config}}
 - checkpoint: RLinf/LingBot-VLA-RoboTwin-EEF-ckpt1500
 """

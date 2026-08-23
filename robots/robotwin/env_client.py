@@ -27,6 +27,19 @@ class RoboTwinEnvClient(BaseEnvClient):
         self.truncated = False
         self._expected_seed = int(expected_meta["seed"])
         super().__init__(client, expected_meta=expected_meta)
+        self.server_meta = dict(expected_meta)
+        execution = self.server_meta.get("execution", {})
+        self.execution_capabilities = (
+            dict(execution) if isinstance(execution, dict) else {}
+        )
+
+    @staticmethod
+    def _require_result_tuple(result: Any, size: int, method: str) -> tuple:
+        if not isinstance(result, (list, tuple)) or len(result) != size:
+            raise TypeError(
+                f"{method} must return a {size}-item tuple, got {result!r}"
+            )
+        return tuple(result)
 
     def _read(
         self,
@@ -75,7 +88,10 @@ class RoboTwinEnvClient(BaseEnvClient):
 
     def reset(self) -> tuple[dict[str, Any], dict[str, Any]]:
         """Reset to the TaskRun seed and validate the native result."""
-        observation, info = super().reset()
+        result = self._client.call(
+            "env.reset", timeout_s=self._TIMEOUT_S["env.reset"]
+        )
+        observation, info = self._require_result_tuple(result, 2, "env.reset")
         if not isinstance(observation, dict):
             raise TypeError(
                 f"RoboTwin reset observation must be a mapping, got {observation!r}"
@@ -85,6 +101,9 @@ class RoboTwinEnvClient(BaseEnvClient):
             raise ValueError(f"reset did not use the requested seed: {info!r}")
         if not isinstance(info.get("instruction"), str):
             raise TypeError("reset instruction must be a string")
+        self.last_obs = observation
+        self.last_reset_info = dict(info)
+        self.last_info = info
         self.terminated = False
         self.truncated = False
         return observation, info

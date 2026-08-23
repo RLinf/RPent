@@ -10,14 +10,6 @@ from rpent.tools.state import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
 
 
-def _json_default(value: Any) -> Any:
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return value.item()
-    raise TypeError(type(value).__name__)
-
-
 def _tool_error(code: str, message: str, **details: Any) -> dict[str, Any]:
     return {
         "success": False,
@@ -401,53 +393,6 @@ def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
 
 
 TOOLS_SPEC = [
-    {
-        "name": "read_text_file",
-        "description": (
-            "Read one UTF-8 memory or successful reference file below the "
-            "read-only resources/robotwin directory. Historical coordinates "
-            "are not valid for the current episode."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": (
-                        "Path relative to resources/robotwin, for example "
-                        "memory/MEMORY.md."
-                    ),
-                },
-                "max_chars": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 40000,
-                    "default": 40000,
-                },
-            },
-            "required": ["path"],
-        },
-    },
-    {
-        "name": "list_dir",
-        "description": (
-            "List one directory below the read-only resources/robotwin root. "
-            "The listing is non-recursive."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "default": ".",
-                    "description": (
-                        "Directory relative to resources/robotwin, such as "
-                        "memory or results."
-                    ),
-                }
-            },
-        },
-    },
     {
         "name": "view_env_state",
         "description": (

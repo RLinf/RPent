@@ -40,13 +40,14 @@ language is authoritative for target color, object identity, and goal relation."
 
 HISTORICAL_CONTEXT = """Curated memory and successful task references are
 read-only technique priors under resources/robotwin. At the start of the run,
-read memory/MEMORY.md when available, inspect the few directly relevant memory
-notes, then inspect results for a successful reference and recipe for this exact
-task. Use them to recover action order, useful VLA chunking, parameter ranges,
-and known failure modes. Never replay historical pixels, coordinates, poses, or
-scene state: re-localize every target and recompute every geometric command from
-the current episode. Missing resources are not an environment failure; continue
-from the current observation when no suitable reference exists."""
+read resources/robotwin/memory/MEMORY.md when available, inspect the few directly
+relevant memory notes, then inspect results for a successful reference and recipe
+for this exact task. Use them to recover action order, useful VLA chunking,
+parameter ranges, and known failure modes. Never replay historical pixels,
+coordinates, poses, or scene state: re-localize every target and recompute every
+geometric command from the current episode. Missing resources are not an
+environment failure; continue from the current observation when no suitable
+reference exists."""
 
 PERCEPTION = """World maps have shape [H,W,3], are indexed [row,col], use
 world-frame [x,y,z] in metres, and encode invalid geometry as NaN. Pair RGB and
@@ -129,8 +130,8 @@ one reasonable recovery, terminal action. Do not spend the final actions on
 exploration or start an operation that cannot finish before the limit."""
 
 WORKFLOW = [
-    "Read memory/MEMORY.md and the few memory notes relevant to this task, if available.",
-    "List results and read a successful summary and recipe for this exact task, if available.",
+    "Read resources/robotwin/memory/MEMORY.md and the few memory notes relevant to this task, if available.",
+    "List resources/robotwin/results and read a successful summary and recipe for this exact task, if available.",
     "Inspect the initial registered state and head view; re-localize all current geometry.",
     "Bind task objects, distractors, goal relation, arm roles, and current budget.",
     "Localize coarsely with the head view and refine with current wrist geometry.",

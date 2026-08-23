@@ -42,12 +42,12 @@ class LingBotWebSocketTransport:
         *,
         timeout_s: float | None = None,
     ) -> Any:
-        """Map ``vla.predict`` to the pinned client's native ``infer`` call.
+        """Map ``vla.predict`` to LingBot's native ``infer`` call.
 
-        ``timeout_s`` is accepted for the common transport contract. The pinned
-        WebSocket client continues to own its existing receive/timeout behavior.
+        The native LingBot WebSocket client doesn't expose a per-call receive
+        timeout, so ``timeout_s`` is accepted to satisfy the common transport
+        interface but isn't enforced by this transport.
         """
-        del timeout_s
         if method != "vla.predict":
             raise ValueError(f"unsupported LingBot VLA method: {method!r}")
         if kwargs:
