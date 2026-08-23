@@ -353,8 +353,8 @@ validates those fields and returns a
 The fourth argument, ``components``, selects which named services to
 initialize. ``None`` means all services and is what the normal CLI passes.
 The Dashboard derives two subsets from ``dashboard.runtime_components``. Every
-component declares either ``scope: "shared"`` or ``scope: "env"`` explicitly.
-The Dashboard initializes shared components once, then initializes env-scoped
+component declares either ``scope: "shared"`` or ``scope: "unique"`` explicitly.
+The Dashboard initializes shared components once, then initializes unique
 components for every fresh environment instance. It calls this same hook for
 both subsets and merges the returned ``primitives_kwargs`` dictionaries. For
 LIBERO, the subsets are ``{"vla", "sam3"}`` and ``{"env"}``.

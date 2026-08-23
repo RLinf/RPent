@@ -52,10 +52,10 @@ def run_dashboard_session(
         for component in runtime_components
         if component["scope"] == "shared"
     }
-    env_components = {
+    unique_components = {
         component["name"]
         for component in runtime_components
-        if component["scope"] == "env"
+        if component["scope"] == "unique"
     }
 
     dashboard_server = DashboardServer(
@@ -111,7 +111,7 @@ def run_dashboard_session(
             state=state,
             claimed=claimed,
             shared_primitives_kwargs=shared,
-            env_components=env_components,
+            unique_components=unique_components,
             session_root=session_root,
         ),
     )
@@ -136,7 +136,7 @@ def _run_dashboard_task(
     state: DashboardState,
     claimed: ClaimedTask,
     shared_primitives_kwargs: dict[str, Any],
-    env_components: set[str],
+    unique_components: set[str],
     session_root: Path,
 ) -> str | None:
     """Execute one fresh Dashboard TaskRun against Session-owned services."""
@@ -160,7 +160,7 @@ def _run_dashboard_task(
             task_args,
             output_dir,
             state,
-            env_components,
+            unique_components,
         )
         if not state.task_replacement_requested:
             primitives_kwargs = {

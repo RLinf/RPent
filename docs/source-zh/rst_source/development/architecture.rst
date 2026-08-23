@@ -164,10 +164,10 @@ Dashboard（可选）
 提供 ``env_spec.dashboard``，由它定义
 前端使用的任务命令与字段、runtime components 和 frame channels。Session
 controller 随后等待该环境定义的命令（LIBERO 使用 ``/rpent-task``）；每次取得一个
-TaskRun 后，Dashboard 会调用 ``parse_config``，再用 env-scoped component 名称调用
-同一个 ``env_spec.init_runtime``，合并 shared 与 env primitive 参数，并新建 toolkit
+TaskRun 后，Dashboard 会调用 ``parse_config``，再用 unique component 名称调用
+同一个 ``env_spec.init_runtime``，合并 shared 与 unique primitive 参数，并新建 toolkit
 和 planner conversation。两个子集都来自环境 Dashboard spec 中显式声明的
-``shared`` / ``env`` scope。在 LIBERO 中，VLA 和 SAM3 会在 Dashboard 运行期间
+``shared`` / ``unique`` scope。在 LIBERO 中，VLA 和 SAM3 会在 Dashboard 运行期间
 复用，每个 TaskRun 使用独立环境并按顺序执行。
 
 TaskRun 运行期间，Dashboard 页面提供：

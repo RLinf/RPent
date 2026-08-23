@@ -328,8 +328,8 @@ main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参�
 
 第四个参数 ``components`` 指定要初始化的服务名称。``None`` 表示全部服务，普通
 CLI 会传入这个值。Dashboard 根据 ``dashboard.runtime_components`` 得到两个子集，
-每个 component 都必须显式声明 ``scope: "shared"`` 或 ``scope: "env"``。Dashboard
-先初始化一次 shared components，再为每个新的环境实例初始化 env-scoped
+每个 component 都必须显式声明 ``scope: "shared"`` 或 ``scope: "unique"``。Dashboard
+先初始化一次 shared components，再为每个新的环境实例初始化 unique
 components。两次都调用同一个钩子，最后合并返回的 ``primitives_kwargs``。在
 LIBERO 中，这两个子集分别是 ``{"vla", "sam3"}`` 和 ``{"env"}``。
 

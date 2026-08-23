@@ -38,7 +38,7 @@
    * - ``init_runtime``
      - 启动或连接全部 runtime components，或只处理指定名称的子集，并构造对应的
        ``primitives_kwargs``。普通 CLI 传 ``None``；Dashboard 从 spec 得到显式声明
-       的 shared 和 env 子集后分别传入。``DashboardEventSink`` 用于上报运行时状态。
+       的 shared 和 unique 子集后分别传入。``DashboardEventSink`` 用于上报运行时状态。
 
 ``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给环境子类；
 ``dashboard_events``、``video_path`` 由当前 runner 传入，通常不用改。

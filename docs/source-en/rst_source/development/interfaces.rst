@@ -40,7 +40,7 @@ After you add ``robots/<env>/``, ``main.py`` calls two functions in ``__init__.p
      - Start or attach to all runtime components, or to the component names in
        the optional selection, and build ``primitives_kwargs`` for them. The
        normal CLI passes ``None``; the Dashboard passes explicit shared and
-       per-environment subsets derived from its spec. A ``DashboardEventSink``
+       unique subsets derived from its spec. A ``DashboardEventSink``
        reports status.
 
 ``get_toolkit`` usually just passes ``primitives_kwargs`` into your env subclass;

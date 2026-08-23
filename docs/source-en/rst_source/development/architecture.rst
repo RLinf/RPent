@@ -190,10 +190,10 @@ The environment must provide ``env_spec.dashboard``; it defines the task
 command and fields, runtime components, and frame channels exposed by the
 frontend. The Session controller waits for that environment-defined command
 (``/rpent-task`` for LIBERO). For every claimed TaskRun, the Dashboard calls
-``parse_config`` and the same ``env_spec.init_runtime`` hook with the
-environment-scoped component names, merges the shared and environment
+``parse_config`` and the same ``env_spec.init_runtime`` hook with the unique
+component names, merges the shared and unique
 primitive inputs, and creates a fresh toolkit and planner conversation. Both
-subsets come from explicit ``shared`` / ``env`` scope values in the
+subsets come from explicit ``shared`` / ``unique`` scope values in the
 environment's Dashboard spec. In LIBERO, VLA and SAM3 are reused while the
 Dashboard is running, while every TaskRun gets a separate environment runtime
 and executes sequentially.
