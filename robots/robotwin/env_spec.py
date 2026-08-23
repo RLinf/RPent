@@ -104,16 +104,13 @@ ROBOTWIN_DASHBOARD_SPEC = {
 
 
 def env_runtime_contract(
-    *, task_name: str, task_config: str, seed: int
+    *,
+    task_name: str,
+    task_config: str,
+    seed: int,
+    max_episode_steps: int = 10000,
 ) -> dict[str, object]:
     """Return the identity required from a RoboTwin EnvServer."""
-    from robotwin.config import load_task_config
-
-    step_limits = load_task_config("_eval_step_limit")
-    if task_name not in step_limits:
-        raise ValueError(
-            f"RoboTwin task {task_name!r} has no packaged evaluation step limit"
-        )
     return {
         "runtime": "rlinf_robotwin_env",
         "task_name": task_name,
@@ -127,7 +124,7 @@ def env_runtime_contract(
             "chunk_step": True,
             "action_layouts": ["qpos14", MODEL_SPEC.action_layout],
             "chunk_step_all_frames": False,
-            "step_limit": int(step_limits[task_name]),
+            "step_limit": int(max_episode_steps),
         },
         "extensions": {
             "render_camera": {
@@ -210,6 +207,16 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         choices=ROBOTWIN_TASK_CONFIGS,
         default="demo_randomized",
         help="Native RoboTwin task YAML.",
+    )
+    parser.add_argument(
+        "--max-episode-steps",
+        type=int,
+        default=10000,
+        help=(
+            "Episode action budget for the RPent RoboTwin agent runtime. "
+            "Overrides the native per-task eval step limit so long agent "
+            "rollouts are not capped at the baseline budget."
+        ),
     )
     parser.add_argument(
         "--robotwin-assets-path",
@@ -583,6 +590,8 @@ def _spawn_task_env(
                 args.task_config,
                 "--seed",
                 str(initial_seed),
+                "--max-episode-steps",
+                str(args.max_episode_steps),
                 "--assets-path",
                 assets_path,
                 "--transport",
@@ -621,6 +630,7 @@ def _build_task_runtime_kwargs(
                 task_name=args.task_name,
                 task_config=args.task_config,
                 seed=initial_seed,
+                max_episode_steps=int(args.max_episode_steps),
             ),
         ),
         "seed": initial_seed,

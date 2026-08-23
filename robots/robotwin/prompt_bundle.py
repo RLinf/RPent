@@ -13,7 +13,7 @@ def system_prompt():
         "GOAL": system_parts.GOAL,
         "RULES": system_parts.RULES,
         "AUTHORITY": system_parts.AUTHORITY,
-        "HISTORICAL CONTEXT": system_parts.HISTORICAL_CONTEXT,
+        "HISTORICAL_CONTEXT": system_parts.HISTORICAL_CONTEXT,
         "PERCEPTION": system_parts.PERCEPTION,
         "CAMERA_ROLES": system_parts.CAMERA_ROLES,
         "EMBODIMENT": system_parts.EMBODIMENT,

@@ -53,6 +53,7 @@ class RoboTwinPrimitives:
         instruction: str | None = None,
         feasibility_precheck: bool = True,
     ) -> dict[str, Any]:
+        """Reset the RoboTwin episode and return the native info plus success."""
         del instruction, feasibility_precheck
         _, info = self.env.reset()
         return {**info, "success": True}
@@ -160,6 +161,7 @@ class RoboTwinPrimitives:
     def lingbot_act(
         self, *, chunks: int = 4, use_length: int = 50, prompt: str | None = None
     ) -> dict[str, Any]:
+        """Infer and execute up to the requested number of LingBot EEF action chunks."""
         if int(chunks) < 1:
             raise ValueError("chunks must be at least 1")
         if int(use_length) != MODEL_SPEC.use_length:
@@ -212,6 +214,7 @@ class RoboTwinPrimitives:
         substeps: int = 25,
         _primitive_name: str = "move_to",
     ) -> dict[str, Any]:
+        """Plan and execute a qpos path to a target end-effector pose."""
         del _primitive_name
         if int(substeps) < 0:
             raise ValueError("substeps must be non-negative")
@@ -274,6 +277,7 @@ class RoboTwinPrimitives:
         gripper: float | None = None,
         substeps: int = 25,
     ) -> dict[str, Any]:
+        """Rotate an arm about world z by the requested yaw delta."""
         state = self.env.last_info["robot_state"]
         key = "left_eef_pose" if arm == "left" else "right_eef_pose"
         pose = np.asarray(state[key], dtype=np.float64)
@@ -298,6 +302,7 @@ class RoboTwinPrimitives:
         steps: int = 10,
         _primitive_name: str = "set_gripper",
     ) -> dict[str, Any]:
+        """Interpolate the gripper command to a target value over multiple steps."""
         del _primitive_name
         if int(steps) < 1:
             raise ValueError("steps must be at least 1")
@@ -329,6 +334,7 @@ class RoboTwinPrimitives:
         }
 
     def release(self, *, arm: str, val: float = 1.0, steps: int = 10) -> dict[str, Any]:
+        """Open the gripper to the requested release value."""
         return self.set_gripper(
             arm=arm,
             val=val,
@@ -337,6 +343,7 @@ class RoboTwinPrimitives:
         )
 
     def status(self) -> dict[str, Any]:
+        """Return the native episode status plus action counters."""
         return {
             **self.env.last_info["episode_status"],
             "policy_actions": self.policy_actions,
@@ -344,6 +351,7 @@ class RoboTwinPrimitives:
         }
 
     def finish(self, *, status: str, summary: str) -> dict[str, Any]:
+        """Finish the Planner run and verify success against native episode status."""
         requested_success = status.lower() == "success"
         try:
             native = self.status()

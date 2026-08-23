@@ -95,6 +95,7 @@ class RoboTwinEnvClient(BaseEnvClient):
         *,
         action_type: RoboTwinActionType = "qpos",
     ) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
+        """Execute one RoboTwin action and update the cached episode state."""
         flat = self._validate_action_request(action_type, action)
         if flat.shape[0] != 1:
             raise ValueError("RoboTwin common action must be a single action")
@@ -122,6 +123,7 @@ class RoboTwinEnvClient(BaseEnvClient):
         action_type: RoboTwinActionType = "qpos",
         return_all_frames: bool = False,
     ) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
+        """Execute a RoboTwin action chunk and cache the final episode state."""
         array = self._validate_action_request(action_type, actions)
         if (
             return_all_frames
@@ -160,6 +162,7 @@ class RoboTwinEnvClient(BaseEnvClient):
         return result
 
     def render_camera(self, camera_name: str, *, depth: bool = False) -> Any:
+        """Render one RoboTwin camera, optionally including depth."""
         if camera_name not in ROBOTWIN_CAMERA_NAMES:
             raise ValueError(
                 f"unknown RoboTwin camera {camera_name!r}; "
@@ -173,6 +176,7 @@ class RoboTwinEnvClient(BaseEnvClient):
         )
 
     def get_camera_meta(self, camera_name: str) -> dict[str, Any]:
+        """Return calibration metadata for one RoboTwin camera."""
         if camera_name not in ROBOTWIN_CAMERA_NAMES:
             raise ValueError(
                 f"unknown RoboTwin camera {camera_name!r}; "
@@ -187,12 +191,14 @@ class RoboTwinEnvClient(BaseEnvClient):
         return result
 
     def get_task_language(self) -> str:
+        """Return the current RoboTwin task instruction."""
         result = self._read("get_task_language")
         if not isinstance(result, str):
             raise TypeError(f"RoboTwin task language must be a string: {result!r}")
         return result
 
     def plan_arm_path(self, arm: str, target_pose) -> dict[str, Any]:
+        """Plan a native arm path to the target end-effector pose."""
         return self._read(
             "plan_arm_path",
             kwargs={"arm": arm, "target_pose": target_pose},

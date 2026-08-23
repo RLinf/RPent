@@ -16,18 +16,9 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from rpent.tools.env_facade_base import BaseEnvFacade
-from rpent.utils.config import get_rlinf_repo_path
 from rpent.utils.logging import get_logger
 
 logger = get_logger("robotwin_env_server")
-
-RLINF_REPO_PATH = get_rlinf_repo_path()
-if RLINF_REPO_PATH is not None:
-    if not (RLINF_REPO_PATH / "rlinf").is_dir():
-        raise RuntimeError(
-            f"explicit RLinf source override does not contain rlinf/: {RLINF_REPO_PATH}"
-        )
-    sys.path.insert(0, str(RLINF_REPO_PATH))
 
 from omegaconf import OmegaConf  # noqa: E402
 from robotwin.assets import validate_root  # noqa: E402
@@ -52,44 +43,6 @@ def _to_numpy_tree(value: Any) -> Any:
     return value
 
 
-def _as_numpy(value: Any) -> np.ndarray:
-    if hasattr(value, "detach") and hasattr(value, "cpu") and hasattr(value, "numpy"):
-        value = value.detach().cpu().numpy()
-    return np.asarray(value)
-
-
-def _strip_single_env_value(value: Any, name: str) -> Any:
-    """Remove one leading single-environment batch dimension."""
-    if value is None:
-        return None
-    if hasattr(value, "shape"):
-        shape = tuple(value.shape)
-        if not shape or shape[0] != 1:
-            raise RuntimeError(f"{name} must have leading env dimension 1, got {shape}")
-        return value[0]
-    if isinstance(value, list):
-        if len(value) != 1:
-            raise RuntimeError(f"{name} must contain one environment, got {len(value)}")
-        return value[0]
-    raise RuntimeError(f"{name} is missing a single-environment batch dimension")
-
-
-def _strip_single_env_observation(observation: Any) -> dict[str, Any]:
-    if not isinstance(observation, dict):
-        raise TypeError(f"RoboTwin observation must be a mapping, got {observation!r}")
-    return {
-        key: _strip_single_env_value(value, f"observation.{key}")
-        for key, value in observation.items()
-    }
-
-
-def _strip_single_signal(value: Any, name: str) -> Any:
-    array = _as_numpy(value).reshape(-1)
-    if array.size != 1:
-        raise RuntimeError(f"{name} must contain one environment, got {array.shape}")
-    return array[0].item()
-
-
 class RoboTwinEnvFacade(BaseEnvFacade):
     """Expose common and typed RoboTwin environment RPC contracts."""
 
@@ -97,6 +50,37 @@ class RoboTwinEnvFacade(BaseEnvFacade):
         self._env = env
         self._metadata = dict(metadata)
         super().__init__()
+
+    def _strip_single_env_value(self, value: Any, name: str) -> Any:
+        """Remove one leading single-environment batch dimension."""
+        if value is None:
+            return None
+        if hasattr(value, "shape"):
+            shape = tuple(value.shape)
+            if not shape or shape[0] != 1:
+                raise RuntimeError(f"{name} must have leading env dimension 1, got {shape}")
+            return value[0]
+        if isinstance(value, list):
+            if len(value) != 1:
+                raise RuntimeError(f"{name} must contain one environment, got {len(value)}")
+            return value[0]
+        raise RuntimeError(f"{name} is missing a single-environment batch dimension")
+
+    def _strip_single_env_observation(self, observation: Any) -> dict[str, Any]:
+        if not isinstance(observation, dict):
+            raise TypeError(f"RoboTwin observation must be a mapping, got {observation!r}")
+        return {
+            key: self._strip_single_env_value(value, f"observation.{key}")
+            for key, value in observation.items()
+        }
+
+    def _strip_single_signal(self, value: Any, name: str) -> Any:
+        if hasattr(value, "detach") and hasattr(value, "cpu") and hasattr(value, "numpy"):
+            value = value.detach().cpu().numpy()
+        array = np.asarray(value).reshape(-1)
+        if array.size != 1:
+            raise RuntimeError(f"{name} must contain one environment, got {array.shape}")
+        return array[0].item()
 
     def _register_rpc(self) -> None:
         self._rpc.update(
@@ -136,7 +120,7 @@ class RoboTwinEnvFacade(BaseEnvFacade):
         instruction = self._env.get_task_language(0)
         info["requested_seed"] = seed
         info["instruction"] = instruction
-        return _strip_single_env_observation(observation), info
+        return self._strip_single_env_observation(observation), info
 
     def step(
         self, action, *, action_type: RoboTwinActionType = "qpos"
@@ -153,10 +137,10 @@ class RoboTwinEnvFacade(BaseEnvFacade):
             array, action_type=action_type
         )
         return (
-            _strip_single_env_observation(observation),
-            _strip_single_signal(reward, "reward"),
-            bool(_strip_single_signal(terminated, "terminated")),
-            bool(_strip_single_signal(truncated, "truncated")),
+            self._strip_single_env_observation(observation),
+            self._strip_single_signal(reward, "reward"),
+            bool(self._strip_single_signal(terminated, "terminated")),
+            bool(self._strip_single_signal(truncated, "truncated")),
             info,
         )
 
@@ -186,7 +170,7 @@ class RoboTwinEnvFacade(BaseEnvFacade):
                 f"{len(observation_list)} obs / {len(info_list)} info"
             )
         return (
-            _strip_single_env_observation(observation_list[0]),
+            self._strip_single_env_observation(observation_list[0]),
             np.asarray(rewards)[0],
             np.asarray(terminated, dtype=bool)[0],
             np.asarray(truncated, dtype=bool)[0],
@@ -215,15 +199,11 @@ def build_env_cfg(
     task_config: str,
     seed: int,
     assets_path: str,
+    max_episode_steps: int = 10000,
 ) -> Any:
     """Build a single-env RLinf config from packaged RoboTwin resources."""
     native_task_config = OmegaConf.create(load_task_config(task_config))
-    step_limits = load_task_config("_eval_step_limit")
-    if task_name not in step_limits:
-        raise ValueError(
-            f"RoboTwin task {task_name!r} has no packaged evaluation step limit"
-        )
-    step_limit = int(step_limits[task_name])
+    step_limit = int(max_episode_steps)
     native_task_config.task_name = task_name
     native_task_config.task_config = task_config
     native_task_config.step_lim = step_limit
@@ -267,6 +247,7 @@ def make_env(
     task_config: str,
     seed: int,
     assets_path: str,
+    max_episode_steps: int = 10000,
 ) -> RoboTwinAgentEnv:
     """Construct the only simulator owner used by an RPent run."""
     assets_identity = validate_root(assets_path)
@@ -282,6 +263,7 @@ def make_env(
         task_config=task_config,
         seed=seed,
         assets_path=str(resolved_assets_path),
+        max_episode_steps=max_episode_steps,
     )
     return RoboTwinAgentEnv(
         cfg=cfg,
@@ -307,6 +289,12 @@ def main() -> None:
         required=True,
     )
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument(
+        "--max-episode-steps",
+        type=int,
+        default=10000,
+        help="Episode action budget for the RPent RoboTwin agent runtime.",
+    )
     parser.add_argument("--assets-path", required=True)
     parser.add_argument("--parent-watch", action="store_true")
     args = parser.parse_args()
@@ -316,6 +304,7 @@ def main() -> None:
         args.task_config,
         args.seed,
         args.assets_path,
+        args.max_episode_steps,
     )
     from robots.robotwin.env_spec import env_runtime_contract
 
@@ -325,6 +314,7 @@ def main() -> None:
             task_name=args.task_name,
             task_config=args.task_config,
             seed=args.seed,
+            max_episode_steps=args.max_episode_steps,
         ),
     )
     try:
