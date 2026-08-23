@@ -15,7 +15,7 @@ import dataclasses
 import json
 import queue
 from collections import deque
-from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +45,7 @@ from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessa
 from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import PlannerResult
 from rpent.tools.state import EnvState
-from rpent.tools.toolkit import Toolkit
+from rpent.tools.toolkit import Toolkit, parallel, readonly
 from rpent.utils.logging import get_logger
 
 logger = get_logger("api_loop")
@@ -60,6 +60,26 @@ _MAX_HISTORY_IMAGE_BYTES = 4 * 1024 * 1024
 #: Always retain at least this many of the most recent images, even if a single
 #: frame exceeds the byte budget, so the model never loses its current view.
 _MIN_RECENT_IMAGES = 2
+
+_READ_IMAGE_SPEC = {
+    "name": "read_image",
+    "description": "Read a step-scoped PNG artifact as visual input.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Artifact name from an environment observation.",
+            },
+            "step": {
+                "type": "integer",
+                "description": "Observation step; -1 selects the latest step.",
+                "default": -1,
+            },
+        },
+        "required": ["name"],
+    },
+}
 
 
 class ApiAgentLoop:
@@ -692,9 +712,14 @@ def _api_error_text(error: Exception, *, no_images: bool) -> str:
 
 
 def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
-    """Build the API-only image reader plus pydantic-ai toolkit wrappers."""
-    image_reader = _make_image_reader(toolkit.state, no_images=no_images)
-    tools: list[Tool] = [Tool(image_reader, name="read_image")]
+    """Register API-only tools and build pydantic-ai toolkit wrappers."""
+    image_reader = read_image_text_only if no_images else read_image
+    toolkit.add_tool(
+        "read_image",
+        _READ_IMAGE_SPEC,
+        partial(image_reader, state=toolkit.state),
+    )
+    tools: list[Tool] = []
     for spec in toolkit.get_tools_spec():
         name = spec["name"]
         tools.append(
@@ -710,65 +735,47 @@ def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
     return tools
 
 
-def _make_image_reader(
-    state: EnvState,
-    *,
-    no_images: bool,
-) -> Callable[[str, int], ToolReturn | dict[str, str] | str]:
-    if no_images:
-
-        def read_image_tool(name: str, step: int = -1) -> str:
-            return read_image_text_only(name, step, state=state)
-
-        read_image_tool.__name__ = "read_image"
-        read_image_tool.__doc__ = read_image_text_only.__doc__
-        return read_image_tool
-
-    def read_image_tool(
-        name: str, step: int = -1
-    ) -> ToolReturn | dict[str, str]:
-        return read_image(name, step, state=state)
-
-    read_image_tool.__name__ = "read_image"
-    read_image_tool.__doc__ = read_image.__doc__
-    return read_image_tool
-
-
+@parallel
+@readonly
 def read_image(
     name: str, step: int = -1, *, state: EnvState
-) -> ToolReturn | dict[str, str]:
+) -> dict[str, Any]:
     """Read a step-scoped image artifact as visual input.
 
     Artifact failures are returned as structured tool errors so a bad
     model-supplied name or step does not abort the agent run.
     """
     try:
-        resolved_step, path = _resolve_image_artifact(state, name, step)
-        content = BinaryContent(
-            data=state.load_bytes(name, step=resolved_step),
-            media_type=_image_media_type(path),
-        )
+        resolved_step, _ = _resolve_image_artifact(state, name, step)
+        image_bytes = state.load_bytes(name, step=resolved_step)
     except Exception as e:
         return {"error": str(e)}
-    return ToolReturn(
-        return_value={"artifact": name, "step": resolved_step},
-        content=[content],
-    )
+    return {
+        "artifact": name,
+        "step": resolved_step,
+        "_image_bytes": image_bytes,
+    }
 
 
+@parallel
+@readonly
 def read_image_text_only(
     name: str, step: int = -1, *, state: EnvState
-) -> str | dict[str, str]:
+) -> dict[str, Any]:
     """Acknowledge an image artifact without sending bytes to the model."""
     try:
         resolved_step, _ = _resolve_image_artifact(state, name, step)
     except Exception as e:
         return {"error": str(e)}
-    return (
-        f"Image artifact {name!r} exists at step {resolved_step}, but image "
-        "input is disabled (--no-images, text-only model). Reason from textual "
-        "state instead: view_env_state, back_project, and numeric tool results."
-    )
+    return {
+        "artifact": name,
+        "step": resolved_step,
+        "message": (
+            "Image input is disabled (--no-images, text-only model). Reason "
+            "from textual state instead: view_env_state, back_project, and "
+            "numeric tool results."
+        ),
+    }
 
 
 def _resolve_image_artifact(
@@ -782,13 +789,9 @@ def _resolve_image_artifact(
         raise FileNotFoundError(
             f"image artifact {name!r} is not available at step {step}"
         )
-    if path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
-        raise ValueError(f"artifact {name!r} is not an image")
+    if path.suffix.lower() != ".png":
+        raise ValueError(f"artifact {name!r} is not a PNG image")
     return record.step_idx, path
-
-
-def _image_media_type(path: Path) -> str:
-    return "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
 
 
 def _make_tool_function(toolkit: Toolkit, name: str, *, no_images: bool = False):
