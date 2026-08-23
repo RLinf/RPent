@@ -1,4 +1,3 @@
-# Copyright 2026 RPent Contributors
 """Sync the env's resources/ payload from its HuggingFace dataset."""
 from __future__ import annotations
 
