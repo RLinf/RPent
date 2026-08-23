@@ -7,8 +7,8 @@ from typing import Any
 
 import numpy as np
 
-from robots.robotwin.env_client import RoboTwinEnvClient, _CAMERA_NAMES
-from robots.robotwin.env_spec import MODEL_SPEC
+from robots.robotwin.env_client import RoboTwinEnvClient
+from robots.robotwin.env_spec import MODEL_SPEC, ROBOTWIN_CAMERA_NAMES
 from robots.robotwin.vla_client import LingBotVLAClient
 
 
@@ -84,7 +84,7 @@ class RoboTwinPrimitives:
     def _build_lingbot_observation(self) -> dict[str, Any]:
         """Assemble the rgb-only observation the LingBot policy infers on."""
         views = {}
-        for camera_name in _CAMERA_NAMES:
+        for camera_name in ROBOTWIN_CAMERA_NAMES:
             views[camera_name] = {"rgb": np.asarray(self.env.render_camera(camera_name))}
         return {
             "views": views,

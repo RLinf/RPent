@@ -9,8 +9,8 @@ actions.
 Installation
 ------------
 
-Use Python 3.11, which is the version covered by the full runtime validation.
-Create an environment and install the RoboTwin dependency set:
+RoboTwin requires Python 3.11. Create an environment and install the RoboTwin
+dependency set:
 
 .. code-block:: bash
 
@@ -79,8 +79,20 @@ Run one episode from the activated environment:
       --planner codex \
       --model gpt-5.5
 
-Change ``--task-name`` or ``--seed`` to run a different task or episode. See
-``rpent --env robotwin --help`` for the complete option list.
+Change ``--task-name`` to run another task. For standard randomized
+evaluation seeds, see the note below. See ``rpent --env robotwin --help`` for
+the complete option list.
+
+.. note::
+
+   ``--seed`` is the exact RoboTwin scene seed. For the standard
+   ``demo_randomized`` evaluation, use one of the five validated seeds for the
+   selected task in the `RoboTwin evaluation suite
+   <https://github.com/RLinf/RPent/blob/main/robots/robotwin/eval/demo_randomized.json>`_.
+
+   The suite was filtered with RoboTwin expert execution: seeds that could not
+   be initialized stably or did not pass the expert rollout were skipped.
+   Other seeds can still be passed explicitly for custom runs.
 
 View the result
 ---------------
@@ -105,9 +117,10 @@ a browser. The command prints the Dashboard URL after startup.
 Common options
 --------------
 
-- ``--task-config`` selects the RoboTwin environment configuration. Supported
-  values are ``demo_clean`` and ``demo_randomized``; the default is
-  ``demo_randomized``.
+RPent uses RoboTwin's ``demo_randomized`` task configuration by default, which
+adds scene disturbances (random backgrounds, clutter, lighting, and table
+height). Pass ``--task-config demo_clean`` for a simple, clean scene.
+
 - ``--robotwin-assets-path`` overrides ``ROBOTWIN_ASSETS_PATH``.
 - ``--vla-model-path`` overrides ``LINGBOT_MODEL_PATH``.
 - ``--cuda-device`` runs the simulator and VLA on the same GPU.

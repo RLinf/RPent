@@ -7,6 +7,8 @@ from typing import Any, Literal
 import numpy as np
 from rlinf.envs.robotwin.robotwin_env import RoboTwinEnv
 
+from robots.robotwin.env_spec import RoboTwinActionType
+
 __all__ = ["RoboTwinAgentEnv"]
 
 
@@ -29,7 +31,7 @@ def _camera_meta(camera: Any) -> dict[str, Any]:
 
 
 def _validate_actions(
-    actions: Any, *, action_type: Literal["qpos", "ee"]
+    actions: Any, *, action_type: RoboTwinActionType
 ) -> np.ndarray:
     if action_type not in ("qpos", "ee"):
         raise ValueError("action_type must be 'qpos' or 'ee'")
@@ -92,7 +94,7 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         self,
         actions: Any,
         *,
-        action_type: Literal["qpos", "ee"] = "qpos",
+        action_type: RoboTwinActionType = "qpos",
         env_id: int = 0,
     ) -> tuple[list[Any], np.ndarray, np.ndarray, np.ndarray, list[dict[str, Any]]]:
         """Execute a chunk of native actions, returning a gym-style 5-tuple batched as ``[1, executed]``."""
@@ -149,7 +151,7 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         self,
         action: Any,
         *,
-        action_type: Literal["qpos", "ee"] = "qpos",
+        action_type: RoboTwinActionType = "qpos",
         auto_reset: bool = False,
         env_id: int = 0,
     ) -> tuple[Any, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:

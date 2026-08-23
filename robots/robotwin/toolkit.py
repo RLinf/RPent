@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from robots.robotwin import tools
-from robots.robotwin.env_client import _CAMERA_NAMES
+from robots.robotwin.env_spec import ROBOTWIN_CAMERA_NAMES
 from robots.robotwin.primitives import RoboTwinPrimitives
 from rpent.dashboard.events import DashboardEventSink
 from rpent.tools.state import EnvState
@@ -243,7 +243,7 @@ class RoboTwinToolkit(Toolkit):
         """
         env = self._primitives.env
         views: dict[str, dict[str, Any]] = {}
-        for camera_name in _CAMERA_NAMES:
+        for camera_name in ROBOTWIN_CAMERA_NAMES:
             rendered = env.render_camera(camera_name, depth=True)
             if not isinstance(rendered, (list, tuple)) or len(rendered) != 2:
                 raise TypeError(

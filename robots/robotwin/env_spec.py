@@ -1,4 +1,4 @@
-"""RoboTwin environment extension — model spec, runtime contracts, and runtime hooks."""
+"""RoboTwin environment extension — runtime contracts and runtime hooks."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
@@ -27,6 +27,31 @@ ROBOTWIN_TASK_CONFIGS = (
     "demo_clean",
     "demo_randomized",
 )
+
+#: Env-side camera names exposed by the RoboTwin EnvServer, in fixed order.
+#: Shared across the env client, primitives, and toolkit.
+ROBOTWIN_CAMERA_NAMES = (
+    "head",
+    "left_wrist",
+    "right_wrist",
+)
+
+#: Supported native action representations for the RoboTwin agent runtime.
+RoboTwinActionType = Literal["qpos", "ee"]
+
+#: Episode-status keys the RoboTwin env client requires in every status mapping.
+ROBOTWIN_STATUS_KEYS = (
+    "eval_success",
+    "take_action_cnt",
+    "step_lim",
+    "actual_seed",
+)
+
+#: Per-call RPC read timeout (seconds) for idempotent env queries.
+ROBOTWIN_READ_TIMEOUT_S = 120.0
+
+#: Per-call RPC timeout (seconds) for env calls that mutate episode state.
+ROBOTWIN_STATE_CHANGE_TIMEOUT_S = 600.0
 
 
 @dataclass(frozen=True)
@@ -58,17 +83,13 @@ MODEL_SPEC = RoboTwinModelSpec(
 ROBOTWIN_DASHBOARD_SPEC = {
     "task": {
         "command": "/rpent-task",
-        "usage": "/rpent-task <task_name> <task_config> <seed>",
+        "usage": "/rpent-task <task_name> <seed>",
         "fields": (
             {"name": "task_name"},
-            {
-                "name": "task_config",
-                "suggestions": ROBOTWIN_TASK_CONFIGS,
-            },
             {"name": "seed", "kind": "integer", "minimum": 0},
         ),
-        "display": "{task_name} / {task_config} / seed {seed}",
-        "output_slug": "{task_name}_{task_config}_s{seed}",
+        "display": "{task_name} / seed {seed}",
+        "output_slug": "{task_name}_s{seed}",
     },
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "task"},
@@ -110,7 +131,7 @@ def env_runtime_contract(
         },
         "extensions": {
             "render_camera": {
-                "camera_names": ["head", "left_wrist", "right_wrist"],
+                "camera_names": list(ROBOTWIN_CAMERA_NAMES),
                 "metric_depth": True,
             },
             "get_camera_meta": True,
@@ -174,7 +195,16 @@ def get_toolkit(
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     required = not use_dashboard
     parser.add_argument("--task-name", required=required)
-    parser.add_argument("--seed", type=int, default=100002)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        required=required,
+        help=(
+            "Exact RoboTwin scene seed. For the standard demo_randomized "
+            "evaluation, use a per-task seed from "
+            "robots/robotwin/eval/demo_randomized.json."
+        ),
+    )
     parser.add_argument(
         "--task-config",
         choices=ROBOTWIN_TASK_CONFIGS,

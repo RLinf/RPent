@@ -7,7 +7,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 
@@ -33,9 +33,8 @@ from omegaconf import OmegaConf  # noqa: E402
 from robotwin.assets import validate_root  # noqa: E402
 from robotwin.config import load_task_config  # noqa: E402
 
+from robots.robotwin.env_spec import RoboTwinActionType  # noqa: E402
 from robots.robotwin.rlinf_env import RoboTwinAgentEnv  # noqa: E402
-
-ActionType = Literal["qpos", "ee"]
 
 
 def _to_numpy_tree(value: Any) -> Any:
@@ -140,7 +139,7 @@ class RoboTwinEnvFacade(BaseEnvFacade):
         return _strip_single_env_observation(observation), info
 
     def step(
-        self, action, *, action_type: ActionType = "qpos"
+        self, action, *, action_type: RoboTwinActionType = "qpos"
     ) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
         expected_dim = 14 if action_type == "qpos" else 16
         array = np.asarray(action, dtype=np.float64)
@@ -165,7 +164,7 @@ class RoboTwinEnvFacade(BaseEnvFacade):
         self,
         actions,
         *,
-        action_type: ActionType = "qpos",
+        action_type: RoboTwinActionType = "qpos",
         return_all_frames: bool = False,
     ) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
         if return_all_frames:

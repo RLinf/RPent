@@ -8,11 +8,12 @@ Prerequisites
 -------------
 
 - Linux with an NVIDIA GPU (LIBERO and RoboTwin render on EGL).
-- CUDA 12.x drivers matching your GPU. RoboTwin also requires a matching CUDA
-  toolkit/NVCC, compiler toolchain, and the GL/EGL/Vulkan development libraries
-  used by its headless renderer and native extensions.
-- Python 3.10–3.12 (see ``pyproject.toml``'s ``requires-python``). For RoboTwin,
-  use Python 3.11, which is the version covered by the full runtime validation.
+- A CUDA 12.x-compatible NVIDIA driver.
+- For RoboTwin, ``.[robotwin]`` installs the Python dependencies only. A
+  compatible CUDA toolkit/NVCC, compiler toolchain, and the required system
+  GL/EGL/Vulkan libraries must already be available on the host or in the
+  container.
+- Python 3.10–3.12 for RPent generally. RoboTwin requires Python 3.11.
 - ``git``, ``bash``, and a working C toolchain for MuJoCo / robosuite.
 
 You will also want:
@@ -61,8 +62,9 @@ Available extras:
    * - ``.[sam3]``
      - SAM 3.0 only
 
-``.[robotwin]`` installs the complete supported Python runtime and does not
-require running RLinf's unified installer or cloning RoboTwin. The large
+``.[robotwin]`` installs the supported RoboTwin Python dependencies and does
+not require running RLinf's unified installer or cloning RoboTwin. The
+host-level prerequisites listed above must be provided separately. The large
 RoboTwin assets and LingBot checkpoint remain external resources and are
 prepared with the commands in :doc:`usage/robotwin`.
 

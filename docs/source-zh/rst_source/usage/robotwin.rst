@@ -8,8 +8,7 @@ RoboTwin
 安装
 ----
 
-请使用已完成完整验证的 Python 3.11。创建虚拟环境并安装 RoboTwin
-所需依赖：
+RoboTwin 要求 Python 3.11。创建虚拟环境并安装 RoboTwin 所需依赖：
 
 .. code-block:: bash
 
@@ -78,8 +77,19 @@ RoboTwin
       --planner codex \
       --model gpt-5.5
 
-修改 ``--task-name`` 可以选择其他任务，修改 ``--seed`` 可以使用其他随机种子。
+修改 ``--task-name`` 可以选择其他任务；标准随机化评测使用的 seed 说明见下方。
 完整参数请运行 ``rpent --env robotwin --help`` 查看。
+
+.. note::
+
+   ``--seed`` 是 RoboTwin 的精确场景随机种子。使用标准 ``demo_randomized``
+   配置进行评测时，请从
+   `RoboTwin evaluation suite
+   <https://github.com/RLinf/RPent/blob/main/robots/robotwin/eval/demo_randomized.json>`_
+   中选择当前任务对应的 5 个已验证 seed。
+
+   这些 seed 已通过 RoboTwin expert 执行筛选；无法稳定初始化或 expert 执行
+   未成功的候选 seed 已被跳过。自定义运行仍可显式指定表中没有的其他 seed。
 
 查看运行结果
 ------------
@@ -103,8 +113,10 @@ Dashboard 启动后，访问地址会显示在终端中。
 常用参数
 --------
 
-- ``--task-config``：选择 RoboTwin 环境配置，支持 ``demo_clean`` 和
-  ``demo_randomized``，默认使用 ``demo_randomized``。
+RPent 默认使用 RoboTwin 的 ``demo_randomized`` 任务配置，该配置带环境
+扰动（随机背景、桌面杂物、光照、桌高）。如需简单、干净的场景，可使用
+``--task-config demo_clean``。
+
 - ``--robotwin-assets-path``：覆盖 ``ROBOTWIN_ASSETS_PATH`` 指定的资源目录。
 - ``--vla-model-path``：覆盖 ``LINGBOT_MODEL_PATH`` 指定的模型目录。
 - ``--cuda-device``：让仿真环境和 VLA 使用同一张 GPU。
