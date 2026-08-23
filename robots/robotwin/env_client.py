@@ -142,11 +142,11 @@ class RoboTwinEnvClient(BaseEnvClient):
         result = self._require_result_tuple(result, 5, "env.chunk_step")
         _, _, terminated, truncated, info = result
         self._require_episode_status(info)
-        executed = info.get("executed_actions")
+        n_executed = info.get("executed_actions")
         if (
-            isinstance(executed, bool)
-            or not isinstance(executed, int)
-            or not 1 <= executed <= len(array)
+            isinstance(n_executed, bool)
+            or not isinstance(n_executed, int)
+            or not 1 <= n_executed <= len(array)
         ):
             raise ValueError(f"invalid RoboTwin chunk result: {result!r}")
         obs_field = result[0]
