@@ -8,7 +8,7 @@ import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
 from rpent.tools.state import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
+from rpent.tools.toolkit import parallel, readonly
 from rpent.utils.logging import get_logger
 from rpent.utils.sam3_client import Sam3Client
 from rpent.utils.vla_client import VLAClient
@@ -1409,6 +1409,7 @@ TOOLS_SPEC = [
 ]
 
 
+@parallel
 @readonly
 def view_env_state(step: int = -1, *, state: EnvState) -> dict:
     try:
@@ -1544,6 +1545,7 @@ def _make_segment_overlay(
     return overlay
 
 
+@parallel
 @readonly
 def view_camera_meta(
     camera: str = "agentview",
@@ -1569,6 +1571,7 @@ def view_camera_meta(
     return {"camera": "wrist", "step": record.step_idx, "camera_meta": meta}
 
 
+@parallel
 @readonly
 def back_project(
     row: int | None = None,

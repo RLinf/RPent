@@ -5,7 +5,6 @@ RoboCasa primitives (``move_to``, ``rldx_skill``, ``release``, ...) on top.
 """
 from __future__ import annotations
 
-import time
 from functools import partial
 from typing import Any
 
@@ -136,6 +135,7 @@ class RoboCasaToolkit(Toolkit):
 
     def close(self) -> None:
         """Flush the agent-side video buffer through ``EnvState``."""
+        super().close()
         try:
             frames = self._primitives.stop_recording()
             if frames:

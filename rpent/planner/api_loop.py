@@ -292,6 +292,7 @@ class ApiAgentLoop:
         control = DashboardPlannerControl(
             interaction=interaction,
             cancel_active_and_wait=toolkit.cancel_active_and_wait,
+            resume_operations=toolkit.resume_operations,
             emit_user=emit_user,
             emit_initial_user=lambda: emit_user(user_message, initial=True),
             defer_message_ack=True,

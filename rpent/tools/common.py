@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from rpent.tools.toolkit import readonly
+from rpent.tools.toolkit import parallel, readonly
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_output_dir
 
@@ -94,6 +94,7 @@ def _truncate(text: str, max_chars: int) -> str:
     )
 
 
+@parallel
 @readonly
 def read_text_file(path: str, max_chars: int = 40000) -> dict:
     p = _resolve(path)
@@ -116,6 +117,7 @@ def write_text_file(path: str, content: str) -> dict:
     return {"path": str(p), "bytes_written": len(content.encode("utf-8"))}
 
 
+@parallel
 @readonly
 def list_dir(path: str = "") -> dict:
     # Default to the current output dir (so parallel agents see their own).

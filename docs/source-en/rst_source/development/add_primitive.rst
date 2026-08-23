@@ -54,9 +54,14 @@ Adding a scripted primitive usually involves two steps:
               self._env.step(build_open_drawer_chunk(dx))
           return {"ok": True, "dx": dx}
 
-  You can mark read-only tools (``view_env_state``, ``back_project``, ``segment``,
-  ...) with :func:`~rpent.tools.toolkit.readonly` so the toolkit skips state
-  capture for them, improving performance.
+  Mark tools that do not advance the environment with
+  :func:`~rpent.tools.toolkit.readonly` so the toolkit skips state capture.
+  Add :func:`~rpent.tools.toolkit.parallel` when a read-only tool is also safe
+  to run concurrently, as with ``view_env_state`` and ``back_project``.
+  ``parallel`` requires ``readonly`` and is an explicit promise that the
+  handler only reads stable state and that all shared data it accesses is safe
+  for concurrent readers. A ``readonly`` tool without ``parallel`` remains
+  exclusive.
 
 2. **Add the tool schema.** Add an entry to ``TOOLS_SPEC`` in
    ``robots/<env>/tools.py``:

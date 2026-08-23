@@ -11,6 +11,7 @@ import json
 import threading
 import time
 import traceback
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
@@ -23,10 +24,11 @@ if TYPE_CHECKING:
     from rpent.tools.state import EnvState, StepRecord
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class _ToolOperation:
+    is_parallel: bool
     cancel_event: threading.Event = field(default_factory=threading.Event)
-    done_event: threading.Event = field(default_factory=threading.Event)
+    cancelled_before_start: bool = False
 
 
 class ToolCancelled(Exception):
@@ -34,23 +36,26 @@ class ToolCancelled(Exception):
 
 
 def readonly(func):
-    """Mark a tool handler as not advancing environment state.
-
-    Tool handlers capture a fresh observation (:meth:`Toolkit.get_env_state`)
-    by default. Apply this marker to observational and file/IO tools that do
-    not move the robot or otherwise change the environment.
-    """
+    """Mark a tool handler as not advancing environment state."""
     func._readonly = True
     return func
 
 
-def _is_readonly(handler: Callable[..., Any]) -> bool:
-    """Whether ``handler`` was marked with :func:`readonly`."""
+def parallel(func):
+    """Mark a read-only tool handler as safe to run with other readers."""
+    func._parallel = True
+    return func
+
+
+def _tool_policy(handler: Callable[..., Any]) -> tuple[bool, bool]:
+    """Return ``(is_parallel, updates_env)`` for a registered handler."""
     target = handler
     while isinstance(target, partial):
         target = target.func
     target = getattr(target, "__func__", target)
-    return bool(getattr(target, "_readonly", False))
+    is_parallel = bool(getattr(target, "_parallel", False))
+    updates_env = not bool(getattr(target, "_readonly", False))
+    return is_parallel, updates_env
 
 
 @dataclass
@@ -131,7 +136,8 @@ class Toolkit:
     subclasses receive their env/model/etc. as constructor arguments and
     build the underlying env Primitives in ``__init__``; the toolkit
     base class only contributes the common file/IO tools. Override
-    :meth:`close` to release env-side primitives / servers at the end of the run.
+    :meth:`close` to release env-side primitives / servers at the end of the run,
+    and call ``super().close()`` before releasing them.
     """
 
     def __init__(
@@ -146,8 +152,15 @@ class Toolkit:
         ] = {}
         self._dashboard_events = dashboard_events
         self._state = state
-        self._operation_lock = threading.Lock()
-        self._active_operation: _ToolOperation | None = None
+        self._operation_condition = threading.Condition()
+        self._admission_queue: deque[_ToolOperation] = deque()
+        # Includes both queued and running calls so cancellation can drain all
+        # calls admitted before the gate closed.
+        self._registered_operations: set[_ToolOperation] = set()
+        self._running_readers = 0
+        self._active_exclusive_operation: _ToolOperation | None = None
+        self._admission_paused = False
+        self._closed = False
         self._register_common_tools()
 
     # ------------------------------------------------------------------
@@ -167,9 +180,16 @@ class Toolkit:
             spec: Anthropic-shaped tool schema dict (``name``,
                 ``description``, ``input_schema``).
             handler: Callable invoked with the tool's input kwargs; returns
-                a result dict. Decorate read-only handlers with
-                :func:`readonly`; all other handlers capture state.
+                a result dict. Decorate handlers that do not advance the
+                environment with :func:`readonly`, and add :func:`parallel`
+                when they are also safe to run concurrently. All other
+                handlers capture state after execution.
         """
+        is_parallel, updates_env = _tool_policy(handler)
+        if is_parallel and updates_env:
+            raise ValueError(
+                f"parallel tool {name!r} must also be marked readonly"
+            )
         self._tools[name] = (spec, handler)
 
     def _register_common_tools(self) -> None:
@@ -203,15 +223,17 @@ class Toolkit:
         if entry is None:
             return ToolResult(name=name, result={"error": f"unknown tool: {name}"})
         _, handler = entry
-
-        with self._operation_lock:
-            if self._active_operation is not None:
-                return ToolResult(
-                    name=name,
-                    result={"error": "another tool operation is still active"},
-                )
-            operation = _ToolOperation()
-            self._active_operation = operation
+        is_parallel, updates_env = _tool_policy(handler)
+        operation = self._begin_operation(is_parallel=is_parallel)
+        if operation is None:
+            return ToolResult(
+                name=name,
+                result={
+                    "error": "tool operation interrupted",
+                    "code": "tool_cancelled",
+                    "interrupted": True,
+                },
+            )
 
         try:
             started = time.perf_counter()
@@ -235,7 +257,7 @@ class Toolkit:
                 result = {"error": str(e), "traceback": traceback.format_exc()}
                 failed = True
 
-            if not _is_readonly(handler):
+            if updates_env:
                 elapsed_s = round(time.perf_counter() - started, 2)
                 result_dict = result if isinstance(result, dict) else {"value": result}
                 command = {"action": name, **input_dict}
@@ -264,9 +286,57 @@ class Toolkit:
 
             return ToolResult(name=name, result=result)
         finally:
-            with self._operation_lock:
-                self._active_operation = None
-                operation.done_event.set()
+            self._end_operation(operation)
+
+    def _begin_operation(self, *, is_parallel: bool) -> _ToolOperation | None:
+        """Register this call and wait for FIFO admission."""
+        with self._operation_condition:
+            if self._admission_paused or self._closed:
+                return None
+
+            operation = _ToolOperation(is_parallel=is_parallel)
+            self._registered_operations.add(operation)
+            self._admission_queue.append(operation)
+            self._operation_condition.wait_for(
+                lambda: operation.cancelled_before_start
+                or self._can_start_operation(operation)
+            )
+
+            if operation.cancelled_before_start:
+                self._registered_operations.discard(operation)
+                self._operation_condition.notify_all()
+                return None
+
+            self._admission_queue.popleft()
+            if operation.is_parallel:
+                self._running_readers += 1
+            else:
+                self._active_exclusive_operation = operation
+            # Wake the next queued reader so a consecutive reader group can
+            # enter without waiting for the first reader to finish.
+            self._operation_condition.notify_all()
+            return operation
+
+    def _can_start_operation(self, operation: _ToolOperation) -> bool:
+        """Return whether the FIFO head can enter the running set."""
+        if (
+            not self._admission_queue
+            or self._admission_queue[0] is not operation
+        ):
+            return False
+        if self._active_exclusive_operation is not None:
+            return False
+        return operation.is_parallel or self._running_readers == 0
+
+    def _end_operation(self, operation: _ToolOperation) -> None:
+        with self._operation_condition:
+            if operation.is_parallel:
+                self._running_readers -= 1
+            else:
+                if self._active_exclusive_operation is operation:
+                    self._active_exclusive_operation = None
+            self._registered_operations.discard(operation)
+            self._operation_condition.notify_all()
 
     def _publish_step(self, record: StepRecord) -> None:
         """Publish one recorded environment step to the dashboard sink."""
@@ -293,23 +363,40 @@ class Toolkit:
     # ------------------------------------------------------------------
 
     def cancel_active_and_wait(self) -> None:
-        """Request cancellation and wait for the active tool to return."""
-        with self._operation_lock:
-            operation = self._active_operation
-            if operation is None:
+        """Pause admission, cancel queued calls, and drain running calls."""
+        with self._operation_condition:
+            self._admission_paused = True
+            for operation in self._admission_queue:
+                operation.cancelled_before_start = True
+            self._admission_queue.clear()
+            if self._active_exclusive_operation is not None:
+                self._active_exclusive_operation.cancel_event.set()
+            self._operation_condition.notify_all()
+            self._operation_condition.wait_for(
+                lambda: not self._registered_operations
+            )
+
+    def resume_operations(self) -> None:
+        """Resume admission after a successful interrupt of the same run."""
+        with self._operation_condition:
+            if self._closed or not self._admission_paused:
                 return
-            operation.cancel_event.set()
-        operation.done_event.wait()
+            if self._registered_operations:
+                raise RuntimeError("cannot resume toolkit before operations drain")
+            self._admission_paused = False
 
     def raise_if_cancelled(self) -> None:
         """Raise at an environment-defined safe cancellation boundary."""
-        with self._operation_lock:
-            operation = self._active_operation
+        with self._operation_condition:
+            operation = self._active_exclusive_operation
         if operation is not None and operation.cancel_event.is_set():
             raise ToolCancelled("tool operation interrupted")
 
     def close(self) -> None:
-        """Release the env-side primitives / servers at end of run. Default: no-op."""
+        """Permanently stop tool admission and drain this toolkit."""
+        with self._operation_condition:
+            self._closed = True
+        self.cancel_active_and_wait()
 
     def write_recipe(self, recipe_tag: str) -> str | None:
         """Write a replay recipe for this env, if supported."""

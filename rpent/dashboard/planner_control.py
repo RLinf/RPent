@@ -17,12 +17,14 @@ class DashboardPlannerControl:
         *,
         interaction: DashboardInteractionPort,
         cancel_active_and_wait: Callable[[], None],
+        resume_operations: Callable[[], None],
         emit_user: Callable[[str], None],
         emit_initial_user: Callable[[], None],
         defer_message_ack: bool = False,
     ) -> None:
         self._interaction = interaction
         self._cancel_active_and_wait = cancel_active_and_wait
+        self._resume_operations = resume_operations
         self._emit_user = emit_user
         self._emit_initial_user = emit_initial_user
         self._defer_message_ack = defer_message_ack
@@ -79,7 +81,7 @@ class DashboardPlannerControl:
             self._interaction.mark_message_unsent(message_id)
 
     async def cancel_active_toolkit(self) -> None:
-        """Cancel and drain the active toolkit operation off the event loop."""
+        """Pause Toolkit admission and drain its operations off the event loop."""
         await asyncio.to_thread(self._cancel_active_and_wait)
 
     async def _process(self, driver: Any) -> None:
@@ -101,6 +103,7 @@ class DashboardPlannerControl:
                 try:
                     await self.cancel_active_toolkit()
                     completed = await driver.interrupt()
+                    self._resume_operations()
                     self._outstanding_completions = max(
                         0, self._outstanding_completions - completed
                     )

@@ -348,6 +348,7 @@ class CodexPlanner:
                 control = DashboardPlannerControl(
                     interaction=interaction,
                     cancel_active_and_wait=toolkit.cancel_active_and_wait,
+                    resume_operations=toolkit.resume_operations,
                     emit_user=emit_user,
                     emit_initial_user=lambda: emit_user(
                         initial_user_text, initial=True
