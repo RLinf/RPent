@@ -31,25 +31,30 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 .. code-block:: text
 
    robots/myenv/
-       __init__.py            # 入口 —— get_env_spec() / get_toolkit() 工厂
+       __init__.py            # 包入口，仅重导出两个工厂
+       env_spec.py            # EnvSpec、工厂、Dashboard 描述和 runtime 钩子
        env_client.py          # MyEnvClient —— agent 侧 RPC client (§1)
        prompt_bundle.py       # system()/user() prompt 工厂              (§2)
        toolkit.py             # MyEnvToolkit + primitives + 工具定义     (§3)
        env_server.py          # 环境侧 facade + RPC 服务                 (§1)
        vla_server.py          # （可选）VLA 模型服务
-       spec.py                # （可选）Dashboard 描述
 
-``__init__.py`` 是环境包的入口。``rpent/envs/base.py`` 中的注册表会按需导入
-``robots.<name>``，并调用其中的两个工厂函数：
+``__init__.py`` 是环境包入口，应保持精简，仅重导出 ``env_spec.py`` 中实现的
+工厂。``rpent/envs/base.py`` 中的注册表会按需导入 ``robots.<name>``，并调用
+这两个函数：
 
 .. code-block:: python
 
    # robots/myenv/__init__.py
+   from robots.myenv.env_spec import get_env_spec, get_toolkit
+
+   # robots/myenv/env_spec.py
    from rpent.dashboard.events import DashboardEventSink
    from rpent.envs.env_spec import EnvSpec, RunConfig
    from rpent.envs.prompt_bundle import PromptBundle
    from robots.myenv.prompt_bundle import system_prompt, user_prompt
-   from robots.myenv.spec import MYENV_DASHBOARD_SPEC
+
+   MYENV_DASHBOARD_SPEC = {...}
 
    def get_env_spec() -> EnvSpec:
        return EnvSpec(
@@ -97,7 +102,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 ``dashboard`` 是可选项；环境不支持 Dashboard 控制时保持为 ``None``。支持时，
 在环境包中定义该 spec：其中 ``task`` 描述命令、校验字段、展示模板和输出目录
 slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境专用服务行
-和相机视图。完整结构参考 ``robots/libero/spec.py``。
+和相机视图。完整结构参考 ``robots/libero/env_spec.py``。
 
 ``_resolve_env(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
 动态加载环境包。因此，只需将环境包放在 ``robots/`` 下，无需维护中央注册列表。
@@ -117,58 +122,70 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
 1.1 Env client（agent 侧）
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-基础接口包含 ``reset`` 和 ``step`` 两个 Gym 风格的方法；可以根据环境需要
-添加其他方法（LIBERO 增加了 ``chunk_step``、``render_camera``、
-``get_camera_meta``、``cached_image`` 等）。每个方法通过
-``RpcClient.call("<rpc-name>", args=..., kwargs=...)`` 转发，并设置单独的
-超时时间。方法名需要保持稳定，因为服务端会按名称分派请求。
+继承 :class:`rpent.tools.env_client_base.BaseEnvClient`。它已经负责启动时校验
+``env.get_env_meta``、执行首次 reset、缓存 ``last_obs``，并实现公共的
+``reset``、``step`` 和 ``chunk_step`` RPC。子类只需增加环境专用方法（LIBERO
+增加了 ``render_camera``、``get_camera_meta``、``get_task_language`` 等）；扩展方法
+需要独立超时时，再扩展超时表。RPC 名称需要保持稳定，因为服务端 facade 会显式
+注册每个名称。
 
 .. code-block:: python
 
-   class MyEnvClient:
-       def __init__(self, client: RpcClient, *, return_all_frames: bool = False):
-           self._client = client
-           self.return_all_frames = return_all_frames
+   from rpent.tools.env_client_base import BaseEnvClient
 
-       def reset(self):
-           return self._client.call("env.reset", timeout_s=120.0)
+   class MyEnvClient(BaseEnvClient):
+       _TIMEOUT_S = {
+           **BaseEnvClient._TIMEOUT_S,
+           "env.render_camera": 120.0,
+       }
 
-       def step(self, action):
-           return self._client.call("env.step", args=(action,), timeout_s=60.0)
-       # ... 根据 env 需要添加其他方法
+       def render_camera(self, camera_name):
+           return self._client.call(
+               "env.render_camera",
+               args=(camera_name,),
+               timeout_s=self._TIMEOUT_S["env.render_camera"],
+           )
+
+   env = MyEnvClient(rpc_client, expected_meta=expected_meta)
 
 1.2 Env server（环境侧）
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 在 ``env_server`` 中定义与 client API 对应的 facade 类，例如
-``MyEnvFacade``。该类继承 :class:`rpent.utils.rpc.RpcFacade`，实现
-``_dispatch(method, args, kwargs)``，将 ``env.*`` 请求分派给对应方法，再通过
-``self.serve(...)`` 启动服务。方法接收与 client 一致的位置参数和关键字参数，
-返回可 pickle 的值（使用 numpy，不要返回 torch；agent 进程不导入 torch）。
+``MyEnvFacade``。该类继承
+:class:`rpent.tools.env_facade_base.BaseEnvFacade`；基类已提供公共 RPC 路由和
+读写分派锁。子类实现公共环境方法，并通过 ``_register_rpc`` 增加环境专用路由。
+方法接收与 client 一致的位置参数和关键字参数，返回传输层支持的 Python / NumPy
+值（不要返回 torch；agent 进程不导入 torch）。
 
 .. code-block:: python
 
-   from rpent.utils.rpc import RpcFacade
+   from rpent.tools.env_facade_base import BaseEnvFacade
 
-   class MyEnvFacade(RpcFacade):
+   class MyEnvFacade(BaseEnvFacade):
        def __init__(self, env, meta):
-           super().__init__()
            self._env = env
-           self._meta = meta
+           self._meta = dict(meta)
+           super().__init__()
 
-       def _dispatch(self, method, args, kwargs):
-           if method.startswith("env."):
-               return getattr(self, method[len("env."):])(*args, **kwargs)
-           raise ValueError(f"unknown RPC method: {method!r}")
+       def _register_rpc(self):
+           super()._register_rpc()
+           self._rpc["env.render_camera"] = self.render_camera
 
+       def get_env_meta(self): return dict(self._meta)
        def reset(self): ...
        def step(self, action): ...
+       def chunk_step(self, actions, *, return_all_frames=False): ...
+       def render_camera(self, camera_name): ...
+       def close(self): ...
 
    facade = MyEnvFacade(env, meta)
    facade.serve(transport="http", host=host, port=port)
 
-``RpcFacade.serve`` 负责绑定传输方式（HTTP 或 socket）、提供 ``healthz`` 和
-``shutdown`` 方法、检测父进程退出并执行资源清理；这里只需实现业务方法。
+``BaseEnvFacade`` 通过 ``_register_rpc`` 注册公共路由，并使用读写锁串行化会改变
+状态的调用。只有确认某个扩展路由可以安全地与其他读操作并发时，才把它加入
+``_readonly_methods``。继承的 ``RpcFacade.serve`` 负责绑定传输方式（HTTP 或
+socket）、提供 ``healthz`` 和 ``shutdown``、检测父进程退出并执行资源清理。
 
 .. _add-robot-prompts:
 
@@ -176,7 +193,7 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
 -----------------------
 
 定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在环境的
-``__init__.py`` 中构造
+``env_spec.py`` 中构造
 ``PromptBundle(system=system_prompt, user=user_prompt)``（见上面的“入口”）。
 每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节；
 ``PromptBundle.render`` 负责组装和填充。一套 prompt 供 API loop、Claude Code
@@ -254,7 +271,7 @@ step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过
 - 重写 ``close()``，通过 ``EnvState`` 保存 agent 侧剩余工件（例如
   ``state.save("episode.mp4", frames, step=None)``）。
 
-``primitives_kwargs`` 由 ``__init__.py:get_toolkit`` 转发给 toolkit，再原样传入
+``primitives_kwargs`` 由 ``env_spec.py:get_toolkit`` 转发给 toolkit，再原样传入
 primitives 的 ``__init__``。其中通常包含
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``。
 
@@ -345,8 +362,11 @@ TaskRun 调用 ``init_task_runtime``，并合并两者返回的 ``primitives_kwa
 范围，将环境放在 TaskRun 范围；其他环境应采用适合自身服务的拆分，不必机械照搬。
 
 endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
-``--sam3-endpoint``）解析、子进程启动和 runtime 状态事件，应放在拥有对应服务的
-钩子中，runner 不处理这些环境细节。参考实现见 ``robots/libero/__init__.py``。
+``--sam3-endpoint``）解析和环境专用服务命令，应放在拥有对应服务的钩子中。
+这些 spawner 应通过 ``rpent.envs.runtime.try_spawn_server`` 和
+``try_wait_server`` 组合，使各环境的状态事件、就绪失败和 owned daemon 清理保持
+一致；runner 不处理这些环境细节。参考模式见 ``robots/libero/env_spec.py`` 和
+``robots/robocasa/env_spec.py``。
 
 冒烟测试
 --------

@@ -7,14 +7,13 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from omegaconf import OmegaConf
 
+from rpent.tools.env_facade_base import BaseEnvFacade
 from rpent.utils.config import (
     get_repo_root,
     get_rlinf_repo_path,
 )
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc import RpcFacade
 
 # MuJoCo env vars must be set BEFORE importing anything that touches MuJoCo.
 os.environ.setdefault("MUJOCO_GL", "egl")
@@ -49,6 +48,8 @@ def build_env_cfg(
     seed: int = 0,
     max_episode_steps: int = 10000,
 ) -> Any:
+    from omegaconf import OmegaConf
+
     cfg = OmegaConf.create(
         {
             "env_type": "libero",
@@ -114,9 +115,7 @@ def make_env(task_id: int, seed: int, suite_name: str = "libero_spatial",
 def _to_numpy_tree(x):
     """Recursively convert torch tensors to CPU numpy arrays so the result
     pickles cleanly across the agent/env_server wire."""
-    import torch
-
-    if isinstance(x, torch.Tensor):
+    if hasattr(x, "detach") and hasattr(x, "cpu") and hasattr(x, "numpy"):
         return x.detach().cpu().numpy()
     if isinstance(x, dict):
         return {k: _to_numpy_tree(v) for k, v in x.items()}
@@ -127,7 +126,7 @@ def _to_numpy_tree(x):
     return x
 
 
-class LiberoEnvFacade(RpcFacade):
+class LiberoEnvFacade(BaseEnvFacade):
     """Implements :class:`robots.libero.env_client.LiberoEnvClient`
     over :class:`rlinf.envs.libero.libero_env.LiberoEnv`.
 
@@ -137,24 +136,26 @@ class LiberoEnvFacade(RpcFacade):
     """
 
     def __init__(self, env: LiberoEnv, *, meta: dict):
-        super().__init__()
         self._env = env
         self._env_idx = 0
-        self._done = False
+        self._closed = False
         # Identifies what task/seed this server was launched with — the
         # client compares against its own expected values at construction
         # and refuses to talk to a stale or mis-configured server.
         self._meta = dict(meta)
+        super().__init__()
 
-    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if method.startswith("env."):
-            attr = method[len("env."):]
-            try:
-                return getattr(self, attr)(*args, **kwargs)
-            except Exception as e:
-                logger.warning("run method %s failed: %s", method, e)
-                raise e
-        raise ValueError(f"unknown RPC method: {method!r}")
+    def _register_rpc(self) -> None:
+        super()._register_rpc()
+        self._rpc.update(
+            {
+                "env.raw_obs": self.raw_obs,
+                "env.render_camera": self.render_camera,
+                "env.get_camera_meta": self.get_camera_meta,
+                "env.get_task_language": self.get_task_language,
+            }
+        )
+        self._readonly_methods.add("env.get_task_language")
 
     # ---- shape helpers ----
 
@@ -180,29 +181,18 @@ class LiberoEnvFacade(RpcFacade):
         ``[chunk_size, action_dim]``."""
         return np.asarray(actions)[None]
 
-    def _record_done(self, *signals: Any) -> None:
-        """OR the truthiness of every termination/truncation signal into
-        ``self._done`` so subsequent step() calls short-circuit."""
-        for s in signals:
-            if np.asarray(s).any():
-                self._done = True
-                return
-
     # ---- gym-like surface ----
 
     def reset(self):
         obs, info = self._env.reset()
         obs = self._strip_obs(_to_numpy_tree(obs))
-        self._done = False
         return obs, _to_numpy_tree(info)
 
     def step(self, action):
-        assert not self._done, "step called after episode done"
         obs, rew, term, trunc, info = self._env.step(self._expand_action(action))
         obs = self._strip_obs(_to_numpy_tree(obs))
         term = self._strip(_to_numpy_tree(term))
         trunc = self._strip(_to_numpy_tree(trunc))
-        self._record_done(term, trunc)
         return (
             obs,
             self._strip(_to_numpy_tree(rew)),
@@ -223,14 +213,12 @@ class LiberoEnvFacade(RpcFacade):
         the leading env dim is stripped — the agent reduces across the
         chunk itself.
         """
-        assert not self._done, "chunk_step called after episode done"
         obs_list, rew, term, trunc, info = self._env.chunk_step(
             self._expand_chunk(actions)
         )
         obs_list = [self._strip_obs(_to_numpy_tree(o)) for o in obs_list]
         term = self._strip(_to_numpy_tree(term))
         trunc = self._strip(_to_numpy_tree(trunc))
-        self._record_done(term, trunc)
         obs_field = obs_list if return_all_frames else obs_list[-1]
         return (
             obs_field,
@@ -246,6 +234,13 @@ class LiberoEnvFacade(RpcFacade):
     def get_env_meta(self) -> dict:
         """Return the meta info this server was launched with. """
         return dict(self._meta)
+
+    def close(self) -> None:
+        """Release the server-owned LIBERO environment once."""
+        if self._closed:
+            return
+        self._env.env.close()
+        self._closed = True
 
     def render_camera(
         self,
@@ -277,13 +272,6 @@ class LiberoEnvFacade(RpcFacade):
 
     def get_task_language(self) -> str | None:
         return self._env.task_descriptions[self._env_idx]
-
-    def cached_image(self) -> np.ndarray | None:
-        cached = getattr(self._env, "_cached_full_image", None)
-        if cached is None:
-            return None
-        return cached.cpu().numpy() if hasattr(cached, "cpu") else np.asarray(cached)
-
 
 # ---------------------------------------------------------------------------
 # Main
@@ -342,12 +330,15 @@ def main():
             "max_episode_steps": args.max_episode_steps,
         },
     )
-    facade.serve(
-        transport=args.transport,
-        host=args.host,
-        port=args.port,
-        parent_watch=args.parent_watch,
-    )
+    try:
+        facade.serve(
+            transport=args.transport,
+            host=args.host,
+            port=args.port,
+            parent_watch=args.parent_watch,
+        )
+    finally:
+        facade.close()
 
 
 if __name__ == "__main__":

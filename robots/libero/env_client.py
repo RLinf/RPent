@@ -1,7 +1,7 @@
 """LIBERO env client that forwards calls over an RPC transport.
 
 Lives in :mod:`robots.libero` because the methods exposed
-here (``raw_obs`` / ``render_camera`` / ``cached_image`` / …)
+here (``raw_obs`` / ``render_camera`` / ``get_camera_meta`` / …)
 reference LIBERO-specific obs dict keys and camera names. The generic
 transport layer lives in :mod:`rpent.utils.socket_rpc`.
 """
@@ -11,19 +11,17 @@ from typing import Any
 
 import numpy as np
 
+from rpent.tools.env_client_base import BaseEnvClient
 from rpent.utils.rpc import RpcClient
 
-_TIMEOUT_S = {
-    "default": 30.0,
-    "env.reset": 120.0,
-    "env.step": 60.0,
-    "env.chunk_step": 120.0,
-    "env.render_camera": 120.0,
-}
 
-
-class LiberoEnvClient:
+class LiberoEnvClient(BaseEnvClient):
     """Remote implementation of the LIBERO env protocol."""
+
+    _TIMEOUT_S = {
+        **BaseEnvClient._TIMEOUT_S,
+        "env.render_camera": 120.0,
+    }
 
     def __init__(
         self,
@@ -32,27 +30,18 @@ class LiberoEnvClient:
         expected_meta: dict,
         return_all_frames: bool = False,
     ):
-        self._client = client
         self.return_all_frames = return_all_frames
         self.terminated = False
         self.truncated = False
-        server_meta = self._client.call(
-            "env.get_env_meta", timeout_s=_TIMEOUT_S["default"]
-        )
-        assert server_meta == expected_meta, (
-            f"env_meta mismatch: expected={expected_meta!r} "
-            f"actual={server_meta!r}. The env_server was launched with "
-            "different args than this client expects — kill the stale "
-            "env_server and relaunch."
-        )
-        self.reset()
+        super().__init__(client, expected_meta=expected_meta)
 
     def check_done(self, term, trunc) -> None:
         self.terminated |= bool(np.asarray(term).any())
         self.truncated |= bool(np.asarray(trunc).any())
 
     def reset(self) -> tuple[dict, Any]:
-        ret = self._client.call("env.reset", timeout_s=_TIMEOUT_S["env.reset"])
+        ret = super().reset()
+        self.last_obs = ret[0]
         self.terminated = False
         self.truncated = False
         return ret
@@ -61,9 +50,7 @@ class LiberoEnvClient:
         assert not (self.terminated or self.truncated), (
             "env.step called after the episode signaled term/trunc"
         )
-        ret = self._client.call(
-            "env.step", args=(action,), timeout_s=_TIMEOUT_S["env.step"]
-        )
+        ret = super().step(action)
         _, _, term, trunc, _ = ret
         self.check_done(term, trunc)
         return ret
@@ -82,18 +69,18 @@ class LiberoEnvClient:
         )
         if return_all_frames is None:
             return_all_frames = self.return_all_frames
-        ret = self._client.call(
-            "env.chunk_step",
-            args=(actions,),
-            kwargs={"return_all_frames": return_all_frames},
-            timeout_s=_TIMEOUT_S["env.chunk_step"],
+        ret = super().chunk_step(
+            actions,
+            return_all_frames=return_all_frames,
         )
         _, _, term, trunc, _ = ret
         self.check_done(term, trunc)
         return ret
 
     def raw_obs(self) -> dict:
-        return self._client.call("env.raw_obs", timeout_s=_TIMEOUT_S["default"])
+        return self._client.call(
+            "env.raw_obs", timeout_s=self._TIMEOUT_S["default"]
+        )
 
     def render_camera(
         self,
@@ -110,7 +97,7 @@ class LiberoEnvClient:
                 "width": width,
                 "depth": depth,
             },
-            timeout_s=_TIMEOUT_S["env.render_camera"],
+            timeout_s=self._TIMEOUT_S["env.render_camera"],
         )
 
     def get_camera_meta(
@@ -122,15 +109,10 @@ class LiberoEnvClient:
         return self._client.call(
             "env.get_camera_meta",
             kwargs={"camera_name": camera_name, "height": height, "width": width},
-            timeout_s=_TIMEOUT_S["default"],
+            timeout_s=self._TIMEOUT_S["default"],
         )
 
     def get_task_language(self) -> str | None:
         return self._client.call(
-            "env.get_task_language", timeout_s=_TIMEOUT_S["default"]
-        )
-
-    def cached_image(self) -> np.ndarray | None:
-        return self._client.call(
-            "env.cached_image", timeout_s=_TIMEOUT_S["default"]
+            "env.get_task_language", timeout_s=self._TIMEOUT_S["default"]
         )

@@ -7,11 +7,11 @@ from typing import Any
 import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
+from robots.libero.sam3_client import Sam3Client
+from robots.libero.vla_client import LiberoVLAClient
 from rpent.tools.state import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
 from rpent.utils.logging import get_logger
-from rpent.utils.sam3_client import Sam3Client
-from rpent.utils.vla_client import VLAClient
 
 logger = get_logger("libero")
 
@@ -37,7 +37,7 @@ class LiberoPrimitives:
     def __init__(
         self,
         env: LiberoEnvClient,
-        model: VLAClient,
+        model: LiberoVLAClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
     ):

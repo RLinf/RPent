@@ -104,7 +104,7 @@ LIBERO-PRO 核心套件一览
   的 MuJoCo 环境并通过 EGL 渲染。它通过 RPC 传输（默认使用 HTTP；添加
   ``--transport socket`` 后使用 pickle-framed socket）对外暴露
   ``reset``、``step``、``chunk_step``、``render_camera``、
-  ``get_camera_meta``、``cached_image``…
+  ``get_camera_meta`` 等方法。
 - **vla_server** （``robots/libero/vla_server.py``）—— 持有 Pi0.5
   权重，通过同一套 RPC 传输（HTTP 或 socket）暴露 ``predict``。
 - **sam3_server** （``robots/libero/sam3_server.py``）—— 持有 SAM 3.0，

@@ -5,7 +5,7 @@ RoboCasa
 manipulation environment. In RPent it is driven by the **RLDX-1** VLA
 policy, served over HTTP RPC by default (matching LIBERO); a
 pickle-framed socket transport is also supported. See
-``robots/robocasa/vla_server.py`` and ``robots/robocasa/__init__.py``
+``robots/robocasa/vla_server.py`` and ``robots/robocasa/env_spec.py``
 for the wire/transport selection.
 
 .. note::

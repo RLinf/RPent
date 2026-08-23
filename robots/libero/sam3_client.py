@@ -1,4 +1,4 @@
-"""Transport-independent client for RPent's SAM3 segmentation service."""
+"""Client for LIBERO's SAM3 segmentation service."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class Sam3Result:
 
 
 class Sam3Client:
-    """Client wrapping the SAM3 service over any :class:`RpcClient`."""
+    """Wrap the LIBERO SAM3 service over any :class:`RpcClient`."""
 
     def __init__(self, client: RpcClient, *, timeout_s: float = 120.0) -> None:
         self._client = client

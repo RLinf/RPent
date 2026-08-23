@@ -36,26 +36,31 @@ For a new environment named ``myenv``, use the following directory layout:
 .. code-block:: text
 
    robots/myenv/
-       __init__.py            # entry point — get_env_spec() / get_toolkit() factories
+       __init__.py            # package entry point; re-exports the factories
+       env_spec.py            # EnvSpec, factories, Dashboard spec, runtime hooks
        env_client.py          # MyEnvClient — agent-side RPC stub (§1)
        prompt_bundle.py       # system()/user() prompt factories         (§2)
        toolkit.py             # MyEnvToolkit + primitives + tool definitions (§3)
        env_server.py          # server-side facade + RPC server (§1)
        vla_server.py          # (optional) VLA model server
-       spec.py                # (optional) Dashboard description
 
-``__init__.py`` is the environment package's entry point. The registry in
-``rpent/envs/base.py`` lazily imports ``robots.<name>`` on demand and calls its
-two factory functions:
+``__init__.py`` is the environment package's entry point. Keep it small and
+re-export the factories implemented in ``env_spec.py``. The registry in
+``rpent/envs/base.py`` lazily imports ``robots.<name>`` on demand and calls
+these two functions:
 
 .. code-block:: python
 
    # robots/myenv/__init__.py
+   from robots.myenv.env_spec import get_env_spec, get_toolkit
+
+   # robots/myenv/env_spec.py
    from rpent.dashboard.events import DashboardEventSink
    from rpent.envs.env_spec import EnvSpec, RunConfig
    from rpent.envs.prompt_bundle import PromptBundle
    from robots.myenv.prompt_bundle import system_prompt, user_prompt
-   from robots.myenv.spec import MYENV_DASHBOARD_SPEC
+
+   MYENV_DASHBOARD_SPEC = {...}
 
    def get_env_spec() -> EnvSpec:
        return EnvSpec(
@@ -105,7 +110,7 @@ support Dashboard control. Otherwise, define the spec in the environment
 package: its ``task`` section describes the command, validated fields, display
 template, and output slug; ``runtime_components`` and ``frame_channels``
 describe the environment-specific rows and camera views rendered by the
-frontend. See ``robots/libero/spec.py`` for the reference shape.
+frontend. See ``robots/libero/env_spec.py`` for the reference shape.
 
 That's the entire registration step — ``_resolve_env(name)`` does an
 ``importlib.import_module(f"robots.{name}")``, so dropping the package under
@@ -126,61 +131,75 @@ method calls into RPC requests, and ``env_server`` handles those requests.
 1.1 Env client (agent side)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The base contract is two gym-style methods (``reset``, ``step``); add whatever
-your env needs on top (LIBERO has ``chunk_step``, ``render_camera``,
-``get_camera_meta``, ``cached_image``, …). Each method forwards through
-``RpcClient.call("<rpc-name>", args=..., kwargs=...)`` with a per-method
-timeout. Keep names stable — the server-side dispatcher matches by name.
+Subclass :class:`rpent.tools.env_client_base.BaseEnvClient`. It already
+validates ``env.get_env_meta`` at startup, performs the initial reset, caches
+``last_obs``, and implements the common ``reset``, ``step``, and
+``chunk_step`` RPCs. Add only environment-specific methods (LIBERO adds
+``render_camera``, ``get_camera_meta``, ``get_task_language``, …), and extend the
+timeout table when an extension needs its own timeout. Keep RPC names stable —
+the server-side facade registers each name explicitly.
 
 .. code-block:: python
 
-   class MyEnvClient:
-       def __init__(self, client: RpcClient, *, return_all_frames: bool = False):
-           self._client = client
-           self.return_all_frames = return_all_frames
+   from rpent.tools.env_client_base import BaseEnvClient
 
-       def reset(self):
-           return self._client.call("env.reset", timeout_s=120.0)
+   class MyEnvClient(BaseEnvClient):
+       _TIMEOUT_S = {
+           **BaseEnvClient._TIMEOUT_S,
+           "env.render_camera": 120.0,
+       }
 
-       def step(self, action):
-           return self._client.call("env.step", args=(action,), timeout_s=60.0)
-       # ... add other env-specific methods
+       def render_camera(self, camera_name):
+           return self._client.call(
+               "env.render_camera",
+               args=(camera_name,),
+               timeout_s=self._TIMEOUT_S["env.render_camera"],
+           )
+
+   env = MyEnvClient(rpc_client, expected_meta=expected_meta)
 
 1.2 Env server (server side)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Mirror the client's API in a facade class on the server side (e.g.
-``MyEnvFacade``). Subclass :class:`rpent.utils.rpc.RpcFacade`, implement
-``_dispatch(method, args, kwargs)`` to route ``env.*`` calls to your
-methods, and delegate startup to ``self.serve(...)``. Methods take the
-same positional / keyword arguments the client sends and return
-pickleable values (numpy, not torch — the agent side does not import
-torch).
+``MyEnvFacade``). Subclass
+:class:`rpent.tools.env_facade_base.BaseEnvFacade`; it provides the common RPC
+routes and read/write dispatch locking. Implement the common environment
+methods and extend ``_register_rpc`` for environment-specific routes. Methods
+take the same positional / keyword arguments the client sends and return
+transport-supported Python / NumPy values (not torch — the agent side does not
+import torch).
 
 .. code-block:: python
 
-   from rpent.utils.rpc import RpcFacade
+   from rpent.tools.env_facade_base import BaseEnvFacade
 
-   class MyEnvFacade(RpcFacade):
+   class MyEnvFacade(BaseEnvFacade):
        def __init__(self, env, meta):
-           super().__init__()
            self._env = env
-           self._meta = meta
+           self._meta = dict(meta)
+           super().__init__()
 
-       def _dispatch(self, method, args, kwargs):
-           if method.startswith("env."):
-               return getattr(self, method[len("env."):])(*args, **kwargs)
-           raise ValueError(f"unknown RPC method: {method!r}")
+       def _register_rpc(self):
+           super()._register_rpc()
+           self._rpc["env.render_camera"] = self.render_camera
 
+       def get_env_meta(self): return dict(self._meta)
        def reset(self): ...
        def step(self, action): ...
+       def chunk_step(self, actions, *, return_all_frames=False): ...
+       def render_camera(self, camera_name): ...
+       def close(self): ...
 
    facade = MyEnvFacade(env, meta)
    facade.serve(transport="http", host=host, port=port)
 
-``RpcFacade.serve`` handles transport binding (HTTP or socket), the
-``healthz`` / ``shutdown`` methods, parent-death detection, and clean
-teardown. The subclass only needs to implement the environment methods.
+``BaseEnvFacade`` registers common routes through ``_register_rpc`` and
+serializes state-changing calls with its read/write lock. Add a route to
+``_readonly_methods`` only when it is genuinely safe to run concurrently with
+other reads. The inherited ``RpcFacade.serve`` handles transport binding (HTTP
+or socket), ``healthz`` / ``shutdown``, parent-death detection, and clean
+teardown.
 
 .. _add-robot-prompts:
 
@@ -189,7 +208,7 @@ teardown. The subclass only needs to implement the environment methods.
 
 Define two prompt factories, ``system_prompt()`` and ``user_prompt()``, and
 build a ``PromptBundle(system=system_prompt, user=user_prompt)`` in the
-environment's ``__init__.py`` (see the entry point above). Each factory returns an ordered
+environment's ``env_spec.py`` (see the entry point above). Each factory returns an ordered
 ``dict[str, PromptNode]`` of titled sections; ``PromptBundle.render`` assembles
 and fills them. One prompt serves every planner (API loop, Claude Code, Codex):
 refer to tools by their bare names (``move_to``, ...) and note once that the
@@ -270,7 +289,7 @@ filenames rather than maintaining a parallel observation index.
 - override ``close()`` to save remaining agent-side artifacts through
   ``EnvState`` (for example ``state.save("episode.mp4", frames, step=None)``).
 
-``primitives_kwargs`` (forwarded from ``__init__.py:get_toolkit``) is the dict
+``primitives_kwargs`` (forwarded from ``env_spec.py:get_toolkit``) is the dict
 the toolkit passes verbatim to your primitives' ``__init__`` — typically
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``.
 
@@ -370,10 +389,13 @@ another environment should use the lifecycle split appropriate to its own
 services rather than copying that arrangement mechanically.
 
 Endpoint parsing (``--env-endpoint``, ``--vla-endpoint``, and LIBERO's
-``--sam3-endpoint``), subprocess spawning, and runtime status events belong in
-the hook that owns the corresponding service. The runners do not handle those
-environment details. See ``robots/libero/__init__.py`` for the reference
-implementation.
+``--sam3-endpoint``) and environment-specific server commands belong in the
+hook that owns the corresponding service. Wrap those spawners with
+``rpent.envs.runtime.try_spawn_server`` and ``try_wait_server`` so status
+events, readiness failures, and owned-daemon cleanup stay consistent across
+environments. The runners do not handle these environment details. See
+``robots/libero/env_spec.py`` and ``robots/robocasa/env_spec.py`` for the
+reference pattern.
 
 Smoke test
 ----------

@@ -90,8 +90,9 @@ Because the model runs in its own process, adding a model-based
 primitive requires a few additional components:
 
 1. **Write ``vla_server.py``.** This process owns only the model weights
-   and CUDA context. Subclass :class:`rpent.utils.rpc.RpcFacade` and
-   expose your model methods (e.g. ``predict``) via ``_dispatch``:
+   and CUDA context. Subclass
+   :class:`rpent.tools.vla_facade_base.BaseVLAFacade`, implement ``predict``,
+   and register any additional model RPCs by extending ``_register_rpc``:
 
    - The default transport is **HTTP** (JSON over ``POST /call``),
      which works well for flat ``image + state`` payloads such as the
@@ -100,20 +101,21 @@ primitive requires a few additional components:
      a nested dict of numpy arrays with history stacks (avoids the
      JSON re-encode overhead).
 
-   ``RpcFacade.serve`` handles transport binding, ``healthz``,
-   ``shutdown``, parent-death detection, and resource cleanup. You
-   only need to implement the model-specific methods.
+   ``BaseVLAFacade`` registers ``vla.predict`` and serializes model calls;
+   its inherited ``RpcFacade.serve`` handles transport binding, ``healthz``,
+   ``shutdown``, parent-death detection, and resource cleanup.
 
-2. **Write a model client.** Create a lightweight class that wraps an
-   :class:`rpent.utils.rpc.RpcClient` (either :class:`HttpRpcClient` or
-   :class:`SocketRpcClient`) and exposes the model's API.
-   See ``rpent.utils.vla_client.VLAClient`` for the LIBERO implementation.
+2. **Write a model client.** Subclass
+   :class:`rpent.tools.vla_client_base.BaseVLAClient`, which provides the
+   common ``vla.predict`` call, and add only the environment-specific input /
+   output adaptation.
+   See ``robots.libero.vla_client.LiberoVLAClient`` for the LIBERO implementation.
 
 3. **Add a method to the primitives.** In the current
    environment's primitives class, call the model client, pass
    the returned action chunk to the environment, and return a log
    ``dict``. The model client API is
-   :meth:`rpent.utils.vla_client.VLAClient.predict_action_batch`, which
+   :meth:`robots.libero.vla_client.LiberoVLAClient.predict_action_batch`, which
    reads the instruction from ``env_obs["task_descriptions"]`` rather
    than accepting a keyword argument:
 
@@ -129,7 +131,7 @@ primitive requires a few additional components:
 4. **Add the tool schema and register it in the toolkit.** Follow the
    same pattern as for a scripted primitive.
 
-5. **Wire the components together in ``__init__.py``.** The
+5. **Wire the components together in ``env_spec.py``.** The
    environment's ``get_toolkit`` builds the toolkit with
    ``primitives_kwargs``:
 
