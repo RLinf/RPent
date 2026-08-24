@@ -34,6 +34,7 @@ dependencies = [
     "httpx>=0.27",
     "claude-agent-sdk>=0.1.60",
     "openai-codex>=0.1.0b3",
+    "mcp>=1.23.0,<2.0.0",
     "huggingface_hub>=0.24",
     "prompt-toolkit>=3.0.48",
     "numpy",
@@ -67,6 +68,12 @@ libero-pro = [
 libero-plus = [
     "rpent[libero]",
     "rlinf-liberoplus",
+]
+robotwin = [
+    # TODO: replace fixed owner-controlled revisions with released versions.
+    "rpent[rlinf]",
+    "rlinf-robotwin-runtime @ git+https://github.com/RoboTwin-Platform/RoboTwin.git@11d2d4ba1ba4819ebf63bb91ba0c5dfd4b0f81f2",
+    "rlinf-lingbotvla @ git+https://github.com/RLinf/lingbot-vla.git@e158cce02f50dbb48b7f5bf76fdb34c1c1f97e12",
 ]
 sam3 = [
     "sam3==0.1.4",

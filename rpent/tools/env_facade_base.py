@@ -1,6 +1,7 @@
 """Unified env backend base class. Design reference for adding a new env
 backend: ``docs/source-zh/rst_source/development/add_env.rst``.
 """
+
 from __future__ import annotations
 
 from typing import Any, Callable
@@ -53,8 +54,7 @@ class BaseEnvFacade(RpcFacade):
         raise NotImplementedError
 
     def _register_rpc(self):
-        """Can be overridden to register more RPC methods.
-        """
+        """Can be overridden to register more RPC methods."""
         self._rpc["env.reset"] = self.reset
         self._rpc["env.get_env_meta"] = self.get_env_meta
         self._rpc["env.close"] = self.close
@@ -74,13 +74,11 @@ class BaseEnvFacade(RpcFacade):
 
     # ---- functionality (subclasses must override) ----
     def reset(self):
-        """Reset the env to its initial state. Returns the initial obs dict.
-        """
+        """Reset the env and return ``(initial_obs, info)``."""
         raise NotImplementedError
 
     def step(self, flat_action):
-        """Execute one env action. Returns the gym 5-tuple result.
-        """
+        """Execute one env action. Returns the gym 5-tuple result."""
         raise NotImplementedError
 
     def chunk_step(self, flat_actions, *, return_all_frames: bool = False):
@@ -89,8 +87,8 @@ class BaseEnvFacade(RpcFacade):
         - ``obs_or_list``: ``list[Obs]`` when ``return_all_frames=True`` (one
           per step, carrying the per-step render); the final obs dict when
           ``False``.
-        - ``return_all_frames``: standard perf-vs-video switch. ``True`` renders
-          agentview per step (high-density video, more RPC); ``False`` renders
-          only the final obs (fast).
+        - ``return_all_frames``: optional capability for backends that can
+          return one observation per action. Unsupported backends must reject
+          it before executing any action.
         """
         raise NotImplementedError

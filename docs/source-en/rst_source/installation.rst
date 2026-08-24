@@ -7,10 +7,10 @@ dependency combinations.
 Prerequisites
 -------------
 
-- Linux with an NVIDIA GPU (LIBERO renders on EGL).
-- CUDA 12.x drivers matching your GPU.
-- Python 3.10–3.12 (see ``pyproject.toml``'s ``requires-python``).
-- ``git``, ``bash``, and a working C toolchain for MuJoCo / robosuite.
+- Linux with an NVIDIA GPU.
+- A CUDA 12.x-compatible NVIDIA driver.
+- Python 3.10–3.12.
+- ``git``, ``bash``, and a working C toolchain.
 
 You will also want:
 
@@ -53,6 +53,9 @@ Available extras:
      - RLinf runtime only
    * - ``.[robocasa]``
      - RoboCasa365 simulator + the RLDX-1 VLA; see :doc:`usage/robocasa`
+   * - ``.[robotwin]``
+     - RoboTwin simulation and LingBot inference dependencies;
+       see :doc:`usage/robotwin`
    * - ``.[sam3]``
      - SAM 3.0 only
 

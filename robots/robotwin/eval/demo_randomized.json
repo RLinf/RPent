@@ -1,0 +1,1110 @@
+{
+  "schema_version": "1.0",
+  "benchmark": "RoboTwin",
+  "task_config": "demo_randomized",
+  "num_tasks": 50,
+  "seeds_per_task": 5,
+  "num_episodes": 250,
+  "tasks": {
+    "adjust_bottle": [
+      {
+        "seed": 100000,
+        "task_language": "Pick the Coca-Cola bottle upright from the table"
+      },
+      {
+        "seed": 100002,
+        "task_language": "Lift the handheld green bottle using the left arm and hold upright"
+      },
+      {
+        "seed": 100003,
+        "task_language": "Pick the medium green bottle upright from the table"
+      },
+      {
+        "seed": 100004,
+        "task_language": "Lift the smooth green plastic bottle head-up from the table"
+      },
+      {
+        "seed": 100005,
+        "task_language": "Grab the plastic drink bottle from the table and hold it head-up."
+      }
+    ],
+    "beat_block_hammer": [
+      {
+        "seed": 100000,
+        "task_language": "Catch the handheld medium claw hammer and use it on the block."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Grab the nail-driving hammer with the left arm and hit the block"
+      },
+      {
+        "seed": 100003,
+        "task_language": "Lift the hammer for nails and hit the block"
+      },
+      {
+        "seed": 100004,
+        "task_language": "Grab the grippy handle hammer with the right arm and hit block"
+      },
+      {
+        "seed": 100005,
+        "task_language": "Pick the hammer for nails from the table and strike"
+      }
+    ],
+    "blocks_ranking_rgb": [
+      {
+        "seed": 100000,
+        "task_language": "Position red block first, followed by green block, and end with blue block in a row from left to right."
+      },
+      {
+        "seed": 100001,
+        "task_language": "With the left arm, the left arm, and the right arm, place red block, green block, and blue block sequentially from left to right as red, green, blue."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Using the right arm, the left arm, and the right arm, set red block, green block, and blue block from left to right in the sequence red, green, blue."
+      },
+      {
+        "seed": 100003,
+        "task_language": "With the right arm, the left arm, and the left arm, place red block, green block, and blue block sequentially from left to right as red, green, blue."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Begin by placing red block on the left, then add green block to the right, and finish with blue block."
+      }
+    ],
+    "blocks_ranking_size": [
+      {
+        "seed": 100000,
+        "task_language": "Transfer large block, medium block, small block to the center, aligning from largest to smallest."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Bring large block, medium block, and small block to the center using the left arm, the left arm, and the right arm."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Grab large block, medium block, small block with the left arm, the right arm, the left arm and organize them by descending size."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Move large block with the left arm, medium block with the right arm, and small block with the left arm to sort them."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Move large block with the left arm, medium block with the right arm, and small block with the right arm to sort them."
+      }
+    ],
+    "click_alarmclock": [
+      {
+        "seed": 100000,
+        "task_language": "Use the left arm to click the top of the rectangular alarm-clock"
+      },
+      {
+        "seed": 100001,
+        "task_language": "Press the top button in the rounded square-shaped alarm clock's center."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Locate and press the top button on the small plastic alarm clock"
+      },
+      {
+        "seed": 100004,
+        "task_language": "Use the right arm to press the blue clock with green stripe's top button"
+      },
+      {
+        "seed": 100005,
+        "task_language": "Press the alarm-clock with digital display's top button using the left arm"
+      }
+    ],
+    "click_bell": [
+      {
+        "seed": 100000,
+        "task_language": "Press the specified top area of the rounded bell with flat black part."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Press down the bell with metallic top and plastic base's top center gently."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Press the specified top area of the simple hand bell with black stand."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Use the right arm to touch the plastic and metal bell's top center."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Click the round bell's top center using the right arm."
+      }
+    ],
+    "dump_bin_bigbin": [
+      {
+        "seed": 100003,
+        "task_language": "Lift the tabletrashbin made of plastic, pour into the big bin."
+      },
+      {
+        "seed": 100007,
+        "task_language": "Lift the desk-sized white tabletrashbin using the arm to pour balls."
+      },
+      {
+        "seed": 100020,
+        "task_language": "Pick the small white trashbin up, pour all balls inside bin"
+      },
+      {
+        "seed": 100023,
+        "task_language": "Move the arm, take the white bin with flared top edge, and pour."
+      },
+      {
+        "seed": 100027,
+        "task_language": "Pick up the rectangular tabletop waste container using the arm, pour balls."
+      }
+    ],
+    "grab_roller": [
+      {
+        "seed": 100000,
+        "task_language": "Grip the wooden rolling tool firmly with arms."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Hold the roller for smoothing materials with both arms to pick it up"
+      },
+      {
+        "seed": 100002,
+        "task_language": "Use arms to hold the wooden rolling tool tightly."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Reach out to grab the roller with smooth texture from the table"
+      },
+      {
+        "seed": 100006,
+        "task_language": "Hold the smooth cylindrical roller with both arms to pick it up"
+      }
+    ],
+    "handover_block": [
+      {
+        "seed": 100001,
+        "task_language": "With the left arm grab the red block, hand it to the right arm, then position it onto the blue pad."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Grab the red block and transfer to the right."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Use left arm to grab the block and hand it to the right."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Grab the red block and transfer to the right."
+      },
+      {
+        "seed": 100005,
+        "task_language": "Pick the red block with the left arm and transfer to the right."
+      }
+    ],
+    "handover_mic": [
+      {
+        "seed": 100000,
+        "task_language": "Take the metal head microphone and pass it to another hand"
+      },
+      {
+        "seed": 100001,
+        "task_language": "Pick up the handheld teal microphone and move it to the opposite side"
+      },
+      {
+        "seed": 100002,
+        "task_language": "Grab the textured white microphone head and give it to the opposite arm."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Hold the mesh-patterned microphone head securely and shift it to another arm."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Use one hand to grab the small audio microphone and pass it."
+      }
+    ],
+    "hanging_mug": [
+      {
+        "seed": 100002,
+        "task_language": "Take the light beige ceramic drinking mug from the table, rotate it, place it in the center, then hang it onto the metal rack."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Take the bright blue coffee mug, rotate it, set it in the middle, then hang it on the smooth dark gray rack."
+      },
+      {
+        "seed": 100005,
+        "task_language": "Grab the printed white ceramic mug, rotate it, place it in the middle, and hang it on the angled rack with long and short rods."
+      },
+      {
+        "seed": 100006,
+        "task_language": "With the left arm, grab the mug with thick sturdy handle from the table, rotate it, place it centrally, and with the right arm, hang it onto the smooth rack."
+      },
+      {
+        "seed": 100009,
+        "task_language": "Take the smooth ceramic mug, rotate it, set it on the table's center, then hang it onto the dark gray rack."
+      }
+    ],
+    "lift_pot": [
+      {
+        "seed": 100001,
+        "task_language": "Use both arms to raise the metal kitchenpot"
+      },
+      {
+        "seed": 100002,
+        "task_language": "Hold the kitchenpot with smooth exterior and lift upward"
+      },
+      {
+        "seed": 100007,
+        "task_language": "Raise the cooking kitchenpot with side grips evenly with arms"
+      },
+      {
+        "seed": 100009,
+        "task_language": "Lift the cylindrical kitchenpot upward with both arms"
+      },
+      {
+        "seed": 100017,
+        "task_language": "Lift the kitchenpot with smooth exterior upward with both arms"
+      }
+    ],
+    "move_can_pot": [
+      {
+        "seed": 100000,
+        "task_language": "Move the red sauce can for holding condiments from its spot to near the cylindrical kitchenpot with flat edges"
+      },
+      {
+        "seed": 100001,
+        "task_language": "Set the small cylindrical sauce can near the kitchenpot with two side handles after picking it up"
+      },
+      {
+        "seed": 100004,
+        "task_language": "Bring the sauce can over and set it near the gray pot for boiling food"
+      },
+      {
+        "seed": 100005,
+        "task_language": "Use the left arm to lift the red can with gold patterns, then move it next to the black kitchenpot with round lid"
+      },
+      {
+        "seed": 100006,
+        "task_language": "Pick up the small cylindrical sauce can using the left arm, transfer it beside the round blue-lid kitchenpot for stovetop"
+      }
+    ],
+    "move_pillbottle_pad": [
+      {
+        "seed": 100000,
+        "task_language": "Lift the bottle with white cap and carefully place it on pad"
+      },
+      {
+        "seed": 100001,
+        "task_language": "Lift the bottle with large orange label using the left arm and position it on the pad."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Pick the compact plastic bottle with screw cap with the right arm and position it onto pad"
+      },
+      {
+        "seed": 100003,
+        "task_language": "Pick the orange bottle for pills or liquid and place it on the pad"
+      },
+      {
+        "seed": 100004,
+        "task_language": "Grab and transfer the brown plastic cylindrical bottle with the right arm to pad"
+      }
+    ],
+    "move_playingcard_away": [
+      {
+        "seed": 100000,
+        "task_language": "Lift the box holding playing cards from the table and move it outward."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Lift the glossy rectangular playingcards box using the left arm and transfer it outward."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Pick up the small black box with cards and place it further away."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Shift the rectangle-shaped cards box outward after grabbing it."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Pick the playingcards storage box from the table and shift it outward."
+      }
+    ],
+    "move_stapler_pad": [
+      {
+        "seed": 100000,
+        "task_language": "Stick the stapler with white metallic components onto the Yellow colored mat."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Set the stapler with orange top lever on the Green mat with the right arm."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Set the paper stapler with silver tray on the Yellow mat with the right arm."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Lift the small red stapler and drop it onto Gray mat"
+      },
+      {
+        "seed": 100005,
+        "task_language": "the left arm transfers the handheld blue and silver stapler to the Magenta mat."
+      }
+    ],
+    "open_laptop": [
+      {
+        "seed": 100000,
+        "task_language": "Lift and open the plastic orange laptop with metal parts."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Raise the black laptop with Saturn image on screen lid with the right arm."
+      },
+      {
+        "seed": 100006,
+        "task_language": "Open the slim laptop lifting with the left arm"
+      },
+      {
+        "seed": 100007,
+        "task_language": "Raise the medium-sized laptop lid using the left arm."
+      },
+      {
+        "seed": 100008,
+        "task_language": "Raise the keyboard laptop using the right arm firmly."
+      }
+    ],
+    "open_microwave": [
+      {
+        "seed": 100000,
+        "task_language": "Pull the handle to open the gray microwave with two control knobs."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Utilize the left arm to pull the yellow-panel microwave with smooth sides open."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Pull the handle to open the medium microwave."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Open the microwave with patterned top and knobs by grasping its handle."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Use the left arm to pull the microwave with glass top open."
+      }
+    ],
+    "pick_diverse_bottles": [
+      {
+        "seed": 100001,
+        "task_language": "Hold the medium-sized bottle in one arm, the yellow container with rounded edges in the other."
+      },
+      {
+        "seed": 100005,
+        "task_language": "One arm grabs the orange bottle; the other arm grabs the bottle with white screw cap."
+      },
+      {
+        "seed": 100007,
+        "task_language": "Lift both bottles, the black plastic bottle with Pepsi logo with one arm, the yellow label bottle with the other."
+      },
+      {
+        "seed": 100009,
+        "task_language": "Hold the handheld medium-sized liquid bottle in one arm, catch the cylindrical bottle with narrow neck with the other arm."
+      },
+      {
+        "seed": 100013,
+        "task_language": "Catch the smooth orange cylindrical bottle, then catch the medium bottle with glossy surface."
+      }
+    ],
+    "pick_dual_bottles": [
+      {
+        "seed": 100000,
+        "task_language": "Grab the brown bottle with red label with one hand, then reach for the bottle with narrow top."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Catch the bottle with ridges on bottom in one hand and the plastic bottle too."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Lift bottle the plastic drink bottle, then bottle the bottle with narrow top."
+      },
+      {
+        "seed": 100005,
+        "task_language": "Use separate arms to pick the dark drink bottle with logo and the bottle with narrow top."
+      },
+      {
+        "seed": 100006,
+        "task_language": "Pick up the dark drink bottle with logo and the smooth green plastic bottle together."
+      }
+    ],
+    "place_a2b_left": [
+      {
+        "seed": 100004,
+        "task_language": "Use the right arm to put the rectangular coffee box left of the bell with protruding knob"
+      },
+      {
+        "seed": 100005,
+        "task_language": "Grab the mouse with sleek design with the right arm and shift it left of the palm-sized playingcards carton."
+      },
+      {
+        "seed": 100006,
+        "task_language": "Place the dark mouse with logo on top on the left of the small plastic rubikscube."
+      },
+      {
+        "seed": 100007,
+        "task_language": "Set the phone with digital display on the left side of the box of playingcards."
+      },
+      {
+        "seed": 100008,
+        "task_language": "Grab the flat phone using the left arm and place it left of the rectangular red coffee-box."
+      }
+    ],
+    "place_a2b_right": [
+      {
+        "seed": 100000,
+        "task_language": "Move the bell shaped like half-circle dome and place it carefully to the solid soap in light yellow's right."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Position the green toycar at the right side of the small black box with cards"
+      },
+      {
+        "seed": 100002,
+        "task_language": "Place the dark gray mouse precisely to the right of the round bell."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Stick the rectangular playingcards case on the soap with tan specks's right side"
+      },
+      {
+        "seed": 100005,
+        "task_language": "Position the gold-decorated beige tea box to the right of the coffee-box with cup image on top."
+      }
+    ],
+    "place_bread_basket": [
+      {
+        "seed": 100000,
+        "task_language": "Pick the golden brown bread and the golden bread and set them in the medium oval breadbasket."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Use the dual arm to place the soft golden bread and the round bread with crusty texture into the beige breadbasket."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Use the left arm to grab the soft square bread and drop it inside the medium-sized rectangular breadbasket."
+      },
+      {
+        "seed": 100005,
+        "task_language": "Grab the bread loaf with uneven edges with the left arm and drop it in the plastic breadbasket with mesh sides."
+      },
+      {
+        "seed": 100006,
+        "task_language": "Grab both the bread with firm crust edges and the light golden brown bread with the left arm and place in the white oval breadbasket."
+      }
+    ],
+    "place_bread_skillet": [
+      {
+        "seed": 100001,
+        "task_language": "Pick up the medium bread with rounded sides and place it in the dark gray skillet."
+      },
+      {
+        "seed": 100006,
+        "task_language": "Grab the soft bread and place it inside the round skillet with open handle end"
+      },
+      {
+        "seed": 100008,
+        "task_language": "Transfer the square-shaped bread piece into the gray skillet for stovetop cooking from the table"
+      },
+      {
+        "seed": 100011,
+        "task_language": "Take the hand-sized bread block and put it in the skillet with wide round base."
+      },
+      {
+        "seed": 100013,
+        "task_language": "Grab the bread with golden-brown crust from the table and set it in the medium-sized frying skillet."
+      }
+    ],
+    "place_burger_fries": [
+      {
+        "seed": 100000,
+        "task_language": "Pick up the light brown hamburg, grab the Golden fries sticks in red carton, place them on the medium plastic tray"
+      },
+      {
+        "seed": 100001,
+        "task_language": "Pick up the palm-sized hamburg packaging and the small red fries packet, then put them on the bright orange tray with glossy finish"
+      },
+      {
+        "seed": 100003,
+        "task_language": "Move the yellow bottom hamburg box and the rectangular red fries packet to the medium dark brown tray with both arms"
+      },
+      {
+        "seed": 100004,
+        "task_language": "Grab the orange-white hamburg with yellow highlight, grab the Golden fries crispy red package container, and set both onto the bright orange tray for serving."
+      },
+      {
+        "seed": 100005,
+        "task_language": "Pick up the white part with orange edges hamburg and the red fries packet, then put both on the plastic tray for carrying items."
+      }
+    ],
+    "place_can_basket": [
+      {
+        "seed": 100001,
+        "task_language": "Use the left arm to pick the red cylindrical can with silver top, place it inside the basket with arched black grip, then lift the basket with arched black grip."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Grab the white patterned brown metal can, place it in the basket with perforated sides, and raise the basket with perforated sides using the other arm."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Grab the red and gold cylindrical can, place it in the medium yellow basket with slots, and then lift the medium yellow basket with slots."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Use the right arm to grab the red and gold cylindrical can, put it into the handheld basket, and lift the handheld basket with another arm."
+      },
+      {
+        "seed": 100005,
+        "task_language": "Hold the beverage can with printed label using the left arm, place it in the brown basket, and lift the brown basket."
+      }
+    ],
+    "place_cans_plasticbox": [
+      {
+        "seed": 100000,
+        "task_language": "Use dual arms to pick the beverage can with printed label and the Coca-Cola can, placing both in the light blue rectangular storage plasticbox."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Utilize the arms to deposit both the metal can with pull-tab top and the colorful can with lime and orange design into the plasticbox for carrying items."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Grab the red drink can with white lid, insert it into the deep blue box for storage, then grab the small soda can with lime graphics and repeat."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Move the gold-decorated aluminum can and the light brown can with smooth texture one at a time into the medium box with angled sides."
+      },
+      {
+        "seed": 100005,
+        "task_language": "Lift the metallic soda can, place it in the plasticbox with hinged lid, then repeat for the can with red green label."
+      }
+    ],
+    "place_container_plate": [
+      {
+        "seed": 100000,
+        "task_language": "Grab container using the smooth gray bowl, transfer it to the food plate."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Position the medium bowl for food or items to lower the container on the flat ceramic plate with smooth texture"
+      },
+      {
+        "seed": 100002,
+        "task_language": "Place the container onto the medium plate for food with the white bowl."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Guide the container with the bowl with brown outer rim onto the medium plate for food"
+      },
+      {
+        "seed": 100005,
+        "task_language": "Secure container with the bowl with shiny texture, move it, place on the flat round greenish plate."
+      }
+    ],
+    "place_dual_shoes": [
+      {
+        "seed": 100000,
+        "task_language": "Grab two the comfortable white and red shoe, tips left, place them carefully in the Nike-branded orange shoe-box."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Grasp two the rounded front shoe, tips aligned left, and place them in the Nike-branded orange shoe-box."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Grab two the classic sneaker design shoe, tips left, place them carefully in the smooth orange box for shoes."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Use both arms to place two the white shoe with red tag into the shoe-box with Nike printed logo, tips left."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Pick up two the shoe for everyday wear together and place in the medium orange box with smooth surface, tips left."
+      }
+    ],
+    "place_empty_cup": [
+      {
+        "seed": 100000,
+        "task_language": "Use an arm to drop the smooth blue cup for liquids on the coaster with circular shape."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Position the blue rounded-bottom cup above and drop it on the smooth round palm-sized coaster"
+      },
+      {
+        "seed": 100002,
+        "task_language": "Use an arm to place the plastic cup for drinks on the light gray round grainy coaster"
+      },
+      {
+        "seed": 100003,
+        "task_language": "Drop the cup for holding liquids firmly on the smooth round palm-sized coaster using arm"
+      },
+      {
+        "seed": 100004,
+        "task_language": "Position the cylindrical light blue cup carefully on the small coaster with grain texture"
+      }
+    ],
+    "place_fan": [
+      {
+        "seed": 100002,
+        "task_language": "Grab the fan with round blades and position it on the Maroon mat, ensuring it faces the robot."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Use the right arm to pick the fan with rounded rectangular body, set it on the Pink mat, and face it toward the robot."
+      },
+      {
+        "seed": 100005,
+        "task_language": "Grab the white fan and position it on the Lime mat, ensuring it faces the robot."
+      },
+      {
+        "seed": 100006,
+        "task_language": "Grab the fan with beige grilles with the right arm, making sure it faces the robot on the Purple mat."
+      },
+      {
+        "seed": 100009,
+        "task_language": "Use the left arm to grab the fan with rectangular base, then align it on the Olive mat facing the robot."
+      }
+    ],
+    "place_mouse_pad": [
+      {
+        "seed": 100000,
+        "task_language": "Hold the gray mouse and carefully place it on the Yellow mat."
+      },
+      {
+        "seed": 100001,
+        "task_language": "With the left arm, grab the mouse for cursor control and position it on Green mat."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Lift the plastic mouse with smooth finish up with the right arm and stick it onto the Blue mat."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Pick up the the oval-shaped mouse for computer use with the right arm and place it on the Gray mat."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Use the right arm to pick the small computer mouse and place it on the Gray mat."
+      }
+    ],
+    "place_object_basket": [
+      {
+        "seed": 100000,
+        "task_language": "Put the toycar with black tires in the smooth ribbed light brown basket and pull the smooth ribbed light brown basket away."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Grab the rectangle-shaped cards box with one arm, drop the rectangle-shaped cards box in the carrying basket with black plastic handle."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Lift the miniature pink car with black wheels using the left arm, drop it in the basket with arched black grip, then push the basket with arched black grip via the right arm."
+      },
+      {
+        "seed": 100007,
+        "task_language": "Use the left arm to pick the pink toycar, then use the right arm for the rectangular basket with smooth surface."
+      },
+      {
+        "seed": 100008,
+        "task_language": "Grab the black playing cards box, drop it in the basket with loop handle, then move the basket with loop handle."
+      }
+    ],
+    "place_object_scale": [
+      {
+        "seed": 100000,
+        "task_language": "Pick up the blue bell and drop it on the white electronicscale with red buttons"
+      },
+      {
+        "seed": 100001,
+        "task_language": "Move the plastic stapler with metallic interior to the electronicscale with a glass display and leave it there."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Move the compact bell with round base to the position on the lightweight electronicscale"
+      },
+      {
+        "seed": 100004,
+        "task_language": "Use the right arm to lift the stapler with curved blue top onto the electronicscale with digital screen"
+      },
+      {
+        "seed": 100005,
+        "task_language": "With the left arm, lift the small computer mouse to set it on the electronicscale with smooth finish"
+      }
+    ],
+    "place_object_stand": [
+      {
+        "seed": 100001,
+        "task_language": "Grab the blue stapler using the left arm and place it on the hollow black plastic displaystand"
+      },
+      {
+        "seed": 100002,
+        "task_language": "Move the compact tabletop bell to the medium black angled displaystand and set it there."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Pick the multicolored puzzle cube up and place on the rectangular plastic displaystand"
+      },
+      {
+        "seed": 100004,
+        "task_language": "Put the black button remotecontrol on the black displaystand for holding items after picking it"
+      },
+      {
+        "seed": 100006,
+        "task_language": "Put the red stapler on the compact angled black displaystand after picking it"
+      }
+    ],
+    "place_phone_stand": [
+      {
+        "seed": 100000,
+        "task_language": "Take the phone with polished silver border to the light brown phonestand."
+      },
+      {
+        "seed": 100009,
+        "task_language": "Take the compact rectangular phone to the phone holder with cutout underneath."
+      },
+      {
+        "seed": 100010,
+        "task_language": "Move the metal and glass black phone onto the small green and silver stand."
+      },
+      {
+        "seed": 100012,
+        "task_language": "Take the phone with touchscreen to the phonestand for holding phones."
+      },
+      {
+        "seed": 100013,
+        "task_language": "Lift the metal and glass black phone onto the curved phonestand with phone slot."
+      }
+    ],
+    "place_shoe": [
+      {
+        "seed": 100001,
+        "task_language": "Use the left arm to pick up the shoe with patterned bottom from the table and drop it on the mat"
+      },
+      {
+        "seed": 100002,
+        "task_language": "Grab the white shoe with black lines from the table with the right arm and place it on the mat"
+      },
+      {
+        "seed": 100003,
+        "task_language": "Take the smooth surface white shoe and put it on the mat"
+      },
+      {
+        "seed": 100004,
+        "task_language": "With the right arm, grab the dark brown leather shoe off the table and place it onto the mat"
+      },
+      {
+        "seed": 100005,
+        "task_language": "Lift the shoe made of rubber and leather using the left arm from the table and place it on the mat"
+      }
+    ],
+    "press_stapler": [
+      {
+        "seed": 100000,
+        "task_language": "Use one arm the left arm to press the metal and plastic stapler."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Press the compact black stapler to staple the sheets together."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Push the curved blue and silver stapler down firmly."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Use one arm to press the plastic and metal stapler."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Press the curved red stapler firmly to staple"
+      }
+    ],
+    "put_bottles_dustbin": [
+      {
+        "seed": 100005,
+        "task_language": "Pick the yellow bottle with smooth texture and move it into the black dustbin, repeat for the bottle with ribbed design and the red bottle."
+      },
+      {
+        "seed": 100015,
+        "task_language": "Grab the yellow bottle body with tapered neck, place it in the black and white trash holder, then grab the transparent bottle and the rounded bottle with a white neck for the black and white trash holder."
+      },
+      {
+        "seed": 100016,
+        "task_language": "Using arms, grab the medium plastic bottle with tapered neck and put it in the smooth black dustbin, repeat for the hand-sized bottle and the red and black beverage bottle."
+      },
+      {
+        "seed": 100021,
+        "task_language": "Move the medium yellow cylindrical bottle to the black dustbin, then the transparent bottle, and finally the smooth plastic bottle."
+      },
+      {
+        "seed": 100022,
+        "task_language": "Grab the medium yellow cylindrical bottle, put it in the black and white trash holder, follow by moving the hand-sized bottle and the red-labeled soda bottle there too."
+      }
+    ],
+    "put_object_cabinet": [
+      {
+        "seed": 100032,
+        "task_language": "Pull open the wooden cabinet's drawer and place the small office stapler inside it."
+      },
+      {
+        "seed": 100049,
+        "task_language": "Pull open the drawer of the cabinet with metal reinforcements and place the light golden brown bread inside."
+      },
+      {
+        "seed": 100060,
+        "task_language": "Set the smooth playingcards pack into the cabinet with gray sides's drawer after opening it."
+      },
+      {
+        "seed": 100115,
+        "task_language": "Pull open the light wood cabinet's drawer and put the rubikscube inside."
+      },
+      {
+        "seed": 100173,
+        "task_language": "Place the Nescafe coffee-box with shiny surface into the drawer of the storage cabinet after sliding it open."
+      }
+    ],
+    "rotate_qrcode": [
+      {
+        "seed": 100000,
+        "task_language": "Grab the green payment logo on gray top using the left arm, then rotate it until the qrcode faces you."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Lift the small glossy paymentsign with the left arm, then rotate it to make the qrcode visible."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Use the right arm to lift the rectangular paymentsign with stand and rotate it QR code toward you."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Take the sign with yellow payment section from the table, rotating it QR code toward you."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Catch the smooth surface paymentsign, lift it, and rotate it QR code facing."
+      }
+    ],
+    "scan_object": [
+      {
+        "seed": 100007,
+        "task_language": "Take the scanner with smooth black body using the left arm, pick the small tea box with gold patterns using the right arm, and scan the small tea box with gold patterns with the scanner with smooth black body."
+      },
+      {
+        "seed": 100009,
+        "task_language": "Use the left arm to take the matte black scanner, then grab the tea box with printed leaves with the right arm, and scan it."
+      },
+      {
+        "seed": 100013,
+        "task_language": "Using one hand for the scanner for reading barcodes and the other for the beige tea-box with handle, complete the scan."
+      },
+      {
+        "seed": 100015,
+        "task_language": "Hold the scanner with blue scanning area with the left arm and the palm-sized tea container with the right arm, then scan the palm-sized tea container using the scanner with blue scanning area."
+      },
+      {
+        "seed": 100024,
+        "task_language": "Take hold of the smooth black scanner with blue stripe using the right arm, grab the gold-decorated beige tea box using the left arm, and scan it."
+      }
+    ],
+    "shake_bottle": [
+      {
+        "seed": 100001,
+        "task_language": "Grab the handheld curvy bottle with the left arm and shake."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Use the right arm to lift and shake the medium-sized brown plastic bottle."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Use the right arm to lift and shake the yellow label bottle."
+      },
+      {
+        "seed": 100007,
+        "task_language": "Pick up the rectangular-shaped bottle with round cap and shake it well."
+      },
+      {
+        "seed": 100008,
+        "task_language": "Hold and shake the the handheld brown bottle with white lid carefully."
+      }
+    ],
+    "shake_bottle_horizontally": [
+      {
+        "seed": 100001,
+        "task_language": "Shake the yellow bottle with blue label side-to-side after grabbing it."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Pick up the brown bottle with rounded rectangular shape and shake it horizontally."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Pick up the cylindrical orange and white bottle with the right arm, shake it sideways."
+      },
+      {
+        "seed": 100007,
+        "task_language": "Pick the rectangular-shaped bottle with round cap, then shake it horizontally."
+      },
+      {
+        "seed": 100008,
+        "task_language": "Hold the white-capped brown cylindrical bottle and move it side to side."
+      }
+    ],
+    "stack_blocks_three": [
+      {
+        "seed": 100000,
+        "task_language": "Move red block, green block, and blue block to the center using the right arm, the left arm, the left arm, and stack them with blue block on top."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Move red block, green block, and blue block to the middle first, then stack blue block on green block and green block on red block."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Place red block, green block, and blue block at the table's center; stack blue block over green block, then green block over red block."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Use the right arm, the left arm, and the left arm to center red block, green block, and blue block, then stack blue block above green block and green block above red block."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Relocate red block, green block, and blue block to the center and stack blue block on green block and green block on red block."
+      }
+    ],
+    "stack_blocks_two": [
+      {
+        "seed": 100000,
+        "task_language": "Grab red block, set it in the center, then stack green block over it."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Relocate red block and green block to the center, then layer green block over red block."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Place red block and green block together at the center, then stack green block on top."
+      },
+      {
+        "seed": 100003,
+        "task_language": "Move red block and green block to the center, then stack green block above red block."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Move red block and green block to the center, using the right arm and the left arm, and stack green block on top of red block."
+      }
+    ],
+    "stack_bowls_three": [
+      {
+        "seed": 100000,
+        "task_language": "Pick each the curved bowl light blue shade and stack them in order one on top of another."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Stack the the rounded bowl with light blue color sequentially using your arms."
+      },
+      {
+        "seed": 100002,
+        "task_language": "Take the bottom the bowl with shiny texture and sequentially pile the other two above."
+      },
+      {
+        "seed": 100006,
+        "task_language": "Place the bottom the blue bowl, then add the other two on top."
+      },
+      {
+        "seed": 100007,
+        "task_language": "Arrange the dark inside bowl light blue outside with the largest bowl at the base."
+      }
+    ],
+    "stack_bowls_two": [
+      {
+        "seed": 100000,
+        "task_language": "Grab the bowl with brown outer rim, position it, and place the dark inside bowl light blue outside on top."
+      },
+      {
+        "seed": 100001,
+        "task_language": "Lift the bowl with shiny texture, stack it precisely on top of the bowl with shiny texture."
+      },
+      {
+        "seed": 100002,
+        "task_language": "With the right arm, lift the blue bowl with slightly rounded base and stack the bowl with shiny texture using the left arm."
+      },
+      {
+        "seed": 100004,
+        "task_language": "Pick up the curved bowl light blue shade using the right arm, then stack the medium-sized bowl for holding food using the right arm."
+      },
+      {
+        "seed": 100006,
+        "task_language": "Use the right arm for the blue bowl with slightly rounded base, place it, and stack the dark inside bowl light blue outside with the left arm."
+      }
+    ],
+    "stamp_seal": [
+      {
+        "seed": 100003,
+        "task_language": "Lift the compact stone seal and press onto Blue"
+      },
+      {
+        "seed": 100004,
+        "task_language": "Use the right arm to grab the stone seal with leaf designs, press Yellow"
+      },
+      {
+        "seed": 100005,
+        "task_language": "Use the left arm to pick the smooth textured reddish-brown seal for Maroon"
+      },
+      {
+        "seed": 100006,
+        "task_language": "Place the hand-sized rectangular brown seal onto Magenta after grabbing."
+      },
+      {
+        "seed": 100007,
+        "task_language": "Pick up the seal with textured top and press onto Orange"
+      }
+    ],
+    "turn_switch": [
+      {
+        "seed": 100001,
+        "task_language": "Click the plastic gray body switch with robotic precision"
+      },
+      {
+        "seed": 100003,
+        "task_language": "Activate the switch for electrical control with robotic precision"
+      },
+      {
+        "seed": 100005,
+        "task_language": "Locate and press the plastic switch with metal prongs"
+      },
+      {
+        "seed": 100006,
+        "task_language": "Use the left arm for switching the switch with a smooth top"
+      },
+      {
+        "seed": 100008,
+        "task_language": "Use the left arm to engage the palm-sized black switch"
+      }
+    ]
+  }
+}
