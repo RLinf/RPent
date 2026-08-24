@@ -206,7 +206,7 @@ During a TaskRun, the Dashboard shows:
 
 The page accepts ordinary planner messages, new task commands, and interrupt
 requests, but these controls do not issue robot actions directly. Planners,
-toolkits, and environment runtimes publish display updates through a
+toolkits, and robot runtimes publish display updates through a
 ``dashboard_events`` sink. The server sends state summaries over SSE, and the
 frontend fetches detailed events, timeline data, and images as needed.
 

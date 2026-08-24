@@ -362,7 +362,7 @@ endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
 .. note::
 
    共享 CLI parser 将 ``--robot`` 限定为 ``libero`` 和 ``robocasa``
-   (见 ``rpent/cli/main.py``)。要让上面这条命令在全新的 ``myenv`` 上跑通，
+   (见 ``rpent/cli/main.py``)。要让上面这条命令在全新的 ``myrobot`` 上跑通，
    需要先把新名字加到 ``rpent/cli/main.py`` 中 ``--robot`` 的
    ``choices=[...]`` 列表里。
 

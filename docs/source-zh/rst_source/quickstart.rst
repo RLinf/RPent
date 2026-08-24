@@ -68,7 +68,7 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 -------------
 
 下表只列出完成首次运行需要关注的选项。其他通用选项可运行
-``rpent --help`` 查看；有关 LIBERO 环境的更多配置，请参阅
+``rpent --help`` 查看；有关 LIBERO 机器人的更多配置，请参阅
 :doc:`LIBERO 使用指南 <usage/libero>`。
 
 .. list-table::

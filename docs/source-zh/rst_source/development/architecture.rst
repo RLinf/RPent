@@ -178,7 +178,7 @@ TaskRun 运行期间，Dashboard 页面提供：
 - 运行结束后的完整回合录像（如果已生成）。
 
 页面可以提交普通 planner 消息、新任务命令和中断请求，但不会直接发出机器人
-动作。planner、toolkit 和环境运行时通过 ``dashboard_events`` 事件接收器发布
+动作。planner、toolkit 和机器人运行时通过 ``dashboard_events`` 事件接收器发布
 展示更新。
 服务端通过 SSE 推送运行状态摘要，前端再按需读取详细事件、时间线和图像。
 

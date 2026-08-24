@@ -33,12 +33,12 @@ Hosting
 -------
 
 ``resources/`` is not vendored in git. It is hosted on the Hugging Face dataset
-``RLinf/RPent-memory`` (laid out per environment, e.g. ``libero/memory/`` and
+``RLinf/RPent-memory`` (laid out per robot, e.g. ``libero/memory/`` and
 ``libero/results_*_pert/``). ``rpent.utils.resources.ensure_resources`` syncs the
 robot's subtree from the dataset on each run (incremental: only changed files are
 downloaded), so the local copy stays up to date. The dataset is public, so a
 fresh clone downloads it without a token. Set ``HF_HUB_OFFLINE=1`` to skip the
-sync and use the local copy only. Memory is optional: if an env has none on the
+sync and use the local copy only. Memory is optional: if a robot has none on the
 dataset, or the sync fails, the run continues with whatever is on disk.
 
 Updating the memory

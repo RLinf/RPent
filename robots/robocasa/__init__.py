@@ -1,2 +1,2 @@
-"""RoboCasa environment extension."""
-from robots.robocasa.env_spec import get_env_spec, get_toolkit
+"""RoboCasa robot extension."""
+from robots.robocasa.robot_spec import get_robot_spec, get_toolkit

@@ -17,7 +17,7 @@ def _has_local_resources(resources_dir: Path) -> bool:
 
 
 def ensure_resources(robot_name: str) -> Path:
-    """Sync an robot's optional resources, or use a pre-downloaded copy."""
+    """Sync a robot's optional resources, or use a pre-downloaded copy."""
     resources_dir = get_resources_dir(robot_name)
 
     if os.environ.get("HF_HUB_OFFLINE") == "1":

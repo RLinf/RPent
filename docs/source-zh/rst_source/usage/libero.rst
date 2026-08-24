@@ -239,7 +239,7 @@ Dashboard launcher 支持 ``api``、``claude_code`` 和 ``codex`` planner。
 接入自定义 VLA
 ----------------
 
-如果你有一个与 LIBERO 兼容、但并非 Pi0.5 的 VLA，可以在不修改环境实现的
+如果你有一个与 LIBERO 兼容、但并非 Pi0.5 的 VLA，可以在不修改机器人实现的
 情况下替换 model client：
 
 1. 写一个新的 ``vla_server.py``，暴露相同的 ``predict`` RPC 契约

@@ -264,7 +264,7 @@ Bringing your own VLA
 ---------------------
 
 If you have a LIBERO-compatible VLA that is not Pi0.5, swap the model
-client without touching the env by:
+client without touching the robot by:
 
 1. Writing a new ``vla_server.py`` that exposes the same ``predict``
    RPC contract (over HTTP or socket).

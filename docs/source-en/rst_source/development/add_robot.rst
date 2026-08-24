@@ -390,7 +390,7 @@ Once everything compiles, run this minimal smoke test:
 
    The shared CLI parser restricts ``--robot`` to ``libero`` and
    ``robocasa`` (see ``rpent/cli/main.py``). Before this smoke test can
-   succeed with a brand-new ``myenv``, add the new name to the
+   succeed with a brand-new ``myrobot``, add the new name to the
    ``choices=[...]`` list on ``--robot`` in ``rpent/cli/main.py``.
 
 Expect the agent to complete the prompted task, and ``finish`` to be
