@@ -46,6 +46,35 @@ class RoboTwinPrimitives:
         self._check_cancelled = check_cancelled
         self.policy_actions = 0
         self.native_actions = 0
+        # Per-env-step frame buffer for diagnostic video rendering, toggled via
+        # start_recording() / stop_recording(). Mirrors the LIBERO recording
+        # contract (robots/libero/tools.py) so RoboTwin reuses the shared
+        # Dashboard timeline/video projection without env-specific dashboard
+        # logic. Unlike LIBERO, record_frame takes a raw head-camera rgb array
+        # -- the RoboTwin chunk returns per-step head rgb over RPC, not full
+        # observation dicts.
+        self._recording = False
+        self._frames: list[np.ndarray] = []
+
+    def start_recording(self) -> None:
+        self._recording = True
+        self._frames = []
+
+    def record_frame(self, rgb: Any) -> None:
+        """Append one head-camera frame to the recording buffer."""
+        self._frames.append(np.ascontiguousarray(np.asarray(rgb)))
+
+    def recorded_frame_count(self) -> int:
+        return len(self._frames)
+
+    def stop_recording(self) -> list[np.ndarray]:
+        frames = list(self._frames)
+        self._recording = False
+        self._frames = []
+        return frames
+
+    def frame_slice(self, start: int) -> list[np.ndarray]:
+        return list(self._frames[int(start):])
 
     def reset(
         self,
@@ -144,7 +173,12 @@ class RoboTwinPrimitives:
                 action[offset : offset + 6] = update["arm_qpos"]
             if "gripper" in update:
                 action[offset + 6] = update["gripper"]
-            _, _, _, _, info = self.env.step(action, action_type="qpos")
+            step_result = self.env.step(action, action_type="qpos")
+            info = step_result[4]
+            if self._recording:
+                obs = step_result[0]
+                if isinstance(obs, dict) and "main_images" in obs:
+                    self.record_frame(obs["main_images"])
             executed += int(info.get("executed_actions", 0))
             episode_status = info["episode_status"]
             if self.env.terminated or self.env.truncated:
@@ -184,7 +218,19 @@ class RoboTwinPrimitives:
             native_prompt = observation["task_language"]
             actions = self.model.infer(observation)[: MODEL_SPEC.use_length]
             self._check_cancelled()
-            _, _, _, _, info = self.env.chunk_step(actions, action_type="ee")
+            result = self.env.chunk_step(
+                actions,
+                action_type="ee",
+                return_all_frames=self._recording
+                and self.env.execution_capabilities.get("chunk_step_all_frames")
+                is True,
+            )
+            info = result[4]
+            if self._recording:
+                payload = result[0]
+                if isinstance(payload, dict) and "frames" in payload:
+                    for frame in payload["frames"]:
+                        self.record_frame(frame)
             count = int(info.get("executed_actions", 0))
             executed += count
             self.policy_actions += count

@@ -151,8 +151,6 @@ class RoboTwinEnvFacade(BaseEnvFacade):
         action_type: RoboTwinActionType = "qpos",
         return_all_frames: bool = False,
     ) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
-        if return_all_frames:
-            raise ValueError("RoboTwin does not support return_all_frames=True")
         expected_dim = 14 if action_type == "qpos" else 16
         array = np.asarray(actions, dtype=np.float64)
         if array.ndim != 2 or array.shape[0] < 1 or array.shape[1] != expected_dim:
@@ -162,15 +160,28 @@ class RoboTwinEnvFacade(BaseEnvFacade):
         if not np.isfinite(array).all():
             raise ValueError("RoboTwin common actions must contain only finite values")
         observation_list, rewards, terminated, truncated, info_list = (
-            self._env.chunk_step(array, action_type=action_type)
+            self._env.chunk_step(
+                array, action_type=action_type, return_all_frames=return_all_frames
+            )
         )
         if len(observation_list) != 1 or len(info_list) != 1:
             raise RuntimeError(
                 "RoboTwin chunk_step must return one environment, got "
                 f"{len(observation_list)} obs / {len(info_list)} info"
             )
+        observation = observation_list[0]
+        if return_all_frames:
+            # Payload is {"frames": [head_rgb...], "final": obs}. The per-step
+            # frames are native per-env arrays (no env dim to strip); only the
+            # final observation carries the single-environment batch dimension.
+            observation = {
+                "frames": observation["frames"],
+                "final": self._strip_single_env_observation(observation["final"]),
+            }
+        else:
+            observation = self._strip_single_env_observation(observation)
         return (
-            self._strip_single_env_observation(observation_list[0]),
+            observation,
             np.asarray(rewards)[0],
             np.asarray(terminated, dtype=bool)[0],
             np.asarray(truncated, dtype=bool)[0],

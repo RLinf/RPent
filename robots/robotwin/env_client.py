@@ -171,8 +171,24 @@ class RoboTwinEnvClient(BaseEnvClient):
         ):
             raise ValueError(f"invalid RoboTwin chunk result: {result!r}")
         obs_field = result[0]
-        if isinstance(obs_field, list):
-            self.last_obs = obs_field[-1]
+        if return_all_frames:
+            # Fail-close: a server that advertises chunk_step_all_frames must
+            # return the {"frames", "final"} payload. Reject a malformed
+            # payload rather than silently degrading last_obs / recording.
+            if (
+                not isinstance(obs_field, dict)
+                or "frames" not in obs_field
+                or "final" not in obs_field
+            ):
+                raise TypeError(
+                    "RoboTwin return_all_frames=True must return a "
+                    "{'frames','final'} payload, got " + repr(obs_field)
+                )
+            # last_obs must keep the normal final-observation contract (a dict
+            # of {main_images, wrist_images, states, task_descriptions}), never
+            # a bare rgb array -- so it is taken from "final", while "frames" is
+            # consumed by the recording path.
+            self.last_obs = obs_field["final"]
         else:
             self.last_obs = obs_field
         self.last_info = info

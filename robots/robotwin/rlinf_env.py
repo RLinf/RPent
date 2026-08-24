@@ -96,14 +96,24 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         *,
         action_type: RoboTwinActionType = "qpos",
         env_id: int = 0,
+        return_all_frames: bool = False,
     ) -> tuple[list[Any], np.ndarray, np.ndarray, np.ndarray, list[dict[str, Any]]]:
-        """Execute a chunk of native actions, returning a gym-style 5-tuple batched as ``[1, executed]``."""
+        """Execute a chunk of native actions, returning a gym-style 5-tuple batched as ``[1, executed]``.
+
+        When ``return_all_frames`` is True, the single observation element is a
+        ``{"frames": [...], "final": observation}`` payload: ``frames`` holds one
+        post-action head-camera rgb per *executed* native step (the RoboTwin
+        equivalent of LIBERO recording ``env.step``'s returned observation), and
+        ``final`` is the unchanged normal observation. This mirrors the LIBERO
+        recording contract while keeping ``return_all_frames=False`` byte-identical.
+        """
         array = _validate_actions(actions, action_type=action_type)
         sub_env = self._sub_env(env_id)
         rewards: list[float] = []
         terminations: list[bool] = []
         truncations: list[bool] = []
         per_step: list[dict[str, Any]] = []
+        frames: list[np.ndarray] = []
         executed = 0
         with sub_env.lock:
             for action in array:
@@ -125,12 +135,27 @@ class RoboTwinAgentEnv(RoboTwinEnv):
                 terminations.append(bool(step_status["eval_success"]))
                 truncations.append(bool(budget))
                 per_step.append({"episode_status": step_status})
+                if return_all_frames:
+                    # Native observation path (same source as render_camera),
+                    # read while holding the lock; take_action has already
+                    # advanced the scene, so this is a fresh post-action frame.
+                    # Run it through center_and_crop -- the same transform that
+                    # produces main_images -- so per-step frames and the qpos
+                    # path's main_images frames share one size/format for mp4.
+                    head_rgb = sub_env.task.get_obs()["observation"][
+                        "head_camera"
+                    ]["rgb"]
+                    frames.append(
+                        np.asarray(self.center_and_crop(head_rgb, center_crop=self.center_crop))
+                    )
             episode_status = self._episode_status(sub_env)
             robot_state = self._robot_state(sub_env)
             if self.record_metrics:
                 self._elapsed_steps[env_id] = int(episode_status["take_action_cnt"])
         # venv.get_obs() re-acquires sub_env.lock; read it outside the lock.
         observation = self._extract_obs_image(self.venv.get_obs())
+        if return_all_frames:
+            observation = {"frames": frames, "final": observation}
         info = {
             "action_type": action_type,
             "requested_actions": int(len(array)),
