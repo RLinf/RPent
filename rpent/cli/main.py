@@ -91,9 +91,16 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--robot",
         dest="robot_name",
-        required=True,
+        required=False,
         choices=known_robots,
         help=f"Robot backend. Known robots: {known_robots_text}.",
+    )
+    ap.add_argument(
+        "--env",
+        dest="env_name",
+        required=False,
+        choices=known_robots,
+        help="Deprecated alias for --robot; use --robot instead.",
     )
 
     # models
@@ -201,13 +208,23 @@ def _start_continuation_session(args, *, output_dir, recipe_tag,
 
 def main() -> int:
     parser = _build_argparser()
-    # Two-phase argparse: first grab --robot / --dashboard so we know which
-    # robot's flags to add and whether to make its required flags optional.
+    # Two-phase argparse: first grab --robot / --env / --dashboard so we know
+    # which robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
+
+    # --env is a deprecated alias for --robot; resolve it before loading the spec.
+    if early.env_name is not None:
+        if early.robot_name is not None:
+            parser.error("--robot and --env are aliases; provide only one of them")
+        logger.warning("--env is deprecated and will be removed; use --robot instead")
+        early.robot_name = early.env_name
+    if early.robot_name is None:
+        parser.error("--robot is required")
 
     robot_spec = get_robot_spec(early.robot_name)
     robot_spec.add_cli_args(parser, use_dashboard=early.dashboard)
     args = parser.parse_args()
+    args.robot_name = early.robot_name
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
     if args.explore and args.robot_name != "libero":
