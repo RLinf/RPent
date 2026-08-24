@@ -331,10 +331,14 @@ def dump_observation(
         "log": log,
     }
     # Success and budget remain in episode_status; an observation does not
-    # create training termination signals.
+    # create training termination signals. The env's own success flag is,
+    # however, projected onto the dashboard termination channel so the
+    # dashboard can report TASK SOLVED -- mirroring LIBERO/RoboCasa, which
+    # forward the native termination flag into StepRecord.terminated.
+    eval_success = status.get("eval_success") is True
     with env_state.record_step(
         state=state,
-        terminated=False,
+        terminated=eval_success,
         truncated=False,
         command=(log or {}).get("command"),
         result=(log or {}).get("result"),
