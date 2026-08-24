@@ -16,6 +16,11 @@ from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.envs.env_spec import EnvSpec, RunConfig
 from rpent.envs.prompt_bundle import PromptBundle
+from rpent.envs.runtime import (
+    stop_owned_daemons,
+    try_spawn_server,
+    try_wait_server,
+)
 from rpent.utils.config import get_repo_root
 
 if TYPE_CHECKING:
@@ -92,8 +97,8 @@ ROBOTWIN_DASHBOARD_SPEC = {
         "output_slug": "{task_name}_s{seed}",
     },
     "runtime_components": (
-        {"name": "env", "label": "ENV", "scope": "task"},
-        {"name": "vla", "label": "VLA"},
+        {"name": "env", "label": "ENV", "scope": "unique"},
+        {"name": "vla", "label": "VLA", "scope": "shared"},
     ),
     "frame_channels": (
         {"name": "camera", "label": "head camera"},
@@ -155,22 +160,12 @@ def vla_runtime_contract() -> dict[str, object]:
     }
 
 
-@dataclass(frozen=True, slots=True)
-class RoboTwinRuntimePaths:
-    """Validated runtime resources for a RoboTwin episode."""
-
-    assets_path: Path | None
-    model_path: Path | None
-
-
 def get_env_spec() -> EnvSpec:
     return EnvSpec(
         name="robotwin",
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
-        init_shared_runtime=_init_shared_runtime,
-        init_task_runtime=_init_task_runtime,
         init_runtime=_init_runtime,
         dashboard=ROBOTWIN_DASHBOARD_SPEC,
     )
@@ -258,7 +253,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if not args.task_name:
         raise ValueError("--task-name is required")
     env_cuda_device, vla_cuda_device = _resolve_cuda_devices(args)
-    args._robotwin_runtime_paths = _resolve_runtime_paths(args)
     output_dir = args.output_dir
     if output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
@@ -296,20 +290,12 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
-def _rpc_client(endpoint: str):
-    from rpent.utils.http_rpc import HttpRpcClient
-    from rpent.utils.rpc import parse_endpoint
-    from rpent.utils.socket_rpc import SocketRpcClient
-
-    protocol, host, port = parse_endpoint(endpoint)
-    if protocol == "http":
-        return HttpRpcClient(f"http://{host}:{port}")
-    if protocol == "socket":
-        return SocketRpcClient(host, port)
-    raise ValueError(f"unsupported RPC protocol: {protocol!r}")
-
-
-def _wait_for_tcp(host: str, port: int, daemon, timeout_s: float = 900.0) -> None:
+def _wait_for_tcp(
+    host: str,
+    port: int,
+    daemon: ProcessDaemon | None,
+    timeout_s: float = 900.0,
+) -> None:
     deadline = time.time() + timeout_s
     last_error = None
     while time.time() < deadline:
@@ -337,13 +323,6 @@ def _parse_vla_endpoint(endpoint: str) -> tuple[str, int]:
 def _require_directory(path: Path, option: str) -> None:
     if not path.is_dir():
         raise ValueError(f"{option} directory not found: {path}")
-
-
-def _resolve_runtime_paths(args: argparse.Namespace) -> RoboTwinRuntimePaths:
-    return RoboTwinRuntimePaths(
-        assets_path=_resolve_env_runtime_path(args),
-        model_path=_resolve_vla_runtime_path(args),
-    )
 
 
 def _resolve_env_runtime_path(args: argparse.Namespace) -> Path | None:
@@ -408,14 +387,6 @@ def _resolve_lingbot_robot_config(
     return path
 
 
-def _subprocess_env(cuda_device: str | None, **extra: str) -> dict[str, str]:
-    env = os.environ.copy()
-    if cuda_device is not None:
-        env["CUDA_VISIBLE_DEVICES"] = str(cuda_device)
-    env.update(extra)
-    return env
-
-
 def _resolve_cuda_devices(
     args: argparse.Namespace,
 ) -> tuple[str | None, str | None]:
@@ -436,138 +407,89 @@ def _resolve_cuda_devices(
     )
 
 
-def _init_shared_runtime(
-    args: argparse.Namespace,
-    output_dir: Path,
-    dashboard_events: DashboardEventSink,
-) -> tuple[list["ProcessDaemon"], dict[str, Any]]:
-    daemons: list["ProcessDaemon"] = []
-    dashboard_events.emit(RuntimeStatusEvent("vla", "starting"))
-    try:
-        result = _init_shared_runtime_impl(args, output_dir, daemons)
-    except Exception as exc:
-        for daemon in reversed(daemons):
-            daemon.stop()
-        dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
-        raise
-    dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
-    return result
-
-
-def _init_task_runtime(
-    args: argparse.Namespace,
-    output_dir: Path,
-    dashboard_events: DashboardEventSink,
-) -> tuple[list["ProcessDaemon"], dict[str, Any]]:
-    from rpent.envs.runtime import (
-        try_spawn_server,
-        try_wait_server,
-    )
-
-    owned_daemons: dict[str, "ProcessDaemon"] = {}
-    env_daemon, env_rpc = try_spawn_server(
-        owned_daemons,
-        dashboard_events,
-        "env",
-        lambda: _spawn_task_env(args, output_dir),
-    )
-    kwargs = try_wait_server(
-        owned_daemons,
-        dashboard_events,
-        "env",
-        env_rpc,
-        env_daemon,
-        timeout_s=900.0 if env_daemon is not None else 300.0,
-        post_fn=lambda: _build_task_runtime_kwargs(args, env_rpc),
-    )
-    return list(owned_daemons.values()), kwargs
-
-
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
     dashboard_events: DashboardEventSink,
+    components: set[str] | None,
 ) -> tuple[list["ProcessDaemon"], dict[str, Any]]:
-    shared_daemons: list["ProcessDaemon"] = []
-    try:
-        shared_daemons, shared_kwargs = _init_shared_runtime(
-            args, output_dir, dashboard_events
+    """Initialize every RoboTwin component, or only ``components`` when given."""
+    available = {"env", "vla"}
+    selected = available if components is None else components
+    unknown = selected.difference(available)
+    if unknown:
+        raise ValueError(f"unknown RoboTwin runtime components: {sorted(unknown)}")
+
+    owned_daemons: dict[str, ProcessDaemon] = {}
+    env_pending: tuple[ProcessDaemon | None, Any] | None = None
+    vla_pending: tuple[ProcessDaemon | None, tuple[str, int]] | None = None
+
+    if "env" in selected:
+        env_pending = try_spawn_server(
+            owned_daemons,
+            dashboard_events,
+            "env",
+            lambda: _spawn_env_server(args, output_dir),
         )
-        task_daemons, task_kwargs = _init_task_runtime(
-            args, output_dir, dashboard_events
+
+    if "vla" in selected:
+        dashboard_events.emit(RuntimeStatusEvent("vla", "starting"))
+        try:
+            vla_pending = _spawn_vla_server(args, output_dir)
+            vla_daemon, _ = vla_pending
+            if vla_daemon is not None:
+                owned_daemons["vla"] = vla_daemon
+        except Exception as exc:
+            stop_owned_daemons(owned_daemons, dashboard_events)
+            dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
+            raise RuntimeError(f"[vla] spawn failed: {exc}") from exc
+
+    primitives_kwargs: dict[str, Any] = {}
+
+    if env_pending is not None:
+        env_daemon, env_rpc = env_pending
+        env_kwargs = try_wait_server(
+            owned_daemons,
+            dashboard_events,
+            "env",
+            env_rpc,
+            env_daemon,
+            900.0 if env_daemon is not None else 300.0,
+            post_fn=lambda: _build_env_runtime_kwargs(args, env_rpc),
         )
-    except Exception:
-        for daemon in reversed(shared_daemons):
-            daemon.stop()
-        raise
-    # Stop the task environment before the shared VLA.
-    return [*task_daemons, *shared_daemons], {**task_kwargs, **shared_kwargs}
+        primitives_kwargs.update(env_kwargs)
+
+    if vla_pending is not None:
+        vla_daemon, endpoint = vla_pending
+        host, port = endpoint
+        try:
+            _wait_for_tcp(
+                host,
+                port,
+                vla_daemon,
+                timeout_s=900.0 if vla_daemon is not None else 300.0,
+            )
+            vla_kwargs = _build_vla_runtime_kwargs(endpoint)
+        except Exception as exc:
+            stop_owned_daemons(owned_daemons, dashboard_events)
+            dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
+            raise RuntimeError(
+                f"[vla] wait / client connect failed: {exc}"
+            ) from exc
+        dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
+        primitives_kwargs.update(vla_kwargs)
+
+    return list(owned_daemons.values()), primitives_kwargs
 
 
-def _init_shared_runtime_impl(
-    args: argparse.Namespace,
-    output_dir: Path,
-    daemons: list["ProcessDaemon"],
-) -> tuple[list["ProcessDaemon"], dict[str, Any]]:
-    from robots.robotwin.vla_client import LingBotVLAClient
-    from rpent.utils.daemon import ProcessDaemon, pick_free_port
-
-    _, vla_cuda_device = _resolve_cuda_devices(args)
-    model_path = args._robotwin_runtime_paths.model_path
-    if args.vla_endpoint is None:
-        assert model_path is not None
-        robot_config = _resolve_lingbot_robot_config(args, model_path)
-
-    if args.vla_endpoint is None:
-        host, vla_port = "127.0.0.1", pick_free_port()
-        norm_path = model_path / MODEL_SPEC.norm_stats
-        qwen_path = model_path / MODEL_SPEC.qwen_base
-        vla_daemon = ProcessDaemon(
-            "lingbot_vla_server",
-            [
-                sys.executable,
-                str(get_repo_root() / "robots" / "robotwin" / "vla_server.py"),
-                "--model-path",
-                str(model_path),
-                "--use-length",
-                str(MODEL_SPEC.use_length),
-                "--port",
-                str(vla_port),
-                "--norm-path",
-                str(norm_path),
-                "--lingbot-robot-config",
-                str(robot_config),
-                "--parent-watch",
-            ],
-            env=_subprocess_env(
-                vla_cuda_device,
-                QWEN25_PATH=str(qwen_path),
-            ),
-            log_path=str(output_dir / "lingbot_vla_server.log"),
-        )
-        vla_daemon.start()
-        daemons.append(vla_daemon)
-        _wait_for_tcp(host, vla_port, vla_daemon)
-    else:
-        host, vla_port = _parse_vla_endpoint(args.vla_endpoint)
-        _wait_for_tcp(host, vla_port, None)
-
-    model = LingBotVLAClient(
-        host=host,
-        port=vla_port,
-    )
-    model.validate_contract(vla_runtime_contract())
-    return daemons, {"model": model}
-
-
-def _spawn_task_env(
+def _spawn_env_server(
     args: argparse.Namespace,
     output_dir: Path,
 ) -> tuple["ProcessDaemon | None", Any]:
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
 
     env_cuda_device, _ = _resolve_cuda_devices(args)
-    resolved_assets = args._robotwin_runtime_paths.assets_path
+    resolved_assets = _resolve_env_runtime_path(args)
     assets_path = str(resolved_assets) if resolved_assets else None
     initial_seed = int(args.seed)
 
@@ -600,20 +522,75 @@ def _spawn_task_env(
                 str(env_port),
                 "--parent-watch",
             ],
-            env=_subprocess_env(
-                env_cuda_device,
-                ROBOTWIN_ASSETS_PATH=assets_path,
-            ),
+            env_overrides={
+                "ROBOTWIN_ASSETS_PATH": assets_path,
+                **(
+                    {"CUDA_VISIBLE_DEVICES": env_cuda_device}
+                    if env_cuda_device is not None
+                    else {}
+                ),
+            },
             log_path=str(output_dir / "robotwin_env_server.log"),
         )
-        env_rpc = _rpc_client(f"http://{host}:{env_port}")
+        from rpent.utils.http_rpc import HttpRpcClient
+
+        env_rpc = HttpRpcClient(f"http://{host}:{env_port}")
         env_daemon.start()
         return env_daemon, env_rpc
     else:
-        return None, _rpc_client(args.env_endpoint)
+        from rpent.utils.rpc import make_rpc_client
+
+        return None, make_rpc_client(args.env_endpoint)
 
 
-def _build_task_runtime_kwargs(
+def _spawn_vla_server(
+    args: argparse.Namespace,
+    output_dir: Path,
+) -> tuple[ProcessDaemon | None, tuple[str, int]]:
+    from rpent.utils.daemon import ProcessDaemon, pick_free_port
+
+    if args.vla_endpoint is not None:
+        return None, _parse_vla_endpoint(args.vla_endpoint)
+
+    _, vla_cuda_device = _resolve_cuda_devices(args)
+    model_path = _resolve_vla_runtime_path(args)
+    assert model_path is not None
+    robot_config = _resolve_lingbot_robot_config(args, model_path)
+    host, vla_port = "127.0.0.1", pick_free_port()
+    norm_path = model_path / MODEL_SPEC.norm_stats
+    qwen_path = model_path / MODEL_SPEC.qwen_base
+    daemon = ProcessDaemon(
+        "lingbot_vla_server",
+        [
+            sys.executable,
+            str(get_repo_root() / "robots" / "robotwin" / "vla_server.py"),
+            "--model-path",
+            str(model_path),
+            "--use-length",
+            str(MODEL_SPEC.use_length),
+            "--port",
+            str(vla_port),
+            "--norm-path",
+            str(norm_path),
+            "--lingbot-robot-config",
+            str(robot_config),
+            "--parent-watch",
+        ],
+        env_overrides={
+            "QWEN25_PATH": str(qwen_path),
+            **(
+                {"CUDA_VISIBLE_DEVICES": vla_cuda_device}
+                if vla_cuda_device is not None
+                else {}
+            ),
+        },
+        log_path=str(output_dir / "lingbot_vla_server.log"),
+    )
+    daemon.start()
+    return daemon, (host, vla_port)
+
+
+def _build_env_runtime_kwargs(
     args: argparse.Namespace,
     env_rpc: Any,
 ) -> dict[str, Any]:
@@ -634,3 +611,12 @@ def _build_task_runtime_kwargs(
         "seed": initial_seed,
         "seed_mode": "exact",
     }
+
+
+def _build_vla_runtime_kwargs(endpoint: tuple[str, int]) -> dict[str, Any]:
+    from robots.robotwin.vla_client import LingBotVLAClient
+
+    host, port = endpoint
+    model = LingBotVLAClient(host=host, port=port)
+    model.validate_contract(vla_runtime_contract())
+    return {"model": model}
