@@ -123,7 +123,7 @@ def env_runtime_contract(
             "step": True,
             "chunk_step": True,
             "action_layouts": ["qpos14", MODEL_SPEC.action_layout],
-            "chunk_step_all_frames": False,
+            "chunk_step_all_frames": True,
             "step_limit": int(max_episode_steps),
         },
         "extensions": {
