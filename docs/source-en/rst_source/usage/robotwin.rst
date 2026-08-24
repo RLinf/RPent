@@ -9,8 +9,10 @@ actions.
 Installation
 ------------
 
-RoboTwin requires Python 3.11. Create an environment and install the RoboTwin
-dependency set:
+RoboTwin requires Python 3.11. The host must already provide a compatible
+CUDA toolkit/NVCC, a compiler toolchain, and the system GL/EGL/Vulkan
+libraries that SAPIEN depends on. Create an environment and install the
+RoboTwin dependency set:
 
 .. code-block:: bash
 
@@ -33,6 +35,13 @@ For networks closer to Chinese mirrors:
 
    ``.[robotwin]`` uses SAPIEN 3.0.0b1. Other versions can change simulator
    observations and reduce model performance.
+
+.. note::
+
+   ``.[robotwin]`` currently installs several dependencies from fixed Git
+   commits, so the installation needs access to GitHub even when a PyPI mirror
+   is configured. These will be replaced by released package versions after
+   publication.
 
 Download assets
 ---------------

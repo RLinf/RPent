@@ -8,7 +8,9 @@ RoboTwin
 安装
 ----
 
-RoboTwin 要求 Python 3.11。创建虚拟环境并安装 RoboTwin 所需依赖：
+RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVCC、编译
+工具链以及 SAPIEN 依赖的系统级 GL/EGL/Vulkan 库。创建虚拟环境并安装
+RoboTwin 所需依赖：
 
 .. code-block:: bash
 
@@ -31,6 +33,12 @@ RoboTwin 要求 Python 3.11。创建虚拟环境并安装 RoboTwin 所需依赖�
 
    ``.[robotwin]`` 使用 SAPIEN 3.0.0b1。其他版本可能改变仿真观测，导致模型
    效果下降。
+
+.. note::
+
+   ``.[robotwin]`` 目前会从 GitHub 的固定提交安装部分依赖，因此即使配置了
+   PyPI 镜像，安装时仍需能访问 GitHub。这些依赖在正式发布后将改用版本号
+   安装。
 
 下载仿真资源
 ------------
