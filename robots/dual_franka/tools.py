@@ -180,6 +180,8 @@ def dump_state(
         result=result,
         elapsed_s=elapsed_s,
     ) as step:
+        raw_frames = observation.get("raw_camera_frames") or {}
+        raw_depths = observation.get("raw_camera_depths") or {}
         main_image = observation.get("main_images")
         if main_image is not None:
             state.save("left_wrist.png", np.asarray(main_image), step=step)
@@ -190,19 +192,26 @@ def dump_state(
                 extra_array = extra_array[0]
             if extra_array.ndim == 4:
                 if extra_array.shape[0] >= 1:
-                    state.save("base.png", extra_array[0], step=step)
+                    state.save(
+                        "base.png",
+                        np.asarray(raw_frames.get("base_0_rgb", extra_array[0])),
+                        step=step,
+                    )
                 if extra_array.shape[0] >= 2:
                     state.save("right_wrist.png", extra_array[1], step=step)
         main_depth = observation.get("main_depths")
         if main_depth is not None:
             state.save("left_wrist_depth.npy", np.asarray(main_depth), step=step)
         extra_depths = observation.get("extra_view_depths")
+        base_raw_depth = raw_depths.get("base_0_rgb")
+        if base_raw_depth is not None:
+            state.save("base_depth.npy", np.asarray(base_raw_depth), step=step)
         if extra_depths is not None:
             depth_array = np.asarray(extra_depths)
             if depth_array.ndim == 4 and depth_array.shape[0] == 1:
                 depth_array = depth_array[0]
             if depth_array.ndim == 3:
-                if depth_array.shape[0] >= 1:
+                if depth_array.shape[0] >= 1 and base_raw_depth is None:
                     state.save("base_depth.npy", depth_array[0], step=step)
                 if depth_array.shape[0] >= 2:
                     state.save("right_wrist_depth.npy", depth_array[1], step=step)

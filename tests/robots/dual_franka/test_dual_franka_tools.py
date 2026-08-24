@@ -49,6 +49,12 @@ class FakeEnv:
             "extra_view_depths": np.ones((2, 8, 8), dtype=np.float32) * 2,
             "d455_images": np.ones((8, 8, 3), dtype=np.uint8) * 3,
             "d455_depths": np.ones((8, 8), dtype=np.float32) * 4,
+            "raw_camera_frames": {
+                "base_0_rgb": np.full((10, 12, 3), 7, dtype=np.uint8),
+            },
+            "raw_camera_depths": {
+                "base_0_rgb": np.full((10, 12), 9, dtype=np.float32),
+            },
             "states": np.zeros(20, dtype=np.float32),
         }
 
@@ -134,6 +140,8 @@ def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
     assert output["_image_left_wrist_bytes"]
     assert output["_image_base_bytes"]
     assert output["_image_right_wrist_bytes"]
+    np.testing.assert_array_equal(state.load("base.png"), 7)
+    np.testing.assert_array_equal(state.load("base_depth.npy"), 9)
     camera_meta = view_camera_meta(state=state)["camera_meta"]
     assert camera_meta["observation_camera_map"]["main"] == "left_wrist_0_rgb"
 

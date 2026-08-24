@@ -173,6 +173,12 @@ def _create_worker_class():
                 and value.shape[0] == 1
             ):
                 output["extra_view_images"] = value[0]
+            snapshot_getter = self.env.env.call(
+                "get_wrapper_attr", "get_raw_camera_snapshot"
+            )[0]
+            snapshot = _to_numpy_tree(snapshot_getter())
+            output["raw_camera_frames"] = snapshot.get("raw_frames", {})
+            output["raw_camera_depths"] = snapshot.get("raw_depths", {})
             perception = self._capture_perception_camera_snapshot()
             for raw_key, frame in perception["raw_frames"].items():
                 alias = raw_key.removesuffix("_rgb")
@@ -218,7 +224,7 @@ def _create_worker_class():
             }
 
         def get_camera_metadata(self) -> dict[str, Any] | None:
-            metadata = dict(self._perception_camera_meta)
+            metadata: dict[str, Any] = {}
             try:
                 specs_getter = self.env.env.call(
                     "get_wrapper_attr", "_all_camera_specs"
@@ -239,6 +245,11 @@ def _create_worker_class():
                 name: {"serial": serial, "type": camera_type}
                 for name, serial, camera_type in specs
             })
+            metadata_getter = self.env.env.call(
+                "get_wrapper_attr", "get_raw_camera_metadata"
+            )[0]
+            metadata.update(_to_numpy_tree(metadata_getter()))
+            metadata.update(self._perception_camera_meta)
             return {
                 "cameras": cameras,
                 "observation_camera_map": {

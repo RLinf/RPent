@@ -129,6 +129,7 @@ def load_runtime_config(
                         "is_dummy": False,
                         "task_description": task_description,
                         "enable_camera_player": False,
+                        "enable_camera_depth": True,
                         "rotation_repr": "rot6d",
                         "joint_reset_qpos": list(control["joint_reset_qpos"]),
                         "target_ee_pose": list(workspace["target_pose"]),
