@@ -171,9 +171,6 @@ class RoboTwinEnvFacade(BaseEnvFacade):
             )
         observation = observation_list[0]
         if return_all_frames:
-            # Payload is {"frames": [head_rgb...], "final": obs}. The per-step
-            # frames are native per-env arrays (no env dim to strip); only the
-            # final observation carries the single-environment batch dimension.
             observation = {
                 "frames": observation["frames"],
                 "final": self._strip_single_env_observation(observation["final"]),

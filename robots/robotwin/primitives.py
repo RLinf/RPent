@@ -46,13 +46,6 @@ class RoboTwinPrimitives:
         self._check_cancelled = check_cancelled
         self.policy_actions = 0
         self.native_actions = 0
-        # Per-env-step frame buffer for diagnostic video rendering, toggled via
-        # start_recording() / stop_recording(). Mirrors the LIBERO recording
-        # contract (robots/libero/tools.py) so RoboTwin reuses the shared
-        # Dashboard timeline/video projection without env-specific dashboard
-        # logic. Unlike LIBERO, record_frame takes a raw head-camera rgb array
-        # -- the RoboTwin chunk returns per-step head rgb over RPC, not full
-        # observation dicts.
         self._recording = False
         self._frames: list[np.ndarray] = []
 
@@ -61,7 +54,6 @@ class RoboTwinPrimitives:
         self._frames = []
 
     def record_frame(self, rgb: Any) -> None:
-        """Append one head-camera frame to the recording buffer."""
         self._frames.append(np.ascontiguousarray(np.asarray(rgb)))
 
     def recorded_frame_count(self) -> int:

@@ -13,9 +13,7 @@ from robots.robotwin.primitives import RoboTwinPrimitives
 from rpent.dashboard.events import DashboardEventSink
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import Toolkit, readonly
-from rpent.utils.logging import get_logger, get_output_dir
-
-logger = get_logger("robotwin_toolkit")
+from rpent.utils.logging import get_output_dir
 
 # State-advancing RoboTwin primitives eligible for the recipe. ``reset``,
 # ``render``, and read-only tools are intentionally excluded so the recipe
@@ -91,10 +89,6 @@ class RoboTwinToolkit(Toolkit):
             check_cancelled=self.raise_if_cancelled,
             **primitives_kwargs,
         )
-        # Mirror the LIBERO recording contract: start the per-step frame buffer
-        # and the action-clip cursor now so every stateful tool call (including
-        # the initial reset dump below) partitions its frames into the right
-        # action_*.mp4 clip via get_env_state's cursor logic.
         self._primitives.start_recording()
         self._action_frame_cursor = self._primitives.recorded_frame_count()
         reset_result = {
@@ -189,11 +183,6 @@ class RoboTwinToolkit(Toolkit):
         result: dict[str, Any],
         elapsed_s: float,
     ) -> dict[str, Any]:
-        # LIBERO cursor order (robots/libero/toolkit.py): snapshot frame_start
-        # BEFORE advancing the cursor, then advance the cursor BEFORE dumping.
-        # If this dump fails, the next action's frame_start has already moved
-        # past these frames, so a failed dump cannot bleed frames into the wrong
-        # action clip.
         frame_start = self._action_frame_cursor
         self._action_frame_cursor = self._primitives.recorded_frame_count()
         status = self._primitives.status()
@@ -210,33 +199,21 @@ class RoboTwinToolkit(Toolkit):
             },
         )
         if self._dashboard_events.enabled:
-            try:
-                frames = self._primitives.frame_slice(frame_start)
-                if frames:
-                    candidate = f"action_{command['action']}.mp4"
-                    self._state.save(
-                        candidate,
-                        frames,
-                        step=record.step_idx,
-                        fps=20,
-                    )
-            except Exception as error:
-                logger.warning(
-                    "failed to save action clip for step %s: %s",
-                    record.step_idx,
-                    error,
+            frames = self._primitives.frame_slice(frame_start)
+            if frames:
+                self._state.save(
+                    f"action_{command['action']}.mp4",
+                    frames,
+                    step=record.step_idx,
+                    fps=20,
                 )
         return tools.view_env_state(record.step_idx, state=self._state)
 
     def close(self) -> None:
         """Flush the per-step frame buffer into ``episode.mp4`` (LIBERO parity)."""
-        try:
-            frames = self._primitives.stop_recording()
-            if frames:
-                self._state.save("episode.mp4", frames, step=None, fps=20)
-        except Exception as error:
-            # The runner is in the cleanup path; never let a video save abort it.
-            logger.warning("failed to save episode video: %s", error)
+        frames = self._primitives.stop_recording()
+        if frames:
+            self._state.save("episode.mp4", frames, step=None, fps=20)
 
     def _step(self, name: str, **kwargs) -> dict[str, Any]:
         self.raise_if_cancelled()

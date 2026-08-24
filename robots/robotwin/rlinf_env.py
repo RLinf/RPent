@@ -98,15 +98,7 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         env_id: int = 0,
         return_all_frames: bool = False,
     ) -> tuple[list[Any], np.ndarray, np.ndarray, np.ndarray, list[dict[str, Any]]]:
-        """Execute a chunk of native actions, returning a gym-style 5-tuple batched as ``[1, executed]``.
-
-        When ``return_all_frames`` is True, the single observation element is a
-        ``{"frames": [...], "final": observation}`` payload: ``frames`` holds one
-        post-action head-camera rgb per *executed* native step (the RoboTwin
-        equivalent of LIBERO recording ``env.step``'s returned observation), and
-        ``final`` is the unchanged normal observation. This mirrors the LIBERO
-        recording contract while keeping ``return_all_frames=False`` byte-identical.
-        """
+        """Execute a chunk of native actions, returning a gym-style 5-tuple batched as ``[1, executed]``."""
         array = _validate_actions(actions, action_type=action_type)
         sub_env = self._sub_env(env_id)
         rewards: list[float] = []
@@ -136,12 +128,6 @@ class RoboTwinAgentEnv(RoboTwinEnv):
                 truncations.append(bool(budget))
                 per_step.append({"episode_status": step_status})
                 if return_all_frames:
-                    # Native observation path (same source as render_camera),
-                    # read while holding the lock; take_action has already
-                    # advanced the scene, so this is a fresh post-action frame.
-                    # Run it through center_and_crop -- the same transform that
-                    # produces main_images -- so per-step frames and the qpos
-                    # path's main_images frames share one size/format for mp4.
                     head_rgb = sub_env.task.get_obs()["observation"][
                         "head_camera"
                     ]["rgb"]
