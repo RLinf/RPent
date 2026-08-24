@@ -8,6 +8,7 @@ import numpy as np
 from rlinf.envs.robotwin.robotwin_env import RoboTwinEnv
 
 from robots.robotwin.env_spec import RoboTwinActionType
+from robots.robotwin.evaluator_state import initialize_native_evaluator_state
 
 __all__ = ["RoboTwinAgentEnv"]
 
@@ -177,6 +178,7 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         observation, info = super().reset(env_idx=env_idx, env_seeds=env_seeds)
         sub_env = self._sub_env(0)
         with sub_env.lock:
+            initialize_native_evaluator_state(sub_env.task)
             info["robot_state"] = self._robot_state(sub_env)
             info["episode_status"] = self._episode_status(sub_env)
         return observation, info
