@@ -39,7 +39,7 @@ def load_runtime_config(
     task_description: str,
 ) -> FrankaRuntimeConfig:
     """Load the RPent schema and build the internal RLinf adapter config."""
-    raw = _load_mapping(path)
+    raw = _load_mapping(path or DEFAULT_CONFIG)
     robot = _require_mapping(raw.get("robot"), "robot")
     arms = _require_mapping(robot.get("arms"), "robot.arms")
     left = _require_mapping(arms.get("left"), "robot.arms.left")
