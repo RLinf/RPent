@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from rpent.tools.state import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
+from rpent.tools.toolkit import parallel, readonly
 
 if TYPE_CHECKING:
     from robots.robocasa.primitives import RoboCasaPrimitives
@@ -754,6 +754,7 @@ def _prune_heavy_artifacts(
 # ---- tool handlers (@readonly perception tools take state: EnvState) ----
 
 
+@parallel
 @readonly
 def view_env_state(step: int | None = None, *, state: EnvState) -> dict:
     """Read one recorded state with embedded camera / navview / wrist images."""
@@ -807,6 +808,7 @@ def view_env_state(step: int | None = None, *, state: EnvState) -> dict:
     return out
 
 
+@parallel
 @readonly
 def view_camera_meta(
     camera: str = "agentview",
@@ -818,6 +820,7 @@ def view_camera_meta(
     return {"error": "not implemented"}
 
 
+@parallel
 @readonly
 def back_project(
     row: int,
@@ -832,6 +835,7 @@ def back_project(
     return {"error": "not implemented"}
 
 
+@parallel
 @readonly
 def back_project_batch(
     pixels: list[list[int]],
@@ -903,6 +907,7 @@ def back_project_batch(
             "camera": camera, "resolution": resolution}
 
 
+@parallel
 @readonly
 def query_world_map(
     z_min: float = 0.85,

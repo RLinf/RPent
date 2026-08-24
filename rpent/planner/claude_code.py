@@ -209,6 +209,7 @@ class ClaudeCodePlanner:
                         options,
                         recorder,
                         input_queue,
+                        toolkit=toolkit,
                         emit=_emit,
                         emit_user=_emit_user,
                     )
@@ -259,6 +260,7 @@ class ClaudeCodePlanner:
         recorder: "_Recorder",
         input_queue,
         *,
+        toolkit: Toolkit,
         emit,
         emit_user,
     ) -> None:
@@ -270,7 +272,12 @@ class ClaudeCodePlanner:
         sentinel (or ``/quit``) interrupts the run; the ``finish`` tool ends it
         normally. Because a human supervises, there is no wall-clock cap here.
         """
-        adapter = _TerminalSessionAdapter(input_queue=input_queue, emit_user=emit_user)
+        adapter = _TerminalSessionAdapter(
+            input_queue=input_queue,
+            cancel_active_and_wait=toolkit.cancel_active_and_wait,
+            resume_operations=toolkit.resume_operations,
+            emit_user=emit_user,
+        )
         driver = _ClaudeSessionDriver(
             sdk=sdk,
             options=options,
@@ -296,6 +303,7 @@ class ClaudeCodePlanner:
         adapter = _ClaudeDashboardAdapter(
             interaction=dashboard_interaction,
             cancel_active_and_wait=toolkit.cancel_active_and_wait,
+            resume_operations=toolkit.resume_operations,
             emit_user=emit_user,
             emit_initial_user=lambda: emit_user(
                 initial_user_text,
@@ -439,8 +447,17 @@ class _ClaudeSessionDriver:
 class _TerminalSessionAdapter:
     """Preserve the terminal TUI's interrupt-then-query steering policy."""
 
-    def __init__(self, *, input_queue: Any, emit_user) -> None:
+    def __init__(
+        self,
+        *,
+        input_queue: Any,
+        cancel_active_and_wait: Callable[[], None],
+        resume_operations: Callable[[], None],
+        emit_user,
+    ) -> None:
         self._input_queue = input_queue
+        self._cancel_active_and_wait = cancel_active_and_wait
+        self._resume_operations = resume_operations
         self._emit_user = emit_user
 
     async def initial_query_succeeded(self, driver: _ClaudeSessionDriver) -> None:
@@ -449,17 +466,23 @@ class _TerminalSessionAdapter:
     async def run(self, driver: _ClaudeSessionDriver) -> None:
         while True:
             nxt = await asyncio.to_thread(next_user_line, self._input_queue)
+            await asyncio.to_thread(self._cancel_active_and_wait)
             if nxt is None:
                 with contextlib.suppress(Exception):
                     await driver.interrupt()
                 return
-            self._emit_user(nxt)
             # Keep the current terminal semantics: every steering line
             # interrupts the in-flight turn, then enters the same session.
-            with contextlib.suppress(Exception):
+            try:
                 await driver.interrupt()
-            with contextlib.suppress(Exception):
+            except Exception:
+                return
+            self._resume_operations()
+            self._emit_user(nxt)
+            try:
                 await driver.query(nxt)
+            except Exception:
+                return
 
     async def on_message(
         self,
@@ -471,6 +494,7 @@ class _TerminalSessionAdapter:
     async def close(self) -> None:
         # Unblock next_user_line() if the consumer (for example finish) won.
         self._input_queue.put(None)
+        await asyncio.to_thread(self._cancel_active_and_wait)
 
 
 class _ClaudeDashboardAdapter:
@@ -481,12 +505,14 @@ class _ClaudeDashboardAdapter:
         *,
         interaction: DashboardInteractionPort,
         cancel_active_and_wait: Callable[[], None],
+        resume_operations: Callable[[], None],
         emit_user: Callable[[str], None],
         emit_initial_user: Callable[[], None],
     ) -> None:
         self._control = DashboardPlannerControl(
             interaction=interaction,
             cancel_active_and_wait=cancel_active_and_wait,
+            resume_operations=resume_operations,
             emit_user=emit_user,
             emit_initial_user=emit_initial_user,
         )
@@ -760,7 +786,6 @@ class _Recorder:
 
 def _build_rpent_server(sdk: Any, *, toolkit: Toolkit) -> Any:
     sdk_tools = []
-    tool_execution_lock = asyncio.Lock()
     for spec in toolkit.get_tools_spec():
         name = str(spec["name"])
         description = str(spec.get("description", ""))
@@ -771,12 +796,11 @@ def _build_rpent_server(sdk: Any, *, toolkit: Toolkit) -> Any:
             *,
             tool_name: str = name,
         ) -> dict[str, Any]:
-            async with tool_execution_lock:
-                result = await asyncio.to_thread(
-                    toolkit.execute_tool,
-                    tool_name,
-                    args or {},
-                )
+            result = await asyncio.to_thread(
+                toolkit.execute_tool,
+                tool_name,
+                args or {},
+            )
             return _tool_result_to_mcp(result)
 
         run_tool.__name__ = f"rpent_{name}"

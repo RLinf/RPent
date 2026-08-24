@@ -258,11 +258,11 @@ def main() -> int:
         logger.error("EXCEPTION in agent loop: %s", exc)
         agent_error = str(exc)
     finally:
-        # Agent-side: flush the episode video before the env+model
+        # Drain tools and flush the episode video before env+model cleanup.
+        toolkit.close()
         recipe_path = toolkit.write_recipe(recipe_tag)
         logger.info("recipe: %s", recipe_path)
 
-        toolkit.close()
         for d in daemons:
             d.stop()
 
