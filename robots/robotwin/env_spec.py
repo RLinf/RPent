@@ -513,7 +513,13 @@ def _init_shared_runtime_impl(
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
 
     _, vla_cuda_device = _resolve_cuda_devices(args)
-    model_path = args._robotwin_runtime_paths.model_path
+    # Resolve the VLA model path lazily here. In Dashboard Session mode the
+    # shared VLA starts at "Start Session", before any /rpent-task runs
+    # _parse_config() (the only place args._robotwin_runtime_paths is set),
+    # so reading that attribute here would raise AttributeError. The shared
+    # VLA only needs the model path; the task env's assets_path is resolved
+    # later by _parse_config(), which runs before _spawn_task_env().
+    model_path = _resolve_vla_runtime_path(args)
     if args.vla_endpoint is None:
         assert model_path is not None
         robot_config = _resolve_lingbot_robot_config(args, model_path)
