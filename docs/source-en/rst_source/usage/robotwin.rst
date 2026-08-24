@@ -82,14 +82,14 @@ Run one episode from the activated environment:
 
    # add HF_ENDPOINT=https://hf-mirror.com for mainland China users,
    # as it will download robotwin task related memory data
-   rpent --env robotwin \
+   rpent --robot robotwin \
       --task-name beat_block_hammer \
       --seed 100000 \
       --planner codex \
       --model gpt-5.5
 
 Change ``--task-name`` to run another task. For standard randomized
-evaluation seeds, see the note below. See ``rpent --env robotwin --help`` for
+evaluation seeds, see the note below. See ``rpent --robot robotwin --help`` for
 the complete option list.
 
 .. note::

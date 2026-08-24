@@ -126,11 +126,11 @@ Running a task
 --------------
 
 The RoboCasa CLI flags are registered by ``robots/robocasa/__init__`` and
-are visible under ``rpent --env robocasa --help``:
+are visible under ``rpent --robot robocasa --help``:
 
 .. code-block:: bash
 
-   rpent --env robocasa \
+   rpent --robot robocasa \
          --task-name OpenDrawer \
          --split target \
          --seed 0 \

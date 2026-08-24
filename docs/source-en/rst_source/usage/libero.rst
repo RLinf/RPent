@@ -290,7 +290,7 @@ Reproduction command:
 
 .. code-block:: bash
 
-   rpent --env libero \
+   rpent --robot libero \
      --suite libero_10_task --task "task" --seed "seed" \
      --planner codex \
      --model gpt-5.5 \

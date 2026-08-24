@@ -361,9 +361,9 @@ endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
 
 .. note::
 
-   共享 CLI parser 将 ``--env`` 限定为 ``libero`` 和 ``robocasa``
+   共享 CLI parser 将 ``--robot`` 限定为 ``libero`` 和 ``robocasa``
    (见 ``rpent/cli/main.py``)。要让上面这条命令在全新的 ``myenv`` 上跑通，
-   需要先把新名字加到 ``rpent/cli/main.py`` 中 ``--env`` 的
+   需要先把新名字加到 ``rpent/cli/main.py`` 中 ``--robot`` 的
    ``choices=[...]`` 列表里。
 
 预期结果是 agent 完成 prompt 中指定的任务并调用 ``finish``。运行结束后，
