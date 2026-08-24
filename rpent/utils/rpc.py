@@ -8,6 +8,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Literal
 
 from rpent.utils.logging import get_logger
+from rpent.utils.rwlock import RWLock
 
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
@@ -197,15 +198,19 @@ class RpcFacade:
         # Per-session bookkeeping, sid -> (timeout_s | None, last_active).
         # Only used when sessions are enabled; all access (request dispatch +
         # the sweep thread) is guarded by _lock.
-        self._lock = threading.Lock()
+        self._session_lock = threading.Lock()
         self._sessions: dict[str, tuple[float | None, float]] = {}
+        # simple impl of method register and dispatch
+        self._dispatch_lock = RWLock()
+        self._rpc: dict[str, Callable] = {}
+        self._readonly_methods: set[str] = set()
 
     def _dispatch(
         self, method: str, args: tuple, kwargs: dict, *, session_id: str | None = None
     ) -> Any:
         """Business RPC dispatch. Override in subclasses.
 
-        Subclasses MUST take ``self._lock`` around the dispatch body: the
+        Subclasses MUST take ``self._session_lock`` around the dispatch body: the
         threading servers dispatch each request on its own thread, and most
         env/model servers touch a single subprocess worker or EGL/CUDA
         context that is not concurrency-safe. The lock also serializes
@@ -215,8 +220,38 @@ class RpcFacade:
         unbound or sessions disabled); pass it through to business methods
         that need it. Do not handle ``shutdown``, ``healthz`` or
         ``session.*`` here — the base takes care of them.
+
+        There is a simple impl to support dispatch with a rw lock.
         """
-        raise NotImplementedError
+        if self._enable_sessions:
+            return self._dispatch_session(
+                method, args, kwargs, session_id=session_id,
+            )
+        else:
+            return self._dispatch_nosession(
+                method, args, kwargs,
+            )
+
+    def _dispatch_nosession(self, method: str, args: tuple, kwargs: dict) -> Any:
+        handler = self._rpc.get(method)
+        if handler is None:
+            raise ValueError(f"unknown RPC method: {method!r}")
+        if method in self._readonly_methods:
+            with self._dispatch_lock.read():
+                return handler(*args, **kwargs)
+        with self._dispatch_lock.write():
+            return handler(*args, **kwargs)
+
+    def _dispatch_session(self, method: str, args: tuple, kwargs: dict, *,
+                  session_id: str | None = None) -> Any:
+        handler = self._rpc.get(method)
+        if handler is None:
+            raise ValueError(f"unknown RPC method: {method!r}")
+        if method in self._readonly_methods:
+            with self._dispatch_lock.read():
+                return handler(*args, **kwargs, session_id=session_id)
+        with self._dispatch_lock.write():
+            return handler(*args, **kwargs, session_id=session_id)
 
     # ---- session lifecycle (RPC methods + hooks) -------------------------
 
@@ -232,7 +267,7 @@ class RpcFacade:
         """
         if not isinstance(session_id, str) or not session_id:
             raise ValueError(f"session_id must be a non-empty string, got {session_id!r}")
-        with self._lock:
+        with self._session_lock:
             self._sessions[session_id] = (
                 self._session_timeout_s,
                 time.monotonic(),
@@ -245,7 +280,7 @@ class RpcFacade:
         Called by the ``session.close`` RPC (client-side atexit); unlike
         :meth:`_expire_session`, this removes the session unconditionally.
         """
-        with self._lock:
+        with self._session_lock:
             existed = self._sessions.pop(session_id, None) is not None
         if existed:
             try:
@@ -267,7 +302,7 @@ class RpcFacade:
         Expiry is the sweep thread's job — this only checks the session
         is known and bumps its idle timer.
         """
-        with self._lock:
+        with self._session_lock:
             entry = self._sessions.get(session_id)
             if entry is None:
                 raise RpcError("session", f"session not found: {session_id}")
@@ -290,7 +325,7 @@ class RpcFacade:
         this drop — removing it anyway would kill a live session and wrongly
         reset its policy state.
         """
-        with self._lock:
+        with self._session_lock:
             entry = self._sessions.get(session_id)
             if entry is None:
                 return
@@ -304,7 +339,7 @@ class RpcFacade:
         """Background loop: drop idle-expired sessions every ``interval_s`` s."""
         while not self._shutdown_event.wait(interval_s):
             now = time.monotonic()
-            with self._lock:
+            with self._session_lock:
                 expired = [
                     sid
                     for sid, (tmo, last) in self._sessions.items()
@@ -355,7 +390,7 @@ class RpcFacade:
             if method == "healthz":
                 return {"status": "ok"}
             if method == "shutdown":
-                with self._lock:
+                with self._session_lock:
                     self._shutdown_event.set()
                 return {"ok": True}
             if not self._enable_sessions:

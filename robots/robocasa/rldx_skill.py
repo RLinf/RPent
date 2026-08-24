@@ -8,59 +8,77 @@ Obs format mirrors robocasa's gym get_observation (state.* + video.{3 cams} +
 annotation), stacked over the policy's video_delta_indices history, batch dim = 1,
 with a per-call session id + reset_memory for the RLDX memory module.
 """
-import os
 import numpy as np
 from collections import deque
+
 from robots.robocasa.env_client import RoboCasaEnvClient
-import imageio.v2 as imageio
+from robots.robocasa.vla_client import RoboCasaVLAClient
 
 
 class RLDXSkill:
-    def __init__(self, env_client: RoboCasaEnvClient, vla_client=None, check_cancelled=None):
-        self.env = env_client             # RoboCasaEnvClient
-        self._vla_client = vla_client     # VLA RPC client (when set, _load() uses it instead of loading the model directly)
+    def __init__(
+        self,
+        env_client: RoboCasaEnvClient,
+        vla_client: RoboCasaVLAClient,
+        check_cancelled=None,
+        record_frame_callback=None,
+    ):
+        self.env = env_client               # RoboCasaEnvClient
+        # session seed is in self.vla rpc server
+        self.vla = vla_client               # VLA RPC client (when set, _load() uses it instead of loading the model directly)
         self._check_cancelled = check_cancelled  # optional cancellation checkpoint callback
-        self._vdi = None                  # video delta indices, e.g. [-6,-4,-2,0]
-        self._hist = None                 # deque of raw frame dicts
-        self._unmap = None                # lazy: eval's PandaOmronKeyConverter.unmap_action
-        # OPTIONAL per-sim-step video capture. OFF by default (env RLDX_VIDEO_DIR unset):
-        # the VLA rollout is closed-loop over 100s of sim-steps but the primitives only dump
-        # single frames at command boundaries, so the actual motion is never recorded.
-        # When RLDX_VIDEO_DIR is set, we collect the 3 VLA camera frames (already rendered
-        # for the obs — ZERO extra render cost) per step and write one mp4 per run() call.
-        self._video_dir = os.environ.get("RLDX_VIDEO_DIR") or None
-        self._video_fps = int(os.environ.get("RLDX_VIDEO_FPS", "20"))
-        self._video_idx = 0               # cmd counter for cmd_NN.mp4 naming
-        self._frames = None               # list of HxWx3 uint8 for the current run() call
+        # Optional per-step frame callback (e.g. primitives.record_frame(obs))
+        # so the VLA's per-step agentview lands in the unified episode buffer
+        # the toolkit owns — instead of a parallel cmd_NN.mp4 written here.
+        # Called once per sim-step with the chunk_step per-step obs (which
+        # carries the agentview as 'robot0_agentview_left_rgb'); matches the
+        # manual primitives' (move_to / _step_arm) per-step record_frame
+        # cadence so the unified video has consistent frame density across
+        # VLA chunks and scripted moves.
+        self._record_frame_callback = record_frame_callback
+        self._last_prompt = None
+        self.load()
 
-    def _load(self):
-        if self._vdi is not None:
-            return
-        mod = self._vla_client.get_modality_config()
-        self._vdi = np.asarray(mod["video_delta_indices"])
-        self._hist = deque(maxlen=mod["hist_maxlen"])
-        print(f"[rldx_skill] modality loaded via RPC; video_delta_indices={self._vdi.tolist()} "
-              f"hist_maxlen={self._hist.maxlen}", flush=True)
+    def load(self):
+        # lazy: eval's PandaOmronKeyConverter.unmap_action
+        from robocasa.wrappers.gym_wrapper import PandaOmronKeyConverter
+        self.unmap_action = PandaOmronKeyConverter.unmap_action
+
+        self.video_delta_indices = self.vla.get_video_delta_indices() # video delta indices, e.g. [-6,-4,-2,0]
+        video_history_maxlen = int(self.video_delta_indices.max() - self.video_delta_indices.min()) + 2
+        self.video_history = deque(maxlen=video_history_maxlen) # deque of raw frame dicts
+        self._action_dim = self.env.action_dim # chunk_step array shape
+        print(f"[rldx_skill] modality loaded via RPC; hist_maxlen={video_history_maxlen} action_dim={self._action_dim}", flush=True)
 
     # ---- obs construction (mirror robocasa gym get_observation) ----
     VLA_OBS_RES = 256   # matches the eval: robocasa365 gym_wrapper get_camera_config renders
                         # the 3 VLA cameras at 256 (overriding create_env's 128 DEFAULT).
                         # Verified: eval gym obs are (256,256,3) and primitives@256 is byte-identical.
 
-    def _raw_frame(self, task_text):
-        e = self.env
-        o = e.current_raw_obs
-        # render the 3 VLA cameras at the eval's resolution (256)
-        r = self.VLA_OBS_RES
-        vL = e.render_camera("robot0_agentview_left", height=r, width=r)
-        vR = e.render_camera("robot0_agentview_right", height=r, width=r)
-        vW = e.render_camera("robot0_eye_in_hand", height=r, width=r)
+    def _raw_frame(self, task_text, raw_obs=None, frames=None):
+        if raw_obs is None:
+            raw_obs = self.env.current_raw_obs
+        # frames from chunk_step are rendered at per-step sim state
+        if frames is None:
+            # fall back to render_camera
+            # render the 3 VLA cameras at the eval's resolution (256)
+            r = self.VLA_OBS_RES
+            frames = {}
+            for key in [
+                "robot0_agentview_left",
+                "robot0_agentview_right",
+                "robot0_eye_in_hand",
+            ]:
+                frames[key] = self.env.render_camera(key, height=r, width=r)
+        vL = frames["robot0_agentview_left"]
+        vR = frames["robot0_agentview_right"]
+        vW = frames["robot0_eye_in_hand"]
         return {
-            "state.gripper_qpos": np.asarray(o["robot0_gripper_qpos"], np.float32),
-            "state.base_position": np.asarray(o["robot0_base_pos"], np.float32),
-            "state.base_rotation": np.asarray(o["robot0_base_quat"], np.float32),
-            "state.end_effector_position_relative": np.asarray(o["robot0_base_to_eef_pos"], np.float32),
-            "state.end_effector_rotation_relative": np.asarray(o["robot0_base_to_eef_quat"], np.float32),
+            "state.gripper_qpos": np.asarray(raw_obs["robot0_gripper_qpos"], np.float32),
+            "state.base_position": np.asarray(raw_obs["robot0_base_pos"], np.float32),
+            "state.base_rotation": np.asarray(raw_obs["robot0_base_quat"], np.float32),
+            "state.end_effector_position_relative": np.asarray(raw_obs["robot0_base_to_eef_pos"], np.float32),
+            "state.end_effector_rotation_relative": np.asarray(raw_obs["robot0_base_to_eef_quat"], np.float32),
             "video.robot0_agentview_left": vL.astype(np.uint8),
             "video.robot0_agentview_right": vR.astype(np.uint8),
             "video.robot0_eye_in_hand": vW.astype(np.uint8),
@@ -71,52 +89,16 @@ class RLDXSkill:
         """Pad the per-sim-step history with copies of the CURRENT frame, mirroring the
         eval MultiStepWrapper.reset (which fills its obs deque with n copies of obs0)."""
         frame = self._raw_frame(task_text)
-        self._hist.clear()
-        for _ in range(self._hist.maxlen):
-            self._hist.append(frame)
-
-    def _record_frame(self, task_text):
-        """Append ONE frame for the just-executed sim-step (call after every env.step)."""
-        self._hist.append(self._raw_frame(task_text))
-
-    def _capture_video_frame(self):
-        """Collect the 3 VLA camera frames (left|right|wrist) already rendered into the
-        latest history entry and stack them side-by-side. Called after every env.step
-        when RLDX_VIDEO_DIR is set. Reuses the obs render -> no extra render cost."""
-        if self._frames is None or not self._hist:
-            return
-        f = self._hist[-1]
-        try:
-            tiles = [f["video.robot0_agentview_left"],
-                     f["video.robot0_agentview_right"],
-                     f["video.robot0_eye_in_hand"]]
-            self._frames.append(np.concatenate(tiles, axis=1))   # (H, 3W, 3) uint8
-        except Exception:
-            pass
-
-    def _flush_video(self):
-        """Write the collected frames of the current run() call to cmd_NN.mp4."""
-        if self._video_dir is None or not self._frames:
-            self._frames = None
-            return None
-        os.makedirs(self._video_dir, exist_ok=True)
-        path = os.path.join(self._video_dir, f"cmd_{self._video_idx:02d}.mp4")
-        try:
-            imageio.mimwrite(path, self._frames, fps=self._video_fps,
-                             codec="libx264", macro_block_size=1)
-            print(f"[rldx_skill] wrote video ({len(self._frames)} frames) -> {path}", flush=True)
-        except Exception as e:
-            print(f"[rldx_skill] video write failed: {e}", flush=True)
-            path = None
-        self._frames = None
-        return path
+        self.video_history.clear()
+        for _ in range(self.video_history.maxlen):
+            self.video_history.append(frame)
 
     def _build_obs(self, task_text):
         """Build the batched (n_envs=1), history-stacked obs by indexing the per-sim-step
         history at vdi-1 = [-7,-5,-3,-1], EXACTLY like the eval MultiStepWrapper._get_obs
         (delta_indices = video_delta_indices - 1, over self.obs[i])."""
-        buf = list(self._hist)
-        idx = [len(buf) + (int(d) - 1) for d in self._vdi]            # vdi-1 offset from end
+        buf = list(self.video_history)
+        idx = [len(buf) + (int(d) - 1) for d in self.video_delta_indices]   # vdi-1 offset from end
         idx = [max(0, min(len(buf) - 1, k)) for k in idx]
         cur = buf[-1]                                                 # state/annotation = current
         obs = {}
@@ -138,10 +120,7 @@ class RLDXSkill:
         IDENTICAL action mode it was trained/evaluated with. This is where gripper_close
         and control_mode get binarized to +-1 (raw [0,1] -> -1 if <0.5 else +1);
         re-implementing that by hand and getting it wrong was the original no-grasp bug."""
-        if self._unmap is None:
-            from robocasa.wrappers.gym_wrapper import PandaOmronKeyConverter
-            self._unmap = PandaOmronKeyConverter.unmap_action
-        ad = self._unmap({
+        ad = self.unmap_action({
             "action.end_effector_position": np.asarray(eef_pos, np.float64).reshape(-1),
             "action.end_effector_rotation": np.asarray(eef_rot, np.float64).reshape(-1),
             "action.gripper_close": np.asarray(gripper_close, np.float64).reshape(-1),
@@ -172,9 +151,6 @@ class RLDXSkill:
         base_clip=None -> full base motion; base_clip=v -> clamp base_motion to [-v,v]
         (whole-body policy: never zero it). Returns status + grasp signals so the LLM
         decides: continue (call again) vs done vs genuinely-failed."""
-        self._load()
-        # Start a fresh video buffer for this run() call (no-op if RLDX_VIDEO_DIR unset).
-        self._frames = [] if self._video_dir is not None else None
         # Reset the VLA memory + frame history ONLY when the INSTRUCTION CHANGES (a new
         # sub-task). Same-prompt calls (retrying one grasp) KEEP memory continuity — the
         # grasp needs it (per-call reset regressed grasping to 0). A switched instruction
@@ -185,12 +161,12 @@ class RLDXSkill:
         # the same instruction (e.g. multi-trial fullshot comparison): the eval resets the
         # policy session EVERY episode, so without this, stale RTC/memory from the prior
         # episode bleeds into the next and degrades it.
-        new_task = force_reset or (prompt != getattr(self, "_last_prompt", None))
+        new_task = force_reset or prompt != self._last_prompt
         self._last_prompt = prompt
         # Reseed the per-sim-step history with the current frame on a new instruction or
         # the first call ever; same-prompt retries KEEP the continuous history (matches
         # the eval, which never switches instruction and never re-seeds mid-episode).
-        if new_task or not self._hist:
+        if new_task or not self.video_history:
             self._seed_hist(prompt)
         fresh = new_task
         base0 = np.asarray(self.env.current_raw_obs["robot0_base_pos"], np.float64)[:2].copy()
@@ -206,19 +182,15 @@ class RLDXSkill:
         last_cmd_close = False
         for c in range(max_chunks):
             obs = self._build_obs(prompt)
-            # Do NOT set options["session_ids"] — the vla_server injects the
-            # caller's private session id (owned by the RpcClient) so RLDX
-            # memory/RTC state is isolated per client. Setting it here would
-            # shadow the server-side injection and break isolation.
-            # See vla_server.predict for the injection + rejection of
-            # caller-supplied session_ids.
+            # Do NOT set options["session_ids"] — the vla_server processed
             options = {"reset_memory": [fresh]}
             fresh = False
             if self._check_cancelled is not None:
                 self._check_cancelled()
-            actions = self._vla_client.predict(obs, options)
+            actions = self.vla.predict(obs, options)
             # gym Dict -> native flat 12-d [eef_pos(3),eef_rot(3),gripper(1),base(4),mode(1)]
             horizon = actions["action.gripper_close"].shape[1]
+            chunked_actions = []
             for step in range(min(n_action_steps, horizon)):
                 base_motion = np.asarray(actions["action.base_motion"])[0, step]
                 if base_clip is not None:
@@ -236,14 +208,20 @@ class RLDXSkill:
                     base_motion,
                     np.asarray(actions["action.control_mode"])[0, step],
                 )
-                if self._check_cancelled is not None:
-                    self._check_cancelled()
-                self.env.step(a)
+                chunked_actions.append(a)
+            if self._check_cancelled is not None:
+                self._check_cancelled()
+            recording = self._record_frame_callback is not None
+            chunked_obs, _, _, _, chunked_frames, n_applied = self.env.chunk_step(chunked_actions)
+            applied += n_applied
+            # Per-step agentview into the unified episode buffer (matches
+            # manual primitives' per-step cadence — fixes the per-chunk vs
+            # per-step density mismatch that produced inconsistent video).
+            for step_obs, step_frames in zip(chunked_obs, chunked_frames):
+                self._record_frame_callback(step_obs)
+                self._raw_frame(prompt, raw_obs=step_obs, frames=step_frames)
                 if recording:
-                    record_frame()
-                applied += 1
-                self._record_frame(prompt)        # PER-SIM-STEP history (matches eval cadence)
-                self._capture_video_frame()       # OPTIONAL video (no-op if RLDX_VIDEO_DIR unset)
+                    self._record_frame_callback(xxx)
             # ROBUST grasp check once per chunk (direction-agnostic; see _grasp_contact)
             g_now, g_obj = self._grasp_contact()
             if g_now:
@@ -267,7 +245,7 @@ class RLDXSkill:
             grip_prev = grip_now
         grip = float(self.env.gripper_qpos[0])
         base1 = np.asarray(self.env.current_raw_obs["robot0_base_pos"], np.float64)[:2]
-        # ── ROBUST, DIRECTION-AGNOSTIC GRASP DETERMINATION ──────────────────────────
+        # ---- ROBUST, DIRECTION-AGNOSTIC GRASP DETERMINATION ----
         # Primary (gold): fingerpad↔object CONTACT now (works for any grasp orientation,
         # incl. sideways; does NOT depend on Z-lift). Secondary: the commanded-close-but-
         # held-apart signal — the gripper was told to CLOSE but the fingers stopped before
@@ -279,8 +257,6 @@ class RLDXSkill:
         held_apart = bool(last_cmd_close and 0.004 < grip < 0.039)   # closed onto something
         grasped_now = bool(grasp_now or held_apart)                  # holding at END of call
         grasp_detected = bool(grasp_ever or grasped_now)             # held at SOME point
-        video_path = self._flush_video()   # write cmd_NN.mp4 (no-op if disabled)
-        self._video_idx += 1
         result = {"ok": True, "prompt": prompt, "status": status, "chunks": c + 1,
                 "steps_applied": applied,
                 "grasped": grasped_now,            # holding at end-of-call (carry-ready)
@@ -290,16 +266,14 @@ class RLDXSkill:
                 "grasp_obj": grasp_obj,            # which task object, if contact-identified
                 "gripper_qpos": round(grip, 3), "peak_lift": round(peak_lift, 3),
                 "base_clip": base_clip, "base_drift": round(float(np.linalg.norm(base1 - base0)), 3)}
-        if video_path:
-            result["video"] = video_path
         return result
 
     def reset_session(self):
-        if self._vla_client is not None:
+        if self.vla is not None:
             try:
-                self._vla_client.reset_session()
+                self.vla.reset_session()
             except Exception:
                 pass
         self._last_prompt = None          # post-reset: next call is a fresh task
-        if self._hist is not None:
-            self._hist.clear()
+        if self.video_history is not None:
+            self.video_history.clear()

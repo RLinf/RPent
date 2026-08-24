@@ -46,7 +46,7 @@ class LiberoToolkit(Toolkit):
         # Bound the resettable attempts owned by this planner session.
         self._attempts_per_session: int = max(0, int(attempts_per_session))
         self._session_attempt: int = 1
-        self.init_primitives_clean(primitives_kwargs=primitives_kwargs)
+        self.init_primitives(primitives_kwargs=primitives_kwargs)
         self._register_libero_tools()
 
     # ------------------------------------------------------------------
@@ -163,7 +163,7 @@ class LiberoToolkit(Toolkit):
             out.update(result)
         return out
 
-    def init_primitives_clean(
+    def init_primitives(
         self,
         *,
         primitives_kwargs: dict[str, Any],

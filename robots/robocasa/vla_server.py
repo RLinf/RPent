@@ -20,30 +20,25 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         from rldx.data.embodiment_tags import EmbodimentTag
         from rldx.eval.rollout_policy import create_rldx_sim_policy
 
-        self.policy = create_rldx_sim_policy(
+        self.model = create_rldx_sim_policy(
             model_path, EmbodimentTag.GENERAL_EMBODIMENT, "", None,
         )
-        mod = self.policy.get_modality_config()
-        self._vdi = np.asarray(mod["video"].delta_indices)
-        self._hist_maxlen = int(self._vdi.max() - self._vdi.min()) + 2
+        self.video_delta_indices = np.asarray(
+            self.model.get_modality_config()["video"].delta_indices
+        )
         print(
-            f"[vla_server] policy loaded; video_delta_indices={self._vdi.tolist()} "
-            f"hist_maxlen={self._hist_maxlen}",
+            f"[vla_server] policy loaded; video_delta_indices={self.video_delta_indices.tolist()}",
             flush=True,
         )
 
     def _register_rpc(self):
         super()._register_rpc()
-        self._rpc["vla.get_modality_config"] = self.get_modality_config
-        self._rpc["vla.predict"] = self.predict
         self._rpc["vla.reset_session"] = self.reset_session
-        self._readonly_methods.add("vla.get_modality_config")
+        self._rpc["vla.get_video_delta_indices"] = self.get_video_delta_indices
+        self._readonly_methods.add("vla.get_video_delta_indices")
 
-    def get_modality_config(self):
-        return {
-            "video_delta_indices": self._vdi.tolist(),
-            "hist_maxlen": self._hist_maxlen,
-        }
+    def get_video_delta_indices(self, *, session_id=None):
+        return self.video_delta_indices
 
     def predict(self, obs_dict, options, *, session_id):
         # policy.get_action returns dict[str, np.ndarray] because RLDX's
@@ -61,7 +56,7 @@ class RoboCasaVLAFacade(BaseVLAFacade):
                 "injects the caller's private session id from the RPC facade"
             )
         options["session_ids"] = [session_id]
-        actions, info = self.policy.get_action(obs_dict, options=options)
+        actions, info = self.model.get_action(obs_dict, options=options)
         return actions
 
     def reset_session(self, *, session_id):
@@ -71,18 +66,11 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         session stays live for subsequent calls. Mirror of predict's
         session_ids injection.
         """
-        self.policy.reset({"session_ids": [session_id]})
+        self.model.reset({"session_ids": [session_id]})
         return {"ok": True}
 
-    # ---- session cleanup hooks (invoked by the RPC facade) ----
-
     def _on_session_drop(self, session_id):
-        self.policy.reset({"session_ids": [session_id]})
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+        self.model.reset({"session_ids": [session_id]})
 
 
 def main():
