@@ -17,6 +17,27 @@ def _tool_error(code: str, message: str, **details: Any) -> dict[str, Any]:
     }
 
 
+def _to_json_safe(value: Any) -> Any:
+    """Recursively convert numpy arrays to lists so the value is JSON-serializable.
+
+    The dashboard timeline stores ``record.result`` verbatim and serializes it
+    with the default JSON encoder (no ndarray fallback), so any ndarray in a
+    tool result -- e.g. the ``robot_state`` arrays carried by the reset step's
+    ``last_reset_info`` -- would crash ``/api/run`` with
+    ``TypeError: Object of type ndarray is not JSON serializable``. LIBERO's
+    tool results are already JSON-safe; this normalizes RoboTwin's so the
+    shared dashboard projection receives the same JSON-safe contract.
+    """
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, dict):
+        return {key: _to_json_safe(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_json_safe(item) for item in value]
+    return value
+
+
+
 def _artifact_name(view: str, field: str) -> str:
     suffix = {
         "rgb": ".png",
@@ -341,7 +362,7 @@ def dump_observation(
         terminated=eval_success,
         truncated=False,
         command=(log or {}).get("command"),
-        result=(log or {}).get("result"),
+        result=_to_json_safe((log or {}).get("result")),
         elapsed_s=(log or {}).get("elapsed_s"),
         extras={"task_language": observation.get("task_language")},
     ) as recorded_step:
