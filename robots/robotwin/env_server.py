@@ -253,6 +253,7 @@ def make_env(
     assets_identity = validate_root(assets_path)
     resolved_assets_path = Path(assets_identity["root"])
     os.environ["ROBOTWIN_ASSETS_PATH"] = str(resolved_assets_path)
+    os.environ["ROBOTWIN_ASSETS_ROOT"] = str(resolved_assets_path)
     logger.info("RoboTwin assets: %s", assets_identity)
     print(
         f"robotwin_assets {json.dumps(assets_identity, sort_keys=True)}",
