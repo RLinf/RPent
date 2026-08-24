@@ -6,16 +6,12 @@ import argparse
 import dataclasses
 import queue
 import time
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from rpent.utils.logging import get_logger
+from robots.dual_franka.runtime_config import load_runtime_config
 from rpent.utils.rpc import RpcFacade
-
-logger = get_logger("dual_franka_env_server")
-DEFAULT_CONTROLLER_CONFIG = Path(__file__).with_name("controller_config.yaml")
 
 _ARM_INDEX = {"left": 0, "right": 1}
 
@@ -113,13 +109,7 @@ class _RayBackend:
         return invoke
 
 
-def _load_controller_config(path: str | Path | None) -> dict[str, Any]:
-    from omegaconf import OmegaConf
-
-    config_path = Path(path or DEFAULT_CONTROLLER_CONFIG).expanduser().resolve()
-    raw = OmegaConf.to_container(OmegaConf.load(config_path), resolve=True)
-    if not isinstance(raw, dict):
-        raise ValueError(f"controller config must be a mapping: {config_path}")
+def _normalize_controller_config(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "move_timeout_s": float(raw["move"]["timeout_s"]),
         "move_tolerance_m": float(raw["move"]["tolerance_m"]),
@@ -146,10 +136,10 @@ def _create_worker_class():
     class DualFrankaEnvWorker(Worker):
         """Ray worker that owns both physical Franka arms and camera resources."""
 
-        def __init__(self, cfg: Any, controller_config_path: str | None = None):
+        def __init__(self, cfg: Any, controller_config: dict[str, Any]):
             super().__init__()
             self.cfg = cfg
-            self.controller = _load_controller_config(controller_config_path)
+            self.controller = _normalize_controller_config(controller_config)
             self.env = RealWorldEnv(
                 cfg.env.eval,
                 num_envs=1,
@@ -549,18 +539,7 @@ def _create_worker_class():
     return DualFrankaEnvWorker
 
 
-def _compose_config(config_name: str, overrides: list[str]):
-    import hydra
-
-    config_dir = Path(__file__).with_name("config")
-    with hydra.initialize_config_dir(
-        version_base="1.1",
-        config_dir=str(config_dir),
-    ):
-        return hydra.compose(config_name=config_name, overrides=overrides)
-
-
-def _launch_worker(cfg: Any, controller_config: str | None):
+def _launch_worker(cfg: Any, controller_config: dict[str, Any]):
     from rlinf.scheduler import Cluster, ComponentPlacement
 
     worker_class = _create_worker_class()
@@ -580,18 +559,16 @@ def main() -> int:
     parser.add_argument("--transport", choices=["http", "socket"], default="http")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
-    parser.add_argument(
-        "--config-name", default="realworld_physical_agent_eval_dual_franka"
-    )
-    parser.add_argument("--override", action="append", default=[])
-    parser.add_argument("--controller-config", default=None)
-    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--robot-config", default=None)
+    parser.add_argument("--task-description", required=True)
     parser.add_argument("--parent-watch", action="store_true")
     args = parser.parse_args()
 
-    del args.output_dir
-    cfg = _compose_config(args.config_name, list(args.override))
-    worker = _launch_worker(cfg, args.controller_config)
+    runtime = load_runtime_config(
+        args.robot_config,
+        task_description=args.task_description,
+    )
+    worker = _launch_worker(runtime.rlinf, runtime.controller)
     facade = DualFrankaEnvFacade(_RayBackend(worker))
     try:
         facade.serve(

@@ -19,7 +19,7 @@ from robots.dual_franka import (
     _vla_server_command,
     get_env_spec,
 )
-from robots.dual_franka.env_server import _compose_config
+from robots.dual_franka.runtime_config import load_runtime_config
 from robots.dual_franka.vla_server import _build_env_obs, build_model_cfg
 from rpent.envs.base import enumerate_envs
 from rpent.envs.base import get_env_spec as resolve_env_spec
@@ -59,9 +59,11 @@ def test_dual_franka_cli_uses_current_interpreter_without_override_option():
         args,
         host="127.0.0.1",
         port=5556,
-        output_dir=Path("logs/test"),
     )
     assert command[0] == sys.executable
+    assert "--config-name" not in command
+    assert "--override" not in command
+    assert "--task-description" in command
 
 
 def test_dual_franka_cli_accepts_local_rlinf_checkout(monkeypatch, tmp_path: Path):
@@ -76,19 +78,19 @@ def test_dual_franka_cli_accepts_local_rlinf_checkout(monkeypatch, tmp_path: Pat
     assert args.rlinf_root == str(tmp_path)
 
 
-def test_dual_franka_uses_rpent_owned_runtime_config():
-    config_path = (
-        Path(__file__).parents[3]
-        / "robots/dual_franka/config/realworld_physical_agent_eval_dual_franka.yaml"
-    )
-
-    cfg = _compose_config("realworld_physical_agent_eval_dual_franka", [])
+def test_dual_franka_uses_rpent_owned_robot_config():
+    config_path = Path(__file__).parents[3] / "robots/dual_franka/robot_config.yaml"
+    runtime = load_runtime_config(config_path, task_description="test task")
+    cfg = runtime.rlinf
 
     assert config_path.is_file()
     assert cfg.env.eval.init_params.id == "DualFrankaTcpEnv-v1"
     hardware = cfg.cluster.node_groups[0].hardware.configs[0]
-    assert str(hardware.left_robot_ip)
-    assert str(hardware.right_robot_ip)
+    assert hardware.left_robot_ip == "172.16.0.2"
+    assert hardware.right_robot_ip == "172.16.0.2"
+    assert hardware.right_controller_node_rank == 1
+    assert cfg.env.eval.override_cfg.task_description == "test task"
+    assert runtime.controller["move"]["max_step_m"] == 0.02
 
 
 def test_dual_franka_vla_server_command_uses_checkpoint_and_repo_id():

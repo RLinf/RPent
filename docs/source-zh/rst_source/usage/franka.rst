@@ -22,20 +22,17 @@ RLinf/OpenPI 分支。不需要单独的 RLinf checkout、虚拟环境或安装�
 
 仓库中的值是开发默认值，启用机械臂运动前必须逐项检查：
 
-* ``robots/franka/config/realworld_physical_agent_eval.yaml`` 包含机器人 IP
-  和 Ray placement。
-* ``robots/franka/config/env/realworld_physical_agent_franka.yaml`` 包含相机
-  序列号、相机名称、reset/target pose、action scale 和工作空间安全边界。
-* ``robots/franka/controller_config.yaml`` 包含 primitive 超时与容差。
+* ``robots/franka/robot_config.yaml`` 包含机器人 IP、相机设备、reset/target
+  pose、工作空间安全边界、action scale 和 primitive 限制。
 * ``robots/franka/calibration/hand_eye_calibration.json`` 包含感知工具使用的
   hand-eye calibration。
 
-请替换这些文件中的 ``ROBOT_IP``、``CAMERA_SERIAL_WRIST`` 和
+请替换 robot config 中的 ``ROBOT_IP``、``CAMERA_SERIAL_WRIST`` 和
 ``CAMERA_SERIAL_EXTERNAL``。不要复用其他工作空间的位姿、边界、序列号或标定。
 
-常规 RPent 命令会直接使用这些文件。``--rlinf-config-name``、
-``--rlinf-override`` 和 ``--controller-config`` 仍作为开发调试入口保留，
-但不再需要单独维护 RLinf 配置。
+RPent 会将该机器人配置转换成内部 RLinf cluster 和环境对象。如需使用其他文件，
+请传入 ``--robot-config /path/to/robot_config.yaml``。用户不再需要接触 Hydra
+或 RLinf 配置流程。
 
 使用本地 RLinf checkout
 ------------------------
@@ -91,8 +88,9 @@ Ray 启动时会捕获环境变量，因此必须先设置 node rank：
 	uv run --extra franka rpent --env franka --task-id 0 \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-RPent 使用当前解释器启动 ``robots/franka/env_server.py``，组合仓库中的本地
-配置，连接 Ray，等待 ``healthz``，并将初始状态记录为 step ``0``。
+RPent 使用当前解释器启动 ``robots/franka/env_server.py``，加载 RPent robot
+config 并生成内部 RLinf adapter config，然后连接 Ray，等待
+``healthz``，并将初始状态记录为 step ``0``。
 
 VLA 任务
 --------

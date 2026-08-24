@@ -1,0 +1,73 @@
+robot:
+  nodes: [0, 1]
+  hardware_node: 0
+  arms:
+    left:
+      ip: "172.16.0.2"
+      controller_node: 0
+      gripper:
+        type: robotiq
+        connection: "/dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAIR00N-if00-port0"
+    right:
+      ip: "172.16.0.2"
+      controller_node: 1
+      gripper:
+        type: robotiq
+        connection: "/dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAIT8PU-if00-port0"
+
+cameras:
+  main: left_wrist_0_rgb
+  observation:
+    base:
+      - serial: "141722070657"
+        type: realsense
+    left_wrist:
+      - serial: "usb-XVisio_Technology_XVisio_vSLAM_250801DR48FB26001216-video-index0"
+        type: lumos
+    right_wrist:
+      - serial: "usb-XVisio_Technology_XVisio_vSLAM_250801DR48FB26001242-video-index0"
+        type: lumos
+  perception:
+    d455:
+      enabled: true
+      serial: "311322304048"
+      type: realsense
+      resolution: [640, 480]
+      fps: 15
+      depth: true
+
+workspace:
+  target_pose:
+    - [0.5, -0.2, 0.5, -3.14, 0.0, 0.0]
+    - [0.5, 0.2, 0.5, -3.14, 0.0, 0.0]
+  bounds:
+    min:
+      - [0.3, -0.4, 0.1, -3.1416, -3.1416, -3.1416]
+      - [0.3, -0.4, 0.1, -3.1416, -3.1416, -3.1416]
+    max:
+      - [0.8, 0.4, 0.7, 3.1416, 3.1416, 3.1416]
+      - [0.8, 0.4, 0.7, 3.1416, 3.1416, 3.1416]
+
+control:
+  mode: tcp_rot6d
+  action_scale: [1.0, 1.0, 1.0]
+  joint_reset_qpos:
+    - [0.0, 0.0, 0.0, -1.9, 0.0, 2.0, 0.0]
+    - [0.0, 0.0, 0.0, -1.9, 0.0, 2.0, 0.0]
+  success_hold_steps: 1
+  episode_steps: 300
+  move:
+    timeout_s: 20.0
+    tolerance_m: 0.005
+    max_step_m: 0.02
+  rotate:
+    timeout_s: 20.0
+    tolerance_rad: 0.04
+    max_step_rad: 0.1
+  servo:
+    iteration_multiplier: 4
+    min_iterations: 8
+  gripper:
+    settle_s: 0.4
+    timeout_s: 10.0
+    max_iterations: 4

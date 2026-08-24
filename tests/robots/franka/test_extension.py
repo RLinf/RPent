@@ -13,7 +13,7 @@ from robots.franka import (
     _parse_config,
     get_env_spec,
 )
-from robots.franka.env_server import _compose_config
+from robots.franka.runtime_config import load_runtime_config
 from rpent.envs.base import enumerate_envs
 from rpent.envs.base import get_env_spec as resolve_env_spec
 
@@ -52,9 +52,11 @@ def test_franka_cli_uses_current_interpreter_without_override_option():
         args,
         host="127.0.0.1",
         port=5555,
-        output_dir=Path("logs/test"),
     )
     assert command[0] == sys.executable
+    assert "--config-name" not in command
+    assert "--override" not in command
+    assert "--task-description" in command
 
 
 def test_franka_cli_accepts_local_rlinf_checkout(monkeypatch, tmp_path: Path):
@@ -69,14 +71,13 @@ def test_franka_cli_accepts_local_rlinf_checkout(monkeypatch, tmp_path: Path):
     assert args.rlinf_root == str(tmp_path)
 
 
-def test_franka_uses_rpent_owned_runtime_config():
-    config_path = (
-        Path(__file__).parents[3]
-        / "robots/franka/config/realworld_physical_agent_eval.yaml"
-    )
-
-    cfg = _compose_config("realworld_physical_agent_eval", [])
+def test_franka_uses_rpent_owned_robot_config():
+    config_path = Path(__file__).parents[3] / "robots/franka/robot_config.yaml"
+    runtime = load_runtime_config(config_path, task_description="test task")
+    cfg = runtime.rlinf
 
     assert config_path.is_file()
     assert cfg.env.eval.init_params.id == "PhysicalAgentFrankaEnv-v1"
     assert cfg.cluster.node_groups[0].hardware.configs[0].robot_ip == "ROBOT_IP"
+    assert cfg.env.eval.override_cfg.task_description == "test task"
+    assert runtime.controller["move"]["tolerance_m"] == 0.005

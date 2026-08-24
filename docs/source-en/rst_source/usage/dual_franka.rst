@@ -24,23 +24,21 @@ Development configuration
 
 Review and edit the checked-in development defaults before enabling motion:
 
-* ``robots/dual_franka/config/realworld_physical_agent_eval_dual_franka.yaml``
-  contains both robot IPs, camera serials/types, gripper connections, controller
-  node ranks, Ray placement, reset joints, and target poses.
-* ``robots/dual_franka/config/env/realworld_dual_franka_tcp_rot6d.yaml`` contains
-  the 20-D TCP-rot6d environment, action scale, and workspace bounds.
-* ``robots/dual_franka/controller_config.yaml`` contains primitive limits,
-  timeouts, tolerances, and the additional perception-camera configuration.
+* ``robots/dual_franka/robot_config.yaml`` contains both robot IPs, camera
+	serials/types, gripper connections, controller nodes, reset joints, target
+	poses, workspace bounds, primitive limits, and perception-camera settings.
 * ``robots/dual_franka/calibration/`` contains camera intrinsics and hand-eye
   calibration files.
 
-Replace all uppercase hardware placeholders. Do not reuse IPs, serials, gripper
-ports, reset poses, bounds, or calibration from another workspace.
+The checked-in robot config intentionally preserves the current lab IPs,
+serials, and gripper device paths for local testing. Review and replace them for
+any other setup. Do not reuse reset poses, bounds, or calibration from another
+workspace.
 
-The normal RPent command uses these files directly. ``--rlinf-config-name``,
-``--rlinf-override``, and ``--controller-config`` remain available as
-development escape hatches, but no separate RLinf configuration workflow is
-needed.
+RPent translates this robot-focused schema into the internal two-node RLinf
+cluster and environment objects. To use a different file, pass
+``--robot-config /path/to/robot_config.yaml``. No Hydra or RLinf configuration
+workflow is exposed to users.
 
 Use a local RLinf checkout
 --------------------------
@@ -68,7 +66,7 @@ Node ``1``:
 	ray stop --force
 	ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
 
-Run RPent on node ``0`` with the explicit override:
+Run RPent on node ``0`` with the local checkout:
 
 .. code-block:: bash
 
@@ -76,10 +74,10 @@ Run RPent on node ``0`` with the explicit override:
 	  --rlinf-root $RLINF_REPO_PATH \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-The override applies to both auto-started ``env_server.py`` and
-``vla_server.py``. Exporting ``PYTHONPATH`` before ``ray start`` makes remote
-Ray workers import the matching checkout. Restart Ray on every node whenever
-the source path changes.
+The local checkout applies to both auto-started ``env_server.py`` and
+``vla_server.py``. Exporting ``PYTHONPATH`` before ``ray start`` makes remote Ray
+workers import the matching checkout. Restart Ray on every node whenever the
+source path changes.
 
 Verify each node with:
 
@@ -125,8 +123,9 @@ Task ``0`` tests conservative single-arm analytic motion and gripper primitives:
 	  --planner api --model anthropic:claude-sonnet-4-5
 
 RPent starts ``robots/dual_franka/env_server.py`` with the current interpreter,
-composes the checked-in local config, connects to Ray, waits for ``healthz``,
-and records the initial state as step ``0``.
+loads the RPent robot config, generates the internal RLinf adapter config,
+connects to Ray, waits for ``healthz``, and records the initial state as step
+``0``.
 
 VLA task
 --------

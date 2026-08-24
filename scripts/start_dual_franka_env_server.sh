@@ -22,8 +22,6 @@ Options:
                            (default: /tmp/ray/ray_current_cluster)
   --transport-host HOST    Env RPC bind host (default: 127.0.0.1)
   --transport-port PORT    Env RPC bind port (default: 5556)
-  --output-dir DIR         Bootstrap output dir. Default:
-                           logs/dual_franka_server/bootstrap/env_server_<timestamp>
   --skip-remote-ray        Do not SSH/start remote Ray worker
   --remote-only            Start/check remote Ray worker and exit
   -h, --help               Show this help
@@ -34,6 +32,7 @@ Environment overrides:
   REMOTE_RLINF_ROOT        Default: same path as RLINF_ROOT
   VENV                     Default: $RLINF_ROOT/requirements/.venv
   REMOTE_VENV              Default: $REMOTE_RLINF_ROOT/requirements/.venv
+  TASK_DESCRIPTION         Default: dual arm physical agent task
 
 Examples:
   scripts/start_dual_franka_env_server.sh
@@ -41,11 +40,11 @@ Examples:
   scripts/start_dual_franka_env_server.sh --remote-only
 
   scripts/start_dual_franka_env_server.sh -- \
-    --override env.eval.override_cfg.enable_camera_player=false
+    --robot-config /path/to/robot_config.yaml
 
 Server-side config:
-  Controller, gripper, and perception settings are read from
-  robots/dual_franka/controller_config.yaml by default.
+  Robot, camera, workspace, and controller settings are read from
+  robots/dual_franka/robot_config.yaml by default.
 EOF
 }
 
@@ -61,7 +60,7 @@ REMOTE_NODE_RANK="${REMOTE_NODE_RANK:-1}"
 HEAD_ADDR="${HEAD_ADDR:-}"
 TRANSPORT_HOST="${TRANSPORT_HOST:-127.0.0.1}"
 TRANSPORT_PORT="${TRANSPORT_PORT:-5556}"
-BOOTSTRAP_OUTPUT_DIR=""
+TASK_DESCRIPTION="${TASK_DESCRIPTION:-dual arm physical agent task}"
 SKIP_REMOTE_RAY=0
 REMOTE_ONLY=0
 SERVER_ARGS=()
@@ -86,10 +85,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --transport-port)
       TRANSPORT_PORT="${2:?--transport-port requires a value}"
-      shift 2
-      ;;
-    --output-dir)
-      BOOTSTRAP_OUTPUT_DIR="${2:?--output-dir requires a value}"
       shift 2
       ;;
     --skip-remote-ray)
@@ -136,10 +131,6 @@ if [[ -z "$HEAD_ADDR" ]]; then
     echo "No Ray head address found. Start the local Ray head first, or pass --head-addr HOST:6379." >&2
     exit 2
   fi
-fi
-
-if [[ -z "$BOOTSTRAP_OUTPUT_DIR" ]]; then
-  BOOTSTRAP_OUTPUT_DIR="$RPENT_ROOT/logs/dual_franka_server/bootstrap/env_server_$(date +%Y%m%d_%H%M%S)"
 fi
 
 quote() {
@@ -196,10 +187,9 @@ source "$VENV/bin/activate"
 export PYTHONPATH="$RPENT_ROOT:$RLINF_ROOT:${PYTHONPATH:-}"
 
 echo "[dual-franka] starting env server on $TRANSPORT_HOST:$TRANSPORT_PORT"
-echo "[dual-franka] output dir: $BOOTSTRAP_OUTPUT_DIR"
 exec python -u robots/dual_franka/env_server.py \
   --transport socket \
   --host "$TRANSPORT_HOST" \
   --port "$TRANSPORT_PORT" \
-  --output-dir "$BOOTSTRAP_OUTPUT_DIR" \
+  --task-description "$TASK_DESCRIPTION" \
   "${SERVER_ARGS[@]}"

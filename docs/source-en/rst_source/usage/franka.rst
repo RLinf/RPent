@@ -25,24 +25,20 @@ Development configuration
 The checked-in values are development defaults and must be reviewed before
 enabling motion:
 
-* ``robots/franka/config/realworld_physical_agent_eval.yaml`` contains the
-  robot IP and Ray placement.
-* ``robots/franka/config/env/realworld_physical_agent_franka.yaml`` contains
-  camera serials, camera names, reset/target pose, action scale, and workspace
-  safety bounds.
-* ``robots/franka/controller_config.yaml`` contains primitive timeouts and
-  tolerances.
+* ``robots/franka/robot_config.yaml`` contains the robot IP, camera devices,
+	reset/target pose, workspace safety bounds, action scale, and primitive
+	limits.
 * ``robots/franka/calibration/hand_eye_calibration.json`` contains the hand-eye
   calibration used by perception tools.
 
 Replace ``ROBOT_IP``, ``CAMERA_SERIAL_WRIST``, and
-``CAMERA_SERIAL_EXTERNAL`` in those files. Do not reuse poses, bounds, serials,
+``CAMERA_SERIAL_EXTERNAL`` in the robot config. Do not reuse poses, bounds, serials,
 or calibration from another workspace.
 
-The normal RPent command uses these files directly. ``--rlinf-config-name``,
-``--rlinf-override``, and ``--controller-config`` remain available as
-development escape hatches, but no separate RLinf configuration workflow is
-needed.
+RPent translates this robot-focused schema into the internal RLinf cluster and
+environment objects. To use a different file, pass
+``--robot-config /path/to/robot_config.yaml``. No Hydra or RLinf configuration
+workflow is exposed to users.
 
 Use a local RLinf checkout
 --------------------------
@@ -101,8 +97,9 @@ Task ``0`` exercises conservative analytic motion and gripper primitives:
 	  --planner api --model anthropic:claude-sonnet-4-5
 
 RPent starts ``robots/franka/env_server.py`` with the current interpreter,
-composes the checked-in local config, connects to Ray, waits for ``healthz``,
-and records the initial state as step ``0``.
+loads the RPent robot config, generates the internal RLinf adapter config,
+connects to Ray, waits for ``healthz``, and records the initial state as step
+``0``.
 
 VLA task
 --------

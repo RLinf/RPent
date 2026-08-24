@@ -58,14 +58,12 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument("--vla-endpoint", default=None)
-    parser.add_argument("--rlinf-config-name", default="realworld_physical_agent_eval")
-    parser.add_argument("--rlinf-override", action="append", default=[])
+    parser.add_argument("--robot-config", default=None)
     parser.add_argument(
         "--rlinf-root",
         default=os.environ.get("RLINF_REPO_PATH"),
         help="Local RLinf source checkout to prepend for development testing",
     )
-    parser.add_argument("--controller-config", default=None)
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
@@ -113,8 +111,8 @@ def _env_server_command(
     *,
     host: str,
     port: int,
-    output_dir: Path,
 ) -> list[str]:
+    task = get_franka_task(args.task_id)
     command = [
         sys.executable,
         str(get_repo_root() / "robots" / "franka" / "env_server.py"),
@@ -124,16 +122,12 @@ def _env_server_command(
         host,
         "--port",
         str(port),
-        "--config-name",
-        args.rlinf_config_name,
-        "--output-dir",
-        str(output_dir),
+        "--task-description",
+        task.instruction,
         "--parent-watch",
     ]
-    for override in args.rlinf_override:
-        command.extend(["--override", override])
-    if args.controller_config:
-        command.extend(["--controller-config", args.controller_config])
+    if args.robot_config:
+        command.extend(["--robot-config", args.robot_config])
     return command
 
 
@@ -178,7 +172,6 @@ def init_task_runtime(
                 args,
                 host=host,
                 port=port,
-                output_dir=output_dir,
             )
             env = build_rpent_subprocess_env(
                 rlinf_root=args.rlinf_root,

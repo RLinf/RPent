@@ -1,0 +1,47 @@
+robot:
+  ip: ROBOT_IP
+  node: 0
+  end_effector:
+    type: franka
+    connection: null
+
+cameras:
+  depth: true
+  output_size: null
+  devices:
+    wrist_1:
+      serial: CAMERA_SERIAL_WRIST
+      type: realsense
+      main: true
+    third_person:
+      serial: CAMERA_SERIAL_EXTERNAL
+      type: realsense
+
+workspace:
+  target_pose: [0.65875577, 0.04438992, 0.07458871, 2.94857731, -0.0676843, -0.18130717]
+  bounds:
+    x: 0.5
+    y: 0.5
+    z_below: 0.04
+    z_above: 0.2
+    roll_pitch: 0.01
+    yaw: 1.58
+
+control:
+  action_scale: [0.02, 0.1, 1.0]
+  success_position_tolerance: [0.01, 0.01, 0.01]
+  success_hold_steps: 1
+  episode_steps: null
+  move:
+    timeout_s: 15.0
+    tolerance_m: 0.005
+  rotate:
+    timeout_s: 15.0
+    tolerance_rad: 0.04
+  servo:
+    iteration_multiplier: 4
+    min_iterations: 8
+  gripper:
+    settle_s: 0.25
+    timeout_s: 8.0
+    max_iterations: 4

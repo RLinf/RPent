@@ -22,21 +22,18 @@ RLinf/OpenPI 分支。不需要单独的 RLinf checkout、虚拟环境或安装�
 
 启用机械臂运动前，请检查并修改仓库中的开发默认值：
 
-* ``robots/dual_franka/config/realworld_physical_agent_eval_dual_franka.yaml``
-  包含两台机器人 IP、相机序列号/类型、夹爪连接、controller node rank、Ray
-  placement、reset joints 和 target poses。
-* ``robots/dual_franka/config/env/realworld_dual_franka_tcp_rot6d.yaml`` 包含
-  20 维 TCP-rot6d 环境、action scale 和工作空间边界。
-* ``robots/dual_franka/controller_config.yaml`` 包含 primitive 限制、超时、
-  容差和额外感知相机配置。
+* ``robots/dual_franka/robot_config.yaml`` 包含两台机器人 IP、相机序列号/类型、
+  夹爪连接、controller node、reset joints、target poses、工作空间边界、
+  primitive 限制和感知相机配置。
 * ``robots/dual_franka/calibration/`` 包含相机内参和 hand-eye calibration。
 
-请替换所有大写硬件占位符。不要复用其他工作空间的 IP、序列号、夹爪端口、
-reset pose、边界或标定。
+仓库中的 robot config 会有意保留当前实验室 IP、序列号和夹爪设备路径，方便
+本地测试。其他系统必须检查并替换这些值。不要复用其他工作空间的 reset pose、
+边界或标定。
 
-常规 RPent 命令会直接使用这些文件。``--rlinf-config-name``、
-``--rlinf-override`` 和 ``--controller-config`` 仍作为开发调试入口保留，
-但不再需要单独维护 RLinf 配置。
+RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境对象。如需使用
+其他文件，请传入 ``--robot-config /path/to/robot_config.yaml``。用户不再需要
+接触 Hydra 或 RLinf 配置流程。
 
 使用本地 RLinf checkout
 ------------------------
@@ -63,7 +60,7 @@ reset pose、边界或标定。
 	ray stop --force
 	ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
 
-在节点 ``0`` 使用显式 override 运行 RPent：
+在节点 ``0`` 使用本地 checkout 运行 RPent：
 
 .. code-block:: bash
 
@@ -71,7 +68,7 @@ reset pose、边界或标定。
 	  --rlinf-root $RLINF_REPO_PATH \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-该 override 同时作用于自动启动的 ``env_server.py`` 和 ``vla_server.py``。
+该本地 checkout 同时作用于自动启动的 ``env_server.py`` 和 ``vla_server.py``。
 在 ``ray start`` 前导出 ``PYTHONPATH``，可让远程 Ray worker 加载同一 checkout。
 源码路径发生变化时，必须在所有节点重启 Ray。
 
@@ -118,8 +115,9 @@ reset pose、边界或标定。
 	uv run --extra franka rpent --env dual_franka --task-id 0 \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-RPent 使用当前解释器启动 ``robots/dual_franka/env_server.py``，组合仓库中的
-本地配置，连接 Ray，等待 ``healthz``，并将初始状态记录为 step ``0``。
+RPent 使用当前解释器启动 ``robots/dual_franka/env_server.py``，加载 RPent
+robot config 并生成内部 RLinf adapter config，然后连接 Ray，等待 ``healthz``，
+并将初始状态记录为 step ``0``。
 
 VLA 任务
 --------
