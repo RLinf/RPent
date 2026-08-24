@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
 
+from robots.franka.tools import FrankaPrimitives, coerce_vec3
 from rpent.tools.state import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
 
@@ -138,34 +139,8 @@ def coerce_arm(value: Any) -> str:
     return arm
 
 
-def coerce_vec3(value: Sequence[float], *, name: str) -> np.ndarray:
-    """Return a finite float32 three-vector or raise a useful error."""
-    array = np.asarray(value, dtype=np.float32)
-    if array.shape != (3,):
-        raise ValueError(f"{name} must contain exactly 3 values, got {array.shape}")
-    if not np.isfinite(array).all():
-        raise ValueError(f"{name} must contain only finite values")
-    return array
-
-
-class DualFrankaPrimitives:
+class DualFrankaPrimitives(FrankaPrimitives):
     """Safe agent-facing operations over a remote dual-Franka environment."""
-
-    def __init__(
-        self,
-        *,
-        env: Any,
-        model: Any | None,
-        task_description: str,
-        check_cancelled: Callable[[], None],
-    ) -> None:
-        self.env = env
-        self.model = model
-        self.task_description = task_description
-        self._check_cancelled = check_cancelled
-
-    def reset(self) -> dict[str, Any]:
-        return self.env.reset()
 
     def move_delta(self, arm: str, delta_xyz: Sequence[float]) -> dict[str, Any]:
         self._check_cancelled()
@@ -186,33 +161,6 @@ class DualFrankaPrimitives:
     def close_gripper(self, arm: str) -> dict[str, Any]:
         self._check_cancelled()
         return self.env.set_gripper(coerce_arm(arm), open=False)
-
-    def vla_grasp(self, prompt: str, max_chunks: int = 4) -> dict[str, Any]:
-        if self.model is None:
-            raise RuntimeError("vla_grasp requires --vla-endpoint")
-        if not prompt.strip():
-            raise ValueError("prompt must be non-empty")
-        if not 1 <= int(max_chunks) <= 20:
-            raise ValueError("max_chunks must be between 1 and 20")
-
-        chunk_results: list[dict[str, Any]] = []
-        for _ in range(int(max_chunks)):
-            self._check_cancelled()
-            observation = dict(self.env.get_observation())
-            observation["task_descriptions"] = prompt or self.task_description
-            actions, _ = self.model.predict_action_batch(observation, mode="eval")
-            result = self.env.step_chunk(actions)
-            chunk_results.append(result)
-            if result.get("terminated") or result.get("truncated"):
-                break
-
-        return {
-            "ok": True,
-            "chunks_executed": len(chunk_results),
-            "last_chunk": chunk_results[-1] if chunk_results else None,
-            "robot_state": self.env.get_robot_state(),
-        }
-
 
 def dump_state(
     primitives: DualFrankaPrimitives,
@@ -283,14 +231,3 @@ def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
             output[path_key] = str(state.artifact_path(artifact, step=record.step_idx))
             output[bytes_key] = state.load_bytes(artifact, step=record.step_idx)
     return output
-
-
-@readonly
-def view_camera_meta(step: int = -1, *, state: EnvState) -> dict[str, Any]:
-    """Return camera metadata captured for one state step."""
-    if not state.exists("camera_meta.json", step=step):
-        return {"error": "camera metadata is unavailable", "step": step}
-    return {
-        "step": state.get(step).step_idx,
-        "camera_meta": state.load("camera_meta.json", step=step),
-    }

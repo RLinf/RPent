@@ -2,21 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
-class DualFrankaTask:
-    """One real-robot dual-arm task presented to the planner."""
-
-    name: str
-    instruction: str
-    success_criteria: str
-    constraints: tuple[str, ...]
-
+from robots.franka.tasks import FrankaTask
 
 DUAL_FRANKA_TASKS = {
-    0: DualFrankaTask(
+    0: FrankaTask(
         name="primitive_smoke_test",
         instruction=(
             "Inspect the current state, then for each arm in turn exercise one "
@@ -34,7 +23,7 @@ DUAL_FRANKA_TASKS = {
             "Stop immediately if images or state indicate unsafe motion.",
         ),
     ),
-    1: DualFrankaTask(
+    1: FrankaTask(
         name="vla_grasp",
         instruction=(
             "Use bounded analytic motion to stage the chosen arm near the named "
@@ -54,7 +43,7 @@ DUAL_FRANKA_TASKS = {
 }
 
 
-def get_dual_franka_task(task_id: int) -> DualFrankaTask:
+def get_dual_franka_task(task_id: int) -> FrankaTask:
     """Return a task by numeric ID with a clear error for unknown IDs."""
     try:
         return DUAL_FRANKA_TASKS[int(task_id)]

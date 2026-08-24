@@ -9,11 +9,10 @@ import pytest
 
 from robots.dual_franka.env_client import DualFrankaEnvClient
 from robots.dual_franka.env_server import (
-    DualFrankaEnvFacade,
     _matrix_to_rot6d,
     _pack_dual_action,
-    _to_numpy_tree,
 )
+from robots.franka.env_server import FrankaEnvFacade, _to_numpy_tree
 from rpent.utils.http_rpc import HttpRpcClient, HttpRpcServer
 
 
@@ -26,7 +25,7 @@ class FakeBackend:
 
 
 def test_facade_dispatches_only_explicit_env_methods():
-    facade = DualFrankaEnvFacade(FakeBackend())
+    facade = FrankaEnvFacade(FakeBackend())
 
     assert facade._dispatch("env.ready", (), {}) == {"ok": True}
     result = facade._dispatch(
@@ -34,7 +33,7 @@ def test_facade_dispatches_only_explicit_env_methods():
     )
     assert result["arm"] == "left"
     np.testing.assert_array_equal(result["delta_xyz"], [1, 2, 3])
-    with pytest.raises(ValueError, match="unknown dual-Franka env method"):
+    with pytest.raises(ValueError, match="unknown Franka env method"):
         facade._dispatch("env.delete_everything", (), {})
 
 
@@ -63,7 +62,7 @@ def test_to_numpy_tree_converts_nested_numpy_scalars_and_dataclasses():
 
 
 def test_dual_franka_client_and_facade_round_trip_numpy_over_http():
-    facade = DualFrankaEnvFacade(FakeBackend())
+    facade = FrankaEnvFacade(FakeBackend())
     server = HttpRpcServer(("127.0.0.1", 0), facade._dispatch)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

@@ -2,35 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
+
+from robots.franka.runtime_config import (
+    FrankaRuntimeConfig,
+    _load_mapping,
+    _require_mapping,
+)
 
 DEFAULT_CONFIG = Path(__file__).with_name("robot_config.yaml")
-
-
-@dataclass(frozen=True)
-class DualFrankaRuntimeConfig:
-    """Generated RLinf adapter config and RPent primitive settings."""
-
-    rlinf: DictConfig
-    controller: dict[str, Any]
-
-
-def _require_mapping(value: Any, name: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{name} must be a mapping")
-    return value
-
-
-def _load_mapping(path: str | Path | None) -> dict[str, Any]:
-    config_path = Path(path or DEFAULT_CONFIG).expanduser().resolve()
-    raw = OmegaConf.to_container(OmegaConf.load(config_path), resolve=True)
-    if not isinstance(raw, dict):
-        raise ValueError(f"robot config must be a mapping: {config_path}")
-    return raw
 
 
 def _camera_slot(observation: dict[str, Any], slot: str) -> tuple[list[str], str]:
@@ -54,7 +37,7 @@ def load_runtime_config(
     path: str | Path | None,
     *,
     task_description: str,
-) -> DualFrankaRuntimeConfig:
+) -> FrankaRuntimeConfig:
     """Load the RPent schema and build the internal RLinf adapter config."""
     raw = _load_mapping(path)
     robot = _require_mapping(raw.get("robot"), "robot")
@@ -175,4 +158,4 @@ def load_runtime_config(
             "fps": int(camera.get("fps", 15)),
             "enable_depth": bool(camera.get("depth", True)),
         }
-    return DualFrankaRuntimeConfig(rlinf=rlinf, controller=controller)
+    return FrankaRuntimeConfig(rlinf=rlinf, controller=controller)

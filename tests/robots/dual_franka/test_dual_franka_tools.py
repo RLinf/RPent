@@ -13,9 +13,9 @@ from robots.dual_franka.tools import (
     coerce_arm,
     coerce_vec3,
     dump_state,
-    view_camera_meta,
     view_env_state,
 )
+from robots.franka.tools import view_camera_meta
 from rpent.tools.state import EnvState
 
 

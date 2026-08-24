@@ -7,6 +7,7 @@ from typing import Any
 
 from robots.dual_franka import perception as dual_franka_perception
 from robots.dual_franka import tools as dual_franka_tools
+from robots.franka import tools as franka_tools
 from rpent.dashboard.events import DashboardEventSink
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import Toolkit
@@ -46,7 +47,7 @@ class DualFrankaToolkit(Toolkit):
                 dual_franka_tools.view_env_state, state=self._state
             ),
             "view_camera_meta": partial(
-                dual_franka_tools.view_camera_meta,
+                franka_tools.view_camera_meta,
                 state=self._state,
             ),
             "back_project_base_pixel": partial(

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import queue
 import time
 from typing import Any
@@ -11,26 +10,16 @@ from typing import Any
 import numpy as np
 
 from robots.dual_franka.runtime_config import load_runtime_config
-from rpent.utils.rpc import RpcFacade
+from robots.franka.env_server import (
+    FrankaEnvFacade,
+    _RayBackend,
+    _to_numpy_tree,
+)
+from robots.franka.env_server import (
+    _normalize_controller_config as _normalize_franka_controller_config,
+)
 
 _ARM_INDEX = {"left": 0, "right": 1}
-
-
-def _to_numpy_tree(value: Any) -> Any:
-    """Convert tensors and nested values into pickle-safe CPU/numpy data."""
-    if hasattr(value, "detach") and hasattr(value, "cpu"):
-        return value.detach().cpu().numpy()
-    if dataclasses.is_dataclass(value):
-        return _to_numpy_tree(dataclasses.asdict(value))
-    if isinstance(value, dict):
-        return {key: _to_numpy_tree(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_to_numpy_tree(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_to_numpy_tree(item) for item in value)
-    if isinstance(value, np.generic):
-        return value.item()
-    return value
 
 
 def _matrix_to_rot6d(matrix: np.ndarray) -> np.ndarray:
@@ -66,64 +55,14 @@ def _pack_dual_action(
     return np.concatenate([left, right]).astype(np.float32)
 
 
-class DualFrankaEnvFacade(RpcFacade):
-    """Expose explicit ``env.*`` methods from a local or Ray-backed worker."""
-
-    _METHODS = {
-        "ready",
-        "reset",
-        "get_robot_state",
-        "get_observation",
-        "get_camera_metadata",
-        "move_delta",
-        "rotate_delta",
-        "set_gripper",
-        "step_chunk",
-    }
-
-    def __init__(self, backend: Any) -> None:
-        super().__init__()
-        self._backend = backend
-
-    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if not method.startswith("env."):
-            raise ValueError(f"unknown RPC method: {method!r}")
-        name = method.removeprefix("env.")
-        if name not in self._METHODS:
-            raise ValueError(f"unknown dual-Franka env method: {name!r}")
-        return getattr(self._backend, name)(*args, **kwargs)
-
-
-class _RayBackend:
-    """Turn RLinf Ray method handles into a synchronous facade backend."""
-
-    def __init__(self, worker: Any) -> None:
-        self.worker = worker
-
-    def __getattr__(self, name: str):
-        remote_method = getattr(self.worker, name)
-
-        def invoke(*args, **kwargs):
-            return remote_method(*args, **kwargs).wait()[0]
-
-        return invoke
-
-
 def _normalize_controller_config(raw: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "move_timeout_s": float(raw["move"]["timeout_s"]),
-        "move_tolerance_m": float(raw["move"]["tolerance_m"]),
+    config = _normalize_franka_controller_config(raw)
+    config.update({
         "move_max_step_m": float(raw["move"]["max_step_m"]),
-        "rotate_timeout_s": float(raw["rotate"]["timeout_s"]),
-        "rotate_tolerance_rad": float(raw["rotate"]["tolerance_rad"]),
         "rotate_max_step_rad": float(raw["rotate"]["max_step_rad"]),
-        "iteration_multiplier": int(raw["servo"]["iteration_multiplier"]),
-        "min_iterations": int(raw["servo"]["min_iterations"]),
-        "gripper_settle_s": float(raw["gripper"]["settle_s"]),
-        "gripper_timeout_s": float(raw["gripper"]["timeout_s"]),
-        "gripper_max_iterations": int(raw["gripper"]["max_iterations"]),
         "perception": dict(raw.get("perception") or {}),
-    }
+    })
+    return config
 
 
 def _create_worker_class():
@@ -569,7 +508,7 @@ def main() -> int:
         task_description=args.task_description,
     )
     worker = _launch_worker(runtime.rlinf, runtime.controller)
-    facade = DualFrankaEnvFacade(_RayBackend(worker))
+    facade = FrankaEnvFacade(_RayBackend(worker))
     try:
         facade.serve(
             transport=args.transport,
