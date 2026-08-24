@@ -59,6 +59,7 @@ openpi = [
 ]
 libero = [
     "rpent-libero>=0.2.0",
+    "mujoco==3.3.0",
     "h5py",
 ]
 libero-pro = [
