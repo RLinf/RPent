@@ -48,9 +48,7 @@ class LiberoVLAClient(BaseVLAClient):
             )
 
         observation["states"] = states[None]
-        observation["task_descriptions"] = [
-            str(env_obs.get("task_descriptions") or "")
-        ]
+        observation["task_descriptions"] = [str(env_obs.get("task_descriptions") or "")]
         response = super().predict(observation, options={"mode": mode})
         actions = np.asarray(response, dtype=np.float32)[0]
         return actions, {}

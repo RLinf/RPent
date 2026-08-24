@@ -1,4 +1,5 @@
 """RPC server wrapping the Pi0.5 VLA."""
+
 from __future__ import annotations
 
 import argparse
@@ -95,9 +96,7 @@ class LiberoVLAFacade(BaseVLAFacade):
         options: dict[str, Any] | None = None,
     ) -> np.ndarray:
         if not isinstance(observation, dict):
-            raise TypeError(
-                f"Pi0.5 observation must be a mapping, got {observation!r}"
-            )
+            raise TypeError(f"Pi0.5 observation must be a mapping, got {observation!r}")
         if options is None:
             options = {}
         if not isinstance(options, dict):
@@ -112,8 +111,7 @@ class LiberoVLAFacade(BaseVLAFacade):
         main_images = np.asarray(env_obs.get("main_images"))
         if main_images.ndim != 4 or main_images.shape[-1] != 3:
             raise ValueError(
-                "main_images must be [B,H,W,3]; "
-                f"got shape {main_images.shape}"
+                f"main_images must be [B,H,W,3]; got shape {main_images.shape}"
             )
         env_obs["main_images"] = main_images.astype(np.uint8, copy=False)
 
@@ -127,7 +125,10 @@ class LiberoVLAFacade(BaseVLAFacade):
         env_obs["states"] = states
 
         task_descriptions = env_obs.get("task_descriptions")
-        if not isinstance(task_descriptions, list) or len(task_descriptions) != batch_size:
+        if (
+            not isinstance(task_descriptions, list)
+            or len(task_descriptions) != batch_size
+        ):
             raise ValueError("task_descriptions must contain one string per batch item")
         env_obs["task_descriptions"] = [str(value) for value in task_descriptions]
 
@@ -137,14 +138,8 @@ class LiberoVLAFacade(BaseVLAFacade):
                 env_obs[key] = None
                 continue
             array = np.asarray(view)
-            if (
-                array.ndim != 4
-                or array.shape[0] != batch_size
-                or array.shape[-1] != 3
-            ):
-                raise ValueError(
-                    f"{key} must be [B,H,W,3]; got shape {array.shape}"
-                )
+            if array.ndim != 4 or array.shape[0] != batch_size or array.shape[-1] != 3:
+                raise ValueError(f"{key} must be [B,H,W,3]; got shape {array.shape}")
             env_obs[key] = array.astype(np.uint8, copy=False)
 
         with self._inference_context():
@@ -174,10 +169,17 @@ def main() -> None:
     p.add_argument("--transport", choices=["socket", "http"], default="http")
     p.add_argument("--host", type=str, default="127.0.0.1")
     p.add_argument("--port", type=int, default=0)
-    p.add_argument("--parent-watch", action="store_true",
-                   help="watch parent process via stdin pipe and exit when it dies")
-    p.add_argument("--cuda-device", type=int, default=None,
-                   help="GPU device exposed through CUDA_VISIBLE_DEVICES.")
+    p.add_argument(
+        "--parent-watch",
+        action="store_true",
+        help="watch parent process via stdin pipe and exit when it dies",
+    )
+    p.add_argument(
+        "--cuda-device",
+        type=int,
+        default=None,
+        help="GPU device exposed through CUDA_VISIBLE_DEVICES.",
+    )
     p.add_argument(
         "--model-path",
         default=None,
@@ -191,7 +193,8 @@ def main() -> None:
         if prev is not None and prev != target:
             logger.warning(
                 "CUDA_VISIBLE_DEVICES=%s is already set; overriding with --cuda-device=%s",
-                prev, args.cuda_device,
+                prev,
+                args.cuda_device,
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = target
 

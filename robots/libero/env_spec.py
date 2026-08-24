@@ -1,4 +1,5 @@
 """LIBERO environment extension — EnvSpec factory, toolkit factory, and runtime hooks."""
+
 from __future__ import annotations
 
 import argparse
@@ -120,27 +121,47 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """
     required = not use_dashboard
     parser.add_argument("--max-episode-steps", type=int, default=10000)
-    parser.add_argument("--libero-type", default=None,
-                        choices=["standard", "pro", "plus"],
-                        help="LIBERO variant (auto-routed from suite suffix if not set).")
-    parser.add_argument("--suite", default=None, required=required,
-                        help="e.g. libero_object_task, libero_spatial_swap")
+    parser.add_argument(
+        "--libero-type",
+        default=None,
+        choices=["standard", "pro", "plus"],
+        help="LIBERO variant (auto-routed from suite suffix if not set).",
+    )
+    parser.add_argument(
+        "--suite",
+        default=None,
+        required=required,
+        help="e.g. libero_object_task, libero_spatial_swap",
+    )
     parser.add_argument("--task", type=int, default=None, required=required)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--env-endpoint", default=None,
-                        help="[protocol://]host:port of an existing env_server "
-                             "(protocol=http|socket, defaults to http). "
-                             "If unset, a local env_server is spawned.")
-    parser.add_argument("--vla-endpoint", default=None,
-                        help="[protocol://]host:port of an existing vla_server "
-                             "(protocol=http|socket, defaults to http). "
-                             "If unset, a local vla_server is spawned.")
-    parser.add_argument("--sam3-endpoint", default=None,
-                        help="[protocol://]host:port of an existing SAM3 server "
-                             "(protocol=http|socket, defaults to http). "
-                             "If unset, a local SAM3 server is spawned.")
-    parser.add_argument("--cuda-device", type=int, default=None,
-                        help="GPU device to expose via CUDA_VISIBLE_DEVICES.")
+    parser.add_argument(
+        "--env-endpoint",
+        default=None,
+        help="[protocol://]host:port of an existing env_server "
+        "(protocol=http|socket, defaults to http). "
+        "If unset, a local env_server is spawned.",
+    )
+    parser.add_argument(
+        "--vla-endpoint",
+        default=None,
+        help="[protocol://]host:port of an existing vla_server "
+        "(protocol=http|socket, defaults to http). "
+        "If unset, a local vla_server is spawned.",
+    )
+    parser.add_argument(
+        "--sam3-endpoint",
+        default=None,
+        help="[protocol://]host:port of an existing SAM3 server "
+        "(protocol=http|socket, defaults to http). "
+        "If unset, a local SAM3 server is spawned.",
+    )
+    parser.add_argument(
+        "--cuda-device",
+        type=int,
+        default=None,
+        help="GPU device to expose via CUDA_VISIBLE_DEVICES.",
+    )
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
@@ -166,7 +187,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     output_dir = args.output_dir
     if output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
-        output_dir = get_repo_root() / "logs" / f"{timestamp}_{args.suite}_t{args.task}_s{args.seed}"
+        output_dir = (
+            get_repo_root()
+            / "logs"
+            / f"{timestamp}_{args.suite}_t{args.task}_s{args.seed}"
+        )
     output_dir = Path(output_dir)
 
     return RunConfig(
@@ -190,9 +215,7 @@ def _subprocess_env(**extra: str) -> dict[str, str]:
 
 def _cuda_args(args: argparse.Namespace) -> list[str]:
     return (
-        ["--cuda-device", str(args.cuda_device)]
-        if args.cuda_device is not None
-        else []
+        ["--cuda-device", str(args.cuda_device)] if args.cuda_device is not None else []
     )
 
 
@@ -202,9 +225,7 @@ def _external_rpc(endpoint: str, option: str) -> RpcClient:
         return SocketRpcClient(host, port)
     if protocol == "http":
         return HttpRpcClient(f"http://{host}:{port}")
-    raise ValueError(
-        f"{option} protocol must be socket or http, got {protocol!r}"
-    )
+    raise ValueError(f"{option} protocol must be socket or http, got {protocol!r}")
 
 
 def _spawn_env_server(
@@ -222,13 +243,20 @@ def _spawn_env_server(
         cmd=[
             sys.executable,
             str(get_repo_root() / "robots" / "libero" / "env_server.py"),
-            "--suite", args.suite,
-            "--task", str(args.task),
-            "--seed", str(args.seed),
-            "--max-episode-steps", str(args.max_episode_steps),
-            "--transport", "http",
-            "--host", host,
-            "--port", str(port),
+            "--suite",
+            args.suite,
+            "--task",
+            str(args.task),
+            "--seed",
+            str(args.seed),
+            "--max-episode-steps",
+            str(args.max_episode_steps),
+            "--transport",
+            "http",
+            "--host",
+            host,
+            "--port",
+            str(port),
             "--parent-watch",
             *_cuda_args(args),
         ],
@@ -256,9 +284,12 @@ def _spawn_vla_server(
         cmd=[
             sys.executable,
             str(get_repo_root() / "robots" / "libero" / "vla_server.py"),
-            "--transport", "http",
-            "--host", host,
-            "--port", str(port),
+            "--transport",
+            "http",
+            "--host",
+            host,
+            "--port",
+            str(port),
             "--parent-watch",
             *_cuda_args(args),
         ],
@@ -282,9 +313,12 @@ def _spawn_sam3_server(
         cmd=[
             sys.executable,
             str(get_repo_root() / "robots" / "libero" / "sam3_server.py"),
-            "--transport", "http",
-            "--host", host,
-            "--port", str(port),
+            "--transport",
+            "http",
+            "--host",
+            host,
+            "--port",
+            str(port),
             "--parent-watch",
             *_cuda_args(args),
         ],

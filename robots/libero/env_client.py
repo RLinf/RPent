@@ -5,6 +5,7 @@ here (``raw_obs`` / ``render_camera`` / ``get_camera_meta`` / …)
 reference LIBERO-specific obs dict keys and camera names. The generic
 transport layer lives in :mod:`rpent.utils.socket_rpc`.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -55,7 +56,9 @@ class LiberoEnvClient(BaseEnvClient):
         self.check_done(term, trunc)
         return ret
 
-    def chunk_step(self, actions, *, return_all_frames: bool | None = None) -> tuple[Any, Any, Any, Any, Any]:
+    def chunk_step(
+        self, actions, *, return_all_frames: bool | None = None
+    ) -> tuple[Any, Any, Any, Any, Any]:
         """Run an action chunk in one RPC. Returns the 5-positional tuple
         ``(obs_or_list, reward, terminated, truncated, info)``.
 
@@ -78,9 +81,7 @@ class LiberoEnvClient(BaseEnvClient):
         return ret
 
     def raw_obs(self) -> dict:
-        return self._client.call(
-            "env.raw_obs", timeout_s=self._TIMEOUT_S["default"]
-        )
+        return self._client.call("env.raw_obs", timeout_s=self._TIMEOUT_S["default"])
 
     def render_camera(
         self,
