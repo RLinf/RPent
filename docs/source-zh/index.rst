@@ -79,7 +79,7 @@
    LIBERO <rst_source/usage/libero>
    RoboCasa <rst_source/usage/robocasa>
    Franka <rst_source/usage/franka>
-   SO-101 <rst_source/usage/so101>
+   LeRobot SO-101 <rst_source/usage/so101>
    高级部署 <rst_source/usage/advanced_deployment>
 
 .. toctree::

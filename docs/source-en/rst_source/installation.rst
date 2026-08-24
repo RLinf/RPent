@@ -53,6 +53,8 @@ Available extras:
      - RLinf runtime only
    * - ``.[robocasa]``
      - RoboCasa365 simulator + the RLDX-1 VLA; see :doc:`usage/robocasa`
+   * - ``.[lerobot]``
+     - LeRobot SO-101 support, Feetech/RealSense drivers, and kinematics; see :doc:`usage/so101`
    * - ``.[sam3]``
      - SAM 3.0 only
 
@@ -83,12 +85,12 @@ These resources usually need to be downloaded only once;
       HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing
 
 3. (Optional) Real-world robot dependencies
--------------------------------------------
+--------------------------------------------
 
-Franka and SO-101 support is being rolled in; when it lands, each
-robot's env package will live under ``robots/<name>/`` with its own
-``README.md`` describing the SDK / firmware requirements. See
-:doc:`usage/franka` and :doc:`usage/so101` for the current status.
+SO-101 support is available through ``.[lerobot]``. Follow
+:doc:`usage/so101` for the LeRobot, Feetech, Intel RealSense, URDF, and
+scene-camera calibration setup. Franka support remains under development; see
+:doc:`usage/franka` for its current status.
 
 Checking the installation
 -------------------------
