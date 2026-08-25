@@ -43,7 +43,7 @@ class BaseEnvClient:
         result = self._client.call(
             "env.step",
             args=(flat_action,),
-            timeout_s=self._TIMEOUT_S["env.step"]
+            timeout_s=self._TIMEOUT_S["env.step"],
         )
         self.last_obs = result[0]
         return result

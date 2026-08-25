@@ -6,7 +6,6 @@ from __future__ import annotations
 from typing import Any
 
 from rpent.utils.rpc import RpcFacade
-from rpent.utils.rwlock import RWLock
 
 
 class BaseVLAFacade(RpcFacade):
@@ -42,6 +41,6 @@ class BaseVLAFacade(RpcFacade):
     def _register_rpc(self):
         self._rpc["vla.predict"] = self.predict
 
-    # ---- abstract methods ----
+    # ---- functionality (subclasses must override) ----
     def predict(self):
         raise NotImplementedError

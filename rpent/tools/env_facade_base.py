@@ -54,6 +54,11 @@ class BaseEnvFacade(RpcFacade):
     def close(self):
         pass
 
+    def get_env_meta(self) -> dict:
+        """Returns a snapshot dict of the launch args, used by the client to
+        verify config consistency after startup."""
+        raise NotImplementedError
+
     def _register_rpc(self):
         """Can be overridden to register more RPC methods."""
         self._rpc["env.get_env_meta"] = self.get_env_meta
@@ -73,12 +78,6 @@ class BaseEnvFacade(RpcFacade):
             "env.get_camera_transform",
             "env.get_task_language",
         ])
-
-    # ---- lifecycle ----
-    def get_env_meta(self) -> dict:
-        """Returns a snapshot dict of the launch args, used by the client to
-        verify config consistency after startup."""
-        raise NotImplementedError
 
     # ---- functionality (subclasses must override) ----
     def reset(self):
