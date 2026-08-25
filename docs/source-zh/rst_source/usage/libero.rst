@@ -97,6 +97,63 @@ LIBERO-PRO 核心套件一览
 
 如需切换 planner，请参阅 :doc:`configure_planner`。
 
+探索模式与本地 Memory 评测
+--------------------------
+
+RPent 支持两种 LIBERO 运行模式：
+
+- **Exploration** 使用可 reset 的多次 attempt 和相互独立的 planner session
+  探索成功策略，并将其提炼为本地 global/suite/task 三层 memory corpus。它是
+  memory 生成流程，不用于统计 benchmark success rate。
+- **Evaluation** 是默认的单次评测模式，不会 reset episode，也不会更新
+  memory。使用本地 memory 的 evaluation 会读取 exploration 生成并通过校验的
+  audit、recipe 和经验。HarnessVLA 的 success rate 在 evaluation mode 下复现。
+
+默认仍为原有单次评测模式。省略 ``--memory-profile`` 时，会继续同步并使用
+Hugging Face memory 和原有 prompt。两种 profile 都执行相同的单次评测流程；
+区别仅在于评测 memory 的来源及所使用的 memory prompt。只有本地已经存在
+global/suite/task 三层 memory 时（例如先执行下文的 exploration 流程），才应
+使用 ``local``。该选项不会开启 exploration，也不会从 Hugging Face 下载
+memory；它只会针对 ``--memory-dir`` 执行普通的单次评测，并避免同步覆盖本地
+目录：
+
+.. code-block:: bash
+
+   rpent --env libero --suite libero_10_task --task 0 --seed 1 \
+     --planner codex --memory-profile local \
+     --memory-dir /path/to/libero-memory
+
+探索模式沿用同一个 Python/CLI 入口。它支持可 reset 的多次尝试和独立
+planner session，并在正常结束后校验、合并 memory，只有 LIBERO 确认成功时
+才发布 task audit/recipe。探索可以从空的 ``--memory-dir`` 开始，并始终使用
+local profile；真正开启该流程的是 ``--explore``：
+
+.. code-block:: bash
+
+   rpent --env libero --suite libero_10_task --task 0 --seed 0 \
+     --planner api --model anthropic:claude-opus-4-8 \
+     --explore --explore-sessions 3 --explore-attempts-per-session 5 \
+     --memory-dir /path/to/libero-memory
+
+每个 planner session 使用一个新建的 toolkit，其状态轨迹和观测工件保存在
+``<output-dir>/sessions/session_NNN/``，供最终 memory distillation 使用；同一
+session 内通过 reset 发起的多次 attempt 仍复用该 toolkit。
+
+在 exploration 命令中增加 ``--dashboard``，即可跨 planner session 查看完整
+推理过程、相机画面和连续动作时间线。
+
+使用 ``--no-auto-merge-memory`` 可保留 inbox，稍后人工审核。也可直接使用
+memory 维护命令：
+
+.. code-block:: bash
+
+   rpent-memory --memory-dir /path/to/libero-memory validate
+   rpent-memory --memory-dir /path/to/libero-memory build-index
+   rpent-memory --memory-dir /path/to/libero-memory merge \
+     --cell 10_task_t0_s0 --output-dir logs/explore_10_task_t0_s0
+
+运行时生成的 memory 数据不应提交到仓库。
+
 进程分工
 --------
 

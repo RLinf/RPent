@@ -346,6 +346,7 @@ const mediaState = {
 };
 
 const AUTO_ACTION_RETURN_DELAY_MS = 300;
+const AUTO_PLAY_ACTION_VIDEOS = false;
 const MODEL_PRESETS = {
   claude_code: [
     "deepseek-v4-flash",
@@ -1139,7 +1140,8 @@ async function refreshMeta(opts = {}) {
     mediaState.lastActionStep = maxTimelineStep(r.timeline || []);
     mediaState.autoActionPrimed = true;
   }
-  const autoStarted = opts.autoPlayNewAction && mediaState.autoActionPrimed && !mediaState.autoPlayback
+  const autoStarted = AUTO_PLAY_ACTION_VIDEOS && opts.autoPlayNewAction
+    && mediaState.autoActionPrimed && !mediaState.autoPlayback
     ? maybeAutoPlayNewAction(r.timeline || [], opts.nextFrameIdx ?? r.frame_idx)
     : false;
   if (!r.has_video && mediaState.kind === "video") setFrameKind(defaultFrameKind());

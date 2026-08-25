@@ -311,6 +311,15 @@ class Toolkit:
     def close(self) -> None:
         """Release the env-side primitives / servers at end of run. Default: no-op."""
 
+    def solved(self) -> bool:
+        """Whether the env has reported the task complete.
+
+        Ground truth for the session loop: an agent may call ``finish`` with
+        ``status="success"`` on a cell it did not actually finish, so the
+        handoff decision reads the environment, not the agent.
+        """
+        raise NotImplementedError
+
     def write_recipe(self, recipe_tag: str) -> str | None:
         """Write a replay recipe for this env, if supported."""
         return None

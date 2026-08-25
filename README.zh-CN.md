@@ -138,6 +138,30 @@ rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
 
 其他规划器（`api`、`codex`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html)。
 
+### 探索模式与本地 Memory Eval
+
+默认仍为原有 eval。增加 `--memory-profile local` 后，会使用本地
+global/suite/task 三层 memory 进行评测：
+
+```bash
+rpent --env libero --suite libero_10_task --task 0 --seed 1 \
+  --planner codex --memory-profile local \
+  --memory-dir /path/to/libero-memory
+```
+
+同一个入口增加 `--explore` 后，会启用可 reset 的多次尝试、独立 planner
+session、memory distillation 和自动合并：
+
+```bash
+rpent --env libero --suite libero_10_task --task 0 --seed 0 \
+  --planner api --model anthropic:claude-opus-4-8 \
+  --explore --explore-sessions 3 --explore-attempts-per-session 5 \
+  --memory-dir /path/to/libero-memory
+```
+
+原有 Hugging Face memory 和 prompt 仍是默认模式（`--memory-profile hf`）。
+memory 维护命令详见 [LIBERO 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html)。
+
 ### 交互模式
 
 加上 `--interactive`（`-i`）即可在终端里实时引导智能体。在 `you>` 提示符处，内置任务已预填——按 Enter 直接使用，或替换为你自己的任务；智能体运行时，随时输入消息即可在下一轮引导它（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要交互式终端（TTY）。

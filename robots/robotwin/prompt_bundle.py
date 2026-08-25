@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from robots.robotwin.prompts import system as system_parts
 from robots.robotwin.prompts import user as user_parts
-from rpent.context.prompt_utils import Numbered
+from rpent.context.prompt_utils import Numbered, PromptNode
 
 
-def system_prompt():
+def system_prompt(
+    variables: Mapping[str, object] | None = None,
+) -> PromptNode:
     return {
         "PREAMBLE": system_parts.PREAMBLE,
         "GOAL": system_parts.GOAL,
@@ -31,7 +35,9 @@ def system_prompt():
     }
 
 
-def user_prompt():
+def user_prompt(
+    variables: Mapping[str, object] | None = None,
+) -> PromptNode:
     return {
         "CELL": user_parts.CELL,
         "BEGIN": user_parts.BEGIN,
