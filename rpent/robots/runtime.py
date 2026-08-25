@@ -1,8 +1,8 @@
-"""Shared spawn/wait/stop helpers for env runtime components.
+"""Shared spawn/wait/stop helpers for robot runtime components.
 
 These orchestrate the lifecycle of subprocess-backed servers (env, vla,
 sam3) that implement the ``init_*_runtime`` contract on
-:class:`~rpent.envs.env_spec.EnvSpec`. Each helper reports state
+:class:`~rpent.robots.robot_spec.RobotSpec`. Each helper reports state
 transitions to a :class:`~rpent.dashboard.events.DashboardEventSink` so
 the dashboard UI stays in sync with the actual processes.
 """

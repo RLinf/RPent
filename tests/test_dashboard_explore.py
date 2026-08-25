@@ -116,7 +116,7 @@ def test_dashboard_explore_rebuilds_planner_and_toolkit_per_session(tmp_path, mo
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    env_spec = SimpleNamespace(
+    robot_spec = SimpleNamespace(
         parse_config=lambda args: SimpleNamespace(
             recipe_tag="10_t0_s0",
             output_dir=Path(args.output_dir),
@@ -128,7 +128,7 @@ def test_dashboard_explore_rebuilds_planner_and_toolkit_per_session(tmp_path, mo
         finalize_run=None,
     )
     args = Namespace(
-        env_name="libero",
+        robot_name="libero",
         verbose=False,
         explore=True,
         explore_sessions=2,
@@ -148,7 +148,7 @@ def test_dashboard_explore_rebuilds_planner_and_toolkit_per_session(tmp_path, mo
 
     error = dashboard_cli._run_dashboard_task(
         args=args,
-        env_spec=env_spec,
+        robot_spec=robot_spec,
         state=dashboard,
         claimed=claimed,
         shared_primitives_kwargs={},
@@ -191,7 +191,7 @@ def test_dashboard_finalization_failure_is_non_fatal(tmp_path, monkeypatch):
     def finalize_run(*args):
         raise AttributeError("invalid memory")
 
-    env_spec = SimpleNamespace(
+    robot_spec = SimpleNamespace(
         parse_config=lambda args: SimpleNamespace(
             recipe_tag="10_t0_s0",
             output_dir=Path(args.output_dir),
@@ -203,7 +203,7 @@ def test_dashboard_finalization_failure_is_non_fatal(tmp_path, monkeypatch):
         finalize_run=finalize_run,
     )
     args = Namespace(
-        env_name="libero",
+        robot_name="libero",
         verbose=False,
         explore=True,
         explore_sessions=1,
@@ -231,7 +231,7 @@ def test_dashboard_finalization_failure_is_non_fatal(tmp_path, monkeypatch):
 
     error = dashboard_cli._run_dashboard_task(
         args=args,
-        env_spec=env_spec,
+        robot_spec=robot_spec,
         state=dashboard,
         claimed=claimed,
         shared_primitives_kwargs={},

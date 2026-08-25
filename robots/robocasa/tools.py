@@ -410,7 +410,7 @@ TOOLS_SPEC = [
         "description": (
             "Read step NN from states.json + the matching state images "
             "in the output dir. If step is null, returns the latest entry. "
-            "Each entry contains the robot state, robocasa_terminated flag, "
+            "Each entry contains the env state, robocasa_terminated flag, "
             "task_progress, vla_desync status, and log. Embeds available "
             "PNGs as multimodal image content blocks. Use calibration-frame "
             "agentview images for pixel back-projection; use navview for "

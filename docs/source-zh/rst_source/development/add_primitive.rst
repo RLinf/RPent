@@ -35,7 +35,7 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 
 添加脚本化原语通常需要以下两个步骤：
 
-1. **在 primitives 中添加方法。** 在当前环境的 primitives
+1. **在 primitives 中添加方法。** 在当前机器人的 primitives
    类（如 ``LiberoPrimitives``、``MyRobotPrimitives``）中添加
    一个方法。该方法接收工具调用的参数，执行一次或多次
    ``self._env.step(...)``，并返回一个简短的日志字典。
@@ -55,7 +55,7 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
      可以使用 :func:`~rpent.tools.toolkit.readonly` 标记，toolkit 会跳过
      它们的状态捕获，提升性能。
 
-2. **添加工具定义。** 在 ``robots/<env>/tools.py`` 的 ``TOOLS_SPEC`` 中新增一项：
+2. **添加工具定义。** 在 ``robots/<robot>/tools.py`` 的 ``TOOLS_SPEC`` 中新增一项：
 
    .. code-block:: python
 
@@ -100,7 +100,7 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
    （:class:`HttpRpcClient` 或 :class:`SocketRpcClient`），并提供模型调用
    接口。LIBERO 的实现可参考 ``rpent.utils.vla_client.VLAClient``。
 
-3. **在 primitives 中添加方法。** 在当前环境的 primitives
+3. **在 primitives 中添加方法。** 在当前机器人的 primitives
    类中调用 model client，将其返回的动作块交给环境执行，并返回日志字典。
    model client 的接口是
    :meth:`rpent.utils.vla_client.VLAClient.predict_action_batch`，
@@ -117,7 +117,7 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 
 4. **添加工具定义并在 toolkit 中注册。** 具体做法与脚本化原语相同。
 
-5. **在 ``__init__.py`` 中连接各组件。** 环境的 ``get_toolkit`` 使用
+5. **在 ``__init__.py`` 中连接各组件。** 机器人的 ``get_toolkit`` 使用
    ``primitives_kwargs`` 构造 toolkit：
 
    .. code-block:: python
@@ -130,7 +130,7 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
               video_path=video_path,
           )
 
-   环境包中的 ``_init_runtime`` 则负责构造 ``primitives_kwargs``，例如
+   机器人包中的 ``_init_runtime`` 则负责构造 ``primitives_kwargs``，例如
    ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``，再由
    toolkit 构造器将其转发给 primitives。
 
@@ -142,7 +142,7 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 
 .. code-block:: bash
 
-   rpent --env libero --vla-endpoint http://vla-host:8000 ...
+   rpent --robot libero --vla-endpoint http://vla-host:8000 ...
 
 如果模型会保存每个回合的内部状态，应提供 ``vla_reset`` RPC，并在任务之间
 调用它完成重置。这样，同一个服务进程就能安全地复用于多次连续运行。

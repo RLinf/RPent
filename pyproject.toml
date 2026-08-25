@@ -61,6 +61,8 @@ openpi = [
 ]
 libero = [
     "rpent-libero>=0.2.0",
+    # MuJoCo 3.4+ changes LIBERO settling, misplacing objects and reducing task success; see https://github.com/RLinf/RLinf/issues/1460.
+    "mujoco==3.3.0",
     "h5py",
 ]
 libero-pro = [

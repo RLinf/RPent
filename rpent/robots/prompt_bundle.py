@@ -1,6 +1,6 @@
-"""Prompt bundle dataclass for env-contributed LLM prompts.
+"""Prompt bundle dataclass for robot-contributed LLM prompts.
 
-Lives in :mod:`rpent.envs` so each env's
+Lives in :mod:`rpent.robots` so each robot's
 ``prompt_bundle.py`` (e.g. :mod:`robots.libero.prompt_bundle`)
 can import it without depending on the RPC transport layer.
 """
@@ -15,7 +15,7 @@ PromptFactory = Callable[..., PromptNode]
 
 @dataclass(frozen=True)
 class PromptBundle:
-    """Python-defined prompt factories for one environment."""
+    """Python-defined prompt factories for one robot."""
 
     system: PromptFactory
     user: PromptFactory

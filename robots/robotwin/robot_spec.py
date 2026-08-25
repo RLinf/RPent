@@ -1,4 +1,4 @@
-"""RoboTwin environment extension — runtime contracts and runtime hooks."""
+"""RoboTwin robot extension — runtime contracts and runtime hooks."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
-from rpent.envs.env_spec import EnvSpec, RunConfig
-from rpent.envs.prompt_bundle import PromptBundle
+from rpent.robots.robot_spec import RobotSpec, RunConfig
+from rpent.robots.prompt_bundle import PromptBundle
 from rpent.utils.config import get_repo_root
 
 if TYPE_CHECKING:
@@ -163,8 +163,8 @@ class RoboTwinRuntimePaths:
     model_path: Path | None
 
 
-def get_env_spec() -> EnvSpec:
-    return EnvSpec(
+def get_robot_spec() -> RobotSpec:
+    return RobotSpec(
         name="robotwin",
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,
@@ -459,7 +459,7 @@ def _init_task_runtime(
     output_dir: Path,
     dashboard_events: DashboardEventSink,
 ) -> tuple[list["ProcessDaemon"], dict[str, Any]]:
-    from rpent.envs.runtime import (
+    from rpent.robots.runtime import (
         try_spawn_server,
         try_wait_server,
     )

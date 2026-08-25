@@ -10,15 +10,15 @@ runner。完整的参考实现见 ``robots/libero/``。
 RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 <architecture>`。
 本页不再重复设计原理，只说明接入新机器人需要实现的扩展点。建议按以下顺序完成：
 
-1. 在 :ref:`入口 <add-robot-entry>` 中注册 ``EnvSpec`` 和 toolkit 工厂。
+1. 在 :ref:`入口 <add-robot-entry>` 中注册 ``RobotSpec`` 和 toolkit 工厂。
 2. 实现 :ref:`env_client 和 env_server <add-robot-env-rpc>`。如需接入 VLA
    服务和 model client，参见
    :ref:`添加一个 VLA（或其他基于模型的原语）<add-primitive-model-based>`。
 3. :ref:`定义 prompt <add-robot-prompts>`。
 4. :ref:`实现 toolkit 和 primitives <add-robot-toolkit>`。
-5. :ref:`注册环境参数并生成 RunConfig <add-robot-config>`。
+5. :ref:`注册机器人参数并生成 RunConfig <add-robot-config>`。
 6. 实现 :ref:`runtime 钩子 <add-robot-runtime>`：普通 CLI 使用完整 runtime；
-   如果环境支持 Dashboard 任务控制，再按 Session/TaskRun 生命周期实现仅供
+   如果机器人支持 Dashboard 任务控制，再按 Session/TaskRun 生命周期实现仅供
    Dashboard 使用的拆分钩子。
 
 .. _add-robot-entry:
@@ -26,53 +26,53 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 入口
 ----
 
-新增名为 ``myenv`` 的环境时，目录结构如下：
+新增名为 ``myrobot`` 的机器人时，目录结构如下：
 
 .. code-block:: text
 
-   robots/myenv/
-       __init__.py            # 入口 —— get_env_spec() / get_toolkit() 工厂
+   robots/myrobot/
+       __init__.py            # 入口 —— get_robot_spec() / get_toolkit() 工厂
        env_client.py          # MyEnvClient —— agent 侧 RPC client (§1)
        prompt_bundle.py       # system()/user() prompt 工厂              (§2)
-       toolkit.py             # MyEnvToolkit + primitives + 工具定义     (§3)
+       toolkit.py             # MyRobotToolkit + primitives + 工具定义     (§3)
        env_server.py          # 环境侧 facade + RPC 服务                 (§1)
        vla_server.py          # （可选）VLA 模型服务
        spec.py                # （可选）Dashboard 描述
 
-``__init__.py`` 是环境包的入口。``rpent/envs/base.py`` 中的注册表会按需导入
+``__init__.py`` 是机器人包的入口。``rpent/robots/base.py`` 中的注册表会按需导入
 ``robots.<name>``，并调用其中的两个工厂函数：
 
 .. code-block:: python
 
-   # robots/myenv/__init__.py
+   # robots/myrobot/__init__.py
    from rpent.dashboard.events import DashboardEventSink
-   from rpent.envs.env_spec import EnvSpec, RunConfig
-   from rpent.envs.prompt_bundle import PromptBundle
-   from robots.myenv.prompt_bundle import system_prompt, user_prompt
-   from robots.myenv.spec import MYENV_DASHBOARD_SPEC
+   from rpent.robots.robot_spec import RobotSpec, RunConfig
+   from rpent.robots.prompt_bundle import PromptBundle
+   from robots.myrobot.prompt_bundle import system_prompt, user_prompt
+   from robots.myrobot.spec import MYROBOT_DASHBOARD_SPEC
 
-   def get_env_spec() -> EnvSpec:
-       return EnvSpec(
-           name="myenv",
+   def get_robot_spec() -> RobotSpec:
+       return RobotSpec(
+           name="myrobot",
            prompts=PromptBundle(system=system_prompt, user=user_prompt),
            add_cli_args=_add_cli_args,
            parse_config=_parse_config,
            init_shared_runtime=_init_shared_runtime,
            init_task_runtime=_init_task_runtime,
            init_runtime=_init_runtime,
-           dashboard=MYENV_DASHBOARD_SPEC,
+           dashboard=MYROBOT_DASHBOARD_SPEC,
        )
 
    def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None):
-       from robots.myenv.toolkit import MyEnvToolkit
-       return MyEnvToolkit(
+       from robots.myrobot.toolkit import MyRobotToolkit
+       return MyRobotToolkit(
            primitives_kwargs=primitives_kwargs,
            dashboard_events=dashboard_events,
            video_path=video_path,
        )
 
    def _add_cli_args(parser, use_dashboard) -> None:
-       """向共享 parser 注册环境参数。见第 4 节。"""
+       """向共享 parser 注册机器人参数。见第 4 节。"""
        ...
 
    def _parse_config(args) -> RunConfig:
@@ -94,13 +94,13 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
        """仅 Dashboard 使用：为每个 TaskRun 初始化全新的服务。"""
        ...
 
-``dashboard`` 是可选项；环境不支持 Dashboard 控制时保持为 ``None``。支持时，
-在环境包中定义该 spec：其中 ``task`` 描述命令、校验字段、展示模板和输出目录
-slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境专用服务行
+``dashboard`` 是可选项；机器人不支持 Dashboard 控制时保持为 ``None``。支持时，
+在机器人包中定义该 spec：其中 ``task`` 描述命令、校验字段、展示模板和输出目录
+slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的机器人专用服务行
 和相机视图。完整结构参考 ``robots/libero/spec.py``。
 
-``_resolve_env(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
-动态加载环境包。因此，只需将环境包放在 ``robots/`` 下，无需维护中央注册列表。
+``_resolve_robot(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
+动态加载机器人包。因此，只需将机器人包放在 ``robots/`` 下，无需维护中央注册列表。
 
 下文依次说明这些模块需要实现的内容。``_add_cli_args`` 和 ``_parse_config``
 见第 4 节，三个 runtime 钩子见第 5 节。Dashboard spec 只由 Dashboard runner
@@ -117,7 +117,7 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
 1.1 Env client（agent 侧）
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-基础接口包含 ``reset`` 和 ``step`` 两个 Gym 风格的方法；可以根据环境需要
+基础接口包含 ``reset`` 和 ``step`` 两个 Gym 风格的方法；可以根据机器人需要
 添加其他方法（LIBERO 增加了 ``chunk_step``、``render_camera``、
 ``get_camera_meta``、``cached_image`` 等）。每个方法通过
 ``RpcClient.call("<rpc-name>", args=..., kwargs=...)`` 转发，并设置单独的
@@ -175,7 +175,7 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
 2. ``prompt_bundle.py``
 -----------------------
 
-定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在环境的
+定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在机器人的
 ``__init__.py`` 中构造
 ``PromptBundle(system=system_prompt, user=user_prompt)``（见上面的“入口”）。
 每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节；
@@ -186,9 +186,9 @@ API 版本。
 
 .. code-block:: python
 
-   # robots/myenv/prompt_bundle.py
-   from robots.myenv.prompts import system as system_parts
-   from robots.myenv.prompts import user as user_parts
+   # robots/myrobot/prompt_bundle.py
+   from robots.myrobot.prompts import system as system_parts
+   from robots.myrobot.prompts import user as user_parts
    from rpent.context.prompt_utils import PromptNode
 
    def system_prompt() -> PromptNode:
@@ -207,7 +207,7 @@ API 版本。
            "BEGIN": user_parts.BEGIN,
        }
 
-将 prompt 内容保存在环境包内，例如 ``robots/myenv/prompts/system.py`` 和
+将 prompt 内容保存在机器人包内，例如 ``robots/myrobot/prompts/system.py`` 和
 ``user.py``。分节内容可以是普通字符串，也可以使用 ``BulletList`` 或
 ``Numbered``。占位符
 ``{{suite}}`` / ``{{task}}`` / ``{{seed}}`` / ``{{output_dir}}`` /
@@ -220,11 +220,11 @@ API 版本。
 
 这个模块持有 LLM 能调用的一切: 工具 schema、primitives、每步状态 dump 以及
 MCP allowlist。(LIBERO 中由于历史原因把这些拆到了 ``tools.py`` 和 ``toolkit.py``
-两个文件; 新增 env 时全部放在 ``toolkit.py`` 里没问题。)
+两个文件; 新增 robot 时全部放在 ``toolkit.py`` 里没问题。)
 
 toolkit 模块通常包含四部分：
 
-**Primitives 类**\ （例如 ``MyEnvPrimitives``）是 toolkit 持有的 Python
+**Primitives 类**\ （例如 ``MyRobotPrimitives``）是 toolkit 持有的 Python
 对象。它保存 ``EnvClient``、VLA ``model`` client 和单次运行所需的状态。每个
 原语工具（``move_to``、``pi0_pick``、``release`` 等）对应一个方法，并返回
 日志字典。
@@ -278,27 +278,27 @@ primitives 的 ``__init__``。其中通常包含
 4. ``_add_cli_args`` + ``_parse_config`` (runner 钩子)
 ------------------------------------------------------
 
-环境特有的 CLI 参数通过两个钩子接入 ``rpent/cli/main.py`` 的解析流程，并参与
+机器人特有的 CLI 参数通过两个钩子接入 ``rpent/cli/main.py`` 的解析流程，并参与
 最终的 argparse 解析：
 
-**``_add_cli_args(parser, use_dashboard) -> None``。** 将环境参数注册到
+**``_add_cli_args(parser, use_dashboard) -> None``。** 将机器人参数注册到
 main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参数是否保持可选。
-每个 Dashboard TaskRun 会在 ``parse_config`` 调用前，由环境 Dashboard spec
+每个 Dashboard TaskRun 会在 ``parse_config`` 调用前，由机器人 Dashboard spec
 定义的任务命令提供其声明的字段。main.py 会在 ``parser.parse_args()`` 之前调用
-该钩子，因此 argparse 的 usage 和错误信息也会包含环境参数。
+该钩子，因此 argparse 的 usage 和错误信息也会包含机器人参数。
 
 **``_parse_config(args) -> RunConfig``。** 普通 CLI 模式下，该钩子在
 ``parser.parse_args()`` 后调用；Dashboard 模式下，每个 TaskRun 会先把请求字段
 写入任务参数，再调用该钩子。该钩子校验这些字段并返回
-:class:`~rpent.envs.RunConfig`：
+:class:`~rpent.robots.RunConfig`：
 
-- ``recipe_tag`` —— 单次运行的环境标签，用于 transcript 文件名和 recipe 路径
+- ``recipe_tag`` —— 单次运行的机器人标签，用于 transcript 文件名和 recipe 路径
   （LIBERO 使用 ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``）。
 - ``output_dir`` —— 单次运行的临时目录路径。main.py 随后调用
   ``init_output_dir`` 创建目录并配置日志。
 - ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和
   prompt 引用的其他变量。
-- ``task_desc`` —— 环境特定的任务标识字典，会原样写入 transcript JSON 记录
+- ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录
   （LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
 
 .. code-block:: python
@@ -307,7 +307,7 @@ main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参�
        required = not use_dashboard
        parser.add_argument("--suite", default=None, required=required)
        parser.add_argument("--task", type=int, default=None, required=required)
-       # ... 其他环境参数 ...
+       # ... 其他机器人参数 ...
 
    def _parse_config(args) -> RunConfig:
        if not args.suite: raise ValueError("--suite is required")
@@ -341,12 +341,12 @@ main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参�
 钩子，普通 CLI 不会调用。Dashboard 会在每个 Session 中调用一次
 ``init_shared_runtime``，初始化 Session 持有的复用服务；随后为每个全新的
 TaskRun 调用 ``init_task_runtime``，并合并两者返回的 ``primitives_kwargs``。
-具体如何拆分取决于环境自身的生命周期。LIBERO 将 VLA 和 SAM3 放在 Session
-范围，将环境放在 TaskRun 范围；其他环境应采用适合自身服务的拆分，不必机械照搬。
+具体如何拆分取决于机器人自身的生命周期。LIBERO 将 VLA 和 SAM3 放在 Session
+范围，将环境放在 TaskRun 范围；其他机器人应采用适合自身服务的拆分，不必机械照搬。
 
 endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
 ``--sam3-endpoint``）解析、子进程启动和 runtime 状态事件，应放在拥有对应服务的
-钩子中，runner 不处理这些环境细节。参考实现见 ``robots/libero/__init__.py``。
+钩子中，runner 不处理这些机器人细节。参考实现见 ``robots/libero/__init__.py``。
 
 冒烟测试
 --------
@@ -356,14 +356,14 @@ endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
 .. code-block:: bash
 
    PI05_CHECKPOINT_PATH=<path> ANTHROPIC_API_KEY=<key> \
-     rpent --env myenv --suite <suite> --task <id> --seed 0 \
-     --output-dir /tmp/myenv_smoke --planner api --model anthropic:claude-opus-4-8
+     rpent --robot myrobot --suite <suite> --task <id> --seed 0 \
+     --output-dir /tmp/myrobot_smoke --planner api --model anthropic:claude-opus-4-8
 
 .. note::
 
-   共享 CLI parser 将 ``--env`` 限定为 ``libero`` 和 ``robocasa``
-   (见 ``rpent/cli/main.py``)。要让上面这条命令在全新的 ``myenv`` 上跑通，
-   需要先把新名字加到 ``rpent/cli/main.py`` 中 ``--env`` 的
+   共享 CLI parser 将 ``--robot`` 限定为 ``libero`` 和 ``robocasa``
+   (见 ``rpent/cli/main.py``)。要让上面这条命令在全新的 ``myrobot`` 上跑通，
+   需要先把新名字加到 ``rpent/cli/main.py`` 中 ``--robot`` 的
    ``choices=[...]`` 列表里。
 
 预期结果是 agent 完成 prompt 中指定的任务并调用 ``finish``。运行结束后，

@@ -7,7 +7,7 @@ from typing import Any, Literal
 import numpy as np
 from rlinf.envs.robotwin.robotwin_env import RoboTwinEnv
 
-from robots.robotwin.env_spec import RoboTwinActionType
+from robots.robotwin.robot_spec import RoboTwinActionType
 
 __all__ = ["RoboTwinAgentEnv"]
 

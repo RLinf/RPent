@@ -3,7 +3,7 @@
 The loop wraps the agent's :class:`~rpent.tools.toolkit.Toolkit` as
 pydantic-ai function tools and drives :class:`pydantic_ai.Agent` runs,
 streaming each turn so progress is logged in real time. Task completion is
-signalled by the env-provided ``finish`` tool, whose result carries ``_finish``.
+signalled by the robot-provided ``finish`` tool, whose result carries ``_finish``.
 """
 
 from __future__ import annotations

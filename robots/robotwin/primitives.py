@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from robots.robotwin.env_client import RoboTwinEnvClient
-from robots.robotwin.env_spec import MODEL_SPEC, ROBOTWIN_CAMERA_NAMES
+from robots.robotwin.robot_spec import MODEL_SPEC, ROBOTWIN_CAMERA_NAMES
 from robots.robotwin.vla_client import LingBotVLAClient
 
 

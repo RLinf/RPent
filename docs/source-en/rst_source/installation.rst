@@ -89,7 +89,7 @@ These resources usually need to be downloaded only once;
 -------------------------------------------
 
 Franka and SO-101 support is being rolled in; when it lands, each
-robot's env package will live under ``robots/<name>/`` with its own
+robot's robot package will live under ``robots/<name>/`` with its own
 ``README.md`` describing the SDK / firmware requirements. See
 :doc:`usage/franka` and :doc:`usage/so101` for the current status.
 

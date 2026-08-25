@@ -79,14 +79,14 @@ RoboTwin 所需依赖：
 
    # 国内用户在可以加上 HF_ENDPOINT=https://hf-mirror.com,
    # 因为下面的命令运行过程中会下载相关的memory数据
-   rpent --env robotwin \
+   rpent --robot robotwin \
       --task-name beat_block_hammer \
       --seed 100000 \
       --planner codex \
       --model gpt-5.5
 
 修改 ``--task-name`` 可以选择其他任务；标准随机化评测使用的 seed 说明见下方。
-完整参数请运行 ``rpent --env robotwin --help`` 查看。
+完整参数请运行 ``rpent --robot robotwin --help`` 查看。
 
 .. note::
 

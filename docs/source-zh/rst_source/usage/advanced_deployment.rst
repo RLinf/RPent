@@ -67,7 +67,7 @@ SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。
 .. code-block:: bash
 
    rpent \
-     --env libero \
+     --robot libero \
      --suite libero_object_swap --task 2 --seed 0 \
      --libero-type pro --max-episode-steps 10000 \
      --env-endpoint http://ENV_HOST:ENV_PORT \

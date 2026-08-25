@@ -1,4 +1,4 @@
-"""RPent tools for the RLinf RoboTwin environment."""
+"""RPent tools for the RLinf RoboTwin robot."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from robots.robotwin import tools
-from robots.robotwin.env_spec import ROBOTWIN_CAMERA_NAMES
+from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES
 from robots.robotwin.primitives import RoboTwinPrimitives
 from rpent.dashboard.events import DashboardEventSink
 from rpent.tools.state import EnvState
