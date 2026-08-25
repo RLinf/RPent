@@ -1,7 +1,7 @@
 """RoboCasa VLA client — thin RPC layer over the VLA server."""
 from __future__ import annotations
 
-from rpent.tools.vla_client_base import BaseVLAClient
+from rpent.robots.components.vla_client_base import BaseVLAClient
 
 
 class RoboCasaVLAClient(BaseVLAClient):

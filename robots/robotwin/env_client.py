@@ -13,7 +13,7 @@ from robots.robotwin.robot_spec import (
     ROBOTWIN_STATUS_KEYS,
     RoboTwinActionType,
 )
-from rpent.tools.env_client_base import BaseEnvClient
+from rpent.robots.components.env_client_base import BaseEnvClient
 from rpent.utils.rpc import RpcClient
 
 

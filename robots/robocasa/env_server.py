@@ -10,7 +10,7 @@ import traceback
 from typing import Any
 import numpy as np
 
-from rpent.tools.env_facade_base import BaseEnvFacade
+from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
 from rpent.utils.daemon import watch_parent_death
 from rpent.utils.http_rpc import HttpRpcServer

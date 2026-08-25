@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import numpy as np
 
-from rpent.tools.env_client_base import BaseEnvClient
+from rpent.robots.components.env_client_base import BaseEnvClient
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient

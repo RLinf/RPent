@@ -17,7 +17,7 @@ import struct
 from typing import Any, Callable
 
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc import RpcClient, check_response, make_error_response
+from rpent.utils.rpc.rpc import RpcClient, check_response, make_error_response
 
 logger = get_logger("socket_rpc")
 

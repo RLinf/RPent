@@ -5,7 +5,7 @@ import atexit
 import threading
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from rpent.utils.logging import get_logger
 from rpent.utils.rwlock import RWLock
@@ -381,8 +381,8 @@ class RpcFacade:
         that many seconds and fires :meth:`_on_session_drop`.
         """
         from rpent.utils.daemon import watch_parent_death
-        from rpent.utils.http_rpc import HttpRpcServer
-        from rpent.utils.socket_rpc import SocketRpcServer
+        from rpent.utils.rpc.http_rpc import HttpRpcServer
+        from rpent.utils.rpc.socket_rpc import SocketRpcServer
 
         def dispatch(
             method: str, args: tuple, kwargs: dict, *, session_id: str | None = None
