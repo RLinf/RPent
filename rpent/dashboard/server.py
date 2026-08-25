@@ -49,7 +49,7 @@ from rpent.dashboard.interaction import (
 )
 from rpent.dashboard.launcher import parse_launcher_config
 from rpent.dashboard.spec import DashboardSpec
-from rpent.dashboard.state import DashboardState
+from rpent.dashboard.state import DashboardState, PrimitiveArgumentError
 
 
 class DashboardServer:
@@ -306,6 +306,8 @@ class DashboardServer:
                 tool_result = live.execute_primitive(name, arguments)
             except InteractionUnavailableError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=409)
+            except PrimitiveArgumentError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=422)
             except ValueError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=403)
             result = tool_result.result

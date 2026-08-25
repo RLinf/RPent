@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
+from jsonschema.exceptions import SchemaError, ValidationError
+from jsonschema.validators import validator_for
 
 from rpent.dashboard.events import (
     DashboardEvent,
@@ -55,6 +57,36 @@ InputMode = Literal["command_only", "conversation", "disabled"]
 TaskRequest = dict[str, Any]
 _INTEGER = re.compile(r"-?[0-9]+")
 _UNSAFE_SLUG = re.compile(r"[^A-Za-z0-9_.-]+")
+
+
+class PrimitiveArgumentError(ValueError):
+    """Dashboard primitive arguments do not satisfy the Toolkit schema."""
+
+
+def _validate_primitive_arguments(
+    name: str,
+    arguments: dict[str, Any],
+    schema: Any,
+) -> None:
+    """Validate untrusted Dashboard arguments against one Toolkit schema."""
+    if not isinstance(schema, dict):
+        raise RuntimeError(f"primitive {name!r} has no valid input schema")
+    validator_type = validator_for(schema)
+    try:
+        validator_type.check_schema(schema)
+    except SchemaError as exc:
+        raise RuntimeError(f"primitive {name!r} has an invalid input schema") from exc
+
+    try:
+        validator_type(schema).validate(arguments)
+    except ValidationError as exc:
+        location = "$" + "".join(
+            f"[{part}]" if isinstance(part, int) else f".{part}"
+            for part in exc.absolute_path
+        )
+        raise PrimitiveArgumentError(
+            f"invalid arguments for {name} at {location}: {exc.message}"
+        ) from exc
 
 
 def _to_json_safe(value: Any) -> Any:
@@ -235,9 +267,17 @@ class DashboardState:
                 )
             if not allowed:
                 raise ValueError(f"primitive is not allowed: {name}")
-            available = {spec.get("name") for spec in toolkit.get_tools_spec()}
-            if name not in available:
+            available = {
+                spec.get("name"): spec for spec in toolkit.get_tools_spec()
+            }
+            spec = available.get(name)
+            if spec is None:
                 raise ValueError(f"primitive is not available: {name}")
+            _validate_primitive_arguments(
+                name,
+                arguments,
+                spec.get("input_schema"),
+            )
             self._active_primitive_calls += 1
         try:
             return toolkit.execute_tool(name, arguments)
