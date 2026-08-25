@@ -101,6 +101,11 @@ def _create_worker_class():
 
         def __init__(self, cfg: Any, controller_config: dict[str, Any]):
             super().__init__()
+            from robots.franka.physical_agent_env import (
+                register_physical_agent_franka_env,
+            )
+
+            register_physical_agent_franka_env()
             self.cfg = cfg
             self.controller = _normalize_controller_config(controller_config)
             self.env = RealWorldEnv(
