@@ -5,6 +5,10 @@ RoboTwin
 仿真基准，包含多种桌面操作任务和随机化场景。RPent 通过 RLinf 运行 RoboTwin，
 并使用 LingBot-VLA 生成机器人动作。
 
+.. note::
+
+   当前代码尚未完成 RoboTwin 的完整效果对齐验证，完整验证结果将在后续放出。
+
 安装
 ----
 
