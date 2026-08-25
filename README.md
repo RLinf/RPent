@@ -59,6 +59,7 @@ RPent is built upon three core design principles: **service-oriented, standardiz
           <ul>
             <li>Pi0.5 ✅</li>
             <li>RLDX-1 ✅</li>
+            <li>LingBot-VLA ✅</li>
           </ul>
           <li><b>WAM</b></li>
           <ul>
@@ -70,6 +71,7 @@ RPent is built upon three core design principles: **service-oriented, standardiz
         <ul style="margin-left: 0; padding-left: 16px;">
           <li>LIBERO-PRO ✅</li>
           <li>RoboCasa ✅</li>
+          <li>RoboTwin ✅</li>
         </ul>
       </td>
       <td>
@@ -184,6 +186,11 @@ For more detailed documentation, see the [RPent documentation](https://rpent.rea
 ### RoboCasa
 
 RoboCasa uses a separate entrypoint and install guide. See the [RoboCasa usage docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html) for installation and running instructions.
+
+### RoboTwin
+
+RoboTwin is supported with LingBot-VLA for dual-arm manipulation tasks.
+See the [RoboTwin usage docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html) for installation and running instructions.
 
 ## Key CLI Options
 

@@ -330,11 +330,10 @@ def dump_observation(
         "view_specs": view_specs,
         "log": log,
     }
-    # Success and budget remain in episode_status; an observation does not
-    # create training termination signals.
+    eval_success = status.get("eval_success") is True
     with env_state.record_step(
         state=state,
-        terminated=False,
+        terminated=eval_success,
         truncated=False,
         command=(log or {}).get("command"),
         result=(log or {}).get("result"),

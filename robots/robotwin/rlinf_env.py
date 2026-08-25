@@ -96,6 +96,7 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         *,
         action_type: RoboTwinActionType = "qpos",
         env_id: int = 0,
+        return_all_frames: bool = False,
     ) -> tuple[list[Any], np.ndarray, np.ndarray, np.ndarray, list[dict[str, Any]]]:
         """Execute a chunk of native actions, returning a gym-style 5-tuple batched as ``[1, executed]``."""
         array = _validate_actions(actions, action_type=action_type)
@@ -104,6 +105,7 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         terminations: list[bool] = []
         truncations: list[bool] = []
         per_step: list[dict[str, Any]] = []
+        frames: list[np.ndarray] = []
         executed = 0
         with sub_env.lock:
             for action in array:
@@ -125,12 +127,21 @@ class RoboTwinAgentEnv(RoboTwinEnv):
                 terminations.append(bool(step_status["eval_success"]))
                 truncations.append(bool(budget))
                 per_step.append({"episode_status": step_status})
+                if return_all_frames:
+                    head_rgb = sub_env.task.get_obs()["observation"][
+                        "head_camera"
+                    ]["rgb"]
+                    frames.append(
+                        np.asarray(self.center_and_crop(head_rgb, center_crop=self.center_crop))
+                    )
             episode_status = self._episode_status(sub_env)
             robot_state = self._robot_state(sub_env)
             if self.record_metrics:
                 self._elapsed_steps[env_id] = int(episode_status["take_action_cnt"])
         # venv.get_obs() re-acquires sub_env.lock; read it outside the lock.
         observation = self._extract_obs_image(self.venv.get_obs())
+        if return_all_frames:
+            observation = {"frames": frames, "final": observation}
         info = {
             "action_type": action_type,
             "requested_actions": int(len(array)),

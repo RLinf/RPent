@@ -59,6 +59,7 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
           <ul>
             <li>Pi0.5 ✅</li>
             <li>RLDX-1 ✅</li>
+            <li>LingBot-VLA ✅</li>
           </ul>
           <li><b>WAM</b></li>
           <ul>
@@ -70,6 +71,7 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
         <ul style="margin-left: 0; padding-left: 16px;">
           <li>LIBERO-PRO ✅</li>
           <li>RoboCasa ✅</li>
+          <li>RoboTwin ✅</li>
         </ul>
       </td>
       <td>
@@ -183,6 +185,10 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
 ### RoboCasa
 
 RoboCasa 使用独立入口与安装指南。安装与运行流程见 [RoboCasa 使用文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
+
+### RoboTwin
+
+RoboTwin 支持 LingBot-VLA 双臂操作任务。安装与运行流程见 [RoboTwin 使用文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html)。
 
 更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
 

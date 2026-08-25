@@ -89,6 +89,8 @@ class RoboTwinToolkit(Toolkit):
             check_cancelled=self.raise_if_cancelled,
             **primitives_kwargs,
         )
+        self._primitives.start_recording()
+        self._action_frame_cursor = self._primitives.recorded_frame_count()
         reset_result = {
             **self._primitives.env.last_reset_info,
             "success": True,
@@ -181,6 +183,8 @@ class RoboTwinToolkit(Toolkit):
         result: dict[str, Any],
         elapsed_s: float,
     ) -> dict[str, Any]:
+        frame_start = self._action_frame_cursor
+        self._action_frame_cursor = self._primitives.recorded_frame_count()
         status = self._primitives.status()
         self._latest_status = status
         observation = self._capture_full_observation()
@@ -194,7 +198,22 @@ class RoboTwinToolkit(Toolkit):
                 "elapsed_s": elapsed_s,
             },
         )
+        if self._dashboard_events.enabled:
+            frames = self._primitives.frame_slice(frame_start)
+            if frames:
+                self._state.save(
+                    f"action_{command['action']}.mp4",
+                    frames,
+                    step=record.step_idx,
+                    fps=20,
+                )
         return tools.view_env_state(record.step_idx, state=self._state)
+
+    def close(self) -> None:
+        """Flush the per-step frame buffer into ``episode.mp4`` (LIBERO parity)."""
+        frames = self._primitives.stop_recording()
+        if frames:
+            self._state.save("episode.mp4", frames, step=None, fps=20)
 
     def _step(self, name: str, **kwargs) -> dict[str, Any]:
         self.raise_if_cancelled()
