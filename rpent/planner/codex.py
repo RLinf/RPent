@@ -418,10 +418,9 @@ class CodexPlanner:
             ),
             "cwd": self._repo_root,
             "env": env,
-            # The native Codex provider needs the app-server API so configured
-            # MCP servers are exposed to the model. Compatibility proxies may
-            # still opt out because some do not implement namespace tools.
-            "experimental_api": self._base_url is None,
+            # use True to support (namespace tools,
+            # web_search, image_generation).
+            "experimental_api": True,
         }
         if codex_bin := os.environ.get("CODEX_BIN"):
             kwargs["codex_bin"] = codex_bin
