@@ -17,17 +17,6 @@ def _tool_error(code: str, message: str, **details: Any) -> dict[str, Any]:
     }
 
 
-def _to_json_safe(value: Any) -> Any:
-    """Recursively convert numpy arrays to lists for JSON-serializable results."""
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, dict):
-        return {key: _to_json_safe(val) for key, val in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_to_json_safe(item) for item in value]
-    return value
-
-
 def _artifact_name(view: str, field: str) -> str:
     suffix = {
         "rgb": ".png",
@@ -347,7 +336,7 @@ def dump_observation(
         terminated=eval_success,
         truncated=False,
         command=(log or {}).get("command"),
-        result=_to_json_safe((log or {}).get("result")),
+        result=(log or {}).get("result"),
         elapsed_s=(log or {}).get("elapsed_s"),
         extras={"task_language": observation.get("task_language")},
     ) as recorded_step:

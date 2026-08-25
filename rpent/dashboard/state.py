@@ -9,6 +9,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import numpy as np
+
 from rpent.dashboard.events import (
     DashboardEvent,
     RunStartedEvent,
@@ -38,6 +40,21 @@ InputMode = Literal["command_only", "conversation", "disabled"]
 TaskRequest = dict[str, Any]
 _INTEGER = re.compile(r"-?[0-9]+")
 _UNSAFE_SLUG = re.compile(r"[^A-Za-z0-9_.-]+")
+
+
+def _to_json_safe(value: Any) -> Any:
+    """Normalize common non-JSON values (numpy / Path) used in Dashboard timeline data."""
+    if isinstance(value, np.ndarray):
+        return _to_json_safe(value.tolist())
+    if isinstance(value, np.generic):
+        return _to_json_safe(value.item())
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _to_json_safe(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_json_safe(item) for item in value]
+    return value
 
 
 def _parse_task(task_spec: dict[str, Any], text: str) -> TaskRequest | None:
@@ -659,7 +676,7 @@ class DashboardState:
             "step": step,
             "action": action,
             "args": {k: v for k, v in command.items() if k != "action"},
-            "result": log.get("result"),
+            "result": _to_json_safe(log.get("result")),
             "elapsed_s": log.get("elapsed_s"),
             "terminated": terminated,
             "truncated": truncated,
@@ -703,7 +720,7 @@ class DashboardState:
             "step": display_step,
             "action": str(command.get("action")),
             "args": {key: value for key, value in command.items() if key != "action"},
-            "result": record.result,
+            "result": _to_json_safe(record.result),
             "elapsed_s": record.elapsed_s,
             "terminated": record.terminated,
             "truncated": record.truncated,
