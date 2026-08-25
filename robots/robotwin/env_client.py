@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from robots.robotwin.env_spec import (
+from robots.robotwin.robot_spec import (
     ROBOTWIN_CAMERA_NAMES,
     ROBOTWIN_READ_TIMEOUT_S,
     ROBOTWIN_STATE_CHANGE_TIMEOUT_S,

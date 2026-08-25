@@ -80,7 +80,7 @@ LIBERO-PRO 和 RoboCasa365 仿真器、SAM 3.0 和 RLinf 运行时。
 3. (可选) 真实机器人依赖
 ------------------------
 
-Franka 与 SO-101 的支持正在逐步接入; 每个机器人的 env 包未来会以一个
+Franka 与 SO-101 的支持正在逐步接入; 每个机器人的 robot 包未来会以一个
 包的形式放在 ``robots/<name>/`` 下, 并附带 ``README.md`` 说明其 SDK /
 固件要求。当前进度参见 :doc:`usage/franka` 与 :doc:`usage/so101`。
 

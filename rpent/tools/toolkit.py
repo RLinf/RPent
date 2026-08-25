@@ -127,11 +127,11 @@ class Toolkit:
     """Base toolkit: registers common tools and dispatches tool calls.
 
     Subclasses extend ``__init__`` (calling ``super().__init__()`` first)
-    and register additional tools with :meth:`add_tool`. Env-specific
+    and register additional tools with :meth:`add_tool`. Robot-specific
     subclasses receive their env/model/etc. as constructor arguments and
     build the underlying env Primitives in ``__init__``; the toolkit
     base class only contributes the common file/IO tools. Override
-    :meth:`close` to release env-side primitives / servers at the end of the run.
+    :meth:`close` to release robot-side primitives / servers at the end of the run.
     """
 
     def __init__(
@@ -289,7 +289,7 @@ class Toolkit:
         raise NotImplementedError
 
     # ------------------------------------------------------------------
-    # Server lifecycle hooks (overridden by env toolkits)
+    # Server lifecycle hooks (overridden by robot toolkits)
     # ------------------------------------------------------------------
 
     def cancel_active_and_wait(self) -> None:
@@ -309,7 +309,7 @@ class Toolkit:
             raise ToolCancelled("tool operation interrupted")
 
     def close(self) -> None:
-        """Release the env-side primitives / servers at end of run. Default: no-op."""
+        """Release the robot-side primitives / servers at end of run. Default: no-op."""
 
     def solved(self) -> bool:
         """Whether the env has reported the task complete.
@@ -321,5 +321,5 @@ class Toolkit:
         raise NotImplementedError
 
     def write_recipe(self, recipe_tag: str) -> str | None:
-        """Write a replay recipe for this env, if supported."""
+        """Write a replay recipe for this robot, if supported."""
         return None

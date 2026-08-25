@@ -43,7 +43,7 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 
 .. code-block:: bash
 
-   rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+   rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
 
 若要切换到其他 planner（如 ``codex`` 或 ``api``），请参阅
@@ -56,7 +56,7 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 
 .. code-block:: bash
 
-   rpent --env libero --dashboard --dashboard-language zh-cn \
+   rpent --robot libero --dashboard --dashboard-language zh-cn \
      --planner claude_code --model claude-opus-4-8
 
 打开该地址并确认配置；服务就绪后，在页面输入
@@ -68,7 +68,7 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 -------------
 
 下表只列出完成首次运行需要关注的选项。其他通用选项可运行
-``rpent --help`` 查看；有关 LIBERO 环境的更多配置，请参阅
+``rpent --help`` 查看；有关 LIBERO 机器人的更多配置，请参阅
 :doc:`LIBERO 使用指南 <usage/libero>`。
 
 .. list-table::
@@ -78,9 +78,9 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
    * - 参数
      - 默认值
      - 说明
-   * - ``--env``
+   * - ``--robot``
      - 必填
-     - 环境后端，如 ``libero``
+     - 机器人后端，如 ``libero``
    * - ``--suite``
      - 必填
      - 任务套件，如 ``libero_object_task``、``libero_spatial_swap``

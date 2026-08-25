@@ -1,5 +1,5 @@
-"""LIBERO environment extension."""
+"""LIBERO robot extension."""
 
-from robots.libero.env_spec import get_env_spec, get_toolkit
+from robots.libero.robot_spec import get_robot_spec, get_toolkit
 
-__all__ = ["get_env_spec", "get_toolkit"]
+__all__ = ["get_robot_spec", "get_toolkit"]

@@ -4,7 +4,7 @@ RoboCasa
 `RoboCasa <https://robocasa.ai>`_ 是面向厨房场景的长时序操作仿真环境。
 在 RPent 中由 **RLDX-1** VLA 策略驱动，默认通过 HTTP RPC 提供服务
 （与 LIBERO 一致），也支持 pickle-framed socket 传输。详见
-``robots/robocasa/vla_server.py`` 与 ``robots/robocasa/env_spec.py``
+``robots/robocasa/vla_server.py`` 与 ``robots/robocasa/robot_spec.py``
 中的传输选择逻辑。
 
 .. note::
@@ -119,11 +119,11 @@ RPent 用的 50 个任务分三组:
 ------------
 
 RoboCasa 的 CLI 参数由 ``robots/robocasa/__init__`` 注册，可通过
-``rpent --env robocasa --help`` 查看:
+``rpent --robot robocasa --help`` 查看:
 
 .. code-block:: bash
 
-   rpent --env robocasa \
+   rpent --robot robocasa \
          --task-name OpenDrawer \
          --split target \
          --seed 0 \

@@ -5,7 +5,7 @@ RoboCasa
 manipulation environment. In RPent it is driven by the **RLDX-1** VLA
 policy, served over HTTP RPC by default (matching LIBERO); a
 pickle-framed socket transport is also supported. See
-``robots/robocasa/vla_server.py`` and ``robots/robocasa/env_spec.py``
+``robots/robocasa/vla_server.py`` and ``robots/robocasa/robot_spec.py``
 for the wire/transport selection.
 
 .. note::
@@ -126,11 +126,11 @@ Running a task
 --------------
 
 The RoboCasa CLI flags are registered by ``robots/robocasa/__init__`` and
-are visible under ``rpent --env robocasa --help``:
+are visible under ``rpent --robot robocasa --help``:
 
 .. code-block:: bash
 
-   rpent --env robocasa \
+   rpent --robot robocasa \
          --task-name OpenDrawer \
          --split target \
          --seed 0 \

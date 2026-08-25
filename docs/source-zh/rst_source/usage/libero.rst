@@ -91,7 +91,7 @@ LIBERO-PRO 核心套件一览
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 
-   rpent --env libero \
+   rpent --robot libero \
      --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
 
@@ -119,7 +119,7 @@ memory；它只会针对 ``--memory-dir`` 执行普通的单次评测，并避�
 
 .. code-block:: bash
 
-   rpent --env libero --suite libero_10_task --task 0 --seed 1 \
+   rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
      --planner codex --memory-profile local \
      --memory-dir /path/to/libero-memory
 
@@ -130,7 +130,7 @@ local profile；真正开启该流程的是 ``--explore``：
 
 .. code-block:: bash
 
-   rpent --env libero --suite libero_10_task --task 0 --seed 0 \
+   rpent --robot libero --suite libero_10_task --task 0 --seed 0 \
      --planner api --model anthropic:claude-opus-4-8 \
      --explore --explore-sessions 3 --explore-attempts-per-session 5 \
      --memory-dir /path/to/libero-memory
@@ -214,7 +214,7 @@ Dashboard
 
 .. code-block:: bash
 
-   rpent --env libero --dashboard \
+   rpent --robot libero --dashboard \
      --planner claude_code --model claude-opus-4-8
 
 打开该地址，确认 Session 配置并点击 **Start Session**。共享服务就绪后，在页面
@@ -239,7 +239,7 @@ Dashboard launcher 支持 ``api``、``claude_code`` 和 ``codex`` planner。
 接入自定义 VLA
 ----------------
 
-如果你有一个与 LIBERO 兼容、但并非 Pi0.5 的 VLA，可以在不修改环境实现的
+如果你有一个与 LIBERO 兼容、但并非 Pi0.5 的 VLA，可以在不修改机器人实现的
 情况下替换 model client：
 
 1. 写一个新的 ``vla_server.py``，暴露相同的 ``predict`` RPC 契约
@@ -265,7 +265,7 @@ Dashboard launcher 支持 ``api``、``claude_code`` 和 ``codex`` planner。
 
 .. code-block:: bash
 
-   rpent --env libero \
+   rpent --robot libero \
      --suite libero_10_task --task "task" --seed "seed" \
      --planner codex \
      --model gpt-5.5 \

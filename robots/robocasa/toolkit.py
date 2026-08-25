@@ -19,7 +19,7 @@ logger = get_logger("robocasa_toolkit")
 
 
 class RoboCasaToolkit(Toolkit):
-    """Toolkit for the RoboCasa environment."""
+    """Toolkit for the RoboCasa robot."""
 
     _FRAME_ARTIFACTS = {
         "camera": "agentview.png",
