@@ -103,9 +103,12 @@ these two functions:
 ``dashboard`` is optional. Leave it as ``None`` if the environment does not
 support Dashboard control. Otherwise, define the spec in the environment
 package: its ``task`` section describes the command, validated fields, display
-template, and output slug; ``runtime_components`` and ``frame_channels``
-describe the environment-specific rows and camera views rendered by the
-frontend. See ``robots/libero/robot_spec.py`` for the reference shape.
+template, and output slug; ``launcher_fields`` owns robot-specific
+Session settings; ``runtime_components`` describes service rows;
+``frame_channels`` maps camera names to canonical image artifacts;
+and ``primitives`` allowlists Dashboard controls. Keep task suggestions in the
+spec so importing the robot does not require simulator packages. See
+``robots/libero/robot_spec.py`` for the reference shape.
 
 That's the entire registration step — ``_resolve_robot(name)`` does an
 ``importlib.import_module(f"robots.{name}")``, so dropping the package under
