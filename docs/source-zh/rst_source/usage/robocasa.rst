@@ -119,11 +119,11 @@ RPent 用的 50 个任务分三组:
 ------------
 
 RoboCasa 的 CLI 参数由 ``robots/robocasa/__init__`` 注册，可通过
-``rpent --env robocasa --help`` 查看:
+``rpent --robot robocasa --help`` 查看:
 
 .. code-block:: bash
 
-   rpent --env robocasa \
+   rpent --robot robocasa \
          --task-name OpenDrawer \
          --split target \
          --seed 0 \

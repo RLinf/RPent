@@ -24,7 +24,7 @@ class UsageEvent:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeStatusEvent:
-    """Update one environment-side runtime component."""
+    """Update one robot-side runtime component."""
 
     component: str
     status: str
@@ -41,7 +41,7 @@ class ToolResultEvent:
 
 @dataclass(frozen=True, slots=True)
 class StepRecordEvent:
-    """Publish one recorded environment step and its artifact context."""
+    """Publish one recorded robot step and its artifact context."""
 
     record: Any
     env_state: Any
@@ -64,7 +64,7 @@ DashboardEvent: TypeAlias = (
 
 
 class DashboardEventSink(Protocol):
-    """Consumer used by planners, toolkits, and environment runtimes."""
+    """Consumer used by planners, toolkits, and robot runtimes."""
 
     @property
     def enabled(self) -> bool:

@@ -1,4 +1,4 @@
-"""Global prompt definitions shared by environments."""
+"""Global prompt definitions shared by robots."""
 from __future__ import annotations
 
 from rpent.context.prompt_utils import BulletList

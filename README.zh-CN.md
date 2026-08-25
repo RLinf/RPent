@@ -132,7 +132,7 @@ export LIBERO_TYPE=pro
 
 # 运行一个任务：libero_object_swap，task 2，seed 0，使用 Claude Code
 # 和 Claude Opus 4.8。
-rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --cuda-device 0 --planner claude_code --model claude-opus-4-8
 ```
 
@@ -144,7 +144,7 @@ rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
 global/suite/task 三层 memory 进行评测：
 
 ```bash
-rpent --env libero --suite libero_10_task --task 0 --seed 1 \
+rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
   --planner codex --memory-profile local \
   --memory-dir /path/to/libero-memory
 ```
@@ -153,7 +153,7 @@ rpent --env libero --suite libero_10_task --task 0 --seed 1 \
 session、memory distillation 和自动合并：
 
 ```bash
-rpent --env libero --suite libero_10_task --task 0 --seed 0 \
+rpent --robot libero --suite libero_10_task --task 0 --seed 0 \
   --planner api --model anthropic:claude-opus-4-8 \
   --explore --explore-sessions 3 --explore-attempts-per-session 5 \
   --memory-dir /path/to/libero-memory
@@ -167,7 +167,7 @@ memory 维护命令详见 [LIBERO 文档](https://rpent.readthedocs.io/zh-cn/lat
 加上 `--interactive`（`-i`）即可在终端里实时引导智能体。在 `you>` 提示符处，内置任务已预填——按 Enter 直接使用，或替换为你自己的任务；智能体运行时，随时输入消息即可在下一轮引导它（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要交互式终端（TTY）。
 
 ```bash
-rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --planner claude_code --model claude-opus-4-8 --interactive
 ```
 
@@ -176,7 +176,7 @@ rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
 加上 `--dashboard` 后，会启动本地 Dashboard，并在终端输出访问地址。打开该地址并确认配置；服务就绪后，通过 `/rpent-task <suite> <task> <seed>` 启动任务。页面会实时显示智能体的推理过程、相机画面和动作时间线，任务结束后可以继续提交下一任务。使用 `--dashboard-language zh-cn` 可切换到中文界面。
 
 ```bash
-rpent --env libero --dashboard --dashboard-language zh-cn \
+rpent --robot libero --dashboard --dashboard-language zh-cn \
   --planner claude_code --model claude-opus-4-8
 ```
 
@@ -197,7 +197,7 @@ RoboCasa 使用独立入口与安装指南。安装与运行流程见 [RoboCasa 
     </tr>
   </thead>
   <tbody valign="top">
-    <tr><td><code>--env</code></td><td>—（必填）</td><td>环境后端。当前支持 <code>libero</code>。</td></tr>
+    <tr><td><code>--robot</code></td><td>—（必填）</td><td>机器人后端。当前支持 <code>libero</code>。</td></tr>
     <tr><td><code>--suite</code></td><td>—（必填）</td><td>任务集，如 <code>libero_object_task</code>、<code>libero_spatial_swap</code></td></tr>
     <tr><td><code>--task</code></td><td>—（必填）</td><td>任务集内的任务编号</td></tr>
     <tr><td><code>--seed</code></td><td><code>0</code></td><td>随机种子</td></tr>

@@ -45,7 +45,7 @@ Run a single LIBERO PRO task (``libero_object_swap``, task ``2``, seed
 
 .. code-block:: bash
 
-   rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+   rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
 
 To switch to another planner, such as ``codex`` or ``api``, see
@@ -58,7 +58,7 @@ Add ``--dashboard`` to start a local Dashboard and print its URL in the terminal
 
 .. code-block:: bash
 
-   rpent --env libero --dashboard --dashboard-language zh-cn \
+   rpent --robot libero --dashboard --dashboard-language zh-cn \
      --planner claude_code --model claude-opus-4-8
 
 Open the URL and confirm the configuration. Once the services are ready, enter
@@ -72,7 +72,7 @@ Key CLI options
 
 The table lists only the options needed for a first run. Run
 ``rpent --help`` for other general options. See the
-:doc:`LIBERO guide <usage/libero>` for detailed environment configuration.
+:doc:`LIBERO guide <usage/libero>` for detailed robot configuration.
 
 .. list-table::
    :header-rows: 1
@@ -81,9 +81,9 @@ The table lists only the options needed for a first run. Run
    * - Flag
      - Default
      - Description
-   * - ``--env``
+   * - ``--robot``
      - required
-     - Environment backend, e.g. ``libero``
+     - Robot backend, e.g. ``libero``
    * - ``--suite``
      - required
      - Task suite, e.g. ``libero_object_task``, ``libero_spatial_swap``

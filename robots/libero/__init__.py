@@ -1,4 +1,4 @@
-"""LIBERO environment extension."""
+"""LIBERO robot extension."""
 from __future__ import annotations
 
 import argparse
@@ -11,9 +11,9 @@ from typing import TYPE_CHECKING, Any
 from robots.libero.prompt_bundle import system_prompt, user_prompt
 from robots.libero.spec import LIBERO_DASHBOARD_SPEC
 from rpent.dashboard.events import DashboardEventSink
-from rpent.envs.env_spec import EnvSpec, RunConfig
-from rpent.envs.prompt_bundle import PromptBundle
-from rpent.envs.runtime import try_spawn_server, try_wait_server
+from rpent.robots.prompt_bundle import PromptBundle
+from rpent.robots.robot_spec import RobotSpec, RunConfig
+from rpent.robots.runtime import try_spawn_server, try_wait_server
 from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.rpc import make_rpc_client
 
@@ -22,13 +22,13 @@ if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
 
 
-def get_env_spec() -> EnvSpec:
-    """Return the LIBERO env identity, prompt bundle, and runner hooks.
+def get_robot_spec() -> RobotSpec:
+    """Return the LIBERO robot identity, prompt bundle, and runner hooks.
 
     Tool schemas, handlers, server lifecycle, and the MCP allowlist live on
     the LIBERO toolkit (see :func:`get_toolkit`).
     """
-    return EnvSpec(
+    return RobotSpec(
         name="libero",
         prompts=PromptBundle(
             system=system_prompt,

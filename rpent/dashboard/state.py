@@ -689,7 +689,7 @@ class DashboardState:
         return path if path.exists() else None
 
     def on_step(self, record: StepRecord, *, step_offset: int = 0) -> None:
-        """Project one recorded environment step into frames and timeline."""
+        """Project one recorded robot step into frames and timeline."""
         display_step = step_offset + record.step_idx
         self._update_step_frames(record, display_step=display_step)
         command = record.command

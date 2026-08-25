@@ -1,2 +1,2 @@
-"""RoboTwin environment extension."""
-from robots.robotwin.env_spec import get_env_spec, get_toolkit
+"""RoboTwin robot extension."""
+from robots.robotwin.robot_spec import get_robot_spec, get_toolkit

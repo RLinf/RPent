@@ -1,4 +1,4 @@
-"""RoboCasa environment extension — EnvSpec factory, toolkit factory, and runtime hooks."""
+"""RoboCasa robot extension — RobotSpec factory, toolkit factory, and runtime hooks."""
 from __future__ import annotations
 
 import argparse
@@ -13,9 +13,9 @@ from robots.robocasa.prompt_bundle import (
     user_prompt,
 )
 from rpent.dashboard.events import DashboardEventSink
-from rpent.envs.env_spec import EnvSpec, RunConfig
-from rpent.envs.prompt_bundle import PromptBundle
-from rpent.envs.runtime import try_spawn_server, try_wait_server
+from rpent.robots.robot_spec import RobotSpec, RunConfig
+from rpent.robots.prompt_bundle import PromptBundle
+from rpent.robots.runtime import try_spawn_server, try_wait_server
 from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.http_rpc import HttpRpcClient
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 ROBOCASA_DASHBOARD_SPEC = {
     "task": {
         "command": "/rpent-task",
-        "usage": "/rpent-task <env> <split> <seed>",
+        "usage": "/rpent-task <task_name> <split> <seed>",
         "fields": (
             {"name": "task_name"},
             {"name": "split", "suggestions": ("target", "pretrain", "all")},
@@ -56,13 +56,13 @@ ROBOCASA_DASHBOARD_SPEC = {
 }
 
 
-def get_env_spec() -> EnvSpec:
-    """Return the RoboCasa env identity, prompt bundle, and runner hooks.
+def get_robot_spec() -> RobotSpec:
+    """Return the RoboCasa robot identity, prompt bundle, and runner hooks.
 
     Tool schemas, handlers, server lifecycle, and the MCP allowlist live on
     the RoboCasa toolkit (see :func:`get_toolkit`).
     """
-    return EnvSpec(
+    return RobotSpec(
         name="robocasa",
         prompts=PromptBundle(
             system=system_prompt,

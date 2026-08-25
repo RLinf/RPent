@@ -1,4 +1,4 @@
-"""Sync the env's resources/ payload from its HuggingFace dataset."""
+"""Sync the robot's resources/ payload from its HuggingFace dataset."""
 from __future__ import annotations
 
 import os
@@ -16,9 +16,9 @@ def _has_local_resources(resources_dir: Path) -> bool:
     return resources_dir.is_dir() and any(path.is_file() for path in resources_dir.rglob("*"))
 
 
-def ensure_resources(env_name: str) -> Path:
-    """Sync an environment's optional resources, or use a pre-downloaded copy."""
-    resources_dir = get_resources_dir(env_name)
+def ensure_resources(robot_name: str) -> Path:
+    """Sync a robot's optional resources, or use a pre-downloaded copy."""
+    resources_dir = get_resources_dir(robot_name)
 
     if os.environ.get("HF_HUB_OFFLINE") == "1":
         if not _has_local_resources(resources_dir):
@@ -28,8 +28,8 @@ def ensure_resources(env_name: str) -> Path:
                 "Download the '%s/**' subtree from dataset '%s' before running "
                 "offline.",
                 resources_dir,
-                env_name,
-                env_name,
+                robot_name,
+                robot_name,
                 RESOURCES_HF_REPO,
             )
         return resources_dir
@@ -41,14 +41,14 @@ def ensure_resources(env_name: str) -> Path:
             repo_id=RESOURCES_HF_REPO,
             repo_type="dataset",
             local_dir=str(resources_dir.parent),
-            allow_patterns=[f"{env_name}/**"],
+            allow_patterns=[f"{robot_name}/**"],
         )
     except Exception as exc:
         if _has_local_resources(resources_dir):
             logger.warning(
                 "could not sync '%s' from '%s': %s; continuing with local files "
                 "under %s",
-                env_name,
+                robot_name,
                 RESOURCES_HF_REPO,
                 exc,
                 resources_dir,
@@ -57,7 +57,7 @@ def ensure_resources(env_name: str) -> Path:
             logger.warning(
                 "could not sync '%s' from '%s': %s; no local resources were found "
                 "under %s, so curated memory and task references will be unavailable",
-                env_name,
+                robot_name,
                 RESOURCES_HF_REPO,
                 exc,
                 resources_dir,

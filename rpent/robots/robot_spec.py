@@ -1,12 +1,12 @@
-"""Static env-extension descriptor.
+"""Static robot-extension descriptor.
 
-Lives in :mod:`rpent.envs` alongside
-:class:`~rpent.envs.prompt_bundle.PromptBundle` so envs
+Lives in :mod:`rpent.robots` alongside
+:class:`~rpent.robots.prompt_bundle.PromptBundle` so robots
 and planners can both import it without pulling in
 :mod:`rpent.tools` or the RPC transport layer. Tool schemas,
 handlers, server lifecycle, and the MCP allowlist live on
-:class:`rpent.tools.toolkit.Toolkit` and its env subclasses —
-``EnvSpec`` carries the env identity, the prompt bundle, and runner hooks
+:class:`rpent.tools.toolkit.Toolkit` and its robot subclasses —
+``RobotSpec`` carries the robot identity, the prompt bundle, and runner hooks
 that keep CLI orchestration independent of concrete robot implementations.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rpent.dashboard.events import DashboardEventSink
-from rpent.envs.prompt_bundle import PromptBundle
+from rpent.robots.prompt_bundle import PromptBundle
 
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class RunConfig:
-    """Derived per-run identifiers produced by :attr:`EnvSpec.parse_config`."""
+    """Derived per-run identifiers produced by :attr:`RobotSpec.parse_config`."""
 
     recipe_tag: str
     output_dir: Path
@@ -35,8 +35,8 @@ class RunConfig:
 
 
 @dataclass(frozen=True)
-class EnvSpec:
-    """Environment-level (non-tool) extension points for RPent."""
+class RobotSpec:
+    """Robot-level (non-tool) extension points for RPent."""
 
     name: str
     prompts: PromptBundle
