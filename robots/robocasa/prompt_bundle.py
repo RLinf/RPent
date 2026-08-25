@@ -1,12 +1,16 @@
 """RoboCasa prompt bundle assembly."""
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+from robots.robocasa import prompts as robocasa_prompt
 from rpent.context.prompt_utils import PromptNode
 from rpent.context.prompts import prompt as base_prompt
-from robots.robocasa import prompts as robocasa_prompt
 
 
-def system_prompt() -> dict[str, PromptNode]:
+def system_prompt(
+    variables: Mapping[str, object] | None = None,
+) -> dict[str, PromptNode]:
     """Return the system prompt tree."""
     return {
         "Intro": robocasa_prompt.PREAMBLE,
@@ -24,7 +28,9 @@ def system_prompt() -> dict[str, PromptNode]:
     }
 
 
-def user_prompt() -> dict[str, PromptNode]:
+def user_prompt(
+    variables: Mapping[str, object] | None = None,
+) -> dict[str, PromptNode]:
     """Return the first user message tree."""
     return {
         "Task": """

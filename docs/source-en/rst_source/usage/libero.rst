@@ -100,6 +100,79 @@ Minimal command
 
 To switch planners, see :doc:`configure_planner`.
 
+Exploration and local-memory evaluation
+---------------------------------------
+
+RPent supports two LIBERO run modes:
+
+- **Exploration** uses multiple resettable attempts and independent planner
+  sessions to discover successful strategies and distil them into a local
+  global/suite/task memory corpus. It is a memory-generation workflow, not the
+  benchmark success-rate measurement.
+- **Evaluation** is the default, single-attempt mode. It does not reset the
+  episode or update memory. Local-memory evaluation consumes the validated
+  audit, recipe, and lessons produced by exploration. The HarnessVLA success
+  rate is reproduced in evaluation mode.
+
+Evaluation remains the default mode.  Omitting ``--memory-profile`` preserves
+the original Hugging Face resource sync and prompt:
+
+Both profiles run the same single-attempt evaluation workflow; they differ only
+in where the evaluation memory comes from and which memory prompt is used.
+
+.. code-block:: bash
+
+   rpent --env libero --suite libero_10_task --task 0 --seed 1 \
+     --planner claude_code --memory-profile hf
+
+Use ``local`` only after a local global/suite/task corpus exists, for example
+after running the exploration workflow below. This option does not enable
+exploration and does not download memory from Hugging Face; it runs the normal
+single-attempt evaluation against ``--memory-dir`` (default:
+``resources/libero/memory``) without overwriting that directory. If you want to
+evaluate with the prebuilt Hugging Face corpus, keep ``--memory-profile hf``:
+
+.. code-block:: bash
+
+   rpent --env libero --suite libero_10_task --task 0 --seed 1 \
+     --planner codex --memory-profile local
+
+Exploration uses the same CLI, runtime, tools, and planner implementations.  It
+adds resettable attempts and fresh planner sessions, then distils drafts into
+``<memory-dir>/_inbox/<cell>/``.  On normal completion the Python runner
+validates and merges those drafts, publishes a task audit/recipe pair only when
+LIBERO reported success, and rebuilds ``MEMORY.md``. Exploration can start with
+an empty ``--memory-dir`` and always uses the local profile; ``--explore`` is
+the flag that enables this workflow:
+
+.. code-block:: bash
+
+   rpent --env libero --suite libero_10_task --task 0 --seed 0 \
+     --planner api --model anthropic:claude-opus-4-8 \
+     --explore --explore-sessions 3 --explore-attempts-per-session 5 \
+     --memory-dir /path/to/local/libero-memory
+
+Each planner session owns a fresh toolkit. Its state trace and observation
+artifacts are retained under ``<output-dir>/sessions/session_NNN/`` for final
+memory distillation, while reset-based attempts within that session reuse the
+same toolkit.
+
+Add ``--dashboard`` to the exploration command to watch its reasoning, camera
+frames, and continuous action timeline across planner sessions.
+
+Pass ``--no-auto-merge-memory`` to retain inbox drafts for manual review.
+Maintainers can validate the corpus, rebuild its index, or merge one reviewed
+inbox cell explicitly with ``rpent-memory``:
+
+.. code-block:: bash
+
+   rpent-memory --memory-dir /path/to/local/libero-memory validate
+   rpent-memory --memory-dir /path/to/local/libero-memory build-index
+   rpent-memory --memory-dir /path/to/local/libero-memory merge \
+     --cell 10_task_t0_s0 --output-dir logs/explore_10_task_t0_s0
+
+Generated memory is runtime data and is not committed to this repository.
+
 What runs where
 ---------------
 

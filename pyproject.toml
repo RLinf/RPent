@@ -39,10 +39,12 @@ dependencies = [
     "prompt-toolkit>=3.0.48",
     "numpy",
     "imageio>=2.0",
+    "PyYAML>=6.0",
 ]
 
 [project.scripts]
 rpent = "rpent.cli.main:main"
+rpent-memory = "rpent.cli.memory:main"
 
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"

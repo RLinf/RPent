@@ -125,6 +125,12 @@ def _build_argparser() -> argparse.ArgumentParser:
 
     # other config
     ap.add_argument("--output-dir", default=None)
+    ap.add_argument("--memory-profile", choices=["hf", "local"], default=None,
+                    help="Memory profile (default: hf for evaluation, local for exploration).")
+    ap.add_argument("--memory-dir", default=None,
+                    help="Local memory root (environment default when omitted).")
+    ap.add_argument("--explore", action="store_true",
+                    help="Enable exploration and memory distillation.")
     ap.add_argument("--dashboard", action="store_true",
                     help="Start a local dashboard server for this single run.")
     ap.add_argument("--dashboard-host", default="127.0.0.1",
@@ -143,6 +149,56 @@ def _build_argparser() -> argparse.ArgumentParser:
     return ap
 
 
+def _handoff_message(output_dir, session_number: int, session_max: int) -> str:
+    """Build the opening message for a continuation session."""
+    attempts_dir = Path(output_dir) / "attempts"
+    prior = (
+        sorted(p.name for p in attempts_dir.glob("attempt_*_failed.json"))
+        if attempts_dir.is_dir()
+        else []
+    )
+    return (
+        f"You are agent {session_number} of up to {session_max} on this cell. "
+        f"{len(prior)} attempt(s) by earlier agents are archived in "
+        f"{attempts_dir}/ ({', '.join(prior) if prior else 'none yet'}), and their "
+        "working notes are in the memory inbox under wip/.\n\n"
+        "Read every archive and the working notes before acting. Do not repeat "
+        "failed approaches. A fresh toolkit has already restored a clean scene; "
+        "inspect it before acting."
+    )
+
+
+def _start_continuation_session(args, *, output_dir, recipe_tag,
+                                dashboard_events, prompt_bundle, prompt_vars,
+                                session_number: int, session_max: int):
+    """Build a fresh planner and prompts for an exploration handoff."""
+    logger.info("=== handing off to agent %d/%d ===",
+                session_number, session_max)
+    planner = build_planner(
+        args.planner,
+        output_dir=output_dir,
+        recipe_tag=recipe_tag,
+        env_name=args.env_name,
+        base_url=args.base_url,
+        model=args.model,
+        max_tokens=args.max_tokens,
+        planner_timeout_s=args.planner_timeout_s,
+        claude_code_max_budget_usd=args.claude_code_max_budget_usd,
+        dashboard_events=dashboard_events,
+        no_images=args.no_images,
+    )
+    system_prompt = prompt_bundle.render(
+        "system",
+        variables={
+            **prompt_vars,
+            "session_number": session_number,
+            "session_max": session_max,
+        },
+    )
+    session_message = _handoff_message(output_dir, session_number, session_max)
+    return planner, system_prompt, session_message
+
+
 def main() -> int:
     parser = _build_argparser()
     # Two-phase argparse: first grab --env / --dashboard so we know which
@@ -154,6 +210,15 @@ def main() -> int:
     args = parser.parse_args()
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
+    if args.explore and args.env_name != "libero":
+        parser.error("--explore is currently supported only for LIBERO")
+    if args.explore and args.memory_profile == "hf":
+        parser.error("--explore cannot be used with --memory-profile hf")
+    if args.explore and getattr(args, "explore_sessions", 1) <= 0:
+        parser.error("--explore-sessions must be greater than 0")
+    args.memory_profile = args.memory_profile or ("local" if args.explore else "hf")
+    if args.memory_profile == "hf" and args.memory_dir is not None:
+        parser.error("--memory-dir requires --memory-profile local or --explore")
     if args.dashboard:
         from rpent.cli.dashboard import run_dashboard_session
 
@@ -171,7 +236,12 @@ def main() -> int:
     output_dir = init_output_dir(output_dir, verbose=args.verbose)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
-    ensure_resources(env_name)
+    # Preserve the original HF-backed evaluation behavior by default.
+    memory_profile = getattr(args, "memory_profile", "hf")
+    if not getattr(args, "explore", False) and memory_profile == "hf":
+        ensure_resources(env_name)
+    else:
+        logger.info("resources: using local %s memory profile", memory_profile)
 
     dashboard_events = NullDashboardEventSink()
 
@@ -223,13 +293,6 @@ def main() -> int:
         dashboard_events,
     )
 
-    # --- toolkit -----------------------------------------------------------
-    toolkit = get_toolkit(
-        env_name,
-        primitives_kwargs=primitives_kwargs,
-        dashboard_events=dashboard_events,
-    )
-
     # --- agent loop --------------------------------------------------------
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None
@@ -240,29 +303,88 @@ def main() -> int:
         first_user_msg = await_first_prompt()
         if first_user_msg is None:
             logger.info("no task entered; ending session before start.")
+    # Exploration may hand off between independent planner contexts.
+    sessions = max(1, int(getattr(args, "explore_sessions", 1) or 1))
+    if not getattr(args, "explore", False):
+        sessions = 1
+    recipe_path = ""
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
-            result = planner.solve(
-                system_prompt=system_prompt,
-                user_message=first_user_msg,
-                toolkit=toolkit,
-                max_turns=args.max_turns,
-                input_queue=input_queue,
-            )
-            finish_result = result.finish_result
-            messages = result.messages
-            stats = result.stats
-            agent_error = result.error
+        session_msg = first_user_msg
+        for session_number in range(1, sessions + 1):
+            if session_msg is None:
+                break
+            if session_number > 1:
+                planner, system_prompt, session_msg = _start_continuation_session(
+                    args, output_dir=output_dir, recipe_tag=recipe_tag,
+                    dashboard_events=dashboard_events, prompt_bundle=prompt_bundle,
+                    prompt_vars=prompt_vars, session_number=session_number,
+                    session_max=sessions)
+            state_output_dir = output_dir
+            if getattr(args, "explore", False):
+                state_output_dir = output_dir / "sessions" / f"session_{session_number:03d}"
+            if env_name == "libero":
+                toolkit = get_toolkit(
+                    env_name,
+                    primitives_kwargs=primitives_kwargs,
+                    dashboard_events=dashboard_events,
+                    mode=("exploration" if args.explore else "evaluation"),
+                    attempts_per_session=getattr(
+                        args,
+                        "explore_attempts_per_session",
+                        0,
+                    ),
+                    state_output_dir=state_output_dir,
+                )
+            else:
+                toolkit = get_toolkit(
+                    env_name,
+                    primitives_kwargs=primitives_kwargs,
+                    dashboard_events=dashboard_events,
+                )
+            solved = False
+            try:
+                result = planner.solve(
+                    system_prompt=system_prompt,
+                    user_message=session_msg,
+                    toolkit=toolkit,
+                    max_turns=args.max_turns,
+                    input_queue=input_queue,
+                )
+                finish_result = result.finish_result
+                messages += result.messages
+                stats = result.stats
+                agent_error = result.error
+                if env_name == "libero":
+                    solved = toolkit.solved()
+                    if solved:
+                        recipe_path = toolkit.write_recipe(recipe_tag)
+            finally:
+                toolkit.close()
+            if solved:
+                break
+            if agent_error:
+                if (
+                    getattr(args, "explore", False)
+                    and session_number < sessions
+                    and "timed out" in agent_error.lower()
+                ):
+                    logger.warning(
+                        "session %d/%d timed out; continuing with a fresh handoff",
+                        session_number,
+                        sessions,
+                    )
+                    continue
+                break
     except Exception as exc:
-        logger.error("EXCEPTION in agent loop: %s", exc)
-        agent_error = str(exc)
+        agent_error = f"{type(exc).__name__}: {exc}"
+        logger.error("EXCEPTION in agent loop: %s", agent_error)
     finally:
-        # Agent-side: flush the episode video before the env+model
-        recipe_path = toolkit.write_recipe(recipe_tag)
-        logger.info("recipe: %s", recipe_path)
-
-        toolkit.close()
+        if recipe_path:
+            logger.info("recipe: %s", recipe_path)
+        else:
+            logger.info("recipe: not written (cell unsolved)")
         for d in daemons:
             d.stop()
 
@@ -286,10 +408,18 @@ def main() -> int:
                  stats.get('total_output_tokens', '?'),
                  stats.get('tool_calls', '?'))
     logger.info("transcript: %s", transcript_path)
-    if agent_error:
-        logger.error("error: %s", agent_error)
 
-    return 0
+    # Publish environment-specific artifacts after recipe export and shutdown.
+    if env_spec.finalize_run is not None and not agent_error:
+        try:
+            finalized = env_spec.finalize_run(args, run_config)
+            if finalized is not None:
+                logger.info("run finalized: %s", finalized)
+        except Exception as exc:
+            agent_error = f"memory finalization failed: {type(exc).__name__}: {exc}"
+            logger.error("%s", agent_error)
+
+    return 1 if agent_error else 0
 
 
 if __name__ == "__main__":
