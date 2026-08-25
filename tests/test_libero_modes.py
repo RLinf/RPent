@@ -5,15 +5,15 @@ import json
 from robots.libero.toolkit import LiberoToolkit
 from rpent.cli.main import _build_argparser, _handoff_message
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.envs.base import get_env_spec
+from rpent.robots.base import get_robot_spec
 
 
 def _parse(*extra: str):
     parser = _build_argparser()
-    spec = get_env_spec("libero")
+    spec = get_robot_spec("libero")
     spec.add_cli_args(parser, use_dashboard=False)
     return spec, parser.parse_args(
-        ["--env", "libero", "--suite", "libero_10_task", "--task", "0", *extra]
+        ["--robot", "libero", "--suite", "libero_10_task", "--task", "0", *extra]
     )
 
 

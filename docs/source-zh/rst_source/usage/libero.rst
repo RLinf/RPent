@@ -119,7 +119,7 @@ memory；它只会针对 ``--memory-dir`` 执行普通的单次评测，并避�
 
 .. code-block:: bash
 
-   rpent --env libero --suite libero_10_task --task 0 --seed 1 \
+   rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
      --planner codex --memory-profile local \
      --memory-dir /path/to/libero-memory
 
@@ -130,7 +130,7 @@ local profile；真正开启该流程的是 ``--explore``：
 
 .. code-block:: bash
 
-   rpent --env libero --suite libero_10_task --task 0 --seed 0 \
+   rpent --robot libero --suite libero_10_task --task 0 --seed 0 \
      --planner api --model anthropic:claude-opus-4-8 \
      --explore --explore-sessions 3 --explore-attempts-per-session 5 \
      --memory-dir /path/to/libero-memory

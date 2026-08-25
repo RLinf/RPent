@@ -144,7 +144,7 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 global/suite/task 三层 memory 进行评测：
 
 ```bash
-rpent --env libero --suite libero_10_task --task 0 --seed 1 \
+rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
   --planner codex --memory-profile local \
   --memory-dir /path/to/libero-memory
 ```
@@ -153,7 +153,7 @@ rpent --env libero --suite libero_10_task --task 0 --seed 1 \
 session、memory distillation 和自动合并：
 
 ```bash
-rpent --env libero --suite libero_10_task --task 0 --seed 0 \
+rpent --robot libero --suite libero_10_task --task 0 --seed 0 \
   --planner api --model anthropic:claude-opus-4-8 \
   --explore --explore-sessions 3 --explore-attempts-per-session 5 \
   --memory-dir /path/to/libero-memory

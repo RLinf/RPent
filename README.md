@@ -143,7 +143,7 @@ Evaluation remains the default. Add `--memory-profile local` to evaluate
 against a local global/suite/task memory corpus:
 
 ```bash
-rpent --env libero --suite libero_10_task --task 0 --seed 1 \
+rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
   --planner codex --memory-profile local \
   --memory-dir /path/to/libero-memory
 ```
@@ -152,7 +152,7 @@ Use the same entrypoint with `--explore` to enable resettable attempts, fresh
 planner sessions, memory distillation, and automatic merge:
 
 ```bash
-rpent --env libero --suite libero_10_task --task 0 --seed 0 \
+rpent --robot libero --suite libero_10_task --task 0 --seed 0 \
   --planner api --model anthropic:claude-opus-4-8 \
   --explore --explore-sessions 3 --explore-attempts-per-session 5 \
   --memory-dir /path/to/libero-memory

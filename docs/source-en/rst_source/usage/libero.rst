@@ -122,7 +122,7 @@ in where the evaluation memory comes from and which memory prompt is used.
 
 .. code-block:: bash
 
-   rpent --env libero --suite libero_10_task --task 0 --seed 1 \
+   rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
      --planner claude_code --memory-profile hf
 
 Use ``local`` only after a local global/suite/task corpus exists, for example
@@ -134,7 +134,7 @@ evaluate with the prebuilt Hugging Face corpus, keep ``--memory-profile hf``:
 
 .. code-block:: bash
 
-   rpent --env libero --suite libero_10_task --task 0 --seed 1 \
+   rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
      --planner codex --memory-profile local
 
 Exploration uses the same CLI, runtime, tools, and planner implementations.  It
@@ -147,7 +147,7 @@ the flag that enables this workflow:
 
 .. code-block:: bash
 
-   rpent --env libero --suite libero_10_task --task 0 --seed 0 \
+   rpent --robot libero --suite libero_10_task --task 0 --seed 0 \
      --planner api --model anthropic:claude-opus-4-8 \
      --explore --explore-sessions 3 --explore-attempts-per-session 5 \
      --memory-dir /path/to/local/libero-memory
