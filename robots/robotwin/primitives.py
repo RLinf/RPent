@@ -165,12 +165,9 @@ class RoboTwinPrimitives:
                 action[offset : offset + 6] = update["arm_qpos"]
             if "gripper" in update:
                 action[offset + 6] = update["gripper"]
-            step_result = self.env.step(action, action_type="qpos")
-            info = step_result[4]
-            if self._recording:
-                obs = step_result[0]
-                if isinstance(obs, dict) and "main_images" in obs:
-                    self.record_frame(obs["main_images"])
+            obs, _, _, _, info = self.env.step(action, action_type="qpos")
+            if self._recording and isinstance(obs, dict) and "main_images" in obs:
+                self.record_frame(obs["main_images"])
             executed += int(info.get("executed_actions", 0))
             episode_status = info["episode_status"]
             if self.env.terminated or self.env.truncated:
@@ -210,19 +207,16 @@ class RoboTwinPrimitives:
             native_prompt = observation["task_language"]
             actions = self.model.infer(observation)[: MODEL_SPEC.use_length]
             self._check_cancelled()
-            result = self.env.chunk_step(
+            payload, _, _, _, info = self.env.chunk_step(
                 actions,
                 action_type="ee",
                 return_all_frames=self._recording
                 and self.env.execution_capabilities.get("chunk_step_all_frames")
                 is True,
             )
-            info = result[4]
-            if self._recording:
-                payload = result[0]
-                if isinstance(payload, dict) and "frames" in payload:
-                    for frame in payload["frames"]:
-                        self.record_frame(frame)
+            if self._recording and isinstance(payload, dict) and "frames" in payload:
+                for frame in payload["frames"]:
+                    self.record_frame(frame)
             count = int(info.get("executed_actions", 0))
             executed += count
             self.policy_actions += count
