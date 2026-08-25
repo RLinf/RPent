@@ -82,10 +82,13 @@ def run_dashboard_session(
         "and click Start Session.",
         flush=True,
     )
-    launch_config = dashboard_server.wait_for_launch(defaults=defaults_from_args(args))
-    apply_to_args(args, launch_config)
+    launcher_fields = dashboard_spec["launcher_fields"]
+    launch_config = dashboard_server.wait_for_launch(
+        defaults=defaults_from_args(args, launcher_fields)
+    )
+    apply_to_args(args, launch_config, launcher_fields)
 
-    if args.env_endpoint is not None:
+    if getattr(args, "env_endpoint", None) is not None:
         parser.error(
             "Dashboard task control cannot use --env-endpoint because each "
             "TaskRun requires a fresh owned env_server"
@@ -243,6 +246,7 @@ def _run_dashboard_task(
                         dashboard_events=state,
                     )
                 solved = False
+                state.bind_toolkit(toolkit)
                 try:
                     planner = build_planner(
                         args.planner,
@@ -274,6 +278,7 @@ def _run_dashboard_task(
                         if solved:
                             recipe_path = toolkit.write_recipe(recipe_tag)
                 finally:
+                    state.unbind_toolkit(toolkit)
                     toolkit.close()
                 if solved or state.task_replacement_requested:
                     break

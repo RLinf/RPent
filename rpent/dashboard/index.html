@@ -24,10 +24,6 @@
           <label for="f-max-turns" data-i18n="maxTurns">Max turns</label>
           <input type="number" id="f-max-turns" min="1" step="1" />
         </div>
-        <div class="lfield">
-          <label for="f-max-episode-steps" data-i18n="maxEpisodeSteps">Max episode steps</label>
-          <input type="number" id="f-max-episode-steps" min="1" step="1" />
-        </div>
         <div class="lfield full">
           <label for="f-model_preset" data-i18n="modelPreset">Model</label>
           <select id="f-model_preset"></select>
@@ -58,10 +54,7 @@
           <label for="f-planner-timeout-s" data-i18n="plannerTimeout">Planner timeout s</label>
           <input type="number" id="f-planner-timeout-s" min="1" step="1" placeholder="CELL_TIMEOUT_S" />
         </div>
-        <div class="lfield">
-          <label for="f-cuda-device"><span data-i18n="cudaDevice">CUDA device</span> <span data-i18n="blankDefault" style="text-transform:none">(blank = default)</span></label>
-          <input type="text" id="f-cuda-device" placeholder="default" data-i18n-placeholder="defaultPlaceholder" />
-        </div>
+        <div id="environmentLauncherFields"></div>
       </div>
       <div class="launch-actions">
         <button id="runBtn" data-i18n="startSession">Start Session</button>
@@ -149,6 +142,26 @@
       </div>
       <div class="gutter gutter-h" id="gutterH" title="Drag to resize frame height" data-i18n-title="resizeFrame"></div>
       <div class="col" style="min-height:0">
+        <details id="primitivePanel" class="primitive-panel">
+          <summary>
+            <span data-i18n="primitiveControls">Primitive controls</span>
+            <span id="primitiveAvailability" class="primitive-availability" data-i18n="primitiveWaiting">waiting for TaskRun</span>
+          </summary>
+          <div class="primitive-panel-body">
+            <div id="primitiveButtons" class="primitive-buttons" role="tablist"></div>
+            <form id="primitiveForm" novalidate>
+              <div id="primitiveRequiredFields" class="primitive-fields"></div>
+              <details id="primitiveAdvanced" class="primitive-advanced" hidden>
+                <summary data-i18n="advanced">Advanced</summary>
+                <div id="primitiveOptionalFields" class="primitive-fields"></div>
+              </details>
+              <div class="primitive-actions">
+                <button id="executePrimitive" type="submit" disabled data-i18n="executePrimitive">Execute</button>
+                <span id="primitiveStatus" class="primitive-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+          </div>
+        </details>
         <div class="panel-title"><span data-i18n="actionTimeline">Action timeline</span> <span class="count" id="stepCount"></span></div>
         <div id="timeline"><div class="empty" data-i18n="noActions">No actions yet.</div></div>
       </div>

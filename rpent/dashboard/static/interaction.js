@@ -8,7 +8,7 @@ function formatValue(value) {
   }
 }
 
-function createTaskCommandSuggester() {
+export function createTaskCommandSuggester() {
   let command = "";
   let fields = [];
 
@@ -39,7 +39,8 @@ function createTaskCommandSuggester() {
     if (!/^[\t ]/.test(suffix)) return null;
     const body = suffix.trimStart();
     const endsInSpace = /[\t ]$/.test(value);
-    const tokens = body ? body.split(/[\t ]+/) : [];
+    const tokenBody = body.trimEnd();
+    const tokens = tokenBody ? tokenBody.split(/[\t ]+/) : [];
     const fieldIndex = endsInSpace ? tokens.length : Math.max(tokens.length - 1, 0);
     const field = fields[fieldIndex];
     const suggestions = field?.suggestions || [];

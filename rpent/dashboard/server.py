@@ -47,6 +47,8 @@ from rpent.dashboard.interaction import (
     InteractionUnavailableError,
     UnknownDashboardMessageError,
 )
+from rpent.dashboard.launcher import parse_launcher_config
+from rpent.dashboard.spec import DashboardSpec
 from rpent.dashboard.state import DashboardState
 
 
@@ -60,12 +62,16 @@ class DashboardServer:
         port: int = 0,
         runs_dir: str = "",
         language: str = "en",
-        dashboard_spec: dict[str, Any],
+        dashboard_spec: DashboardSpec,
     ) -> None:
         self.host = host
         self.port = int(port)
         self.runs_dir = runs_dir
         self._dashboard_spec = dashboard_spec
+        self._frame_media_types = {
+            channel["name"]: channel["media_type"]
+            for channel in dashboard_spec["frame_channels"]
+        }
         dashboard_dir = Path(__file__).parent
         self._language = "zh-cn" if language == "zh-cn" else "en"
         self._index_html = (dashboard_dir / "index.html").read_text(encoding="utf-8")
@@ -164,10 +170,18 @@ class DashboardServer:
                 return JSONResponse({"error": "launcher not armed"}, status_code=409)
             if self._launch_event.is_set():
                 return JSONResponse({"error": "already launched"}, status_code=409)
-            self._launch_config = {
+            launch_config = {
                 **self._launch_defaults,
                 **payload,
             }
+            try:
+                launch_config = parse_launcher_config(
+                    launch_config,
+                    self._dashboard_spec["launcher_fields"],
+                )
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=422)
+            self._launch_config = launch_config
             self._launch_event.set()
             return JSONResponse({"ok": True})
 
@@ -247,6 +261,62 @@ class DashboardServer:
                 return JSONResponse({"error": "unknown run"}, status_code=404)
             return JSONResponse(live.run_detail())
 
+        @app.get("/api/run/primitives")
+        def api_primitives(run: str) -> JSONResponse:
+            live = self._resolve(run)
+            if live is None:
+                return JSONResponse({"error": "unknown run"}, status_code=404)
+            try:
+                primitives = live.primitive_specs()
+            except InteractionUnavailableError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=409)
+            return JSONResponse({"primitives": primitives})
+
+        @app.post("/api/run/primitive")
+        def api_execute_primitive(
+            payload: Any = Body(default=None),
+        ) -> JSONResponse:
+            if not isinstance(payload, dict):
+                return JSONResponse(
+                    {"error": "request body must be a JSON object"},
+                    status_code=422,
+                )
+            run = payload.get("run")
+            name = payload.get("name")
+            arguments = payload.get("arguments")
+            if not isinstance(run, str) or not run.strip():
+                return JSONResponse(
+                    {"error": "run must be a non-empty string"},
+                    status_code=422,
+                )
+            live = self._resolve(run)
+            if live is None:
+                return JSONResponse({"error": "unknown run"}, status_code=404)
+            if not isinstance(name, str) or not name.strip():
+                return JSONResponse(
+                    {"error": "name must be a non-empty string"},
+                    status_code=422,
+                )
+            if not isinstance(arguments, dict):
+                return JSONResponse(
+                    {"error": "arguments must be a JSON object"},
+                    status_code=422,
+                )
+            try:
+                tool_result = live.execute_primitive(name, arguments)
+            except InteractionUnavailableError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=409)
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=403)
+            result = tool_result.result
+            if isinstance(result, dict) and result.get("error") is not None:
+                error = " ".join(str(result["error"]).split())[:500]
+                return JSONResponse(
+                    {"error": error or "primitive execution failed"},
+                    status_code=422,
+                )
+            return JSONResponse({"ok": True})
+
         @app.get("/api/run/transcript")
         def api_transcript(run: str, since: int = 0) -> JSONResponse:
             live = self._resolve(run)
@@ -266,7 +336,7 @@ class DashboardServer:
                 return JSONResponse({"detail": str(exc)}, status_code=422)
             if png is None:
                 return Response(status_code=404)
-            return Response(png, media_type="image/png")
+            return Response(png, media_type=self._frame_media_types[kind])
 
         @app.get("/api/run/video")
         def api_video(run: str) -> Response:

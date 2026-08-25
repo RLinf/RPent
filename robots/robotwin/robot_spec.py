@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.dashboard.spec import DashboardSpec
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import (
@@ -99,25 +100,70 @@ MODEL_SPEC = RoboTwinModelSpec(
 )
 
 
-ROBOTWIN_DASHBOARD_SPEC = {
+ROBOTWIN_DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",
-        "usage": "/rpent-task <task_name> <seed>",
+        "usage": "/rpent-task <task_name> <task_config> <seed>",
         "fields": (
             {"name": "task_name"},
+            {
+                "name": "task_config",
+                "choices": ROBOTWIN_TASK_CONFIGS,
+                "suggestions": ROBOTWIN_TASK_CONFIGS,
+            },
             {"name": "seed", "kind": "integer", "minimum": 0},
         ),
-        "display": "{task_name} / seed {seed}",
-        "output_slug": "{task_name}_s{seed}",
+        "display": "{task_name} / {task_config} / seed {seed}",
+        "output_slug": "{task_name}_{task_config}_s{seed}",
     },
+    "launcher_fields": (
+        {
+            "name": "max_episode_steps",
+            "label": "Max episode steps",
+            "label_zh_cn": "最大仿真步数",
+            "kind": "integer",
+            "minimum": 1,
+            "required": True,
+        },
+        {
+            "name": "cuda_device",
+            "label": "CUDA_VISIBLE_DEVICES",
+            "label_zh_cn": "CUDA_VISIBLE_DEVICES",
+            "kind": "string",
+            "placeholder": "e.g. 0,1",
+            "placeholder_zh_cn": "例如 0,1",
+        },
+    ),
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
     ),
     "frame_channels": (
-        {"name": "camera", "label": "head camera"},
-        {"name": "left_wrist", "label": "left wrist"},
-        {"name": "right_wrist", "label": "right wrist"},
+        {
+            "name": "camera",
+            "label": "head camera",
+            "artifact": "head_rgb.png",
+            "media_type": "image/png",
+        },
+        {
+            "name": "left_wrist",
+            "label": "left wrist",
+            "artifact": "left_wrist_rgb.png",
+            "media_type": "image/png",
+        },
+        {
+            "name": "right_wrist",
+            "label": "right wrist",
+            "artifact": "right_wrist_rgb.png",
+            "media_type": "image/png",
+        },
+    ),
+    "primitives": (
+        "lingbot_act",
+        "move_to",
+        "rotate_wrist",
+        "set_gripper",
+        "release",
     ),
 }
 

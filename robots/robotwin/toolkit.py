@@ -84,11 +84,6 @@ class RoboTwinToolkit(Toolkit):
     """Common RPent tools plus RoboTwin primitives."""
 
     _SPECS = {spec["name"]: spec for spec in tools.TOOLS_SPEC}
-    _FRAME_ARTIFACTS = {
-        "camera": "head_rgb.png",
-        "left_wrist": "left_wrist_rgb.png",
-        "right_wrist": "right_wrist_rgb.png",
-    }
 
     def __init__(
         self,

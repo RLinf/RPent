@@ -1,5 +1,10 @@
 import { createInteractionController } from "./interaction.js";
 import { makeAssistantTextElement } from "./markdown_table.js";
+import {
+  analyzePrimitiveSchema,
+  readPrimitiveArguments,
+  renderPrimitiveFields,
+} from "./primitive_controls.js";
 
 function $(selector) {
   return document.querySelector(selector);
@@ -14,7 +19,6 @@ const COPY = {
     launcherSubtitle: "Review the session config, then start the Dashboard control Session.",
     planner: "Planner (LLM backend)",
     maxTurns: "Max turns",
-    maxEpisodeSteps: "Max episode steps",
     modelPreset: "Model",
     customModel: "Custom model",
     optional: "(optional)",
@@ -24,9 +28,6 @@ const COPY = {
     claudeBudget: "Claude Code budget USD",
     plannerReasoningEffort: "Reasoning effort (higher may improve success rate)",
     plannerTimeout: "Planner timeout s",
-    cudaDevice: "CUDA device",
-    blankDefault: "(blank = default)",
-    defaultPlaceholder: "default",
     startSession: "Start Session",
     liveMonitor: "Live Monitor",
     runtimeLabels: { env: "ENV", vla: "VLA", sam3: "SAM3" },
@@ -81,6 +82,21 @@ const COPY = {
     waitingFrame: "waiting for first frame…",
     frameUnavailable: (label) => `${label} unavailable`,
     resizeFrame: "Drag to resize frame height",
+    primitiveControls: "Primitive controls",
+    primitiveWaiting: "waiting for TaskRun",
+    primitiveWaitingHelp: "Start a TaskRun to load its available controls.",
+    primitiveReady: (count) => `${count} available`,
+    primitiveUnavailable: "controls unavailable",
+    primitiveLoadFailed: "Primitive controls could not be loaded.",
+    primitiveUnsupported: (reason) => `Unavailable: ${reason}`,
+    unsupportedSchema: "unsupported schema",
+    advanced: "Advanced",
+    executePrimitive: "Execute",
+    executingPrimitive: "Executing…",
+    primitiveSucceeded: "Executed — inspect the camera and timeline.",
+    primitiveFailed: (error) => `Execution failed: ${error}`,
+    notSet: "not set",
+    invalidField: (field) => `${field} must be a valid value.`,
     actionTimeline: "Action timeline",
     noActions: "No actions yet.",
     stateLabels: {
@@ -107,7 +123,6 @@ const COPY = {
     reconnecting: "○ reconnecting…",
     requiredFields: {
       maxTurns: "Max turns",
-      maxEpisodeSteps: "Max episode steps",
       apiModel: "API model (provider:model)",
     },
     fieldRequired: (field) => `${field} is required.`,
@@ -135,7 +150,6 @@ const COPY = {
     launcherSubtitle: "确认 Session 配置后，启动 Dashboard 控制 Session。",
     planner: "决策大脑(大模型后端)",
     maxTurns: "最大对话轮数",
-    maxEpisodeSteps: "最大仿真步数",
     modelPreset: "模型",
     customModel: "自定义模型",
     optional: "(可选)",
@@ -145,9 +159,6 @@ const COPY = {
     claudeBudget: "Claude Code 预算 USD",
     plannerReasoningEffort: "推理强度（提高强度可能提升成功率）",
     plannerTimeout: "Planner 超时秒数",
-    cudaDevice: "CUDA 设备",
-    blankDefault: "(留空=默认)",
-    defaultPlaceholder: "默认",
     startSession: "启动 Session",
     liveMonitor: "实时监控",
     runtimeLabels: { env: "ENV", vla: "VLA", sam3: "SAM3" },
@@ -204,6 +215,21 @@ const COPY = {
     waitingFrame: "等待第一帧…",
     frameUnavailable: (label) => `${label}画面不可用`,
     resizeFrame: "拖动调整画面高度",
+    primitiveControls: "Primitive 控制",
+    primitiveWaiting: "等待 TaskRun",
+    primitiveWaitingHelp: "启动一个 TaskRun 后加载可用控件。",
+    primitiveReady: (count) => `${count} 个可用`,
+    primitiveUnavailable: "控件不可用",
+    primitiveLoadFailed: "Primitive 控件加载失败。",
+    primitiveUnsupported: (reason) => `不可用：${reason}`,
+    unsupportedSchema: "schema 不支持",
+    advanced: "高级参数",
+    executePrimitive: "执行",
+    executingPrimitive: "执行中…",
+    primitiveSucceeded: "已执行，请查看相机画面和动作时间线。",
+    primitiveFailed: (error) => `执行失败：${error}`,
+    notSet: "不设置",
+    invalidField: (field) => `${field} 的值无效。`,
     actionTimeline: "动作时间线",
     noActions: "暂无动作。",
     stateLabels: {
@@ -229,7 +255,6 @@ const COPY = {
     reconnecting: "○ 正在重连…",
     requiredFields: {
       maxTurns: "最大对话轮数",
-      maxEpisodeSteps: "最大仿真步数",
       apiModel: "API 模型（provider:model）",
     },
     fieldRequired: (field) => `请填写${field}。`,
@@ -257,6 +282,7 @@ const copy = COPY[LANGUAGE];
 const RUNTIME_STATES = ["pending", "starting", "ready", "failed"];
 let runtimeComponents = [];
 let frameChannels = [];
+let launcherFields = [];
 let taskCommandUsage = "";
 
 function applyStaticCopy() {
@@ -298,6 +324,7 @@ function renderFrameTabs() {
 function configureDashboardSpec(spec) {
   runtimeComponents = spec.runtime_components;
   frameChannels = spec.frame_channels;
+  launcherFields = spec.launcher_fields || [];
   taskCommandUsage = spec.task.usage;
   const initialFrameKind = defaultFrameKind();
   mediaState.kind = initialFrameKind;
@@ -346,6 +373,201 @@ const mediaState = {
   releaseHold: null,
   generation: 0,
 };
+
+const primitiveState = {
+  available: false,
+  loadedGeneration: null,
+  loadingGeneration: null,
+  primitives: [],
+  selected: null,
+  executing: false,
+  epoch: 0,
+  retryAt: 0,
+  statusTimer: null,
+};
+
+function setPrimitiveStatus(message = "", kind = "", timeout = 0) {
+  if (primitiveState.statusTimer) clearTimeout(primitiveState.statusTimer);
+  primitiveState.statusTimer = null;
+  const status = $("#primitiveStatus");
+  status.textContent = message;
+  status.className = `primitive-status${kind ? ` ${kind}` : ""}`;
+  if (timeout) {
+    primitiveState.statusTimer = setTimeout(() => {
+      status.textContent = "";
+      status.className = "primitive-status";
+      primitiveState.statusTimer = null;
+    }, timeout);
+  }
+}
+
+function resetPrimitivePanel() {
+  primitiveState.epoch++;
+  primitiveState.available = false;
+  primitiveState.loadedGeneration = null;
+  primitiveState.loadingGeneration = null;
+  primitiveState.primitives = [];
+  primitiveState.selected = null;
+  primitiveState.executing = false;
+  primitiveState.retryAt = 0;
+  $("#primitiveButtons").replaceChildren();
+  $("#primitiveRequiredFields").replaceChildren();
+  $("#primitiveOptionalFields").replaceChildren();
+  $("#primitiveAdvanced").hidden = true;
+  $("#primitiveAvailability").textContent = copy.primitiveWaiting;
+  $("#primitiveAvailability").classList.remove("available");
+  $("#executePrimitive").disabled = true;
+  $("#executePrimitive").textContent = copy.executePrimitive;
+  setPrimitiveStatus();
+}
+
+function selectPrimitive(name) {
+  if (primitiveState.executing) return;
+  const primitive = primitiveState.primitives.find(item => item.name === name);
+  if (!primitive?.analysis.supported) return;
+  primitiveState.selected = primitive;
+  for (const button of $("#primitiveButtons").querySelectorAll("button")) {
+    button.setAttribute("aria-selected", String(button.dataset.name === name));
+  }
+  const required = primitive.analysis.fields.filter(field => field.required);
+  const optional = primitive.analysis.fields.filter(field => !field.required);
+  renderPrimitiveFields($("#primitiveRequiredFields"), required, copy);
+  renderPrimitiveFields($("#primitiveOptionalFields"), optional, copy);
+  $("#primitiveAdvanced").hidden = optional.length === 0;
+  $("#primitiveAdvanced").open = false;
+  $("#executePrimitive").disabled = false;
+  setPrimitiveStatus();
+}
+
+function renderPrimitiveChoices(primitives) {
+  primitiveState.primitives = primitives.map(primitive => ({
+    ...primitive,
+    analysis: analyzePrimitiveSchema(primitive),
+  }));
+  const buttons = primitiveState.primitives.map(primitive => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.name = primitive.name;
+    button.textContent = primitive.analysis.supported
+      ? primitive.name
+      : `${primitive.name} · ${copy.unsupportedSchema}`;
+    button.disabled = !primitive.analysis.supported;
+    button.setAttribute("aria-selected", "false");
+    if (primitive.analysis.supported) {
+      button.addEventListener("click", () => selectPrimitive(primitive.name));
+    } else {
+      button.title = copy.primitiveUnsupported(primitive.analysis.reason);
+      button.setAttribute("aria-label", `${primitive.name}. ${button.title}`);
+    }
+    return button;
+  });
+  $("#primitiveButtons").replaceChildren(...buttons);
+  const supported = primitiveState.primitives.filter(item => item.analysis.supported);
+  $("#primitiveAvailability").textContent = copy.primitiveReady(supported.length);
+  $("#primitiveAvailability").classList.add("available");
+  if (supported.length) {
+    selectPrimitive(supported[0].name);
+  }
+}
+
+async function loadPrimitiveSchemas(generation) {
+  if (!runState.id || primitiveState.loadingGeneration === generation) return;
+  primitiveState.loadingGeneration = generation;
+  const epoch = ++primitiveState.epoch;
+  try {
+    const response = await fetch(
+      `/api/run/primitives?run=${encodeURIComponent(runState.id)}`,
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || copy.unknownRequestError);
+    if (epoch !== primitiveState.epoch || generation !== runState.taskGeneration) return;
+    primitiveState.loadedGeneration = generation;
+    primitiveState.loadingGeneration = null;
+    primitiveState.retryAt = 0;
+    renderPrimitiveChoices(Array.isArray(payload.primitives) ? payload.primitives : []);
+  } catch (error) {
+    if (epoch !== primitiveState.epoch) return;
+    primitiveState.loadingGeneration = null;
+    primitiveState.retryAt = Date.now() + 2000;
+    $("#primitiveAvailability").textContent = copy.primitiveUnavailable;
+    $("#primitiveAvailability").classList.remove("available");
+    setPrimitiveStatus(error.message, "error", 6000);
+  }
+}
+
+function syncPrimitiveAvailability(snapshot) {
+  const available = Boolean(snapshot.primitives_available);
+  if (!available) {
+    if (primitiveState.available || primitiveState.loadingGeneration != null) {
+      resetPrimitivePanel();
+    }
+    return;
+  }
+  primitiveState.available = true;
+  if (primitiveState.loadedGeneration !== runState.taskGeneration &&
+      Date.now() >= primitiveState.retryAt) {
+    loadPrimitiveSchemas(runState.taskGeneration);
+  }
+}
+
+function setPrimitiveFormDisabled(disabled) {
+  primitiveState.executing = disabled;
+  for (const control of $("#primitiveForm").querySelectorAll("input, select, button")) {
+    control.disabled = disabled;
+  }
+  for (const button of $("#primitiveButtons").querySelectorAll("button")) {
+    const item = primitiveState.primitives.find(primitive => primitive.name === button.dataset.name);
+    button.disabled = disabled || !item?.analysis.supported;
+  }
+}
+
+async function executeSelectedPrimitive(event) {
+  event.preventDefault();
+  const primitive = primitiveState.selected;
+  if (!primitive || primitiveState.executing || !runState.id) return;
+  let argumentsObject;
+  try {
+    argumentsObject = readPrimitiveArguments(
+      $("#primitiveForm"),
+      primitive.analysis.fields,
+      copy,
+    );
+  } catch (error) {
+    setPrimitiveStatus(error.message, "error", 6000);
+    return;
+  }
+  const epoch = primitiveState.epoch;
+  setPrimitiveFormDisabled(true);
+  $("#executePrimitive").textContent = copy.executingPrimitive;
+  setPrimitiveStatus(copy.executingPrimitive);
+  try {
+    const response = await fetch("/api/run/primitive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        run: runState.id,
+        name: primitive.name,
+        arguments: argumentsObject,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || copy.unknownRequestError);
+    if (epoch === primitiveState.epoch) {
+      setPrimitiveStatus(copy.primitiveSucceeded, "success", 3500);
+    }
+  } catch (error) {
+    if (epoch === primitiveState.epoch) {
+      setPrimitiveStatus(copy.primitiveFailed(error.message), "error", 7000);
+    }
+  } finally {
+    if (epoch === primitiveState.epoch) {
+      setPrimitiveFormDisabled(false);
+      $("#executePrimitive").textContent = copy.executePrimitive;
+    }
+  }
+}
+
+$("#primitiveForm").addEventListener("submit", executeSelectedPrimitive);
 
 const AUTO_ACTION_RETURN_DELAY_MS = 300;
 const AUTO_PLAY_ACTION_VIDEOS = false;
@@ -644,6 +866,7 @@ function resetRenderedTaskProjection() {
   resetTranscriptForRun();
   resetTimelineForRun();
   resetMediaForRun();
+  resetPrimitivePanel();
   interactionController.reset();
   $("#transcript").innerHTML = `<div class="empty">${copy.noTranscript}</div>`;
   $("#timeline").innerHTML = `<div class="empty">${copy.noActions}</div>`;
@@ -1130,6 +1353,7 @@ async function refreshMeta(opts = {}) {
   setBadge(r.state, r.control_error || r.error);
   setResult(r.terminated, r.state);
   renderRuntimeStatus(r.runtime);
+  syncPrimitiveAvailability(r);
   interactionController.applySnapshot(r);
   const currentTask = r.current_task;
   renderTaskMeta(currentTask);
@@ -1166,6 +1390,7 @@ function connectSSE() {
     setBadge(sig.state, sig.control_error || sig.error);
     setResult(sig.terminated, sig.state);
     renderRuntimeStatus(sig.runtime);
+    syncPrimitiveAvailability(sig);
     interactionController.applySnapshot(sig);
     mediaState.frameAvailable = sig.frame_available || null;
     if (sig.usage) $("#usageMeta").textContent = copy.usage(sig.usage);
@@ -1300,17 +1525,45 @@ function selectedModel() {
   return $("#f-model_custom").value.trim() || $("#f-model_preset").value.trim();
 }
 
+function renderEnvironmentLauncherFields(defaults) {
+  const fields = launcherFields.map(field => {
+    const container = document.createElement("div");
+    container.className = "lfield";
+
+    const input = document.createElement("input");
+    input.id = `f-environment-${field.name}`;
+    input.dataset.launcherField = field.name;
+    input.type = field.kind === "integer" ? "number" : "text";
+    input.value = defaults[field.name] == null ? "" : defaults[field.name];
+    input.required = Boolean(field.required);
+    if (field.kind === "integer") input.step = "1";
+    if (field.minimum != null) input.min = String(field.minimum);
+    if (field.placeholder) input.placeholder = field.placeholder;
+
+    const label = document.createElement("label");
+    label.htmlFor = input.id;
+    label.textContent = LANGUAGE === "zh-cn"
+      ? field.label_zh_cn || field.label
+      : field.label;
+    if (LANGUAGE === "zh-cn" && field.placeholder_zh_cn) {
+      input.placeholder = field.placeholder_zh_cn;
+    }
+    container.append(label, input);
+    return container;
+  });
+  $("#environmentLauncherFields").replaceChildren(...fields);
+}
+
 function showLauncher(defaults) {
   const d = defaults || {};
   const planner = MODEL_PRESETS[d.planner] ? d.planner : "claude_code";
   const defaultModel = d.model || MODEL_PRESETS[planner][0];
   const set = (id, val) => { $(id).value = val == null ? "" : val; };
   set("#f-max-turns", d["max-turns"]);
-  set("#f-max-episode-steps", d["max-episode-steps"]);
   set("#f-planner-timeout-s", d["planner-timeout-s"]);
   set("#f-reasoning-effort", d["reasoning-effort"] || "none");
   set("#f-claude-code-max-budget-usd", d["claude-code-max-budget-usd"]);
-  set("#f-cuda-device", d["cuda-device"]);
+  renderEnvironmentLauncherFields(d);
   $("#f-no-images").checked = Boolean(d["no-images"]);
   for (const name of Object.keys(launcherModelSelections)) {
     launcherModelSelections[name] = MODEL_PRESETS[name][0];
@@ -1340,13 +1593,22 @@ function collectLaunchConfig() {
   const config = {
     planner,
     "max-turns": numOrNull("#f-max-turns"),
-    "max-episode-steps": numOrNull("#f-max-episode-steps"),
     model: selectedModel(),
     "planner-timeout-s": numOrNull("#f-planner-timeout-s"),
     "reasoning-effort": $("#f-reasoning-effort").value,
     "no-images": $("#f-no-images").checked,
-    "cuda-device": $("#f-cuda-device").value.trim(),
   };
+  for (const field of launcherFields) {
+    const input = document.querySelector(`[data-launcher-field="${field.name}"]`);
+    const raw = input.value.trim();
+    if (raw === "") {
+      config[field.name] = null;
+    } else if (field.kind === "integer") {
+      config[field.name] = Number(raw);
+    } else {
+      config[field.name] = raw;
+    }
+  }
   if (planner === "claude_code") {
     config["claude-code-max-budget-usd"] = numOrNull("#f-claude-code-max-budget-usd");
   }
@@ -1367,17 +1629,19 @@ async function pollForRun() {
 
 async function onRun() {
   const config = collectLaunchConfig();
-  const requiredNums = [
-    [copy.requiredFields.maxTurns, config["max-turns"]],
-    [copy.requiredFields.maxEpisodeSteps, config["max-episode-steps"]],
-  ];
   if (config.planner === "api" && !/^[^:]+:.+$/.test(config.model)) {
     $("#launchStatus").textContent = copy.fieldRequired(copy.requiredFields.apiModel);
     return;
   }
-  const badNum = requiredNums.find(([_, v]) => v == null || !Number.isFinite(v));
-  if (badNum) {
-    $("#launchStatus").textContent = copy.fieldRequired(badNum[0]);
+  if (config["max-turns"] == null || !Number.isFinite(config["max-turns"])) {
+    $("#launchStatus").textContent = copy.fieldRequired(copy.requiredFields.maxTurns);
+    return;
+  }
+  const invalidEnvironmentField = launcherFields
+    .map(field => document.querySelector(`[data-launcher-field="${field.name}"]`))
+    .find(input => !input.checkValidity());
+  if (invalidEnvironmentField) {
+    invalidEnvironmentField.reportValidity();
     return;
   }
   $("#runBtn").disabled = true;

@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from robots.libero.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.spec import DashboardSpec
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -57,7 +58,7 @@ LIBERO_SUITE_NAMES = (
     "libero_10_lan",
 )
 
-LIBERO_DASHBOARD_SPEC = {
+LIBERO_DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",
         "usage": "/rpent-task <suite> <task> <seed>",
@@ -69,6 +70,24 @@ LIBERO_DASHBOARD_SPEC = {
         "display": "{suite} / task {task} / seed {seed}",
         "output_slug": "{suite}_t{task}_s{seed}",
     },
+    "launcher_fields": (
+        {
+            "name": "max_episode_steps",
+            "label": "Max episode steps",
+            "label_zh_cn": "最大仿真步数",
+            "kind": "integer",
+            "minimum": 1,
+            "required": True,
+        },
+        {
+            "name": "cuda_device",
+            "label": "CUDA device",
+            "label_zh_cn": "CUDA 设备",
+            "kind": "integer",
+            "placeholder": "default",
+            "placeholder_zh_cn": "默认",
+        },
+    ),
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
@@ -78,13 +97,25 @@ LIBERO_DASHBOARD_SPEC = {
         {
             "name": "camera",
             "label": "fixed camera",
-            "legacy_path_key": "image_cam_path",
+            "artifact": "agentview.png",
+            "media_type": "image/png",
         },
         {
             "name": "wrist",
             "label": "wrist camera",
-            "legacy_path_key": "image_wrist_path",
+            "artifact": "wrist.png",
+            "media_type": "image/png",
         },
+    ),
+    "primitives": (
+        "move_to",
+        "pi0_pick",
+        "pi0_doubled",
+        "release",
+        "set_gripper",
+        "rotate_wrist",
+        "rotate_pitch",
+        "move_pose",
     ),
 }
 

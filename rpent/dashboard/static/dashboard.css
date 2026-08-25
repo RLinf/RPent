@@ -288,8 +288,73 @@
   .frame-cap { position: absolute; bottom: 8px; left: 10px; font-size: 13px; color: #f6f1e8;
     background: rgba(74,60,46,.72); padding: 3px 9px; border-radius: 4px; z-index: 2; }
 
+  /* generic primitive controls */
+  .primitive-panel {
+    flex: 0 0 auto; max-height: 62%; overflow: auto;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  .primitive-panel > summary {
+    display: flex; align-items: center; gap: 9px; padding: 10px 16px;
+    color: var(--muted); cursor: pointer; user-select: none;
+    font-size: 13px; line-height: 1.4; text-transform: uppercase; letter-spacing: .6px;
+    list-style: none;
+  }
+  .primitive-panel > summary::-webkit-details-marker { display: none; }
+  .primitive-panel > summary::before { content: "▸"; color: var(--accent); }
+  .primitive-panel[open] > summary::before { content: "▾"; }
+  .primitive-availability {
+    margin-left: auto; color: var(--muted); font-size: 11px;
+    text-transform: none; letter-spacing: 0;
+  }
+  .primitive-availability.available { color: var(--green); }
+  .primitive-panel-body { padding: 2px 14px 13px; }
+  .primitive-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
+  .primitive-buttons button {
+    appearance: none; border: 1px solid var(--border); border-radius: 999px;
+    padding: 4px 10px; background: var(--panel2); color: var(--fg);
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    cursor: pointer;
+  }
+  .primitive-buttons button[aria-selected="true"] {
+    color: var(--accent); border-color: var(--accent); background: rgba(47,111,214,.08);
+  }
+  .primitive-buttons button:disabled { opacity: .48; cursor: not-allowed; }
+  .primitive-fields {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 9px 12px;
+  }
+  .primitive-field { min-width: 0; }
+  .primitive-field label {
+    display: block; margin-bottom: 3px; color: var(--fg); font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .primitive-required { color: var(--red); }
+  .primitive-field input, .primitive-field select {
+    width: 100%; max-width: none; padding: 6px 8px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel2); color: var(--fg); font: inherit;
+    font-size: 13px;
+  }
+  .primitive-field.invalid input, .primitive-field.invalid select { border-color: var(--red); }
+  .primitive-array {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(52px, 1fr)); gap: 5px;
+  }
+  .primitive-advanced { margin-top: 11px; }
+  .primitive-advanced > summary {
+    width: fit-content; margin-bottom: 8px; color: var(--accent); cursor: pointer;
+    font-size: 12px;
+  }
+  .primitive-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  #executePrimitive {
+    border: 0; border-radius: 7px; padding: 7px 16px; background: var(--accent);
+    color: white; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer;
+  }
+  #executePrimitive:disabled { opacity: .5; cursor: not-allowed; }
+  .primitive-status { color: var(--muted); font-size: 12px; line-height: 1.35; }
+  .primitive-status.error { color: var(--red); }
+  .primitive-status.success { color: var(--green); }
+
   /* timeline */
-  #timeline { overflow-y: auto; padding: 6px 0; }
+  #timeline { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 0; }
   .step {
     display: flex; gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--border);
     font-size: 15px;
@@ -323,6 +388,7 @@
   .launch-card h2 .dot { color: var(--accent); }
   .launch-card .sub { color: var(--muted); font-size: 14px; margin-bottom: 22px; }
   .lform { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; }
+  #environmentLauncherFields { display: contents; }
   .lfield { display: flex; flex-direction: column; gap: 6px; }
   .lfield.full { grid-column: 1 / -1; }
   .lfield.hidden { display: none; }
@@ -367,7 +433,7 @@
   @media (prefers-reduced-motion: reduce) {
     .b-starting, .b-running { animation: none; }
     .badge, .runtime-item, .gutter, .tg-head, .step, .composer textarea,
-    .withdraw-message, .suite-suggestion,
+    .withdraw-message, .suite-suggestion, .primitive-buttons button,
     .frame-tabs button, #runBtn { transition: none; }
     .ev.entering, .toolgroup.entering, .step.entering { animation: none; }
     .frame-tabs button:hover, #runBtn:hover { transform: none; box-shadow: none; }

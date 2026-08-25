@@ -35,11 +35,6 @@ logger = get_logger("robocasa_toolkit")
 class RoboCasaToolkit(Toolkit):
     """Toolkit for the RoboCasa robot."""
 
-    _FRAME_ARTIFACTS = {
-        "camera": "agentview.png",
-        "wrist": "wrist.png",
-    }
-
     def __init__(
         self,
         *,
