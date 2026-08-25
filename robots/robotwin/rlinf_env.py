@@ -8,7 +8,6 @@ import numpy as np
 from rlinf.envs.robotwin.robotwin_env import RoboTwinEnv
 
 from robots.robotwin.env_spec import RoboTwinActionType
-from robots.robotwin.evaluator_state import initialize_native_evaluator_state
 
 __all__ = ["RoboTwinAgentEnv"]
 
@@ -58,6 +57,22 @@ def _execution_should_stop(status: dict[str, Any]) -> bool:
 
 class RoboTwinAgentEnv(RoboTwinEnv):
     """RPent/agent runtime extension; preserves training RoboTwinEnv unchanged."""
+
+    @staticmethod
+    def _initialize_native_evaluator_state(task: Any) -> None:
+        """Initialize private state required by native success checkers."""
+        task_name = type(task).__name__
+        if task_name == "open_laptop":
+            from robotwin.envs.utils import get_face_prod
+
+            face_prod = get_face_prod(task.laptop.get_pose().q, [1, 0, 0], [1, 0, 0])
+            task.arm_tag = "left" if face_prod > 0 else "right"
+        elif task_name == "place_object_scale":
+            task.arm_tag = "right" if task.object.get_pose().p[0] > 0 else "left"
+        elif task_name == "put_object_cabinet":
+            object_position = task.object.get_pose().p
+            task.arm_tag = "right" if object_position[0] > 0 else "left"
+            task.origin_z = float(object_position[2])
 
     def _sub_env(self, env_id: int) -> Any:
         if not 0 <= env_id < len(self.venv.envs):
@@ -178,7 +193,7 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         observation, info = super().reset(env_idx=env_idx, env_seeds=env_seeds)
         sub_env = self._sub_env(0)
         with sub_env.lock:
-            initialize_native_evaluator_state(sub_env.task)
+            self._initialize_native_evaluator_state(sub_env.task)
             info["robot_state"] = self._robot_state(sub_env)
             info["episode_status"] = self._episode_status(sub_env)
         return observation, info
