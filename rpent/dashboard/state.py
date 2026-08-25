@@ -118,6 +118,7 @@ class DashboardState:
         self._truncated = False
         self._error: str | None = None
         self._usage = {"in": 0, "out": 0, "tool_calls": 0}
+        self._planner_usage_base = {"in": 0, "out": 0, "tool_calls": 0}
         self._runtime = {
             component["name"]: {"status": "pending", "error": None}
             for component in self._runtime_components
@@ -128,6 +129,8 @@ class DashboardState:
         self._frame_idx = -1
         self.env_state: EnvState | None = None
         self.frame_artifacts: dict[str, str] = {}
+        self._state_step_offset = 0
+        self._action_video_sources: dict[int, tuple[EnvState, int, str]] = {}
         self._accepting_input = False
         self._planner_activity: PlannerActivity = "starting"
         self._interrupt_requested = False
@@ -270,6 +273,12 @@ class DashboardState:
             self._seal_interaction_locked()
             self._interaction_changed_locked()
 
+    def report_task_warning(self, warning: str) -> None:
+        """Expose a non-fatal TaskRun warning without changing run success."""
+        with self._condition:
+            self._control_feedback.append(str(warning))
+            self._interaction_changed_locked()
+
     def complete_task(
         self,
         *,
@@ -315,6 +324,7 @@ class DashboardState:
         self._truncated = False
         self._error = None
         self._usage = {"in": 0, "out": 0, "tool_calls": 0}
+        self._planner_usage_base = {"in": 0, "out": 0, "tool_calls": 0}
         self._reset_task_runtime_locked()
         self._events = []
         self._timeline = []
@@ -322,6 +332,8 @@ class DashboardState:
         self._frame_idx = -1
         self.env_state = None
         self.frame_artifacts = {}
+        self._state_step_offset = 0
+        self._action_video_sources = {}
         self._accepting_input = False
         self._planner_activity = "starting"
         self._interrupt_requested = False
@@ -361,7 +373,7 @@ class DashboardState:
         """Update planner activity from the owning planner bridge.
 
         The bridge sets ``accepting_input=True`` only after the initial
-        ``query()`` succeeds. Once ended, a Session cannot be reopened.
+        ``query()`` succeeds. Once ended, a planner session cannot be reopened.
         """
         if activity not in _PLANNER_ACTIVITIES:
             raise ValueError(f"unknown planner activity: {activity!r}")
@@ -382,6 +394,22 @@ class DashboardState:
                 self._accepting_input = requested_accepting
             if changed:
                 self._interaction_changed_locked()
+
+    def begin_planner_session(self, *, video_path: Path | None = None) -> None:
+        """Prepare the current TaskRun for a fresh planner and toolkit."""
+        with self._condition:
+            if self._task_state not in {"starting", "running"}:
+                raise InteractionUnavailableError("Dashboard TaskRun is not active")
+            if self._task_replacement_requested:
+                raise InteractionUnavailableError("Dashboard TaskRun replacement is pending")
+            self._planner_activity = "starting"
+            self._accepting_input = False
+            self._interrupt_requested = False
+            self._interrupt_in_flight = False
+            self._planner_usage_base = dict(self._usage)
+            if video_path is not None:
+                self.video_path = Path(video_path)
+            self._interaction_changed_locked()
 
     def _submit_message(self, text: str) -> DashboardMessage:
         """Create one pending user message and notify the owning bridge."""
@@ -542,9 +570,12 @@ class DashboardState:
         if isinstance(event, UsageEvent):
             with self._lock:
                 self._usage = {
-                    "in": int(event.inp),
-                    "out": int(event.out),
-                    "tool_calls": int(event.tool_calls),
+                    "in": self._planner_usage_base["in"] + int(event.inp),
+                    "out": self._planner_usage_base["out"] + int(event.out),
+                    "tool_calls": (
+                        self._planner_usage_base["tool_calls"]
+                        + int(event.tool_calls)
+                    ),
                 }
             return
         if isinstance(event, RuntimeStatusEvent):
@@ -554,9 +585,13 @@ class DashboardState:
             self._apply_tool_result(event)
             return
         if isinstance(event, StepRecordEvent):
-            self.env_state = event.env_state
-            self.frame_artifacts = dict(event.frame_artifacts)
-            self.on_step(event.record)
+            with self._lock:
+                if event.env_state is not self.env_state:
+                    self._state_step_offset = max(0, self._frame_idx + 1)
+                    self.env_state = event.env_state
+                    self.frame_artifacts = dict(event.frame_artifacts)
+                step_offset = self._state_step_offset
+            self.on_step(event.record, step_offset=step_offset)
             return
         if isinstance(event, RunStartedEvent):
             self._start()
@@ -653,9 +688,10 @@ class DashboardState:
             return None
         return path if path.exists() else None
 
-    def on_step(self, record: StepRecord) -> None:
+    def on_step(self, record: StepRecord, *, step_offset: int = 0) -> None:
         """Project one recorded environment step into frames and timeline."""
-        self._update_step_frames(record)
+        display_step = step_offset + record.step_idx
+        self._update_step_frames(record, display_step=display_step)
         command = record.command
         if not isinstance(command, dict) or not command.get("action"):
             return
@@ -664,7 +700,7 @@ class DashboardState:
             None,
         )
         item = {
-            "step": record.step_idx,
+            "step": display_step,
             "action": str(command.get("action")),
             "args": {key: value for key, value in command.items() if key != "action"},
             "result": record.result,
@@ -676,10 +712,16 @@ class DashboardState:
         }
         with self._lock:
             self._timeline.append(item)
+            if action_video is not None and self.env_state is not None:
+                self._action_video_sources[display_step] = (
+                    self.env_state,
+                    record.step_idx,
+                    action_video,
+                )
             self._terminated = self._terminated or record.terminated
             self._truncated = self._truncated or record.truncated
 
-    def _update_step_frames(self, record: StepRecord) -> None:
+    def _update_step_frames(self, record: StepRecord, *, display_step: int) -> None:
         """Load dashboard frame bytes from the step's canonical artifacts."""
         env_state = self.env_state
         if env_state is None:
@@ -692,7 +734,7 @@ class DashboardState:
                 frames[kind] = env_state.load_bytes(artifact, step=record.step_idx)
             except FileNotFoundError:
                 continue
-        self._update_frames(step=record.step_idx, frames=frames)
+        self._update_frames(step=display_step, frames=frames)
 
     def _resolve_output_path(self, value: Any) -> Path:
         path = Path(value)
@@ -847,6 +889,7 @@ class DashboardState:
     def action_video_path(self, step: int) -> Path | None:
         env_state = self.env_state
         with self._lock:
+            source = self._action_video_sources.get(int(step))
             artifact = None
             raw_path = None
             for item in self._timeline:
@@ -855,6 +898,13 @@ class DashboardState:
                 artifact = item.get("action_video_artifact")
                 raw_path = item.get("action_video_path")
                 break
+        if source is not None:
+            source_state, source_step, source_artifact = source
+            try:
+                path = source_state.artifact_path(source_artifact, step=source_step)
+            except (LookupError, ValueError):
+                return None
+            return path if path.exists() else None
         if artifact and env_state is not None:
             try:
                 path = env_state.artifact_path(artifact, step=int(step))

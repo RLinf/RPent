@@ -55,3 +55,6 @@ class EnvSpec:
         tuple[list["ProcessDaemon"], dict[str, Any]],
     ]
     dashboard: dict[str, Any] | None = None
+    finalize_run: (
+        Callable[[argparse.Namespace, RunConfig], dict[str, Any] | None] | None
+    ) = None

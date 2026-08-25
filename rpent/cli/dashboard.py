@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from rpent.cli.main import _serialize_messages
+from rpent.cli.main import _handoff_message, _serialize_messages
 from rpent.dashboard.events import RunStartedEvent
 from rpent.envs import get_toolkit
 from rpent.planner.base import build_planner
@@ -78,7 +78,11 @@ def run_dashboard_session(
     logger.info("launcher Session config applied: %s", launch_config)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
-    ensure_resources(args.env_name)
+    if (
+        not getattr(args, "explore", False)
+        and getattr(args, "memory_profile", "hf") == "hf"
+    ):
+        ensure_resources(args.env_name)
     state = DashboardState(
         run_id=f"dashboard-session/{session_root.name}",
         output_dir=session_root,
@@ -139,7 +143,7 @@ def _run_dashboard_task(
     stats: dict = {}
     agent_error: str | None = None
     task_daemons: list[ProcessDaemon] = []
-    toolkit = None
+    recipe_path = ""
     started = time.time()
     try:
         task_daemons, task_primitives_kwargs = env_spec.init_task_runtime(
@@ -152,59 +156,124 @@ def _run_dashboard_task(
                 **task_primitives_kwargs,
                 **shared_primitives_kwargs,
             }
-            toolkit = get_toolkit(
-                args.env_name,
-                primitives_kwargs=primitives_kwargs,
-                dashboard_events=state,
-            )
-            planner = build_planner(
-                args.planner,
-                output_dir=output_dir,
-                recipe_tag=recipe_tag,
-                env_name=args.env_name,
-                base_url=args.base_url,
-                model=args.model,
-                max_tokens=args.max_tokens,
-                planner_timeout_s=args.planner_timeout_s,
-                claude_code_max_budget_usd=args.claude_code_max_budget_usd,
-                dashboard_events=state,
-                no_images=args.no_images,
-            )
-
             prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
-            system_prompt = env_spec.prompts.render(
-                "system",
-                variables=prompt_vars,
+            session_message = env_spec.prompts.render("user", variables=prompt_vars)
+            sessions = max(
+                1,
+                int(getattr(task_args, "explore_sessions", 1) or 1),
             )
-            user_message = env_spec.prompts.render(
-                "user",
-                variables=prompt_vars,
-            )
+            if not getattr(task_args, "explore", False):
+                sessions = 1
             if not state.task_replacement_requested:
                 state.emit(RunStartedEvent())
-                result = planner.solve(
-                    system_prompt=system_prompt,
-                    user_message=user_message,
-                    toolkit=toolkit,
-                    max_turns=args.max_turns,
-                    dashboard_interaction=state,
+            for session_number in range(1, sessions + 1):
+                if state.task_replacement_requested:
+                    break
+                if session_number > 1:
+                    logger.info(
+                        "=== handing off to agent %d/%d ===",
+                        session_number,
+                        sessions,
+                    )
+                    session_message = _handoff_message(
+                        output_dir,
+                        session_number,
+                        sessions,
+                    )
+                system_prompt = env_spec.prompts.render(
+                    "system",
+                    variables={
+                        **prompt_vars,
+                        "session_number": session_number,
+                        "session_max": sessions,
+                    },
                 )
-                finish_result = result.finish_result
-                messages = result.messages
-                stats = result.stats
-                agent_error = result.error
+                state_output_dir = output_dir
+                if getattr(task_args, "explore", False):
+                    state_output_dir = (
+                        output_dir
+                        / "sessions"
+                        / f"session_{session_number:03d}"
+                    )
+                    state.begin_planner_session(
+                        video_path=state_output_dir / "episode.mp4",
+                    )
+                if args.env_name == "libero":
+                    toolkit = get_toolkit(
+                        args.env_name,
+                        primitives_kwargs=primitives_kwargs,
+                        dashboard_events=state,
+                        mode=(
+                            "exploration" if task_args.explore else "evaluation"
+                        ),
+                        attempts_per_session=getattr(
+                            task_args,
+                            "explore_attempts_per_session",
+                            0,
+                        ),
+                        state_output_dir=state_output_dir,
+                    )
+                else:
+                    toolkit = get_toolkit(
+                        args.env_name,
+                        primitives_kwargs=primitives_kwargs,
+                        dashboard_events=state,
+                    )
+                solved = False
+                try:
+                    planner = build_planner(
+                        args.planner,
+                        output_dir=output_dir,
+                        recipe_tag=recipe_tag,
+                        env_name=args.env_name,
+                        base_url=args.base_url,
+                        model=args.model,
+                        max_tokens=args.max_tokens,
+                        planner_timeout_s=args.planner_timeout_s,
+                        claude_code_max_budget_usd=args.claude_code_max_budget_usd,
+                        dashboard_events=state,
+                        no_images=args.no_images,
+                    )
+                    result = planner.solve(
+                        system_prompt=system_prompt,
+                        user_message=session_message,
+                        toolkit=toolkit,
+                        max_turns=args.max_turns,
+                        dashboard_interaction=state,
+                    )
+                    finish_result = result.finish_result
+                    messages += result.messages
+                    stats = result.stats
+                    agent_error = result.error
+                    if args.env_name == "libero":
+                        solved = toolkit.solved()
+                        if solved:
+                            recipe_path = toolkit.write_recipe(recipe_tag)
+                finally:
+                    toolkit.close()
+                if solved or state.task_replacement_requested:
+                    break
+                if agent_error:
+                    if (
+                        session_number < sessions
+                        and "timed out" in agent_error.lower()
+                    ):
+                        logger.warning(
+                            "session %d/%d timed out; continuing with a fresh handoff",
+                            session_number,
+                            sessions,
+                        )
+                        continue
+                    break
     except Exception as exc:
         logger.error("EXCEPTION in Dashboard TaskRun %04d: %s", claimed.number, exc)
         agent_error = str(exc)
     finally:
         cleanup_errors: list[str] = []
-        if toolkit is not None:
-            try:
-                toolkit.close()
-                recipe_path = toolkit.write_recipe(recipe_tag)
-                logger.info("recipe: %s", recipe_path)
-            except Exception as exc:
-                cleanup_errors.append(f"Toolkit cleanup failed: {exc}")
+        if recipe_path:
+            logger.info("recipe: %s", recipe_path)
+        else:
+            logger.info("recipe: not written (cell unsolved)")
         for daemon in reversed(task_daemons):
             try:
                 daemon.stop()
@@ -234,5 +303,19 @@ def _run_dashboard_task(
                 "failed to write TaskRun transcript %s: %s", transcript_path, exc
             )
         init_output_dir(session_root, verbose=args.verbose)
+
+    if (
+        env_spec.finalize_run is not None
+        and not agent_error
+        and not state.task_replacement_requested
+    ):
+        try:
+            finalized = env_spec.finalize_run(task_args, run_config)
+            if finalized is not None:
+                logger.info("run finalized: %s", finalized)
+        except Exception as exc:
+            warning = f"memory finalization failed: {type(exc).__name__}: {exc}"
+            logger.warning("%s", warning)
+            state.report_task_warning(f"Task succeeded, but {warning}")
 
     return agent_error
