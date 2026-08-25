@@ -63,6 +63,17 @@ def try_wait_server(
     *,
     post_fn: Callable[[], Any] | None = None,
 ):
+    """Wait for a server to be ready, optionally run a post-check, then emit ``ready``.
+
+    The ``post_fn`` callback runs AFTER ``wait_for_ready`` but BEFORE the
+    ``ready`` event. If ``post_fn`` raises, the daemons are stopped and
+    ``failed`` is emitted — same as a wait-failure. This is used by env
+    components whose client constructor (e.g. ``RoboCasaEnvClient`` with its
+    ``assert`` meta check) must also pass before the component is considered
+    ready.
+
+    Returns the ``post_fn`` result when provided, else ``None``.
+    """
     try:
         wait_for_ready(rpc, daemon=daemon, timeout_s=timeout_s)
         result = None

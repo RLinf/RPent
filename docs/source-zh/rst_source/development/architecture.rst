@@ -186,5 +186,7 @@ TaskRun 运行期间，Dashboard 页面提供：
 ------
 
 - 接入新的机器人或仿真环境：:doc:`add_robot`。
+- 新增 env 后端的设计指导：:doc:`add_env`。
 - 添加 VLA 或原语：:doc:`add_primitive`。
+- 新增 VLA 后端的设计指导：:doc:`add_vla`。
 - 了解记忆功能的设计与扩展点：:doc:`memory`。

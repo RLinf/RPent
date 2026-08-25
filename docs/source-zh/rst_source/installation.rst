@@ -77,7 +77,22 @@ LIBERO-PRO 和 RoboCasa365 仿真器、SAM 3.0 和 RLinf 运行时。
 
       HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing
 
-3. (可选) 真实机器人依赖
+3. (可选) 安装 RoboCasa365 stack
+---------------------------------
+
+``.[robocasa]`` extra 装齐整个 RoboCasa365 stack —— MuJoCo 3.3.1、
+ARISE-Initiative robosuite fork、pinned lerobot commit、protobuf，
+以及 ``robocasa`` 包本身（从 ``github.com/qurakchin/robocasa`` fork
+的 ``v1.0.1_rlinf`` 分支装的 wheel）。RLDX-1 需要特定版本的
+PyTorch / torchvision / flash-attn 在 extra **之前** 装好，还要做
+安装后处理（macros、厨房 assets、env vars）并下一个
+``RLDX-1-FT-RC365`` checkpoint。完整步骤见 :doc:`usage/robocasa`。
+
+.. code-block:: bash
+
+   uv pip install -e ".[robocasa]"
+
+4. (可选) 真实机器人依赖
 ------------------------
 
 Franka 与 SO-101 的支持正在逐步接入; 每个机器人的 robot 包未来会以一个

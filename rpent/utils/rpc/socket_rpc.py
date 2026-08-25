@@ -14,10 +14,12 @@ import pickle
 import socket
 import socketserver
 import struct
-from collections.abc import Callable
-from typing import Any
+from typing import Any, Callable
 
-from rpent.utils.rpc import check_response, make_error_response
+from rpent.utils.logging import get_logger
+from rpent.utils.rpc.rpc import RpcClient, check_response, make_error_response
+
+logger = get_logger("socket_rpc")
 
 DEFAULT_CONNECT_TIMEOUT_S = 10.0
 DEFAULT_REQUEST_TIMEOUT_S = 30.0
@@ -48,7 +50,7 @@ def _write_frame(writer, obj: Any) -> None:
     writer.flush()
 
 
-class SocketRpcClient:
+class SocketRpcClient(RpcClient):
     """One-request-per-connection pickle-framed RPC client."""
 
     def __init__(
@@ -56,8 +58,10 @@ class SocketRpcClient:
         host: str,
         port: int,
         *,
+        enable_sessions: bool = False,
         connect_timeout_s: float = DEFAULT_CONNECT_TIMEOUT_S,
     ):
+        super().__init__(enable_sessions=enable_sessions)
         self.host = host
         self.port = int(port)
         self.connect_timeout_s = connect_timeout_s
@@ -74,6 +78,7 @@ class SocketRpcClient:
             "method": method,
             "args": tuple(args),
             "kwargs": dict(kwargs or {}),
+            "session_id": self._session_id,
         }
         request_timeout_s = (
             DEFAULT_REQUEST_TIMEOUT_S if timeout_s is None else timeout_s
@@ -92,20 +97,24 @@ class _RequestHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         try:
             payload = _read_frame(self.rfile)
-        except Exception:
+        except Exception as exc:
+            logger.debug("rpc read failed: %s", exc)
             return
         try:
             method = payload["method"]
             args = payload.get("args") or ()
             kwargs = payload.get("kwargs") or {}
-            result = self.server.dispatch(method, args, kwargs)  # type: ignore[attr-defined]
+            session_id = payload.get("session_id")
+            result = self.server.dispatch(  # type: ignore[attr-defined]
+                method, args, kwargs, session_id=session_id
+            )
             response: dict = {"ok": True, "result": result}
         except Exception as exc:
             response = make_error_response(exc)
         try:
             _write_frame(self.wfile, response)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("rpc write failed: %s", exc)
 
 
 class SocketRpcServer(socketserver.ThreadingTCPServer):
@@ -117,7 +126,7 @@ class SocketRpcServer(socketserver.ThreadingTCPServer):
     def __init__(
         self,
         server_address: tuple[str, int],
-        dispatch: Callable[[str, tuple, dict], Any],
+        dispatch: Callable[..., Any],
     ):
         super().__init__(server_address, _RequestHandler)
         self.dispatch = dispatch

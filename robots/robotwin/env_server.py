@@ -15,7 +15,7 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from rpent.tools.env_facade_base import BaseEnvFacade
+from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
 
 logger = get_logger("robotwin_env_server")
