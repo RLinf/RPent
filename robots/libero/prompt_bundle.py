@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+from robots.libero.prompts import explore as explore_parts
+from robots.libero.prompts import local_eval as local_eval_parts
 from robots.libero.prompts import system as system_parts
 from robots.libero.prompts import user as user_parts
 from rpent.context.prompt_utils import Numbered, PromptNode
 
 
-def system_prompt() -> PromptNode:
-    """Assemble the LIBERO system prompt tree."""
+def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Assemble the LIBERO system prompt for the selected run mode."""
+    if (variables or {}).get("mode", "eval") == "explore":
+        return explore_parts.system_prompt()
+    if (variables or {}).get("memory_profile", "hf") == "local":
+        return local_eval_parts.system_prompt()
     return {
         "ROLE AND EVALUATION": system_parts.ROLE_AND_EVALUATION,
         "PROVEN LEVERS & LESSONS — libero_10_task seed-0 sweep solved 9/10 (READ THIS)": (
@@ -29,7 +37,7 @@ def system_prompt() -> PromptNode:
     }
 
 
-def user_prompt() -> PromptNode:
+def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the LIBERO user prompt tree."""
     return {
         "CELL": user_parts.CELL,

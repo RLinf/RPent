@@ -14,7 +14,7 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.envs.env_spec import EnvSpec, RunConfig
 from rpent.envs.prompt_bundle import PromptBundle
 from rpent.envs.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_repo_root
+from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.http_rpc import HttpRpcClient
 from rpent.utils.rpc import parse_endpoint
@@ -94,6 +94,7 @@ def get_env_spec() -> EnvSpec:
         init_task_runtime=init_task_runtime,
         init_runtime=_init_runtime,
         dashboard=LIBERO_DASHBOARD_SPEC,
+        finalize_run=_finalize_run,
     )
 
 
@@ -101,6 +102,9 @@ def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
+    mode: str = "evaluation",
+    attempts_per_session: int = 0,
+    state_output_dir: Path | str | None = None,
 ):
     """Return the LIBERO toolkit (common tools + LIBERO primitives)."""
     from robots.libero.toolkit import LiberoToolkit
@@ -108,6 +112,9 @@ def get_toolkit(
     return LiberoToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
+        mode=mode,
+        attempts_per_session=attempts_per_session,
+        state_output_dir=state_output_dir,
     )
 
 
@@ -135,6 +142,24 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--task", type=int, default=None, required=required)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--auto-merge-memory",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Merge exploration output into layered memory (default: enabled).",
+    )
+    parser.add_argument(
+        "--explore-attempts-per-session",
+        type=int,
+        default=5,
+        help="Attempts per exploration session (default: 5; 0 disables limit).",
+    )
+    parser.add_argument(
+        "--explore-sessions",
+        type=int,
+        default=3,
+        help="Independent planner sessions per exploration run (default: 3).",
+    )
     parser.add_argument(
         "--env-endpoint",
         default=None,
@@ -177,11 +202,40 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--task is required")
 
     recipe_tag = f"{args.suite.replace('libero_', '')}_t{args.task}_s{args.seed}"
+    explore = bool(getattr(args, "explore", False))
+    requested_profile = getattr(args, "memory_profile", None)
+    if explore and requested_profile == "hf":
+        raise ValueError("--explore cannot be used with --memory-profile hf")
+    if explore and args.explore_sessions <= 0:
+        raise ValueError("--explore-sessions must be greater than 0")
+    memory_profile = requested_profile or ("local" if explore else "hf")
+    if memory_profile == "hf" and args.memory_dir is not None:
+        raise ValueError("--memory-dir requires --memory-profile local or --explore")
+    args.memory_profile = memory_profile
+    memory_dir = (
+        Path(args.memory_dir).expanduser().resolve()
+        if args.memory_dir
+        else get_memory_dir("libero")
+    )
+    local_eval = not explore and memory_profile == "local"
+    if local_eval and not (memory_dir / "MEMORY.md").is_file():
+        raise ValueError(
+            f"local memory corpus not found at {memory_dir}; "
+            "run exploration first or use --memory-profile hf"
+        )
     prompt_vars = {
         "suite": args.suite,
         "task": args.task,
         "seed": args.seed,
         "recipe_tag": recipe_tag,
+        "mode": "explore" if explore else "eval",
+        "memory_profile": memory_profile,
+        "memory_dir": str(memory_dir),
+        "reference_tag": f"{args.suite.replace('libero_', '')}_t{args.task}_s0",
+        # Per-cell inbox: parallel explore runs must not append to a shared file.
+        "memory_inbox": str(memory_dir / "_inbox" / recipe_tag),
+        "session_number": 1,
+        "session_max": max(1, args.explore_sessions) if explore else 1,
     }
 
     output_dir = args.output_dir
@@ -199,6 +253,19 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         output_dir=output_dir,
         prompt_vars=prompt_vars,
         task_desc={"suite": args.suite, "task": args.task, "seed": args.seed},
+    )
+
+
+def _finalize_run(args: argparse.Namespace, config: RunConfig) -> dict[str, Any] | None:
+    """Publish completed exploration artifacts into the local layered corpus."""
+    if not args.explore or not args.auto_merge_memory:
+        return None
+    from rpent.memory import merge_cell
+
+    return merge_cell(
+        memory_dir=config.prompt_vars["memory_dir"],
+        cell_tag=config.recipe_tag,
+        output_dir=config.output_dir,
     )
 
 

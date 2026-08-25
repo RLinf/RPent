@@ -6,10 +6,10 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 准备工作
 --------
 
-- Linux + NVIDIA GPU (LIBERO 通过 EGL 渲染)。
-- 与显卡匹配的 CUDA 12.x 驱动。
-- Python 3.10–3.12 (见 ``pyproject.toml`` 中的 ``requires-python``)。
-- ``git``、``bash``、以及能编译 MuJoCo / robosuite 的 C 工具链。
+- Linux + NVIDIA GPU。
+- 与 CUDA 12.x 兼容的 NVIDIA 驱动。
+- Python 3.10–3.12。
+- ``git``、``bash``、以及可用的 C 工具链。
 
 此外，还需要：
 
@@ -50,6 +50,8 @@ LIBERO-PRO 和 RoboCasa365 仿真器、SAM 3.0 和 RLinf 运行时。
      - 仅 RLinf 运行时
    * - ``.[robocasa]``
      - RoboCasa365 仿真器 + RLDX-1 VLA，详见 :doc:`usage/robocasa`
+   * - ``.[robotwin]``
+     - RoboTwin 仿真环境和 LingBot 推理所需依赖，详见 :doc:`usage/robotwin`
    * - ``.[sam3]``
      - 仅 SAM 3.0
 
