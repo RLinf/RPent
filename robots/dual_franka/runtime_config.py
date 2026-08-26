@@ -124,7 +124,7 @@ def load_runtime_config(
                     "keyboard_reward_wrapper": None,
                     "use_relative_frame": False,
                     "video_cfg": {},
-                    "init_params": {"id": "DualFrankaTcpEnv-v1"},
+                    "init_params": {"id": "DualFrankaTCPEnv-v1"},
                     "override_cfg": {
                         "is_dummy": False,
                         "task_description": task_description,

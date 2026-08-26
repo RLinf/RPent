@@ -84,7 +84,7 @@ def test_dual_franka_uses_rpent_owned_robot_config():
     cfg = runtime.rlinf
 
     assert config_path.is_file()
-    assert cfg.env.eval.init_params.id == "DualFrankaTcpEnv-v1"
+    assert cfg.env.eval.init_params.id == "DualFrankaTCPEnv-v1"
     hardware = cfg.cluster.node_groups[0].hardware.configs[0]
     assert hardware.left_robot_ip == "172.16.0.2"
     assert hardware.right_robot_ip == "172.16.0.2"
