@@ -1,4 +1,4 @@
-"""Per-run environment state and artifact storage."""
+"""Per-run robot state and artifact storage."""
 from __future__ import annotations
 
 import copy

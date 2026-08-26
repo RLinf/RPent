@@ -34,14 +34,17 @@ dependencies = [
     "httpx>=0.27",
     "claude-agent-sdk>=0.1.60",
     "openai-codex>=0.1.0b3",
+    "mcp>=1.23.0,<2.0.0",
     "huggingface_hub>=0.24",
     "prompt-toolkit>=3.0.48",
     "numpy",
     "imageio>=2.0",
+    "PyYAML>=6.0",
 ]
 
 [project.scripts]
 rpent = "rpent.cli.main:main"
+rpent-memory = "rpent.cli.memory:main"
 
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"
@@ -54,15 +57,17 @@ rlinf = [
     "rpent-rlinf",
 ]
 openpi = [
-    "rlinf-openpi",
+    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
 ]
 libero = [
-    "rlinf-libero",
+    "rpent-libero>=0.2.0",
+    # MuJoCo 3.4+ changes LIBERO settling, misplacing objects and reducing task success; see https://github.com/RLinf/RLinf/issues/1460.
+    "mujoco==3.3.0",
     "h5py",
 ]
 libero-pro = [
     "rpent[libero]",
-    "rpent-liberopro",
+    "rpent-liberopro>=0.2.0",
 ]
 libero-plus = [
     "rpent[libero]",
@@ -77,14 +82,26 @@ franka = [
     "matplotlib>=3.8",
     "pillow>=10",
 ]
-full = [
-    "rpent[rlinf,openpi,libero-pro,sam3]",
+robotwin = [
+    # TODO: replace fixed owner-controlled revisions with released versions.
+    "rpent[rlinf]",
+    "rlinf-robotwin-runtime @ git+https://github.com/RoboTwin-Platform/RoboTwin.git@11d2d4ba1ba4819ebf63bb91ba0c5dfd4b0f81f2",
+    "rlinf-lingbotvla @ git+https://github.com/RLinf/lingbot-vla.git@e158cce02f50dbb48b7f5bf76fdb34c1c1f97e12",
 ]
 sam3 = [
     "sam3==0.1.4",
     "torch",
     "torchvision",
     "pillow>=10",
+]
+robocasa = [
+    "rpent[rlinf]",
+    "rlinf-robocasa365",
+    "rlinf-rldx>=1.0.1.post10",
+    "robosuite @ git+https://github.com/RLinf/robosuite.git@rlinf",
+]
+full = [
+    "rpent[rlinf,openpi,libero-pro,sam3,robocasa]",
 ]
 
 [tool.uv]

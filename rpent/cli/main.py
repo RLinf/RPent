@@ -9,13 +9,13 @@
 # in `pyproject.toml`):
 #
 # ```bash
-# rpent --env libero --suite libero_object_task --task 0 --seed 0 [...]
+# rpent --robot libero --suite libero_object_task --task 0 --seed 0 [...]
 # ```
 #
 # ## Note
 #
 # Do not import `rpent.cli` from other `rpent` modules. `main.py` pulls in
-# `rpent.planner`, `rpent.envs`, `rpent.utils`, `rpent.dashboard`, and
+# `rpent.planner`, `rpent.robots`, `rpent.utils`, `rpent.dashboard`, and
 # `rpent.tools`, so importing the CLI back into any of them would create an
 # import cycle. Nothing else should depend on this package.
 from __future__ import annotations
@@ -37,8 +37,8 @@ from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
 )
-from rpent.envs import enumerate_envs, get_env_spec, get_toolkit
-from rpent.planner.base import build_planner
+from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
+from rpent.planner.base import REASONING_EFFORTS, build_planner
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
 
@@ -82,18 +82,25 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
 
 
 def _build_argparser() -> argparse.ArgumentParser:
-    known_envs = enumerate_envs()
-    known_envs_text = ", ".join(known_envs) if known_envs else "none"
+    known_robots = enumerate_robots()
+    known_robots_text = ", ".join(known_robots) if known_robots else "none"
     ap = argparse.ArgumentParser(
         description="RPent: Agentic Infrastructure for the Physical World",
     )
 
     ap.add_argument(
+        "--robot",
+        dest="robot_name",
+        required=False,
+        choices=known_robots,
+        help=f"Robot backend. Known robots: {known_robots_text}.",
+    )
+    ap.add_argument(
         "--env",
         dest="env_name",
-        required=True,
-        choices=known_envs,
-        help=f"Environment backend. Known environments: {known_envs_text}.",
+        required=False,
+        choices=known_robots,
+        help="Deprecated alias for --robot; use --robot instead.",
     )
 
     # models
@@ -109,6 +116,11 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="API base URL. Defaults to the selected backend's base URL env var.")
     ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--max-tokens", type=int, default=8192)
+    ap.add_argument("--reasoning-effort", choices=REASONING_EFFORTS,
+                    default="none",
+                    help="Planner reasoning effort for api, claude_code, and "
+                         "codex. Higher effort may improve task success rate "
+                         "but increases runtime. Defaults to none.")
     ap.add_argument("--no-images", action="store_true",
                     help="Never send image bytes to the model (api planner only). "
                          "Use for text-only models that reject image input "
@@ -125,6 +137,12 @@ def _build_argparser() -> argparse.ArgumentParser:
 
     # other config
     ap.add_argument("--output-dir", default=None)
+    ap.add_argument("--memory-profile", choices=["hf", "local"], default=None,
+                    help="Memory profile (default: hf for evaluation, local for exploration).")
+    ap.add_argument("--memory-dir", default=None,
+                    help="Local memory root (environment default when omitted).")
+    ap.add_argument("--explore", action="store_true",
+                    help="Enable exploration and memory distillation.")
     ap.add_argument("--dashboard", action="store_true",
                     help="Start a local dashboard server for this single run.")
     ap.add_argument("--dashboard-host", default="127.0.0.1",
@@ -143,35 +161,110 @@ def _build_argparser() -> argparse.ArgumentParser:
     return ap
 
 
+def _handoff_message(output_dir, session_number: int, session_max: int) -> str:
+    """Build the opening message for a continuation session."""
+    attempts_dir = Path(output_dir) / "attempts"
+    prior = (
+        sorted(p.name for p in attempts_dir.glob("attempt_*_failed.json"))
+        if attempts_dir.is_dir()
+        else []
+    )
+    return (
+        f"You are agent {session_number} of up to {session_max} on this cell. "
+        f"{len(prior)} attempt(s) by earlier agents are archived in "
+        f"{attempts_dir}/ ({', '.join(prior) if prior else 'none yet'}), and their "
+        "working notes are in the memory inbox under wip/.\n\n"
+        "Read every archive and the working notes before acting. Do not repeat "
+        "failed approaches. A fresh toolkit has already restored a clean scene; "
+        "inspect it before acting."
+    )
+
+
+def _start_continuation_session(args, *, output_dir, recipe_tag,
+                                dashboard_events, prompt_bundle, prompt_vars,
+                                session_number: int, session_max: int):
+    """Build a fresh planner and prompts for an exploration handoff."""
+    logger.info("=== handing off to agent %d/%d ===",
+                session_number, session_max)
+    planner = build_planner(
+        args.planner,
+        output_dir=output_dir,
+        recipe_tag=recipe_tag,
+        robot_name=args.robot_name,
+        base_url=args.base_url,
+        model=args.model,
+        max_tokens=args.max_tokens,
+        planner_timeout_s=args.planner_timeout_s,
+        reasoning_effort=args.reasoning_effort,
+        claude_code_max_budget_usd=args.claude_code_max_budget_usd,
+        dashboard_events=dashboard_events,
+        no_images=args.no_images,
+    )
+    system_prompt = prompt_bundle.render(
+        "system",
+        variables={
+            **prompt_vars,
+            "session_number": session_number,
+            "session_max": session_max,
+        },
+    )
+    session_message = _handoff_message(output_dir, session_number, session_max)
+    return planner, system_prompt, session_message
+
+
 def main() -> int:
     parser = _build_argparser()
-    # Two-phase argparse: first grab --env / --dashboard so we know which
-    # env's flags to add and whether to make its required flags optional.
+    # Two-phase argparse: first grab --robot / --env / --dashboard so we know
+    # which robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
 
-    env_spec = get_env_spec(early.env_name)
-    env_spec.add_cli_args(parser, use_dashboard=early.dashboard)
+    # --env is a deprecated alias for --robot; resolve it before loading the spec.
+    if early.env_name is not None:
+        if early.robot_name is not None:
+            parser.error("--robot and --env are aliases; provide only one of them")
+        logger.warning("--env is deprecated and will be removed; use --robot instead")
+        early.robot_name = early.env_name
+    if early.robot_name is None:
+        parser.error("--robot is required")
+
+    robot_spec = get_robot_spec(early.robot_name)
+    robot_spec.add_cli_args(parser, use_dashboard=early.dashboard)
     args = parser.parse_args()
+    args.robot_name = early.robot_name
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
+    if args.explore and args.robot_name != "libero":
+        parser.error("--explore is currently supported only for LIBERO")
+    if args.explore and args.memory_profile == "hf":
+        parser.error("--explore cannot be used with --memory-profile hf")
+    if args.explore and getattr(args, "explore_sessions", 1) <= 0:
+        parser.error("--explore-sessions must be greater than 0")
+    args.memory_profile = args.memory_profile or ("local" if args.explore else "hf")
+    if args.memory_profile == "hf" and args.memory_dir is not None:
+        parser.error("--memory-dir requires --memory-profile local or --explore")
     if args.dashboard:
         from rpent.cli.dashboard import run_dashboard_session
 
-        return run_dashboard_session(args, env_spec, parser=parser)
+        return run_dashboard_session(args, robot_spec, parser=parser)
 
-    run_config = env_spec.parse_config(args)
+    run_config = robot_spec.parse_config(args)
     recipe_tag = run_config.recipe_tag
     output_dir = run_config.output_dir
     prompt_vars = run_config.prompt_vars
     task_desc = run_config.task_desc
 
-    env_name = args.env_name
+    robot_name = args.robot_name
 
-    # mkdir + logging wiring (env-side already picked the path).
+    # mkdir + logging wiring (robot-side already picked the path).
     output_dir = init_output_dir(output_dir, verbose=args.verbose)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
-    ensure_resources(env_name)
+    # Preserve the original HF-backed evaluation behavior by default.
+    memory_profile = getattr(args, "memory_profile", "hf")
+    if not getattr(args, "explore", False) and memory_profile == "hf":
+        ensure_resources(robot_name)
+    else:
+        logger.info("resources: using local %s memory profile", memory_profile)
 
     dashboard_events = NullDashboardEventSink()
 
@@ -179,16 +272,17 @@ def main() -> int:
         args.planner,
         output_dir=output_dir,
         recipe_tag=recipe_tag,
-        env_name=env_name,
+        robot_name=robot_name,
         base_url=args.base_url,
         model=args.model,
         max_tokens=args.max_tokens,
         planner_timeout_s=args.planner_timeout_s,
+        reasoning_effort=args.reasoning_effort,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
     )
-    prompt_bundle = env_spec.prompts
+    prompt_bundle = robot_spec.prompts
     prompt_vars = {**prompt_vars, "output_dir": output_dir}
     system_prompt = prompt_bundle.render(
         "system",
@@ -216,18 +310,12 @@ def main() -> int:
         # it while the (slow) env/VLA servers boot below.
         await_first_prompt = start_first_prompt_resolver(input_queue)
 
-    # --- initialise environment --------------------------------------------
-    daemons, primitives_kwargs = env_spec.init_runtime(
+    # --- initialise robot runtime --------------------------------------------
+    daemons, primitives_kwargs = robot_spec.init_runtime(
         args,
         output_dir,
         dashboard_events,
-    )
-
-    # --- toolkit -----------------------------------------------------------
-    toolkit = get_toolkit(
-        env_name,
-        primitives_kwargs=primitives_kwargs,
-        dashboard_events=dashboard_events,
+        None,
     )
 
     # --- agent loop --------------------------------------------------------
@@ -240,29 +328,88 @@ def main() -> int:
         first_user_msg = await_first_prompt()
         if first_user_msg is None:
             logger.info("no task entered; ending session before start.")
+    # Exploration may hand off between independent planner contexts.
+    sessions = max(1, int(getattr(args, "explore_sessions", 1) or 1))
+    if not getattr(args, "explore", False):
+        sessions = 1
+    recipe_path = ""
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
-            result = planner.solve(
-                system_prompt=system_prompt,
-                user_message=first_user_msg,
-                toolkit=toolkit,
-                max_turns=args.max_turns,
-                input_queue=input_queue,
-            )
-            finish_result = result.finish_result
-            messages = result.messages
-            stats = result.stats
-            agent_error = result.error
+        session_msg = first_user_msg
+        for session_number in range(1, sessions + 1):
+            if session_msg is None:
+                break
+            if session_number > 1:
+                planner, system_prompt, session_msg = _start_continuation_session(
+                    args, output_dir=output_dir, recipe_tag=recipe_tag,
+                    dashboard_events=dashboard_events, prompt_bundle=prompt_bundle,
+                    prompt_vars=prompt_vars, session_number=session_number,
+                    session_max=sessions)
+            state_output_dir = output_dir
+            if getattr(args, "explore", False):
+                state_output_dir = output_dir / "sessions" / f"session_{session_number:03d}"
+            if robot_name == "libero":
+                toolkit = get_toolkit(
+                    robot_name,
+                    primitives_kwargs=primitives_kwargs,
+                    dashboard_events=dashboard_events,
+                    mode=("exploration" if args.explore else "evaluation"),
+                    attempts_per_session=getattr(
+                        args,
+                        "explore_attempts_per_session",
+                        0,
+                    ),
+                    state_output_dir=state_output_dir,
+                )
+            else:
+                toolkit = get_toolkit(
+                    robot_name,
+                    primitives_kwargs=primitives_kwargs,
+                    dashboard_events=dashboard_events,
+                )
+            solved = False
+            try:
+                result = planner.solve(
+                    system_prompt=system_prompt,
+                    user_message=session_msg,
+                    toolkit=toolkit,
+                    max_turns=args.max_turns,
+                    input_queue=input_queue,
+                )
+                finish_result = result.finish_result
+                messages += result.messages
+                stats = result.stats
+                agent_error = result.error
+                if robot_name == "libero":
+                    solved = toolkit.solved()
+                    if solved:
+                        recipe_path = toolkit.write_recipe(recipe_tag)
+            finally:
+                toolkit.close()
+            if solved:
+                break
+            if agent_error:
+                if (
+                    getattr(args, "explore", False)
+                    and session_number < sessions
+                    and "timed out" in agent_error.lower()
+                ):
+                    logger.warning(
+                        "session %d/%d timed out; continuing with a fresh handoff",
+                        session_number,
+                        sessions,
+                    )
+                    continue
+                break
     except Exception as exc:
-        logger.error("EXCEPTION in agent loop: %s", exc)
-        agent_error = str(exc)
+        agent_error = f"{type(exc).__name__}: {exc}"
+        logger.error("EXCEPTION in agent loop: %s", agent_error)
     finally:
-        # Agent-side: flush the episode video before the env+model
-        recipe_path = toolkit.write_recipe(recipe_tag)
-        logger.info("recipe: %s", recipe_path)
-
-        toolkit.close()
+        if recipe_path:
+            logger.info("recipe: %s", recipe_path)
+        else:
+            logger.info("recipe: not written (cell unsolved)")
         for d in daemons:
             d.stop()
 
@@ -286,10 +433,18 @@ def main() -> int:
                  stats.get('total_output_tokens', '?'),
                  stats.get('tool_calls', '?'))
     logger.info("transcript: %s", transcript_path)
-    if agent_error:
-        logger.error("error: %s", agent_error)
 
-    return 0
+    # Publish environment-specific artifacts after recipe export and shutdown.
+    if robot_spec.finalize_run is not None and not agent_error:
+        try:
+            finalized = robot_spec.finalize_run(args, run_config)
+            if finalized is not None:
+                logger.info("run finalized: %s", finalized)
+        except Exception as exc:
+            agent_error = f"memory finalization failed: {type(exc).__name__}: {exc}"
+            logger.error("%s", agent_error)
+
+    return 1 if agent_error else 0
 
 
 if __name__ == "__main__":

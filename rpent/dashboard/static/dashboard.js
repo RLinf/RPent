@@ -22,6 +22,7 @@ const COPY = {
     customModelPlaceholder: "provider:model or alias",
     noImages: "Disable image input (required for text-only models)",
     claudeBudget: "Claude Code budget USD",
+    plannerReasoningEffort: "Reasoning effort (higher may improve success rate)",
     plannerTimeout: "Planner timeout s",
     cudaDevice: "CUDA device",
     blankDefault: "(blank = default)",
@@ -47,7 +48,7 @@ const COPY = {
     composerKeys: "Enter to send · Shift+Enter for newline · Esc to interrupt",
     commandPlaceholder: (usage) => usage,
     commandKeys: (usage) => `Enter to submit · ${usage}`,
-    sessionStarting: "Starting shared environment services…",
+    sessionStarting: "Starting shared robot services…",
     commandReady: (usage) => `Ready for ${usage}.`,
     taskStarting: "Starting the selected TaskRun…",
     taskSwitchPending: (target) => `Task switch pending${target ? `: ${target}` : ""}.`,
@@ -55,7 +56,7 @@ const COPY = {
     taskRunStartingFeedback: (number) => `TaskRun ${number} starting…`,
     sessionFatal: "The Dashboard Session is unavailable.",
     dashboardConfigFailed: "Dashboard configuration is unavailable.",
-    interactionStarting: "Waiting for environment startup…",
+    interactionStarting: "Waiting for robot startup…",
     interactionReady: "The agent is ready for another message.",
     interactionBusy: "The agent is working; new messages will be queued.",
     interactionUnavailable: "The agent is not accepting messages yet.",
@@ -142,6 +143,7 @@ const COPY = {
     customModelPlaceholder: "provider:model 或别名",
     noImages: "禁用图像输入（纯文本模型必需）",
     claudeBudget: "Claude Code 预算 USD",
+    plannerReasoningEffort: "推理强度（提高强度可能提升成功率）",
     plannerTimeout: "Planner 超时秒数",
     cudaDevice: "CUDA 设备",
     blankDefault: "(留空=默认)",
@@ -346,6 +348,7 @@ const mediaState = {
 };
 
 const AUTO_ACTION_RETURN_DELAY_MS = 300;
+const AUTO_PLAY_ACTION_VIDEOS = false;
 const MODEL_PRESETS = {
   claude_code: [
     "deepseek-v4-flash",
@@ -1139,7 +1142,8 @@ async function refreshMeta(opts = {}) {
     mediaState.lastActionStep = maxTimelineStep(r.timeline || []);
     mediaState.autoActionPrimed = true;
   }
-  const autoStarted = opts.autoPlayNewAction && mediaState.autoActionPrimed && !mediaState.autoPlayback
+  const autoStarted = AUTO_PLAY_ACTION_VIDEOS && opts.autoPlayNewAction
+    && mediaState.autoActionPrimed && !mediaState.autoPlayback
     ? maybeAutoPlayNewAction(r.timeline || [], opts.nextFrameIdx ?? r.frame_idx)
     : false;
   if (!r.has_video && mediaState.kind === "video") setFrameKind(defaultFrameKind());
@@ -1304,6 +1308,7 @@ function showLauncher(defaults) {
   set("#f-max-turns", d["max-turns"]);
   set("#f-max-episode-steps", d["max-episode-steps"]);
   set("#f-planner-timeout-s", d["planner-timeout-s"]);
+  set("#f-reasoning-effort", d["reasoning-effort"] || "none");
   set("#f-claude-code-max-budget-usd", d["claude-code-max-budget-usd"]);
   set("#f-cuda-device", d["cuda-device"]);
   $("#f-no-images").checked = Boolean(d["no-images"]);
@@ -1338,6 +1343,7 @@ function collectLaunchConfig() {
     "max-episode-steps": numOrNull("#f-max-episode-steps"),
     model: selectedModel(),
     "planner-timeout-s": numOrNull("#f-planner-timeout-s"),
+    "reasoning-effort": $("#f-reasoning-effort").value,
     "no-images": $("#f-no-images").checked,
     "cuda-device": $("#f-cuda-device").value.trim(),
   };

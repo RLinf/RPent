@@ -79,7 +79,7 @@ RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
 
 .. code-block:: bash
 
-   rpent --env libero --planner claude_code \
+   rpent --robot libero --planner claude_code \
      --model claude-opus-4-8 \
      --suite libero_object_swap --task 2 --seed 0
 
@@ -106,7 +106,7 @@ RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
 
 .. code-block:: bash
 
-   rpent --env libero --planner codex \
+   rpent --robot libero --planner codex \
      --model gpt-5.5 \
      --suite libero_goal_task --task 1 --seed 0
 

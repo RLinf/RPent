@@ -33,9 +33,9 @@ LIBERO_DASHBOARD_SPEC = {
         "output_slug": "{suite}_t{task}_s{seed}",
     },
     "runtime_components": (
-        {"name": "env", "label": "ENV", "scope": "task"},
-        {"name": "vla", "label": "VLA"},
-        {"name": "sam3", "label": "SAM3"},
+        {"name": "env", "label": "ENV", "scope": "unique"},
+        {"name": "vla", "label": "VLA", "scope": "shared"},
+        {"name": "sam3", "label": "SAM3", "scope": "shared"},
     ),
     "frame_channels": (
         {

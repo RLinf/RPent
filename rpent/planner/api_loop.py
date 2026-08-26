@@ -3,7 +3,7 @@
 The loop wraps the agent's :class:`~rpent.tools.toolkit.Toolkit` as
 pydantic-ai function tools and drives :class:`pydantic_ai.Agent` runs,
 streaming each turn so progress is logged in real time. Task completion is
-signalled by the env-provided ``finish`` tool, whose result carries ``_finish``.
+signalled by the robot-provided ``finish`` tool, whose result carries ``_finish``.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from rpent.dashboard.events import (
 )
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import DashboardPlannerControl
-from rpent.planner.base import PlannerResult
+from rpent.planner.base import REASONING_EFFORTS, PlannerResult
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
@@ -70,6 +70,7 @@ class ApiAgentLoop:
         model: Model,
         max_tokens: int = 8192,
         no_images: bool = False,
+        reasoning_effort: str = "none",
         *,
         dashboard_events: DashboardEventSink,
         timeout_s: int | None = None,
@@ -80,6 +81,9 @@ class ApiAgentLoop:
         self._dashboard_events = dashboard_events
         self._no_images = no_images
         self._timeout_s = timeout_s
+        if reasoning_effort not in REASONING_EFFORTS:
+            raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
+        self._reasoning_effort = reasoning_effort
 
     def solve(
         self,
@@ -343,13 +347,16 @@ class ApiAgentLoop:
 
     def _build_agent(self, system_prompt: str, toolkit: Toolkit) -> Agent:
         """Build an Agent for terminal or Dashboard execution."""
+        thinking_effort: str | bool = self._reasoning_effort
+        if thinking_effort == "none":
+            thinking_effort = False
         return Agent(
             self._model,
             instructions=system_prompt or None,
             tools=_build_tools(toolkit, no_images=self._no_images),
             model_settings=_build_model_settings(self._model, self._max_tokens),
             capabilities=[
-                Thinking(effort="high"),
+                Thinking(effort=thinking_effort),
                 ProcessHistory(processor=_prune_history_images),
             ],
         )
@@ -365,6 +372,7 @@ class _ApiRunObserver:
     turns: int = 0
     tool_calls: int = 0
     finish_result: dict[str, Any] | None = None
+    pending_finish: dict[str, Any] | None = None
 
     def observe_response(
         self,
@@ -404,7 +412,7 @@ class _ApiRunObserver:
                 )
             )
             if part.tool_name == "finish":
-                self.finish_result = {"_finish": True, **args}
+                self.pending_finish = {"_finish": True, **args}
         elif isinstance(event, FunctionToolResultEvent):
             completed = True
             message = _serialize_tool_result(event)
@@ -412,6 +420,10 @@ class _ApiRunObserver:
             _log_tool_result(message)
             part = event.part
             is_error = bool(getattr(part, "is_error", False))
+            if self.pending_finish is not None:
+                if not is_error and "finish refused" not in str(message):
+                    self.finish_result = self.pending_finish
+                self.pending_finish = None
             self.dashboard_events.emit(
                 TranscriptEvent(
                     {

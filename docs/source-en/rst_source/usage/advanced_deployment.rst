@@ -11,6 +11,10 @@ environment, ``--vla-endpoint`` for the Pi0.5 VLA, and ``--sam3-endpoint``
 for SAM3. Each takes ``[protocol://]HOST:PORT`` — HTTP when the protocol is
 omitted, or ``socket://`` for socket RPC.
 
+Dashboard Sessions do not support ``--env-endpoint`` because every TaskRun
+uses a fresh environment service. ``--vla-endpoint`` and ``--sam3-endpoint``
+remain available in Dashboard mode.
+
 LIBERO environment service
 --------------------------
 
@@ -66,7 +70,7 @@ seed, and max episode steps must match the environment service:
 .. code-block:: bash
 
    rpent \
-     --env libero \
+     --robot libero \
      --suite libero_object_swap --task 2 --seed 0 \
      --libero-type pro --max-episode-steps 10000 \
      --env-endpoint http://ENV_HOST:ENV_PORT \

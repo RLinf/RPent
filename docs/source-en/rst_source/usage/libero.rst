@@ -94,11 +94,84 @@ Minimal command
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 
-   rpent --env libero \
+   rpent --robot libero \
      --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
 
 To switch planners, see :doc:`configure_planner`.
+
+Exploration and local-memory evaluation
+---------------------------------------
+
+RPent supports two LIBERO run modes:
+
+- **Exploration** uses multiple resettable attempts and independent planner
+  sessions to discover successful strategies and distil them into a local
+  global/suite/task memory corpus. It is a memory-generation workflow, not the
+  benchmark success-rate measurement.
+- **Evaluation** is the default, single-attempt mode. It does not reset the
+  episode or update memory. Local-memory evaluation consumes the validated
+  audit, recipe, and lessons produced by exploration. The HarnessVLA success
+  rate is reproduced in evaluation mode.
+
+Evaluation remains the default mode.  Omitting ``--memory-profile`` preserves
+the original Hugging Face resource sync and prompt:
+
+Both profiles run the same single-attempt evaluation workflow; they differ only
+in where the evaluation memory comes from and which memory prompt is used.
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
+     --planner claude_code --memory-profile hf
+
+Use ``local`` only after a local global/suite/task corpus exists, for example
+after running the exploration workflow below. This option does not enable
+exploration and does not download memory from Hugging Face; it runs the normal
+single-attempt evaluation against ``--memory-dir`` (default:
+``resources/libero/memory``) without overwriting that directory. If you want to
+evaluate with the prebuilt Hugging Face corpus, keep ``--memory-profile hf``:
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
+     --planner codex --memory-profile local
+
+Exploration uses the same CLI, runtime, tools, and planner implementations.  It
+adds resettable attempts and fresh planner sessions, then distils drafts into
+``<memory-dir>/_inbox/<cell>/``.  On normal completion the Python runner
+validates and merges those drafts, publishes a task audit/recipe pair only when
+LIBERO reported success, and rebuilds ``MEMORY.md``. Exploration can start with
+an empty ``--memory-dir`` and always uses the local profile; ``--explore`` is
+the flag that enables this workflow:
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_10_task --task 0 --seed 0 \
+     --planner api --model anthropic:claude-opus-4-8 \
+     --explore --explore-sessions 3 --explore-attempts-per-session 5 \
+     --memory-dir /path/to/local/libero-memory
+
+Each planner session owns a fresh toolkit. Its state trace and observation
+artifacts are retained under ``<output-dir>/sessions/session_NNN/`` for final
+memory distillation, while reset-based attempts within that session reuse the
+same toolkit.
+
+Add ``--dashboard`` to the exploration command to watch its reasoning, camera
+frames, and continuous action timeline across planner sessions.
+
+Pass ``--no-auto-merge-memory`` to retain inbox drafts for manual review.
+Maintainers can validate the corpus, rebuild its index, or merge one reviewed
+inbox cell explicitly with ``rpent-memory``:
+
+.. code-block:: bash
+
+   rpent-memory --memory-dir /path/to/local/libero-memory validate
+   rpent-memory --memory-dir /path/to/local/libero-memory build-index
+   rpent-memory --memory-dir /path/to/local/libero-memory merge \
+     --cell 10_task_t0_s0 --output-dir logs/explore_10_task_t0_s0
+
+Generated memory is runtime data and is not committed to this repository.
 
 What runs where
 ---------------
@@ -158,24 +231,40 @@ These tools do not advance the environment.
 Live dashboard
 --------------
 
-Add ``--dashboard`` to start a local monitor. It selects an available
-port and prints the URL in the terminal:
+Add ``--dashboard`` to start a long-lived local Dashboard Session. It
+selects an available port and prints the URL in the terminal:
 
 .. code-block:: bash
 
-   rpent --env libero --dashboard \
-     --suite libero_object_swap --task 2 --seed 0 \
+   rpent --robot libero --dashboard \
      --planner claude_code --model claude-opus-4-8
 
-The dashboard streams reasoning, agentview + wrist camera + Pi0.5
-overlays, and an action timeline. Use
-``--dashboard-language zh-cn`` for the Chinese UI.
+Open the URL, confirm the Session configuration, and click **Start Session**.
+After the shared services are ready, start a TaskRun from the page with:
+
+.. code-block:: text
+
+   /rpent-task libero_object_swap 2 0
+
+The Dashboard launcher supports the ``api``, ``claude_code``, and ``codex``
+planners. Configure ``--planner`` and ``--model`` as for a normal run; see
+:doc:`configure_planner`.
+
+Each TaskRun gets a fresh environment while the VLA and SAM3 services are
+reused by the Session. Submit a new ``/rpent-task`` to start or switch tasks;
+during a run, normal messages steer the agent and Esc requests an interruption.
+Press Ctrl+C in the terminal to stop the Session.
+
+``--dashboard`` cannot be combined with ``--interactive`` or
+``--env-endpoint``. External ``--vla-endpoint`` and ``--sam3-endpoint``
+services remain supported. Use ``--dashboard-language zh-cn`` for the
+Chinese UI.
 
 Bringing your own VLA
 ---------------------
 
 If you have a LIBERO-compatible VLA that is not Pi0.5, swap the model
-client without touching the env by:
+client without touching the robot by:
 
 1. Writing a new ``vla_server.py`` that exposes the same ``predict``
    RPC contract (over HTTP or socket).
@@ -184,3 +273,30 @@ client without touching the env by:
    surface (e.g. ``pi0_pick`` → ``mymodel_pick``) needs to change.
 
 See :doc:`../development/add_primitive` for the full walkthrough.
+
+Reproducing results
+-------------------
+
+The following results reproduce
+:doc:`Harness VLA <../awesome_works/harnessvla>` on two LIBERO-PRO suites.
+On the `reproduce/libero
+<https://github.com/RLinf/RPent/tree/reproduce/libero>`_ branch, use
+``gpt-5.5`` to reproduce these results:
+
+- ``libero_10_task``: 70% (70/100)
+- ``libero_10_swap``: 55% (55/100)
+
+Reproduction command:
+
+.. code-block:: bash
+
+   rpent --robot libero \
+     --suite libero_10_task --task "task" --seed "seed" \
+     --planner codex \
+     --model gpt-5.5 \
+     --max-turns 100 \
+     --planner-timeout-s 5000 \
+     --max-episode-steps 10000 \
+     --libero-type pro \
+     --vla-endpoint http://127.0.0.1:8220 \
+     --sam3-endpoint http://127.0.0.1:8114

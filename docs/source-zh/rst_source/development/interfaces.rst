@@ -1,20 +1,20 @@
 核心接口
 ========
 
-给新环境或新 primitive 接入 RPent 时，需要对接的接口如下。具体操作见
+给新机器人或新 primitive 接入 RPent 时，需要对接的接口如下。具体操作见
 :doc:`add_robot`、:doc:`add_primitive`；仓库分层见 :doc:`architecture`。
 
-环境入口
---------
+机器人入口
+----------
 
-把包放到 ``robots/<env>/`` 后，``main.py`` 会调用 ``__init__.py`` 里的两个函数：
+把包放到 ``robots/<robot>/`` 后，``main.py`` 会调用 ``__init__.py`` 里的两个函数：
 
 .. code-block:: python
 
-   def get_env_spec() -> EnvSpec: ...
-   def get_toolkit(*, primitives_kwargs, video_path=None, dashboard=None): ...
+   def get_robot_spec() -> RobotSpec: ...
+   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None): ...
 
-``get_env_spec`` 返回 ``EnvSpec``，其中你需要提供：
+``get_robot_spec`` 返回 ``RobotSpec``，其中你需要提供：
 
 .. list-table::
    :header-rows: 1
@@ -23,23 +23,27 @@
    * - 字段或钩子
      - 你要做什么
    * - ``name``
-     - 环境名，对应 ``--env``。
+     - 机器人名，对应 ``--robot``。
    * - ``prompts``
      - ``PromptBundle``：``system`` 与 ``user`` 两套 prompt 工厂（见
-       ``robots/<env>/prompt_bundle.py``）。
+       ``robots/<robot>/prompt_bundle.py``）。
+   * - ``dashboard``
+     - 可选的 Dashboard 描述。设为 ``None`` 时，该机器人不支持 Dashboard 控制；
+       否则由该 spec 定义任务命令与字段、runtime components 和 frame channels。
    * - ``add_cli_args``
-     - 注册本环境的 CLI 参数（如 ``--suite``、``--env-endpoint``）。
+     - 注册本机器人的 CLI 参数（如 ``--suite``、``--env-endpoint``）。
    * - ``parse_config``
      - 校验参数并返回 ``RunConfig``；``recipe_tag``、``output_dir``、``prompt_vars``
        三项需由你正确填写（供 prompt 模板插值）。
    * - ``init_runtime``
-     - 启动或连接 env 与 VLA 等子进程，构造 ``primitives_kwargs`` 字典
-       （env 客户端、模型客户端等），供 toolkit 组装 primitives。
+     - 启动或连接全部 runtime components，或只处理指定名称的子集，并构造对应的
+       ``primitives_kwargs``。普通 CLI 传 ``None``；Dashboard 从 spec 得到显式声明
+       的 shared 和 unique 子集后分别传入。``DashboardEventSink`` 用于上报运行时状态。
 
-``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给环境子类；``video_path``、
- ``dashboard`` 由 ``main.py`` 传入，通常不用改。
+``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给机器人子类；
+``dashboard_events``、``video_path`` 由当前 runner 传入，通常不用改。
 
-参考实现：``robots/libero/__init__.py``。
+参考实现：``robots/libero/__init__.py`` 和 ``robots/libero/spec.py``。
 
 Planner
 -------
@@ -58,6 +62,7 @@ Planner
        toolkit: Toolkit,
        max_turns: int,
        input_queue=None,
+       dashboard_interaction=None,
    ) -> PlannerResult: ...
 
 约定：用 ``toolkit.get_tools_spec()`` 把工具交给模型；每次调用 ``toolkit.execute_tool(name, input_dict)``；
@@ -66,7 +71,7 @@ Planner
 工具集
 ------
 
-在 ``robots/<env>/toolkit.py`` 里继承 ``Toolkit``，用 ``add_tool`` 注册环境工具：
+在 ``robots/<robot>/toolkit.py`` 里继承 ``Toolkit``，用 ``add_tool`` 注册机器人工具：
 
 .. code-block:: python
 
@@ -86,7 +91,7 @@ Planner
      - 执行逻辑，须返回 ``dict``。任务结束时在dict里设 ``_finish``；
        需要回传相机图时可设 ``_image_bytes`` 等字段。
 
-基类已注册公共文件工具；子类 ``super().__init__()`` 后追加本环境工具即可。逐步状态与
+基类已注册公共文件工具；子类 ``super().__init__()`` 后追加本机器人工具即可。逐步状态与
 ``view_env_state`` 见 :doc:`add_primitive`。
 
 进程间通信
@@ -94,7 +99,8 @@ Planner
 
 接已有server或写 ``env_server`` / ``vla_server`` 时关注下面两点。
 
-客户端端点（在 ``add_cli_args`` 里暴露，或在 ``init_runtime`` 里解析）：
+客户端端点（在 ``add_cli_args`` 中暴露，并在适用的普通 CLI 或 Dashboard
+runtime 钩子中解析）：
 
 .. code-block:: text
 
@@ -108,4 +114,4 @@ pickle 数据帧传输，省掉反复的 JSON 编解码。pickle 不适合不可
 服务端：继承 ``rpent.utils.rpc.RpcFacade``，实现 ``_dispatch`` 分发业务 RPC
 （如 ``reset``、``step``、``predict``）。``healthz`` / ``shutdown`` 不必在子类里写。
 
-细节见 :doc:`add_robot` 中的env_server与vla_server章节。
+细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。

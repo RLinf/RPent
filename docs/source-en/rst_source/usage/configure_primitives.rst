@@ -17,9 +17,9 @@ RPent supports two families of primitives out of the box:
   agent side (no VLA weights needed) and are wired directly to
   ``env_server`` RPCs.
 
-For the concrete per-environment configuration (which VLA runs
+For the concrete per-robot configuration (which VLA runs
 against which robot, checkpoint paths, tool surface), see the
-environment pages: :doc:`libero`, :doc:`robocasa`, :doc:`franka`,
+robot pages: :doc:`libero`, :doc:`robocasa`, :doc:`franka`,
 :doc:`dual_franka`, :doc:`so101`.
 
 Which VLA runs where
@@ -40,7 +40,7 @@ Which VLA runs where
    * - RoboCasa (sim)
      - RLDX-1
      - HTTP or socket RPC
-     - ``robots/robocasa/vla_server.py`` *(planned)*
+     - ``robots/robocasa/vla_server.py``
    * - Franka (real)
      - Pi0.5 or RLDX-1 (task-dependent)
      - HTTP or socket RPC

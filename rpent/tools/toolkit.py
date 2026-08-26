@@ -93,6 +93,7 @@ class ToolResult:
         result_for_text = dict(result)
         image = result_for_text.pop("_image_bytes", None)
         image_cam = result_for_text.pop("_image_cam_bytes", None)
+        image_nav = result_for_text.pop("_image_nav_bytes", None)
         image_wrist = result_for_text.pop("_image_wrist_bytes", None)
         text = json.dumps(result_for_text, indent=2, default=str)
         if len(text) > self.MAX_TEXT_BYTES_IN_RESULT:
@@ -115,6 +116,8 @@ class ToolResult:
             _add_image_bytes(image)
         if image_cam:
             _add_image_bytes(image_cam)
+        if image_nav:
+            _add_image_bytes(image_nav)
         if image_wrist:
             _add_image_bytes(image_wrist)
         return blocks
@@ -124,11 +127,11 @@ class Toolkit:
     """Base toolkit: registers common tools and dispatches tool calls.
 
     Subclasses extend ``__init__`` (calling ``super().__init__()`` first)
-    and register additional tools with :meth:`add_tool`. Env-specific
+    and register additional tools with :meth:`add_tool`. Robot-specific
     subclasses receive their env/model/etc. as constructor arguments and
-    build the underlying LiberoPrimitives in ``__init__``; the toolkit
+    build the underlying env Primitives in ``__init__``; the toolkit
     base class only contributes the common file/IO tools. Override
-    :meth:`close` to release env-side primitives / servers at the end of the run.
+    :meth:`close` to release robot-side primitives / servers at the end of the run.
     """
 
     def __init__(
@@ -286,7 +289,7 @@ class Toolkit:
         raise NotImplementedError
 
     # ------------------------------------------------------------------
-    # Server lifecycle hooks (overridden by env toolkits)
+    # Server lifecycle hooks (overridden by robot toolkits)
     # ------------------------------------------------------------------
 
     def cancel_active_and_wait(self) -> None:
@@ -306,8 +309,17 @@ class Toolkit:
             raise ToolCancelled("tool operation interrupted")
 
     def close(self) -> None:
-        """Release the env-side primitives / servers at end of run. Default: no-op."""
+        """Release the robot-side primitives / servers at end of run. Default: no-op."""
+
+    def solved(self) -> bool:
+        """Whether the env has reported the task complete.
+
+        Ground truth for the session loop: an agent may call ``finish`` with
+        ``status="success"`` on a cell it did not actually finish, so the
+        handoff decision reads the environment, not the agent.
+        """
+        raise NotImplementedError
 
     def write_recipe(self, recipe_tag: str) -> str | None:
-        """Write a replay recipe for this env, if supported."""
+        """Write a replay recipe for this robot, if supported."""
         return None

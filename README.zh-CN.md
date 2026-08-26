@@ -58,7 +58,8 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
           <li><b>VLA</b></li>
           <ul>
             <li>Pi0.5 ✅</li>
-            <li>RLDX-1</li>
+            <li>RLDX-1 ✅</li>
+            <li>LingBot-VLA ✅</li>
           </ul>
           <li><b>WAM</b></li>
           <ul>
@@ -69,7 +70,8 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
       <td style="text-align: left; padding-left: 8px;">
         <ul style="margin-left: 0; padding-left: 16px;">
           <li>LIBERO-PRO ✅</li>
-          <li>RoboCasa </li>
+          <li>RoboCasa ✅</li>
+          <li>RoboTwin ✅</li>
         </ul>
       </td>
       <td>
@@ -91,7 +93,7 @@ git clone https://github.com/RLinf/RPent rpent && cd rpent
 pip install -e ".[full]"
 ```
 
-`.[full]` 是默认的端到端依赖组合，包括 openpi Pi0.5 VLA、LIBERO-PRO 仿真器、
+`.[full]` 是默认的端到端依赖组合，包括 openpi Pi0.5 VLA、LIBERO-PRO 和 RoboCasa365 仿真器、
 SAM 3.0 和 RLinf 运行时。如果不需要完整组合，更小的 extra
 见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
 
@@ -114,50 +116,79 @@ export ANTHROPIC_API_KEY=sk-xxx
 
 # VLA checkpoint —— 从以下地址下载：
 # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
-export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
+  --exclude optimizer.pt \
+  --local-dir ./checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+
+export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+
 # SAM 3.0 checkpoint —— 从以下地址下载：
-# https://huggingface.co/facebook/sam3
 # https://modelscope.cn/models/facebook/sam3
-export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+pip install -U modelscope
+
+modelscope download facebook/sam3 \
+  --local-dir ./checkpoints/sam3
+
+export SAM3_CHECKPOINT_PATH=$PWD/checkpoints/sam3/sam3.pt
 export LIBERO_TYPE=pro
 
 # 运行一个任务：libero_object_swap，task 2，seed 0，使用 Claude Code
 # 和 Claude Opus 4.8。
-rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --cuda-device 0 --planner claude_code --model claude-opus-4-8
 ```
 
 其他规划器（`api`、`codex`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html)。
+
+### 探索模式与本地 Memory Eval
+
+默认仍为原有 eval。增加 `--memory-profile local` 后，会使用本地
+global/suite/task 三层 memory 进行评测：
+
+```bash
+rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
+  --planner codex --memory-profile local \
+  --memory-dir /path/to/libero-memory
+```
+
+同一个入口增加 `--explore` 后，会启用可 reset 的多次尝试、独立 planner
+session、memory distillation 和自动合并：
+
+```bash
+rpent --robot libero --suite libero_10_task --task 0 --seed 0 \
+  --planner api --model anthropic:claude-opus-4-8 \
+  --explore --explore-sessions 3 --explore-attempts-per-session 5 \
+  --memory-dir /path/to/libero-memory
+```
+
+原有 Hugging Face memory 和 prompt 仍是默认模式（`--memory-profile hf`）。
+memory 维护命令详见 [LIBERO 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html)。
 
 ### 交互模式
 
 加上 `--interactive`（`-i`）即可在终端里实时引导智能体。在 `you>` 提示符处，内置任务已预填——按 Enter 直接使用，或替换为你自己的任务；智能体运行时，随时输入消息即可在下一轮引导它（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要交互式终端（TTY）。
 
 ```bash
-rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --planner claude_code --model claude-opus-4-8 --interactive
 ```
 
 ### 实时 Dashboard
 
-加上 `--dashboard` 后，会启动本地监控服务，并在终端输出访问地址。打开该地址后，可以在启动页面确认配置；运行开始后，页面会实时显示智能体的推理过程、相机画面和动作时间线。使用 `--dashboard-language zh-cn` 可切换到中文界面。
+加上 `--dashboard` 后，会启动本地 Dashboard，并在终端输出访问地址。打开该地址并确认配置；服务就绪后，通过 `/rpent-task <suite> <task> <seed>` 启动任务。页面会实时显示智能体的推理过程、相机画面和动作时间线，任务结束后可以继续提交下一任务。使用 `--dashboard-language zh-cn` 可切换到中文界面。
 
 ```bash
-rpent --env libero --dashboard --dashboard-language zh-cn \
-  --suite libero_goal_task --task 1 --seed 0 \
+rpent --robot libero --dashboard --dashboard-language zh-cn \
   --planner claude_code --model claude-opus-4-8
 ```
 
 ### RoboCasa
 
-RoboCasa 使用独立入口与安装指南。
+RoboCasa 使用独立入口与安装指南。安装与运行流程见 [RoboCasa 使用文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
 
-```bash
-bash scripts/setup_robocasa.sh                                # 一次性安装
-bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <种子>
-```
+### RoboTwin
 
-完整的 RoboCasa365 + RLDX-1 部署流程见 [SETUP_ROBOCASA.zh.md](docs/SETUP_ROBOCASA.zh.md)。
+RoboTwin 支持 LingBot-VLA 双臂操作任务。安装与运行流程见 [RoboTwin 使用文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html)。
 
 更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
 
@@ -172,7 +203,7 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
     </tr>
   </thead>
   <tbody valign="top">
-    <tr><td><code>--env</code></td><td>—（必填）</td><td>环境后端。当前支持 <code>libero</code>。</td></tr>
+    <tr><td><code>--robot</code></td><td>—（必填）</td><td>机器人后端。当前支持 <code>libero</code>。</td></tr>
     <tr><td><code>--suite</code></td><td>—（必填）</td><td>任务集，如 <code>libero_object_task</code>、<code>libero_spatial_swap</code></td></tr>
     <tr><td><code>--task</code></td><td>—（必填）</td><td>任务集内的任务编号</td></tr>
     <tr><td><code>--seed</code></td><td><code>0</code></td><td>随机种子</td></tr>
@@ -180,11 +211,12 @@ bash scripts/run_robocasa.sh PickPlaceCounterToCabinet 0 0    # <任务> <GPU> <
     <tr><td><code>--model</code></td><td>—</td><td>模型 ID；<code>api</code> 需带 provider 前缀（<code>anthropic:…</code>、<code>openai:…</code>、<code>openai-chat:…</code>）</td></tr>
     <tr><td><code>--max-turns</code></td><td><code>100</code></td><td>智能体最大轮数</td></tr>
     <tr><td><code>--max-tokens</code></td><td><code>8192</code></td><td>单次 LLM 回复最大 token</td></tr>
+    <tr><td><code>--reasoning-effort</code></td><td><code>none</code></td><td><code>api</code>、<code>claude_code</code> 与 <code>codex</code> 的推理强度：<code>none</code> | <code>low</code> | <code>medium</code> | <code>high</code> | <code>xhigh</code>。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。</td></tr>
     <tr><td><code>--no-images</code></td><td>关</td><td>纯文本模式：不向模型发送图片字节（用于不支持图片输入的模型）</td></tr>
     <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>环境最大步数</td></tr>
     <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> 或 <code>pro</code></td><td>LIBERO 类型：<code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
     <tr><td><code>--cuda-device</code></td><td>继承当前环境</td><td>env_server、vla_server 和 sam3_server 可见的 GPU 设备</td></tr>
-    <tr><td><code>--dashboard</code></td><td>关</td><td>为本次运行启动本地 Dashboard</td></tr>
+    <tr><td><code>--dashboard</code></td><td>关</td><td>启动本地 Dashboard</td></tr>
     <tr><td><code>--dashboard-language</code></td><td><code>en</code></td><td>Dashboard 界面语言：<code>en</code> | <code>zh-cn</code></td></tr>
     <tr><td><code>--env-endpoint</code></td><td>—（自动启动）</td><td>已在运行的 env_server 的 <code>[protocol://]host:port</code>（<code>protocol=http|socket</code>，默认 <code>http</code>）。留空时自动启动本地实例。</td></tr>
     <tr><td><code>--vla-endpoint</code></td><td>—（自动启动）</td><td>已在运行的 vla_server 的 <code>[protocol://]host:port</code>（同上）。留空时自动启动本地实例。</td></tr>

@@ -63,13 +63,14 @@ class ProcessDaemon:
         name: str,
         cmd: list[str],
         *,
-        env: dict[str, str] | None = None,
+        env_overrides: dict[str, str] | None = None,
         log_path: str | None = None,
         cwd: str | None = None,
     ) -> None:
         self.name = name
         self.cmd = cmd
-        self.subprocess_env = env or os.environ.copy()
+        self.subprocess_env = os.environ.copy()
+        self.subprocess_env.update(env_overrides or {})
         self.log_path = log_path
         self.cwd = cwd
         self._proc: subprocess.Popen | None = None

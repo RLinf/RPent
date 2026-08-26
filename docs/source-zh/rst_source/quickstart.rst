@@ -8,7 +8,7 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 1. 配置 API key 与 checkpoint
 ------------------------------
 
-设置 Anthropic API key、VLA checkpoint 和 SAM 3.0 checkpoint 路径：
+导出 Anthropic API key，然后下载并配置 VLA 和 SAM 3.0 checkpoint：
 
 .. code-block:: bash
 
@@ -18,12 +18,22 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 
    # VLA checkpoint —— 从下面地址下载
    # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
-   export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+   pip install "huggingface_hub>=0.34,<1.0"
 
-   # SAM 3.0 checkpoint —— 从以下任一地址下载
-   # https://huggingface.co/facebook/sam3
+   hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
+     --exclude optimizer.pt \
+     --local-dir ./checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+
+   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+
+   # SAM 3.0 checkpoint —— 从以下地址下载
    # https://modelscope.cn/models/facebook/sam3
-   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+   pip install -U modelscope
+
+   modelscope download facebook/sam3 \
+     --local-dir ./checkpoints/sam3
+
+   export SAM3_CHECKPOINT_PATH=$PWD/checkpoints/sam3/sam3.pt
 
 2. 跑一个 LIBERO 任务
 ---------------------
@@ -33,7 +43,7 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 
 .. code-block:: bash
 
-   rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+   rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
 
 若要切换到其他 planner（如 ``codex`` 或 ``api``），请参阅
@@ -42,19 +52,23 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
 3. 通过 Dashboard 查看运行过程
 ------------------------------
 
-添加 ``--dashboard`` 后，RPent 会启动本地 Dashboard 服务，并在终端输出访问地址。打开该地址后，可以先在启动页面确认配置。运行开始后，Dashboard 会实时显示智能体的推理过程、相机与 Pi0 视图、动作时间线和片段回放。使用 ``--dashboard-language zh-cn`` 可切换到中文界面。
+添加 ``--dashboard`` 后，RPent 会启动本地 Dashboard，并在终端输出访问地址：
 
 .. code-block:: bash
 
-   rpent --env libero --dashboard --dashboard-language zh-cn \
-     --suite libero_object_swap --task 2 --seed 0 \
+   rpent --robot libero --dashboard --dashboard-language zh-cn \
      --planner claude_code --model claude-opus-4-8
+
+打开该地址并确认配置；服务就绪后，在页面输入
+``/rpent-task libero_object_swap 2 0`` 启动任务。Dashboard 会实时显示智能体的
+推理过程、相机画面和动作时间线；任务结束后可以继续提交下一任务。使用
+``--dashboard-language zh-cn`` 可切换到中文界面。
 
 关键 CLI 选项
 -------------
 
 下表只列出完成首次运行需要关注的选项。其他通用选项可运行
-``rpent --help`` 查看；有关 LIBERO 环境的更多配置，请参阅
+``rpent --help`` 查看；有关 LIBERO 机器人的更多配置，请参阅
 :doc:`LIBERO 使用指南 <usage/libero>`。
 
 .. list-table::
@@ -64,9 +78,9 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
    * - 参数
      - 默认值
      - 说明
-   * - ``--env``
+   * - ``--robot``
      - 必填
-     - 环境后端，如 ``libero``
+     - 机器人后端，如 ``libero``
    * - ``--suite``
      - 必填
      - 任务套件，如 ``libero_object_task``、``libero_spatial_swap``

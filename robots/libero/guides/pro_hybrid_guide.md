@@ -330,7 +330,7 @@ Launch a cell with the CLI; the runner owns `env_server.py`, exposes the
 structured tools, and runs single-attempt:
 
 ```bash
-python rpent/cli/main.py --env libero --suite <suite> --task <n> --seed <k> \
+python rpent/cli/main.py --robot libero --suite <suite> --task <n> --seed <k> \
     --libero-type pro --planner claude_code --model claude-opus-4-8
 
 # e.g. --suite libero_spatial_task 0 (P1) · libero_spatial_swap 0 (P2) ·
@@ -482,7 +482,7 @@ LIBERO_TYPE=pro python -c \
 # 2. Read the auto-memory: resources/libero/memory/MEMORY.md
 
 # 3. Launch a perception cell (runner owns env_server; single-attempt)
-python rpent/cli/main.py --env libero --suite libero_spatial_swap --task <N> --seed 0 \
+python rpent/cli/main.py --robot libero --suite libero_spatial_swap --task <N> --seed 0 \
     --libero-type pro --planner claude_code --model claude-opus-4-8
 ```
 

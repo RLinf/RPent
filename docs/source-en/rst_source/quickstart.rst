@@ -8,7 +8,8 @@ with the ``claude_code`` planner to demonstrate a complete run.
 1. Configure keys and checkpoints
 ---------------------------------
 
-Export your Anthropic key, plus the paths to the VLA and SAM3 checkpoints:
+Export your Anthropic key, then download and configure the VLA and SAM3
+checkpoints:
 
 .. code-block:: bash
 
@@ -19,12 +20,22 @@ Export your Anthropic key, plus the paths to the VLA and SAM3 checkpoints:
 
    # VLA checkpoint — download from
    # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
-   export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+   pip install "huggingface_hub>=0.34,<1.0"
 
-   # SAM 3.0 checkpoint — download from either
-   # https://huggingface.co/facebook/sam3
+   hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
+     --exclude optimizer.pt \
+     --local-dir ./checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+
+   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+
+   # SAM 3.0 checkpoint — download from
    # https://modelscope.cn/models/facebook/sam3
-   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+   pip install -U modelscope
+
+   modelscope download facebook/sam3 \
+     --local-dir ./checkpoints/sam3
+
+   export SAM3_CHECKPOINT_PATH=$PWD/checkpoints/sam3/sam3.pt
 
 2. Run one LIBERO task
 ----------------------
@@ -34,7 +45,7 @@ Run a single LIBERO PRO task (``libero_object_swap``, task ``2``, seed
 
 .. code-block:: bash
 
-   rpent --env libero --suite libero_object_swap --task 2 --seed 0 \
+   rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
      --planner claude_code --model claude-opus-4-8
 
 To switch to another planner, such as ``codex`` or ``api``, see
@@ -43,24 +54,25 @@ To switch to another planner, such as ``codex`` or ``api``, see
 3. Monitor the run in the Dashboard
 -----------------------------------
 
-Add ``--dashboard`` to start a local Dashboard service and print its URL
-in the terminal. Open the URL to confirm the configuration on the
-launcher screen. Once the run starts, the page streams the agent's
-reasoning, live camera and Pi0 views, an action timeline, and clip
-replays. Use ``--dashboard-language zh-cn`` for the Chinese UI.
+Add ``--dashboard`` to start a local Dashboard and print its URL in the terminal:
 
 .. code-block:: bash
 
-   rpent --env libero --dashboard --dashboard-language zh-cn \
-     --suite libero_object_swap --task 2 --seed 0 \
+   rpent --robot libero --dashboard --dashboard-language zh-cn \
      --planner claude_code --model claude-opus-4-8
+
+Open the URL and confirm the configuration. Once the services are ready, enter
+``/rpent-task libero_object_swap 2 0`` in the page to start a task. The Dashboard
+streams agent reasoning, camera views, and the action timeline; submit another
+task after the current one finishes. Use ``--dashboard-language zh-cn`` for the
+Chinese UI.
 
 Key CLI options
 ---------------
 
 The table lists only the options needed for a first run. Run
 ``rpent --help`` for other general options. See the
-:doc:`LIBERO guide <usage/libero>` for detailed environment configuration.
+:doc:`LIBERO guide <usage/libero>` for detailed robot configuration.
 
 .. list-table::
    :header-rows: 1
@@ -69,9 +81,9 @@ The table lists only the options needed for a first run. Run
    * - Flag
      - Default
      - Description
-   * - ``--env``
+   * - ``--robot``
      - required
-     - Environment backend, e.g. ``libero``
+     - Robot backend, e.g. ``libero``
    * - ``--suite``
      - required
      - Task suite, e.g. ``libero_object_task``, ``libero_spatial_swap``
