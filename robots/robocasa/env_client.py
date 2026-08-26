@@ -53,10 +53,6 @@ class RoboCasaEnvClient(BaseEnvClient):
     def _resolve_cam(self, name):
         return CAM_ALIAS.get(name, name)
 
-    # ---- lifecycle ----
-    def close(self):
-        self._client.call("env.close", timeout_s=self._TIMEOUT_S["default"])
-
     # ---- state accessors ----
     def reset(self):
         self.last_obs = self._client.call(
