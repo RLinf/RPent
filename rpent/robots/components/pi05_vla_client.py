@@ -14,6 +14,26 @@
 
 """Pi0.5 VLA client for LIBERO."""
 
+"""Thin client wrapping the Pi0.5 VLA RPC server.
+
+The server lifecycle is the caller's responsibility: bring up
+``rpent.robots.components.pi05_vla_server`` (or any compatible ``predict`` /
+``healthz`` implementation) before constructing this client.
+
+Wire schema (see also ``pi05_vla_server``):
+
+    call("predict", kwargs={
+        "instruction": "<task_descriptions>",
+        "images": {
+            "main":  {"format": "png", "data": "<base64>"},
+            "wrist": {"format": "png", "data": "<base64>"},  # optional
+            "extra": {"format": "png", "data": "<base64>"},  # optional
+        },
+        "state": [[s0..sN]],           # shape [B, state_dim]
+        "mode":  "eval",
+    })
+    -> {"actions": [[[a0..a6], ...]], "shape": [B, chunk, action_dim], "dtype": "float32"}
+"""
 from __future__ import annotations
 
 from typing import Any

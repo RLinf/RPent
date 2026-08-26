@@ -29,8 +29,7 @@ class BaseVLAFacade(RpcFacade):
         ``__init__`` —  the subclass loads the model itself.
 
     RPC routing:
-        ``_dispatch`` (inherited from :class:`RpcFacade`) uses a
-        registration dict (``self._rpc``) instead of a dynamic
+        ``_dispatch`` uses a registration dict (``self._rpc``) instead of an
         ``if method == "predict"`` chain. Subclasses register their own methods
         in ``_register_rpc``.
 

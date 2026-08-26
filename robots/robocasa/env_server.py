@@ -425,6 +425,7 @@ class RoboCasaEnvFacade(BaseEnvFacade):
             work_queue.put(None)
             server.shutdown()
             server.server_close()
+            self.close()
 
 
 def main():

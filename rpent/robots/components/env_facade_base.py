@@ -37,9 +37,9 @@ class BaseEnvFacade(RpcFacade):
            client owns the caching policy.
 
     RPC routing:
-        ``_dispatch`` (inherited from :class:`RpcFacade`) uses a
-        registration dict (``self._rpc``) instead of dynamic ``getattr``
-        routing. Subclasses register their own methods in ``_register_rpc``.
+        ``_dispatch`` uses a registration dict (``self._rpc``) instead of
+        dynamic ``getattr`` routing. Subclasses register their own methods in
+        ``_register_rpc``.
 
     EGL single-thread:
         Subclasses that must keep EGL single-threaded must override ``serve``
@@ -58,13 +58,9 @@ class BaseEnvFacade(RpcFacade):
         verify config consistency after startup."""
         raise NotImplementedError
 
-    def close(self):
-        pass
-
     def _register_rpc(self):
         """Can be overridden to register more RPC methods."""
         self._rpc["env.get_env_meta"] = self.get_env_meta
-        self._rpc["env.close"] = self.close
 
         self._rpc["env.reset"] = self.reset
         self._rpc["env.step"] = self.step

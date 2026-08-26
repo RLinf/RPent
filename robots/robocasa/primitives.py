@@ -394,7 +394,7 @@ class RoboCasaPrimitives:
         """
         o = self.env.current_raw_obs
         return {
-            "task_language": o.get("language", self.env.get_task_language()),
+            "task_language": o.get("language", self.env.get_task_language()) or "",
             "success": self.env.check_success(),
             # NUMERIC progress toward success (counters/sub-predicates the env's own
             # _check_success computes) so the agent has a feedback loop, not just a bool.
