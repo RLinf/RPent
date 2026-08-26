@@ -20,114 +20,30 @@ class PerceptionError(ValueError):
     """Raised when a Franka perception artifact is missing or inconsistent."""
 
 
+_CAMERA_ARTIFACTS = {
+    "main": ("wrist.png", "wrist_depth.npy"),
+    "extra_0": ("camera.png", "camera_depth.npy"),
+}
+
+
+def _resolve_step(state: EnvState, step: int | None) -> tuple[int, dict[str, Any]]:
+    """Resolve a step selector (None or -1 = latest) to index and robot state."""
+    record = state.get(-1 if step is None else step)
+    return record.step_idx, record.state
+
+
 def load_camera_meta(
-    output_dir: Path,
     *,
     state: EnvState | None = None,
     step: int | None = None,
 ) -> dict[str, Any]:
-    """Load RLinf camera metadata from latest/full Franka logs."""
-    snapshot = load_snapshot(output_dir, step, state=state)
-    meta = ((snapshot.get("artifacts") or {}).get("camera_meta"))
-    if isinstance(meta, dict):
-        return meta
-    raise PerceptionError(
-        "camera metadata not found in latest_state.json/full_log.jsonl "
-        f"under {output_dir}"
-    )
-
-
-def load_snapshot(
-    output_dir: Path,
-    step: int | None = None,
-    *,
-    state: EnvState | None = None,
-) -> dict[str, Any]:
-    """Load a Franka snapshot from latest_state.json or full_log.jsonl."""
-    if state is not None:
-        resolved_step = -1 if step is None else step
-        record = state.get(resolved_step)
-        artifacts: dict[str, Any] = {"images": {}, "depths": {}}
-        for key, image_name, depth_name in (
-            ("main", "wrist.png", "wrist_depth.npy"),
-            ("extra_0", "camera.png", "camera_depth.npy"),
-        ):
-            if state.exists(image_name, step=record.step_idx):
-                artifacts["images"][key] = str(
-                    state.artifact_path(image_name, step=record.step_idx)
-                )
-            if state.exists(depth_name, step=record.step_idx):
-                artifacts["depths"][key] = str(
-                    state.artifact_path(depth_name, step=record.step_idx)
-                )
-        if state.exists("camera_meta.json", step=record.step_idx):
-            artifacts["camera_meta"] = state.load(
-                "camera_meta.json", step=record.step_idx
-            )
-        return {
-            "step_idx": record.step_idx,
-            "state": record.state,
-            "artifacts": artifacts,
-        }
-
-    manifest_path = output_dir / "states.json"
-    if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text(errors="replace"))
-        records = manifest.get("steps") if isinstance(manifest, dict) else None
-        if isinstance(records, list) and records:
-            index = len(records) - 1 if step is None or step == -1 else int(step)
-            if not 0 <= index < len(records):
-                raise PerceptionError(f"step {step} not found in {manifest_path}")
-            record = records[index]
-            artifacts: dict[str, Any] = {"images": {}, "depths": {}}
-            for key, image_name, depth_name in (
-                ("main", "wrist.png", "wrist_depth.npy"),
-                ("extra_0", "camera.png", "camera_depth.npy"),
-            ):
-                image_path = output_dir / image_name / f"{index:02d}{Path(image_name).suffix}"
-                depth_path = output_dir / depth_name / f"{index:02d}{Path(depth_name).suffix}"
-                if image_path.exists():
-                    artifacts["images"][key] = str(image_path)
-                if depth_path.exists():
-                    artifacts["depths"][key] = str(depth_path)
-            meta_path = output_dir / "camera_meta.json" / f"{index:02d}.json"
-            if meta_path.exists():
-                artifacts["camera_meta"] = json.loads(meta_path.read_text())
-            return {
-                "step_idx": index,
-                "state": record.get("state") or {},
-                "artifacts": artifacts,
-            }
-
-    if step is None:
-        latest = output_dir / "latest_state.json"
-        if latest.exists():
-            data = json.loads(latest.read_text(errors="replace"))
-            if isinstance(data, dict) and "state" in data and "artifacts" in data:
-                return data
-
-    states_path = output_dir / "full_log.jsonl"
-    if not states_path.exists():
-        raise PerceptionError(f"full_log.jsonl not found under {output_dir}")
-    matches: list[dict[str, Any]] = []
-    for line in states_path.read_text(errors="replace").splitlines():
-        if not line.strip():
-            continue
-        try:
-            item = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(item, dict):
-            continue
-        if item.get("event") not in {None, "snapshot"}:
-            continue
-        if step is None or item.get("step_idx") == int(step):
-            matches.append(item)
-    if not matches:
-        if step is None:
-            raise PerceptionError(f"no snapshots found in {states_path}")
-        raise PerceptionError(f"step {step} not found in {states_path}")
-    return matches[-1]
+    """Load RLinf camera metadata from the RPent environment state."""
+    if state is None:
+        raise PerceptionError("state is required to load camera metadata")
+    step_idx, _ = _resolve_step(state, step)
+    if not state.exists("camera_meta.json", step=step_idx):
+        raise PerceptionError("camera metadata not found in the recorded state")
+    return state.load("camera_meta.json", step=step_idx)
 
 
 def load_calibration_bundle(
@@ -151,17 +67,12 @@ def load_calibration_bundle(
 
 @readonly
 def view_perception_setup(
-    output_dir: Path | None = None,
     *,
     state: EnvState | None = None,
     step: int = -1,
 ) -> dict[str, Any]:
     """Return camera metadata plus normalized calibration summaries."""
-    if output_dir is None:
-        if state is None:
-            raise PerceptionError("output_dir or state is required")
-        output_dir = state.artifact_path("camera_meta.json", step=None).parent
-    meta = load_camera_meta(output_dir, state=state, step=step)
+    meta = load_camera_meta(state=state, step=step)
     calibration = load_calibration_bundle()
     return {
         "camera_meta": meta,
@@ -182,7 +93,6 @@ def view_perception_setup(
 
 @readonly
 def back_project(
-    output_dir: Path | None = None,
     *,
     row: int,
     col: int,
@@ -192,14 +102,12 @@ def back_project(
     state: EnvState | None = None,
 ) -> dict[str, Any]:
     """Back-project one camera pixel into the Franka robot base frame."""
-    if output_dir is None:
-        if state is None:
-            raise PerceptionError("output_dir or state is required")
-        output_dir = state.artifact_path("camera_meta.json", step=None).parent
-    snapshot = load_snapshot(output_dir, step, state=state)
-    meta = load_camera_meta(output_dir, state=state, step=step)
+    if state is None:
+        raise PerceptionError("state is required")
+    step_idx, record_state = _resolve_step(state, step)
+    meta = load_camera_meta(state=state, step=step)
     calibration = load_calibration_bundle()
-    tcp_pose = _snapshot_tcp_pose(snapshot)
+    tcp_pose = _tcp_pose(record_state)
     t_base_tcp = pose7_to_matrix(tcp_pose)
 
     camera_alias = _normalize_camera_alias(camera)
@@ -211,9 +119,9 @@ def back_project(
         target_frame = "base"
 
     projection = _project_view_to_base(
-        output_dir=output_dir,
         meta=meta,
-        snapshot=snapshot,
+        state=state,
+        step_idx=step_idx,
         camera_alias=camera_alias,
         row=int(row),
         col=int(col),
@@ -222,8 +130,8 @@ def back_project(
         t_base_tcp=t_base_tcp,
     )
     overlay_path = _save_selected_pixel_overlay(
-        output_dir=output_dir,
-        snapshot=snapshot,
+        state=state,
+        step_idx=step_idx,
         meta=meta,
         camera_alias=camera_alias,
         row=int(row),
@@ -236,7 +144,7 @@ def back_project(
             "error_type": projection.get("error_type", "PerceptionError"),
             "camera": camera_alias,
             "pixel": [int(row), int(col)],
-            "step": snapshot.get("step_idx"),
+            "step": step_idx,
         }
         if overlay_path:
             out["selected_pixel_overlay"] = str(overlay_path)
@@ -249,7 +157,7 @@ def back_project(
         "world_xyz": projection["point_base"],
         "coordinate_frame": "franka_base",
         "depth_m": projection.get("depth_m"),
-        "step": snapshot.get("step_idx"),
+        "step": step_idx,
         "source": "single_view_rgbd",
         "source_artifact": projection.get("depth_path"),
         "camera_key": projection.get("camera_key"),
@@ -274,8 +182,8 @@ def back_project(
 
 def _save_selected_pixel_overlay(
     *,
-    output_dir: Path,
-    snapshot: dict[str, Any],
+    state: EnvState,
+    step_idx: int,
     meta: dict[str, Any],
     camera_alias: str,
     row: int,
@@ -289,16 +197,10 @@ def _save_selected_pixel_overlay(
         if not camera_key or not camera_name:
             camera_key, camera_name = _resolve_camera_alias(meta, camera_alias)
 
-        image_key = "main" if camera_key == "main" else "extra_0"
-        image_path = (
-            ((snapshot.get("artifacts") or {}).get("images") or {}).get(image_key)
-        )
-        if not image_path:
+        image_name = _CAMERA_ARTIFACTS[camera_key][0]
+        if not state.exists(image_name, step=step_idx):
             return None
-
-        source = Path(image_path)
-        if not source.exists():
-            return None
+        source = state.artifact_path(image_name, step=step_idx)
 
         image = Image.open(source).convert("RGB")
         draw = ImageDraw.Draw(image)
@@ -323,28 +225,23 @@ def _save_selected_pixel_overlay(
 
         status = "ok" if "point_base" in projection else "error"
         label = (
-            f"{status} {camera_alias} step={snapshot.get('step_idx')} "
+            f"{status} {camera_alias} step={step_idx} "
             f"row={row} col={col}"
         )
         label_bg = (0, 0, 0)
         draw.rectangle((4, 4, min(width - 1, 12 + len(label) * 7), 24), fill=label_bg)
         draw.text((8, 8), label, fill="white")
 
-        out_dir = output_dir / "back_project_overlays"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        step = int(snapshot.get("step_idx") or 0)
-        stem = f"back_project_step{step:04d}_{camera_alias}_r{row}_c{col}"
-        existing = sorted(out_dir.glob(stem + "_*.png"))
-        out_path = out_dir / f"{stem}_{len(existing):02d}.png"
-        image.save(out_path)
-        return out_path
+        name = state.save("selected_pixel.png", np.asarray(image), step=step_idx)
+        if name is None:
+            return None
+        return state.artifact_path(name, step=step_idx)
     except Exception:
         return None
 
 
 @readonly
 def back_project_correspondence(
-    output_dir: Path | None = None,
     *,
     third_person_row: int | None = None,
     third_person_col: int | None = None,
@@ -362,14 +259,12 @@ def back_project_correspondence(
     base-frame point is compared against the wrist estimate to produce a
     confidence score, and high/medium-confidence pairs are fused.
     """
-    if output_dir is None:
-        if state is None:
-            raise PerceptionError("output_dir or state is required")
-        output_dir = state.artifact_path("camera_meta.json", step=None).parent
-    snapshot = load_snapshot(output_dir, step, state=state)
-    meta = load_camera_meta(output_dir, state=state, step=step)
+    if state is None:
+        raise PerceptionError("state is required")
+    step_idx, record_state = _resolve_step(state, step)
+    meta = load_camera_meta(state=state, step=step)
     calibration = load_calibration_bundle()
-    tcp_pose = _snapshot_tcp_pose(snapshot)
+    tcp_pose = _tcp_pose(record_state)
     t_base_tcp = pose7_to_matrix(tcp_pose)
     requests = _normalize_pixel_requests(
         third_person_row=third_person_row,
@@ -383,9 +278,9 @@ def back_project_correspondence(
 
     points = [
         _back_project_one_correspondence(
-            output_dir=output_dir,
             meta=meta,
-            snapshot=snapshot,
+            state=state,
+            step_idx=step_idx,
             calibration=calibration,
             t_base_tcp=t_base_tcp,
             tcp_pose=tcp_pose,
@@ -407,7 +302,7 @@ def back_project_correspondence(
         return {
             "points": points,
             "source": "multi_view_rgbd",
-            "step": snapshot.get("step_idx"),
+            "step": step_idx,
             "count": len(points),
             "valid_count": len(valid_points),
             "reliable_count": len(reliable_points),
@@ -430,9 +325,9 @@ def _normalize_camera_alias(camera: str) -> str:
 
 def _back_project_one_correspondence(
     *,
-    output_dir: Path,
     meta: dict[str, Any],
-    snapshot: dict[str, Any],
+    state: EnvState,
+    step_idx: int,
     calibration: dict[str, Any],
     t_base_tcp: np.ndarray,
     tcp_pose: list[float],
@@ -447,9 +342,9 @@ def _back_project_one_correspondence(
     wrist_col = request["wrist_col"]
 
     wrist = _project_view_to_base(
-        output_dir=output_dir,
         meta=meta,
-        snapshot=snapshot,
+        state=state,
+        step_idx=step_idx,
         camera_alias="wrist",
         row=wrist_row,
         col=wrist_col,
@@ -462,9 +357,9 @@ def _back_project_one_correspondence(
     third = None
     if third_person_row is not None and third_person_col is not None:
         third = _project_view_to_base(
-            output_dir=output_dir,
             meta=meta,
-            snapshot=snapshot,
+            state=state,
+            step_idx=step_idx,
             camera_alias="third_person",
             row=third_person_row,
             col=third_person_col,
@@ -480,7 +375,7 @@ def _back_project_one_correspondence(
             "error": wrist.get("error", "wrist back-projection failed"),
             "error_type": wrist.get("error_type", "PerceptionError"),
             "source": "multi_view_rgbd",
-            "step": snapshot.get("step_idx"),
+            "step": step_idx,
             "pixel_correspondence": _pixel_correspondence(
                 third_person_row,
                 third_person_col,
@@ -528,7 +423,7 @@ def _back_project_one_correspondence(
     result = {
         "point_base": point_base,
         "source": source,
-        "step": snapshot.get("step_idx"),
+        "step": step_idx,
         "pixel_correspondence": _pixel_correspondence(
             third_person_row,
             third_person_col,
@@ -578,9 +473,9 @@ def _pixel_correspondence(
 
 def _project_view_to_base(
     *,
-    output_dir: Path,
     meta: dict[str, Any],
-    snapshot: dict[str, Any],
+    state: EnvState,
+    step_idx: int,
     camera_alias: str,
     row: int,
     col: int,
@@ -603,8 +498,8 @@ def _project_view_to_base(
             if k_inv_cache is not None:
                 k_inv_cache[camera_key] = k_inv
         depth, depth_path = _load_cached_depth(
-            output_dir=output_dir,
-            snapshot=snapshot,
+            state=state,
+            step_idx=step_idx,
             camera_key=camera_key,
             depth_cache=depth_cache,
         )
@@ -804,20 +699,12 @@ def _camera_meta_for_key(
 
 
 def _depth_artifact_path(
-    output_dir: Path,
-    snapshot: dict[str, Any],
+    state: EnvState,
+    step_idx: int,
     camera_key: str,
 ) -> Path:
-    path = (((snapshot.get("artifacts") or {}).get("depths") or {}).get(camera_key))
-    if not path and camera_key == "main":
-        path = snapshot.get("depth")
-    if not path and camera_key == "extra_0":
-        path = snapshot.get("third_person_depth")
-    if not path:
-        step = int(snapshot.get("step_idx", 0))
-        name = f"depth_{step:02d}.npy" if camera_key == "main" else f"{camera_key}_depth_{step:02d}.npy"
-        path = output_dir / "depths" / name
-    depth_path = _resolve_artifact_path(output_dir, path)
+    depth_name = _CAMERA_ARTIFACTS[camera_key][1]
+    depth_path = state.artifact_path(depth_name, step=step_idx)
     if not depth_path.exists():
         raise PerceptionError(f"depth artifact not found: {depth_path}")
     return depth_path
@@ -825,44 +712,25 @@ def _depth_artifact_path(
 
 def _load_cached_depth(
     *,
-    output_dir: Path,
-    snapshot: dict[str, Any],
+    state: EnvState,
+    step_idx: int,
     camera_key: str,
     depth_cache: dict[str, tuple[np.ndarray, Path]] | None,
 ) -> tuple[np.ndarray, Path]:
     if depth_cache is not None and camera_key in depth_cache:
         return depth_cache[camera_key]
-    depth_path = _depth_artifact_path(output_dir, snapshot, camera_key)
+    depth_path = _depth_artifact_path(state, step_idx, camera_key)
     depth = np.asarray(np.load(depth_path), dtype=np.float32)
     if depth_cache is not None:
         depth_cache[camera_key] = (depth, depth_path)
     return depth, depth_path
 
 
-def _resolve_artifact_path(output_dir: Path, path: str | Path) -> Path:
-    """Resolve artifact paths saved as absolute or episode-relative."""
-    raw_path = Path(path)
-    if raw_path.is_absolute():
-        return raw_path
-
-    candidates = [
-        raw_path,
-        output_dir / raw_path,
-        output_dir / raw_path.name,
-    ]
-    for candidate in candidates:
-        resolved = candidate.resolve()
-        if resolved.exists():
-            return resolved
-    return (output_dir / raw_path).resolve()
-
-
-def _snapshot_tcp_pose(snapshot: dict[str, Any]) -> list[float]:
-    state = snapshot.get("state") or {}
-    raw = state.get("raw_base_state") or {}
+def _tcp_pose(record_state: dict[str, Any]) -> list[float]:
+    raw = (record_state or {}).get("raw_base_state") or {}
     pose = raw.get("tcp_pose")
     if pose is None:
-        raise PerceptionError("snapshot is missing state.raw_base_state.tcp_pose")
+        raise PerceptionError("recorded state is missing raw_base_state.tcp_pose")
     return [float(v) for v in pose]
 
 

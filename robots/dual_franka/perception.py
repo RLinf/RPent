@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from PIL import Image, ImageDraw
 
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import readonly
@@ -33,99 +34,14 @@ _PROJECTION_CAMERAS = {
 }
 
 
-def load_snapshot(
-    output_dir: str | Path,
-    step: int | None = None,
-    *,
-    state: EnvState | None = None,
-) -> dict[str, Any]:
-    out = Path(output_dir)
-    if state is not None:
-        resolved_step = -1 if step is None else step
-        record = state.get(resolved_step)
-        artifacts: dict[str, Any] = {"images": {}, "depths": {}}
-        for alias, image_name, depth_name in (
-            ("base", "base.png", "base_depth.npy"),
-            ("d455", "d455.png", "d455_depth.npy"),
-        ):
-            if state.exists(image_name, step=record.step_idx):
-                artifacts["images"][alias] = str(
-                    state.artifact_path(image_name, step=record.step_idx)
-                )
-            if state.exists(depth_name, step=record.step_idx):
-                artifacts["depths"][alias] = str(
-                    state.artifact_path(depth_name, step=record.step_idx)
-                )
-        if state.exists("camera_meta.json", step=record.step_idx):
-            artifacts["camera_meta"] = state.load(
-                "camera_meta.json", step=record.step_idx
-            )
-        return {
-            "step_idx": record.step_idx,
-            "state": record.state,
-            "artifacts": artifacts,
-        }
-    manifest_path = out / "states.json"
-    if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text(errors="replace"))
-        records = manifest.get("steps") if isinstance(manifest, dict) else None
-        if isinstance(records, list) and records:
-            index = len(records) - 1 if step is None or step == -1 else int(step)
-            if not 0 <= index < len(records):
-                raise DualFrankaPerceptionError(
-                    f"step {step} not found in {manifest_path}"
-                )
-            record = records[index]
-            artifacts: dict[str, Any] = {"images": {}, "depths": {}}
-            for alias, image_name, depth_name in (
-                ("base", "base.png", "base_depth.npy"),
-                ("d455", "d455.png", "d455_depth.npy"),
-            ):
-                image_path = out / image_name / f"{index:02d}{Path(image_name).suffix}"
-                depth_path = out / depth_name / f"{index:02d}{Path(depth_name).suffix}"
-                if image_path.exists():
-                    artifacts["images"][alias] = str(image_path)
-                if depth_path.exists():
-                    artifacts["depths"][alias] = str(depth_path)
-            meta_path = out / "camera_meta.json" / f"{index:02d}.json"
-            if meta_path.exists():
-                artifacts["camera_meta"] = json.loads(meta_path.read_text())
-            return {
-                "step_idx": index,
-                "state": record.get("state") or {},
-                "artifacts": artifacts,
-            }
-    if step is None:
-        latest = out / "latest_state.json"
-        if latest.exists():
-            data = json.loads(latest.read_text(errors="replace"))
-            if isinstance(data, dict) and "artifacts" in data:
-                return data
-    full_log = out / "full_log.jsonl"
-    if not full_log.exists():
-        raise DualFrankaPerceptionError(f"full_log.jsonl not found under {out}")
-    matches: list[dict[str, Any]] = []
-    for line in full_log.read_text(errors="replace").splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(row, dict) or row.get("event") != "snapshot":
-            continue
-        if step is None or int(row.get("step_idx", -1)) == int(step):
-            matches.append(row)
-    if not matches:
-        raise DualFrankaPerceptionError(
-            f"snapshot step {step} not found under {out}" if step is not None else f"no snapshots found under {out}"
-        )
-    return matches[-1]
+def _resolve_step(state: EnvState, step: int | None) -> tuple[int, dict[str, Any]]:
+    """Resolve a step selector (None or -1 = latest) to index and robot state."""
+    record = state.get(-1 if step is None else step)
+    return record.step_idx, record.state
 
 
 @readonly
 def back_project_base_pixel(
-    output_dir: str | Path | None = None,
     *,
     row: int,
     col: int,
@@ -136,7 +52,6 @@ def back_project_base_pixel(
 ) -> dict[str, Any]:
     """Back-project a base-camera pixel into the shared right_base world frame."""
     return _back_project_camera_pixel(
-        _resolve_output_dir(output_dir, state),
         camera="base",
         row=row,
         col=col,
@@ -149,7 +64,6 @@ def back_project_base_pixel(
 
 @readonly
 def back_project_d455_pixel(
-    output_dir: str | Path | None = None,
     *,
     row: int,
     col: int,
@@ -160,7 +74,6 @@ def back_project_d455_pixel(
 ) -> dict[str, Any]:
     """Back-project a D455 pixel into the shared right_base world frame."""
     return _back_project_camera_pixel(
-        _resolve_output_dir(output_dir, state),
         camera="d455",
         row=row,
         col=col,
@@ -171,19 +84,7 @@ def back_project_d455_pixel(
     )
 
 
-def _resolve_output_dir(
-    output_dir: str | Path | None,
-    state: EnvState | None,
-) -> Path:
-    if output_dir is not None:
-        return Path(output_dir)
-    if state is not None:
-        return state.artifact_path("camera_meta.json", step=None).parent
-    raise DualFrankaPerceptionError("output_dir or state is required")
-
-
 def _back_project_camera_pixel(
-    output_dir: str | Path,
     *,
     camera: str,
     row: int,
@@ -196,16 +97,17 @@ def _back_project_camera_pixel(
     camera_config = _PROJECTION_CAMERAS.get(camera)
     if camera_config is None:
         raise DualFrankaPerceptionError(f"unsupported projection camera: {camera!r}")
-    snapshot = load_snapshot(output_dir, step=step, state=state)
-    artifacts = snapshot.get("artifacts") or {}
-    depths = artifacts.get("depths") or {}
-    depth_path = depths.get(camera)
-    if not depth_path:
+    if state is None:
+        raise DualFrankaPerceptionError("state is required")
+    step_idx, record_state = _resolve_step(state, step)
+    depth_name = f"{camera}_depth.npy"
+    if not state.exists(depth_name, step=step_idx):
         raise DualFrankaPerceptionError(
             f"{camera_config['display_name']} depth artifact is missing. "
             "Restart the env server with the camera and depth enabled, then "
             "call view_driver_state/reset again."
         )
+    depth_path = state.artifact_path(depth_name, step=step_idx)
     depth = np.asarray(np.load(depth_path), dtype=np.float32).squeeze()
     if depth.ndim != 2:
         raise DualFrankaPerceptionError(
@@ -220,7 +122,8 @@ def _back_project_camera_pixel(
 
     z, valid_pixels = _median_depth(depth, r, c, radius=max(0, int(window_radius)))
     meta = _camera_meta(
-        snapshot,
+        state,
+        step_idx,
         camera_alias=camera,
         raw_key=str(camera_config["raw_key"]),
     )
@@ -248,7 +151,7 @@ def _back_project_camera_pixel(
         )
     )
 
-    state_blob = snapshot.get("state") or {}
+    state_blob = record_state or {}
     raw = state_blob.get("raw") or {}
     right_state = raw.get("right") or state_blob.get("right_arm") or {}
     left_state = raw.get("left") or state_blob.get("left_arm") or {}
@@ -266,7 +169,7 @@ def _back_project_camera_pixel(
         "camera": camera,
         "pixel": [r, c],
         "coordinate_frame": "right_base",
-        "step": snapshot.get("step_idx"),
+        "step": step_idx,
         "depth_m": round(float(z), 5),
         "depth_window_radius": int(window_radius),
         "valid_depth_pixels_in_window": int(valid_pixels),
@@ -304,8 +207,8 @@ def _back_project_camera_pixel(
         out["delta_left_tcp_to_point_xyz"] = _round(point_right - left_tcp)
     try:
         out["diagnostic_artifacts"] = _save_back_project_diagnostic(
-            output_dir=Path(output_dir),
-            snapshot=snapshot,
+            state=state,
+            step_idx=step_idx,
             depth=depth,
             projection=out,
             transform_right_camera=t_right_camera,
@@ -343,47 +246,16 @@ def transform_point_between_base_frames(
     return _transform_point(t_target_source, point_arr)
 
 
-def transform_vector_between_base_frames(
-    vector: Any,
-    *,
-    target: str,
-    source: str,
-    calibration: dict[str, Any] | None = None,
-) -> np.ndarray:
-    vec = np.asarray(vector, dtype=np.float64).reshape(3)
-    if target == source:
-        return vec
-    t_target_source = _base_frame_transform(
-        calibration or load_calibration_bundle(),
-        target=target,
-        source=source,
-    )
-    return t_target_source[:3, :3] @ vec
-
-
-def base_rotation_matrix(
-    *,
-    target: str,
-    source: str,
-    calibration: dict[str, Any] | None = None,
-) -> np.ndarray:
-    if target == source:
-        return np.eye(3, dtype=np.float64)
-    t_target_source = _base_frame_transform(
-        calibration or load_calibration_bundle(),
-        target=target,
-        source=source,
-    )
-    return t_target_source[:3, :3].copy()
-
-
 def _camera_meta(
-    snapshot: dict[str, Any],
+    state: EnvState,
+    step_idx: int,
     *,
     camera_alias: str,
     raw_key: str,
 ) -> dict[str, Any]:
-    meta = ((snapshot.get("artifacts") or {}).get("camera_meta") or {})
+    if not state.exists("camera_meta.json", step=step_idx):
+        raise DualFrankaPerceptionError(f"{camera_alias} camera metadata not found")
+    meta = state.load("camera_meta.json", step=step_idx)
     aliases = [raw_key, camera_alias]
     if camera_alias == "base":
         aliases.append("extra_0")
@@ -449,8 +321,8 @@ def _validate_localization_point(
 
 def _save_back_project_diagnostic(
     *,
-    output_dir: Path,
-    snapshot: dict[str, Any],
+    state: EnvState,
+    step_idx: int,
     depth: np.ndarray,
     projection: dict[str, Any],
     transform_right_camera: np.ndarray,
@@ -458,66 +330,47 @@ def _save_back_project_diagnostic(
     calibration_key: str,
 ) -> dict[str, str]:
     """Persist a marked camera image and JSON report for one projection call."""
-    import cv2
-
-    artifacts = snapshot.get("artifacts") or {}
-    images = artifacts.get("images") or {}
-    image_path = images.get(camera_alias)
-    if camera_alias == "base":
-        image_path = image_path or images.get("extra_0")
-    if not image_path:
+    image_name = f"{camera_alias}.png"
+    if not state.exists(image_name, step=step_idx):
         raise DualFrankaPerceptionError(
             f"{camera_alias} image artifact is missing"
         )
+    image_path = state.artifact_path(image_name, step=step_idx)
 
     pixel = projection.get("pixel") or []
     if len(pixel) != 2:
         raise DualFrankaPerceptionError(f"invalid projection pixel: {pixel!r}")
     row, col = int(pixel[0]), int(pixel[1])
-    step = projection.get("step")
     radius = int(projection.get("depth_window_radius") or 0)
-    diag_dir = output_dir / "localization_diagnostic"
-    diag_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"back_project_{camera_alias}_step_{step}_r{row}_c{col}"
-    annotated_path = diag_dir / f"{stem}.png"
-    report_path = diag_dir / f"{stem}.json"
 
-    image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
-    if image is None:
-        raise DualFrankaPerceptionError(f"failed to read base image: {image_path}")
-    color = (0, 255, 0) if projection.get("selection_valid", True) else (0, 0, 255)
-    cv2.drawMarker(
-        image,
-        (col, row),
-        color,
-        markerType=cv2.MARKER_CROSS,
-        markerSize=30,
-        thickness=2,
-        line_type=cv2.LINE_AA,
-    )
-    cv2.circle(image, (col, row), 12, color, 2, lineType=cv2.LINE_AA)
+    image = Image.open(image_path).convert("RGB")
+    draw = ImageDraw.Draw(image)
+    width, height = image.size
+    x = max(0, min(width - 1, col))
+    y = max(0, min(height - 1, row))
+    color = (0, 255, 0) if projection.get("selection_valid", True) else (255, 0, 0)
+
+    draw.line((x - 15, y, x + 15, y), fill=color, width=2)
+    draw.line((x, y - 15, x, y + 15), fill=color, width=2)
+    draw.ellipse((x - 12, y - 12, x + 12, y + 12), outline=color, width=2)
     label = (
         f"r{row},c{col} cam={_short_xyz(projection.get('point_camera_xyz'))} "
         f"rb={_short_xyz(projection.get('point_xyz'))}"
     )
-    label_x = min(col + 14, max(0, image.shape[1] - 390))
+    label_x = min(col + 14, max(0, width - 390))
     label_y = max(20, row - 14)
-    cv2.putText(
-        image,
-        label,
-        (label_x, label_y),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.45,
-        color,
-        1,
-        cv2.LINE_AA,
+    draw.text((label_x, label_y), label, fill=color)
+
+    annotated_name = state.save(
+        "back_project_annotated.png", np.asarray(image), step=step_idx
     )
-    if not cv2.imwrite(str(annotated_path), image):
-        raise DualFrankaPerceptionError(f"failed to write {annotated_path}")
+    if annotated_name is None:
+        raise DualFrankaPerceptionError("failed to save annotated image")
+    annotated_path = state.artifact_path(annotated_name, step=step_idx)
 
     report = {
         "ok": bool(projection.get("ok")),
-        "snapshot_step": step,
+        "snapshot_step": step_idx,
         "image_path": str(image_path),
         "depth_path": str(projection.get("source_artifact")),
         "annotated_image": str(annotated_path),
@@ -533,10 +386,12 @@ def _save_back_project_diagnostic(
         "projection": projection,
         "depth_patch": _depth_patch_stats(depth, row=row, col=col, radius=radius),
     }
-    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    report_name = state.save("back_project_report.json", report, step=step_idx)
+    if report_name is None:
+        raise DualFrankaPerceptionError("failed to save back-project report")
     return {
         "annotated_image": str(annotated_path),
-        "report_json": str(report_path),
+        "report_json": str(state.artifact_path(report_name, step=step_idx)),
     }
 
 
