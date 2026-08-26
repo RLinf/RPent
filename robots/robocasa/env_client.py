@@ -116,9 +116,9 @@ class RoboCasaEnvClient(BaseEnvClient):
         h = height or self.camera_h
         w = width or self.camera_w
         if depth:
-            rgb, real = super().render_camera((cam, h, w, True)
+            rgb, real = super().render_camera(cam, height=h, width=w, depth=True)
             return rgb[::-1], real[::-1]
-        return super().render_camera((cam, h, w, False)[::-1]
+        return super().render_camera(cam, height=h, width=w, depth=False)[::-1]
 
     def get_camera_meta(self, camera_name, height=None, width=None):
         cam = self._resolve_cam(camera_name)
@@ -139,7 +139,7 @@ class RoboCasaEnvClient(BaseEnvClient):
         cam = self._resolve_cam(camera_name)
         h = height or self.camera_h
         w = width or self.camera_w
-        _, z_native = super().render_camera((cam, h, w, True)      # metric depth, bottom-up
+        _, z_native = super().render_camera(cam, height=h, width=w, depth=True)      # metric depth, bottom-up
         z = z_native[::-1]                                  # -> top-down
         T_p2w = self._client.call(
             "env.get_camera_transform",

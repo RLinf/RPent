@@ -180,12 +180,11 @@ class RoboCasaEnvFacade(BaseEnvFacade):
     def check_success(self):
         return bool(self.env._check_success())
 
-    def render_camera(self, cam, h, w, depth):
+    def render_camera(self, camera_name, height, width, depth):
         """sim.render in ROBOSUITE-NATIVE orientation (matches the camera
         transform matrices). rgb uint8 HxWx3, depth metric HxW."""
         import robosuite.utils.camera_utils as CU
-
-        out = self.env.sim.render(width=w, height=h, camera_name=cam, depth=depth)
+        out = self.env.sim.render(width=width, height=height, camera_name=camera_name, depth=depth)
         if depth:
             rgb, d = out
             # Sanitize the raw OpenGL normalized depth into [0,1]: replace NaN/inf
