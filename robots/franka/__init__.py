@@ -13,23 +13,21 @@ from robots.franka.prompt_bundle import system_prompt, user_prompt
 from robots.franka.spec import FRANKA_DASHBOARD_SPEC
 from robots.franka.tasks import FRANKA_TASKS, get_franka_task
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
-from rpent.envs.env_spec import EnvSpec, RunConfig
-from rpent.envs.prompt_bundle import PromptBundle
+from rpent.robots.prompt_bundle import PromptBundle
+from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.utils.config import build_rpent_subprocess_env, get_repo_root
 
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
 
 
-def get_env_spec() -> EnvSpec:
+def get_robot_spec() -> RobotSpec:
     """Return the Franka identity, prompts, runtime hooks, and dashboard spec."""
-    return EnvSpec(
+    return RobotSpec(
         name="franka",
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
-        init_shared_runtime=init_shared_runtime,
-        init_task_runtime=init_task_runtime,
         init_runtime=_init_runtime,
         dashboard=FRANKA_DASHBOARD_SPEC,
     )
@@ -206,9 +204,25 @@ def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
     dashboard_events: DashboardEventSink,
+    components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    shared_daemons, shared_kwargs = init_shared_runtime(
-        args, output_dir, dashboard_events
-    )
-    task_daemons, task_kwargs = init_task_runtime(args, output_dir, dashboard_events)
-    return shared_daemons + task_daemons, {**shared_kwargs, **task_kwargs}
+    selected = {"env", "vla"} if components is None else components
+    unknown = selected.difference({"env", "vla"})
+    if unknown:
+        raise ValueError(f"unknown Franka runtime components: {sorted(unknown)}")
+
+    daemons: list[ProcessDaemon] = []
+    primitives_kwargs: dict[str, Any] = {}
+    if "vla" in selected:
+        shared_daemons, shared_kwargs = init_shared_runtime(
+            args, output_dir, dashboard_events
+        )
+        daemons.extend(shared_daemons)
+        primitives_kwargs.update(shared_kwargs)
+    if "env" in selected:
+        task_daemons, task_kwargs = init_task_runtime(
+            args, output_dir, dashboard_events
+        )
+        daemons.extend(task_daemons)
+        primitives_kwargs.update(task_kwargs)
+    return daemons, primitives_kwargs

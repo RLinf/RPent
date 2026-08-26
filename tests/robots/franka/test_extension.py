@@ -14,20 +14,20 @@ from robots.franka import (
     _add_cli_args,
     _env_server_command,
     _parse_config,
-    get_env_spec,
+    get_robot_spec,
 )
 from robots.franka.physical_agent_env import (
     PhysicalAgentFrankaConfig,
     register_physical_agent_franka_env,
 )
 from robots.franka.runtime_config import load_runtime_config
-from rpent.envs.base import enumerate_envs
-from rpent.envs.base import get_env_spec as resolve_env_spec
+from rpent.robots.base import enumerate_robots
+from rpent.robots.base import get_robot_spec as resolve_robot_spec
 
 
 def test_franka_extension_is_discoverable_and_renders_task_prompt(tmp_path: Path):
-    assert "franka" in enumerate_envs()
-    spec = resolve_env_spec("franka")
+    assert "franka" in enumerate_robots()
+    spec = resolve_robot_spec("franka")
     assert spec.name == "franka"
 
     run_config = _parse_config(
@@ -45,7 +45,7 @@ def test_franka_extension_is_discoverable_and_renders_task_prompt(tmp_path: Path
 
 
 def test_direct_franka_spec_matches_registry_resolution():
-    assert get_env_spec().name == resolve_env_spec("franka").name
+    assert get_robot_spec().name == resolve_robot_spec("franka").name
 
 
 def test_franka_cli_uses_current_interpreter_without_override_option():

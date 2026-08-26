@@ -17,17 +17,17 @@ from robots.dual_franka import (
     _env_server_command,
     _parse_config,
     _vla_server_command,
-    get_env_spec,
+    get_robot_spec,
 )
 from robots.dual_franka.runtime_config import load_runtime_config
 from robots.dual_franka.vla_server import _build_env_obs, build_model_cfg
-from rpent.envs.base import enumerate_envs
-from rpent.envs.base import get_env_spec as resolve_env_spec
+from rpent.robots.base import enumerate_robots
+from rpent.robots.base import get_robot_spec as resolve_robot_spec
 
 
 def test_dual_franka_extension_is_discoverable_and_renders_task_prompt(tmp_path: Path):
-    assert "dual_franka" in enumerate_envs()
-    spec = resolve_env_spec("dual_franka")
+    assert "dual_franka" in enumerate_robots()
+    spec = resolve_robot_spec("dual_franka")
     assert spec.name == "dual_franka"
 
     run_config = _parse_config(
@@ -45,7 +45,7 @@ def test_dual_franka_extension_is_discoverable_and_renders_task_prompt(tmp_path:
 
 
 def test_direct_dual_franka_spec_matches_registry_resolution():
-    assert get_env_spec().name == resolve_env_spec("dual_franka").name
+    assert get_robot_spec().name == resolve_robot_spec("dual_franka").name
 
 
 def test_dual_franka_cli_uses_current_interpreter_without_override_option():

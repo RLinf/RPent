@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from robots.franka.prompts import system as system_parts
 from robots.franka.prompts import user as user_parts
 from rpent.context.prompt_utils import Numbered, PromptNode
 
 
-def system_prompt() -> PromptNode:
+def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the Franka system prompt."""
     return {
         "ROLE": system_parts.ROLE,
@@ -17,7 +19,7 @@ def system_prompt() -> PromptNode:
     }
 
 
-def user_prompt() -> PromptNode:
+def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the task-specific initial user prompt."""
     return {
         "TASK": user_parts.TASK,
