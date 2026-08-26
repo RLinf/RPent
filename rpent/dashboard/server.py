@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 import socket
 import threading
 import time
@@ -52,6 +53,16 @@ from rpent.dashboard.spec import DashboardSpec
 from rpent.dashboard.state import DashboardState, PrimitiveArgumentError
 
 
+def _infer_frame_media_type(artifact: str) -> str:
+    """Infer a Dashboard frame response type from its artifact filename."""
+    media_type, _ = mimetypes.guess_type(artifact)
+    if media_type is None or not media_type.startswith("image/"):
+        raise ValueError(
+            f"Dashboard frame artifact must have a recognized image suffix: {artifact!r}"
+        )
+    return media_type
+
+
 class DashboardServer:
     """Threaded FastAPI server exposing the dashboard API for registered runs."""
 
@@ -69,7 +80,7 @@ class DashboardServer:
         self.runs_dir = runs_dir
         self._dashboard_spec = dashboard_spec
         self._frame_media_types = {
-            channel["name"]: channel["media_type"]
+            channel["name"]: _infer_frame_media_type(channel["artifact"])
             for channel in dashboard_spec["frame_channels"]
         }
         dashboard_dir = Path(__file__).parent
@@ -333,12 +344,12 @@ class DashboardServer:
         ) -> Response:
             live = self._resolve(run)
             try:
-                png = live.frame(kind) if live else None
+                frame = live.frame(kind) if live else None
             except ValueError as exc:
                 return JSONResponse({"detail": str(exc)}, status_code=422)
-            if png is None:
+            if frame is None:
                 return Response(status_code=404)
-            return Response(png, media_type=self._frame_media_types[kind])
+            return Response(frame, media_type=self._frame_media_types[kind])
 
         @app.get("/api/run/video")
         def api_video(run: str) -> Response:

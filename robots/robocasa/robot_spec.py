@@ -132,13 +132,11 @@ ROBOCASA_DASHBOARD_SPEC: DashboardSpec = {
             "name": "camera",
             "label": "fixed camera",
             "artifact": "agentview.png",
-            "media_type": "image/png",
         },
         {
             "name": "wrist",
             "label": "wrist camera",
             "artifact": "wrist.png",
-            "media_type": "image/png",
         },
     ),
     "primitives": (

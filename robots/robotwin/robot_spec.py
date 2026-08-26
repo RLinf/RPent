@@ -143,19 +143,16 @@ ROBOTWIN_DASHBOARD_SPEC: DashboardSpec = {
             "name": "camera",
             "label": "head camera",
             "artifact": "head_rgb.png",
-            "media_type": "image/png",
         },
         {
             "name": "left_wrist",
             "label": "left wrist",
             "artifact": "left_wrist_rgb.png",
-            "media_type": "image/png",
         },
         {
             "name": "right_wrist",
             "label": "right wrist",
             "artifact": "right_wrist_rgb.png",
-            "media_type": "image/png",
         },
     ),
     "primitives": (

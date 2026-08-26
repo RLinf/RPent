@@ -51,7 +51,6 @@ class FrameChannelSpec(TypedDict):
     name: str
     label: str
     artifact: str
-    media_type: str
 
 
 class DashboardSpec(TypedDict):
