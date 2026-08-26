@@ -37,7 +37,7 @@ from rpent.utils.rpc import RpcError, check_response, make_error_response
 
 DEFAULT_TIMEOUT_S = 30.0
 
-logger = get_logger("rpc")
+logger = get_logger("http_rpc")
 
 
 def _from_json(obj: Any) -> Any:

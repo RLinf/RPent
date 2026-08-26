@@ -29,8 +29,7 @@ import pickle
 import socket
 import socketserver
 import struct
-from collections.abc import Callable
-from typing import Any
+from typing import Any, Callable
 
 from rpent.utils.rpc import check_response, make_error_response
 
