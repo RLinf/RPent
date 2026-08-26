@@ -185,7 +185,7 @@ def _spawn_env_server(
     """Spawn or attach to the LIBERO environment server."""
     from rpent.utils.config import get_libero_type
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
-    from rpent.utils.http_rpc import HttpRpcClient
+    from rpent.utils.rpc.http_rpc import HttpRpcClient
 
     libero_type = args.libero_type or get_libero_type()
     cuda_args = (
@@ -227,7 +227,7 @@ def _spawn_vla_server(
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Spawn or attach to the LIBERO VLA server."""
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
-    from rpent.utils.http_rpc import HttpRpcClient
+    from rpent.utils.rpc.http_rpc import HttpRpcClient
 
     if args.vla_endpoint is not None:
         return None, make_rpc_client(args.vla_endpoint)
@@ -259,7 +259,7 @@ def _spawn_sam3_server(
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Spawn or attach to the LIBERO SAM3 server."""
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
-    from rpent.utils.http_rpc import HttpRpcClient
+    from rpent.utils.rpc.http_rpc import HttpRpcClient
 
     if args.sam3_endpoint is not None:
         return None, make_rpc_client(args.sam3_endpoint)

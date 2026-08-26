@@ -134,8 +134,8 @@ class RpcFacade:
         closes — i.e., when the parent process dies.
         """
         from rpent.utils.daemon import watch_parent_death
-        from rpent.utils.http_rpc import HttpRpcServer
-        from rpent.utils.socket_rpc import SocketRpcServer
+        from rpent.utils.rpc.http_rpc import HttpRpcServer
+        from rpent.utils.rpc.socket_rpc import SocketRpcServer
 
         _lock = threading.Lock()
 
@@ -184,8 +184,8 @@ def parse_endpoint(endpoint: str) -> tuple[str, str, int]:
 
 def make_rpc_client(endpoint: str) -> RpcClient:
     """Build an HTTP or socket client for ``endpoint``."""
-    from rpent.utils.http_rpc import HttpRpcClient
-    from rpent.utils.socket_rpc import SocketRpcClient
+    from rpent.utils.rpc.http_rpc import HttpRpcClient
+    from rpent.utils.rpc.socket_rpc import SocketRpcClient
 
     protocol, host, port = parse_endpoint(endpoint)
     if protocol == "http":

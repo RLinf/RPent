@@ -40,7 +40,7 @@ def _png_b64(img: np.ndarray) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-class VLAClient:
+class Pi05VLAClient:
     """Client wrapping a remote Pi0.5 VLA over any :class:`RpcClient` transport.
 
     Only call site is ``LiberoPrimitives``, which uses one method:

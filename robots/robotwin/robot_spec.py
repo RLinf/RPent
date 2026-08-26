@@ -532,7 +532,7 @@ def _spawn_env_server(
             },
             log_path=str(output_dir / "robotwin_env_server.log"),
         )
-        from rpent.utils.http_rpc import HttpRpcClient
+        from rpent.utils.rpc.http_rpc import HttpRpcClient
 
         env_rpc = HttpRpcClient(f"http://{host}:{env_port}")
         env_daemon.start()

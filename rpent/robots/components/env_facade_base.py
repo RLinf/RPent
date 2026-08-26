@@ -72,7 +72,7 @@ class BaseEnvFacade(RpcFacade):
         with self._dispatch_lock.write():
             return handler(*args, **kwargs)
 
-    # ---- functionality (subclasses must override) ----
+    # ---- abstract methods (subclasses must override) ----
     def reset(self):
         """Reset the env and return ``(initial_obs, info)``."""
         raise NotImplementedError
