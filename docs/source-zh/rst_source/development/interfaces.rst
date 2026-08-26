@@ -13,7 +13,7 @@
 .. code-block:: python
 
    def get_robot_spec() -> RobotSpec: ...
-   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None): ...
+   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink): ...
 
 ``get_robot_spec`` 返回 ``RobotSpec``，其中你需要提供：
 
@@ -42,7 +42,9 @@
        的 shared 和 unique 子集后分别传入。``DashboardEventSink`` 用于上报运行时状态。
 
 ``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给机器人子类；
-``dashboard_events``、``video_path`` 由当前 runner 传入，通常不用改。
+``dashboard_events`` 由当前 runner 传入。如果机器人需要额外的运行上下文参数
+（LIBERO 追加了 ``mode``、``attempts_per_session``、``state_output_dir``），以
+keyword-only 参数声明，由 runner 在该机器人的 CLI 分支中显式传入。
 
 参考实现：``robots/libero/robot_spec.py``。
 

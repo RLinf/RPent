@@ -150,13 +150,13 @@ two factories exposed by that package:
    # robots/myrobot/__init__.py
    def get_robot_spec() -> RobotSpec: ...  # identity, prompt bundle, and runner hooks
    def get_toolkit(
-       *, primitives_kwargs, dashboard_events, video_path=None
+       *, primitives_kwargs, dashboard_events
    ): ...
 
-``RobotSpec`` gathers the environment's identity, prompt templates, optional
-Dashboard description, and three runner hooks: ``add_cli_args`` /
-``parse_config`` / ``init_runtime``. See :doc:`interfaces` for what each field
-must provide.
+``RobotSpec`` gathers the robot's identity, prompt templates, optional
+Dashboard description, and three runner hooks (``add_cli_args`` /
+``parse_config`` / ``init_runtime``),. See :doc:`interfaces` for what each
+field must provide.
 
 The loader itself does not maintain a list of robot names. The
 current CLI restricts ``--robot`` to ``libero`` and ``robocasa``; adding a

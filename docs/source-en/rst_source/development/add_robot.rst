@@ -72,12 +72,11 @@ these two functions:
            dashboard=MYROBOT_DASHBOARD_SPEC,
        )
 
-   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None):
+   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink):
        from robots.myrobot.toolkit import MyRobotToolkit
        return MyRobotToolkit(
            primitives_kwargs=primitives_kwargs,
            dashboard_events=dashboard_events,
-           video_path=video_path,
        )
 
    def _add_cli_args(parser, use_dashboard) -> None:
@@ -101,7 +100,7 @@ these two functions:
        ...
 
 ``dashboard`` is optional. Leave it as ``None`` if the environment does not
-support Dashboard control. Otherwise, define the spec in the environment
+support Dashboard control. Otherwise, define the spec in the robot
 package: its ``task`` section describes the command, validated fields, display
 template, and output slug; ``runtime_components`` and ``frame_channels``
 describe the environment-specific rows and camera views rendered by the
@@ -275,7 +274,7 @@ filenames rather than maintaining a parallel observation index.
 **Toolkit class** — subclass ``rpent.tools.toolkit.Toolkit``:
 
 - build the primitives in ``__init__`` through a custom initialization
-  helper (named ``init_primitives_clean`` in LIBERO; it calls
+  helper (named ``init_primitives`` in LIBERO; it calls
   ``EnvState.reset()``, constructs the primitives, and dumps step 0),
 - register each tool with ``self.add_tool(name, spec, handler)`` — stateless
   readers (``view_env_state``, ``finish``, …) bind directly to module-level
