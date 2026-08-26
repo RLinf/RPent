@@ -104,6 +104,10 @@ class RpcFacade:
         self._rpc: dict[str, Any] = {}
         self._readonly_methods: set[str] = set()
 
+    def close(self) -> None:
+        """Clean up resources. Override in subclasses that hold resources."""
+        pass
+
     def _builtin_dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
         """Handle framework methods (healthz, shutdown).
 
@@ -171,6 +175,7 @@ class RpcFacade:
         finally:
             server.shutdown()
             server.server_close()
+            self.close()
 
 
 __all__ = [
