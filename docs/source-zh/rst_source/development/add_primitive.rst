@@ -84,8 +84,8 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 由于模型运行在独立进程中，添加基于模型的原语还需要以下组件：
 
 1. **编写 ``vla_server.py``。** 该进程只持有模型权重和 CUDA 上下文。
-   继承 :class:`rpent.tools.vla_facade_base.BaseVLAFacade`，实现 ``predict``，
-   并通过扩展 ``_register_rpc`` 注册其他模型 RPC：
+   继承 :class:`rpent.robots.components.vla_facade_base.BaseVLAFacade`，实现
+   ``predict``，并通过扩展 ``_register_rpc`` 注册其他模型 RPC：
 
    - 默认传输方式为 **HTTP**，通过 ``POST /call`` 传输 JSON，适合
      LIBERO/Pi0.5 使用的扁平 ``image + state`` 数据。
@@ -97,14 +97,15 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
    检测父进程退出并清理资源。
 
 2. **编写 model client。** 继承
-   :class:`rpent.tools.vla_client_base.BaseVLAClient`；它已经提供公共的
-   ``vla.predict`` 调用，子类只需增加环境专用的输入 / 输出适配。LIBERO 的
-   实现可参考 ``robots.libero.vla_client.LiberoVLAClient``。
+   :class:`rpent.robots.components.vla_client_base.BaseVLAClient`；它已经提供
+   公共的 ``vla.predict`` 调用，子类只需增加环境专用的输入 / 输出适配。
+   LIBERO 的实现可参考
+   ``rpent.robots.components.pi05_vla_client.Pi05VLAClient``。
 
 3. **在 primitives 中添加方法。** 在当前机器人的 primitives
    类中调用 model client，将其返回的动作块交给环境执行，并返回日志字典。
    model client 的接口是
-   :meth:`robots.libero.vla_client.LiberoVLAClient.predict_action_batch`，
+   :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict_action_batch`，
    指令从 ``env_obs["task_descriptions"]`` 中读取，不接受关键字参数：
 
    .. code-block:: python

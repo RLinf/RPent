@@ -16,8 +16,8 @@ from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
 from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
-from rpent.utils.http_rpc import HttpRpcClient
 from rpent.utils.rpc import make_rpc_client
+from rpent.utils.rpc.http_rpc import HttpRpcClient
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
@@ -327,7 +327,13 @@ def _spawn_vla_server(
         name="vla_server",
         cmd=[
             sys.executable,
-            str(get_repo_root() / "robots" / "libero" / "vla_server.py"),
+            str(
+                get_repo_root()
+                / "rpent"
+                / "robots"
+                / "components"
+                / "pi05_vla_server.py"
+            ),
             "--transport",
             "http",
             "--host",
@@ -355,7 +361,7 @@ def _spawn_sam3_server(
         name="sam3_server",
         cmd=[
             sys.executable,
-            str(get_repo_root() / "robots" / "libero" / "sam3_server.py"),
+            str(get_repo_root() / "rpent" / "robots" / "components" / "sam3_server.py"),
             "--transport",
             "http",
             "--host",
@@ -379,8 +385,8 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every LIBERO component, or only ``components`` when given."""
     from robots.libero.env_client import LiberoEnvClient
-    from robots.libero.sam3_client import Sam3Client
-    from robots.libero.vla_client import LiberoVLAClient
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+    from rpent.robots.components.sam3_client import Sam3Client
 
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
@@ -399,7 +405,7 @@ def _init_runtime(
                 },
             )
         },
-        "vla": lambda rpc: {"model": LiberoVLAClient(rpc)},
+        "vla": lambda rpc: {"model": Pi05VLAClient(rpc)},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
     }
     selected = set(starters) if components is None else components

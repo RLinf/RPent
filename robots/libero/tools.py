@@ -10,8 +10,8 @@ from typing import Any
 import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
-from robots.libero.sam3_client import Sam3Client
-from robots.libero.vla_client import LiberoVLAClient
+from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+from rpent.robots.components.sam3_client import Sam3Client
 from rpent.tools.state import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
 from rpent.utils.logging import get_logger
@@ -40,7 +40,7 @@ class LiberoPrimitives:
     def __init__(
         self,
         env: LiberoEnvClient,
-        model: LiberoVLAClient,
+        model: Pi05VLAClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
     ):
@@ -787,7 +787,10 @@ def _is_primitive_action(name: object) -> bool:
     method = getattr(LiberoPrimitives, name, None)
     return method is not None and not bool(getattr(method, "_readonly", False))
 
-def write_recipe_from_states(state: EnvState, recipe_tag: str, *, output_dir: Path | str) -> str:
+
+def write_recipe_from_states(
+    state: EnvState, recipe_tag: str, *, output_dir: Path | str
+) -> str:
     """Find a command sequence that gets ``terminated=True``.
 
     Export non-error LIBERO primitive commands and successful segment calls.
@@ -799,10 +802,7 @@ def write_recipe_from_states(state: EnvState, recipe_tag: str, *, output_dir: Pa
             for record in records
             if (
                 (record.command or {}).get("action") == "reset"
-                and not (
-                    isinstance(record.result, dict)
-                    and record.result.get("error")
-                )
+                and not (isinstance(record.result, dict) and record.result.get("error"))
             )
         ),
         default=-1,
@@ -844,9 +844,7 @@ def write_recipe_from_states(state: EnvState, recipe_tag: str, *, output_dir: Pa
     # Never publish a failed trajectory as a recipe. The environment trace is
     # authoritative; an agent's self-reported finish status is not.
     solved = any(
-        record.terminated
-        for record in records
-        if record.step_idx > last_reset
+        record.terminated for record in records if record.step_idx > last_reset
     )
     if not solved:
         return ""
@@ -854,7 +852,9 @@ def write_recipe_from_states(state: EnvState, recipe_tag: str, *, output_dir: Pa
     recipe_name = f"recipe_{recipe_tag}.jsonl"
     recipe_path = Path(output_dir) / recipe_name
     recipe_path.parent.mkdir(parents=True, exist_ok=True)
-    recipe_path.write_text("".join(json.dumps(command) + "\n" for _, command in command_events))
+    recipe_path.write_text(
+        "".join(json.dumps(command) + "\n" for _, command in command_events)
+    )
     return recipe_name
 
 

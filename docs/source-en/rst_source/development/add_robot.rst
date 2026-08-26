@@ -126,7 +126,7 @@ method calls into RPC requests, and ``env_server`` handles those requests.
 1.1 Env client (agent side)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Subclass :class:`rpent.tools.env_client_base.BaseEnvClient`. It already
+Subclass :class:`rpent.robots.components.env_client_base.BaseEnvClient`. It already
 validates ``env.get_env_meta`` at startup, performs the initial reset, caches
 ``last_obs``, and implements the common ``reset``, ``step``, and
 ``chunk_step`` RPCs. Add only environment-specific methods (LIBERO adds
@@ -136,7 +136,7 @@ the server-side facade registers each name explicitly.
 
 .. code-block:: python
 
-   from rpent.tools.env_client_base import BaseEnvClient
+   from rpent.robots.components.env_client_base import BaseEnvClient
 
    class MyEnvClient(BaseEnvClient):
        _TIMEOUT_S = {
@@ -158,7 +158,7 @@ the server-side facade registers each name explicitly.
 
 Mirror the client's API in a facade class on the server side (e.g.
 ``MyEnvFacade``). Subclass
-:class:`rpent.tools.env_facade_base.BaseEnvFacade`; it provides the common RPC
+:class:`rpent.robots.components.env_facade_base.BaseEnvFacade`; it provides the common RPC
 routes and read/write dispatch locking. Implement the common environment
 methods and extend ``_register_rpc`` for environment-specific routes. Methods
 take the same positional / keyword arguments the client sends and return
@@ -167,7 +167,7 @@ import torch).
 
 .. code-block:: python
 
-   from rpent.tools.env_facade_base import BaseEnvFacade
+   from rpent.robots.components.env_facade_base import BaseEnvFacade
 
    class MyEnvFacade(BaseEnvFacade):
        def __init__(self, env, meta):

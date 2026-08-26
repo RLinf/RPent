@@ -13,8 +13,10 @@ class BaseEnvClient:
 
     def __init__(self, client, *, expected_meta: dict):
         self._client = client
-        server_meta = self._client.call("env.get_env_meta",
-                                        timeout_s=self._TIMEOUT_S["default"])
+        server_meta = self._client.call(
+            "env.get_env_meta",
+            timeout_s=self._TIMEOUT_S["default"],
+        )
         assert server_meta == expected_meta, (
             f"env_meta mismatch: expected={expected_meta!r} actual={server_meta!r}. "
             "The env_server was launched with different args than this client "
@@ -25,8 +27,10 @@ class BaseEnvClient:
     def reset(self):
         """Reset the env and return the initial obs. Also updates the
         ``self.last_obs`` cache."""
-        self.last_obs = self._client.call("env.reset",
-                                           timeout_s=self._TIMEOUT_S["env.reset"])
+        self.last_obs = self._client.call(
+            "env.reset",
+            timeout_s=self._TIMEOUT_S["env.reset"],
+        )
         return self.last_obs
 
     def step(self, flat_action):
@@ -36,8 +40,11 @@ class BaseEnvClient:
         Also updates the ``self.last_obs`` cache with the first element (obs)
         of the returned tuple.
         """
-        result = self._client.call("env.step", args=(flat_action,),
-                                   timeout_s=self._TIMEOUT_S["env.step"])
+        result = self._client.call(
+            "env.step",
+            args=(flat_action,),
+            timeout_s=self._TIMEOUT_S["env.step"],
+        )
         self.last_obs = result[0]
         return result
 
@@ -55,9 +62,12 @@ class BaseEnvClient:
         renders agentview per step (high-density video); ``False`` renders only
         the final obs (fast).
         """
-        result = self._client.call("env.chunk_step", args=(flat_actions,),
-                                   kwargs={"return_all_frames": return_all_frames},
-                                   timeout_s=self._TIMEOUT_S["env.chunk_step"])
+        result = self._client.call(
+            "env.chunk_step",
+            args=(flat_actions,),
+            kwargs={"return_all_frames": return_all_frames},
+            timeout_s=self._TIMEOUT_S["env.chunk_step"],
+        )
         obs_field = result[0]
         if isinstance(obs_field, list):
             self.last_obs = obs_field[-1]

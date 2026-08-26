@@ -53,6 +53,6 @@ class BaseVLAFacade(RpcFacade):
         with self._dispatch_lock.write():
             return handler(*args, **kwargs)
 
-    # ---- abstract methods ----
+    # ---- abstract methods (subclasses must override) ----
     def predict(self, obs, options):
         raise NotImplementedError

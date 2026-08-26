@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from rpent.tools.vla_client_base import BaseVLAClient
+from rpent.robots.components.vla_client_base import BaseVLAClient
 
 
 class LingBotWebSocketTransport:

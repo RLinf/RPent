@@ -16,7 +16,7 @@ class BaseEnvFacade(RpcFacade):
     State-caching principle:
         The server side does **not** cache any observation results. Cache
         variables such as ``_last_obs`` / ``_terminated`` live only on the
-        client side (see ``BaseEnvClient`` in ``rpent/tools/env_client_base.py``).
+        client side (see ``BaseEnvClient`` in ``rpent.robots.components.env_client_base.py``).
         The server is stateless (apart from the env's own physical state) and
         re-reads the env on every request.
 
@@ -44,7 +44,7 @@ class BaseEnvFacade(RpcFacade):
         self._readonly_methods: set[str] = set()
         self._register_rpc()
 
-    # ---- lifecycle ----
+    # ---- framework ----
     def get_env_meta(self) -> dict:
         """Returns a snapshot dict of the launch args, used by the client to
         verify config consistency after startup."""
@@ -72,7 +72,7 @@ class BaseEnvFacade(RpcFacade):
         with self._dispatch_lock.write():
             return handler(*args, **kwargs)
 
-    # ---- functionality (subclasses must override) ----
+    # ---- abstract methods (subclasses must override) ----
     def reset(self):
         """Reset the env and return ``(initial_obs, info)``."""
         raise NotImplementedError

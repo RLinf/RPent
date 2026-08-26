@@ -93,7 +93,7 @@ def run_dashboard_session(
         not getattr(args, "explore", False)
         and getattr(args, "memory_profile", "hf") == "hf"
     ):
-        ensure_resources(args.robot_name)
+        ensure_resources(robot_spec)
     state = DashboardState(
         run_id=f"dashboard-session/{session_root.name}",
         output_dir=session_root,

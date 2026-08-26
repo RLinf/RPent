@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from rpent.tools.vla_facade_base import BaseVLAFacade
+from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.config import (
     get_pi05_checkpoint_path,
     get_repo_root,
@@ -67,12 +67,12 @@ def build_model_cfg(model_path: str) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Facade implementing the robots.libero.vla_client protocol
+# Facade implementing the Pi0.5 client protocol
 # ---------------------------------------------------------------------------
 
 
-class LiberoVLAFacade(BaseVLAFacade):
-    """Implements :class:`LiberoVLAClient` over a Pi0.5 model.
+class Pi05VLAFacade(BaseVLAFacade):
+    """Implements :class:`rpent.robots.components.pi05_vla_client.Pi05VLAClient` over a Pi0.5 model.
 
     Loads the model once at construction; each ``predict`` call runs one
     inference batch and returns its NumPy action array.
@@ -205,7 +205,7 @@ def main() -> None:
             "path via --model-path or the environment."
         )
 
-    facade = LiberoVLAFacade(model_path=model_path)
+    facade = Pi05VLAFacade(model_path=model_path)
     facade.serve(
         transport=args.transport,
         host=args.host,

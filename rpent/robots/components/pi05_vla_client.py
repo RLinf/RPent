@@ -6,11 +6,11 @@ from typing import Any
 
 import numpy as np
 
-from rpent.tools.vla_client_base import BaseVLAClient
+from rpent.robots.components.vla_client_base import BaseVLAClient
 
 
-class LiberoVLAClient(BaseVLAClient):
-    """Wrap a remote Pi0.5 server behind the common VLA RPC client."""
+class Pi05VLAClient(BaseVLAClient):
+    """Adapt LIBERO observations to the common VLA RPC protocol."""
 
     def predict_action_batch(
         self,

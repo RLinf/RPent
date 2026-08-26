@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rpent.utils.config import get_resources_dir
 from rpent.utils.logging import get_logger
 
-RESOURCES_HF_REPO = os.environ.get("RPENT_RESOURCES_HF_REPO", "RLinf/RPent-memory")
+if TYPE_CHECKING:
+    from rpent.robots.robot_spec import RobotSpec
 
 logger = get_logger("resources")
 
@@ -16,8 +18,13 @@ def _has_local_resources(resources_dir: Path) -> bool:
     return resources_dir.is_dir() and any(path.is_file() for path in resources_dir.rglob("*"))
 
 
-def ensure_resources(robot_name: str) -> Path:
+def ensure_resources(robot_spec: "RobotSpec") -> Path:
     """Sync a robot's optional resources, or use a pre-downloaded copy."""
+    robot_name = robot_spec.name
+    repo_id = os.environ.get(
+        "RPENT_RESOURCES_HF_REPO",
+        robot_spec.resources_repo_id,
+    )
     resources_dir = get_resources_dir(robot_name)
 
     if os.environ.get("HF_HUB_OFFLINE") == "1":
@@ -30,7 +37,7 @@ def ensure_resources(robot_name: str) -> Path:
                 resources_dir,
                 robot_name,
                 robot_name,
-                RESOURCES_HF_REPO,
+                repo_id,
             )
         return resources_dir
 
@@ -38,7 +45,7 @@ def ensure_resources(robot_name: str) -> Path:
         from huggingface_hub import snapshot_download
 
         snapshot_download(
-            repo_id=RESOURCES_HF_REPO,
+            repo_id=repo_id,
             repo_type="dataset",
             local_dir=str(resources_dir.parent),
             allow_patterns=[f"{robot_name}/**"],
@@ -49,7 +56,7 @@ def ensure_resources(robot_name: str) -> Path:
                 "could not sync '%s' from '%s': %s; continuing with local files "
                 "under %s",
                 robot_name,
-                RESOURCES_HF_REPO,
+                repo_id,
                 exc,
                 resources_dir,
             )
@@ -58,7 +65,7 @@ def ensure_resources(robot_name: str) -> Path:
                 "could not sync '%s' from '%s': %s; no local resources were found "
                 "under %s, so curated memory and task references will be unavailable",
                 robot_name,
-                RESOURCES_HF_REPO,
+                repo_id,
                 exc,
                 resources_dir,
             )

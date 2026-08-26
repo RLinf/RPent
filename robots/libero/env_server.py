@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from rpent.tools.env_facade_base import BaseEnvFacade
+from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.config import (
     get_repo_root,
     get_rlinf_repo_path,

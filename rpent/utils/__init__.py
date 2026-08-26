@@ -2,7 +2,7 @@
 
 from rpent.utils.logging import get_logger, get_output_dir, init_output_dir
 from rpent.utils.rpc import RpcClient, RpcError, make_rpc_client, parse_endpoint
-from rpent.utils.socket_rpc import (
+from rpent.utils.rpc.socket_rpc import (
     SocketRpcClient,
     SocketRpcServer,
 )

@@ -115,7 +115,7 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
 1.1 Env client（agent 侧）
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-继承 :class:`rpent.tools.env_client_base.BaseEnvClient`。它已经负责启动时校验
+继承 :class:`rpent.robots.components.env_client_base.BaseEnvClient`。它已经负责启动时校验
 ``env.get_env_meta``、执行首次 reset、缓存 ``last_obs``，并实现公共的
 ``reset``、``step`` 和 ``chunk_step`` RPC。子类只需增加环境专用方法（LIBERO
 增加了 ``render_camera``、``get_camera_meta``、``get_task_language`` 等）；扩展方法
@@ -124,7 +124,7 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
 
 .. code-block:: python
 
-   from rpent.tools.env_client_base import BaseEnvClient
+   from rpent.robots.components.env_client_base import BaseEnvClient
 
    class MyEnvClient(BaseEnvClient):
        _TIMEOUT_S = {
@@ -146,14 +146,14 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
 
 在 ``env_server`` 中定义与 client API 对应的 facade 类，例如
 ``MyEnvFacade``。该类继承
-:class:`rpent.tools.env_facade_base.BaseEnvFacade`；基类已提供公共 RPC 路由和
+:class:`rpent.robots.components.env_facade_base.BaseEnvFacade`；基类已提供公共 RPC 路由和
 读写分派锁。子类实现公共环境方法，并通过 ``_register_rpc`` 增加环境专用路由。
 方法接收与 client 一致的位置参数和关键字参数，返回传输层支持的 Python / NumPy
 值（不要返回 torch；agent 进程不导入 torch）。
 
 .. code-block:: python
 
-   from rpent.tools.env_facade_base import BaseEnvFacade
+   from rpent.robots.components.env_facade_base import BaseEnvFacade
 
    class MyEnvFacade(BaseEnvFacade):
        def __init__(self, env, meta):

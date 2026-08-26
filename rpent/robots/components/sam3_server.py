@@ -3,7 +3,7 @@
 Run manually with::
 
     SAM3_CHECKPOINT_PATH=/path/to/sam3.pt \
-        python -m robots.libero.sam3_server \
+        python -m rpent.robots.components.sam3_server \
         --transport http --host 127.0.0.1 --port 8114
 
 RPent normally starts this process automatically. The service exposes a
