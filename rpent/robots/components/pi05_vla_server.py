@@ -169,17 +169,10 @@ def main() -> None:
     p.add_argument("--transport", choices=["socket", "http"], default="http")
     p.add_argument("--host", type=str, default="127.0.0.1")
     p.add_argument("--port", type=int, default=0)
-    p.add_argument(
-        "--parent-watch",
-        action="store_true",
-        help="watch parent process via stdin pipe and exit when it dies",
-    )
-    p.add_argument(
-        "--cuda-device",
-        type=int,
-        default=None,
-        help="GPU device exposed through CUDA_VISIBLE_DEVICES.",
-    )
+    p.add_argument("--parent-watch", action="store_true",
+                   help="watch parent process via stdin pipe and exit when it dies")
+    p.add_argument("--cuda-device", type=int, default=None,
+                   help="GPU device exposed through CUDA_VISIBLE_DEVICES.")
     p.add_argument(
         "--model-path",
         default=None,
@@ -193,8 +186,7 @@ def main() -> None:
         if prev is not None and prev != target:
             logger.warning(
                 "CUDA_VISIBLE_DEVICES=%s is already set; overriding with --cuda-device=%s",
-                prev,
-                args.cuda_device,
+                prev, args.cuda_device,
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = target
 
