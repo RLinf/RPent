@@ -32,7 +32,7 @@ RPent 内置两类原语：
    * - LIBERO (仿真)
      - Pi0.5
      - HTTP 或 socket RPC
-     - ``robots/libero/vla_server.py``
+     - ``rpent/robots/components/pi05_vla_server.py``
    * - RoboCasa (仿真)
      - RLDX-1
      - HTTP 或 socket RPC

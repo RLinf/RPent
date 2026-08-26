@@ -41,7 +41,7 @@ On the VLA host, set the checkpoint path and start the HTTP service:
 .. code-block:: bash
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
-   python -m robots.libero.vla_server \
+   python -m rpent.robots.components.pi05_vla_server \
      --cuda-device 0 \
      --transport http --host 0.0.0.0 --port VLA_PORT
 
@@ -55,7 +55,7 @@ On the SAM3 host, set the local checkpoint path and start the HTTP service:
 .. code-block:: bash
 
    export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
-   python -m robots.libero.sam3_server \
+   python -m rpent.robots.components.sam3_server \
      --cuda-device 0 \
      --transport http --host 0.0.0.0 --port SAM3_PORT
 

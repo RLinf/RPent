@@ -1,7 +1,7 @@
 """Thin client wrapping the Pi0.5 VLA RPC server.
 
 The server lifecycle is the caller's responsibility: bring up
-``robots/libero/vla_server.py`` (or any compatible ``predict`` /
+``rpent.robots.components.pi05_vla_server`` (or any compatible ``predict`` /
 ``healthz`` implementation) before constructing this client.
 
 Wire schema (see also ``vla_server.py``):
