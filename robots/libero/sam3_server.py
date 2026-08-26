@@ -20,12 +20,12 @@ import logging
 import os
 import threading
 from contextlib import nullcontext
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from PIL import Image
-from pydantic import BaseModel, Field, model_validator
 
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade
@@ -33,27 +33,9 @@ from rpent.utils.rpc import RpcFacade
 logger = get_logger("sam3_server")
 
 
-class SegmentRequest(BaseModel):
-    """Wire request for text or single-point segmentation."""
-
-    image_base64: str
-    text_prompt: str | None = None
-    point: list[int] | None = Field(default=None, min_length=2, max_length=2)
-    min_score: float = Field(default=0.2, ge=0.0, le=1.0)
-
-    @model_validator(mode="after")
-    def _exactly_one_prompt(self) -> "SegmentRequest":
-        has_text = isinstance(self.text_prompt, str) and bool(self.text_prompt.strip())
-        has_point = self.point is not None
-        if has_text == has_point:
-            raise ValueError("provide exactly one of text_prompt or point")
-        if has_text:
-            self.text_prompt = self.text_prompt.strip()
-        return self
-
-
-class SegmentResponse(BaseModel):
-    """Wire response containing at most one compressed binary mask."""
+@dataclass
+class Sam3Result:
+    """Segmentation result with at most one compressed binary mask."""
 
     found: bool
     score: float | None = None
@@ -61,6 +43,9 @@ class SegmentResponse(BaseModel):
     mask_png_base64: str | None = None
     mask_shape: list[int] | None = None
     reason: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {k: v for k, v in self.__dict__.items() if v is not None}
 
 
 def _encode_mask_png(mask: np.ndarray) -> str:
@@ -70,27 +55,15 @@ def _encode_mask_png(mask: np.ndarray) -> str:
     return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
-class Sam3Engine:
-    """Serialize SAM3 inference and cache the latest image backbone state."""
+class Sam3Facade(RpcFacade):
+    """RPC server wrapping the local SAM 3.0 image segmentation model."""
 
-    def __init__(
-        self,
-        model: Any,
-        processor: Any,
-        *,
-        device: str = "cuda",
-        torch_module: Any | None = None,
-    ) -> None:
-        self._model = model
-        self._processor = processor
-        self._device = device
-        self._torch = torch_module
-        self._lock = threading.Lock()
-        self._image_digest: str | None = None
-        self._image_state: dict[str, Any] | None = None
+    def __init__(self, checkpoint: str) -> None:
+        super().__init__()
+        self._load(checkpoint)
+        self._register_rpc()
 
-    @classmethod
-    def load(cls, checkpoint: str) -> "Sam3Engine":
+    def _load(self, checkpoint: str) -> None:
         """Load the official SAM 3.0 model and interactive point head."""
         try:
             import torch
@@ -125,17 +98,26 @@ class Sam3Engine:
             raise RuntimeError(
                 f"failed to load SAM 3.0 checkpoint: {checkpoint_path}"
             ) from exc
-        processor = Sam3Processor(model, device="cuda", confidence_threshold=0.0)
-        return cls(model, processor, device="cuda", torch_module=torch)
+        self._torch = torch
+        self._model = model
+        self._processor = Sam3Processor(model, device="cuda", confidence_threshold=0.0)
+        self._device = "cuda"
+        self._lock = threading.Lock()
+        self._image_digest: str | None = None
+        self._image_state: dict[str, Any] | None = None
 
-    def segment(
+    def _register_rpc(self) -> None:
+        self._rpc["segment"] = self.segment
+        self._readonly_methods.add("segment")
+
+    def _segment_bytes(
         self,
         image_bytes: bytes,
         *,
         text_prompt: str | None,
         point: list[int] | None,
         min_score: float,
-    ) -> SegmentResponse:
+    ) -> Sam3Result:
         """Run one prompt against the cached latest-image features."""
         with self._lock:
             state = self._state_for_image(image_bytes)
@@ -177,7 +159,7 @@ class Sam3Engine:
         state: dict[str, Any],
         prompt: str,
         min_score: float,
-    ) -> SegmentResponse:
+    ) -> Sam3Result:
         with self._inference_context():
             output = self._processor.set_text_prompt(prompt=prompt, state=state)
         return self._select_top(
@@ -193,7 +175,7 @@ class Sam3Engine:
         row: int,
         col: int,
         min_score: float,
-    ) -> SegmentResponse:
+    ) -> Sam3Result:
         if getattr(self._model, "inst_interactive_predictor", None) is None:
             raise RuntimeError("SAM3 instance interactivity is not enabled")
         point_coords = np.asarray([[col, row]], dtype=np.float32)
@@ -219,9 +201,9 @@ class Sam3Engine:
         scores: Any,
         boxes: Any,
         min_score: float,
-    ) -> SegmentResponse:
+    ) -> Sam3Result:
         if masks is None or scores is None:
-            return SegmentResponse(found=False, reason="SAM3 returned no candidate")
+            return Sam3Result(found=False, reason="SAM3 returned no candidate")
         masks_array = (
             masks
             if isinstance(masks, np.ndarray)
@@ -233,7 +215,7 @@ class Sam3Engine:
             else scores.detach().float().cpu().numpy()
         ).reshape(-1)
         if masks_array.size == 0 or scores_array.size == 0:
-            return SegmentResponse(found=False, reason="SAM3 returned no candidate")
+            return Sam3Result(found=False, reason="SAM3 returned no candidate")
         if masks_array.ndim == 4 and masks_array.shape[1] == 1:
             masks_array = masks_array[:, 0]
         if masks_array.ndim == 2:
@@ -256,7 +238,7 @@ class Sam3Engine:
             if boxes_array.ndim >= 2 and index < boxes_array.shape[0]:
                 box = [float(value) for value in boxes_array[index].reshape(-1)[:4]]
         if score < min_score:
-            return SegmentResponse(
+            return Sam3Result(
                 found=False,
                 score=score,
                 box=box,
@@ -265,33 +247,19 @@ class Sam3Engine:
 
         mask = np.asarray(masks_array[index]) > 0
         if mask.ndim != 2 or not mask.any():
-            return SegmentResponse(
+            return Sam3Result(
                 found=False,
                 score=score,
                 box=box,
                 reason="SAM3 returned an empty mask",
             )
-        return SegmentResponse(
+        return Sam3Result(
             found=True,
             score=score,
             box=box,
             mask_png_base64=_encode_mask_png(mask),
             mask_shape=[int(mask.shape[0]), int(mask.shape[1])],
         )
-
-
-class Sam3Facade(RpcFacade):
-    """Expose :class:`Sam3Engine` through the shared RPC transports."""
-
-    def __init__(self, engine: Sam3Engine) -> None:
-        super().__init__()
-        self._engine = engine
-
-    def _dispatch(self, method: str, args: tuple, kwargs: dict, *, session_id: str | None = None) -> Any:
-        with self._lock:
-            if method == "segment":
-                return self.segment(*args, **kwargs)
-            raise ValueError(f"unknown RPC method: {method!r}")
 
     def segment(
         self,
@@ -301,22 +269,23 @@ class Sam3Facade(RpcFacade):
         point: list[int] | None = None,
         min_score: float = 0.2,
     ) -> dict[str, Any]:
-        request = SegmentRequest(
-            image_base64=image_base64,
+        has_text = isinstance(text_prompt, str) and bool(text_prompt.strip())
+        has_point = point is not None
+        if has_text == has_point:
+            raise ValueError("provide exactly one of text_prompt or point")
+        if has_text:
+            text_prompt = text_prompt.strip()
+
+        image_bytes = base64.b64decode(image_base64, validate=True)
+        if not image_bytes:
+            raise ValueError("image_base64 is empty")
+        response = self._segment_bytes(
+            image_bytes,
             text_prompt=text_prompt,
             point=point,
             min_score=min_score,
         )
-        image_bytes = base64.b64decode(request.image_base64, validate=True)
-        if not image_bytes:
-            raise ValueError("image_base64 is empty")
-        response = self._engine.segment(
-            image_bytes,
-            text_prompt=request.text_prompt,
-            point=request.point,
-            min_score=request.min_score,
-        )
-        return response.model_dump(exclude_none=True)
+        return response.to_dict()
 
 
 def _build_argparser() -> argparse.ArgumentParser:
@@ -354,8 +323,7 @@ def main() -> None:
             "SAM3_CHECKPOINT_PATH is not set; export the path to sam3.pt "
             "before starting RPent"
         )
-    engine = Sam3Engine.load(checkpoint)
-    facade = Sam3Facade(engine)
+    facade = Sam3Facade(checkpoint)
     facade.serve(
         transport=args.transport,
         host=args.host,

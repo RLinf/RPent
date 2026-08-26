@@ -19,7 +19,7 @@ from rpent.utils.config import (
     get_rlinf_repo_path,
 )
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc import RpcFacade
+from rpent.robots.components.vla_facade_base import BaseVLAFacade
 
 logger = get_logger("vla_server")
 
@@ -68,6 +68,7 @@ def build_model_cfg(model_path: str) -> Any:
 
 
 def _decode_image_block(block: dict[str, Any]) -> np.ndarray:
+    """Decode a base64-encoded PNG image block to an RGB uint8 array."""
     import imageio.v2 as imageio
     fmt = (block.get("format") or "png").lower()
     if fmt != "png":
@@ -84,15 +85,18 @@ def _decode_image_block(block: dict[str, Any]) -> np.ndarray:
     return img
 
 
-def _build_env_obs(instruction: str, images: dict[str, Any],
-                   state: list) -> dict[str, Any]:
+def _decode_libero_obs(instruction: str, images: dict[str, Any],
+                        state: list) -> dict[str, Any]:
+    """Build a LIBERO openpi model obs dict from Pi0.5 wire-protocol parameters.
+
+    ``wrist_images`` / ``extra_view_images`` are set to ``None`` when absent;
+    downstream policies (e.g. openpi ``obs_processor``) index them directly
+    rather than ``.get``.
+    """
     if "main" not in images:
         raise ValueError("'images.main' is required")
     main = _decode_image_block(images["main"])
     main_batch = main[None]
-    # ``wrist_images`` / ``extra_view_images`` must be present even when unused;
-    # downstream policies (e.g. openpi ``obs_processor``) index them directly
-    # rather than ``.get`` and would KeyError on missing keys.
     obs: dict[str, Any] = {
         "main_images": main_batch,
         "task_descriptions": [str(instruction)] * main_batch.shape[0],
@@ -111,15 +115,15 @@ def _build_env_obs(instruction: str, images: dict[str, Any],
 
 
 # ---------------------------------------------------------------------------
-# Facade implementing the rpent.utils.vla_client protocol
+# Pi0.5 VLA Facade
 # ---------------------------------------------------------------------------
 
 
-class VLAFacade(RpcFacade):
-    """Implements :class:`rpent.utils.vla_client.VLAClient` over a Pi0.5 model.
+class Pi05VLAFacade(BaseVLAFacade):
+    """Pi0.5 VLA model server. Loads the model once at construction.
 
-    Loads the model once at construction; each ``predict`` call runs one
-    single-env inference and returns a JSON-safe dict.
+    Each ``predict`` call runs single-env inference and returns a JSON-safe
+    dict over the Pi0.5 wire protocol.
     """
 
     def __init__(self, model_path: str):
@@ -132,15 +136,12 @@ class VLAFacade(RpcFacade):
         self._model = get_openpi_model(cfg, torch_dtype=None).cuda().eval()
         logger.info("model ready in %.1fs", time.time() - t0)
 
-    def _dispatch(self, method: str, args: tuple, kwargs: dict, *, session_id: str | None = None) -> Any:
-        with self._lock:
-            if method == "predict":
-                return self.predict(*args, **kwargs)
-            raise ValueError(f"unknown RPC method: {method!r}")
+    def _register_rpc(self):
+        self._rpc["predict"] = self.predict
 
     def predict(self, instruction: str, images: dict[str, Any], state: list,
                 mode: str = "eval") -> dict[str, Any]:
-        env_obs = _build_env_obs(instruction, images, state)
+        env_obs = _decode_libero_obs(instruction, images, state)
         with torch.no_grad():
             actions, _ = self._model.predict_action_batch(env_obs, mode=mode)
         actions_np = (
@@ -193,7 +194,7 @@ def main() -> None:
             "path via --model-path or the environment."
         )
 
-    facade = VLAFacade(model_path=model_path)
+    facade = Pi05VLAFacade(model_path=model_path)
     facade.serve(
         transport=args.transport,
         host=args.host,

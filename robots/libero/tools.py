@@ -13,7 +13,7 @@ from rpent.tools.state import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
 from rpent.utils.logging import get_logger
 from rpent.robots.components.sam3_client import Sam3Client
-from rpent.robots.components.pi05_vla_client import VLAClient
+from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
 logger = get_logger("libero")
 
@@ -39,7 +39,7 @@ class LiberoPrimitives:
     def __init__(
         self,
         env: LiberoEnvClient,
-        model: VLAClient,
+        model: Pi05VLAClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
     ):
@@ -117,7 +117,7 @@ class LiberoPrimitives:
             self._last_obs["task_descriptions"] = instruction
             self._last_obs.setdefault("extra_view_images", None)
 
-            actions, _ = self.model.predict_action_batch(self._last_obs, mode="eval")
+            actions, _ = self.model.predict(self._last_obs, mode="eval")
             self._check_cancelled()
 
             if not self._recording:

@@ -1,10 +1,10 @@
-"""Thin client wrapping the Pi0.5 VLA RPC server.
+"""Thin client wrapping the Pi0.5 VLA RPC server, used by LIBERO.
 
 The server lifecycle is the caller's responsibility: bring up
-``robots/libero/vla_server.py`` (or any compatible ``predict`` /
+``rpent.robots.components.pi05_vla_server`` (or any compatible ``predict`` /
 ``healthz`` implementation) before constructing this client.
 
-Wire schema (see also ``vla_server.py``):
+Wire schema (see also ``pi05_vla_server``):
 
     call("predict", kwargs={
         "instruction": "<task_descriptions>",
@@ -26,10 +26,11 @@ from typing import Any
 
 import numpy as np
 
-from rpent.utils.rpc import RpcClient
+from rpent.robots.components.vla_client_base import BaseVLAClient
 
 
 def _png_b64(img: np.ndarray) -> str:
+    """Encode an RGB uint8 image to a base64-encoded PNG string."""
     import imageio.v2 as imageio
 
     arr = np.asarray(img)
@@ -40,54 +41,80 @@ def _png_b64(img: np.ndarray) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-class VLAClient:
-    """Client wrapping a remote Pi0.5 VLA over any :class:`RpcClient` transport.
+def _encode_libero_obs(obs: dict[str, Any]) -> tuple[str, dict[str, Any], list]:
+    """Extract Pi0.5 wire-protocol parameters from a LIBERO observation dict.
 
-    Only call site is ``LiberoPrimitives``, which uses one method:
-    ``predict_action_batch(env_obs, mode="eval")``.
+    Returns ``(instruction, images, state)`` suitable for passing to
+    ``Pi05VLAClient._predict_protocol`` or directly to the Pi0.5 VLA server's
+    RPC ``predict`` method.
+
+    Other environments implement their own ``_encode_*`` function and reuse
+    ``_predict_protocol``.
+    """
+    main_images = np.asarray(obs["main_images"])
+    if main_images.ndim != 3:
+        raise ValueError(
+            f"main_images expected shape [H,W,3]; got {main_images.shape}"
+        )
+    images: dict[str, Any] = {
+        "main": {"format": "png", "data": _png_b64(main_images)},
+    }
+    for src_key, wire_key in (("wrist_images", "wrist"), ("extra_view_images", "extra")):
+        view = obs.get(src_key)
+        if view is None:
+            continue
+        arr = np.asarray(view)
+        if arr.size > 0 and arr.ndim == 3:
+            images[wire_key] = {"format": "png", "data": _png_b64(arr)}
+
+    states = np.asarray(obs["states"]).astype(np.float32)
+    if states.ndim != 1:
+        raise ValueError(
+            f"states must be single-env shape [state_dim]; got {states.shape}"
+        )
+    return obs.get("task_descriptions") or "", images, [states.tolist()]
+
+
+class Pi05VLAClient(BaseVLAClient):
+    """Pi0.5 VLA client. ``predict(obs, mode)`` is the LIBERO entry point.
+
+    ``_predict_protocol`` is the pure Pi0.5 wire-protocol layer — other
+    environments can reuse it after encoding their own obs.
     """
 
-    def __init__(self, client: RpcClient):
-        self._client = client
-
-    def healthz(self, *, timeout_s: float | None = None) -> dict[str, Any]:
-        return self._client.call("healthz", timeout_s=timeout_s)
-
-    def predict_action_batch(
+    def predict(
         self,
-        env_obs: dict[str, Any],
+        obs: dict[str, Any],
         mode: str = "eval",
         **_kwargs,
     ) -> tuple[np.ndarray, dict[str, Any]]:
-        main_images = np.asarray(env_obs["main_images"])
-        if main_images.ndim != 3:
-            raise ValueError(
-                f"main_images expected shape [H,W,3]; got {main_images.shape}"
-            )
-        images: dict[str, Any] = {
-            "main": {"format": "png", "data": _png_b64(main_images)},
-        }
-        for src_key, wire_key in (("wrist_images", "wrist"), ("extra_view_images", "extra")):
-            view = env_obs.get(src_key)
-            if view is None:
-                continue
-            arr = np.asarray(view)
-            if arr.size > 0 and arr.ndim == 3:
-                images[wire_key] = {"format": "png", "data": _png_b64(arr)}
+        instruction, images, state = _encode_libero_obs(obs)
+        return self._predict_protocol(instruction, images, state, mode)
 
-        states = np.asarray(env_obs["states"]).astype(np.float32)
-        if states.ndim != 1:
-            raise ValueError(
-                f"states must be single-env shape [state_dim]; got {states.shape}"
-            )
+    def _predict_protocol(
+        self,
+        instruction: str,
+        images: dict[str, Any],
+        state: list,
+        mode: str = "eval",
+    ) -> tuple[np.ndarray, dict[str, Any]]:
+        """Pure Pi0.5 wire-protocol: RPC call + response unpacking.
 
+        Args:
+            instruction: task description string.
+            images: dict like ``{"main": {"format": "png", "data": "..."}}``.
+            state: list of shape ``[[B, state_dim]]``.
+            mode: ``"eval"`` or ``"train"``.
+
+        Returns:
+            ``(actions, info)`` where actions is ``[chunk, action_dim]``.
+        """
         payload = self._client.call(
             "predict",
             kwargs={
-                "instruction": env_obs.get("task_descriptions") or "",
+                "instruction": instruction,
                 "images": images,
-                # vla_server's wire still expects [B, state_dim]
-                "state": [states.tolist()],
+                "state": state,
                 "mode": mode,
             },
         )

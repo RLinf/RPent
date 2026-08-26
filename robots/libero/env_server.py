@@ -14,7 +14,7 @@ from rpent.utils.config import (
     get_rlinf_repo_path,
 )
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc import RpcFacade
+from rpent.robots.components.env_facade_base import BaseEnvFacade
 
 # MuJoCo env vars must be set BEFORE importing anything that touches MuJoCo.
 os.environ.setdefault("MUJOCO_GL", "egl")
@@ -127,7 +127,7 @@ def _to_numpy_tree(x):
     return x
 
 
-class LiberoEnvFacade(RpcFacade):
+class LiberoEnvFacade(BaseEnvFacade):
     """Implements :class:`robots.libero.env_client.LiberoEnvClient`
     over :class:`rlinf.envs.libero.libero_env.LiberoEnv`.
 
@@ -146,16 +146,21 @@ class LiberoEnvFacade(RpcFacade):
         # and refuses to talk to a stale or mis-configured server.
         self._meta = dict(meta)
 
-    def _dispatch(self, method: str, args: tuple, kwargs: dict, *, session_id: str | None = None) -> Any:
-        with self._lock:
-            if method.startswith("env."):
-                attr = method[len("env."):]
-                try:
-                    return getattr(self, attr)(*args, **kwargs)
-                except Exception as e:
-                    logger.warning("run method %s failed: %s", method, e)
-                    raise e
-            raise ValueError(f"unknown RPC method: {method!r}")
+    def _register_rpc(self):
+        self._rpc["env.get_env_meta"] = self.get_env_meta
+        self._rpc["env.reset"] = self.reset
+        self._rpc["env.step"] = self.step
+        self._rpc["env.chunk_step"] = self.chunk_step
+        self._rpc["env.get_camera_meta"] = self.get_camera_meta
+        self._rpc["env.render_camera"] = self.render_camera
+        self._rpc["env.get_task_language"] = self.get_task_language
+        self._rpc["env.raw_obs"] = self.raw_obs
+        self._rpc["env.cached_image"] = self.cached_image
+        self._readonly_methods.update([
+            "env.get_env_meta",
+            "env.get_camera_meta",
+            "env.get_task_language",
+        ])
 
     # ---- shape helpers ----
 

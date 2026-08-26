@@ -285,9 +285,9 @@ def init_shared_runtime(
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
     from rpent.utils.http_rpc import HttpRpcClient
     from rpent.utils.rpc import parse_endpoint, wait_for_ready
-    from rpent.utils.sam3_client import Sam3Client
+    from rpent.robots.components.sam3_client import Sam3Client
     from rpent.utils.socket_rpc import SocketRpcClient
-    from rpent.utils.vla_client import VLAClient
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
     owned_daemons: list[ProcessDaemon] = []
     cuda_args = (
@@ -306,7 +306,7 @@ def init_shared_runtime(
                 name="vla_server",
                 cmd=[
                     sys.executable,
-                    str(get_repo_root() / "robots" / "libero" / "vla_server.py"),
+                    "-m", "rpent.robots.components.pi05_vla_server",
                     "--transport", "http",
                     "--host", host,
                     "--port", str(port),
@@ -386,7 +386,7 @@ def init_shared_runtime(
             raise
         dashboard_events.emit(RuntimeStatusEvent(component, "ready"))
 
-    model = VLAClient(vla_rpc)
+    model = Pi05VLAClient(vla_rpc)
     sam3_client = Sam3Client(sam3_rpc)
 
     return owned_daemons, {
@@ -414,9 +414,9 @@ def _init_runtime(
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
     from rpent.utils.http_rpc import HttpRpcClient
     from rpent.utils.rpc import parse_endpoint, wait_for_ready
-    from rpent.utils.sam3_client import Sam3Client
+    from rpent.robots.components.sam3_client import Sam3Client
     from rpent.utils.socket_rpc import SocketRpcClient
-    from rpent.utils.vla_client import VLAClient
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
     daemons: list[ProcessDaemon] = []
     libero_type = args.libero_type or get_libero_type()
@@ -477,7 +477,7 @@ def _init_runtime(
                 name="vla_server",
                 cmd=[
                     sys.executable,
-                    str(get_repo_root() / "robots" / "libero" / "vla_server.py"),
+                    "-m", "rpent.robots.components.pi05_vla_server",
                     "--transport", "http",
                     "--host", host,
                     "--port", str(port),
@@ -567,7 +567,7 @@ def _init_runtime(
                 "max_episode_steps": args.max_episode_steps,
             },
         ),
-        "model": VLAClient(vla_rpc),
+        "model": Pi05VLAClient(vla_rpc),
         "sam3_client": Sam3Client(sam3_rpc),
     }
     return daemons, primitives_kwargs
