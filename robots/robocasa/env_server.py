@@ -130,28 +130,19 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         """Register all RPC methods."""
         super()._register_rpc()
         self._rpc["env.check_success"] = self.check_success
-        self._rpc["env.render_raw"] = self.render_raw
-        self._rpc["env.get_camera_meta"] = self.get_camera_meta
         self._rpc["env.get_camera_transform"] = self.get_camera_transform
-        self._rpc["env.get_ep_meta"] = self.get_ep_meta
-        self._rpc["env.get_action_dim"] = self.get_action_dim
         self._rpc["env.grasp_contact"] = self.grasp_contact
         self._rpc["env.reassemble_env_action"] = self.reassemble_env_action
         self._rpc["env.get_success_criteria_text"] = self.get_success_criteria_text
         self._rpc["env.get_task_progress"] = self.get_task_progress
         # Read-only methods
-        self._readonly_methods.update(
-            [
-                "env.get_camera_meta",
-                "env.get_camera_transform",
-                "env.get_ep_meta",
-                "env.get_action_dim",
-                "env.check_success",
-                "env.grasp_contact",
-                "env.get_success_criteria_text",
-                "env.get_task_progress",
-            ]
-        )
+        self._readonly_methods.update([
+            "env.check_success",
+            "env.get_camera_transform",
+            "env.grasp_contact",
+            "env.get_success_criteria_text",
+            "env.get_task_progress",
+        ])
 
     def get_env_meta(self):
         return self._meta
@@ -189,7 +180,7 @@ class RoboCasaEnvFacade(BaseEnvFacade):
     def check_success(self):
         return bool(self.env._check_success())
 
-    def render_raw(self, cam, h, w, depth):
+    def render_camera(self, cam, h, w, depth):
         """sim.render in ROBOSUITE-NATIVE orientation (matches the camera
         transform matrices). rgb uint8 HxWx3, depth metric HxW."""
         import robosuite.utils.camera_utils as CU
@@ -232,11 +223,8 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         T = CU.get_camera_transform_matrix(self.env.sim, camera_name, height, width)
         return np.linalg.inv(T)  # T_p2w
 
-    def get_ep_meta(self):
-        return self.env.get_ep_meta()
-
-    def get_action_dim(self):
-        return self.env.action_dim
+    def get_task_language(self) -> str | None:
+        return self.env.get_task_language().get("lang")
 
     def grasp_contact(self):
         """Check if the gripper is currently contacting a task object."""
@@ -392,7 +380,7 @@ class RoboCasaEnvFacade(BaseEnvFacade):
                 event, req = item
                 try:
                     req["result"] = self._dispatch(
-                        req["method"], req["args"], req["kwargs"]
+                        req["method"], req["args"], req["kwargs"],
                     )
                 except Exception:
                     req["error"] = traceback.format_exc()

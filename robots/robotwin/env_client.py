@@ -228,13 +228,6 @@ class RoboTwinEnvClient(BaseEnvClient):
             raise TypeError(f"RoboTwin camera metadata must be a mapping: {result!r}")
         return result
 
-    def get_task_language(self) -> str:
-        """Return the current RoboTwin task instruction."""
-        result = self._read("get_task_language")
-        if not isinstance(result, str):
-            raise TypeError(f"RoboTwin task language must be a string: {result!r}")
-        return result
-
     def plan_arm_path(self, arm: str, target_pose) -> dict[str, Any]:
         """Plan a native arm path to the target end-effector pose."""
         return self._read(

@@ -65,16 +65,28 @@ class BaseEnvFacade(RpcFacade):
         raise NotImplementedError
 
     def close(self):
-        raise NotImplementedError
+        pass
 
     def _register_rpc(self):
         """Can be overridden to register more RPC methods."""
-        self._rpc["env.reset"] = self.reset
         self._rpc["env.get_env_meta"] = self.get_env_meta
         self._rpc["env.close"] = self.close
+
+        self._rpc["env.reset"] = self.reset
         self._rpc["env.step"] = self.step
         self._rpc["env.chunk_step"] = self.chunk_step
-        self._readonly_methods.add("env.get_env_meta")
+
+        self._rpc["env.get_task_language"] = self.get_task_language
+        self._rpc["env.get_camera_meta"] = self.get_camera_meta
+        self._rpc["env.render_camera"] = self.render_camera
+
+        # Read-only methods that can run parallel
+        self._readonly_methods.update([
+            "env.get_env_meta",
+            "env.get_task_language",
+            "env.get_camera_meta",
+            "env.render_camera",
+        ])
 
     def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
         handler = self._rpc.get(method)
