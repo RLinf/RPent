@@ -262,7 +262,7 @@ def main() -> int:
     # Preserve the original HF-backed evaluation behavior by default.
     memory_profile = getattr(args, "memory_profile", "hf")
     if not getattr(args, "explore", False) and memory_profile == "hf":
-        ensure_resources(robot_name)
+        ensure_resources(robot_spec)
     else:
         logger.info("resources: using local %s memory profile", memory_profile)
 
