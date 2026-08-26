@@ -22,9 +22,9 @@ order:
 4. :ref:`Implement the toolkit and primitives <add-robot-toolkit>`.
 5. :ref:`Register robot arguments and build RunConfig
    <add-robot-config>`.
-6. Implement the :ref:`runtime hooks <add-robot-runtime>`: one complete
-   runtime for normal CLI runs, plus the Dashboard-only Session/TaskRun split
-   if the robot supports Dashboard task control.
+6. Implement the :ref:`runtime hook <add-robot-runtime>`. The same hook starts
+   the complete runtime for normal CLI runs or a selected component subset for
+   the Dashboard.
 
 .. _add-robot-entry:
 
@@ -37,7 +37,7 @@ For a new robot named ``myrobot``, use the following directory layout:
 
    robots/myrobot/
        __init__.py            # package entry point; re-exports the factories
-       robot_spec.py            # RobotSpec, factories, Dashboard spec, runtime hooks
+       robot_spec.py          # RobotSpec, factories, Dashboard spec, runtime hooks
        env_client.py          # MyEnvClient — agent-side RPC stub (§1)
        prompt_bundle.py       # system()/user() prompt factories         (§2)
        toolkit.py             # MyRobotToolkit + primitives + tool definitions (§3)
@@ -68,8 +68,6 @@ these two functions:
            prompts=PromptBundle(system=system_prompt, user=user_prompt),
            add_cli_args=_add_cli_args,
            parse_config=_parse_config,
-           init_shared_runtime=_init_shared_runtime,
-           init_task_runtime=_init_task_runtime,
            init_runtime=_init_runtime,
            dashboard=MYROBOT_DASHBOARD_SPEC,
        )
@@ -90,23 +88,20 @@ these two functions:
        """Validate final `args`, return a RunConfig. See §4."""
        ...
 
-   def _init_runtime(args, output_dir, dashboard_events: DashboardEventSink):
-       """Normal CLI only: initialize the complete runtime.
+   def _init_runtime(
+       args,
+       output_dir,
+       dashboard_events: DashboardEventSink,
+       components: set[str] | None,
+   ):
+       """Initialize all runtime components, or only the selected subset.
 
        Returns (daemons, primitives_kwargs). See §5.
        """
        ...
 
-   def _init_shared_runtime(args, output_dir, dashboard_events: DashboardEventSink):
-       """Dashboard only: initialize Session-owned reusable services."""
-       ...
-
-   def _init_task_runtime(args, output_dir, dashboard_events: DashboardEventSink):
-       """Dashboard only: initialize fresh per-TaskRun services."""
-       ...
-
-``dashboard`` is optional. Leave it as ``None`` if the robot does not
-support Dashboard control. Otherwise, define the spec in the robot
+``dashboard`` is optional. Leave it as ``None`` if the environment does not
+support Dashboard control. Otherwise, define the spec in the environment
 package: its ``task`` section describes the command, validated fields, display
 template, and output slug; ``runtime_components`` and ``frame_channels``
 describe the environment-specific rows and camera views rendered by the
@@ -117,8 +112,8 @@ That's the entire registration step — ``_resolve_robot(name)`` does an
 ``robots/`` on disk is enough. No central list to update.
 
 The sections below describe what each referenced module must contain.
-``_add_cli_args`` / ``_parse_config`` are covered in §4 and the three runtime
-hooks in §5. The Dashboard spec is consumed only by the Dashboard runner.
+``_add_cli_args`` / ``_parse_config`` are covered in §4 and the runtime hook
+in §5. The Dashboard spec is consumed only by the Dashboard runner.
 
 .. _add-robot-env-rpc:
 
@@ -361,10 +356,10 @@ validates those fields and returns a
 
 .. _add-robot-runtime:
 
-5. Runtime initialization hooks
--------------------------------
+5. Runtime initialization hook
+------------------------------
 
-All runtime hooks return ``(owned_daemons, primitives_kwargs)``:
+``init_runtime`` returns ``(owned_daemons, primitives_kwargs)``:
 
 - ``owned_daemons: list[ProcessDaemon]`` contains only subprocesses started
   by this process. The active runner stops them during cleanup. A client for an
@@ -374,19 +369,20 @@ All runtime hooks return ``(owned_daemons, primitives_kwargs)``:
   contains ``{"env": MyEnvClient(...), "model": VLAClient(...)}`` plus any
   supporting clients.
 
-``init_runtime`` is the normal CLI hook. After ``parse_config`` returns,
-``main.py`` calls it once to initialize the complete runtime. The current
-LIBERO implementation starts or attaches to ``env_server``, ``vla_server``,
-and ``sam3_server`` and returns all primitive inputs together.
+The fourth argument, ``components``, selects which named services to
+initialize. ``None`` means all services and is what the normal CLI passes.
+The Dashboard derives two subsets from ``dashboard.runtime_components``. Every
+component declares either ``scope: "shared"`` or ``scope: "unique"`` explicitly.
+The Dashboard initializes shared components once, then initializes unique
+components for every fresh environment instance. It calls this same hook for
+both subsets and merges the returned ``primitives_kwargs`` dictionaries. For
+LIBERO, the subsets are ``{"vla", "sam3"}`` and ``{"env"}``.
 
-``init_shared_runtime`` and ``init_task_runtime`` are **Dashboard-only**
-hooks; the normal CLI path never calls them. The Dashboard calls
-``init_shared_runtime`` once for Session-owned services, then calls
-``init_task_runtime`` for every fresh TaskRun and merges the two returned
-``primitives_kwargs`` dictionaries. The split is robot-specific. For
-LIBERO, VLA and SAM3 are Session-owned while the environment is TaskRun-owned;
-another robot should use the lifecycle split appropriate to its own
-services rather than copying that arrangement mechanically.
+An implementation should reject unknown component names before starting
+anything. When several selected local services are expensive to initialize,
+start them all before waiting for readiness so their initialization can
+overlap. See ``robots/libero/robot_spec.py`` for the ordered component registry
+used by the reference implementation.
 
 Endpoint parsing (``--env-endpoint``, ``--vla-endpoint``, and LIBERO's
 ``--sam3-endpoint``) and environment-specific server commands belong in the

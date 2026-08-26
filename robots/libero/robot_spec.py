@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -17,8 +17,7 @@ from rpent.robots.runtime import try_spawn_server, try_wait_server
 from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.http_rpc import HttpRpcClient
-from rpent.utils.rpc import parse_endpoint
-from rpent.utils.socket_rpc import SocketRpcClient
+from rpent.utils.rpc import make_rpc_client
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
@@ -57,9 +56,9 @@ LIBERO_DASHBOARD_SPEC = {
         "output_slug": "{suite}_t{task}_s{seed}",
     },
     "runtime_components": (
-        {"name": "env", "label": "ENV", "scope": "task"},
-        {"name": "vla", "label": "VLA"},
-        {"name": "sam3", "label": "SAM3"},
+        {"name": "env", "label": "ENV", "scope": "unique"},
+        {"name": "vla", "label": "VLA", "scope": "shared"},
+        {"name": "sam3", "label": "SAM3", "scope": "shared"},
     ),
     "frame_channels": (
         {
@@ -90,8 +89,6 @@ def get_robot_spec() -> RobotSpec:
         ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
-        init_shared_runtime=init_shared_runtime,
-        init_task_runtime=init_task_runtime,
         init_runtime=_init_runtime,
         dashboard=LIBERO_DASHBOARD_SPEC,
         finalize_run=_finalize_run,
@@ -269,30 +266,10 @@ def _finalize_run(args: argparse.Namespace, config: RunConfig) -> dict[str, Any]
     )
 
 
-def _subprocess_env(**extra: str) -> dict[str, str]:
-    """Build the env dict for a subprocess: inherit from parent, layer extras on top.
-
-    CUDA device selection is passed via ``--cuda-device`` on the server command
-    line — the server itself handles ``CUDA_VISIBLE_DEVICES`` and EGL alignment.
-    """
-    env = os.environ.copy()
-    env.update(extra)
-    return env
-
-
 def _cuda_args(args: argparse.Namespace) -> list[str]:
     return (
         ["--cuda-device", str(args.cuda_device)] if args.cuda_device is not None else []
     )
-
-
-def _external_rpc(endpoint: str, option: str) -> RpcClient:
-    protocol, host, port = parse_endpoint(endpoint)
-    if protocol == "socket":
-        return SocketRpcClient(host, port)
-    if protocol == "http":
-        return HttpRpcClient(f"http://{host}:{port}")
-    raise ValueError(f"{option} protocol must be socket or http, got {protocol!r}")
 
 
 def _spawn_env_server(
@@ -300,7 +277,7 @@ def _spawn_env_server(
     output_dir: Path,
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     if args.env_endpoint is not None:
-        return None, _external_rpc(args.env_endpoint, "--env-endpoint")
+        return None, make_rpc_client(args.env_endpoint)
 
     from rpent.utils.config import get_libero_type
 
@@ -327,11 +304,11 @@ def _spawn_env_server(
             "--parent-watch",
             *_cuda_args(args),
         ],
-        env=_subprocess_env(
-            LIBERO_TYPE=args.libero_type or get_libero_type(),
-            MUJOCO_GL="egl",
-            ROBOT_PLATFORM="LIBERO",
-        ),
+        env_overrides={
+            "LIBERO_TYPE": args.libero_type or get_libero_type(),
+            "MUJOCO_GL": "egl",
+            "ROBOT_PLATFORM": "LIBERO",
+        },
         log_path=str(output_dir / "env_server.log"),
     )
     daemon.start()
@@ -343,7 +320,7 @@ def _spawn_vla_server(
     output_dir: Path,
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     if args.vla_endpoint is not None:
-        return None, _external_rpc(args.vla_endpoint, "--vla-endpoint")
+        return None, make_rpc_client(args.vla_endpoint)
 
     host, port = "127.0.0.1", pick_free_port()
     daemon = ProcessDaemon(
@@ -360,7 +337,6 @@ def _spawn_vla_server(
             "--parent-watch",
             *_cuda_args(args),
         ],
-        env=_subprocess_env(),
         log_path=str(output_dir / "vla_server.log"),
     )
     daemon.start()
@@ -372,7 +348,7 @@ def _spawn_sam3_server(
     output_dir: Path,
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     if args.sam3_endpoint is not None:
-        return None, _external_rpc(args.sam3_endpoint, "--sam3-endpoint")
+        return None, make_rpc_client(args.sam3_endpoint)
 
     host, port = "127.0.0.1", pick_free_port()
     daemon = ProcessDaemon(
@@ -389,166 +365,72 @@ def _spawn_sam3_server(
             "--parent-watch",
             *_cuda_args(args),
         ],
-        env=_subprocess_env(),
         log_path=str(output_dir / "sam3_server.log"),
     )
     daemon.start()
     return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
-def _env_client(args: argparse.Namespace, rpc: RpcClient):
-    from robots.libero.env_client import LiberoEnvClient
-
-    return LiberoEnvClient(
-        rpc,
-        expected_meta={
-            "suite": args.suite,
-            "task": args.task,
-            "seed": args.seed,
-            "max_episode_steps": args.max_episode_steps,
-        },
-    )
-
-
-def init_task_runtime(
-    args: argparse.Namespace,
-    output_dir: Path,
-    dashboard_events: DashboardEventSink,
-) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    """Initialize one TaskRun-owned LIBERO environment.
-
-    A local env server is fresh for every call. When ``--env-endpoint`` is
-    supplied, the returned daemon list is empty so the external service stays
-    running.
-
-    Simulator and model dependencies stay lazy so importing
-    :mod:`robots.libero` for its descriptor or toolkit remains lightweight.
-    """
-    owned_daemons: dict[str, ProcessDaemon] = {}
-    env_daemon, env_rpc = try_spawn_server(
-        owned_daemons,
-        dashboard_events,
-        "env",
-        lambda: _spawn_env_server(args, output_dir),
-    )
-    env = try_wait_server(
-        owned_daemons,
-        dashboard_events,
-        "env",
-        env_rpc,
-        env_daemon,
-        300.0,
-        post_fn=lambda: _env_client(args, env_rpc),
-    )
-    return list(owned_daemons.values()), {"env": env}
-
-
-def init_shared_runtime(
-    args: argparse.Namespace,
-    output_dir: Path,
-    dashboard_events: DashboardEventSink,
-) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    """Initialize Session-owned VLA and SAM3 services.
-
-    The returned list contains only locally started services. External
-    endpoints are connected to but never become owned.
-    """
-    from robots.libero.sam3_client import Sam3Client
-    from robots.libero.vla_client import LiberoVLAClient
-
-    owned_daemons: dict[str, ProcessDaemon] = {}
-    vla_daemon, vla_rpc = try_spawn_server(
-        owned_daemons,
-        dashboard_events,
-        "vla",
-        lambda: _spawn_vla_server(args, output_dir),
-    )
-    sam3_daemon, sam3_rpc = try_spawn_server(
-        owned_daemons,
-        dashboard_events,
-        "sam3",
-        lambda: _spawn_sam3_server(args, output_dir),
-    )
-
-    sam3_client = try_wait_server(
-        owned_daemons,
-        dashboard_events,
-        "sam3",
-        sam3_rpc,
-        sam3_daemon,
-        300.0,
-        post_fn=lambda: Sam3Client(sam3_rpc),
-    )
-    model = try_wait_server(
-        owned_daemons,
-        dashboard_events,
-        "vla",
-        vla_rpc,
-        vla_daemon,
-        300.0,
-        post_fn=lambda: LiberoVLAClient(vla_rpc),
-    )
-
-    return list(owned_daemons.values()), {
-        "model": model,
-        "sam3_client": sam3_client,
-    }
-
-
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
     dashboard_events: DashboardEventSink,
+    components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    """Spawn env + vla + SAM3 daemons and build clients for LIBERO.
-
-    Each server can be spawned or attached-to independently: pass an
-    endpoint to attach, or leave it unset to spawn a local subprocess.
-
-    Simulator, model, and adapter dependencies are imported lazily so a bare
-    ``import robots.libero`` does not load them.
-    """
+    """Initialize every LIBERO component, or only ``components`` when given."""
+    from robots.libero.env_client import LiberoEnvClient
     from robots.libero.sam3_client import Sam3Client
     from robots.libero.vla_client import LiberoVLAClient
 
-    owned_daemons: dict[str, ProcessDaemon] = {}
-    env_daemon, env_rpc = try_spawn_server(
-        owned_daemons,
-        dashboard_events,
-        "env",
-        lambda: _spawn_env_server(args, output_dir),
-    )
-    vla_daemon, vla_rpc = try_spawn_server(
-        owned_daemons,
-        dashboard_events,
-        "vla",
-        lambda: _spawn_vla_server(args, output_dir),
-    )
-    sam3_daemon, sam3_rpc = try_spawn_server(
-        owned_daemons,
-        dashboard_events,
-        "sam3",
-        lambda: _spawn_sam3_server(args, output_dir),
-    )
+    starters = {
+        "env": lambda: _spawn_env_server(args, output_dir),
+        "vla": lambda: _spawn_vla_server(args, output_dir),
+        "sam3": lambda: _spawn_sam3_server(args, output_dir),
+    }
+    connectors = {
+        "env": lambda rpc: {
+            "env": LiberoEnvClient(
+                rpc,
+                expected_meta={
+                    "suite": args.suite,
+                    "task": args.task,
+                    "seed": args.seed,
+                    "max_episode_steps": args.max_episode_steps,
+                },
+            )
+        },
+        "vla": lambda rpc: {"model": LiberoVLAClient(rpc)},
+        "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
+    }
+    selected = set(starters) if components is None else components
+    unknown = selected.difference(starters)
+    if unknown:
+        raise ValueError(f"unknown LIBERO runtime components: {sorted(unknown)}")
 
-    clients: dict[str, Any] = {}
-    for component, rpc, daemon, post_fn in (
-        ("env", env_rpc, env_daemon, lambda: _env_client(args, env_rpc)),
-        ("sam3", sam3_rpc, sam3_daemon, lambda: Sam3Client(sam3_rpc)),
-        ("vla", vla_rpc, vla_daemon, lambda: LiberoVLAClient(vla_rpc)),
-    ):
-        clients[component] = try_wait_server(
+    pending: dict[str, tuple[ProcessDaemon | None, RpcClient]] = {}
+    owned_daemons: dict[str, ProcessDaemon] = {}
+    for component, starter in starters.items():
+        if component in selected:
+            pending[component] = try_spawn_server(
+                owned_daemons,
+                dashboard_events,
+                component,
+                starter,
+            )
+
+    primitives_kwargs: dict[str, Any] = {}
+    wait_order = ("env", "sam3", "vla")
+    for component in (name for name in wait_order if name in pending):
+        daemon, rpc = pending[component]
+        component_kwargs = try_wait_server(
             owned_daemons,
             dashboard_events,
             component,
             rpc,
             daemon,
             300.0,
-            post_fn=post_fn,
+            post_fn=partial(connectors[component], rpc),
         )
+        primitives_kwargs.update(component_kwargs)
 
-    return list(owned_daemons.values()), {
-        "env": clients["env"],
-        "model": clients["vla"],
-        "sam3_client": clients["sam3"],
-    }
+    return list(owned_daemons.values()), primitives_kwargs

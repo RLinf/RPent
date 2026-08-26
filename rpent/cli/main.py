@@ -38,7 +38,7 @@ from rpent.dashboard.events import (
     RunStartedEvent,
 )
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
-from rpent.planner.base import build_planner
+from rpent.planner.base import REASONING_EFFORTS, build_planner
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
 
@@ -116,6 +116,11 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="API base URL. Defaults to the selected backend's base URL env var.")
     ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--max-tokens", type=int, default=8192)
+    ap.add_argument("--reasoning-effort", choices=REASONING_EFFORTS,
+                    default="none",
+                    help="Planner reasoning effort for api, claude_code, and "
+                         "codex. Higher effort may improve task success rate "
+                         "but increases runtime. Defaults to none.")
     ap.add_argument("--no-images", action="store_true",
                     help="Never send image bytes to the model (api planner only). "
                          "Use for text-only models that reject image input "
@@ -190,6 +195,7 @@ def _start_continuation_session(args, *, output_dir, recipe_tag,
         model=args.model,
         max_tokens=args.max_tokens,
         planner_timeout_s=args.planner_timeout_s,
+        reasoning_effort=args.reasoning_effort,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
@@ -271,6 +277,7 @@ def main() -> int:
         model=args.model,
         max_tokens=args.max_tokens,
         planner_timeout_s=args.planner_timeout_s,
+        reasoning_effort=args.reasoning_effort,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
@@ -308,6 +315,7 @@ def main() -> int:
         args,
         output_dir,
         dashboard_events,
+        None,
     )
 
     # --- agent loop --------------------------------------------------------

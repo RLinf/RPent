@@ -104,8 +104,8 @@ Runner (``rpent/cli/main.py``)
 7. 根据 ``--planner`` 调用 ``rpent.planner.base.build_planner`` 构造
    **planner**，并使用机器人提供的 prompt bundle 生成 system prompt 和
    user prompt。
-8. 调用 ``robot_spec.init_runtime(args, output_dir, dashboard_events)``。机器人实现会
-   启动或连接该机器人所需的运行时服务，例如 ``env_server``、``vla_server``，
+8. 调用 ``robot_spec.init_runtime(args, output_dir, dashboard_events, None)``。环境实现会
+   启动或连接该环境所需的运行时服务，例如 ``env_server``、``vla_server``，
    以及可选的辅助服务（如 LIBERO 用于分割的 ``sam3_server``），并返回
    ``(daemons, primitives_kwargs)``。
 9. 将 ``primitives_kwargs`` 和 ``dashboard_events`` 事件接收器传给机器人的
@@ -134,9 +134,8 @@ planner 后端集中在 ``rpent/planner/``，
        *, primitives_kwargs, dashboard_events, video_path=None
    ): ...
 
-``RobotSpec`` 汇集了机器人标识、prompt 模板、可选的 Dashboard 描述与五个 Runner
-钩子：``add_cli_args`` / ``parse_config`` / ``init_runtime``，以及仅供 Dashboard
-使用的 ``init_shared_runtime`` / ``init_task_runtime``。各字段要填什么见
+``RobotSpec`` 汇集了环境标识、prompt 模板、可选的 Dashboard 描述与三个 Runner
+钩子：``add_cli_args`` / ``parse_config`` / ``init_runtime``。各字段要填什么见
 :doc:`interfaces`。
 
 加载器本身不维护机器人名称列表。当前 CLI 将 ``--robot`` 限定为 ``libero``
@@ -161,13 +160,14 @@ Dashboard（可选）
 ``rpent/dashboard/`` 由 FastAPI 应用和静态前端组成。启用 ``--dashboard`` 后，
 ``rpent/cli/main.py`` 会将控制权交给 ``rpent/cli/dashboard.py``，由后者根据
 ``--dashboard-host`` 和 ``--dashboard-port`` 启动 Dashboard，并在启动共享服务前
-确认配置，然后调用一次仅供 Dashboard 使用的
-``robot_spec.init_shared_runtime``。机器人必须提供 ``robot_spec.dashboard``，由它定义
+确认配置，然后用共享 component 名称调用一次 ``robot_spec.init_runtime``。环境必须
+提供 ``robot_spec.dashboard``，由它定义
 前端使用的任务命令与字段、runtime components 和 frame channels。Session
-controller 随后等待该机器人定义的命令（LIBERO 使用 ``/rpent-task``）；每次取得一个
-TaskRun 后，Dashboard 会调用 ``parse_config`` 和仅供 Dashboard 使用的
-``robot_spec.init_task_runtime``，合并共享与任务级 primitive 参数，并新建 toolkit
-和 planner conversation。在 LIBERO 中，VLA 和 SAM3 会在 Dashboard 运行期间
+controller 随后等待该环境定义的命令（LIBERO 使用 ``/rpent-task``）；每次取得一个
+TaskRun 后，Dashboard 会调用 ``parse_config``，再用 unique component 名称调用
+同一个 ``robot_spec.init_runtime``，合并 shared 与 unique primitive 参数，并新建 toolkit
+和 planner conversation。两个子集都来自环境 Dashboard spec 中显式声明的
+``shared`` / ``unique`` scope。在 LIBERO 中，VLA 和 SAM3 会在 Dashboard 运行期间
 复用，每个 TaskRun 使用独立环境并按顺序执行。
 
 TaskRun 运行期间，Dashboard 页面提供：

@@ -6,6 +6,11 @@ for dual-arm robot manipulation, with a range of tabletop tasks and randomized
 scenes. RPent runs RoboTwin through RLinf and uses LingBot-VLA to generate robot
 actions.
 
+.. note::
+
+   The current code has not yet completed full effect-parity validation for
+   RoboTwin; complete validation results will be released later.
+
 Installation
 ------------
 

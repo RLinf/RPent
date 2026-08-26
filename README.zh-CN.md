@@ -59,6 +59,7 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
           <ul>
             <li>Pi0.5 ✅</li>
             <li>RLDX-1 ✅</li>
+            <li>LingBot-VLA ✅</li>
           </ul>
           <li><b>WAM</b></li>
           <ul>
@@ -70,6 +71,7 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
         <ul style="margin-left: 0; padding-left: 16px;">
           <li>LIBERO-PRO ✅</li>
           <li>RoboCasa ✅</li>
+          <li>RoboTwin ✅</li>
         </ul>
       </td>
       <td>
@@ -184,6 +186,10 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
 
 RoboCasa 使用独立入口与安装指南。安装与运行流程见 [RoboCasa 使用文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
 
+### RoboTwin
+
+RoboTwin 支持 LingBot-VLA 双臂操作任务。安装与运行流程见 [RoboTwin 使用文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html)。
+
 更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
 
 ## 主要命令行参数
@@ -205,6 +211,7 @@ RoboCasa 使用独立入口与安装指南。安装与运行流程见 [RoboCasa 
     <tr><td><code>--model</code></td><td>—</td><td>模型 ID；<code>api</code> 需带 provider 前缀（<code>anthropic:…</code>、<code>openai:…</code>、<code>openai-chat:…</code>）</td></tr>
     <tr><td><code>--max-turns</code></td><td><code>100</code></td><td>智能体最大轮数</td></tr>
     <tr><td><code>--max-tokens</code></td><td><code>8192</code></td><td>单次 LLM 回复最大 token</td></tr>
+    <tr><td><code>--reasoning-effort</code></td><td><code>none</code></td><td><code>api</code>、<code>claude_code</code> 与 <code>codex</code> 的推理强度：<code>none</code> | <code>low</code> | <code>medium</code> | <code>high</code> | <code>xhigh</code>。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。</td></tr>
     <tr><td><code>--no-images</code></td><td>关</td><td>纯文本模式：不向模型发送图片字节（用于不支持图片输入的模型）</td></tr>
     <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>环境最大步数</td></tr>
     <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> 或 <code>pro</code></td><td>LIBERO 类型：<code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>

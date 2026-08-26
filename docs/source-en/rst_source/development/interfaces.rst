@@ -38,15 +38,11 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
      - Validate args and return ``RunConfig``; set at least ``recipe_tag``,
        ``output_dir``, and ``prompt_vars`` for prompt templating.
    * - ``init_runtime``
-     - Normal CLI only: start or attach to the complete runtime and build
-       ``primitives_kwargs`` (env client, model client, etc.) for the toolkit's
-       primitives. A ``DashboardEventSink`` reports runtime status.
-   * - ``init_shared_runtime``
-     - Dashboard only: initialize Session-owned services that can be reused by
-       multiple TaskRuns, and return their owned daemons and primitive inputs.
-   * - ``init_task_runtime``
-     - Dashboard only: initialize the fresh per-TaskRun services and return
-       their owned daemons and primitive inputs.
+     - Start or attach to all runtime components, or to the component names in
+       the optional selection, and build ``primitives_kwargs`` for them. The
+       normal CLI passes ``None``; the Dashboard passes explicit shared and
+       unique subsets derived from its spec. A ``DashboardEventSink``
+       reports status.
 
 ``get_toolkit`` usually just passes ``primitives_kwargs`` into your robot subclass;
 ``dashboard_events`` and ``video_path`` are supplied by the active runner, so

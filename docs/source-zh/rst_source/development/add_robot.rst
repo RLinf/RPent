@@ -16,10 +16,9 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
    :ref:`添加一个 VLA（或其他基于模型的原语）<add-primitive-model-based>`。
 3. :ref:`定义 prompt <add-robot-prompts>`。
 4. :ref:`实现 toolkit 和 primitives <add-robot-toolkit>`。
-5. :ref:`注册机器人参数并生成 RunConfig <add-robot-config>`。
-6. 实现 :ref:`runtime 钩子 <add-robot-runtime>`：普通 CLI 使用完整 runtime；
-   如果机器人支持 Dashboard 任务控制，再按 Session/TaskRun 生命周期实现仅供
-   Dashboard 使用的拆分钩子。
+5. :ref:`注册环境参数并生成 RunConfig <add-robot-config>`。
+6. 实现 :ref:`runtime 钩子 <add-robot-runtime>`：同一个钩子既能为普通 CLI
+   初始化完整 runtime，也能为 Dashboard 初始化指定的 component 子集。
 
 .. _add-robot-entry:
 
@@ -32,7 +31,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 
    robots/myrobot/
        __init__.py            # 包入口，仅重导出两个工厂
-       robot_spec.py            # RobotSpec、工厂、Dashboard 描述和 runtime 钩子
+       robot_spec.py          # RobotSpec、工厂、Dashboard 描述和 runtime 钩子
        env_client.py          # MyEnvClient —— agent 侧 RPC client (§1)
        prompt_bundle.py       # system()/user() prompt 工厂              (§2)
        toolkit.py             # MyRobotToolkit + primitives + 工具定义     (§3)
@@ -62,8 +61,6 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
            prompts=PromptBundle(system=system_prompt, user=user_prompt),
            add_cli_args=_add_cli_args,
            parse_config=_parse_config,
-           init_shared_runtime=_init_shared_runtime,
-           init_task_runtime=_init_task_runtime,
            init_runtime=_init_runtime,
            dashboard=MYROBOT_DASHBOARD_SPEC,
        )
@@ -84,19 +81,16 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
        """校验最终的 args，返回 RunConfig。见第 4 节。"""
        ...
 
-   def _init_runtime(args, output_dir, dashboard_events: DashboardEventSink):
-       """仅普通 CLI 使用：初始化完整 runtime。
+   def _init_runtime(
+       args,
+       output_dir,
+       dashboard_events: DashboardEventSink,
+       components: set[str] | None,
+   ):
+       """初始化全部 runtime components，或只初始化指定子集。
 
        返回 (daemons, primitives_kwargs)。见第 5 节。
        """
-       ...
-
-   def _init_shared_runtime(args, output_dir, dashboard_events: DashboardEventSink):
-       """仅 Dashboard 使用：初始化由 Session 持有并复用的服务。"""
-       ...
-
-   def _init_task_runtime(args, output_dir, dashboard_events: DashboardEventSink):
-       """仅 Dashboard 使用：为每个 TaskRun 初始化全新的服务。"""
        ...
 
 ``dashboard`` 是可选项；环境不支持 Dashboard 控制时保持为 ``None``。支持时，
@@ -108,8 +102,7 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
 动态加载机器人包。因此，只需将机器人包放在 ``robots/`` 下，无需维护中央注册列表。
 
 下文依次说明这些模块需要实现的内容。``_add_cli_args`` 和 ``_parse_config``
-见第 4 节，三个 runtime 钩子见第 5 节。Dashboard spec 只由 Dashboard runner
-使用。
+见第 4 节，runtime 钩子见第 5 节。Dashboard spec 只由 Dashboard runner 使用。
 
 .. _add-robot-env-rpc:
 
@@ -341,7 +334,7 @@ main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参�
 5. Runtime 初始化钩子
 ---------------------
 
-三个 runtime 钩子都返回 ``(owned_daemons, primitives_kwargs)``：
+``init_runtime`` 返回 ``(owned_daemons, primitives_kwargs)``：
 
 - ``owned_daemons: list[ProcessDaemon]`` 只包含当前进程实际启动的子进程，
   当前 runner 会在清理阶段停止它们。连接外部 endpoint 时，不能把外部服务加入
@@ -350,16 +343,16 @@ main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参�
   的 ``__init__``。完整参数通常包含
   ``{"env": MyEnvClient(...), "model": VLAClient(...)}``，以及其他辅助 client。
 
-``init_runtime`` 是普通 CLI 钩子。``parse_config`` 返回后，``main.py`` 调用它
-一次，初始化完整 runtime。当前 LIBERO 实现会启动或连接 ``env_server``、
-``vla_server`` 和 ``sam3_server``，并一次性返回全部 primitive 参数。
+第四个参数 ``components`` 指定要初始化的服务名称。``None`` 表示全部服务，普通
+CLI 会传入这个值。Dashboard 根据 ``dashboard.runtime_components`` 得到两个子集，
+每个 component 都必须显式声明 ``scope: "shared"`` 或 ``scope: "unique"``。Dashboard
+先初始化一次 shared components，再为每个新的环境实例初始化 unique
+components。两次都调用同一个钩子，最后合并返回的 ``primitives_kwargs``。在
+LIBERO 中，这两个子集分别是 ``{"vla", "sam3"}`` 和 ``{"env"}``。
 
-``init_shared_runtime`` 和 ``init_task_runtime`` 是 **仅供 Dashboard 使用** 的
-钩子，普通 CLI 不会调用。Dashboard 会在每个 Session 中调用一次
-``init_shared_runtime``，初始化 Session 持有的复用服务；随后为每个全新的
-TaskRun 调用 ``init_task_runtime``，并合并两者返回的 ``primitives_kwargs``。
-具体如何拆分取决于机器人自身的生命周期。LIBERO 将 VLA 和 SAM3 放在 Session
-范围，将环境放在 TaskRun 范围；其他机器人应采用适合自身服务的拆分，不必机械照搬。
+实现应在启动任何服务前拒绝未知 component 名称。如果多个选中的本地服务初始化
+较慢，应先全部启动，再依次等待 ready，让初始化过程可以重叠。参考实现见
+``robots/libero/robot_spec.py`` 中的有序 component registry。
 
 endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
 ``--sam3-endpoint``）解析和环境专用服务命令，应放在拥有对应服务的钩子中。

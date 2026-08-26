@@ -120,9 +120,9 @@ components required for a run. On startup, it:
 7. Builds the **planner** through ``rpent.planner.base.build_planner`` based
    on ``--planner``, then renders the system and user prompts from the robot's
    prompt bundle.
-8. Calls ``robot_spec.init_runtime(args, output_dir, dashboard_events)``. The
-   robot implementation starts or connects to the runtime services
-   required by that robot, such as ``env_server``, ``vla_server``, and
+8. Calls ``robot_spec.init_runtime(args, output_dir, dashboard_events, None)``. The
+   environment implementation starts or connects to the runtime services
+   required by that environment, such as ``env_server``, ``vla_server``, and
    optional supporting services (for example, LIBERO's ``sam3_server`` for
    segmentation), and returns ``(daemons, primitives_kwargs)``.
 9. Passes ``primitives_kwargs`` and a ``dashboard_events`` sink to the robot's
@@ -153,11 +153,10 @@ two factories exposed by that package:
        *, primitives_kwargs, dashboard_events, video_path=None
    ): ...
 
-``RobotSpec`` gathers the robot's identity, prompt templates, optional
-Dashboard description, and five runner hooks: ``add_cli_args`` /
-``parse_config`` / ``init_runtime``, plus the Dashboard-only
-``init_shared_runtime`` / ``init_task_runtime`` pair. See :doc:`interfaces` for
-what each field must provide.
+``RobotSpec`` gathers the environment's identity, prompt templates, optional
+Dashboard description, and three runner hooks: ``add_cli_args`` /
+``parse_config`` / ``init_runtime``. See :doc:`interfaces` for what each field
+must provide.
 
 The loader itself does not maintain a list of robot names. The
 current CLI restricts ``--robot`` to ``libero`` and ``robocasa``; adding a
@@ -186,16 +185,18 @@ Dashboard (optional)
 frontend. With ``--dashboard``, ``rpent/cli/main.py`` hands control to
 ``rpent/cli/dashboard.py``, which starts the Dashboard with
 ``--dashboard-host`` and ``--dashboard-port`` and confirms the configuration
-before calling the Dashboard-only ``robot_spec.init_shared_runtime`` hook once.
-The robot must provide ``robot_spec.dashboard``; it defines the task
+before calling ``robot_spec.init_runtime`` once with the shared component names.
+The environment must provide ``robot_spec.dashboard``; it defines the task
 command and fields, runtime components, and frame channels exposed by the
 frontend. The Session controller waits for that robot-defined command
 (``/rpent-task`` for LIBERO). For every claimed TaskRun, the Dashboard calls
-``parse_config`` and the Dashboard-only ``robot_spec.init_task_runtime`` hook,
-merges the shared and task primitive inputs, and creates a fresh toolkit and
-planner conversation. In LIBERO, VLA and SAM3 are reused while the Dashboard
-is running, while every TaskRun gets a separate environment runtime and
-executes sequentially.
+``parse_config`` and the same ``robot_spec.init_runtime`` hook with the unique
+component names, merges the shared and unique
+primitive inputs, and creates a fresh toolkit and planner conversation. Both
+subsets come from explicit ``shared`` / ``unique`` scope values in the
+environment's Dashboard spec. In LIBERO, VLA and SAM3 are reused while the
+Dashboard is running, while every TaskRun gets a separate environment runtime
+and executes sequentially.
 
 During a TaskRun, the Dashboard shows:
 

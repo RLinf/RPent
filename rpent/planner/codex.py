@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import openai_codex
+from openai_codex.generated.v2_all import ReasoningEffort
 
 from rpent.cli.tui import next_user_line
 from rpent.dashboard.events import (
@@ -33,7 +34,7 @@ from rpent.dashboard.events import (
 )
 from rpent.dashboard.interaction import DashboardInteractionPort
 from rpent.dashboard.planner_control import DashboardPlannerControl
-from rpent.planner.base import PlannerResult, strip_mcp_prefix
+from rpent.planner.base import REASONING_EFFORTS, PlannerResult, strip_mcp_prefix
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
@@ -62,6 +63,7 @@ class CodexPlanner:
         extra_dirs: list[str] | None = None,
         output_path: str | Path | None = None,
         model: str | None = None,
+        reasoning_effort: str = "none",
     ):
         """Initialize the Codex SDK backend."""
         self._output_dir = str(output_dir)
@@ -73,12 +75,15 @@ class CodexPlanner:
         self._base_url = os.environ.get("CODEX_BASE_URL", None)
         self._api_key = os.environ.get("CODEX_API_KEY", None)
         self._dashboard_events = dashboard_events
+        if reasoning_effort not in REASONING_EFFORTS:
+            raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
         self._turn_options = {
             "approval_mode": openai_codex.ApprovalMode.deny_all,
             "cwd": self._repo_root,
             "model": self._model,
             "sandbox": openai_codex.Sandbox.full_access,
         }
+        self._turn_options["effort"] = getattr(ReasoningEffort, reasoning_effort)
 
     def solve(
         self,

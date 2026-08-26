@@ -59,6 +59,7 @@ RPent is built upon three core design principles: **service-oriented, standardiz
           <ul>
             <li>Pi0.5 ✅</li>
             <li>RLDX-1 ✅</li>
+            <li>LingBot-VLA ✅</li>
           </ul>
           <li><b>WAM</b></li>
           <ul>
@@ -70,6 +71,7 @@ RPent is built upon three core design principles: **service-oriented, standardiz
         <ul style="margin-left: 0; padding-left: 16px;">
           <li>LIBERO-PRO ✅</li>
           <li>RoboCasa ✅</li>
+          <li>RoboTwin ✅</li>
         </ul>
       </td>
       <td>
@@ -185,6 +187,11 @@ For more detailed documentation, see the [RPent documentation](https://rpent.rea
 
 RoboCasa uses a separate entrypoint and install guide. See the [RoboCasa usage docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html) for installation and running instructions.
 
+### RoboTwin
+
+RoboTwin is supported with LingBot-VLA for dual-arm manipulation tasks.
+See the [RoboTwin usage docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html) for installation and running instructions.
+
 ## Key CLI Options
 
 <table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
@@ -204,6 +211,7 @@ RoboCasa uses a separate entrypoint and install guide. See the [RoboCasa usage d
     <tr><td><code>--model</code></td><td>—</td><td>Model id; for <code>api</code>, prefix the provider (<code>anthropic:…</code>, <code>openai:…</code>, <code>openai-chat:…</code>)</td></tr>
     <tr><td><code>--max-turns</code></td><td><code>100</code></td><td>Max agent turns</td></tr>
     <tr><td><code>--max-tokens</code></td><td><code>8192</code></td><td>Max tokens per LLM reply</td></tr>
+    <tr><td><code>--reasoning-effort</code></td><td><code>none</code></td><td>Reasoning effort for <code>api</code>, <code>claude_code</code>, and <code>codex</code>: <code>none</code> | <code>low</code> | <code>medium</code> | <code>high</code> | <code>xhigh</code>. Disabling reasoning reduced the average runtime from approximately 13.2 to 7.9 minutes (about 40%) in our LIBERO Pro Long evaluations. Higher effort may improve task success rate. Supported levels ultimately depend on the selected model.</td></tr>
     <tr><td><code>--no-images</code></td><td>off</td><td>Text-only mode: never send image bytes (for models that reject image input)</td></tr>
     <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>Max env steps</td></tr>
     <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> or <code>pro</code></td><td>LIBERO variant: <code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>

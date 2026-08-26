@@ -45,6 +45,16 @@
           <input type="number" id="f-claude-code-max-budget-usd" min="0" step="0.01" placeholder="MAX_BUDGET_USD" />
         </div>
         <div class="lfield">
+          <label for="f-reasoning-effort" data-i18n="plannerReasoningEffort">Reasoning effort (higher may improve success rate)</label>
+          <select id="f-reasoning-effort">
+            <option value="none" selected>none</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="xhigh">xhigh</option>
+          </select>
+        </div>
+        <div class="lfield">
           <label for="f-planner-timeout-s" data-i18n="plannerTimeout">Planner timeout s</label>
           <input type="number" id="f-planner-timeout-s" min="1" step="1" placeholder="CELL_TIMEOUT_S" />
         </div>
