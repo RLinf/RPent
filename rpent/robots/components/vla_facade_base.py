@@ -51,5 +51,5 @@ class BaseVLAFacade(RpcFacade):
         self._rpc["vla.predict"] = self.predict
 
     # ---- abstract methods (subclasses must override) ----
-    def predict(self):
+    def predict(self, *args, **kwargs):
         raise NotImplementedError

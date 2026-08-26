@@ -104,6 +104,20 @@ class RpcFacade:
         self._rpc: dict[str, Any] = {}
         self._readonly_methods: set[str] = set()
 
+    def _builtin_dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
+        """Handle framework methods (healthz, shutdown).
+
+        Returns ``None`` for business methods so that :meth:`_dispatch`
+        can fall through to RWLock-based routing.
+        """
+        if method == "healthz":
+            return {"status": "ok"}
+        if method == "shutdown":
+            with self._dispatch_lock.write():
+                self._shutdown_event.set()
+            return {"ok": True}
+        return None
+
     def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
         """Business RPC dispatch using a registration dict.
 
@@ -111,6 +125,9 @@ class RpcFacade:
         (registered in ``_readonly_methods``) run under a shared read lock;
         mutating methods acquire an exclusive write lock.
         """
+        result = self._builtin_dispatch(method, args, kwargs)
+        if result is not None:
+            return result
         handler = self._rpc.get(method)
         if handler is None:
             raise ValueError(f"unknown RPC method: {method!r}")
@@ -138,20 +155,8 @@ class RpcFacade:
         from rpent.utils.rpc.http_rpc import HttpRpcServer
         from rpent.utils.rpc.socket_rpc import SocketRpcServer
 
-        _lock = threading.Lock()
-
-        def dispatch(method: str, args: tuple, kwargs: dict) -> Any:
-            if method == "healthz":
-                return {"status": "ok"}
-            if method == "shutdown":
-                with _lock:
-                    self._shutdown_event.set()
-                return {"ok": True}
-            with _lock:
-                return self._dispatch(method, args, kwargs)
-
         server_cls = HttpRpcServer if transport == "http" else SocketRpcServer
-        server = server_cls((host, port), dispatch)
+        server = server_cls((host, port), self._dispatch)
         bound_host, bound_port = server.server_address
         client_host = "127.0.0.1" if bound_host == "0.0.0.0" else bound_host
         url = f"{transport}://{client_host}:{bound_port}"

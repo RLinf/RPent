@@ -83,23 +83,23 @@ class BaseEnvFacade(RpcFacade):
         ])
 
     # ---- abstract methods (subclasses must override) ----
-    def reset(self):
+    def reset(self, *args, **kwargs):
         """Reset the env and return ``(initial_obs, info)``."""
         raise NotImplementedError
 
-    def step(self):
+    def step(self, *args, **kwargs):
         """Execute one env action. Returns the gym tuple result."""
         raise NotImplementedError
 
-    def chunk_step(self):
+    def chunk_step(self, *args, **kwargs):
         """Execute N actions in one batch. Returns the gym tuple result."""
         raise NotImplementedError
 
-    def get_camera_meta(self):
+    def get_camera_meta(self, *args, **kwargs):
         raise NotImplementedError
 
-    def render_camera(self):
+    def render_camera(self, *args, **kwargs):
         raise NotImplementedError
 
-    def get_task_language(self):
+    def get_task_language(self, *args, **kwargs):
         raise NotImplementedError

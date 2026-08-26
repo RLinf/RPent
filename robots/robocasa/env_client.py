@@ -42,7 +42,6 @@ CAM_ALIAS = {
 class RoboCasaEnvClient(BaseEnvClient):
     _TIMEOUT_S = {
         **BaseEnvClient._TIMEOUT_S,
-        "env.render_camera": 120.0,
         "env.grasp_contact": 10.0,
     }
 
@@ -124,11 +123,7 @@ class RoboCasaEnvClient(BaseEnvClient):
         cam = self._resolve_cam(camera_name)
         h = height or self.camera_h
         w = width or self.camera_w
-        return self._client.call(
-            "env.get_camera_meta",
-            kwargs={"camera_name": cam, "height": h, "width": w},
-            timeout_s=self._TIMEOUT_S["default"],
-        )
+        return super().get_camera_meta(cam, height=h, width=w)
 
     def world_map(self, camera_name, height=None, width=None):
         """HxWx3 world xyz per pixel, TOP-DOWN (row 0 = image top), pixel-aligned
