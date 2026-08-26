@@ -112,9 +112,7 @@ runtime 钩子中解析）：
 观测数据很大、或是多帧堆叠的嵌套 NumPy 字典时可改 ``socket``，用带长度前缀的
 pickle 数据帧传输，省掉反复的 JSON 编解码。pickle 不适合不可信输入，socket 只应连接可信端点。
 
-环境和 VLA client 通常应分别继承 ``BaseEnvClient``、``BaseVLAClient``；服务端
-分别继承 ``BaseEnvFacade``、``BaseVLAFacade``，并通过 ``_register_rpc`` 注册
-扩展路由。这些基类在 ``RpcFacade`` 之上提供公共路由和锁。只有尚无专用基类的
-服务类型才直接继承 ``RpcFacade``。业务子类不必实现 ``healthz`` / ``shutdown``。
+服务端：继承 ``rpent.utils.rpc.RpcFacade``，在 ``_register_rpc`` 中注册业务 RPC
+方法（如 ``reset``、``step``、``predict``）。``healthz`` / ``shutdown`` 不必在子类里写。
 
 细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。

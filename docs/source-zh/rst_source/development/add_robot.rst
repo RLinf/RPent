@@ -145,11 +145,10 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 在 ``env_server`` 中定义与 client API 对应的 facade 类，例如
-``MyEnvFacade``。该类继承
-:class:`rpent.robots.components.env_facade_base.BaseEnvFacade`；基类已提供公共 RPC 路由和
-读写分派锁。子类实现公共环境方法，并通过 ``_register_rpc`` 增加环境专用路由。
-方法接收与 client 一致的位置参数和关键字参数，返回传输层支持的 Python / NumPy
-值（不要返回 torch；agent 进程不导入 torch）。
+``MyEnvFacade``。该类继承 :class:`~rpent.robots.components.env_facade_base.BaseEnvFacade`，
+在 ``_register_rpc`` 中注册环境特有方法，再通过 ``self.serve(...)`` 启动服务。
+方法接收与 client 一致的位置参数和关键字参数，返回可 pickle 的值
+（使用 numpy，不要返回 torch；agent 进程不导入 torch）。
 
 .. code-block:: python
 
@@ -160,17 +159,19 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
            self._env = env
            self._meta = dict(meta)
            super().__init__()
+           self._env = env
+           self._meta = meta
 
        def _register_rpc(self):
            super()._register_rpc()
-           self._rpc["env.render_camera"] = self.render_camera
+           # 自定义方法需额外注册
+           self._rpc["env.custom_method"] = self.custom_method
 
-       def get_env_meta(self): return dict(self._meta)
+       # BaseEnvFacade 要求的抽象方法必须实现
        def reset(self): ...
        def step(self, action): ...
-       def chunk_step(self, actions, *, return_all_frames=False): ...
-       def render_camera(self, camera_name): ...
-       def close(self): ...
+
+       def custom_method(self, arg): ...
 
    facade = MyEnvFacade(env, meta)
    facade.serve(transport="http", host=host, port=port)

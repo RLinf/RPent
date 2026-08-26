@@ -157,13 +157,11 @@ the server-side facade registers each name explicitly.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Mirror the client's API in a facade class on the server side (e.g.
-``MyEnvFacade``). Subclass
-:class:`rpent.robots.components.env_facade_base.BaseEnvFacade`; it provides the common RPC
-routes and read/write dispatch locking. Implement the common environment
-methods and extend ``_register_rpc`` for environment-specific routes. Methods
-take the same positional / keyword arguments the client sends and return
-transport-supported Python / NumPy values (not torch — the agent side does not
-import torch).
+``MyEnvFacade``). Subclass :class:`~rpent.robots.components.env_facade_base.BaseEnvFacade`,
+register environment-specific methods in ``_register_rpc``, and delegate
+startup to ``self.serve(...)``. Methods take the same positional / keyword
+arguments the client sends and return pickleable values (numpy, not torch —
+the agent side does not import torch).
 
 .. code-block:: python
 
@@ -174,17 +172,19 @@ import torch).
            self._env = env
            self._meta = dict(meta)
            super().__init__()
+           self._env = env
+           self._meta = meta
 
        def _register_rpc(self):
            super()._register_rpc()
-           self._rpc["env.render_camera"] = self.render_camera
+           # Custom methods must be registered explicitly
+           self._rpc["env.custom_method"] = self.custom_method
 
-       def get_env_meta(self): return dict(self._meta)
+       # Abstract methods required by BaseEnvFacade
        def reset(self): ...
        def step(self, action): ...
-       def chunk_step(self, actions, *, return_all_frames=False): ...
-       def render_camera(self, camera_name): ...
-       def close(self): ...
+
+       def custom_method(self, arg): ...
 
    facade = MyEnvFacade(env, meta)
    facade.serve(transport="http", host=host, port=port)
