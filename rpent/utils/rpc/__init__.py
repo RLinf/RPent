@@ -18,8 +18,8 @@ from rpent.utils.rpc.rpc import (
     RpcClient,
     RpcError,
     RpcFacade,
-    check_response,
-    make_error_response,
+)
+from rpent.utils.rpc.client_utils import (
     make_rpc_client,
     parse_endpoint,
     wait_for_ready,
@@ -32,8 +32,6 @@ __all__ = [
     "RpcFacade",
     "SocketRpcClient",
     "SocketRpcServer",
-    "check_response",
-    "make_error_response",
     "make_rpc_client",
     "parse_endpoint",
     "wait_for_ready",

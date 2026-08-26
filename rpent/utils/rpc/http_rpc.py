@@ -33,7 +33,7 @@ from typing import Any, Callable
 import numpy as np
 
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc import RpcError, check_response, make_error_response
+from rpent.utils.rpc.rpc import RpcClient, RpcError, check_response, make_error_response
 
 DEFAULT_TIMEOUT_S = 30.0
 
@@ -58,7 +58,7 @@ def _from_json(obj: Any) -> Any:
     return obj
 
 
-class HttpRpcClient:
+class HttpRpcClient(RpcClient):
     """RPC client that talks to an RPC server via HTTP POST.
 
     Parameters

@@ -17,13 +17,10 @@
 from __future__ import annotations
 
 import threading
-import time
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import Any, Literal
 
 from rpent.utils.logging import get_logger
-
-if TYPE_CHECKING:
-    from rpent.utils.daemon import ProcessDaemon
+from rpent.utils.rwlock import RWLock
 
 logger = get_logger("rpc")
 
@@ -37,8 +34,12 @@ class RpcError(RuntimeError):
         self.server_traceback = traceback
 
 
-class RpcClient(Protocol):
-    """Generic method-call RPC transport (agent → out-of-process server)."""
+class RpcClient:
+    """Base for transport-specific RPC clients."""
+
+    def close(self) -> None:
+        """Close the client connection."""
+        pass
 
     def call(
         self,
@@ -48,7 +49,8 @@ class RpcClient(Protocol):
         *,
         timeout_s: float | None = None,
     ) -> Any:
-        """Invoke a remote method and return its result."""
+        """Invoke a remote method and return its result. Override in subclasses."""
+        raise NotImplementedError
 
 
 def make_error_response(exc: Exception) -> dict:
@@ -71,55 +73,26 @@ def check_response(response: Any, method: str) -> Any:
     return response.get("result")
 
 
-def wait_for_ready(
-    client: RpcClient,
-    *,
-    timeout_s: float = 300.0,
-    poll_interval_s: float = 0.5,
-    daemon: "ProcessDaemon | None" = None,
-) -> None:
-    """Poll ``client.call("healthz")`` until it succeeds or ``timeout_s`` elapses.
-
-    If ``daemon`` is given and its subprocess exits before becoming ready,
-    fail fast with ``RuntimeError`` (carrying the exit code) instead of
-    blocking until ``timeout_s``.
-    """
-    deadline = time.time() + timeout_s
-    last_err: Exception | None = None
-    while time.time() < deadline:
-        if daemon is not None:
-            rc = daemon.poll()
-            if rc is not None:
-                detail = last_err if last_err is not None else "no healthz attempt yet"
-                raise RuntimeError(
-                    f"{daemon.name} exited with code {rc} before becoming "
-                    f"ready; check its log. last healthz error: {detail}"
-                )
-        try:
-            client.call("healthz", timeout_s=1.0)
-            return
-        except Exception as exc:
-            last_err = exc
-            time.sleep(poll_interval_s)
-    raise TimeoutError(
-        f"server did not become ready within {timeout_s:.0f}s: {last_err}"
-    )
-
-
 class RpcFacade:
     """Base class for subprocess RPC servers.
 
-    Subclasses implement :meth:`_dispatch`; the base owns the shutdown
-    event, the ``shutdown`` / ``healthz`` RPC methods, transport binding,
-    parent-watch, and clean teardown.
+    Subclasses register methods in ``self._rpc`` (typically in ``__init__``
+    or a ``_register_rpc`` hook). Read-only methods listed in
+    ``self._readonly_methods`` run under a shared read lock; mutating
+    methods acquire an exclusive write lock.
+
+    The base owns the shutdown event, the ``shutdown`` / ``healthz`` RPC
+    methods, transport binding, parent-watch, and clean teardown.
 
     Usage::
 
         class MyFacade(RpcFacade):
-            def _dispatch(self, method, args, kwargs):
-                if method == "hello":
-                    return "world"
-                raise ValueError(f"unknown RPC method: {method!r}")
+            def __init__(self):
+                super().__init__()
+                self._rpc["hello"] = self.say_hello
+
+            def say_hello(self):
+                return "world"
 
 
         MyFacade().serve(transport="http", host="127.0.0.1", port=0)
@@ -127,14 +100,25 @@ class RpcFacade:
 
     def __init__(self) -> None:
         self._shutdown_event = threading.Event()
+        self._dispatch_lock = RWLock()
+        self._rpc: dict[str, Any] = {}
+        self._readonly_methods: set[str] = set()
 
     def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        """Business RPC dispatch. Override in subclasses.
+        """Business RPC dispatch using a registration dict.
 
-        Do not handle ``shutdown`` or ``healthz`` here — the base takes care
-        of them.
+        Subclasses register handlers in ``_register_rpc``. Read-only methods
+        (registered in ``_readonly_methods``) run under a shared read lock;
+        mutating methods acquire an exclusive write lock.
         """
-        raise NotImplementedError
+        handler = self._rpc.get(method)
+        if handler is None:
+            raise ValueError(f"unknown RPC method: {method!r}")
+        if method in self._readonly_methods:
+            with self._dispatch_lock.read():
+                return handler(*args, **kwargs)
+        with self._dispatch_lock.write():
+            return handler(*args, **kwargs)
 
     def serve(
         self,
@@ -184,41 +168,10 @@ class RpcFacade:
             server.server_close()
 
 
-def parse_endpoint(endpoint: str) -> tuple[str, str, int]:
-    """Parse ``[protocol://]host:port`` into ``(protocol, host, port)``.
-
-    Protocol defaults to ``http`` when the prefix is omitted.
-    """
-    if "://" in endpoint:
-        protocol, _, rest = endpoint.partition("://")
-    else:
-        protocol, rest = "http", endpoint
-    host, _, port = rest.partition(":")
-    if not host or not port:
-        raise ValueError(f"endpoint must be [protocol://]host:port, got {endpoint!r}")
-    return protocol, host, int(port)
-
-
-def make_rpc_client(endpoint: str) -> RpcClient:
-    """Build an HTTP or socket client for ``endpoint``."""
-    from rpent.utils.rpc.http_rpc import HttpRpcClient
-    from rpent.utils.rpc.socket_rpc import SocketRpcClient
-
-    protocol, host, port = parse_endpoint(endpoint)
-    if protocol == "http":
-        return HttpRpcClient(f"http://{host}:{port}")
-    if protocol == "socket":
-        return SocketRpcClient(host, port)
-    raise ValueError(f"endpoint protocol must be http or socket, got {protocol!r}")
-
-
 __all__ = [
     "RpcClient",
     "RpcError",
     "RpcFacade",
     "check_response",
     "make_error_response",
-    "make_rpc_client",
-    "parse_endpoint",
-    "wait_for_ready",
 ]
