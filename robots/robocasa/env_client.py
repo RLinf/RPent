@@ -109,12 +109,6 @@ class RoboCasaEnvClient(BaseEnvClient):
         )
 
     # ---- rendering / perception ----
-    def render_camera(self, cam, h, w, depth):
-        """Low-level render — takes already-resolved cam and actual h/w."""
-        return self._client.call("env.render_camera",
-            kwargs={"cam": cam, "h": h, "w": w, "depth": depth},
-            timeout_s=self._TIMEOUT_S["env.render_camera"])
-
     def render_camera(self, camera_name, height=None, width=None, depth=False):
         """Agent-facing: vertically flip to top-down so the rgb reads naturally and
         is pixel-aligned with world_map()."""
@@ -122,9 +116,9 @@ class RoboCasaEnvClient(BaseEnvClient):
         h = height or self.camera_h
         w = width or self.camera_w
         if depth:
-            rgb, real = self.render_camera(cam, h, w, True)
+            rgb, real = super().render_camera((cam, h, w, True)
             return rgb[::-1], real[::-1]
-        return self.render_camera(cam, h, w, False)[::-1]
+        return super().render_camera((cam, h, w, False)[::-1]
 
     def get_camera_meta(self, camera_name, height=None, width=None):
         cam = self._resolve_cam(camera_name)
@@ -145,7 +139,7 @@ class RoboCasaEnvClient(BaseEnvClient):
         cam = self._resolve_cam(camera_name)
         h = height or self.camera_h
         w = width or self.camera_w
-        _, z_native = self.render_camera(cam, h, w, True)      # metric depth, bottom-up
+        _, z_native = super().render_camera((cam, h, w, True)      # metric depth, bottom-up
         z = z_native[::-1]                                  # -> top-down
         T_p2w = self._client.call(
             "env.get_camera_transform",
