@@ -12,8 +12,8 @@ from robots.libero.env_client import LiberoEnvClient
 from rpent.tools.state import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
 from rpent.utils.logging import get_logger
-from rpent.utils.sam3_client import Sam3Client
-from rpent.utils.vla_client import VLAClient
+from rpent.robots.components.sam3_client import Sam3Client
+from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
 logger = get_logger("libero")
 
@@ -39,7 +39,7 @@ class LiberoPrimitives:
     def __init__(
         self,
         env: LiberoEnvClient,
-        model: VLAClient,
+        model: Pi05VLAClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
     ):

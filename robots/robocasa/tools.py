@@ -872,35 +872,63 @@ def back_project_batch(
     valid_xyzs = []
     for pixel in pixels:
         if not isinstance(pixel, (list, tuple)) or len(pixel) != 2:
-            results.append({"pixel": pixel, "world_xyz": None, "valid": False,
-                            "error": "pixel must be [row, col]"})
+            results.append({
+                "pixel": pixel,
+                "world_xyz": None,
+                "valid": False,
+                "error": "pixel must be [row, col]",
+            })
             continue
         row, col = int(pixel[0]), int(pixel[1])
         h, w = world_map.shape[:2]
         if row < 0 or row >= h or col < 0 or col >= w:
-            results.append({"pixel": pixel, "world_xyz": None, "valid": False,
-                            "error": f"pixel ({row},{col}) out of bounds ({h}x{w})"})
+            results.append({
+                "pixel": pixel,
+                "world_xyz": None,
+                "valid": False,
+                "error": f"pixel ({row},{col}) out of bounds ({h}x{w})",
+            })
             continue
         xyz = world_map[row, col, :3]
         if not np.isfinite(xyz).all() or abs(float(xyz.sum())) <= 1e-6:
-            results.append({"pixel": pixel, "world_xyz": None, "valid": False,
-                            "error": "invalid world xyz at pixel"})
+            results.append({
+                "pixel": pixel,
+                "world_xyz": None,
+                "valid": False,
+                "error": "invalid world xyz at pixel",
+            })
             continue
         results.append({
             "pixel": [row, col],
-            "world_xyz": [round(float(xyz[0]), 4), round(float(xyz[1]), 4), round(float(xyz[2]), 4)],
+            "world_xyz": [
+                round(float(xyz[0]), 4),
+                round(float(xyz[1]), 4),
+                round(float(xyz[2]), 4),
+            ],
             "valid": True,
             "error": None,
         })
         valid_xyzs.append([float(xyz[0]), float(xyz[1]), float(xyz[2])])
 
-    summary: dict = {"valid_count": len(valid_xyzs), "total_count": len(pixels)}
+    summary: dict = {
+        "valid_count": len(valid_xyzs),
+        "total_count": len(pixels),
+    }
     if valid_xyzs:
         median = np.median(valid_xyzs, axis=0)
-        summary["median_xyz"] = [round(float(median[0]), 4), round(float(median[1]), 4),
-                                  round(float(median[2]), 4)]
-    return {"results": results, "summary": summary, "step": nn,
-            "camera": camera, "resolution": resolution}
+        summary["median_xyz"] = [
+            round(float(median[0]), 4),
+            round(float(median[1]), 4),
+            round(float(median[2]), 4),
+        ]
+
+    return {
+        "results": results,
+        "summary": summary,
+        "step": nn,
+        "camera": camera,
+        "resolution": resolution,
+    }
 
 
 @readonly
@@ -973,14 +1001,23 @@ def query_world_map(
         bbox_max = pts.max(axis=0)
         center_idx = len(data["pixels"]) // 2
         clusters.append({
-            "center_xyz": [round(float(center[0]), 4), round(float(center[1]), 4),
-                           round(float(center[2]), 4)],
+            "center_xyz": [
+                round(float(center[0]), 4),
+                round(float(center[1]), 4),
+                round(float(center[2]), 4),
+            ],
             "pixel_count": len(data["pixels"]),
             "bbox_xyz": {
-                "min": [round(float(bbox_min[0]), 4), round(float(bbox_min[1]), 4),
-                        round(float(bbox_min[2]), 4)],
-                "max": [round(float(bbox_max[0]), 4), round(float(bbox_max[1]), 4),
-                        round(float(bbox_max[2]), 4)],
+                "min": [
+                    round(float(bbox_min[0]), 4),
+                    round(float(bbox_min[1]), 4),
+                    round(float(bbox_min[2]), 4),
+                ],
+                "max": [
+                    round(float(bbox_max[0]), 4),
+                    round(float(bbox_max[1]), 4),
+                    round(float(bbox_max[2]), 4),
+                ],
             },
             "sample_pixels": [list(data["pixels"][center_idx])],
         })
@@ -988,7 +1025,10 @@ def query_world_map(
     clusters.sort(key=lambda c: -c["pixel_count"])
     return {
         "clusters": clusters[:20],
-        "summary": {"total_clusters": len(clusters[:20]), "total_pixels_matched": total_pixels},
+        "summary": {
+            "total_clusters": len(clusters[:20]),
+            "total_pixels_matched": total_pixels,
+        },
     }
 
 
