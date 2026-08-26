@@ -55,7 +55,7 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 
 .. code-block:: bash
 
-	export PYTHONPATH=/path/to/RLinf:${PYTHONPATH:-}
+	export PYTHONPATH=$RLINF_REPO_PATH:${PYTHONPATH:-}
 	export RLINF_NODE_RANK=1
 	ray stop --force
 	ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
