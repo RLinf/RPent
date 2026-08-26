@@ -3,7 +3,7 @@ import argparse
 import os
 
 import numpy as np
-from rpent.tools.vla_facade_base import BaseVLAFacade
+from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.logging import get_logger
 
 logger = get_logger("vla_server")

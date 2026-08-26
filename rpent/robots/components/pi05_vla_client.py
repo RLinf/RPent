@@ -1,7 +1,7 @@
 """Thin client wrapping the Pi0.5 VLA RPC server.
 
 The server lifecycle is the caller's responsibility: bring up
-``robots/libero/vla_server.py`` (or any compatible ``predict`` /
+``rpent.robots.components.pi05_vla_server`` (or any compatible ``predict`` /
 ``healthz`` implementation) before constructing this client.
 
 Wire schema (see also ``vla_server.py``):
@@ -40,7 +40,7 @@ def _png_b64(img: np.ndarray) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-class VLAClient:
+class Pi05VLAClient:
     """Client wrapping a remote Pi0.5 VLA over any :class:`RpcClient` transport.
 
     Only call site is ``LiberoPrimitives``, which uses one method:

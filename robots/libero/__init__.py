@@ -185,7 +185,7 @@ def _spawn_env_server(
     """Spawn or attach to the LIBERO environment server."""
     from rpent.utils.config import get_libero_type
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
-    from rpent.utils.http_rpc import HttpRpcClient
+    from rpent.utils.rpc.http_rpc import HttpRpcClient
 
     libero_type = args.libero_type or get_libero_type()
     cuda_args = (
@@ -200,20 +200,13 @@ def _spawn_env_server(
         cmd=[
             sys.executable,
             str(get_repo_root() / "robots" / "libero" / "env_server.py"),
-            "--suite",
-            args.suite,
-            "--task",
-            str(args.task),
-            "--seed",
-            str(args.seed),
-            "--max-episode-steps",
-            str(args.max_episode_steps),
-            "--transport",
-            "http",
-            "--host",
-            host,
-            "--port",
-            str(port),
+            "--suite", args.suite,
+            "--task", str(args.task),
+            "--seed", str(args.seed),
+            "--max-episode-steps", str(args.max_episode_steps),
+            "--transport", "http",
+            "--host", host,
+            "--port", str(port),
             "--parent-watch",
             *cuda_args,
         ],
@@ -234,7 +227,7 @@ def _spawn_vla_server(
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Spawn or attach to the LIBERO VLA server."""
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
-    from rpent.utils.http_rpc import HttpRpcClient
+    from rpent.utils.rpc.http_rpc import HttpRpcClient
 
     if args.vla_endpoint is not None:
         return None, make_rpc_client(args.vla_endpoint)
@@ -247,13 +240,10 @@ def _spawn_vla_server(
         name="vla_server",
         cmd=[
             sys.executable,
-            str(get_repo_root() / "robots" / "libero" / "vla_server.py"),
-            "--transport",
-            "http",
-            "--host",
-            host,
-            "--port",
-            str(port),
+            str(get_repo_root() / "rpent" / "robots" / "components" / "pi05_vla_server.py"),
+            "--transport", "http",
+            "--host", host,
+            "--port", str(port),
             "--parent-watch",
             *cuda_args,
         ],
@@ -269,7 +259,7 @@ def _spawn_sam3_server(
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Spawn or attach to the LIBERO SAM3 server."""
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
-    from rpent.utils.http_rpc import HttpRpcClient
+    from rpent.utils.rpc.http_rpc import HttpRpcClient
 
     if args.sam3_endpoint is not None:
         return None, make_rpc_client(args.sam3_endpoint)
@@ -282,13 +272,10 @@ def _spawn_sam3_server(
         name="sam3_server",
         cmd=[
             sys.executable,
-            str(get_repo_root() / "robots" / "libero" / "sam3_server.py"),
-            "--transport",
-            "http",
-            "--host",
-            host,
-            "--port",
-            str(port),
+            str(get_repo_root() / "rpent" / "robots" / "components" / "sam3_server.py"),
+            "--transport", "http",
+            "--host", host,
+            "--port", str(port),
             "--parent-watch",
             *cuda_args,
         ],
@@ -306,8 +293,8 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every LIBERO component, or only ``components`` when given."""
     from robots.libero.env_client import LiberoEnvClient
-    from rpent.utils.sam3_client import Sam3Client
-    from rpent.utils.vla_client import VLAClient
+    from rpent.robots.components.sam3_client import Sam3Client
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
@@ -326,7 +313,7 @@ def _init_runtime(
                 },
             )
         },
-        "vla": lambda rpc: {"model": VLAClient(rpc)},
+        "vla": lambda rpc: {"model": Pi05VLAClient(rpc)},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
     }
     selected = set(starters) if components is None else components

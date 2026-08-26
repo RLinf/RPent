@@ -9,11 +9,11 @@ import threading
 import traceback
 import numpy as np
 
-from rpent.tools.env_facade_base import BaseEnvFacade
+from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
 from rpent.utils.daemon import watch_parent_death
-from rpent.utils.http_rpc import HttpRpcServer
-from rpent.utils.socket_rpc import SocketRpcServer
+from rpent.utils.rpc.http_rpc import HttpRpcServer
+from rpent.utils.rpc.socket_rpc import SocketRpcServer
 
 logger = get_logger("env_server")
 

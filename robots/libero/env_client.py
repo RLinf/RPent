@@ -3,7 +3,7 @@
 Lives in :mod:`robots.libero` because the methods exposed
 here (``raw_obs`` / ``render_camera`` / ``cached_image`` / …)
 reference LIBERO-specific obs dict keys and camera names. The generic
-transport layer lives in :mod:`rpent.utils.socket_rpc`.
+transport layer lives in :mod:`rpent.utils.rpc.socket_rpc`.
 """
 from __future__ import annotations
 

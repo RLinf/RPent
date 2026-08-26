@@ -18,7 +18,7 @@ from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.runtime import try_spawn_server, try_wait_server
 from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
-from rpent.utils.http_rpc import HttpRpcClient
+from rpent.utils.rpc.http_rpc import HttpRpcClient
 from rpent.utils.rpc import make_rpc_client
 
 if TYPE_CHECKING:

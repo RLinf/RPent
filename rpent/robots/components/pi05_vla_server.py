@@ -110,13 +110,8 @@ def _build_env_obs(instruction: str, images: dict[str, Any],
     return obs
 
 
-# ---------------------------------------------------------------------------
-# Facade implementing the rpent.utils.vla_client protocol
-# ---------------------------------------------------------------------------
-
-
-class VLAFacade(RpcFacade):
-    """Implements :class:`rpent.utils.vla_client.VLAClient` over a Pi0.5 model.
+class Pi05VLAFacade(RpcFacade):
+    """Implements :class:`rpent.robots.components.pi05_vla_client.Pi05VLAClient` over a Pi0.5 model.
 
     Loads the model once at construction; each ``predict`` call runs one
     single-env inference and returns a JSON-safe dict.
@@ -192,7 +187,7 @@ def main() -> None:
             "path via --model-path or the environment."
         )
 
-    facade = VLAFacade(model_path=model_path)
+    facade = Pi05VLAFacade(model_path=model_path)
     facade.serve(
         transport=args.transport,
         host=args.host,

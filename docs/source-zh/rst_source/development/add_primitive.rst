@@ -98,12 +98,12 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 2. **编写 model client。** 创建一个轻量的类，封装
    :class:`rpent.utils.rpc.RpcClient`
    （:class:`HttpRpcClient` 或 :class:`SocketRpcClient`），并提供模型调用
-   接口。LIBERO 的实现可参考 ``rpent.utils.vla_client.VLAClient``。
+   接口。LIBERO 的实现可参考 ``rpent.robots.components.pi05_vla_client.Pi05VLAClient``。
 
 3. **在 primitives 中添加方法。** 在当前机器人的 primitives
    类中调用 model client，将其返回的动作块交给环境执行，并返回日志字典。
    model client 的接口是
-   :meth:`rpent.utils.vla_client.VLAClient.predict_action_batch`，
+   :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict_action_batch`，
    指令从 ``env_obs["task_descriptions"]`` 中读取，不接受关键字参数：
 
    .. code-block:: python

@@ -107,13 +107,13 @@ primitive requires a few additional components:
 2. **Write a model client.** Create a lightweight class that wraps an
    :class:`rpent.utils.rpc.RpcClient` (either :class:`HttpRpcClient` or
    :class:`SocketRpcClient`) and exposes the model's API.
-   See ``rpent.utils.vla_client.VLAClient`` for the LIBERO implementation.
+   See ``rpent.robots.components.pi05_vla_client.Pi05VLAClient`` for the LIBERO implementation.
 
 3. **Add a method to the primitives.** In the current
    robot's primitives class, call the model client, pass
    the returned action chunk to the environment, and return a log
    ``dict``. The model client API is
-   :meth:`rpent.utils.vla_client.VLAClient.predict_action_batch`, which
+   :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict_action_batch`, which
    reads the instruction from ``env_obs["task_descriptions"]`` rather
    than accepting a keyword argument:
 

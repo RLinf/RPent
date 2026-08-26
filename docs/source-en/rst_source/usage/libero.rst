@@ -7,7 +7,7 @@ RPent focuses on four core base task families (``libero_object``,
 ``libero_goal``, ``libero_spatial``, ``libero_10``) and three variants
 (``standard``, ``pro``, ``plus``).
 The default VLA is **Pi0.5**, served over HTTP by
-``robots/libero/vla_server.py``.
+``rpent/robots/components/pi05_vla_server.py``.
 
 VLA configuration
 -----------------
@@ -181,10 +181,10 @@ What runs where
   ``chunk_step``, ``render_camera``, ``get_camera_meta``,
   ``cached_image``, … over an RPC transport (HTTP by default; socket
   via ``--transport socket``).
-- **vla_server** (``robots/libero/vla_server.py``) — owns the Pi0.5
+- **vla_server** (``rpent/robots/components/pi05_vla_server.py``) — owns the Pi0.5
   weights. Exposes ``predict`` over the same RPC transport (HTTP or
   socket).
-- **sam3_server** (``robots/libero/sam3_server.py``) — owns SAM 3.0 and
+- **sam3_server** (``rpent/robots/components/sam3_server.py``) — owns SAM 3.0 and
   exposes text or single-positive-point segmentation through the same RPC
   transports (HTTP or socket). It returns only the top compressed PNG mask.
 - **toolkit** (``robots/libero/toolkit.py``) — defines the tools the

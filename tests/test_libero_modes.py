@@ -164,7 +164,7 @@ def test_explore_reset_enforces_attempt_budget():
 
 
 def test_libero_toolkit_uses_custom_state_output_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(LiberoToolkit, "init_primitives_clean", lambda *a, **k: None)
+    monkeypatch.setattr(LiberoToolkit, "init_primitives", lambda *a, **k: None)
     monkeypatch.setattr(LiberoToolkit, "_register_libero_tools", lambda *a, **k: None)
     state_dir = tmp_path / "sessions" / "session_002"
 
