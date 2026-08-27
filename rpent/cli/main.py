@@ -43,6 +43,7 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from rpent.cli.tui import (
     start_first_prompt_resolver,
@@ -52,10 +53,14 @@ from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
 )
+from rpent.memory import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, build_planner
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
+
+if TYPE_CHECKING:
+    from rpent.robots.robot_spec import RunConfig
 
 logger = get_logger("agent")
 
@@ -291,6 +296,19 @@ def _start_continuation_session(
     return planner, system_prompt, session_message
 
 
+def _finalize_memory_merge(
+    run_config: RunConfig,
+    solved: bool,
+) -> dict[str, Any]:
+    """Merge completed exploration artifacts into the memory corpus."""
+    memory = MemoryManager(root=run_config.prompt_vars["memory_dir"])
+    return memory.merge_memory(
+        cell_tag=run_config.recipe_tag,
+        run_state_dir=run_config.output_dir,
+        solved=solved,
+    )
+
+
 def main() -> int:
     parser = _build_argparser()
     # Two-phase argparse: first grab --robot / --env / --dashboard so we know
@@ -420,6 +438,7 @@ def main() -> int:
     if not getattr(args, "explore", False):
         sessions = 1
     recipe_path = ""
+    solved = False
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
@@ -448,12 +467,8 @@ def main() -> int:
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
                     dashboard_events=dashboard_events,
-                    mode=("exploration" if args.explore else "evaluation"),
-                    attempts_per_session=getattr(
-                        args,
-                        "explore_attempts_per_session",
-                        0,
-                    ),
+                    args=args,
+                    config=run_config,
                     state_output_dir=state_output_dir,
                 )
             else:
@@ -461,8 +476,9 @@ def main() -> int:
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
                     dashboard_events=dashboard_events,
+                    args=args,
+                    config=run_config,
                 )
-            solved = False
             try:
                 result = planner.solve(
                     system_prompt=system_prompt,
@@ -530,12 +546,16 @@ def main() -> int:
     )
     logger.info("transcript: %s", transcript_path)
 
-    # Publish environment-specific artifacts after recipe export and shutdown.
-    if robot_spec.finalize_run is not None and not agent_error:
+    # Publish exploration artifacts into the corpus after the session loop.
+    if (
+        getattr(args, "explore", False)
+        and getattr(args, "auto_merge_memory", False)
+        and not agent_error
+    ):
         try:
-            finalized = robot_spec.finalize_run(args, run_config)
-            if finalized is not None:
-                logger.info("run finalized: %s", finalized)
+            merge_result = _finalize_memory_merge(run_config, solved)
+            if merge_result:
+                logger.info("memory merged: %s", merge_result)
         except Exception as exc:
             agent_error = f"memory finalization failed: {type(exc).__name__}: {exc}"
             logger.error("%s", agent_error)

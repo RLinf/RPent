@@ -35,7 +35,8 @@ from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
 from rpent.utils.templates import substitute
 
 if TYPE_CHECKING:
-    from rpent.tools.state import EnvState, StepRecord
+    from rpent.memory.manager import MemoryManager
+    from rpent.session import EnvState, StepRecord
 
 
 @dataclass(slots=True)
@@ -158,6 +159,9 @@ class Toolkit:
         *,
         dashboard_events: DashboardEventSink,
         state: Any = None,
+        memory: "MemoryManager",
+        memory_access: str = "read_only",
+        inbox_cell_tag: str | None = None,
     ) -> None:
         self._tools: dict[
             str,
@@ -165,6 +169,9 @@ class Toolkit:
         ] = {}
         self._dashboard_events = dashboard_events
         self._state = state
+        self._memory = memory
+        self._memory_access = memory_access
+        self._inbox_cell_tag = inbox_cell_tag
         self._operation_lock = threading.Lock()
         self._active_operation: _ToolOperation | None = None
         self._register_common_tools()
@@ -192,12 +199,40 @@ class Toolkit:
         self._tools[name] = (spec, handler)
 
     def _register_common_tools(self) -> None:
-        """Register the file/IO tools shared by every run."""
+        """Register common tools with memory-aware file handlers."""
+        from rpent.memory import tools as memory_tools
         from rpent.tools import common
 
+        memory_handlers = {
+            "read_text_file": partial(
+                memory_tools.read_text_file,
+                memory_root=self._memory.root,
+                memory_access=self._memory_access,
+                cell_tag=self._inbox_cell_tag,
+            ),
+            "write_text_file": partial(
+                memory_tools.write_text_file,
+                memory_root=self._memory.root,
+                memory_access=self._memory_access,
+                cell_tag=self._inbox_cell_tag,
+            ),
+            "list_dir": partial(
+                memory_tools.list_dir,
+                memory_root=self._memory.root,
+                memory_access=self._memory_access,
+                cell_tag=self._inbox_cell_tag,
+            ),
+        }
         for spec in common.TOOLS_SPEC:
             name = spec["name"]
-            self.add_tool(name, spec, common.TOOL_HANDLERS[name])
+            if name in memory_handlers:
+                scoped_spec = dict(spec)
+                scoped_spec["description"] = (
+                    spec["description"] + memory_tools.MEMORY_BOUNDARY_NOTE
+                )
+                self.add_tool(name, scoped_spec, memory_handlers[name])
+            else:
+                self.add_tool(name, spec, common.TOOL_HANDLERS[name])
 
     # ------------------------------------------------------------------
     # Planner-facing API

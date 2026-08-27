@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import (
@@ -35,7 +36,7 @@ from rpent.robots.runtime import (
     try_spawn_server,
     try_wait_server,
 )
-from rpent.utils.config import get_repo_root
+from rpent.utils.config import get_memory_dir, get_repo_root
 
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
@@ -189,12 +190,19 @@ def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
+    args: argparse.Namespace,
+    config: RunConfig,
 ):
+    """Return the RoboTwin toolkit for the current session."""
     from robots.robotwin.toolkit import RoboTwinToolkit
 
+    memory = MemoryManager(
+        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
+    )
     return RoboTwinToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
+        memory=memory,
     )
 
 

@@ -13,7 +13,13 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
 .. code-block:: python
 
    def get_robot_spec() -> RobotSpec: ...
-   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink): ...
+   def get_toolkit(
+       *,
+       primitives_kwargs,
+       dashboard_events: DashboardEventSink,
+       args: argparse.Namespace,
+       config: RunConfig,
+   ): ...
 
 ``get_robot_spec`` returns a ``RobotSpec``. You supply:
 
@@ -44,11 +50,13 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
        unique subsets derived from its spec. A ``DashboardEventSink``
        reports status.
 
-``get_toolkit`` usually just passes ``primitives_kwargs`` into your robot subclass;
-``dashboard_events`` is supplied by the active runner. Robots that need extra
-run-context arguments (LIBERO adds ``mode``, ``attempts_per_session``,
-``state_output_dir``) declare them as keyword-only parameters and rely on the
-runner to pass them in the robot's CLI branch.
+``get_toolkit`` usually just passes ``primitives_kwargs`` into your robot
+subclass; ``dashboard_events``, ``args``, and ``config`` are supplied by the
+active runner, so you normally do not need to change them. It must construct a
+:class:`~rpent.memory.MemoryManager` (rooted at the configured
+``config.prompt_vars["memory_dir"]``, falling back to
+``get_memory_dir(robot_name)`` when unset) and pass it to the toolkit — the
+base ``Toolkit`` owns the memory access boundary and requires it.
 
 Reference: ``robots/libero/robot_spec.py``.
 

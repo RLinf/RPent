@@ -20,7 +20,7 @@ import argparse
 import json
 from pathlib import Path
 
-from rpent.memory.layered import build_index, merge_cell, validate_corpus
+from rpent.memory import MemoryManager
 from rpent.utils.config import get_memory_dir
 
 
@@ -37,6 +37,11 @@ def _parser() -> argparse.ArgumentParser:
     merge = subparsers.add_parser("merge", help="Publish one completed cell.")
     merge.add_argument("--cell", required=True)
     merge.add_argument("--output-dir", type=Path, required=True)
+    merge.add_argument(
+        "--solved",
+        action="store_true",
+        help="Mark the cell as solved so its task audit and recipe are published.",
+    )
     subparsers.add_parser("validate", help="Validate published memory leaves.")
     subparsers.add_parser("build-index", help="Rebuild MEMORY.md.")
     return parser
@@ -44,22 +49,23 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = _parser().parse_args()
+    manager = MemoryManager(args.memory_dir)
     if args.command == "merge":
-        result = merge_cell(
-            memory_dir=args.memory_dir,
+        result = manager.merge_memory(
             cell_tag=args.cell,
-            output_dir=args.output_dir,
+            run_state_dir=args.output_dir,
+            solved=args.solved,
         )
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0
     if args.command == "validate":
-        problems = validate_corpus(args.memory_dir)
+        problems = manager.validate()
         if problems:
             print("\n".join(problems))
             return 1
         print("local memory is valid")
         return 0
-    index = build_index(args.memory_dir)
+    index = manager.rebuild_index()
     print(index)
     return 0
 

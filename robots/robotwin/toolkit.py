@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -25,9 +25,12 @@ from robots.robotwin import tools
 from robots.robotwin.primitives import RoboTwinPrimitives
 from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES
 from rpent.dashboard.events import DashboardEventSink
-from rpent.tools.state import EnvState
+from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit, readonly
 from rpent.utils.logging import get_output_dir
+
+if TYPE_CHECKING:
+    from rpent.memory.manager import MemoryManager
 
 # State-advancing RoboTwin primitives eligible for the recipe. ``reset``,
 # ``render``, and read-only tools are intentionally excluded so the recipe
@@ -95,9 +98,14 @@ class RoboTwinToolkit(Toolkit):
         *,
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
+        memory: MemoryManager,
     ):
         state = EnvState(get_output_dir())
-        super().__init__(dashboard_events=dashboard_events, state=state)
+        super().__init__(
+            dashboard_events=dashboard_events,
+            state=state,
+            memory=memory,
+        )
         self._latest_status: dict[str, Any] = {}
         self._primitives = RoboTwinPrimitives(
             check_cancelled=self.raise_if_cancelled,

@@ -55,9 +55,13 @@ these two functions:
    from robots.myrobot.robot_spec import get_robot_spec, get_toolkit
 
    # robots/myrobot/robot_spec.py
+   import argparse
+
    from rpent.dashboard.events import DashboardEventSink
+   from rpent.memory import MemoryManager
    from rpent.robots.robot_spec import RobotSpec, RunConfig
    from rpent.robots.prompt_bundle import PromptBundle
+   from rpent.utils.config import get_memory_dir
    from robots.myrobot.prompt_bundle import system_prompt, user_prompt
 
    MYROBOT_DASHBOARD_SPEC = {...}
@@ -72,11 +76,20 @@ these two functions:
            dashboard=MYROBOT_DASHBOARD_SPEC,
        )
 
-   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink):
+   def get_toolkit(
+       *,
+       primitives_kwargs,
+       dashboard_events: DashboardEventSink,
+       args: argparse.Namespace,
+       config: RunConfig,
+   ):
        from robots.myrobot.toolkit import MyRobotToolkit
        return MyRobotToolkit(
            primitives_kwargs=primitives_kwargs,
            dashboard_events=dashboard_events,
+           memory=MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           ),
        )
 
    def _add_cli_args(parser, use_dashboard) -> None:
@@ -213,7 +226,7 @@ maintain separate prompt copies for CLI and API planners.
    # robots/myrobot/prompt_bundle.py
    from robots.myrobot.prompts import system as system_parts
    from robots.myrobot.prompts import user as user_parts
-   from rpent.context.prompt_utils import PromptNode
+   from rpent.prompt.utils import PromptNode
 
    def system_prompt() -> PromptNode:
        return {
@@ -272,6 +285,12 @@ filenames rather than maintaining a parallel observation index.
 
 **Toolkit class** — subclass ``rpent.tools.toolkit.Toolkit``:
 
+- forward ``memory`` (a :class:`~rpent.memory.MemoryManager`) and ``state`` to
+  ``super().__init__(...)``. The base class owns the common file tools and the
+  memory access boundary, so ``memory`` is required; ``state`` is optional
+  until the toolkit starts recording steps. Pass
+  ``memory_access="inbox_write"`` and ``inbox_cell_tag=...`` only for robots
+  that support exploration; eval runs use the ``read_only`` default.
 - build the primitives in ``__init__`` through a custom initialization
   helper (named ``init_primitives`` in LIBERO; it calls
   ``EnvState.reset()``, constructs the primitives, and dumps step 0),

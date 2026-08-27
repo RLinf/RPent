@@ -48,9 +48,13 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
    from robots.myrobot.robot_spec import get_robot_spec, get_toolkit
 
    # robots/myrobot/robot_spec.py
+   import argparse
+
    from rpent.dashboard.events import DashboardEventSink
+   from rpent.memory import MemoryManager
    from rpent.robots.robot_spec import RobotSpec, RunConfig
    from rpent.robots.prompt_bundle import PromptBundle
+   from rpent.utils.config import get_memory_dir
    from robots.myrobot.prompt_bundle import system_prompt, user_prompt
 
    MYROBOT_DASHBOARD_SPEC = {...}
@@ -65,11 +69,20 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
            dashboard=MYROBOT_DASHBOARD_SPEC,
        )
 
-   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink):
+   def get_toolkit(
+       *,
+       primitives_kwargs,
+       dashboard_events: DashboardEventSink,
+       args: argparse.Namespace,
+       config: RunConfig,
+   ):
        from robots.myrobot.toolkit import MyRobotToolkit
        return MyRobotToolkit(
            primitives_kwargs=primitives_kwargs,
            dashboard_events=dashboard_events,
+           memory=MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           ),
        )
 
    def _add_cli_args(parser, use_dashboard) -> None:
@@ -197,7 +210,7 @@ API 版本。
    # robots/myrobot/prompt_bundle.py
    from robots.myrobot.prompts import system as system_parts
    from robots.myrobot.prompts import user as user_parts
-   from rpent.context.prompt_utils import PromptNode
+   from rpent.prompt.utils import PromptNode
 
    def system_prompt() -> PromptNode:
        return {
@@ -252,6 +265,11 @@ step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过
 
 **Toolkit 类** 继承 ``rpent.tools.toolkit.Toolkit``：
 
+- 在 ``super().__init__(...)`` 中传入 ``memory``（一个
+  :class:`~rpent.memory.MemoryManager`）和 ``state``。基类负责公共文件工具和
+  memory 访问边界，故 ``memory`` 必填；``state`` 在开始记录步骤前可缺省。只有
+  支持探索的机器人才需要传 ``memory_access="inbox_write"`` 和
+  ``inbox_cell_tag=...``；eval 运行用默认的 ``read_only`` 即可。
 - 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitives（LIBERO
   中的方法名为 ``init_primitives``；它会调用 ``EnvState.reset()``、构造
   原语并 dump 第 0 步）,

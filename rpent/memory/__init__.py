@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Persistent memory generation and publication helpers."""
+"""Cross-session, mutable memory corpus."""
 
-from rpent.memory.layered import build_index, merge_cell, validate_corpus
+from rpent.memory.manager import MemoryManager
 
-__all__ = ["build_index", "merge_cell", "validate_corpus"]
+__all__ = ["MemoryManager"]

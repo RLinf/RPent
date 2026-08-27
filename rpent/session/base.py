@@ -1,19 +1,4 @@
-# Copyright 2026 The RPent Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-"""Per-run robot state and artifact storage."""
-
+"""Per-session robot state and artifact storage."""
 from __future__ import annotations
 
 import copy
@@ -35,18 +20,14 @@ logger = get_logger("env_state")
 _MANIFEST_NAME = "states.json"
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 _TEXT_SUFFIXES = {".txt", ".md"}
-_SUPPORTED_SUFFIXES = (
-    _IMAGE_SUFFIXES
-    | {
-        ".npy",
-        ".npz",
-        ".json",
-        ".jsonl",
-        ".mp4",
-        ".bin",
-    }
-    | _TEXT_SUFFIXES
-)
+_SUPPORTED_SUFFIXES = _IMAGE_SUFFIXES | {
+    ".npy",
+    ".npz",
+    ".json",
+    ".jsonl",
+    ".mp4",
+    ".bin",
+} | _TEXT_SUFFIXES
 
 
 def _json_default(value: Any) -> Any:
@@ -91,9 +72,8 @@ class StepRecord:
             blob["extras"] = self.extras
         return blob
 
-
 class EnvState:
-    """Own a run's step trace and all state-related files in its output root."""
+    """Own a session's step trace and all state-related files in its output root."""
 
     def __init__(self, output_dir: Path | str):
         self._output_dir = Path(output_dir)
@@ -127,7 +107,9 @@ class EnvState:
         return self._output_dir / _MANIFEST_NAME
 
     def _temporary_file(self, destination: Path) -> Path:
-        return destination.with_name(f".{destination.stem}.tmp{destination.suffix}")
+        return destination.with_name(
+            f".{destination.stem}.tmp{destination.suffix}"
+        )
 
     def _record_for(self, step: int) -> StepRecord:
         """Return the live step record at ``step`` for in-place updates."""
@@ -197,14 +179,16 @@ class EnvState:
         ``step`` defaults to ``-1`` (the most recently recorded step), so calls
         made inside (or right after) a :meth:`record_step` block attach to that
         step without an explicit index. Pass an ``int`` to target a specific
-        step, or ``None`` for a run-level artifact such as an episode video.
+        step, or ``None`` for a session-level artifact such as an episode video.
         """
         step = self._resolve_read_step(step)
         destination = self._artifact_file(name, step)
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = self._temporary_file(destination)
         suffix = destination.suffix.lower()
-        record: StepRecord | None = self._record_for(step) if step is not None else None
+        record: StepRecord | None = (
+            self._record_for(step) if step is not None else None
+        )
         try:
             if suffix in _IMAGE_SUFFIXES:
                 array = np.asarray(value)
@@ -224,7 +208,9 @@ class EnvState:
                         file.write(value)
                     else:
                         for item in value:
-                            file.write(json.dumps(item, default=_json_default) + "\n")
+                            file.write(
+                                json.dumps(item, default=_json_default) + "\n"
+                            )
             elif suffix == ".mp4":
                 if isinstance(value, (bytes, bytearray, memoryview)):
                     temporary.write_bytes(bytes(value))
@@ -331,11 +317,7 @@ class EnvState:
         except BaseException as e:
             if self._steps and self._steps[-1] is record:
                 self._steps.pop()
-            logger.warning(
-                "step %d is discarded due to exception during record: %s",
-                record.step_idx,
-                e,
-            )
+            logger.warning("step %d is discarded due to exception during record: %s", record.step_idx, e)
         finally:
             self._step_open = False
             self._write_manifest()
