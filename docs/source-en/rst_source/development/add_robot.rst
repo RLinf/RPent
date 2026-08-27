@@ -103,7 +103,7 @@ these two functions:
 support Dashboard control. Otherwise, define the spec in the robot
 package: its ``task`` section describes the command, validated fields, display
 template, and output slug; ``runtime_components`` and ``frame_channels``
-describe the environment-specific rows and camera views rendered by the
+describe the robot-specific rows and camera views rendered by the
 frontend. See ``robots/libero/robot_spec.py`` for the reference shape.
 
 That's the entire registration step — ``_resolve_robot(name)`` does an
@@ -156,11 +156,13 @@ the server-side facade registers each name explicitly.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Mirror the client's API in a facade class on the server side (e.g.
-``MyEnvFacade``). Subclass :class:`~rpent.robots.components.env_facade_base.BaseEnvFacade`,
-register environment-specific methods in ``_register_rpc``, and delegate
-startup to ``self.serve(...)``. Methods take the same positional / keyword
-arguments the client sends and return pickleable values (numpy, not torch —
-the agent side does not import torch).
+``MyEnvFacade``). Subclass
+:class:`rpent.robots.components.env_facade_base.BaseEnvFacade`; it provides the common RPC
+routes and read/write dispatch locking. Implement the common environment
+methods and extend ``_register_rpc`` for environment-specific routes. Methods
+take the same positional / keyword arguments the client sends and return
+transport-supported Python / NumPy values (not torch — the agent side does not
+import torch).
 
 .. code-block:: python
 
@@ -169,10 +171,7 @@ the agent side does not import torch).
    class MyEnvFacade(BaseEnvFacade):
        def __init__(self, env, meta):
            self._env = env
-           self._meta = dict(meta)
            super().__init__()
-           self._env = env
-           self._meta = meta
 
        def _register_rpc(self):
            super()._register_rpc()
@@ -202,7 +201,7 @@ teardown.
 
 Define two prompt factories, ``system_prompt()`` and ``user_prompt()``, and
 build a ``PromptBundle(system=system_prompt, user=user_prompt)`` in the
-environment's ``robot_spec.py`` (see the entry point above). Each factory returns an ordered
+robot's ``robot_spec.py`` (see the entry point above). Each factory returns an ordered
 ``dict[str, PromptNode]`` of titled sections; ``PromptBundle.render`` assembles
 and fills them. One prompt serves every planner (API loop, Claude Code, Codex):
 refer to tools by their bare names (``move_to``, ...) and note once that the
@@ -384,11 +383,11 @@ overlap. See ``robots/libero/robot_spec.py`` for the ordered component registry
 used by the reference implementation.
 
 Endpoint parsing (``--env-endpoint``, ``--vla-endpoint``, and LIBERO's
-``--sam3-endpoint``) and environment-specific server commands belong in the
+``--sam3-endpoint``) and robot-specific server commands belong in the
 hook that owns the corresponding service. Wrap those spawners with
 ``rpent.robots.runtime.try_spawn_server`` and ``try_wait_server`` so status
 events, readiness failures, and owned-daemon cleanup stay consistent across
-environments. The runners do not handle these environment details. See
+robots. The runners do not handle these environment details. See
 ``robots/libero/robot_spec.py`` and ``robots/robocasa/robot_spec.py`` for the
 reference pattern.
 

@@ -134,7 +134,7 @@ primitive requires a few additional components:
    same pattern as for a scripted primitive.
 
 5. **Wire the components together in ``robot_spec.py``.** The
-   environment's ``get_toolkit`` builds the toolkit with
+   robot's ``get_toolkit`` builds the toolkit with
    ``primitives_kwargs``:
 
    .. code-block:: python

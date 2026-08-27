@@ -124,8 +124,11 @@ for large or history-stacked nested-NumPy observations to move length-prefixed
 pickle frames and skip repeated JSON encoding. Pickle is unsafe on untrusted
 input, so only point ``socket`` at trusted endpoints.
 
-Server: subclass ``rpent.utils.rpc.RpcFacade`` and register business RPC methods
-in ``_register_rpc`` (e.g. ``reset``, ``step``, ``predict``). Do not implement
-``healthz`` or ``shutdown`` in the subclass.
+Environment and VLA clients should normally subclass ``BaseEnvClient`` and
+``BaseVLAClient``; their servers should subclass ``BaseEnvFacade`` and
+``BaseVLAFacade`` and register extension routes through ``_register_rpc``. The
+bases provide common routing and locking on top of ``RpcFacade``. Subclass
+``RpcFacade`` directly only for a service type without a specialized base. Do
+not implement ``healthz`` or ``shutdown`` in application subclasses.
 
 Details are in the env_server / vla_server sections of :doc:`add_robot`.

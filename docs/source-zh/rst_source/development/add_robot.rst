@@ -144,10 +144,11 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 在 ``env_server`` 中定义与 client API 对应的 facade 类，例如
-``MyEnvFacade``。该类继承 :class:`~rpent.robots.components.env_facade_base.BaseEnvFacade`，
-在 ``_register_rpc`` 中注册环境特有方法，再通过 ``self.serve(...)`` 启动服务。
-方法接收与 client 一致的位置参数和关键字参数，返回可 pickle 的值
-（使用 numpy，不要返回 torch；agent 进程不导入 torch）。
+``MyEnvFacade``。该类继承
+:class:`rpent.robots.components.env_facade_base.BaseEnvFacade`；基类已提供公共 RPC 路由和
+读写分派锁。子类实现公共环境方法，并通过 ``_register_rpc`` 增加环境专用路由。
+方法接收与 client 一致的位置参数和关键字参数，返回传输层支持的 Python / NumPy
+值（不要返回 torch；agent 进程不导入 torch）。
 
 .. code-block:: python
 
@@ -156,10 +157,7 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
    class MyEnvFacade(BaseEnvFacade):
        def __init__(self, env, meta):
            self._env = env
-           self._meta = dict(meta)
            super().__init__()
-           self._env = env
-           self._meta = meta
 
        def _register_rpc(self):
            super()._register_rpc()
@@ -185,7 +183,7 @@ socket）、提供 ``healthz`` 和 ``shutdown``、检测父进程退出并执行
 2. ``prompt_bundle.py``
 -----------------------
 
-定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在环境的
+定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在机器人的
 ``robot_spec.py`` 中构造
 ``PromptBundle(system=system_prompt, user=user_prompt)``（见上面的“入口”）。
 每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节；
