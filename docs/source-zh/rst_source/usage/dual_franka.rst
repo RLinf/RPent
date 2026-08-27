@@ -22,9 +22,10 @@ RLinf/OpenPI 分支。不需要单独的 RLinf checkout、虚拟环境或安装�
 
 启用机械臂运动前，请检查并修改仓库中的开发默认值：
 
-* ``robots/dual_franka/robot_config.yaml`` 包含两台机器人 IP、相机序列号/类型、
-  夹爪连接、controller node、reset joints、target poses、工作空间边界、
-  primitive 限制和感知相机配置。
+* ``robots/dual_franka/robot_config.yaml`` 仅包含机器身份（两台机器人 IP、相机
+  序列号/类型、夹爪连接）和工作空间几何（target poses、安全边界）。
+* ``robots/dual_franka/config.py`` 存放开发者默认值（primitive 控制、感知调优、
+  episode 长度、节点放置）。
 * ``robots/dual_franka/calibration/`` 包含相机内参和 hand-eye calibration。
 
 仓库中的 robot config 会有意保留当前实验室 IP、序列号和夹爪设备路径，方便

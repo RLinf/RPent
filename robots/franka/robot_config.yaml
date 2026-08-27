@@ -1,27 +1,25 @@
 # RPent user-facing config for one physical Franka arm.
 #
-# Keys are validated against the schema in robots/franka/config.py: a typo,
-# missing required key, or wrong nesting fails with the exact path. The
-# generated RLinf adapter config is derived by introspecting RLinf's own
-# dataclasses, so the mapping cannot drift. To see exactly what is derived:
+# This file holds only what is specific to YOUR hardware: machine identity
+# (robot IP, camera serials, gripper) and workspace geometry (target/reset
+# poses, safety limits). Everything else — primitive-control knobs, action
+# scale, tolerances, camera processing — is a developer default in
+# robots/franka/config.py and is applied over RLinf's own dataclass defaults.
+#
+# Machine identity is resolved at runtime: a command-line flag (--robot-ip,
+# --camera-serial-wrist, --camera-serial-external, --gripper-connection)
+# overrides the environment variable named by the token below (ROBOT_IP,
+# CAMERA_SERIAL_WRIST, ...), which in turn overrides a literal value here.
 #
 #   python robots/franka/env_server.py --print-config --task-description "grasp"
-#
-# Machine identity (IP, camera serials, gripper connection) is resolved at
-# runtime: a command-line flag (--robot-ip, --camera-serial-wrist,
-# --camera-serial-external, --gripper-connection) overrides the environment
-# variable named by the token below (ROBOT_IP, CAMERA_SERIAL_WRIST, ...),
-# which in turn overrides a literal value placed here.
+#   shows the fully resolved RLinf config RPent derives from this file.
 robot:
   ip: ROBOT_IP
-  node: 0
   end_effector:
     type: franka
     connection: GRIPPER_CONNECTION
 
 cameras:
-  depth: true
-  output_size: null
   devices:
     wrist_1:
       serial: CAMERA_SERIAL_WRIST
@@ -32,30 +30,7 @@ cameras:
       type: realsense
 
 workspace:
-  target_pose: [0.65875577, 0.04438992, 0.07458871, 2.94857731, -0.0676843, -0.18130717]
-  bounds:
-    x: 0.5
-    y: 0.5
-    z_below: 0.04
-    z_above: 0.2
-    roll_pitch: 0.01
-    yaw: 1.58
-
-control:
-  action_scale: [0.02, 0.1, 1.0]
-  success_position_tolerance: [0.01, 0.01, 0.01]
-  success_hold_steps: 1
-  episode_steps: null
-  move:
-    timeout_s: 15.0
-    tolerance_m: 0.005
-  rotate:
-    timeout_s: 15.0
-    tolerance_rad: 0.04
-  servo:
-    iteration_multiplier: 4
-    min_iterations: 8
-  gripper:
-    settle_s: 0.25
-    timeout_s: 8.0
-    max_iterations: 4
+  target_ee_pose: [0.65875577, 0.04438992, 0.07458871, 2.94857731, -0.0676843, -0.18130717]
+  reset_ee_pose: [0.65875577, 0.04438992, 0.27458871, 2.94857731, -0.0676843, -0.18130717]
+  ee_pose_limit_min: [0.15875577, -0.45561008, 0.03458871, 2.93857731, -0.0776843, -1.76130717]
+  ee_pose_limit_max: [1.15875577, 0.54438992, 0.27458871, 2.95857731, -0.0576843, 1.39869283]

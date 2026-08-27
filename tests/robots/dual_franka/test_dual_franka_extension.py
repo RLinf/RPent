@@ -78,8 +78,7 @@ def test_dual_franka_uses_rpent_owned_robot_config():
     assert hardware.right_robot_ip == "172.16.0.2"
     assert hardware.right_controller_node_rank == 1
     assert cfg.env.eval.override_cfg.task_description == "test task"
-    assert cfg.env.eval.override_cfg.rotation_repr == "rot6d"
-    assert runtime.controller["move"]["max_step_m"] == 0.02
+    assert runtime.controller["move_max_step_m"] == 0.02
 
 
 def test_dual_franka_vla_server_command_uses_checkpoint_and_repo_id():

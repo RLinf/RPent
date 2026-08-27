@@ -24,9 +24,11 @@ Development configuration
 
 Review and edit the checked-in development defaults before enabling motion:
 
-* ``robots/dual_franka/robot_config.yaml`` contains both robot IPs, camera
-	serials/types, gripper connections, controller nodes, reset joints, target
-	poses, workspace bounds, primitive limits, and perception-camera settings.
+* ``robots/dual_franka/robot_config.yaml`` contains only the machine identity
+	(both robot IPs, camera serials/types, gripper connections) and workspace
+	geometry (target poses and safety limits).
+* ``robots/dual_franka/config.py`` holds the developer defaults (primitive
+	control, perception tuning, episode length, node placement).
 * ``robots/dual_franka/calibration/`` contains camera intrinsics and hand-eye
   calibration files.
 

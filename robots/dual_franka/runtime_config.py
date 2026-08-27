@@ -7,7 +7,21 @@ from typing import Any
 
 from omegaconf import OmegaConf
 
-from robots.franka.config import _require_mapping, load_mapping, strict_mapping
+from robots.dual_franka.config import (
+    CONTROL,
+    EPISODE_STEPS,
+    HARDWARE_NODE,
+    LEFT_CONTROLLER_NODE,
+    NODES,
+    PERCEPTION_DEFAULTS,
+    RIGHT_CONTROLLER_NODE,
+)
+from robots.franka.config import (
+    _require_mapping,
+    flatten_control,
+    load_mapping,
+    strict_mapping,
+)
 from robots.franka.runtime_config import FrankaRuntimeConfig
 
 DEFAULT_CONFIG = Path(__file__).with_name("robot_config.yaml")
@@ -40,10 +54,27 @@ def _hardware_config_cls() -> type:
 def _env_config_cls() -> type:
     """RLinf dataclass whose fields define the valid ``override_cfg`` keys."""
     from rlinf.envs.realworld.franka.tasks.dual_franka_tcp_env import (
-        DualFrankaTcpRobotConfig,
+        DualFrankaTCPRobotConfig,
     )
 
-    return DualFrankaTcpRobotConfig
+    return DualFrankaTCPRobotConfig
+
+
+def _perception_cameras(cameras: dict[str, Any]) -> dict[str, Any]:
+    """Build the flat perception-camera config from YAML identity + defaults."""
+    perception = _require_mapping(
+        cameras.get("perception", {}), "cameras.perception"
+    )
+    output: dict[str, Any] = {}
+    for name, value in perception.items():
+        camera = _require_mapping(value, f"cameras.perception.{name}")
+        output[str(name)] = {
+            "enabled": True,
+            "serial_number": str(camera["serial"]),
+            "camera_type": str(camera.get("type", "realsense")),
+            "enable_depth": bool(PERCEPTION_DEFAULTS["enable_depth"]),
+        }
+    return {"cameras": output}
 
 
 def load_runtime_config(
@@ -51,7 +82,7 @@ def load_runtime_config(
     *,
     task_description: str,
 ) -> FrankaRuntimeConfig:
-    """Load the RPent schema and build the internal RLinf adapter config."""
+    """Load the user YAML, apply developer defaults, and build the adapter."""
     raw = load_mapping(path or DEFAULT_CONFIG)
     robot = _require_mapping(raw.get("robot"), "robot")
     arms = _require_mapping(robot.get("arms"), "robot.arms")
@@ -64,19 +95,11 @@ def load_runtime_config(
     cameras = _require_mapping(raw.get("cameras"), "cameras")
     observation = _require_mapping(cameras.get("observation"), "cameras.observation")
     workspace = _require_mapping(raw.get("workspace"), "workspace")
-    bounds = _require_mapping(workspace.get("bounds"), "workspace.bounds")
-    control = _require_mapping(raw.get("control"), "control")
-    if control.get("mode") != "tcp_rot6d":
-        raise ValueError("dual Franka currently requires control.mode: tcp_rot6d")
 
     base_serials, base_type = _camera_slot(observation, "base")
     left_serials, left_type = _camera_slot(observation, "left_wrist")
     right_serials, right_type = _camera_slot(observation, "right_wrist")
-    nodes = [int(node) for node in robot["nodes"]]
-    if nodes != [0, 1]:
-        raise ValueError("dual Franka currently requires robot.nodes: [0, 1]")
 
-    hardware_node = int(robot.get("hardware_node", 0))
     hardware = strict_mapping(
         _hardware_config_cls(),
         {
@@ -92,26 +115,20 @@ def load_runtime_config(
             "right_gripper_type": str(right_gripper["type"]),
             "left_gripper_connection": left_gripper.get("connection"),
             "right_gripper_connection": right_gripper.get("connection"),
-            "left_controller_node_rank": int(left["controller_node"]),
-            "right_controller_node_rank": int(right["controller_node"]),
-            "node_rank": hardware_node,
+            "left_controller_node_rank": LEFT_CONTROLLER_NODE,
+            "right_controller_node_rank": RIGHT_CONTROLLER_NODE,
+            "node_rank": HARDWARE_NODE,
         },
         where="cluster.node_groups[].hardware.configs[]",
     )
     override_cfg = strict_mapping(
         _env_config_cls(),
         {
-            "is_dummy": False,
+            "max_num_steps": EPISODE_STEPS,
             "task_description": task_description,
-            "enable_camera_player": False,
-            "rotation_repr": "rot6d",
-            "joint_reset_qpos": list(control["joint_reset_qpos"]),
-            "target_ee_pose": list(workspace["target_pose"]),
-            "max_num_steps": int(control["episode_steps"]),
-            "action_scale": list(control["action_scale"]),
-            "ee_pose_limit_min": list(bounds["min"]),
-            "ee_pose_limit_max": list(bounds["max"]),
-            "success_hold_steps": int(control["success_hold_steps"]),
+            "target_ee_pose": list(workspace["target_ee_pose"]),
+            "ee_pose_limit_min": list(workspace["ee_pose_limit_min"]),
+            "ee_pose_limit_max": list(workspace["ee_pose_limit_max"]),
         },
         where="env.eval.override_cfg",
     )
@@ -119,14 +136,14 @@ def load_runtime_config(
     rlinf = OmegaConf.create(
         {
             "cluster": {
-                "num_nodes": max(nodes) + 1,
+                "num_nodes": max(NODES) + 1,
                 "component_placement": {
                     "env": {"node_group": "dual_franka", "placement": 0}
                 },
                 "node_groups": [
                     {
                         "label": "dual_franka",
-                        "node_ranks": ",".join(str(node) for node in nodes),
+                        "node_ranks": ",".join(str(node) for node in NODES),
                         "hardware": {"type": "DualFranka", "configs": [hardware]},
                     }
                 ],
@@ -138,7 +155,7 @@ def load_runtime_config(
                     "auto_reset": True,
                     "ignore_terminations": False,
                     "use_fixed_reset_state_ids": False,
-                    "max_episode_steps": int(control["episode_steps"]),
+                    "max_episode_steps": EPISODE_STEPS,
                     "use_spacemouse": False,
                     "use_gello": False,
                     "use_gello_joint": False,
@@ -153,20 +170,6 @@ def load_runtime_config(
             },
         }
     )
-    perception = _require_mapping(cameras.get("perception", {}), "cameras.perception")
-    controller = {
-        name: _require_mapping(control.get(name), f"control.{name}")
-        for name in ("move", "rotate", "servo", "gripper")
-    }
-    controller["perception"] = {"cameras": {}}
-    for name, value in perception.items():
-        camera = _require_mapping(value, f"cameras.perception.{name}")
-        controller["perception"]["cameras"][str(name)] = {
-            "enabled": bool(camera.get("enabled", True)),
-            "serial_number": str(camera["serial"]),
-            "camera_type": str(camera.get("type", "realsense")),
-            "resolution": list(camera.get("resolution", [640, 480])),
-            "fps": int(camera.get("fps", 15)),
-            "enable_depth": bool(camera.get("depth", True)),
-        }
+    controller = flatten_control(CONTROL)
+    controller["perception"] = _perception_cameras(cameras)
     return FrankaRuntimeConfig(rlinf=rlinf, controller=controller)

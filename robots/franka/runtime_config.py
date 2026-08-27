@@ -9,8 +9,12 @@ from typing import Any
 from omegaconf import DictConfig, OmegaConf
 
 from robots.franka.config import (
+    CONTROL,
+    DEFAULT_CONFIG,
+    ENV_DEFAULTS,
     _require_mapping,
-    load_schema,
+    flatten_control,
+    load_mapping,
     resolve_identity,
     strict_mapping,
 )
@@ -33,9 +37,9 @@ def _hardware_config_cls() -> type:
 
 def _env_config_cls() -> type:
     """RLinf dataclass whose fields define the valid ``override_cfg`` keys."""
-    from robots.franka.physical_agent_env import PhysicalAgentFrankaConfig
+    from rlinf.envs.realworld.franka.franka_env import FrankaRobotConfig
 
-    return PhysicalAgentFrankaConfig
+    return FrankaRobotConfig
 
 
 def load_runtime_config(
@@ -47,24 +51,27 @@ def load_runtime_config(
     camera_serial_external: str | None = None,
     gripper_connection: str | None = None,
 ) -> FrankaRuntimeConfig:
-    """Load the RPent schema and build the internal RLinf adapter config."""
+    """Load the user YAML, apply developer defaults, and build the adapter."""
     raw = resolve_identity(
-        load_schema(path),
+        load_mapping(path or DEFAULT_CONFIG),
         robot_ip=robot_ip,
         camera_serial_wrist=camera_serial_wrist,
         camera_serial_external=camera_serial_external,
         gripper_connection=gripper_connection,
     )
-    robot = raw.robot
-    cameras = raw.cameras
-    workspace = raw.workspace
-    control = raw.control
+    robot = _require_mapping(raw.get("robot"), "robot")
+    end_effector = _require_mapping(
+        robot.get("end_effector"), "robot.end_effector"
+    )
+    cameras = _require_mapping(raw.get("cameras"), "cameras")
+    devices = _require_mapping(cameras.get("devices"), "cameras.devices")
+    workspace = _require_mapping(raw.get("workspace"), "workspace")
 
     camera_serials: list[str] = []
     camera_names: dict[str, str] = {}
     camera_types: set[str] = set()
     main_image_keys: list[str] = []
-    for name, value in cameras.devices.items():
+    for name, value in devices.items():
         device = _require_mapping(value, f"cameras.devices.{name}")
         serial = str(device["serial"])
         camera_serials.append(serial)
@@ -77,48 +84,28 @@ def load_runtime_config(
     if len(camera_types) != 1:
         raise ValueError("single Franka currently requires one camera type")
 
-    node_rank = robot.node
-    output_size = cameras.output_size
-    position_tolerance = list(control.success_position_tolerance)
-    if len(position_tolerance) != 3:
-        raise ValueError("control.success_position_tolerance must have 3 values")
-    episode_steps = control.episode_steps
-    max_num_steps = int(episode_steps) if episode_steps is not None else 200_000_000
-
     hardware = strict_mapping(
         _hardware_config_cls(),
         {
-            "robot_ip": robot.ip,
+            "robot_ip": robot["ip"],
             "camera_serials": camera_serials,
             "camera_type": camera_types.pop(),
-            "gripper_type": robot.end_effector.type,
-            "gripper_connection": robot.end_effector.connection,
-            "node_rank": node_rank,
+            "gripper_type": end_effector.get("type", "franka"),
+            "gripper_connection": end_effector.get("connection"),
+            "node_rank": 0,
         },
         where="cluster.node_groups[].hardware.configs[]",
     )
     override_cfg = strict_mapping(
         _env_config_cls(),
         {
-            "is_dummy": False,
+            **ENV_DEFAULTS,
             "task_description": task_description,
             "camera_names": camera_names,
-            "enable_camera_player": False,
-            "enable_camera_depth": cameras.depth,
-            "camera_resize": output_size is not None,
-            "camera_observation_size": int(output_size or 128),
-            "target_ee_pose": list(workspace.target_pose),
-            "action_scale": list(control.action_scale),
-            "clip_x_range": float(workspace.bounds.x),
-            "clip_y_range": float(workspace.bounds.y),
-            "clip_z_range_low": float(workspace.bounds.z_below),
-            "clip_z_range_high": float(workspace.bounds.z_above),
-            "clip_roll_pitch_range": float(workspace.bounds.roll_pitch),
-            "clip_rz_range": float(workspace.bounds.yaw),
-            "max_num_steps": max_num_steps,
-            "success_hold_steps": int(control.success_hold_steps),
-            "reward_threshold": position_tolerance + [0.0, 0.0, 0.0],
-            "enable_gripper_penalty": False,
+            "target_ee_pose": list(workspace["target_ee_pose"]),
+            "reset_ee_pose": list(workspace["reset_ee_pose"]),
+            "ee_pose_limit_min": list(workspace["ee_pose_limit_min"]),
+            "ee_pose_limit_max": list(workspace["ee_pose_limit_max"]),
         },
         where="env.eval.override_cfg",
     )
@@ -126,14 +113,14 @@ def load_runtime_config(
     rlinf = OmegaConf.create(
         {
             "cluster": {
-                "num_nodes": node_rank + 1,
+                "num_nodes": 1,
                 "component_placement": {
                     "env": {"node_group": "franka", "placement": 0}
                 },
                 "node_groups": [
                     {
                         "label": "franka",
-                        "node_ranks": node_rank,
+                        "node_ranks": 0,
                         "hardware": {"type": "Franka", "configs": [hardware]},
                     }
                 ],
@@ -145,7 +132,7 @@ def load_runtime_config(
                     "auto_reset": False,
                     "ignore_terminations": False,
                     "use_fixed_reset_state_ids": False,
-                    "max_episode_steps": episode_steps,
+                    "max_episode_steps": None,
                     "use_spacemouse": False,
                     "no_gripper": False,
                     "main_image_key": main_image_keys[0],
@@ -158,8 +145,7 @@ def load_runtime_config(
             },
         }
     )
-    controller = {
-        name: getattr(control, name)
-        for name in ("move", "rotate", "servo", "gripper")
-    }
-    return FrankaRuntimeConfig(rlinf=rlinf, controller=controller)
+    return FrankaRuntimeConfig(
+        rlinf=rlinf,
+        controller=flatten_control(CONTROL),
+    )

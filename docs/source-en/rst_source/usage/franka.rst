@@ -25,9 +25,12 @@ Development configuration
 The checked-in values are development defaults and must be reviewed before
 enabling motion:
 
-* ``robots/franka/robot_config.yaml`` contains the robot IP, camera devices,
-	reset/target pose, workspace safety bounds, action scale, and primitive
-	limits.
+* ``robots/franka/robot_config.yaml`` contains only the machine identity (robot
+	IP, camera serials, gripper) and workspace geometry (target/reset poses and
+	safety limits).
+* ``robots/franka/config.py`` holds the developer defaults (primitive-control
+	knobs, action scale, tolerances, camera processing) applied over RLinf's
+	own dataclass defaults.
 * ``robots/franka/calibration/hand_eye_calibration.json`` contains the hand-eye
   calibration used by perception tools.
 

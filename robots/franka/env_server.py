@@ -80,20 +80,6 @@ class _RayBackend:
         return invoke
 
 
-def _normalize_controller_config(raw: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "move_timeout_s": float(raw["move"]["timeout_s"]),
-        "move_tolerance_m": float(raw["move"]["tolerance_m"]),
-        "rotate_timeout_s": float(raw["rotate"]["timeout_s"]),
-        "rotate_tolerance_rad": float(raw["rotate"]["tolerance_rad"]),
-        "iteration_multiplier": int(raw["servo"]["iteration_multiplier"]),
-        "min_iterations": int(raw["servo"]["min_iterations"]),
-        "gripper_settle_s": float(raw["gripper"]["settle_s"]),
-        "gripper_timeout_s": float(raw["gripper"]["timeout_s"]),
-        "gripper_max_iterations": int(raw["gripper"]["max_iterations"]),
-    }
-
-
 def _create_worker_class():
     """Build the Worker subclass only inside the RLinf server environment."""
     from rlinf.envs.realworld.realworld_env import RealWorldEnv
@@ -111,7 +97,7 @@ def _create_worker_class():
 
             register_physical_agent_franka_env()
             self.cfg = cfg
-            self.controller = _normalize_controller_config(controller_config)
+            self.controller = dict(controller_config)
             self.env = RealWorldEnv(
                 cfg.env.eval,
                 num_envs=1,

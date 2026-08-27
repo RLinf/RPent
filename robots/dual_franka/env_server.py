@@ -15,9 +15,6 @@ from robots.franka.env_server import (
     _RayBackend,
     _to_numpy_tree,
 )
-from robots.franka.env_server import (
-    _normalize_controller_config as _normalize_franka_controller_config,
-)
 from rpent.utils.config import bootstrap_rlinf_import
 
 # Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
@@ -59,16 +56,6 @@ def _pack_dual_action(
     return np.concatenate([left, right]).astype(np.float32)
 
 
-def _normalize_controller_config(raw: dict[str, Any]) -> dict[str, Any]:
-    config = _normalize_franka_controller_config(raw)
-    config.update({
-        "move_max_step_m": float(raw["move"]["max_step_m"]),
-        "rotate_max_step_rad": float(raw["rotate"]["max_step_rad"]),
-        "perception": dict(raw.get("perception") or {}),
-    })
-    return config
-
-
 def _create_worker_class():
     """Build the Worker subclass only inside the RLinf server environment."""
     from rlinf.envs.realworld.common.camera import CameraInfo, create_camera
@@ -82,7 +69,7 @@ def _create_worker_class():
         def __init__(self, cfg: Any, controller_config: dict[str, Any]):
             super().__init__()
             self.cfg = cfg
-            self.controller = _normalize_controller_config(controller_config)
+            self.controller = dict(controller_config)
             self.env = RealWorldEnv(
                 cfg.env.eval,
                 num_envs=1,

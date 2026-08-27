@@ -1,16 +1,12 @@
-"""Unified single-Franka robot configuration.
+"""User-facing config loading and developer defaults for one physical Franka.
 
-The user-facing ``robot_config.yaml`` is the only file users edit. Its shape
-is defined by the dataclasses below and validated on load, so a typo or missing
-key fails with an exact path.
+Users edit only ``robot_config.yaml``: machine identity (robot IP, camera
+serials, gripper) and workspace geometry (target/reset poses, limits). The
+primitive-control knobs and the RLinf field values RPent deliberately tunes
+live here as developer defaults and are applied as ``override_cfg`` over
+RLinf's own dataclass defaults, so they are never restated in the YAML.
 
-The internal RLinf adapter (``FrankaConfig`` for the hardware slot and
-``PhysicalAgentFrankaConfig`` for ``env.eval.override_cfg``) is derived by
-introspecting RLinf's own dataclass fields, so the mapping can never silently
-drift from the installed RLinf branch: an unknown key raises and lists every
-valid key.
-
-The generic helpers at the top are reused by :mod:`robots.dual_franka`.
+The generic helpers are shared with :mod:`robots.dual_franka`.
 """
 
 from __future__ import annotations
@@ -18,16 +14,8 @@ from __future__ import annotations
 import dataclasses
 import os
 import re
-from dataclasses import MISSING, dataclass, field
 from pathlib import Path
-from typing import (
-    Any,
-    Optional,
-    Union,
-    get_args,
-    get_origin,
-    get_type_hints,
-)
+from typing import Any, Optional
 
 from omegaconf import OmegaConf
 
@@ -35,7 +23,78 @@ DEFAULT_CONFIG = Path(__file__).with_name("robot_config.yaml")
 
 
 # ---------------------------------------------------------------------------
-# Generic dataclass-introspection helpers (shared with dual_franka)
+# Developer defaults
+# ---------------------------------------------------------------------------
+
+# Primitive-control knobs consumed by the RPent Franka env server. RLinf has no
+# equivalent fields, so these live here rather than in any RLinf dataclass.
+CONTROL = {
+    "move": {"timeout_s": 15.0, "tolerance_m": 0.005},
+    "rotate": {"timeout_s": 15.0, "tolerance_rad": 0.04},
+    "servo": {"iteration_multiplier": 4, "min_iterations": 8},
+    "gripper": {"settle_s": 0.25, "timeout_s": 8.0, "max_iterations": 4},
+}
+
+_COMPLIANCE_PARAM = {
+    "translational_stiffness": 2000,
+    "translational_damping": 89,
+    "rotational_stiffness": 150,
+    "rotational_damping": 7,
+    "translational_Ki": 0,
+    "translational_clip_x": 0.01,
+    "translational_clip_y": 0.01,
+    "translational_clip_z": 0.01,
+    "translational_clip_neg_x": 0.01,
+    "translational_clip_neg_y": 0.01,
+    "translational_clip_neg_z": 0.01,
+    "rotational_clip_x": 0.02,
+    "rotational_clip_y": 0.02,
+    "rotational_clip_z": 0.02,
+    "rotational_clip_neg_x": 0.02,
+    "rotational_clip_neg_y": 0.02,
+    "rotational_clip_neg_z": 0.02,
+    "rotational_Ki": 0,
+}
+
+_PRECISION_PARAM = {
+    "translational_stiffness": 3000,
+    "translational_damping": 89,
+    "rotational_stiffness": 300,
+    "rotational_damping": 9,
+    "translational_Ki": 0.1,
+    "translational_clip_x": 0.01,
+    "translational_clip_y": 0.01,
+    "translational_clip_z": 0.01,
+    "translational_clip_neg_x": 0.01,
+    "translational_clip_neg_y": 0.01,
+    "translational_clip_neg_z": 0.01,
+    "rotational_clip_x": 0.05,
+    "rotational_clip_y": 0.05,
+    "rotational_clip_z": 0.05,
+    "rotational_clip_neg_x": 0.05,
+    "rotational_clip_neg_y": 0.05,
+    "rotational_clip_neg_z": 0.05,
+    "rotational_Ki": 0.1,
+}
+
+# ``env.eval.override_cfg`` values RPent sets away from RLinf's
+# ``FrankaRobotConfig`` defaults. Keys are RLinf field names; anything omitted
+# here keeps RLinf's default.
+ENV_DEFAULTS = {
+    "enable_camera_player": False,  # RLinf default True
+    "enable_camera_depth": True,  # RLinf default False
+    "camera_resize": False,  # RLinf default True (keep native resolution)
+    "max_num_steps": 200_000_000,  # effectively no step cap
+    "reward_threshold": [0.01, 0.01, 0.01, 0.0, 0.0, 0.0],
+    "action_scale": [0.02, 0.1, 1.0],
+    "enable_gripper_penalty": False,  # RLinf default True
+    "compliance_param": _COMPLIANCE_PARAM,
+    "precision_param": _PRECISION_PARAM,
+}
+
+
+# ---------------------------------------------------------------------------
+# Generic helpers (shared with dual_franka)
 # ---------------------------------------------------------------------------
 
 
@@ -54,7 +113,7 @@ def strict_mapping(
 
     Args:
         config_cls: The RLinf dataclass whose fields define the valid keys.
-        mapping: The adapter keys built from the RPent YAML.
+        mapping: The adapter keys built from the RPent YAML and defaults.
         where: Human-readable location for error messages.
 
     Raises:
@@ -75,117 +134,6 @@ def _require_mapping(value: Any, name: str) -> dict[str, Any]:
     return value
 
 
-# ---------------------------------------------------------------------------
-# RPent user-facing schema
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class EndEffectorConfig:
-    type: str
-    connection: Optional[str] = None
-
-
-@dataclass
-class RobotConfig:
-    ip: str
-    node: int = 0
-    end_effector: EndEffectorConfig = field(
-        default_factory=lambda: EndEffectorConfig(type="franka")
-    )
-
-
-@dataclass
-class CamerasConfig:
-    devices: dict[str, Any]
-    depth: bool = True
-    output_size: Optional[int] = None
-
-
-@dataclass
-class BoundsConfig:
-    x: float
-    y: float
-    z_below: float
-    z_above: float
-    roll_pitch: float
-    yaw: float
-
-
-@dataclass
-class WorkspaceConfig:
-    target_pose: list[float]
-    bounds: BoundsConfig
-
-
-@dataclass
-class ControlConfig:
-    action_scale: list[float]
-    success_position_tolerance: list[float]
-    move: dict[str, Any]
-    rotate: dict[str, Any]
-    servo: dict[str, Any]
-    gripper: dict[str, Any]
-    success_hold_steps: int = 1
-    episode_steps: Optional[int] = None
-
-
-@dataclass
-class FrankaConfigFile:
-    robot: RobotConfig
-    cameras: CamerasConfig
-    workspace: WorkspaceConfig
-    control: ControlConfig
-
-
-def _optional_inner(tp: type) -> Optional[type]:
-    """Return the non-``None`` type of an ``Optional[X]`` annotation, else None."""
-    if get_origin(tp) is Union and type(None) in get_args(tp):
-        return next(a for a in get_args(tp) if a is not type(None))
-    return None
-
-
-def _coerce(tp: type, value: Any, path: str) -> Any:
-    """Validate ``value`` against ``tp`` at ``path`` and return it (coerced)."""
-    inner = _optional_inner(tp)
-    if inner is not None:
-        if value is None:
-            return None
-        return _coerce(inner, value, path)
-    if dataclasses.is_dataclass(tp):
-        return _validate(tp, value, path)
-    origin = get_origin(tp)
-    if origin is dict:
-        if not isinstance(value, dict):
-            raise ValueError(f"{path} must be a mapping")
-        return dict(value)
-    if origin is list:
-        if not isinstance(value, (list, tuple)):
-            raise ValueError(f"{path} must be a list")
-        return list(value)
-    return value
-
-
-def _validate(cls: type, data: Any, path: str):
-    """Validate a plain mapping ``data`` against dataclass ``cls`` recursively."""
-    if not isinstance(data, dict):
-        raise ValueError(f"{path} must be a mapping")
-    valid = field_names(cls)
-    unknown = sorted(set(data) - valid)
-    if unknown:
-        raise ValueError(
-            f"{path}: unknown key(s) {unknown}. Valid keys: {sorted(valid)}."
-        )
-    hints = get_type_hints(cls)
-    kwargs: dict[str, Any] = {}
-    for f in dataclasses.fields(cls):
-        if f.name in data:
-            kwargs[f.name] = _coerce(hints[f.name], data[f.name], f"{path}.{f.name}")
-        elif f.default is MISSING and f.default_factory is MISSING:
-            raise ValueError(f"{path}: missing required key '{f.name}'")
-    return cls(**kwargs)
-
-
 def load_mapping(path: str | Path) -> dict[str, Any]:
     """Load a robot YAML config as a plain dict (shared with ``dual_franka``)."""
     config_path = Path(path).expanduser().resolve()
@@ -195,11 +143,27 @@ def load_mapping(path: str | Path) -> dict[str, Any]:
     return raw
 
 
-def load_schema(path: Optional[str] = None) -> FrankaConfigFile:
-    """Load and validate ``robot_config.yaml`` against the RPent schema."""
-    return _validate(
-        FrankaConfigFile, load_mapping(path or DEFAULT_CONFIG), "robot_config"
-    )
+def flatten_control(control: dict[str, Any]) -> dict[str, Any]:
+    """Flatten nested ``CONTROL`` defaults into the flat env-server keys.
+
+    ``move.max_step_m`` / ``rotate.max_step_rad`` are optional (dual-arm only).
+    """
+    flat = {
+        "move_timeout_s": float(control["move"]["timeout_s"]),
+        "move_tolerance_m": float(control["move"]["tolerance_m"]),
+        "rotate_timeout_s": float(control["rotate"]["timeout_s"]),
+        "rotate_tolerance_rad": float(control["rotate"]["tolerance_rad"]),
+        "iteration_multiplier": int(control["servo"]["iteration_multiplier"]),
+        "min_iterations": int(control["servo"]["min_iterations"]),
+        "gripper_settle_s": float(control["gripper"]["settle_s"]),
+        "gripper_timeout_s": float(control["gripper"]["timeout_s"]),
+        "gripper_max_iterations": int(control["gripper"]["max_iterations"]),
+    }
+    if "max_step_m" in control["move"]:
+        flat["move_max_step_m"] = float(control["move"]["max_step_m"])
+    if "max_step_rad" in control["rotate"]:
+        flat["rotate_max_step_rad"] = float(control["rotate"]["max_step_rad"])
+    return flat
 
 
 # ---------------------------------------------------------------------------
@@ -244,47 +208,52 @@ def _resolve(
 
 
 def resolve_identity(
-    config: FrankaConfigFile,
+    mapping: dict[str, Any],
     *,
     robot_ip: Optional[str] = None,
     camera_serial_wrist: Optional[str] = None,
     camera_serial_external: Optional[str] = None,
     gripper_connection: Optional[str] = None,
-) -> FrankaConfigFile:
-    """Fill machine-identity fields from flags / environment variables.
+) -> dict[str, Any]:
+    """Fill machine-identity values from flags / environment variables.
 
     ``robot.ip``, each camera ``serial`` and the gripper ``connection`` are
-    machine-specific and belong outside the committed ``robot_config.yaml``.
-    Precedence per field: command-line flag > environment variable > the YAML
-    value (a literal, or an env-var token). The wrist camera is the device with
-    ``main: true``; the remaining device is treated as the external camera.
+    machine-specific. Precedence per field: command-line flag > environment
+    variable > the YAML value (a literal, or an env-var token). The wrist
+    camera is the device with ``main: true``; the remaining device is the
+    external camera. Mutates and returns ``mapping``.
     """
-    config.robot.ip = _resolve(
-        config.robot.ip,
+    robot = _require_mapping(mapping.get("robot"), "robot")
+    robot["ip"] = _resolve(
+        robot.get("ip"),
         override=robot_ip,
         path="robot.ip",
         flag="--robot-ip",
         required=True,
     )
-    config.robot.end_effector.connection = _resolve(
-        config.robot.end_effector.connection,
+    end_effector = _require_mapping(
+        robot.get("end_effector"), "robot.end_effector"
+    )
+    end_effector["connection"] = _resolve(
+        end_effector.get("connection"),
         override=gripper_connection,
         path="robot.end_effector.connection",
         flag="--gripper-connection",
         required=False,
     )
-    for name, device in config.cameras.devices.items():
+    cameras = _require_mapping(mapping.get("cameras"), "cameras")
+    devices = _require_mapping(cameras.get("devices"), "cameras.devices")
+    for name, device in devices.items():
+        device = _require_mapping(device, f"cameras.devices.{name}")
         if device.get("main"):
-            override = camera_serial_wrist
-            flag = "--camera-serial-wrist"
+            override, flag = camera_serial_wrist, "--camera-serial-wrist"
         else:
-            override = camera_serial_external
-            flag = "--camera-serial-external"
+            override, flag = camera_serial_external, "--camera-serial-external"
         device["serial"] = _resolve(
-            device["serial"],
+            device.get("serial"),
             override=override,
             path=f"cameras.devices.{name}.serial",
             flag=flag,
             required=True,
         )
-    return config
+    return mapping
