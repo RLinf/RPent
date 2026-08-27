@@ -9,7 +9,7 @@ from rpent.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
-    from rpent.utils.rpc.rpc import RpcClient
+    from rpent.utils.rpc.rpc_client import RpcClient
 
 logger = get_logger("client_utils")
 

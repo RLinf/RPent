@@ -33,7 +33,8 @@ from typing import Any, Callable
 import numpy as np
 
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc.rpc import RpcClient, RpcError, check_response, make_error_response
+from rpent.utils.rpc.rpc_client import RpcClient, RpcError, check_response
+from rpent.utils.rpc.rpc_facade import make_error_response
 
 DEFAULT_TIMEOUT_S = 30.0
 

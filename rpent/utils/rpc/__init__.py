@@ -14,9 +14,11 @@
 
 """rpc utils and implementations"""
 
-from rpent.utils.rpc.rpc import (
+from rpent.utils.rpc.rpc_client import (
     RpcClient,
     RpcError,
+)
+from rpent.utils.rpc.rpc_facade import (
     RpcFacade,
 )
 from rpent.utils.rpc.client_utils import (

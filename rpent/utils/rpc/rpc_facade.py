@@ -12,7 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""RPC client protocol and Facade base for subprocess RPC servers."""
+"""Base class for subprocess RPC servers.
+
+``RpcFacade`` owns the shutdown event, the ``healthz`` / ``shutdown`` RPC
+methods, transport binding, parent-watch, and clean teardown. Subclasses
+register business methods in ``_register_rpc`` (called from ``__init__``);
+read-only methods listed in ``self._readonly_methods`` run under a shared
+read lock, mutating methods acquire an exclusive write lock.
+
+Client-side counterparts live in :mod:`rpent.utils.rpc.rpc_client`.
+
+Usage::
+
+    class MyFacade(RpcFacade):
+        def __init__(self):
+            super().__init__()
+            self._rpc["hello"] = self.say_hello
+
+        def say_hello(self):
+            return "world"
+
+    MyFacade().serve(transport="http", host="127.0.0.1", port=0)
+"""
 
 from __future__ import annotations
 
@@ -25,52 +46,11 @@ from rpent.utils.rwlock import RWLock
 logger = get_logger("rpc")
 
 
-class RpcError(RuntimeError):
-    """Raised when a remote method call returns an error."""
-
-    def __init__(self, method: str, message: str, *, traceback: str | None = None):
-        super().__init__(f"{method}: {message}")
-        self.method = method
-        self.server_traceback = traceback
-
-
-class RpcClient:
-    """Base for transport-specific RPC clients."""
-
-    def close(self) -> None:
-        """Close the client connection."""
-        pass
-
-    def call(
-        self,
-        method: str,
-        args: tuple = (),
-        kwargs: dict | None = None,
-        *,
-        timeout_s: float | None = None,
-    ) -> Any:
-        """Invoke a remote method and return its result. Override in subclasses."""
-        raise NotImplementedError
-
-
 def make_error_response(exc: Exception) -> dict:
     """Build the error envelope for a caught exception."""
     import traceback as _tb
 
     return {"ok": False, "error": str(exc), "traceback": _tb.format_exc()}
-
-
-def check_response(response: Any, method: str) -> Any:
-    """Validate RPC response envelope; raise ``RpcError`` on failure, return result."""
-    if not isinstance(response, dict):
-        raise RpcError(method, f"bad response type: {type(response).__name__}")
-    if not response.get("ok"):
-        raise RpcError(
-            method,
-            str(response.get("error", "<no error message>")),
-            traceback=response.get("traceback"),
-        )
-    return response.get("result")
 
 
 class RpcFacade:
@@ -83,19 +63,6 @@ class RpcFacade:
 
     The base owns the shutdown event, the ``shutdown`` / ``healthz`` RPC
     methods, transport binding, parent-watch, and clean teardown.
-
-    Usage::
-
-        class MyFacade(RpcFacade):
-            def __init__(self):
-                super().__init__()
-                self._rpc["hello"] = self.say_hello
-
-            def say_hello(self):
-                return "world"
-
-
-        MyFacade().serve(transport="http", host="127.0.0.1", port=0)
     """
 
     def __init__(self) -> None:
@@ -178,10 +145,4 @@ class RpcFacade:
             self.close()
 
 
-__all__ = [
-    "RpcClient",
-    "RpcError",
-    "RpcFacade",
-    "check_response",
-    "make_error_response",
-]
+__all__ = ["RpcFacade", "make_error_response"]
