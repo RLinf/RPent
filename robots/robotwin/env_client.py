@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPC client for one RLinf RoboTwin environment."""
 
 from __future__ import annotations
@@ -36,9 +50,7 @@ class RoboTwinEnvClient(BaseEnvClient):
     @staticmethod
     def _require_result_tuple(result: Any, size: int, method: str) -> tuple:
         if not isinstance(result, (list, tuple)) or len(result) != size:
-            raise TypeError(
-                f"{method} must return a {size}-item tuple, got {result!r}"
-            )
+            raise TypeError(f"{method} must return a {size}-item tuple, got {result!r}")
         return tuple(result)
 
     def _read(
@@ -88,9 +100,7 @@ class RoboTwinEnvClient(BaseEnvClient):
 
     def reset(self) -> tuple[dict[str, Any], dict[str, Any]]:
         """Reset to the TaskRun seed and validate the native result."""
-        result = self._client.call(
-            "env.reset", timeout_s=self._TIMEOUT_S["env.reset"]
-        )
+        result = self._client.call("env.reset", timeout_s=self._TIMEOUT_S["env.reset"])
         observation, info = self._require_result_tuple(result, 2, "env.reset")
         if not isinstance(observation, dict):
             raise TypeError(

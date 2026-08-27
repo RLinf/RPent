@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPC server wrapping the Pi0.5 VLA."""
 
 from __future__ import annotations
@@ -169,10 +183,17 @@ def main() -> None:
     p.add_argument("--transport", choices=["socket", "http"], default="http")
     p.add_argument("--host", type=str, default="127.0.0.1")
     p.add_argument("--port", type=int, default=0)
-    p.add_argument("--parent-watch", action="store_true",
-                   help="watch parent process via stdin pipe and exit when it dies")
-    p.add_argument("--cuda-device", type=int, default=None,
-                   help="GPU device exposed through CUDA_VISIBLE_DEVICES.")
+    p.add_argument(
+        "--parent-watch",
+        action="store_true",
+        help="watch parent process via stdin pipe and exit when it dies",
+    )
+    p.add_argument(
+        "--cuda-device",
+        type=int,
+        default=None,
+        help="GPU device exposed through CUDA_VISIBLE_DEVICES.",
+    )
     p.add_argument(
         "--model-path",
         default=None,
@@ -186,7 +207,8 @@ def main() -> None:
         if prev is not None and prev != target:
             logger.warning(
                 "CUDA_VISIBLE_DEVICES=%s is already set; overriding with --cuda-device=%s",
-                prev, args.cuda_device,
+                prev,
+                args.cuda_device,
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = target
 

@@ -1,15 +1,17 @@
+default_install_hook_types: [pre-commit, commit-msg]
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: "v0.15.22"
     hooks:
       - id: ruff
         args: ["--preview", "--fix"]
+        stages: [pre-commit]
       - id: ruff-format
+        stages: [pre-commit]
 
   - repo: https://github.com/commit-check/commit-check
     rev: "v2.11.1"
-    hooks: # support hooks
-    -   id: check-message  # requires commit-msg hook
-    -   id: check-author-name
-    -   id: check-author-email
-
+    hooks:
+      - id: check-message
+        stages: [commit-msg]

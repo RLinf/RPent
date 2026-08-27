@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPent/agent runtime extension over the RLinf training ``RoboTwinEnv``."""
 
 from __future__ import annotations
@@ -30,9 +44,7 @@ def _camera_meta(camera: Any) -> dict[str, Any]:
     }
 
 
-def _validate_actions(
-    actions: Any, *, action_type: RoboTwinActionType
-) -> np.ndarray:
+def _validate_actions(actions: Any, *, action_type: RoboTwinActionType) -> np.ndarray:
     if action_type not in ("qpos", "ee"):
         raise ValueError("action_type must be 'qpos' or 'ee'")
     array = np.asarray(actions, dtype=np.float64)
@@ -128,11 +140,13 @@ class RoboTwinAgentEnv(RoboTwinEnv):
                 truncations.append(bool(budget))
                 per_step.append({"episode_status": step_status})
                 if return_all_frames:
-                    head_rgb = sub_env.task.get_obs()["observation"][
-                        "head_camera"
-                    ]["rgb"]
+                    head_rgb = sub_env.task.get_obs()["observation"]["head_camera"][
+                        "rgb"
+                    ]
                     frames.append(
-                        np.asarray(self.center_and_crop(head_rgb, center_crop=self.center_crop))
+                        np.asarray(
+                            self.center_and_crop(head_rgb, center_crop=self.center_crop)
+                        )
                     )
             episode_status = self._episode_status(sub_env)
             robot_state = self._robot_state(sub_env)

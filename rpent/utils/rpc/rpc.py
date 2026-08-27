@@ -1,4 +1,19 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPC client protocol and Facade base for subprocess RPC servers."""
+
 from __future__ import annotations
 
 import threading
@@ -39,6 +54,7 @@ class RpcClient(Protocol):
 def make_error_response(exc: Exception) -> dict:
     """Build the error envelope for a caught exception."""
     import traceback as _tb
+
     return {"ok": False, "error": str(exc), "traceback": _tb.format_exc()}
 
 
@@ -104,6 +120,7 @@ class RpcFacade:
                 if method == "hello":
                     return "world"
                 raise ValueError(f"unknown RPC method: {method!r}")
+
 
         MyFacade().serve(transport="http", host="127.0.0.1", port=0)
     """

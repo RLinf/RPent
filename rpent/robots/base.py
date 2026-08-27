@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Robot registry: maps robot name to its ``get_robot_spec`` / ``get_toolkit`` factories.
 
 Robot implementations live in the top-level ``robots/`` directory (a sibling of
@@ -7,6 +21,7 @@ the ``rpent`` package); a robot is resolved by importing ``robots.<name>``. The
 crossing module layers. ``RobotSpec`` also carries the runner hooks that keep
 CLI orchestration independent of concrete robot implementations.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -41,11 +56,13 @@ def enumerate_robots() -> tuple[str, ...]:
     """Return the names of importable robot packages under ``robots``."""
     import robots
 
-    return tuple(sorted(
-        module.name
-        for module in pkgutil.iter_modules(robots.__path__)
-        if module.ispkg and not module.name.startswith("_")
-    ))
+    return tuple(
+        sorted(
+            module.name
+            for module in pkgutil.iter_modules(robots.__path__)
+            if module.ispkg and not module.name.startswith("_")
+        )
+    )
 
 
 def get_robot_spec(name: str) -> RobotSpec:

@@ -1,6 +1,23 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RoboCasa env client — thin RPC layer over the env server."""
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 import numpy as np
 
 from rpent.robots.components.env_client_base import BaseEnvClient
@@ -17,7 +34,7 @@ CAM_ALIAS = {
     "robot0_eye_in_hand": "robot0_eye_in_hand",
     "robot0_agentview_left": "robot0_agentview_left",
     "robot0_agentview_right": "robot0_agentview_right",
-    "navview": "mobilebase0_navview",     # base-mounted forward-down floor/nav camera
+    "navview": "mobilebase0_navview",  # base-mounted forward-down floor/nav camera
     "mobilebase0_navview": "mobilebase0_navview",
 }
 
@@ -53,16 +70,22 @@ class RoboCasaEnvClient(BaseEnvClient):
 
     # ---- state accessors ----
     def reset(self):
-        self.last_obs = self._client.call("env.reset", timeout_s=self._TIMEOUT_S["env.reset"])
+        self.last_obs = self._client.call(
+            "env.reset", timeout_s=self._TIMEOUT_S["env.reset"]
+        )
         return self.last_obs
 
     def step(self, flat_action):
-        result = self._client.call("env.step", args=(flat_action,), timeout_s=self._TIMEOUT_S["env.step"])
+        result = self._client.call(
+            "env.step", args=(flat_action,), timeout_s=self._TIMEOUT_S["env.step"]
+        )
         self.last_obs = result[0]
         return result
 
     def check_success(self):
-        return self._client.call("env.check_success", timeout_s=self._TIMEOUT_S["default"])
+        return self._client.call(
+            "env.check_success", timeout_s=self._TIMEOUT_S["default"]
+        )
 
     @property
     def terminated(self):
@@ -70,7 +93,9 @@ class RoboCasaEnvClient(BaseEnvClient):
 
     @property
     def action_dim(self):
-        return self._client.call("env.get_action_dim", timeout_s=self._TIMEOUT_S["default"])
+        return self._client.call(
+            "env.get_action_dim", timeout_s=self._TIMEOUT_S["default"]
+        )
 
     @property
     def current_raw_obs(self):
@@ -90,20 +115,28 @@ class RoboCasaEnvClient(BaseEnvClient):
 
     # ---- task info ----
     def get_ep_meta(self):
-        return self._client.call("env.get_ep_meta", timeout_s=self._TIMEOUT_S["default"])
+        return self._client.call(
+            "env.get_ep_meta", timeout_s=self._TIMEOUT_S["default"]
+        )
 
     def get_success_criteria_text(self):
-        return self._client.call("env.get_success_criteria_text", timeout_s=self._TIMEOUT_S["default"])
+        return self._client.call(
+            "env.get_success_criteria_text", timeout_s=self._TIMEOUT_S["default"]
+        )
 
     def get_task_progress(self):
-        return self._client.call("env.get_task_progress", timeout_s=self._TIMEOUT_S["default"])
+        return self._client.call(
+            "env.get_task_progress", timeout_s=self._TIMEOUT_S["default"]
+        )
 
     # ---- rendering / perception ----
     def render_raw(self, cam, h, w, depth):
         """Low-level render — takes already-resolved cam and actual h/w."""
-        return self._client.call("env.render_raw",
+        return self._client.call(
+            "env.render_raw",
             kwargs={"cam": cam, "h": h, "w": w, "depth": depth},
-            timeout_s=self._TIMEOUT_S["env.render_raw"])
+            timeout_s=self._TIMEOUT_S["env.render_raw"],
+        )
 
     def render_camera(self, camera_name, height=None, width=None, depth=False):
         """Agent-facing: vertically flip to top-down so the rgb reads naturally and
@@ -120,9 +153,11 @@ class RoboCasaEnvClient(BaseEnvClient):
         cam = self._resolve_cam(camera_name)
         h = height or self.camera_h
         w = width or self.camera_w
-        return self._client.call("env.get_camera_meta",
+        return self._client.call(
+            "env.get_camera_meta",
             kwargs={"camera_name": cam, "height": h, "width": w},
-            timeout_s=self._TIMEOUT_S["default"])
+            timeout_s=self._TIMEOUT_S["default"],
+        )
 
     def world_map(self, camera_name, height=None, width=None):
         """HxWx3 world xyz per pixel, TOP-DOWN (row 0 = image top), pixel-aligned
@@ -133,23 +168,30 @@ class RoboCasaEnvClient(BaseEnvClient):
         cam = self._resolve_cam(camera_name)
         h = height or self.camera_h
         w = width or self.camera_w
-        _, z_native = self.render_raw(cam, h, w, True)      # metric depth, bottom-up
-        z = z_native[::-1]                                  # -> top-down
-        T_p2w = self._client.call("env.get_camera_transform",
+        _, z_native = self.render_raw(cam, h, w, True)  # metric depth, bottom-up
+        z = z_native[::-1]  # -> top-down
+        T_p2w = self._client.call(
+            "env.get_camera_transform",
             kwargs={"camera_name": cam, "height": h, "width": w},
-            timeout_s=self._TIMEOUT_S["default"])
+            timeout_s=self._TIMEOUT_S["default"],
+        )
         rows, cols = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
-        homog = np.stack([cols * z, rows * z, z, np.ones_like(z)], axis=-1) # HxWx4
-        world = homog @ T_p2w.T                             # HxWx4
-        return world[..., :3]                               # top-down, aligned with rgb
+        homog = np.stack([cols * z, rows * z, z, np.ones_like(z)], axis=-1)  # HxWx4
+        world = homog @ T_p2w.T  # HxWx4
+        return world[..., :3]  # top-down, aligned with rgb
 
     def world_xyz_at(self, camera_name, row, col, height=None, width=None):
         return self.world_map(camera_name, height, width)[row, col]
 
     # ---- other ----
     def grasp_contact(self):
-        return self._client.call("env.grasp_contact", timeout_s=self._TIMEOUT_S["env.grasp_contact"])
+        return self._client.call(
+            "env.grasp_contact", timeout_s=self._TIMEOUT_S["env.grasp_contact"]
+        )
 
     def reassemble_env_action(self, unmap_result):
-        return self._client.call("env.reassemble_env_action", args=(unmap_result,),
-            timeout_s=self._TIMEOUT_S["default"])
+        return self._client.call(
+            "env.reassemble_env_action",
+            args=(unmap_result,),
+            timeout_s=self._TIMEOUT_S["default"],
+        )

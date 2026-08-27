@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPC server owning one RLinf RoboTwin environment."""
 
 from __future__ import annotations
@@ -24,8 +38,8 @@ from omegaconf import OmegaConf  # noqa: E402
 from robotwin.assets import validate_root  # noqa: E402
 from robotwin.config import load_task_config  # noqa: E402
 
-from robots.robotwin.robot_spec import RoboTwinActionType  # noqa: E402
 from robots.robotwin.rlinf_env import RoboTwinAgentEnv  # noqa: E402
+from robots.robotwin.robot_spec import RoboTwinActionType  # noqa: E402
 
 
 def _to_numpy_tree(value: Any) -> Any:
@@ -58,28 +72,40 @@ class RoboTwinEnvFacade(BaseEnvFacade):
         if hasattr(value, "shape"):
             shape = tuple(value.shape)
             if not shape or shape[0] != 1:
-                raise RuntimeError(f"{name} must have leading env dimension 1, got {shape}")
+                raise RuntimeError(
+                    f"{name} must have leading env dimension 1, got {shape}"
+                )
             return value[0]
         if isinstance(value, list):
             if len(value) != 1:
-                raise RuntimeError(f"{name} must contain one environment, got {len(value)}")
+                raise RuntimeError(
+                    f"{name} must contain one environment, got {len(value)}"
+                )
             return value[0]
         raise RuntimeError(f"{name} is missing a single-environment batch dimension")
 
     def _strip_single_env_observation(self, observation: Any) -> dict[str, Any]:
         if not isinstance(observation, dict):
-            raise TypeError(f"RoboTwin observation must be a mapping, got {observation!r}")
+            raise TypeError(
+                f"RoboTwin observation must be a mapping, got {observation!r}"
+            )
         return {
             key: self._strip_single_env_value(value, f"observation.{key}")
             for key, value in observation.items()
         }
 
     def _strip_single_signal(self, value: Any, name: str) -> Any:
-        if hasattr(value, "detach") and hasattr(value, "cpu") and hasattr(value, "numpy"):
+        if (
+            hasattr(value, "detach")
+            and hasattr(value, "cpu")
+            and hasattr(value, "numpy")
+        ):
             value = value.detach().cpu().numpy()
         array = np.asarray(value).reshape(-1)
         if array.size != 1:
-            raise RuntimeError(f"{name} must contain one environment, got {array.shape}")
+            raise RuntimeError(
+                f"{name} must contain one environment, got {array.shape}"
+            )
         return array[0].item()
 
     def _register_rpc(self) -> None:

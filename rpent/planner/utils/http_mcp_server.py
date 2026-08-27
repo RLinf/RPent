@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """In-process streamable-HTTP MCP server that wraps a :class:`Toolkit`.
 
 The Codex CLI accepts streamable-HTTP MCP servers via
@@ -11,10 +25,11 @@ Usage::
 
     server = HttpMcpServer(toolkit)
     server.start()  # binds 127.0.0.1 on a free port
-    codex_url = server.url   # e.g. "http://127.0.0.1:54321/mcp/"
+    codex_url = server.url  # e.g. "http://127.0.0.1:54321/mcp/"
     ...
     server.stop()
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -23,7 +38,6 @@ import threading
 from typing import Any
 
 import httpx
-
 import uvicorn
 from mcp import types
 from mcp.server.lowlevel import Server
@@ -68,7 +82,7 @@ def _strip_mcp_prefix(name: str) -> str:
     """``mcp__rpent__mcp_list_dir`` -> ``mcp_list_dir`` ; passthrough."""
     prefix = f"mcp__{SERVER_NAME}__"
     if name.startswith(prefix):
-        return name[len(prefix):]
+        return name[len(prefix) :]
     return name
 
 
@@ -90,9 +104,7 @@ def _build_asgi_app(toolkit: Toolkit) -> Any:
         return tools
 
     @mcp_app.call_tool()
-    async def _call_tool(
-        name: str, arguments: dict[str, Any]
-    ) -> types.CallToolResult:
+    async def _call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         lookup = _strip_mcp_prefix(name)
         tr = await asyncio.get_running_loop().run_in_executor(
             None, toolkit.execute_tool, lookup, arguments or {}
@@ -107,9 +119,7 @@ def _build_asgi_app(toolkit: Toolkit) -> Any:
     )
 
     # minimal ASGI wrapper
-    async def asgi_app(
-        scope: dict[str, Any], receive: Any, send: Any
-    ) -> None:
+    async def asgi_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
         if scope["type"] == "lifespan":
             while True:
                 event = await receive()
@@ -153,7 +163,9 @@ def _wait_for_ready(url: str, *, timeout_s: float) -> None:
         },
     }
     transport = httpx.HTTPTransport(retries=10)
-    with httpx.Client(transport=transport, timeout=httpx.Timeout(timeout_s, connect=2)) as c:
+    with httpx.Client(
+        transport=transport, timeout=httpx.Timeout(timeout_s, connect=2)
+    ) as c:
         resp = c.post(url, json=body, headers={"Accept": "application/json"})
         body_preview = resp.text[:200]
         if not (resp.is_success and "result" in resp.json()):
