@@ -75,7 +75,7 @@ class RoboCasaPrimitives:
                 depth=False,
             )
             img = np.asarray(img, dtype=np.uint8)
-            img = np.ascontiguousarray(img[::-1, ::-1])
+            img = np.ascontiguousarray(img)
         self._frames.append(img)
 
     def recorded_frame_count(self) -> int:
