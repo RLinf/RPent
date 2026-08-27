@@ -38,7 +38,8 @@ RPent 会将该机器人配置转换成内部 RLinf cluster 和环境对象。�
 ------------------------
 
 如果需要修改 RLinf 并直接测试，而不重新安装 ``franka`` extra，请在启动 Ray
-前将 checkout 放到 ``PYTHONPATH`` 最前面，并向 RPent 传入同一路径：
+前将 checkout 放到 ``PYTHONPATH`` 最前面，并导出 ``RLINF_REPO_PATH``，让 RPent
+的环境子进程加载同一 checkout：
 
 .. code-block:: bash
 
@@ -49,12 +50,12 @@ RPent 会将该机器人配置转换成内部 RLinf cluster 和环境对象。�
 	ray start --head
 
 	uv run --extra franka rpent --env franka --task-id 0 \
-	  --rlinf-root $RLINF_REPO_PATH \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-``--rlinf-root`` 会为 RPent 启动的环境子进程优先加载该 checkout；在
-``ray start`` 前导出 ``PYTHONPATH``，可让 Ray worker 使用同一份源码。
-修改路径后必须重启 Ray；已经运行的 Ray 进程会继续使用启动时捕获的环境。
+``robots/franka/env_server.py`` 会在启动时读取 ``RLINF_REPO_PATH`` 并把它放到
+``sys.path`` 最前面。在 ``ray start`` 前导出 ``PYTHONPATH``，可让 Ray worker
+使用同一份源码。修改路径后必须重启 Ray；已经运行的 Ray 进程会继续使用启动时
+捕获的环境。
 
 可以用以下命令确认实际加载位置：
 
@@ -64,8 +65,7 @@ RPent 会将该机器人配置转换成内部 RLinf cluster 和环境对象。�
 	  uv run --extra franka python -c \
 	  'import rlinf; print(rlinf.__file__)'
 
-若要恢复使用 ``.venv`` 中安装的版本，请省略 ``--rlinf-root``，并取消设置
-``RLINF_REPO_PATH``。
+若要恢复使用 ``.venv`` 中安装的版本，请取消设置 ``RLINF_REPO_PATH``。
 
 启动 Ray
 --------

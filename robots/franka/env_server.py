@@ -10,8 +10,12 @@ from typing import Any
 import numpy as np
 
 from robots.franka.runtime_config import load_runtime_config
+from rpent.utils.config import bootstrap_rlinf_import
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade
+
+# Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
+bootstrap_rlinf_import()
 
 logger = get_logger("franka_env_server")
 

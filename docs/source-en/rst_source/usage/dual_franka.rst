@@ -71,13 +71,12 @@ Run RPent on node ``0`` with the local checkout:
 .. code-block:: bash
 
 	uv run --extra franka rpent --env dual_franka --task-id 0 \
-	  --rlinf-root $RLINF_REPO_PATH \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-The local checkout applies to both auto-started ``env_server.py`` and
-``vla_server.py``. Exporting ``PYTHONPATH`` before ``ray start`` makes remote Ray
-workers import the matching checkout. Restart Ray on every node whenever the
-source path changes.
+The auto-started ``env_server.py`` and ``vla_server.py`` read
+``RLINF_REPO_PATH`` and prepend it to ``sys.path`` at startup. Exporting
+``PYTHONPATH`` before ``ray start`` makes remote Ray workers import the matching
+checkout. Restart Ray on every node whenever the source path changes.
 
 Verify each node with:
 
@@ -87,8 +86,8 @@ Verify each node with:
 	  uv run --extra franka python -c \
 	  'import rlinf; print(rlinf.__file__)'
 
-Omit ``--rlinf-root`` and unset ``RLINF_REPO_PATH`` to
-return the local subprocesses to the version installed in ``.venv``.
+Unset ``RLINF_REPO_PATH`` to return the local subprocesses to the version
+installed in ``.venv``.
 
 Start the two-node Ray cluster
 ------------------------------

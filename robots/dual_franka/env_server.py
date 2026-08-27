@@ -18,6 +18,10 @@ from robots.franka.env_server import (
 from robots.franka.env_server import (
     _normalize_controller_config as _normalize_franka_controller_config,
 )
+from rpent.utils.config import bootstrap_rlinf_import
+
+# Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
+bootstrap_rlinf_import()
 
 _ARM_INDEX = {"left": 0, "right": 1}
 

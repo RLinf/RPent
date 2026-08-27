@@ -14,7 +14,11 @@ import torch
 from omegaconf import OmegaConf
 
 from rpent.tools.vla_facade_base import BaseVLAFacade
+from rpent.utils.config import bootstrap_rlinf_import
 from rpent.utils.logging import get_logger
+
+# Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
+bootstrap_rlinf_import()
 
 logger = get_logger("dual_franka_vla_server")
 

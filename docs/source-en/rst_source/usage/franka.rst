@@ -58,7 +58,8 @@ Use a local RLinf checkout
 --------------------------
 
 To patch RLinf without reinstalling the ``franka`` extra, prepend the checkout
-to ``PYTHONPATH`` before starting Ray and pass the same path to RPent:
+to ``PYTHONPATH`` before starting Ray and export ``RLINF_REPO_PATH`` so RPent's
+environment subprocess imports the same checkout:
 
 .. code-block:: bash
 
@@ -69,13 +70,12 @@ to ``PYTHONPATH`` before starting Ray and pass the same path to RPent:
 	ray start --head
 
 	uv run --extra franka rpent --env franka --task-id 0 \
-	  --rlinf-root $RLINF_REPO_PATH \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-``--rlinf-root`` prepends the checkout for RPent's environment subprocess.
-Exporting ``PYTHONPATH`` before ``ray start`` makes Ray workers import the same
-checkout. Restart Ray after changing this path; an already-running Ray process
-keeps the environment it captured at startup.
+``robots/franka/env_server.py`` reads ``RLINF_REPO_PATH`` and prepends it to
+``sys.path`` at startup. Exporting ``PYTHONPATH`` before ``ray start`` makes Ray
+workers import the same checkout. Restart Ray after changing this path; an
+already-running Ray process keeps the environment it captured at startup.
 
 Verify the selected source with:
 
@@ -85,8 +85,7 @@ Verify the selected source with:
 	  uv run --extra franka python -c \
 	  'import rlinf; print(rlinf.__file__)'
 
-Omit ``--rlinf-root`` and unset ``RLINF_REPO_PATH`` to
-return to the version installed in ``.venv``.
+Unset ``RLINF_REPO_PATH`` to return to the version installed in ``.venv``.
 
 Start Ray
 ---------

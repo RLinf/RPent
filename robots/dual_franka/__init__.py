@@ -17,7 +17,7 @@ from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import build_rpent_subprocess_env, get_repo_root
+from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.http_rpc import HttpRpcClient
 from rpent.utils.rpc import make_rpc_client
@@ -72,11 +72,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="SFT dataset repo ID used to locate norm_stats.json",
     )
     parser.add_argument("--cuda-device", type=int, default=None)
-    parser.add_argument(
-        "--rlinf-root",
-        default=os.environ.get("RLINF_REPO_PATH"),
-        help="Local RLinf source checkout to prepend for development testing",
-    )
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
@@ -172,7 +167,6 @@ def _spawn_env_server(
     daemon = ProcessDaemon(
         name="dual_franka_env_server",
         cmd=_env_server_command(args, host=host, port=port),
-        env_overrides=build_rpent_subprocess_env(rlinf_root=args.rlinf_root),
         log_path=str(output_dir / "dual_franka_env_server.log"),
     )
     daemon.start()
@@ -196,7 +190,6 @@ def _spawn_vla_server(
     daemon = ProcessDaemon(
         name="dual_franka_vla_server",
         cmd=_vla_server_command(args, host=host, port=port),
-        env_overrides=build_rpent_subprocess_env(rlinf_root=args.rlinf_root),
         log_path=str(output_dir / "dual_franka_vla_server.log"),
     )
     daemon.start()

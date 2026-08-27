@@ -9,10 +9,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from omegaconf import OmegaConf
 
-from rpent.utils.config import (
-    get_repo_root,
-    get_rlinf_repo_path,
-)
+from rpent.utils.config import bootstrap_rlinf_import
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade
 
@@ -24,10 +21,7 @@ assert "mujoco" not in sys.modules, \
 
 logger = get_logger("env_server")
 
-RPENT_ROOT = get_repo_root()
-RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
-if str(RLINF_REPO_PATH) not in sys.path:
-    sys.path.insert(0, str(RLINF_REPO_PATH))
+bootstrap_rlinf_import()
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
 # torch and LiberoEnv are only imported at call time (after --cuda-device

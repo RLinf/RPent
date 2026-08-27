@@ -65,12 +65,12 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 .. code-block:: bash
 
 	uv run --extra franka rpent --env dual_franka --task-id 0 \
-	  --rlinf-root $RLINF_REPO_PATH \
 	  --planner api --model anthropic:claude-sonnet-4-5
 
-该本地 checkout 同时作用于自动启动的 ``env_server.py`` 和 ``vla_server.py``。
-在 ``ray start`` 前导出 ``PYTHONPATH``，可让远程 Ray worker 加载同一 checkout。
-源码路径发生变化时，必须在所有节点重启 Ray。
+自动启动的 ``env_server.py`` 和 ``vla_server.py`` 会在启动时读取
+``RLINF_REPO_PATH`` 并把它放到 ``sys.path`` 最前面。在 ``ray start`` 前导出
+``PYTHONPATH``，可让远程 Ray worker 加载同一 checkout。源码路径发生变化时，
+必须在所有节点重启 Ray。
 
 可以在每个节点运行以下命令确认实际加载位置：
 
@@ -80,8 +80,8 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 	  uv run --extra franka python -c \
 	  'import rlinf; print(rlinf.__file__)'
 
-若要让本地子进程恢复使用 ``.venv`` 中安装的版本，请省略 ``--rlinf-root``，
-并取消设置 ``RLINF_REPO_PATH``。
+若要让本地子进程恢复使用 ``.venv`` 中安装的版本，请取消设置
+``RLINF_REPO_PATH``。
 
 启动双节点 Ray 集群
 --------------------
