@@ -343,6 +343,8 @@ def _spawn_vla_server(
                 / "components"
                 / "pi05_vla_server.py"
             ),
+            "--embodiment",
+            "libero",
             "--transport",
             "http",
             "--host",
