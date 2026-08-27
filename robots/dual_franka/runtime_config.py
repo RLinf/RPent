@@ -44,22 +44,6 @@ def _camera_slot(observation: dict[str, Any], slot: str) -> tuple[list[str], str
     return serials, camera_type or "realsense"
 
 
-def _hardware_config_cls() -> type:
-    """RLinf dataclass whose fields define the valid hardware-config keys."""
-    from rlinf.scheduler.hardware.robots.dual_franka import DualFrankaConfig
-
-    return DualFrankaConfig
-
-
-def _env_config_cls() -> type:
-    """RLinf dataclass whose fields define the valid ``override_cfg`` keys."""
-    from rlinf.envs.realworld.franka.tasks.dual_franka_tcp_env import (
-        DualFrankaTCPRobotConfig,
-    )
-
-    return DualFrankaTCPRobotConfig
-
-
 def _perception_cameras(cameras: dict[str, Any]) -> dict[str, Any]:
     """Build the flat perception-camera config from YAML identity + defaults."""
     perception = _require_mapping(
@@ -83,6 +67,13 @@ def load_runtime_config(
     task_description: str,
 ) -> FrankaRuntimeConfig:
     """Load the user YAML, apply developer defaults, and build the adapter."""
+    # Lazy RLinf imports: keys are validated against these dataclasses (drift
+    # guard), deferred so importing this module stays RLinf-free.
+    from rlinf.envs.realworld.franka.tasks.dual_franka_tcp_env import (
+        DualFrankaTCPRobotConfig,
+    )
+    from rlinf.scheduler.hardware.robots.dual_franka import DualFrankaConfig
+
     raw = load_mapping(path or DEFAULT_CONFIG)
     robot = _require_mapping(raw.get("robot"), "robot")
     arms = _require_mapping(robot.get("arms"), "robot.arms")
@@ -101,7 +92,7 @@ def load_runtime_config(
     right_serials, right_type = _camera_slot(observation, "right_wrist")
 
     hardware = strict_mapping(
-        _hardware_config_cls(),
+        DualFrankaConfig,
         {
             "left_robot_ip": str(left["ip"]),
             "right_robot_ip": str(right["ip"]),
@@ -122,7 +113,7 @@ def load_runtime_config(
         where="cluster.node_groups[].hardware.configs[]",
     )
     override_cfg = strict_mapping(
-        _env_config_cls(),
+        DualFrankaTCPRobotConfig,
         {
             "max_num_steps": EPISODE_STEPS,
             "task_description": task_description,

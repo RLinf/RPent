@@ -28,20 +28,6 @@ class FrankaRuntimeConfig:
     controller: dict[str, Any]
 
 
-def _hardware_config_cls() -> type:
-    """RLinf dataclass whose fields define the valid hardware-config keys."""
-    from rlinf.scheduler.hardware.robots.franka import FrankaConfig
-
-    return FrankaConfig
-
-
-def _env_config_cls() -> type:
-    """RLinf dataclass whose fields define the valid ``override_cfg`` keys."""
-    from rlinf.envs.realworld.franka.franka_env import FrankaRobotConfig
-
-    return FrankaRobotConfig
-
-
 def load_runtime_config(
     path: str | Path | None,
     *,
@@ -52,6 +38,11 @@ def load_runtime_config(
     gripper_connection: str | None = None,
 ) -> FrankaRuntimeConfig:
     """Load the user YAML, apply developer defaults, and build the adapter."""
+    # Lazy RLinf imports: keys are validated against these dataclasses (drift
+    # guard), deferred so importing this module stays RLinf-free.
+    from rlinf.envs.realworld.franka.franka_env import FrankaRobotConfig
+    from rlinf.scheduler.hardware.robots.franka import FrankaConfig
+
     raw = resolve_identity(
         load_mapping(path or DEFAULT_CONFIG),
         robot_ip=robot_ip,
@@ -85,7 +76,7 @@ def load_runtime_config(
         raise ValueError("single Franka currently requires one camera type")
 
     hardware = strict_mapping(
-        _hardware_config_cls(),
+        FrankaConfig,
         {
             "robot_ip": robot["ip"],
             "camera_serials": camera_serials,
@@ -97,7 +88,7 @@ def load_runtime_config(
         where="cluster.node_groups[].hardware.configs[]",
     )
     override_cfg = strict_mapping(
-        _env_config_cls(),
+        FrankaRobotConfig,
         {
             **ENV_DEFAULTS,
             "task_description": task_description,

@@ -98,11 +98,6 @@ ENV_DEFAULTS = {
 # ---------------------------------------------------------------------------
 
 
-def field_names(config_cls: type) -> frozenset:
-    """Return every constructor kwarg a dataclass accepts (incl. inherited)."""
-    return frozenset(f.name for f in dataclasses.fields(config_cls))
-
-
 def strict_mapping(
     config_cls: type,
     mapping: dict[str, Any],
@@ -119,7 +114,7 @@ def strict_mapping(
     Raises:
         ValueError: listing the offending keys and the full valid key set.
     """
-    valid = field_names(config_cls)
+    valid = frozenset(f.name for f in dataclasses.fields(config_cls))
     unknown = sorted(set(mapping) - valid)
     if unknown:
         raise ValueError(
