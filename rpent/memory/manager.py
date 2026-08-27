@@ -6,9 +6,12 @@ import fcntl
 import re
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if TYPE_CHECKING:
+    from rpent.tools.toolkit import Toolkit
 
 SCOPES = {"global", "suite"}
 KINDS = {"primitive", "perception", "strategy", "failure", "infra"}
@@ -111,13 +114,59 @@ class MemoryManager:
     mutating operations.
     """
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        memory_access: str = "read_only",
+        inbox_cell_tag: str | None = None,
+    ) -> None:
         self._root = Path(root).resolve()
+        self._memory_access = memory_access
+        self._inbox_cell_tag = inbox_cell_tag
 
     @property
     def root(self) -> Path:
         """Resolved corpus root."""
         return self._root
+
+    def register_mcp_tools(self, toolkit: "Toolkit") -> None:
+        """Register memory-aware replacements for the shared file tools."""
+        from functools import partial
+
+        from rpent.memory import tools as memory_tools
+        from rpent.tools import common
+
+        handlers = {
+            "read_text_file": partial(
+                memory_tools.read_text_file,
+                memory_root=self._root,
+                memory_access=self._memory_access,
+                cell_tag=self._inbox_cell_tag,
+            ),
+            "write_text_file": partial(
+                memory_tools.write_text_file,
+                memory_root=self._root,
+                memory_access=self._memory_access,
+                cell_tag=self._inbox_cell_tag,
+            ),
+            "list_dir": partial(
+                memory_tools.list_dir,
+                memory_root=self._root,
+                memory_access=self._memory_access,
+                cell_tag=self._inbox_cell_tag,
+            ),
+        }
+        for spec in common.TOOLS_SPEC:
+            name = spec["name"]
+            handler = handlers.get(name)
+            if handler is None:
+                continue
+            scoped_spec = dict(spec)
+            scoped_spec["description"] = (
+                spec["description"] + memory_tools.MEMORY_BOUNDARY_NOTE
+            )
+            toolkit.add_tool(name, scoped_spec, handler)
 
     def merge_memory(
         self,

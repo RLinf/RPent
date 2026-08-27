@@ -266,10 +266,8 @@ step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过
 **Toolkit 类** 继承 ``rpent.tools.toolkit.Toolkit``：
 
 - 在 ``super().__init__(...)`` 中传入 ``memory``（一个
-  :class:`~rpent.memory.MemoryManager`）和 ``state``。基类负责公共文件工具和
-  memory 访问边界，故 ``memory`` 必填；``state`` 在开始记录步骤前可缺省。只有
-  支持探索的机器人才需要传 ``memory_access="inbox_write"`` 和
-  ``inbox_cell_tag=...``；eval 运行用默认的 ``read_only`` 即可。
+  :class:`~rpent.memory.MemoryManager`）和 ``state``。``memory_access`` 和
+  ``inbox_cell_tag`` 在构造 ``MemoryManager`` 时配置；eval 默认只读。
 - 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitives（LIBERO
   中的方法名为 ``init_primitives``；它会调用 ``EnvState.reset()``、构造
   原语并 dump 第 0 步）,

@@ -286,11 +286,9 @@ filenames rather than maintaining a parallel observation index.
 **Toolkit class** — subclass ``rpent.tools.toolkit.Toolkit``:
 
 - forward ``memory`` (a :class:`~rpent.memory.MemoryManager`) and ``state`` to
-  ``super().__init__(...)``. The base class owns the common file tools and the
-  memory access boundary, so ``memory`` is required; ``state`` is optional
-  until the toolkit starts recording steps. Pass
-  ``memory_access="inbox_write"`` and ``inbox_cell_tag=...`` only for robots
-  that support exploration; eval runs use the ``read_only`` default.
+  ``super().__init__(...)``. Configure ``memory_access`` and
+  ``inbox_cell_tag`` on the ``MemoryManager``; eval uses read-only access by
+  default.
 - build the primitives in ``__init__`` through a custom initialization
   helper (named ``init_primitives`` in LIBERO; it calls
   ``EnvState.reset()``, constructs the primitives, and dumps step 0),

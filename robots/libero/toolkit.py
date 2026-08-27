@@ -51,7 +51,6 @@ class LiberoToolkit(Toolkit):
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
         mode: str = "evaluation",
-        inbox_cell_tag: str | None = None,
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
     ) -> None:
@@ -63,8 +62,6 @@ class LiberoToolkit(Toolkit):
             dashboard_events=dashboard_events,
             state=state,
             memory=memory,
-            memory_access="inbox_write" if mode == "exploration" else "read_only",
-            inbox_cell_tag=inbox_cell_tag,
         )
         self._mode = mode
         self._solved: bool = False

@@ -120,16 +120,17 @@ def get_toolkit(
     """Return the LIBERO toolkit for the current session."""
     from robots.libero.toolkit import LiberoToolkit
 
+    explore = args.explore
     memory = MemoryManager(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
+        memory_access="inbox_write" if explore else "read_only",
+        inbox_cell_tag=config.recipe_tag if explore else None,
     )
-    explore = args.explore
     return LiberoToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
         mode="exploration" if explore else "evaluation",
-        inbox_cell_tag=config.recipe_tag if explore else None,
         attempts_per_session=args.explore_attempts_per_session,
         state_output_dir=state_output_dir,
     )
