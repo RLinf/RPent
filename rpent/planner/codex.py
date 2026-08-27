@@ -77,13 +77,16 @@ class CodexPlanner:
         self._dashboard_events = dashboard_events
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
-        self._turn_options = {
+        self._thread_options = {
             "approval_mode": openai_codex.ApprovalMode.deny_all,
             "cwd": self._repo_root,
             "model": self._model,
             "sandbox": openai_codex.Sandbox.full_access,
         }
-        self._turn_options["effort"] = getattr(ReasoningEffort, reasoning_effort)
+        self._turn_options = {
+            **self._thread_options,
+            "effort": getattr(ReasoningEffort, reasoning_effort),
+        }
 
     def solve(
         self,
@@ -232,7 +235,7 @@ class CodexPlanner:
             chunks: list[str] = []
             with openai_codex.Codex(config=self._build_config(mcp_url)) as codex:
                 state["codex"] = codex
-                thread = codex.thread_start(**self._turn_options)
+                thread = codex.thread_start(**self._thread_options)
                 state["thread"] = thread
 
                 with (
@@ -360,7 +363,8 @@ class CodexPlanner:
                 )
                 session = _CodexDashboardSession(
                     config=self._build_config(mcp_url),
-                    options=self._turn_options,
+                    thread_options=self._thread_options,
+                    turn_options=self._turn_options,
                     recorder=recorder,
                     emit_event=emit_event,
                     control=control,
@@ -439,13 +443,15 @@ class _CodexDashboardSession:
         self,
         *,
         config: Any,
-        options: dict[str, Any],
+        thread_options: dict[str, Any],
+        turn_options: dict[str, Any],
         recorder: "_Recorder",
         emit_event,
         control: DashboardPlannerControl,
     ) -> None:
         self._config = config
-        self._options = options
+        self._thread_options = thread_options
+        self._turn_options = turn_options
         self._recorder = recorder
         self._emit_event = emit_event
         self._control = control
@@ -459,7 +465,7 @@ class _CodexDashboardSession:
 
     async def run(self, prompt: str) -> None:
         self._codex = openai_codex.AsyncCodex(self._config)
-        self._thread = await self._codex.thread_start(**self._options)
+        self._thread = await self._codex.thread_start(**self._thread_options)
         await self.submit(prompt)
         await self._control.start()
         await self._control.run(self)
@@ -470,7 +476,7 @@ class _CodexDashboardSession:
         if self._turn is not None:
             await self._turn.steer(text)
             return 0
-        self._turn = await self._thread.turn(text, **self._options)
+        self._turn = await self._thread.turn(text, **self._turn_options)
         self._turn_done = asyncio.Event()
         self._turn_task = asyncio.create_task(
             self._consume_turn(self._turn, self._turn_done)
