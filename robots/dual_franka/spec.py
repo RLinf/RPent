@@ -16,8 +16,8 @@ DUAL_FRANKA_DASHBOARD_SPEC = {
         "output_slug": "dual_franka_t{task_id}",
     },
     "runtime_components": (
-        {"name": "env", "label": "DUAL FRANKA", "scope": "task"},
-        {"name": "vla", "label": "VLA"},
+        {"name": "env", "label": "DUAL FRANKA", "scope": "unique"},
+        {"name": "vla", "label": "VLA", "scope": "shared"},
     ),
     "frame_channels": (
         {

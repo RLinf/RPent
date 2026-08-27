@@ -6,6 +6,7 @@ import argparse
 import os
 import sys
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -15,10 +16,14 @@ from robots.dual_franka.tasks import DUAL_FRANKA_TASKS, get_dual_franka_task
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
+from rpent.robots.runtime import try_spawn_server, try_wait_server
 from rpent.utils.config import build_rpent_subprocess_env, get_repo_root
+from rpent.utils.daemon import ProcessDaemon, pick_free_port
+from rpent.utils.http_rpc import HttpRpcClient
+from rpent.utils.rpc import make_rpc_client
 
 if TYPE_CHECKING:
-    from rpent.utils.daemon import ProcessDaemon
+    from rpent.utils.rpc import RpcClient
 
 
 def get_robot_spec() -> RobotSpec:
@@ -101,19 +106,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
-def _rpc_client(endpoint: str):
-    from rpent.utils.http_rpc import HttpRpcClient
-    from rpent.utils.rpc import parse_endpoint
-    from rpent.utils.socket_rpc import SocketRpcClient
-
-    protocol, host, port = parse_endpoint(endpoint)
-    if protocol == "http":
-        return HttpRpcClient(f"http://{host}:{port}")
-    if protocol == "socket":
-        return SocketRpcClient(host, port)
-    raise ValueError(f"unsupported RPC protocol: {protocol!r}")
-
-
 def _env_server_command(
     args: argparse.Namespace,
     *,
@@ -165,100 +157,50 @@ def _vla_server_command(
     return command
 
 
-def init_shared_runtime(
+def _spawn_env_server(
     args: argparse.Namespace,
     output_dir: Path,
-    dashboard_events: DashboardEventSink,
-) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    """Spawn or connect to the dual-Franka VLA service for VLA tasks."""
-    task = get_dual_franka_task(args.task_id)
-    if task.name != "vla_grasp" and args.vla_endpoint is None:
-        dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
-        return [], {"model": None}
-    from rpent.utils.daemon import ProcessDaemon, pick_free_port
-    from rpent.utils.rpc import wait_for_ready
-    from rpent.utils.vla_client import VLAClient
+) -> tuple[ProcessDaemon | None, RpcClient]:
+    """Spawn (or attach to) the RLinf-backed dual-Franka environment server.
 
-    dashboard_events.emit(RuntimeStatusEvent("vla", "starting"))
-    daemon: ProcessDaemon | None = None
-    try:
-        endpoint = args.vla_endpoint
-        if endpoint is None:
-            if not args.vla_model_path or not args.vla_repo_id:
-                raise ValueError(
-                    "dual-Franka VLA auto-start requires --vla-model-path and "
-                    "--vla-repo-id (or PI05_CHECKPOINT_PATH and "
-                    "DUAL_FRANKA_REPO_ID)"
-                )
-            host, port = "127.0.0.1", pick_free_port()
-            daemon = ProcessDaemon(
-                name="dual_franka_vla_server",
-                cmd=_vla_server_command(args, host=host, port=port),
-                env=build_rpent_subprocess_env(rlinf_root=args.rlinf_root),
-                log_path=str(output_dir / "dual_franka_vla_server.log"),
-            )
-            daemon.start()
-            endpoint = f"http://{host}:{port}"
-        client = _rpc_client(endpoint)
-        wait_for_ready(client, daemon=daemon)
-    except Exception as exc:
-        if daemon is not None:
-            daemon.stop()
-        dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
-        raise
-    dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
-    return ([daemon] if daemon is not None else []), {"model": VLAClient(client)}
+    Returns ``(daemon, rpc)`` — the daemon is ``None`` when an external
+    endpoint was attached (the caller must not own it).
+    """
+    if args.env_endpoint is not None:
+        return None, make_rpc_client(args.env_endpoint)
+    host, port = "127.0.0.1", pick_free_port()
+    daemon = ProcessDaemon(
+        name="dual_franka_env_server",
+        cmd=_env_server_command(args, host=host, port=port),
+        env_overrides=build_rpent_subprocess_env(rlinf_root=args.rlinf_root),
+        log_path=str(output_dir / "dual_franka_env_server.log"),
+    )
+    daemon.start()
+    return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
-def init_task_runtime(
+def _spawn_vla_server(
     args: argparse.Namespace,
     output_dir: Path,
-    dashboard_events: DashboardEventSink,
-) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    """Spawn or attach to the RLinf-backed dual-Franka environment server."""
-    from robots.dual_franka.env_client import DualFrankaEnvClient
-    from rpent.utils.daemon import ProcessDaemon, pick_free_port
-    from rpent.utils.rpc import wait_for_ready
-
-    task = get_dual_franka_task(args.task_id)
-    owned_daemons: list[ProcessDaemon] = []
-    dashboard_events.emit(RuntimeStatusEvent("env", "starting"))
-    try:
-        daemon: ProcessDaemon | None = None
-        if args.env_endpoint is None:
-            host, port = "127.0.0.1", pick_free_port()
-            command = _env_server_command(
-                args,
-                host=host,
-                port=port,
-            )
-            env = build_rpent_subprocess_env(
-                rlinf_root=args.rlinf_root,
-            )
-            daemon = ProcessDaemon(
-                name="dual_franka_env_server",
-                cmd=command,
-                env=env,
-                log_path=str(output_dir / "dual_franka_env_server.log"),
-            )
-            daemon.start()
-            owned_daemons.append(daemon)
-            endpoint = f"http://{host}:{port}"
-        else:
-            endpoint = args.env_endpoint
-        client = _rpc_client(endpoint)
-        wait_for_ready(client, daemon=daemon)
-        dual_franka_env = DualFrankaEnvClient(client)
-    except Exception as exc:
-        for started in reversed(owned_daemons):
-            started.stop()
-        dashboard_events.emit(RuntimeStatusEvent("env", "failed", error=exc))
-        raise
-    dashboard_events.emit(RuntimeStatusEvent("env", "ready"))
-    return owned_daemons, {
-        "env": dual_franka_env,
-        "task_description": task.instruction,
-    }
+) -> tuple[ProcessDaemon | None, RpcClient]:
+    """Spawn (or attach to) the dual-Franka VLA service."""
+    if args.vla_endpoint is not None:
+        return None, make_rpc_client(args.vla_endpoint)
+    if not args.vla_model_path or not args.vla_repo_id:
+        raise ValueError(
+            "dual-Franka VLA auto-start requires --vla-model-path and "
+            "--vla-repo-id (or PI05_CHECKPOINT_PATH and "
+            "DUAL_FRANKA_REPO_ID)"
+        )
+    host, port = "127.0.0.1", pick_free_port()
+    daemon = ProcessDaemon(
+        name="dual_franka_vla_server",
+        cmd=_vla_server_command(args, host=host, port=port),
+        env_overrides=build_rpent_subprocess_env(rlinf_root=args.rlinf_root),
+        log_path=str(output_dir / "dual_franka_vla_server.log"),
+    )
+    daemon.start()
+    return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
 def _init_runtime(
@@ -267,25 +209,65 @@ def _init_runtime(
     dashboard_events: DashboardEventSink,
     components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    selected = {"env", "vla"} if components is None else components
-    unknown = selected.difference({"env", "vla"})
+    """Initialize every dual-Franka component, or only ``components`` when given.
+
+    Each server can be spawned or attached-to independently: pass an endpoint
+    to attach, or leave it unset to spawn a local subprocess. A VLA is only
+    started for the ``vla_grasp`` task (or an explicit ``--vla-endpoint``).
+    """
+    from robots.dual_franka.env_client import DualFrankaEnvClient
+    from rpent.utils.vla_client import VLAClient
+
+    available = {"env", "vla"}
+    selected = available if components is None else components
+    unknown = selected.difference(available)
     if unknown:
-        raise ValueError(
-            f"unknown dual-Franka runtime components: {sorted(unknown)}"
+        raise ValueError(f"unknown dual-Franka runtime components: {sorted(unknown)}")
+
+    needs_vla = args.vla_endpoint is not None
+    if args.task_id is not None:
+        needs_vla = needs_vla or (
+            get_dual_franka_task(args.task_id).name == "vla_grasp"
         )
 
-    daemons: list[ProcessDaemon] = []
+    starters = {
+        "env": lambda: _spawn_env_server(args, output_dir),
+        "vla": lambda: _spawn_vla_server(args, output_dir),
+    }
+    connectors = {
+        "env": lambda rpc: {
+            "env": DualFrankaEnvClient(rpc),
+            "task_description": get_dual_franka_task(args.task_id).instruction,
+        },
+        "vla": lambda rpc: {"model": VLAClient(rpc)},
+    }
+
+    owned_daemons: dict[str, ProcessDaemon] = {}
+    pending: dict[str, tuple[ProcessDaemon | None, RpcClient]] = {}
+    for component, starter in starters.items():
+        if component not in selected:
+            continue
+        if component == "vla" and not needs_vla:
+            continue
+        pending[component] = try_spawn_server(
+            owned_daemons, dashboard_events, component, starter
+        )
+
     primitives_kwargs: dict[str, Any] = {}
-    if "vla" in selected:
-        shared_daemons, shared_kwargs = init_shared_runtime(
-            args, output_dir, dashboard_events
+    for component, (daemon, rpc) in pending.items():
+        component_kwargs = try_wait_server(
+            owned_daemons,
+            dashboard_events,
+            component,
+            rpc,
+            daemon,
+            300.0,
+            post_fn=partial(connectors[component], rpc),
         )
-        daemons.extend(shared_daemons)
-        primitives_kwargs.update(shared_kwargs)
-    if "env" in selected:
-        task_daemons, task_kwargs = init_task_runtime(
-            args, output_dir, dashboard_events
-        )
-        daemons.extend(task_daemons)
-        primitives_kwargs.update(task_kwargs)
-    return daemons, primitives_kwargs
+        primitives_kwargs.update(component_kwargs)
+
+    if "vla" in selected and not needs_vla:
+        dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
+        primitives_kwargs["model"] = None
+
+    return list(owned_daemons.values()), primitives_kwargs
