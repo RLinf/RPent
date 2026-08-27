@@ -55,8 +55,7 @@ class LiberoEnvClient(BaseEnvClient):
         self.truncated |= bool(np.asarray(trunc).any())
 
     def reset(self) -> tuple[dict, Any]:
-        ret = super().reset()
-        self.last_obs = ret[0]
+        self.last_obs, _ = super().reset()
         self.terminated = False
         self.truncated = False
         return ret
