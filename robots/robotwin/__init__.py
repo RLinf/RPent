@@ -14,5 +14,6 @@
 
 """RoboTwin robot extension."""
 
-from robots.robotwin.robot_spec import get_robot_spec as get_robot_spec
-from robots.robotwin.robot_spec import get_toolkit as get_toolkit
+from robots.robotwin.robot_spec import get_robot_spec, get_toolkit
+
+__all__ = ["get_robot_spec", "get_toolkit"]
