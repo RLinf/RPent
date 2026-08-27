@@ -4,20 +4,24 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import sys
 import time
 from typing import Any
 
 import numpy as np
 
 from robots.franka.runtime_config import load_runtime_config
-from rpent.utils.config import bootstrap_rlinf_import
+from rpent.utils.config import get_repo_root, get_rlinf_repo_path
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade
 
-# Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
-bootstrap_rlinf_import()
-
 logger = get_logger("franka_env_server")
+
+# Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
+RPENT_ROOT = get_repo_root()
+RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
+if str(RLINF_REPO_PATH) not in sys.path:
+    sys.path.insert(0, str(RLINF_REPO_PATH))
 
 
 def _to_numpy_tree(value: Any) -> Any:

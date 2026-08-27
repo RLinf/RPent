@@ -5,6 +5,7 @@ import argparse
 import base64
 import io
 import os
+import sys
 import time
 from typing import Any
 
@@ -13,15 +14,19 @@ import torch
 from omegaconf import OmegaConf
 
 from rpent.utils.config import (
-    bootstrap_rlinf_import,
     get_pi05_checkpoint_path,
+    get_repo_root,
+    get_rlinf_repo_path,
 )
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade
 
 logger = get_logger("vla_server")
 
-bootstrap_rlinf_import()
+RPENT_ROOT = get_repo_root()
+RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
+if str(RLINF_REPO_PATH) not in sys.path:
+    sys.path.insert(0, str(RLINF_REPO_PATH))
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
 # ---------------------------------------------------------------------------

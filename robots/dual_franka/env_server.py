@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import queue
+import sys
 import time
 from typing import Any
 
@@ -15,10 +16,13 @@ from robots.franka.env_server import (
     _RayBackend,
     _to_numpy_tree,
 )
-from rpent.utils.config import bootstrap_rlinf_import
+from rpent.utils.config import get_repo_root, get_rlinf_repo_path
 
 # Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
-bootstrap_rlinf_import()
+RPENT_ROOT = get_repo_root()
+RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
+if str(RLINF_REPO_PATH) not in sys.path:
+    sys.path.insert(0, str(RLINF_REPO_PATH))
 
 _ARM_INDEX = {"left": 0, "right": 1}
 

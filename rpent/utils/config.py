@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 # ============================================================================
@@ -50,17 +49,3 @@ def get_rlinf_repo_path() -> Path | None:
     if env:
         return Path(env).expanduser().resolve()
     return None
-
-
-def bootstrap_rlinf_import() -> Path:
-    """Prepend the RLinf checkout to ``sys.path`` so ``import rlinf`` resolves.
-
-    Resolution order: the ``RLINF_REPO_PATH`` env var, then a sibling
-    ``rlinf/`` checkout next to the RPent repo root. Returns the resolved
-    checkout path.
-    """
-    root = get_rlinf_repo_path() or (get_repo_root().parent / "rlinf").resolve()
-    path = str(root)
-    if path not in sys.path:
-        sys.path.insert(0, path)
-    return root

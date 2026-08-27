@@ -6,6 +6,7 @@ import argparse
 import base64
 import io
 import os
+import sys
 import time
 from typing import Any
 
@@ -14,13 +15,16 @@ import torch
 from omegaconf import OmegaConf
 
 from rpent.tools.vla_facade_base import BaseVLAFacade
-from rpent.utils.config import bootstrap_rlinf_import
+from rpent.utils.config import get_repo_root, get_rlinf_repo_path
 from rpent.utils.logging import get_logger
 
-# Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
-bootstrap_rlinf_import()
-
 logger = get_logger("dual_franka_vla_server")
+
+# Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
+RPENT_ROOT = get_repo_root()
+RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
+if str(RLINF_REPO_PATH) not in sys.path:
+    sys.path.insert(0, str(RLINF_REPO_PATH))
 
 
 def build_model_cfg(model_path: str, repo_id: str) -> Any:
