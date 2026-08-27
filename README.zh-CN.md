@@ -21,16 +21,27 @@
   <sub>RPent: 面向物理世界的智能体基础设施</sub>
 </h1>
 
-**RPent (Recursive Physical Agent)** 是一个用于构建具身智能体的开放框架，使智能体能够通过与物理世界的递归交互持续演化。RPent 并不预设单一基础模型，而是提供一个递归智能体框架，将感知、推理、记忆、执行与自我演化等异构智能统一到一个物理智能体中。通过持续交互、反思与适应，RPent 使物理智能体能够获得新的能力，并超越其初始设计不断演进。
-
-RPent 建立在三项核心设计原则之上：**服务化、标准化和可组合**。RPent 支持将能力部署为可复用服务，通过统一接口连接，并灵活组合成多样化的物理智能体。这些原则使 RPent 能够超越传统机器人控制框架，建立面向物理世界的智能体基础设施；在其中，智能不仅被部署，也被持续构建、扩展与演化。
+**RPent (Recursive Physical Agent)** 是一个用于构建具身智能体的开放框架，使智能体能够通过与物理世界的递归交互持续演化。RPent 并不预设单一基础模型，而是提供一个递归智能体框架，将感知、推理、记忆、执行与自我演化等异构智能统一到一个物理智能体中。通过持续交互、反思与适应，RPent 使物理智能体能够获得新的能力，并超越其初始设计不断演进。我们将 RPent 构建于**服务化**、**标准化**和**可组合**的设计原则之上，确保框架具备高度的可扩展性。
 
 <div align="center">
   <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_framework.png" alt="RPent framework"/>
 </div>
 
+## 适用用户
+
+RPent 面向以下四类用户：
+
+- **具身智能研究者**：希望在具身任务与基准上取得更高成功率，尤其是长程操作任务。RPent 基于记忆引导的智能体组合方案，能够显著提升任务成功率，超越单纯依赖冻结 VLA 的效果。
+- **在线学习 / 强化学习研究者**：致力于研究可自我演化的具身智能体。RPent 提供的递归交互、反思与记忆蒸馏闭环，可作为在物理世界中开展持续学习与强化学习研究的现成基础。
+- **机器人应用开发者**：希望将具身方案部署到真实机器人硬件上。RPent 的服务化、标准化架构以及可定制的智能体控制逻辑，能够提升真实场景下的任务成功率，并缩短从原型到生产部署的周期。
+- **具身智能体的最终用户**：即上一类开发者所服务的用户。只需安装 RPent 及相应的真实机器人扩展，即可开箱即用地运行预定义任务，无需具备机器学习专业知识。
+
 ## 最新动态
 
+- [2026/08] 🔥 新增非推理（non-reasoning）模式，平均执行时间降低约 40%。
+- [2026/08] 🔥 支持 LIBERO 探索模式。文档：[LIBERO 探索模式](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#memory)。
+- [2026/08] 🔥 支持 RoboTwin，使用 LingBot-VLA 处理双臂操作任务。文档：[RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html)。
+- [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。文档：[RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
 - [2026/07] 🔥 RPent 首篇论文 [Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents](https://arxiv.org/abs/2607.08448) 发布。
 
 ## 功能矩阵
@@ -48,18 +59,18 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
     <tr>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li>Claude Code ✅</li>
-          <li>Codex ✅</li>
-          <li>Custom Planner ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html#claude-code-planner">Claude Code</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html#codex-planner">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html#planner">Custom Planner</a> ✅</li>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
           <li><b>VLA</b></li>
           <ul>
-            <li>Pi0.5 ✅</li>
-            <li>RLDX-1 ✅</li>
-            <li>LingBot-VLA ✅</li>
+            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html">Pi0.5</a> ✅</li>
+            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html">RLDX-1</a> ✅</li>
+            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html">LingBot-VLA</a> ✅</li>
           </ul>
           <li><b>WAM</b></li>
           <ul>
@@ -69,9 +80,9 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
       </td>
       <td style="text-align: left; padding-left: 8px;">
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li>LIBERO-PRO ✅</li>
-          <li>RoboCasa ✅</li>
-          <li>RoboTwin ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html">LIBERO-PRO</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html">RoboCasa</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html">RoboTwin</a> ✅</li>
         </ul>
       </td>
       <td>
@@ -139,30 +150,7 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 ```
 
 其他规划器（`api`、`codex`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html)。
-
-### 探索模式与本地 Memory Eval
-
-默认仍为原有 eval。增加 `--memory-profile local` 后，会使用本地
-global/suite/task 三层 memory 进行评测：
-
-```bash
-rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
-  --planner codex --memory-profile local \
-  --memory-dir /path/to/libero-memory
-```
-
-同一个入口增加 `--explore` 后，会启用可 reset 的多次尝试、独立 planner
-session、memory distillation 和自动合并：
-
-```bash
-rpent --robot libero --suite libero_10_task --task 0 --seed 0 \
-  --planner api --model anthropic:claude-opus-4-8 \
-  --explore --explore-sessions 3 --explore-attempts-per-session 5 \
-  --memory-dir /path/to/libero-memory
-```
-
-原有 Hugging Face memory 和 prompt 仍是默认模式（`--memory-profile hf`）。
-memory 维护命令详见 [LIBERO 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html)。
+探索模式与本地 memory 评测详见 [LIBERO 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html)。
 
 ### 交互模式
 
@@ -182,47 +170,9 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
   --planner claude_code --model claude-opus-4-8
 ```
 
-### RoboCasa
-
-RoboCasa 使用独立入口与安装指南。安装与运行流程见 [RoboCasa 使用文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
-
-### RoboTwin
-
-RoboTwin 支持 LingBot-VLA 双臂操作任务。安装与运行流程见 [RoboTwin 使用文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html)。
+完整的命令行参数列表见 [快速开始](https://rpent.readthedocs.io/zh-cn/latest/rst_source/quickstart.html#cli) 文档中的「关键 CLI 选项」表格。RoboCasa 与 RoboTwin 使用独立的入口和命令行参数，参见 [RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html) 与 [RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html) 文档。
 
 更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
-
-## 主要命令行参数
-
-<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
-  <thead align="center" valign="bottom">
-    <tr>
-      <th style="min-width: 160px; text-align: left;">参数</th>
-      <th style="min-width: 120px;">默认值</th>
-      <th style="min-width: 360px;">说明</th>
-    </tr>
-  </thead>
-  <tbody valign="top">
-    <tr><td><code>--robot</code></td><td>—（必填）</td><td>机器人后端。当前支持 <code>libero</code>。</td></tr>
-    <tr><td><code>--suite</code></td><td>—（必填）</td><td>任务集，如 <code>libero_object_task</code>、<code>libero_spatial_swap</code></td></tr>
-    <tr><td><code>--task</code></td><td>—（必填）</td><td>任务集内的任务编号</td></tr>
-    <tr><td><code>--seed</code></td><td><code>0</code></td><td>随机种子</td></tr>
-    <tr><td><code>--planner</code></td><td><code>api</code></td><td><code>api</code> | <code>claude_code</code> | <code>codex</code></td></tr>
-    <tr><td><code>--model</code></td><td>—</td><td>模型 ID；<code>api</code> 需带 provider 前缀（<code>anthropic:…</code>、<code>openai:…</code>、<code>openai-chat:…</code>）</td></tr>
-    <tr><td><code>--max-turns</code></td><td><code>100</code></td><td>智能体最大轮数</td></tr>
-    <tr><td><code>--max-tokens</code></td><td><code>8192</code></td><td>单次 LLM 回复最大 token</td></tr>
-    <tr><td><code>--reasoning-effort</code></td><td><code>none</code></td><td><code>api</code>、<code>claude_code</code> 与 <code>codex</code> 的推理强度：<code>none</code> | <code>low</code> | <code>medium</code> | <code>high</code> | <code>xhigh</code>。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。</td></tr>
-    <tr><td><code>--no-images</code></td><td>关</td><td>纯文本模式：不向模型发送图片字节（用于不支持图片输入的模型）</td></tr>
-    <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>环境最大步数</td></tr>
-    <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> 或 <code>pro</code></td><td>LIBERO 类型：<code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
-    <tr><td><code>--cuda-device</code></td><td>继承当前环境</td><td>env_server、vla_server 和 sam3_server 可见的 GPU 设备</td></tr>
-    <tr><td><code>--dashboard</code></td><td>关</td><td>启动本地 Dashboard</td></tr>
-    <tr><td><code>--dashboard-language</code></td><td><code>en</code></td><td>Dashboard 界面语言：<code>en</code> | <code>zh-cn</code></td></tr>
-    <tr><td><code>--env-endpoint</code></td><td>—（自动启动）</td><td>已在运行的 env_server 的 <code>[protocol://]host:port</code>（<code>protocol=http|socket</code>，默认 <code>http</code>）。留空时自动启动本地实例。</td></tr>
-    <tr><td><code>--vla-endpoint</code></td><td>—（自动启动）</td><td>已在运行的 vla_server 的 <code>[protocol://]host:port</code>（同上）。留空时自动启动本地实例。</td></tr>
-    <tr><td><code>--sam3-endpoint</code></td><td>—（自动启动）</td><td>已在运行的 sam3_server 的 <code>[protocol://]host:port</code>（同上）。留空时自动启动本地实例。</td></tr>
-  </tbody>
-</table>
 
 ## 引用与致谢
 

@@ -37,19 +37,21 @@ Feature Matrix
      - Action Primitive
      - Simulator
      - Real World
-   * - - Claude Code ✅
-       - Codex ✅
-       - Custom planner ✅
+   * - - :ref:`Claude Code <planner-claude-code>` ✅
+       - :ref:`Codex <planner-codex>` ✅
+       - :ref:`Custom Planner <planner-custom>` ✅
      - - **VLA**
 
-         - Pi0.5 ✅
-         - RLDX-1 ✅
+         - :doc:`Pi0.5 <usage/libero>` ✅
+         - :doc:`RLDX-1 <usage/robocasa>` ✅
+         - :doc:`LingBot-VLA <usage/robotwin>` ✅
 
        - **WAM**
 
          - DreamZero
-     - - LIBERO-PRO ✅
-       - RoboCasa ✅
+     - - :doc:`LIBERO-PRO <usage/libero>` ✅
+       - :doc:`RoboCasa <usage/robocasa>` ✅
+       - :doc:`RoboTwin <usage/robotwin>` ✅
      - - Franka
        - SO-101
 

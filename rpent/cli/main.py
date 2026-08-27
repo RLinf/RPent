@@ -86,6 +86,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     known_robots_text = ", ".join(known_robots) if known_robots else "none"
     ap = argparse.ArgumentParser(
         description="RPent: Agentic Infrastructure for the Physical World",
+        add_help=False,
     )
 
     ap.add_argument(
@@ -225,10 +226,16 @@ def main() -> int:
         logger.warning("--env is deprecated and will be removed; use --robot instead")
         early.robot_name = early.env_name
     if early.robot_name is None:
-        parser.error("--robot is required")
-
-    robot_spec = get_robot_spec(early.robot_name)
-    robot_spec.add_cli_args(parser, use_dashboard=early.dashboard)
+        if "-h" not in sys.argv and "--help" not in sys.argv:
+            parser.error("--robot is required")
+    else:
+        robot_spec = get_robot_spec(early.robot_name)
+        robot_spec.add_cli_args(parser, use_dashboard=early.dashboard)
+    parser.add_argument(
+        "-h", "--help", action="help",
+        default=argparse.SUPPRESS,
+        help="show this help message and exit",
+    )
     args = parser.parse_args()
     args.robot_name = early.robot_name
     if args.dashboard and args.interactive:
