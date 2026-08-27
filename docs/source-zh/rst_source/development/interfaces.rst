@@ -51,8 +51,8 @@
 ``dashboard_events``、``args``、``config`` 由当前 runner 传入，通常不用改。它
 需要构造一个 :class:`~rpent.memory.MemoryManager`（root 取自
 ``config.prompt_vars["memory_dir"]``，未设置时回退到
-``get_memory_dir(robot_name)``）并传给 toolkit——基类 ``Toolkit``
-负责 memory 访问边界，必填。
+``get_memory_dir(robot_name)``）并传给 toolkit。Memory 访问权限在
+``MemoryManager`` 上配置。
 
 参考实现：``robots/libero/robot_spec.py``。
 

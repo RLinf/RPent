@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Memory-aware file-tool handlers for the common tools.
 
 These wrap the shared IO in :mod:`rpent.tools.common` with the two-layer memory
@@ -11,9 +25,6 @@ from pathlib import Path
 
 from rpent.tools.toolkit import readonly
 from rpent.utils.config import get_repo_root
-
-# Memory access modes: read_only for eval, inbox_write for serial explore.
-MEMORY_ACCESS_MODES = {"read_only", "inbox_write"}
 
 # Published memory subtrees an eval run may read.
 _READABLE_SCOPES = {"global", "suite", "task"}
@@ -76,9 +87,7 @@ def _check_memory_access(
     if not parts:
         if access == "read":
             return
-        raise PermissionError(
-            f"writing to memory is denied in this mode: {path}"
-        )
+        raise PermissionError(f"writing to memory is denied in this mode: {path}")
 
     top = parts[0]
     own_inbox = top == "_inbox" and len(parts) >= 2 and parts[1] == cell_tag

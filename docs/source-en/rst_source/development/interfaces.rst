@@ -55,8 +55,8 @@ subclass; ``dashboard_events``, ``args``, and ``config`` are supplied by the
 active runner, so you normally do not need to change them. It must construct a
 :class:`~rpent.memory.MemoryManager` (rooted at the configured
 ``config.prompt_vars["memory_dir"]``, falling back to
-``get_memory_dir(robot_name)`` when unset) and pass it to the toolkit — the
-base ``Toolkit`` owns the memory access boundary and requires it.
+``get_memory_dir(robot_name)`` when unset) and pass it to the toolkit.
+Memory access permissions are configured on the manager.
 
 Reference: ``robots/libero/robot_spec.py``.
 
