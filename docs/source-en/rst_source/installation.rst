@@ -26,11 +26,15 @@ the stack you want:
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent rpent && cd rpent
-   pip install -e ".[full]"
+   # Choose one environment extra:
+   pip install -e ".[libero-pro]"  # LIBERO-PRO
+   pip install -e ".[robocasa]"    # RoboCasa
+   pip install -e ".[robotwin]"    # RoboTwin
 
-``.[full]`` is the default end-to-end stack — the openpi Pi0.5 VLA, the
-LIBERO-PRO and RoboCasa365 simulators, and SAM 3.0 on top of the RLinf
-runtime.
+Choose one environment extra; each installs its complete runtime stack. Use a
+separate Python environment for each simulator: RoboCasa's RLDX-1 dependency
+requires Python 3.10, while RoboTwin requires Python 3.11 and a different
+PyTorch version.
 
 Available extras:
 
@@ -39,38 +43,31 @@ Available extras:
 
    * - Extra
      - Installs
-   * - ``.[full]``
-     - ``rlinf`` + ``openpi`` + ``libero-pro`` + ``robocasa`` + ``sam3`` — the default run stack
-   * - ``.[libero-pro]``
-     - Base LIBERO + LIBERO-PRO simulator only
-   * - ``.[libero-plus]``
-     - Base LIBERO + LIBERO-plus simulator
    * - ``.[libero]``
-     - Base LIBERO only
-   * - ``.[openpi]``
-     - openpi VLA only
-   * - ``.[rlinf]``
-     - RLinf runtime only
+     - Standard LIBERO + openpi Pi0.5 VLA + SAM 3.0 + RLinf runtime
+   * - ``.[libero-pro]``
+     - LIBERO-PRO + openpi Pi0.5 VLA + SAM 3.0 + RLinf runtime
+   * - ``.[libero-plus]``
+     - LIBERO-plus + openpi Pi0.5 VLA + SAM 3.0 + RLinf runtime
    * - ``.[robocasa]``
      - RoboCasa365 simulator + the RLDX-1 VLA; see :doc:`usage/robocasa`
    * - ``.[robotwin]``
      - RoboTwin simulation and LingBot inference dependencies;
        see :doc:`usage/robotwin`
-   * - ``.[sam3]``
-     - SAM 3.0 only
+   * - ``.[rlinf]``
+     - RLinf runtime only
 
 2. Download the assets required to run LIBERO
 ---------------------------------------------
 
 The Python packages installed with pip do not include the large resource
 files required to run LIBERO. Choose one command based on the extra
-installed above. For the recommended ``.[full]`` extra, run the second
-command:
+installed above:
 
 .. code-block:: bash
 
    libero-download-assets --skip-existing      # .[libero]
-   liberopro-download-assets --skip-existing   # .[libero-pro] / .[full]
+   liberopro-download-assets --skip-existing   # .[libero-pro]
    liberoplus-download-assets --skip-existing  # .[libero-plus]
 
 These resources usually need to be downloaded only once;

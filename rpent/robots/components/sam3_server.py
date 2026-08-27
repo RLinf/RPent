@@ -1,3 +1,4 @@
+# Copyright (c) 2026 RPent Contributors
 """RPC server owning the local SAM 3.0 image segmentation model.
 
 Run manually with::
@@ -99,7 +100,7 @@ class Sam3Engine:
         except ImportError as exc:
             raise RuntimeError(
                 "local SAM3 dependencies are missing; install RPent with "
-                '`pip install -e ".[sam3]"` (or `.[full]`)'
+                '`pip install -e ".[libero]"` or another LIBERO variant'
             ) from exc
 
         if not torch.cuda.is_available():
@@ -329,8 +330,11 @@ def _build_argparser() -> argparse.ArgumentParser:
         default=None,
         help="GPU device exposed through CUDA_VISIBLE_DEVICES.",
     )
-    parser.add_argument("--parent-watch", action="store_true",
-                        help="watch parent process via stdin pipe and exit when it dies")
+    parser.add_argument(
+        "--parent-watch",
+        action="store_true",
+        help="watch parent process via stdin pipe and exit when it dies",
+    )
     return parser
 
 
@@ -344,7 +348,8 @@ def main() -> None:
         if prev is not None and prev != target:
             logging.warning(
                 "CUDA_VISIBLE_DEVICES=%s is already set; overriding with --cuda-device=%s",
-                prev, args.cuda_device,
+                prev,
+                args.cuda_device,
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = target
     checkpoint = os.environ.get("SAM3_CHECKPOINT_PATH")
@@ -355,8 +360,12 @@ def main() -> None:
         )
     engine = Sam3Engine.load(checkpoint)
     facade = Sam3Facade(engine)
-    facade.serve(transport=args.transport, host=args.host, port=args.port,
-                 parent_watch=args.parent_watch)
+    facade.serve(
+        transport=args.transport,
+        host=args.host,
+        port=args.port,
+        parent_watch=args.parent_watch,
+    )
 
 
 if __name__ == "__main__":

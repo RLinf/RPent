@@ -86,16 +86,21 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
 
 ## 快速开始
 
-**1. 用一条 `pip install` 安装 RPent。**
+**1. 选择一个环境并安装 RPent。**
 
 ```bash
 git clone https://github.com/RLinf/RPent rpent && cd rpent
-pip install -e ".[full]"
+# 选择一个环境 extra：
+pip install -e ".[libero-pro]"  # LIBERO-PRO
+pip install -e ".[robocasa]"    # RoboCasa
+pip install -e ".[robotwin]"    # RoboTwin
 ```
 
-`.[full]` 是默认的端到端依赖组合，包括 openpi Pi0.5 VLA、LIBERO-PRO 和 RoboCasa365 仿真器、
-SAM 3.0 和 RLinf 运行时。如果不需要完整组合，更小的 extra
-见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
+请选择其中一个环境 extra；每个 extra 都会安装对应环境的完整运行栈。由于 Python
+和 PyTorch 版本要求不同，三个环境需要分别安装在独立环境中。详细说明见
+[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
+
+下面的示例继续使用 LIBERO-PRO。
 
 **2. 下载 LIBERO-PRO 仿真资产。**
 
