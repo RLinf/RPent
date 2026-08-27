@@ -1,3 +1,5 @@
+# RPent user-facing config for the dual-Franka setup.
+# See robots/franka/robot_config.yaml for details.
 robot:
   nodes: [0, 1]
   hardware_node: 0

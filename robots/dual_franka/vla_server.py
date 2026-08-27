@@ -13,8 +13,8 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
+from rpent.tools.vla_facade_base import BaseVLAFacade
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc import RpcFacade
 
 logger = get_logger("dual_franka_vla_server")
 
@@ -91,7 +91,7 @@ def _build_env_obs(
     }
 
 
-class DualFrankaVLAFacade(RpcFacade):
+class DualFrankaVLAFacade(BaseVLAFacade):
     """Serve one loaded dual-Franka Pi0.5 model over RPent RPC."""
 
     def __init__(self, model_path: str, repo_id: str):
@@ -108,10 +108,13 @@ class DualFrankaVLAFacade(RpcFacade):
         self._model = get_openpi_model(cfg, torch_dtype=None).cuda().eval()
         logger.info("model ready in %.1fs", time.time() - started_at)
 
-    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if method == "predict":
-            return self.predict(*args, **kwargs)
-        raise ValueError(f"unknown RPC method: {method!r}")
+    def _register_rpc(self) -> None:
+        super()._register_rpc()
+        # The dual-Franka toolkit drives this facade through the legacy
+        # ``VLAClient`` (``rpent.utils.vla_client``), which sends the bare
+        # ``predict`` name. Register that alias alongside the standard
+        # ``vla.predict`` so both client styles keep working.
+        self._rpc["predict"] = self.predict
 
     def predict(
         self,

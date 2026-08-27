@@ -62,6 +62,10 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument("--vla-endpoint", default=None)
     parser.add_argument("--robot-config", default=None)
+    parser.add_argument("--robot-ip", default=None)
+    parser.add_argument("--camera-serial-wrist", default=None)
+    parser.add_argument("--camera-serial-external", default=None)
+    parser.add_argument("--gripper-connection", default=None)
     parser.add_argument(
         "--rlinf-root",
         default=os.environ.get("RLINF_REPO_PATH"),
@@ -118,6 +122,14 @@ def _env_server_command(
     ]
     if args.robot_config:
         command.extend(["--robot-config", args.robot_config])
+    for flag, value in (
+        ("--robot-ip", args.robot_ip),
+        ("--camera-serial-wrist", args.camera_serial_wrist),
+        ("--camera-serial-external", args.camera_serial_external),
+        ("--gripper-connection", args.gripper_connection),
+    ):
+        if value is not None:
+            command.extend([flag, value])
     return command
 
 

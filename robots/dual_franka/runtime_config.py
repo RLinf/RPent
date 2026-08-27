@@ -7,11 +7,8 @@ from typing import Any
 
 from omegaconf import OmegaConf
 
-from robots.franka.runtime_config import (
-    FrankaRuntimeConfig,
-    _load_mapping,
-    _require_mapping,
-)
+from robots.franka.config import _require_mapping, load_mapping, strict_mapping
+from robots.franka.runtime_config import FrankaRuntimeConfig
 
 DEFAULT_CONFIG = Path(__file__).with_name("robot_config.yaml")
 
@@ -33,13 +30,29 @@ def _camera_slot(observation: dict[str, Any], slot: str) -> tuple[list[str], str
     return serials, camera_type or "realsense"
 
 
+def _hardware_config_cls() -> type:
+    """RLinf dataclass whose fields define the valid hardware-config keys."""
+    from rlinf.scheduler.hardware.robots.dual_franka import DualFrankaConfig
+
+    return DualFrankaConfig
+
+
+def _env_config_cls() -> type:
+    """RLinf dataclass whose fields define the valid ``override_cfg`` keys."""
+    from rlinf.envs.realworld.franka.tasks.dual_franka_tcp_env import (
+        DualFrankaTcpRobotConfig,
+    )
+
+    return DualFrankaTcpRobotConfig
+
+
 def load_runtime_config(
     path: str | Path | None,
     *,
     task_description: str,
 ) -> FrankaRuntimeConfig:
     """Load the RPent schema and build the internal RLinf adapter config."""
-    raw = _load_mapping(path or DEFAULT_CONFIG)
+    raw = load_mapping(path or DEFAULT_CONFIG)
     robot = _require_mapping(raw.get("robot"), "robot")
     arms = _require_mapping(robot.get("arms"), "robot.arms")
     left = _require_mapping(arms.get("left"), "robot.arms.left")
@@ -64,6 +77,45 @@ def load_runtime_config(
         raise ValueError("dual Franka currently requires robot.nodes: [0, 1]")
 
     hardware_node = int(robot.get("hardware_node", 0))
+    hardware = strict_mapping(
+        _hardware_config_cls(),
+        {
+            "left_robot_ip": str(left["ip"]),
+            "right_robot_ip": str(right["ip"]),
+            "base_camera_serials": base_serials,
+            "base_camera_type": base_type,
+            "left_camera_serials": left_serials,
+            "left_camera_type": left_type,
+            "right_camera_serials": right_serials,
+            "right_camera_type": right_type,
+            "left_gripper_type": str(left_gripper["type"]),
+            "right_gripper_type": str(right_gripper["type"]),
+            "left_gripper_connection": left_gripper.get("connection"),
+            "right_gripper_connection": right_gripper.get("connection"),
+            "left_controller_node_rank": int(left["controller_node"]),
+            "right_controller_node_rank": int(right["controller_node"]),
+            "node_rank": hardware_node,
+        },
+        where="cluster.node_groups[].hardware.configs[]",
+    )
+    override_cfg = strict_mapping(
+        _env_config_cls(),
+        {
+            "is_dummy": False,
+            "task_description": task_description,
+            "enable_camera_player": False,
+            "rotation_repr": "rot6d",
+            "joint_reset_qpos": list(control["joint_reset_qpos"]),
+            "target_ee_pose": list(workspace["target_pose"]),
+            "max_num_steps": int(control["episode_steps"]),
+            "action_scale": list(control["action_scale"]),
+            "ee_pose_limit_min": list(bounds["min"]),
+            "ee_pose_limit_max": list(bounds["max"]),
+            "success_hold_steps": int(control["success_hold_steps"]),
+        },
+        where="env.eval.override_cfg",
+    )
+
     rlinf = OmegaConf.create(
         {
             "cluster": {
@@ -75,36 +127,7 @@ def load_runtime_config(
                     {
                         "label": "dual_franka",
                         "node_ranks": ",".join(str(node) for node in nodes),
-                        "hardware": {
-                            "type": "DualFranka",
-                            "configs": [
-                                {
-                                    "left_robot_ip": str(left["ip"]),
-                                    "right_robot_ip": str(right["ip"]),
-                                    "base_camera_serials": base_serials,
-                                    "base_camera_type": base_type,
-                                    "left_camera_serials": left_serials,
-                                    "left_camera_type": left_type,
-                                    "right_camera_serials": right_serials,
-                                    "right_camera_type": right_type,
-                                    "left_gripper_type": str(left_gripper["type"]),
-                                    "right_gripper_type": str(right_gripper["type"]),
-                                    "left_gripper_connection": left_gripper.get(
-                                        "connection"
-                                    ),
-                                    "right_gripper_connection": right_gripper.get(
-                                        "connection"
-                                    ),
-                                    "left_controller_node_rank": int(
-                                        left["controller_node"]
-                                    ),
-                                    "right_controller_node_rank": int(
-                                        right["controller_node"]
-                                    ),
-                                    "node_rank": hardware_node,
-                                }
-                            ],
-                        },
+                        "hardware": {"type": "DualFranka", "configs": [hardware]},
                     }
                 ],
             },
@@ -125,20 +148,7 @@ def load_runtime_config(
                     "use_relative_frame": False,
                     "video_cfg": {},
                     "init_params": {"id": "DualFrankaTCPEnv-v1"},
-                    "override_cfg": {
-                        "is_dummy": False,
-                        "task_description": task_description,
-                        "enable_camera_player": False,
-                        "enable_camera_depth": True,
-                        "rotation_repr": "rot6d",
-                        "joint_reset_qpos": list(control["joint_reset_qpos"]),
-                        "target_ee_pose": list(workspace["target_pose"]),
-                        "max_num_steps": int(control["episode_steps"]),
-                        "action_scale": list(control["action_scale"]),
-                        "ee_pose_limit_min": list(bounds["min"]),
-                        "ee_pose_limit_max": list(bounds["max"]),
-                        "success_hold_steps": int(control["success_hold_steps"]),
-                    },
+                    "override_cfg": override_cfg,
                 }
             },
         }

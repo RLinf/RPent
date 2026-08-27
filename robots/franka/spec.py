@@ -16,8 +16,8 @@ FRANKA_DASHBOARD_SPEC = {
         "output_slug": "franka_t{task_id}",
     },
     "runtime_components": (
-        {"name": "env", "label": "FRANKA", "scope": "task"},
-        {"name": "vla", "label": "VLA"},
+        {"name": "env", "label": "FRANKA", "scope": "unique"},
+        {"name": "vla", "label": "VLA", "scope": "shared"},
     ),
     "frame_channels": (
         {

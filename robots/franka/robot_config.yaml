@@ -1,9 +1,23 @@
+# RPent user-facing config for one physical Franka arm.
+#
+# Keys are validated against the schema in robots/franka/config.py: a typo,
+# missing required key, or wrong nesting fails with the exact path. The
+# generated RLinf adapter config is derived by introspecting RLinf's own
+# dataclasses, so the mapping cannot drift. To see exactly what is derived:
+#
+#   python robots/franka/env_server.py --print-config --task-description "grasp"
+#
+# Machine identity (IP, camera serials, gripper connection) is resolved at
+# runtime: a command-line flag (--robot-ip, --camera-serial-wrist,
+# --camera-serial-external, --gripper-connection) overrides the environment
+# variable named by the token below (ROBOT_IP, CAMERA_SERIAL_WRIST, ...),
+# which in turn overrides a literal value placed here.
 robot:
   ip: ROBOT_IP
   node: 0
   end_effector:
     type: franka
-    connection: null
+    connection: GRIPPER_CONNECTION
 
 cameras:
   depth: true

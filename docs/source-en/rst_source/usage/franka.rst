@@ -31,14 +31,28 @@ enabling motion:
 * ``robots/franka/calibration/hand_eye_calibration.json`` contains the hand-eye
   calibration used by perception tools.
 
-Replace ``ROBOT_IP``, ``CAMERA_SERIAL_WRIST``, and
-``CAMERA_SERIAL_EXTERNAL`` in the robot config. Do not reuse poses, bounds, serials,
-or calibration from another workspace.
+Machine identity (robot IP, camera serials, gripper connection) is not
+committed in ``robot_config.yaml``; the tokens ``ROBOT_IP``,
+``CAMERA_SERIAL_WRIST``, ``CAMERA_SERIAL_EXTERNAL``, and
+``GRIPPER_CONNECTION`` there name the environment variables that supply them.
+They are resolved at run time, in order: command-line flag (``--robot-ip``,
+``--camera-serial-wrist``, ``--camera-serial-external``,
+``--gripper-connection``) > environment variable > a literal value placed in the
+config. Do not reuse poses, bounds, serials, or calibration from another
+workspace.
 
 RPent translates this robot-focused schema into the internal RLinf cluster and
 environment objects. To use a different file, pass
 ``--robot-config /path/to/robot_config.yaml``. No Hydra or RLinf configuration
 workflow is exposed to users.
+
+Config keys are validated at load time; a typo, missing key, or wrong nesting
+fails with the exact path. To inspect the RLinf config RPent derives from the
+robot config without touching hardware:
+
+.. code-block:: bash
+
+   python robots/franka/env_server.py --print-config --task-description "grasp"
 
 Use a local RLinf checkout
 --------------------------

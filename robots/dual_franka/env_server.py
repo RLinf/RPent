@@ -512,12 +512,22 @@ def main() -> int:
     parser.add_argument("--robot-config", default=None)
     parser.add_argument("--task-description", required=True)
     parser.add_argument("--parent-watch", action="store_true")
+    parser.add_argument(
+        "--print-config",
+        action="store_true",
+        help="Print the resolved RLinf config and exit without launching.",
+    )
     args = parser.parse_args()
 
     runtime = load_runtime_config(
         args.robot_config,
         task_description=args.task_description,
     )
+    if args.print_config:
+        from omegaconf import OmegaConf
+
+        print(OmegaConf.to_yaml(runtime.rlinf))
+        return 0
     worker = _launch_worker(runtime.rlinf, runtime.controller)
     facade = FrankaEnvFacade(_RayBackend(worker))
     try:
