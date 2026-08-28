@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pi0.5 VLA client for LIBERO."""
-
 """Thin client wrapping the Pi0.5 VLA RPC server.
 
 The server lifecycle is the caller's responsibility: bring up
@@ -34,6 +32,7 @@ Wire schema (see also ``pi05_vla_server``):
     })
     -> {"actions": [[[a0..a6], ...]], "shape": [B, chunk, action_dim], "dtype": "float32"}
 """
+
 from __future__ import annotations
 
 from typing import Any

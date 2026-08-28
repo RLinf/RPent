@@ -32,6 +32,7 @@ Usage::
         def say_hello(self):
             return "world"
 
+
     MyFacade().serve(transport="http", host="127.0.0.1", port=0)
 """
 

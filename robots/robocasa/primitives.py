@@ -426,8 +426,9 @@ class RoboCasaPrimitives:
         if use_prompt:
             task_lang = prompt
         else:
-            task_lang = (self.env.current_raw_obs.get("language")
-                         or self.env.get_task_language()) or prompt
+            task_lang = (
+                self.env.current_raw_obs.get("language") or self.env.get_task_language()
+            ) or prompt
         # Auto-reseed history if a non-VLA primitive ran since the last VLA call
         # (read _vla_desync BEFORE clearing it)
         fr = bool(force_reset) or self._vla_desync

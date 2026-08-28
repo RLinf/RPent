@@ -89,7 +89,7 @@ class LiberoPrimitives:
         return frames
 
     def frame_slice(self, start: int) -> list[np.ndarray]:
-        return list(self._frames[int(start):])
+        return list(self._frames[int(start) :])
 
     def set_obs(self, obs):
         self._last_obs = obs

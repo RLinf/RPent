@@ -130,8 +130,10 @@ class RoboCasaEnvClient(BaseEnvClient):
         cam = self._resolve_cam(camera_name)
         h = height or self.camera_h
         w = width or self.camera_w
-        _, z_native = super().render_camera(cam, height=h, width=w, depth=True)      # metric depth, bottom-up
-        z = z_native[::-1]                                  # -> top-down
+        _, z_native = super().render_camera(
+            cam, height=h, width=w, depth=True
+        )  # metric depth, bottom-up
+        z = z_native[::-1]  # -> top-down
         T_p2w = self._client.call(
             "env.get_camera_transform",
             kwargs={"camera_name": cam, "height": h, "width": w},

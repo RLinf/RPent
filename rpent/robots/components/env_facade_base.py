@@ -71,12 +71,14 @@ class BaseEnvFacade(RpcFacade):
         self._rpc["env.render_camera"] = self.render_camera
 
         # Read-only methods that can run parallel
-        self._readonly_methods.update([
-            "env.get_env_meta",
-            "env.get_task_language",
-            "env.get_camera_meta",
-            "env.render_camera",
-        ])
+        self._readonly_methods.update(
+            [
+                "env.get_env_meta",
+                "env.get_task_language",
+                "env.get_camera_meta",
+                "env.render_camera",
+            ]
+        )
 
     # ---- abstract methods (subclasses must override) ----
     def reset(self, *args, **kwargs):

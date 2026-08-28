@@ -136,13 +136,15 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         self._rpc["env.get_success_criteria_text"] = self.get_success_criteria_text
         self._rpc["env.get_task_progress"] = self.get_task_progress
         # Read-only methods
-        self._readonly_methods.update([
-            "env.check_success",
-            "env.get_camera_transform",
-            "env.grasp_contact",
-            "env.get_success_criteria_text",
-            "env.get_task_progress",
-        ])
+        self._readonly_methods.update(
+            [
+                "env.check_success",
+                "env.get_camera_transform",
+                "env.grasp_contact",
+                "env.get_success_criteria_text",
+                "env.get_task_progress",
+            ]
+        )
 
     def get_env_meta(self):
         return self._meta
@@ -184,7 +186,10 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         """sim.render in ROBOSUITE-NATIVE orientation (matches the camera
         transform matrices). rgb uint8 HxWx3, depth metric HxW."""
         import robosuite.utils.camera_utils as CU
-        out = self.env.sim.render(width=width, height=height, camera_name=camera_name, depth=depth)
+
+        out = self.env.sim.render(
+            width=width, height=height, camera_name=camera_name, depth=depth
+        )
         if depth:
             rgb, d = out
             # Sanitize the raw OpenGL normalized depth into [0,1]: replace NaN/inf
@@ -379,7 +384,9 @@ class RoboCasaEnvFacade(BaseEnvFacade):
                 event, req = item
                 try:
                     req["result"] = self._dispatch(
-                        req["method"], req["args"], req["kwargs"],
+                        req["method"],
+                        req["args"],
+                        req["kwargs"],
                     )
                 except Exception:
                     req["error"] = traceback.format_exc()
