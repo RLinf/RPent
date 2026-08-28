@@ -171,7 +171,6 @@ class Toolkit:
         self._operation_lock = threading.Lock()
         self._active_operation: _ToolOperation | None = None
         self._register_common_tools()
-        self._memory.register_mcp_tools(self)
 
     # ------------------------------------------------------------------
     # Registration
@@ -199,9 +198,14 @@ class Toolkit:
         """Register the file/IO tools shared by every run."""
         from rpent.tools import common
 
+        memory_bindings = self._memory.get_common_tool_bindings()
         for spec in common.TOOLS_SPEC:
             name = spec["name"]
-            self.add_tool(name, spec, common.TOOL_HANDLERS[name])
+            binding = memory_bindings.get(name)
+            if binding is None:
+                binding = (spec, common.TOOL_HANDLERS[name])
+            tool_spec, handler = binding
+            self.add_tool(name, tool_spec, handler)
 
     # ------------------------------------------------------------------
     # Planner-facing API

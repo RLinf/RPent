@@ -19,13 +19,11 @@ from __future__ import annotations
 import fcntl
 import re
 import shutil
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
-
-if TYPE_CHECKING:
-    from rpent.tools.toolkit import Toolkit
 
 SCOPES = {"global", "suite"}
 KINDS = {"primitive", "perception", "strategy", "failure", "infra"}
@@ -139,8 +137,10 @@ class MemoryManager:
         """Resolved corpus root."""
         return self._root
 
-    def register_mcp_tools(self, toolkit: "Toolkit") -> None:
-        """Register memory-aware replacements for the shared file tools."""
+    def get_common_tool_bindings(
+        self,
+    ) -> dict[str, tuple[dict[str, Any], Callable[..., Any]]]:
+        """Return memory-aware bindings for shared file tools."""
         from functools import partial
 
         from rpent.memory import tools as memory_tools
@@ -166,16 +166,16 @@ class MemoryManager:
                 cell_tag=self._inbox_cell_tag,
             ),
         }
+        bindings: dict[str, tuple[dict[str, Any], Callable[..., Any]]] = {}
         for spec in common.TOOLS_SPEC:
             name = spec["name"]
             handler = handlers.get(name)
             if handler is None:
                 continue
-            scoped_spec = dict(spec)
-            scoped_spec["description"] = (
-                spec["description"] + memory_tools.MEMORY_BOUNDARY_NOTE
-            )
-            toolkit.add_tool(name, scoped_spec, handler)
+            tool_spec = dict(spec)
+            tool_spec["description"] += memory_tools.MEMORY_BOUNDARY_NOTE
+            bindings[name] = (tool_spec, handler)
+        return bindings
 
     def merge_memory(
         self,
