@@ -21,7 +21,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from rpent.tools.state import EnvState, StepRecord
+from rpent.session import EnvState, StepRecord
 
 
 class _StepFailure(Exception):
@@ -270,7 +270,7 @@ def test_failed_artifact_write_removes_temporary_file(
         raise RuntimeError("image encoder failed")
 
     monkeypatch.setattr(
-        "rpent.tools.state.imageio.imwrite",
+        "rpent.session.base.imageio.imwrite",
         fail_after_partial_write,
     )
 

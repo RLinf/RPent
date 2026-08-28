@@ -20,7 +20,7 @@ from typing import Any
 
 import yaml
 
-from rpent.memory.layered import build_index, merge_cell, validate_corpus
+from rpent.memory import MemoryManager
 
 
 def _write_memory_leaf(
@@ -72,7 +72,7 @@ def _write_task_pair(output_dir: Path, cell: str, *, solved: bool) -> None:
     (output_dir / f"recipe_{cell}.jsonl").write_text('{"action":"move_to"}\n')
 
 
-def test_layered_memory_index_lists_valid_leaves_by_scope(tmp_path: Path) -> None:
+def test_memory_manager_index_lists_valid_leaves_by_scope(tmp_path: Path) -> None:
     memory_dir = tmp_path / "memory"
     _write_memory_leaf(
         memory_dir / "global" / "global_strategy.md",
@@ -88,7 +88,7 @@ def test_layered_memory_index_lists_valid_leaves_by_scope(tmp_path: Path) -> Non
     )
     (memory_dir / "global" / "malformed.md").write_text("no frontmatter\n")
 
-    index = build_index(memory_dir)
+    index = MemoryManager(memory_dir).rebuild_index()
     text = index.read_text()
 
     assert index == memory_dir / "MEMORY.md"
@@ -98,7 +98,7 @@ def test_layered_memory_index_lists_valid_leaves_by_scope(tmp_path: Path) -> Non
     assert "malformed.md" not in text
 
 
-def test_layered_memory_validation_reports_schema_filename_and_duplicate_errors(
+def test_memory_manager_validation_reports_schema_filename_and_duplicate_errors(
     tmp_path: Path,
 ) -> None:
     memory_dir = tmp_path / "memory"
@@ -116,14 +116,14 @@ def test_layered_memory_validation_reports_schema_filename_and_duplicate_errors(
     )
     (memory_dir / "global" / "broken.md").write_text("---\nscope: global\n")
 
-    problems = validate_corpus(memory_dir)
+    problems = MemoryManager(memory_dir).validate()
 
     assert any("broken.md: unterminated YAML frontmatter" in item for item in problems)
     assert any("id 'shared_id' does not match filename" in item for item in problems)
     assert any("duplicate id also in global/shared_id.md" in item for item in problems)
 
 
-def test_merge_cell_publishes_draft_and_solved_task_pair(tmp_path: Path) -> None:
+def test_memory_manager_publishes_draft_and_solved_task_pair(tmp_path: Path) -> None:
     memory_dir = tmp_path / "memory"
     output_dir = tmp_path / "run"
     cell = "10_task_t2_s0"
@@ -135,10 +135,10 @@ def test_merge_cell_publishes_draft_and_solved_task_pair(tmp_path: Path) -> None
     )
     _write_task_pair(output_dir, cell, solved=True)
 
-    result = merge_cell(
-        memory_dir=memory_dir,
+    result = MemoryManager(memory_dir).merge_memory(
         cell_tag=cell,
-        output_dir=output_dir,
+        run_state_dir=output_dir,
+        solved=True,
     )
 
     assert result["suite"] == 1
@@ -151,16 +151,18 @@ def test_merge_cell_publishes_draft_and_solved_task_pair(tmp_path: Path) -> None
     assert "suite_libero10_task_t2.md" in (memory_dir / "MEMORY.md").read_text()
 
 
-def test_merge_cell_does_not_publish_unsolved_task_artifacts(tmp_path: Path) -> None:
+def test_memory_manager_does_not_publish_unsolved_task_artifacts(
+    tmp_path: Path,
+) -> None:
     memory_dir = tmp_path / "memory"
     output_dir = tmp_path / "run"
     cell = "10_task_t9_s0"
     _write_task_pair(output_dir, cell, solved=False)
 
-    result = merge_cell(
-        memory_dir=memory_dir,
+    result = MemoryManager(memory_dir).merge_memory(
         cell_tag=cell,
-        output_dir=output_dir,
+        run_state_dir=output_dir,
+        solved=False,
     )
 
     assert result["task"] == 0
@@ -168,7 +170,7 @@ def test_merge_cell_does_not_publish_unsolved_task_artifacts(tmp_path: Path) -> 
     assert not (memory_dir / "task" / f"recipe_{cell}.jsonl").exists()
 
 
-def test_merge_cell_skips_invalid_draft_without_archiving_its_inbox(
+def test_memory_manager_skips_invalid_draft_without_archiving_its_inbox(
     tmp_path: Path,
 ) -> None:
     memory_dir = tmp_path / "memory"
@@ -190,10 +192,10 @@ Test body.
 """
     )
 
-    result = merge_cell(
-        memory_dir=memory_dir,
+    result = MemoryManager(memory_dir).merge_memory(
         cell_tag=cell,
-        output_dir=output_dir,
+        run_state_dir=output_dir,
+        solved=False,
     )
 
     assert result["global"] == 0
@@ -202,7 +204,7 @@ Test body.
     assert not (memory_dir / "_merged" / cell).exists()
 
 
-def test_merge_cell_accumulates_evidence_and_preserves_conflicting_prose(
+def test_memory_manager_accumulates_evidence_and_preserves_conflicting_prose(
     tmp_path: Path,
 ) -> None:
     memory_dir = tmp_path / "memory"
@@ -220,7 +222,12 @@ def test_merge_cell_accumulates_evidence_and_preserves_conflicting_prose(
         attempts=1,
         body="First published prose.\n",
     )
-    merge_cell(memory_dir=memory_dir, cell_tag=first_cell, output_dir=output_dir)
+    manager = MemoryManager(memory_dir)
+    manager.merge_memory(
+        cell_tag=first_cell,
+        run_state_dir=output_dir,
+        solved=False,
+    )
     _write_memory_leaf(
         second_inbox / "suite_draft.md",
         memory_id="ignored",
@@ -230,10 +237,10 @@ def test_merge_cell_accumulates_evidence_and_preserves_conflicting_prose(
         body="Conflicting new prose.\n",
     )
 
-    result = merge_cell(
-        memory_dir=memory_dir,
+    result = manager.merge_memory(
         cell_tag=second_cell,
-        output_dir=output_dir,
+        run_state_dir=output_dir,
+        solved=False,
     )
 
     published = memory_dir / "suite" / "suite_libero10_task_t2.md"
@@ -251,7 +258,7 @@ def test_merge_cell_accumulates_evidence_and_preserves_conflicting_prose(
     assert "Conflicting new prose." in conflict.read_text()
 
 
-def test_merge_cell_is_idempotent_for_evidence_from_the_same_cell(
+def test_memory_manager_is_idempotent_for_evidence_from_the_same_cell(
     tmp_path: Path,
 ) -> None:
     memory_dir = tmp_path / "memory"
@@ -265,7 +272,12 @@ def test_merge_cell_is_idempotent_for_evidence_from_the_same_cell(
         scope="suite",
         cells=[cell],
     )
-    first = merge_cell(memory_dir=memory_dir, cell_tag=cell, output_dir=output_dir)
+    manager = MemoryManager(memory_dir)
+    first = manager.merge_memory(
+        cell_tag=cell,
+        run_state_dir=output_dir,
+        solved=False,
+    )
     _write_memory_leaf(
         draft,
         memory_id="ignored",
@@ -273,7 +285,11 @@ def test_merge_cell_is_idempotent_for_evidence_from_the_same_cell(
         cells=[cell],
     )
 
-    second = merge_cell(memory_dir=memory_dir, cell_tag=cell, output_dir=output_dir)
+    second = manager.merge_memory(
+        cell_tag=cell,
+        run_state_dir=output_dir,
+        solved=False,
+    )
 
     assert first["suite"] == 1
     assert second["suite"] == 0
@@ -281,7 +297,7 @@ def test_merge_cell_is_idempotent_for_evidence_from_the_same_cell(
     assert second["conflicts"] == 0
 
 
-def test_merge_cell_refuses_to_complete_an_existing_partial_task_pair(
+def test_memory_manager_refuses_to_complete_an_existing_partial_task_pair(
     tmp_path: Path,
 ) -> None:
     memory_dir = tmp_path / "memory"
@@ -292,10 +308,10 @@ def test_merge_cell_refuses_to_complete_an_existing_partial_task_pair(
     task_dir.mkdir(parents=True)
     (task_dir / f"{cell}.json").write_text("{}")
 
-    result = merge_cell(
-        memory_dir=memory_dir,
+    result = MemoryManager(memory_dir).merge_memory(
         cell_tag=cell,
-        output_dir=output_dir,
+        run_state_dir=output_dir,
+        solved=True,
     )
 
     assert result["task"] == 0

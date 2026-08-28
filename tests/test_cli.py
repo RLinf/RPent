@@ -304,7 +304,7 @@ def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) 
     assert "memory inbox under wip/" in message
 
 
-def test_full_cli_run_uses_a_scripted_planner_without_starting_gpu_runtime(
+def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -314,6 +314,11 @@ def test_full_cli_run_uses_a_scripted_planner_without_starting_gpu_runtime(
     from rpent.tools.toolkit import ToolResult
 
     calls: dict[str, Any] = {}
+
+    class FakeMemoryManager:
+        def merge_memory(self, **kwargs: Any) -> dict[str, int]:
+            calls["merge_memory"] = kwargs
+            return {"suite": 1}
 
     class FakeDaemon:
         stopped = False
@@ -325,6 +330,7 @@ def test_full_cli_run_uses_a_scripted_planner_without_starting_gpu_runtime(
         def __init__(self) -> None:
             self.calls: list[tuple[str, dict[str, Any]]] = []
             self.closed = False
+            self.memory = FakeMemoryManager()
 
         def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
             self.calls.append((name, args))
@@ -339,6 +345,13 @@ def test_full_cli_run_uses_a_scripted_planner_without_starting_gpu_runtime(
 
         def close(self) -> None:
             self.closed = True
+
+        def solved(self) -> bool:
+            return True
+
+        def write_recipe(self, recipe_tag: str) -> str:
+            calls["write_recipe"] = recipe_tag
+            return str(tmp_path / f"recipe_{recipe_tag}.jsonl")
 
     class ScriptedPlanner:
         def solve(
@@ -377,14 +390,17 @@ def test_full_cli_run_uses_a_scripted_planner_without_starting_gpu_runtime(
     planner = ScriptedPlanner()
 
     def add_cli_args(parser: Any, use_dashboard: bool) -> None:
-        del parser, use_dashboard
+        del use_dashboard
+        parser.add_argument("--auto-merge-memory", action="store_true")
+        parser.add_argument("--explore-sessions", type=int, default=1)
+        parser.add_argument("--explore-attempts-per-session", type=int, default=2)
 
     def parse_config(args: Any) -> RunConfig:
         return RunConfig(
-            recipe_tag="simulated_s0",
+            recipe_tag="libero_s0",
             output_dir=Path(args.output_dir),
-            prompt_vars={},
-            task_desc={"robot": "simulated"},
+            prompt_vars={"memory_dir": args.memory_dir},
+            task_desc={"robot": "libero"},
         )
 
     def init_runtime(*args: Any) -> tuple[list[FakeDaemon], dict[str, str]]:
@@ -393,7 +409,7 @@ def test_full_cli_run_uses_a_scripted_planner_without_starting_gpu_runtime(
         return [daemon], {"runtime": "simulated"}
 
     robot_spec = RobotSpec(
-        name="simulated",
+        name="libero",
         prompts=PromptBundle(
             system=lambda variables: "simulated system prompt",
             user=lambda variables: "simulated user task",
@@ -417,7 +433,7 @@ def test_full_cli_run_uses_a_scripted_planner_without_starting_gpu_runtime(
         )
 
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
-    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("simulated",))
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
     monkeypatch.setattr(cli, "build_planner", build_planner)
     monkeypatch.setattr(cli, "get_toolkit", get_toolkit)
@@ -428,9 +444,13 @@ def test_full_cli_run_uses_a_scripted_planner_without_starting_gpu_runtime(
         [
             "rpent",
             "--robot",
-            "simulated",
+            "libero",
+            "--explore",
+            "--auto-merge-memory",
             "--memory-profile",
             "local",
+            "--memory-dir",
+            str(tmp_path / "memory"),
             "--output-dir",
             str(tmp_path),
             "--max-turns",
@@ -453,9 +473,17 @@ def test_full_cli_run_uses_a_scripted_planner_without_starting_gpu_runtime(
     assert toolkit.closed is True
     assert daemon.stopped is True
     assert calls["get_toolkit"][1]["primitives_kwargs"] == {"runtime": "simulated"}
+    assert calls["get_toolkit"][1]["mode"] == "exploration"
+    assert calls["get_toolkit"][1]["attempts_per_session"] == 2
+    assert calls["write_recipe"] == "libero_s0"
+    assert calls["merge_memory"] == {
+        "cell_tag": "libero_s0",
+        "run_state_dir": tmp_path,
+        "solved": True,
+    }
 
-    transcript = json.loads((tmp_path / "transcript_simulated_s0.json").read_text())
-    assert transcript["robot"] == "simulated"
+    transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
+    assert transcript["robot"] == "libero"
     assert transcript["finish"] == {
         "_finish": True,
         "status": "success",

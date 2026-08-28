@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -33,17 +34,21 @@ def test_memory_cli_merge_forwards_paths_and_prints_json(
     captured: dict[str, object] = {}
     result = {"suite": 1, "skipped": [], "message": "已合并"}
 
-    def fake_merge_cell(
-        *, memory_dir: Path, cell_tag: str, output_dir: Path
+    def fake_merge_memory(
+        *, cell_tag: str, run_state_dir: Path, solved: bool
     ) -> dict[str, object]:
         captured.update(
-            memory_dir=memory_dir,
             cell_tag=cell_tag,
-            output_dir=output_dir,
+            run_state_dir=run_state_dir,
+            solved=solved,
         )
         return result
 
-    monkeypatch.setattr(memory_cli, "merge_cell", fake_merge_cell)
+    def fake_manager(root: Path) -> SimpleNamespace:
+        captured["memory_dir"] = root
+        return SimpleNamespace(merge_memory=fake_merge_memory)
+
+    monkeypatch.setattr(memory_cli, "MemoryManager", fake_manager)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -56,6 +61,7 @@ def test_memory_cli_merge_forwards_paths_and_prints_json(
             "10_task_t2_s0",
             "--output-dir",
             str(output_dir),
+            "--solved",
         ],
     )
 
@@ -63,7 +69,8 @@ def test_memory_cli_merge_forwards_paths_and_prints_json(
     assert captured == {
         "memory_dir": memory_dir,
         "cell_tag": "10_task_t2_s0",
-        "output_dir": output_dir,
+        "run_state_dir": output_dir,
+        "solved": True,
     }
     stdout = capsys.readouterr().out
     assert json.loads(stdout) == result
@@ -74,14 +81,14 @@ def test_memory_cli_merge_rejects_missing_required_output_dir(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    merge_called = False
+    manager_created = False
 
-    def fake_merge_cell(**kwargs: object) -> dict[str, object]:
-        nonlocal merge_called
-        merge_called = True
-        return kwargs
+    def fake_manager(root: Path) -> SimpleNamespace:
+        nonlocal manager_created
+        manager_created = True
+        return SimpleNamespace()
 
-    monkeypatch.setattr(memory_cli, "merge_cell", fake_merge_cell)
+    monkeypatch.setattr(memory_cli, "MemoryManager", fake_manager)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -93,7 +100,7 @@ def test_memory_cli_merge_rejects_missing_required_output_dir(
 
     assert exc_info.value.code == 2
     assert "--output-dir" in capsys.readouterr().err
-    assert merge_called is False
+    assert manager_created is False
 
 
 def test_memory_cli_validate_reports_success(
@@ -103,11 +110,11 @@ def test_memory_cli_validate_reports_success(
 ) -> None:
     memory_dir = tmp_path / "memory"
     validated: list[Path] = []
-    monkeypatch.setattr(
-        memory_cli,
-        "validate_corpus",
-        lambda path: validated.append(path) or [],
-    )
+
+    def fake_manager(root: Path) -> SimpleNamespace:
+        return SimpleNamespace(validate=lambda: validated.append(root) or [])
+
+    monkeypatch.setattr(memory_cli, "MemoryManager", fake_manager)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -129,7 +136,11 @@ def test_memory_cli_validate_prints_problems_and_fails(
         "global/broken.md: unterminated YAML frontmatter",
         "suite/wrong.md: id does not match filename",
     ]
-    monkeypatch.setattr(memory_cli, "validate_corpus", lambda path: problems)
+    monkeypatch.setattr(
+        memory_cli,
+        "MemoryManager",
+        lambda root: SimpleNamespace(validate=lambda: problems),
+    )
     monkeypatch.setattr(
         sys,
         "argv",
@@ -148,11 +159,13 @@ def test_memory_cli_build_index_prints_created_path(
     memory_dir = tmp_path / "memory"
     index_path = memory_dir / "MEMORY.md"
     built: list[Path] = []
-    monkeypatch.setattr(
-        memory_cli,
-        "build_index",
-        lambda path: built.append(path) or index_path,
-    )
+
+    def fake_manager(root: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            rebuild_index=lambda: built.append(root) or index_path,
+        )
+
+    monkeypatch.setattr(memory_cli, "MemoryManager", fake_manager)
     monkeypatch.setattr(
         sys,
         "argv",

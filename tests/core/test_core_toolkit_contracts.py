@@ -25,8 +25,10 @@ from typing import Any
 import pytest
 
 from rpent.dashboard.events import StepRecordEvent
+from rpent.memory import MemoryManager
+from rpent.memory import tools as memory_tools
+from rpent.session import EnvState
 from rpent.tools import common
-from rpent.tools.state import EnvState
 from rpent.tools.toolkit import Toolkit, ToolResult, readonly
 
 
@@ -45,13 +47,19 @@ class _RecordingEventSink:
 class _ContractToolkit(Toolkit):
     _FRAME_ARTIFACTS = {"primary": "frame.png"}
 
-    def __init__(self, output_dir: Path) -> None:
+    def __init__(
+        self,
+        output_dir: Path,
+        *,
+        memory: MemoryManager | None = None,
+    ) -> None:
         self.events = _RecordingEventSink()
         self.capture_calls: list[dict[str, Any]] = []
         self.capture_error: Exception | None = None
         super().__init__(
             dashboard_events=self.events,
             state=EnvState(output_dir),
+            memory=memory or MemoryManager(output_dir / "memory"),
         )
 
     def get_env_state(
@@ -191,6 +199,7 @@ def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
     ]
     list_dir_spec = next(spec for spec in first if spec["name"] == "list_dir")
     assert str(output_dir) in list_dir_spec["description"]
+    assert memory_tools.MEMORY_BOUNDARY_NOTE in list_dir_spec["description"]
     assert (
         str(output_dir)
         in list_dir_spec["input_schema"]["properties"]["path"]["description"]
@@ -242,6 +251,96 @@ def test_common_file_tools_dispatch_offline_without_capturing_robot_state(
     assert finished.is_finish is True
     assert toolkit.capture_calls == []
     assert toolkit.events.events == []
+
+
+def test_common_file_tools_enforce_memory_manager_boundaries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    memory_root = repo_root / "resources" / "libero" / "memory"
+    published = memory_root / "global" / "strategy.md"
+    published.parent.mkdir(parents=True)
+    published.write_text("published")
+    (memory_root / "MEMORY.md").write_text("index")
+    evaluation_inbox = memory_root / "_inbox" / "current-cell"
+    evaluation_inbox.mkdir(parents=True)
+    (evaluation_inbox / "draft.md").write_text("private draft")
+    foreign = repo_root / "resources" / "robotwin" / "memory" / "global" / "x.md"
+    foreign.parent.mkdir(parents=True)
+    foreign.write_text("foreign")
+    monkeypatch.setattr(memory_tools, "get_repo_root", lambda: repo_root)
+    monkeypatch.setattr(common, "get_repo_root", lambda: repo_root)
+
+    read_only_memory = MemoryManager(memory_root)
+    evaluation = _ContractToolkit(
+        tmp_path / "evaluation-state",
+        memory=read_only_memory,
+    )
+    read_published = evaluation.execute_tool(
+        "read_text_file",
+        {"path": "resources/libero/memory/global/strategy.md"},
+    )
+    list_published = evaluation.execute_tool(
+        "list_dir",
+        {"path": str(published.parent)},
+    )
+    write_published = evaluation.execute_tool(
+        "write_text_file",
+        {"path": str(published), "content": "changed"},
+    )
+    read_foreign = evaluation.execute_tool(
+        "read_text_file",
+        {"path": str(foreign)},
+    )
+    read_evaluation_inbox = evaluation.execute_tool(
+        "read_text_file",
+        {"path": str(evaluation_inbox / "draft.md")},
+    )
+
+    assert evaluation.memory is read_only_memory
+    assert read_published.result["content"] == "published"
+    assert list_published.result["files"] == ["strategy.md"]
+    assert "writing to memory is denied" in write_published.result["error"]
+    assert "another environment's memory is denied" in read_foreign.result["error"]
+    assert "reading this memory path is denied" in read_evaluation_inbox.result["error"]
+
+    exploration = _ContractToolkit(
+        tmp_path / "exploration-state",
+        memory=MemoryManager(
+            memory_root,
+            memory_access="inbox_write",
+            inbox_cell_tag="current-cell",
+        ),
+    )
+    own_draft = memory_root / "_inbox" / "current-cell" / "draft.md"
+    other_draft = memory_root / "_inbox" / "other-cell" / "draft.md"
+    write_own = exploration.execute_tool(
+        "write_text_file",
+        {"path": str(own_draft), "content": "draft"},
+    )
+    read_own = exploration.execute_tool(
+        "read_text_file",
+        {"path": str(own_draft)},
+    )
+    read_other = exploration.execute_tool(
+        "read_text_file",
+        {"path": str(other_draft)},
+    )
+    inbox_escape = own_draft.parent / "published-link.md"
+    inbox_escape.symlink_to(published)
+    write_through_symlink = exploration.execute_tool(
+        "write_text_file",
+        {"path": str(inbox_escape), "content": "escaped"},
+    )
+
+    assert write_own.result["bytes_written"] == 5
+    assert read_own.result["content"] == "draft"
+    assert "reading this memory path is denied" in read_other.result["error"]
+    assert "writing to memory is denied" in write_through_symlink.result["error"]
+    assert published.read_text() == "published"
+    assert evaluation.capture_calls == []
+    assert exploration.capture_calls == []
 
 
 def test_toolkit_reports_unknown_tools_and_invalid_arguments(tmp_path: Path) -> None:

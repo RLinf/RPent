@@ -34,7 +34,7 @@ from rpent.dashboard.interaction import (
     UnknownDashboardMessageError,
 )
 from rpent.dashboard.state import DashboardState
-from rpent.tools.state import EnvState
+from rpent.session import EnvState
 
 DASHBOARD_SPEC = {
     "task": {

@@ -20,11 +20,16 @@ from typing import Any
 
 import pytest
 
+from robots.libero import robot_spec as libero_robot_spec
 from robots.libero import toolkit as libero_toolkit
+from robots.robocasa import robot_spec as robocasa_robot_spec
 from robots.robocasa import toolkit as robocasa_toolkit
+from robots.robotwin import robot_spec as robotwin_robot_spec
 from robots.robotwin import toolkit as robotwin_toolkit
 from robots.robotwin.primitives import RoboTwinPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
+from rpent.memory import MemoryManager
+from rpent.robots import RunConfig
 from rpent.tools.toolkit import Toolkit, _is_readonly, readonly
 from rpent.utils import templates
 
@@ -244,6 +249,141 @@ def _readonly_names(toolkit: Toolkit) -> set[str]:
     }
 
 
+def _run_config(memory_dir: Path, *, recipe_tag: str = "cell-s0") -> RunConfig:
+    return RunConfig(
+        recipe_tag=recipe_tag,
+        output_dir=memory_dir.parent / "run",
+        prompt_vars={"memory_dir": str(memory_dir)},
+        task_desc={},
+    )
+
+
+def test_libero_toolkit_factory_configures_memory_access_by_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: list[dict[str, Any]] = []
+
+    def fake_toolkit(**kwargs: Any) -> SimpleNamespace:
+        captured.append(kwargs)
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(libero_toolkit, "LiberoToolkit", fake_toolkit)
+    memory_dir = tmp_path / "libero-memory"
+    config = _run_config(memory_dir)
+
+    evaluation = libero_robot_spec.get_toolkit(
+        primitives_kwargs={"env": "evaluation"},
+        dashboard_events=NullDashboardEventSink(),
+        config=config,
+    )
+    exploration = libero_robot_spec.get_toolkit(
+        primitives_kwargs={"env": "exploration"},
+        dashboard_events=NullDashboardEventSink(),
+        config=config,
+        mode="exploration",
+        attempts_per_session=2,
+        state_output_dir=tmp_path / "state",
+    )
+
+    assert evaluation.memory.root == memory_dir.resolve()
+    assert exploration.memory.root == memory_dir.resolve()
+    evaluation_write = evaluation.memory.get_common_tool_bindings()["write_text_file"][
+        1
+    ]
+    exploration_write = exploration.memory.get_common_tool_bindings()[
+        "write_text_file"
+    ][1]
+    own_draft = memory_dir / "_inbox" / config.recipe_tag / "draft.md"
+    with pytest.raises(PermissionError, match="writing to memory is denied"):
+        evaluation_write(str(own_draft), "draft")
+    assert exploration_write(str(own_draft), "draft")["bytes_written"] == 5
+    assert captured[0]["mode"] == "evaluation"
+    assert captured[1]["mode"] == "exploration"
+    assert captured[1]["attempts_per_session"] == 2
+
+
+@pytest.mark.parametrize(
+    ("robot_spec", "toolkit_module", "toolkit_name"),
+    [
+        (robocasa_robot_spec, robocasa_toolkit, "RoboCasaToolkit"),
+        (robotwin_robot_spec, robotwin_toolkit, "RoboTwinToolkit"),
+    ],
+)
+def test_evaluation_toolkit_factories_use_configured_read_only_memory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    robot_spec: Any,
+    toolkit_module: Any,
+    toolkit_name: str,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_toolkit(**kwargs: Any) -> SimpleNamespace:
+        captured.update(kwargs)
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(toolkit_module, toolkit_name, fake_toolkit)
+    memory_dir = tmp_path / f"{robot_spec.__name__}-memory"
+
+    toolkit = robot_spec.get_toolkit(
+        primitives_kwargs={"env": "offline"},
+        dashboard_events=NullDashboardEventSink(),
+        config=_run_config(memory_dir),
+    )
+
+    assert toolkit.memory.root == memory_dir.resolve()
+    write = toolkit.memory.get_common_tool_bindings()["write_text_file"][1]
+    with pytest.raises(PermissionError, match="writing to memory is denied"):
+        write(str(memory_dir / "global" / "strategy.md"), "changed")
+    assert captured["primitives_kwargs"] == {"env": "offline"}
+
+
+@pytest.mark.parametrize(
+    ("robot_name", "robot_spec", "toolkit_module", "toolkit_name"),
+    [
+        ("libero", libero_robot_spec, libero_toolkit, "LiberoToolkit"),
+        ("robocasa", robocasa_robot_spec, robocasa_toolkit, "RoboCasaToolkit"),
+        ("robotwin", robotwin_robot_spec, robotwin_toolkit, "RoboTwinToolkit"),
+    ],
+)
+def test_toolkit_factories_fall_back_to_each_robot_memory_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    robot_name: str,
+    robot_spec: Any,
+    toolkit_module: Any,
+    toolkit_name: str,
+) -> None:
+    default_memory = tmp_path / robot_name / "memory"
+    monkeypatch.setattr(
+        robot_spec,
+        "get_memory_dir",
+        lambda requested_robot: (
+            default_memory if requested_robot == robot_name else None
+        ),
+    )
+    monkeypatch.setattr(
+        toolkit_module,
+        toolkit_name,
+        lambda **kwargs: SimpleNamespace(**kwargs),
+    )
+    config = RunConfig(
+        recipe_tag="cell-s0",
+        output_dir=tmp_path / "run",
+        prompt_vars={},
+        task_desc={},
+    )
+
+    toolkit = robot_spec.get_toolkit(
+        primitives_kwargs={},
+        dashboard_events=NullDashboardEventSink(),
+        config=config,
+    )
+
+    assert toolkit.memory.root == default_memory.resolve()
+
+
 def test_robotwin_fake_and_real_implement_toolkit_primitive_protocol() -> None:
     for primitive_type in (RoboTwinPrimitives, FakeRoboTwinPrimitives):
         missing = {
@@ -286,12 +426,18 @@ def test_libero_toolkit_modes_construct_with_fake_primitives(
     evaluation = libero_toolkit.LiberoToolkit(
         primitives_kwargs={"env_client": object()},
         dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "evaluation-memory"),
         mode="evaluation",
         state_output_dir=tmp_path / "evaluation",
     )
     exploration = libero_toolkit.LiberoToolkit(
         primitives_kwargs={"env_client": object()},
         dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(
+            tmp_path / "exploration-memory",
+            memory_access="inbox_write",
+            inbox_cell_tag="offline-cell",
+        ),
         mode="exploration",
         attempts_per_session=3,
         state_output_dir=tmp_path / "exploration",
@@ -366,6 +512,7 @@ def test_robocasa_toolkit_constructs_and_classifies_tools_with_a_fake(
     toolkit = robocasa_toolkit.RoboCasaToolkit(
         primitives_kwargs={"env_client": object(), "vla_client": object()},
         dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
     )
 
     assert _tool_names(toolkit) == ROBOCASA_TOOLS
@@ -418,6 +565,7 @@ def test_robotwin_toolkit_constructs_and_captures_an_initial_observation(
     toolkit = robotwin_toolkit.RoboTwinToolkit(
         primitives_kwargs={"env": object(), "model": object(), "seed": 7},
         dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
     )
 
     assert _tool_names(toolkit) == ROBOTWIN_TOOLS
