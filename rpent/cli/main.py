@@ -297,11 +297,11 @@ def _start_continuation_session(
 
 
 def _finalize_memory_merge(
+    memory: MemoryManager,
     run_config: RunConfig,
     solved: bool,
 ) -> dict[str, Any]:
     """Merge completed exploration artifacts into the memory corpus."""
-    memory = MemoryManager(root=run_config.prompt_vars["memory_dir"])
     return memory.merge_memory(
         cell_tag=run_config.recipe_tag,
         run_state_dir=run_config.output_dir,
@@ -439,6 +439,7 @@ def main() -> int:
         sessions = 1
     recipe_path = ""
     solved = False
+    memory_manager: MemoryManager | None = None
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
@@ -479,6 +480,7 @@ def main() -> int:
                     args=args,
                     config=run_config,
                 )
+            memory_manager = toolkit.memory
             try:
                 result = planner.solve(
                     system_prompt=system_prompt,
@@ -551,9 +553,10 @@ def main() -> int:
         getattr(args, "explore", False)
         and getattr(args, "auto_merge_memory", False)
         and not agent_error
+        and memory_manager is not None
     ):
         try:
-            merge_result = _finalize_memory_merge(run_config, solved)
+            merge_result = _finalize_memory_merge(memory_manager, run_config, solved)
             if merge_result:
                 logger.info("memory merged: %s", merge_result)
         except Exception as exc:

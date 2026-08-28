@@ -212,6 +212,11 @@ class Toolkit:
     # ------------------------------------------------------------------
 
     @property
+    def memory(self) -> "MemoryManager":
+        """Return the toolkit's memory manager."""
+        return self._memory
+
+    @property
     def state(self) -> EnvState:
         """Return the run's artifact and step store."""
         if self._state is None:

@@ -176,6 +176,7 @@ def _run_dashboard_task(
     recipe_path = ""
     started = time.time()
     solved = False
+    memory_manager = None
     try:
         task_daemons, task_primitives_kwargs = robot_spec.init_runtime(
             task_args,
@@ -245,6 +246,7 @@ def _run_dashboard_task(
                         args=task_args,
                         config=run_config,
                     )
+                memory_manager = toolkit.memory
                 try:
                     planner = build_planner(
                         args.planner,
@@ -332,9 +334,10 @@ def _run_dashboard_task(
         and getattr(task_args, "auto_merge_memory", False)
         and not agent_error
         and not state.task_replacement_requested
+        and memory_manager is not None
     ):
         try:
-            merge_result = _finalize_memory_merge(run_config, solved)
+            merge_result = _finalize_memory_merge(memory_manager, run_config, solved)
             if merge_result:
                 logger.info("run finalized: %s", merge_result)
         except Exception as exc:
