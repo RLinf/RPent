@@ -34,6 +34,25 @@ from rpent.utils.logging import get_logger
 
 logger = get_logger("robotwin_env_server")
 
+
+def _teardown_env(env: Any) -> None:
+    """Release an environment across RLinf teardown API versions."""
+    offload = getattr(env, "offload", None)
+    if callable(offload):
+        offload(clear_cache=True)
+        return
+
+    close = getattr(env, "close", None)
+    if callable(close):
+        close(clear_cache=True)
+        return
+
+    raise RuntimeError(
+        f"{type(env).__name__} provides neither callable offload() nor close() "
+        "for teardown"
+    )
+
+
 from omegaconf import OmegaConf  # noqa: E402
 from robotwin.assets import validate_root  # noqa: E402
 from robotwin.config import load_task_config  # noqa: E402
@@ -360,7 +379,7 @@ def main() -> None:
             parent_watch=args.parent_watch,
         )
     finally:
-        env.offload(clear_cache=True)
+        _teardown_env(env)
 
 
 if __name__ == "__main__":
