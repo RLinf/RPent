@@ -228,7 +228,7 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         return np.linalg.inv(T)  # T_p2w
 
     def get_task_language(self) -> str | None:
-        return self.env.get_task_language().get("lang")
+        return self.env.get_ep_meta().get("lang")
 
     def grasp_contact(self):
         """Check if the gripper is currently contacting a task object."""

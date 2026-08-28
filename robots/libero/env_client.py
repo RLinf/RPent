@@ -55,10 +55,10 @@ class LiberoEnvClient(BaseEnvClient):
         self.truncated |= bool(np.asarray(trunc).any())
 
     def reset(self) -> tuple[dict, Any]:
-        self.last_obs, _ = super().reset()
+        self.last_obs, info = super().reset()
         self.terminated = False
         self.truncated = False
-        return ret
+        return self.last_obs, info
 
     def step(self, action) -> tuple[dict, Any, np.ndarray, Any, Any]:
         assert not (self.terminated or self.truncated), (
@@ -103,15 +103,8 @@ class LiberoEnvClient(BaseEnvClient):
         width: int = 1024,
         depth: bool = False,
     ):
-        return self._client.call(
-            "env.render_camera",
-            kwargs={
-                "camera_name": camera_name,
-                "height": height,
-                "width": width,
-                "depth": depth,
-            },
-            timeout_s=self._TIMEOUT_S["env.render_camera"],
+        return super().render_camera(
+            camera_name, height=height, width=width, depth=depth
         )
 
     def get_camera_meta(
@@ -120,13 +113,4 @@ class LiberoEnvClient(BaseEnvClient):
         height: int = 256,
         width: int = 256,
     ) -> dict | None:
-        return self._client.call(
-            "env.get_camera_meta",
-            kwargs={"camera_name": camera_name, "height": height, "width": width},
-            timeout_s=self._TIMEOUT_S["default"],
-        )
-
-    def get_task_language(self) -> str | None:
-        return self._client.call(
-            "env.get_task_language", timeout_s=self._TIMEOUT_S["default"]
-        )
+        return super().get_camera_meta(camera_name, height=height, width=width)

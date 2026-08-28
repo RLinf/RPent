@@ -155,7 +155,7 @@ two factories exposed by that package:
 
 ``RobotSpec`` gathers the robot's identity, prompt templates, optional
 Dashboard description, and three runner hooks (``add_cli_args`` /
-``parse_config`` / ``init_runtime``),. See :doc:`interfaces` for what each
+``parse_config`` / ``init_runtime``). See :doc:`interfaces` for what each
 field must provide.
 
 The loader itself does not maintain a list of robot names. The
