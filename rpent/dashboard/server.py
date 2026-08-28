@@ -50,7 +50,14 @@ from rpent.dashboard.interaction import (
 )
 from rpent.dashboard.launcher import parse_launcher_config
 from rpent.dashboard.spec import DashboardSpec
-from rpent.dashboard.state import DashboardState, PrimitiveArgumentError
+from rpent.dashboard.state import (
+    DashboardState,
+    PrimitiveArgumentError,
+    PrimitiveConfigError,
+)
+from rpent.utils.logging import get_logger
+
+logger = get_logger("dashboard_server")
 
 
 def _infer_frame_media_type(artifact: str) -> str:
@@ -319,6 +326,9 @@ class DashboardServer:
                 return JSONResponse({"error": str(exc)}, status_code=409)
             except PrimitiveArgumentError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=422)
+            except PrimitiveConfigError as exc:
+                logger.error("Dashboard primitive configuration error: %s", exc)
+                return JSONResponse({"error": str(exc)}, status_code=500)
             except ValueError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=403)
             result = tool_result.result

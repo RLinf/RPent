@@ -1600,6 +1600,9 @@ function collectLaunchConfig() {
   };
   for (const field of launcherFields) {
     const input = document.querySelector(`[data-launcher-field="${field.name}"]`);
+    if (!input) {
+      throw new Error(`Launcher field did not render: ${field.name}`);
+    }
     const raw = input.value.trim();
     if (raw === "") {
       config[field.name] = null;
@@ -1628,7 +1631,15 @@ async function pollForRun() {
 }
 
 async function onRun() {
-  const config = collectLaunchConfig();
+  let config;
+  try {
+    config = collectLaunchConfig();
+  } catch (error) {
+    console.error("Failed to collect Dashboard launch configuration", error);
+    $("#launchStatus").textContent = copy.dashboardConfigFailed;
+    $("#runBtn").disabled = false;
+    return;
+  }
   if (config.planner === "api" && !/^[^:]+:.+$/.test(config.model)) {
     $("#launchStatus").textContent = copy.fieldRequired(copy.requiredFields.apiModel);
     return;
@@ -1639,7 +1650,7 @@ async function onRun() {
   }
   const invalidEnvironmentField = launcherFields
     .map(field => document.querySelector(`[data-launcher-field="${field.name}"]`))
-    .find(input => !input.checkValidity());
+    .find(input => input && !input.checkValidity());
   if (invalidEnvironmentField) {
     invalidEnvironmentField.reportValidity();
     return;

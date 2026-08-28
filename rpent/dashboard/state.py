@@ -44,6 +44,7 @@ from rpent.dashboard.interaction import (
     UnknownDashboardMessageError,
 )
 from rpent.dashboard.spec import DashboardSpec, TaskSpec
+from rpent.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from rpent.tools.state import EnvState, StepRecord
@@ -57,10 +58,31 @@ InputMode = Literal["command_only", "conversation", "disabled"]
 TaskRequest = dict[str, Any]
 _INTEGER = re.compile(r"-?[0-9]+")
 _UNSAFE_SLUG = re.compile(r"[^A-Za-z0-9_.-]+")
+_PRIMITIVE_UNBIND_TIMEOUT_S = 10.0
+
+logger = get_logger("dashboard_state")
 
 
 class PrimitiveArgumentError(ValueError):
     """Dashboard primitive arguments do not satisfy the Toolkit schema."""
+
+
+class PrimitiveConfigError(RuntimeError):
+    """A Toolkit primitive has no usable Dashboard input schema."""
+
+
+def _primitive_validator(name: str, schema: Any) -> Any:
+    """Return the validator class for one well-formed primitive schema."""
+    if not isinstance(schema, dict):
+        raise PrimitiveConfigError(f"primitive {name!r} has no valid input schema")
+    validator_type = validator_for(schema)
+    try:
+        validator_type.check_schema(schema)
+    except SchemaError as exc:
+        raise PrimitiveConfigError(
+            f"primitive {name!r} has an invalid input schema"
+        ) from exc
+    return validator_type
 
 
 def _validate_primitive_arguments(
@@ -69,13 +91,7 @@ def _validate_primitive_arguments(
     schema: Any,
 ) -> None:
     """Validate untrusted Dashboard arguments against one Toolkit schema."""
-    if not isinstance(schema, dict):
-        raise RuntimeError(f"primitive {name!r} has no valid input schema")
-    validator_type = validator_for(schema)
-    try:
-        validator_type.check_schema(schema)
-    except SchemaError as exc:
-        raise RuntimeError(f"primitive {name!r} has an invalid input schema") from exc
+    validator_type = _primitive_validator(name, schema)
 
     try:
         validator_type(schema).validate(arguments)
@@ -217,7 +233,7 @@ class DashboardState:
         self._control_error: str | None = None
         self._shutdown_requested = False
         self._toolkit: Toolkit | None = None
-        self._active_primitive_calls = 0
+        self._active_primitive_calls: dict[int, int] = {}
 
     def bind_toolkit(self, toolkit: Toolkit) -> None:
         """Expose a TaskRun Toolkit through the Dashboard primitive API."""
@@ -226,12 +242,29 @@ class DashboardState:
                 raise RuntimeError("a Dashboard Toolkit is already bound")
             self._toolkit = toolkit
 
-    def unbind_toolkit(self, toolkit: Toolkit) -> None:
-        """Stop new calls and wait for in-flight Dashboard primitives."""
+    def unbind_toolkit(
+        self,
+        toolkit: Toolkit,
+        *,
+        timeout_s: float | None = _PRIMITIVE_UNBIND_TIMEOUT_S,
+    ) -> bool:
+        """Stop new calls and wait a bounded time for this Toolkit to drain."""
+        toolkit_key = id(toolkit)
         with self._condition:
             if self._toolkit is toolkit:
                 self._toolkit = None
-                self._condition.wait_for(lambda: self._active_primitive_calls == 0)
+            drained = self._condition.wait_for(
+                lambda: self._active_primitive_calls.get(toolkit_key, 0) == 0,
+                timeout=timeout_s,
+            )
+            if not drained:
+                logger.warning(
+                    "forcing Dashboard Toolkit unbind after %.1fs with %d "
+                    "primitive call(s) still active",
+                    timeout_s,
+                    self._active_primitive_calls.get(toolkit_key, 0),
+                )
+            return drained
 
     def primitive_specs(self) -> list[dict[str, Any]]:
         """Return Dashboard control schemas in robot allowlist order."""
@@ -243,14 +276,19 @@ class DashboardState:
                     "TaskRun primitives are not available"
                 )
             by_name = {spec.get("name"): spec for spec in toolkit.get_tools_spec()}
-            return [
-                {
-                    "name": name,
-                    "input_schema": by_name[name]["input_schema"],
-                }
-                for name in allowlist
-                if name in by_name
-            ]
+            primitives = []
+            for name in allowlist:
+                spec = by_name.get(name)
+                if spec is None:
+                    continue
+                schema = spec.get("input_schema")
+                try:
+                    _primitive_validator(name, schema)
+                except PrimitiveConfigError as exc:
+                    logger.warning("omitting Dashboard primitive: %s", exc)
+                    continue
+                primitives.append({"name": name, "input_schema": schema})
+            return primitives
 
     def execute_primitive(
         self,
@@ -276,12 +314,19 @@ class DashboardState:
                 arguments,
                 spec.get("input_schema"),
             )
-            self._active_primitive_calls += 1
+            toolkit_key = id(toolkit)
+            self._active_primitive_calls[toolkit_key] = (
+                self._active_primitive_calls.get(toolkit_key, 0) + 1
+            )
         try:
             return toolkit.execute_tool(name, arguments)
         finally:
             with self._condition:
-                self._active_primitive_calls -= 1
+                remaining = self._active_primitive_calls[toolkit_key] - 1
+                if remaining:
+                    self._active_primitive_calls[toolkit_key] = remaining
+                else:
+                    del self._active_primitive_calls[toolkit_key]
                 self._condition.notify_all()
 
     @property
