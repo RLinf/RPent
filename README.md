@@ -90,15 +90,14 @@ RPent is built upon three core design principles: **service-oriented, standardiz
 
 ```bash
 git clone https://github.com/RLinf/RPent rpent && cd rpent
-# Choose one environment extra:
-pip install -e ".[libero-pro]"  # LIBERO-PRO
+pip install -e ".[libero-pro]"  # Recommended default (LIBERO-PRO)
+
+# Other environment configurations:
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
 ```
 
-Choose one environment extra; each installs the complete stack for that
-environment. Use separate Python environments because their Python and
-PyTorch requirements differ. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for details.
+`.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for other environments.
 
 The example below continues with LIBERO-PRO.
 

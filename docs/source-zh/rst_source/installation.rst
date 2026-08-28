@@ -24,14 +24,17 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent rpent && cd rpent
-   # 选择一个环境 extra：
+   # 默认推荐：
    pip install -e ".[libero-pro]"  # LIBERO-PRO
+
+如需使用其他环境配置，可选择：
+
+.. code-block:: bash
+
    pip install -e ".[robocasa]"    # RoboCasa
    pip install -e ".[robotwin]"    # RoboTwin
 
-请选择其中一个环境 extra；每个 extra 都会安装对应的完整运行栈。不同仿真器需要
-使用独立的 Python 环境：RoboCasa 的 RLDX-1 依赖要求 Python 3.10，而 RoboTwin
-要求 Python 3.11 以及不同版本的 PyTorch。
+``.[libero-pro]`` 是默认推荐的依赖组合。
 
 可选的依赖组合：
 
@@ -52,6 +55,8 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
      - RoboTwin 仿真环境和 LingBot 推理所需依赖，详见 :doc:`usage/robotwin`
    * - ``.[rlinf]``
      - 仅 RLinf 运行时
+   * - ``.[sam3]``
+     - 仅 SAM 3.0
 
 2. 下载运行 LIBERO 所需的仿真资源
 ------------------------------------------------

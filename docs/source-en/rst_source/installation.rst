@@ -26,15 +26,17 @@ the stack you want:
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent rpent && cd rpent
-   # Choose one environment extra:
+   # Recommended default:
    pip install -e ".[libero-pro]"  # LIBERO-PRO
+
+Other environment configurations are available when needed:
+
+.. code-block:: bash
+
    pip install -e ".[robocasa]"    # RoboCasa
    pip install -e ".[robotwin]"    # RoboTwin
 
-Choose one environment extra; each installs its complete runtime stack. Use a
-separate Python environment for each simulator: RoboCasa's RLDX-1 dependency
-requires Python 3.10, while RoboTwin requires Python 3.11 and a different
-PyTorch version.
+``.[libero-pro]`` is the recommended default.
 
 Available extras:
 
@@ -56,6 +58,8 @@ Available extras:
        see :doc:`usage/robotwin`
    * - ``.[rlinf]``
      - RLinf runtime only
+   * - ``.[sam3]``
+     - SAM 3.0 only
 
 2. Download the assets required to run LIBERO
 ---------------------------------------------

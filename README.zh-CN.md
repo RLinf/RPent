@@ -90,14 +90,15 @@ RPent 建立在三项核心设计原则之上：**服务化、标准化和可组
 
 ```bash
 git clone https://github.com/RLinf/RPent rpent && cd rpent
-# 选择一个环境 extra：
-pip install -e ".[libero-pro]"  # LIBERO-PRO
+# 默认推荐（LIBERO-PRO）：
+pip install -e ".[libero-pro]"
+
+# 其他环境配置：
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
 ```
 
-请选择其中一个环境 extra；每个 extra 都会安装对应环境的完整运行栈。由于 Python
-和 PyTorch 版本要求不同，三个环境需要分别安装在独立环境中。详细说明见
+`.[libero-pro]` 是默认推荐配置。其他环境见
 [安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
 
 下面的示例继续使用 LIBERO-PRO。
