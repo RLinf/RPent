@@ -173,6 +173,13 @@ class CodexPlanner:
 
             if worker.is_alive():
                 error = f"Codex SDK timed out after {self._timeout_s}s"
+                try:
+                    toolkit.cancel_active_and_wait()
+                except Exception as cancel_error:
+                    logger.warning(
+                        "failed to cancel toolkit work after Codex timeout: %s",
+                        cancel_error,
+                    )
                 _interrupt(state)
                 rendered = f"\n[codex-planner] {error}\n"
                 with open(output_path, "a") as out_f:

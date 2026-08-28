@@ -233,6 +233,13 @@ class ClaudeCodePlanner:
                     )
             except asyncio.TimeoutError:
                 error = f"Claude Agent SDK timed out after {self._timeout_s}s"
+                try:
+                    await asyncio.to_thread(toolkit.cancel_active_and_wait)
+                except Exception as cancel_error:
+                    logger.warning(
+                        "failed to cancel toolkit work after Claude timeout: %s",
+                        cancel_error,
+                    )
                 rendered = f"\n[cc-planner] {error}\n"
                 rendered_chunks.append(rendered)
                 out_f.write(rendered)
