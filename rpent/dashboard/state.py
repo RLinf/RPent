@@ -267,9 +267,7 @@ class DashboardState:
                 )
             if not allowed:
                 raise ValueError(f"primitive is not allowed: {name}")
-            available = {
-                spec.get("name"): spec for spec in toolkit.get_tools_spec()
-            }
+            available = {spec.get("name"): spec for spec in toolkit.get_tools_spec()}
             spec = available.get(name)
             if spec is None:
                 raise ValueError(f"primitive is not available: {name}")
