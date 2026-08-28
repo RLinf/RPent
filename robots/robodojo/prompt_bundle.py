@@ -16,12 +16,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from robots.robodojo.prompts import system as system_parts
 from robots.robodojo.prompts import user as user_parts
-from rpent.context.prompt_utils import PromptNode
+from rpent.prompt.utils import PromptNode
 
 
-def system_prompt() -> PromptNode:
+def system_prompt(
+    variables: Mapping[str, object] | None = None,
+) -> PromptNode:
+    del variables
     return {
         "ROLE AND RULES": system_parts.ROLE_AND_RULES,
         "TOOL ACCESS": system_parts.TOOL_ACCESS,
@@ -33,7 +38,10 @@ def system_prompt() -> PromptNode:
     }
 
 
-def user_prompt() -> PromptNode:
+def user_prompt(
+    variables: Mapping[str, object] | None = None,
+) -> PromptNode:
+    del variables
     return {
         "TASK": user_parts.TASK,
         "BEGIN": user_parts.BEGIN,
