@@ -38,6 +38,7 @@ from omegaconf import OmegaConf  # noqa: E402
 from robotwin.assets import validate_root  # noqa: E402
 from robotwin.config import load_task_config  # noqa: E402
 
+from robots.robotwin.reward_compat import install_native_reward_compat  # noqa: E402
 from robots.robotwin.rlinf_env import RoboTwinAgentEnv  # noqa: E402
 from robots.robotwin.robot_spec import RoboTwinActionType  # noqa: E402
 
@@ -284,6 +285,9 @@ def make_env(
     max_episode_steps: int = 10000,
 ) -> RoboTwinAgentEnv:
     """Construct the only simulator owner used by an RPent run."""
+    # Temporary workaround for the pinned RoboTwin place_fan reward-construction
+    # bug. Remove after the RoboTwin dependency includes the upstream fix.
+    install_native_reward_compat(task_name)
     assets_identity = validate_root(assets_path)
     resolved_assets_path = Path(assets_identity["root"])
     os.environ["ROBOTWIN_ASSETS_PATH"] = str(resolved_assets_path)
