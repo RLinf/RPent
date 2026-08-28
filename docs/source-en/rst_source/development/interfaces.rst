@@ -13,7 +13,7 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
 .. code-block:: python
 
    def get_robot_spec() -> RobotSpec: ...
-   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None): ...
+   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink): ...
 
 ``get_robot_spec`` returns a ``RobotSpec``. You supply:
 
@@ -45,8 +45,10 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
        reports status.
 
 ``get_toolkit`` usually just passes ``primitives_kwargs`` into your robot subclass;
-``dashboard_events`` and ``video_path`` are supplied by the active runner, so
-you normally do not need to change them.
+``dashboard_events`` is supplied by the active runner. Robots that need extra
+run-context arguments (LIBERO adds ``mode``, ``attempts_per_session``,
+``state_output_dir``) declare them as keyword-only parameters and rely on the
+runner to pass them in the robot's CLI branch.
 
 Reference: ``robots/libero/robot_spec.py``.
 

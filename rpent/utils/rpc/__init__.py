@@ -14,15 +14,17 @@
 
 """rpc utils and implementations"""
 
-from rpent.utils.rpc.rpc import (
-    RpcClient,
-    RpcError,
-    RpcFacade,
-    check_response,
-    make_error_response,
+from rpent.utils.rpc.client_utils import (
     make_rpc_client,
     parse_endpoint,
     wait_for_ready,
+)
+from rpent.utils.rpc.rpc_client import (
+    RpcClient,
+    RpcError,
+)
+from rpent.utils.rpc.rpc_facade import (
+    RpcFacade,
 )
 from rpent.utils.rpc.socket_rpc import SocketRpcClient, SocketRpcServer
 
@@ -32,8 +34,6 @@ __all__ = [
     "RpcFacade",
     "SocketRpcClient",
     "SocketRpcServer",
-    "check_response",
-    "make_error_response",
     "make_rpc_client",
     "parse_endpoint",
     "wait_for_ready",
