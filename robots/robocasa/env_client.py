@@ -42,31 +42,16 @@ CAM_ALIAS = {
 class RoboCasaEnvClient(BaseEnvClient):
     _TIMEOUT_S = {
         **BaseEnvClient._TIMEOUT_S,
-        "env.render_raw": 120.0,
         "env.grasp_contact": 10.0,
     }
 
     def __init__(self, client: RpcClient, *, expected_meta: dict):
-        self._client = client
-        server_meta = self._client.call(
-            "env.get_env_meta", timeout_s=self._TIMEOUT_S["default"]
-        )
-        assert server_meta == expected_meta, (
-            f"env_meta mismatch: expected={expected_meta!r} "
-            f"actual={server_meta!r}. The env_server was launched with "
-            "different args than this client expects — kill the stale "
-            "env_server and relaunch."
-        )
-        self.camera_h = server_meta["camera_h"]
-        self.camera_w = server_meta["camera_w"]
-        self.reset()
+        super().__init__(client, expected_meta=expected_meta)
+        self.camera_h = expected_meta["camera_h"]
+        self.camera_w = expected_meta["camera_w"]
 
     def _resolve_cam(self, name):
         return CAM_ALIAS.get(name, name)
-
-    # ---- lifecycle ----
-    def close(self):
-        self._client.call("env.close", timeout_s=self._TIMEOUT_S["default"])
 
     # ---- state accessors ----
     def reset(self):
@@ -92,12 +77,6 @@ class RoboCasaEnvClient(BaseEnvClient):
         return self.check_success()
 
     @property
-    def action_dim(self):
-        return self._client.call(
-            "env.get_action_dim", timeout_s=self._TIMEOUT_S["default"]
-        )
-
-    @property
     def current_raw_obs(self):
         return self.last_obs
 
@@ -114,11 +93,6 @@ class RoboCasaEnvClient(BaseEnvClient):
         return np.array(self.last_obs.get("robot0_gripper_qpos", []), dtype=np.float64)
 
     # ---- task info ----
-    def get_ep_meta(self):
-        return self._client.call(
-            "env.get_ep_meta", timeout_s=self._TIMEOUT_S["default"]
-        )
-
     def get_success_criteria_text(self):
         return self._client.call(
             "env.get_success_criteria_text", timeout_s=self._TIMEOUT_S["default"]
@@ -130,14 +104,6 @@ class RoboCasaEnvClient(BaseEnvClient):
         )
 
     # ---- rendering / perception ----
-    def render_raw(self, cam, h, w, depth):
-        """Low-level render — takes already-resolved cam and actual h/w."""
-        return self._client.call(
-            "env.render_raw",
-            kwargs={"cam": cam, "h": h, "w": w, "depth": depth},
-            timeout_s=self._TIMEOUT_S["env.render_raw"],
-        )
-
     def render_camera(self, camera_name, height=None, width=None, depth=False):
         """Agent-facing: vertically flip to top-down so the rgb reads naturally and
         is pixel-aligned with world_map()."""
@@ -145,19 +111,15 @@ class RoboCasaEnvClient(BaseEnvClient):
         h = height or self.camera_h
         w = width or self.camera_w
         if depth:
-            rgb, real = self.render_raw(cam, h, w, True)
+            rgb, real = super().render_camera(cam, height=h, width=w, depth=True)
             return rgb[::-1], real[::-1]
-        return self.render_raw(cam, h, w, False)[::-1]
+        return super().render_camera(cam, height=h, width=w, depth=False)[::-1]
 
     def get_camera_meta(self, camera_name, height=None, width=None):
         cam = self._resolve_cam(camera_name)
         h = height or self.camera_h
         w = width or self.camera_w
-        return self._client.call(
-            "env.get_camera_meta",
-            kwargs={"camera_name": cam, "height": h, "width": w},
-            timeout_s=self._TIMEOUT_S["default"],
-        )
+        return super().get_camera_meta(cam, height=h, width=w)
 
     def world_map(self, camera_name, height=None, width=None):
         """HxWx3 world xyz per pixel, TOP-DOWN (row 0 = image top), pixel-aligned
@@ -168,7 +130,9 @@ class RoboCasaEnvClient(BaseEnvClient):
         cam = self._resolve_cam(camera_name)
         h = height or self.camera_h
         w = width or self.camera_w
-        _, z_native = self.render_raw(cam, h, w, True)  # metric depth, bottom-up
+        _, z_native = super().render_camera(
+            cam, height=h, width=w, depth=True
+        )  # metric depth, bottom-up
         z = z_native[::-1]  # -> top-down
         T_p2w = self._client.call(
             "env.get_camera_transform",

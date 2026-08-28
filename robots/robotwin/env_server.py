@@ -34,10 +34,30 @@ from rpent.utils.logging import get_logger
 
 logger = get_logger("robotwin_env_server")
 
+
+def _teardown_env(env: Any) -> None:
+    """Release an environment across RLinf teardown API versions."""
+    offload = getattr(env, "offload", None)
+    if callable(offload):
+        offload(clear_cache=True)
+        return
+
+    close = getattr(env, "close", None)
+    if callable(close):
+        close(clear_cache=True)
+        return
+
+    raise RuntimeError(
+        f"{type(env).__name__} provides neither callable offload() nor close() "
+        "for teardown"
+    )
+
+
 from omegaconf import OmegaConf  # noqa: E402
 from robotwin.assets import validate_root  # noqa: E402
 from robotwin.config import load_task_config  # noqa: E402
 
+from robots.robotwin.reward_compat import install_native_reward_compat  # noqa: E402
 from robots.robotwin.rlinf_env import RoboTwinAgentEnv  # noqa: E402
 from robots.robotwin.robot_spec import RoboTwinActionType  # noqa: E402
 
@@ -109,30 +129,15 @@ class RoboTwinEnvFacade(BaseEnvFacade):
         return array[0].item()
 
     def _register_rpc(self) -> None:
-        self._rpc.update(
-            {
-                "env.get_env_meta": self.get_env_meta,
-                "env.reset": self.reset,
-                "env.step": self.step,
-                "env.chunk_step": self.chunk_step,
-                "env.render_camera": self.render_camera,
-                "env.get_camera_meta": self.get_camera_meta,
-                "env.get_task_language": self.get_task_language,
-                "env.plan_arm_path": self.plan_arm_path,
-            }
-        )
-        self._readonly_methods.update(
-            {
-                "env.get_env_meta",
-                "env.render_camera",
-                "env.get_camera_meta",
-                "env.get_task_language",
-            }
-        )
+        super()._register_rpc()
+        self._rpc["env.plan_arm_path"] = self.plan_arm_path
 
     def get_env_meta(self) -> dict[str, Any]:
         """Return immutable identity for endpoint compatibility checks."""
         return dict(self._metadata)
+
+    def close(self):
+        _teardown_env(self._env)
 
     def reset(self) -> tuple[dict[str, Any], dict[str, Any]]:
         seed = int(self._metadata["seed"])
@@ -284,6 +289,9 @@ def make_env(
     max_episode_steps: int = 10000,
 ) -> RoboTwinAgentEnv:
     """Construct the only simulator owner used by an RPent run."""
+    # Temporary workaround for the pinned RoboTwin place_fan reward-construction
+    # bug. Remove after the RoboTwin dependency includes the upstream fix.
+    install_native_reward_compat(task_name)
     assets_identity = validate_root(assets_path)
     resolved_assets_path = Path(assets_identity["root"])
     os.environ["ROBOTWIN_ASSETS_PATH"] = str(resolved_assets_path)
@@ -352,15 +360,12 @@ def main() -> None:
             max_episode_steps=args.max_episode_steps,
         ),
     )
-    try:
-        facade.serve(
-            transport=args.transport,
-            host=args.host,
-            port=args.port,
-            parent_watch=args.parent_watch,
-        )
-    finally:
-        env.offload(clear_cache=True)
+    facade.serve(
+        transport=args.transport,
+        host=args.host,
+        port=args.port,
+        parent_watch=args.parent_watch,
+    )
 
 
 if __name__ == "__main__":

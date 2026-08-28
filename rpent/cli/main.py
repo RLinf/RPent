@@ -52,6 +52,7 @@ from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
 )
+from rpent.memory import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, build_planner
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.utils.logging import get_logger, init_output_dir
@@ -310,7 +311,9 @@ def main() -> int:
         robot_spec = get_robot_spec(early.robot_name)
         robot_spec.add_cli_args(parser, use_dashboard=early.dashboard)
     parser.add_argument(
-        "-h", "--help", action="help",
+        "-h",
+        "--help",
+        action="help",
         default=argparse.SUPPRESS,
         help="show this help message and exit",
     )
@@ -418,6 +421,8 @@ def main() -> int:
     if not getattr(args, "explore", False):
         sessions = 1
     recipe_path = ""
+    solved = False
+    memory_manager: MemoryManager | None = None
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
@@ -446,11 +451,10 @@ def main() -> int:
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
                     dashboard_events=dashboard_events,
-                    mode=("exploration" if args.explore else "evaluation"),
+                    config=run_config,
+                    mode="exploration" if args.explore else "evaluation",
                     attempts_per_session=getattr(
-                        args,
-                        "explore_attempts_per_session",
-                        0,
+                        args, "explore_attempts_per_session", 0
                     ),
                     state_output_dir=state_output_dir,
                 )
@@ -459,8 +463,9 @@ def main() -> int:
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
                     dashboard_events=dashboard_events,
+                    config=run_config,
                 )
-            solved = False
+            memory_manager = toolkit.memory
             try:
                 result = planner.solve(
                     system_prompt=system_prompt,
@@ -528,12 +533,21 @@ def main() -> int:
     )
     logger.info("transcript: %s", transcript_path)
 
-    # Publish environment-specific artifacts after recipe export and shutdown.
-    if robot_spec.finalize_run is not None and not agent_error:
+    # Publish exploration artifacts into the corpus after the session loop.
+    if (
+        getattr(args, "explore", False)
+        and getattr(args, "auto_merge_memory", False)
+        and not agent_error
+        and memory_manager is not None
+    ):
         try:
-            finalized = robot_spec.finalize_run(args, run_config)
-            if finalized is not None:
-                logger.info("run finalized: %s", finalized)
+            merge_result = memory_manager.merge_memory(
+                cell_tag=run_config.recipe_tag,
+                run_state_dir=run_config.output_dir,
+                solved=solved,
+            )
+            if merge_result:
+                logger.info("memory merged: %s", merge_result)
         except Exception as exc:
             agent_error = f"memory finalization failed: {type(exc).__name__}: {exc}"
             logger.error("%s", agent_error)

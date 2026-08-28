@@ -28,10 +28,11 @@ from robots.robocasa.prompt_bundle import (
     user_prompt,
 )
 from rpent.dashboard.events import DashboardEventSink
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_repo_root
+from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
@@ -94,13 +95,18 @@ def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
+    config: RunConfig,
 ):
-    """Return the RoboCasa toolkit (common tools + RoboCasa primitives)."""
+    """Return the RoboCasa toolkit for the current session."""
     from robots.robocasa.toolkit import RoboCasaToolkit
 
+    memory = MemoryManager(
+        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
+    )
     return RoboCasaToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
+        memory=memory,
     )
 
 

@@ -18,10 +18,7 @@ Design reference: ``docs/source-zh/rst_source/development/add_vla.rst``.
 
 from __future__ import annotations
 
-from typing import Any
-
 from rpent.utils.rpc import RpcFacade
-from rpent.utils.rwlock import RWLock
 
 
 class BaseVLAFacade(RpcFacade):
@@ -46,28 +43,12 @@ class BaseVLAFacade(RpcFacade):
 
     def __init__(self):
         super().__init__()
-        # Serializes ``predict`` execution: the model is not thread-safe and
-        # concurrent RPC requests must not interleave. Kept at the facade level
-        # so it still applies when a subclass overrides ``serve``.
-        self._dispatch_lock = RWLock()
-        self._rpc: dict[str, Any] = {}
-        self._readonly_methods: set[str] = set()
         self._register_rpc()
 
     # ---- framework ----
     def _register_rpc(self):
         self._rpc["vla.predict"] = self.predict
 
-    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        handler = self._rpc.get(method)
-        if handler is None:
-            raise ValueError(f"unknown RPC method: {method!r}")
-        if method in self._readonly_methods:
-            with self._dispatch_lock.read():
-                return handler(*args, **kwargs)
-        with self._dispatch_lock.write():
-            return handler(*args, **kwargs)
-
     # ---- abstract methods (subclasses must override) ----
-    def predict(self, obs, options):
+    def predict(self, *args, **kwargs):
         raise NotImplementedError
