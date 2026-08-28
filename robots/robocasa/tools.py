@@ -33,7 +33,7 @@ from rpent.tools.toolkit import readonly
 if TYPE_CHECKING:
     from robots.robocasa.primitives import RoboCasaPrimitives
 
-# ---- TOOLS_SPEC: 17 Anthropic-shaped tool schemas ----
+# ---- Anthropic-shaped tool schemas ----
 
 TOOLS_SPEC = [
     # ---- primitive tools (11): dispatched by the toolkit base to primitives.<name> ----
@@ -180,6 +180,26 @@ TOOLS_SPEC = [
                     "description": "Number of env steps (default 10)",
                 },
             },
+        },
+    },
+    {
+        "name": "vla_act",
+        "description": (
+            "Run the unified VLA primitive using the current benchmark task "
+            "instruction. The prompt must equal state.task_language verbatim. "
+            "Its chunk budget, action horizon, base control, stopping rule, and "
+            "history reset semantics are fixed by the evaluation harness."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "The current state.task_language verbatim",
+                },
+            },
+            "required": ["prompt"],
+            "additionalProperties": False,
         },
     },
     {
@@ -454,7 +474,7 @@ TOOLS_SPEC = [
             "properties": {
                 "camera": {
                     "type": "string",
-                    "enum": ["agentview", "navview"],
+                    "enum": ["agentview", "navview", "wrist"],
                     "description": "Camera metadata to read (default agentview).",
                 },
                 "step": {
@@ -667,6 +687,74 @@ _CAMERA_WORLD_ARTIFACTS = {
     "wrist": ("wrist_world.npz", None),
 }
 
+_CAMERA_METADATA_ARTIFACTS = {
+    "agentview": "agentview_metadata.json",
+    "navview": "navview_metadata.json",
+    "wrist": "wrist_metadata.json",
+}
+
+MAX_BACK_PROJECT_PIXELS = 50
+
+
+def _resolve_step(state: EnvState, step: int | None):
+    if step is not None and (
+        isinstance(step, (bool, np.bool_))
+        or not isinstance(step, (int, np.integer))
+        or int(step) < 0
+    ):
+        raise ValueError("step must be null or a nonnegative integer")
+    return state.get(-1 if step is None else int(step))
+
+
+def _camera_and_resolution(camera, resolution):
+    if not isinstance(camera, str) or camera not in _CAMERA_WORLD_ARTIFACTS:
+        raise ValueError("camera must be one of: agentview, navview, wrist")
+    if resolution not in {"low", "high"}:
+        raise ValueError("resolution must be 'low' or 'high'")
+    low_name, hi_name = _CAMERA_WORLD_ARTIFACTS[camera]
+    artifact = hi_name if resolution == "high" else low_name
+    if artifact is None:
+        raise ValueError(f"{camera} has no {resolution}-resolution world map")
+    return artifact
+
+
+def _world_map_for(state, record, artifact):
+    if artifact not in record.artifacts:
+        raise FileNotFoundError(
+            f"{artifact} was not recorded for step {record.step_idx}"
+        )
+    world_map = np.asarray(state.load(artifact, step=record.step_idx))
+    if world_map.ndim != 3 or world_map.shape[2] < 3:
+        raise ValueError(
+            f"{artifact} must have shape (height, width, >=3), got {world_map.shape}"
+        )
+    if not np.issubdtype(world_map.dtype, np.number):
+        raise TypeError(f"{artifact} must contain numeric values")
+    return world_map
+
+
+def _finite_tool_number(value, name):
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value, (int, float, np.number)
+    ):
+        raise TypeError(f"{name} must be numeric")
+    value = float(value)
+    if not np.isfinite(value):
+        raise ValueError(f"{name} must be finite")
+    return value
+
+
+def _ordered_range(value, name):
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise ValueError(f"{name} must be null or [min, max]")
+    lower = _finite_tool_number(value[0], f"{name}[0]")
+    upper = _finite_tool_number(value[1], f"{name}[1]")
+    if lower > upper:
+        raise ValueError(f"{name} minimum must not exceed maximum")
+    return lower, upper
+
 
 def dump_state(
     primitives: RoboCasaPrimitives,
@@ -682,19 +770,21 @@ def dump_state(
     """
     state_dict = primitives.current_state_dict()
     log = log or {}
+    extras = {
+        "task_language": state_dict["task_language"],
+        "success": state_dict["success"],
+        "vla_desync": primitives._vla_desync,
+    }
+    if "task_progress" in state_dict:
+        extras["task_progress"] = state_dict["task_progress"]
     with env_state.record_step(
         state=state_dict["state"],
-        terminated=state_dict["robocasa_terminated"],
+        terminated=state_dict.get("robocasa_terminated", state_dict["success"]),
         truncated=False,
         command=log.get("command"),
         result=log.get("result"),
         elapsed_s=log.get("elapsed_s"),
-        extras={
-            "task_language": state_dict["task_language"],
-            "success": state_dict["success"],
-            "task_progress": state_dict["task_progress"],
-            "vla_desync": primitives._vla_desync,
-        },
+        extras=extras,
     ) as step_idx:
         _save_observation_artifacts(primitives, env_state, step_idx)
         _prune_heavy_artifacts(primitives, env_state, step_idx)
@@ -749,8 +839,15 @@ def _save_observation_artifacts(
     try:
         nrgb, _ = env.render_camera("navview", depth=True)
         nworld = env.world_map("navview").astype(np.float32)
+        if "navview" not in primitives._cam_meta_cache:
+            primitives._cam_meta_cache["navview"] = env.get_camera_meta("navview")
         env_state.save("navview.png", nrgb, step=step_idx)
         env_state.save("navview_world.npz", nworld, step=step_idx)
+        env_state.save(
+            "navview_metadata.json",
+            primitives._cam_meta_cache["navview"],
+            step=step_idx,
+        )
         floor = (nworld[:, :, 2] < 0.12) & (nworld[:, :, 2] > -0.2)
         overlay = nrgb.copy()
         overlay[floor] = [0, 255, 0]
@@ -790,7 +887,6 @@ def view_env_state(step: int | None = None, *, state: EnvState) -> dict:
     extras = record.extras
     out: dict = {
         "step": nn,
-        "task_progress": extras.get("task_progress", {}),
         "task_language": extras.get("task_language", ""),
         "state": record.state,
         "robocasa_terminated": record.terminated,
@@ -803,6 +899,8 @@ def view_env_state(step: int | None = None, *, state: EnvState) -> dict:
         },
         "images": [],
     }
+    if "task_progress" in extras:
+        out["task_progress"] = extras["task_progress"]
 
     for kind, candidates in (
         ("_image_cam_bytes", _CAMERA_IMAGE_ARTIFACTS["agentview"]),
@@ -840,8 +938,52 @@ def view_camera_meta(
     *,
     state: EnvState,
 ) -> dict:
-    """Read camera calibration metadata. Skeleton — returns error."""
-    return {"error": "not implemented"}
+    """Read and validate the calibration captured with one recorded frame."""
+    if not isinstance(camera, str) or camera not in _CAMERA_METADATA_ARTIFACTS:
+        return {"error": "camera must be one of: agentview, navview, wrist"}
+    try:
+        record = _resolve_step(state, step)
+    except Exception as exc:
+        return {"error": f"state step not available: {exc}"}
+    artifact = _CAMERA_METADATA_ARTIFACTS[camera]
+    if artifact not in record.artifacts:
+        return {"error": f"{artifact} not recorded for step {record.step_idx}"}
+    try:
+        meta = state.load(artifact, step=record.step_idx)
+    except Exception as exc:
+        return {"error": f"{artifact} not found for step {record.step_idx}: {exc}"}
+    if not isinstance(meta, dict):
+        return {"error": f"{artifact} must contain a JSON object"}
+    try:
+        intrinsic = np.asarray(meta["intrinsic"], dtype=np.float64)
+        extrinsic = np.asarray(meta["extrinsic_cam2world"], dtype=np.float64)
+        if intrinsic.shape != (3, 3) or not np.isfinite(intrinsic).all():
+            raise ValueError("intrinsic must be a finite 3x3 matrix")
+        if extrinsic.shape != (4, 4) or not np.isfinite(extrinsic).all():
+            raise ValueError("extrinsic_cam2world must be a finite 4x4 matrix")
+        height = meta["height"]
+        width = meta["width"]
+        if (
+            isinstance(height, bool)
+            or not isinstance(height, int)
+            or height <= 0
+            or isinstance(width, bool)
+            or not isinstance(width, int)
+            or width <= 0
+        ):
+            raise ValueError("height and width must be positive integers")
+        near = float(meta["depth_near"])
+        far = float(meta["depth_far"])
+        if not np.isfinite([near, far]).all() or not 0 < near < far:
+            raise ValueError("depth_near/depth_far must be finite and ordered")
+    except (KeyError, TypeError, ValueError) as exc:
+        return {"error": f"invalid {artifact}: {exc}"}
+    return {
+        **meta,
+        "step": record.step_idx,
+        "camera": camera,
+        "artifact": artifact,
+    }
 
 
 @readonly
@@ -854,8 +996,26 @@ def back_project(
     *,
     state: EnvState,
 ) -> dict:
-    """Back-project a single pixel to world XYZ. Skeleton — returns error."""
-    return {"error": "not implemented"}
+    """Back-project one pixel using the world map captured at the same step."""
+    batch = back_project_batch(
+        [[row, col]],
+        step=step,
+        camera=camera,
+        resolution=resolution,
+        state=state,
+    )
+    if "error" in batch:
+        return batch
+    result = dict(batch["results"][0])
+    result.update(
+        {
+            "step": batch["step"],
+            "camera": batch["camera"],
+            "resolution": batch["resolution"],
+            "source_artifact": batch["source_artifact"],
+        }
+    )
+    return result
 
 
 @readonly
@@ -872,29 +1032,24 @@ def back_project_batch(
     Loads the precomputed world map once and queries all *pixels*, returning
     each result individually plus a summary with the median of valid points.
     """
-    camera = camera or "agentview"
-    resolution = resolution or "low"
-    if camera not in _CAMERA_WORLD_ARTIFACTS:
-        return {"error": f"bad camera '{camera}' (use agentview, navview, or wrist)"}
-    low_name, hi_name = _CAMERA_WORLD_ARTIFACTS[camera]
-    source_artifact = hi_name if resolution == "high" else low_name
-    if source_artifact is None:
-        return {"error": f"{camera} has no {resolution}-resolution world map"}
+    if not isinstance(pixels, (list, tuple)):
+        return {"error": "pixels must be a list of [row, col] pairs"}
+    if not 1 <= len(pixels) <= MAX_BACK_PROJECT_PIXELS:
+        return {"error": f"pixels must contain 1-{MAX_BACK_PROJECT_PIXELS} entries"}
+    try:
+        source_artifact = _camera_and_resolution(camera, resolution)
+    except (TypeError, ValueError) as exc:
+        return {"error": str(exc)}
 
     try:
-        record = state.get(step if step is not None else -1)
+        record = _resolve_step(state, step)
     except Exception as exc:
         return {"error": f"state step not available: {exc}"}
     nn = record.step_idx
-    if source_artifact not in record.artifacts:
-        return {
-            "error": f"{camera} {resolution}-resolution world map not recorded for step {nn}"
-        }
-
     try:
-        world_map = state.load(source_artifact, step=nn)
+        world_map = _world_map_for(state, record, source_artifact)
     except Exception as exc:
-        return {"error": f"{source_artifact} not found for step {nn}: {exc}"}
+        return {"error": str(exc)}
 
     results = []
     valid_xyzs = []
@@ -906,6 +1061,20 @@ def back_project_batch(
                     "world_xyz": None,
                     "valid": False,
                     "error": "pixel must be [row, col]",
+                }
+            )
+            continue
+        if any(
+            isinstance(value, (bool, np.bool_))
+            or not isinstance(value, (int, np.integer))
+            for value in pixel
+        ):
+            results.append(
+                {
+                    "pixel": pixel,
+                    "world_xyz": None,
+                    "valid": False,
+                    "error": "row and col must be integers",
                 }
             )
             continue
@@ -922,7 +1091,7 @@ def back_project_batch(
             )
             continue
         xyz = world_map[row, col, :3]
-        if not np.isfinite(xyz).all() or abs(float(xyz.sum())) <= 1e-6:
+        if not np.isfinite(xyz).all() or float(np.linalg.norm(xyz)) <= 1e-6:
             results.append(
                 {
                     "pixel": pixel,
@@ -964,6 +1133,8 @@ def back_project_batch(
         "step": nn,
         "camera": camera,
         "resolution": resolution,
+        "source_artifact": source_artifact,
+        "world_map_shape": list(world_map.shape),
     }
 
 
@@ -980,35 +1151,39 @@ def query_world_map(
     state: EnvState,
 ) -> dict:
     """Query the world map by z-range and/or region to find objects."""
-    if camera not in _CAMERA_WORLD_ARTIFACTS:
-        return {"error": f"bad camera '{camera}' (use agentview, navview, or wrist)"}
-    low_name, hi_name = _CAMERA_WORLD_ARTIFACTS[camera]
-    source_artifact = hi_name if resolution == "high" else low_name
-    if source_artifact is None:
-        return {"error": f"{camera} has no {resolution}-resolution world map"}
+    try:
+        source_artifact = _camera_and_resolution(camera, resolution)
+        z_min = _finite_tool_number(z_min, "z_min")
+        z_max = _finite_tool_number(z_max, "z_max")
+        if z_min > z_max:
+            raise ValueError("z_min must not exceed z_max")
+        x_range = _ordered_range(x_range, "x_range")
+        y_range = _ordered_range(y_range, "y_range")
+        if (
+            isinstance(min_cluster_size, (bool, np.bool_))
+            or not isinstance(min_cluster_size, (int, np.integer))
+            or not 1 <= int(min_cluster_size) <= 10_000
+        ):
+            raise ValueError("min_cluster_size must be an integer in [1, 10000]")
+        min_cluster_size = int(min_cluster_size)
+    except (TypeError, ValueError) as exc:
+        return {"error": str(exc)}
 
     try:
         record = state.get(-1)
     except Exception:
         return {"error": "no state trace available"}
-    nn = record.step_idx
-    if source_artifact not in record.artifacts:
-        return {
-            "error": f"{camera} {resolution}-resolution world map not found for step {nn}"
-        }
     try:
-        world_map = state.load(source_artifact, step=nn)
-    except Exception:
-        return {
-            "error": f"{camera} {resolution}-resolution world map not found for step {nn}"
-        }
+        world_map = _world_map_for(state, record, source_artifact)
+    except Exception as exc:
+        return {"error": str(exc)}
 
     z = world_map[:, :, 2]
     mask = (z >= z_min) & (z <= z_max) & np.isfinite(z)
-    if x_range:
+    if x_range is not None:
         x = world_map[:, :, 0]
         mask &= (x >= x_range[0]) & (x <= x_range[1])
-    if y_range:
+    if y_range is not None:
         y = world_map[:, :, 1]
         mask &= (y >= y_range[0]) & (y <= y_range[1])
 
@@ -1092,6 +1267,7 @@ _PRIMITIVE_ACTIONS = frozenset(
         "rotate_pitch",
         "set_gripper",
         "release",
+        "vla_act",
         "scripted_grasp",
         "rldx_skill",
         "rldx_arm",

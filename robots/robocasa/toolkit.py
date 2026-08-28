@@ -34,6 +34,19 @@ if TYPE_CHECKING:
 
 logger = get_logger("robocasa_toolkit")
 
+FORMAL_PRIMITIVE_TOOLS = frozenset(
+    {
+        "navigate_to",
+        "move_base",
+        "move_to",
+        "move_delta",
+        "rotate_pitch",
+        "set_gripper",
+        "release",
+        "vla_act",
+    }
+)
+
 
 class RoboCasaToolkit(Toolkit):
     """Toolkit for the RoboCasa robot."""
@@ -78,6 +91,13 @@ class RoboCasaToolkit(Toolkit):
         }
         for spec in robocasa_tools.TOOLS_SPEC:
             name = spec["name"]
+            if (
+                self._primitives._perception_isolation
+                and name not in FORMAL_PRIMITIVE_TOOLS
+                and name not in state_handlers
+                and name != "finish"
+            ):
+                continue
             if name in state_handlers:
                 handler = state_handlers[name]
             elif name == "finish":
@@ -139,18 +159,18 @@ class RoboCasaToolkit(Toolkit):
             check_cancelled=self.raise_if_cancelled,
             **primitives_kwargs,
         )
-        primitives.reset()
         primitives.start_recording()
         self._action_frame_cursor = primitives.recorded_frame_count()
         record = robocasa_tools.dump_state(primitives, self._state, log=None)
-        try:
-            self._state.save(
-                "success_criteria.md",
-                primitives.dump_success_criteria(),
-                step=None,
-            )
-        except Exception as e:
-            logger.warning("failed to save success_criteria.md: %s", e)
+        if not primitives._perception_isolation:
+            try:
+                self._state.save(
+                    "success_criteria.md",
+                    primitives.dump_success_criteria(),
+                    step=None,
+                )
+            except Exception as e:
+                logger.warning("failed to save success_criteria.md: %s", e)
         self._primitives = primitives
         self._publish_step(record)
 

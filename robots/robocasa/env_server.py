@@ -22,6 +22,8 @@ import re
 import sys
 import threading
 import traceback
+import uuid
+from collections.abc import Mapping
 
 import numpy as np
 
@@ -39,6 +41,57 @@ DEFAULT_CAMS = [
     "robot0_agentview_right",
     "robot0_eye_in_hand",
 ]
+
+ENV_PROTOCOL_VERSION = 1
+NAV_CAMERA = "mobilebase0_navview"
+RLDX_ACTION_FIELDS = (
+    ("action.end_effector_position", 3),
+    ("action.end_effector_rotation", 3),
+    ("action.gripper_close", 1),
+    ("action.base_motion", 4),
+    ("action.control_mode", 1),
+)
+RLDX_ACTION_DIM = sum(size for _, size in RLDX_ACTION_FIELDS)
+MAX_RENDER_DIM = 4096
+MAX_RENDER_PIXELS = MAX_RENDER_DIM * MAX_RENDER_DIM
+MAX_ACTION_CHUNK = 512
+
+
+def _env_flag(name, default):
+    raw = os.environ.get(name, default)
+    if raw not in {"0", "1"}:
+        raise ValueError(f"{name} must be 0 or 1, got {raw!r}")
+    return raw == "1"
+
+
+def _positive_int(value, name, *, maximum):
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
+        raise TypeError(f"{name} must be an integer")
+    value = int(value)
+    if value <= 0 or value > maximum:
+        raise ValueError(f"{name} must be in [1, {maximum}], got {value}")
+    return value
+
+
+def _finite_array(value, name, *, shape):
+    array = np.asarray(value)
+    if array.shape != shape:
+        raise ValueError(f"{name} must have shape {shape}, got {array.shape}")
+    if not np.issubdtype(array.dtype, np.number) or np.issubdtype(
+        array.dtype, np.bool_
+    ):
+        raise TypeError(f"{name} must contain numeric values")
+    array = array.astype(np.float64, copy=False)
+    if not np.isfinite(array).all():
+        raise ValueError(f"{name} must contain only finite values")
+    return array
+
+
+def _finite_action_part(value, name, size):
+    array = np.asarray(value)
+    if size == 1 and array.shape == ():
+        array = array.reshape(1)
+    return _finite_array(array, name, shape=(size,))
 
 
 def _split_kwargs(split):
@@ -87,6 +140,9 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         cameras=None,
         use_camera_obs=False,
     ):
+        self._perception_isolation = _env_flag("RLDX_PERCEPTION_ISOLATION", "0")
+        self._allow_reset = _env_flag("RLDX_ALLOW_RESET", "0")
+        self._initial_reset_consumed = False
         super().__init__()
         import robocasa  # noqa: F401 — registers robocasa envs
         import robosuite
@@ -118,6 +174,26 @@ class RoboCasaEnvFacade(BaseEnvFacade):
             **_split_kwargs(split),
         )
         self.env = robosuite.make(**env_kwargs)
+        self._runtime_id = uuid.uuid4().hex
+        self._episode_id = 0
+        self._sim_step = 0
+        self._success_latched = False
+        self._camera_names = self._discover_camera_names()
+        required_cameras = set(DEFAULT_CAMS)
+        if self._perception_isolation:
+            required_cameras.add(NAV_CAMERA)
+        missing_cameras = required_cameras.difference(self._camera_names)
+        if missing_cameras:
+            raise RuntimeError(
+                "RoboCasa camera contract is not satisfied; missing "
+                f"{sorted(missing_cameras)}. {NAV_CAMERA!r} requires the PandaOmron "
+                "navview XML patch on robosuite commit 85abee228d1c43ab1939bce33028099945d453b4."
+            )
+        if int(self.env.action_dim) != RLDX_ACTION_DIM:
+            raise RuntimeError(
+                f"RLDX/RoboCasa action schema requires {RLDX_ACTION_DIM} values, "
+                f"but env.action_dim={self.env.action_dim}"
+            )
         self._meta = {
             "task_name": self.task_name,
             "split": self.split,
@@ -133,24 +209,75 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         self._rpc["env.get_camera_transform"] = self.get_camera_transform
         self._rpc["env.grasp_contact"] = self.grasp_contact
         self._rpc["env.reassemble_env_action"] = self.reassemble_env_action
-        self._rpc["env.get_success_criteria_text"] = self.get_success_criteria_text
-        self._rpc["env.get_task_progress"] = self.get_task_progress
+        if not self._perception_isolation:
+            self._rpc["env.get_success_criteria_text"] = self.get_success_criteria_text
+            self._rpc["env.get_task_progress"] = self.get_task_progress
+        self._rpc["env.get_runtime_info"] = self.get_runtime_info
         # Read-only methods
         self._readonly_methods.update(
             [
-                "env.check_success",
                 "env.get_camera_transform",
+                "env.check_success",
                 "env.grasp_contact",
-                "env.get_success_criteria_text",
-                "env.get_task_progress",
+                "env.get_runtime_info",
             ]
         )
+        if not self._perception_isolation:
+            self._readonly_methods.update(
+                {
+                    "env.get_success_criteria_text",
+                    "env.get_task_progress",
+                }
+            )
 
     def get_env_meta(self):
         return self._meta
 
+    def _discover_camera_names(self):
+        model = self.env.sim.model
+        raw_names = getattr(model, "camera_names", ())
+        names = (
+            {str(name) for name in raw_names if name}
+            if raw_names is not None
+            else set()
+        )
+        for name in DEFAULT_CAMS + [NAV_CAMERA]:
+            try:
+                model.camera_name2id(name)
+            except Exception:
+                continue
+            names.add(name)
+        return names
+
+    def get_runtime_info(self):
+        return {
+            "protocol_version": ENV_PROTOCOL_VERSION,
+            "runtime_id": self._runtime_id,
+            "episode_id": self._episode_id,
+            "sim_step": self._sim_step,
+            "success_latched": self._success_latched,
+            "perception_isolation": self._perception_isolation,
+            "robot": "PandaOmron",
+            "action_schema": {
+                "name": "robocasa.panda_omron.flat.v1",
+                "flat_dim": RLDX_ACTION_DIM,
+                "fields": [
+                    {"name": name, "size": size} for name, size in RLDX_ACTION_FIELDS
+                ],
+            },
+            "cameras": sorted(self._camera_names),
+        }
+
     # ---- lifecycle ----
     def reset(self):
+        if (
+            getattr(self, "_perception_isolation", False)
+            and not getattr(self, "_allow_reset", False)
+            and getattr(self, "_initial_reset_consumed", False)
+        ):
+            raise PermissionError(
+                "reset is disabled after formal episode initialization"
+            )
         # RLDX_RESET_SEED=<episode_seed> -> reproduce the EXACT scene the fullshot eval
         # generated for that episode, seeded the SAME way as the eval's VideoRecordingWrapper
         # (random.seed + np.random.seed + robosuite env.rng/seed) BEFORE reset. Lets the
@@ -160,72 +287,219 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         if rs_env:
             import random
 
-            sd = int(rs_env)
+            try:
+                sd = int(rs_env)
+            except ValueError as exc:
+                raise ValueError("RLDX_RESET_SEED must be an integer") from exc
+            if sd < 0 or sd > np.iinfo(np.uint32).max:
+                raise ValueError("RLDX_RESET_SEED must be in [0, 2**32 - 1]")
             random.seed(sd)
             np.random.seed(sd)
             if hasattr(self.env, "seed"):
                 self.env.seed = sd
             if hasattr(self.env, "rng"):
                 self.env.rng = np.random.default_rng(sd)
-        return self.env.reset()
+        obs = self.env.reset()
+        if not isinstance(obs, dict):
+            raise TypeError(
+                f"env.reset must return an observation dict, got {type(obs).__name__}"
+            )
+        self._episode_id += 1
+        self._sim_step = 0
+        self._success_latched = bool(self.env._check_success())
+        self._initial_reset_consumed = True
+        return obs
 
     def step(self, flat_action):
         """flat_action: np.ndarray[12] = [eef_pos(3), eef_rot(3), gripper(1),
         base_motion(4), control_mode(1)] in the PandaOmron composite layout."""
-        a = np.asarray(flat_action, dtype=np.float64).reshape(-1)
-        assert a.shape[0] == self.env.action_dim, (
-            f"action dim {a.shape[0]} != env.action_dim {self.env.action_dim}"
+        a = _finite_array(
+            flat_action,
+            "flat_action",
+            shape=(int(self.env.action_dim),),
         )
+        if self._success_latched:
+            raise RuntimeError(
+                "episode success is already latched; further motion is disabled"
+            )
         obs, reward, done, info = self.env.step(a)
+        if not isinstance(obs, dict):
+            raise TypeError(
+                f"env.step must return an observation dict, got {type(obs).__name__}"
+            )
+        self._sim_step += 1
+        success_now = bool(self.env._check_success())
+        self._success_latched = self._success_latched or success_now
+        info = dict(info) if isinstance(info, dict) else {"env_info": info}
+        info.update(
+            {
+                "rpent_runtime_id": self._runtime_id,
+                "rpent_episode_id": self._episode_id,
+                "rpent_sim_step": self._sim_step,
+                "rpent_success_now": success_now,
+                "rpent_success_latched": self._success_latched,
+            }
+        )
         return obs, reward, done, info
 
+    def chunk_step(self, flat_actions, *, return_all_frames=False):
+        """Apply a bounded action chunk, stopping at the first latched success."""
+        actions = np.asarray(flat_actions)
+        if actions.ndim != 2 or actions.shape[1:] != (int(self.env.action_dim),):
+            raise ValueError(
+                "flat_actions must have shape "
+                f"(steps, {self.env.action_dim}), got {actions.shape}"
+            )
+        if not 1 <= actions.shape[0] <= MAX_ACTION_CHUNK:
+            raise ValueError(
+                f"action chunk length must be in [1, {MAX_ACTION_CHUNK}], "
+                f"got {actions.shape[0]}"
+            )
+        if not np.issubdtype(actions.dtype, np.number) or np.issubdtype(
+            actions.dtype, np.bool_
+        ):
+            raise TypeError("flat_actions must contain numeric values")
+        if not np.isfinite(actions).all():
+            raise ValueError("flat_actions must contain only finite values")
+        if not isinstance(return_all_frames, (bool, np.bool_)):
+            raise TypeError("return_all_frames must be boolean")
+
+        observations = []
+        rewards = []
+        dones = []
+        infos = []
+        for action in actions:
+            obs, reward, done, info = self.step(action)
+            observations.append(obs)
+            rewards.append(reward)
+            dones.append(done)
+            infos.append(info)
+            if self._success_latched:
+                break
+        obs_field = observations if return_all_frames else observations[-1]
+        return (
+            obs_field,
+            np.asarray(rewards, dtype=np.float64),
+            np.asarray(dones, dtype=np.bool_),
+            infos,
+        )
+
     def check_success(self):
-        return bool(self.env._check_success())
+        return self._success_latched
+
+    def _validate_camera_request(self, camera_name, height, width):
+        if not isinstance(camera_name, str) or not camera_name:
+            raise TypeError("camera_name must be a non-empty string")
+        if camera_name not in self._camera_names:
+            raise ValueError(
+                f"unknown camera {camera_name!r}; available={sorted(self._camera_names)}"
+            )
+        height = self.camera_h if height is None else height
+        width = self.camera_w if width is None else width
+        height = _positive_int(height, "height", maximum=MAX_RENDER_DIM)
+        width = _positive_int(width, "width", maximum=MAX_RENDER_DIM)
+        if height * width > MAX_RENDER_PIXELS:
+            raise ValueError(f"render size {height}x{width} exceeds pixel budget")
+        return camera_name, height, width
 
     def render_camera(self, camera_name, height, width, depth):
-        """sim.render in ROBOSUITE-NATIVE orientation (matches the camera
-        transform matrices). rgb uint8 HxWx3, depth metric HxW."""
+        """Render one validated camera in robosuite-native orientation."""
         import robosuite.utils.camera_utils as CU
 
+        camera_name, height, width = self._validate_camera_request(
+            camera_name, height, width
+        )
+        if not isinstance(depth, (bool, np.bool_)):
+            raise TypeError("depth must be a boolean")
         out = self.env.sim.render(
-            width=width, height=height, camera_name=camera_name, depth=depth
+            width=width,
+            height=height,
+            camera_name=camera_name,
+            depth=depth,
         )
         if depth:
-            rgb, d = out
-            # Sanitize the raw OpenGL normalized depth into [0,1]: replace NaN/inf
-            # (degenerate camera pose) then clip numerical overshoot. Otherwise an
-            # assertion inside get_real_depth_map crashes the whole env server process.
-            d = np.nan_to_num(d, nan=1.0, posinf=1.0, neginf=0.0)
-            d = np.clip(d, 0.0, 1.0)
-            if d.ndim == 3:
-                depth = CU.get_real_depth_map(self.env.sim, d)[..., 0]
+            rgb, normalized_depth = out
+            rgb = np.asarray(rgb)
+            normalized_depth = np.asarray(normalized_depth)
+            if rgb.shape != (height, width, 3):
+                raise ValueError(
+                    "rendered RGB must have shape "
+                    f"{(height, width, 3)}, got {rgb.shape}"
+                )
+            if normalized_depth.shape not in {
+                (height, width),
+                (height, width, 1),
+            }:
+                raise ValueError(
+                    "rendered depth must have shape "
+                    f"{(height, width)} or {(height, width, 1)}, "
+                    f"got {normalized_depth.shape}"
+                )
+            normalized_depth = np.nan_to_num(
+                normalized_depth,
+                nan=1.0,
+                posinf=1.0,
+                neginf=0.0,
+            )
+            normalized_depth = np.clip(normalized_depth, 0.0, 1.0)
+            if normalized_depth.ndim == 3:
+                real_depth = CU.get_real_depth_map(self.env.sim, normalized_depth)[
+                    ..., 0
+                ]
             else:
-                depth = CU.get_real_depth_map(self.env.sim, d[..., None])[..., 0]
-            return rgb, depth
-        return out
+                real_depth = CU.get_real_depth_map(
+                    self.env.sim, normalized_depth[..., None]
+                )[..., 0]
+            return rgb, real_depth
+        rgb = np.asarray(out)
+        if rgb.shape != (height, width, 3):
+            raise ValueError(
+                f"rendered RGB must have shape {(height, width, 3)}, got {rgb.shape}"
+            )
+        return rgb
 
     def get_camera_meta(self, camera_name, height=None, width=None):
         import robosuite.utils.camera_utils as CU
 
+        camera_name, height, width = self._validate_camera_request(
+            camera_name, height, width
+        )
         K = CU.get_camera_intrinsic_matrix(self.env.sim, camera_name, height, width)
         Ext = CU.get_camera_extrinsic_matrix(self.env.sim, camera_name)  # cam->world
+        K = _finite_array(K, "camera intrinsic", shape=(3, 3))
+        Ext = _finite_array(Ext, "camera extrinsic", shape=(4, 4))
         m = self.env.sim.model
         extent = m.stat.extent
+        near = float(m.vis.map.znear * extent)
+        far = float(m.vis.map.zfar * extent)
+        if not np.isfinite([near, far]).all() or not (0 < near < far):
+            raise ValueError(f"invalid camera depth range near={near}, far={far}")
         return {
             "camera_name": camera_name,
             "height": height,
             "width": width,
-            "intrinsic": np.asarray(K, dtype=np.float64).tolist(),
-            "extrinsic_cam2world": np.asarray(Ext, dtype=np.float64).tolist(),
-            "depth_near": float(m.vis.map.znear * extent),
-            "depth_far": float(m.vis.map.zfar * extent),
+            "intrinsic": K.tolist(),
+            "extrinsic_cam2world": Ext.tolist(),
+            "depth_near": near,
+            "depth_far": far,
+            "runtime_id": self._runtime_id,
+            "episode_id": self._episode_id,
+            "sim_step": self._sim_step,
         }
 
     def get_camera_transform(self, camera_name, height=None, width=None):
         import robosuite.utils.camera_utils as CU
 
+        camera_name, height, width = self._validate_camera_request(
+            camera_name, height, width
+        )
         T = CU.get_camera_transform_matrix(self.env.sim, camera_name, height, width)
-        return np.linalg.inv(T)  # T_p2w
+        T = _finite_array(T, "camera transform", shape=(4, 4))
+        try:
+            inverse = np.linalg.inv(T)
+        except np.linalg.LinAlgError as exc:
+            raise ValueError("camera transform is singular") from exc
+        return inverse  # T_p2w
 
     def get_task_language(self) -> str | None:
         return self.env.get_ep_meta().get("lang")
@@ -251,6 +525,9 @@ class RoboCasaEnvFacade(BaseEnvFacade):
             HybridMobileBase,
         )
 
+        if not isinstance(unmap_result, Mapping):
+            raise TypeError("unmap_result must be a mapping")
+        parts = dict(unmap_result)
         env_action = []
         for robot in self.env.robots:
             cc = robot.composite_controller
@@ -258,14 +535,30 @@ class RoboCasaEnvFacade(BaseEnvFacade):
             a = np.zeros(cc.action_limits[0].shape)
             for part_name in cc.part_controllers:
                 s, e = cc._action_split_indexes[part_name]
-                a[s:e] = unmap_result.pop(f"{pf}{part_name}")
+                key = f"{pf}{part_name}"
+                if key not in parts:
+                    raise ValueError(f"unmap_result is missing {key!r}")
+                a[s:e] = _finite_action_part(parts.pop(key), key, e - s)
             if isinstance(cc, HybridMobileBase):
-                a[-1] = unmap_result.pop(f"{pf}base_mode")
+                key = f"{pf}base_mode"
+                if key not in parts:
+                    raise ValueError(f"unmap_result is missing {key!r}")
+                a[-1] = _finite_action_part(parts.pop(key), key, 1)[0]
             env_action.append(a)
-        return np.concatenate(env_action)
+        if parts:
+            raise ValueError(f"unmap_result has unexpected keys: {sorted(parts)}")
+        return _finite_array(
+            np.concatenate(env_action),
+            "reassembled env action",
+            shape=(int(self.env.action_dim),),
+        )
 
     def get_success_criteria_text(self):
         """Return the success_criteria.md text for this task."""
+        if self._perception_isolation:
+            raise PermissionError(
+                "success criteria are unavailable in perception-isolated evaluation"
+            )
         env = self.env
         out = []
         try:
@@ -306,6 +599,10 @@ class RoboCasaEnvFacade(BaseEnvFacade):
 
     def get_task_progress(self):
         """Return the progress dict for this task."""
+        if self._perception_isolation:
+            raise PermissionError(
+                "task progress is unavailable in perception-isolated evaluation"
+            )
         env = self.env
         prog = {}
         code = type(env)._check_success.__code__
@@ -384,9 +681,7 @@ class RoboCasaEnvFacade(BaseEnvFacade):
                 event, req = item
                 try:
                     req["result"] = self._dispatch(
-                        req["method"],
-                        req["args"],
-                        req["kwargs"],
+                        req["method"], req["args"], req["kwargs"]
                     )
                 except Exception:
                     req["error"] = traceback.format_exc()
