@@ -89,7 +89,7 @@ robocasa = [
     "rpent[rlinf]",
     "rlinf-robocasa365",
     "rlinf-rldx>=1.0.1.post10",
-    "robosuite @ git+https://github.com/RLinf/robosuite.git@rlinf",
+    "robosuite @ git+https://github.com/RLinf/robosuite.git@85abee228d1c43ab1939bce33028099945d453b4",
 ]
 full = [
     "rpent[rlinf,openpi,libero-pro,sam3,robocasa]",
@@ -103,11 +103,12 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rpent*"]
+include = ["rpent*", "robots*"]
 exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
+"robots.robocasa" = ["checkpoint_manifest.json", "patches/*.patch", "patches/*.md"]
 
 [tool.ruff]
 line-length = 88

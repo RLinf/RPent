@@ -14,9 +14,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
+from robots.robocasa import robot_spec
 from robots.robocasa.env_client import RoboCasaEnvClient
 from robots.robocasa.env_server import RoboCasaEnvFacade
 from robots.robocasa.primitives import RoboCasaPrimitives
@@ -29,8 +33,9 @@ from robots.robocasa.tools import (
     view_env_state,
 )
 from robots.robocasa.vla_client import RoboCasaVLAClient
-from robots.robocasa.vla_server import RoboCasaVLAFacade
+from robots.robocasa.vla_server import RoboCasaVLAFacade, _model_identity
 from rpent.session import EnvState
+from rpent.utils.resources import ensure_resources
 
 ACTION_SCHEMA = {
     "name": "rldx.robocasa.action.v1",
@@ -412,6 +417,15 @@ def test_vla_server_warmup_and_client_handshake():
         )
 
 
+def test_formal_vla_server_requires_checkpoint_attestation(tmp_path, monkeypatch):
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    (checkpoint / "config.json").write_text("{}\n", encoding="utf-8")
+    monkeypatch.setenv("RLDX_PERCEPTION_ISOLATION", "1")
+    with pytest.raises(ValueError, match="requires a checkpoint attestation"):
+        _model_identity(checkpoint)
+
+
 def test_base_and_vla_motion_invalidate_pose_dependent_calibration(tmp_path):
     env = _SkillEnv(succeed_after=999)
     primitives = RoboCasaPrimitives(env, str(tmp_path), None, _FakeVLA())
@@ -667,3 +681,127 @@ def test_camera_metadata_and_back_projection_tools(tmp_path):
     assert "integers" in invalid["results"][0]["error"]
     assert "error" in back_project_batch([[0, 0]] * 51, step=0, state=state)
     assert "error" in view_camera_meta("unknown", step=0, state=state)
+
+
+def test_robocasa_resources_auto_download_from_default_hf(tmp_path, monkeypatch):
+    calls = []
+
+    def snapshot_download(**kwargs):
+        calls.append(kwargs)
+        return str(kwargs["local_dir"])
+
+    monkeypatch.setenv("RPENT_REPO_ROOT", str(tmp_path))
+    monkeypatch.delenv("RPENT_RESOURCES_HF_REPO", raising=False)
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    monkeypatch.setattr("huggingface_hub.snapshot_download", snapshot_download)
+
+    resources = ensure_resources(robot_spec.get_robot_spec())
+
+    assert resources == tmp_path / "resources" / "robocasa"
+    assert calls == [
+        {
+            "repo_id": "RLinf/RPent-memory",
+            "repo_type": "dataset",
+            "local_dir": str(tmp_path / "resources"),
+            "allow_patterns": ["robocasa/**"],
+        }
+    ]
+
+
+def test_robot_config_propagates_hf_and_local_memory(tmp_path, monkeypatch):
+    default_memory = tmp_path / "resources" / "robocasa" / "memory"
+    monkeypatch.setattr(robot_spec, "get_memory_dir", lambda _name: default_memory)
+
+    base = {
+        "task_name": "OpenDrawer",
+        "split": "target",
+        "seed": 1,
+        "output_dir": tmp_path / "output",
+        "checkpoint_attestation": None,
+        "vla_metadata_path": None,
+    }
+    hf = robot_spec._parse_config(
+        SimpleNamespace(**base, memory_profile="hf", memory_dir=None)
+    )
+    assert hf.prompt_vars["memory_profile"] == "hf"
+    assert Path(hf.prompt_vars["memory_dir"]) == default_memory
+
+    local_memory = tmp_path / "local-memory"
+    local = robot_spec._parse_config(
+        SimpleNamespace(
+            **base,
+            memory_profile="local",
+            memory_dir=str(local_memory),
+        )
+    )
+    assert local.prompt_vars["memory_profile"] == "local"
+    assert Path(local.prompt_vars["memory_dir"]) == local_memory.resolve()
+
+    captured = {}
+
+    class Toolkit:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("robots.robocasa.toolkit.RoboCasaToolkit", Toolkit)
+    robot_spec.get_toolkit(
+        primitives_kwargs={},
+        dashboard_events=SimpleNamespace(),
+        config=local,
+    )
+    assert captured["memory"].root == local_memory.resolve()
+
+
+def test_robot_config_rejects_local_path_in_hf_mode(tmp_path):
+    with pytest.raises(ValueError, match="memory-profile local"):
+        robot_spec._parse_config(
+            SimpleNamespace(
+                task_name="OpenDrawer",
+                split="target",
+                seed=1,
+                output_dir=tmp_path / "output",
+                memory_profile="hf",
+                memory_dir=str(tmp_path / "local-memory"),
+                checkpoint_attestation=None,
+                vla_metadata_path=None,
+            )
+        )
+
+
+def test_attestation_arguments_are_sent_only_to_vla_server(tmp_path, monkeypatch):
+    daemons = []
+
+    class Daemon:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+            daemons.append(self)
+
+        def start(self):
+            self.started = True
+
+    monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 12345)
+    monkeypatch.setattr(robot_spec, "HttpRpcClient", lambda endpoint: endpoint)
+    args = SimpleNamespace(
+        env_endpoint=None,
+        vla_endpoint=None,
+        task_name="OpenDrawer",
+        split="target",
+        seed=1,
+        cuda_device=0,
+        vla_model_path="/checkpoint",
+        vla_metadata_path="/vlm",
+        checkpoint_attestation="/attestation.json",
+    )
+
+    robot_spec._spawn_env_server(args, Path(tmp_path))
+    robot_spec._spawn_vla_server(args, Path(tmp_path))
+
+    env_command, vla_command = daemons[0].cmd, daemons[1].cmd
+    assert "--vlm-path" not in env_command
+    assert "--checkpoint-attestation" not in env_command
+    assert vla_command[vla_command.index("--vlm-path") + 1] == "/vlm"
+    assert vla_command[vla_command.index("--checkpoint-attestation") + 1] == (
+        "/attestation.json"
+    )
+    assert daemons[1].env_overrides == {"RLDX_VLM_PATH": "/vlm"}

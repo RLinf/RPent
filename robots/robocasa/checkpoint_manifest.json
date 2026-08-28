@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "checkpoint_id": "RLDX-1-FT-RC365",
+  "algorithm": "sha256",
+  "weight_total_size": 13825888896,
+  "files": {
+    "model/config.json": {"size": 1770, "sha256": "dab438af2c898e60337cc82756fd98494fdaede6a49f545b9661a77c8799bf58"},
+    "model/embodiment_id.json": {"size": 1139, "sha256": "ccf32782b105603c2fc8c36939d37ea9cf1f0ca4fec1b4d6a358d091e3027b7f"},
+    "model/model-00001-of-00003.safetensors": {"size": 4912540968, "sha256": "2a2f48bd2d2979979700c85c44051c37c3256de528842d82883ba756b070e541"},
+    "model/model-00002-of-00003.safetensors": {"size": 4446192352, "sha256": "4bb91b9038d7825809c09da425d5dbd6a52ba1a1af25de09bc94ff218e1f80fc"},
+    "model/model-00003-of-00003.safetensors": {"size": 4467155576, "sha256": "f348bb0aee031e6fd32cad2ff51aa5e4eaf74fa42299dae051f7e3ca0b8adf53"},
+    "model/model.safetensors.index.json": {"size": 76228, "sha256": "017ebdc3d66b8c755d59964c227c4d898dc1aa013d06d58ab8866f07c4082f08"},
+    "model/processor_config.json": {"size": 72898, "sha256": "67c2b1319213aec7009ffd0329adbafe318dd24ef7cc643a93a8b880ab0780da"},
+    "model/statistics.json": {"size": 189345, "sha256": "516d2c5f52a271fa5f0ebe03ac7816b993f8b5d46e4db0efd11c1559c8974a01"},
+    "vlm/added_tokens.json": {"size": 59083, "sha256": "5d2f525c0a6ecbe1aeb24557bb962ec5f96c21d64816b5e8c29c8055aaf3bf11"},
+    "vlm/chat_template.jinja": {"size": 5292, "sha256": "3636d0f0bd6bef02654cdffdc447b79cb2cef8ab02cc75267345946291a489e4"},
+    "vlm/config.json": {"size": 1591, "sha256": "682bfd9abd200c50dee97346211a437ef0f68f498e427f9e6e5fda3750232056"},
+    "vlm/generation_config.json": {"size": 199, "sha256": "a0acd9cf47909f86b54951dbf2cfd2af3b0b36178211926760a3a27edb49378d"},
+    "vlm/merges.txt": {"size": 1671853, "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"},
+    "vlm/preprocessor_config.json": {"size": 390, "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"},
+    "vlm/special_tokens_map.json": {"size": 613, "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"},
+    "vlm/tokenizer_config.json": {"size": 377581, "sha256": "afaa8c12c3ef968a10c298c38195ea5a2b79f1037f2e476554d843af51f391bf"},
+    "vlm/video_preprocessor_config.json": {"size": 385, "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"},
+    "vlm/vocab.json": {"size": 2776833, "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"}
+  }
+}

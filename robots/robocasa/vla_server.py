@@ -25,6 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
+from robots.robocasa.checkpoint_identity import load_attestation
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.logging import get_logger
 
@@ -64,11 +65,37 @@ def _sha256_file(path):
     return digest.hexdigest()
 
 
-def _model_identity(model_path):
+def _model_identity(model_path, *, vlm_path=None, attestation_path=None):
     if not isinstance(model_path, (str, os.PathLike)) or not str(model_path).strip():
         raise TypeError("model_path must be a non-empty path or model id")
     requested = str(model_path)
     path = Path(requested).expanduser()
+    isolation = os.environ.get("RLDX_PERCEPTION_ISOLATION", "0")
+    if isolation not in {"0", "1"}:
+        raise ValueError("RLDX_PERCEPTION_ISOLATION must be 0 or 1")
+    formal = isolation == "1"
+    if attestation_path is not None:
+        if vlm_path is None:
+            raise ValueError(
+                "VLM metadata path is required with checkpoint attestation"
+            )
+        attestation = load_attestation(attestation_path, path, vlm_path)
+        expected = os.environ.get("RLDX_CHECKPOINT_FINGERPRINT")
+        if expected is not None and expected != attestation["fingerprint"]:
+            raise ValueError("checkpoint fingerprint differs from expected identity")
+        return {
+            "kind": "local",
+            "requested": requested,
+            "resolved_path": str(path.resolve()),
+            "fingerprint": attestation["fingerprint"],
+            "verified": True,
+            "checkpoint_id": attestation["checkpoint_id"],
+            "authority_manifest_sha256": attestation["authority_manifest_sha256"],
+        }
+    if formal:
+        raise ValueError(
+            "perception-isolated VLA server requires a checkpoint attestation"
+        )
     if not path.exists():
         return {
             "kind": "remote",
@@ -135,10 +162,16 @@ def _numeric_array(value, name, *, shape):
 class RoboCasaVLAFacade(BaseVLAFacade):
     """Loads RLDX model and exposes inference-only RPC methods."""
 
-    def __init__(self, model_path):
+    def __init__(self, model_path, *, vlm_path=None, attestation_path=None):
         super().__init__()
+        if vlm_path is not None:
+            os.environ["RLDX_VLM_PATH"] = str(Path(vlm_path).expanduser().resolve())
         self._runtime_id = uuid.uuid4().hex
-        self._model_identity = _model_identity(model_path)
+        self._model_identity = _model_identity(
+            model_path,
+            vlm_path=vlm_path,
+            attestation_path=attestation_path,
+        )
         from rldx.data.embodiment_tags import EmbodimentTag
         from rldx.eval.rollout_policy import create_rldx_sim_policy
 
@@ -148,7 +181,11 @@ class RoboCasaVLAFacade(BaseVLAFacade):
             "",
             None,
         )
-        loaded_identity = _model_identity(model_path)
+        loaded_identity = _model_identity(
+            model_path,
+            vlm_path=vlm_path,
+            attestation_path=attestation_path,
+        )
         if loaded_identity != self._model_identity:
             raise RuntimeError("checkpoint identity changed while loading the VLA")
         mod = self.policy.get_modality_config()
@@ -356,6 +393,11 @@ def main():
         help="GPU device exposed through CUDA_VISIBLE_DEVICES.",
     )
     p.add_argument("--model-path", required=True, help="RLDX checkpoint path")
+    p.add_argument("--vlm-path", help="RLDX VLM metadata path")
+    p.add_argument(
+        "--checkpoint-attestation",
+        help="private checkpoint attestation created by the reproduction preflight",
+    )
     args = p.parse_args()
 
     if args.cuda_device is not None:
@@ -371,7 +413,11 @@ def main():
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
 
-    facade = RoboCasaVLAFacade(args.model_path)
+    facade = RoboCasaVLAFacade(
+        args.model_path,
+        vlm_path=args.vlm_path,
+        attestation_path=args.checkpoint_attestation,
+    )
     facade.serve(
         transport=args.transport,
         host=args.host,

@@ -23,6 +23,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from robots.robocasa.checkpoint_identity import expected_fingerprint
 from robots.robocasa.prompt_bundle import (
     system_prompt,
     user_prompt,
@@ -145,6 +146,16 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="RLDX checkpoint path for locally spawned vla_server",
     )
     parser.add_argument(
+        "--vla-metadata-path",
+        default=None,
+        help="RLDX VLM metadata path used by an attested local vla_server",
+    )
+    parser.add_argument(
+        "--checkpoint-attestation",
+        default=None,
+        help="private checkpoint attestation for formal local VLA startup",
+    )
+    parser.add_argument(
         "--cuda-device",
         type=int,
         default=None,
@@ -156,13 +167,28 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     """Validate final ``args`` and derive per-run identifiers."""
     if not args.task_name:
         raise ValueError("--task-name is required")
+    if bool(args.checkpoint_attestation) != bool(args.vla_metadata_path):
+        raise ValueError(
+            "--checkpoint-attestation and --vla-metadata-path must be provided together"
+        )
 
     recipe_tag = f"{args.task_name}_{args.split}_s{args.seed}"
+    memory_profile = getattr(args, "memory_profile", None) or "hf"
+    memory_arg = getattr(args, "memory_dir", None)
+    if memory_profile == "hf" and memory_arg is not None:
+        raise ValueError("--memory-dir requires --memory-profile local")
+    memory_dir = (
+        Path(memory_arg).expanduser().resolve()
+        if memory_arg
+        else get_memory_dir("robocasa")
+    )
     prompt_vars = {
         "task_name": args.task_name,
         "split": args.split,
         "seed": args.seed,
         "recipe_tag": recipe_tag,
+        "memory_profile": memory_profile,
+        "memory_dir": str(memory_dir),
     }
 
     output_dir = args.output_dir
@@ -259,11 +285,27 @@ def _spawn_vla_server(
                 str(port),
                 "--parent-watch",
                 *(
+                    [
+                        "--vlm-path",
+                        args.vla_metadata_path,
+                        "--checkpoint-attestation",
+                        args.checkpoint_attestation,
+                    ]
+                    if args.checkpoint_attestation is not None
+                    and args.vla_metadata_path is not None
+                    else []
+                ),
+                *(
                     ["--cuda-device", str(args.cuda_device)]
                     if args.cuda_device is not None
                     else []
                 ),
             ],
+            env_overrides=(
+                {"RLDX_VLM_PATH": args.vla_metadata_path}
+                if args.vla_metadata_path is not None
+                else None
+            ),
             log_path=str(Path(output_dir) / "vla_server.log"),
         )
         daemon.start()
@@ -304,7 +346,17 @@ def _init_runtime(
             "workdir": str(output_dir),
             "hi_res": args.hi_res or None,
         },
-        "vla": lambda rpc: {"vla_client": RoboCasaVLAClient(rpc)},
+        "vla": lambda rpc: {
+            "vla_client": RoboCasaVLAClient(
+                rpc,
+                expected_model_fingerprint=(
+                    expected_fingerprint()
+                    if args.checkpoint_attestation is not None
+                    else None
+                ),
+                require_verified_model=args.checkpoint_attestation is not None,
+            )
+        },
     }
     timeouts = {"env": 120.0, "vla": 300.0}
     selected = set(starters) if components is None else components

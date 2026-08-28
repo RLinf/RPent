@@ -1,0 +1,8 @@
+diff --git a/robosuite/models/assets/bases/omron_mobile_base.xml b/robosuite/models/assets/bases/omron_mobile_base.xml
+--- a/robosuite/models/assets/bases/omron_mobile_base.xml
++++ b/robosuite/models/assets/bases/omron_mobile_base.xml
+@@ -29,3 +29,4 @@
+     <worldbody>
+         <body name="base" pos="0 0 0">
++            <camera name="navview" mode="fixed" pos="0.2 0 1.6" xyaxes="0 -1 0 0.643 0 0.766" fovy="75"/>
+             <body name="fixed_support" pos="-0.05 0 0.50">
