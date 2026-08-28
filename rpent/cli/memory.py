@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Standalone command-line maintenance interface for local memory."""
 
 from __future__ import annotations
@@ -12,8 +26,12 @@ from rpent.utils.config import get_memory_dir
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rpent-memory")
-    parser.add_argument("--memory-dir", type=Path, default=get_memory_dir("libero"),
-                        help="Local corpus root (default: resources/libero/memory).")
+    parser.add_argument(
+        "--memory-dir",
+        type=Path,
+        default=get_memory_dir("libero"),
+        help="Local corpus root (default: resources/libero/memory).",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     merge = subparsers.add_parser("merge", help="Publish one completed cell.")

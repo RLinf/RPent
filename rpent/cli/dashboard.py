@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """CLI orchestration for one long-lived Dashboard Session."""
 
 from __future__ import annotations
@@ -15,8 +29,8 @@ from typing import TYPE_CHECKING, Any
 
 from rpent.cli.main import _handoff_message, _serialize_messages
 from rpent.dashboard.events import RunStartedEvent
-from rpent.robots import get_toolkit
 from rpent.planner.base import build_planner
+from rpent.robots import get_toolkit
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
 
@@ -43,9 +57,7 @@ def run_dashboard_session(
 
     dashboard_spec = robot_spec.dashboard
     if dashboard_spec is None:
-        parser.error(
-            f"robot {robot_spec.name!r} does not support Dashboard control"
-        )
+        parser.error(f"robot {robot_spec.name!r} does not support Dashboard control")
     runtime_components = dashboard_spec["runtime_components"]
     shared_components = {
         component["name"]
@@ -206,9 +218,7 @@ def _run_dashboard_task(
                 state_output_dir = output_dir
                 if getattr(task_args, "explore", False):
                     state_output_dir = (
-                        output_dir
-                        / "sessions"
-                        / f"session_{session_number:03d}"
+                        output_dir / "sessions" / f"session_{session_number:03d}"
                     )
                     state.begin_planner_session(
                         video_path=state_output_dir / "episode.mp4",
@@ -218,9 +228,7 @@ def _run_dashboard_task(
                         args.robot_name,
                         primitives_kwargs=primitives_kwargs,
                         dashboard_events=state,
-                        mode=(
-                            "exploration" if task_args.explore else "evaluation"
-                        ),
+                        mode=("exploration" if task_args.explore else "evaluation"),
                         attempts_per_session=getattr(
                             task_args,
                             "explore_attempts_per_session",
@@ -270,10 +278,7 @@ def _run_dashboard_task(
                 if solved or state.task_replacement_requested:
                     break
                 if agent_error:
-                    if (
-                        session_number < sessions
-                        and "timed out" in agent_error.lower()
-                    ):
+                    if session_number < sessions and "timed out" in agent_error.lower():
                         logger.warning(
                             "session %d/%d timed out; continuing with a fresh handoff",
                             session_number,

@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPC server owning the local SAM 3.0 image segmentation model.
 
 Run manually with::
@@ -329,8 +343,11 @@ def _build_argparser() -> argparse.ArgumentParser:
         default=None,
         help="GPU device exposed through CUDA_VISIBLE_DEVICES.",
     )
-    parser.add_argument("--parent-watch", action="store_true",
-                        help="watch parent process via stdin pipe and exit when it dies")
+    parser.add_argument(
+        "--parent-watch",
+        action="store_true",
+        help="watch parent process via stdin pipe and exit when it dies",
+    )
     return parser
 
 
@@ -344,7 +361,8 @@ def main() -> None:
         if prev is not None and prev != target:
             logging.warning(
                 "CUDA_VISIBLE_DEVICES=%s is already set; overriding with --cuda-device=%s",
-                prev, args.cuda_device,
+                prev,
+                args.cuda_device,
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = target
     checkpoint = os.environ.get("SAM3_CHECKPOINT_PATH")
@@ -355,8 +373,12 @@ def main() -> None:
         )
     engine = Sam3Engine.load(checkpoint)
     facade = Sam3Facade(engine)
-    facade.serve(transport=args.transport, host=args.host, port=args.port,
-                 parent_watch=args.parent_watch)
+    facade.serve(
+        transport=args.transport,
+        host=args.host,
+        port=args.port,
+        parent_watch=args.parent_watch,
+    )
 
 
 if __name__ == "__main__":

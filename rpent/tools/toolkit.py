@@ -1,9 +1,24 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Base class for agent tools.
 
 ``Toolkit`` is the agent-facing tool container. Subclasses can register tools
 during ``__init__`` via :meth:`Toolkit.add_tool`; the planner calls the tools through :meth:`Toolkit.get_tools_spec` and
 :meth:`Toolkit.execute_tool`.
 """
+
 from __future__ import annotations
 
 import base64
@@ -88,7 +103,9 @@ class ToolResult:
         """
         result = self.result
         if not isinstance(result, dict):
-            return [{"type": "text", "text": str(result)[:self.MAX_TEXT_BYTES_IN_RESULT]}]
+            return [
+                {"type": "text", "text": str(result)[: self.MAX_TEXT_BYTES_IN_RESULT]}
+            ]
 
         result_for_text = dict(result)
         image = result_for_text.pop("_image_bytes", None)
@@ -97,20 +114,22 @@ class ToolResult:
         image_wrist = result_for_text.pop("_image_wrist_bytes", None)
         text = json.dumps(result_for_text, indent=2, default=str)
         if len(text) > self.MAX_TEXT_BYTES_IN_RESULT:
-            text = text[:self.MAX_TEXT_BYTES_IN_RESULT] + "\n[truncated]"
+            text = text[: self.MAX_TEXT_BYTES_IN_RESULT] + "\n[truncated]"
 
         blocks: list[dict[str, Any]] = [{"type": "text", "text": text}]
 
         def _add_image_bytes(data_bytes: bytes) -> None:
             data = base64.b64encode(data_bytes).decode("utf-8")
-            blocks.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": "image/png",
-                    "data": data,
-                },
-            })
+            blocks.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": data,
+                    },
+                }
+            )
 
         if image:
             _add_image_bytes(image)
@@ -193,9 +212,7 @@ class Toolkit:
 
     def get_tools_spec(self) -> list[dict[str, Any]]:
         """Return the tool schemas the LLM sees."""
-        return substitute(
-            [spec for spec, _ in self._tools.values()]
-        )
+        return substitute([spec for spec, _ in self._tools.values()])
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
         """Dispatch a tool call to its registered handler."""
