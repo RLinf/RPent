@@ -80,6 +80,7 @@
    LIBERO 数据飞轮 <rst_source/usage/flywheel>
    RoboCasa <rst_source/usage/robocasa>
    RoboTwin <rst_source/usage/robotwin>
+   RoboDojo <rst_source/usage/robodojo/index>
    Franka <rst_source/usage/franka>
    Dual Franka <rst_source/usage/dual_franka>
    SO-101 <rst_source/usage/so101>
