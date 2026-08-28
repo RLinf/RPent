@@ -35,7 +35,8 @@ from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
 from rpent.utils.templates import substitute
 
 if TYPE_CHECKING:
-    from rpent.tools.state import EnvState, StepRecord
+    from rpent.memory.manager import MemoryManager
+    from rpent.session import EnvState, StepRecord
 
 
 @dataclass(slots=True)
@@ -185,6 +186,7 @@ class Toolkit:
         *,
         dashboard_events: DashboardEventSink,
         state: Any = None,
+        memory: "MemoryManager",
     ) -> None:
         self._tools: dict[
             str,
@@ -192,6 +194,7 @@ class Toolkit:
         ] = {}
         self._dashboard_events = dashboard_events
         self._state = state
+        self._memory = memory
         self._operation_lock = threading.Lock()
         self._active_operation: _ToolOperation | None = None
         self._register_common_tools()
@@ -222,13 +225,23 @@ class Toolkit:
         """Register the file/IO tools shared by every run."""
         from rpent.tools import common
 
+        memory_bindings = self._memory.get_common_tool_bindings()
         for spec in common.TOOLS_SPEC:
             name = spec["name"]
-            self.add_tool(name, spec, common.TOOL_HANDLERS[name])
+            binding = memory_bindings.get(name)
+            if binding is None:
+                binding = (spec, common.TOOL_HANDLERS[name])
+            tool_spec, handler = binding
+            self.add_tool(name, tool_spec, handler)
 
     # ------------------------------------------------------------------
     # Planner-facing API
     # ------------------------------------------------------------------
+
+    @property
+    def memory(self) -> "MemoryManager":
+        """Return the toolkit's memory manager."""
+        return self._memory
 
     @property
     def state(self) -> EnvState:

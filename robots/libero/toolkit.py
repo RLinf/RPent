@@ -22,13 +22,16 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from robots.libero import tools as libero_tools
 from rpent.dashboard.events import DashboardEventSink
-from rpent.tools.state import EnvState
+from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit, readonly
 from rpent.utils.logging import get_logger, get_output_dir
+
+if TYPE_CHECKING:
+    from rpent.memory.manager import MemoryManager
 
 logger = get_logger("libero_toolkit")
 
@@ -46,15 +49,20 @@ class LiberoToolkit(Toolkit):
         *,
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
+        memory: MemoryManager,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
     ) -> None:
-        self._state_output_dir = Path(state_output_dir or get_output_dir())
-        state = EnvState(self._state_output_dir)
-        super().__init__(dashboard_events=dashboard_events, state=state)
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
+        self._state_output_dir = Path(state_output_dir or get_output_dir())
+        state = EnvState(self._state_output_dir)
+        super().__init__(
+            dashboard_events=dashboard_events,
+            state=state,
+            memory=memory,
+        )
         self._mode = mode
         self._solved: bool = False
         self._attempt: int = 1

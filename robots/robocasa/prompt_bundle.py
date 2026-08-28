@@ -19,8 +19,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from robots.robocasa import prompts as robocasa_prompt
-from rpent.context.prompt_utils import PromptNode
-from rpent.context.prompts import prompt as base_prompt
+from rpent.prompt import common as base_prompt
+from rpent.prompt.utils import PromptNode
 
 
 def system_prompt(
