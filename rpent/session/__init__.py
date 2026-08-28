@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Cross-session, mutable memory corpus."""
+"""Single-session, mutable state (EnvState)."""
 
-from rpent.memory.manager import MemoryManager
+from rpent.session.base import EnvState, StepRecord
 
-__all__ = ["MemoryManager"]
+__all__ = ["EnvState", "StepRecord"]

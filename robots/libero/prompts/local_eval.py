@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from robots.libero.prompts import system as base
-from rpent.context.prompt_utils import Numbered, PromptNode
+from rpent.prompt.utils import Numbered, PromptNode
 
 (
     _,

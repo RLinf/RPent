@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from rpent.context.prompt_utils import BulletList
+from rpent.prompt.utils import BulletList
 
 OUTPUT = BulletList(
     [

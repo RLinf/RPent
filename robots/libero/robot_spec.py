@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from robots.libero.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -105,7 +106,6 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=LIBERO_DASHBOARD_SPEC,
-        finalize_run=_finalize_run,
     )
 
 
@@ -113,16 +113,24 @@ def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
+    config: RunConfig,
     mode: str = "evaluation",
     attempts_per_session: int = 0,
     state_output_dir: Path | str | None = None,
 ):
-    """Return the LIBERO toolkit (common tools + LIBERO primitives)."""
+    """Return the LIBERO toolkit for the current session."""
     from robots.libero.toolkit import LiberoToolkit
 
+    explore = mode == "exploration"
+    memory = MemoryManager(
+        root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
+        memory_access="inbox_write" if explore else "read_only",
+        inbox_cell_tag=config.recipe_tag if explore else None,
+    )
     return LiberoToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
+        memory=memory,
         mode=mode,
         attempts_per_session=attempts_per_session,
         state_output_dir=state_output_dir,
@@ -264,19 +272,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         output_dir=output_dir,
         prompt_vars=prompt_vars,
         task_desc={"suite": args.suite, "task": args.task, "seed": args.seed},
-    )
-
-
-def _finalize_run(args: argparse.Namespace, config: RunConfig) -> dict[str, Any] | None:
-    """Publish completed exploration artifacts into the local layered corpus."""
-    if not args.explore or not args.auto_merge_memory:
-        return None
-    from rpent.memory import merge_cell
-
-    return merge_cell(
-        memory_dir=config.prompt_vars["memory_dir"],
-        cell_tag=config.recipe_tag,
-        output_dir=config.output_dir,
     )
 
 

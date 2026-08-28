@@ -20,7 +20,7 @@ from collections.abc import Mapping
 
 from robots.robotwin.prompts import system as system_parts
 from robots.robotwin.prompts import user as user_parts
-from rpent.context.prompt_utils import PromptNode
+from rpent.prompt.utils import PromptNode
 
 
 def system_prompt(

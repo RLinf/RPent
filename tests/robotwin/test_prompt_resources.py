@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
-from rpent.context.prompt_utils import format_prompt
+from rpent.prompt.utils import format_prompt
 
 
 def test_prompts_render_with_repo_relative_resource_paths():

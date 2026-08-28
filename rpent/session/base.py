@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Per-run robot state and artifact storage."""
+"""Per-session robot state and artifact storage."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ class StepRecord:
 
 
 class EnvState:
-    """Own a run's step trace and all state-related files in its output root."""
+    """Own a session's step trace and all state-related files in its output root."""
 
     def __init__(self, output_dir: Path | str):
         self._output_dir = Path(output_dir)
@@ -197,7 +197,7 @@ class EnvState:
         ``step`` defaults to ``-1`` (the most recently recorded step), so calls
         made inside (or right after) a :meth:`record_step` block attach to that
         step without an explicit index. Pass an ``int`` to target a specific
-        step, or ``None`` for a run-level artifact such as an episode video.
+        step, or ``None`` for a session-level artifact such as an episode video.
         """
         step = self._resolve_read_step(step)
         destination = self._artifact_file(name, step)

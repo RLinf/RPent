@@ -44,7 +44,7 @@ from rpent.dashboard.interaction import (
 )
 
 if TYPE_CHECKING:
-    from rpent.tools.state import EnvState, StepRecord
+    from rpent.session import EnvState, StepRecord
 
 RUNTIME_STATUSES = {"pending", "starting", "ready", "failed"}
 TERMINAL_RUN_STATES = {"succeeded", "failed", "cancelled"}
