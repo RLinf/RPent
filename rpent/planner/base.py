@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import queue
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
@@ -33,6 +34,24 @@ from rpent.utils.config import (
 #: Toolkits expose plain tool names; planners add/strip this prefix.
 MCP_TOOL_PREFIX = "mcp__rpent__"
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
+
+
+@dataclass(frozen=True)
+class AgentRuntimeConfig:
+    """Filesystem context shared by SDK-backed agent planners.
+
+    Backend-specific controls, such as a Codex sandbox or Claude permission
+    mode, remain owned by that backend. This common context lets launchers
+    select an isolated working tree without coupling themselves to one SDK.
+    """
+
+    repo_root: str | Path | None = None
+    workdir: str | Path | None = None
+
+    def resolved(self) -> tuple[str | Path, str | Path]:
+        """Return the effective repository root and working directory."""
+        repo_root = self.repo_root or get_repo_root()
+        return repo_root, self.workdir or repo_root
 
 
 def add_mcp_prefix(name: str) -> str:
@@ -128,11 +147,11 @@ def build_planner(
     claude_code_max_budget_usd: float | None = None,
     dashboard_events: DashboardEventSink,
     no_images: bool = False,
+    agent_runtime: AgentRuntimeConfig | None = None,
 ):
     """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
     # codex all import from this module (PlannerResult).
-
     if planner_type == "api":
         if not model:
             raise ValueError(
@@ -177,6 +196,8 @@ def build_planner(
             no_images=no_images,
             timeout_s=api_timeout_s,
         )
+
+    repo_root, workdir = (agent_runtime or AgentRuntimeConfig()).resolved()
     if planner_type == "claude_code":
         from rpent.planner.claude_code import ClaudeCodePlanner
 
@@ -188,7 +209,9 @@ def build_planner(
             cc_budget = float(os.environ.get("MAX_BUDGET_USD", "10"))
         return ClaudeCodePlanner(
             output_dir=output_dir,
-            repo_root=get_repo_root(),
+            repo_root=repo_root,
+            workdir=workdir,
+            base_url=base_url,
             model=model or "sonnet",
             timeout_s=cc_timeout_s,
             max_budget_usd=cc_budget,
@@ -210,7 +233,9 @@ def build_planner(
             )
         return CodexPlanner(
             output_dir=output_dir,
-            repo_root=get_repo_root(),
+            repo_root=repo_root,
+            workdir=workdir,
+            base_url=base_url,
             model=model,
             timeout_s=cx_timeout_s,
             extra_dirs=[str(get_memory_dir(robot_name))],

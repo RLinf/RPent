@@ -30,12 +30,14 @@ import contextlib
 import json
 import os
 import queue
+import stat
 import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import openai_codex
 from openai_codex.generated.v2_all import ReasoningEffort
@@ -49,7 +51,6 @@ from rpent.dashboard.events import (
 from rpent.dashboard.interaction import DashboardInteractionPort
 from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import REASONING_EFFORTS, PlannerResult, strip_mcp_prefix
-from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
@@ -58,6 +59,7 @@ logger = get_logger("codex")
 
 PROVIDER_ID = "rpent_proxy"
 PROVIDER_ENV_KEY = "RPENT_CODEX_PROVIDER_KEY"
+_MAX_API_KEY_BYTES = 64 * 1024
 
 # ---------------------------------------------------------------------------
 # Public backend
@@ -78,24 +80,41 @@ class CodexPlanner:
         output_path: str | Path | None = None,
         model: str | None = None,
         reasoning_effort: str = "none",
+        base_url: str | None = None,
+        workdir: str | Path | None = None,
+        sandbox: str | object = "full_access",
     ):
         """Initialize the Codex SDK backend."""
         self._output_dir = str(output_dir)
         self._repo_root = str(repo_root) if repo_root else str(get_repo_root())
+        self._workdir = str(workdir) if workdir else self._repo_root
         self._timeout_s = timeout_s
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
         self._model = model or os.environ.get("CODEX_MODEL", None)
-        self._base_url = os.environ.get("CODEX_BASE_URL", None)
-        self._api_key = os.environ.get("CODEX_API_KEY", None)
+        configured_base_url = (
+            base_url if base_url is not None else os.environ.get("CODEX_BASE_URL")
+        )
+        self._base_url = (
+            _normalize_responses_base_url(configured_base_url)
+            if configured_base_url
+            else None
+        )
+        self._api_key = _load_codex_api_key()
+        if self._base_url and not self._api_key:
+            raise ValueError(
+                "CODEX_BASE_URL requires CODEX_API_KEY or CODEX_API_KEY_FILE"
+            )
+        if os.environ.get("CODEX_API_KEY_FILE") and not self._base_url:
+            raise ValueError("CODEX_API_KEY_FILE requires CODEX_BASE_URL")
         self._dashboard_events = dashboard_events
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
         self._thread_options = {
             "approval_mode": openai_codex.ApprovalMode.deny_all,
-            "cwd": self._repo_root,
+            "cwd": self._workdir,
             "model": self._model,
-            "sandbox": openai_codex.Sandbox.full_access,
+            "sandbox": _resolve_sandbox(sandbox),
         }
         self._turn_options = {
             **self._thread_options,
@@ -137,6 +156,8 @@ class CodexPlanner:
 
         # Start the in-thread MCP HTTP server so Codex can reach the
         # shared toolkit without spawning a subprocess.
+        from rpent.planner.utils.http_mcp_server import HttpMcpServer
+
         mcp_server = HttpMcpServer(toolkit)
         mcp_url = mcp_server.start()
         logger.info("mcp http endpoint: %s", mcp_url)
@@ -338,6 +359,8 @@ class CodexPlanner:
         error: str | None = None
         started = time.time()
 
+        from rpent.planner.utils.http_mcp_server import HttpMcpServer
+
         mcp_server = HttpMcpServer(toolkit)
         mcp_url = mcp_server.start()
         try:
@@ -439,7 +462,7 @@ class CodexPlanner:
                     base_url=self._base_url,
                 )
             ),
-            "cwd": self._repo_root,
+            "cwd": self._workdir,
             "env": env,
             # use True to support (namespace tools,
             # web_search, image_generation).
@@ -772,9 +795,7 @@ def _codex_mcp_config_overrides(
         ("mcp_servers.rpent.url", mcp_url),
     ]
     if base_url:
-        normalized = base_url.rstrip("/")
-        if not normalized.endswith("/v1"):
-            normalized = normalized + "/v1"
+        normalized = _normalize_responses_base_url(base_url)
         config.extend(
             [
                 ("model_provider", PROVIDER_ID),
@@ -785,6 +806,82 @@ def _codex_mcp_config_overrides(
             ]
         )
     return [f"{key}={json.dumps(value)}" for key, value in config]
+
+
+def _normalize_responses_base_url(base_url: str) -> str:
+    """Return a validated Responses API base URL ending in ``/v1``."""
+    raw = base_url.strip().rstrip("/")
+    parsed = urlsplit(raw)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("CODEX_BASE_URL must be an absolute http(s) URL")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError(
+            "CODEX_BASE_URL must not contain credentials, a query, or a fragment"
+        )
+    path = parsed.path.rstrip("/")
+    if path.endswith("/responses"):
+        raise ValueError("CODEX_BASE_URL must be the API base, not /responses")
+    if not path.endswith("/v1"):
+        path = f"{path}/v1"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def _load_codex_api_key() -> str | None:
+    """Load a custom-provider key without exposing it through config overrides."""
+    key_file = os.environ.get("CODEX_API_KEY_FILE")
+    if not key_file:
+        return os.environ.get("CODEX_API_KEY") or None
+    return _read_codex_api_key_file(Path(key_file).expanduser())
+
+
+def _read_codex_api_key_file(path: Path) -> str:
+    """Read one API key from a policy-compliant, non-symlink 0600 file."""
+    try:
+        before = os.lstat(path)
+    except OSError as exc:
+        raise ValueError(f"cannot inspect CODEX_API_KEY_FILE: {path}") from exc
+    if stat.S_ISLNK(before.st_mode):
+        raise ValueError("CODEX_API_KEY_FILE must not be a symlink")
+
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError(f"cannot open CODEX_API_KEY_FILE: {path}") from exc
+    try:
+        opened = os.fstat(fd)
+        if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
+            raise ValueError("CODEX_API_KEY_FILE changed while it was being opened")
+        if not stat.S_ISREG(opened.st_mode):
+            raise ValueError("CODEX_API_KEY_FILE must be a regular file")
+        if stat.S_IMODE(opened.st_mode) != 0o600:
+            raise ValueError("CODEX_API_KEY_FILE permissions must be 0600")
+        raw = os.read(fd, _MAX_API_KEY_BYTES + 1)
+    finally:
+        os.close(fd)
+
+    if len(raw) > _MAX_API_KEY_BYTES:
+        raise ValueError("CODEX_API_KEY_FILE is unexpectedly large")
+    try:
+        key = raw.decode("utf-8").strip()
+    except UnicodeDecodeError as exc:
+        raise ValueError("CODEX_API_KEY_FILE must contain UTF-8 text") from exc
+    if not key or "\n" in key or "\r" in key:
+        raise ValueError("CODEX_API_KEY_FILE must contain exactly one non-empty line")
+    return key
+
+
+def _resolve_sandbox(sandbox: str | object) -> Any:
+    """Resolve a stable string sandbox name to the SDK enum."""
+    if not isinstance(sandbox, str):
+        return sandbox
+    name = sandbox.replace("-", "_")
+    try:
+        return getattr(openai_codex.Sandbox, name)
+    except AttributeError as exc:
+        raise ValueError(
+            "unsupported Codex sandbox; use read_only, workspace_write, or full_access"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

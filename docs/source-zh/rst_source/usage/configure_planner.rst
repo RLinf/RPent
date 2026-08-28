@@ -95,7 +95,10 @@ RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
 - 通过 ``--claude-code-max-budget-usd`` 设置美元预算（默认取
   ``MAX_BUDGET_USD`` 环境变量或 ``10``）。
 - RPent 的依赖中已包含 Claude Agent SDK；该 SDK 自带 Claude Code
-  二进制文件，无需单独安装 CLI。认证通常使用 ``ANTHROPIC_API_KEY``，详见
+  二进制文件，无需单独安装 CLI。认证通常使用 ``ANTHROPIC_API_KEY``。
+- 对该 backend，``--base-url`` 会覆盖 ``ANTHROPIC_BASE_URL``，并只注入
+  SDK 子进程，不修改父进程环境。端点必须实现 Anthropic 协议，不能直接使用
+  仅兼容 Responses API 的端点。详见
   `Claude Agent SDK 文档
   <https://code.claude.com/docs/en/agent-sdk/overview>`_。
 
@@ -112,6 +115,7 @@ RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
 
    rpent --robot libero --planner codex \
      --model gpt-5.5 \
+     --reasoning-effort xhigh \
      --suite libero_goal_task --task 1 --seed 0
 
 注意事项：
@@ -121,9 +125,31 @@ RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
 - ``--planner-timeout-s`` 限制 Codex 运行时间。默认依次读取
   ``CODEX_TIMEOUT_S``、``CELL_TIMEOUT_S``，均未设置时为 ``1200`` 秒。
 - 默认情况下，Codex SDK 会复用已有的 Codex 认证。若要接入自定义的
-  Responses API 兼容端点，请设置 ``CODEX_BASE_URL`` 和
-  ``CODEX_API_KEY``；这里不读取 ``OPENAI_BASE_URL`` 或
-  ``OPENAI_API_KEY``。
+  Responses API 兼容端点，请设置 ``CODEX_BASE_URL``，并设置
+  ``CODEX_API_KEY`` 或 ``CODEX_API_KEY_FILE``。后者优先，且必须指向权限
+  精确为 ``0600`` 的普通文件，不能是符号链接。这里不读取
+  ``OPENAI_BASE_URL`` 或 ``OPENAI_API_KEY``。
+- 对 Codex backend，``--base-url`` 等价于 ``CODEX_BASE_URL``。API base
+  可以省略 ``/v1``，RPent 会自动补齐并使用 Codex ``responses`` wire API；
+  不要传入 ``/responses`` 操作地址。
+- GPT-5.5/xhigh 接入 Responses-compatible endpoint 时，不需要修改或依赖
+  ``~/.codex/config.toml``：
+
+  .. code-block:: bash
+
+     export CODEX_BASE_URL=https://provider.example/v1
+     export CODEX_API_KEY_FILE=/run/secrets/responses-api-key
+     rpent --robot libero --planner codex --model gpt-5.5 \
+       --reasoning-effort xhigh --suite libero_goal_task --task 1 --seed 0
+
+  key 文件应由作业 secret manager 注入，禁止把 key 放在命令行中。正式批量
+  复现前，仍需用小规模 smoke test 验证端点支持该 model 与 effort。
+- 程序化 agent launcher 可以向 ``build_planner`` 传入
+  ``agent_runtime=AgentRuntimeConfig(repo_root=..., workdir=...)``。同一套
+  文件系统上下文会传给 ``claude_code`` 与 ``codex``，后续 SDK agent 也复用
+  这个扩展点。权限控制仍由各 backend 自己负责；普通 Codex 运行保持现有的
+  ``full_access`` 默认值。
+
 
 .. _planner-custom:
 

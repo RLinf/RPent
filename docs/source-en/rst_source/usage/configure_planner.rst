@@ -106,7 +106,11 @@ Notes:
   (defaults to ``MAX_BUDGET_USD`` env or ``10``).
 - RPent already depends on the Claude Agent SDK, which bundles the
   Claude Code binary; no separate CLI installation is required.
-  Authentication normally uses ``ANTHROPIC_API_KEY``. See the
+  Authentication normally uses ``ANTHROPIC_API_KEY``.
+- ``--base-url`` overrides ``ANTHROPIC_BASE_URL`` for this backend and is
+  passed to the SDK subprocess without changing the parent environment. The
+  endpoint must implement the Anthropic protocol; a Responses-only endpoint
+  is not interchangeable. See the
   `Claude Agent SDK docs
   <https://code.claude.com/docs/en/agent-sdk/overview>`_.
 
@@ -124,6 +128,7 @@ server. You do not need to start ``scripts/codex_proxy/`` first.
 
    rpent --robot libero --planner codex \
      --model gpt-5.5 \
+     --reasoning-effort xhigh \
      --suite libero_goal_task --task 1 --seed 0
 
 Notes:
@@ -132,10 +137,32 @@ Notes:
   the model configured as the Codex SDK default.
 - ``--planner-timeout-s`` limits the Codex run. Its default is
   ``CODEX_TIMEOUT_S``, then ``CELL_TIMEOUT_S``, then ``1200`` seconds.
-- By default, the Codex SDK reuses existing Codex authentication. For
-  a custom Responses-compatible endpoint, set ``CODEX_BASE_URL`` and
-  ``CODEX_API_KEY``. This backend does not read ``OPENAI_BASE_URL`` or
-  ``OPENAI_API_KEY``.
+- By default, the Codex SDK reuses existing Codex authentication. For a
+  custom Responses-compatible endpoint, set ``CODEX_BASE_URL`` and either
+  ``CODEX_API_KEY`` or ``CODEX_API_KEY_FILE``. The latter takes precedence
+  and must name a regular, non-symlink file with exact ``0600`` permissions.
+  This backend does not read ``OPENAI_BASE_URL`` or ``OPENAI_API_KEY``.
+- ``--base-url`` is equivalent to ``CODEX_BASE_URL`` for the Codex backend.
+  The API base may omit ``/v1``; RPent adds it and configures the Codex
+  ``responses`` wire API. Do not pass the ``/responses`` operation URL.
+- A GPT-5.5/xhigh run against a Responses-compatible endpoint can be
+  configured without changing or relying on ``~/.codex/config.toml``::
+
+     export CODEX_BASE_URL=https://provider.example/v1
+     export CODEX_API_KEY_FILE=/run/secrets/responses-api-key
+     rpent --robot libero --planner codex --model gpt-5.5 \
+       --reasoning-effort xhigh --suite libero_goal_task --task 1 --seed 0
+
+  Provision the key file through the job's secret manager; never put a key
+  in the command line. Endpoint support for the model and effort must be
+  checked with a small smoke test before a reproduction batch.
+- Programmatic agent launchers may pass
+  ``agent_runtime=AgentRuntimeConfig(repo_root=..., workdir=...)`` to
+  ``build_planner``. The same filesystem context is forwarded to
+  ``claude_code`` and ``codex`` and is the extension point for later
+  SDK-backed agents. Backend-specific permission controls remain on each
+  backend; ordinary Codex runs retain its existing ``full_access`` default.
+
 
 .. _planner-custom:
 

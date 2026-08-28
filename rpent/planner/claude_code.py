@@ -27,6 +27,7 @@ import asyncio
 import contextlib
 import dataclasses
 import json
+import os
 import queue
 import tempfile
 import time
@@ -71,6 +72,8 @@ class ClaudeCodePlanner:
         output_dir: str,
         dashboard_events: DashboardEventSink,
         repo_root: str | Path | None = None,
+        workdir: str | Path | None = None,
+        base_url: str | None = None,
         model: str = "sonnet",
         allowed_tools: str = "Bash Read Write Glob Grep",
         timeout_s: int = 600,
@@ -82,6 +85,13 @@ class ClaudeCodePlanner:
         """Initialize the Claude Agent SDK backend."""
         self._output_dir = str(output_dir)
         self._repo_root = str(repo_root) if repo_root else str(get_repo_root())
+        self._workdir = str(workdir) if workdir else self._repo_root
+        configured_base_url = (
+            base_url if base_url is not None else os.environ.get("ANTHROPIC_BASE_URL")
+        )
+        self._base_url = (
+            configured_base_url.rstrip("/") if configured_base_url else None
+        )
         self._model = model
         self._allowed_tools = allowed_tools
         self._timeout_s = timeout_s
@@ -343,7 +353,8 @@ class ClaudeCodePlanner:
         thinking = {"type": "disabled"} if self._reasoning_effort == "none" else None
         effort = None if self._reasoning_effort == "none" else self._reasoning_effort
         return sdk.ClaudeAgentOptions(
-            cwd=self._repo_root,
+            cwd=self._workdir,
+            env=({"ANTHROPIC_BASE_URL": self._base_url} if self._base_url else {}),
             model=self._model,
             max_turns=max_turns,
             max_budget_usd=self._max_budget_usd,
