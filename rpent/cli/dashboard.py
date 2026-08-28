@@ -234,8 +234,11 @@ def _run_dashboard_task(
                         args.robot_name,
                         primitives_kwargs=primitives_kwargs,
                         dashboard_events=state,
-                        args=task_args,
                         config=run_config,
+                        mode="exploration" if task_args.explore else "evaluation",
+                        attempts_per_session=getattr(
+                            task_args, "explore_attempts_per_session", 0
+                        ),
                         state_output_dir=state_output_dir,
                     )
                 else:
@@ -243,7 +246,6 @@ def _run_dashboard_task(
                         args.robot_name,
                         primitives_kwargs=primitives_kwargs,
                         dashboard_events=state,
-                        args=task_args,
                         config=run_config,
                     )
                 memory_manager = toolkit.memory

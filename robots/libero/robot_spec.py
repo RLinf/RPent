@@ -113,14 +113,15 @@ def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
-    args: argparse.Namespace,
     config: RunConfig,
+    mode: str = "evaluation",
+    attempts_per_session: int = 0,
     state_output_dir: Path | str | None = None,
 ):
     """Return the LIBERO toolkit for the current session."""
     from robots.libero.toolkit import LiberoToolkit
 
-    explore = args.explore
+    explore = mode == "exploration"
     memory = MemoryManager(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
         memory_access="inbox_write" if explore else "read_only",
@@ -130,8 +131,8 @@ def get_toolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
-        mode="exploration" if explore else "evaluation",
-        attempts_per_session=args.explore_attempts_per_session,
+        mode=mode,
+        attempts_per_session=attempts_per_session,
         state_output_dir=state_output_dir,
     )
 

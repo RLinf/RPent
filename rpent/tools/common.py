@@ -114,6 +114,7 @@ def _truncate(text: str, max_chars: int) -> str:
     )
 
 
+# Low-level file IO; planner-facing access is wrapped by MemoryManager.
 @readonly
 def read_text_file(path: str, max_chars: int = 40000) -> dict:
     p = _resolve(path)

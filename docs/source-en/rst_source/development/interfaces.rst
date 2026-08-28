@@ -17,7 +17,6 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
        *,
        primitives_kwargs,
        dashboard_events: DashboardEventSink,
-       args: argparse.Namespace,
        config: RunConfig,
    ): ...
 
@@ -50,13 +49,14 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
        unique subsets derived from its spec. A ``DashboardEventSink``
        reports status.
 
-``get_toolkit`` usually just passes ``primitives_kwargs`` into your robot
-subclass; ``dashboard_events``, ``args``, and ``config`` are supplied by the
-active runner, so you normally do not need to change them. It must construct a
-:class:`~rpent.memory.MemoryManager` (rooted at the configured
+``get_toolkit`` usually passes ``primitives_kwargs`` into your robot subclass;
+``dashboard_events`` and ``config`` are supplied by the active runner. It must
+construct a :class:`~rpent.memory.MemoryManager` (rooted at the configured
 ``config.prompt_vars["memory_dir"]``, falling back to
 ``get_memory_dir(robot_name)`` when unset) and pass it to the toolkit.
-Memory access permissions are configured on the manager.
+Memory access permissions are configured on the manager. Robots that need
+extra toolkit arguments may declare them as keyword-only parameters; LIBERO
+additionally uses ``mode``, ``attempts_per_session``, and ``state_output_dir``.
 
 Reference: ``robots/libero/robot_spec.py``.
 

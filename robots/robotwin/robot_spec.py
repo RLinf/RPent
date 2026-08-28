@@ -190,7 +190,6 @@ def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
-    args: argparse.Namespace,
     config: RunConfig,
 ):
     """Return the RoboTwin toolkit for the current session."""

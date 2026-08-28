@@ -95,7 +95,6 @@ def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
-    args: argparse.Namespace,
     config: RunConfig,
 ):
     """Return the RoboCasa toolkit for the current session."""

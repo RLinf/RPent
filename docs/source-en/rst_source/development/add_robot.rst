@@ -55,8 +55,6 @@ these two functions:
    from robots.myrobot.robot_spec import get_robot_spec, get_toolkit
 
    # robots/myrobot/robot_spec.py
-   import argparse
-
    from rpent.dashboard.events import DashboardEventSink
    from rpent.memory import MemoryManager
    from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -80,7 +78,6 @@ these two functions:
        *,
        primitives_kwargs,
        dashboard_events: DashboardEventSink,
-       args: argparse.Namespace,
        config: RunConfig,
    ):
        from robots.myrobot.toolkit import MyRobotToolkit

@@ -17,7 +17,6 @@
        *,
        primitives_kwargs,
        dashboard_events: DashboardEventSink,
-       args: argparse.Namespace,
        config: RunConfig,
    ): ...
 
@@ -48,11 +47,13 @@
        的 shared 和 unique 子集后分别传入。``DashboardEventSink`` 用于上报运行时状态。
 
 ``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给机器人子类；
-``dashboard_events``、``args``、``config`` 由当前 runner 传入，通常不用改。它
-需要构造一个 :class:`~rpent.memory.MemoryManager`（root 取自
+``dashboard_events`` 和 ``config`` 由当前 runner 传入。它需要构造一个
+:class:`~rpent.memory.MemoryManager`（root 取自
 ``config.prompt_vars["memory_dir"]``，未设置时回退到
 ``get_memory_dir(robot_name)``）并传给 toolkit。Memory 访问权限在
-``MemoryManager`` 上配置。
+``MemoryManager`` 上配置。如果某个机器人还需要额外参数，可以继续声明
+keyword-only 参数；例如 LIBERO 还使用 ``mode``、``attempts_per_session`` 和
+``state_output_dir``。
 
 参考实现：``robots/libero/robot_spec.py``。
 

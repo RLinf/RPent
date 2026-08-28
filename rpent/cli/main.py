@@ -468,8 +468,11 @@ def main() -> int:
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
                     dashboard_events=dashboard_events,
-                    args=args,
                     config=run_config,
+                    mode="exploration" if args.explore else "evaluation",
+                    attempts_per_session=getattr(
+                        args, "explore_attempts_per_session", 0
+                    ),
                     state_output_dir=state_output_dir,
                 )
             else:
@@ -477,7 +480,6 @@ def main() -> int:
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
                     dashboard_events=dashboard_events,
-                    args=args,
                     config=run_config,
                 )
             memory_manager = toolkit.memory
