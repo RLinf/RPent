@@ -20,16 +20,15 @@ from rpent.robots.components.vla_client_base import BaseVLAClient
 
 
 class RoboCasaVLAClient(BaseVLAClient):
-    _TIMEOUT_S = {
-        **BaseVLAClient._TIMEOUT_S,
-    }
+    _TIMEOUT_S = BaseVLAClient._TIMEOUT_S
 
     def __init__(self, client):
         super().__init__(client)
 
     def get_modality_config(self) -> dict:
         return self._client.call(
-            "vla.get_modality_config", timeout_s=self._TIMEOUT_S["default"]
+            "vla.get_modality_config",
+            timeout_s=self._TIMEOUT_S["default"],
         )
 
     def predict(self, obs_dict: dict, options: dict) -> dict:

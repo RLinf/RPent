@@ -22,7 +22,7 @@ from robots.libero.prompts import explore as explore_parts
 from robots.libero.prompts import local_eval as local_eval_parts
 from robots.libero.prompts import system as system_parts
 from robots.libero.prompts import user as user_parts
-from rpent.context.prompt_utils import Numbered, PromptNode
+from rpent.prompt.utils import Numbered, PromptNode
 
 
 def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:

@@ -129,30 +129,15 @@ class RoboTwinEnvFacade(BaseEnvFacade):
         return array[0].item()
 
     def _register_rpc(self) -> None:
-        self._rpc.update(
-            {
-                "env.get_env_meta": self.get_env_meta,
-                "env.reset": self.reset,
-                "env.step": self.step,
-                "env.chunk_step": self.chunk_step,
-                "env.render_camera": self.render_camera,
-                "env.get_camera_meta": self.get_camera_meta,
-                "env.get_task_language": self.get_task_language,
-                "env.plan_arm_path": self.plan_arm_path,
-            }
-        )
-        self._readonly_methods.update(
-            {
-                "env.get_env_meta",
-                "env.render_camera",
-                "env.get_camera_meta",
-                "env.get_task_language",
-            }
-        )
+        super()._register_rpc()
+        self._rpc["env.plan_arm_path"] = self.plan_arm_path
 
     def get_env_meta(self) -> dict[str, Any]:
         """Return immutable identity for endpoint compatibility checks."""
         return dict(self._metadata)
+
+    def close(self):
+        _teardown_env(self._env)
 
     def reset(self) -> tuple[dict[str, Any], dict[str, Any]]:
         seed = int(self._metadata["seed"])
@@ -375,15 +360,12 @@ def main() -> None:
             max_episode_steps=args.max_episode_steps,
         ),
     )
-    try:
-        facade.serve(
-            transport=args.transport,
-            host=args.host,
-            port=args.port,
-            parent_watch=args.parent_watch,
-        )
-    finally:
-        _teardown_env(env)
+    facade.serve(
+        transport=args.transport,
+        host=args.host,
+        port=args.port,
+        parent_watch=args.parent_watch,
+    )
 
 
 if __name__ == "__main__":
