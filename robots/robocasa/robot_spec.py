@@ -277,8 +277,8 @@ def _spawn_vla_server(
             log_path=str(Path(output_dir) / "vla_server.log"),
         )
         daemon.start()
-        return daemon, HttpRpcClient(f"http://{host}:{port}")
-    return None, make_rpc_client(args.vla_endpoint)
+        return daemon, HttpRpcClient(f"http://{host}:{port}", enable_sessions=True)
+    return None, make_rpc_client(args.vla_endpoint, enable_sessions=True)
 
 
 def _init_runtime(

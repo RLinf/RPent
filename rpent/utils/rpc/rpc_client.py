@@ -34,11 +34,40 @@ class RpcError(RuntimeError):
 
 
 class RpcClient:
-    """Base for transport-specific RPC clients."""
+    """Base for transport-specific RPC clients.
+
+    Owns the session id (transport-private; business code never sees it)
+    and the atexit close hook. Subclasses implement :meth:`call` for the
+    transport-specific request path.
+    """
+
+    def __init__(self, *, enable_sessions: bool = False) -> None:
+        self._session_id: str | None = (
+            f"rpc_{uuid.uuid4().hex[:8]}" if enable_sessions else None
+        )
+        self._closed = False
+        if self._session_id is not None:
+            atexit.register(self.close)
 
     def close(self) -> None:
-        """Close the client connection."""
-        pass
+        """Notify the server to drop this client's session.
+
+        Called automatically at exit via atexit. Failures are swallowed
+        (the process is exiting anyway; the server's sweep thread is the
+        fallback for crashed clients). Idempotent: a ``_closed`` flag guards
+        against double-close when atexit fires after a manual ``close()``.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self.call("healthz", timeout_s=0.5)
+        except Exception:
+            return
+        try:
+            self.call("session.close", timeout_s=1.0)
+        except Exception:
+            pass
 
     def call(
         self,

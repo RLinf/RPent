@@ -41,8 +41,12 @@ class BaseVLAFacade(RpcFacade):
         evict expired sessions.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(
+        self, *, enable_sessions: bool = False, session_timeout_s: float | None = None
+    ):
+        super().__init__(
+            enable_sessions=enable_sessions, session_timeout_s=session_timeout_s
+        )
         self._register_rpc()
 
     # ---- framework ----

@@ -394,7 +394,7 @@ class RoboCasaEnvFacade(BaseEnvFacade):
 
         threading.Thread(target=render_loop, name="egl-render", daemon=True).start()
 
-        def dispatch(method, args, kwargs):
+        def dispatch(method, args, kwargs, *, session_id=None):
             if method == "healthz":
                 return {"status": "ok"}
             if method == "shutdown":

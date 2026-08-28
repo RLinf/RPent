@@ -77,10 +77,15 @@ class HttpRpcClient(RpcClient):
 
         ``127.0.0.1`` and ``localhost`` bypass HTTP proxies. Other hostnames
         use the process proxy configuration.
+    enable_sessions : bool
+        If True, the client is session-aware: it auto-generates a session id
+        and carries it on every call; :func:`wait_for_ready` registers it
+        with the server on connect. If False, the client sends no session_id
+        and is fully session-unaware.
     """
 
-    def __init__(self, base_url: str) -> None:
-        """Initialize with a base URL, e.g. ``"http://127.0.0.1:8080"``."""
+    def __init__(self, base_url: str, *, enable_sessions: bool = False) -> None:
+        super().__init__(enable_sessions=enable_sessions)
         self._base_url = base_url.rstrip("/")
         self._opener = (
             urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -101,6 +106,7 @@ class HttpRpcClient(RpcClient):
             "method": method,
             "args": list(args),
             "kwargs": kwargs or {},
+            "session_id": self._session_id,
         }
         body = json.dumps(payload, cls=_NumpyEncoder).encode("utf-8")
         url = f"{self._base_url}/call"
@@ -174,7 +180,10 @@ class _HttpRpcHandler(BaseHTTPRequestHandler):
             method = request["method"]
             args = tuple(_from_json(v) for v in request.get("args", []))
             kwargs = {k: _from_json(v) for k, v in request.get("kwargs", {}).items()}
-            result = self.server.dispatch(method, args, kwargs)  # type: ignore[attr-defined]
+            session_id = request.get("session_id")
+            result = self.server.dispatch(  # type: ignore[attr-defined]
+                method, args, kwargs, session_id=session_id
+            )
             response: dict = {"ok": True, "result": result}
         except Exception as exc:
             response = make_error_response(exc)
@@ -204,7 +213,7 @@ class HttpRpcServer(ThreadingHTTPServer):
     def __init__(
         self,
         server_address: tuple[str, int],
-        dispatch: Callable[[str, tuple, dict], Any],
+        dispatch: Callable[..., Any],
     ) -> None:
         super().__init__(server_address, _HttpRpcHandler)
         self.dispatch = dispatch
