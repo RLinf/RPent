@@ -21,13 +21,16 @@ RoboCasa primitives (``move_to``, ``rldx_skill``, ``release``, ...) on top.
 from __future__ import annotations
 
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from robots.robocasa import tools as robocasa_tools
 from rpent.dashboard.events import DashboardEventSink
-from rpent.tools.state import EnvState
+from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
+
+if TYPE_CHECKING:
+    from rpent.memory.manager import MemoryManager
 
 logger = get_logger("robocasa_toolkit")
 
@@ -40,10 +43,15 @@ class RoboCasaToolkit(Toolkit):
         *,
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
+        memory: MemoryManager,
     ) -> None:
         """Create a RoboCasa toolkit, wiring the primitives and tools."""
         state = EnvState(get_output_dir())
-        super().__init__(dashboard_events=dashboard_events, state=state)
+        super().__init__(
+            dashboard_events=dashboard_events,
+            state=state,
+            memory=memory,
+        )
         self.init_primitives(primitives_kwargs=primitives_kwargs)
         self._register_robocasa_tools()
 

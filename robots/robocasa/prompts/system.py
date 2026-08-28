@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from rpent.context.prompt_utils import BulletList
+from rpent.prompt.utils import BulletList
 
 PREAMBLE = """
 You are an LLM-in-the-loop robotic agent for the **RoboCasa365** kitchen

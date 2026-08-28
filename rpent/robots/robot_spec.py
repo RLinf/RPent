@@ -64,6 +64,3 @@ class RobotSpec:
     ]
     dashboard: DashboardSpec | None = None
     resources_repo_id: str = "RLinf/RPent-memory"
-    finalize_run: (
-        Callable[[argparse.Namespace, RunConfig], dict[str, Any] | None] | None
-    ) = None

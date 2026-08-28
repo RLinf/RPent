@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-from rpent.context.prompt_utils import PromptNode, format_prompt
+from rpent.prompt.utils import PromptNode, format_prompt
 
 PromptFactory = Callable[..., PromptNode]
 

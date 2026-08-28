@@ -47,7 +47,7 @@ from rpent.dashboard.spec import DashboardSpec, TaskSpec
 from rpent.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from rpent.tools.state import EnvState, StepRecord
+    from rpent.session import EnvState, StepRecord
     from rpent.tools.toolkit import Toolkit, ToolResult
 
 RUNTIME_STATUSES = {"pending", "starting", "ready", "failed"}
