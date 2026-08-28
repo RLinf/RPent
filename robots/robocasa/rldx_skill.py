@@ -334,7 +334,7 @@ class RLDXSkill:
             grip_prev = grip_now
         grip = float(self.env.gripper_qpos[0])
         base1 = np.asarray(self.env.current_raw_obs["robot0_base_pos"], np.float64)[:2]
-        # ── ROBUST, DIRECTION-AGNOSTIC GRASP DETERMINATION ──────────────────────────
+        # ---- ROBUST, DIRECTION-AGNOSTIC GRASP DETERMINATION ----
         # Primary (gold): fingerpad↔object CONTACT now (works for any grasp orientation,
         # incl. sideways; does NOT depend on Z-lift). Secondary: the commanded-close-but-
         # held-apart signal — the gripper was told to CLOSE but the fingers stopped before
