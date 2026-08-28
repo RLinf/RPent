@@ -310,7 +310,9 @@ def main() -> int:
         robot_spec = get_robot_spec(early.robot_name)
         robot_spec.add_cli_args(parser, use_dashboard=early.dashboard)
     parser.add_argument(
-        "-h", "--help", action="help",
+        "-h",
+        "--help",
+        action="help",
         default=argparse.SUPPRESS,
         help="show this help message and exit",
     )

@@ -149,3 +149,26 @@ Before each run, RPent automatically syncs optional RoboTwin memory and task
 references from the public ``RLinf/RPent-memory`` dataset. These references can
 improve planning by providing previously verified techniques; the run still
 starts if they are unavailable.
+
+Planner memory and recipes
+--------------------------
+
+The read-only planner resources live under ``robotwin/`` in the
+``RLinf/RPent-memory`` dataset and are synced locally to
+``resources/robotwin/``. Cross-task execution guidance is indexed by
+``memory/MEMORY.md``. For each evaluation task, ``recipe/<task>_s0.json``
+contains a semantic phase plan and ``recipe/recipe_<task>_s0.jsonl`` retains the
+source action sequence as historical evidence.
+
+These recipes are derived from successful ``demo_clean`` trajectories for use
+as strategy priors in independently generated ``demo_randomized`` scenes. They
+transfer phase structure, observable gates, control choice, and VLA chunk
+cadence. Source task language, arm choices, pixels, coordinates, poses,
+clearances, and contacts are not commands for a new episode. The current native
+task language and fresh observations remain authoritative, and all geometry
+must be localized again.
+
+An ``evidence_status`` of ``supported`` means the recipe is backed by a
+successful clean trajectory. An ``experimental`` recipe remains a weak prior.
+Start with ``memory/MEMORY.md`` and read only the notes relevant to the current
+task and failure mode.

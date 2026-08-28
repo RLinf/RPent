@@ -141,3 +141,20 @@ RPent 默认使用 RoboTwin 的 ``demo_randomized`` 任务配置，该配置带�
 每次运行前，RPent 会自动从公开数据集 ``RLinf/RPent-memory`` 同步可选的 RoboTwin
 经验和任务参考。这些内容包含经过验证的操作方法，可以帮助规划器提高任务表现；
 即使无法下载，任务仍可正常启动。
+
+规划器 memory 与 recipe
+------------------------
+
+只读规划资源位于 ``RLinf/RPent-memory`` 数据集的 ``robotwin/`` 目录，并会同步到
+本地 ``resources/robotwin/``。跨任务执行经验由 ``memory/MEMORY.md`` 索引；每个
+评测任务的 ``recipe/<task>_s0.json`` 保存语义阶段计划，配套的
+``recipe/recipe_<task>_s0.jsonl`` 保存来源动作序列作为历史证据。
+
+这些 recipe 来源于成功的 ``demo_clean`` 轨迹，用作独立 ``demo_randomized`` 场景的
+策略先验。可迁移的是阶段结构、可观察 gate、控制方式和 VLA chunk 节奏；来源任务语言、
+机械臂选择、像素、坐标、姿态、净空与接触点均不是新 episode 的直接命令。当前环境原生
+task language 与最新 observation 始终优先，所有几何信息都必须重新定位。
+
+``evidence_status=supported`` 表示 recipe 有成功 clean 轨迹支持；``experimental``
+仍然只是弱先验。使用时先阅读 ``memory/MEMORY.md``，再只选与当前任务和失败模式相关的
+少量笔记。
