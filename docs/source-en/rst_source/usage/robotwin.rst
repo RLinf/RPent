@@ -146,19 +146,34 @@ For planner setup, external service endpoints, and offline resources, see
 :doc:`../development/memory`.
 
 Before each run, RPent automatically syncs optional RoboTwin memory and task
-references from the public ``RLinf/RPent-memory`` dataset. These references can
-improve planning by providing previously verified techniques; the run still
-starts if they are unavailable.
+references from the public `RLinf/RPent-memory
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robotwin>`_
+dataset. These references can improve planning by providing previously verified
+techniques; the run still starts if they are unavailable.
 
 Planner memory and recipes
 --------------------------
 
-The read-only planner resources live under ``robotwin/`` in the
-``RLinf/RPent-memory`` dataset and are synced locally to
-``resources/robotwin/``. Cross-task execution guidance is indexed by
-``memory/MEMORY.md``. For each evaluation task, ``recipe/<task>_s0.json``
-contains a semantic phase plan and ``recipe/recipe_<task>_s0.jsonl`` retains the
-source action sequence as historical evidence.
+The read-only planner resources live under ``robotwin/`` in the dataset and are
+synced to ``<RPent-clone-path>/resources/robotwin/``.
+
+``memory/MEMORY.md`` indexes reusable experience across tasks, including
+perception cues, control heuristics, recovery strategies, parameter-selection
+guidance, and common failure modes. The planner can follow the index to read
+only the memory entries relevant to the current task or observed failure.
+
+For each evaluation task, ``recipe/<task>_s0.json`` is the semantic recipe
+distilled from a successful trajectory. It describes the phase-level goals,
+observable completion gates, control and VLA guidance, and known failure modes.
+The companion ``recipe/recipe_<task>_s0.jsonl`` records the historical tool
+calls from that trajectory, providing evidence about action order, tool choice,
+and action-chunk cadence.
+
+The ``_s0`` suffix is a uniform recipe-slot name used for convenient prompt
+lookup; it does not mean RoboTwin seed 0. Since some randomly generated seeds
+may be unsolvable, the source seed for each recipe is selected using RoboTwin's
+official expert program. The actual source seed is recorded in the recipe
+metadata.
 
 These recipes are derived from successful ``demo_clean`` trajectories for use
 as strategy priors in independently generated ``demo_randomized`` scenes. They

@@ -107,8 +107,12 @@ Relocalize after occlusion, contact, or substantial arm/object motion."""
 
 RUNTIME = """The registered RoboTwin Toolkit is the only control surface. Do
 not use shell, Python, network clients, legacy command files, plan mode, user
-questions, or unrelated built-in tools. Call the selected registered tool in
-the same response instead of announcing a future action. The episode is
+questions, or unrelated built-in tools. Never inspect task source, evaluator
+implementation, hidden rewards, object poses, raw expert trajectories, another
+attempt, or unapproved historical geometry. The curated files under
+resources/robotwin/memory and resources/robotwin/recipe are approved planning
+references and are not subject to this restriction. Call the selected registered
+tool in the same response instead of announcing a future action. The episode is
 non-interactive and must not be restarted."""
 
 BUDGET_AND_SUCCESS = """Track remaining_steps = step_lim - take_action_cnt.
