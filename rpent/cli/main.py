@@ -43,7 +43,6 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
 
 from rpent.cli.tui import (
     start_first_prompt_resolver,
@@ -58,9 +57,6 @@ from rpent.planner.base import REASONING_EFFORTS, build_planner
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
-
-if TYPE_CHECKING:
-    from rpent.robots.robot_spec import RunConfig
 
 logger = get_logger("agent")
 
@@ -294,19 +290,6 @@ def _start_continuation_session(
     )
     session_message = _handoff_message(output_dir, session_number, session_max)
     return planner, system_prompt, session_message
-
-
-def _finalize_memory_merge(
-    memory: MemoryManager,
-    run_config: RunConfig,
-    solved: bool,
-) -> dict[str, Any]:
-    """Merge completed exploration artifacts into the memory corpus."""
-    return memory.merge_memory(
-        cell_tag=run_config.recipe_tag,
-        run_state_dir=run_config.output_dir,
-        solved=solved,
-    )
 
 
 def main() -> int:
@@ -558,7 +541,11 @@ def main() -> int:
         and memory_manager is not None
     ):
         try:
-            merge_result = _finalize_memory_merge(memory_manager, run_config, solved)
+            merge_result = memory_manager.merge_memory(
+                cell_tag=run_config.recipe_tag,
+                run_state_dir=run_config.output_dir,
+                solved=solved,
+            )
             if merge_result:
                 logger.info("memory merged: %s", merge_result)
         except Exception as exc:

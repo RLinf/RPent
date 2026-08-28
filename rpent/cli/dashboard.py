@@ -28,7 +28,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rpent.cli.main import (
-    _finalize_memory_merge,
     _handoff_message,
     _serialize_messages,
 )
@@ -339,7 +338,11 @@ def _run_dashboard_task(
         and memory_manager is not None
     ):
         try:
-            merge_result = _finalize_memory_merge(memory_manager, run_config, solved)
+            merge_result = memory_manager.merge_memory(
+                cell_tag=run_config.recipe_tag,
+                run_state_dir=run_config.output_dir,
+                solved=solved,
+            )
             if merge_result:
                 logger.info("run finalized: %s", merge_result)
         except Exception as exc:
