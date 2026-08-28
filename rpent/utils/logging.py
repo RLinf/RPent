@@ -1,4 +1,19 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Package logger for run output and ``run.log`` files."""
+
 from __future__ import annotations
 
 import logging
@@ -19,10 +34,10 @@ class _ColourFormatter(logging.Formatter):
     """Colour only the level marker; never mutates the shared record."""
 
     _COLOURS = {
-        logging.DEBUG: "\033[90m",     # grey
+        logging.DEBUG: "\033[90m",  # grey
         logging.INFO: "",
-        logging.WARNING: "\033[93m",   # yellow
-        logging.ERROR: "\033[91m",     # red
+        logging.WARNING: "\033[93m",  # yellow
+        logging.ERROR: "\033[91m",  # red
         logging.CRITICAL: "\033[95m",  # magenta
     }
     _LEVEL_LETTERS = {
@@ -71,7 +86,7 @@ class _StripPkgPrefixFilter(logging.Filter):
         if record.name == _PKG_LOGGER_NAME:
             record.name = "root"
         elif record.name.startswith(self._PREFIX):
-            record.name = record.name[len(self._PREFIX):]
+            record.name = record.name[len(self._PREFIX) :]
         return True
 
 
@@ -110,16 +125,12 @@ def init_output_dir(log_dir: str | Path | None = None, verbose: bool = False) ->
     # -- stdout handler ---------------------------------------------------
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setLevel(level)
-    stdout_handler.setFormatter(
-        _ColourFormatter("[%(name)s] %(message)s")
-    )
+    stdout_handler.setFormatter(_ColourFormatter("[%(name)s] %(message)s"))
     stdout_handler.addFilter(strip_filter)
     pkg_logger.addHandler(stdout_handler)
 
     # -- file handler (timestamped) --------------------------------------
-    file_handler = logging.FileHandler(
-        str(_output_dir / "run.log"), encoding="utf-8"
-    )
+    file_handler = logging.FileHandler(str(_output_dir / "run.log"), encoding="utf-8")
     file_handler.setLevel(level)
     file_handler.setFormatter(
         _CompactLevelFormatter(

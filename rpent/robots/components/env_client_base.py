@@ -1,15 +1,34 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Unified env client base class. Design reference for adding a new env
 backend: ``docs/source-zh/rst_source/development/add_env.rst``.
 """
+
 from __future__ import annotations
 
 
 class BaseEnvClient:
-    """Unified env client base class.
-    """
+    """Unified env client base class."""
 
-    _TIMEOUT_S: dict[str, float] = {"default": 30.0, "env.reset": 120.0,
-                                     "env.step": 60.0, "env.chunk_step": 120.0}
+    _TIMEOUT_S: dict[str, float] = {
+        "default": 30.0,
+        "env.reset": 120.0,
+        "env.step": 60.0,
+        "env.chunk_step": 120.0,
+        "env.render_camera": 120.0,
+    }
 
     def __init__(self, client, *, expected_meta: dict):
         self._client = client
@@ -74,3 +93,23 @@ class BaseEnvClient:
         else:
             self.last_obs = obs_field
         return result
+
+    def get_camera_meta(self, camera_name, **kwargs):
+        return self._client.call(
+            "env.get_camera_meta",
+            kwargs={"camera_name": camera_name, **kwargs},
+            timeout_s=self._TIMEOUT_S["default"],
+        )
+
+    def render_camera(self, camera_name, **kwargs):
+        return self._client.call(
+            "env.render_camera",
+            kwargs={"camera_name": camera_name, **kwargs},
+            timeout_s=self._TIMEOUT_S["env.render_camera"],
+        )
+
+    def get_task_language(self) -> str | None:
+        """Return the language description of the current task."""
+        return self._client.call(
+            "env.get_task_language", timeout_s=self._TIMEOUT_S["default"]
+        )

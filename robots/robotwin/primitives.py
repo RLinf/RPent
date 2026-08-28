@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RoboTwin primitives built on RLinf environment APIs."""
 
 from __future__ import annotations
@@ -66,7 +80,7 @@ class RoboTwinPrimitives:
         return frames
 
     def frame_slice(self, start: int) -> list[np.ndarray]:
-        return list(self._frames[int(start):])
+        return list(self._frames[int(start) :])
 
     def reset(
         self,
@@ -107,7 +121,9 @@ class RoboTwinPrimitives:
         """Assemble the rgb-only observation the LingBot policy infers on."""
         views = {}
         for camera_name in ROBOTWIN_CAMERA_NAMES:
-            views[camera_name] = {"rgb": np.asarray(self.env.render_camera(camera_name))}
+            views[camera_name] = {
+                "rgb": np.asarray(self.env.render_camera(camera_name))
+            }
         return {
             "views": views,
             "robot_state": self.env.last_info["robot_state"],

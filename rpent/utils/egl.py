@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Resolve ``MUJOCO_EGL_DEVICE_ID`` from the requested CUDA device.
 
 EGL enumerates devices independently of ``CUDA_VISIBLE_DEVICES``, and the EGL
@@ -7,6 +21,7 @@ at the *matching* EGL device makes MuJoCo render on the wrong device — or on a
 software/DRM-only EGL entry — and env_server crashes. This module bridges the
 two enumerations.
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -36,15 +51,26 @@ def cuda_to_egl_map() -> dict[int, int]:
     # eglQueryDeviceAttribEXT isn't exposed by mujoco.egl; grab the raw pointer.
     proc = GLEGL.eglGetProcAddress("eglQueryDeviceAttribEXT")
     if not proc:
-        raise RuntimeError("eglQueryDeviceAttribEXT unavailable (need EGL_EXT_device_query)")
-    _query = ctypes.cast(int(proc), ctypes.CFUNCTYPE(
-        ctypes.c_uint, ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_ssize_t)))
+        raise RuntimeError(
+            "eglQueryDeviceAttribEXT unavailable (need EGL_EXT_device_query)"
+        )
+    _query = ctypes.cast(
+        int(proc),
+        ctypes.CFUNCTYPE(
+            ctypes.c_uint,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_ssize_t),
+        ),
+    )
 
     mapping: dict[int, int] = {}
     for egl_index, dev in enumerate(EGL.eglQueryDevicesEXT()):
-        ext = (eglQueryDeviceStringEXT(dev, _EGL_EXTENSIONS) or b"").decode(errors="replace")
+        ext = (eglQueryDeviceStringEXT(dev, _EGL_EXTENSIONS) or b"").decode(
+            errors="replace"
+        )
         if "EGL_NV_device_cuda" not in ext:
-            continue                                      # software / DRM-only — skip
+            continue  # software / DRM-only — skip
         addr = ctypes.cast(dev, ctypes.c_void_p).value
         val = ctypes.c_ssize_t(-1)
         if _query(ctypes.c_void_p(addr), _EGL_CUDA_DEVICE_NV, ctypes.byref(val)) == 1:
@@ -67,7 +93,9 @@ def configure_egl_device(cuda_device: int) -> None:
     if existing is not None:
         logger.warning(
             "MUJOCO_EGL_DEVICE_ID=%s already set; keeping it "
-            "(ignoring --cuda-device=%s)", existing, cuda_device,
+            "(ignoring --cuda-device=%s)",
+            existing,
+            cuda_device,
         )
         return
     cuda_ordinal = cuda_device
@@ -75,7 +103,9 @@ def configure_egl_device(cuda_device: int) -> None:
     try:
         mapping = cuda_to_egl_map()
     except Exception as e:
-        logger.warning("EGL device probe failed (%s); leaving MUJOCO_EGL_DEVICE_ID unset", e)
+        logger.warning(
+            "EGL device probe failed (%s); leaving MUJOCO_EGL_DEVICE_ID unset", e
+        )
         return
 
     egl_index = mapping.get(cuda_ordinal)
@@ -83,7 +113,8 @@ def configure_egl_device(cuda_device: int) -> None:
         logger.warning(
             "CUDA device %d has no matching EGL device (map=%s); "
             "leaving MUJOCO_EGL_DEVICE_ID unset",
-            cuda_ordinal, mapping,
+            cuda_ordinal,
+            mapping,
         )
         return
 
@@ -92,7 +123,9 @@ def configure_egl_device(cuda_device: int) -> None:
         logger.info(
             "EGL device order != CUDA order: CUDA %d -> EGL %d "
             "(set MUJOCO_EGL_DEVICE_ID=%d)",
-            cuda_ordinal, egl_index, egl_index,
+            cuda_ordinal,
+            egl_index,
+            egl_index,
         )
     else:
         logger.debug("MUJOCO_EGL_DEVICE_ID=%d (CUDA %d)", egl_index, cuda_ordinal)

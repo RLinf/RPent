@@ -78,6 +78,8 @@ Relevant ``api`` planner knobs:
   text-only models. The agent then reasons from textual state alone,
   so task performance may not be satisfactory.
 
+.. _planner-claude-code:
+
 The ``claude_code`` planner
 ----------------------------
 
@@ -108,6 +110,8 @@ Notes:
   `Claude Agent SDK docs
   <https://code.claude.com/docs/en/agent-sdk/overview>`_.
 
+.. _planner-codex:
+
 The ``codex`` planner
 ----------------------
 
@@ -132,6 +136,8 @@ Notes:
   a custom Responses-compatible endpoint, set ``CODEX_BASE_URL`` and
   ``CODEX_API_KEY``. This backend does not read ``OPENAI_BASE_URL`` or
   ``OPENAI_API_KEY``.
+
+.. _planner-custom:
 
 Add a custom planner
 --------------------

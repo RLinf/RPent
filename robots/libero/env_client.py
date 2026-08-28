@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """LIBERO env client that forwards calls over an RPC transport.
 
 Lives in :mod:`robots.libero` because the methods exposed
@@ -41,11 +55,10 @@ class LiberoEnvClient(BaseEnvClient):
         self.truncated |= bool(np.asarray(trunc).any())
 
     def reset(self) -> tuple[dict, Any]:
-        ret = super().reset()
-        self.last_obs = ret[0]
+        self.last_obs, info = super().reset()
         self.terminated = False
         self.truncated = False
-        return ret
+        return self.last_obs, info
 
     def step(self, action) -> tuple[dict, Any, np.ndarray, Any, Any]:
         assert not (self.terminated or self.truncated), (
@@ -90,15 +103,8 @@ class LiberoEnvClient(BaseEnvClient):
         width: int = 1024,
         depth: bool = False,
     ):
-        return self._client.call(
-            "env.render_camera",
-            kwargs={
-                "camera_name": camera_name,
-                "height": height,
-                "width": width,
-                "depth": depth,
-            },
-            timeout_s=self._TIMEOUT_S["env.render_camera"],
+        return super().render_camera(
+            camera_name, height=height, width=width, depth=depth
         )
 
     def get_camera_meta(
@@ -107,13 +113,4 @@ class LiberoEnvClient(BaseEnvClient):
         height: int = 256,
         width: int = 256,
     ) -> dict | None:
-        return self._client.call(
-            "env.get_camera_meta",
-            kwargs={"camera_name": camera_name, "height": height, "width": width},
-            timeout_s=self._TIMEOUT_S["default"],
-        )
-
-    def get_task_language(self) -> str | None:
-        return self._client.call(
-            "env.get_task_language", timeout_s=self._TIMEOUT_S["default"]
-        )
+        return super().get_camera_meta(camera_name, height=height, width=width)

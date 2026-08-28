@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RoboTwin robot extension — runtime contracts and runtime hooks."""
 
 from __future__ import annotations
@@ -216,10 +230,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--robotwin-assets-path",
         default=os.environ.get("ROBOTWIN_ASSETS_PATH"),
-        help=(
-            "Path to the RoboTwin asset snapshot. "
-            "Defaults to ROBOTWIN_ASSETS_PATH."
-        ),
+        help=("Path to the RoboTwin asset snapshot. Defaults to ROBOTWIN_ASSETS_PATH."),
     )
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument("--vla-endpoint", default=None)
@@ -473,9 +484,7 @@ def _init_runtime(
         except Exception as exc:
             stop_owned_daemons(owned_daemons, dashboard_events)
             dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
-            raise RuntimeError(
-                f"[vla] wait / client connect failed: {exc}"
-            ) from exc
+            raise RuntimeError(f"[vla] wait / client connect failed: {exc}") from exc
         dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
         primitives_kwargs.update(vla_kwargs)
 

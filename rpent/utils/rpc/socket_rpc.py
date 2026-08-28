@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Pickle-framed TCP transport for the env + model RPC boundary.
 
 The client process ships ``(method, args, kwargs)`` tuples to the server
@@ -8,16 +22,20 @@ frames (length-prefixed, one frame per request/response).
 Both processes are spawned by the same user on the same host, so we use
 pickle rather than a more defensive codec.
 """
+
 from __future__ import annotations
 
 import pickle
 import socket
 import socketserver
 import struct
-from collections.abc import Callable
-from typing import Any
+from typing import Any, Callable
 
-from rpent.utils.rpc import check_response, make_error_response
+from rpent.utils.logging import get_logger
+from rpent.utils.rpc.rpc_client import RpcClient, check_response
+from rpent.utils.rpc.rpc_facade import make_error_response
+
+logger = get_logger("socket_rpc")
 
 DEFAULT_CONNECT_TIMEOUT_S = 10.0
 DEFAULT_REQUEST_TIMEOUT_S = 30.0
@@ -48,7 +66,7 @@ def _write_frame(writer, obj: Any) -> None:
     writer.flush()
 
 
-class SocketRpcClient:
+class SocketRpcClient(RpcClient):
     """One-request-per-connection pickle-framed RPC client."""
 
     def __init__(
@@ -92,7 +110,8 @@ class _RequestHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         try:
             payload = _read_frame(self.rfile)
-        except Exception:
+        except Exception as exc:
+            logger.debug("rpc read failed: %s", exc)
             return
         try:
             method = payload["method"]
@@ -104,8 +123,8 @@ class _RequestHandler(socketserver.StreamRequestHandler):
             response = make_error_response(exc)
         try:
             _write_frame(self.wfile, response)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("rpc write failed: %s", exc)
 
 
 class SocketRpcServer(socketserver.ThreadingTCPServer):

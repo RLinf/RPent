@@ -21,16 +21,27 @@
   <sub>RPent: Agentic Infrastructure for the Physical World</sub>
 </h1>
 
-**RPent (Recursive Physical Agent)** is an open framework for building embodied agents that continuously evolve through recursive interaction with the physical world. Rather than prescribing a single foundation model, RPent provides a recursive agent framework that harnesses heterogeneous intelligence, including perception, reasoning, memory, execution, and self-evolution, into a unified physical agent. Through continuous interaction, reflection, and adaptation, RPent enables physical agents to acquire new capabilities and evolve beyond their initial design.
-
-RPent is built upon three core design principles: **service-oriented, standardized, and composable**. RPent enables capabilities to be deployed as reusable services, connected through unified interfaces, and flexibly composed into diverse physical agents. Together, these principles allow RPent to move beyond traditional robot control frameworks and establish an agentic infrastructure for the physical world, where intelligence is not only deployed, but continuously built, expanded, and evolved.
+**RPent (Recursive Physical Agent)** is an open framework for building embodied agents that continuously evolve through recursive interaction with the physical world. Rather than prescribing a single foundation model, RPent provides a recursive agent framework that harnesses heterogeneous intelligence, including perception, reasoning, memory, execution, and self-evolution, into a unified physical agent. Through continuous interaction, reflection, and adaptation, RPent enables physical agents to acquire new capabilities and evolve beyond their initial design. We build RPent upon a foundation of **service-oriented**, **standardized**, and **composable** design principles, ensuring the framework remains highly extensible.
 
 <div align="center">
   <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_framework.png" alt="RPent framework"/>
 </div>
 
+## Who Should Consider Using RPent?
+
+RPent is built for four kinds of users:
+
+- **Embodied intelligence researchers** targeting high success rates on embodied tasks and benchmarks — especially long-horizon manipulation. RPent's memory-guided, agentic composition consistently lifts task success beyond what a frozen VLA delivers alone.
+- **Online-learning and reinforcement-learning researchers** studying self-evolving embodied agents. RPent's recursive interaction, reflection, and memory-distillation loops provide a ready substrate for continual and reinforcement learning in the physical world.
+- **Robotics application developers** deploying embodied solutions on real robot hardware. RPent's service-oriented, standardized architecture and customizable agentic control logic improve real-world success rates and shorten the path from prototype to production.
+- **End users of deployed embodied agents** — the customers of the developers above. Install RPent together with the relevant real-robot extensions and run the predefined tasks out of the box, with no ML expertise required.
+
 ## What's NEW!
 
+- [2026/08] 🔥 RPent supports the non-reasoning mode, which reduces average execution time by ~40%.
+- [2026/08] 🔥 RPent supports exploration mode for LIBERO. Doc: [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#exploration-and-local-memory-evaluation).
+- [2026/08] 🔥 RPent supports RoboTwin with LingBot-VLA for dual-arm manipulation tasks. Doc: [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html).
+- [2026/08] 🔥 RPent supports RoboCasa with RLDX-1 as manipulation model. Doc: [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
 - [2026/07] 🔥 Our first RPent publication, [Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents](https://arxiv.org/abs/2607.08448), is released.
 
 ## Feature Matrix
@@ -48,18 +59,18 @@ RPent is built upon three core design principles: **service-oriented, standardiz
     <tr>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li>Claude Code ✅</li>
-          <li>Codex ✅</li>
-          <li>Custom Planner ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html#the-claude-code-planner">Claude Code</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html#the-codex-planner">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html#add-a-custom-planner">Custom Planner</a> ✅</li>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
           <li><b>VLA</b></li>
           <ul>
-            <li>Pi0.5 ✅</li>
-            <li>RLDX-1 ✅</li>
-            <li>LingBot-VLA ✅</li>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html">Pi0.5</a> ✅</li>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html">RLDX-1</a> ✅</li>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html">LingBot-VLA</a> ✅</li>
           </ul>
           <li><b>WAM</b></li>
           <ul>
@@ -69,9 +80,9 @@ RPent is built upon three core design principles: **service-oriented, standardiz
       </td>
       <td style="text-align: left; padding-left: 8px;">
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li>LIBERO-PRO ✅</li>
-          <li>RoboCasa ✅</li>
-          <li>RoboTwin ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html">LIBERO-PRO</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html">RoboCasa</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html">RoboTwin</a> ✅</li>
         </ul>
       </td>
       <td>
@@ -143,30 +154,7 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 ```
 
 See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.
-
-### Exploration and local-memory evaluation
-
-Evaluation remains the default. Add `--memory-profile local` to evaluate
-against a local global/suite/task memory corpus:
-
-```bash
-rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
-  --planner codex --memory-profile local \
-  --memory-dir /path/to/libero-memory
-```
-
-Use the same entrypoint with `--explore` to enable resettable attempts, fresh
-planner sessions, memory distillation, and automatic merge:
-
-```bash
-rpent --robot libero --suite libero_10_task --task 0 --seed 0 \
-  --planner api --model anthropic:claude-opus-4-8 \
-  --explore --explore-sessions 3 --explore-attempts-per-session 5 \
-  --memory-dir /path/to/libero-memory
-```
-
-The original Hugging Face memory and prompt remain the default
-(`--memory-profile hf`). See the [LIBERO docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html) for memory maintenance commands.
+For the exploration workflow and local-memory evaluation, see [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#exploration-and-local-memory-evaluation).
 
 ### Interactive CLI mode
 
@@ -186,48 +174,9 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
   --planner claude_code --model claude-opus-4-8
 ```
 
+For a complete list of CLI options, see the [Key CLI options](https://rpent.readthedocs.io/en/latest/rst_source/quickstart.html#key-cli-options) table in the Quick Start docs. RoboCasa and RoboTwin use their own entrypoints and CLI — see the [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html) and [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html) docs.
+
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
-
-### RoboCasa
-
-RoboCasa uses a separate entrypoint and install guide. See the [RoboCasa usage docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html) for installation and running instructions.
-
-### RoboTwin
-
-RoboTwin is supported with LingBot-VLA for dual-arm manipulation tasks.
-See the [RoboTwin usage docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html) for installation and running instructions.
-
-## Key CLI Options
-
-<table width="100%" style="width: 100%; table-layout: auto; border-collapse: collapse;">
-  <thead align="center" valign="bottom">
-    <tr>
-      <th style="min-width: 160px; text-align: left;">Flag</th>
-      <th style="min-width: 120px;">Default</th>
-      <th style="min-width: 360px;">Description</th>
-    </tr>
-  </thead>
-  <tbody valign="top">
-    <tr><td><code>--robot</code></td><td>— (required)</td><td>Robot backend. Currently <code>libero</code>.</td></tr>
-    <tr><td><code>--suite</code></td><td>— (required)</td><td>Task suite, e.g. <code>libero_object_task</code>, <code>libero_spatial_swap</code></td></tr>
-    <tr><td><code>--task</code></td><td>— (required)</td><td>Task id within the suite</td></tr>
-    <tr><td><code>--seed</code></td><td><code>0</code></td><td>Random seed</td></tr>
-    <tr><td><code>--planner</code></td><td><code>api</code></td><td><code>api</code> | <code>claude_code</code> | <code>codex</code></td></tr>
-    <tr><td><code>--model</code></td><td>—</td><td>Model id; for <code>api</code>, prefix the provider (<code>anthropic:…</code>, <code>openai:…</code>, <code>openai-chat:…</code>)</td></tr>
-    <tr><td><code>--max-turns</code></td><td><code>100</code></td><td>Max agent turns</td></tr>
-    <tr><td><code>--max-tokens</code></td><td><code>8192</code></td><td>Max tokens per LLM reply</td></tr>
-    <tr><td><code>--reasoning-effort</code></td><td><code>none</code></td><td>Reasoning effort for <code>api</code>, <code>claude_code</code>, and <code>codex</code>: <code>none</code> | <code>low</code> | <code>medium</code> | <code>high</code> | <code>xhigh</code>. Disabling reasoning reduced the average runtime from approximately 13.2 to 7.9 minutes (about 40%) in our LIBERO Pro Long evaluations. Higher effort may improve task success rate. Supported levels ultimately depend on the selected model.</td></tr>
-    <tr><td><code>--no-images</code></td><td>off</td><td>Text-only mode: never send image bytes (for models that reject image input)</td></tr>
-    <tr><td><code>--max-episode-steps</code></td><td><code>10000</code></td><td>Max env steps</td></tr>
-    <tr><td><code>--libero-type</code></td><td><code>LIBERO_TYPE</code> or <code>pro</code></td><td>LIBERO variant: <code>standard</code> | <code>pro</code> | <code>plus</code></td></tr>
-    <tr><td><code>--cuda-device</code></td><td>inherited</td><td>GPU device exposed to the env / VLA / SAM3 servers</td></tr>
-    <tr><td><code>--dashboard</code></td><td>off</td><td>Start a local Dashboard</td></tr>
-    <tr><td><code>--dashboard-language</code></td><td><code>en</code></td><td>Dashboard UI language: <code>en</code> | <code>zh-cn</code></td></tr>
-    <tr><td><code>--env-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing env_server (<code>protocol=http|socket</code>, default <code>http</code>). If unset, one is spawned locally.</td></tr>
-    <tr><td><code>--vla-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing vla_server (same rules). If unset, one is spawned locally.</td></tr>
-    <tr><td><code>--sam3-endpoint</code></td><td>— (spawn)</td><td><code>[protocol://]host:port</code> of an existing RPent SAM3 service (same rules). If unset, one is spawned locally.</td></tr>
-  </tbody>
-</table>
 
 ## Citation and Acknowledgement
 

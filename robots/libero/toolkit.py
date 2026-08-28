@@ -1,8 +1,23 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """LIBERO toolkit: common tools + LIBERO primitives.
 
 Inherits the common file/IO tools from :class:`Toolkit` and registers the
 LIBERO primitives (``move_to``, ``pi0_pick``, ``release``, ...) on top.
 """
+
 from __future__ import annotations
 
 from functools import partial
@@ -57,9 +72,7 @@ class LiberoToolkit(Toolkit):
         # other spec binds to a primitive-driver method and captures state by
         # default unless that method is explicitly marked @readonly.
         state_handlers = {
-            "view_env_state": partial(
-                libero_tools.view_env_state, state=self._state
-            ),
+            "view_env_state": partial(libero_tools.view_env_state, state=self._state),
             "view_camera_meta": partial(
                 libero_tools.view_camera_meta, state=self._state
             ),
@@ -191,9 +204,7 @@ class LiberoToolkit(Toolkit):
         except Exception as e:
             # The runner is in the cleanup path; never let a video save
             # abort it.
-            logger.warning(
-                f"failed to save episode video: {e}"
-            )
+            logger.warning(f"failed to save episode video: {e}")
 
     def solved(self) -> bool:
         """Return whether this run has completed the task."""
@@ -201,4 +212,6 @@ class LiberoToolkit(Toolkit):
 
     def write_recipe(self, recipe_tag: str) -> str:
         """Write the LIBERO recipe JSONL from the dumped state trace."""
-        return libero_tools.write_recipe_from_states(self._state, recipe_tag, output_dir=get_output_dir())
+        return libero_tools.write_recipe_from_states(
+            self._state, recipe_tag, output_dir=get_output_dir()
+        )

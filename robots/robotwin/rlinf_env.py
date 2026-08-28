@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPent/agent runtime extension over the RLinf training ``RoboTwinEnv``."""
 
 from __future__ import annotations
@@ -30,9 +44,7 @@ def _camera_meta(camera: Any) -> dict[str, Any]:
     }
 
 
-def _validate_actions(
-    actions: Any, *, action_type: RoboTwinActionType
-) -> np.ndarray:
+def _validate_actions(actions: Any, *, action_type: RoboTwinActionType) -> np.ndarray:
     if action_type not in ("qpos", "ee"):
         raise ValueError("action_type must be 'qpos' or 'ee'")
     array = np.asarray(actions, dtype=np.float64)
@@ -57,6 +69,22 @@ def _execution_should_stop(status: dict[str, Any]) -> bool:
 
 class RoboTwinAgentEnv(RoboTwinEnv):
     """RPent/agent runtime extension; preserves training RoboTwinEnv unchanged."""
+
+    @staticmethod
+    def _initialize_native_evaluator_state(task: Any) -> None:
+        """Initialize private state required by native success checkers."""
+        task_name = type(task).__name__
+        if task_name == "open_laptop":
+            from robotwin.envs.utils import get_face_prod
+
+            face_prod = get_face_prod(task.laptop.get_pose().q, [1, 0, 0], [1, 0, 0])
+            task.arm_tag = "left" if face_prod > 0 else "right"
+        elif task_name == "place_object_scale":
+            task.arm_tag = "right" if task.object.get_pose().p[0] > 0 else "left"
+        elif task_name == "put_object_cabinet":
+            object_position = task.object.get_pose().p
+            task.arm_tag = "right" if object_position[0] > 0 else "left"
+            task.origin_z = float(object_position[2])
 
     def _sub_env(self, env_id: int) -> Any:
         if not 0 <= env_id < len(self.venv.envs):
@@ -128,11 +156,13 @@ class RoboTwinAgentEnv(RoboTwinEnv):
                 truncations.append(bool(budget))
                 per_step.append({"episode_status": step_status})
                 if return_all_frames:
-                    head_rgb = sub_env.task.get_obs()["observation"][
-                        "head_camera"
-                    ]["rgb"]
+                    head_rgb = sub_env.task.get_obs()["observation"]["head_camera"][
+                        "rgb"
+                    ]
                     frames.append(
-                        np.asarray(self.center_and_crop(head_rgb, center_crop=self.center_crop))
+                        np.asarray(
+                            self.center_and_crop(head_rgb, center_crop=self.center_crop)
+                        )
                     )
             episode_status = self._episode_status(sub_env)
             robot_state = self._robot_state(sub_env)
@@ -188,6 +218,7 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         observation, info = super().reset(env_idx=env_idx, env_seeds=env_seeds)
         sub_env = self._sub_env(0)
         with sub_env.lock:
+            self._initialize_native_evaluator_state(sub_env.task)
             info["robot_state"] = self._robot_state(sub_env)
             info["episode_status"] = self._episode_status(sub_env)
         return observation, info
