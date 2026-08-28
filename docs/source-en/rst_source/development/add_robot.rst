@@ -72,12 +72,11 @@ these two functions:
            dashboard=MYROBOT_DASHBOARD_SPEC,
        )
 
-   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None):
+   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink):
        from robots.myrobot.toolkit import MyRobotToolkit
        return MyRobotToolkit(
            primitives_kwargs=primitives_kwargs,
            dashboard_events=dashboard_events,
-           video_path=video_path,
        )
 
    def _add_cli_args(parser, use_dashboard) -> None:
@@ -101,10 +100,10 @@ these two functions:
        ...
 
 ``dashboard`` is optional. Leave it as ``None`` if the environment does not
-support Dashboard control. Otherwise, define the spec in the environment
+support Dashboard control. Otherwise, define the spec in the robot
 package: its ``task`` section describes the command, validated fields, display
 template, and output slug; ``runtime_components`` and ``frame_channels``
-describe the environment-specific rows and camera views rendered by the
+describe the robot-specific rows and camera views rendered by the
 frontend. See ``robots/libero/robot_spec.py`` for the reference shape.
 
 That's the entire registration step — ``_resolve_robot(name)`` does an
@@ -172,19 +171,18 @@ import torch).
    class MyEnvFacade(BaseEnvFacade):
        def __init__(self, env, meta):
            self._env = env
-           self._meta = dict(meta)
            super().__init__()
 
        def _register_rpc(self):
            super()._register_rpc()
-           self._rpc["env.render_camera"] = self.render_camera
+           # Custom methods must be registered explicitly
+           self._rpc["env.custom_method"] = self.custom_method
 
-       def get_env_meta(self): return dict(self._meta)
+       # Abstract methods required by BaseEnvFacade
        def reset(self): ...
        def step(self, action): ...
-       def chunk_step(self, actions, *, return_all_frames=False): ...
-       def render_camera(self, camera_name): ...
-       def close(self): ...
+
+       def custom_method(self, arg): ...
 
    facade = MyEnvFacade(env, meta)
    facade.serve(transport="http", host=host, port=port)
@@ -203,7 +201,7 @@ teardown.
 
 Define two prompt factories, ``system_prompt()`` and ``user_prompt()``, and
 build a ``PromptBundle(system=system_prompt, user=user_prompt)`` in the
-environment's ``robot_spec.py`` (see the entry point above). Each factory returns an ordered
+robot's ``robot_spec.py`` (see the entry point above). Each factory returns an ordered
 ``dict[str, PromptNode]`` of titled sections; ``PromptBundle.render`` assembles
 and fills them. One prompt serves every planner (API loop, Claude Code, Codex):
 refer to tools by their bare names (``move_to``, ...) and note once that the
@@ -275,7 +273,7 @@ filenames rather than maintaining a parallel observation index.
 **Toolkit class** — subclass ``rpent.tools.toolkit.Toolkit``:
 
 - build the primitives in ``__init__`` through a custom initialization
-  helper (named ``init_primitives_clean`` in LIBERO; it calls
+  helper (named ``init_primitives`` in LIBERO; it calls
   ``EnvState.reset()``, constructs the primitives, and dumps step 0),
 - register each tool with ``self.add_tool(name, spec, handler)`` — stateless
   readers (``view_env_state``, ``finish``, …) bind directly to module-level
@@ -385,11 +383,11 @@ overlap. See ``robots/libero/robot_spec.py`` for the ordered component registry
 used by the reference implementation.
 
 Endpoint parsing (``--env-endpoint``, ``--vla-endpoint``, and LIBERO's
-``--sam3-endpoint``) and environment-specific server commands belong in the
+``--sam3-endpoint``) and robot-specific server commands belong in the
 hook that owns the corresponding service. Wrap those spawners with
 ``rpent.robots.runtime.try_spawn_server`` and ``try_wait_server`` so status
 events, readiness failures, and owned-daemon cleanup stay consistent across
-environments. The runners do not handle these environment details. See
+robots. The runners do not handle these environment details. See
 ``robots/libero/robot_spec.py`` and ``robots/robocasa/robot_spec.py`` for the
 reference pattern.
 
