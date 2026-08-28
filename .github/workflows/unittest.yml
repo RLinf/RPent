@@ -14,9 +14,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  unit-tests:
+  test:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
