@@ -17,6 +17,7 @@
 from .artifacts import CellResult, Completion, Integrity, Outcome
 from .memory import build_memory_pack, pack_memory, validate_memory_pack
 from .protocol import CELLS, EXPECTED_ROLLOUTS, SPLITS, Cell, Split
+from .validator import summarize, validate_cell, validate_run
 
 __all__ = [
     "CELLS",
@@ -30,5 +31,8 @@ __all__ = [
     "Split",
     "build_memory_pack",
     "pack_memory",
+    "summarize",
+    "validate_cell",
     "validate_memory_pack",
+    "validate_run",
 ]
