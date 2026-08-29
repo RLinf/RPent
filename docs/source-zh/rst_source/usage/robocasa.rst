@@ -9,8 +9,8 @@ RoboCasa
 
 .. note::
 
-   当前代码尚未完全对齐 `harnessvla.github.io <https://harnessvla.github.io>`_
-   展示的效果，完整复现将在后续放出。
+   本页只说明普通的单任务 ``rpent --robot robocasa`` 运行方式，不定义
+   Atomic/Seen/Unseen 全量 benchmark 的正式复现协议。
 
 安装
 ----
@@ -68,6 +68,13 @@ CUDA 13-only 的机器换成 ``cu130``。
 
 加 ``--skip-existing`` 重跑会跳过已下载的目录。
 
+**移动相机**
+
+``robocasa`` extra 将 Robosuite 固定到包含 Omron 底盘 ``navview``
+相机的精确版本。首次环境 reset 后，RPent 会检查组合后的 MuJoCo 相机名
+``mobilebase0_navview``；缺失时会立即报告安装错误。此时应在当前 RPent
+版本下重新安装 ``.[robocasa]``，无需手工修改 ``site-packages`` 中的 XML。
+
 **RLDX-1 checkpoint**
 
 下面运行命令的 ``--vla-model-path`` 期望一个本地 ``RLDX-1-FT-RC365``
@@ -82,6 +89,27 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
 .. code-block:: bash
 
    HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
+
+**任务 Memory**
+
+默认评测会复用 RPent 的公共资源同步机制，从 Hugging Face 数据集
+``RLinf/RPent-memory`` 下载 ``robocasa/**`` 到 ``resources/robocasa``。
+当前任务只能使用下面这一组 seed-0 memory：
+
+.. code-block:: text
+
+   resources/robocasa/memory/task/<Task>_s0.json
+   resources/robocasa/memory/task/recipe_<Task>_s0.jsonl
+
+RoboCasa 不使用 global memory，也不会读取其他任务的 memory。两份文件都
+不存在时会明确警告并根据实时观测继续；只存在一份时会因 pair 不完整而停止。
+如需使用经过审核的本地 pair，请选择 local profile 并传入 memory 根目录：
+
+.. code-block:: bash
+
+   rpent --robot robocasa --task-name OpenDrawer --seed 1 \
+         --vla-model-path /path/to/rldx --planner claude_code \
+         --memory-profile local --memory-dir /path/to/robocasa-memory
 
 可用任务列表
 ------------
@@ -131,12 +159,25 @@ RoboCasa 的 CLI 参数由 ``robots/robocasa/__init__`` 注册，可通过
          --planner claude_code \
          --model claude-opus-4-8
 
+RoboCasa 不绑定具体 planner；RPent 支持的任意 planner 都可用于该机器人。
+配置方式参见 :doc:`configure_planner`。
+
 .. note::
 
    使用 ``--env-endpoint`` / ``--vla-endpoint`` 指向已运行的服务器
    (``[protocol://]host:port``)；不指定时，RPent 会就地启动 env 和 VLA
    子进程，日志分别写到 ``<output_dir>/env_server.log`` 和
    ``<output_dir>/vla_server.log``。
+
+常见错误
+--------
+
+- reset 报告缺少 ``mobilebase0_navview`` 时，应重新安装当前版本的
+  ``.[robocasa]``，确保使用固定的 Robosuite commit；不要手工修改已安装的 XML。
+- task-memory 警告表示当前任务缺少两份 seed-0 文件。请检查 Hugging Face
+  子目录或所选本地目录；RPent 不会退回读取其他任务。
+- 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和
+  ``<output_dir>/vla_server.log``。
 
 Toolkit 与 LIBERO 的差异
 ------------------------

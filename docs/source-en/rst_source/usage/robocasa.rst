@@ -10,9 +10,9 @@ for the wire/transport selection.
 
 .. note::
 
-   The current code does not yet fully match the results shown at
-   `harnessvla.github.io <https://harnessvla.github.io>`_; a full
-   reproduction will be released later.
+   This page documents ordinary single-task ``rpent --robot robocasa`` runs.
+   It does not define the full Atomic/Seen/Unseen benchmark reproduction
+   protocol.
 
 Installation
 ------------
@@ -73,6 +73,15 @@ shell that launches ``rpent``:
 
 Re-run with ``--skip-existing`` to leave downloaded folders alone.
 
+**Navigation camera**
+
+The ``robocasa`` extra pins Robosuite to the exact revision that adds the
+Omron base's fixed ``navview`` camera. On the first environment reset, RPent
+requires its composed MuJoCo name, ``mobilebase0_navview``. A missing camera
+therefore fails immediately with an installation error. Reinstall
+``.[robocasa]`` at this repository revision; no manual ``site-packages`` XML
+patch is required.
+
 **RLDX-1 checkpoint**
 
 The ``--vla-model-path`` flag on the run commands below expects a
@@ -88,6 +97,28 @@ If the download is slow, use the HF mirror:
 .. code-block:: bash
 
    HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
+
+**Task memory**
+
+Default evaluation uses RPent's public resource sync to download the
+``robocasa/**`` subtree from the ``RLinf/RPent-memory`` Hugging Face dataset
+into ``resources/robocasa``. The current task may use only this seed-0 pair:
+
+.. code-block:: text
+
+   resources/robocasa/memory/task/<Task>_s0.json
+   resources/robocasa/memory/task/recipe_<Task>_s0.jsonl
+
+RPent does not use global memory or another task's memory for RoboCasa. If
+neither file exists, it warns and continues from live observations; if only
+one exists, it stops because the pair is incomplete. To use a reviewed local
+pair instead, select the local profile and pass its memory root:
+
+.. code-block:: bash
+
+   rpent --robot robocasa --task-name OpenDrawer --seed 1 \
+         --vla-model-path /path/to/rldx --planner claude_code \
+         --memory-profile local --memory-dir /path/to/robocasa-memory
 
 Available task list
 -------------------
@@ -138,12 +169,27 @@ are visible under ``rpent --robot robocasa --help``:
          --planner claude_code \
          --model claude-opus-4-8
 
+RoboCasa does not select a planner implementation; any planner supported by
+RPent can run this robot. See :doc:`configure_planner` for configuration.
+
 .. note::
 
    Use ``--env-endpoint`` / ``--vla-endpoint`` to point at already-running
    servers (``[protocol://]host:port``); when omitted, RPent spawns the env
    and VLA daemons in-process and writes their logs to
    ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
+
+Troubleshooting
+---------------
+
+- If reset reports a missing ``mobilebase0_navview``, reinstall this
+  revision's ``.[robocasa]`` extra so the pinned Robosuite commit is used. Do
+  not patch installed XML files manually.
+- A task-memory warning means the current task's two seed-0 files are absent.
+  Check the Hugging Face subtree or the selected local directory; RPent never
+  falls back to another task.
+- Environment and VLA startup failures are recorded in
+  ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
 
 Toolkit design vs. LIBERO
 -------------------------
