@@ -133,6 +133,16 @@ GRIPPER RULES:
 - Carrying with -1 silently drops the object.
 """
 
+MEMORY = """
+Before acting, look only for this task's reviewed seed-0 memory:
+- {{memory_dir}}/task/{{task_name}}_s0.json
+- {{memory_dir}}/task/recipe_{{task_name}}_s0.jsonl
+Use read_text_file to read both files when they exist. Treat the recipe as a
+strategy prior, not a trajectory to replay: current RGB-D, task progress, and
+primitive results always take precedence. Never read another task's memory and
+do not use global memory. If both files are absent, solve from live observations.
+"""
+
 WORKFLOW = """
 WORKFLOW:
 1. Read state_00 + images. Check task_language and success_criteria.

@@ -34,12 +34,14 @@ from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
 from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
+from rpent.utils.logging import get_logger
 from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
 
+logger = get_logger("robocasa")
 
 ROBOCASA_DASHBOARD_SPEC = {
     "task": {
@@ -72,6 +74,30 @@ ROBOCASA_DASHBOARD_SPEC = {
 }
 
 
+def _check_task_memory(memory_dir: Path, task_name: str) -> bool:
+    """Require a complete task-matched seed-0 pair when either file exists."""
+    task_dir = memory_dir / "task"
+    audit = task_dir / f"{task_name}_s0.json"
+    recipe = task_dir / f"recipe_{task_name}_s0.jsonl"
+
+    audit_exists = audit.is_file()
+    recipe_exists = recipe.is_file()
+    if audit_exists != recipe_exists:
+        raise ValueError(
+            f"RoboCasa task memory for {task_name!r} is incomplete: expected "
+            f"both {audit.name!r} and {recipe.name!r} under {task_dir}"
+        )
+    if not audit_exists:
+        logger.warning(
+            "no task-matched seed-0 memory found for %s under %s; continuing "
+            "without task memory",
+            task_name,
+            task_dir,
+        )
+        return False
+    return True
+
+
 def get_robot_spec() -> RobotSpec:
     """Return the RoboCasa robot identity, prompt bundle, and runner hooks.
 
@@ -100,9 +126,11 @@ def get_toolkit(
     """Return the RoboCasa toolkit for the current session."""
     from robots.robocasa.toolkit import RoboCasaToolkit
 
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
+    memory_dir = Path(
+        config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa")
     )
+    _check_task_memory(memory_dir, str(config.task_desc["task_name"]))
+    memory = MemoryManager(root=memory_dir)
     return RoboCasaToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
@@ -157,12 +185,22 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if not args.task_name:
         raise ValueError("--task-name is required")
 
+    memory_arg = getattr(args, "memory_dir", None)
+    memory_dir = (
+        Path(memory_arg).expanduser().resolve()
+        if memory_arg
+        else get_memory_dir("robocasa")
+    )
+    memory_profile = getattr(args, "memory_profile", None) or "hf"
+
     recipe_tag = f"{args.task_name}_{args.split}_s{args.seed}"
     prompt_vars = {
         "task_name": args.task_name,
         "split": args.split,
         "seed": args.seed,
         "recipe_tag": recipe_tag,
+        "memory_profile": memory_profile,
+        "memory_dir": str(memory_dir),
     }
 
     output_dir = args.output_dir
