@@ -45,6 +45,7 @@ dependencies = [
 [project.scripts]
 rpent = "rpent.cli.main:main"
 rpent-memory = "rpent.cli.memory:main"
+rpent-reproduce = "rpent.cli.reproduce:main"
 
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"

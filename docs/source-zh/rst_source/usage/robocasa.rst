@@ -9,8 +9,9 @@ RoboCasa
 
 .. note::
 
-   当前代码尚未完全对齐 `harnessvla.github.io <https://harnessvla.github.io>`_
-   展示的效果，完整复现将在后续放出。
+   当前 local hybrid runtime 只属于 preliminary 阶段，并不是已经发布的正式
+   复现环境。冻结的 340-cell 协议、预检规则和 release 边界见
+   :doc:`robocasa_reproduction`。
 
 安装
 ----
@@ -82,6 +83,28 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
 .. code-block:: bash
 
    HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
+
+仓库不包含 planner 凭据、模型权重、RoboCasa assets 或预构建 Python 环境。
+复现者需要自行部署这些输入，并将所有凭据保存在代码仓库之外。
+
+Memory 资源
+-----------
+
+评测与 LIBERO 一样使用 Hugging Face 自动资源同步。``rpent`` 启动时会从
+``RLinf/RPent-memory`` dataset 下载 ``robocasa/**`` 子树到
+``resources/robocasa``，toolkit 再通过只读 ``MemoryManager`` 使用
+``resources/robocasa/memory``。只有在明确测试镜像或 staging dataset 时才设置
+``RPENT_RESOURCES_HF_REPO``。
+
+离线使用预下载 corpus 时必须显式选择本地模式：
+
+.. code-block:: bash
+
+   HF_HUB_OFFLINE=1 rpent --robot robocasa ... \
+     --memory-profile local --memory-dir /path/to/robocasa/memory
+
+正式复现 runner 一旦配置为 Hugging Face 模式，就不会静默回退到本地 memory。
+不可变 memory pack 的流程见 :doc:`robocasa_reproduction`。
 
 可用任务列表
 ------------

@@ -58,6 +58,13 @@ def test_built_wheel_contains_robot_backend_modules(tmp_path, monkeypatch):
 
     with zipfile.ZipFile(wheel_path) as wheel:
         names = set(wheel.namelist())
+        entry_points_name = next(
+            name for name in names if name.endswith(".dist-info/entry_points.txt")
+        )
+        entry_points = wheel.read(entry_points_name).decode("utf-8")
     assert "robots/libero/env_server.py" in names
     assert "robots/robocasa/env_server.py" in names
     assert "robots/robotwin/env_server.py" in names
+    assert "rpent/cli/reproduce.py" in names
+    assert "rpent/reproduce/robocasa/executor.py" in names
+    assert "rpent-reproduce = rpent.cli.reproduce:main" in entry_points

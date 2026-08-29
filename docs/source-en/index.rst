@@ -86,6 +86,7 @@ Welcome to RPent
    Action Primitives <rst_source/usage/configure_primitives>
    LIBERO <rst_source/usage/libero>
    RoboCasa <rst_source/usage/robocasa>
+   RoboCasa Reproduction <rst_source/usage/robocasa_reproduction>
    RoboTwin <rst_source/usage/robotwin>
    Franka <rst_source/usage/franka>
    SO-101 <rst_source/usage/so101>

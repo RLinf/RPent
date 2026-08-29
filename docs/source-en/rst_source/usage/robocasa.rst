@@ -10,9 +10,9 @@ for the wire/transport selection.
 
 .. note::
 
-   The current code does not yet fully match the results shown at
-   `harnessvla.github.io <https://harnessvla.github.io>`_; a full
-   reproduction will be released later.
+   The local hybrid runtime is preliminary and is not itself a released
+   reproduction environment. The frozen 340-cell protocol, preflight rules,
+   and release boundary are documented in :doc:`robocasa_reproduction`.
 
 Installation
 ------------
@@ -88,6 +88,31 @@ If the download is slow, use the HF mirror:
 .. code-block:: bash
 
    HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
+
+The repository does not include planner credentials, model weights, RoboCasa
+assets, or a prebuilt Python environment. Each reproducer must provision those
+inputs locally and keep credentials outside the checkout.
+
+Memory resources
+----------------
+
+Evaluation uses the same automatic Hugging Face resource sync as LIBERO.
+At startup, ``rpent`` downloads the ``robocasa/**`` subtree from the
+``RLinf/RPent-memory`` dataset into ``resources/robocasa``; the toolkit reads
+``resources/robocasa/memory`` through a read-only ``MemoryManager``. Set
+``RPENT_RESOURCES_HF_REPO`` only when testing an explicitly selected mirror or
+staging dataset.
+
+For an offline, pre-downloaded corpus, opt in explicitly:
+
+.. code-block:: bash
+
+   HF_HUB_OFFLINE=1 rpent --robot robocasa ... \
+     --memory-profile local --memory-dir /path/to/robocasa/memory
+
+There is no silent local fallback when the formal reproduction runner is
+configured for Hugging Face. Its immutable memory-pack workflow is documented
+in :doc:`robocasa_reproduction`.
 
 Available task list
 -------------------
