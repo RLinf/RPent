@@ -215,12 +215,11 @@ Reproduction command for one episode:
      --reasoning-effort xhigh \
      --max-turns 100 \
      --planner-timeout-s 3600 \
-     --max-episode-steps 10000 \
-     --cuda-device 0
+     --max-episode-steps 10000
 
 Replace ``task`` with a task name from ``demo_randomized.json`` and ``seed``
 with one of that task's verified expert seeds. Before running, configure the
-RoboTwin assets, LingBot-VLA checkpoint, and ``robotwin_eef.yaml`` as described
-earlier on this page. Success is determined by the latest
+RoboTwin assets and LingBot-VLA checkpoint as described earlier on this page.
+Success is determined by the latest
 ``TASK_ENV.eval_success`` value at the end of the episode, not merely by whether
 the planner calls ``finish``.

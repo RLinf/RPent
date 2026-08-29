@@ -197,10 +197,9 @@ task language 与最新 observation 始终优先，所有几何信息都必须�
      --reasoning-effort xhigh \
      --max-turns 100 \
      --planner-timeout-s 3600 \
-     --max-episode-steps 10000 \
-     --cuda-device 0
+     --max-episode-steps 10000
 
 其中，``task`` 应替换为 ``demo_randomized.json`` 中的任务名，``seed`` 应替换为
 该任务对应的一个 verified expert seed。运行前还需按照本页前文配置 RoboTwin assets、
-LingBot-VLA checkpoint 和 ``robotwin_eef.yaml``。任务是否成功以 episode 结束时最新的
+LingBot-VLA checkpoint。任务是否成功以 episode 结束时最新的
 ``TASK_ENV.eval_success`` 为准，不能仅根据规划器是否调用 ``finish`` 判断。
