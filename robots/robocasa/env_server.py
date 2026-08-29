@@ -40,6 +40,8 @@ DEFAULT_CAMS = [
     "robot0_eye_in_hand",
 ]
 
+REQUIRED_CAMERAS = ("mobilebase0_navview",)
+
 
 def _split_kwargs(split):
     """Replicate robocasa.utils.env_utils.create_env's split -> layout logic."""
@@ -150,6 +152,22 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         return self._meta
 
     # ---- lifecycle ----
+    def _validate_required_cameras(self):
+        """Validate model cameras after reset has initialized the simulator."""
+        if self.env.sim is None:
+            raise RuntimeError("RoboCasa camera validation requires a reset simulator")
+        for camera_name in REQUIRED_CAMERAS:
+            try:
+                camera_id = int(self.env.sim.model.camera_name2id(camera_name))
+                if camera_id < 0:
+                    raise ValueError(camera_name)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"RoboCasa requires the base-mounted camera {camera_name!r}. "
+                    "Install the Robosuite commit pinned by RPent and reinstall "
+                    "the robocasa extra."
+                ) from exc
+
     def reset(self):
         # RLDX_RESET_SEED=<episode_seed> -> reproduce the EXACT scene the fullshot eval
         # generated for that episode, seeded the SAME way as the eval's VideoRecordingWrapper
@@ -167,7 +185,9 @@ class RoboCasaEnvFacade(BaseEnvFacade):
                 self.env.seed = sd
             if hasattr(self.env, "rng"):
                 self.env.rng = np.random.default_rng(sd)
-        return self.env.reset()
+        obs = self.env.reset()
+        self._validate_required_cameras()
+        return obs
 
     def step(self, flat_action):
         """flat_action: np.ndarray[12] = [eef_pos(3), eef_rot(3), gripper(1),

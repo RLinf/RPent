@@ -746,17 +746,14 @@ def _save_observation_artifacts(
         )
 
     # ---- navview: base-mounted forward-down floor camera (follows the base) ----
-    try:
-        nrgb, _ = env.render_camera("navview", depth=True)
-        nworld = env.world_map("navview").astype(np.float32)
-        env_state.save("navview.png", nrgb, step=step_idx)
-        env_state.save("navview_world.npz", nworld, step=step_idx)
-        floor = (nworld[:, :, 2] < 0.12) & (nworld[:, :, 2] > -0.2)
-        overlay = nrgb.copy()
-        overlay[floor] = [0, 255, 0]
-        env_state.save("navview_floor.png", overlay, step=step_idx)
-    except Exception as e:
-        print(f"[tools] navcam render failed at step {step_idx}: {e}", flush=True)
+    nrgb, _ = env.render_camera("navview", depth=True)
+    nworld = env.world_map("navview").astype(np.float32)
+    env_state.save("navview.png", nrgb, step=step_idx)
+    env_state.save("navview_world.npz", nworld, step=step_idx)
+    floor = (nworld[:, :, 2] < 0.12) & (nworld[:, :, 2] > -0.2)
+    overlay = nrgb.copy()
+    overlay[floor] = [0, 255, 0]
+    env_state.save("navview_floor.png", overlay, step=step_idx)
 
 
 def _prune_heavy_artifacts(
