@@ -32,9 +32,11 @@ resources are installed, run the plugin self-check:
 
    python -m robots.behavior.selfcheck
 
-The self-check is the supported way to verify that the editable source tree,
-resource snapshot, official data, simulator runtime, and checkpoint bindings are
-consistent. Do not copy those heavyweight resources into RPent package data.
+The self-check verifies the RPent-side plugin import, task/seed mapping, prompt
+contract, and public tool count. It does not start OmniGibson or validate the
+official assets, DINO weights, or policy checkpoint. Verify those heavyweight
+runtime resources with the pinned upstream setup checks and a bounded smoke run;
+do not copy them into RPent package data.
 
 Runtime scope
 -------------
@@ -198,8 +200,8 @@ checkpoint and keep task-specific registries from silently replacing it.
 
 DINOv2 visual retrieval uses a reviewed local DINOv2-S/14 deployment for image
 embedding and episode-memory lookup. The DINO source archive and weights are
-runtime assets, not wheel data. Keep their digests in the resource binding or
-self-check output.
+runtime assets, not wheel data. Keep their digests in the resource binding or a
+separate deployment audit record.
 
 Episode memory
 --------------

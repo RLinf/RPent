@@ -30,9 +30,10 @@ OmniGibson、Isaac Sim、BEHAVIOR 数据、机器人资产，以及
 
    python -m robots.behavior.selfcheck
 
-self-check 是确认 editable source tree、资源快照、官方数据、仿真运行时和
-checkpoint binding 一致性的标准方式。不要把这些大型资源塞进 RPent package
-data。
+self-check 只验证 RPent 侧插件导入、任务/seed 映射、prompt 合同和公开工具数量；
+它不会启动 OmniGibson，也不会验证官方资产、DINO 权重或 policy checkpoint。
+这些大型运行资源应通过 pinned upstream 安装检查和有界 smoke 单独验证，且不要
+放入 RPent package data。
 
 运行范围
 --------
@@ -186,7 +187,7 @@ BEHAVIOR policy path 使用共享 Pi0.5 profile ``pi05-b1kpt50-cs32``。将
 
 DINOv2 视觉检索使用经过审查的本地 DINOv2-S/14 部署，用于图像 embedding 和
 episode-memory lookup。DINO source archive 与 weights 是运行时资产，不是
-wheel data；它们的 digest 应保存在 resource binding 或 self-check 输出中。
+wheel data；它们的 digest 应保存在 resource binding 或单独的部署审计记录中。
 
 Episode memory
 --------------
