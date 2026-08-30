@@ -224,7 +224,7 @@ def _run_dashboard_task(
             state,
             unique_components,
         )
-        _bind_behavior_dashboard_backend(state, task_primitives_kwargs)
+        _bind_robot_dashboard_backend(state, task_primitives_kwargs)
         if not state.task_replacement_requested:
             primitives_kwargs = {
                 **task_primitives_kwargs,
@@ -342,7 +342,7 @@ def _run_dashboard_task(
             logger.info("recipe: %s", recipe_path)
         else:
             logger.info("recipe: not written (cell unsolved)")
-        _unbind_behavior_dashboard_backend(state)
+        _unbind_robot_dashboard_backend(state)
         for daemon in reversed(task_daemons):
             try:
                 daemon.stop()
@@ -396,39 +396,20 @@ def _run_dashboard_task(
     return agent_error
 
 
-def _bind_behavior_dashboard_backend(
+def _bind_robot_dashboard_backend(
     state: DashboardState,
     primitives_kwargs: dict[str, Any],
 ) -> None:
-    """Bind BEHAVIOR's env client to its optional Dashboard control routes."""
+    """Offer task runtime clients to an optional robot-owned Dashboard state."""
 
-    backend = primitives_kwargs.get("env")
-    if backend is None or not hasattr(state, "control_controller"):
-        return
-    controller = state.control_controller()
-    if controller is None:
-        try:
-            from robots.behavior.dashboard import BehaviorControlController
-        except Exception:
-            return
-        bind_controller = getattr(state, "bind_controller", None)
-        if not callable(bind_controller):
-            return
-        controller = BehaviorControlController(state=state, backend=backend)
-        bind_controller(controller)
-        return
-    bind_backend = getattr(controller, "bind_backend", None)
-    if callable(bind_backend):
-        bind_backend(backend)
+    bind_runtime = getattr(state, "bind_runtime_backend", None)
+    if callable(bind_runtime):
+        bind_runtime(primitives_kwargs)
 
 
-def _unbind_behavior_dashboard_backend(state: DashboardState) -> None:
-    controller_getter = getattr(state, "control_controller", None)
-    if callable(controller_getter):
-        controller = controller_getter()
-        unbind_backend = getattr(controller, "unbind_backend", None)
-        if callable(unbind_backend):
-            unbind_backend()
-    unbind = getattr(state, "unbind_controller", None)
-    if callable(unbind):
-        unbind()
+def _unbind_robot_dashboard_backend(state: DashboardState) -> None:
+    """Release an optional robot-owned Dashboard runtime binding."""
+
+    unbind_runtime = getattr(state, "unbind_runtime_backend", None)
+    if callable(unbind_runtime):
+        unbind_runtime()

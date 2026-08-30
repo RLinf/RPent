@@ -297,6 +297,26 @@ class BehaviorDashboardState(DashboardState):
         with self._lock:
             return self._control_controller
 
+    def bind_runtime_backend(self, primitives_kwargs: Mapping[str, Any]) -> None:
+        """Bind the task-owned env client supplied by the shared Dashboard runner."""
+
+        backend = primitives_kwargs.get("env")
+        if backend is None:
+            return
+        controller = self.control_controller()
+        if controller is None:
+            self.bind_controller(BehaviorControlController(state=self, backend=backend))
+            return
+        controller.bind_backend(backend)
+
+    def unbind_runtime_backend(self) -> None:
+        """Release the task-owned backend without changing shared components."""
+
+        controller = self.control_controller()
+        if controller is not None:
+            controller.unbind_backend()
+        self.unbind_controller(controller)
+
     def update_control_snapshot(
         self,
         snapshot: Mapping[str, Any],

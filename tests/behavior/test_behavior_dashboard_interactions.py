@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTROLS_JS = (
     REPO_ROOT
@@ -273,11 +272,11 @@ def test_behavior_dashboard_http_keeps_three_cameras_buttons_and_stop_receipt(
 
 
 def test_standard_dashboard_entry_uses_behavior_control_server_and_state() -> None:
-    from robots.behavior.robot_spec import get_robot_spec
     from robots.behavior.dashboard import (
         BehaviorDashboardServer,
         BehaviorDashboardState,
     )
+    from robots.behavior.robot_spec import get_robot_spec
     from rpent.cli.dashboard import _dashboard_server_and_state_classes
 
     spec = get_robot_spec()
@@ -325,19 +324,19 @@ def test_behavior_dashboard_state_ingests_frame_paths_from_observe(
 
 
 def test_standard_dashboard_cli_selects_behavior_control_state(tmp_path: Path) -> None:
-    from rpent.cli.dashboard import (
-        _bind_behavior_dashboard_backend,
-        _unbind_behavior_dashboard_backend,
-    )
     from robots.behavior.dashboard import BehaviorDashboardState
     from robots.behavior.robot_spec import BEHAVIOR_DASHBOARD_SPEC
+    from rpent.cli.dashboard import (
+        _bind_robot_dashboard_backend,
+        _unbind_robot_dashboard_backend,
+    )
 
     state = BehaviorDashboardState(
         run_id="behavior-dashboard/bind-contract",
         output_dir=tmp_path,
         dashboard_spec=BEHAVIOR_DASHBOARD_SPEC,
     )
-    _bind_behavior_dashboard_backend(state, {"env": _ObserveOnlyBackend()})
+    _bind_robot_dashboard_backend(state, {"env": _ObserveOnlyBackend()})
 
     controller = state.control_controller()
     assert controller is not None
@@ -345,14 +344,17 @@ def test_standard_dashboard_cli_selects_behavior_control_state(tmp_path: Path) -
     assert snapshot["available"] is True
     assert snapshot["observe_available"] is True
 
-    _unbind_behavior_dashboard_backend(state)
+    _unbind_robot_dashboard_backend(state)
     controller = state.control_controller()
     assert controller is None
     assert state.run_detail()["control"]["unavailable_reason"] == "controller_not_bound"
 
 
 def test_behavior_dashboard_unbind_discards_prepared_command(tmp_path: Path) -> None:
-    from robots.behavior.dashboard import BehaviorControlController, BehaviorDashboardState
+    from robots.behavior.dashboard import (
+        BehaviorControlController,
+        BehaviorDashboardState,
+    )
     from rpent.dashboard.events import RunStartedEvent
 
     backend = _PreparedBackend()
