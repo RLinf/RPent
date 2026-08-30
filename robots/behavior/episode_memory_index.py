@@ -49,14 +49,6 @@ def _nonempty_string(value: Any, *, path: str) -> str:
     return value.strip()
 
 
-def _safe_rel(value: Any, *, path: str) -> str:
-    text = _nonempty_string(value, path=path)
-    pure = Path(text)
-    if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
-        fail("MEMORY_EPISODE_SCHEMA_INVALID", path, "unsafe relative path")
-    return text
-
-
 @dataclass(frozen=True, slots=True)
 class EpisodeFrameKey:
     frame_id: str
