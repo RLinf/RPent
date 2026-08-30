@@ -58,7 +58,9 @@ Run evaluation from the source checkout that contains ``robots/behavior``:
 
 .. code-block:: bash
 
-   export PI05_CHECKPOINT_PATH=/path/to/pi05-b1kpt50-cs32
+   hf download RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
+     --local-dir ./checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
+   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
    export BEHAVIOR_ENV_GPU=2
    export BEHAVIOR_MODEL_GPU=7
 
@@ -118,7 +120,9 @@ VLA and DINO components across TaskRuns while giving each TaskRun a fresh env:
 
 .. code-block:: bash
 
-   export PI05_CHECKPOINT_PATH=/path/to/pi05-b1kpt50-cs32
+   hf download RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
+     --local-dir ./checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
+   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
    export BEHAVIOR_ENV_GPU=2
    export BEHAVIOR_MODEL_GPU=7
 
@@ -194,9 +198,11 @@ the active toolkit schema is the source of truth for a run.
 VLA and DINO components
 -----------------------
 
-The BEHAVIOR policy path uses the shared Pi0.5 profile
-``pi05-b1kpt50-cs32``. Point ``PI05_CHECKPOINT_PATH`` at the validated local
-checkpoint and keep task-specific registries from silently replacing it.
+The BEHAVIOR policy checkpoint is published as
+`RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 <https://huggingface.co/RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32>`_
+on Hugging Face. Download that repository with ``hf download`` and point
+``PI05_CHECKPOINT_PATH`` at the downloaded directory; do not substitute
+task-specific checkpoints through hidden registries.
 
 DINOv2 visual retrieval uses a reviewed local DINOv2-S/14 deployment for image
 embedding and episode-memory lookup. The DINO source archive and weights are

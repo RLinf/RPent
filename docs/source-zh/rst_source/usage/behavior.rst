@@ -53,7 +53,9 @@ receipt 之前，不属于本文档承诺的 runtime contract。
 
 .. code-block:: bash
 
-   export PI05_CHECKPOINT_PATH=/path/to/pi05-b1kpt50-cs32
+   hf download RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
+     --local-dir ./checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
+   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
    export BEHAVIOR_ENV_GPU=2
    export BEHAVIOR_MODEL_GPU=7
 
@@ -109,7 +111,9 @@ component 在 TaskRun 之间复用，每个 TaskRun 拥有 fresh env：
 
 .. code-block:: bash
 
-   export PI05_CHECKPOINT_PATH=/path/to/pi05-b1kpt50-cs32
+   hf download RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
+     --local-dir ./checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
+   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
    export BEHAVIOR_ENV_GPU=2
    export BEHAVIOR_MODEL_GPU=7
 
@@ -181,9 +185,10 @@ toolkit schema 为准。
 VLA 与 DINO 组件
 ----------------
 
-BEHAVIOR policy path 使用共享 Pi0.5 profile ``pi05-b1kpt50-cs32``。将
-``PI05_CHECKPOINT_PATH`` 指向已验证的本地 checkpoint，并确保 task registry
-不会静默替换它。
+BEHAVIOR policy checkpoint 已发布到 Hugging Face：
+`RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 <https://huggingface.co/RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32>`_。
+使用 ``hf download`` 下载该仓库，并将 ``PI05_CHECKPOINT_PATH`` 指向下载后的目录；
+不要通过隐藏 task registry 静默替换成任务专用 checkpoint。
 
 DINOv2 视觉检索使用经过审查的本地 DINOv2-S/14 部署，用于图像 embedding 和
 episode-memory lookup。DINO source archive 与 weights 是运行时资产，不是
