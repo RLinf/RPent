@@ -1,8 +1,8 @@
 BEHAVIOR
 ========
 
-`BEHAVIOR-1K <https://behavior.stanford.edu/>`_ support is maintained as a
-source-editable RPent robot plugin for long-horizon household manipulation. The
+`BEHAVIOR-1K <https://behavior.stanford.edu/>`_ support is maintained as an
+optional RPent robot integration for long-horizon household manipulation. The
 normal ``rpent`` wheel still packages only ``rpent*`` modules. It does not ship
 ``robots/behavior``, OmniGibson or Isaac Sim, the official BEHAVIOR dataset,
 large DINOv2 assets, policy checkpoints, or recorded episode memory.

@@ -158,10 +158,10 @@ Dashboard description, and three runner hooks (``add_cli_args`` /
 ``parse_config`` / ``init_runtime``). See :doc:`interfaces` for what each
 field must provide.
 
-The loader and CLI do not maintain a hard-coded list of robot names. They
-enumerate source-editable ``robots/<name>`` packages, so adding a conforming
-package does not require updating shared CLI choices. See :doc:`add_robot` for
-the complete procedure.
+The standard source tree currently includes ``libero``, ``robocasa``,
+``robotwin``, and ``behavior`` robot packages. New integrations should follow
+the same ``RobotSpec`` / ``get_toolkit`` package shape described in
+:doc:`add_robot`.
 
 Planner, Toolkit, and RPC transports
 -------------------------------------

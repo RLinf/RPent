@@ -1,8 +1,8 @@
 BEHAVIOR
 ========
 
-`BEHAVIOR-1K <https://behavior.stanford.edu/>`_ 支持以 source editable 的
-RPent robot plugin 形式维护，用于长程家庭操作任务。普通 ``rpent`` wheel 仍只
+`BEHAVIOR-1K <https://behavior.stanford.edu/>`_ 支持以可选 RPent robot
+integration 形式维护，用于长程家庭操作任务。普通 ``rpent`` wheel 仍只
 打包 ``rpent*`` 模块；它不包含 ``robots/behavior``、OmniGibson 或 Isaac Sim、
 官方 BEHAVIOR 数据、大型 DINOv2 资产、策略 checkpoint、或已记录的 episode
 memory。

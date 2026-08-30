@@ -116,9 +116,9 @@ template, and output slug; ``runtime_components`` and ``frame_channels``
 describe the robot-specific rows and camera views rendered by the
 frontend. See ``robots/libero/robot_spec.py`` for the reference shape.
 
-That's the entire registration step — ``_resolve_robot(name)`` does an
-``importlib.import_module(f"robots.{name}")``, so dropping the package under
-``robots/`` on disk is enough. No central list to update.
+The standard source tree currently includes ``libero``, ``robocasa``,
+``robotwin``, and ``behavior`` robot packages. New robot packages should follow
+the same entry-point contract before being wired into a release.
 
 The sections below describe what each referenced module must contain.
 ``_add_cli_args`` / ``_parse_config`` are covered in §4 and the runtime hook
@@ -418,10 +418,10 @@ Once everything compiles, run this minimal smoke test:
 
 .. note::
 
-   The shared CLI discovers source-editable ``robots/<name>`` packages
-   dynamically. A new robot becomes selectable after its package exposes
-   ``get_robot_spec()`` and ``get_toolkit()``; no shared ``--robot`` choices
-   list needs to be edited.
+   The standard source tree currently includes ``libero``, ``robocasa``,
+   ``robotwin``, and ``behavior`` robot packages. A brand-new ``myrobot`` should
+   follow the same package contract by exposing ``get_robot_spec()`` and
+   ``get_toolkit()``.
 
 Expect the agent to complete the prompted task, and ``finish`` to be
 invoked. Check ``<output_dir>/transcript_*.json`` for the post-run

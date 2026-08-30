@@ -39,7 +39,7 @@ RPent 面向以下四类用户：
 ## 最新动态
 
 - [2026/08] 🔥 新增非推理（non-reasoning）模式，平均执行时间降低约 40%。
-- [2026/08] 新增 source editable BEHAVIOR 工作流文档。文档：[BEHAVIOR](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/behavior.html)。
+- [2026/08] 🔥 支持 Behavior，使用 Pi05 处理家庭长程任务。文档：[BEHAVIOR](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/behavior.html)。
 - [2026/08] 🔥 支持 LIBERO 探索模式。文档：[LIBERO 探索模式](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#memory)。
 - [2026/08] 🔥 支持 RoboTwin，使用 LingBot-VLA 处理双臂操作任务。文档：[RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html)。
 - [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。文档：[RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
@@ -109,7 +109,7 @@ pip install -e ".[full]"
 `.[full]` 是默认的端到端依赖组合，包括 openpi Pi0.5 VLA、LIBERO-PRO 和 RoboCasa365 仿真器、
 SAM 3.0 和 RLinf 运行时。如果不需要完整组合，更小的 extra
 见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
-BEHAVIOR 使用独立的 source editable 工作流，且不会加入 `.[full]`；详见
+BEHAVIOR 使用独立的可选工作流，且不会加入 `.[full]`；详见
 [BEHAVIOR 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/behavior.html)。
 
 **2. 下载 LIBERO-PRO 仿真资产。**

@@ -107,8 +107,8 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境专用服务行
 和相机视图。完整结构参考 ``robots/libero/robot_spec.py``。
 
-``_resolve_robot(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
-动态加载机器人包。因此，只需将机器人包放在 ``robots/`` 下，无需维护中央注册列表。
+标准源码树当前包含 ``libero``、``robocasa``、``robotwin`` 和 ``behavior``
+robot package。新的 robot package 应先沿用相同入口契约，再接入发布版本。
 
 下文依次说明这些模块需要实现的内容。``_add_cli_args`` 和 ``_parse_config``
 见第 4 节，runtime 钩子见第 5 节。Dashboard spec 只由 Dashboard runner 使用。
@@ -385,9 +385,9 @@ endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
 
 .. note::
 
-   共享 CLI 会动态发现 source editable 的 ``robots/<name>`` package。新 robot
-   只需在 package 中暴露 ``get_robot_spec()`` 和 ``get_toolkit()`` 即可被选择，
-   不需要修改共享 ``--robot`` choices 列表。
+   标准源码树当前包含 ``libero``、``robocasa``、``robotwin`` 和
+   ``behavior`` robot package。全新的 ``myrobot`` 应沿用相同 package 契约，
+   暴露 ``get_robot_spec()`` 和 ``get_toolkit()``。
 
 预期结果是 agent 完成 prompt 中指定的任务并调用 ``finish``。运行结束后，
 可在 ``<output_dir>/transcript_*.json`` 中查看总结。

@@ -39,7 +39,7 @@ RPent is built for four kinds of users:
 ## What's NEW!
 
 - [2026/08] 🔥 RPent supports the non-reasoning mode, which reduces average execution time by ~40%.
-- [2026/08] RPent documents the source-editable BEHAVIOR workflow. Doc: [BEHAVIOR](https://rpent.readthedocs.io/en/latest/rst_source/usage/behavior.html).
+- [2026/08] 🔥 RPent supports BEHAVIOR with Pi0.5 for long-horizon household tasks. Doc: [BEHAVIOR](https://rpent.readthedocs.io/en/latest/rst_source/usage/behavior.html).
 - [2026/08] 🔥 RPent supports exploration mode for LIBERO. Doc: [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#exploration-and-local-memory-evaluation).
 - [2026/08] 🔥 RPent supports RoboTwin with LingBot-VLA for dual-arm manipulation tasks. Doc: [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html).
 - [2026/08] 🔥 RPent supports RoboCasa with RLDX-1 as manipulation model. Doc: [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
@@ -108,7 +108,7 @@ pip install -e ".[full]"
 
 `.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO and RoboCasa365 simulators + SAM 3.0 on the RLinf runtime).
 If you don't need the whole stack, see the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for narrower extras.
-BEHAVIOR uses a separate source-editable workflow and is intentionally not part of `.[full]`; see the [BEHAVIOR docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/behavior.html).
+BEHAVIOR uses a separate optional workflow and is intentionally not part of `.[full]`; see the [BEHAVIOR docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/behavior.html).
 
 **2. Download the LIBERO-PRO simulator assets.**
 
