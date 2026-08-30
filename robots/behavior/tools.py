@@ -110,15 +110,17 @@ def _public_info_summary(info: Any) -> dict[str, Any]:
             "official_success_receipt",
         }
         public["_rpent"] = {
-            key: _jsonable(runtime[key])
-            for key in allowed
-            if key in runtime
+            key: _jsonable(runtime[key]) for key in allowed if key in runtime
         }
     return public
 
 
 def _info_from_result(value: Any) -> dict[str, Any] | None:
-    if isinstance(value, (tuple, list)) and len(value) == 5 and isinstance(value[4], dict):
+    if (
+        isinstance(value, (tuple, list))
+        and len(value) == 5
+        and isinstance(value[4], dict)
+    ):
         return value[4]
     if isinstance(value, dict):
         info = value.get("info")
@@ -141,7 +143,9 @@ def _terminal_capture_pointer_from_info(info: Any) -> dict[str, Any] | None:
     if not isinstance(capture, dict):
         return None
     group_id = capture.get("capture_group_id")
-    step = capture.get("capture_env_step", capture.get("env_step", capture.get("simulator_step")))
+    step = capture.get(
+        "capture_env_step", capture.get("env_step", capture.get("simulator_step"))
+    )
     frame_ids = capture.get("frame_ids")
     if (
         not isinstance(group_id, str)
@@ -152,7 +156,10 @@ def _terminal_capture_pointer_from_info(info: Any) -> dict[str, Any] | None:
     ):
         return None
     cameras = ("head", "left_wrist", "right_wrist")
-    if any(not isinstance(frame_ids.get(camera), str) or not frame_ids[camera] for camera in cameras):
+    if any(
+        not isinstance(frame_ids.get(camera), str) or not frame_ids[camera]
+        for camera in cameras
+    ):
         return None
     return {
         "capture_group_id": group_id,
@@ -210,9 +217,13 @@ class BehaviorPrimitives:
     ) -> None:
         self.env = env
         self.model = model
-        self.max_episode_steps = None if max_episode_steps is None else int(max_episode_steps)
+        self.max_episode_steps = (
+            None if max_episode_steps is None else int(max_episode_steps)
+        )
         self.output_dir = Path(output_dir) if output_dir else Path.cwd()
-        self.video_path = Path(video_path) if video_path else self.output_dir / "episode.mp4"
+        self.video_path = (
+            Path(video_path) if video_path else self.output_dir / "episode.mp4"
+        )
         self.action_horizon = int(action_horizon)
         self._current_observation = initial_observation
         self._current_info = initial_info if isinstance(initial_info, dict) else {}
@@ -248,10 +259,9 @@ class BehaviorPrimitives:
         self._vla_invocations = 0
         self._vla_chunks = 0
         self._official_success_latched = official_task_success(self._current_info)
-        self._official_success_receipt = (
-            official_success_receipt_from_info(self._current_info)
-            or make_raw_success_receipt(self._current_info, env_step=self.total_env_steps)
-        )
+        self._official_success_receipt = official_success_receipt_from_info(
+            self._current_info
+        ) or make_raw_success_receipt(self._current_info, env_step=self.total_env_steps)
 
     @property
     def elapsed_wall_clock_s(self) -> float:
@@ -260,7 +270,9 @@ class BehaviorPrimitives:
     @property
     def total_env_steps(self) -> int:
         reported = getattr(self.env, "total_env_steps", None)
-        if isinstance(reported, (int, np.integer)) and not isinstance(reported, (bool, np.bool_)):
+        if isinstance(reported, (int, np.integer)) and not isinstance(
+            reported, (bool, np.bool_)
+        ):
             return max(self._local_env_steps, int(reported))
         return self._local_env_steps
 
@@ -276,7 +288,11 @@ class BehaviorPrimitives:
         env_receipt = getattr(self.env, "official_success_receipt", None)
         if isinstance(env_receipt, dict):
             return _jsonable(env_receipt)
-        return _jsonable(self._official_success_receipt) if self._official_success_receipt else None
+        return (
+            _jsonable(self._official_success_receipt)
+            if self._official_success_receipt
+            else None
+        )
 
     def _remaining_steps(self) -> int | None:
         if self.max_episode_steps is None:
@@ -300,14 +316,15 @@ class BehaviorPrimitives:
         runtime = info.get("_rpent")
         if isinstance(runtime, dict):
             steps = runtime.get("total_env_steps", runtime.get("global_env_steps"))
-            if isinstance(steps, (int, np.integer)) and not isinstance(steps, (bool, np.bool_)):
+            if isinstance(steps, (int, np.integer)) and not isinstance(
+                steps, (bool, np.bool_)
+            ):
                 self._local_env_steps = max(self._local_env_steps, int(steps))
         if official_task_success(info):
             self._official_success_latched = True
-            self._official_success_receipt = (
-                official_success_receipt_from_info(info)
-                or make_raw_success_receipt(info, env_step=self.total_env_steps)
-            )
+            self._official_success_receipt = official_success_receipt_from_info(
+                info
+            ) or make_raw_success_receipt(info, env_step=self.total_env_steps)
 
     @staticmethod
     def _rgb8(value: Any, *, first: int | None = None) -> np.ndarray | None:
@@ -324,13 +341,21 @@ class BehaviorPrimitives:
             return None
         image = image[..., :3]
         if image.dtype != np.uint8:
-            if np.issubdtype(image.dtype, np.floating) and image.size and float(np.nanmax(image)) <= 1.0:
+            if (
+                np.issubdtype(image.dtype, np.floating)
+                and image.size
+                and float(np.nanmax(image)) <= 1.0
+            ):
                 image = np.rint(np.clip(image, 0.0, 1.0) * 255.0)
             image = np.clip(image, 0, 255).astype(np.uint8)
         return np.ascontiguousarray(image)
 
     def _retrieve_episode_memory(self, observation: Any) -> dict[str, Any] | None:
-        if self.memory_index is None or self.dino_component is None or not isinstance(observation, dict):
+        if (
+            self.memory_index is None
+            or self.dino_component is None
+            or not isinstance(observation, dict)
+        ):
             return None
         head = self._rgb8(observation.get("main_images"))
         if head is None:
@@ -341,7 +366,9 @@ class BehaviorPrimitives:
         encoded = self.dino_component.encode_batch([head, left, right])
         head_embedding = encoded[0]
         if head_embedding is None:
-            raise RuntimeError("DINO returned no head embedding for episode-memory retrieval")
+            raise RuntimeError(
+                "DINO returned no head embedding for episode-memory retrieval"
+            )
         shadow = {
             channel: vector
             for channel, vector in zip(("left_wrist", "right_wrist"), encoded[1:])
@@ -370,7 +397,9 @@ class BehaviorPrimitives:
             "primitive_success": (
                 bool(primitive_success)
                 if primitive_success is not None
-                else not (isinstance(public_payload, dict) and public_payload.get("error"))
+                else not (
+                    isinstance(public_payload, dict) and public_payload.get("error")
+                )
             ),
             "task_success": self.solved(),
             "official_success_source": 'info["done"]["success"]',
@@ -459,11 +488,17 @@ class BehaviorPrimitives:
                 self._current_observation = obs
             last_info = info if isinstance(info, dict) else {}
             self._note_info(last_info)
-            monitor = last_info.get("_rpent", {}).get("pi0_nav_pick_monitor") if isinstance(last_info, dict) else None
+            monitor = (
+                last_info.get("_rpent", {}).get("pi0_nav_pick_monitor")
+                if isinstance(last_info, dict)
+                else None
+            )
             executed_steps = None
             if isinstance(monitor, dict):
                 value = monitor.get("executed_steps")
-                if isinstance(value, (int, np.integer)) and not isinstance(value, (bool, np.bool_)):
+                if isinstance(value, (int, np.integer)) and not isinstance(
+                    value, (bool, np.bool_)
+                ):
                     executed_steps = int(value)
             if executed_steps is None:
                 executed_steps = int(action_array.shape[0])
@@ -494,7 +529,8 @@ class BehaviorPrimitives:
             "requested_chunks": int(chunks),
             "chunks_used": chunks_used,
             "full_chunks_executed": full_chunks,
-            "exact_requested_chunks_completed": chunks_used == int(chunks) and stop_reason == "exact_requested_chunks",
+            "exact_requested_chunks_completed": chunks_used == int(chunks)
+            and stop_reason == "exact_requested_chunks",
             "env_steps_used": env_steps_used,
             "total_env_steps": self.total_env_steps,
             "max_episode_steps": self.max_episode_steps,
@@ -529,7 +565,12 @@ class BehaviorPrimitives:
     def navigate_to(self, **kwargs: Any) -> dict[str, Any]:
         env = self._require_env()
         if "relative_motion" in kwargs and kwargs["relative_motion"] is not None:
-            kwargs = {**kwargs, "relative_motion": validate_relative_navigation_motion(kwargs["relative_motion"])}
+            kwargs = {
+                **kwargs,
+                "relative_motion": validate_relative_navigation_motion(
+                    kwargs["relative_motion"]
+                ),
+            }
         return self._envelope("navigate_to", env.navigate_to(**kwargs))
 
     def move_to(self, **kwargs: Any) -> dict[str, Any]:
@@ -541,7 +582,9 @@ class BehaviorPrimitives:
         kwargs = {
             **kwargs,
             "targets": validate_move_both_targets(kwargs.get("targets")),
-            "visual_hand_checks": validate_move_both_visual_hand_checks(kwargs.get("visual_hand_checks")),
+            "visual_hand_checks": validate_move_both_visual_hand_checks(
+                kwargs.get("visual_hand_checks")
+            ),
         }
         return self._envelope("move_both_to", env.move_both_to(**kwargs))
 

@@ -64,7 +64,12 @@ def _quat_rotate_vector_xyzw(quaternion_xyzw: Any, vector: Any) -> np.ndarray:
 
     q = np.asarray(quaternion_xyzw, dtype=np.float64)
     v = np.asarray(vector, dtype=np.float64)
-    if q.shape != (4,) or v.shape != (3,) or not np.isfinite(q).all() or not np.isfinite(v).all():
+    if (
+        q.shape != (4,)
+        or v.shape != (3,)
+        or not np.isfinite(q).all()
+        or not np.isfinite(v).all()
+    ):
         raise ValueError("expected finite quaternion[4] and vector[3]")
     norm = float(np.linalg.norm(q))
     if norm <= 0.0:

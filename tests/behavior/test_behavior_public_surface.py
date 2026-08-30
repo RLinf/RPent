@@ -8,7 +8,6 @@ import pytest
 
 from rpent.tools.common import finish
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BEHAVIOR_ROOT = REPO_ROOT / "robots" / "behavior"
 pytestmark = pytest.mark.skipif(

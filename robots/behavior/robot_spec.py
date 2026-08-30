@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from robots.behavior.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
-from robots.behavior.prompt_bundle import system_prompt, user_prompt
 
 BEHAVIOR_DASHBOARD_SPEC = {
     "classes": {

@@ -3,20 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-
-from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
-from rpent.robots.robot_spec import RunConfig
-from rpent.robots.runtime import stop_owned_daemons, try_spawn_server, try_wait_server
-from rpent.utils.config import get_repo_root
-from rpent.utils.daemon import ProcessDaemon, pick_free_port
-from rpent.utils.rpc import make_rpc_client
-from rpent.utils.rpc.http_rpc import HttpRpcClient
 
 from robots.behavior.policy_checkpoint import SHARED_POLICY_CHECKPOINT_PATH
 from robots.behavior.schemas import (
@@ -29,6 +20,13 @@ from robots.behavior.task_specs import (
     get_task_spec,
     get_task_spec_by_index,
 )
+from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.robots.robot_spec import RunConfig
+from rpent.robots.runtime import stop_owned_daemons, try_spawn_server, try_wait_server
+from rpent.utils.config import get_repo_root
+from rpent.utils.daemon import ProcessDaemon, pick_free_port
+from rpent.utils.rpc import make_rpc_client
+from rpent.utils.rpc.http_rpc import HttpRpcClient
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
@@ -367,9 +365,19 @@ def _spawn_env_server(
         "--parent-watch",
     ]
     if getattr(args, "activity_instance_dir", None):
-        cmd.extend(["--activity-instance-dir", str(Path(args.activity_instance_dir).expanduser().resolve())])
+        cmd.extend(
+            [
+                "--activity-instance-dir",
+                str(Path(args.activity_instance_dir).expanduser().resolve()),
+            ]
+        )
     if getattr(args, "env_config_path", None):
-        cmd.extend(["--env-config-path", str(Path(args.env_config_path).expanduser().resolve())])
+        cmd.extend(
+            [
+                "--env-config-path",
+                str(Path(args.env_config_path).expanduser().resolve()),
+            ]
+        )
     if cuda_device is not None:
         cmd.extend(["--cuda-device", cuda_device])
     daemon = ProcessDaemon(
@@ -378,7 +386,9 @@ def _spawn_env_server(
         env_overrides={
             "ROBOT_PLATFORM": "BEHAVIOR",
             "OMNIGIBSON_HEADLESS": "1",
-            **({"CUDA_VISIBLE_DEVICES": cuda_device} if cuda_device is not None else {}),
+            **(
+                {"CUDA_VISIBLE_DEVICES": cuda_device} if cuda_device is not None else {}
+            ),
         },
         log_path=str(output_dir / "behavior_env_server.log"),
     )
@@ -443,11 +453,18 @@ def _spawn_dino_server(
         "--parent-watch",
     ]
     if getattr(args, "dino_source_archive", None):
-        cmd.extend(["--source-archive", str(Path(args.dino_source_archive).expanduser().resolve())])
+        cmd.extend(
+            [
+                "--source-archive",
+                str(Path(args.dino_source_archive).expanduser().resolve()),
+            ]
+        )
     if getattr(args, "dino_weights", None):
         cmd.extend(["--weights", str(Path(args.dino_weights).expanduser().resolve())])
     if getattr(args, "dino_cache_dir", None):
-        cmd.extend(["--cache-dir", str(Path(args.dino_cache_dir).expanduser().resolve())])
+        cmd.extend(
+            ["--cache-dir", str(Path(args.dino_cache_dir).expanduser().resolve())]
+        )
     if cuda_device is not None:
         cmd.extend(["--cuda-device", cuda_device])
     daemon = ProcessDaemon(
@@ -473,7 +490,9 @@ def _connect_env(
     initial_observation, initial_info = env.reset()
     task_language = initial_observation.get("task_descriptions")
     if isinstance(task_language, (list, tuple)):
-        task_language = next((item for item in task_language if isinstance(item, str)), None)
+        task_language = next(
+            (item for item in task_language if isinstance(item, str)), None
+        )
     if task_language is not None and str(task_language).strip():
         expected = get_task_spec(args.task_name).task_language
         if str(task_language).strip() != expected:
@@ -590,7 +609,9 @@ def init_runtime(
             except Exception as exc:
                 stop_owned_daemons(owned_daemons, dashboard_events)
                 dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
-                raise RuntimeError(f"[vla] wait / client connect failed: {exc}") from exc
+                raise RuntimeError(
+                    f"[vla] wait / client connect failed: {exc}"
+                ) from exc
             dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
             primitives_kwargs.update(vla_kwargs)
             # Dashboard initializes shared VLA without an env component; the

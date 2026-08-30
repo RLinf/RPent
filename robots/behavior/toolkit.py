@@ -61,9 +61,13 @@ class BehaviorToolkit(Toolkit):
             )
             values.setdefault("max_episode_steps", prompt_vars.get("max_episode_steps"))
             values.setdefault("output_dir", getattr(config, "output_dir", None))
-        output_dir = Path(values.get("output_dir") or getattr(config, "output_dir", Path.cwd()))
+        output_dir = Path(
+            values.get("output_dir") or getattr(config, "output_dir", Path.cwd())
+        )
         values["output_dir"] = output_dir
-        values["video_path"] = Path(video_path) if video_path is not None else output_dir / "episode.mp4"
+        values["video_path"] = (
+            Path(video_path) if video_path is not None else output_dir / "episode.mp4"
+        )
 
         if memory is None:
             from rpent.memory import MemoryManager
@@ -74,7 +78,9 @@ class BehaviorToolkit(Toolkit):
             state=EnvState(output_dir),
             memory=memory,
         )
-        self._task_spec = get_task_spec(str(values.get("task_name") or "turning_on_radio"))
+        self._task_spec = get_task_spec(
+            str(values.get("task_name") or "turning_on_radio")
+        )
         self._primitives = BehaviorPrimitives(**values)
         for spec in behavior_tool_specs_for_task(self._task_spec):
             if values.get("env") is None:
@@ -82,7 +88,9 @@ class BehaviorToolkit(Toolkit):
             if spec["name"] == "pi0_nav_pick" and values.get("model") is None:
                 continue
             self.add_tool(spec["name"], spec, getattr(self._primitives, spec["name"]))
-        finish_spec = next(spec for spec in common.TOOLS_SPEC if spec["name"] == "finish")
+        finish_spec = next(
+            spec for spec in common.TOOLS_SPEC if spec["name"] == "finish"
+        )
         self.add_tool("finish", finish_spec, self._primitives.finish)
 
     @property
@@ -99,10 +107,16 @@ class BehaviorToolkit(Toolkit):
         result = super().execute_tool(name, input_dict)
         if self._dashboard_result_has_frames(result.result):
             try:
-                self._dashboard_events.emit(ToolResultEvent(name=name, result=result.result))
+                self._dashboard_events.emit(
+                    ToolResultEvent(name=name, result=result.result)
+                )
             except Exception:
                 pass
-        if name == "finish" and isinstance(result.result, dict) and result.result.get("_finish") is True:
+        if (
+            name == "finish"
+            and isinstance(result.result, dict)
+            and result.result.get("_finish") is True
+        ):
             receipt_path = self._primitives.output_dir / "terminal_receipt.json"
             receipt_path.parent.mkdir(parents=True, exist_ok=True)
             fd, temporary_name = tempfile.mkstemp(
@@ -110,7 +124,9 @@ class BehaviorToolkit(Toolkit):
             )
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                    json.dump(result.result, stream, indent=2, sort_keys=True, default=str)
+                    json.dump(
+                        result.result, stream, indent=2, sort_keys=True, default=str
+                    )
                     stream.write("\n")
                 os.replace(temporary_name, receipt_path)
             finally:
@@ -142,7 +158,9 @@ class BehaviorToolkit(Toolkit):
                 return True
         return False
 
-    def _save_observation_images(self, observation: dict[str, Any], *, step: int) -> None:
+    def _save_observation_images(
+        self, observation: dict[str, Any], *, step: int
+    ) -> None:
         head = observation.get("main_images")
         wrists = observation.get("wrist_images")
         if head is not None:
@@ -152,8 +170,12 @@ class BehaviorToolkit(Toolkit):
         if wrists is not None:
             wrist_array = np.asarray(wrists)
             if wrist_array.ndim == 4 and wrist_array.shape[0] >= 2:
-                self._state.save("left_wrist_rgb.png", wrist_array[0, ..., :3], step=step)
-                self._state.save("right_wrist_rgb.png", wrist_array[1, ..., :3], step=step)
+                self._state.save(
+                    "left_wrist_rgb.png", wrist_array[0, ..., :3], step=step
+                )
+                self._state.save(
+                    "right_wrist_rgb.png", wrist_array[1, ..., :3], step=step
+                )
 
     def get_env_state(
         self,

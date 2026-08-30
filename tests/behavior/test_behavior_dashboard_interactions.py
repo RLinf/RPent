@@ -12,20 +12,10 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTROLS_JS = (
-    REPO_ROOT
-    / "robots"
-    / "behavior"
-    / "dashboard"
-    / "static"
-    / "behavior_controls.js"
+    REPO_ROOT / "robots" / "behavior" / "dashboard" / "static" / "behavior_controls.js"
 )
 CONTROLS_CSS = (
-    REPO_ROOT
-    / "robots"
-    / "behavior"
-    / "dashboard"
-    / "static"
-    / "behavior_controls.css"
+    REPO_ROOT / "robots" / "behavior" / "dashboard" / "static" / "behavior_controls.css"
 )
 
 
@@ -120,7 +110,7 @@ def test_behavior_local_controls_keep_keyboard_pointer_and_release_safety() -> N
         "requestPlannerInterrupt",
         "/interrupt",
         'terminal.task_success === true ? "true" : "false"',
-        "terminal.command_id || terminal.kind || \"terminal\"",
+        'terminal.command_id || terminal.kind || "terminal"',
     ):
         assert marker in source
     assert "button.dataset.tooltip = text" in source
@@ -186,8 +176,8 @@ def test_behavior_dashboard_http_keeps_three_cameras_buttons_and_stop_receipt(
             'data-action="rotate_right"',
             'data-action="open"',
             'data-action="close"',
-            '/behavior-static/behavior_controls.js',
-            '/behavior-static/behavior_controls.css',
+            "/behavior-static/behavior_controls.js",
+            "/behavior-static/behavior_controls.css",
         ):
             assert marker in html
         assert html.count('class="frame-tabs behavior-frame-tabs"') == 1
@@ -197,7 +187,9 @@ def test_behavior_dashboard_http_keeps_three_cameras_buttons_and_stop_receipt(
             html,
         )
         assert len(tooltip_control_buttons) == 14
-        assert all(re.search(r'data-tooltip="[^"]+"', item) for item in tooltip_control_buttons)
+        assert all(
+            re.search(r'data-tooltip="[^"]+"', item) for item in tooltip_control_buttons
+        )
         assert all("title=" not in item for item in tooltip_control_buttons)
         for hidden_pipeline_label in (
             ">Prepare</button>",
@@ -208,9 +200,7 @@ def test_behavior_dashboard_http_keeps_three_cameras_buttons_and_stop_receipt(
         ):
             assert hidden_pipeline_label not in html
 
-        status, js_bytes = _request(
-            base_url + "/behavior-static/behavior_controls.js"
-        )
+        status, js_bytes = _request(base_url + "/behavior-static/behavior_controls.js")
         assert status == 200
         assert b"handleKeyDown" in js_bytes
 
@@ -305,7 +295,9 @@ def test_behavior_dashboard_state_ingests_frame_paths_from_observe(
         path.write_bytes(png)
         frame_paths[camera] = str(path)
 
-    state = BehaviorDashboardState(run_id="behavior-dashboard/frames", output_dir=tmp_path)
+    state = BehaviorDashboardState(
+        run_id="behavior-dashboard/frames", output_dir=tmp_path
+    )
     state.emit(
         ToolResultEvent(
             name="observe",
@@ -358,7 +350,9 @@ def test_behavior_dashboard_unbind_discards_prepared_command(tmp_path: Path) -> 
     from rpent.dashboard.events import RunStartedEvent
 
     backend = _PreparedBackend()
-    state = BehaviorDashboardState(run_id="behavior-dashboard/unbind", output_dir=tmp_path)
+    state = BehaviorDashboardState(
+        run_id="behavior-dashboard/unbind", output_dir=tmp_path
+    )
     state.emit(RunStartedEvent())
     controller = BehaviorControlController(state=state, backend=backend)
     state.bind_controller(controller)

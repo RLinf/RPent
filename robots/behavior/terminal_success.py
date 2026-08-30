@@ -65,7 +65,9 @@ def official_success_receipt_from_info(info: Any) -> dict[str, Any] | None:
     return None
 
 
-def make_raw_success_receipt(info: Any, *, env_step: int | None = None) -> dict[str, Any] | None:
+def make_raw_success_receipt(
+    info: Any, *, env_step: int | None = None
+) -> dict[str, Any] | None:
     """Return a deterministic receipt for raw success when the env did not provide one."""
 
     if not official_task_success(info):
@@ -119,7 +121,9 @@ def summarize_action_trace_success(action_trace_bytes: bytes) -> dict[str, Any] 
         raw_step = record.get("step")
         step = (
             raw_step
-            if isinstance(raw_step, int) and not isinstance(raw_step, bool) and raw_step >= 0
+            if isinstance(raw_step, int)
+            and not isinstance(raw_step, bool)
+            and raw_step >= 0
             else None
         )
         if step is not None:
@@ -129,7 +133,9 @@ def summarize_action_trace_success(action_trace_bytes: bytes) -> dict[str, Any] 
             observations.append((line_number, step, value))
     if not any(value is True for _, _, value in observations):
         return None
-    first_index = next(i for i, (_, _, value) in enumerate(observations) if value is True)
+    first_index = next(
+        i for i, (_, _, value) in enumerate(observations) if value is True
+    )
     first_line, first_step, _ = observations[first_index]
     success_count = sum(1 for _, _, value in observations if value is True)
     last_success_step = next(
@@ -174,9 +180,14 @@ def validate_terminal_success_receipt(
         receipt = official_success_receipt_from_info(info)
     if isinstance(receipt, dict):
         return TerminalReceiptValidation(valid=True)
-    if result.get("task_success") is True and result.get("official_success_source") == 'info["done"]["success"]':
+    if (
+        result.get("task_success") is True
+        and result.get("official_success_source") == 'info["done"]["success"]'
+    ):
         return TerminalReceiptValidation(valid=True)
-    return TerminalReceiptValidation(valid=False, reason="raw official success receipt missing")
+    return TerminalReceiptValidation(
+        valid=False, reason="raw official success receipt missing"
+    )
 
 
 __all__ = [

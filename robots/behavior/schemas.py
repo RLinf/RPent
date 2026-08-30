@@ -174,7 +174,9 @@ def segment_ranges(segments: Mapping[str, slice]) -> dict[str, list[int]]:
 def validate_policy_state(state: Any) -> np.ndarray:
     array = np.asarray(state, dtype=np.float32)
     if array.shape != (ACTION_DIM,):
-        raise ValueError(f"compact policy state must be [{ACTION_DIM}], got {array.shape}")
+        raise ValueError(
+            f"compact policy state must be [{ACTION_DIM}], got {array.shape}"
+        )
     if not np.isfinite(array).all():
         raise ValueError("compact policy state contains NaN or infinity")
     return array
@@ -200,10 +202,14 @@ def extract_policy_state(raw_proprio: Any) -> np.ndarray:
     return validate_policy_state(compact)
 
 
-def validate_action_chunk(actions: Any, *, max_horizon: int | None = None) -> np.ndarray:
+def validate_action_chunk(
+    actions: Any, *, max_horizon: int | None = None
+) -> np.ndarray:
     array = np.asarray(actions, dtype=np.float32)
     if array.ndim != 2 or array.shape[1] != ACTION_DIM or array.shape[0] < 1:
-        raise ValueError(f"BEHAVIOR actions must be [T,{ACTION_DIM}], got {array.shape}")
+        raise ValueError(
+            f"BEHAVIOR actions must be [T,{ACTION_DIM}], got {array.shape}"
+        )
     if not np.isfinite(array).all():
         raise ValueError("BEHAVIOR actions contain NaN or infinity")
     if max_horizon is not None and array.shape[0] > int(max_horizon):
@@ -399,7 +405,12 @@ PIXEL_TO_WORLD_SPEC = _planner_spec(
         "frame_id": {"type": "string", "minLength": 1},
         "u": {"type": "integer"},
         "v": {"type": "integer"},
-        "depth_window_px": {"type": "integer", "default": 7, "minimum": 1, "maximum": 31},
+        "depth_window_px": {
+            "type": "integer",
+            "default": 7,
+            "minimum": 1,
+            "maximum": 31,
+        },
         "target_fact": {"type": "string", "const": "soda_can_floor_outside_receptacle"},
     },
     required=["camera", "frame_id", "u", "v"],
@@ -541,7 +552,12 @@ NAVIGATE_TO_SPEC = _planner_spec(
         "projection_id": {"type": "string", "minLength": 1},
         "navigation_visual_check": _NAVIGATION_VISUAL_CHECK_SCHEMA,
         "relative_motion": _RELATIVE_NAVIGATION_MOTION_SCHEMA,
-        "standoff_m": {"type": "number", "default": 0.85, "minimum": 0.45, "maximum": 1.5},
+        "standoff_m": {
+            "type": "number",
+            "default": 0.85,
+            "minimum": 0.45,
+            "maximum": 1.5,
+        },
         "plan_only": {"type": "boolean"},
         "prepared_plan_id": {"type": "string", "minLength": 1},
     },
@@ -677,7 +693,12 @@ def validate_dashboard_manual_command(
         raise ValueError("unsupported dashboard manual action")
     if not isinstance(camera, str) or camera not in DASHBOARD_CONTROL_CAMERAS:
         raise ValueError("camera must be head, left_wrist, or right_wrist")
-    if target == "chassis" and action in {"rotate_left", "rotate_right", "open", "close"}:
+    if target == "chassis" and action in {
+        "rotate_left",
+        "rotate_right",
+        "open",
+        "close",
+    }:
         raise ValueError(f"{action} is available for arm control only")
     return {"target": target, "action": action, "camera": camera}
 
@@ -757,7 +778,9 @@ def validate_relative_navigation_motion(value: Any) -> dict[str, Any]:
         raise ValueError("relative_motion.kind must be translation or rotation")
     if set(motion) != expected:
         raise ValueError(f"relative_motion.{kind} requires exactly {sorted(expected)}")
-    amount = _non_bool_number(motion[amount_name], field=f"relative_motion.{amount_name}")
+    amount = _non_bool_number(
+        motion[amount_name], field=f"relative_motion.{amount_name}"
+    )
     if amount <= 0.0 or amount > maximum:
         raise ValueError(f"relative_motion.{amount_name} must be within (0,{maximum}]")
     return {"kind": str(kind), "direction": str(direction), amount_name: amount}

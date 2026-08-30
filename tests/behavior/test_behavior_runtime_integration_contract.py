@@ -175,9 +175,15 @@ def test_behavior_runtime_routes_env_and_model_cuda_to_separate_children(
     runtime._spawn_dino_server(args, tmp_path / "dino")
 
     by_name = {capture["name"]: capture for capture in captures}
-    assert by_name["behavior_env_server"]["env_overrides"]["CUDA_VISIBLE_DEVICES"] == "2"
-    assert by_name["behavior_vla_server"]["env_overrides"]["CUDA_VISIBLE_DEVICES"] == "7"
-    assert by_name["behavior_dino_server"]["env_overrides"]["CUDA_VISIBLE_DEVICES"] == "7"
+    assert (
+        by_name["behavior_env_server"]["env_overrides"]["CUDA_VISIBLE_DEVICES"] == "2"
+    )
+    assert (
+        by_name["behavior_vla_server"]["env_overrides"]["CUDA_VISIBLE_DEVICES"] == "7"
+    )
+    assert (
+        by_name["behavior_dino_server"]["env_overrides"]["CUDA_VISIBLE_DEVICES"] == "7"
+    )
     for name, expected in (
         ("behavior_env_server", "2"),
         ("behavior_vla_server", "7"),
@@ -189,7 +195,9 @@ def test_behavior_runtime_routes_env_and_model_cuda_to_separate_children(
         assert "," not in expected
 
 
-def test_missing_runtime_components_hide_behavior_tools_but_keep_common(tmp_path) -> None:
+def test_missing_runtime_components_hide_behavior_tools_but_keep_common(
+    tmp_path,
+) -> None:
     toolkit = BehaviorToolkit(
         primitives_kwargs={
             "task_name": "turning_on_radio",

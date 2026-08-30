@@ -25,8 +25,12 @@ from robots.behavior.memory_schema import MemoryValidationError, fail, require_s
 MODEL_ID = "facebookresearch/dinov2_vits14"
 MODEL_REVISION = "facebookresearch/dinov2@7764ea0f912e53c92e82eb78a2a1631e92725fc8"
 EXPECTED_SOURCE_COMMIT = "7764ea0f912e53c92e82eb78a2a1631e92725fc8"
-EXPECTED_SOURCE_ARCHIVE_SHA256 = "c27dcdaf50e9fb5bbdf2bb529da357716372e19c6afab17d5350f3f0094aed4b"
-EXPECTED_WEIGHTS_SHA256 = "b938bf1bc15cd2ec0feacfe3a1bb553fe8ea9ca46a7e1d8d00217f29aef60cd9"
+EXPECTED_SOURCE_ARCHIVE_SHA256 = (
+    "c27dcdaf50e9fb5bbdf2bb529da357716372e19c6afab17d5350f3f0094aed4b"
+)
+EXPECTED_WEIGHTS_SHA256 = (
+    "b938bf1bc15cd2ec0feacfe3a1bb553fe8ea9ca46a7e1d8d00217f29aef60cd9"
+)
 PREPROCESS_ID = "rpent_dinov2_vits14_rgb224_bicubic_antialias_v1"
 EXTRACTOR_ID = "dinov2_vits14_cls_token_v1"
 DINOV2_DIMENSION = 384
@@ -46,7 +50,9 @@ class Dinov2Backend(Protocol):
     def close(self) -> None: ...
 
 
-BackendLoader = Callable[["Dinov2RevisionIdentity", "Dinov2DeploymentPaths"], Dinov2Backend]
+BackendLoader = Callable[
+    ["Dinov2RevisionIdentity", "Dinov2DeploymentPaths"], Dinov2Backend
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,15 +82,27 @@ class Dinov2RevisionIdentity:
         }
         for field, value in expected.items():
             if getattr(self, field) != value:
-                fail("MEMORY_DINOV2_IDENTITY_MISMATCH", f"embedding.{field}", f"expected {value!r}")
-        require_sha256(self.source_archive_sha256, path="embedding.source_archive_sha256")
+                fail(
+                    "MEMORY_DINOV2_IDENTITY_MISMATCH",
+                    f"embedding.{field}",
+                    f"expected {value!r}",
+                )
+        require_sha256(
+            self.source_archive_sha256, path="embedding.source_archive_sha256"
+        )
         require_sha256(self.weights_sha256, path="embedding.weights_sha256")
         if self.dimension != DINOV2_DIMENSION:
-            fail("MEMORY_DINOV2_DIMENSION_INVALID", "embedding.dimension", "expected 384")
+            fail(
+                "MEMORY_DINOV2_DIMENSION_INVALID", "embedding.dimension", "expected 384"
+            )
         for field in ("torch_version", "torchvision_version"):
             value = getattr(self, field)
             if not isinstance(value, str) or not value or value.strip() != value:
-                fail("MEMORY_DINOV2_IDENTITY_INVALID", f"embedding.{field}", "must be exact non-empty version")
+                fail(
+                    "MEMORY_DINOV2_IDENTITY_INVALID",
+                    f"embedding.{field}",
+                    "must be exact non-empty version",
+                )
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "Dinov2RevisionIdentity":
@@ -120,7 +138,11 @@ class Dinov2DeploymentPaths:
         if self.cache_dir is not None and (
             not isinstance(self.cache_dir, Path) or not self.cache_dir.is_absolute()
         ):
-            fail("MEMORY_DINOV2_DEPLOYMENT_INVALID", "cache_dir", "must be absolute Path or None")
+            fail(
+                "MEMORY_DINOV2_DEPLOYMENT_INVALID",
+                "cache_dir",
+                "must be absolute Path or None",
+            )
 
 
 def l2_normalize_row(value: Any, *, path: str) -> np.ndarray:
@@ -140,12 +162,23 @@ def l2_normalize_row(value: Any, *, path: str) -> np.ndarray:
 
 def l2_matrix(values: Any, *, path: str) -> np.ndarray:
     matrix = np.asarray(values, dtype=np.float32)
-    if matrix.ndim != 2 or matrix.shape[1] != DINOV2_DIMENSION or not np.isfinite(matrix).all():
+    if (
+        matrix.ndim != 2
+        or matrix.shape[1] != DINOV2_DIMENSION
+        or not np.isfinite(matrix).all()
+    ):
         fail("MEMORY_DINOV2_MATRIX_INVALID", path, "expected finite matrix[N,384]")
-    return np.stack(
-        [l2_normalize_row(row, path=f"{path}[{index}]") for index, row in enumerate(matrix)],
-        axis=0,
-    ).astype(np.float32, copy=False) if matrix.shape[0] else np.zeros((0, DINOV2_DIMENSION), dtype=np.float32)
+    return (
+        np.stack(
+            [
+                l2_normalize_row(row, path=f"{path}[{index}]")
+                for index, row in enumerate(matrix)
+            ],
+            axis=0,
+        ).astype(np.float32, copy=False)
+        if matrix.shape[0]
+        else np.zeros((0, DINOV2_DIMENSION), dtype=np.float32)
+    )
 
 
 def one_minus_cosine(query: np.ndarray, candidates: np.ndarray) -> np.ndarray:
@@ -172,7 +205,11 @@ def _safe_extract_source(source_archive: Path, destination: Path) -> Path:
         with tarfile.open(source_archive, mode="r:*") as archive:
             members = archive.getmembers()
             if not members:
-                fail("MEMORY_DINOV2_SOURCE_ARCHIVE_INVALID", "source_archive", "archive is empty")
+                fail(
+                    "MEMORY_DINOV2_SOURCE_ARCHIVE_INVALID",
+                    "source_archive",
+                    "archive is empty",
+                )
             for member in members:
                 portable = PurePosixPath(member.name)
                 if (
@@ -212,7 +249,9 @@ class _TorchDinov2Backend:
         identity: Dinov2RevisionIdentity,
         deployment: Dinov2DeploymentPaths,
     ) -> None:
-        source_sha = _sha256_file(deployment.source_archive_path, label="source_archive")
+        source_sha = _sha256_file(
+            deployment.source_archive_path, label="source_archive"
+        )
         weights_sha = _sha256_file(deployment.weights_path, label="weights")
         if source_sha != identity.source_archive_sha256:
             fail(
@@ -257,7 +296,11 @@ class _TorchDinov2Backend:
             try:
                 temporary_parent.mkdir(parents=True, exist_ok=True)
             except OSError as exc:
-                fail("MEMORY_DINOV2_CACHE_INVALID", "cache_dir", f"{type(exc).__name__}: {exc}")
+                fail(
+                    "MEMORY_DINOV2_CACHE_INVALID",
+                    "cache_dir",
+                    f"{type(exc).__name__}: {exc}",
+                )
         self._temporary = tempfile.TemporaryDirectory(
             prefix="rpent-dinov2-source-",
             dir=os.fspath(temporary_parent) if temporary_parent is not None else None,
@@ -284,10 +327,20 @@ class _TorchDinov2Backend:
             model.to(device="cuda")
         except Exception as exc:
             self._temporary.cleanup()
-            fail("MEMORY_DINOV2_MODEL_LOAD_FAILED", "encoder.backend", f"{type(exc).__name__}: {exc}")
-        if model.training or any(parameter.requires_grad for parameter in model.parameters()):
+            fail(
+                "MEMORY_DINOV2_MODEL_LOAD_FAILED",
+                "encoder.backend",
+                f"{type(exc).__name__}: {exc}",
+            )
+        if model.training or any(
+            parameter.requires_grad for parameter in model.parameters()
+        ):
             self._temporary.cleanup()
-            fail("MEMORY_DINOV2_MODEL_NOT_FROZEN", "encoder.backend", "model must be eval-only and frozen")
+            fail(
+                "MEMORY_DINOV2_MODEL_NOT_FROZEN",
+                "encoder.backend",
+                "model must be eval-only and frozen",
+            )
         self._torch = torch
         self._functional = importlib.import_module("torchvision.transforms.functional")
         transforms = importlib.import_module("torchvision.transforms")
@@ -325,14 +378,24 @@ class _TorchDinov2Backend:
         )
 
     def encode_batch(self, images: Sequence[np.ndarray]) -> np.ndarray:
-        if self._model.training or any(parameter.requires_grad for parameter in self._model.parameters()):
-            fail("MEMORY_DINOV2_MODEL_NOT_FROZEN", "encoder.backend", "model state changed after admission")
+        if self._model.training or any(
+            parameter.requires_grad for parameter in self._model.parameters()
+        ):
+            fail(
+                "MEMORY_DINOV2_MODEL_NOT_FROZEN",
+                "encoder.backend",
+                "model state changed after admission",
+            )
         batch = self._torch.stack([self._preprocess(image) for image in images])
         batch = batch.to(device="cuda", non_blocking=False)
         with self._torch.inference_mode():
             output = self._model(batch)
         if not isinstance(output, self._torch.Tensor):
-            fail("MEMORY_DINOV2_OUTPUT_INVALID", "encoder.output", f"expected Tensor, got {type(output).__name__}")
+            fail(
+                "MEMORY_DINOV2_OUTPUT_INVALID",
+                "encoder.output",
+                f"expected Tensor, got {type(output).__name__}",
+            )
         return output.detach().to(device="cpu", dtype=self._torch.float32).numpy()
 
     def close(self) -> None:
@@ -380,13 +443,23 @@ class Dinov2Encoder:
             for field, wanted in expected.items():
                 actual = getattr(backend, field, None)
                 if actual != wanted:
-                    fail("MEMORY_DINOV2_BACKEND_IDENTITY_MISMATCH", field, f"expected {wanted!r}, actual {actual!r}")
+                    fail(
+                        "MEMORY_DINOV2_BACKEND_IDENTITY_MISMATCH",
+                        field,
+                        f"expected {wanted!r}, actual {actual!r}",
+                    )
             self._backend = backend
         return self._backend
 
-    def encode_batch(self, values: Sequence[np.ndarray | None]) -> tuple[np.ndarray | None, ...]:
+    def encode_batch(
+        self, values: Sequence[np.ndarray | None]
+    ) -> tuple[np.ndarray | None, ...]:
         if len(values) > MAX_BATCH_SIZE:
-            fail("MEMORY_DINOV2_BATCH_TOO_LARGE", "embedding_input", "max batch size is 32")
+            fail(
+                "MEMORY_DINOV2_BATCH_TOO_LARGE",
+                "embedding_input",
+                "max batch size is 32",
+            )
         result: list[np.ndarray | None] = [None] * len(values)
         positions: list[int] = []
         images: list[np.ndarray] = []
@@ -395,7 +468,11 @@ class Dinov2Encoder:
                 continue
             image = np.asarray(value)
             if image.dtype != np.uint8 or image.ndim != 3 or image.shape[2] != 3:
-                fail("MEMORY_DINOV2_INPUT_INVALID", f"embedding_input[{index}]", "expected RGB8 [H,W,3]")
+                fail(
+                    "MEMORY_DINOV2_INPUT_INVALID",
+                    f"embedding_input[{index}]",
+                    "expected RGB8 [H,W,3]",
+                )
             positions.append(index)
             images.append(np.ascontiguousarray(image))
         if not images:

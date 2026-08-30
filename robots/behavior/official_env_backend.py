@@ -192,7 +192,9 @@ def _exact_runtime_support(
     official: Mapping[str, Any],
     meta: Mapping[str, Any],
 ) -> dict[str, Any]:
-    camera_cfg = official.get("camera") if isinstance(official.get("camera"), Mapping) else {}
+    camera_cfg = (
+        official.get("camera") if isinstance(official.get("camera"), Mapping) else {}
+    )
     return {
         "schema_version": EXACT_OFFICIAL_RUNTIME_SUPPORT_SCHEMA,
         "source_profile_sha256": _canonical_json_sha256(official),
@@ -221,8 +223,12 @@ def _exact_runtime_support(
     }
 
 
-def _exact_overlay(official: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    official_copy = json.loads(json.dumps(official, ensure_ascii=False, allow_nan=False))
+def _exact_overlay(
+    official: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    official_copy = json.loads(
+        json.dumps(official, ensure_ascii=False, allow_nan=False)
+    )
     env_cfg = official_copy.setdefault("env", {})
     task_cfg = official_copy.setdefault("task", {})
     termination = task_cfg.setdefault("termination_config", {})
@@ -246,7 +252,9 @@ def _exact_overlay(official: Mapping[str, Any]) -> tuple[dict[str, Any], dict[st
             },
         },
     }
-    effective = json.loads(json.dumps(official_copy, ensure_ascii=False, allow_nan=False))
+    effective = json.loads(
+        json.dumps(official_copy, ensure_ascii=False, allow_nan=False)
+    )
     effective["env"]["flatten_obs_space"] = False
     effective["task"]["termination_config"]["max_steps"] = source_max_steps - 1
     return overlay, effective
@@ -293,10 +301,14 @@ def _exact_config_from_official(
     meta: Mapping[str, Any],
     output_dir: Path,
 ) -> dict[str, Any]:
-    official_dict = json.loads(json.dumps(official, ensure_ascii=False, allow_nan=False))
+    official_dict = json.loads(
+        json.dumps(official, ensure_ascii=False, allow_nan=False)
+    )
     identity = _task_identity(meta)
     _assert_official_identity(official_dict, meta)
-    support = dict(meta.get("omni_config_runtime_support") or {}) or _exact_runtime_support(
+    support = dict(
+        meta.get("omni_config_runtime_support") or {}
+    ) or _exact_runtime_support(
         official=official_dict,
         meta=meta,
     )
@@ -308,7 +320,9 @@ def _exact_config_from_official(
     else:
         overlay, effective = _exact_overlay(official_dict)
     if effective is None:
-        effective = json.loads(json.dumps(official_dict, ensure_ascii=False, allow_nan=False))
+        effective = json.loads(
+            json.dumps(official_dict, ensure_ascii=False, allow_nan=False)
+        )
         changes = dict(overlay["changes"])
         effective["env"]["flatten_obs_space"] = changes["env.flatten_obs_space"][
             "effective"
@@ -384,10 +398,19 @@ def _load_exact_official_config(meta: Mapping[str, Any]) -> Mapping[str, Any] | 
 
 
 def _default_env_config_path(rlinf_root: Path, meta: Mapping[str, Any]) -> Path:
-    path_value = meta.get("rlinf_env_config_path") or os.environ.get(RLINF_ENV_CONFIG_ENV)
+    path_value = meta.get("rlinf_env_config_path") or os.environ.get(
+        RLINF_ENV_CONFIG_ENV
+    )
     if path_value:
         return Path(str(path_value)).expanduser().resolve()
-    return rlinf_root / "examples" / "embodiment" / "config" / "env" / "behavior_r1pro.yaml"
+    return (
+        rlinf_root
+        / "examples"
+        / "embodiment"
+        / "config"
+        / "env"
+        / "behavior_r1pro.yaml"
+    )
 
 
 def _bootstrap_template_path(
@@ -446,10 +469,14 @@ def _apply_default_config_identity(
     cfg.omni_config.env.flatten_action_space = False
     cfg.omni_config.env.automatic_reset = False
     cfg.omni_config.task.activity_name = str(identity["task_name"])
-    cfg.omni_config.task.activity_definition_id = int(identity["activity_definition_id"])
+    cfg.omni_config.task.activity_definition_id = int(
+        identity["activity_definition_id"]
+    )
     cfg.omni_config.task.activity_instance_id = int(identity["activity_instance_id"])
     cfg.omni_config.task.online_object_sampling = False
-    cfg.omni_config.task.termination_config.max_steps = int(identity["max_episode_steps"])
+    cfg.omni_config.task.termination_config.max_steps = int(
+        identity["max_episode_steps"]
+    )
     cfg.omni_config.scene.scene_model = str(identity["scene_model"])
 
     activity_dir = meta.get("activity_instance_dir") or os.environ.get(
@@ -515,9 +542,10 @@ def build_behavior_env_config(meta: Mapping[str, Any], output_dir: str | Path) -
     identity = _task_identity(meta)
     exact_loaded = _load_exact_official_config(meta)
     if exact_loaded is not None:
-        if (
-            exact_loaded.get("omni_config_mode") == EXACT_OFFICIAL_CONFIG_MODE
-            and _COMPLETE_EXACT_FIELDS.issubset(exact_loaded)
+        if exact_loaded.get(
+            "omni_config_mode"
+        ) == EXACT_OFFICIAL_CONFIG_MODE and _COMPLETE_EXACT_FIELDS.issubset(
+            exact_loaded
         ):
             cfg_dict = dict(exact_loaded)
             official = cfg_dict.get("omni_config")
@@ -554,7 +582,9 @@ def build_behavior_env_config(meta: Mapping[str, Any], output_dir: str | Path) -
         official = exact_loaded.get("omni_config", exact_loaded)
         if not isinstance(official, Mapping):
             raise ValueError("exact official omni_config must be a mapping")
-        return OmegaConf.create(_exact_config_from_official(official, meta, output_path))
+        return OmegaConf.create(
+            _exact_config_from_official(official, meta, output_path)
+        )
 
     rlinf_root = ensure_rlinf_import_path()
     config_path = _default_env_config_path(rlinf_root, meta)
@@ -703,7 +733,12 @@ def _extract_raw_observation(raw_obs: Mapping[str, Any]) -> dict[str, Any]:
                 right_image = value["rgb"]
             elif "zed_link:Camera:0" in key and "rgb" in value:
                 main_image = value["rgb"]
-    if main_image is None or left_image is None or right_image is None or proprio is None:
+    if (
+        main_image is None
+        or left_image is None
+        or right_image is None
+        or proprio is None
+    ):
         raise ValueError("raw BEHAVIOR observation lacks main/wrist RGB or proprio")
     return {
         "main_images": main_image,
@@ -715,7 +750,9 @@ def _extract_raw_observation(raw_obs: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _normalize_single_observation(obs: Mapping[str, Any], *, task_language: str) -> dict[str, Any]:
+def _normalize_single_observation(
+    obs: Mapping[str, Any], *, task_language: str
+) -> dict[str, Any]:
     if "main_images" not in obs or "wrist_images" not in obs or "states" not in obs:
         obs = _extract_raw_observation(obs)
 
@@ -760,7 +797,9 @@ def _raw_success(info: Any) -> bool:
     return isinstance(value, (bool, np.bool_)) and bool(value)
 
 
-def _receipt_from_info(info: Mapping[str, Any], *, env_step: int) -> dict[str, Any] | None:
+def _receipt_from_info(
+    info: Mapping[str, Any], *, env_step: int
+) -> dict[str, Any] | None:
     if not _raw_success(info):
         return None
     material = {
@@ -833,7 +872,11 @@ class OfficialBehaviorBackend:
         self._official_success_latched = False
         self._official_success_receipt: dict[str, Any] | None = None
         self._prepared: dict[str, dict[str, Any]] = {}
-        self.cfg = cfg if cfg is not None else build_behavior_env_config(self.meta, self.output_dir)
+        self.cfg = (
+            cfg
+            if cfg is not None
+            else build_behavior_env_config(self.meta, self.output_dir)
+        )
         if behavior_env_cls is None:
             ensure_rlinf_import_path()
             from rlinf.envs.behavior.behavior_env import BehaviorEnv
@@ -955,7 +998,9 @@ class OfficialBehaviorBackend:
         )
         return obs, info_out
 
-    def _step_one_raw(self, action: np.ndarray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
+    def _step_one_raw(
+        self, action: np.ndarray
+    ) -> tuple[Any, float, bool, bool, dict[str, Any]]:
         step_raw = getattr(self._env, "step_raw", None)
         if callable(step_raw):
             obs, reward, terminated, truncated, info = step_raw(action, env_idx=0)
@@ -1164,7 +1209,9 @@ class OfficialBehaviorBackend:
             "left_wrist": _png_bytes(self._last_obs["wrist_images"][0]),
             "right_wrist": _png_bytes(self._last_obs["wrist_images"][1]),
         }
-        paths = _write_capture_files(frames, output_dir=self.output_dir, group_id=group_id)
+        paths = _write_capture_files(
+            frames, output_dir=self.output_dir, group_id=group_id
+        )
         return {
             "status": "ok",
             "capture_group_id": group_id,
@@ -1296,10 +1343,12 @@ class OfficialBehaviorBackend:
         **_kwargs: Any,
     ) -> dict[str, Any]:
         return {
-            "status": "ok" if any(
+            "status": "ok"
+            if any(
                 item.get("plan_id") == prepared_plan_id
                 for item in self._prepared.values()
-            ) else "unknown",
+            )
+            else "unknown",
             "prepared_plan_id": str(prepared_plan_id),
             "motion_available": False,
             "prepared": next(
@@ -1325,7 +1374,9 @@ class OfficialBehaviorBackend:
             "total_env_steps": int(self.total_env_steps),
         }
 
-    def _motion_unavailable(self, name: str, kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    def _motion_unavailable(
+        self, name: str, kwargs: Mapping[str, Any]
+    ) -> dict[str, Any]:
         return {
             "status": "failed",
             "name": name,
@@ -1406,7 +1457,9 @@ def _physical_camera(value: Any) -> str:
     return camera
 
 
-def create_backend(meta: Mapping[str, Any], output_dir: str | Path) -> OfficialBehaviorBackend:
+def create_backend(
+    meta: Mapping[str, Any], output_dir: str | Path
+) -> OfficialBehaviorBackend:
     """Factory used by ``RPENT_BEHAVIOR_ENV_BACKEND_FACTORY``."""
 
     return OfficialBehaviorBackend(meta=meta, output_dir=output_dir)

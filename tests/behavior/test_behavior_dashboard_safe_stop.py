@@ -62,4 +62,3 @@ def test_safe_stop_seals_non_success_receipt_without_motion(tmp_path: Path) -> N
     assert snapshot["control"]["phase"] == "stopped"
     assert snapshot["control"]["available"] is False
     assert snapshot["control"]["last_terminal"] == receipt
-

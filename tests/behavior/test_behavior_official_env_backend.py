@@ -9,7 +9,6 @@ from typing import Any
 import numpy as np
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BEHAVIOR_ROOT = REPO_ROOT / "robots" / "behavior"
 pytestmark = pytest.mark.skipif(
@@ -48,9 +47,7 @@ def _official_omni_config() -> dict[str, Any]:
             "type": "InteractiveTraversableScene",
             "scene_model": "house_double_floor_lower",
             "scene_file": {
-                "metadata": {
-                    "task": {"inst_to_name": {"agent.n.01_1": "robot_r1"}}
-                },
+                "metadata": {"task": {"inst_to_name": {"agent.n.01_1": "robot_r1"}}},
                 "init_info": {
                     "class_module": "omnigibson.scenes",
                     "class_name": "InteractiveTraversableScene",
@@ -156,8 +153,11 @@ def _obs(state_value: float) -> dict[str, Any]:
     }
 
 
-def test_official_backend_reset_trace_is_disabled_by_default(tmp_path, monkeypatch, capsys):
+def test_official_backend_reset_trace_is_disabled_by_default(
+    tmp_path, monkeypatch, capsys
+):
     from omegaconf import OmegaConf
+
     from robots.behavior import official_env_backend as backend
 
     class FakeBehaviorEnv:
@@ -188,6 +188,7 @@ def test_official_backend_reset_trace_records_reset_raw_branch(
     capsys,
 ):
     from omegaconf import OmegaConf
+
     from robots.behavior import official_env_backend as backend
 
     class FakeBehaviorEnv:
@@ -240,6 +241,7 @@ def test_official_backend_reset_trace_records_reset_fallback_branch(
     capsys,
 ):
     from omegaconf import OmegaConf
+
     from robots.behavior import official_env_backend as backend
 
     class FakeBehaviorEnv:
@@ -280,6 +282,7 @@ def test_official_backend_reset_trace_records_reset_fallback_branch(
 
 def test_config_only_exact_official_uses_closed_config_not_tro_bootstrap(tmp_path):
     from omegaconf import OmegaConf
+
     from robots.behavior import official_env_backend as backend
 
     official = _official_omni_config()
@@ -327,6 +330,7 @@ def test_config_only_exact_official_uses_closed_config_not_tro_bootstrap(tmp_pat
 
 def test_vla_model_config_asset_id_resolves_existing_behavior_norm_stats() -> None:
     from omegaconf import OmegaConf
+
     from robots.behavior import vla_server
     from robots.behavior.policy_checkpoint import SHARED_POLICY_CHECKPOINT_PATH
 
@@ -335,14 +339,12 @@ def test_vla_model_config_asset_id_resolves_existing_behavior_norm_stats() -> No
 
     assert cfg.openpi.config_name == "pi05_behavior"
     assert asset_id == "assets/behavior-1k/2025-challenge-demos"
-    norm_stats_path = (
-        Path(cfg.model_path)
-        / asset_id
-        / "norm_stats.json"
-    )
+    norm_stats_path = Path(cfg.model_path) / asset_id / "norm_stats.json"
     assert norm_stats_path.is_file()
     assert norm_stats_path.name == vla_server.NORM_STATS_REL.name
-    assert norm_stats_path.relative_to(Path(cfg.model_path)) == vla_server.NORM_STATS_REL
+    assert (
+        norm_stats_path.relative_to(Path(cfg.model_path)) == vla_server.NORM_STATS_REL
+    )
 
     @dataclasses.dataclass(frozen=True)
     class FakeAssetsConfig:
@@ -383,8 +385,7 @@ def test_config_only_cached_tro_state_bootstrap_is_explicit(tmp_path, monkeypatc
     activity_dir = tmp_path / "activity_instances"
     activity_dir.mkdir()
     bootstrap_template = (
-        tmp_path
-        / "house_double_floor_lower_task_picking_up_trash_0_0_template.json"
+        tmp_path / "house_double_floor_lower_task_picking_up_trash_0_0_template.json"
     )
     bootstrap_template.write_text("{}\n", encoding="utf-8")
     _write_minimal_rlinf_tree(rlinf_root)
@@ -478,6 +479,7 @@ def test_fake_loader_bootstraps_backend_without_live_sim_and_latches_raw_success
     tmp_path,
 ):
     from omegaconf import OmegaConf
+
     from robots.behavior import official_env_backend as backend
 
     class FakeBehaviorEnv:

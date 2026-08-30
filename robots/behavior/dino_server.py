@@ -78,15 +78,23 @@ class DinoRpc:
 
     def encode_batch(self, *, images: list[Any]) -> list[Any]:
         result = self._encoder.encode_batch(
-            [None if image is None else np.asarray(image, dtype=np.uint8) for image in images]
+            [
+                None if image is None else np.asarray(image, dtype=np.uint8)
+                for image in images
+            ]
         )
-        return [None if item is None else np.asarray(item, dtype=np.float32) for item in result]
+        return [
+            None if item is None else np.asarray(item, dtype=np.float32)
+            for item in result
+        ]
 
     def close(self) -> dict[str, Any]:
         self._encoder.close()
         return {"status": "closed", "pid": os.getpid()}
 
-    def dispatch(self, method: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
+    def dispatch(
+        self, method: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> Any:
         if method == "healthz":
             return self.healthz()
         if method == "dino.encode_batch":
@@ -122,7 +130,9 @@ def _materialize_encoder(args: argparse.Namespace) -> tuple[Any, dict[str, Any]]
     )
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device != "cuda":
-        raise RuntimeError("DINO service requires CUDA; CPU fallback is not a BEHAVIOR runtime component")
+        raise RuntimeError(
+            "DINO service requires CUDA; CPU fallback is not a BEHAVIOR runtime component"
+        )
     identity = Dinov2RevisionIdentity(
         model_id=MODEL_ID,
         model_revision=MODEL_REVISION,
@@ -136,7 +146,9 @@ def _materialize_encoder(args: argparse.Namespace) -> tuple[Any, dict[str, Any]]
     deployment = Dinov2DeploymentPaths(
         source_archive_path=source_archive,
         weights_path=weights,
-        cache_dir=Path(args.cache_dir).expanduser().resolve() if args.cache_dir else None,
+        cache_dir=Path(args.cache_dir).expanduser().resolve()
+        if args.cache_dir
+        else None,
     )
     encoder = Dinov2Encoder(
         identity,

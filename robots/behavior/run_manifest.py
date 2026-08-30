@@ -56,7 +56,9 @@ def resolve_run_manifest_public_tool_contract(
 
     if schema_version == LEGACY_RUN_MANIFEST_SCHEMA_VERSION:
         if declared_version is not None:
-            raise ValueError("legacy schema must not declare public_tool_contract_version")
+            raise ValueError(
+                "legacy schema must not declare public_tool_contract_version"
+            )
         version = 1
     elif schema_version == RUN_MANIFEST_SCHEMA_VERSION:
         if (

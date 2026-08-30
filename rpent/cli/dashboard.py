@@ -72,14 +72,18 @@ def _dashboard_server_and_state_classes(
     classes = dashboard_spec.get("classes")
     if classes is not None:
         if not isinstance(classes, dict):
-            raise TypeError(f"robot {robot_spec.name!r} dashboard classes must be a dict")
+            raise TypeError(
+                f"robot {robot_spec.name!r} dashboard classes must be a dict"
+            )
         server_path = classes.get("server")
         state_path = classes.get("state")
         if not isinstance(server_path, str) or not isinstance(state_path, str):
             raise TypeError(
                 f"robot {robot_spec.name!r} dashboard classes require server/state paths"
             )
-        return _resolve_dashboard_class(server_path), _resolve_dashboard_class(state_path)
+        return _resolve_dashboard_class(server_path), _resolve_dashboard_class(
+            state_path
+        )
     return DashboardServer, DashboardState
 
 

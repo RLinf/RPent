@@ -7,7 +7,6 @@ from pathlib import Path
 from rpent.robots import enumerate_robots, get_robot_spec
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BEHAVIOR_INIT = REPO_ROOT / "robots" / "behavior" / "__init__.py"
 
@@ -41,7 +40,7 @@ def test_core_robot_spec_contract_stays_robot_agnostic() -> None:
 def test_core_dashboard_cli_stays_robot_name_agnostic() -> None:
     source = (REPO_ROOT / "rpent" / "cli" / "dashboard.py").read_text("utf-8")
 
-    assert "robot_spec.name == \"behavior\"" not in source
+    assert 'robot_spec.name == "behavior"' not in source
     assert "robots.behavior.dashboard" not in source
 
 

@@ -6,7 +6,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BEHAVIOR_ROOT = REPO_ROOT / "robots" / "behavior"
 pytestmark = pytest.mark.skipif(
@@ -57,8 +56,12 @@ def _index():
     module = _memory_module()
     return module.EpisodeMemoryIndex(
         experiences=(
-            _experience(module, episode="episode:radio", task="turning_on_radio", row=0),
-            _experience(module, episode="episode:trash", task="picking_up_trash", row=1),
+            _experience(
+                module, episode="episode:radio", task="turning_on_radio", row=0
+            ),
+            _experience(
+                module, episode="episode:trash", task="picking_up_trash", row=1
+            ),
         ),
         head_embeddings=np.stack([_unit(0), _unit(1)]),
         wrist_shadow_embeddings={
@@ -154,7 +157,9 @@ def test_bidirectional_95pct_merge_appends_evidence_without_overwriting() -> Non
     assert decision["reproduction_evidence_to_append"] == {"attempt": 2}
 
 
-def test_memory_catalog_is_empty_only_when_implicit_and_explicit_missing_fails(tmp_path):
+def test_memory_catalog_is_empty_only_when_implicit_and_explicit_missing_fails(
+    tmp_path,
+):
     module = _memory_module()
 
     empty = module.load_current_catalog(None)
@@ -189,6 +194,9 @@ def test_candidate_revision_is_content_addressed_and_atomically_readable(tmp_pat
     loaded = module.load_current_catalog(tmp_path)
     assert loaded.episode_count == 1
     assert loaded.frame_count == 1
-    assert loaded.retrieve(task_name="picking_up_trash", head_embedding=_unit(0))[
-        "decision"
-    ] == "use_experience"
+    assert (
+        loaded.retrieve(task_name="picking_up_trash", head_embedding=_unit(0))[
+            "decision"
+        ]
+        == "use_experience"
+    )

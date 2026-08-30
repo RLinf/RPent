@@ -204,13 +204,17 @@ class BehaviorEnvClient:
         timeout_s: float | None = None,
     ) -> Any:
         if self._official_success_latched and method not in _POST_SUCCESS_ALLOWED:
-            raise RuntimeError("raw task success is terminal; no further RPC is allowed")
-        ret = _decode_bytes(self._client.call(
-            method,
-            args=args,
-            kwargs=kwargs or {},
-            timeout_s=timeout_s or _TIMEOUT_S.get(method, _TIMEOUT_S["default"]),
-        ))
+            raise RuntimeError(
+                "raw task success is terminal; no further RPC is allowed"
+            )
+        ret = _decode_bytes(
+            self._client.call(
+                method,
+                args=args,
+                kwargs=kwargs or {},
+                timeout_s=timeout_s or _TIMEOUT_S.get(method, _TIMEOUT_S["default"]),
+            )
+        )
         self._latch_success_response(ret)
         return ret
 
@@ -275,7 +279,12 @@ class BehaviorEnvClient:
 
     def navigate_to(self, **kwargs: Any) -> dict[str, Any]:
         if "relative_motion" in kwargs and kwargs["relative_motion"] is not None:
-            kwargs = {**kwargs, "relative_motion": validate_relative_navigation_motion(kwargs["relative_motion"])}
+            kwargs = {
+                **kwargs,
+                "relative_motion": validate_relative_navigation_motion(
+                    kwargs["relative_motion"]
+                ),
+            }
         return self._rpc_call("env.navigate_to", kwargs=kwargs)
 
     def move_to(self, **kwargs: Any) -> dict[str, Any]:
@@ -312,7 +321,9 @@ class BehaviorEnvClient:
     def save_robot_state_checkpoint(self, **kwargs: Any) -> dict[str, Any]:
         return self._rpc_call("env.save_robot_state_checkpoint", kwargs=kwargs)
 
-    def finalize_paused_runtime(self, vla_status: dict[str, Any] | None = None) -> dict[str, Any]:
+    def finalize_paused_runtime(
+        self, vla_status: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return self._rpc_call(
             "env.finalize_paused_runtime",
             kwargs={"vla_status": vla_status},
@@ -358,7 +369,9 @@ class BehaviorEnvClient:
         )
 
     def dashboard_capture_views(self, *, camera: str = "head") -> dict[str, Any]:
-        validate_dashboard_manual_command(target="chassis", action="observe", camera=camera)
+        validate_dashboard_manual_command(
+            target="chassis", action="observe", camera=camera
+        )
         return self._rpc_call("env.dashboard_capture_views", kwargs={"camera": camera})
 
     def dashboard_safe_stop(

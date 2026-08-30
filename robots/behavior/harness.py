@@ -190,7 +190,9 @@ def _nested_get(value: Mapping[str, Any], path: Sequence[str]) -> Any:
     return current
 
 
-def _first_bool(value: Mapping[str, Any], paths: Sequence[Sequence[str]]) -> bool | None:
+def _first_bool(
+    value: Mapping[str, Any], paths: Sequence[Sequence[str]]
+) -> bool | None:
     for path in paths:
         item = _nested_get(value, path)
         if isinstance(item, bool):
@@ -210,7 +212,9 @@ def _terminal_score(path: Path, value: Mapping[str, Any]) -> int:
     return score
 
 
-def _summarize_receipt(path: Path, value: Mapping[str, Any], root: Path) -> dict[str, Any]:
+def _summarize_receipt(
+    path: Path, value: Mapping[str, Any], root: Path
+) -> dict[str, Any]:
     task_success = _first_bool(
         value,
         (
@@ -316,10 +320,13 @@ def run_explore(args: argparse.Namespace, passthrough: Sequence[str]) -> int:
 
         stdout_path = attempt_dir / "stdout.log"
         stderr_path = attempt_dir / "stderr.log"
-        with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open(
-            "w",
-            encoding="utf-8",
-        ) as stderr:
+        with (
+            stdout_path.open("w", encoding="utf-8") as stdout,
+            stderr_path.open(
+                "w",
+                encoding="utf-8",
+            ) as stderr,
+        ):
             try:
                 completed = subprocess.run(
                     argv,

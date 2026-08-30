@@ -101,7 +101,9 @@ class BehaviorVLAClient:
         )
 
     def disable_actions(self, *, timeout_ms: int = 5000) -> dict[str, Any]:
-        body = {"binding_id": self._binding_id} if self._binding_id is not None else None
+        body = (
+            {"binding_id": self._binding_id} if self._binding_id is not None else None
+        )
         response = self._client.post(
             f"{self._base_url}/control/disable-actions",
             json=body,
@@ -113,7 +115,9 @@ class BehaviorVLAClient:
             raise RuntimeError(f"VLA server did not disable actions: {payload!r}")
         return payload
 
-    def bind_actions(self, binding_id: str, *, timeout_ms: int = 5000) -> dict[str, Any]:
+    def bind_actions(
+        self, binding_id: str, *, timeout_ms: int = 5000
+    ) -> dict[str, Any]:
         if not isinstance(binding_id, str) or not binding_id.strip():
             raise ValueError("binding_id must be a non-empty string")
         normalized = binding_id.strip()
@@ -130,7 +134,9 @@ class BehaviorVLAClient:
         return payload
 
     def enable_actions(self, *, timeout_ms: int = 5000) -> dict[str, Any]:
-        body = {"binding_id": self._binding_id} if self._binding_id is not None else None
+        body = (
+            {"binding_id": self._binding_id} if self._binding_id is not None else None
+        )
         response = self._client.post(
             f"{self._base_url}/control/enable-actions",
             json=body,

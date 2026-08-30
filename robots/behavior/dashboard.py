@@ -809,7 +809,9 @@ class BehaviorControlController:
                     )
                 except Exception as exc:
                     with self._lock:
-                        self._last_error = f"unbind_discard_failed: {type(exc).__name__}: {exc}"
+                        self._last_error = (
+                            f"unbind_discard_failed: {type(exc).__name__}: {exc}"
+                        )
         with self._lock:
             self._backend = None
             self._capabilities = {
@@ -899,7 +901,9 @@ class BehaviorControlController:
                 f"{type(exc).__name__}: {exc}",
             ) from exc
         if not isinstance(prepared, Mapping):
-            raise ControlRequestError(502, "invalid_prepare", "prepare returned non-object")
+            raise ControlRequestError(
+                502, "invalid_prepare", "prepare returned non-object"
+            )
         if prepared.get("status") == "failed":
             raise ControlRequestError(
                 409,
@@ -956,7 +960,9 @@ class BehaviorControlController:
             raise ControlRequestError(409, "nothing_prepared", "no prepared command")
         if prepared.get("lease_id") != lease_id:
             raise ControlRequestError(409, "lease_mismatch", "prepared lease mismatch")
-        if command_id is not None and str(prepared.get("command_id")) != str(command_id):
+        if command_id is not None and str(prepared.get("command_id")) != str(
+            command_id
+        ):
             raise ControlRequestError(
                 409,
                 "command_mismatch",
@@ -1014,7 +1020,9 @@ class BehaviorControlController:
             raise ControlRequestError(409, "nothing_prepared", "no prepared command")
         if prepared.get("lease_id") != lease_id:
             raise ControlRequestError(409, "lease_mismatch", "prepared lease mismatch")
-        if command_id is not None and str(prepared.get("command_id")) != str(command_id):
+        if command_id is not None and str(prepared.get("command_id")) != str(
+            command_id
+        ):
             raise ControlRequestError(
                 409,
                 "command_mismatch",
@@ -1066,7 +1074,9 @@ class BehaviorControlController:
                 f"{type(exc).__name__}: {exc}",
             ) from exc
         if not isinstance(result, Mapping):
-            raise ControlRequestError(502, "invalid_capture", "capture returned non-object")
+            raise ControlRequestError(
+                502, "invalid_capture", "capture returned non-object"
+            )
         if not self._state.publish_capture_result(result):
             raise ControlRequestError(
                 502,
@@ -1386,7 +1396,9 @@ class BehaviorDashboardServer(CoreDashboardServer):
         probe_host = "127.0.0.1" if self.host in {"0.0.0.0", "::"} else self.host
         while time.monotonic() < deadline:
             try:
-                with socket.create_connection((probe_host, int(self.port)), timeout=0.1):
+                with socket.create_connection(
+                    (probe_host, int(self.port)), timeout=0.1
+                ):
                     pass
             except OSError:
                 self._server = None
@@ -1436,7 +1448,9 @@ class BehaviorDashboardServer(CoreDashboardServer):
                 return _error_response(exc)
 
         @self._app.post("/api/run/control/camera")
-        def api_control_camera(payload: dict[str, Any] = Body(default={})) -> JSONResponse:
+        def api_control_camera(
+            payload: dict[str, Any] = Body(default={}),
+        ) -> JSONResponse:
             try:
                 body = _validate_payload(payload, required={"run", "camera"})
                 return JSONResponse(
@@ -1456,7 +1470,14 @@ class BehaviorDashboardServer(CoreDashboardServer):
             try:
                 body = _validate_payload(
                     payload,
-                    required={"run", "lease_id", "sequence", "target", "action", "camera"},
+                    required={
+                        "run",
+                        "lease_id",
+                        "sequence",
+                        "target",
+                        "action",
+                        "camera",
+                    },
                 )
                 response = controller_for_run(body["run"]).prepare(
                     lease_id=body["lease_id"],
@@ -1524,7 +1545,9 @@ class BehaviorDashboardServer(CoreDashboardServer):
                 return _error_response(exc)
 
         @self._app.post("/api/run/control/stop")
-        def api_control_stop(payload: dict[str, Any] = Body(default={})) -> JSONResponse:
+        def api_control_stop(
+            payload: dict[str, Any] = Body(default={}),
+        ) -> JSONResponse:
             try:
                 body = _validate_payload(
                     payload,
@@ -1548,7 +1571,14 @@ class BehaviorDashboardServer(CoreDashboardServer):
             try:
                 body = _validate_payload(
                     payload,
-                    required={"run", "lease_id", "sequence", "target", "action", "camera"},
+                    required={
+                        "run",
+                        "lease_id",
+                        "sequence",
+                        "target",
+                        "action",
+                        "camera",
+                    },
                 )
                 response = controller_for_run(body["run"]).command(
                     lease_id=body["lease_id"],
@@ -1783,7 +1813,10 @@ def _require_runtime_task_args(
 ) -> None:
     if not (getattr(args, "task_name", None) or getattr(args, "task", None)):
         parser.error("runtime-bound mode requires --task-name or --task")
-    if getattr(args, "public_seed", None) is None and getattr(args, "seed", None) is None:
+    if (
+        getattr(args, "public_seed", None) is None
+        and getattr(args, "seed", None) is None
+    ):
         parser.error("runtime-bound mode requires --public-seed or --seed")
 
 
@@ -2051,7 +2084,10 @@ def _inject_behavior_controls(html: str) -> str:
           <span class="control-status" aria-hidden="true"></span>
         </section>
 """
-    if "/behavior-static/behavior_controls.js" in html or 'id="interactiveControls"' in html:
+    if (
+        "/behavior-static/behavior_controls.js" in html
+        or 'id="interactiveControls"' in html
+    ):
         return html
     html = html.replace(
         "</head>",
@@ -2072,7 +2108,7 @@ def _inject_behavior_controls(html: str) -> str:
     html = html.replace(
         '        <div class="frame-cap" id="frameCap" data-i18n="waitingFrame">waiting for first frame…</div>\n'
         "      </div>",
-        '        </div>\n'
+        "        </div>\n"
         '        <div class="frame-cap" id="frameCap" data-i18n="waitingFrame">waiting for first frame…</div>\n'
         + right_panel
         + "      </div>",
@@ -2172,7 +2208,9 @@ def _call_backend(method: Any, **kwargs: Any) -> Any:
         parameter.kind == inspect.Parameter.VAR_KEYWORD
         for parameter in signature.parameters.values()
     ):
-        kwargs = {key: value for key, value in kwargs.items() if key in signature.parameters}
+        kwargs = {
+            key: value for key, value in kwargs.items() if key in signature.parameters
+        }
     return method(**kwargs)
 
 
@@ -2285,7 +2323,11 @@ def _read_contained_image(root: Path, view: Mapping[str, Any]) -> bytes | None:
             continue
         try:
             path = Path(raw)
-            resolved = path.resolve(strict=True) if path.is_absolute() else (root / path).resolve(strict=True)
+            resolved = (
+                path.resolve(strict=True)
+                if path.is_absolute()
+                else (root / path).resolve(strict=True)
+            )
             resolved.relative_to(root.resolve(strict=False))
             if resolved.is_file():
                 return resolved.read_bytes()

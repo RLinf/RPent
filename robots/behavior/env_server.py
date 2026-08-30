@@ -27,14 +27,17 @@ def _repo_root() -> Path:
 if str(_repo_root()) not in sys.path:
     sys.path.insert(0, str(_repo_root()))
 
-from robots.behavior.schemas import ACTION_DIM, DEFAULT_ACTION_CHUNK, validate_action_chunk
-from robots.behavior.task_specs import get_task_spec
-from robots.behavior.terminal_success import (
+from robots.behavior.schemas import (  # noqa: E402
+    ACTION_DIM,
+    DEFAULT_ACTION_CHUNK,
+    validate_action_chunk,
+)
+from robots.behavior.task_specs import get_task_spec  # noqa: E402
+from robots.behavior.terminal_success import (  # noqa: E402
     make_raw_success_receipt,
     official_task_success,
 )
-from rpent.utils.rpc.http_rpc import _HttpRpcHandler
-
+from rpent.utils.rpc.http_rpc import _HttpRpcHandler  # noqa: E402
 
 _ENV_METHODS = {
     "healthz",
@@ -123,7 +126,9 @@ class BehaviorEnvFacade:
     @property
     def total_env_steps(self) -> int:
         value = getattr(self._backend, "total_env_steps", self._total_env_steps)
-        if isinstance(value, (int, np.integer)) and not isinstance(value, (bool, np.bool_)):
+        if isinstance(value, (int, np.integer)) and not isinstance(
+            value, (bool, np.bool_)
+        ):
             return max(self._total_env_steps, int(value))
         return self._total_env_steps
 
@@ -133,7 +138,9 @@ class BehaviorEnvFacade:
         runtime = info.get("_rpent")
         if isinstance(runtime, dict):
             steps = runtime.get("total_env_steps", runtime.get("global_env_steps"))
-            if isinstance(steps, (int, np.integer)) and not isinstance(steps, (bool, np.bool_)):
+            if isinstance(steps, (int, np.integer)) and not isinstance(
+                steps, (bool, np.bool_)
+            ):
                 self._total_env_steps = max(self._total_env_steps, int(steps))
         if official_task_success(info):
             self._official_success_receipt = make_raw_success_receipt(
@@ -199,7 +206,9 @@ class BehaviorEnvFacade:
         obs, reward, terminated, truncated, info = ret
         if isinstance(obs, dict):
             self._last_obs = obs
-        self._total_env_steps = max(self._total_env_steps, self._total_env_steps + action_array.shape[0])
+        self._total_env_steps = max(
+            self._total_env_steps, self._total_env_steps + action_array.shape[0]
+        )
         self._note_info(info)
         return obs, reward, bool(terminated), bool(truncated), self._last_info
 
@@ -213,7 +222,9 @@ class BehaviorEnvFacade:
             self._note_info(info)
         return _jsonable(ret)
 
-    def finalize_paused_runtime(self, vla_status: dict[str, Any] | None = None) -> dict[str, Any]:
+    def finalize_paused_runtime(
+        self, vla_status: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         method = getattr(self._backend, "finalize_paused_runtime", None)
         if callable(method):
             result = method(vla_status=vla_status)
@@ -225,7 +236,9 @@ class BehaviorEnvFacade:
             "vla_status": vla_status,
         }
 
-    def dispatch(self, method: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
+    def dispatch(
+        self, method: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> Any:
         if method not in _ENV_METHODS:
             raise AttributeError(f"unknown BEHAVIOR env RPC method: {method}")
         if method == "healthz":
@@ -319,7 +332,9 @@ def main() -> None:
     cuda_device = _single_cuda_device(args.cuda_device)
     if cuda_device is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
-    os.environ["RPENT_RLINF_ROOT"] = str(Path(args.behavior_repo).expanduser().resolve())
+    os.environ["RPENT_RLINF_ROOT"] = str(
+        Path(args.behavior_repo).expanduser().resolve()
+    )
 
     from rpent.utils.daemon import watch_parent_death
 

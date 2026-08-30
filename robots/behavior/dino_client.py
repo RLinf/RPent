@@ -42,7 +42,9 @@ class BehaviorDinoClient:
             raise RuntimeError("DINO service dimension does not match CLS384")
         return payload
 
-    def encode_batch(self, images: list[np.ndarray | None]) -> tuple[np.ndarray | None, ...]:
+    def encode_batch(
+        self, images: list[np.ndarray | None]
+    ) -> tuple[np.ndarray | None, ...]:
         payload = self._call("dino.encode_batch", images=images)
         if not isinstance(payload, list):
             raise TypeError("dino.encode_batch must return a list")

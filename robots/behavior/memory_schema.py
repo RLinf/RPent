@@ -66,4 +66,3 @@ def require_exact_keys(
             path,
             f"expected keys {sorted(expected_set)}, actual {sorted(actual)}",
         )
-

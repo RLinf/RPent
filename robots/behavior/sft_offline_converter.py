@@ -40,7 +40,11 @@ def _sha256_file(path: Path) -> str:
 
 def load_selection(path: Path) -> Mapping[str, Any]:
     if not path.is_file() or path.is_symlink():
-        fail("MEMORY_SFT_SELECTION_MISSING", str(path), "selection manifest must be a regular file")
+        fail(
+            "MEMORY_SFT_SELECTION_MISSING",
+            str(path),
+            "selection manifest must be a regular file",
+        )
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -88,35 +92,71 @@ def validate_selection(document: Mapping[str, Any]) -> None:
     }
     for key, expected in expected_coverage.items():
         if coverage.get(key) != expected:
-            fail("MEMORY_SFT_SELECTION_INVALID", f"coverage.{key}", f"expected {expected}")
+            fail(
+                "MEMORY_SFT_SELECTION_INVALID",
+                f"coverage.{key}",
+                f"expected {expected}",
+            )
     episodes = document["episodes"]
     if not isinstance(episodes, list) or len(episodes) != EXPECTED_EPISODES:
         fail("MEMORY_SFT_SELECTION_INVALID", "episodes", "expected 10 episodes")
     task_ids = {str(row.get("task_id")) for row in episodes if isinstance(row, Mapping)}
     if task_ids != set(EXPECTED_TASK_IDS):
-        fail("MEMORY_SFT_SELECTION_INVALID", "episodes.task_id", "expected exact five-task coverage")
+        fail(
+            "MEMORY_SFT_SELECTION_INVALID",
+            "episodes.task_id",
+            "expected exact five-task coverage",
+        )
     segment_count = 0
     for index, episode in enumerate(episodes):
         if not isinstance(episode, Mapping):
-            fail("MEMORY_SFT_SELECTION_INVALID", f"episodes[{index}]", "expected object")
+            fail(
+                "MEMORY_SFT_SELECTION_INVALID", f"episodes[{index}]", "expected object"
+            )
         for file_key in ("annotation", "metadata", "parquet"):
             entry = episode.get(file_key)
             if not isinstance(entry, Mapping):
-                fail("MEMORY_SFT_SELECTION_INVALID", f"episodes[{index}].{file_key}", "expected object")
-            require_sha256(entry.get("sha256"), path=f"episodes[{index}].{file_key}.sha256")
+                fail(
+                    "MEMORY_SFT_SELECTION_INVALID",
+                    f"episodes[{index}].{file_key}",
+                    "expected object",
+                )
+            require_sha256(
+                entry.get("sha256"), path=f"episodes[{index}].{file_key}.sha256"
+            )
         videos = episode.get("videos")
-        if not isinstance(videos, Mapping) or set(videos) != {"head", "left_wrist", "right_wrist"}:
-            fail("MEMORY_SFT_SELECTION_INVALID", f"episodes[{index}].videos", "expected three camera pins")
+        if not isinstance(videos, Mapping) or set(videos) != {
+            "head",
+            "left_wrist",
+            "right_wrist",
+        }:
+            fail(
+                "MEMORY_SFT_SELECTION_INVALID",
+                f"episodes[{index}].videos",
+                "expected three camera pins",
+            )
         for camera, entry in videos.items():
             if not isinstance(entry, Mapping):
-                fail("MEMORY_SFT_SELECTION_INVALID", f"episodes[{index}].videos.{camera}", "expected object")
-            require_sha256(entry.get("sha256"), path=f"episodes[{index}].videos.{camera}.sha256")
+                fail(
+                    "MEMORY_SFT_SELECTION_INVALID",
+                    f"episodes[{index}].videos.{camera}",
+                    "expected object",
+                )
+            require_sha256(
+                entry.get("sha256"), path=f"episodes[{index}].videos.{camera}.sha256"
+            )
         segments = episode.get("segments")
         if not isinstance(segments, list) or not segments:
-            fail("MEMORY_SFT_SELECTION_INVALID", f"episodes[{index}].segments", "expected non-empty list")
+            fail(
+                "MEMORY_SFT_SELECTION_INVALID",
+                f"episodes[{index}].segments",
+                "expected non-empty list",
+            )
         segment_count += len(segments)
     if segment_count != EXPECTED_SEGMENTS:
-        fail("MEMORY_SFT_SELECTION_INVALID", "segments", "expected 91 selected segments")
+        fail(
+            "MEMORY_SFT_SELECTION_INVALID", "segments", "expected 91 selected segments"
+        )
 
 
 def keyframes_for_episode(episode: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
@@ -129,7 +169,12 @@ def keyframes_for_episode(episode: Mapping[str, Any]) -> tuple[Mapping[str, Any]
         _add_frame(frames, start, "segment_start", segment)
         _add_frame(frames, end, "segment_end", segment)
         if end_exclusive - start >= 96:
-            _add_frame(frames, start + (end_exclusive - start) // 2, "long_segment_midpoint", segment)
+            _add_frame(
+                frames,
+                start + (end_exclusive - start) // 2,
+                "long_segment_midpoint",
+                segment,
+            )
     first_start = min(int(segment["start_frame"]) for segment in segments)
     last_end = max(int(segment["end_frame_exclusive"]) - 1 for segment in segments)
     _add_frame(frames, first_start, "episode_first", segments[0])
@@ -137,7 +182,9 @@ def keyframes_for_episode(episode: Mapping[str, Any]) -> tuple[Mapping[str, Any]
     return tuple(frames[index] for index in sorted(frames))
 
 
-def build_rollup(selection: Mapping[str, Any], *, selection_sha256: str) -> Mapping[str, Any]:
+def build_rollup(
+    selection: Mapping[str, Any], *, selection_sha256: str
+) -> Mapping[str, Any]:
     active: list[Mapping[str, Any]] = []
     sealed: list[Mapping[str, Any]] = []
     for episode in selection["episodes"]:
@@ -169,7 +216,11 @@ def build_rollup(selection: Mapping[str, Any], *, selection_sha256: str) -> Mapp
         else:
             sealed.append(row)
     if len(active) != 4 or len(sealed) != 6:
-        fail("MEMORY_SFT_ROLLUP_INVALID", "active_view", "expected Radio/Trash 4 active-view episodes and 6 sealed episodes")
+        fail(
+            "MEMORY_SFT_ROLLUP_INVALID",
+            "active_view",
+            "expected Radio/Trash 4 active-view episodes and 6 sealed episodes",
+        )
     return {
         "schema_id": ROLLED_ARTIFACT_SCHEMA_ID,
         "preliminary": True,
@@ -185,7 +236,9 @@ def build_rollup(selection: Mapping[str, Any], *, selection_sha256: str) -> Mapp
     }
 
 
-def write_content_addressed_rollup(*, selection_manifest: Path, output_dir: Path) -> Mapping[str, Any]:
+def write_content_addressed_rollup(
+    *, selection_manifest: Path, output_dir: Path
+) -> Mapping[str, Any]:
     raw = selection_manifest.read_bytes()
     selection_sha = sha256_bytes(raw)
     selection = load_selection(selection_manifest)
@@ -202,12 +255,18 @@ def write_content_addressed_rollup(*, selection_manifest: Path, output_dir: Path
         "preliminary": True,
         "activation_allowed": False,
     }
-    _atomic_write(output_dir / "latest.json", canonical_json_file_bytes(pointer, path="pointer"))
+    _atomic_write(
+        output_dir / "latest.json", canonical_json_file_bytes(pointer, path="pointer")
+    )
     return MappingProxyType(pointer)
 
 
-def _resolve_source_file(relative_path: str, roots: Sequence[Path], *, expected_sha256: str) -> Path:
-    matches = [root / relative_path for root in roots if (root / relative_path).is_file()]
+def _resolve_source_file(
+    relative_path: str, roots: Sequence[Path], *, expected_sha256: str
+) -> Path:
+    matches = [
+        root / relative_path for root in roots if (root / relative_path).is_file()
+    ]
     if len(matches) != 1:
         fail(
             "MEMORY_SFT_SOURCE_RESOLUTION_INVALID",
@@ -272,7 +331,11 @@ def _load_episode_rollups(rollups_dir: Path) -> Mapping[str, tuple[Path, str]]:
         if match:
             result[match.group(1)] = (path, text)
     if len(result) != EXPECTED_EPISODES:
-        fail("MEMORY_SFT_ROLLUP_INVALID", str(rollups_dir), "expected 10 episode memory.md rollups")
+        fail(
+            "MEMORY_SFT_ROLLUP_INVALID",
+            str(rollups_dir),
+            "expected 10 episode memory.md rollups",
+        )
     return MappingProxyType(result)
 
 
@@ -290,7 +353,11 @@ def compile_runtime_catalog(
     """Compile all ten official SFT episodes and a four-episode runtime view."""
 
     if output_dir.exists():
-        fail("MEMORY_SFT_OUTPUT_COLLISION", str(output_dir), "output directory already exists")
+        fail(
+            "MEMORY_SFT_OUTPUT_COLLISION",
+            str(output_dir),
+            "output directory already exists",
+        )
     if batch_size < 1 or batch_size > 32:
         fail("MEMORY_SFT_BATCH_INVALID", "batch_size", "expected 1..32")
     selection_raw = selection_manifest.read_bytes()
@@ -317,7 +384,11 @@ def compile_runtime_catalog(
     )
 
     if not torch.cuda.is_available():
-        fail("MEMORY_SFT_CUDA_UNAVAILABLE", "cuda", "compiler requires one visible CUDA device")
+        fail(
+            "MEMORY_SFT_CUDA_UNAVAILABLE",
+            "cuda",
+            "compiler requires one visible CUDA device",
+        )
     identity = Dinov2RevisionIdentity(
         model_id=MODEL_ID,
         model_revision=MODEL_REVISION,
@@ -434,7 +505,9 @@ def compile_runtime_catalog(
                     source={
                         "selection_manifest_sha256": sha256_bytes(selection_raw),
                         "episode_split": episode["split"],
-                        "layout_fingerprint_sha256": episode["layout_fingerprint_sha256"],
+                        "layout_fingerprint_sha256": episode[
+                            "layout_fingerprint_sha256"
+                        ],
                     },
                     metadata={
                         "preliminary": True,
@@ -466,7 +539,9 @@ def compile_runtime_catalog(
     _write_once(output_dir / "all_episode_embeddings.npz", all_embedding_payload)
     _write_once(
         output_dir / "all_episode_inventory.json",
-        canonical_json_file_bytes({"episodes": all_inventory}, path="all_episode_inventory"),
+        canonical_json_file_bytes(
+            {"episodes": all_inventory}, path="all_episode_inventory"
+        ),
     )
     candidate = write_candidate_revision(
         memory_dir=output_dir / "active_catalog",
@@ -500,7 +575,9 @@ def compile_runtime_catalog(
         "cuda_visible_device_count": int(torch.cuda.device_count()),
         "encoder_identity": identity.as_dict(),
         "all_episode_embeddings_sha256": sha256_bytes(all_embedding_payload),
-        "active_catalog_revision_document_sha256": candidate["revision_document_sha256"],
+        "active_catalog_revision_document_sha256": candidate[
+            "revision_document_sha256"
+        ],
         "active_catalog_path": "active_catalog",
         "sealed_tasks": sorted(
             {row["task_name"] for row in all_inventory if row["sealed"]}
@@ -512,14 +589,21 @@ def compile_runtime_catalog(
         {
             "artifact_dir": str(output_dir),
             "manifest_sha256": sha256_bytes(manifest_payload),
-            "active_catalog_revision_document_sha256": candidate["revision_document_sha256"],
+            "active_catalog_revision_document_sha256": candidate[
+                "revision_document_sha256"
+            ],
             "preliminary": True,
             "activation_allowed": False,
         }
     )
 
 
-def _add_frame(frames: dict[int, dict[str, Any]], frame_index: int, kind: str, segment: Mapping[str, Any]) -> None:
+def _add_frame(
+    frames: dict[int, dict[str, Any]],
+    frame_index: int,
+    kind: str,
+    segment: Mapping[str, Any],
+) -> None:
     frames.setdefault(
         frame_index,
         {
@@ -538,7 +622,9 @@ def _add_frame(frames: dict[int, dict[str, Any]], frame_index: int, kind: str, s
 
 def _atomic_write(path: Path, payload: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode="wb", prefix=f".{path.name}.", dir=path.parent, delete=False) as handle:
+    with tempfile.NamedTemporaryFile(
+        mode="wb", prefix=f".{path.name}.", dir=path.parent, delete=False
+    ) as handle:
         tmp = Path(handle.name)
         handle.write(payload)
         handle.flush()
@@ -568,7 +654,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     compile_catalog = sub.add_parser("compile-runtime-catalog")
     compile_catalog.add_argument("--selection-manifest", required=True, type=Path)
     compile_catalog.add_argument("--output-dir", required=True, type=Path)
-    compile_catalog.add_argument("--video-root", required=True, type=Path, action="append")
+    compile_catalog.add_argument(
+        "--video-root", required=True, type=Path, action="append"
+    )
     compile_catalog.add_argument("--rollups-dir", required=True, type=Path)
     compile_catalog.add_argument("--source-archive", required=True, type=Path)
     compile_catalog.add_argument("--weights", required=True, type=Path)

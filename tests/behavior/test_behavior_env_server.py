@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-
 from http.server import ThreadingHTTPServer
 
 from robots.behavior.env_server import BehaviorMainThreadHttpRpcServer
@@ -27,9 +26,9 @@ def test_behavior_env_rpc_dispatches_on_serving_thread() -> None:
     server_thread.start()
     try:
         assert ready.wait(timeout=2.0)
-        response = HttpRpcClient(
-            f"http://127.0.0.1:{server.server_address[1]}"
-        ).call("healthz")
+        response = HttpRpcClient(f"http://127.0.0.1:{server.server_address[1]}").call(
+            "healthz"
+        )
 
         assert response == {
             "method": "healthz",
@@ -44,4 +43,3 @@ def test_behavior_env_rpc_dispatches_on_serving_thread() -> None:
         server_thread.join(timeout=2.0)
 
     assert not server_thread.is_alive()
-

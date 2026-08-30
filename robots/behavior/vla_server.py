@@ -25,11 +25,11 @@ def _repo_root() -> Path:
 if str(_repo_root()) not in sys.path:
     sys.path.insert(0, str(_repo_root()))
 
-from robots.behavior.policy_checkpoint import (
+from robots.behavior.policy_checkpoint import (  # noqa: E402
     SHARED_POLICY_CHECKPOINT_PATH,
     validate_policy_checkpoint,
 )
-from robots.behavior.schemas import ACTION_DIM, DEFAULT_ACTION_CHUNK
+from robots.behavior.schemas import ACTION_DIM, DEFAULT_ACTION_CHUNK  # noqa: E402
 
 NORM_STATS_REL = Path("assets/behavior-1k/2025-challenge-demos/norm_stats.json")
 NORM_STATS_ASSET_ID = NORM_STATS_REL.parent.as_posix()
@@ -270,7 +270,9 @@ def build_app() -> Any:
             raise HTTPException(status_code=503, detail="model not loaded")
         with _MODEL_LOCK, _ACTIONS_LOCK:
             try:
-                _require_matching_binding(request.binding_id if request is not None else None)
+                _require_matching_binding(
+                    request.binding_id if request is not None else None
+                )
             except ValueError as error:
                 raise HTTPException(status_code=409, detail=str(error)) from error
             _ACTIONS_ENABLED = True
@@ -291,7 +293,9 @@ def build_app() -> Any:
             except ValueError as error:
                 raise HTTPException(status_code=409, detail=str(error)) from error
             if not _ACTIONS_ENABLED:
-                raise HTTPException(status_code=409, detail="VLA action inference is disabled")
+                raise HTTPException(
+                    status_code=409, detail="VLA action inference is disabled"
+                )
         try:
             import torch
 
@@ -301,9 +305,13 @@ def build_app() -> Any:
                     try:
                         _require_matching_binding(request.binding_id)
                     except ValueError as error:
-                        raise HTTPException(status_code=409, detail=str(error)) from error
+                        raise HTTPException(
+                            status_code=409, detail=str(error)
+                        ) from error
                     if not _ACTIONS_ENABLED:
-                        raise HTTPException(status_code=409, detail="VLA action inference is disabled")
+                        raise HTTPException(
+                            status_code=409, detail="VLA action inference is disabled"
+                        )
                 with torch.no_grad():
                     actions, _ = _MODEL.predict_action_batch(
                         env_obs,
@@ -320,14 +328,22 @@ def build_app() -> Any:
                 or actions.shape[1] < 1
                 or not np.isfinite(actions).all()
             ):
-                raise ValueError(f"Pi0.5 returned invalid [1,T,{ACTION_DIM}] shape {actions.shape}")
-            return {"actions": actions.tolist(), "shape": list(actions.shape), "dtype": "float32"}
+                raise ValueError(
+                    f"Pi0.5 returned invalid [1,T,{ACTION_DIM}] shape {actions.shape}"
+                )
+            return {
+                "actions": actions.tolist(),
+                "shape": list(actions.shape),
+                "dtype": "float32",
+            }
         except HTTPException:
             raise
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
         except Exception as exc:
-            return JSONResponse({"error": f"{type(exc).__name__}: {exc}"}, status_code=500)
+            return JSONResponse(
+                {"error": f"{type(exc).__name__}: {exc}"}, status_code=500
+            )
 
     return app
 

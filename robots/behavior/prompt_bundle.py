@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
 
 from robots.behavior.prompts import system as system_parts
 from robots.behavior.prompts import user as user_parts
@@ -36,7 +35,9 @@ class _RuntimeText:
         return self.value
 
 
-def _value(variables: Mapping[str, object], *names: str, default: object = "") -> object:
+def _value(
+    variables: Mapping[str, object], *names: str, default: object = ""
+) -> object:
     for name in names:
         value = variables.get(name)
         if value not in (None, ""):
