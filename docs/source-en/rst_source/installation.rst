@@ -30,7 +30,8 @@ the stack you want:
 
 ``.[full]`` is the default end-to-end stack — the openpi Pi0.5 VLA, the
 LIBERO-PRO and RoboCasa365 simulators, and SAM 3.0 on top of the RLinf
-runtime.
+runtime. BEHAVIOR is intentionally not part of ``.[full]`` because it requires
+a pinned source plugin and heavyweight official simulator resources.
 
 Available extras:
 
@@ -49,6 +50,8 @@ Available extras:
      - Base LIBERO only
    * - ``.[openpi]``
      - openpi VLA only
+   * - ``.[behavior]``
+     - Stable RPent-side BEHAVIOR dependencies only; see :doc:`usage/behavior`
    * - ``.[rlinf]``
      - RLinf runtime only
    * - ``.[robocasa]``

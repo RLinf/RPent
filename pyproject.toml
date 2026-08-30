@@ -59,6 +59,13 @@ rlinf = [
 openpi = [
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
 ]
+behavior = [
+    "rpent[rlinf,openpi]",
+    "torch",
+    "torchvision",
+    "pillow>=10",
+    "imageio-ffmpeg>=0.5",
+]
 libero = [
     "rpent-libero>=0.2.0",
     # MuJoCo 3.4+ changes LIBERO settling, misplacing objects and reducing task success; see https://github.com/RLinf/RLinf/issues/1460.

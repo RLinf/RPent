@@ -1104,7 +1104,11 @@ function refreshFrame(idx, opts = {}) {
 
   // Realtime camera / wrist frame — PNG mutates server-side, so
   // ``t=Date.now()`` keeps the URL unique per tick and defeats caching.
-  if (idx != null && idx === mediaState.frameIndex) return;
+  if (
+    idx != null
+    && idx === mediaState.frameIndex
+    && mediaState.unavailableKind !== mediaState.kind
+  ) return;
   mediaState.frameIndex = idx ?? mediaState.frameIndex;
   mediaState.unavailableKind = null;
   const url = `/api/run/frame?run=${encodeURIComponent(runState.id)}&kind=${mediaState.kind}&t=${Date.now()}`;
