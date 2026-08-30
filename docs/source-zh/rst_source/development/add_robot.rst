@@ -385,10 +385,9 @@ endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
 
 .. note::
 
-   共享 CLI parser 将 ``--robot`` 限定为 ``libero`` 和 ``robocasa``
-   (见 ``rpent/cli/main.py``)。要让上面这条命令在全新的 ``myrobot`` 上跑通，
-   需要先把新名字加到 ``rpent/cli/main.py`` 中 ``--robot`` 的
-   ``choices=[...]`` 列表里。
+   共享 CLI 会动态发现 source editable 的 ``robots/<name>`` package。新 robot
+   只需在 package 中暴露 ``get_robot_spec()`` 和 ``get_toolkit()`` 即可被选择，
+   不需要修改共享 ``--robot`` choices 列表。
 
 预期结果是 agent 完成 prompt 中指定的任务并调用 ``finish``。运行结束后，
 可在 ``<output_dir>/transcript_*.json`` 中查看总结。

@@ -158,10 +158,10 @@ Dashboard description, and three runner hooks (``add_cli_args`` /
 ``parse_config`` / ``init_runtime``). See :doc:`interfaces` for what each
 field must provide.
 
-The loader itself does not maintain a list of robot names. The
-current CLI restricts ``--robot`` to ``libero`` and ``robocasa``; adding a
-new name therefore also requires updating the CLI choices. See
-:doc:`add_robot` for the complete procedure.
+The loader and CLI do not maintain a hard-coded list of robot names. They
+enumerate source-editable ``robots/<name>`` packages, so adding a conforming
+package does not require updating shared CLI choices. See :doc:`add_robot` for
+the complete procedure.
 
 Planner, Toolkit, and RPC transports
 -------------------------------------
