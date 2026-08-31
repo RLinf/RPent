@@ -70,10 +70,14 @@ CUDA 13-only 的机器换成 ``cu130``。
 
 **移动相机**
 
-``robocasa`` extra 将 Robosuite 固定到包含 Omron 底盘 ``navview``
-相机的精确版本。首次环境 reset 后，RPent 会检查组合后的 MuJoCo 相机名
-``mobilebase0_navview``；缺失时会立即报告安装错误。此时应在当前 RPent
-版本下重新安装 ``.[robocasa]``，无需手工修改 ``site-packages`` 中的 XML。
+``robocasa`` extra 会安装 ``RLinf/robosuite`` 的 ``rpent`` 分支，该分支
+包含 Omron 底盘固定的 ``navview`` 相机，其组合后的 MuJoCo 相机名为
+``mobilebase0_navview``。RPent 不再执行单独的 reset-time 相机预检；如果相机
+缺失，首次请求导航 RGB-D 或 world map 渲染时会自然报错。此时重新安装
+``.[robocasa]`` 以刷新该分支即可，无需手工修改 ``site-packages`` 中的 XML。
+本 PR 验证时该分支解析为 commit
+``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``；发布实验结果时应记录实际解析
+到的 commit。
 
 **RLDX-1 checkpoint**
 
@@ -109,9 +113,10 @@ Composite-Unseen 任务包含此文件。Prompt 要求 planner 在开始动作�
 强制注入 prompt。
 
 RoboCasa 不要求 planner 使用 global memory，也不会退回读取其他任务的 memory。
-pair 不存在时会明确警告并根据实时观测继续；JSON/JSONL 只存在一份，或只有
-Markdown 而没有 pair 时，会因 memory 不完整而停止。如需使用经过审核的本地
-文件，请选择 local profile 并传入 results corpus 所在目录：
+运行时不预检 corpus 的完整性；当前任务文件缺失时，``read_text_file`` 会报告
+该文件不存在，planner 使用其余可用的同任务文件和实时观测继续。公开的默认
+corpus 会在发布阶段单独校验。如需使用经过审核的本地文件，请选择 local
+profile 并传入 results corpus 所在目录：
 
 .. code-block:: bash
 
@@ -180,11 +185,12 @@ RoboCasa 不绑定具体 planner；RPent 支持的任意 planner 都可用于该
 常见错误
 --------
 
-- reset 报告缺少 ``mobilebase0_navview`` 时，应重新安装当前版本的
-  ``.[robocasa]``，确保使用固定的 Robosuite commit；不要手工修改已安装的 XML。
-- task-memory 警告表示当前任务缺少 seed-0 pair。请检查 Hugging Face 的
-  ``robocasa/results`` corpus 或所选本地目录；可选任务 Markdown 不能替代该
-  pair，RPent 也不会退回读取其他任务。
+- 导航 RGB-D 或 world map 渲染报告缺少 ``mobilebase0_navview`` 时，应重新
+  安装 ``.[robocasa]`` 以刷新 ``RLinf/robosuite`` 的 ``rpent`` 分支；不要手工
+  修改已安装的 XML。
+- ``read_text_file`` 报告缺少当前任务结果时，请检查 Hugging Face 的
+  ``robocasa/results`` corpus 或所选本地目录。RPent 不预检 corpus，也不会
+  退回读取其他任务。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和
   ``<output_dir>/vla_server.log``。
 

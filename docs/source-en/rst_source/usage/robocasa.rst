@@ -75,12 +75,14 @@ Re-run with ``--skip-existing`` to leave downloaded folders alone.
 
 **Navigation camera**
 
-The ``robocasa`` extra pins Robosuite to the exact revision that adds the
-Omron base's fixed ``navview`` camera. On the first environment reset, RPent
-requires its composed MuJoCo name, ``mobilebase0_navview``. A missing camera
-therefore fails immediately with an installation error. Reinstall
-``.[robocasa]`` at this repository revision; no manual ``site-packages`` XML
-patch is required.
+The ``robocasa`` extra installs the ``rpent`` branch of ``RLinf/robosuite``,
+which provides the Omron base's fixed ``navview`` camera. Its composed MuJoCo
+name is ``mobilebase0_navview``. RPent does not run a separate reset-time
+camera preflight; a missing camera fails when navigation RGB-D or world-map
+rendering first requests it. Reinstall ``.[robocasa]`` to refresh that branch;
+no manual ``site-packages`` XML patch is required. During this PR's validation,
+the branch resolved to commit ``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``;
+record the resolved commit when reporting experiments.
 
 **RLDX-1 checkpoint**
 
@@ -119,10 +121,11 @@ before acting. RPent makes those files available through ``read_text_file``
 but does not inject their contents into the prompt.
 
 RoboCasa never asks the planner to use global memory or another task's memory.
-If no pair exists, RPent warns and continues from live observations. A partial
-JSON/JSONL pair, or a Markdown note without its pair, is rejected as incomplete.
-To use reviewed local files instead, select the local profile and pass the
-directory containing this results corpus:
+The runtime does not preflight corpus completeness. If a current-task file is
+absent, ``read_text_file`` reports it as missing and the planner continues with
+the available task files and live observations. The published default corpus
+is validated separately. To use reviewed local files instead, select the local
+profile and pass the directory containing this results corpus:
 
 .. code-block:: bash
 
@@ -192,13 +195,13 @@ RPent can run this robot. See :doc:`configure_planner` for configuration.
 Troubleshooting
 ---------------
 
-- If reset reports a missing ``mobilebase0_navview``, reinstall this
-  revision's ``.[robocasa]`` extra so the pinned Robosuite commit is used. Do
-  not patch installed XML files manually.
-- A task-memory warning means the current task's seed-0 pair is absent. Check
-  the Hugging Face ``robocasa/results`` corpus or the selected local directory;
-  the optional task note never replaces that pair, and RPent never falls back
-  to another task.
+- If navigation RGB-D or world-map rendering reports a missing
+  ``mobilebase0_navview``, reinstall ``.[robocasa]`` to refresh the
+  ``RLinf/robosuite`` ``rpent`` branch. Do not patch installed XML files
+  manually.
+- If ``read_text_file`` reports a missing current-task result, check the
+  Hugging Face ``robocasa/results`` corpus or the selected local directory.
+  RPent does not preflight the corpus or fall back to another task.
 - Environment and VLA startup failures are recorded in
   ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
 

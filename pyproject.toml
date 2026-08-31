@@ -92,7 +92,7 @@ robocasa = [
     "rpent[rlinf]",
     "rlinf-robocasa365",
     "rlinf-rldx>=1.0.1.post10",
-    "robosuite @ git+https://github.com/RLinf/robosuite.git@0d88d0174c4f633cc7a89fd32cebdd27c79e745d",
+    "robosuite @ git+https://github.com/RLinf/robosuite.git@rpent",
 ]
 robotwin = [
     # TODO: replace fixed owner-controlled revisions with released versions.

@@ -34,14 +34,11 @@ from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
 from rpent.utils.config import get_repo_root, get_resources_dir
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
-from rpent.utils.logging import get_logger
 from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
-
-logger = get_logger("robocasa")
 
 ROBOCASA_DASHBOARD_SPEC = {
     "task": {
@@ -72,37 +69,6 @@ ROBOCASA_DASHBOARD_SPEC = {
         },
     ),
 }
-
-
-def _check_task_memory(results_dir: Path, task_name: str) -> bool:
-    """Validate the current task's seed-0 pair and optional exploration note."""
-    audit = results_dir / f"{task_name}_s0.json"
-    recipe = results_dir / f"recipe_{task_name}_s0.jsonl"
-    note = results_dir / f"{task_name}.md"
-
-    audit_exists = audit.is_file()
-    recipe_exists = recipe.is_file()
-    note_exists = note.is_file()
-    if audit_exists != recipe_exists:
-        raise ValueError(
-            f"RoboCasa task memory for {task_name!r} is incomplete: expected "
-            f"both {audit.name!r} and {recipe.name!r} under {results_dir}"
-        )
-    if note_exists and not audit_exists:
-        raise ValueError(
-            f"RoboCasa task memory for {task_name!r} is incomplete: "
-            f"{note.name!r} requires the seed-0 audit and recipe pair under "
-            f"{results_dir}"
-        )
-    if not audit_exists:
-        logger.warning(
-            "no task-matched seed-0 memory found for %s under %s; continuing "
-            "without task memory",
-            task_name,
-            results_dir,
-        )
-        return False
-    return True
 
 
 def get_robot_spec() -> RobotSpec:
@@ -137,7 +103,6 @@ def get_toolkit(
         config.prompt_vars.get("memory_dir")
         or (get_resources_dir("robocasa") / "results")
     )
-    _check_task_memory(results_dir, str(config.task_desc["task_name"]))
     # Reference results are a sibling of persistent memory, matching LIBERO.
     memory = MemoryManager(root=results_dir.parent / "memory")
     return RoboCasaToolkit(

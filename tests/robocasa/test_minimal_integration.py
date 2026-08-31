@@ -28,36 +28,10 @@ import pytest
 from robots.robocasa.env_client import RoboCasaEnvClient
 from robots.robocasa.env_server import RoboCasaEnvFacade
 from robots.robocasa.prompt_bundle import system_prompt
-from robots.robocasa.robot_spec import (
-    _check_task_memory,
-    _parse_config,
-    get_robot_spec,
-)
+from robots.robocasa.robot_spec import _parse_config, get_robot_spec
 from rpent.memory import MemoryManager
 from rpent.prompt.utils import format_prompt
 from rpent.utils.resources import ensure_resources
-
-
-class _FakeModel:
-    def __init__(self, *, has_navview: bool) -> None:
-        self.has_navview = has_navview
-
-    def camera_name2id(self, camera_name: str) -> int:
-        if self.has_navview and camera_name == "mobilebase0_navview":
-            return 0
-        raise ValueError(camera_name)
-
-
-class _ResetOnlyEnv:
-    def __init__(self, *, has_navview: bool) -> None:
-        self.has_navview = has_navview
-        self.sim = None
-        self.reset_calls = 0
-
-    def reset(self) -> dict[str, bool]:
-        self.reset_calls += 1
-        self.sim = SimpleNamespace(model=_FakeModel(has_navview=self.has_navview))
-        return {"reset": True}
 
 
 class _DirectRpc:
@@ -90,29 +64,6 @@ def _args(
         memory_profile=memory_profile,
         memory_dir=memory_dir,
     )
-
-
-def test_reset_validates_navview_only_after_sim_initialization(monkeypatch):
-    monkeypatch.delenv("RLDX_RESET_SEED", raising=False)
-    facade = object.__new__(RoboCasaEnvFacade)
-    facade.env = _ResetOnlyEnv(has_navview=True)
-
-    assert facade.env.sim is None
-    assert facade.reset() == {"reset": True}
-    assert facade.env.reset_calls == 1
-    assert facade.env.sim is not None
-
-
-def test_reset_rejects_missing_navview_after_sim_initialization(monkeypatch):
-    monkeypatch.delenv("RLDX_RESET_SEED", raising=False)
-    facade = object.__new__(RoboCasaEnvFacade)
-    facade.env = _ResetOnlyEnv(has_navview=False)
-
-    with pytest.raises(RuntimeError, match="mobilebase0_navview"):
-        facade.reset()
-
-    assert facade.env.reset_calls == 1
-    assert facade.env.sim is not None
 
 
 def test_parse_config_uses_default_hf_memory(monkeypatch, tmp_path):
@@ -177,32 +128,6 @@ def test_parse_config_resolves_local_memory(tmp_path):
 
     assert config.prompt_vars["memory_profile"] == "local"
     assert config.prompt_vars["memory_dir"] == str(memory_dir.resolve())
-
-
-def test_task_memory_requires_a_complete_seed_zero_pair(tmp_path):
-    results_dir = tmp_path / "results"
-
-    assert _check_task_memory(results_dir, "OpenDrawer") is False
-
-    results_dir.mkdir(parents=True)
-    (results_dir / "OpenDrawer_s0.json").write_text("{}")
-    with pytest.raises(ValueError, match="incomplete"):
-        _check_task_memory(results_dir, "OpenDrawer")
-
-    (results_dir / "recipe_OpenDrawer_s0.jsonl").write_text("{}\n")
-    assert _check_task_memory(results_dir, "OpenDrawer") is True
-
-    (results_dir / "OpenDrawer.md").write_text("# OpenDrawer task memory\n")
-    assert _check_task_memory(results_dir, "OpenDrawer") is True
-
-
-def test_task_memory_rejects_an_orphan_markdown_note(tmp_path):
-    results_dir = tmp_path / "results"
-    results_dir.mkdir(parents=True)
-    (results_dir / "OpenDrawer.md").write_text("# OpenDrawer task memory\n")
-
-    with pytest.raises(ValueError, match="requires the seed-0 audit and recipe"):
-        _check_task_memory(results_dir, "OpenDrawer")
 
 
 def test_prompt_names_only_current_task_memory(tmp_path):
