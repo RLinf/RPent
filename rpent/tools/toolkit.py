@@ -49,6 +49,24 @@ class ToolCancelled(Exception):
     """Raised when an environment reaches a safe cancellation boundary."""
 
 
+def _truncate_utf8(text: str, max_bytes: int, *, marker: str = "") -> str:
+    """Truncate text to a valid UTF-8 byte budget, including its marker."""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    if max_bytes <= 0:
+        return ""
+
+    marker_bytes = marker.encode("utf-8")
+    if len(marker_bytes) > max_bytes:
+        return marker_bytes[:max_bytes].decode("utf-8", errors="ignore")
+    body = encoded[: max_bytes - len(marker_bytes)].decode(
+        "utf-8",
+        errors="ignore",
+    )
+    return body + marker
+
+
 def readonly(func):
     """Mark a tool handler as not advancing environment state.
 
@@ -105,7 +123,13 @@ class ToolResult:
         result = self.result
         if not isinstance(result, dict):
             return [
-                {"type": "text", "text": str(result)[: self.MAX_TEXT_BYTES_IN_RESULT]}
+                {
+                    "type": "text",
+                    "text": _truncate_utf8(
+                        str(result),
+                        self.MAX_TEXT_BYTES_IN_RESULT,
+                    ),
+                }
             ]
 
         result_for_text = dict(result)
@@ -114,8 +138,11 @@ class ToolResult:
         image_nav = result_for_text.pop("_image_nav_bytes", None)
         image_wrist = result_for_text.pop("_image_wrist_bytes", None)
         text = json.dumps(result_for_text, indent=2, default=str)
-        if len(text) > self.MAX_TEXT_BYTES_IN_RESULT:
-            text = text[: self.MAX_TEXT_BYTES_IN_RESULT] + "\n[truncated]"
+        text = _truncate_utf8(
+            text,
+            self.MAX_TEXT_BYTES_IN_RESULT,
+            marker="\n[truncated]",
+        )
 
         blocks: list[dict[str, Any]] = [{"type": "text", "text": text}]
 

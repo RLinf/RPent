@@ -329,6 +329,16 @@ class EnvState:
         try:
             yield record.step_idx
         except BaseException as e:
+            for name in record.artifacts:
+                try:
+                    self._artifact_file(name, record.step_idx).unlink(missing_ok=True)
+                except OSError as cleanup_error:
+                    logger.warning(
+                        "failed to remove artifact %s from discarded step %d: %s",
+                        name,
+                        record.step_idx,
+                        cleanup_error,
+                    )
             if self._steps and self._steps[-1] is record:
                 self._steps.pop()
             logger.warning(
@@ -336,6 +346,7 @@ class EnvState:
                 record.step_idx,
                 e,
             )
+            raise RuntimeError(f"failed to record step {record.step_idx}: {e}") from e
         finally:
             self._step_open = False
             self._write_manifest()
