@@ -97,7 +97,7 @@ def _check_memory_access(
             return
         raise PermissionError(f"writing to memory is denied in this mode: {path}")
 
-    if top == "MEMORY.md" or top in _READABLE_SCOPES:
+    if top in _READABLE_SCOPES or (len(parts) == 1 and top.endswith(".md")):
         return
     if memory_access == "inbox_write" and own_inbox:
         return
