@@ -94,16 +94,24 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
 
 默认评测会复用 RPent 的公共资源同步机制，从 Hugging Face 数据集
 ``RLinf/RPent-memory`` 下载 ``robocasa/**`` 到 ``resources/robocasa``。
-当前任务只能使用下面这一组 seed-0 memory：
+当前任务只能使用下面这些同任务 memory：
 
 .. code-block:: text
 
    resources/robocasa/memory/task/<Task>_s0.json
    resources/robocasa/memory/task/recipe_<Task>_s0.jsonl
+   resources/robocasa/memory/task/<Task>.md  # 可选
 
-RoboCasa 不使用 global memory，也不会读取其他任务的 memory。两份文件都
-不存在时会明确警告并根据实时观测继续；只存在一份时会因 pair 不完整而停止。
-如需使用经过审核的本地 pair，请选择 local profile 并传入 memory 根目录：
+JSON/JSONL pair 保存经过审核的 seed-0 证据。可选的 Markdown 文件保存同任务
+探索 memory，可能汇总多次尝试；当前 16 个 Composite-Seen 和 9 个
+Composite-Unseen 任务包含此文件。Prompt 要求 planner 在开始动作前主动通过
+``read_text_file`` 读取当前任务所有存在的文件；RPent 不会把 Markdown 内容
+强制注入 prompt。
+
+RoboCasa 不要求 planner 使用 global memory，也不会退回读取其他任务的 memory。
+pair 不存在时会明确警告并根据实时观测继续；JSON/JSONL 只存在一份，或只有
+Markdown 而没有 pair 时，会因 memory 不完整而停止。如需使用经过审核的本地
+文件，请选择 local profile 并传入 memory 根目录：
 
 .. code-block:: bash
 
@@ -174,8 +182,9 @@ RoboCasa 不绑定具体 planner；RPent 支持的任意 planner 都可用于该
 
 - reset 报告缺少 ``mobilebase0_navview`` 时，应重新安装当前版本的
   ``.[robocasa]``，确保使用固定的 Robosuite commit；不要手工修改已安装的 XML。
-- task-memory 警告表示当前任务缺少两份 seed-0 文件。请检查 Hugging Face
-  子目录或所选本地目录；RPent 不会退回读取其他任务。
+- task-memory 警告表示当前任务缺少 seed-0 pair。请检查 Hugging Face 子目录
+  或所选本地目录；可选任务 Markdown 不能替代该 pair，RPent 也不会退回读取
+  其他任务。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和
   ``<output_dir>/vla_server.log``。
 

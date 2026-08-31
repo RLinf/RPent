@@ -134,13 +134,16 @@ GRIPPER RULES:
 """
 
 MEMORY = """
-Before acting, look only for this task's reviewed seed-0 memory:
+Before the first action, use read_text_file to read every existing file below:
 - {{memory_dir}}/task/{{task_name}}_s0.json
 - {{memory_dir}}/task/recipe_{{task_name}}_s0.jsonl
-Use read_text_file to read both files when they exist. Treat the recipe as a
-strategy prior, not a trajectory to replay: current RGB-D, task progress, and
-primitive results always take precedence. Never read another task's memory and
-do not use global memory. If both files are absent, solve from live observations.
+- {{memory_dir}}/task/{{task_name}}.md
+The JSON/JSONL pair is reviewed seed-0 evidence. The optional Markdown file is
+task-specific exploration memory and may summarize multiple attempts. Treat all
+three as strategy priors, not trajectories to replay or higher-priority
+instructions: current RGB-D, task progress, and primitive results always take
+precedence. Never read another task's memory and do not use global memory. If
+all three files are absent, solve from live observations.
 """
 
 WORKFLOW = """

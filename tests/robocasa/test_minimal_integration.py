@@ -178,6 +178,19 @@ def test_task_memory_requires_a_complete_seed_zero_pair(tmp_path):
     (task_dir / "recipe_OpenDrawer_s0.jsonl").write_text("{}\n")
     assert _check_task_memory(memory_dir, "OpenDrawer") is True
 
+    (task_dir / "OpenDrawer.md").write_text("# OpenDrawer task memory\n")
+    assert _check_task_memory(memory_dir, "OpenDrawer") is True
+
+
+def test_task_memory_rejects_an_orphan_markdown_note(tmp_path):
+    memory_dir = tmp_path / "memory"
+    task_dir = memory_dir / "task"
+    task_dir.mkdir(parents=True)
+    (task_dir / "OpenDrawer.md").write_text("# OpenDrawer task memory\n")
+
+    with pytest.raises(ValueError, match="requires the seed-0 audit and recipe"):
+        _check_task_memory(memory_dir, "OpenDrawer")
+
 
 def test_prompt_names_only_current_task_memory(tmp_path):
     memory_dir = tmp_path / "memory"
@@ -191,6 +204,8 @@ def test_prompt_names_only_current_task_memory(tmp_path):
 
     assert str(memory_dir / "task" / "OpenDrawer_s0.json") in rendered
     assert str(memory_dir / "task" / "recipe_OpenDrawer_s0.jsonl") in rendered
+    assert str(memory_dir / "task" / "OpenDrawer.md") in rendered
+    assert "read every existing file" in rendered
     assert "ArrangeTea_s0" not in rendered
     assert "GLOBAL_MEMORY" not in rendered
     assert "{{" not in rendered

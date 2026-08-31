@@ -102,17 +102,27 @@ If the download is slow, use the HF mirror:
 
 Default evaluation uses RPent's public resource sync to download the
 ``robocasa/**`` subtree from the ``RLinf/RPent-memory`` Hugging Face dataset
-into ``resources/robocasa``. The current task may use only this seed-0 pair:
+into ``resources/robocasa``. The current task may use only these task-matched
+files:
 
 .. code-block:: text
 
    resources/robocasa/memory/task/<Task>_s0.json
    resources/robocasa/memory/task/recipe_<Task>_s0.jsonl
+   resources/robocasa/memory/task/<Task>.md  # optional
 
-RPent does not use global memory or another task's memory for RoboCasa. If
-neither file exists, it warns and continues from live observations; if only
-one exists, it stops because the pair is incomplete. To use a reviewed local
-pair instead, select the local profile and pass its memory root:
+The JSON/JSONL pair contains reviewed seed-0 evidence. The optional Markdown
+file contains task-specific exploration memory and may summarize multiple
+attempts; 16 Composite-Seen and 9 Composite-Unseen tasks currently provide one.
+The prompt requires the planner to read every current-task file that exists
+before acting. RPent makes those files available through ``read_text_file``
+but does not inject their contents into the prompt.
+
+RoboCasa never asks the planner to use global memory or another task's memory.
+If no pair exists, RPent warns and continues from live observations. A partial
+JSON/JSONL pair, or a Markdown note without its pair, is rejected as incomplete.
+To use reviewed local files instead, select the local profile and pass their
+memory root:
 
 .. code-block:: bash
 
@@ -185,9 +195,9 @@ Troubleshooting
 - If reset reports a missing ``mobilebase0_navview``, reinstall this
   revision's ``.[robocasa]`` extra so the pinned Robosuite commit is used. Do
   not patch installed XML files manually.
-- A task-memory warning means the current task's two seed-0 files are absent.
-  Check the Hugging Face subtree or the selected local directory; RPent never
-  falls back to another task.
+- A task-memory warning means the current task's seed-0 pair is absent. Check
+  the Hugging Face subtree or the selected local directory; the optional task
+  note never replaces that pair, and RPent never falls back to another task.
 - Environment and VLA startup failures are recorded in
   ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
 

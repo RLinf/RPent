@@ -75,17 +75,25 @@ ROBOCASA_DASHBOARD_SPEC = {
 
 
 def _check_task_memory(memory_dir: Path, task_name: str) -> bool:
-    """Require a complete task-matched seed-0 pair when either file exists."""
+    """Validate the current task's seed-0 pair and optional exploration note."""
     task_dir = memory_dir / "task"
     audit = task_dir / f"{task_name}_s0.json"
     recipe = task_dir / f"recipe_{task_name}_s0.jsonl"
+    note = task_dir / f"{task_name}.md"
 
     audit_exists = audit.is_file()
     recipe_exists = recipe.is_file()
+    note_exists = note.is_file()
     if audit_exists != recipe_exists:
         raise ValueError(
             f"RoboCasa task memory for {task_name!r} is incomplete: expected "
             f"both {audit.name!r} and {recipe.name!r} under {task_dir}"
+        )
+    if note_exists and not audit_exists:
+        raise ValueError(
+            f"RoboCasa task memory for {task_name!r} is incomplete: "
+            f"{note.name!r} requires the seed-0 audit and recipe pair under "
+            f"{task_dir}"
         )
     if not audit_exists:
         logger.warning(
