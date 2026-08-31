@@ -113,7 +113,7 @@ class Sam3Engine:
         except ImportError as exc:
             raise RuntimeError(
                 "local SAM3 dependencies are missing; install RPent with "
-                '`pip install -e ".[sam3]"` (or `.[full]`)'
+                '`pip install -e ".[sam3]"` or a LIBERO variant'
             ) from exc
 
         if not torch.cuda.is_available():
