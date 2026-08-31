@@ -49,179 +49,6 @@ if __package__ in (None, ""):
 from rpent.robots.components.env_facade_base import BaseEnvFacade  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# CLI + Isaac Sim bootstrap (AppLauncher MUST run before isaac imports)
-# ---------------------------------------------------------------------------
-
-parser = argparse.ArgumentParser(description="RoboDojo Isaac Sim env RPC server")
-parser.add_argument("--task", default="put_bottles_into_dustbin")
-parser.add_argument("--layout", type=int, default=0, help="layout id == seed")
-parser.add_argument("--env-cfg-type", default="arx_x5")
-parser.add_argument("--device-id", type=int, default=0)
-parser.add_argument("--num-envs", type=int, default=1)
-parser.add_argument("--max-episode-steps", type=int, default=700)
-parser.add_argument("--host", default="127.0.0.1")
-parser.add_argument("--port", type=int, default=0)
-parser.add_argument("--parent-pid", type=int, default=None)
-parser.add_argument(
-    "--video-dir", default=None, help="Directory for per-camera episode mp4 files"
-)
-parser.add_argument(
-    "--random",
-    action="store_true",
-    help="Sample a fresh random scene layout per episode "
-    "(random template + fresh env seed, official-eval style)",
-)
-parser.add_argument("--transport", choices=["http", "socket"], default="http")
-parser.add_argument("--parent-watch", action="store_true")
-from isaaclab.app import AppLauncher  # noqa: E402
-
-AppLauncher.add_app_launcher_args(parser)
-_args = parser.parse_args()
-
-# Camera capture requires the replicator/sensor extensions + camera flag;
-# without them obs_manager.capture_manager.step() blocks forever. The
-# extensions go through ``--kit_args`` as a single string (Kit passthrough).
-_CAMERA_KIT_ARGS = (
-    "--enable isaacsim.replicator.behavior --enable isaacsim.sensors.camera"
-)
-_args.enable_cameras = True
-if getattr(_args, "kit_args", None):
-    _args.kit_args = f"{_args.kit_args} {_CAMERA_KIT_ARGS}"
-else:
-    _args.kit_args = _CAMERA_KIT_ARGS
-
-if _args.parent_pid is not None:
-
-    def _watch_parent(pid: int) -> None:
-        while True:
-            try:
-                os.kill(pid, 0)
-            except OSError:
-                os._exit(0)
-            time.sleep(2)
-
-    threading.Thread(
-        target=_watch_parent, args=(_args.parent_pid,), daemon=True
-    ).start()
-
-os.environ.setdefault("ROBODOJO_RUN_ID", datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
-os.environ.setdefault("PYTHONUNBUFFERED", "1")
-
-app_launcher = AppLauncher(_args)
-simulation_app = app_launcher.app
-
-
-# ---------------------------------------------------------------------------
-# Env construction (mirrors src/RoboDojo/scripts/test_grasp_lift.py)
-# ---------------------------------------------------------------------------
-
-from env.global_configs import BENCHMARK, ENV_CONFIG_PATH, ROOT_DIR  # noqa: E402
-from omegaconf import OmegaConf  # noqa: E402
-from src.collect_client.collect_env import create_collect_env  # noqa: E402
-from utils.load_file import load_yaml  # noqa: E402
-from utils.pipeline_utils import (  # noqa: E402
-    process_config,
-    process_randomization,
-    resolve_random_task_num_envs,
-)
-
-
-def _build_env_cfg() -> Any:
-    task_registry = __import__(
-        f"task.{BENCHMARK}.task_registry", fromlist=["task_config_path"]
-    )
-    collect_cfg = load_yaml(os.path.join(ENV_CONFIG_PATH, _args.env_cfg_type + ".yml"))
-    # Agent perception: enable depth + camera calibration (back_project needs
-    # both). The default workspace config ships RGB-only.
-    vision_cfg = collect_cfg.setdefault("observation", {}).setdefault("vision", {})
-    vision_cfg["depth"] = True
-    vision_cfg["intrinsic_matrix"] = True
-    vision_cfg["extrinsic_matrix"] = True
-    collect_cfg["task_name"] = _args.task
-    collect_cfg["num_envs"] = _args.num_envs
-    collect_cfg["device_id"] = _args.device_id
-    collect_cfg["save_dir"] = "/tmp/rpent_robodojo"
-    camera_cfg = load_yaml(
-        os.path.join(
-            ENV_CONFIG_PATH, "camera", collect_cfg["config"]["camera"] + ".yml"
-        )
-    )
-    camera_cfg = OmegaConf.merge(
-        camera_cfg,
-        OmegaConf.create(
-            {
-                "annotator": {
-                    "common": {
-                        "distance_to_image_plane_capture": {
-                            "type": "distance_to_image_plane",
-                            "device": "cpu",
-                        }
-                    },
-                    "cam_head": {
-                        "distance_to_image_plane_capture": {
-                            "type": "distance_to_image_plane",
-                            "device": "cpu",
-                        }
-                    },
-                    "cam_left_wrist": {
-                        "distance_to_image_plane_capture": {
-                            "type": "distance_to_image_plane",
-                            "device": "cpu",
-                        }
-                    },
-                    "cam_right_wrist": {
-                        "distance_to_image_plane_capture": {
-                            "type": "distance_to_image_plane",
-                            "device": "cpu",
-                        }
-                    },
-                }
-            }
-        ),
-    )
-    env_cfg = OmegaConf.create(
-        {
-            "sim": load_yaml(
-                os.path.join(
-                    ENV_CONFIG_PATH, "sim", collect_cfg["config"]["sim"] + ".yml"
-                )
-            ),
-            "scene": load_yaml(
-                os.path.join(
-                    ENV_CONFIG_PATH, "scene", collect_cfg["config"]["scene"] + ".yml"
-                )
-            ),
-            "camera": camera_cfg,
-            "robot": load_yaml(
-                os.path.join(
-                    ENV_CONFIG_PATH, "robot", collect_cfg["config"]["robot"] + ".yml"
-                )
-            ),
-            "task_env": load_yaml(
-                task_registry.task_config_path(
-                    os.path.join(ROOT_DIR, "task", BENCHMARK, "config"), _args.task
-                )
-            ),
-            "collect_cfg": collect_cfg,
-            "eval_cfg": collect_cfg,
-        }
-    )
-    capped = resolve_random_task_num_envs(_args.task, _args.num_envs, env_cfg.sim)
-    OmegaConf.update(env_cfg, "sim.scene.num_envs", capped, force_add=True)
-    OmegaConf.update(env_cfg, "collect_cfg.num_envs", capped, force_add=True)
-    env_cfg = process_randomization(env_cfg)
-    env_cfg, _ = process_config(env_cfg, task_name=_args.task)
-    OmegaConf.update(
-        env_cfg,
-        "camera.default_frequency",
-        collect_cfg["observation"].get("collect_freq", 0),
-        force_add=True,
-    )
-    env_cfg.sim.seed = [0 for _ in range(capped)]
-    return env_cfg
-
-
-env = create_collect_env(_build_env_cfg(), simulation_app)
 
 
 def _random_reset(env_idx: int = 0) -> None:
@@ -275,12 +102,6 @@ def _standard_reset(env_idx: int = 0) -> None:
         except Exception as exc:  # noqa: BLE001
             print(f"[robodojo-env] get_score registration failed: {exc}", flush=True)
     return None
-
-
-if _args.random:
-    _random_reset()
-else:
-    _standard_reset()
 
 
 # ---------------------------------------------------------------------------
@@ -354,9 +175,6 @@ class _VideoRecorder:
         self._writers.clear()
         self._paths.clear()
         return paths
-
-
-video_recorder = _VideoRecorder(_args.video_dir or "")
 
 
 def _record_obs_frame(obs: dict) -> None:
@@ -699,6 +517,16 @@ def _bump_step(env_idx: int) -> None:
     env.take_action_cnt[env_idx] += 1
 
 
+def _infer_action_type(action: dict) -> str:
+    """Infer joint/ee action type from the action dict keys."""
+    for key in action:
+        if key.endswith("_arm_joint_state"):
+            return "joint"
+        if key.endswith("_ee_pose"):
+            return "ee"
+    return "joint"
+
+
 class RoboDojoEnvFacade(BaseEnvFacade):
     """Isaac Sim RoboDojo backend exposing the unified env RPC."""
 
@@ -714,9 +542,8 @@ class RoboDojoEnvFacade(BaseEnvFacade):
                 "env.get_reward_details": self.get_reward_details,
                 "env.get_safety_status": self.get_safety_status,
                 "env.solve_ik_position": self.solve_ik_position,
-                "env.apply_action": self.apply_action,
-                "env.apply_target": self.apply_target,
                 "env.is_success": self.is_success,
+                "env.close": self.close,
             }
         )
         self._readonly_methods.update(
@@ -770,60 +597,68 @@ class RoboDojoEnvFacade(BaseEnvFacade):
         return _obs_dict()
 
     def step(self, flat_action):
-        raise NotImplementedError("RoboDojo uses apply_action for step control")
+        """Apply one RoboDojo action and return ``(obs, reward, done, info)``.
+
+        ``flat_action`` is the RoboDojo action dict (joint or ee keys); the
+        action type is inferred from the keys. Mirrors the unified
+        ``BaseEnvClient.step`` contract used by the other robot backends.
+        """
+        action_type = _infer_action_type(flat_action)
+        control_info = _control_info_from_action(flat_action, action_type, 0)
+        _bump_step(0)
+        env.apply_target(control_info, 0)
+        alarms = _check_safety(0)
+        if alarms:
+            print(f"[robodojo-env] SAFETY ALARM: {alarms}", flush=True)
+        obs = _obs_dict(0)
+        reward_details = _reward_details(0)
+        reward = float(reward_details.get("reward", 0.0) or 0.0)
+        done = bool(env.is_success(env_idx=0))
+        info: dict[str, Any] = {
+            "status": _status(0),
+            "step_limit": int(env.step_lim),
+            "safety": alarms,
+        }
+        return obs, reward, done, info
 
     def chunk_step(self, flat_actions, *, return_all_frames: bool = False):
-        raise NotImplementedError("RoboDojo uses apply_action for step control")
+        raise NotImplementedError("RoboDojo uses step for action control")
 
     # ---- RoboDojo-specific RPC ----
-    def get_obs(self, env_idx: int = 0) -> dict[str, Any]:
-        return _obs_dict(env_idx)
+    def get_obs(self) -> dict[str, Any]:
+        return _obs_dict(0)
 
-    def get_status(self, env_idx: int = 0) -> dict[str, Any]:
-        return _status(env_idx)
+    def get_status(self) -> dict[str, Any]:
+        return _status(0)
 
-    def get_reward_details(self, env_idx: int = 0) -> dict[str, Any]:
-        return _reward_details(env_idx)
+    def get_reward_details(self) -> dict[str, Any]:
+        return _reward_details(0)
 
-    def solve_ik_position(
-        self, arm: str, xyz: list, env_idx: int = 0
-    ) -> dict[str, Any]:
-        return _solve_ik_position(arm, xyz, env_idx)
+    def solve_ik_position(self, arm: str, xyz: list) -> dict[str, Any]:
+        return _solve_ik_position(arm, xyz, 0)
 
-    def get_safety_status(self, env_idx: int = 0) -> dict[str, Any]:
-        return _safety_status(env_idx)
+    def get_safety_status(self) -> dict[str, Any]:
+        return _safety_status(0)
 
-    def apply_action(
-        self, action: dict, action_type: str = "joint", env_idx: int = 0
-    ) -> dict[str, Any]:
-        control_info = _control_info_from_action(action, action_type, env_idx)
-        _bump_step(env_idx)
-        env.apply_target(control_info, env_idx)
-        alarms = _check_safety(env_idx)
-        if alarms:
-            print(f"[robodojo-env] SAFETY ALARM: {alarms}", flush=True)
-        return {"obs": _obs_dict(env_idx), "status": _status(env_idx)}
-
-    def apply_target(self, control_info: dict, env_idx: int = 0) -> dict[str, Any]:
-        _bump_step(env_idx)
-        env.apply_target(control_info, env_idx)
-        alarms = _check_safety(env_idx)
-        if alarms:
-            print(f"[robodojo-env] SAFETY ALARM: {alarms}", flush=True)
-        return {"obs": _obs_dict(env_idx), "status": _status(env_idx)}
-
-    def is_success(self, env_idx: int = 0) -> bool:
-        return bool(env.is_success(env_idx=env_idx))
+    def is_success(self) -> bool:
+        return bool(env.is_success(env_idx=0))
 
     def close(self) -> None:
         try:
             paths = video_recorder.close()
             print(f"[robodojo-env] videos written: {paths}", flush=True)
         finally:
-            try:
-                simulation_app.close()
-            except Exception:  # noqa: BLE001
-                pass
+
+            def _shutdown() -> None:
+                time.sleep(0.5)
+                try:
+                    simulation_app.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+            # Respond to the RPC first, then tear down Isaac (the process
+            # would otherwise exit before the HTTP response is sent).
+            threading.Thread(target=_shutdown, daemon=True).start()
 
     def serve(
         self,
@@ -837,19 +672,6 @@ class RoboDojoEnvFacade(BaseEnvFacade):
         work_queue: "queue.Queue[tuple[threading.Event, dict[str, Any]] | None]" = (
             queue.Queue()
         )
-
-        def render_loop() -> None:
-            while (item := work_queue.get()) is not None:
-                event, req = item
-                try:
-                    req["result"] = self._dispatch(
-                        req["method"], req["args"], req["kwargs"]
-                    )
-                except Exception:  # noqa: BLE001
-                    req["error"] = traceback.format_exc()
-                event.set()
-
-        threading.Thread(target=render_loop, name="isaac-main", daemon=True).start()
 
         def dispatch(method: str, args: tuple, kwargs: dict) -> Any:
             if method == "healthz":
@@ -884,9 +706,22 @@ class RoboDojoEnvFacade(BaseEnvFacade):
 
         if parent_watch:
             watch_parent_death(self._shutdown_event.set)
+        # The HTTP server runs on a daemon thread; env operations are executed
+        # on THIS thread (the Isaac Sim main thread) via the work queue.
+        threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
-            threading.Thread(target=server.serve_forever, daemon=True).start()
-            self._shutdown_event.wait()
+            while not self._shutdown_event.is_set():
+                item = work_queue.get()
+                if item is None:
+                    break
+                event, req = item
+                try:
+                    req["result"] = self._dispatch(
+                        req["method"], req["args"], req["kwargs"]
+                    )
+                except Exception:  # noqa: BLE001
+                    req["error"] = traceback.format_exc()
+                event.set()
         finally:
             server.shutdown()
             server.server_close()
@@ -894,6 +729,190 @@ class RoboDojoEnvFacade(BaseEnvFacade):
 
 
 def main() -> None:
+    global _args, env, simulation_app, video_recorder
+
+    parser = argparse.ArgumentParser(description="RoboDojo Isaac Sim env RPC server")
+    parser.add_argument("--task", default="put_bottles_into_dustbin")
+    parser.add_argument("--layout", type=int, default=0, help="layout id == seed")
+    parser.add_argument("--env-cfg-type", default="arx_x5")
+    parser.add_argument("--device-id", type=int, default=0)
+    parser.add_argument("--num-envs", type=int, default=1)
+    parser.add_argument("--max-episode-steps", type=int, default=700)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--parent-pid", type=int, default=None)
+    parser.add_argument(
+        "--video-dir",
+        default=None,
+        help="Directory for per-camera episode mp4 files",
+    )
+    parser.add_argument(
+        "--random",
+        action="store_true",
+        help="Sample a fresh random scene layout per episode "
+        "(random template + fresh env seed, official-eval style)",
+    )
+    parser.add_argument("--transport", choices=["http", "socket"], default="http")
+    parser.add_argument("--parent-watch", action="store_true")
+
+    from isaaclab.app import AppLauncher  # noqa: E402
+
+    AppLauncher.add_app_launcher_args(parser)
+    _args = parser.parse_args()
+
+    # Camera capture requires the replicator/sensor extensions + camera flag;
+    # without them obs_manager.capture_manager.step() blocks forever. The
+    # extensions go through ``--kit_args`` as a single string (Kit passthrough).
+    _CAMERA_KIT_ARGS = (
+        "--enable isaacsim.replicator.behavior --enable isaacsim.sensors.camera"
+    )
+    _args.enable_cameras = True
+    if getattr(_args, "kit_args", None):
+        _args.kit_args = f"{_args.kit_args} {_CAMERA_KIT_ARGS}"
+    else:
+        _args.kit_args = _CAMERA_KIT_ARGS
+
+    if _args.parent_pid is not None:
+
+        def _watch_parent(pid: int) -> None:
+            while True:
+                try:
+                    os.kill(pid, 0)
+                except OSError:
+                    os._exit(0)
+                time.sleep(2)
+
+        threading.Thread(
+            target=_watch_parent, args=(_args.parent_pid,), daemon=True
+        ).start()
+
+    os.environ.setdefault(
+        "ROBODOJO_RUN_ID", datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    )
+    os.environ.setdefault("PYTHONUNBUFFERED", "1")
+
+    app_launcher = AppLauncher(_args)
+    simulation_app = app_launcher.app
+
+    # Isaac-dependent imports must run after AppLauncher.
+    from env.global_configs import BENCHMARK, ENV_CONFIG_PATH, ROOT_DIR  # noqa: E402
+    from omegaconf import OmegaConf  # noqa: E402
+    from src.collect_client.collect_env import create_collect_env  # noqa: E402
+    from utils.load_file import load_yaml  # noqa: E402
+    from utils.pipeline_utils import (  # noqa: E402
+        process_config,
+        process_randomization,
+        resolve_random_task_num_envs,
+    )
+
+    def _build_env_cfg() -> Any:
+        task_registry = __import__(
+            f"task.{BENCHMARK}.task_registry", fromlist=["task_config_path"]
+        )
+        collect_cfg = load_yaml(
+            os.path.join(ENV_CONFIG_PATH, _args.env_cfg_type + ".yml")
+        )
+        vision_cfg = collect_cfg.setdefault("observation", {}).setdefault("vision", {})
+        vision_cfg["depth"] = True
+        vision_cfg["intrinsic_matrix"] = True
+        vision_cfg["extrinsic_matrix"] = True
+        collect_cfg["task_name"] = _args.task
+        collect_cfg["num_envs"] = _args.num_envs
+        collect_cfg["device_id"] = _args.device_id
+        collect_cfg["save_dir"] = "/tmp/rpent_robodojo"
+        camera_cfg = load_yaml(
+            os.path.join(
+                ENV_CONFIG_PATH, "camera", collect_cfg["config"]["camera"] + ".yml"
+            )
+        )
+        camera_cfg = OmegaConf.merge(
+            camera_cfg,
+            OmegaConf.create(
+                {
+                    "annotator": {
+                        "common": {
+                            "distance_to_image_plane_capture": {
+                                "type": "distance_to_image_plane",
+                                "device": "cpu",
+                            }
+                        },
+                        "cam_head": {
+                            "distance_to_image_plane_capture": {
+                                "type": "distance_to_image_plane",
+                                "device": "cpu",
+                            }
+                        },
+                        "cam_left_wrist": {
+                            "distance_to_image_plane_capture": {
+                                "type": "distance_to_image_plane",
+                                "device": "cpu",
+                            }
+                        },
+                        "cam_right_wrist": {
+                            "distance_to_image_plane_capture": {
+                                "type": "distance_to_image_plane",
+                                "device": "cpu",
+                            }
+                        },
+                    }
+                }
+            ),
+        )
+        env_cfg = OmegaConf.create(
+            {
+                "sim": load_yaml(
+                    os.path.join(
+                        ENV_CONFIG_PATH,
+                        "sim",
+                        collect_cfg["config"]["sim"] + ".yml",
+                    )
+                ),
+                "scene": load_yaml(
+                    os.path.join(
+                        ENV_CONFIG_PATH,
+                        "scene",
+                        collect_cfg["config"]["scene"] + ".yml",
+                    )
+                ),
+                "camera": camera_cfg,
+                "robot": load_yaml(
+                    os.path.join(
+                        ENV_CONFIG_PATH,
+                        "robot",
+                        collect_cfg["config"]["robot"] + ".yml",
+                    )
+                ),
+                "task_env": load_yaml(
+                    task_registry.task_config_path(
+                        os.path.join(ROOT_DIR, "task", BENCHMARK, "config"),
+                        _args.task,
+                    )
+                ),
+                "collect_cfg": collect_cfg,
+                "eval_cfg": collect_cfg,
+            }
+        )
+        capped = resolve_random_task_num_envs(_args.task, _args.num_envs, env_cfg.sim)
+        OmegaConf.update(env_cfg, "sim.scene.num_envs", capped, force_add=True)
+        OmegaConf.update(env_cfg, "collect_cfg.num_envs", capped, force_add=True)
+        env_cfg = process_randomization(env_cfg)
+        env_cfg, _ = process_config(env_cfg, task_name=_args.task)
+        OmegaConf.update(
+            env_cfg,
+            "camera.default_frequency",
+            collect_cfg["observation"].get("collect_freq", 0),
+            force_add=True,
+        )
+        env_cfg.sim.seed = [0 for _ in range(capped)]
+        return env_cfg
+
+    env = create_collect_env(_build_env_cfg(), simulation_app)
+    if _args.random:
+        _random_reset()
+    else:
+        _standard_reset()
+    video_recorder = _VideoRecorder(_args.video_dir or "")
+
     facade = RoboDojoEnvFacade()
     facade.serve(
         transport=_args.transport,

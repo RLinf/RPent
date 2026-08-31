@@ -25,53 +25,34 @@ class RoboDojoEnvClient(BaseEnvClient):
     """Unified env client for the RoboDojo Isaac Sim backend.
 
     Inherits :class:`BaseEnvClient` (``env.get_env_meta`` / ``env.reset`` /
-    ``env.step`` / ``env.chunk_step``) and adds the RoboDojo-specific RPC
+    ``env.step`` / ``env.chunk_step``) and adds the RoboDojo-specific read
     surface used by the toolkit primitives (``env.get_obs``,
-    ``env.apply_action``, ``env.solve_ik_position``, ...).
+    ``env.get_reward_details``, ``env.solve_ik_position``, ...). The backend
+    is single-environment, so no ``env_idx`` is exposed.
     """
 
     def __init__(self, client, *, expected_meta: dict[str, Any]):
         super().__init__(client, expected_meta=expected_meta)
 
-    def healthz(self, *, timeout_s: float | None = None) -> dict[str, Any]:
-        return self._client.call("healthz", timeout_s=timeout_s)
+    def get_obs(self) -> dict[str, Any]:
+        return self._client.call("env.get_obs")
 
-    def get_obs(self, env_idx: int = 0) -> dict[str, Any]:
-        return self._client.call("env.get_obs", args=(env_idx,))
+    def get_status(self) -> dict[str, Any]:
+        return self._client.call("env.get_status")
 
-    def get_status(self, env_idx: int = 0) -> dict[str, Any]:
-        return self._client.call("env.get_status", args=(env_idx,))
+    def get_reward_details(self) -> dict[str, Any]:
+        return self._client.call("env.get_reward_details")
 
-    def get_reward_details(self, env_idx: int = 0) -> dict[str, Any]:
-        return self._client.call("env.get_reward_details", args=(env_idx,))
-
-    def solve_ik_position(
-        self, arm: str, xyz: list, env_idx: int = 0
-    ) -> dict[str, Any]:
+    def solve_ik_position(self, arm: str, xyz: list) -> dict[str, Any]:
         return self._client.call(
-            "env.solve_ik_position",
-            kwargs={"arm": arm, "xyz": xyz, "env_idx": env_idx},
+            "env.solve_ik_position", kwargs={"arm": arm, "xyz": xyz}
         )
 
-    def get_safety_status(self, env_idx: int = 0) -> dict[str, Any]:
-        return self._client.call("env.get_safety_status", args=(env_idx,))
+    def get_safety_status(self) -> dict[str, Any]:
+        return self._client.call("env.get_safety_status")
 
-    def apply_action(
-        self, action: dict, action_type: str, env_idx: int = 0
-    ) -> dict[str, Any]:
-        return self._client.call(
-            "env.apply_action",
-            kwargs={"action": action, "action_type": action_type, "env_idx": env_idx},
-        )
-
-    def apply_target(self, control_info: dict, env_idx: int = 0) -> dict[str, Any]:
-        return self._client.call(
-            "env.apply_target",
-            kwargs={"control_info": control_info, "env_idx": env_idx},
-        )
-
-    def is_success(self, env_idx: int = 0) -> bool:
-        return bool(self._client.call("env.is_success", args=(env_idx,)))
+    def is_success(self) -> bool:
+        return bool(self._client.call("env.is_success"))
 
     def close(self) -> None:
         try:
