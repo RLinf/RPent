@@ -13,9 +13,22 @@ const KEY_ACTIONS = {
   ArrowDown: ["chassis", "backward"],
   ArrowLeft: ["chassis", "turn_left"],
   ArrowRight: ["chassis", "turn_right"],
-  PageUp: ["chassis", "up"],
-  PageDown: ["chassis", "down"],
 };
+
+const KEY_CAMERAS = {
+  "1": "head",
+  "2": "left_wrist",
+  "3": "right_wrist",
+};
+
+const SAFETY_STOP_REASONS = new Set([
+  "escape",
+  "dashboard_safe_stop",
+  "window_blur",
+  "pagehide",
+  "visibility_hidden",
+  "controls_collapsed",
+]);
 
 const EDITABLE_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
@@ -82,8 +95,9 @@ function setButtons(selector, value, attr) {
 function setTarget(target) {
   if (!Object.prototype.hasOwnProperty.call(TARGET_ACTIONS, target)) return;
   controlState.target = target;
-  if (!TARGET_ACTIONS[target].includes(controlState.action)) {
-    controlState.action = TARGET_ACTIONS[target][0];
+  if (!actionSupported(target, controlState.action)) {
+    controlState.action = TARGET_ACTIONS[target].find(action =>
+      actionSupported(target, action)) || "observe";
   }
   setButtons("[data-behavior-target]", controlState.target, "data-behavior-target");
   setButtons("[data-target]", controlState.target, "data-target");
@@ -91,10 +105,21 @@ function setTarget(target) {
 }
 
 function setAction(action) {
-  if (!TARGET_ACTIONS[controlState.target].includes(action)) return;
+  if (!actionSupported(controlState.target, action)) return;
   controlState.action = action;
   setButtons("[data-behavior-action]", controlState.action, "data-behavior-action");
   setButtons("[data-action]", controlState.action, "data-action");
+}
+
+function actionSupported(target, action) {
+  if (!TARGET_ACTIONS[target] || !TARGET_ACTIONS[target].includes(action)) return false;
+  if (action === "observe") return controlState.observeAvailable;
+  const capabilities = controlState.capabilities || {};
+  const actionCapabilities = capabilities.action_capabilities;
+  if (!actionCapabilities || !Array.isArray(actionCapabilities[target])) {
+    return controlState.motionAvailable;
+  }
+  return controlState.motionAvailable && actionCapabilities[target].includes(action);
 }
 
 function setCamera(camera) {
@@ -181,8 +206,11 @@ function updateControlTooltips() {
       tooltip = targetMismatchTooltip(action);
     } else if (action === "observe" && !controlState.observeAvailable) {
       tooltip = unavailableTooltip("observe");
-    } else if (action !== "observe" && !controlState.motionAvailable) {
-      tooltip = unavailableTooltip("motion");
+    } else if (!actionSupported(controlState.target, action)) {
+      tooltip = String(
+        controlState.capabilities.unsupported_motion_reason
+          || unavailableTooltip("motion"),
+      );
     }
     setButtonTooltip(button, tooltip);
   }
@@ -232,7 +260,9 @@ function renderControl(snapshot = {}) {
 
   const interactionActive = !!controlState.activeInteraction;
   const controlsBlocked = controlState.busy || interactionActive;
-  const canPrepare = controlState.motionAvailable && !controlsBlocked;
+  const canPrepare = controlState.action !== "observe"
+    && actionSupported(controlState.target, controlState.action)
+    && !controlsBlocked;
   const canExecute = !!controlState.preparedPlanId && !controlsBlocked;
   const canDiscard = !!controlState.preparedPlanId && !controlsBlocked;
   const canCapture = controlState.observeAvailable && !controlsBlocked;
@@ -240,15 +270,16 @@ function renderControl(snapshot = {}) {
   setElementDisabled("#behaviorExecute", !canExecute);
   setElementDisabled("#behaviorDiscard", !canDiscard);
   setElementDisabled("#behaviorCapture", !canCapture);
-  setElementDisabled("#behaviorStop", controlState.busy && !interactionActive);
+  setElementDisabled(
+    "#behaviorStop",
+    !interactionActive && (!controlState.available || controlState.busy),
+  );
 
   for (const button of document.querySelectorAll("[data-behavior-action], [data-action]")) {
     const action = button.getAttribute("data-behavior-action")
       || button.getAttribute("data-action");
     const allowed = TARGET_ACTIONS[controlState.target].includes(action);
-    const actionAvailable = action === "observe"
-      ? controlState.observeAvailable
-      : controlState.motionAvailable && allowed;
+    const actionAvailable = allowed && actionSupported(controlState.target, action);
     button.disabled = !actionAvailable || controlsBlocked;
     button.setAttribute("aria-disabled", String(button.disabled));
   }
@@ -491,8 +522,8 @@ function beginMomentaryAction(token, target, action) {
     captureViews();
     return true;
   }
-  if (!controlState.motionAvailable) {
-    setReceipt("motion unavailable", true);
+  if (!actionSupported(target, action)) {
+    setReceipt("action unavailable", true);
     return false;
   }
   setTarget(target);
@@ -519,6 +550,7 @@ async function runMomentaryInteraction(interaction) {
   controlState.busy = true;
   renderControl(localControlSnapshot("preparing"));
   try {
+    await requestPlannerInterrupt();
     const prepared = await prepareCommand(
       controlState.target,
       controlState.action,
@@ -547,6 +579,9 @@ async function runMomentaryInteraction(interaction) {
     }
     setReceipt(error.message, true);
   } finally {
+    if (controlState.activeInteraction === interaction && !interaction.cancelRequested) {
+      controlState.activeInteraction = null;
+    }
     controlState.busy = false;
     refreshControl();
   }
@@ -558,11 +593,13 @@ async function finishInteractionStop(interaction) {
     if (!interaction.executed && controlState.preparedPlanId) {
       const result = await discardCommand(controlState.commandId, controlState.preparedPlanId);
       setReceipt(`discarded: ${result.command_id || result.plan_id || ""}`);
-    } else {
+    } else if (SAFETY_STOP_REASONS.has(reason)) {
       const result = await postSafeStop(reason);
       const receipt = result.terminal_receipt || {};
       const success = receipt.task_success === true ? "true" : "false";
       setReceipt(`safe-stop receipt: task_success=${success}`);
+    } else {
+      setReceipt(`completed: ${controlState.commandId || "manual command"}`);
     }
   } catch (error) {
     setReceipt(error.message, true);
@@ -579,6 +616,9 @@ function requestInteractionStop(reason, token = null) {
   if (token !== null && interaction.token !== token) return false;
   interaction.cancelRequested = true;
   interaction.stopReason = reason;
+  if (SAFETY_STOP_REASONS.has(reason)) {
+    requestPlannerInterrupt().catch(() => {});
+  }
   if (controlState.busy) {
     setReceipt(`cancel pending: ${reason}`);
     return true;
@@ -627,7 +667,18 @@ function syncBehaviorCameraTabs() {
 function handleKeyDown(event) {
   if (event.repeat || isEditableTarget(event.target)) return;
   if (event.key === "Escape") {
-    requestInteractionStop("escape");
+    if (!requestInteractionStop("escape")) safeStop("escape");
+    return;
+  }
+  const camera = KEY_CAMERAS[event.key];
+  if (camera && !controlState.busy && !controlState.activeInteraction) {
+    event.preventDefault();
+    setCamera(camera);
+    return;
+  }
+  if (event.key.toLowerCase() === "c") {
+    event.preventDefault();
+    beginMomentaryAction(keyToken(event), controlState.target, "observe");
     return;
   }
   const focusedButton = event.target && event.target.closest
@@ -654,7 +705,9 @@ function handleKeyUp(event) {
     : null;
   if (focusedButton && (event.key === " " || event.key === "Enter")) {
     event.preventDefault();
-    requestInteractionStop("keyup", keyToken(event));
+    if (focusedButton.dataset.repeat !== "false") {
+      requestInteractionStop("keyup", keyToken(event));
+    }
     return;
   }
   const mapped = KEY_ACTIONS[event.key];
@@ -683,7 +736,9 @@ function handleActionPointerRelease(event, reason) {
   event.preventDefault();
   const button = event.currentTarget;
   if (button && button.classList) button.classList.remove("pressed");
-  requestInteractionStop(reason, pointerToken(event));
+  if (button?.dataset?.repeat !== "false") {
+    requestInteractionStop(reason, pointerToken(event));
+  }
 }
 
 function setControlsExpanded(expanded) {

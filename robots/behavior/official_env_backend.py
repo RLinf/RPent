@@ -40,6 +40,17 @@ import numpy as np
 ACTION_DIM = 23
 ACTION_HORIZON = 32
 CAMERAS = ("head", "left_wrist", "right_wrist")
+MANUAL_ACTIONS = {
+    "chassis": ("forward", "backward", "turn_left", "turn_right"),
+    "left_arm": ("open", "close"),
+    "right_arm": ("open", "close"),
+}
+_RAW_LEFT_ARM = slice(158, 165)
+_RAW_LEFT_GRIPPER = slice(193, 195)
+_RAW_RIGHT_ARM = slice(197, 204)
+_RAW_RIGHT_GRIPPER = slice(232, 234)
+_RAW_TRUNK = slice(236, 240)
+_RAW_PROPRIO_MIN_SIZE = 256
 EXACT_OFFICIAL_CONFIG_MODE = "exact_official_v1"
 EXACT_OFFICIAL_RUNTIME_SUPPORT_SCHEMA = (
     "rlinf.behavior.exact_official_runtime_support.v1"
@@ -881,6 +892,7 @@ class OfficialBehaviorBackend:
         self._last_info: dict[str, Any] = {}
         self._last_raw_obs: Any = None
         self._closed = False
+        self._episode_ended = False
         self._total_env_steps = 0
         self._official_success_latched = False
         self._official_success_receipt: dict[str, Any] | None = None
@@ -1084,6 +1096,8 @@ class OfficialBehaviorBackend:
         )
         try:
             self._total_env_steps = 0
+            self._episode_ended = False
+            self._prepared.clear()
             raw_obs, info = self._reset_raw()
             self._last_raw_obs = raw_obs
             self._last_obs = self._wrap_raw_obs(raw_obs)
@@ -1153,6 +1167,8 @@ class OfficialBehaviorBackend:
         if last_obs is not None:
             self._last_raw_obs = last_obs
             self._last_obs = self._wrap_raw_obs(last_obs)
+        if terminated or truncated:
+            self._episode_ended = True
         monitor = {
             "chunk_index": int(chunk_index),
             "requested_steps": int(action_array.shape[0]),
@@ -1256,17 +1272,31 @@ class OfficialBehaviorBackend:
         }
 
     def dashboard_control_capabilities(self) -> dict[str, Any]:
+        motion_ready = (
+            self._last_obs is not None
+            and not self._closed
+            and not self._episode_ended
+            and not self._official_success_latched
+        )
         return {
-            "motion_available": False,
+            "motion_available": motion_ready,
             "observe_available": True,
             "capture_available": True,
             "safe_stop_available": True,
-            "prepare_available": False,
-            "execute_available": False,
+            "prepare_available": motion_ready,
+            "execute_available": motion_ready,
             "discard_available": True,
+            "action_capabilities": {
+                target: list(actions) for target, actions in MANUAL_ACTIONS.items()
+            },
             "motion_unavailable_reason": (
-                "official RLinf BehaviorEnv backend has no reviewed manual "
-                "motion adapter; Pi0.5 chunk stepping is the only motion entrypoint"
+                "manual control is unavailable before the environment reset"
+                if not motion_ready
+                else ""
+            ),
+            "unsupported_motion_reason": (
+                "the official RLinf backend exposes joint-position control, so "
+                "Cartesian arm jog and wrist rotation require a reviewed IK adapter"
             ),
             "cameras": list(CAMERAS),
             "action_dim": ACTION_DIM,
@@ -1274,6 +1304,121 @@ class OfficialBehaviorBackend:
             "official_success_source": 'info["done"]["success"]',
             "total_env_steps": int(self.total_env_steps),
         }
+
+    def _manual_hold_action(self) -> np.ndarray:
+        if self._closed:
+            raise RuntimeError("manual control is unavailable after backend close")
+        if self._episode_ended:
+            raise RuntimeError(
+                "manual control is unavailable after episode termination"
+            )
+        if self._official_success_latched:
+            raise RuntimeError("manual control is unavailable after official success")
+        if self._last_obs is None:
+            raise RuntimeError("manual control requires an environment observation")
+        proprio = np.asarray(self._last_obs["states"], dtype=np.float32).reshape(-1)
+        if proprio.size < _RAW_PROPRIO_MIN_SIZE or not np.isfinite(proprio).all():
+            raise ValueError(
+                "manual control requires finite raw R1Pro proprio with at least "
+                f"{_RAW_PROPRIO_MIN_SIZE} values"
+            )
+        action = np.zeros(ACTION_DIM, dtype=np.float32)
+        action[3:7] = proprio[_RAW_TRUNK]
+        action[7:14] = proprio[_RAW_LEFT_ARM]
+        action[14] = self._gripper_hold_command(proprio[_RAW_LEFT_GRIPPER])
+        action[15:22] = proprio[_RAW_RIGHT_ARM]
+        action[22] = self._gripper_hold_command(proprio[_RAW_RIGHT_GRIPPER])
+        return action
+
+    @staticmethod
+    def _gripper_hold_command(joint_positions: np.ndarray) -> float:
+        command = (
+            float(np.asarray(joint_positions, dtype=np.float32).sum()) / 0.05 - 1.0
+        )
+        return float(np.clip(command, -1.0, 1.0))
+
+    @staticmethod
+    def _manual_command_spec(target: str, action: str) -> dict[str, Any]:
+        if action not in MANUAL_ACTIONS.get(target, ()):
+            raise ValueError(
+                f"manual action {target}.{action} is unsupported by the official "
+                "RLinf joint-controller adapter"
+            )
+        if target == "chassis":
+            if action in {"forward", "backward"}:
+                return {
+                    "kind": "base_velocity",
+                    "action_index": 0,
+                    "command": 0.35 if action == "forward" else -0.35,
+                    "motion_steps": 12,
+                    "nominal_motion": "5 cm",
+                }
+            return {
+                "kind": "base_velocity",
+                "action_index": 2,
+                "command": 0.5 if action == "turn_left" else -0.5,
+                "motion_steps": 10,
+                "nominal_motion": "5 deg",
+            }
+        return {
+            "kind": "gripper_position",
+            "action_index": 14 if target == "left_arm" else 22,
+            "command": 1.0 if action == "open" else -1.0,
+            "motion_steps": 12,
+            "nominal_motion": action,
+        }
+
+    def _manual_action_sequence(self, spec: Mapping[str, Any]) -> np.ndarray:
+        hold = self._manual_hold_action()
+        motion = hold.copy()
+        motion[int(spec["action_index"])] = float(spec["command"])
+        steps = int(spec["motion_steps"])
+        sequence = np.repeat(motion[None, :], steps, axis=0)
+        if spec["kind"] == "base_velocity":
+            sequence = np.concatenate([sequence, hold[None, :]], axis=0)
+        return np.ascontiguousarray(sequence, dtype=np.float32)
+
+    def _execute_manual_sequence(
+        self, actions: np.ndarray
+    ) -> tuple[int, str, bool, bool, dict[str, Any]]:
+        executed_steps = 0
+        stop_reason = "requested_actions_completed"
+        terminated = False
+        truncated = False
+        last_obs: Any = None
+        last_info: dict[str, Any] = {}
+        for action in actions:
+            raw_obs, _reward, step_terminated, step_truncated, info = (
+                self._step_one_raw(action)
+            )
+            executed_steps += 1
+            self._total_env_steps += 1
+            last_obs = raw_obs
+            last_info = info
+            if _raw_success(info):
+                stop_reason = "official_task_success"
+                terminated = True
+                break
+            if step_terminated:
+                stop_reason = "terminated"
+                terminated = True
+                break
+            if step_truncated:
+                stop_reason = "truncated"
+                truncated = True
+                break
+        if last_obs is not None:
+            self._last_raw_obs = last_obs
+            self._last_obs = self._wrap_raw_obs(last_obs)
+        if terminated or truncated:
+            self._episode_ended = True
+        return (
+            executed_steps,
+            stop_reason,
+            terminated,
+            truncated,
+            self._note_info(last_info),
+        )
 
     def dashboard_prepare_manual_command(
         self,
@@ -1286,24 +1431,42 @@ class OfficialBehaviorBackend:
         background: bool = False,
         planning_only_probe: bool = False,
     ) -> dict[str, Any]:
-        del predecessor_plan_id, background, planning_only_probe
+        del background
         command_id = str(permit_command_id or f"cmd_{uuid.uuid4().hex}")
-        plan_id = f"unsupported_{command_id}"
+        target = str(target)
+        action = str(action)
+        camera = _physical_camera(camera)
+        try:
+            spec = self._manual_command_spec(target, action)
+            self._manual_hold_action()
+        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+            return {
+                "status": "failed",
+                "plan_id": f"unsupported_{command_id}",
+                "command_id": command_id,
+                "target": target,
+                "action": action,
+                "camera": camera,
+                "primitive_success": False,
+                "task_success": self.official_success_latched,
+                "stop_reason": "manual_motion_unavailable",
+                "error": str(exc),
+                "motion_available": False,
+            }
+        plan_id = f"manual_{command_id}"
         prepared = {
-            "status": "failed",
+            "status": "ok",
             "plan_id": plan_id,
             "command_id": command_id,
-            "target": str(target),
-            "action": str(action),
-            "camera": _physical_camera(camera),
-            "primitive_success": False,
+            "target": target,
+            "action": action,
+            "camera": camera,
+            "predecessor_plan_id": predecessor_plan_id,
+            "planning_only_probe": bool(planning_only_probe),
+            "manual_spec": spec,
+            "primitive_success": True,
             "task_success": self.official_success_latched,
-            "stop_reason": "manual_motion_unavailable",
-            "error": (
-                "manual prepare/execute is disabled for this official RLinf "
-                "backend; use dashboard capture or Pi0.5 chunk stepping"
-            ),
-            "motion_available": False,
+            "motion_available": True,
         }
         self._prepared[command_id] = prepared
         return dict(prepared)
@@ -1314,19 +1477,68 @@ class OfficialBehaviorBackend:
         command_id: str,
         plan_id: str | None = None,
     ) -> dict[str, Any]:
-        prepared = self._prepared.get(str(command_id), {})
+        prepared = self._prepared.get(str(command_id))
+        if not prepared:
+            return {
+                "status": "failed",
+                "plan_id": str(plan_id or ""),
+                "command_id": str(command_id),
+                "prepared": False,
+                "primitive_success": False,
+                "task_success": self.official_success_latched,
+                "stop_reason": "prepared_command_missing",
+                "error": "manual command was not prepared or was already consumed",
+            }
         resolved_plan_id = str(plan_id or prepared.get("plan_id") or "")
+        if resolved_plan_id != prepared["plan_id"]:
+            return {
+                "status": "failed",
+                "plan_id": resolved_plan_id,
+                "command_id": str(command_id),
+                "prepared": True,
+                "primitive_success": False,
+                "task_success": self.official_success_latched,
+                "stop_reason": "prepared_plan_mismatch",
+                "error": "plan_id does not match the prepared manual command",
+            }
+        try:
+            actions = self._manual_action_sequence(prepared["manual_spec"])
+        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+            self._prepared.pop(str(command_id), None)
+            return {
+                "status": "failed",
+                "plan_id": resolved_plan_id,
+                "command_id": str(command_id),
+                "prepared": True,
+                "primitive_success": False,
+                "task_success": self.official_success_latched,
+                "stop_reason": "manual_motion_unavailable",
+                "error": str(exc),
+                "motion_available": False,
+            }
+        self._prepared.pop(str(command_id), None)
+        executed_steps, stop_reason, terminated, truncated, info = (
+            self._execute_manual_sequence(actions)
+        )
         return {
-            "status": "failed",
+            "status": "ok",
             "plan_id": resolved_plan_id,
             "command_id": str(command_id),
-            "prepared": bool(prepared),
-            "primitive_success": False,
+            "prepared": True,
+            "target": prepared["target"],
+            "action": prepared["action"],
+            "camera": prepared["camera"],
+            "requested_steps": int(actions.shape[0]),
+            "executed_steps": executed_steps,
+            "primitive_success": executed_steps > 0,
             "task_success": self.official_success_latched,
-            "stop_reason": "manual_motion_unavailable",
-            "error": "manual motion execution is unsupported by this backend",
-            "motion_available": False,
-            "info": self._last_info,
+            "terminated": terminated,
+            "truncated": truncated,
+            "stop_reason": stop_reason,
+            "motion_available": not (
+                self.official_success_latched or terminated or truncated
+            ),
+            "info": info,
         }
 
     def dashboard_discard_prepared_command(
@@ -1380,7 +1592,12 @@ class OfficialBehaviorBackend:
             )
             else "unknown",
             "prepared_plan_id": str(prepared_plan_id),
-            "motion_available": False,
+            "motion_available": (
+                self._last_obs is not None
+                and not self._closed
+                and not self._episode_ended
+                and not self._official_success_latched
+            ),
             "prepared": next(
                 (
                     item

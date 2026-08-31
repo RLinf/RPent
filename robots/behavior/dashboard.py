@@ -502,11 +502,13 @@ class BehaviorDashboardState(DashboardState):
             item["result"] = safe_result
             item["elapsed_s"] = _elapsed_s(result, item.get("_started_at"))
             item["status"] = terminal_receipt["phase"]
-            item["terminated"] = success_latched
+            item["terminated"] = bool(result.get("terminated")) or success_latched
             item["truncated"] = bool(result.get("truncated"))
             item["primitive_success"] = result.get("primitive_success")
             item["task_success"] = bool(success_latched)
-            self._terminated = self._terminated or success_latched
+            self._terminated = (
+                self._terminated or bool(result.get("terminated")) or success_latched
+            )
             self._truncated = self._truncated or bool(result.get("truncated"))
             if success_latched:
                 self._progress["official_task_success"] = True
@@ -994,6 +996,7 @@ class BehaviorControlController:
             self._last_terminal = dict(terminal)
             self._prepared = None
             self._last_error = None
+            self._refresh_capabilities_locked()
             self._touch_locked()
             snapshot = self._snapshot_locked()
         self._publish_snapshot(snapshot)
@@ -1993,6 +1996,8 @@ def _inject_behavior_controls(html: str) -> str:
             </div>
           </div>
           <span id="behaviorManualControlState" class="control-status" aria-live="polite">offline</span>
+          <button id="behaviorStop" class="target-button" type="button"
+                  data-tooltip="Stop the current manual interaction safely.">Stop</button>
         </section>
 """
     right_panel = """\
