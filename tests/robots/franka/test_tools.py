@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from robots.franka.config import set_calibration_path
 from robots.franka.perception import back_project
 from robots.franka.tools import (
     FrankaPrimitives,
@@ -144,6 +145,13 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
             step=step,
         )
 
+    set_calibration_path(
+        Path(__file__).parents[3]
+        / "robots"
+        / "franka"
+        / "calibration"
+        / "hand_eye_calibration.json"
+    )
     result = back_project(row=2, col=2, camera="wrist", state=state)
 
     assert result["coordinate_frame"] == "franka_base"

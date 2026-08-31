@@ -1,9 +1,10 @@
 # RPent user-facing config for the dual-Franka setup.
 #
-# Holds only hardware identity (arm IPs, camera serials/types, gripper) and
-# workspace geometry (target poses, safety limits). Primitive-control knobs,
-# perception tuning, episode length, and node placement are developer defaults
-# in robots/dual_franka/config.py.
+# Holds only hardware identity (arm IPs, camera serials/types, gripper),
+# workspace geometry (target poses, safety limits), and the perception
+# localization bounds + base-frame transform. Primitive-control knobs,
+# episode length, and node placement are developer defaults in
+# robots/dual_franka/config.py.
 robot:
   arms:
     left:
@@ -44,3 +45,24 @@ workspace:
   ee_pose_limit_max:
     - [0.8, 0.4, 0.7, 3.1416, 3.1416, 3.1416]
     - [0.8, 0.4, 0.7, 3.1416, 3.1416, 3.1416]
+
+# RPent-specific perception config that easy_handeye does not produce: the
+# tabletop localization volume and the left<->right base transform. The
+# hand-eye transforms themselves live in calibration/hand_eye_calibration.json.
+perception:
+  localization_validity:
+    base_camera:
+      depth_m: [0.15, 1.25]
+      right_base_xyz_min: [0.1, -0.85, 0.0]
+      right_base_xyz_max: [1.15, 0.85, 0.85]
+    d455_camera:
+      depth_m: [0.15, 1.5]
+      right_base_xyz_min: [0.1, -0.85, 0.0]
+      right_base_xyz_max: [1.15, 1.25, 0.85]
+  base_frames:
+    T_right_base_left_base:
+      matrix:
+        - [1.0, 0.0, 0.0, 0.01]
+        - [0.0, 1.0, 0.0, 0.69]
+        - [0.0, 0.0, 1.0, 0.0]
+        - [0.0, 0.0, 0.0, 1.0]

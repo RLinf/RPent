@@ -21,6 +21,25 @@ from omegaconf import OmegaConf
 
 DEFAULT_CONFIG = Path(__file__).with_name("robot_config.yaml")
 
+# easy_handeye's default save directory is ``~/.ros/easy_handeye``; RPent reads
+# its ``hand_eye_calibration.json`` bundle from there by default.
+DEFAULT_CALIBRATION_PATH = (
+    Path("~/.ros/easy_handeye/hand_eye_calibration.json").expanduser()
+)
+
+_calibration_path: Path | None = None
+
+
+def set_calibration_path(path: str | Path | None) -> None:
+    """Configure the hand-eye calibration bundle path (once, at runtime init)."""
+    global _calibration_path
+    _calibration_path = Path(path).expanduser() if path else None
+
+
+def get_calibration_path() -> Path:
+    """Return the configured calibration bundle path, or the easy_handeye default."""
+    return Path(_calibration_path or DEFAULT_CALIBRATION_PATH)
+
 
 # ---------------------------------------------------------------------------
 # Developer defaults

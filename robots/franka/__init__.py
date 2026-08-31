@@ -9,6 +9,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from robots.franka.config import DEFAULT_CALIBRATION_PATH
 from robots.franka.prompt_bundle import system_prompt, user_prompt
 from robots.franka.spec import FRANKA_DASHBOARD_SPEC
 from robots.franka.tasks import FRANKA_TASKS, get_franka_task
@@ -65,6 +66,12 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--camera-serial-wrist", default=None)
     parser.add_argument("--camera-serial-external", default=None)
     parser.add_argument("--gripper-connection", default=None)
+    parser.add_argument(
+        "--calibration-path",
+        default=str(DEFAULT_CALIBRATION_PATH),
+        help="Path to hand_eye_calibration.json (defaults to easy_handeye's "
+        "~/.ros/easy_handeye directory).",
+    )
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
@@ -218,5 +225,7 @@ def _init_runtime(
     if "vla" in selected and not needs_vla:
         dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
         primitives_kwargs["model"] = None
+
+    primitives_kwargs["calibration_path"] = args.calibration_path
 
     return list(owned_daemons.values()), primitives_kwargs

@@ -8,12 +8,9 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
+from robots.franka.config import get_calibration_path
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import readonly
-
-DEFAULT_CALIBRATION_BUNDLE_PATH = (
-    Path(__file__).resolve().parent / "calibration" / "hand_eye_calibration.json"
-)
 
 
 class PerceptionError(ValueError):
@@ -50,7 +47,7 @@ def load_calibration_bundle(
     path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Load normalized hand-eye calibration from the project calibration bundle."""
-    bundle_path = Path(path or DEFAULT_CALIBRATION_BUNDLE_PATH).expanduser().resolve()
+    bundle_path = Path(path or get_calibration_path()).expanduser().resolve()
     bundle = _load_calibration_bundle_file(bundle_path)
     external = _calibration_entry(bundle, "external")
     wrist = _calibration_entry(bundle, "wrist")
@@ -738,7 +735,8 @@ def _load_calibration_bundle_file(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise PerceptionError(
             f"Franka calibration bundle not found: {path}. "
-            "Run scripts/sync_franka_calibration.py to create it."
+            "Generate it from easy_handeye (see the Calibration docs) or pass "
+            "--calibration-path."
         )
     try:
         data = json.loads(path.read_text(errors="replace"))

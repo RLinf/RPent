@@ -8,6 +8,7 @@ from typing import Any
 from robots.dual_franka import perception as dual_franka_perception
 from robots.dual_franka import tools as dual_franka_tools
 from robots.franka import tools as franka_tools
+from robots.franka.config import set_calibration_path
 from rpent.dashboard.events import DashboardEventSink
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import Toolkit
@@ -25,6 +26,9 @@ class DualFrankaToolkit(Toolkit):
     ) -> None:
         state = EnvState(get_output_dir())
         super().__init__(dashboard_events=dashboard_events, state=state)
+        calibration_path = primitives_kwargs.pop("calibration_path", None)
+        if calibration_path is not None:
+            set_calibration_path(calibration_path)
         self._primitives = dual_franka_tools.DualFrankaPrimitives(
             check_cancelled=self.raise_if_cancelled,
             **primitives_kwargs,

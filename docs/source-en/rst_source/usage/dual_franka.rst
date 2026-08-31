@@ -25,12 +25,14 @@ Development configuration
 Review and edit the checked-in development defaults before enabling motion:
 
 * ``robots/dual_franka/robot_config.yaml`` contains only the machine identity
-	(both robot IPs, camera serials/types, gripper connections) and workspace
-	geometry (target poses and safety limits).
+	(both robot IPs, camera serials/types, gripper connections), workspace
+	geometry (target poses and safety limits), and perception localization
+	bounds + base-frame transform.
 * ``robots/dual_franka/config.py`` holds the developer defaults (primitive
 	control, perception tuning, episode length, node placement).
-* ``robots/dual_franka/calibration/`` contains camera intrinsics and hand-eye
-  calibration files.
+* ``robots/dual_franka/calibration/`` contains the ``easy_handeye`` hand-eye
+  calibration (see the Calibration section below); camera intrinsics are
+  captured at runtime.
 
 The checked-in robot config intentionally preserves the current lab IPs,
 serials, and gripper device paths for local testing. Review and replace them for
@@ -41,6 +43,24 @@ RPent translates this robot-focused schema into the internal two-node RLinf
 cluster and environment objects. To use a different file, pass
 ``--robot-config /path/to/robot_config.yaml``. No Hydra or RLinf configuration
 workflow is exposed to users.
+
+Calibration
+-----------
+
+Hand-eye calibration is performed with ROS
+`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_. It produces one YAML
+per projection camera (``base_camera`` and ``d455_camera``) and saves them under
+``~/.ros/easy_handeye/`` by default.
+
+RPent reads a JSON bundle (``hand_eye_calibration.json``) that carries each
+camera's ``source_name``, ``parameters``, and ``transformation``. Generate it by
+copying those fields out of each ``easy_handeye`` YAML.
+
+The bundle location is configurable with ``--calibration-path`` (default
+``~/.ros/easy_handeye/hand_eye_calibration.json``). The RPent-specific
+localization bounds and base-frame transform live in ``robot_config.yaml``'s
+``perception`` section (``easy_handeye`` does not produce them). Camera
+intrinsics are captured at runtime in ``camera_meta.json``.
 
 Use a local RLinf checkout
 --------------------------

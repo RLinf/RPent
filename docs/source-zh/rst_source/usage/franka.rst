@@ -36,6 +36,22 @@ RPent 会将该机器人配置转换成内部 RLinf cluster 和环境对象。�
 请传入 ``--robot-config /path/to/robot_config.yaml``。用户不再需要接触 Hydra
 或 RLinf 配置流程。
 
+标定（Calibration）
+----------------------
+
+Hand-eye calibration 使用 ROS `easy_handeye
+<https://github.com/IFL-CAMP/easy_handeye>`_ 完成。它为每个相机生成一个 YAML
+（外部相机为 eye-on-base，腕部相机为 eye-on-hand），默认保存在
+``~/.ros/easy_handeye/`` 下。
+
+RPent 读取一个 JSON bundle（``hand_eye_calibration.json``），其中包含每个相机的
+``source_name``、``parameters`` 和 ``transformation``。生成方式是从每个
+``easy_handeye`` YAML 中拷贝这些字段。
+
+bundle 位置可通过 ``--calibration-path`` 配置（默认
+``~/.ros/easy_handeye/hand_eye_calibration.json``）。相机内参在运行时从
+``camera_meta.json`` 捕获，不在 bundle 中。
+
 使用本地 RLinf checkout
 ------------------------
 

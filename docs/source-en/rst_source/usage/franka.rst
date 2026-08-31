@@ -57,6 +57,22 @@ robot config without touching hardware:
 
    python robots/franka/env_server.py --print-config --task-description "grasp"
 
+Calibration
+-----------
+
+Hand-eye calibration is performed with ROS
+`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_. It produces one YAML
+per camera (eye-on-base for the external camera, eye-on-hand for the wrist
+camera) and saves them under ``~/.ros/easy_handeye/`` by default.
+
+RPent reads a JSON bundle (``hand_eye_calibration.json``) that carries each
+camera's ``source_name``, ``parameters``, and ``transformation``. Generate it by
+copying those fields out of each ``easy_handeye`` YAML.
+
+The bundle location is configurable with ``--calibration-path`` (default
+``~/.ros/easy_handeye/hand_eye_calibration.json``). Camera intrinsics are
+captured at runtime in ``camera_meta.json``, not in the bundle.
+
 Use a local RLinf checkout
 --------------------------
 

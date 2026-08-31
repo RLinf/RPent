@@ -8,12 +8,11 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
+from robots.franka.config import get_calibration_path, load_mapping
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import readonly
 
-DEFAULT_CALIBRATION_BUNDLE_PATH = (
-    Path(__file__).resolve().parent / "calibration" / "hand_eye_calibration.json"
-)
+ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "robot_config.yaml"
 
 
 class DualFrankaPerceptionError(ValueError):
@@ -158,7 +157,7 @@ def _back_project_camera_pixel(
     right_tcp = _tcp_xyz(right_state.get("tcp_pose"))
     left_tcp_local = _tcp_xyz(left_state.get("tcp_pose"))
     left_tcp = (
-        transform_point_between_base_frames(left_tcp_local, target="right_base", source="left_base")
+        transform_point_between_base_frames(left_tcp_local, target="right_base", source="left_base", calibration=calibration)
         if left_tcp_local is not None
         else None
     )
@@ -220,12 +219,46 @@ def _back_project_camera_pixel(
     return out
 
 
+def _load_perception_config() -> dict[str, Any]:
+    """Load the RPent perception section from ``robot_config.yaml``.
+
+    Holds the machine config ``easy_handeye`` does not produce: the tabletop
+    ``localization_validity`` bounds and the inter-base ``base_frames``.
+    """
+    raw = load_mapping(ROBOT_CONFIG_PATH)
+    perception = raw.get("perception")
+    if not isinstance(perception, dict):
+        raise DualFrankaPerceptionError(
+            "robot_config.yaml missing the 'perception' section"
+        )
+    return perception
+
+
 def load_calibration_bundle(path: str | Path | None = None) -> dict[str, Any]:
-    bundle_path = Path(path or DEFAULT_CALIBRATION_BUNDLE_PATH)
+    """Load the dual-Franka perception calibration.
+
+    Merges the ``easy_handeye`` hand-eye transforms (``hand_eye_calibration.json``)
+    with the RPent perception config (localization validity + base frames) from
+    ``robot_config.yaml``, keeping the historical consumer shape:
+    ``<camera>.transformation``, ``<camera>.localization_validity``, and
+    ``base_frames``.
+    """
+    bundle_path = Path(path or get_calibration_path())
     data = json.loads(bundle_path.read_text(errors="replace"))
     if not isinstance(data, dict):
         raise DualFrankaPerceptionError(f"invalid calibration bundle: {bundle_path}")
-    return data
+    perception = _load_perception_config()
+    bundle = dict(data)
+    bundle["base_frames"] = perception.get("base_frames") or {}
+    for camera_key, validity in (
+        perception.get("localization_validity") or {}
+    ).items():
+        if camera_key in bundle and isinstance(bundle[camera_key], dict):
+            bundle[camera_key] = {
+                **bundle[camera_key],
+                "localization_validity": validity,
+            }
+    return bundle
 
 
 def transform_point_between_base_frames(
@@ -374,7 +407,7 @@ def _save_back_project_diagnostic(
         "image_path": str(image_path),
         "depth_path": str(projection.get("source_artifact")),
         "annotated_image": str(annotated_path),
-        "calibration_path": str(DEFAULT_CALIBRATION_BUNDLE_PATH),
+        "calibration_path": str(get_calibration_path()),
         "coordinate_convention": (
             f"point_camera_xyz is in the {camera_alias} color optical frame; "
             "point_xyz is in the shared right_base world frame."
