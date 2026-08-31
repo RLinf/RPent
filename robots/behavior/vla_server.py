@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import gc
 import hashlib
 import io
 import os
@@ -115,10 +116,7 @@ def build_model_config(checkpoint: str | Path) -> Any:
                 # checkpoint loader resolves norm stats as
                 # ``checkpoint / asset_id / norm_stats.json``; the validated
                 # BEHAVIOR checkpoint keeps them under the pinned assets tree.
-                "assets": {
-                    "assets_dir": str(checkpoint),
-                    "asset_id": NORM_STATS_ASSET_ID,
-                },
+                "norm_stats_path": str(checkpoint / NORM_STATS_REL),
                 "extra_delta_transform": False,
                 "extract_state_from_proprio": True,
                 "use_all_wrist_images": True,
@@ -147,37 +145,44 @@ def load_model(checkpoint: str | Path, *, seed: int) -> None:
     global _ACTION_BINDING_ID, _ACTIONS_ENABLED, _MODEL, _MODEL_META
     import torch
 
+    gc_was_enabled = gc.isenabled()
+    if gc_was_enabled:
+        gc.disable()
     try:
-        from rlinf.models.embodiment.openpi import get_model
-    except Exception as exc:
-        raise RuntimeError(
-            "RLinf OpenPI model dependency is unavailable for BEHAVIOR VLA"
-        ) from exc
+        try:
+            from rlinf.models.embodiment.openpi import get_model
+        except Exception as exc:
+            raise RuntimeError(
+                "RLinf OpenPI model dependency is unavailable for BEHAVIOR VLA"
+            ) from exc
 
-    checkpoint_binding = validate_policy_checkpoint(checkpoint)
-    resolved = Path(checkpoint_binding.resolved_path)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    started = time.time()
-    model = get_model(build_model_config(resolved))
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    _MODEL = model.to(device).eval()
-    with _ACTIONS_LOCK:
-        _ACTIONS_ENABLED = True
-        _ACTION_BINDING_ID = None
-    _MODEL_META = {
-        "status": "ok",
-        "runtime": "behavior_vla",
-        "config_name": "pi05_behavior",
-        "action_horizon": DEFAULT_ACTION_CHUNK,
-        "action_dim": ACTION_DIM,
-        "device": str(device),
-        "checkpoint": str(resolved),
-        "checkpoint_binding": checkpoint_binding.as_dict(),
-        "seed": int(seed),
-        "load_elapsed_s": round(time.time() - started, 2),
-    }
+        checkpoint_binding = validate_policy_checkpoint(checkpoint)
+        resolved = Path(checkpoint_binding.resolved_path)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        started = time.time()
+        model = get_model(build_model_config(resolved))
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        _MODEL = model.to(device).eval()
+        with _ACTIONS_LOCK:
+            _ACTIONS_ENABLED = True
+            _ACTION_BINDING_ID = None
+        _MODEL_META = {
+            "status": "ok",
+            "runtime": "behavior_vla",
+            "config_name": "pi05_behavior",
+            "action_horizon": DEFAULT_ACTION_CHUNK,
+            "action_dim": ACTION_DIM,
+            "device": str(device),
+            "checkpoint": str(resolved),
+            "checkpoint_binding": checkpoint_binding.as_dict(),
+            "seed": int(seed),
+            "load_elapsed_s": round(time.time() - started, 2),
+        }
+    finally:
+        if gc_was_enabled:
+            gc.enable()
 
 
 def _decode_image(block: dict[str, Any]) -> np.ndarray:

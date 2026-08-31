@@ -8,6 +8,80 @@ RPent currently exposes two reviewed task families, ``turning_on_radio`` and
 integration. The default VLA is **Pi0.5**, served by
 ``robots/behavior/vla_server.py``.
 
+Installation
+------------
+
+Use Ubuntu 22.04, an NVIDIA RTX GPU supported by Isaac Sim 4.5, and a current
+NVIDIA driver. The source installer checks the host commands and builds two
+independent Python 3.10 environments:
+
+- the **RPent environment** runs the CLI, planner, and Dashboard;
+- the **BEHAVIOR environment** runs RLinf, OmniGibson, Isaac Sim, Pi0.5,
+  DINOv2, and every BEHAVIOR sidecar process.
+
+Do not merge these environments. Isaac Sim and OpenPI require compatibility
+pins that are intentionally different from the general RPent dependency set.
+
+.. code-block:: bash
+
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
+
+   export RPENT_REPRO_ROOT="$PWD/.behavior-runtime"
+   bash scripts/install_behavior_runtime.sh
+
+The installer pins ``uv`` and the reviewed RLinf revision, invokes the official
+RLinf BEHAVIOR installer, and then performs one final compatibility repin. In
+particular, FastAPI/Pydantic are restored after Isaac installation and the
+OpenPI transformer replacement is copied only after the final Transformers
+version is installed. No package install runs after that replacement.
+
+The complete package freezes, source revisions, installation log, and
+``uv pip check`` report are written below ``$RPENT_REPRO_ROOT``. The BEHAVIOR
+environment installs RPent editable so the directly launched sidecar scripts
+can import its source. Consequently, ``pip check`` also sees planner-only
+package metadata that asks for newer Pydantic/Starlette versions, although
+those planner packages run from the separate RPent environment. The report can
+also contain the reviewed upstream conflicts around ``rlinf-openpi`` and
+``lerobot`` torch/torchvision/torchcodec, ``tensorflow-addons`` typeguard, and
+``tensorflow-metadata`` protobuf pins. Do not resolve this report by upgrading
+packages after the final repin. The installer separately requires the exact
+reviewed versions, critical imports, a CUDA tensor smoke, and the BEHAVIOR
+self-check to pass.
+
+BEHAVIOR assets
+---------------
+
+The policy checkpoint is not a replacement for the OmniGibson dataset. Prepare
+the full licensed BEHAVIOR-1K data root from inside the BEHAVIOR environment:
+
+.. code-block:: bash
+
+   export OMNIGIBSON_DATA_PATH=/path/to/BEHAVIOR-1K-datasets
+   export BEHAVIOR_PYTHON="$RPENT_REPRO_ROOT/venvs/behavior/bin/python"
+   mkdir -p "$OMNIGIBSON_DATA_PATH"
+
+   "$BEHAVIOR_PYTHON" -c \
+     "from omnigibson.utils.asset_utils import download_omnigibson_robot_assets; download_omnigibson_robot_assets()"
+   "$BEHAVIOR_PYTHON" -c \
+     "from omnigibson.utils.asset_utils import download_behavior_1k_assets; download_behavior_1k_assets(accept_license=True)"
+   "$BEHAVIOR_PYTHON" -c \
+     "from omnigibson.utils.asset_utils import download_2025_challenge_task_instances; download_2025_challenge_task_instances()"
+
+The BEHAVIOR task archive is larger than 30 GB. After extraction, the data root
+must contain all four entries below; missing ``scenes`` causes environment
+startup to fail, and missing ``omnigibson.key`` prevents encrypted USD assets
+from loading.
+
+.. code-block:: text
+
+   BEHAVIOR-1K-datasets/
+     2025-challenge-task-instances/
+     behavior-1k-assets/
+       scenes/
+     omnigibson-robot-assets/
+     omnigibson.key
+
 VLA configuration
 -----------------
 
@@ -39,6 +113,13 @@ Provide a DINOv2 source archive and the ``dinov2_vits14_pretrain.pth`` weights:
 
    export DINOV2_SOURCE_ARCHIVE=/path/to/dinov2-source.tar.gz
    export DINOV2_WEIGHTS=/path/to/dinov2_vits14_pretrain.pth
+
+   curl -L \
+     https://github.com/facebookresearch/dinov2/archive/7764ea0f912e53c92e82eb78a2a1631e92725fc8.tar.gz \
+     -o "$DINOV2_SOURCE_ARCHIVE"
+   curl -L \
+     https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth \
+     -o "$DINOV2_WEIGHTS"
 
 DINOv2 occupies the shared visual-memory component role in the BEHAVIOR
 runtime. It is not a segmentation model and does not replace SAM3 masks;
@@ -91,33 +172,37 @@ The complete public-seed-to-instance mapping is defined in
 ``robots/behavior/task_specs.py``. Native activity instance IDs are deployment
 details and should not be substituted for public seeds on the CLI.
 
-Minimal command
----------------
+Verify assets and run
+---------------------
 
-Install the RPent-side optional dependencies and run from the source checkout
-that contains ``robots/behavior``:
+Validate the complete data tree, policy checkpoint contract, and both pinned
+DINOv2 SHA-256 identities before starting Isaac Sim:
 
 .. code-block:: bash
-
-   pip install -e ".[behavior]"
 
    export PI05_CHECKPOINT_PATH=/path/to/your/pi05-behavior-model
    export DINOV2_SOURCE_ARCHIVE=/path/to/dinov2-source.tar.gz
    export DINOV2_WEIGHTS=/path/to/dinov2_vits14_pretrain.pth
 
-   rpent --robot behavior \
+   scripts/verify_behavior_assets.sh
+
+   "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" --robot behavior \
      --task-name turning_on_radio --public-seed 1 \
      --planner codex --model gpt-5.5 \
+     --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
+     --behavior-python "$RPENT_REPRO_ROOT/venvs/behavior/bin/python" \
+     --activity-instance-dir \
+       "$OMNIGIBSON_DATA_PATH/2025-challenge-task-instances" \
+     --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
      --behavior-env-cuda-device 0 \
      --behavior-model-cuda-device 1 \
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS"
 
-OmniGibson, Isaac Sim, the BEHAVIOR dataset, robot assets, and the pinned RLinf
-BEHAVIOR environment must be installed separately by following their upstream
-instructions. ``RPENT_RLINF_ROOT`` and ``RPENT_BEHAVIOR_PYTHON`` can point to
-that checkout and its Python interpreter when they are not at the default
-sibling paths. To switch planners, see :doc:`configure_planner`.
+The first environment load commonly takes 1.5 to 5 minutes. xFormers,
+deprecation, audio, and headless GLFW warnings can be non-fatal; use the
+component logs described in the Dashboard section to distinguish warnings from
+startup failure. To switch planners, see :doc:`configure_planner`.
 
 Exploration and local-memory evaluation
 ---------------------------------------
@@ -204,6 +289,12 @@ source of truth for a run.
 - ``close(...)`` and ``open(...)`` control the grippers.
 - ``press(...)`` executes a guarded contact action.
 
+The public schema describes the reviewed planner route, but a deployment may
+report ``manual_motion_unavailable`` when its official RLinf backend has no
+reviewed manual-motion adapter. In that case these manual motion tools must not
+be treated as executable fallbacks; ``pi0_nav_pick`` remains the validated
+motion entrypoint for that deployment.
+
 **Safety, state, and termination:**
 
 - ``get_prepared_motion_status(...)`` reads prepared-motion execution status.
@@ -222,12 +313,8 @@ fresh environment:
 
 .. code-block:: bash
 
-   rpent --robot behavior --dashboard \
-     --planner codex --model gpt-5.5 \
-     --behavior-env-cuda-device 0 \
-     --behavior-model-cuda-device 1 \
-     --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
-     --dino-weights "$DINOV2_WEIGHTS"
+   TASK_NAME=turning_on_radio PUBLIC_SEED=1 \
+     scripts/run_behavior_dashboard.sh
 
 Open the printed URL, confirm the Session configuration, and start a TaskRun
 from the page with:
@@ -240,6 +327,15 @@ The Dashboard shows planner reasoning, the head and wrist-camera frames, and
 the action timeline. A new ``/rpent-task`` starts a fresh environment. The
 Dashboard does not change the official success definition. Use
 ``--dashboard-language zh-cn`` for the Chinese UI.
+
+The launcher prints the exact output directory. Diagnose component startup in:
+
+.. code-block:: text
+
+   <output-dir>/run.log
+   <output-dir>/behavior_vla_server.log
+   <output-dir>/behavior_dino_server.log
+   <output-dir>/tasks/<task-run>/behavior_env_server.log
 
 Bringing your own VLA
 ---------------------

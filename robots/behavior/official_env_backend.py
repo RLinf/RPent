@@ -32,6 +32,7 @@ import time
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -899,7 +900,7 @@ class OfficialBehaviorBackend:
             num_envs=1,
             seed_offset=0,
             total_num_processes=1,
-            worker_info=None,
+            worker_info=SimpleNamespace(group_world_size=1),
             record_metrics=False,
         )
 
@@ -974,7 +975,13 @@ class OfficialBehaviorBackend:
 
     def _reset_raw(self) -> tuple[Any, dict[str, Any]]:
         reset_raw = getattr(self._env, "reset_raw", None)
-        branch = "reset_raw" if callable(reset_raw) else "reset_fallback"
+        env_reset = getattr(self._env, "env_reset", None)
+        if callable(reset_raw):
+            branch = "reset_raw"
+        elif callable(env_reset):
+            branch = "env_reset"
+        else:
+            branch = "reset_fallback"
         started_at = time.monotonic()
         _emit_reset_trace_marker(
             "official_behavior_backend._reset_raw.enter",
@@ -983,6 +990,14 @@ class OfficialBehaviorBackend:
         try:
             if callable(reset_raw):
                 obs, info = reset_raw(env_idx=0)
+            elif callable(env_reset):
+                observations, infos = env_reset()
+                if not isinstance(observations, (list, tuple)) or not observations:
+                    raise TypeError(
+                        "RLinf BehaviorEnv.env_reset returned no observations"
+                    )
+                obs = observations[0]
+                info = infos[0] if isinstance(infos, (list, tuple)) and infos else {}
             else:
                 ret = self._env.reset()
                 if isinstance(ret, (tuple, list)) and len(ret) == 2:
@@ -1026,9 +1041,12 @@ class OfficialBehaviorBackend:
 
         env_chunk_step = getattr(self._env, "env_chunk_step", None)
         if callable(env_chunk_step):
-            raw_obs_list, rewards, terms, truncs, infos = env_chunk_step(
-                action.reshape(1, 1, ACTION_DIM)
+            import torch
+
+            chunk_action = torch.as_tensor(
+                action.reshape(1, 1, ACTION_DIM), dtype=torch.float32
             )
+            raw_obs_list, rewards, terms, truncs, infos = env_chunk_step(chunk_action)
             obs = raw_obs_list[-1][0] if raw_obs_list[-1] is not None else None
             info = infos[-1][0] if infos[-1] else {}
             return (

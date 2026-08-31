@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -430,6 +429,9 @@ def _spawn_env_server(
         env_overrides={
             "ROBOT_PLATFORM": "BEHAVIOR",
             "OMNIGIBSON_HEADLESS": "1",
+            # Ray otherwise clears CUDA_VISIBLE_DEVICES for the zero-GPU actor
+            # that owns the single OmniGibson subprocess.
+            "RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO": "0",
             **(
                 {"CUDA_VISIBLE_DEVICES": cuda_device} if cuda_device is not None else {}
             ),
@@ -487,8 +489,11 @@ def _spawn_dino_server(
         return None, make_rpc_client(args.dino_endpoint)
     host, port = "127.0.0.1", pick_free_port()
     cuda_device = _component_cuda_device(args, "dino")
+    behavior_python = _behavior_python_path(args.behavior_python)
+    if not behavior_python.is_file():
+        raise RuntimeError(f"BEHAVIOR Python executable is missing: {behavior_python}")
     cmd = [
-        sys.executable,
+        str(behavior_python),
         str(get_repo_root() / "robots" / "behavior" / "dino_server.py"),
         "--host",
         host,

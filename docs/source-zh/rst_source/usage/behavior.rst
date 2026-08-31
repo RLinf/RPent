@@ -7,6 +7,73 @@ BEHAVIOR
 ``picking_up_trash``。默认 VLA 为 **Pi0.5**，由
 ``robots/behavior/vla_server.py`` 提供服务。
 
+安装
+----
+
+建议使用 Ubuntu 22.04、Isaac Sim 4.5 支持的 NVIDIA RTX GPU 和较新的 NVIDIA
+驱动。源码安装脚本会检查宿主机命令，并创建两个彼此独立的 Python 3.10 环境：
+
+- **RPent 环境**运行 CLI、planner 与 Dashboard；
+- **BEHAVIOR 环境**运行 RLinf、OmniGibson、Isaac Sim、Pi0.5、DINOv2 以及
+  所有 BEHAVIOR sidecar 进程。
+
+不要合并这两个环境。Isaac Sim 和 OpenPI 的兼容版本与通用 RPent 依赖不同。
+
+.. code-block:: bash
+
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
+
+   export RPENT_REPRO_ROOT="$PWD/.behavior-runtime"
+   bash scripts/install_behavior_runtime.sh
+
+安装脚本会固定 ``uv`` 与已审查的 RLinf revision，调用官方 RLinf BEHAVIOR
+installer，并在所有安装动作结束后执行一次最终兼容性回钉。FastAPI/Pydantic 会在
+Isaac 安装后恢复到已验证版本；OpenPI transformer replacement 只会在最终
+Transformers 版本安装完成后复制，之后不再执行任何 package install。
+
+完整 package freeze、源码 revision、安装日志和 ``uv pip check`` 报告均写入
+``$RPENT_REPRO_ROOT``。BEHAVIOR 环境会 editable 安装 RPent，确保直接启动的
+sidecar script 能导入其源码，因此 ``pip check`` 也会看到只应在独立 RPent 环境
+运行的 planner package metadata，并报告它们要求更高版本的 Pydantic/Starlette。
+报告还可能保留已审查的 upstream 冲突，包括 ``rlinf-openpi``、``lerobot`` 的
+torch/torchvision/torchcodec、``tensorflow-addons`` 的 typeguard 和
+``tensorflow-metadata`` 的 protobuf 约束。最终回钉后不要为消除这些报告再次升级
+package；安装脚本会单独强制验证精确运行版本、关键 import、CUDA tensor smoke 和
+BEHAVIOR self-check。
+
+BEHAVIOR 资产
+-------------
+
+策略 checkpoint 不包含 OmniGibson 完整数据。请在 BEHAVIOR 环境中准备已接受许可
+的 BEHAVIOR-1K 数据：
+
+.. code-block:: bash
+
+   export OMNIGIBSON_DATA_PATH=/path/to/BEHAVIOR-1K-datasets
+   export BEHAVIOR_PYTHON="$RPENT_REPRO_ROOT/venvs/behavior/bin/python"
+   mkdir -p "$OMNIGIBSON_DATA_PATH"
+
+   "$BEHAVIOR_PYTHON" -c \
+     "from omnigibson.utils.asset_utils import download_omnigibson_robot_assets; download_omnigibson_robot_assets()"
+   "$BEHAVIOR_PYTHON" -c \
+     "from omnigibson.utils.asset_utils import download_behavior_1k_assets; download_behavior_1k_assets(accept_license=True)"
+   "$BEHAVIOR_PYTHON" -c \
+     "from omnigibson.utils.asset_utils import download_2025_challenge_task_instances; download_2025_challenge_task_instances()"
+
+BEHAVIOR task assets 超过 30 GB。解压后的数据根目录必须同时包含以下四项；缺少
+``scenes`` 会导致 env 启动失败，缺少 ``omnigibson.key`` 则无法加载加密 USD
+资产。
+
+.. code-block:: text
+
+   BEHAVIOR-1K-datasets/
+     2025-challenge-task-instances/
+     behavior-1k-assets/
+       scenes/
+     omnigibson-robot-assets/
+     omnigibson.key
+
 VLA 配置
 --------
 
@@ -38,6 +105,13 @@ embedding，并检索 episode memory。运行时需要 DINOv2 source archive 和
 
    export DINOV2_SOURCE_ARCHIVE=/path/to/dinov2-source.tar.gz
    export DINOV2_WEIGHTS=/path/to/dinov2_vits14_pretrain.pth
+
+   curl -L \
+     https://github.com/facebookresearch/dinov2/archive/7764ea0f912e53c92e82eb78a2a1631e92725fc8.tar.gz \
+     -o "$DINOV2_SOURCE_ARCHIVE"
+   curl -L \
+     https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth \
+     -o "$DINOV2_WEIGHTS"
 
 DINOv2 在 BEHAVIOR runtime 中承担共享视觉 memory component 的角色，但它不是
 分割模型，也不会生成 SAM3 mask；当前目标定位依赖 fresh observation 和公开几何
@@ -90,33 +164,37 @@ BEHAVIOR 核心任务一览
 ``robots/behavior/task_specs.py``。原生 activity instance ID 属于部署细节，不应
 代替 CLI 中的 public seed。
 
-最小命令
---------
+验证资产并运行
+------------
 
-先安装 RPent 侧可选依赖，并从包含 ``robots/behavior`` 的 source checkout
-运行：
+启动 Isaac Sim 前，先验证完整数据树、policy checkpoint contract 和两份固定
+DINOv2 资产的 SHA-256：
 
 .. code-block:: bash
-
-   pip install -e ".[behavior]"
 
    export PI05_CHECKPOINT_PATH=/path/to/your/pi05-behavior-model
    export DINOV2_SOURCE_ARCHIVE=/path/to/dinov2-source.tar.gz
    export DINOV2_WEIGHTS=/path/to/dinov2_vits14_pretrain.pth
 
-   rpent --robot behavior \
+   scripts/verify_behavior_assets.sh
+
+   "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" --robot behavior \
      --task-name turning_on_radio --public-seed 1 \
      --planner codex --model gpt-5.5 \
+     --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
+     --behavior-python "$RPENT_REPRO_ROOT/venvs/behavior/bin/python" \
+     --activity-instance-dir \
+       "$OMNIGIBSON_DATA_PATH/2025-challenge-task-instances" \
+     --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
      --behavior-env-cuda-device 0 \
      --behavior-model-cuda-device 1 \
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS"
 
-OmniGibson、Isaac Sim、BEHAVIOR dataset、robot assets 以及 pinned RLinf
-BEHAVIOR environment 需按各自 upstream 文档单独安装，不由 ``rpent`` wheel
-提供。若这些资源不在默认的 sibling 路径，可用 ``RPENT_RLINF_ROOT`` 和
-``RPENT_BEHAVIOR_PYTHON`` 指向对应 checkout 与 Python interpreter。切换
-planner 的方法见 :doc:`configure_planner`。
+首次 env 加载通常需要 1.5 至 5 分钟。xFormers unavailable、Isaac
+deprecation、audio 与 headless GLFW warning 可能不是致命错误；应结合 Dashboard
+章节列出的 component log 判断真实启动失败。切换 planner 的方法见
+:doc:`configure_planner`。
 
 探索模式与本地 Memory 评测
 --------------------------
@@ -197,6 +275,11 @@ BEHAVIOR 工具分为三组；每次运行以 active toolkit schema 为准。
 - ``close(...)``、``open(...)`` —— 控制夹爪。
 - ``press(...)`` —— 执行带保护的接触动作。
 
+公开 schema 描述的是已审查的 planner 路线，但若当前 official RLinf backend 没有
+reviewed manual-motion adapter，部署会返回 ``manual_motion_unavailable``。此时不能
+把这些 manual motion tool 当作可执行 fallback；该部署已验证的运动入口仍是
+``pi0_nav_pick``。
+
 **安全、状态与终止工具：**
 
 - ``get_prepared_motion_status(...)`` —— 读取 prepared motion 的执行状态。
@@ -214,12 +297,8 @@ DINOv2 服务会在 TaskRun 之间共享，每个 TaskRun 则使用 fresh enviro
 
 .. code-block:: bash
 
-   rpent --robot behavior --dashboard \
-     --planner codex --model gpt-5.5 \
-     --behavior-env-cuda-device 0 \
-     --behavior-model-cuda-device 1 \
-     --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
-     --dino-weights "$DINOV2_WEIGHTS"
+   TASK_NAME=turning_on_radio PUBLIC_SEED=1 \
+     scripts/run_behavior_dashboard.sh
 
 打开终端输出的 URL，确认 Session 配置，然后在页面中启动 TaskRun：
 
@@ -230,6 +309,15 @@ DINOv2 服务会在 TaskRun 之间共享，每个 TaskRun 则使用 fresh enviro
 Dashboard 会显示 planner reasoning、head/wrist-camera frame 和 action timeline。
 新的 ``/rpent-task`` 会启动 fresh environment。Dashboard 不会改变官方成功
 定义。添加 ``--dashboard-language zh-cn`` 可切换中文界面。
+
+launcher 会打印本次 output directory。component 启动问题应从以下日志定位：
+
+.. code-block:: text
+
+   <output-dir>/run.log
+   <output-dir>/behavior_vla_server.log
+   <output-dir>/behavior_dino_server.log
+   <output-dir>/tasks/<task-run>/behavior_env_server.log
 
 接入自定义 VLA
 ----------------
