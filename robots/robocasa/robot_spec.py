@@ -32,7 +32,7 @@ from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_memory_dir, get_repo_root
+from rpent.utils.config import get_repo_root, get_resources_dir
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import make_rpc_client
@@ -74,12 +74,11 @@ ROBOCASA_DASHBOARD_SPEC = {
 }
 
 
-def _check_task_memory(memory_dir: Path, task_name: str) -> bool:
+def _check_task_memory(results_dir: Path, task_name: str) -> bool:
     """Validate the current task's seed-0 pair and optional exploration note."""
-    task_dir = memory_dir / "task"
-    audit = task_dir / f"{task_name}_s0.json"
-    recipe = task_dir / f"recipe_{task_name}_s0.jsonl"
-    note = task_dir / f"{task_name}.md"
+    audit = results_dir / f"{task_name}_s0.json"
+    recipe = results_dir / f"recipe_{task_name}_s0.jsonl"
+    note = results_dir / f"{task_name}.md"
 
     audit_exists = audit.is_file()
     recipe_exists = recipe.is_file()
@@ -87,20 +86,20 @@ def _check_task_memory(memory_dir: Path, task_name: str) -> bool:
     if audit_exists != recipe_exists:
         raise ValueError(
             f"RoboCasa task memory for {task_name!r} is incomplete: expected "
-            f"both {audit.name!r} and {recipe.name!r} under {task_dir}"
+            f"both {audit.name!r} and {recipe.name!r} under {results_dir}"
         )
     if note_exists and not audit_exists:
         raise ValueError(
             f"RoboCasa task memory for {task_name!r} is incomplete: "
             f"{note.name!r} requires the seed-0 audit and recipe pair under "
-            f"{task_dir}"
+            f"{results_dir}"
         )
     if not audit_exists:
         logger.warning(
             "no task-matched seed-0 memory found for %s under %s; continuing "
             "without task memory",
             task_name,
-            task_dir,
+            results_dir,
         )
         return False
     return True
@@ -134,11 +133,13 @@ def get_toolkit(
     """Return the RoboCasa toolkit for the current session."""
     from robots.robocasa.toolkit import RoboCasaToolkit
 
-    memory_dir = Path(
-        config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa")
+    results_dir = Path(
+        config.prompt_vars.get("memory_dir")
+        or (get_resources_dir("robocasa") / "results")
     )
-    _check_task_memory(memory_dir, str(config.task_desc["task_name"]))
-    memory = MemoryManager(root=memory_dir)
+    _check_task_memory(results_dir, str(config.task_desc["task_name"]))
+    # Reference results are a sibling of persistent memory, matching LIBERO.
+    memory = MemoryManager(root=results_dir.parent / "memory")
     return RoboCasaToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
@@ -194,10 +195,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--task-name is required")
 
     memory_arg = getattr(args, "memory_dir", None)
-    memory_dir = (
+    results_dir = (
         Path(memory_arg).expanduser().resolve()
         if memory_arg
-        else get_memory_dir("robocasa")
+        else get_resources_dir("robocasa") / "results"
     )
     memory_profile = getattr(args, "memory_profile", None) or "hf"
 
@@ -208,7 +209,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "seed": args.seed,
         "recipe_tag": recipe_tag,
         "memory_profile": memory_profile,
-        "memory_dir": str(memory_dir),
+        "memory_dir": str(results_dir),
     }
 
     output_dir = args.output_dir

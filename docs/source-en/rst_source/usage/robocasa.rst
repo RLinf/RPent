@@ -107,9 +107,9 @@ files:
 
 .. code-block:: text
 
-   resources/robocasa/memory/task/<Task>_s0.json
-   resources/robocasa/memory/task/recipe_<Task>_s0.jsonl
-   resources/robocasa/memory/task/<Task>.md  # optional
+   resources/robocasa/results/<Task>_s0.json
+   resources/robocasa/results/recipe_<Task>_s0.jsonl
+   resources/robocasa/results/<Task>.md  # optional
 
 The JSON/JSONL pair contains reviewed seed-0 evidence. The optional Markdown
 file contains task-specific exploration memory and may summarize multiple
@@ -121,14 +121,14 @@ but does not inject their contents into the prompt.
 RoboCasa never asks the planner to use global memory or another task's memory.
 If no pair exists, RPent warns and continues from live observations. A partial
 JSON/JSONL pair, or a Markdown note without its pair, is rejected as incomplete.
-To use reviewed local files instead, select the local profile and pass their
-memory root:
+To use reviewed local files instead, select the local profile and pass the
+directory containing this results corpus:
 
 .. code-block:: bash
 
    rpent --robot robocasa --task-name OpenDrawer --seed 1 \
          --vla-model-path /path/to/rldx --planner claude_code \
-         --memory-profile local --memory-dir /path/to/robocasa-memory
+         --memory-profile local --memory-dir /path/to/robocasa-results
 
 Available task list
 -------------------
@@ -196,8 +196,9 @@ Troubleshooting
   revision's ``.[robocasa]`` extra so the pinned Robosuite commit is used. Do
   not patch installed XML files manually.
 - A task-memory warning means the current task's seed-0 pair is absent. Check
-  the Hugging Face subtree or the selected local directory; the optional task
-  note never replaces that pair, and RPent never falls back to another task.
+  the Hugging Face ``robocasa/results`` corpus or the selected local directory;
+  the optional task note never replaces that pair, and RPent never falls back
+  to another task.
 - Environment and VLA startup failures are recorded in
   ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
 

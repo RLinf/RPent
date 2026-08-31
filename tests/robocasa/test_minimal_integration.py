@@ -33,6 +33,7 @@ from robots.robocasa.robot_spec import (
     _parse_config,
     get_robot_spec,
 )
+from rpent.memory import MemoryManager
 from rpent.prompt.utils import format_prompt
 from rpent.utils.resources import ensure_resources
 
@@ -123,7 +124,7 @@ def test_parse_config_uses_default_hf_memory(monkeypatch, tmp_path):
 
     assert config.prompt_vars["memory_profile"] == "hf"
     assert config.prompt_vars["memory_dir"] == str(
-        tmp_path / "resources" / "robocasa" / "memory"
+        tmp_path / "resources" / "robocasa" / "results"
     )
 
 
@@ -153,6 +154,20 @@ def test_default_resources_sync_uses_robocasa_subtree(monkeypatch, tmp_path):
     }
 
 
+def test_results_corpus_is_readable_through_memory_tool(monkeypatch, tmp_path):
+    monkeypatch.setenv("RPENT_REPO_ROOT", str(tmp_path))
+    robot_resources = tmp_path / "resources" / "robocasa"
+    results_dir = robot_resources / "results"
+    results_dir.mkdir(parents=True)
+    audit = results_dir / "OpenDrawer_s0.json"
+    audit.write_text('{"success": true}\n')
+
+    manager = MemoryManager(root=robot_resources / "memory")
+    read_text_file = manager.get_common_tool_bindings()["read_text_file"][1]
+
+    assert read_text_file(path=str(audit))["content"] == '{"success": true}\n'
+
+
 def test_parse_config_resolves_local_memory(tmp_path):
     memory_dir = tmp_path / "local-memory"
 
@@ -165,35 +180,33 @@ def test_parse_config_resolves_local_memory(tmp_path):
 
 
 def test_task_memory_requires_a_complete_seed_zero_pair(tmp_path):
-    memory_dir = tmp_path / "memory"
-    task_dir = memory_dir / "task"
+    results_dir = tmp_path / "results"
 
-    assert _check_task_memory(memory_dir, "OpenDrawer") is False
+    assert _check_task_memory(results_dir, "OpenDrawer") is False
 
-    task_dir.mkdir(parents=True)
-    (task_dir / "OpenDrawer_s0.json").write_text("{}")
+    results_dir.mkdir(parents=True)
+    (results_dir / "OpenDrawer_s0.json").write_text("{}")
     with pytest.raises(ValueError, match="incomplete"):
-        _check_task_memory(memory_dir, "OpenDrawer")
+        _check_task_memory(results_dir, "OpenDrawer")
 
-    (task_dir / "recipe_OpenDrawer_s0.jsonl").write_text("{}\n")
-    assert _check_task_memory(memory_dir, "OpenDrawer") is True
+    (results_dir / "recipe_OpenDrawer_s0.jsonl").write_text("{}\n")
+    assert _check_task_memory(results_dir, "OpenDrawer") is True
 
-    (task_dir / "OpenDrawer.md").write_text("# OpenDrawer task memory\n")
-    assert _check_task_memory(memory_dir, "OpenDrawer") is True
+    (results_dir / "OpenDrawer.md").write_text("# OpenDrawer task memory\n")
+    assert _check_task_memory(results_dir, "OpenDrawer") is True
 
 
 def test_task_memory_rejects_an_orphan_markdown_note(tmp_path):
-    memory_dir = tmp_path / "memory"
-    task_dir = memory_dir / "task"
-    task_dir.mkdir(parents=True)
-    (task_dir / "OpenDrawer.md").write_text("# OpenDrawer task memory\n")
+    results_dir = tmp_path / "results"
+    results_dir.mkdir(parents=True)
+    (results_dir / "OpenDrawer.md").write_text("# OpenDrawer task memory\n")
 
     with pytest.raises(ValueError, match="requires the seed-0 audit and recipe"):
-        _check_task_memory(memory_dir, "OpenDrawer")
+        _check_task_memory(results_dir, "OpenDrawer")
 
 
 def test_prompt_names_only_current_task_memory(tmp_path):
-    memory_dir = tmp_path / "memory"
+    memory_dir = tmp_path / "results"
     rendered = format_prompt(
         system_prompt(),
         variables={
@@ -202,9 +215,9 @@ def test_prompt_names_only_current_task_memory(tmp_path):
         },
     )
 
-    assert str(memory_dir / "task" / "OpenDrawer_s0.json") in rendered
-    assert str(memory_dir / "task" / "recipe_OpenDrawer_s0.jsonl") in rendered
-    assert str(memory_dir / "task" / "OpenDrawer.md") in rendered
+    assert str(memory_dir / "OpenDrawer_s0.json") in rendered
+    assert str(memory_dir / "recipe_OpenDrawer_s0.jsonl") in rendered
+    assert str(memory_dir / "OpenDrawer.md") in rendered
     assert "read every existing file" in rendered
     assert "ArrangeTea_s0" not in rendered
     assert "GLOBAL_MEMORY" not in rendered
