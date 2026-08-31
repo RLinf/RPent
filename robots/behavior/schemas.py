@@ -34,6 +34,8 @@ DASHBOARD_CONTROL_ACTIONS = (
     "backward",
     "turn_left",
     "turn_right",
+    "left",
+    "right",
     "up",
     "down",
     "rotate_left",
@@ -707,13 +709,33 @@ def validate_dashboard_manual_command(
         raise ValueError("unsupported dashboard manual action")
     if not isinstance(camera, str) or camera not in DASHBOARD_CONTROL_CAMERAS:
         raise ValueError("camera must be head, left_wrist, or right_wrist")
-    if target == "chassis" and action in {
-        "rotate_left",
-        "rotate_right",
-        "open",
-        "close",
-    }:
-        raise ValueError(f"{action} is available for arm control only")
+    allowed = (
+        {
+            "forward",
+            "backward",
+            "turn_left",
+            "turn_right",
+            "up",
+            "down",
+            "observe",
+        }
+        if target == "chassis"
+        else {
+            "forward",
+            "backward",
+            "left",
+            "right",
+            "up",
+            "down",
+            "rotate_left",
+            "rotate_right",
+            "open",
+            "close",
+            "observe",
+        }
+    )
+    if action not in allowed:
+        raise ValueError(f"{action} is not available for {target}")
     return {"target": target, "action": action, "camera": camera}
 
 
@@ -743,6 +765,7 @@ def validate_dashboard_prepare_request(
     action: Any,
     camera: Any,
     predecessor_plan_id: Any = None,
+    permit_command_id: Any = None,
     background: Any = False,
     planning_only_probe: Any = False,
 ) -> dict[str, Any]:
@@ -762,9 +785,15 @@ def validate_dashboard_prepare_request(
         if predecessor_plan_id is None
         else _identifier(predecessor_plan_id, name="predecessor_plan_id")
     )
+    permit = (
+        None
+        if permit_command_id is None
+        else validate_dashboard_command_id(permit_command_id)
+    )
     return {
         **command,
         "predecessor_plan_id": predecessor,
+        "permit_command_id": permit,
         "background": background,
         **({"planning_only_probe": True} if planning_only_probe else {}),
     }

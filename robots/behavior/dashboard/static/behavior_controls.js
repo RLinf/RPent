@@ -4,15 +4,15 @@ function $(selector) {
 
 const TARGET_ACTIONS = {
   chassis: ["forward", "backward", "turn_left", "turn_right", "up", "down", "observe"],
-  left_arm: ["up", "down", "rotate_left", "rotate_right", "open", "close", "observe"],
-  right_arm: ["up", "down", "rotate_left", "rotate_right", "open", "close", "observe"],
+  left_arm: ["forward", "backward", "left", "right", "up", "down", "rotate_left", "rotate_right", "open", "close", "observe"],
+  right_arm: ["forward", "backward", "left", "right", "up", "down", "rotate_left", "rotate_right", "open", "close", "observe"],
 };
 
 const KEY_ACTIONS = {
-  ArrowUp: ["chassis", "forward"],
-  ArrowDown: ["chassis", "backward"],
-  ArrowLeft: ["chassis", "turn_left"],
-  ArrowRight: ["chassis", "turn_right"],
+  ArrowUp: "forward",
+  ArrowDown: "backward",
+  ArrowLeft: "turn_left",
+  ArrowRight: "turn_right",
 };
 
 const KEY_CAMERAS = {
@@ -95,31 +95,47 @@ function setButtons(selector, value, attr) {
 function setTarget(target) {
   if (!Object.prototype.hasOwnProperty.call(TARGET_ACTIONS, target)) return;
   controlState.target = target;
+  controlState.action = canonicalAction(target, controlState.action);
   if (!actionSupported(target, controlState.action)) {
     controlState.action = TARGET_ACTIONS[target].find(action =>
       actionSupported(target, action)) || "observe";
   }
   setButtons("[data-behavior-target]", controlState.target, "data-behavior-target");
   setButtons("[data-target]", controlState.target, "data-target");
+  updateDirectionalLabels();
   renderActionAvailability();
 }
 
 function setAction(action) {
-  if (!actionSupported(controlState.target, action)) return;
-  controlState.action = action;
-  setButtons("[data-behavior-action]", controlState.action, "data-behavior-action");
-  setButtons("[data-action]", controlState.action, "data-action");
+  const resolved = canonicalAction(controlState.target, action);
+  if (!actionSupported(controlState.target, resolved)) return;
+  controlState.action = resolved;
+  for (const button of document.querySelectorAll("[data-behavior-action], [data-action]")) {
+    const raw = button.getAttribute("data-behavior-action")
+      || button.getAttribute("data-action");
+    button.classList.toggle(
+      "active",
+      canonicalAction(controlState.target, raw) === controlState.action,
+    );
+  }
+}
+
+function canonicalAction(target, action) {
+  if (target !== "chassis" && action === "turn_left") return "left";
+  if (target !== "chassis" && action === "turn_right") return "right";
+  return action;
 }
 
 function actionSupported(target, action) {
-  if (!TARGET_ACTIONS[target] || !TARGET_ACTIONS[target].includes(action)) return false;
-  if (action === "observe") return controlState.observeAvailable;
+  const resolved = canonicalAction(target, action);
+  if (!TARGET_ACTIONS[target] || !TARGET_ACTIONS[target].includes(resolved)) return false;
+  if (resolved === "observe") return controlState.observeAvailable;
   const capabilities = controlState.capabilities || {};
   const actionCapabilities = capabilities.action_capabilities;
   if (!actionCapabilities || !Array.isArray(actionCapabilities[target])) {
     return controlState.motionAvailable;
   }
-  return controlState.motionAvailable && actionCapabilities[target].includes(action);
+  return controlState.motionAvailable && actionCapabilities[target].includes(resolved);
 }
 
 function setCamera(camera) {
@@ -131,17 +147,24 @@ function setCamera(camera) {
 }
 
 function renderActionAvailability() {
-  const allowed = new Set(TARGET_ACTIONS[controlState.target]);
+  const controlsBlocked = controlState.busy || !!controlState.activeInteraction;
   for (const button of document.querySelectorAll("[data-behavior-action], [data-action]")) {
-    const action = button.getAttribute("data-behavior-action")
+    const rawAction = button.getAttribute("data-behavior-action")
       || button.getAttribute("data-action");
+    const action = canonicalAction(controlState.target, rawAction);
     button.classList.toggle("active", action === controlState.action);
-    button.classList.toggle("target-mismatch", !allowed.has(action));
+    button.classList.toggle(
+      "target-mismatch",
+      !TARGET_ACTIONS[controlState.target].includes(action),
+    );
+    button.disabled = !actionSupported(controlState.target, action) || controlsBlocked;
+    button.setAttribute("aria-disabled", String(button.disabled));
   }
   updateControlTooltips();
 }
 
 function controlTooltip(action) {
+  action = canonicalAction(controlState.target, action);
   if (action === "observe") return "Refresh the currently selected camera view.";
   if (action === "open") return "Open the selected gripper and keep it open.";
   if (action === "close") return "Close the selected gripper and maintain gripping pressure.";
@@ -158,12 +181,28 @@ function controlTooltip(action) {
   }
   const hand = controlState.target === "left_arm" ? "left" : "right";
   const tips = {
-    up: `Move the ${hand} hand up by 3 cm. Hold to continue.`,
-    down: `Move the ${hand} hand down by 3 cm. Hold to continue.`,
+    forward: `Move the ${hand} hand 3 cm along world +X.`,
+    backward: `Move the ${hand} hand 3 cm along world -X.`,
+    left: `Move the ${hand} hand 3 cm along world +Y.`,
+    right: `Move the ${hand} hand 3 cm along world -Y.`,
+    up: `Move the ${hand} hand 3 cm along world +Z.`,
+    down: `Move the ${hand} hand 3 cm along world -Z.`,
     rotate_left: "Rotate the selected wrist 5° counterclockwise. Hold to continue.",
     rotate_right: "Rotate the selected wrist 5° clockwise. Hold to continue.",
   };
   return tips[action] || "Available for chassis control only.";
+}
+
+function updateDirectionalLabels() {
+  const armSelected = controlState.target !== "chassis";
+  const leftLabel = $(".label-left");
+  const rightLabel = $(".label-right");
+  if (leftLabel) leftLabel.innerHTML = armSelected ? "Left" : "Turn<br>left";
+  if (rightLabel) rightLabel.innerHTML = armSelected ? "Right" : "Turn<br>right";
+  const leftButton = $(".dpad-left");
+  const rightButton = $(".dpad-right");
+  if (leftButton) leftButton.setAttribute("aria-label", armSelected ? "Left" : "Turn left");
+  if (rightButton) rightButton.setAttribute("aria-label", armSelected ? "Right" : "Turn right");
 }
 
 function unavailableTooltip(kind) {
@@ -198,8 +237,9 @@ function updateControlTooltips() {
     setButtonTooltip(button, `Control the ${button.textContent.trim().toLowerCase()}.`);
   }
   for (const button of document.querySelectorAll("[data-behavior-action], [data-action]")) {
-    const action = button.getAttribute("data-behavior-action")
+    const rawAction = button.getAttribute("data-behavior-action")
       || button.getAttribute("data-action");
+    const action = canonicalAction(controlState.target, rawAction);
     const allowed = TARGET_ACTIONS[controlState.target].includes(action);
     let tooltip = controlTooltip(action);
     if (!allowed) {
@@ -276,8 +316,9 @@ function renderControl(snapshot = {}) {
   );
 
   for (const button of document.querySelectorAll("[data-behavior-action], [data-action]")) {
-    const action = button.getAttribute("data-behavior-action")
+    const rawAction = button.getAttribute("data-behavior-action")
       || button.getAttribute("data-action");
+    const action = canonicalAction(controlState.target, rawAction);
     const allowed = TARGET_ACTIONS[controlState.target].includes(action);
     const actionAvailable = allowed && actionSupported(controlState.target, action);
     button.disabled = !actionAvailable || controlsBlocked;
@@ -516,6 +557,7 @@ function pointerToken(event) {
 
 function beginMomentaryAction(token, target, action) {
   if (controlState.busy || controlState.activeInteraction) return false;
+  action = canonicalAction(target, action);
   if (action === "observe") {
     setTarget(target);
     setAction(action);
@@ -696,7 +738,7 @@ function handleKeyDown(event) {
   const mapped = KEY_ACTIONS[event.key];
   if (!mapped) return;
   event.preventDefault();
-  beginMomentaryAction(keyToken(event), mapped[0], mapped[1]);
+  beginMomentaryAction(keyToken(event), controlState.target, mapped);
 }
 
 function handleKeyUp(event) {

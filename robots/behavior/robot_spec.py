@@ -61,6 +61,8 @@ BEHAVIOR_DASHBOARD_SPEC = {
             "backward",
             "turn_left",
             "turn_right",
+            "left",
+            "right",
             "up",
             "down",
             "rotate_left",

@@ -45,6 +45,7 @@ from fastapi import Body
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from robots.behavior.robot_spec import BEHAVIOR_DASHBOARD_SPEC
 from rpent.dashboard.events import (
     DashboardEvent,
     RunStartedEvent,
@@ -61,6 +62,8 @@ BEHAVIOR_ACTIONS = (
     "backward",
     "turn_left",
     "turn_right",
+    "left",
+    "right",
     "up",
     "down",
     "rotate_left",
@@ -79,6 +82,10 @@ _CHASSIS_ACTIONS = {
     "observe",
 }
 _ARM_ACTIONS = {
+    "forward",
+    "backward",
+    "left",
+    "right",
     "up",
     "down",
     "rotate_left",
@@ -95,42 +102,6 @@ _FRAME_PATH_KEYS = (
     "overlay_path",
 )
 _RUNTIME_STATES = {"pending", "starting", "ready", "failed"}
-
-BEHAVIOR_DASHBOARD_SPEC: dict[str, Any] = {
-    "task": {
-        "command": "/rpent-task",
-        "usage": "/rpent-task <task_name> <public_seed>",
-        "fields": (
-            {
-                "name": "task_name",
-                "suggestions": ("turning_on_radio", "picking_up_trash"),
-            },
-            {"name": "public_seed", "kind": "integer", "minimum": 0},
-        ),
-        "display": "{task_name} / s{public_seed}",
-        "output_slug": "{task_name}_s{public_seed}",
-    },
-    "runtime_components": (
-        {"name": "env", "label": "ENV", "scope": "unique"},
-        {"name": "vla", "label": "VLA", "scope": "shared"},
-        {"name": "dino", "label": "DINO", "scope": "shared"},
-        {"name": "memory", "label": "MEM", "scope": "unique"},
-    ),
-    "frame_channels": (
-        {"name": "head", "label": "head"},
-        {"name": "left_wrist", "label": "left wrist"},
-        {"name": "right_wrist", "label": "right wrist"},
-    ),
-    "behavior_control": {
-        "targets": BEHAVIOR_TARGETS,
-        "actions": BEHAVIOR_ACTIONS,
-        "cameras": BEHAVIOR_CAMERAS,
-        "pipeline": ("prepare", "execute", "discard", "capture", "stop"),
-        "official_success_source": (
-            'backend raw info["done"]["success"] or info_done.success only'
-        ),
-    },
-}
 
 
 class BehaviorControlBackend(Protocol):
@@ -1923,7 +1894,7 @@ def _initial_control_snapshot() -> dict[str, Any]:
 def _inject_behavior_controls(html: str) -> str:
     panel = """\
         <button class="controls-toggle collapsed-toggle" type="button" aria-expanded="false"
-                aria-controls="interactiveControls" title="Show or hide manual robot controls.">
+                aria-controls="interactiveControls">
           <span>Interactive Controls</span><span class="chevron" aria-hidden="true">⌃</span>
         </button>
         <div class="frame-tabs behavior-frame-tabs" aria-label="Camera view">
@@ -1937,7 +1908,7 @@ def _inject_behavior_controls(html: str) -> str:
         <section class="control-rail control-left" id="interactiveControls"
                  aria-label="Interactive robot controls">
           <button class="controls-toggle" type="button" aria-expanded="true"
-                  aria-controls="interactiveControls" title="Show or hide manual robot controls.">
+                  aria-controls="interactiveControls">
             <span>Interactive Controls</span><span class="chevron" aria-hidden="true">⌃</span>
           </button>
           <div class="target-row">
