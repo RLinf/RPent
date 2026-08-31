@@ -368,7 +368,6 @@ def move_to(
             break
         obs = _refresh_obs(primitives)
         action: dict
-        action_type = "joint"
         # Preferred: position-only IK over several orientation candidates so
         # lateral targets do not diverge; fall back to the fixed-orientation
         # ee path if the solver reports no reachable solution.
@@ -385,7 +384,6 @@ def move_to(
                     )
         else:
             last_error = ik.get("error")
-            action_type = "ee"
             ee_pose = obs.get("state", {}).get(_arm_ee_pose_key(arm))
             if ee_pose is None:
                 return {"error": f"{arm} ee_pose missing mid-motion"}
@@ -411,16 +409,16 @@ def move_to(
                 action[_arm_ee_joint_key(a)] = [0.0 if gripper > 0 else 1.0]
             else:
                 action[_arm_ee_joint_key(a)] = [float(np.asarray(joint).reshape(-1)[0])]
-        result = primitives.env.apply_action(action, action_type)
+        obs_step, _reward, _done, info = primitives.env.step(action)
         steps_used = step + 1
-        final = result["obs"].get("state", {}).get(_arm_ee_pose_key(arm))
+        final = obs_step.get("state", {}).get(_arm_ee_pose_key(arm))
         if final is None:
             break
         final_xyz = [float(v) for v in np.asarray(final)[:3]]
         dist_to_target = float(
             np.linalg.norm(np.asarray(target) - np.asarray(final_xyz))
         )
-        if result["status"].get("step", 0) >= result["status"].get("step_limit", 1):
+        if info["status"].get("step", 0) >= info["status"].get("step_limit", 1):
             break
     return {
         "arm": arm,
@@ -451,11 +449,11 @@ def set_gripper(primitives, state, arm, gripper) -> dict:
             if a != arm:
                 val = float(np.asarray(joint).reshape(-1)[0])
             action[_arm_ee_joint_key(a)] = [val]
-    result = primitives.env.apply_action(action, "ee")
+    _obs_step, _reward, _done, info = primitives.env.step(action)
     return {
         "arm": arm,
         "gripper": "closed" if gripper > 0 else "open",
-        "status": result["status"],
+        "status": info["status"],
     }
 
 
@@ -505,8 +503,8 @@ def pi0_pick(
         actions = vla.predict(obs)
         chunks_used = c + 1
         for action in actions:
-            r = primitives.env.apply_action(action, primitives.action_type)
-            st = r["obs"]["state"]
+            obs_step, _reward, _done, info = primitives.env.step(action)
+            st = obs_step["state"]
             for a in arms:
                 t = track[a]
                 z = float(np.asarray(st[f"{a}_ee_pose"], dtype=np.float64)[2])
@@ -524,7 +522,7 @@ def pi0_pick(
                     if ascended and closed:
                         success = True
                         break
-            if r["status"]["step"] >= r["status"]["step_limit"]:
+            if info["status"]["step"] >= info["status"]["step_limit"]:
                 terminated = True
                 break
         if success or terminated:
