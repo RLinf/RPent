@@ -170,3 +170,36 @@ task language 与最新 observation 始终优先，所有几何信息都必须�
 ``evidence_status=supported`` 表示 recipe 有成功 clean 轨迹支持；``experimental``
 仍然只是弱先验。使用时先阅读 ``memory/MEMORY.md``，再只选与当前任务和失败模式相关的
 少量笔记。
+
+结果复现
+--------
+
+以下结果复现了 Harness VLA 在 RoboTwin C2R 上的评测。实验使用 ``gpt-5.5`` 模型和
+``xhigh`` 推理强度：
+
+- ``demo_randomized``：58.0%（145/250）
+
+评测覆盖 RoboTwin 的 50 个任务，每个任务运行 5 个 episode，共计 250 个 episode。
+每个任务使用的 5 个 seed 来自 ``robots/robotwin/eval/demo_randomized.json`` 中的
+官方 verified expert seeds。由于不同任务的可解 seed 可能不同，请根据该文件为每个
+任务选择对应 seed，不要对所有任务统一使用一组固定 seed。
+
+单个 episode 的复现命令如下：
+
+.. code-block:: bash
+
+   rpent --robot robotwin \
+     --task-name "task" \
+     --task-config demo_randomized \
+     --seed "seed" \
+     --planner codex \
+     --model gpt-5.5 \
+     --reasoning-effort xhigh \
+     --max-turns 100 \
+     --planner-timeout-s 3600 \
+     --max-episode-steps 10000
+
+其中，``task`` 应替换为 ``demo_randomized.json`` 中的任务名，``seed`` 应替换为
+该任务对应的一个 verified expert seed。运行前还需按照本页前文配置 RoboTwin assets、
+LingBot-VLA checkpoint。任务是否成功以 episode 结束时最新的
+``TASK_ENV.eval_success`` 为准，不能仅根据规划器是否调用 ``finish`` 判断。
