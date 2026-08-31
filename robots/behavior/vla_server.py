@@ -27,7 +27,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from pydantic import BaseModel
@@ -59,7 +59,7 @@ class PredictRequest(BaseModel):
     instruction: str
     images: dict[str, ImageBlock]
     state: list[list[float]]
-    mode: str = "eval"
+    mode: Literal["eval"] = "eval"
     binding_id: str | None = None
 
 
@@ -334,7 +334,7 @@ def build_app() -> Any:
                 with torch.no_grad():
                     actions, _ = _MODEL.predict_action_batch(
                         env_obs,
-                        mode="eval",
+                        mode=request.mode,
                         compute_values=False,
                     )
             if torch.is_tensor(actions):

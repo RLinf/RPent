@@ -258,7 +258,7 @@ PICKING_UP_TRASH_TASK_SPEC: Final = BehaviorTaskSpec(
     task_index=1,
     task_name="picking_up_trash",
     task_language=(
-        "Put the three can of soda from the living room inside the tash can "
+        "Put the three soda cans from the living room inside the trash can "
         "in the kitchen."
     ),
     prompt_profile_id="picking_up_trash",

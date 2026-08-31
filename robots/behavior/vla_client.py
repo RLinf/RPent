@@ -46,6 +46,15 @@ def _png_b64(img: np.ndarray) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def _instruction_text(value: Any) -> str:
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                return item.strip()
+        return ""
+    return str(value or "")
+
+
 class BehaviorVLAClient:
     """Client for a BEHAVIOR-compatible /predict endpoint."""
 
@@ -168,6 +177,8 @@ class BehaviorVLAClient:
         mode: str = "eval",
         **_kwargs: Any,
     ) -> tuple[np.ndarray, dict[str, Any]]:
+        if mode != "eval":
+            raise ValueError("BEHAVIOR VLA inference mode must be 'eval'")
         main = np.asarray(env_obs["main_images"])
         wrists = np.asarray(env_obs["wrist_images"])
         if main.ndim != 3:
@@ -179,7 +190,7 @@ class BehaviorVLAClient:
             raise ValueError(f"states must be [raw_proprio_dim], got {states.shape}")
         extract_policy_state(states)
         body = {
-            "instruction": str(env_obs.get("task_descriptions") or ""),
+            "instruction": _instruction_text(env_obs.get("task_descriptions")),
             "images": {
                 "main": {"format": "png", "data": _png_b64(main)},
                 "left_wrist": {"format": "png", "data": _png_b64(wrists[0])},

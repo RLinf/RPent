@@ -39,7 +39,7 @@ RPent 面向以下四类用户：
 ## 最新动态
 
 - [2026/08] 🔥 新增非推理（non-reasoning）模式，平均执行时间降低约 40%。
-- [2026/08] 🔥 支持 Behavior，使用 Pi05 处理家庭长程任务。文档：[BEHAVIOR](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/behavior.html)。
+- [2026/08] 🔥 支持 BEHAVIOR，使用 Pi0.5 处理家庭长程任务。文档：[BEHAVIOR](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/behavior.html)。
 - [2026/08] 🔥 支持 LIBERO 探索模式。文档：[LIBERO 探索模式](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#memory)。
 - [2026/08] 🔥 支持 RoboTwin，使用 LingBot-VLA 处理双臂操作任务。文档：[RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html)。
 - [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。文档：[RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
