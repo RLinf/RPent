@@ -304,7 +304,7 @@ class Sam3Facade(RpcFacade):
     def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
         if method == "segment":
             return self.segment(*args, **kwargs)
-        raise ValueError(f"unknown RPC method: {method!r}")
+        return super()._dispatch(method, args, kwargs)
 
     def segment(
         self,
