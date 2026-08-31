@@ -53,9 +53,9 @@ receipt 之前，不属于本文档承诺的 runtime contract。
 
 .. code-block:: bash
 
+   export PI05_CHECKPOINT_PATH="${PI05_CHECKPOINT_PATH:?请先将 PI05_CHECKPOINT_PATH 设置为 your Pi05-Behavior model 目录}"
    hf download RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
-     --local-dir ./checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
-   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
+     --local-dir "$PI05_CHECKPOINT_PATH"
    export BEHAVIOR_ENV_GPU=2
    export BEHAVIOR_MODEL_GPU=7
 
@@ -111,9 +111,9 @@ component 在 TaskRun 之间复用，每个 TaskRun 拥有 fresh env：
 
 .. code-block:: bash
 
+   export PI05_CHECKPOINT_PATH="${PI05_CHECKPOINT_PATH:?请先将 PI05_CHECKPOINT_PATH 设置为 your Pi05-Behavior model 目录}"
    hf download RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
-     --local-dir ./checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
-   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
+     --local-dir "$PI05_CHECKPOINT_PATH"
    export BEHAVIOR_ENV_GPU=2
    export BEHAVIOR_MODEL_GPU=7
 

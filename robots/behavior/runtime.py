@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from robots.behavior.policy_checkpoint import SHARED_POLICY_CHECKPOINT_PATH
+from robots.behavior.policy_checkpoint import (
+    POLICY_CHECKPOINT_ENV,
+    SHARED_POLICY_CHECKPOINT_PATH,
+    SHARED_POLICY_PROFILE_ID,
+)
 from robots.behavior.schemas import (
     ACTION_DIM,
     DEFAULT_ACTION_CHUNK,
@@ -36,6 +41,22 @@ BEHAVIOR_COMPONENTS = {"env", "vla", "dino", "memory"}
 DEFAULT_EVAL_COMPONENTS = {"env", "vla", "dino", "memory"}
 DEFAULT_MAX_EPISODE_STEPS = 43_200
 DEFAULT_PLANNER_TIMEOUT_S = 7_200
+RLINF_ROOT_ENV = "RPENT_RLINF_ROOT"
+BEHAVIOR_PYTHON_ENV = "RPENT_BEHAVIOR_PYTHON"
+
+
+def _default_behavior_repo() -> Path:
+    configured = os.environ.get(RLINF_ROOT_ENV)
+    if configured:
+        return Path(configured).expanduser()
+    return get_repo_root().parent / "RLinf"
+
+
+def _default_behavior_python(behavior_repo: Path) -> str:
+    configured = os.environ.get(BEHAVIOR_PYTHON_ENV)
+    if configured:
+        return str(Path(configured).expanduser())
+    return str(behavior_repo / ".venv-behavior" / "bin" / "python")
 
 
 def _single_cuda_device(value: Any) -> str | None:
@@ -128,16 +149,22 @@ def add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument("--vla-endpoint", default=None)
     parser.add_argument("--dino-endpoint", default=None)
-    default_behavior_repo = get_repo_root().parent / "RLinf_agentic_push"
+    default_behavior_repo = _default_behavior_repo()
     parser.add_argument(
         "--behavior-repo",
         default=str(default_behavior_repo),
-        help="Source checkout containing the pinned RLinf BEHAVIOR integration.",
+        help=(
+            "Source checkout containing the RLinf BEHAVIOR integration. "
+            f"Can also be set with {RLINF_ROOT_ENV}."
+        ),
     )
     parser.add_argument(
         "--behavior-python",
-        default=str(default_behavior_repo / ".venv-behavior" / "bin" / "python"),
-        help="Python executable for the official BEHAVIOR/OmniGibson env process.",
+        default=_default_behavior_python(default_behavior_repo),
+        help=(
+            "Python executable for the official BEHAVIOR/OmniGibson env process. "
+            f"Can also be set with {BEHAVIOR_PYTHON_ENV}."
+        ),
     )
     parser.add_argument(
         "--activity-instance-dir",
@@ -152,7 +179,10 @@ def add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--policy-checkpoint",
         default=str(SHARED_POLICY_CHECKPOINT_PATH),
-        help="Shared pi05-b1kpt50-cs32 BEHAVIOR checkpoint.",
+        help=(
+            "Path to your Pi05-Behavior model checkpoint. "
+            f"Can also be set with {POLICY_CHECKPOINT_ENV}."
+        ),
     )
     parser.add_argument(
         "--cuda-device",
@@ -265,7 +295,7 @@ def parse_config(args: argparse.Namespace) -> RunConfig:
             "scene_model": spec.scene_model,
             "mapping_version": spec.mapping_version,
             "behavior_mode": mode,
-            "policy_profile_id": "pi05-b1kpt50-cs32",
+            "policy_profile_id": SHARED_POLICY_PROFILE_ID,
             "action_dim": ACTION_DIM,
             "action_horizon": DEFAULT_ACTION_CHUNK,
             "cuda_device": cuda_device,
@@ -317,7 +347,7 @@ def vla_runtime_contract(args: argparse.Namespace) -> dict[str, Any]:
         "config_name": "pi05_behavior",
         "action_dim": ACTION_DIM,
         "action_horizon": DEFAULT_ACTION_CHUNK,
-        "policy_profile_id": "pi05-b1kpt50-cs32",
+        "policy_profile_id": SHARED_POLICY_PROFILE_ID,
         "checkpoint": str(Path(args.policy_checkpoint).expanduser()),
     }
 

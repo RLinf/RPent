@@ -61,9 +61,7 @@ def _candidate_rlinf_roots() -> tuple[Path, ...]:
     projects = _module_repo_root().parent
     roots.extend(
         [
-            projects / "RLinf_agentic_push",
             projects / "RLinf",
-            Path("/home/ubuntu/lwb/Projects/RLinf_agentic_push"),
         ]
     )
     deduped: list[Path] = []

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
 POLICY_CHECKPOINT_BINDING_SCHEMA_VERSION = 1
-SHARED_POLICY_PROFILE_ID = "pi05-b1kpt50-cs32"
+POLICY_CHECKPOINT_ENV = "PI05_CHECKPOINT_PATH"
+PUBLIC_POLICY_REPOSITORY = "RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32"
+SHARED_POLICY_PROFILE_ID = "your Pi05-Behavior model"
 SHARED_POLICY_CHECKPOINT_PATH = Path(
-    "/home/ubuntu/lwb/Models/openpi_comet_pytorch/pi05-b1kpt50-cs32"
+    os.environ.get(POLICY_CHECKPOINT_ENV, SHARED_POLICY_PROFILE_ID)
 )
 
 
@@ -120,43 +123,38 @@ def _binding_payload(
 def validate_policy_checkpoint(
     path: str | Path = SHARED_POLICY_CHECKPOINT_PATH,
 ) -> PolicyCheckpointBinding:
-    """Verify and bind the only supported shared BEHAVIOR checkpoint."""
+    """Verify and bind the expected Pi05-Behavior checkpoint files."""
 
     profile = SHARED_POLICY_PROFILE
     requested = Path(path).expanduser()
     try:
         resolved = requested.resolve(strict=True)
-        expected = profile.path.expanduser().resolve(strict=True)
     except OSError as error:
         raise PolicyCheckpointError(
-            f"shared BEHAVIOR policy checkpoint is unavailable: {error}"
+            f"your Pi05-Behavior model checkpoint is unavailable: {error}"
         ) from error
     if not resolved.is_dir():
         raise PolicyCheckpointError(
-            f"shared BEHAVIOR policy checkpoint is not a directory: {resolved}"
-        )
-    if resolved != expected:
-        raise PolicyCheckpointError(
-            f"BEHAVIOR requires the shared policy checkpoint {expected}; got {resolved}"
+            f"your Pi05-Behavior model checkpoint is not a directory: {resolved}"
         )
     for requirement in profile.files:
         candidate = resolved / requirement.relative_path
         if candidate.is_symlink() or not candidate.is_file():
             raise PolicyCheckpointError(
-                "shared BEHAVIOR policy checkpoint file is missing or unsafe: "
+                "your Pi05-Behavior model checkpoint file is missing or unsafe: "
                 f"{candidate}"
             )
         size = candidate.stat().st_size
         if size != requirement.size_bytes:
             raise PolicyCheckpointError(
-                "shared BEHAVIOR policy checkpoint size mismatch for "
+                "your Pi05-Behavior model checkpoint size mismatch for "
                 f"{requirement.relative_path}: expected {requirement.size_bytes}, "
                 f"got {size}"
             )
         actual_sha256 = _file_sha256(candidate)
         if actual_sha256 != requirement.sha256:
             raise PolicyCheckpointError(
-                "shared BEHAVIOR policy checkpoint SHA256 mismatch for "
+                "your Pi05-Behavior model checkpoint SHA256 mismatch for "
                 f"{requirement.relative_path}: expected {requirement.sha256}, "
                 f"got {actual_sha256}"
             )
@@ -184,13 +182,15 @@ def assert_matching_policy_checkpoint_binding(
     actual_value = dict(actual)
     if actual_value != expected_value:
         raise PolicyCheckpointError(
-            "VLA checkpoint binding does not match the shared BEHAVIOR policy"
+            "VLA checkpoint binding does not match your Pi05-Behavior model"
         )
     return actual_value
 
 
 __all__ = [
     "POLICY_CHECKPOINT_BINDING_SCHEMA_VERSION",
+    "POLICY_CHECKPOINT_ENV",
+    "PUBLIC_POLICY_REPOSITORY",
     "SHARED_POLICY_CHECKPOINT_PATH",
     "SHARED_POLICY_PROFILE",
     "SHARED_POLICY_PROFILE_ID",

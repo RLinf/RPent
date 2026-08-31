@@ -352,7 +352,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, required=True)
-    parser.add_argument("--checkpoint", default=str(SHARED_POLICY_CHECKPOINT_PATH))
+    parser.add_argument(
+        "--checkpoint",
+        default=str(SHARED_POLICY_CHECKPOINT_PATH),
+        help="Path to your Pi05-Behavior model checkpoint.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cuda-device", default=None)
     parser.add_argument("--parent-watch", action="store_true")

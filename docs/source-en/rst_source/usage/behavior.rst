@@ -58,9 +58,9 @@ Run evaluation from the source checkout that contains ``robots/behavior``:
 
 .. code-block:: bash
 
+   export PI05_CHECKPOINT_PATH="${PI05_CHECKPOINT_PATH:?set PI05_CHECKPOINT_PATH to your Pi05-Behavior model directory}"
    hf download RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
-     --local-dir ./checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
-   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
+     --local-dir "$PI05_CHECKPOINT_PATH"
    export BEHAVIOR_ENV_GPU=2
    export BEHAVIOR_MODEL_GPU=7
 
@@ -120,9 +120,9 @@ VLA and DINO components across TaskRuns while giving each TaskRun a fresh env:
 
 .. code-block:: bash
 
+   export PI05_CHECKPOINT_PATH="${PI05_CHECKPOINT_PATH:?set PI05_CHECKPOINT_PATH to your Pi05-Behavior model directory}"
    hf download RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
-     --local-dir ./checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
-   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
+     --local-dir "$PI05_CHECKPOINT_PATH"
    export BEHAVIOR_ENV_GPU=2
    export BEHAVIOR_MODEL_GPU=7
 
