@@ -24,10 +24,17 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent rpent && cd rpent
-   pip install -e ".[full]"
+   # 默认推荐：
+   pip install -e ".[libero-pro]"  # LIBERO-PRO
 
-``.[full]`` 是默认的端到端依赖组合，包括 openpi Pi0.5 VLA、
-LIBERO-PRO 和 RoboCasa365 仿真器、SAM 3.0 和 RLinf 运行时。
+如需使用其他环境配置，可选择：
+
+.. code-block:: bash
+
+   pip install -e ".[robocasa]"    # RoboCasa
+   pip install -e ".[robotwin]"    # RoboTwin
+
+``.[libero-pro]`` 是默认推荐的依赖组合。
 
 可选的依赖组合：
 
@@ -36,22 +43,18 @@ LIBERO-PRO 和 RoboCasa365 仿真器、SAM 3.0 和 RLinf 运行时。
 
    * - Extra
      - 安装内容
-   * - ``.[full]``
-     - ``rlinf`` + ``openpi`` + ``libero-pro`` + ``robocasa`` + ``sam3`` —— 默认运行组合
-   * - ``.[libero-pro]``
-     - 仅基础 LIBERO + LIBERO-PRO 仿真器
-   * - ``.[libero-plus]``
-     - 基础 LIBERO + LIBERO-plus 仿真器
    * - ``.[libero]``
-     - 仅基础 LIBERO
-   * - ``.[openpi]``
-     - 仅 openpi VLA
-   * - ``.[rlinf]``
-     - 仅 RLinf 运行时
+     - 标准 LIBERO + openpi Pi0.5 VLA + SAM 3.0 + RLinf 运行时
+   * - ``.[libero-pro]``
+     - LIBERO-PRO + openpi Pi0.5 VLA + SAM 3.0 + RLinf 运行时
+   * - ``.[libero-plus]``
+     - LIBERO-plus + openpi Pi0.5 VLA + SAM 3.0 + RLinf 运行时
    * - ``.[robocasa]``
      - RoboCasa365 仿真器 + RLDX-1 VLA，详见 :doc:`usage/robocasa`
    * - ``.[robotwin]``
      - RoboTwin 仿真环境和 LingBot 推理所需依赖，详见 :doc:`usage/robotwin`
+   * - ``.[rlinf]``
+     - 仅 RLinf 运行时
    * - ``.[sam3]``
      - 仅 SAM 3.0
 
@@ -59,12 +62,12 @@ LIBERO-PRO 和 RoboCasa365 仿真器、SAM 3.0 和 RLinf 运行时。
 ------------------------------------------------
 
 通过 pip 安装的 Python 包不包含运行 LIBERO 所需的大型资源文件。请根据上一步安装的
-依赖组合，从以下命令中选择一条。使用推荐的 ``.[full]`` 时运行第二条：
+依赖组合，从以下命令中选择一条：
 
 .. code-block:: bash
 
    libero-download-assets --skip-existing      # .[libero]
-   liberopro-download-assets --skip-existing   # .[libero-pro] / .[full]
+   liberopro-download-assets --skip-existing   # .[libero-pro]
    liberoplus-download-assets --skip-existing  # .[libero-plus]
 
 这些资源通常只需下载一次；``--skip-existing`` 会跳过已经存在的文件。

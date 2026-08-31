@@ -17,8 +17,8 @@ for the wire/transport selection.
 Installation
 ------------
 
-RoboCasa365 is part of ``.[full]``. To install it on its own — RLDX-1
-requires Python ``3.10``:
+RLDX-1 requires Python ``3.10``. Create a dedicated environment and install
+the complete RoboCasa365 stack with ``.[robocasa]``:
 
 .. code-block:: bash
 
