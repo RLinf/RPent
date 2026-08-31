@@ -21,6 +21,8 @@ Server-side counterparts live in :mod:`rpent.utils.rpc.rpc_facade` (the
 
 from __future__ import annotations
 
+import atexit
+import uuid
 from typing import Any
 
 

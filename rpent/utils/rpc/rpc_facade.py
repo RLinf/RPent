@@ -43,6 +43,7 @@ import time
 from typing import Any, Callable, Literal
 
 from rpent.utils.logging import get_logger
+from rpent.utils.rpc.rpc_client import RpcError
 from rpent.utils.rwlock import RWLock
 
 logger = get_logger("rpc")
@@ -86,33 +87,51 @@ class RpcFacade:
         self._rpc: dict[str, Callable] = {}
         self._readonly_methods: set[str] = set()
 
+    def close(self) -> None:
+        """Clean up resources. Override in subclasses that hold resources."""
+        pass
+
+    def _builtin_dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
+        """Handle framework methods (healthz, shutdown).
+
+        Returns ``None`` for business methods so that :meth:`_dispatch`
+        can fall through to RWLock-based routing.
+        """
+        if method == "healthz":
+            return {"status": "ok"}
+        if method == "shutdown":
+            with self._dispatch_lock.write():
+                self._shutdown_event.set()
+            return {"ok": True}
+        return None
+
     def _dispatch(
         self, method: str, args: tuple, kwargs: dict, *, session_id: str | None = None
     ) -> Any:
-        """Business RPC dispatch. Override in subclasses.
+        """Business RPC dispatch using a registration dict.
 
-        Subclasses MUST take ``self._session_lock`` around the dispatch body: the
-        threading servers dispatch each request on its own thread, and most
-        env/model servers touch a single subprocess worker or EGL/CUDA
-        context that is not concurrency-safe. The lock also serializes
-        dispatch against the sweep thread's ``_expire_session``.
+        Subclasses register handlers in ``self._rpc`` (typically in
+        ``_register_rpc``). Read-only methods (registered in
+        ``self._readonly_methods``) run under a shared read lock; mutating
+        methods acquire an exclusive write lock.
 
-        ``session_id`` is the caller's bound session (``None`` when
-        unbound or sessions disabled); pass it through to business methods
-        that need it. Do not handle ``shutdown``, ``healthz`` or
-        ``session.*`` here — the base takes care of them.
-
-        There is a simple impl to support dispatch with a rw lock.
+        When sessions are enabled, ``session_id`` is the caller's bound
+        session; the base handles ``session.register`` and ``session.close``
+        RPC methods, session validation, and idle-timeout tracking.
         """
         if self._enable_sessions:
-            return self._dispatch_session(
-                method,
-                args,
-                kwargs,
-                session_id=session_id,
-            )
-        else:
-            return self._dispatch_nosession(method, args, kwargs)
+            if session_id is None:
+                raise RpcError(
+                    "session",
+                    "this server requires a bound session: call session.register first",
+                )
+            if method == "session.register":
+                return self.register_session(session_id)
+            if method == "session.close":
+                return self.drop_session(session_id)
+            self._touch_session(session_id)
+            return self._dispatch_session(method, args, kwargs, session_id=session_id)
+        return self._dispatch_nosession(method, args, kwargs)
 
     def _dispatch_nosession(self, method: str, args: tuple, kwargs: dict) -> Any:
         result = self._builtin_dispatch(method, args, kwargs)
@@ -258,33 +277,8 @@ class RpcFacade:
         from rpent.utils.rpc.http_rpc import HttpRpcServer
         from rpent.utils.rpc.socket_rpc import SocketRpcServer
 
-        _lock = threading.Lock()
-
-        def dispatch(method, args, kwargs, *, session_id=None):
-            if method == "healthz":
-                return {"status": "ok"}
-            if method == "shutdown":
-                with _lock:
-                    self._shutdown_event.set()
-                return {"ok": True}
-            if not self._enable_sessions:
-                with _lock:
-                    return self._dispatch(method, args, kwargs)
-            if session_id is None:
-                raise RpcError(
-                    "session",
-                    "this server requires a bound session: call session.register first",
-                )
-            if method == "session.register":
-                return self.register_session(session_id)
-            if method == "session.close":
-                return self.drop_session(session_id)
-            self._touch_session(session_id)
-            with _lock:
-                return self._dispatch(method, args, kwargs, session_id=session_id)
-
         server_cls = HttpRpcServer if transport == "http" else SocketRpcServer
-        server = server_cls((host, port), dispatch)
+        server = server_cls((host, port), self._dispatch)
         bound_host, bound_port = server.server_address
         client_host = "127.0.0.1" if bound_host == "0.0.0.0" else bound_host
         url = f"{transport}://{client_host}:{bound_port}"
