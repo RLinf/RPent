@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib
 import os
 import re
 import sys
@@ -29,7 +28,7 @@ import numpy as np
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[3]
 
 
 if str(_repo_root()) not in sys.path:
@@ -64,22 +63,6 @@ def _resolve_required_path(value: str | None, *, env_name: str, label: str) -> P
     if not path.is_file():
         raise RuntimeError(f"DINO {label} path is missing: {path}")
     return path
-
-
-def _backend_loader_from_env() -> Any:
-    spec = os.environ.get("RPENT_BEHAVIOR_DINOV2_BACKEND_FACTORY")
-    if not spec:
-        return None
-    module_name, sep, attr = spec.partition(":")
-    if not sep or not module_name or not attr:
-        raise RuntimeError(
-            "RPENT_BEHAVIOR_DINOV2_BACKEND_FACTORY must be 'module:callable'"
-        )
-    module = importlib.import_module(module_name)
-    loader = getattr(module, attr)
-    if not callable(loader):
-        raise RuntimeError("configured DINO backend factory is not callable")
-    return loader
 
 
 class DinoRpc:
@@ -123,12 +106,12 @@ def _materialize_encoder(args: argparse.Namespace) -> tuple[Any, dict[str, Any]]
     import torch
     import torchvision
 
-    from robots.behavior.memory_embeddings_dinov2 import (
+    from robots.behavior.dino_v2.encoder import (
         DINOV2_DIMENSION,
         MODEL_ID,
         MODEL_REVISION,
         Dinov2DeploymentPaths,
-        Dinov2Encoder,
+        Dinov2Engine,
         Dinov2RevisionIdentity,
     )
 
@@ -164,11 +147,7 @@ def _materialize_encoder(args: argparse.Namespace) -> tuple[Any, dict[str, Any]]
         if args.cache_dir
         else None,
     )
-    encoder = Dinov2Encoder(
-        identity,
-        deployment,
-        backend_loader=_backend_loader_from_env(),
-    )
+    encoder = Dinov2Engine(identity, deployment)
     # Force backend construction now so healthz never advertises a placeholder.
     blank = np.zeros((224, 224, 3), dtype=np.uint8)
     encoder.encode_batch([blank])

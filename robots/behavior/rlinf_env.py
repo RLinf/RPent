@@ -1172,7 +1172,7 @@ class OfficialBehaviorBackend:
     def healthz(self) -> dict[str, Any]:
         return {
             "status": "ok",
-            "runtime": "behavior_official_env_backend",
+            "runtime": "behavior_rlinf_env",
             "pid": os.getpid(),
             "total_env_steps": self.total_env_steps,
             "official_success_latched": self.official_success_latched,
@@ -1345,21 +1345,12 @@ def _physical_camera(value: Any) -> str:
     return camera
 
 
-def create_backend(
-    meta: Mapping[str, Any], output_dir: str | Path
-) -> OfficialBehaviorBackend:
-    """Factory used by ``RPENT_BEHAVIOR_ENV_BACKEND_FACTORY``."""
-
-    return OfficialBehaviorBackend(meta=meta, output_dir=output_dir)
-
-
 __all__ = [
     "ACTION_DIM",
     "ACTION_HORIZON",
     "PHYSICAL_CAMERAS",
     "OfficialBehaviorBackend",
     "build_behavior_env_config",
-    "create_backend",
     "discover_rlinf_root",
     "ensure_rlinf_import_path",
 ]

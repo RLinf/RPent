@@ -14,16 +14,15 @@
 
 """BEHAVIOR environment RPC adapter.
 
-This server owns identity, CVD ordering, and RPC shape. It defaults to the
-bundled adapter for the official RLinf ``BehaviorEnv``; the factory environment
-variable remains an explicit testing/integration override.
+This server owns identity, CVD ordering, and RPC shape. The bundled adapter for
+the official RLinf ``BehaviorEnv`` is constructed explicitly by ``main()``;
+tests may inject a backend directly into ``BehaviorEnvFacade``.
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
-import importlib
 import os
 import re
 import sys
@@ -101,34 +100,17 @@ def _jsonable(value: Any) -> Any:
     return repr(value)
 
 
-def _backend_factory_from_env() -> Any:
-    spec = os.environ.get(
-        "RPENT_BEHAVIOR_ENV_BACKEND_FACTORY",
-        "robots.behavior.official_env_backend:create_backend",
-    )
-    module_name, sep, attr = spec.partition(":")
-    if not sep or not module_name or not attr:
-        raise RuntimeError(
-            "RPENT_BEHAVIOR_ENV_BACKEND_FACTORY must be 'module:callable'"
-        )
-    factory = getattr(importlib.import_module(module_name), attr)
-    if not callable(factory):
-        raise RuntimeError("configured BEHAVIOR env backend factory is not callable")
-    return factory
-
-
 class BehaviorEnvFacade:
     """Thin checked adapter around a supplied live BEHAVIOR backend."""
 
-    def __init__(self, *, meta: dict[str, Any], output_dir: Path) -> None:
+    def __init__(self, *, backend: Any, meta: dict[str, Any], output_dir: Path) -> None:
         self._meta = dict(meta)
         self._output_dir = output_dir
         self._last_obs: dict[str, Any] | None = None
         self._last_info: dict[str, Any] = {}
         self._total_env_steps = 0
         self._official_success_receipt: dict[str, Any] | None = None
-        factory = _backend_factory_from_env()
-        self._backend = factory(meta=dict(meta), output_dir=output_dir)
+        self._backend = backend
 
     @property
     def total_env_steps(self) -> int:
@@ -347,7 +329,11 @@ def main() -> None:
 
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    env = BehaviorEnvFacade(meta=_build_meta(args), output_dir=output_dir)
+    from robots.behavior.rlinf_env import OfficialBehaviorBackend
+
+    meta = _build_meta(args)
+    backend = OfficialBehaviorBackend(meta=meta, output_dir=output_dir)
+    env = BehaviorEnvFacade(backend=backend, meta=meta, output_dir=output_dir)
     server = BehaviorMainThreadHttpRpcServer((args.host, args.port), env.dispatch)
     if args.parent_watch:
         watch_parent_death(server.shutdown)

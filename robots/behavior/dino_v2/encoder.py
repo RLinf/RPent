@@ -34,7 +34,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from robots.behavior.memory_schema import MemoryValidationError, fail, require_sha256
+from robots.behavior.memory.schema import MemoryValidationError, fail, require_sha256
 
 MODEL_ID = "facebookresearch/dinov2_vits14"
 MODEL_REVISION = "facebookresearch/dinov2@7764ea0f912e53c92e82eb78a2a1631e92725fc8"
@@ -424,7 +424,7 @@ def _default_backend_loader(
     return _TorchDinov2Backend(identity, deployment)
 
 
-class Dinov2Encoder:
+class Dinov2Engine:
     def __init__(
         self,
         identity: Dinov2RevisionIdentity,
@@ -514,7 +514,7 @@ __all__ = [
     "DISTANCE_METRIC",
     "EXPECTED_SOURCE_ARCHIVE_SHA256",
     "Dinov2DeploymentPaths",
-    "Dinov2Encoder",
+    "Dinov2Engine",
     "Dinov2RevisionIdentity",
     "MemoryValidationError",
     "one_minus_cosine",

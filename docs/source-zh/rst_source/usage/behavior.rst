@@ -116,7 +116,7 @@ embedding，并检索 episode memory。运行时需要 DINOv2 source archive 和
 DINOv2 在 BEHAVIOR runtime 中承担共享视觉 memory component 的角色，但它不是
 分割模型，也不会生成 SAM3 mask；当前目标定位依赖 fresh observation 和公开几何
 工具。允许使用的 DINOv2 source revision 及两份资产的 SHA-256 identity 均固定在
-``robots/behavior/memory_embeddings_dinov2.py``；runtime 会拒绝不匹配该公开
+``robots/behavior/dino_v2/encoder.py``；runtime 会拒绝不匹配该公开
 contract 的资产。
 
 任务选择
@@ -248,7 +248,7 @@ episode memory；candidate Explore 证据必须与 held-out Eval artifact 分开
   相机渲染和官方成功 receipt。
 - **vla_server** （``robots/behavior/vla_server.py``）持有 Pi0.5 BEHAVIOR
   checkpoint，并通过 RPent RPC 暴露 ``predict``。
-- **dino_server** （``robots/behavior/dino_server.py``）持有 DINOv2-S/14
+- **dino_server** （``robots/behavior/dino_v2/server.py``）持有 DINOv2-S/14
   encoder，为 episode-memory retrieval 提供 embedding。
 - **toolkit** （``robots/behavior/toolkit.py``）定义 planner 可调用的公开工具，并
   记录 observation、action trace 和 terminal receipt。

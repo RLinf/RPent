@@ -494,7 +494,7 @@ def _spawn_dino_server(
         raise RuntimeError(f"BEHAVIOR Python executable is missing: {behavior_python}")
     cmd = [
         str(behavior_python),
-        str(get_repo_root() / "robots" / "behavior" / "dino_server.py"),
+        str(get_repo_root() / "robots" / "behavior" / "dino_v2" / "server.py"),
         "--host",
         host,
         "--port",
@@ -574,14 +574,14 @@ def _connect_vla(args: argparse.Namespace, endpoint: str) -> dict[str, Any]:
 
 
 def _connect_dino(rpc: "RpcClient") -> dict[str, Any]:
-    from robots.behavior.dino_client import BehaviorDinoClient
+    from robots.behavior.dino_v2.client import BehaviorDinoClient
 
     client = BehaviorDinoClient(rpc, expected_meta={"runtime": "behavior_dino"})
     return {"dino_component": client}
 
 
 def _connect_memory(args: argparse.Namespace) -> dict[str, Any]:
-    from robots.behavior.episode_memory_index import load_current_catalog
+    from robots.behavior.memory.index import load_current_catalog
 
     explicit = bool(getattr(args, "behavior_memory_dir_explicit", False))
     memory_dir = Path(args.behavior_memory_dir) if explicit else None

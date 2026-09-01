@@ -32,13 +32,13 @@ from typing import Any
 
 import numpy as np
 
-from robots.behavior.memory_embeddings_dinov2 import (
+from robots.behavior.dino_v2.encoder import (
     DINOV2_DIMENSION,
     DISTANCE_METRIC,
     l2_matrix,
     l2_normalize_row,
 )
-from robots.behavior.memory_schema import (
+from robots.behavior.memory.schema import (
     MemoryValidationError,
     canonical_json_file_bytes,
     fail,

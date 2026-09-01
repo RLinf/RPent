@@ -20,7 +20,7 @@ from typing import Any
 
 import numpy as np
 
-from robots.behavior.memory_embeddings_dinov2 import DINOV2_DIMENSION, l2_normalize_row
+from robots.behavior.dino_v2.encoder import DINOV2_DIMENSION, l2_normalize_row
 from rpent.utils.rpc import RpcClient
 
 

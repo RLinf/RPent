@@ -28,7 +28,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from robots.behavior.memory_schema import (
+from robots.behavior.memory.schema import (
     canonical_json_file_bytes,
     fail,
     require_exact_keys,
@@ -383,18 +383,18 @@ def compile_runtime_catalog(
     import torch
     import torchvision
 
-    from robots.behavior.episode_memory_index import (
-        EpisodeExperience,
-        EpisodeFrameKey,
-        write_candidate_revision,
-    )
-    from robots.behavior.memory_embeddings_dinov2 import (
+    from robots.behavior.dino_v2.encoder import (
         EXPECTED_SOURCE_COMMIT,
         MODEL_ID,
         MODEL_REVISION,
         Dinov2DeploymentPaths,
-        Dinov2Encoder,
+        Dinov2Engine,
         Dinov2RevisionIdentity,
+    )
+    from robots.behavior.memory.index import (
+        EpisodeExperience,
+        EpisodeFrameKey,
+        write_candidate_revision,
     )
 
     if not torch.cuda.is_available():
@@ -413,7 +413,7 @@ def compile_runtime_catalog(
         torchvision_version=str(torchvision.__version__),
         device="cuda",
     )
-    encoder = Dinov2Encoder(
+    encoder = Dinov2Engine(
         identity,
         Dinov2DeploymentPaths(
             source_archive_path=source_archive.resolve(),

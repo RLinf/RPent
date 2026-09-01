@@ -125,7 +125,7 @@ DINOv2 occupies the shared visual-memory component role in the BEHAVIOR
 runtime. It is not a segmentation model and does not replace SAM3 masks;
 current target localization uses fresh observations and the public geometry
 tools. The accepted DINOv2 source revision and both asset SHA-256 identities
-are pinned in ``robots/behavior/memory_embeddings_dinov2.py``; the runtime
+are pinned in ``robots/behavior/dino_v2/encoder.py``; the runtime
 rejects assets that do not match that public contract.
 
 Task selection
@@ -259,7 +259,7 @@ What runs where
   camera rendering, and official success receipts over RPent RPC.
 - **vla_server** (``robots/behavior/vla_server.py``) owns the Pi0.5 BEHAVIOR
   checkpoint and exposes ``predict`` over RPent RPC.
-- **dino_server** (``robots/behavior/dino_server.py``) owns the DINOv2-S/14
+- **dino_server** (``robots/behavior/dino_v2/server.py``) owns the DINOv2-S/14
   encoder and serves episode-memory embeddings.
 - **toolkit** (``robots/behavior/toolkit.py``) defines the public tools the
   planner can call and records observations, action traces, and terminal
