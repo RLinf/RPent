@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPC server wrapping the dual-Franka TCP-rot6d Pi0.5 policy."""
 
 from __future__ import annotations
@@ -165,9 +179,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if not args.model_path:
-        raise RuntimeError(
-            "provide --model-path or set PI05_CHECKPOINT_PATH"
-        )
+        raise RuntimeError("provide --model-path or set PI05_CHECKPOINT_PATH")
     if not args.repo_id:
         raise RuntimeError("provide --repo-id or set DUAL_FRANKA_REPO_ID")
     if args.cuda_device is not None:

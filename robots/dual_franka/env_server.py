@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPC server owning one RLinf dual-Franka ``RealWorldEnv`` worker."""
 
 from __future__ import annotations
@@ -236,10 +250,12 @@ def _create_worker_class():
             }
             main_key = self.cfg.env.eval.get("main_image_key")
             extras = [name for name, _, _ in specs if name != main_key]
-            metadata.update({
-                name: {"serial": serial, "type": camera_type}
-                for name, serial, camera_type in specs
-            })
+            metadata.update(
+                {
+                    name: {"serial": serial, "type": camera_type}
+                    for name, serial, camera_type in specs
+                }
+            )
             metadata_getter = self.env.env.call(
                 "get_wrapper_attr", "get_raw_camera_metadata"
             )[0]

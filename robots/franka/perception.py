@@ -1,4 +1,19 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Franka RGBD back-projection helpers."""
+
 from __future__ import annotations
 
 import json
@@ -221,10 +236,7 @@ def _save_selected_pixel_overlay(
         draw.line((x, y - 16, x, y + 16), fill="red", width=3)
 
         status = "ok" if "point_base" in projection else "error"
-        label = (
-            f"{status} {camera_alias} step={step_idx} "
-            f"row={row} col={col}"
-        )
+        label = f"{status} {camera_alias} step={step_idx} row={row} col={col}"
         label_bg = (0, 0, 0)
         draw.rectangle((4, 4, min(width - 1, 12 + len(label) * 7), 24), fill=label_bg)
         draw.text((8, 8), label, fill="white")
@@ -315,9 +327,7 @@ def _normalize_camera_alias(camera: str) -> str:
         return "wrist"
     if value in {"third_person", "third-person", "external", "extra_0", "agentview"}:
         return "third_person"
-    raise PerceptionError(
-        "unsupported camera; use 'wrist' or 'third_person'"
-    )
+    raise PerceptionError("unsupported camera; use 'wrist' or 'third_person'")
 
 
 def _back_project_one_correspondence(
@@ -501,7 +511,9 @@ def _project_view_to_base(
             depth_cache=depth_cache,
         )
         if depth.ndim != 2:
-            raise PerceptionError(f"expected 2D depth for {camera_key}, got {depth.shape}")
+            raise PerceptionError(
+                f"expected 2D depth for {camera_key}, got {depth.shape}"
+            )
         h, w = depth.shape
         if row < 0 or row >= h or col < 0 or col >= w:
             raise PerceptionError(
@@ -596,7 +608,9 @@ def _normalize_pixel_requests(
     if pixels is not None:
         if not isinstance(pixels, list) or not pixels:
             raise PerceptionError("pixels must be a non-empty list")
-        return [_normalize_pixel_request(item, index=idx) for idx, item in enumerate(pixels)]
+        return [
+            _normalize_pixel_request(item, index=idx) for idx, item in enumerate(pixels)
+        ]
 
     values = {"wrist_row": wrist_row, "wrist_col": wrist_col}
     missing = [name for name, value in values.items() if value is None]
@@ -622,7 +636,9 @@ def _normalize_pixel_requests(
     ]
 
 
-def _normalize_pixel_request(item: dict[str, Any], *, index: int) -> dict[str, int | None]:
+def _normalize_pixel_request(
+    item: dict[str, Any], *, index: int
+) -> dict[str, int | None]:
     if not isinstance(item, dict):
         raise PerceptionError(f"pixels[{index}] must be an object")
     third = item.get("third_person")
@@ -667,7 +683,9 @@ def _resolve_camera_alias(meta: dict[str, Any], alias: str) -> tuple[str, str | 
         camera_key = "extra_0"
         camera_name = observation_map.get(camera_key)
         if camera_name is None:
-            extras = [name for name in sorted(cameras) if name != observation_map.get("main")]
+            extras = [
+                name for name in sorted(cameras) if name != observation_map.get("main")
+            ]
             camera_name = extras[0] if extras else None
         return camera_key, camera_name
     if alias in {"wrist", "main"}:
@@ -741,9 +759,13 @@ def _load_calibration_bundle_file(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(errors="replace"))
     except json.JSONDecodeError as exc:
-        raise PerceptionError(f"invalid Franka calibration bundle {path}: {exc}") from exc
+        raise PerceptionError(
+            f"invalid Franka calibration bundle {path}: {exc}"
+        ) from exc
     if not isinstance(data, dict):
-        raise PerceptionError(f"Franka calibration bundle must be a JSON object: {path}")
+        raise PerceptionError(
+            f"Franka calibration bundle must be a JSON object: {path}"
+        )
     return data
 
 
@@ -860,9 +882,7 @@ def _aggregate_points(points: list[dict[str, Any]]) -> dict[str, Any] | None:
         "point_base_mean": _round_vec(arr.mean(axis=0)),
         "point_base_median": _round_vec(np.median(arr, axis=0)),
         "confidence_score_mean": (
-            round(float(np.mean(confidence_scores)), 3)
-            if confidence_scores
-            else None
+            round(float(np.mean(confidence_scores)), 3) if confidence_scores else None
         ),
         "base_point_delta_mean_m": (
             round(float(np.mean(deltas)), 5) if deltas else None
@@ -899,7 +919,4 @@ def _round_vec(vec: Any, ndigits: int = 5) -> list[float]:
 
 def _round_matrix(matrix: Any, ndigits: int = 6) -> list[list[float]]:
     arr = np.asarray(matrix, dtype=np.float64)
-    return [
-        [round(float(value), ndigits) for value in row]
-        for row in arr.tolist()
-    ]
+    return [[round(float(value), ndigits) for value in row] for row in arr.tolist()]

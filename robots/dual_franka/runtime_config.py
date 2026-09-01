@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPent configuration and RLinf adapter for a dual-Franka runtime.
 
 Users edit only ``example.yaml`` (machine identity + workspace geometry).
@@ -62,9 +76,7 @@ def _camera_slot(observation: dict[str, Any], slot: str) -> tuple[list[str], str
 
 def _perception_cameras(cameras: dict[str, Any]) -> dict[str, Any]:
     """Build the flat perception-camera config from YAML identity + defaults."""
-    perception = _require_mapping(
-        cameras.get("perception", {}), "cameras.perception"
-    )
+    perception = _require_mapping(cameras.get("perception", {}), "cameras.perception")
     output: dict[str, Any] = {}
     for name, value in perception.items():
         camera = _require_mapping(value, f"cameras.perception.{name}")
@@ -96,9 +108,7 @@ def load_runtime_config(
     left = _require_mapping(arms.get("left"), "robot.arms.left")
     right = _require_mapping(arms.get("right"), "robot.arms.right")
     left_gripper = _require_mapping(left.get("gripper"), "robot.arms.left.gripper")
-    right_gripper = _require_mapping(
-        right.get("gripper"), "robot.arms.right.gripper"
-    )
+    right_gripper = _require_mapping(right.get("gripper"), "robot.arms.right.gripper")
     cameras = _require_mapping(raw.get("cameras"), "cameras")
     observation = _require_mapping(cameras.get("observation"), "cameras.observation")
     workspace = _require_mapping(raw.get("workspace"), "workspace")

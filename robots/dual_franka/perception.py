@@ -1,4 +1,19 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Dual-Franka RGBD perception helpers."""
+
 from __future__ import annotations
 
 import json
@@ -157,7 +172,12 @@ def _back_project_camera_pixel(
     right_tcp = _tcp_xyz(right_state.get("tcp_pose"))
     left_tcp_local = _tcp_xyz(left_state.get("tcp_pose"))
     left_tcp = (
-        transform_point_between_base_frames(left_tcp_local, target="right_base", source="left_base", calibration=calibration)
+        transform_point_between_base_frames(
+            left_tcp_local,
+            target="right_base",
+            source="left_base",
+            calibration=calibration,
+        )
         if left_tcp_local is not None
         else None
     )
@@ -228,9 +248,7 @@ def _load_perception_config() -> dict[str, Any]:
     raw = load_mapping(ROBOT_CONFIG_PATH)
     perception = raw.get("perception")
     if not isinstance(perception, dict):
-        raise DualFrankaPerceptionError(
-            "example.yaml missing the 'perception' section"
-        )
+        raise DualFrankaPerceptionError("example.yaml missing the 'perception' section")
     return perception
 
 
@@ -250,9 +268,7 @@ def load_calibration_bundle(path: str | Path | None = None) -> dict[str, Any]:
     perception = _load_perception_config()
     bundle = dict(data)
     bundle["base_frames"] = perception.get("base_frames") or {}
-    for camera_key, validity in (
-        perception.get("localization_validity") or {}
-    ).items():
+    for camera_key, validity in (perception.get("localization_validity") or {}).items():
         if camera_key in bundle and isinstance(bundle[camera_key], dict):
             bundle[camera_key] = {
                 **bundle[camera_key],
@@ -365,9 +381,7 @@ def _save_back_project_diagnostic(
     """Persist a marked camera image and JSON report for one projection call."""
     image_name = f"{camera_alias}.png"
     if not state.exists(image_name, step=step_idx):
-        raise DualFrankaPerceptionError(
-            f"{camera_alias} image artifact is missing"
-        )
+        raise DualFrankaPerceptionError(f"{camera_alias} image artifact is missing")
     image_path = state.artifact_path(image_name, step=step_idx)
 
     pixel = projection.get("pixel") or []
@@ -428,7 +442,9 @@ def _save_back_project_diagnostic(
     }
 
 
-def _depth_patch_stats(depth: np.ndarray, *, row: int, col: int, radius: int) -> dict[str, Any]:
+def _depth_patch_stats(
+    depth: np.ndarray, *, row: int, col: int, radius: int
+) -> dict[str, Any]:
     r0 = max(0, row - radius)
     r1 = min(depth.shape[0], row + radius + 1)
     c0 = max(0, col - radius)
@@ -462,7 +478,9 @@ def _short_xyz(value: Any) -> str:
     return f"{float(value[0]):.3f},{float(value[1]):.3f},{float(value[2]):.3f}"
 
 
-def _median_depth(depth: np.ndarray, row: int, col: int, *, radius: int) -> tuple[float, int]:
+def _median_depth(
+    depth: np.ndarray, row: int, col: int, *, radius: int
+) -> tuple[float, int]:
     r0 = max(0, row - radius)
     r1 = min(depth.shape[0], row + radius + 1)
     c0 = max(0, col - radius)
@@ -480,7 +498,9 @@ def _transform_to_matrix(transform: dict[str, Any]) -> np.ndarray:
     if "matrix" in transform:
         mat = np.asarray(transform["matrix"], dtype=np.float64)
         if mat.shape != (4, 4):
-            raise DualFrankaPerceptionError(f"expected 4x4 transform matrix, got {mat.shape}")
+            raise DualFrankaPerceptionError(
+                f"expected 4x4 transform matrix, got {mat.shape}"
+            )
         return mat
     qw = float(transform["qw"])
     qx = float(transform["qx"])
@@ -491,9 +511,21 @@ def _transform_to_matrix(transform: dict[str, Any]) -> np.ndarray:
     qw, qx, qy, qz = q
     rot = np.array(
         [
-            [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
-            [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
-            [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)],
+            [
+                1 - 2 * (qy * qy + qz * qz),
+                2 * (qx * qy - qz * qw),
+                2 * (qx * qz + qy * qw),
+            ],
+            [
+                2 * (qx * qy + qz * qw),
+                1 - 2 * (qx * qx + qz * qz),
+                2 * (qy * qz - qx * qw),
+            ],
+            [
+                2 * (qx * qz - qy * qw),
+                2 * (qy * qz + qx * qw),
+                1 - 2 * (qx * qx + qy * qy),
+            ],
         ],
         dtype=np.float64,
     )
