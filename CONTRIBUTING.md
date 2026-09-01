@@ -85,7 +85,7 @@ pre-commit run --all-files
 pytest tests -v
 
 # Run a focused test while developing.
-pytest tests/test_cli.py -k xxx -x
+pytest tests/cli/test_main_contracts.py -k xxx -x
 ```
 
 If a check fails or modifies files, review the changes and run it again.

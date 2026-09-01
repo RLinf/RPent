@@ -79,7 +79,7 @@ pre-commit run --all-files
 pytest tests -v
 
 # 开发时运行单个文件中的相关测试。
-pytest tests/test_cli.py -k xxx -x
+pytest tests/cli/test_main_contracts.py -k xxx -x
 ```
 
 如果检查失败或修改了文件，请检查这些变化并重新运行。
