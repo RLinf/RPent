@@ -18,9 +18,6 @@ from __future__ import annotations
 
 import base64
 import copy
-import hashlib
-import hmac
-import json
 from typing import Any
 
 import numpy as np
@@ -34,6 +31,7 @@ from robots.behavior.schemas import (
     validate_prepared_plan_id,
     validate_relative_navigation_motion,
 )
+from robots.behavior.terminal_success import validate_official_success_receipt
 from rpent.robots.components.env_client_base import BaseEnvClient
 from rpent.utils.rpc import RpcClient
 
@@ -145,47 +143,6 @@ class BehaviorEnvClient(BaseEnvClient):
         return isinstance(value, (bool, np.bool_)) and bool(value)
 
     @staticmethod
-    def _canonical_receipt_bytes(value: dict[str, Any]) -> bytes:
-        return json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode("utf-8")
-
-    @classmethod
-    def _valid_success_receipt(cls, value: Any) -> dict[str, Any] | None:
-        if not isinstance(value, dict):
-            return None
-        required = {
-            "schema_version",
-            "source",
-            "env_step",
-            "raw_done",
-            "receipt_sha256",
-        }
-        if not required.issubset(value):
-            return None
-        raw_done = value.get("raw_done")
-        digest = value.get("receipt_sha256")
-        if (
-            value.get("schema_version") != 1
-            or value.get("source") != 'info["done"]["success"]'
-            or not isinstance(raw_done, dict)
-            or raw_done.get("success") is not True
-            or isinstance(value.get("env_step"), bool)
-            or not isinstance(value.get("env_step"), int)
-            or value.get("env_step") < 0
-            or not isinstance(digest, str)
-        ):
-            return None
-        material = {key: item for key, item in value.items() if key != "receipt_sha256"}
-        expected = hashlib.sha256(cls._canonical_receipt_bytes(material)).hexdigest()
-        if not hmac.compare_digest(digest, expected):
-            return None
-        return copy.deepcopy(value)
-
-    @staticmethod
     def _receipt_from_info(info: Any) -> dict[str, Any] | None:
         runtime = info.get("_rpent") if isinstance(info, dict) else None
         if not isinstance(runtime, dict):
@@ -205,7 +162,7 @@ class BehaviorEnvClient(BaseEnvClient):
         if self._raw_success(info):
             self.episode_done = True
             self._official_success_latched = True
-            self._official_success_receipt = self._valid_success_receipt(
+            self._official_success_receipt = validate_official_success_receipt(
                 self._receipt_from_info(info)
             )
 

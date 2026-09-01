@@ -21,8 +21,11 @@ create or revoke that bit.
 
 from __future__ import annotations
 
+import copy
 import hashlib
+import hmac
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -45,7 +48,46 @@ def _canonical_json_bytes(value: Any) -> bytes:
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=True,
+        allow_nan=False,
     ).encode("utf-8")
+
+
+def official_success_receipt_sha256(receipt: Mapping[str, Any]) -> str:
+    """Return the canonical digest after excluding ``receipt_sha256``."""
+
+    material = {key: value for key, value in receipt.items() if key != "receipt_sha256"}
+    return hashlib.sha256(_canonical_json_bytes(material)).hexdigest()
+
+
+def validate_official_success_receipt(value: Any) -> dict[str, Any] | None:
+    """Return a validated official-success receipt copy, or ``None``."""
+
+    if not isinstance(value, Mapping):
+        return None
+    receipt = dict(value)
+    schema_version = receipt.get("schema_version")
+    raw_done = receipt.get("raw_done")
+    env_step = receipt.get("env_step")
+    digest = receipt.get("receipt_sha256")
+    if (
+        type(schema_version) is not int
+        or schema_version != 1
+        or receipt.get("source") != 'info["done"]["success"]'
+        or not isinstance(raw_done, Mapping)
+        or raw_done.get("success") is not True
+        or isinstance(env_step, bool)
+        or not isinstance(env_step, int)
+        or env_step < 0
+        or not isinstance(digest, str)
+    ):
+        return None
+    try:
+        expected = official_success_receipt_sha256(receipt)
+    except (TypeError, ValueError):
+        return None
+    if not hmac.compare_digest(digest, expected):
+        return None
+    return copy.deepcopy(receipt)
 
 
 def official_task_success(info: Any) -> bool:
@@ -62,21 +104,7 @@ def official_success_receipt_from_info(info: Any) -> dict[str, Any] | None:
     runtime = info.get("_rpent") if isinstance(info, dict) else None
     if not isinstance(runtime, dict):
         return None
-    candidates: list[Any] = [runtime.get("official_success_receipt")]
-    monitor = runtime.get("pi0_nav_pick_monitor")
-    if isinstance(monitor, dict):
-        candidates.append(monitor.get("official_success_receipt"))
-    for candidate in candidates:
-        if not isinstance(candidate, dict):
-            continue
-        raw_done = candidate.get("raw_done")
-        if (
-            candidate.get("source") == 'info["done"]["success"]'
-            and isinstance(raw_done, dict)
-            and raw_done.get("success") is True
-        ):
-            return json.loads(json.dumps(candidate, default=str))
-    return None
+    return validate_official_success_receipt(runtime.get("official_success_receipt"))
 
 
 def make_raw_success_receipt(
@@ -91,19 +119,22 @@ def make_raw_success_receipt(
         step_value = runtime.get("total_env_steps", runtime.get("global_env_steps"))
     else:
         step_value = None
-    if isinstance(step_value, (bool, np.bool_)) or not isinstance(
-        step_value, (int, np.integer)
-    ):
-        step_value = env_step if env_step is not None else 0
+    if type(step_value) is not int or step_value < 0:
+        if env_step is None:
+            step_value = 0
+        elif type(env_step) is int and env_step >= 0:
+            step_value = env_step
+        else:
+            return None
     material = {
         "schema_version": 1,
         "source": 'info["done"]["success"]',
-        "env_step": int(step_value),
+        "env_step": step_value,
         "raw_done": {"success": True},
     }
     return {
         **material,
-        "receipt_sha256": hashlib.sha256(_canonical_json_bytes(material)).hexdigest(),
+        "receipt_sha256": official_success_receipt_sha256(material),
     }
 
 
@@ -186,29 +217,35 @@ def validate_terminal_success_receipt(
     del tool_name, output_dir
     if not isinstance(step, int) or isinstance(step, bool) or step < 0:
         return TerminalReceiptValidation(valid=False, reason="invalid trace step")
-    if not isinstance(result, dict):
+    if not isinstance(result, Mapping):
         return TerminalReceiptValidation(valid=False, reason="result is not a mapping")
-    receipt = result.get("official_success_receipt")
-    if not isinstance(receipt, dict):
-        info = result.get("info")
-        receipt = official_success_receipt_from_info(info)
-    if isinstance(receipt, dict):
-        return TerminalReceiptValidation(valid=True)
+    if result.get("kind") != "behavior_finish_terminal_receipt":
+        return TerminalReceiptValidation(valid=False, reason="invalid receipt kind")
+    if result.get("_finish") is not True:
+        return TerminalReceiptValidation(valid=False, reason="receipt is not terminal")
+    if result.get("task_success") is not True:
+        return TerminalReceiptValidation(valid=False, reason="task success is not true")
+    if result.get("official_success_source") != 'info["done"]["success"]':
+        return TerminalReceiptValidation(
+            valid=False, reason="invalid official success source"
+        )
     if (
-        result.get("task_success") is True
-        and result.get("official_success_source") == 'info["done"]["success"]'
+        validate_official_success_receipt(result.get("official_success_receipt"))
+        is None
     ):
-        return TerminalReceiptValidation(valid=True)
-    return TerminalReceiptValidation(
-        valid=False, reason="raw official success receipt missing"
-    )
+        return TerminalReceiptValidation(
+            valid=False, reason="invalid official success receipt"
+        )
+    return TerminalReceiptValidation(valid=True)
 
 
 __all__ = [
     "TerminalReceiptValidation",
     "make_raw_success_receipt",
+    "official_success_receipt_sha256",
     "official_success_receipt_from_info",
     "official_task_success",
     "summarize_action_trace_success",
+    "validate_official_success_receipt",
     "validate_terminal_success_receipt",
 ]

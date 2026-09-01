@@ -36,6 +36,8 @@ from typing import Any
 
 import numpy as np
 
+from robots.behavior.terminal_success import official_success_receipt_sha256
+
 ACTION_DIM = 23
 ACTION_HORIZON = 32
 PHYSICAL_CAMERAS = ("head", "left_wrist", "right_wrist")
@@ -812,24 +814,17 @@ def _raw_success(info: Any) -> bool:
 def _receipt_from_info(
     info: Mapping[str, Any], *, env_step: int
 ) -> dict[str, Any] | None:
-    if not _raw_success(info):
+    if not _raw_success(info) or type(env_step) is not int or env_step < 0:
         return None
     material = {
         "schema_version": 1,
         "source": 'info["done"]["success"]',
-        "env_step": int(env_step),
+        "env_step": env_step,
         "raw_done": {"success": True},
     }
     return {
         **material,
-        "receipt_sha256": hashlib.sha256(
-            json.dumps(
-                material,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=True,
-            ).encode("utf-8")
-        ).hexdigest(),
+        "receipt_sha256": official_success_receipt_sha256(material),
     }
 
 

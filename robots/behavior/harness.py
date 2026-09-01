@@ -34,10 +34,12 @@ import os
 import subprocess
 import sys
 import time
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from robots.behavior.terminal_success import validate_terminal_success_receipt
 
 _FORBIDDEN_RPENT_FLAGS = {
     "--env",
@@ -151,139 +153,42 @@ def _attempt_argv(
     ]
 
 
-def _iter_json_objects(path: Path) -> Iterable[Mapping[str, Any]]:
-    if path.stat().st_size > 50_000_000:
-        return
-    if path.suffix == ".jsonl":
-        with path.open(encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    value = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(value, Mapping):
-                    yield value
-        return
-    if path.suffix == ".json":
-        try:
-            with path.open(encoding="utf-8") as handle:
-                value = json.load(handle)
-        except (json.JSONDecodeError, OSError):
-            return
-        if isinstance(value, Mapping):
-            yield value
-        elif isinstance(value, list):
-            for item in value:
-                if isinstance(item, Mapping):
-                    yield item
-
-
-def _nested_get(value: Mapping[str, Any], path: Sequence[str]) -> Any:
-    current: Any = value
-    for key in path:
-        if not isinstance(current, Mapping) or key not in current:
-            return None
-        current = current[key]
-    return current
-
-
-def _first_bool(
-    value: Mapping[str, Any], paths: Sequence[Sequence[str]]
-) -> bool | None:
-    for path in paths:
-        item = _nested_get(value, path)
-        if isinstance(item, bool):
-            return item
-    return None
-
-
-def _terminal_score(path: Path, value: Mapping[str, Any]) -> int:
-    score = 0
-    lower_name = path.name.lower()
-    if any(token in lower_name for token in ("terminal", "receipt", "manifest")):
-        score += 2
-    if any(key in value for key in ("_finish", "finish", "terminal", "task_success")):
-        score += 3
-    if any(key in value for key in ("official", "done", "info_done", "receipt")):
-        score += 1
-    return score
-
-
-def _summarize_receipt(
-    path: Path, value: Mapping[str, Any], root: Path
-) -> dict[str, Any]:
-    task_success = _first_bool(
-        value,
-        (
-            ("task_success",),
-            ("finish", "task_success"),
-            ("receipt", "task_success"),
-            ("result", "task_success"),
-        ),
-    )
-    official_success = _first_bool(
-        value,
-        (
-            ("official", "success"),
-            ("done", "success"),
-            ("info_done", "success"),
-            ("finish", "official", "success"),
-            ("receipt", "official", "success"),
-            ("result", "official", "success"),
-        ),
-    )
-    terminal = _first_bool(
-        value,
-        (
-            ("_finish",),
-            ("terminal",),
-            ("finish", "_finish"),
-            ("receipt", "_finish"),
-            ("result", "_finish"),
-        ),
-    )
-    reason = (
-        _nested_get(value, ("stop_reason",))
-        or _nested_get(value, ("reason",))
-        or _nested_get(value, ("finish", "reason"))
-        or _nested_get(value, ("receipt", "stop_reason"))
-        or _nested_get(value, ("result", "stop_reason"))
-    )
-    return {
-        "path": str(path.relative_to(root)),
-        "terminal": terminal,
-        "task_success": task_success,
-        "official_success": official_success,
-        "stop_reason": reason if isinstance(reason, str) else None,
-    }
-
-
 def _collect_terminal_receipts(attempt_dir: Path) -> list[dict[str, Any]]:
-    candidates: list[tuple[int, Path, Mapping[str, Any]]] = []
-    if not attempt_dir.exists():
+    receipt_path = attempt_dir / "terminal_receipt.json"
+    if not receipt_path.is_file() or receipt_path.is_symlink():
         return []
-    for path in attempt_dir.rglob("*"):
-        if path.suffix not in {".json", ".jsonl"} or not path.is_file():
-            continue
-        for value in _iter_json_objects(path):
-            score = _terminal_score(path, value)
-            if score > 0:
-                candidates.append((score, path, value))
-    candidates.sort(key=lambda item: (-item[0], str(item[1])))
-    return [
-        _summarize_receipt(path, value, attempt_dir)
-        for _, path, value in candidates[:20]
-    ]
-
-
-def _explicit_success(receipts: Sequence[Mapping[str, Any]]) -> bool:
-    return any(
-        receipt.get("task_success") is True or receipt.get("official_success") is True
-        for receipt in receipts
+    try:
+        if receipt_path.stat().st_size > 1_000_000:
+            raise ValueError("terminal receipt exceeds 1 MB")
+        with receipt_path.open(encoding="utf-8") as handle:
+            value = json.load(handle)
+    except (json.JSONDecodeError, OSError, ValueError) as exc:
+        return [
+            {
+                "path": receipt_path.name,
+                "terminal": False,
+                "task_success": False,
+                "official_success": False,
+                "valid": False,
+                "validation_error": str(exc),
+            }
+        ]
+    validation = validate_terminal_success_receipt(
+        tool_name="finish",
+        step=0,
+        result=value,
+        output_dir=attempt_dir,
     )
+    return [
+        {
+            "path": receipt_path.name,
+            "terminal": validation.valid,
+            "task_success": validation.valid,
+            "official_success": validation.valid,
+            "valid": validation.valid,
+            "validation_error": validation.reason,
+        }
+    ]
 
 
 def run_explore(args: argparse.Namespace, passthrough: Sequence[str]) -> int:
@@ -344,7 +249,9 @@ def run_explore(args: argparse.Namespace, passthrough: Sequence[str]) -> int:
         attempt["elapsed_s"] = round(time.time() - started_at, 1)
         receipts = _collect_terminal_receipts(attempt_dir)
         attempt["terminal_receipts"] = receipts
-        attempt["explicit_success"] = _explicit_success(receipts)
+        attempt["explicit_success"] = bool(
+            len(receipts) == 1 and receipts[0].get("valid") is True
+        )
         if args.stop_on_explicit_success and attempt["explicit_success"]:
             break
 
