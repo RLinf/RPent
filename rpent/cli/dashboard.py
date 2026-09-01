@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import os
 import shlex
 import sys
 import threading
@@ -44,17 +43,6 @@ if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
 
 logger = get_logger("agent")
-
-
-def _planner_model(args: argparse.Namespace) -> str | None:
-    """Return the model that the selected planner will use."""
-    if args.model:
-        return args.model
-    if args.planner == "claude_code":
-        return "sonnet"
-    if args.planner == "codex":
-        return os.environ.get("CODEX_MODEL")
-    return None
 
 
 def run_dashboard_session(
@@ -110,7 +98,7 @@ def run_dashboard_session(
         language=args.dashboard_language,
         state=state,
         planner=args.planner,
-        model=_planner_model(args),
+        model=args.model,
     )
     dashboard_url = dashboard_server.start()
     print(f"Dashboard: {dashboard_url}", flush=True)

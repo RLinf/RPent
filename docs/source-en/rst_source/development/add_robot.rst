@@ -115,8 +115,9 @@ package: its ``task`` section describes the command, validated fields, display
 template, and output slug; robot-specific Session settings remain normal CLI
 arguments; ``runtime_components`` describes service rows;
 ``frame_channels`` maps camera names to canonical image artifacts;
-and ``primitives`` allowlists Dashboard controls. Keep task suggestions in the
-spec so importing the robot does not require simulator packages. See
+and ``primitives`` is the ordered allowlist of Toolkit actions displayed and
+executable as Dashboard controls. Keep task suggestions in the spec so
+importing the robot does not require simulator packages. See
 ``robots/libero/robot_spec.py`` for the reference shape.
 
 That's the entire registration step — ``_resolve_robot(name)`` does an

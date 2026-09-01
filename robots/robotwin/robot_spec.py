@@ -110,7 +110,6 @@ ROBOTWIN_DASHBOARD_SPEC: DashboardSpec = {
             {
                 "name": "task_config",
                 "choices": ROBOTWIN_TASK_CONFIGS,
-                "suggestions": ROBOTWIN_TASK_CONFIGS,
             },
             {"name": "seed", "kind": "integer", "minimum": 0},
         ),

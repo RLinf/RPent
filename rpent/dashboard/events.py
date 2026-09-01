@@ -50,11 +50,10 @@ class RuntimeStatusEvent:
 
 @dataclass(frozen=True, slots=True)
 class StepRecordEvent:
-    """Publish one recorded robot step and its artifact context."""
+    """Publish one recorded robot step and its source environment state."""
 
     record: StepRecord
     env_state: EnvState
-    frame_artifacts: dict[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)

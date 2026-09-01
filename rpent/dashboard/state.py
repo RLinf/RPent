@@ -182,7 +182,6 @@ class DashboardState:
     ) -> None:
         root = Path(output_dir)
         self.dashboard_spec = dashboard_spec
-        self.output_dir = root
         self.video_path = root / "episode.mp4"
         self._session_root = root
         self._task_spec = dashboard_spec["task"]
@@ -193,7 +192,6 @@ class DashboardState:
         }
         self._frame_names = {channel["name"] for channel in self._frame_channels}
         self._primitive_allowlist = dashboard_spec["primitives"]
-        self._primitive_names = set(self._primitive_allowlist)
 
         self._lock = threading.Lock()
         self._condition = threading.Condition(self._lock)
@@ -213,7 +211,7 @@ class DashboardState:
         self._frame_idx = -1
         self.env_state: EnvState | None = None
         self._state_step_offset = 0
-        self._action_video_sources: dict[int, tuple[EnvState, int, str]] = {}
+        self._action_video_paths: dict[int, Path] = {}
         self._accepting_input = False
         self._planner_activity: PlannerActivity = "starting"
         self._interrupt_requested = False
@@ -287,12 +285,11 @@ class DashboardState:
         """Execute one allowlisted primitive through the current Toolkit."""
         with self._condition:
             toolkit = self._toolkit
-            allowed = name in self._primitive_names
             if toolkit is None or self._session_state == "switch_pending":
                 raise InteractionUnavailableError(
                     "TaskRun primitives are not available"
                 )
-            if not allowed:
+            if name not in self._primitive_allowlist:
                 raise ValueError(f"primitive is not allowed: {name}")
             available = {spec.get("name"): spec for spec in toolkit.get_tools_spec()}
             spec = available.get(name)
@@ -473,7 +470,6 @@ class DashboardState:
         output_dir: Path,
     ) -> None:
         self._current_task = request
-        self.output_dir = output_dir
         self.video_path = output_dir / "episode.mp4"
         self._session_state = "task_starting"
         self._task_state = "starting"
@@ -489,7 +485,7 @@ class DashboardState:
         self._frame_idx = -1
         self.env_state = None
         self._state_step_offset = 0
-        self._action_video_sources = {}
+        self._action_video_paths = {}
         self._accepting_input = False
         self._planner_activity = "starting"
         self._interrupt_requested = False
@@ -799,16 +795,14 @@ class DashboardState:
             "elapsed_s": record.elapsed_s,
             "terminated": record.terminated,
             "truncated": record.truncated,
-            "action_video_artifact": action_video,
             "has_action_video": action_video is not None,
         }
         with self._condition:
             self._timeline.append(item)
             if action_video is not None and self.env_state is not None:
-                self._action_video_sources[display_step] = (
-                    self.env_state,
-                    record.step_idx,
+                self._action_video_paths[display_step] = self.env_state.artifact_path(
                     action_video,
+                    step=record.step_idx,
                 )
             self._terminated = self._terminated or record.terminated
             self._truncated = self._truncated or record.truncated
@@ -911,21 +905,14 @@ class DashboardState:
     def _input_mode_locked(self) -> InputMode:
         if self._session_state in {"starting_shared_services", "fatal"}:
             return "disabled"
-        if (
-            self._session_state == "running"
-            and self._accepting_input
-            and self._session_state != "switch_pending"
-        ):
+        if self._session_state == "running" and self._accepting_input:
             return "conversation"
         return "command_only"
 
     def _command_snapshot(self, request: TaskRequest | None) -> dict[str, Any] | None:
         if request is None:
             return None
-        return {
-            "parameters": dict(request),
-            "label": _format_task(self._task_spec, "display", request),
-        }
+        return {"label": _format_task(self._task_spec, "display", request)}
 
     def _session_fields_locked(self) -> dict[str, Any]:
         return {
@@ -955,29 +942,9 @@ class DashboardState:
             return self._frames.get(kind)
 
     def action_video_path(self, step: int) -> Path | None:
-        env_state = self.env_state
         with self._lock:
-            source = self._action_video_sources.get(int(step))
-            artifact = None
-            for item in self._timeline:
-                if int(item.get("step", -1)) != int(step):
-                    continue
-                artifact = item.get("action_video_artifact")
-                break
-        if source is not None:
-            source_state, source_step, source_artifact = source
-            try:
-                path = source_state.artifact_path(source_artifact, step=source_step)
-            except (LookupError, ValueError):
-                return None
-            return path if path.exists() else None
-        if artifact and env_state is not None:
-            try:
-                path = env_state.artifact_path(artifact, step=int(step))
-            except (LookupError, ValueError):
-                return None
-            return path if path.exists() else None
-        return None
+            path = self._action_video_paths.get(int(step))
+        return path if path is not None and path.exists() else None
 
     def has_video(self) -> bool:
         with self._lock:

@@ -10,12 +10,15 @@ export function createTaskCommandSuggester() {
       fields = [];
       return;
     }
-    fields = config.fields.map(field => ({
-      ...field,
-      suggestions: Array.isArray(field?.suggestions)
-        ? [...new Set(field.suggestions.filter(item => typeof item === "string"))]
-        : [],
-    }));
+    fields = config.fields.map(field => {
+      const suggestions = field?.suggestions ?? field?.choices;
+      return {
+        ...field,
+        suggestions: Array.isArray(suggestions)
+          ? [...new Set(suggestions.filter(item => typeof item === "string"))]
+          : [],
+      };
+    });
   }
 
   function suggestionContext(value, selectionStart, selectionEnd) {
@@ -76,7 +79,7 @@ export function createTaskCommandSuggester() {
   return { configure, select, suggest };
 }
 
-export function createInteractionController({ copy, select, onRefresh }) {
+export function createInteractionController({ copy, select }) {
   const taskCommandSuggester = createTaskCommandSuggester();
   const state = {
     snapshot: null,
@@ -380,7 +383,6 @@ export function createInteractionController({ copy, select, onRefresh }) {
         { method: "POST", body: { text } },
       );
       if (input.value === draft) input.value = "";
-      onRefresh();
     } catch (error) {
       state.requestError = copy.submitFailed(
         errorText(error) || copy.unknownRequestError
@@ -407,7 +409,6 @@ export function createInteractionController({ copy, select, onRefresh }) {
         `/api/session/messages/${encodeURIComponent(messageId)}`,
         { method: "DELETE" },
       );
-      onRefresh();
     } catch (error) {
       state.requestError = copy.withdrawFailed(
         errorText(error) || copy.unknownRequestError
@@ -447,7 +448,6 @@ export function createInteractionController({ copy, select, onRefresh }) {
           },
         });
       }
-      onRefresh();
     } catch (error) {
       state.requestError = copy.interruptFailed(
         errorText(error) || copy.unknownRequestError

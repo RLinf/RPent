@@ -69,10 +69,8 @@ const COPY = {
     resizeFrame: "Drag to resize frame height",
     primitiveControls: "Primitive controls",
     primitiveWaiting: "waiting for TaskRun",
-    primitiveWaitingHelp: "Start a TaskRun to load its available controls.",
     primitiveReady: (count) => `${count} available`,
     primitiveUnavailable: "controls unavailable",
-    primitiveLoadFailed: "Primitive controls could not be loaded.",
     primitiveUnsupported: (reason) => `Unavailable: ${reason}`,
     unsupportedSchema: "unsupported schema",
     advanced: "Advanced",
@@ -173,10 +171,8 @@ const COPY = {
     resizeFrame: "拖动调整画面高度",
     primitiveControls: "Primitive 控制",
     primitiveWaiting: "等待 TaskRun",
-    primitiveWaitingHelp: "启动一个 TaskRun 后加载可用控件。",
     primitiveReady: (count) => `${count} 个可用`,
     primitiveUnavailable: "控件不可用",
-    primitiveLoadFailed: "Primitive 控件加载失败。",
     primitiveUnsupported: (reason) => `不可用：${reason}`,
     unsupportedSchema: "schema 不支持",
     advanced: "高级参数",
@@ -284,7 +280,6 @@ function renderPlannerConfig(config) {
 }
 
 const runState = {
-  connected: false,
   eventSource: null,
   lastStepCount: -1,
   lastEventCount: -1,
@@ -320,16 +315,11 @@ const mediaState = {
   actionVideo: null,
   episodeVideoAvailable: false,
   lastRealtimeKind: null,
-  lastActionStep: 0,
-  autoActionPrimed: false,
-  autoPlayback: null,
   returnTimer: null,
-  stepTransitioning: false,
   activeImage: null,
   activeVideo: null,
   swapQueue: [],
   swapInFlight: false,
-  releaseHold: null,
   generation: 0,
 };
 
@@ -430,7 +420,7 @@ function renderPrimitiveChoices(primitives) {
 }
 
 async function loadPrimitiveSchemas(generation) {
-  if (!runState.connected || primitiveState.loadingGeneration === generation) return;
+  if (primitiveState.loadingGeneration === generation) return;
   primitiveState.loadingGeneration = generation;
   const epoch = ++primitiveState.epoch;
   try {
@@ -479,7 +469,7 @@ function setPrimitiveFormDisabled(disabled) {
 async function executeSelectedPrimitive(event) {
   event.preventDefault();
   const primitive = primitiveState.selected;
-  if (!primitive || primitiveState.executing || !runState.connected) return;
+  if (!primitive || primitiveState.executing) return;
   let argumentsObject;
   try {
     argumentsObject = readPrimitiveArguments(
@@ -520,8 +510,7 @@ async function executeSelectedPrimitive(event) {
 
 $("#primitiveForm").addEventListener("submit", executeSelectedPrimitive);
 
-const AUTO_ACTION_RETURN_DELAY_MS = 300;
-const AUTO_PLAY_ACTION_VIDEOS = false;
+const ACTION_RETURN_DELAY_MS = 300;
 
 // --- Double-buffered media swap ------------------------------------------
 // Two <img> + two <video> live in the DOM at the same position. Exactly one
@@ -546,7 +535,7 @@ function vidB() {
   return $("#video-b");
 }
 
-function cancelAutoActionReturn() {
+function cancelActionReturn() {
   if (mediaState.returnTimer) {
     clearTimeout(mediaState.returnTimer);
     mediaState.returnTimer = null;
@@ -589,31 +578,17 @@ function _showBuffer(el) {
 // order, never dropped or interrupted, so switching tabs and rolling
 // updates do not cut each other short.
 //
-// Videos may hold the queue until they finish playing (`holdUntilEnded`),
-// preventing realtime frame updates from cutting a video short.
 // `source: "user"` on a spec (tab click, manual step replay, click on
-// episode) drops pending "auto" specs and releases any current hold so
-// user actions stay responsive — the currently-visible element is not
-// interrupted, but its hold is released as soon as the click arrives.
+// episode) drops pending "auto" specs so user actions stay responsive.
 
 function swapMedia(spec) {
   if (spec.source === "user") {
     for (let i = mediaState.swapQueue.length - 1; i >= 0; i--) {
       if (mediaState.swapQueue[i].source !== "user") mediaState.swapQueue.splice(i, 1);
     }
-    if (mediaState.releaseHold) {
-      // Currently held on a video's end — release it so the click
-      // doesn't wait through the rest of the clip. Call `mediaState.releaseHold`
-      // DIRECTLY (don't null it before the call): `release` itself
-      // guards against double-release by checking `mediaState.releaseHold !== release`
-      // and nulls the global on entry. If we nulled it here first, that
-      // guard would trip on the very first invocation and `done()` would
-      // never fire → the queue would wedge with mediaState.swapInFlight stuck true
-      // and no further click would take effect.
-      mediaState.releaseHold();
-    } else if (mediaState.swapInFlight) {
+    if (mediaState.swapInFlight) {
       // An auto swap is still loading (finish hasn't run yet, so there's
-      // no hold to release). Abandon it: bumping `mediaState.generation` makes the
+      // nothing to display yet). Abandon it: bumping `mediaState.generation` makes the
       // in-flight swap's finish + done no-op when they eventually fire,
       // so the click's spec can start immediately without waiting for
       // the abandoned fetch to complete.
@@ -638,7 +613,7 @@ function _pumpSwap() {
 }
 
 function _runSwap(
-  { kind, url, cap, errorCap, onReady, onError, holdUntilEnded },
+  { kind, url, cap, errorCap, onReady, onError },
   gen,
   done,
 ) {
@@ -666,22 +641,7 @@ function _runSwap(
     _showBuffer(target);
     if (cap != null) $("#frameCap").textContent = cap;
     if (onReady) onReady(target);
-    if (holdUntilEnded && kind === "video") {
-      // Realtime frames wait on this video until it ends (natural or errored)
-      // — or until a user action releases the hold via `swapMedia`.
-      const release = () => {
-        if (mediaState.releaseHold !== release) return;
-        mediaState.releaseHold = null;
-        target.removeEventListener("ended", release);
-        target.removeEventListener("error", release);
-        done();
-      };
-      mediaState.releaseHold = release;
-      target.addEventListener("ended", release, { once: true });
-      target.addEventListener("error", release, { once: true });
-    } else {
-      done();
-    }
+    done();
   };
 
   // Fast path: URL already resident on this buffer (e.g. user replays the
@@ -733,12 +693,10 @@ function _clearMediaListeners(el) {
 }
 
 function resetMediaBuffers() {
-  // Full reset — only used when selecting a new run. Drops the queue,
-  // invalidates any in-flight swap (via mediaState.generation), releases any
-  // pending hold, and wipes both buffers.
+  // Full reset for a new TaskRun. Drop the queue, invalidate any in-flight
+  // swap via mediaState.generation, and wipe both buffers.
   mediaState.swapQueue.length = 0;
   mediaState.generation++;
-  if (mediaState.releaseHold) mediaState.releaseHold();
   mediaState.swapInFlight = false;
   for (const el of [imgA(), imgB()]) {
     el.classList.remove("visible");
@@ -760,7 +718,7 @@ function resetMediaBuffers() {
 }
 
 function resetMediaForRun() {
-  cancelAutoActionReturn();
+  cancelActionReturn();
   mediaState.kind = defaultFrameKind();
   mediaState.frameIndex = -1;
   mediaState.frameAvailable = null;
@@ -768,10 +726,6 @@ function resetMediaForRun() {
   mediaState.actionVideo = null;
   mediaState.episodeVideoAvailable = false;
   mediaState.lastRealtimeKind = defaultFrameKind();
-  mediaState.lastActionStep = 0;
-  mediaState.autoActionPrimed = false;
-  mediaState.autoPlayback = null;
-  mediaState.stepTransitioning = false;
   resetMediaBuffers();
 }
 
@@ -850,9 +804,6 @@ function timelineDetail(item) {
 const interactionController = createInteractionController({
   copy,
   select: $,
-  onRefresh: () => {
-    refreshMeta().catch(() => {});
-  },
 });
 
 function isRealtimeKind(kind) {
@@ -904,25 +855,6 @@ function setResult(terminated, state) {
   }
 }
 
-function maxTimelineStep(tl) {
-  if (!Array.isArray(tl) || !tl.length) return 0;
-  return tl.reduce((m, s) => Math.max(m, Number(s.step) || 0), 0);
-}
-
-function maybeAutoPlayNewAction(tl, nextFrameIdx) {
-  if (!Array.isArray(tl)) return false;
-  const candidates = tl.filter(s =>
-    s.has_action_video && (Number(s.step) || 0) > mediaState.lastActionStep);
-  mediaState.lastActionStep = Math.max(mediaState.lastActionStep, maxTimelineStep(tl));
-  const step = candidates[candidates.length - 1];
-  if (!step || !isRealtimeKind(mediaState.kind)) return false;
-  return playActionVideo(step, {
-    auto: true,
-    nextFrameIdx,
-    returnKind: mediaState.kind,
-  });
-}
-
 function renderTimeline(
   tl,
   totalSteps,
@@ -959,10 +891,7 @@ function renderTimeline(
       <span class="el">${s.elapsed_s != null ? s.elapsed_s + "s" : ""}</span>`;
     if (s.has_action_video) {
       div.title = copy.actionReplayTitle;
-      div.addEventListener("click", () => playActionVideo(s, {
-        returnAfterEnd: true,
-        returnKind: mediaState.lastRealtimeKind,
-      }));
+      div.addEventListener("click", () => playActionVideo(s));
     }
     el.insertBefore(div, timelineState.episodeElement);
   }
@@ -1069,9 +998,8 @@ function appendEvents(events, animateNew = false) {
 }
 
 async function refreshTranscript() {
-  if (!runState.connected) return;
   // Serialize: only one fetch in flight at a time. Concurrent triggers
-  // (selectRun + SSE ticks) would otherwise read the same `transcriptState.shown`, fetch
+  // (task reset + SSE ticks) would otherwise read the same `transcriptState.shown`, fetch
   // overlapping chunks, and append in nondeterministic resolution order —
   // which is what made turns show up out of order / duplicated.
   if (transcriptState.inFlight) { transcriptState.refreshAgain = true; return; }
@@ -1104,10 +1032,9 @@ async function refreshTranscript() {
 }
 
 function setFrameKind(kind) {
-  cancelAutoActionReturn();
+  cancelActionReturn();
   if (isRealtimeKind(kind)) {
     mediaState.lastRealtimeKind = kind;
-    mediaState.autoPlayback = null;
   }
   mediaState.kind = kind;
   if (kind !== "actionVideo") mediaState.actionVideo = null;
@@ -1116,17 +1043,12 @@ function setFrameKind(kind) {
   refreshFrame(undefined, { source: "user" });
 }
 
-function finishAutoActionPlayback() {
-  if (!mediaState.autoPlayback || mediaState.returnTimer) return;
-  const playback = mediaState.autoPlayback;
+function finishActionPlayback(actionVideo) {
+  if (mediaState.actionVideo !== actionVideo || mediaState.returnTimer) return;
   mediaState.returnTimer = setTimeout(() => {
     mediaState.returnTimer = null;
-    if (mediaState.autoPlayback !== playback) return;
-    const nextFrameIdx = playback.nextFrameIdx;
-    const returnKind = (
-      playback.returnKind || mediaState.lastRealtimeKind || defaultFrameKind()
-    );
-    mediaState.autoPlayback = null;
+    if (mediaState.actionVideo !== actionVideo) return;
+    const returnKind = mediaState.lastRealtimeKind || defaultFrameKind();
     mediaState.actionVideo = null;
     mediaState.kind = returnKind;
     mediaState.frameIndex = -1;
@@ -1134,36 +1056,23 @@ function finishAutoActionPlayback() {
     // No video reset here — swapMedia keeps the finished video's last
     // frame painted until the realtime PNG is decoded, then flips visibility
     // — the transition never exposes the black framewrap background.
-    refreshFrame(nextFrameIdx);
-    refreshMeta({ autoPlayNewAction: true, nextFrameIdx });
-  }, AUTO_ACTION_RETURN_DELAY_MS);
+    refreshMeta();
+  }, ACTION_RETURN_DELAY_MS);
 }
 
-function playActionVideo(step, opts = {}) {
-  if (!runState.connected || !step || !step.has_action_video) return false;
-  cancelAutoActionReturn();
+function playActionVideo(step) {
+  if (!step || !step.has_action_video) return;
+  cancelActionReturn();
   mediaState.actionVideo = step;
-  mediaState.autoPlayback = opts.auto || opts.returnAfterEnd
-    ? {
-        step: Number(step.step) || 0,
-        nextFrameIdx: opts.nextFrameIdx,
-        auto: !!opts.auto,
-        returnKind: opts.returnKind || mediaState.lastRealtimeKind,
-      }
-    : null;
   mediaState.kind = "actionVideo";
   selectFrameTab();
   mediaState.frameIndex = -1;
-  // Auto-triggered replays (from maybeAutoPlayNewAction) queue as "auto";
-  // manual timeline clicks are user actions and jump the queue.
-  refreshFrame(undefined, { source: opts.auto ? "auto" : "user" });
-  return true;
+  refreshFrame(undefined, { source: "user" });
 }
 
 function playEpisodeVideo() {
-  if (!runState.connected || !mediaState.episodeVideoAvailable) return;
-  cancelAutoActionReturn();
-  mediaState.autoPlayback = null;
+  if (!mediaState.episodeVideoAvailable) return;
+  cancelActionReturn();
   mediaState.actionVideo = null;
   mediaState.kind = "video";
   selectFrameTab();
@@ -1180,12 +1089,11 @@ function showFrameUnavailable(kind, idx) {
 }
 
 function refreshFrame(idx, opts = {}) {
-  if (!runState.connected) return;
   const source = opts.source || "auto";
 
   if (mediaState.kind === "actionVideo") {
     if (!mediaState.actionVideo) return;
-    const stepNum = Number(mediaState.actionVideo.step) || 0;
+    const actionVideo = mediaState.actionVideo;
     // Note: no ``t=Date.now()`` cache-buster — action video files are
     // written once and never mutate, so the buffer's ``_loadedSrc`` cache
     // gives us instant replay when the same clip is re-clicked.
@@ -1199,20 +1107,14 @@ function refreshFrame(idx, opts = {}) {
       url,
       cap,
       source,
-      // Hold the queue until the clip ends so queued realtime frames don't
-      // cut the replay short. User clicks (source: "user") still release
-      // the hold on the current in-flight swap immediately.
-      holdUntilEnded: true,
       onReady: (v) => {
         try { v.currentTime = 0; } catch {}
         v.playbackRate = 0.5;
-        const shouldReturn =
-          mediaState.autoPlayback && mediaState.autoPlayback.step === stepNum;
-        v.muted = !!(shouldReturn && mediaState.autoPlayback.auto);
-        v.onended = shouldReturn ? finishAutoActionPlayback : null;
+        v.muted = false;
+        v.onended = () => finishActionPlayback(actionVideo);
         const p = v.play();
         if (p && typeof p.catch === "function") {
-          p.catch(() => { if (shouldReturn) finishAutoActionPlayback(); });
+          p.catch(() => finishActionPlayback(actionVideo));
         }
       },
     });
@@ -1226,7 +1128,6 @@ function refreshFrame(idx, opts = {}) {
       url,
       cap: copy.episodeVideo,
       source,
-      holdUntilEnded: true,
       onReady: (v) => {
         v.playbackRate = 1.0;
         v.muted = false;
@@ -1275,8 +1176,7 @@ function applySessionSnapshot(snapshot) {
   return generationState;
 }
 
-async function refreshMeta(opts = {}) {
-  if (!runState.connected) return;
+async function refreshMeta() {
   const timelineSince = timelineState.loaded;
   const r = await requestJSON(
     `/api/session/state?timeline_since=${timelineSince}`,
@@ -1291,21 +1191,10 @@ async function refreshMeta(opts = {}) {
       animateNew: timelineState.initialized,
     });
     runState.lastStepCount = r.n_steps;
-    if (opts.primeAutoActionStep) {
-      mediaState.lastActionStep = maxTimelineStep(r.timeline || []);
-      mediaState.autoActionPrimed = true;
-    }
   }
-  const autoStarted = timelineCurrent && AUTO_PLAY_ACTION_VIDEOS
-    && opts.autoPlayNewAction && mediaState.autoActionPrimed
-    && !mediaState.autoPlayback
-    ? maybeAutoPlayNewAction(r.timeline || [], opts.nextFrameIdx ?? r.frame_idx)
-    : false;
   if (!r.has_video && mediaState.kind === "video") setFrameKind(defaultFrameKind());
   if (
-    !autoStarted
-    && !mediaState.autoPlayback
-    && isRealtimeKind(mediaState.kind)
+    isRealtimeKind(mediaState.kind)
     && currentTask
   ) refreshFrame(r.frame_idx);
 }
@@ -1325,36 +1214,18 @@ function connectSSE() {
     if (generationState == null) return;
     $("#connMeta").textContent = copy.live;
     if (generationState === "changed") {
-      refreshMeta({ primeAutoActionStep: true });
+      refreshMeta();
       return;
     }
     // refresh timeline lazily on step change
     if (sig.n_steps !== runState.lastStepCount) {
       runState.lastStepCount = sig.n_steps;
-      // Suppress realtime frame refreshes for the duration of the step
-      // transition. ``refreshMeta`` is async (awaits Session state); during
-      // that await, intermediate SSE snapshots carry the post-step
-      // ``frame_idx`` but ``mediaState.autoPlayback`` is not set yet, so the
-      // realtime branch below would queue the completion image BEFORE
-      // ``refreshMeta`` resolves and queues the action video — producing
-      // the wrong order (image → video). The guard holds those ticks off
-      // until ``refreshMeta`` finishes; if it queued an action video the
-      // video's ``holdUntilEnded`` + ``mediaState.autoPlayback`` take over the
-      // suppression, and if it didn't, ``refreshMeta`` itself queues the
-      // completion frame in the right place.
-      mediaState.stepTransitioning = true;
-      refreshMeta({
-        autoPlayNewAction: mediaState.autoActionPrimed,
-        primeAutoActionStep: !mediaState.autoActionPrimed,
-        nextFrameIdx: sig.frame_idx,
-      }).finally(() => { mediaState.stepTransitioning = false; });
+      refreshMeta();
       return;
     }
     if (sig.has_video && !mediaState.episodeVideoAvailable) refreshMeta();
     if (
-      !mediaState.autoPlayback
-      && !mediaState.stepTransitioning
-      && isRealtimeKind(mediaState.kind)
+      isRealtimeKind(mediaState.kind)
       && sig.frame_idx != null
       && sig.frame_idx !== mediaState.frameIndex
     ) refreshFrame(sig.frame_idx);
@@ -1365,14 +1236,11 @@ function connectSSE() {
 }
 
 function connectSession() {
-  runState.connected = true;
   runState.taskGeneration = null;
   resetRenderedTaskProjection();
   renderRuntimeStatus(null);
   $("#transcript").innerHTML = `<div class="empty">${copy.loading}</div>`;
   $("#timeline").innerHTML = '<div class="empty">…</div>';
-  refreshMeta({ primeAutoActionStep: true });
-  refreshTranscript();
   connectSSE();
 }
 

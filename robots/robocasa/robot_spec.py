@@ -107,7 +107,6 @@ ROBOCASA_DASHBOARD_SPEC: DashboardSpec = {
             {
                 "name": "split",
                 "choices": ROBOCASA_SPLITS,
-                "suggestions": ROBOCASA_SPLITS,
             },
             {"name": "seed", "kind": "integer", "minimum": 0},
         ),

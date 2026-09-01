@@ -24,7 +24,7 @@ class TaskFieldSpecRequired(TypedDict):
 
 
 class TaskFieldSpec(TaskFieldSpecRequired, total=False):
-    kind: Literal["integer", "string"]
+    kind: Literal["integer"]
     minimum: int
     choices: tuple[str, ...]
     suggestions: tuple[str, ...]
