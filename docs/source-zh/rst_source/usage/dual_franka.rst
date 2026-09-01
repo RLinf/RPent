@@ -12,10 +12,9 @@ RLinf/OpenPI 分支。不需要单独的 RLinf checkout、虚拟环境或安装�
 
 .. code-block:: bash
 
-	uv sync --extra franka
+	pip install -e ".[franka]"
 
-该命令按照 ``pyproject.toml`` 将自定义 RLinf Franka 分支和
-``rlinf-openpi`` 安装到 ``.venv``。
+该命令将自定义 RLinf Franka 分支和 ``rlinf-openpi`` 安装到当前环境。
 
 标定（Calibration）
 ----------------------
@@ -73,7 +72,7 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --env dual_franka --task-id 0 \
+	rpent --env dual_franka --task-id 0 \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/dual_franka/config/example.yaml \
 	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
@@ -94,7 +93,7 @@ RPent提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露 ``
 	export PI05_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
 	export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
 
-	uv run --extra franka rpent --env dual_franka --task-id 1 \
+	rpent --env dual_franka --task-id 1 \
 	  --cuda-device 0 \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/dual_franka/config/example.yaml \
@@ -115,7 +114,7 @@ checkpoint 必须包含：
 
 .. code-block:: bash
 
-	uv run --extra franka python -m robots.dual_franka.vla_server \
+	python -m robots.dual_franka.vla_server \
 	  --model-path /path/to/checkpoints/global_step_N \
 	  --repo-id org/dual-franka-tcp-rot6d \
 	  --cuda-device 0 --transport http --host 0.0.0.0 --port 6000
@@ -130,7 +129,7 @@ checkpoint 必须包含：
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --env dual_franka --task-id 0 \
+	rpent --env dual_franka --task-id 0 \
 	  --env-endpoint http://ROBOT_HOST:PORT \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/dual_franka/config/example.yaml \

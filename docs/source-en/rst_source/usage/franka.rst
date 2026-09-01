@@ -14,10 +14,9 @@ From the RPent repository root:
 
 .. code-block:: bash
 
-	uv sync --extra franka
+	pip install -e ".[franka]"
 
-This installs the custom RLinf Franka branch and ``rlinf-openpi`` into
-``.venv`` according to ``pyproject.toml``.
+This installs the custom RLinf Franka branch and ``rlinf-openpi``.
 
 Calibration
 -----------
@@ -68,7 +67,7 @@ Task ``0`` exercises conservative analytic motion and gripper primitives:
 .. code-block:: bash
 
 	# replace --robot-config and --calibration-path with your own paths
-	uv run --extra franka rpent --env franka --task-id 0 \
+	rpent --env franka --task-id 0 \
 	  --planner claude_code --model claude-opus-4-8      \
 	  --robot-config robots/franka/config/example.yaml   \
 	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
@@ -88,7 +87,7 @@ statistics match the current Franka training configuration:
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --env franka --task-id 1 \
+	rpent --env franka --task-id 1 \
 	  --vla-endpoint http://VLA_HOST:PORT \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/franka/config/example.yaml \

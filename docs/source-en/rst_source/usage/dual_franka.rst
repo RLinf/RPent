@@ -14,10 +14,9 @@ From the RPent repository root:
 
 .. code-block:: bash
 
-	uv sync --extra franka
+	pip install -e ".[franka]"
 
-This installs the custom RLinf Franka branch and ``rlinf-openpi`` into
-``.venv`` according to ``pyproject.toml``.
+This installs the custom RLinf Franka branch and ``rlinf-openpi``.
 
 Calibration
 -----------
@@ -77,7 +76,7 @@ Task ``0`` tests conservative single-arm analytic motion and gripper primitives:
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --env dual_franka --task-id 0 \
+	rpent --env dual_franka --task-id 0 \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/dual_franka/config/example.yaml \
 	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
@@ -101,7 +100,7 @@ statistics:
 	export PI05_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
 	export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
 
-	uv run --extra franka rpent --env dual_franka --task-id 1 \
+	rpent --env dual_franka --task-id 1 \
 	  --cuda-device 0 \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/dual_franka/config/example.yaml \
@@ -122,7 +121,7 @@ To run the VLA service separately:
 
 .. code-block:: bash
 
-	uv run --extra franka python -m robots.dual_franka.vla_server \
+	python -m robots.dual_franka.vla_server \
 	  --model-path /path/to/checkpoints/global_step_N \
 	  --repo-id org/dual-franka-tcp-rot6d \
 	  --cuda-device 0 --transport http --host 0.0.0.0 --port 6000
@@ -137,7 +136,7 @@ To attach RPent to an already-running dual-Franka environment service:
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --env dual_franka --task-id 0 \
+	rpent --env dual_franka --task-id 0 \
 	  --env-endpoint http://ROBOT_HOST:PORT \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/dual_franka/config/example.yaml \
