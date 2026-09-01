@@ -36,13 +36,6 @@ CONTROL = {
     "gripper": {"settle_s": 0.4, "timeout_s": 10.0, "max_iterations": 4},
 }
 
-# The d455 perception camera is a depth camera. RLinf's ``CameraInfo`` defaults
-# to ``enable_depth=False``; RPent opts into depth (for back-projection), while
-# resolution/fps keep ``CameraInfo``'s defaults (640x480 @ 15 fps).
-PERCEPTION_DEFAULTS = {
-    "enable_depth": True,
-}
-
 # Episode length, used for both ``override_cfg.max_num_steps`` (RLinf default
 # 100) and ``env.eval.max_episode_steps``.
 EPISODE_STEPS = 300
@@ -79,7 +72,7 @@ def _perception_cameras(cameras: dict[str, Any]) -> dict[str, Any]:
             "enabled": True,
             "serial_number": str(camera["serial"]),
             "camera_type": str(camera.get("type", "realsense")),
-            "enable_depth": bool(PERCEPTION_DEFAULTS["enable_depth"]),
+            "enable_depth": True,
         }
     return {"cameras": output}
 
