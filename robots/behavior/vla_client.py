@@ -171,7 +171,7 @@ class BehaviorVLAClient:
             raise RuntimeError(f"VLA server did not enable actions: {payload!r}")
         return payload
 
-    def predict_action_batch(
+    def predict(
         self,
         env_obs: dict[str, Any],
         mode: str = "eval",

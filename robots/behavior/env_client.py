@@ -26,6 +26,7 @@ from typing import Any
 import numpy as np
 
 from robots.behavior.schemas import (
+    ACTION_DIM,
     validate_action_chunk,
     validate_move_both_targets,
     validate_move_both_visual_hand_checks,
@@ -33,26 +34,9 @@ from robots.behavior.schemas import (
     validate_prepared_plan_id,
     validate_relative_navigation_motion,
 )
+from rpent.robots.components.env_client_base import BaseEnvClient
 from rpent.utils.rpc import RpcClient
 
-_TIMEOUT_S = {
-    "default": 30.0,
-    "env.reset": 1800.0,
-    "env.current_observation": 120.0,
-    "env.pi0_nav_pick_chunk_step": 1800.0,
-    "env.observe": 120.0,
-    "env.pixel_to_world": 120.0,
-    "env.move_to": 1800.0,
-    "env.move_both_to": 1800.0,
-    "env.get_prepared_motion_status": 30.0,
-    "env.navigate_to": 1800.0,
-    "env.rotate_wrist": 1800.0,
-    "env.close": 120.0,
-    "env.open": 120.0,
-    "env.press": 1800.0,
-    "env.save_robot_state_checkpoint": 120.0,
-    "env.finalize_paused_runtime": 120.0,
-}
 _POST_SUCCESS_ALLOWED = frozenset(
     {
         "env.get_env_meta",
@@ -61,20 +45,15 @@ _POST_SUCCESS_ALLOWED = frozenset(
         "env.finalize_paused_runtime",
     }
 )
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, dict):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_jsonable(item) for item in value]
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    return repr(value)
+_IMAGE_BYTE_FIELDS = frozenset(
+    {
+        "_depth_image_bytes",
+        "_image_bytes",
+        "_image_cam_bytes",
+        "_image_nav_bytes",
+        "_image_wrist_bytes",
+    }
+)
 
 
 def _info_from_rpc_result(ret: Any) -> Any:
@@ -88,27 +67,66 @@ def _info_from_rpc_result(ret: Any) -> Any:
     return None
 
 
-def _decode_bytes(value: Any) -> Any:
-    if isinstance(value, dict):
-        if set(value) == {"__bytes_b64__"} and isinstance(value["__bytes_b64__"], str):
-            return base64.b64decode(value["__bytes_b64__"], validate=True)
-        return {str(key): _decode_bytes(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_decode_bytes(item) for item in value]
-    return value
+def _decode_observe_images(result: Any) -> Any:
+    """Decode only public image fields returned by ``env.observe``."""
+
+    if not isinstance(result, dict):
+        return result
+    decoded = dict(result)
+    for field in _IMAGE_BYTE_FIELDS:
+        payload = decoded.get(field)
+        if (
+            isinstance(payload, dict)
+            and set(payload) == {"encoding", "data"}
+            and payload.get("encoding") == "base64"
+            and isinstance(payload.get("data"), str)
+        ):
+            decoded[field] = base64.b64decode(payload["data"], validate=True)
+    return decoded
 
 
-class BehaviorEnvClient:
-    """Remote implementation of the BEHAVIOR single-env protocol."""
+class BehaviorEnvClient(BaseEnvClient):
+    """Remote implementation of the BEHAVIOR single-env protocol.
+
+    Construction verifies only the requested immutable metadata and deliberately
+    does not reset the simulator. Runtime initialization owns the first reset.
+    """
+
+    _TIMEOUT_S = {
+        **BaseEnvClient._TIMEOUT_S,
+        "env.reset": 1800.0,
+        "env.step": 1800.0,
+        "env.chunk_step": 1800.0,
+        "env.current_observation": 120.0,
+        "env.observe": 120.0,
+        "env.pixel_to_world": 120.0,
+        "env.move_to": 1800.0,
+        "env.move_both_to": 1800.0,
+        "env.get_prepared_motion_status": 30.0,
+        "env.navigate_to": 1800.0,
+        "env.rotate_wrist": 1800.0,
+        "env.close": 120.0,
+        "env.open": 120.0,
+        "env.press": 1800.0,
+        "env.save_robot_state_checkpoint": 120.0,
+        "env.finalize_paused_runtime": 120.0,
+    }
 
     def __init__(self, client: RpcClient, *, expected_meta: dict[str, Any]) -> None:
+        # BaseEnvClient.__init__ performs an automatic reset and exact metadata
+        # equality. BEHAVIOR reset is explicitly owned by runtime initialization.
         self._client = client
+        self.last_obs: dict[str, Any] | None = None
+        self.last_info: dict[str, Any] = {}
         self.episode_done = False
         self.total_env_steps = 0
         self.vla_endpoint: str | None = None
         self._official_success_latched = False
         self._official_success_receipt: dict[str, Any] | None = None
-        server_meta = self._rpc_call("env.get_env_meta")
+        server_meta = self._client.call(
+            "env.get_env_meta",
+            timeout_s=self._TIMEOUT_S["default"],
+        )
         if not isinstance(server_meta, dict):
             raise RuntimeError(f"env_meta must be a mapping, got {type(server_meta)!r}")
         mismatches = {
@@ -157,6 +175,7 @@ class BehaviorEnvClient:
             or raw_done.get("success") is not True
             or isinstance(value.get("env_step"), bool)
             or not isinstance(value.get("env_step"), int)
+            or value.get("env_step") < 0
             or not isinstance(digest, str)
         ):
             return None
@@ -171,15 +190,8 @@ class BehaviorEnvClient:
         runtime = info.get("_rpent") if isinstance(info, dict) else None
         if not isinstance(runtime, dict):
             return None
-        direct = runtime.get("official_success_receipt")
-        if isinstance(direct, dict):
-            return copy.deepcopy(direct)
-        monitor = runtime.get("pi0_nav_pick_monitor")
-        if isinstance(monitor, dict) and isinstance(
-            monitor.get("official_success_receipt"), dict
-        ):
-            return copy.deepcopy(monitor["official_success_receipt"])
-        return None
+        receipt = runtime.get("official_success_receipt")
+        return copy.deepcopy(receipt) if isinstance(receipt, dict) else None
 
     def _latch_success_response(self, ret: Any) -> None:
         info = _info_from_rpc_result(ret)
@@ -209,13 +221,15 @@ class BehaviorEnvClient:
             raise RuntimeError(
                 "raw task success is terminal; no further RPC is allowed"
             )
-        ret = _decode_bytes(
-            self._client.call(
-                method,
-                args=args,
-                kwargs=kwargs or {},
-                timeout_s=timeout_s or _TIMEOUT_S.get(method, _TIMEOUT_S["default"]),
-            )
+        ret = self._client.call(
+            method,
+            args=args,
+            kwargs=kwargs or {},
+            timeout_s=(
+                timeout_s
+                if timeout_s is not None
+                else self._TIMEOUT_S.get(method, self._TIMEOUT_S["default"])
+            ),
         )
         self._latch_success_response(ret)
         return ret
@@ -228,17 +242,56 @@ class BehaviorEnvClient:
     def official_success_receipt(self) -> dict[str, Any] | None:
         return copy.deepcopy(self._official_success_receipt)
 
-    def reset(self) -> tuple[dict[str, Any], Any]:
-        ret = self._rpc_call("env.reset", timeout_s=_TIMEOUT_S["env.reset"])
+    def reset(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        ret = self._rpc_call("env.reset", timeout_s=self._TIMEOUT_S["env.reset"])
         if not isinstance(ret, (tuple, list)) or len(ret) != 2:
             raise TypeError("env.reset must return (observation, info)")
         obs, info = ret
-        if not isinstance(obs, dict):
-            raise TypeError("env.reset observation must be a mapping")
+        if not isinstance(obs, dict) or not isinstance(info, dict):
+            raise TypeError("env.reset must return observation/info mappings")
         self.total_env_steps = 0
+        self.episode_done = False
         self.last_obs = obs
         self.last_info = info
         return obs, info
+
+    def step(self, action: Any) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
+        array = np.asarray(action, dtype=np.float32)
+        if array.shape != (ACTION_DIM,) or not np.isfinite(array).all():
+            raise ValueError(f"BEHAVIOR action must be finite [{ACTION_DIM}]")
+        ret = self._rpc_call("env.step", args=(np.ascontiguousarray(array),))
+        return self._note_gym_result(ret, "env.step")
+
+    def chunk_step(
+        self,
+        actions: Any,
+        *,
+        return_all_frames: bool = False,
+    ) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
+        action_array = validate_action_chunk(actions)
+        ret = self._rpc_call(
+            "env.chunk_step",
+            args=(action_array,),
+            kwargs={"return_all_frames": bool(return_all_frames)},
+        )
+        return self._note_gym_result(ret, "env.chunk_step")
+
+    def _note_gym_result(self, ret: Any, method: str) -> tuple:
+        if not isinstance(ret, (tuple, list)) or len(ret) != 5:
+            raise TypeError(f"{method} must return a gym 5-tuple")
+        obs, _reward, _terminated, _truncated, info = ret
+        if not isinstance(info, dict):
+            raise TypeError(f"{method} info must be a mapping")
+        if isinstance(obs, list):
+            if not obs:
+                raise ValueError(f"{method} returned an empty observation list")
+            self.last_obs = obs[-1]
+        elif isinstance(obs, dict):
+            self.last_obs = obs
+        else:
+            raise TypeError(f"{method} observation must be a mapping or list")
+        self.last_info = info
+        return tuple(ret)
 
     def current_observation(self) -> tuple[dict[str, Any], dict[str, Any]]:
         ret = self._rpc_call("env.current_observation")
@@ -251,30 +304,37 @@ class BehaviorEnvClient:
         self.last_info = info
         return obs, info
 
-    def pi0_nav_pick_chunk_step(
-        self,
-        actions: Any,
-        *,
-        chunk_index: int,
-    ) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
-        action_array = validate_action_chunk(actions)
-        ret = self._rpc_call(
-            "env.pi0_nav_pick_chunk_step",
-            args=(action_array,),
-            kwargs={"chunk_index": int(chunk_index)},
-            timeout_s=_TIMEOUT_S["env.pi0_nav_pick_chunk_step"],
+    def get_camera_meta(self, camera_name: str, **kwargs: Any) -> dict[str, Any]:
+        value = self._rpc_call(
+            "env.get_camera_meta",
+            kwargs={"camera_name": camera_name, **kwargs},
         )
-        if not isinstance(ret, (tuple, list)) or len(ret) != 5:
-            raise TypeError("env.pi0_nav_pick_chunk_step must return a gym 5-tuple")
-        obs, _reward, _terminated, _truncated, info = ret
-        if isinstance(obs, dict):
-            self.last_obs = obs
-        self.last_info = info
-        return tuple(ret)  # type: ignore[return-value]
+        if not isinstance(value, dict):
+            raise TypeError("env.get_camera_meta must return a mapping")
+        return value
+
+    def render_camera(self, camera_name: str, **kwargs: Any) -> np.ndarray:
+        value = self._rpc_call(
+            "env.render_camera",
+            kwargs={"camera_name": camera_name, **kwargs},
+        )
+        image = np.asarray(value)
+        if image.dtype != np.uint8 or image.ndim != 3 or image.shape[-1] != 3:
+            raise TypeError("env.render_camera must return uint8[H,W,3]")
+        return image
+
+    def get_task_language(self) -> str:
+        value = self._rpc_call("env.get_task_language")
+        if not isinstance(value, str):
+            raise TypeError("env.get_task_language must return a string")
+        return value
 
     def observe(self, **kwargs: Any) -> dict[str, Any]:
         request = validate_observe_request(**kwargs)
-        return self._rpc_call("env.observe", kwargs=request)
+        result = _decode_observe_images(self._rpc_call("env.observe", kwargs=request))
+        if not isinstance(result, dict):
+            raise TypeError("env.observe must return a mapping")
+        return result
 
     def pixel_to_world(self, **kwargs: Any) -> dict[str, Any]:
         return self._rpc_call("env.pixel_to_world", kwargs=kwargs)

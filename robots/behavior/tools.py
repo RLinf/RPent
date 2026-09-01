@@ -113,6 +113,9 @@ def _public_info_summary(info: Any) -> dict[str, Any]:
     public: dict[str, Any] = {}
     if isinstance(info.get("done"), dict):
         public["done"] = _jsonable(info["done"])
+    for field in ("executed_steps", "stop_reason", "success_step_in_chunk"):
+        if field in info:
+            public[field] = _jsonable(info[field])
     runtime = info.get("_rpent")
     if isinstance(runtime, dict):
         allowed = {
@@ -473,7 +476,7 @@ class BehaviorPrimitives:
         last_info: dict[str, Any] | None = self._current_info
         started = time.monotonic()
 
-        for chunk_index in range(chunks):
+        for _ in range(chunks):
             remaining = self._remaining_steps()
             if remaining is not None and remaining <= 0:
                 stop_reason = "episode_step_budget_exhausted"
@@ -486,14 +489,14 @@ class BehaviorPrimitives:
                     break
             env_obs = dict(self._current_observation)
             env_obs["task_descriptions"] = instruction.strip()
-            actions, model_meta = model.predict_action_batch(env_obs, mode="eval")
+            actions = model.predict(env_obs, mode="eval")
             action_array = validate_action_chunk(actions)
             if remaining is not None:
                 action_array = action_array[:remaining]
             if action_array.shape[0] <= 0:
                 stop_reason = "episode_step_budget_exhausted"
                 break
-            ret = env.pi0_nav_pick_chunk_step(action_array, chunk_index=chunk_index)
+            ret = env.chunk_step(action_array)
             chunks_used += 1
             self._vla_invocations += 1
             self._vla_chunks += 1
@@ -502,14 +505,9 @@ class BehaviorPrimitives:
                 self._current_observation = obs
             last_info = info if isinstance(info, dict) else {}
             self._note_info(last_info)
-            monitor = (
-                last_info.get("_rpent", {}).get("pi0_nav_pick_monitor")
-                if isinstance(last_info, dict)
-                else None
-            )
             executed_steps = None
-            if isinstance(monitor, dict):
-                value = monitor.get("executed_steps")
+            if isinstance(last_info, dict):
+                value = last_info.get("executed_steps")
                 if isinstance(value, (int, np.integer)) and not isinstance(
                     value, (bool, np.bool_)
                 ):
@@ -530,9 +528,6 @@ class BehaviorPrimitives:
                 break
             if bool(truncated):
                 stop_reason = "truncated"
-                break
-            if isinstance(model_meta, dict) and model_meta.get("warning"):
-                stop_reason = str(model_meta["warning"])
                 break
 
         env_steps_used = max(0, self.total_env_steps - started_steps)

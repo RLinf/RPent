@@ -14,9 +14,9 @@
 
 """BEHAVIOR environment RPC adapter.
 
-This server owns identity, CVD ordering, and RPC shape. The bundled adapter for
-the official RLinf ``BehaviorEnv`` is constructed explicitly by ``main()``;
-tests may inject a backend directly into ``BehaviorEnvFacade``.
+OmniGibson scene operations stay on the process main thread. The facade uses
+the common environment RPC contract while ``serve`` keeps HTTP dispatch
+serial, rather than using the shared threaded HTTP server.
 """
 
 from __future__ import annotations
@@ -26,9 +26,10 @@ import base64
 import os
 import re
 import sys
+import threading
 from http.server import HTTPServer
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import numpy as np
 
@@ -46,31 +47,19 @@ from robots.behavior.schemas import (  # noqa: E402
     validate_action_chunk,
 )
 from robots.behavior.task_specs import get_task_spec  # noqa: E402
-from robots.behavior.terminal_success import (  # noqa: E402
-    make_raw_success_receipt,
-    official_task_success,
-)
+from rpent.robots.components.env_facade_base import BaseEnvFacade  # noqa: E402
+from rpent.utils.daemon import watch_parent_death  # noqa: E402
 from rpent.utils.rpc.http_rpc import _HttpRpcHandler  # noqa: E402
 
-_ENV_METHODS = {
-    "healthz",
-    "env.get_env_meta",
-    "env.reset",
-    "env.current_observation",
-    "env.pi0_nav_pick_chunk_step",
-    "env.observe",
-    "env.pixel_to_world",
-    "env.navigate_to",
-    "env.move_to",
-    "env.move_both_to",
-    "env.get_prepared_motion_status",
-    "env.rotate_wrist",
-    "env.close",
-    "env.open",
-    "env.press",
-    "env.save_robot_state_checkpoint",
-    "env.finalize_paused_runtime",
-}
+_IMAGE_BYTE_FIELDS = frozenset(
+    {
+        "_depth_image_bytes",
+        "_image_bytes",
+        "_image_cam_bytes",
+        "_image_nav_bytes",
+        "_image_wrist_bytes",
+    }
+)
 
 
 def _single_cuda_device(value: Any) -> str | None:
@@ -82,183 +71,241 @@ def _single_cuda_device(value: Any) -> str | None:
     return device
 
 
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "detach") and hasattr(value, "cpu") and hasattr(value, "numpy"):
-        value = value.detach().cpu().numpy()
-    if isinstance(value, bytes):
-        return {"__bytes_b64__": base64.b64encode(value).decode("ascii")}
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, dict):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_jsonable(item) for item in value]
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    return repr(value)
+def _encode_observe_images(result: Any) -> Any:
+    """Encode only public image byte fields at the ``env.observe`` boundary."""
+
+    if not isinstance(result, dict):
+        return result
+    encoded = dict(result)
+    for field in _IMAGE_BYTE_FIELDS:
+        payload = encoded.get(field)
+        if isinstance(payload, bytes):
+            encoded[field] = {
+                "encoding": "base64",
+                "data": base64.b64encode(payload).decode("ascii"),
+            }
+    return encoded
 
 
-class BehaviorEnvFacade:
-    """Thin checked adapter around a supplied live BEHAVIOR backend."""
+class BehaviorEnvFacade(BaseEnvFacade):
+    """Expose one official RLinf BEHAVIOR backend through common ENV RPC."""
 
-    def __init__(self, *, backend: Any, meta: dict[str, Any], output_dir: Path) -> None:
-        self._meta = dict(meta)
-        self._output_dir = output_dir
-        self._last_obs: dict[str, Any] | None = None
-        self._last_info: dict[str, Any] = {}
-        self._total_env_steps = 0
-        self._official_success_receipt: dict[str, Any] | None = None
+    def __init__(self, *, backend: Any, meta: dict[str, Any]) -> None:
         self._backend = backend
+        self._meta = dict(meta)
+        self._closed = False
+        super().__init__()
+
+    def _register_rpc(self) -> None:
+        super()._register_rpc()
+        self._rpc.update(
+            {
+                "env.current_observation": self.current_observation,
+                "env.observe": self.observe,
+                "env.pixel_to_world": self.pixel_to_world,
+                "env.navigate_to": self.navigate_to,
+                "env.move_to": self.move_to,
+                "env.move_both_to": self.move_both_to,
+                "env.get_prepared_motion_status": self.get_prepared_motion_status,
+                "env.rotate_wrist": self.rotate_wrist,
+                "env.close": self.close_gripper,
+                "env.open": self.open_gripper,
+                "env.press": self.press,
+                "env.save_robot_state_checkpoint": self.save_robot_state_checkpoint,
+                "env.finalize_paused_runtime": self.finalize_paused_runtime,
+            }
+        )
+        self._readonly_methods.update(
+            {
+                "env.current_observation",
+                "env.get_prepared_motion_status",
+                "env.finalize_paused_runtime",
+            }
+        )
+
+    def _builtin_dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
+        if method == "healthz":
+            backend_health = getattr(self._backend, "healthz", None)
+            details = backend_health() if callable(backend_health) else {}
+            return {
+                **(dict(details) if isinstance(details, dict) else {}),
+                "status": "ok",
+                "pid": os.getpid(),
+                **self._meta,
+            }
+        return super()._builtin_dispatch(method, args, kwargs)
+
+    def _call_backend(self, name: str, *args: Any, **kwargs: Any) -> Any:
+        method = getattr(self._backend, name, None)
+        if not callable(method):
+            raise RuntimeError(f"backend does not expose {name}()")
+        return method(*args, **kwargs)
 
     @property
     def total_env_steps(self) -> int:
-        value = getattr(self._backend, "total_env_steps", self._total_env_steps)
+        value = getattr(self._backend, "total_env_steps", 0)
         if isinstance(value, (int, np.integer)) and not isinstance(
             value, (bool, np.bool_)
         ):
-            return max(self._total_env_steps, int(value))
-        return self._total_env_steps
-
-    def _note_info(self, info: Any) -> dict[str, Any]:
-        if not isinstance(info, dict):
-            info = {}
-        runtime = info.get("_rpent")
-        if isinstance(runtime, dict):
-            steps = runtime.get("total_env_steps", runtime.get("global_env_steps"))
-            if isinstance(steps, (int, np.integer)) and not isinstance(
-                steps, (bool, np.bool_)
-            ):
-                self._total_env_steps = max(self._total_env_steps, int(steps))
-        if official_task_success(info):
-            self._official_success_receipt = make_raw_success_receipt(
-                info,
-                env_step=self.total_env_steps,
-            )
-        self._last_info = info
-        return info
-
-    def healthz(self) -> dict[str, Any]:
-        return {"status": "ok", "pid": os.getpid(), **self._meta}
+            return max(0, int(value))
+        return 0
 
     def get_env_meta(self) -> dict[str, Any]:
         return dict(self._meta)
 
     def reset(self) -> tuple[dict[str, Any], dict[str, Any]]:
-        if not hasattr(self._backend, "reset"):
-            raise RuntimeError("backend does not expose reset()")
-        ret = self._backend.reset()
-        if isinstance(ret, (tuple, list)) and len(ret) == 2:
-            obs, info = ret
-        else:
-            obs, info = ret, {}
-        if not isinstance(obs, dict):
-            raise TypeError("backend reset must return observation mapping")
-        obs.setdefault("task_descriptions", self._meta["task_language"])
-        self._last_obs = obs
-        self._note_info(info)
-        return obs, self._last_info
+        result = self._call_backend("reset")
+        if not isinstance(result, (tuple, list)) or len(result) != 2:
+            raise TypeError("backend reset must return (observation, info)")
+        observation, info = result
+        if not isinstance(observation, dict) or not isinstance(info, dict):
+            raise TypeError("backend reset must return observation/info mappings")
+        observation.setdefault("task_descriptions", self._meta["task_language"])
+        return observation, info
 
-    def current_observation(self) -> tuple[dict[str, Any], dict[str, Any]]:
-        method = getattr(self._backend, "current_observation", None)
-        if callable(method):
-            ret = method()
-            if isinstance(ret, (tuple, list)) and len(ret) == 2:
-                obs, info = ret
-            else:
-                obs, info = ret, self._last_info
-            if not isinstance(obs, dict):
-                raise TypeError("current_observation must return observation mapping")
-            self._last_obs = obs
-            self._note_info(info)
-            return obs, self._last_info
-        if self._last_obs is None:
-            raise RuntimeError("no observation has been captured yet")
-        return self._last_obs, self._last_info
+    def step(self, action: Any) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
+        result = self._call_backend("step", action)
+        return self._require_gym_result(result, "step")
 
-    def pi0_nav_pick_chunk_step(
+    def chunk_step(
         self,
         actions: Any,
         *,
-        chunk_index: int,
-    ) -> tuple[Any, Any, bool, bool, dict[str, Any]]:
+        return_all_frames: bool = False,
+    ) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
         action_array = validate_action_chunk(actions)
-        method = getattr(self._backend, "pi0_nav_pick_chunk_step", None)
-        if not callable(method):
-            raise RuntimeError(
-                "backend does not expose pi0_nav_pick_chunk_step(actions, chunk_index=...)"
-            )
-        ret = method(action_array, chunk_index=int(chunk_index))
-        if not isinstance(ret, (tuple, list)) or len(ret) != 5:
-            raise TypeError("pi0_nav_pick_chunk_step must return gym 5-tuple")
-        obs, reward, terminated, truncated, info = ret
-        if isinstance(obs, dict):
-            self._last_obs = obs
-        self._total_env_steps = max(
-            self._total_env_steps, self._total_env_steps + action_array.shape[0]
+        result = self._call_backend(
+            "chunk_step",
+            action_array,
+            return_all_frames=bool(return_all_frames),
         )
-        self._note_info(info)
-        return obs, reward, bool(terminated), bool(truncated), self._last_info
+        return self._require_gym_result(result, "chunk_step")
 
-    def _backend_call(self, public_name: str, **kwargs: Any) -> dict[str, Any]:
-        method = getattr(self._backend, public_name, None)
-        if not callable(method):
-            raise RuntimeError(f"backend does not expose {public_name}()")
-        ret = method(**kwargs)
-        info = ret.get("info") if isinstance(ret, dict) else None
-        if isinstance(info, dict):
-            self._note_info(info)
-        return _jsonable(ret)
+    @staticmethod
+    def _require_gym_result(result: Any, method: str) -> tuple:
+        if not isinstance(result, (tuple, list)) or len(result) != 5:
+            raise TypeError(f"env.{method} must return a gym 5-tuple")
+        if not isinstance(result[4], dict):
+            raise TypeError(f"env.{method} info must be a mapping")
+        return tuple(result)
+
+    def current_observation(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        result = self._call_backend("current_observation")
+        if not isinstance(result, (tuple, list)) or len(result) != 2:
+            raise TypeError("current_observation must return (observation, info)")
+        observation, info = result
+        if not isinstance(observation, dict) or not isinstance(info, dict):
+            raise TypeError("current_observation returned invalid payload")
+        return observation, info
+
+    def get_task_language(self) -> str:
+        value = self._call_backend("get_task_language")
+        if not isinstance(value, str):
+            raise TypeError("BEHAVIOR task language must be a string")
+        return value
+
+    def get_camera_meta(self, camera_name: str = "head", **kwargs: Any) -> dict:
+        value = self._call_backend("get_camera_meta", camera_name, **kwargs)
+        if not isinstance(value, dict):
+            raise TypeError("BEHAVIOR camera metadata must be a mapping")
+        return value
+
+    def render_camera(self, camera_name: str = "head", **kwargs: Any) -> np.ndarray:
+        image = np.asarray(self._call_backend("render_camera", camera_name, **kwargs))
+        if image.dtype != np.uint8 or image.ndim != 3 or image.shape[-1] != 3:
+            raise ValueError(
+                f"rendered RGB must be uint8[H,W,3], got {image.dtype}{image.shape}"
+            )
+        return np.ascontiguousarray(image)
+
+    def observe(self, **kwargs: Any) -> dict[str, Any]:
+        result = self._call_backend("observe", **kwargs)
+        if not isinstance(result, dict):
+            raise TypeError("env.observe must return a mapping")
+        return _encode_observe_images(result)
+
+    def pixel_to_world(self, **kwargs: Any) -> dict[str, Any]:
+        return self._call_backend("pixel_to_world", **kwargs)
+
+    def navigate_to(self, **kwargs: Any) -> dict[str, Any]:
+        return self._call_backend("navigate_to", **kwargs)
+
+    def move_to(self, **kwargs: Any) -> dict[str, Any]:
+        return self._call_backend("move_to", **kwargs)
+
+    def move_both_to(self, **kwargs: Any) -> dict[str, Any]:
+        return self._call_backend("move_both_to", **kwargs)
+
+    def get_prepared_motion_status(self, **kwargs: Any) -> dict[str, Any]:
+        return self._call_backend("get_prepared_motion_status", **kwargs)
+
+    def rotate_wrist(self, **kwargs: Any) -> dict[str, Any]:
+        return self._call_backend("rotate_wrist", **kwargs)
+
+    def close_gripper(self, **kwargs: Any) -> dict[str, Any]:
+        return self._call_backend("close", **kwargs)
+
+    def open_gripper(self, **kwargs: Any) -> dict[str, Any]:
+        return self._call_backend("open", **kwargs)
+
+    def press(self, **kwargs: Any) -> dict[str, Any]:
+        return self._call_backend("press", **kwargs)
+
+    def save_robot_state_checkpoint(self, **kwargs: Any) -> dict[str, Any]:
+        return self._call_backend("save_robot_state_checkpoint", **kwargs)
 
     def finalize_paused_runtime(
         self, vla_status: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        method = getattr(self._backend, "finalize_paused_runtime", None)
-        if callable(method):
-            result = method(vla_status=vla_status)
-            return _jsonable(result)
-        return {
-            "status": "ok",
-            "task_success": official_task_success(self._last_info),
-            "official_success_receipt": self._official_success_receipt,
-            "vla_status": vla_status,
-        }
+        return self._call_backend("finalize_paused_runtime", vla_status=vla_status)
 
-    def dispatch(
-        self, method: str, args: tuple[Any, ...], kwargs: dict[str, Any]
-    ) -> Any:
-        if method not in _ENV_METHODS:
-            raise AttributeError(f"unknown BEHAVIOR env RPC method: {method}")
-        if method == "healthz":
-            return self.healthz()
-        if method == "env.get_env_meta":
-            return self.get_env_meta()
-        if method == "env.reset":
-            return self.reset()
-        if method == "env.current_observation":
-            return self.current_observation()
-        if method == "env.pi0_nav_pick_chunk_step":
-            return self.pi0_nav_pick_chunk_step(*args, **kwargs)
-        if method == "env.finalize_paused_runtime":
-            return self.finalize_paused_runtime(*args, **kwargs)
-        public_name = method.removeprefix("env.")
-        return self._backend_call(public_name, **kwargs)
-
-    def shutdown(self) -> None:
+    def close(self) -> None:
+        if self._closed:
+            return
         closer = getattr(self._backend, "close", None)
         if callable(closer):
             closer()
+        self._closed = True
+
+    def serve(
+        self,
+        *,
+        transport: Literal["socket", "http"],
+        host: str,
+        port: int,
+        parent_watch: bool = False,
+    ) -> None:
+        if transport != "http":
+            raise ValueError("BEHAVIOR env supports only HTTP RPC")
+        server = BehaviorMainThreadHttpRpcServer((host, port), self._dispatch)
+        bound_host, bound_port = server.server_address
+        client_host = "127.0.0.1" if bound_host == "0.0.0.0" else bound_host
+        print(f"RPC server listening on http://{client_host}:{bound_port}", flush=True)
+
+        if parent_watch:
+            watch_parent_death(self._shutdown_event.set)
+
+        def stop_server() -> None:
+            self._shutdown_event.wait()
+            server.shutdown()
+
+        stopper = threading.Thread(
+            target=stop_server,
+            name="behavior-env-stop",
+            daemon=True,
+        )
+        stopper.start()
+        try:
+            server.serve_forever()
+        finally:
+            self._shutdown_event.set()
+            server.server_close()
+            self.close()
+            stopper.join(timeout=5.0)
 
 
 class BehaviorMainThreadHttpRpcServer(HTTPServer):
-    """BEHAVIOR env RPC server that dispatches requests on the serving thread.
-
-    OmniGibson/USD scene reset mutates simulator state that must stay on the
-    process main thread. The shared HttpRpcServer uses ThreadingHTTPServer, so
-    the BEHAVIOR env server keeps the same HTTP wire handler but serves requests
-    serially from the thread running serve_forever().
-    """
+    """Serial HTTP RPC server whose handlers run on the serving thread."""
 
     allow_reuse_address = True
 
@@ -325,25 +372,19 @@ def main() -> None:
         Path(args.behavior_repo).expanduser().resolve()
     )
 
-    from rpent.utils.daemon import watch_parent_death
-
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     from robots.behavior.rlinf_env import OfficialBehaviorBackend
 
     meta = _build_meta(args)
     backend = OfficialBehaviorBackend(meta=meta, output_dir=output_dir)
-    env = BehaviorEnvFacade(backend=backend, meta=meta, output_dir=output_dir)
-    server = BehaviorMainThreadHttpRpcServer((args.host, args.port), env.dispatch)
-    if args.parent_watch:
-        watch_parent_death(server.shutdown)
-    try:
-        server.serve_forever()
-    finally:
-        try:
-            env.shutdown()
-        finally:
-            server.server_close()
+    facade = BehaviorEnvFacade(backend=backend, meta=meta)
+    facade.serve(
+        transport="http",
+        host=args.host,
+        port=args.port,
+        parent_watch=args.parent_watch,
+    )
 
 
 if __name__ == "__main__":

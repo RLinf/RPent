@@ -948,7 +948,7 @@ class OfficialBehaviorBackend:
         self,
         info: Any,
         *,
-        monitor: Mapping[str, Any] | None = None,
+        telemetry: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         info_dict = dict(_jsonable(info)) if isinstance(info, Mapping) else {}
         runtime = info_dict.get("_rpent")
@@ -956,18 +956,21 @@ class OfficialBehaviorBackend:
             runtime = {}
         runtime["total_env_steps"] = int(self._total_env_steps)
         runtime["global_env_steps"] = int(self._total_env_steps)
-        if monitor is not None:
-            runtime["pi0_nav_pick_monitor"] = dict(_strict_public_json(monitor))
+        if telemetry is not None:
+            for field in (
+                "executed_steps",
+                "stop_reason",
+                "success_step_in_chunk",
+            ):
+                value = telemetry.get(field)
+                if value is not None:
+                    info_dict[field] = _strict_public_json(value)
         if _raw_success(info_dict):
             self._official_success_latched = True
             receipt = _receipt_from_info(info_dict, env_step=self._total_env_steps)
             if receipt is not None:
                 self._official_success_receipt = receipt
                 runtime["official_success_receipt"] = dict(receipt)
-                if isinstance(runtime.get("pi0_nav_pick_monitor"), dict):
-                    runtime["pi0_nav_pick_monitor"]["official_success_receipt"] = dict(
-                        receipt
-                    )
         info_dict["_rpent"] = runtime
         self._last_info = info_dict
         return info_dict
@@ -1111,12 +1114,21 @@ class OfficialBehaviorBackend:
             raise RuntimeError("no BEHAVIOR observation is available before reset")
         return self._last_obs, self._last_info
 
-    def pi0_nav_pick_chunk_step(
+    def step(
+        self,
+        action: Any,
+    ) -> tuple[dict[str, Any] | None, float, bool, bool, dict[str, Any]]:
+        array = np.asarray(action, dtype=np.float32)
+        if array.shape != (ACTION_DIM,) or not np.isfinite(array).all():
+            raise ValueError(f"BEHAVIOR action must be finite [{ACTION_DIM}]")
+        return self.chunk_step(array[None, :], return_all_frames=False)
+
+    def chunk_step(
         self,
         actions: Any,
         *,
-        chunk_index: int,
-    ) -> tuple[dict[str, Any] | None, float, bool, bool, dict[str, Any]]:
+        return_all_frames: bool = False,
+    ) -> tuple[Any, float, bool, bool, dict[str, Any]]:
         action_array = _validate_action_chunk(actions)
         last_obs: Any = None
         last_reward = 0.0
@@ -1126,6 +1138,7 @@ class OfficialBehaviorBackend:
         success_step: int | None = None
         executed_steps = 0
         stop_reason = "requested_actions_completed"
+        frames: list[dict[str, Any]] = []
 
         for step_offset, action in enumerate(action_array):
             raw_obs, reward, step_terminated, step_truncated, info = self._step_one_raw(
@@ -1138,9 +1151,10 @@ class OfficialBehaviorBackend:
             last_info = info
             terminated = bool(step_terminated)
             truncated = bool(step_truncated)
+            if return_all_frames and raw_obs is not None:
+                frames.append(self._wrap_raw_obs(raw_obs))
             if _raw_success(info):
                 success_step = step_offset
-                terminated = True
                 stop_reason = "official_task_success"
                 break
             if terminated:
@@ -1153,18 +1167,16 @@ class OfficialBehaviorBackend:
         if last_obs is not None:
             self._last_raw_obs = last_obs
             self._last_obs = self._wrap_raw_obs(last_obs)
-        if terminated or truncated:
+        if terminated or truncated or success_step is not None:
             self._episode_ended = True
-        monitor = {
-            "chunk_index": int(chunk_index),
-            "requested_steps": int(action_array.shape[0]),
+        telemetry = {
             "executed_steps": int(executed_steps),
             "stop_reason": stop_reason,
             "success_step_in_chunk": success_step,
-            "total_env_steps": int(self._total_env_steps),
         }
-        info_out = self._note_info(last_info, monitor=monitor)
-        return self._last_obs, last_reward, terminated, truncated, info_out
+        info_out = self._note_info(last_info, telemetry=telemetry)
+        observation: Any = frames if return_all_frames else self._last_obs
+        return observation, last_reward, terminated, truncated, info_out
 
     def get_task_language(self) -> str:
         return str(self.identity["task_language"])
@@ -1197,9 +1209,12 @@ class OfficialBehaviorBackend:
         camera = _physical_camera(camera_name)
         image = self.render_camera(camera)
         return {
-            "camera": camera,
-            "available": False,
+            "camera_name": camera,
+            "available": True,
             "rgb_shape": list(image.shape),
+            "rgb_dtype": str(image.dtype),
+            "calibration_available": False,
+            "depth_available": False,
             "reason": (
                 "RLinf BehaviorEnv RPC adapter exposes RGB/proprio only; "
                 "calibration/depth are not exported"
