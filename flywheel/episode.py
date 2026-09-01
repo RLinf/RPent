@@ -173,9 +173,9 @@ class EpisodeWriter:
                 rewards=np.asarray(self._rewards, np.float32),
                 terminated=np.asarray(self._terminated, np.bool_),
                 truncated=np.asarray(self._truncated, np.bool_),
-                action_source=(
-                    np.asarray(self._vla_ids, np.int32) >= 0
-                ).astype(np.uint8),
+                action_source=(np.asarray(self._vla_ids, np.int32) >= 0).astype(
+                    np.uint8
+                ),
                 primitive_id=np.asarray(self._primitive_ids, np.int32),
                 vla_chunk_id=np.asarray(self._vla_ids, np.int32),
                 proposal_index=np.asarray(self._proposal_indices, np.int16),
