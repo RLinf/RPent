@@ -27,14 +27,10 @@ import numpy as np
 
 from robots.behavior.schemas import (
     validate_action_chunk,
-    validate_dashboard_command_id,
-    validate_dashboard_control_capabilities,
-    validate_dashboard_manual_command,
-    validate_dashboard_plan_id,
-    validate_dashboard_prepare_request,
     validate_move_both_targets,
     validate_move_both_visual_hand_checks,
     validate_observe_request,
+    validate_prepared_plan_id,
     validate_relative_navigation_motion,
 )
 from rpent.utils.rpc import RpcClient
@@ -56,13 +52,6 @@ _TIMEOUT_S = {
     "env.press": 1800.0,
     "env.save_robot_state_checkpoint": 120.0,
     "env.finalize_paused_runtime": 120.0,
-    "env.dashboard_control_capabilities": 30.0,
-    "env.dashboard_prepare_manual_command": 72.0,
-    "env.dashboard_execute_prepared_command": 72.0,
-    "env.dashboard_discard_prepared_command": 30.0,
-    "env.dashboard_capture_views": 120.0,
-    "env.dashboard_manual_command": 360.0,
-    "env.dashboard_safe_stop": 30.0,
 }
 _POST_SUCCESS_ALLOWED = frozenset(
     {
@@ -70,7 +59,6 @@ _POST_SUCCESS_ALLOWED = frozenset(
         "env.get_prepared_motion_status",
         "env.current_observation",
         "env.finalize_paused_runtime",
-        "env.dashboard_safe_stop",
     }
 )
 
@@ -317,7 +305,7 @@ class BehaviorEnvClient:
     def get_prepared_motion_status(self, *, prepared_plan_id: str) -> dict[str, Any]:
         return self._rpc_call(
             "env.get_prepared_motion_status",
-            kwargs={"prepared_plan_id": validate_dashboard_plan_id(prepared_plan_id)},
+            kwargs={"prepared_plan_id": validate_prepared_plan_id(prepared_plan_id)},
         )
 
     def rotate_wrist(self, **kwargs: Any) -> dict[str, Any]:
@@ -341,78 +329,6 @@ class BehaviorEnvClient:
         return self._rpc_call(
             "env.finalize_paused_runtime",
             kwargs={"vla_status": vla_status},
-        )
-
-    def dashboard_control_capabilities(self) -> dict[str, Any]:
-        return validate_dashboard_control_capabilities(
-            self._rpc_call("env.dashboard_control_capabilities")
-        )
-
-    def dashboard_prepare_manual_command(self, **kwargs: Any) -> dict[str, Any]:
-        return self._rpc_call(
-            "env.dashboard_prepare_manual_command",
-            kwargs=validate_dashboard_prepare_request(**kwargs),
-        )
-
-    def dashboard_execute_prepared_command(
-        self,
-        *,
-        command_id: str,
-        plan_id: str | None = None,
-    ) -> dict[str, Any]:
-        kwargs = {"command_id": validate_dashboard_command_id(command_id)}
-        if plan_id is not None:
-            kwargs["plan_id"] = validate_dashboard_plan_id(plan_id)
-        return self._rpc_call(
-            "env.dashboard_execute_prepared_command",
-            kwargs=kwargs,
-        )
-
-    def dashboard_discard_prepared_command(
-        self,
-        *,
-        command_id: str,
-        plan_id: str | None = None,
-    ) -> dict[str, Any]:
-        kwargs = {"command_id": validate_dashboard_command_id(command_id)}
-        if plan_id is not None:
-            kwargs["plan_id"] = validate_dashboard_plan_id(plan_id)
-        return self._rpc_call(
-            "env.dashboard_discard_prepared_command",
-            kwargs=kwargs,
-        )
-
-    def dashboard_capture_views(self, *, camera: str = "head") -> dict[str, Any]:
-        validate_dashboard_manual_command(
-            target="chassis", action="observe", camera=camera
-        )
-        return self._rpc_call("env.dashboard_capture_views", kwargs={"camera": camera})
-
-    def dashboard_safe_stop(
-        self,
-        *,
-        reason: str = "client_stop",
-        stop_mode: str = "safe_stop",
-    ) -> dict[str, Any]:
-        return self._rpc_call(
-            "env.dashboard_safe_stop",
-            kwargs={"reason": str(reason), "stop_mode": str(stop_mode)},
-        )
-
-    def dashboard_manual_command(
-        self,
-        *,
-        target: str,
-        action: str,
-        camera: str,
-    ) -> dict[str, Any]:
-        return self._rpc_call(
-            "env.dashboard_manual_command",
-            kwargs=validate_dashboard_manual_command(
-                target=target,
-                action=action,
-                camera=camera,
-            ),
         )
 
     def close_transport(self) -> None:

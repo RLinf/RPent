@@ -45,48 +45,6 @@ if TYPE_CHECKING:
 logger = get_logger("agent")
 
 
-def _resolve_dashboard_class(path: str) -> type[Any]:
-    """Resolve ``module:ClassName`` dashboard class paths from robot specs."""
-
-    module_name, separator, class_name = path.partition(":")
-    if not separator or not module_name or not class_name:
-        raise ValueError(f"invalid dashboard class path: {path!r}")
-    import importlib
-
-    module = importlib.import_module(module_name)
-    dashboard_class = getattr(module, class_name)
-    if not isinstance(dashboard_class, type):
-        raise TypeError(f"dashboard class path did not resolve to a class: {path!r}")
-    return dashboard_class
-
-
-def _dashboard_server_and_state_classes(
-    robot_spec: RobotSpec,
-    dashboard_spec: dict[str, Any],
-) -> tuple[type[Any], type[Any]]:
-    """Return the Dashboard classes selected by the robot dashboard spec."""
-
-    from rpent.dashboard.server import DashboardServer
-    from rpent.dashboard.state import DashboardState
-
-    classes = dashboard_spec.get("classes")
-    if classes is not None:
-        if not isinstance(classes, dict):
-            raise TypeError(
-                f"robot {robot_spec.name!r} dashboard classes must be a dict"
-            )
-        server_path = classes.get("server")
-        state_path = classes.get("state")
-        if not isinstance(server_path, str) or not isinstance(state_path, str):
-            raise TypeError(
-                f"robot {robot_spec.name!r} dashboard classes require server/state paths"
-            )
-        return _resolve_dashboard_class(server_path), _resolve_dashboard_class(
-            state_path
-        )
-    return DashboardServer, DashboardState
-
-
 def run_dashboard_session(
     args: argparse.Namespace,
     robot_spec: RobotSpec,
@@ -95,7 +53,9 @@ def run_dashboard_session(
 ) -> int:
     """Run one long-lived Dashboard Session with sequential fresh TaskRuns."""
     from rpent.dashboard.launcher import apply_to_args, defaults_from_args
+    from rpent.dashboard.server import DashboardServer
     from rpent.dashboard.session import DashboardSessionController
+    from rpent.dashboard.state import DashboardState
     from rpent.utils.config import get_repo_root
 
     dashboard_spec = robot_spec.dashboard
@@ -113,12 +73,7 @@ def run_dashboard_session(
         if component["scope"] == "unique"
     }
 
-    dashboard_server_cls, dashboard_state_cls = _dashboard_server_and_state_classes(
-        robot_spec,
-        dashboard_spec,
-    )
-
-    dashboard_server = dashboard_server_cls(
+    dashboard_server = DashboardServer(
         host=args.dashboard_host,
         port=args.dashboard_port,
         language=args.dashboard_language,
@@ -154,7 +109,7 @@ def run_dashboard_session(
         and getattr(args, "memory_profile", "hf") == "hf"
     ):
         ensure_resources(robot_spec)
-    state = dashboard_state_cls(
+    state = DashboardState(
         run_id=f"dashboard-session/{session_root.name}",
         output_dir=session_root,
         dashboard_spec=dashboard_spec,
@@ -228,7 +183,6 @@ def _run_dashboard_task(
             state,
             unique_components,
         )
-        _bind_robot_dashboard_backend(state, task_primitives_kwargs)
         if not state.task_replacement_requested:
             primitives_kwargs = {
                 **task_primitives_kwargs,
@@ -346,7 +300,6 @@ def _run_dashboard_task(
             logger.info("recipe: %s", recipe_path)
         else:
             logger.info("recipe: not written (cell unsolved)")
-        _unbind_robot_dashboard_backend(state)
         for daemon in reversed(task_daemons):
             try:
                 daemon.stop()
@@ -398,22 +351,3 @@ def _run_dashboard_task(
             state.report_task_warning(f"Task succeeded, but {warning}")
 
     return agent_error
-
-
-def _bind_robot_dashboard_backend(
-    state: DashboardState,
-    primitives_kwargs: dict[str, Any],
-) -> None:
-    """Offer task runtime clients to an optional robot-owned Dashboard state."""
-
-    bind_runtime = getattr(state, "bind_runtime_backend", None)
-    if callable(bind_runtime):
-        bind_runtime(primitives_kwargs)
-
-
-def _unbind_robot_dashboard_backend(state: DashboardState) -> None:
-    """Release an optional robot-owned Dashboard runtime binding."""
-
-    unbind_runtime = getattr(state, "unbind_runtime_backend", None)
-    if callable(unbind_runtime):
-        unbind_runtime()

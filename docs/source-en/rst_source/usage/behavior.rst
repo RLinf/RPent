@@ -256,7 +256,7 @@ What runs where
 
 - **env_server** (``robots/behavior/env_server.py``) owns the official
   BEHAVIOR/OmniGibson environment. It exposes reset, observation, action,
-  Dashboard control, and official success receipts over RPent RPC.
+  camera rendering, and official success receipts over RPent RPC.
 - **vla_server** (``robots/behavior/vla_server.py``) owns the Pi0.5 BEHAVIOR
   checkpoint and exposes ``predict`` over RPent RPC.
 - **dino_server** (``robots/behavior/dino_server.py``) owns the DINOv2-S/14

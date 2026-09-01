@@ -655,7 +655,6 @@ class DashboardState:
         result = event.result
         if not isinstance(result, dict):
             return
-        self._apply_frame_paths(result)
         frames = {
             "camera": result.get("_image_cam_bytes") or result.get("_image_bytes"),
             "wrist": result.get("_image_wrist_bytes"),

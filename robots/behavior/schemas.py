@@ -28,23 +28,7 @@ from robots.behavior.task_specs import BehaviorTaskSpec, get_task_spec
 ACTION_DIM = 23
 DEFAULT_ACTION_CHUNK = 32
 CAMERA_KEYS = ("main", "left_wrist", "right_wrist")
-DASHBOARD_CONTROL_TARGETS = ("chassis", "left_arm", "right_arm")
-DASHBOARD_CONTROL_ACTIONS = (
-    "forward",
-    "backward",
-    "turn_left",
-    "turn_right",
-    "left",
-    "right",
-    "up",
-    "down",
-    "rotate_left",
-    "rotate_right",
-    "open",
-    "close",
-    "observe",
-)
-DASHBOARD_CONTROL_CAMERAS = ("head", "left_wrist", "right_wrist")
+PHYSICAL_CAMERAS = ("head", "left_wrist", "right_wrist")
 HEAD_VIEW_PRESETS = (
     "center",
     "up",
@@ -667,7 +651,7 @@ def validate_observe_request(
     frame_review: Any = None,
     depth_probe: Any = None,
 ) -> dict[str, Any]:
-    if not isinstance(camera, str) or camera not in DASHBOARD_CONTROL_CAMERAS:
+    if not isinstance(camera, str) or camera not in PHYSICAL_CAMERAS:
         raise ValueError("camera must be head, left_wrist, or right_wrist")
     if frame_review is not None and depth_probe is not None:
         raise ValueError("frame_review and depth_probe are mutually exclusive")
@@ -697,106 +681,14 @@ def validate_observe_request(
     return request
 
 
-def validate_dashboard_manual_command(
-    *,
-    target: Any,
-    action: Any,
-    camera: Any,
-) -> dict[str, str]:
-    if not isinstance(target, str) or target not in DASHBOARD_CONTROL_TARGETS:
-        raise ValueError("target must be chassis, left_arm, or right_arm")
-    if not isinstance(action, str) or action not in DASHBOARD_CONTROL_ACTIONS:
-        raise ValueError("unsupported dashboard manual action")
-    if not isinstance(camera, str) or camera not in DASHBOARD_CONTROL_CAMERAS:
-        raise ValueError("camera must be head, left_wrist, or right_wrist")
-    allowed = (
-        {
-            "forward",
-            "backward",
-            "turn_left",
-            "turn_right",
-            "up",
-            "down",
-            "observe",
-        }
-        if target == "chassis"
-        else {
-            "forward",
-            "backward",
-            "left",
-            "right",
-            "up",
-            "down",
-            "rotate_left",
-            "rotate_right",
-            "open",
-            "close",
-            "observe",
-        }
-    )
-    if action not in allowed:
-        raise ValueError(f"{action} is not available for {target}")
-    return {"target": target, "action": action, "camera": camera}
-
-
-def validate_dashboard_control_capabilities(value: Any) -> dict[str, Any]:
-    if not isinstance(value, Mapping):
-        raise TypeError("dashboard control capabilities must be an object")
-    return dict(value)
-
-
 def _identifier(value: Any, *, name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must be a non-empty string")
     return value.strip()
 
 
-def validate_dashboard_plan_id(value: Any) -> str:
-    return _identifier(value, name="plan_id")
-
-
-def validate_dashboard_command_id(value: Any) -> str:
-    return _identifier(value, name="command_id")
-
-
-def validate_dashboard_prepare_request(
-    *,
-    target: Any,
-    action: Any,
-    camera: Any,
-    predecessor_plan_id: Any = None,
-    permit_command_id: Any = None,
-    background: Any = False,
-    planning_only_probe: Any = False,
-) -> dict[str, Any]:
-    command = validate_dashboard_manual_command(
-        target=target,
-        action=action,
-        camera=camera,
-    )
-    if command["action"] == "observe":
-        raise ValueError("observe must use dashboard capture")
-    if type(background) is not bool:
-        raise TypeError("background must be boolean")
-    if type(planning_only_probe) is not bool:
-        raise TypeError("planning_only_probe must be boolean")
-    predecessor = (
-        None
-        if predecessor_plan_id is None
-        else _identifier(predecessor_plan_id, name="predecessor_plan_id")
-    )
-    permit = (
-        None
-        if permit_command_id is None
-        else validate_dashboard_command_id(permit_command_id)
-    )
-    return {
-        **command,
-        "predecessor_plan_id": predecessor,
-        "permit_command_id": permit,
-        "background": background,
-        **({"planning_only_probe": True} if planning_only_probe else {}),
-    }
+def validate_prepared_plan_id(value: Any) -> str:
+    return _identifier(value, name="prepared_plan_id")
 
 
 def validate_relative_navigation_motion(value: Any) -> dict[str, Any]:
@@ -927,9 +819,6 @@ __all__ = [
     "CAMERA_KEYS",
     "CLOSE_SPEC",
     "CURRENT_PUBLIC_TOOL_CONTRACT_VERSION",
-    "DASHBOARD_CONTROL_ACTIONS",
-    "DASHBOARD_CONTROL_CAMERAS",
-    "DASHBOARD_CONTROL_TARGETS",
     "DEFAULT_ACTION_CHUNK",
     "ENV_ACTION_SEGMENTS",
     "ENV_WIRE_SCHEMA",
@@ -942,6 +831,7 @@ __all__ = [
     "OBSERVE_SPEC",
     "OPEN_SPEC",
     "PI0_NAV_PICK_SPEC",
+    "PHYSICAL_CAMERAS",
     "PIXEL_TO_WORLD_SPEC",
     "POLICY_STATE_SEGMENTS",
     "PRESS_SPEC",
@@ -954,14 +844,10 @@ __all__ = [
     "extract_policy_state",
     "segment_ranges",
     "validate_action_chunk",
-    "validate_dashboard_command_id",
-    "validate_dashboard_control_capabilities",
-    "validate_dashboard_manual_command",
-    "validate_dashboard_plan_id",
-    "validate_dashboard_prepare_request",
     "validate_move_both_targets",
     "validate_move_both_visual_hand_checks",
     "validate_observe_request",
+    "validate_prepared_plan_id",
     "validate_policy_state",
     "validate_relative_navigation_motion",
     "validate_visibility_recovery_check",

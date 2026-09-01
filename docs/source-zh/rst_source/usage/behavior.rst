@@ -245,7 +245,7 @@ episode memory；candidate Explore 证据必须与 held-out Eval artifact 分开
 
 - **env_server** （``robots/behavior/env_server.py``）持有官方
   BEHAVIOR/OmniGibson 环境，并通过 RPent RPC 暴露 reset、observation、action、
-  Dashboard control 和官方成功 receipt。
+  相机渲染和官方成功 receipt。
 - **vla_server** （``robots/behavior/vla_server.py``）持有 Pi0.5 BEHAVIOR
   checkpoint，并通过 RPent RPC 暴露 ``predict``。
 - **dino_server** （``robots/behavior/dino_server.py``）持有 DINOv2-S/14

@@ -29,7 +29,6 @@ import json
 import os
 import sys
 import time
-import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
@@ -39,52 +38,7 @@ import numpy as np
 
 ACTION_DIM = 23
 ACTION_HORIZON = 32
-CAMERAS = ("head", "left_wrist", "right_wrist")
-MANUAL_ACTIONS = {
-    "chassis": ("forward", "backward", "turn_left", "turn_right"),
-    "left_arm": (
-        "forward",
-        "backward",
-        "left",
-        "right",
-        "up",
-        "down",
-        "open",
-        "close",
-    ),
-    "right_arm": (
-        "forward",
-        "backward",
-        "left",
-        "right",
-        "up",
-        "down",
-        "open",
-        "close",
-    ),
-}
-_ARM_WORLD_STEP_M = 0.03
-_ARM_SERVO_MAX_STEPS = 24
-_ARM_SERVO_STEP_CLIP_M = 0.008
-_ARM_SERVO_TOLERANCE_M = 0.006
-_ARM_SERVO_JOINT_CLIP_RAD = 0.04
-_ARM_SERVO_DAMPING = 0.004
-_ARM_SERVO_POSITION_GUARD_M = 0.055
-_ARM_SERVO_STEP_GUARD_M = 0.02
-_ARM_WORLD_DELTAS = {
-    "forward": (_ARM_WORLD_STEP_M, 0.0, 0.0),
-    "backward": (-_ARM_WORLD_STEP_M, 0.0, 0.0),
-    "left": (0.0, _ARM_WORLD_STEP_M, 0.0),
-    "right": (0.0, -_ARM_WORLD_STEP_M, 0.0),
-    "up": (0.0, 0.0, _ARM_WORLD_STEP_M),
-    "down": (0.0, 0.0, -_ARM_WORLD_STEP_M),
-}
-_RAW_LEFT_ARM = slice(158, 165)
-_RAW_LEFT_GRIPPER = slice(193, 195)
-_RAW_RIGHT_ARM = slice(197, 204)
-_RAW_RIGHT_GRIPPER = slice(232, 234)
-_RAW_TRUNK = slice(236, 240)
-_RAW_PROPRIO_MIN_SIZE = 256
+PHYSICAL_CAMERAS = ("head", "left_wrist", "right_wrist")
 EXACT_OFFICIAL_CONFIG_MODE = "exact_official_v1"
 EXACT_OFFICIAL_RUNTIME_SUPPORT_SCHEMA = (
     "rlinf.behavior.exact_official_runtime_support.v1"
@@ -887,13 +841,13 @@ def _png_bytes(image: np.ndarray) -> bytes:
     return buf.getvalue()
 
 
-def _write_capture_files(
+def _write_frame_files(
     frames: Mapping[str, bytes],
     *,
     output_dir: Path,
     group_id: str,
 ) -> dict[str, str]:
-    capture_dir = output_dir / "dashboard_captures"
+    capture_dir = output_dir / "captures"
     capture_dir.mkdir(parents=True, exist_ok=True)
     paths: dict[str, str] = {}
     for camera, payload in frames.items():
@@ -927,11 +881,9 @@ class OfficialBehaviorBackend:
         self._last_raw_obs: Any = None
         self._closed = False
         self._episode_ended = False
-        self._manual_stop_latched = False
         self._total_env_steps = 0
         self._official_success_latched = False
         self._official_success_receipt: dict[str, Any] | None = None
-        self._prepared: dict[str, dict[str, Any]] = {}
         self.cfg = (
             cfg
             if cfg is not None
@@ -1132,8 +1084,6 @@ class OfficialBehaviorBackend:
         try:
             self._total_env_steps = 0
             self._episode_ended = False
-            self._manual_stop_latched = False
-            self._prepared.clear()
             raw_obs, info = self._reset_raw()
             self._last_raw_obs = raw_obs
             self._last_obs = self._wrap_raw_obs(raw_obs)
@@ -1261,691 +1211,24 @@ class OfficialBehaviorBackend:
         image = self.render_camera(camera)
         payload = _png_bytes(image)
         frame_id = f"behavior-{self.total_env_steps}-{camera}"
+        frame_payload = (
+            {"_image_cam_bytes": payload}
+            if camera == "head"
+            else {"_image_wrist_bytes": payload}
+        )
         return {
             "status": "ok",
             "camera": camera,
             "frame_id": frame_id,
             "step": self.total_env_steps,
             "_image_bytes": payload,
-            "_image_cam_bytes": payload,
-            "frames": _write_capture_files(
+            **frame_payload,
+            "frames": _write_frame_files(
                 {camera: payload},
                 output_dir=self.output_dir,
                 group_id=frame_id,
             ),
             "info": self._last_info,
-        }
-
-    def dashboard_capture_views(
-        self,
-        *,
-        command_id: str | None = None,
-        camera: str | None = None,
-    ) -> dict[str, Any]:
-        del camera
-        if self._last_obs is None:
-            raise RuntimeError("cannot capture views before reset")
-        group_id = str(command_id or f"capture_{uuid.uuid4().hex}")
-        frames = {
-            "head": _png_bytes(self._last_obs["main_images"]),
-            "left_wrist": _png_bytes(self._last_obs["wrist_images"][0]),
-            "right_wrist": _png_bytes(self._last_obs["wrist_images"][1]),
-        }
-        paths = _write_capture_files(
-            frames, output_dir=self.output_dir, group_id=group_id
-        )
-        return {
-            "status": "ok",
-            "capture_group_id": group_id,
-            "simulator_step": int(self.total_env_steps),
-            "env_step": int(self.total_env_steps),
-            "_frames_bytes": frames,
-            "frames": paths,
-            "transport_note": (
-                "direct backend result contains PNG bytes; current RPent HTTP "
-                "env RPC does not preserve bytes without an env_client decode path"
-            ),
-        }
-
-    def dashboard_control_capabilities(self) -> dict[str, Any]:
-        motion_ready = (
-            self._last_obs is not None
-            and not self._closed
-            and not self._episode_ended
-            and not self._manual_stop_latched
-            and not self._official_success_latched
-        )
-        return {
-            "motion_available": motion_ready,
-            "observe_available": True,
-            "capture_available": True,
-            "safe_stop_available": True,
-            "prepare_available": motion_ready,
-            "execute_available": motion_ready,
-            "discard_available": True,
-            "action_capabilities": {
-                target: list(actions) for target, actions in MANUAL_ACTIONS.items()
-            },
-            "motion_unavailable_reason": (
-                "manual control is stopped until the next environment reset"
-                if self._manual_stop_latched
-                else (
-                    "manual control is unavailable before the environment reset"
-                    if not motion_ready
-                    else ""
-                )
-            ),
-            "unsupported_motion_reason": (
-                "this motion is not implemented by the BEHAVIOR manual adapter"
-            ),
-            "arm_translation_frame": "world",
-            "arm_translation_step_m": _ARM_WORLD_STEP_M,
-            "arm_world_axes": {"forward": "+X", "left": "+Y", "up": "+Z"},
-            "arm_planning_mode": (
-                "curobo_world_collision_checked_target_ik_then_"
-                "bounded_damped_jacobian_servo"
-            ),
-            "arm_path_collision_checked": False,
-            "cameras": list(CAMERAS),
-            "action_dim": ACTION_DIM,
-            "action_horizon": ACTION_HORIZON,
-            "official_success_source": 'info["done"]["success"]',
-            "total_env_steps": int(self.total_env_steps),
-        }
-
-    def _manual_hold_action(self) -> np.ndarray:
-        if self._closed:
-            raise RuntimeError("manual control is unavailable after backend close")
-        if self._episode_ended:
-            raise RuntimeError(
-                "manual control is unavailable after episode termination"
-            )
-        if self._manual_stop_latched:
-            raise RuntimeError("manual control is stopped until the next reset")
-        if self._official_success_latched:
-            raise RuntimeError("manual control is unavailable after official success")
-        if self._last_obs is None:
-            raise RuntimeError("manual control requires an environment observation")
-        proprio = np.asarray(self._last_obs["states"], dtype=np.float32).reshape(-1)
-        if proprio.size < _RAW_PROPRIO_MIN_SIZE or not np.isfinite(proprio).all():
-            raise ValueError(
-                "manual control requires finite raw R1Pro proprio with at least "
-                f"{_RAW_PROPRIO_MIN_SIZE} values"
-            )
-        action = np.zeros(ACTION_DIM, dtype=np.float32)
-        action[3:7] = proprio[_RAW_TRUNK]
-        action[7:14] = proprio[_RAW_LEFT_ARM]
-        action[14] = self._gripper_hold_command(proprio[_RAW_LEFT_GRIPPER])
-        action[15:22] = proprio[_RAW_RIGHT_ARM]
-        action[22] = self._gripper_hold_command(proprio[_RAW_RIGHT_GRIPPER])
-        return action
-
-    @staticmethod
-    def _gripper_hold_command(joint_positions: np.ndarray) -> float:
-        command = (
-            float(np.asarray(joint_positions, dtype=np.float32).sum()) / 0.05 - 1.0
-        )
-        return float(np.clip(command, -1.0, 1.0))
-
-    @staticmethod
-    def _manual_command_spec(target: str, action: str) -> dict[str, Any]:
-        if action not in MANUAL_ACTIONS.get(target, ()):
-            raise ValueError(
-                f"manual action {target}.{action} is unsupported by the "
-                "BEHAVIOR manual adapter"
-            )
-        if target == "chassis":
-            if action in {"forward", "backward"}:
-                return {
-                    "kind": "base_velocity",
-                    "action_index": 0,
-                    "command": 0.35 if action == "forward" else -0.35,
-                    "motion_steps": 12,
-                    "nominal_motion": "5 cm",
-                }
-            return {
-                "kind": "base_velocity",
-                "action_index": 2,
-                "command": 0.5 if action == "turn_left" else -0.5,
-                "motion_steps": 10,
-                "nominal_motion": "5 deg",
-            }
-        if action in _ARM_WORLD_DELTAS:
-            return {
-                "kind": "arm_cartesian_world",
-                "hand": "left" if target == "left_arm" else "right",
-                "delta_world_xyz": list(_ARM_WORLD_DELTAS[action]),
-                "motion_steps": _ARM_SERVO_MAX_STEPS,
-                "nominal_motion": "3 cm",
-            }
-        return {
-            "kind": "gripper_position",
-            "action_index": 14 if target == "left_arm" else 22,
-            "command": 1.0 if action == "open" else -1.0,
-            "motion_steps": 12,
-            "nominal_motion": action,
-        }
-
-    def _current_eef_pose(self, hand: str) -> tuple[np.ndarray, np.ndarray]:
-        robot = getattr(self._env, "robot", None)
-        getter = getattr(robot, "get_eef_pose", None)
-        if not callable(getter):
-            raise RuntimeError("official RLinf environment exposes no live EEF pose")
-        position, quaternion = getter(hand)
-        position = np.asarray(_torch_to_numpy(position), dtype=np.float32).reshape(-1)
-        quaternion = np.asarray(_torch_to_numpy(quaternion), dtype=np.float32).reshape(
-            -1
-        )
-        if (
-            position.shape != (3,)
-            or quaternion.shape != (4,)
-            or not np.isfinite(position).all()
-            or not np.isfinite(quaternion).all()
-        ):
-            raise RuntimeError(f"invalid live {hand} EEF pose")
-        return position, quaternion
-
-    def _current_manipulation_position_jacobian(self, hand: str) -> np.ndarray:
-        robot = getattr(self._env, "robot", None)
-        if robot is None:
-            raise RuntimeError("official RLinf environment exposes no robot handle")
-        get_jacobian = getattr(robot, "get_jacobian", None)
-        if not callable(get_jacobian):
-            raise RuntimeError("R1Pro robot exposes no Jacobian")
-        try:
-            raw_jacobian = get_jacobian(clone=True)
-        except TypeError:
-            raw_jacobian = get_jacobian()
-        jacobian = np.asarray(_torch_to_numpy(raw_jacobian), dtype=np.float64)
-        arm_indices = np.asarray(
-            _torch_to_numpy(robot.arm_control_idx[hand]), dtype=np.int64
-        ).reshape(-1)
-        trunk_indices = np.asarray(
-            _torch_to_numpy(robot.trunk_control_idx), dtype=np.int64
-        ).reshape(-1)
-        if arm_indices.shape != (7,) or trunk_indices.shape != (4,):
-            raise RuntimeError(f"invalid {hand} manipulation control indices")
-        column_offset = 0 if bool(getattr(robot, "fixed_base", False)) else 6
-        columns = np.concatenate([trunk_indices, arm_indices]) + column_offset
-        if jacobian.ndim == 2:
-            link_jacobian = jacobian
-        elif jacobian.ndim == 3:
-            eef_name = str(robot.eef_link_names[hand])
-            articulation_view = getattr(robot, "_articulation_view", None)
-            get_body_index = getattr(articulation_view, "get_body_index", None)
-            if not callable(get_body_index):
-                raise RuntimeError("R1Pro articulation exposes no EEF body index")
-            body_index_value = np.asarray(
-                _torch_to_numpy(get_body_index(eef_name)), dtype=np.int64
-            ).reshape(-1)
-            if body_index_value.shape != (1,):
-                raise RuntimeError("R1Pro EEF body index is not scalar")
-            body_index = int(body_index_value[0])
-            row = -(int(robot.n_links) - body_index)
-            if not -jacobian.shape[0] <= row < jacobian.shape[0]:
-                raise RuntimeError("R1Pro EEF body index exceeds Jacobian rows")
-            link_jacobian = jacobian[row]
-        else:
-            raise RuntimeError(f"invalid R1Pro Jacobian shape {jacobian.shape}")
-        if link_jacobian.ndim != 2 or link_jacobian.shape[0] < 3:
-            raise RuntimeError(
-                f"invalid R1Pro link Jacobian shape {link_jacobian.shape}"
-            )
-        if int(columns.max()) >= link_jacobian.shape[1]:
-            raise RuntimeError("R1Pro manipulation indices exceed Jacobian columns")
-        position_jacobian = np.asarray(link_jacobian[:3, columns], dtype=np.float64)
-        if (
-            position_jacobian.shape != (3, 11)
-            or not np.isfinite(position_jacobian).all()
-        ):
-            raise RuntimeError("invalid R1Pro EEF position Jacobian")
-        return position_jacobian
-
-    def _manual_action_plan(
-        self, spec: Mapping[str, Any]
-    ) -> tuple[np.ndarray, dict[str, Any]]:
-        hold = self._manual_hold_action()
-        if spec["kind"] == "arm_cartesian_world":
-            hand = str(spec["hand"])
-            start_xyz, start_quat = self._current_eef_pose(hand)
-            delta_xyz = np.asarray(spec["delta_world_xyz"], dtype=np.float32).reshape(3)
-            target_xyz = start_xyz + delta_xyz
-            solver = getattr(self._env, "ik_solver", None)
-            if not callable(solver):
-                raise RuntimeError("official RLinf environment exposes no IK solver")
-            collision_checked_target = np.asarray(
-                solver(
-                    target_xyz,
-                    hand=hand,
-                    target_quat=start_quat,
-                    skip_obstacle_update=False,
-                    timeout=60.0,
-                ),
-                dtype=np.float32,
-            ).reshape(-1)
-            if (
-                collision_checked_target.shape != (ACTION_DIM,)
-                or not np.isfinite(collision_checked_target).all()
-            ):
-                raise RuntimeError("RLinf IK solver returned an invalid 23D action")
-            self._current_manipulation_position_jacobian(hand)
-            return np.empty((0, ACTION_DIM), dtype=np.float32), {
-                "hand": hand,
-                "translation_frame": "world",
-                "world_axes": {"forward": "+X", "left": "+Y", "up": "+Z"},
-                "planning_mode": (
-                    "curobo_world_collision_checked_target_ik_then_"
-                    "bounded_damped_jacobian_servo"
-                ),
-                "path_collision_checked": False,
-                "servo_step_clip_m": _ARM_SERVO_STEP_CLIP_M,
-                "servo_tolerance_m": _ARM_SERVO_TOLERANCE_M,
-                "servo_joint_clip_rad": _ARM_SERVO_JOINT_CLIP_RAD,
-                "servo_position_guard_m": _ARM_SERVO_POSITION_GUARD_M,
-                "requested_delta_world_xyz": delta_xyz.tolist(),
-                "eef_start_xyz": start_xyz.tolist(),
-                "eef_target_xyz": target_xyz.tolist(),
-            }
-        motion = hold.copy()
-        motion[int(spec["action_index"])] = float(spec["command"])
-        steps = int(spec["motion_steps"])
-        sequence = np.repeat(motion[None, :], steps, axis=0)
-        if spec["kind"] == "base_velocity":
-            sequence = np.concatenate([sequence, hold[None, :]], axis=0)
-        return np.ascontiguousarray(sequence, dtype=np.float32), {}
-
-    def _execute_manual_sequence(
-        self, actions: np.ndarray
-    ) -> tuple[int, str, bool, bool, dict[str, Any]]:
-        executed_steps = 0
-        stop_reason = "requested_actions_completed"
-        terminated = False
-        truncated = False
-        last_obs: Any = None
-        last_info: dict[str, Any] = {}
-        for action in actions:
-            if self._manual_stop_latched:
-                stop_reason = "manual_safe_stop"
-                break
-            raw_obs, _reward, step_terminated, step_truncated, info = (
-                self._step_one_raw(action)
-            )
-            executed_steps += 1
-            self._total_env_steps += 1
-            last_obs = raw_obs
-            last_info = info
-            if _raw_success(info):
-                stop_reason = "official_task_success"
-                terminated = True
-                break
-            if step_terminated:
-                stop_reason = "terminated"
-                terminated = True
-                break
-            if step_truncated:
-                stop_reason = "truncated"
-                truncated = True
-                break
-        if last_obs is not None:
-            self._last_raw_obs = last_obs
-            self._last_obs = self._wrap_raw_obs(last_obs)
-        if terminated or truncated:
-            self._episode_ended = True
-        return (
-            executed_steps,
-            stop_reason,
-            terminated,
-            truncated,
-            self._note_info(last_info),
-        )
-
-    def _execute_arm_cartesian_world(
-        self,
-        spec: Mapping[str, Any],
-        motion_metadata: dict[str, Any],
-    ) -> tuple[int, str, bool, bool, dict[str, Any]]:
-        hand = str(spec["hand"])
-        target = np.asarray(
-            motion_metadata["eef_target_xyz"], dtype=np.float32
-        ).reshape(3)
-        start = np.asarray(motion_metadata["eef_start_xyz"], dtype=np.float32).reshape(
-            3
-        )
-        executed_steps = 0
-        stop_reason = "manual_cartesian_max_steps"
-        terminated = False
-        truncated = False
-        last_info: dict[str, Any] = {}
-        info_already_noted = False
-        best_error = float(np.linalg.norm(target - start))
-        stalled_steps = 0
-        last_measured = start.copy()
-
-        for _ in range(int(spec["motion_steps"])):
-            if self._manual_stop_latched:
-                stop_reason = "manual_safe_stop"
-                break
-            current, _ = self._current_eef_pose(hand)
-            last_measured = current
-            error = target - current
-            distance = float(np.linalg.norm(error))
-            if distance <= _ARM_SERVO_TOLERANCE_M:
-                stop_reason = "manual_cartesian_target_reached"
-                break
-            if float(np.linalg.norm(current - start)) > _ARM_SERVO_POSITION_GUARD_M:
-                self._manual_stop_latched = True
-                stop_reason = "manual_cartesian_position_guard"
-                break
-
-            task_delta = np.asarray(error, dtype=np.float64)
-            delta_norm = float(np.linalg.norm(task_delta))
-            if delta_norm > _ARM_SERVO_STEP_CLIP_M:
-                task_delta *= _ARM_SERVO_STEP_CLIP_M / delta_norm
-            jacobian = self._current_manipulation_position_jacobian(hand)
-            lhs = jacobian @ jacobian.T + (_ARM_SERVO_DAMPING**2) * np.eye(
-                3, dtype=np.float64
-            )
-            try:
-                joint_delta = jacobian.T @ np.linalg.solve(lhs, task_delta)
-            except np.linalg.LinAlgError as exc:
-                raise RuntimeError("Jacobian servo solve failed") from exc
-            max_joint_delta = float(np.max(np.abs(joint_delta)))
-            if max_joint_delta > _ARM_SERVO_JOINT_CLIP_RAD:
-                joint_delta *= _ARM_SERVO_JOINT_CLIP_RAD / max_joint_delta
-            joint_delta = joint_delta.astype(np.float32)
-            if joint_delta.shape != (11,) or not np.isfinite(joint_delta).all():
-                raise RuntimeError("Jacobian servo produced an invalid joint delta")
-            predicted = jacobian @ joint_delta.astype(np.float64)
-            if float(np.dot(predicted, task_delta)) <= 0.0:
-                raise RuntimeError("Jacobian servo step does not approach the target")
-
-            action = self._manual_hold_action()
-            arm_slice = slice(7, 14) if hand == "left" else slice(15, 22)
-            action[3:7] += joint_delta[:4]
-            action[arm_slice] += joint_delta[4:]
-            raw_obs, _reward, step_terminated, step_truncated, info = (
-                self._step_one_raw(action)
-            )
-            executed_steps += 1
-            self._total_env_steps += 1
-            self._last_raw_obs = raw_obs
-            self._last_obs = self._wrap_raw_obs(raw_obs)
-            last_info = info
-
-            if _raw_success(info):
-                last_info = self._note_info(info)
-                info_already_noted = True
-                stop_reason = "official_task_success"
-                terminated = True
-                break
-            if step_terminated:
-                stop_reason = "terminated"
-                terminated = True
-                break
-            if step_truncated:
-                stop_reason = "truncated"
-                truncated = True
-                break
-            after, _ = self._current_eef_pose(hand)
-            last_measured = after
-            step_distance = float(np.linalg.norm(after - current))
-            total_distance = float(np.linalg.norm(after - start))
-            after_error = float(np.linalg.norm(target - after))
-            if step_distance > _ARM_SERVO_STEP_GUARD_M:
-                self._manual_stop_latched = True
-                stop_reason = "manual_cartesian_step_guard"
-                break
-            if total_distance > _ARM_SERVO_POSITION_GUARD_M:
-                self._manual_stop_latched = True
-                stop_reason = "manual_cartesian_position_guard"
-                break
-            if after_error < best_error - 0.0005:
-                best_error = after_error
-                stalled_steps = 0
-            else:
-                stalled_steps += 1
-                if stalled_steps >= 6:
-                    stop_reason = "manual_cartesian_stalled"
-                    break
-
-        if terminated or truncated:
-            self._episode_ended = True
-        if terminated or truncated:
-            final = last_measured
-        else:
-            final, _ = self._current_eef_pose(hand)
-        final_error = float(np.linalg.norm(target - final))
-        if final_error <= _ARM_SERVO_TOLERANCE_M and stop_reason in {
-            "manual_cartesian_max_steps",
-            "manual_cartesian_stalled",
-        }:
-            stop_reason = "manual_cartesian_target_reached"
-        motion_metadata.update(
-            {
-                "eef_after_xyz": final.tolist(),
-                "achieved_delta_world_xyz": (final - start).tolist(),
-                "final_target_error_m": final_error,
-                "target_reached": final_error <= _ARM_SERVO_TOLERANCE_M,
-            }
-        )
-        return (
-            executed_steps,
-            stop_reason,
-            terminated,
-            truncated,
-            last_info if info_already_noted else self._note_info(last_info),
-        )
-
-    def dashboard_prepare_manual_command(
-        self,
-        *,
-        target: str,
-        action: str,
-        camera: str,
-        predecessor_plan_id: str | None = None,
-        permit_command_id: str | None = None,
-        background: bool = False,
-        planning_only_probe: bool = False,
-    ) -> dict[str, Any]:
-        del background
-        command_id = str(permit_command_id or f"cmd_{uuid.uuid4().hex}")
-        target = str(target)
-        action = str(action)
-        camera = _physical_camera(camera)
-        try:
-            spec = self._manual_command_spec(target, action)
-            actions, motion_metadata = self._manual_action_plan(spec)
-        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
-            return {
-                "status": "failed",
-                "plan_id": f"unsupported_{command_id}",
-                "command_id": command_id,
-                "target": target,
-                "action": action,
-                "camera": camera,
-                "primitive_success": False,
-                "task_success": self.official_success_latched,
-                "stop_reason": "manual_motion_unavailable",
-                "error": str(exc),
-                "motion_available": False,
-            }
-        plan_id = f"manual_{command_id}"
-        prepared = {
-            "status": "ok",
-            "plan_id": plan_id,
-            "command_id": command_id,
-            "target": target,
-            "action": action,
-            "camera": camera,
-            "predecessor_plan_id": predecessor_plan_id,
-            "planning_only_probe": bool(planning_only_probe),
-            "manual_spec": spec,
-            "planned_from_env_step": int(self.total_env_steps),
-            "motion_metadata": motion_metadata,
-            "primitive_success": True,
-            "task_success": self.official_success_latched,
-            "motion_available": True,
-        }
-        self._prepared[command_id] = {**prepared, "_manual_actions": actions}
-        return dict(prepared)
-
-    def dashboard_execute_prepared_command(
-        self,
-        *,
-        command_id: str,
-        plan_id: str | None = None,
-    ) -> dict[str, Any]:
-        prepared = self._prepared.get(str(command_id))
-        if not prepared:
-            return {
-                "status": "failed",
-                "plan_id": str(plan_id or ""),
-                "command_id": str(command_id),
-                "prepared": False,
-                "primitive_success": False,
-                "task_success": self.official_success_latched,
-                "stop_reason": "prepared_command_missing",
-                "error": "manual command was not prepared or was already consumed",
-            }
-        resolved_plan_id = str(plan_id or prepared.get("plan_id") or "")
-        if resolved_plan_id != prepared["plan_id"]:
-            return {
-                "status": "failed",
-                "plan_id": resolved_plan_id,
-                "command_id": str(command_id),
-                "prepared": True,
-                "primitive_success": False,
-                "task_success": self.official_success_latched,
-                "stop_reason": "prepared_plan_mismatch",
-                "error": "plan_id does not match the prepared manual command",
-            }
-        try:
-            self._manual_hold_action()
-        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
-            self._prepared.pop(str(command_id), None)
-            return {
-                "status": "failed",
-                "plan_id": resolved_plan_id,
-                "command_id": str(command_id),
-                "prepared": True,
-                "primitive_success": False,
-                "task_success": self.official_success_latched,
-                "stop_reason": "manual_motion_unavailable",
-                "error": str(exc),
-                "motion_available": False,
-            }
-        if int(prepared.get("planned_from_env_step", -1)) != int(self.total_env_steps):
-            self._prepared.pop(str(command_id), None)
-            return {
-                "status": "failed",
-                "plan_id": resolved_plan_id,
-                "command_id": str(command_id),
-                "prepared": True,
-                "primitive_success": False,
-                "task_success": self.official_success_latched,
-                "stop_reason": "manual_motion_stale",
-                "error": "environment changed after this manual command was planned",
-                "motion_available": True,
-            }
-        actions = np.asarray(prepared["_manual_actions"], dtype=np.float32)
-        self._prepared.pop(str(command_id), None)
-        motion_metadata = dict(prepared.get("motion_metadata") or {})
-        try:
-            if prepared["manual_spec"]["kind"] == "arm_cartesian_world":
-                executed_steps, stop_reason, terminated, truncated, info = (
-                    self._execute_arm_cartesian_world(
-                        prepared["manual_spec"], motion_metadata
-                    )
-                )
-            else:
-                executed_steps, stop_reason, terminated, truncated, info = (
-                    self._execute_manual_sequence(actions)
-                )
-        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
-            return {
-                "status": "failed",
-                "plan_id": resolved_plan_id,
-                "command_id": str(command_id),
-                "prepared": True,
-                "primitive_success": False,
-                "task_success": self.official_success_latched,
-                "stop_reason": "manual_motion_failed",
-                "error": str(exc),
-                "motion_available": not (
-                    self._episode_ended or self._manual_stop_latched
-                ),
-                "motion_metadata": motion_metadata,
-            }
-        target_reached = motion_metadata.get("target_reached")
-        if prepared["manual_spec"]["kind"] == "arm_cartesian_world":
-            primitive_success = bool(target_reached) or self.official_success_latched
-        else:
-            primitive_success = executed_steps > 0
-        return {
-            "status": "ok",
-            "plan_id": resolved_plan_id,
-            "command_id": str(command_id),
-            "prepared": True,
-            "target": prepared["target"],
-            "action": prepared["action"],
-            "camera": prepared["camera"],
-            "requested_steps": (
-                int(prepared["manual_spec"]["motion_steps"])
-                if prepared["manual_spec"]["kind"] == "arm_cartesian_world"
-                else int(actions.shape[0])
-            ),
-            "executed_steps": executed_steps,
-            "primitive_success": primitive_success,
-            "task_success": self.official_success_latched,
-            "terminated": terminated,
-            "truncated": truncated,
-            "stop_reason": stop_reason,
-            "motion_available": not (
-                self.official_success_latched
-                or terminated
-                or truncated
-                or self._manual_stop_latched
-            ),
-            "motion_metadata": motion_metadata,
-            "info": info,
-        }
-
-    def dashboard_discard_prepared_command(
-        self,
-        *,
-        command_id: str,
-        plan_id: str | None = None,
-    ) -> dict[str, Any]:
-        removed = self._prepared.pop(str(command_id), None)
-        resolved_plan_id = str(plan_id or (removed or {}).get("plan_id") or "")
-        return {
-            "status": "ok",
-            "discarded": removed is not None,
-            "plan_id": resolved_plan_id,
-            "command_id": str(command_id),
-            "primitive_success": True,
-            "task_success": self.official_success_latched,
-        }
-
-    def dashboard_safe_stop(
-        self,
-        *,
-        reason: str = "client_stop",
-        stop_mode: str = "safe_stop",
-    ) -> dict[str, Any]:
-        self._prepared.clear()
-        self._manual_stop_latched = True
-        return {
-            "status": "ok",
-            "stopped": True,
-            "reason": str(reason),
-            "stop_mode": str(stop_mode),
-            "primitive_success": True,
-            "task_success": self.official_success_latched,
-            "official_success_source": 'info["done"]["success"]',
-            "official_success_receipt": self.official_success_receipt,
-            "motion_command_issued": False,
-            "total_env_steps": int(self.total_env_steps),
         }
 
     def get_prepared_motion_status(
@@ -1955,28 +1238,15 @@ class OfficialBehaviorBackend:
         **_kwargs: Any,
     ) -> dict[str, Any]:
         return {
-            "status": "ok"
-            if any(
-                item.get("plan_id") == prepared_plan_id
-                for item in self._prepared.values()
-            )
-            else "unknown",
+            "status": "unknown",
             "prepared_plan_id": str(prepared_plan_id),
             "motion_available": (
                 self._last_obs is not None
                 and not self._closed
                 and not self._episode_ended
-                and not self._manual_stop_latched
                 and not self._official_success_latched
             ),
-            "prepared": next(
-                (
-                    item
-                    for item in self._prepared.values()
-                    if item.get("plan_id") == prepared_plan_id
-                ),
-                None,
-            ),
+            "prepared": None,
         }
 
     def finalize_paused_runtime(
@@ -2000,11 +1270,11 @@ class OfficialBehaviorBackend:
             "name": name,
             "primitive_success": False,
             "task_success": self.official_success_latched,
-            "stop_reason": "manual_motion_unavailable",
+            "stop_reason": "motion_unavailable",
             "error": (
-                f"{name} requires a reviewed manual motion adapter; this "
+                f"{name} requires a reviewed motion adapter; this "
                 "backend only supports reset/current_observation/pi0 chunk "
-                "stepping/capture/safe_stop"
+                "stepping and observation"
             ),
             "motion_available": False,
             "request": _strict_public_json(dict(kwargs)),
@@ -2070,7 +1340,7 @@ def _physical_camera(value: Any) -> str:
         "right": "right_wrist",
     }
     camera = aliases.get(camera, camera)
-    if camera not in CAMERAS:
+    if camera not in PHYSICAL_CAMERAS:
         raise ValueError("camera must be head, left_wrist, or right_wrist")
     return camera
 
@@ -2086,7 +1356,7 @@ def create_backend(
 __all__ = [
     "ACTION_DIM",
     "ACTION_HORIZON",
-    "CAMERAS",
+    "PHYSICAL_CAMERAS",
     "OfficialBehaviorBackend",
     "build_behavior_env_config",
     "create_backend",

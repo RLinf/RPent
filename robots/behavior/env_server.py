@@ -71,13 +71,6 @@ _ENV_METHODS = {
     "env.press",
     "env.save_robot_state_checkpoint",
     "env.finalize_paused_runtime",
-    "env.dashboard_control_capabilities",
-    "env.dashboard_prepare_manual_command",
-    "env.dashboard_execute_prepared_command",
-    "env.dashboard_discard_prepared_command",
-    "env.dashboard_capture_views",
-    "env.dashboard_manual_command",
-    "env.dashboard_safe_stop",
 }
 
 

@@ -26,10 +26,6 @@ from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 
 BEHAVIOR_DASHBOARD_SPEC = {
-    "classes": {
-        "server": "robots.behavior.dashboard:BehaviorDashboardServer",
-        "state": "robots.behavior.dashboard:BehaviorDashboardState",
-    },
     "task": {
         "command": "/rpent-task",
         "usage": "/rpent-task <task_name> <public_seed>",
@@ -50,33 +46,17 @@ BEHAVIOR_DASHBOARD_SPEC = {
         {"name": "memory", "label": "MEM", "scope": "unique"},
     ),
     "frame_channels": (
-        {"name": "head", "label": "head"},
-        {"name": "left_wrist", "label": "left wrist"},
-        {"name": "right_wrist", "label": "right wrist"},
+        {
+            "name": "camera",
+            "label": "head camera",
+            "legacy_path_key": "image_cam_path",
+        },
+        {
+            "name": "wrist",
+            "label": "wrist cameras",
+            "legacy_path_key": "image_wrist_path",
+        },
     ),
-    "behavior_control": {
-        "targets": ("chassis", "left_arm", "right_arm"),
-        "actions": (
-            "forward",
-            "backward",
-            "turn_left",
-            "turn_right",
-            "left",
-            "right",
-            "up",
-            "down",
-            "rotate_left",
-            "rotate_right",
-            "open",
-            "close",
-            "observe",
-        ),
-        "cameras": ("head", "left_wrist", "right_wrist"),
-        "pipeline": ("prepare", "execute", "discard", "capture", "stop"),
-        "official_success_source": (
-            'backend raw info["done"]["success"] or info_done.success only'
-        ),
-    },
 }
 
 
