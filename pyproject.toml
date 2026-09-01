@@ -57,7 +57,10 @@ rlinf = [
     "rpent-rlinf",
 ]
 sam3 = [
-    "sam3==0.1.4",
+    # Pin to the revision containing the BPE asset path fix from facebookresearch/sam3#525.
+    "sam3 @ git+https://github.com/ZeeshanGeoPk/sam3.git@613a835c9d0b4c8eb99093958eb56682fa47549c",
+    "einops>=0.8.0",
+    "pycocotools",
     "torch",
     "torchvision",
     "pillow>=10",
