@@ -217,15 +217,15 @@ Dashboard
    rpent --robot libero --dashboard \
      --planner claude_code --model claude-opus-4-8
 
-打开该地址，确认 Session 配置并点击 **Start Session**。共享服务就绪后，在页面
+Session 配置全部来自命令行，打开地址后会直接进入实时监控。共享服务就绪后，
 输入以下命令启动 TaskRun：
 
 .. code-block:: text
 
    /rpent-task libero_object_swap 2 0
 
-Dashboard launcher 支持 ``api``、``claude_code`` 和 ``codex`` planner。
-``--planner`` 与 ``--model`` 的配置方式和普通运行一致，详见
+Dashboard 支持 ``api``、``claude_code`` 和 ``codex`` planner。
+在命令行传递 ``--planner`` 与 ``--model``，配置方式和普通运行一致，详见
 :doc:`configure_planner`。
 
 每个 TaskRun 使用独立环境，VLA 和 SAM3 服务由 Session 复用。可通过新的

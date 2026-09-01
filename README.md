@@ -167,7 +167,7 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 
 ### Live Dashboard
 
-Add `--dashboard` to start a local Dashboard and print its URL in the terminal. Open the URL and confirm the configuration; once the services are ready, start a task with `/rpent-task <suite> <task> <seed>`. The page streams agent reasoning, camera views, and the action timeline, and you can submit another task after the current one finishes. Use `--dashboard-language zh-cn` for the Chinese UI.
+Add `--dashboard` to start a local Dashboard and print its URL in the terminal. Session settings come from the CLI, and the page opens directly in the live monitor. Once the services are ready, start a task with `/rpent-task <suite> <task> <seed>`. The page streams agent reasoning, camera views, and the action timeline, and you can submit another task after the current one finishes. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
 rpent --robot libero --dashboard --dashboard-language zh-cn \

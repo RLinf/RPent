@@ -104,7 +104,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 
 ``dashboard`` 是可选项；环境不支持 Dashboard 控制时保持为 ``None``。支持时，
 在机器人包中定义该 spec：其中 ``task`` 描述命令、校验字段、展示模板和输出目录
-slug；``launcher_fields`` 管理机器人专用的 Session 设置；
+slug；机器人专用的 Session 设置继续使用普通命令行参数；
 ``runtime_components`` 描述服务行；``frame_channels`` 将相机名称映射到
 标准图像 artifact；``primitives`` 则定义 Dashboard 允许执行的控件。
 任务候选项应直接保存在 spec 中，避免导入机器人包时依赖仿真器包。

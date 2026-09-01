@@ -114,16 +114,6 @@ ROBOCASA_DASHBOARD_SPEC: DashboardSpec = {
         "display": "{task_name} / {split} / seed {seed}",
         "output_slug": "{task_name}_{split}_s{seed}",
     },
-    "launcher_fields": (
-        {
-            "name": "cuda_device",
-            "label": "CUDA device",
-            "label_zh_cn": "CUDA 设备",
-            "kind": "integer",
-            "placeholder": "default",
-            "placeholder_zh_cn": "默认",
-        },
-    ),
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},

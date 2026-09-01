@@ -26,7 +26,6 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
-import socket
 import threading
 import time
 from pathlib import Path
@@ -48,13 +47,12 @@ from rpent.dashboard.interaction import (
     InteractionUnavailableError,
     UnknownDashboardMessageError,
 )
-from rpent.dashboard.launcher import parse_launcher_config
-from rpent.dashboard.spec import DashboardSpec
 from rpent.dashboard.state import (
     DashboardState,
     PrimitiveArgumentError,
     PrimitiveConfigError,
 )
+from rpent.utils.daemon import pick_free_port
 from rpent.utils.logging import get_logger
 
 logger = get_logger("dashboard_server")
@@ -71,21 +69,20 @@ def _infer_frame_media_type(artifact: str) -> str:
 
 
 class DashboardServer:
-    """Threaded FastAPI server exposing the dashboard API for registered runs."""
+    """Threaded FastAPI server exposing one Dashboard Session."""
 
     def __init__(
         self,
         *,
         host: str = "127.0.0.1",
         port: int = 0,
-        runs_dir: str = "",
         language: str = "en",
-        dashboard_spec: DashboardSpec,
+        state: DashboardState,
     ) -> None:
         self.host = host
         self.port = int(port)
-        self.runs_dir = runs_dir
-        self._dashboard_spec = dashboard_spec
+        self._state = state
+        dashboard_spec = state.dashboard_spec
         self._frame_media_types = {
             channel["name"]: _infer_frame_media_type(channel["artifact"])
             for channel in dashboard_spec["frame_channels"]
@@ -94,44 +91,12 @@ class DashboardServer:
         self._language = "zh-cn" if language == "zh-cn" else "en"
         self._index_html = (dashboard_dir / "index.html").read_text(encoding="utf-8")
         self._static_dir = dashboard_dir / "static"
-        self._state: DashboardState | None = None
         self._app = self._build_app()
         self._server: uvicorn.Server | None = None
 
-        # -- launcher state: when armed, the frontend shows a start screen and
-        # the run loop blocks in wait_for_launch() until the user clicks Run.
-        self._launch_enabled = False
-        self._launch_defaults: dict[str, Any] = {}
-        self._launch_config: dict[str, Any] | None = None
-        self._launch_event = threading.Event()
-
-    def register(self, state: DashboardState) -> None:
-        if self._state is not None and self._state is not state:
-            raise ValueError("Dashboard Session is already registered")
-        self._state = state
-        if not self.runs_dir:
-            self.runs_dir = str(state.output_dir.parent)
-
-    def _resolve(self, state_id: str) -> DashboardState | None:
-        state = self._state
-        if state is None or state.run_id != state_id:
-            return None
-        return state
-
-    def wait_for_launch(self, defaults: dict[str, Any]) -> dict[str, Any]:
-        """Arm the launcher and block until the user submits the start form.
-
-        ``defaults`` pre-fills the launcher form (typically ``vars(args)``).
-        Returns the config the user confirmed via ``POST /api/launch/run``.
-        """
-        self._launch_defaults = dict(defaults)
-        self._launch_enabled = True
-        self._launch_event.wait()
-        return self._launch_config or {}
-
     def start(self) -> str:
         """Launch uvicorn in a daemon thread; return the base URL once serving."""
-        port = self.port or _free_port(self.host)
+        port = self.port or pick_free_port(self.host)
         config = uvicorn.Config(
             self._app, host=self.host, port=port, log_level="warning"
         )
@@ -170,59 +135,14 @@ class DashboardServer:
 
         @app.get("/api/commands")
         def api_commands() -> JSONResponse:
-            return JSONResponse(self._dashboard_spec)
+            return JSONResponse(self._state.dashboard_spec)
 
-        @app.get("/api/launch/state")
-        def api_launch_state() -> JSONResponse:
-            return JSONResponse(
-                {
-                    "enabled": self._launch_enabled,
-                    "pending": self._launch_enabled and not self._launch_event.is_set(),
-                    "defaults": self._launch_defaults,
-                }
-            )
-
-        @app.post("/api/launch/run")
-        def api_launch_run(payload: dict[str, Any] = Body(default={})) -> JSONResponse:
-            if not self._launch_enabled:
-                return JSONResponse({"error": "launcher not armed"}, status_code=409)
-            if self._launch_event.is_set():
-                return JSONResponse({"error": "already launched"}, status_code=409)
-            launch_config = {
-                **self._launch_defaults,
-                **payload,
-            }
-            try:
-                launch_config = parse_launcher_config(
-                    launch_config,
-                    self._dashboard_spec["launcher_fields"],
-                )
-            except ValueError as exc:
-                return JSONResponse({"error": str(exc)}, status_code=422)
-            self._launch_config = launch_config
-            self._launch_event.set()
-            return JSONResponse({"ok": True})
-
-        @app.get("/api/runs")
-        def api_runs() -> JSONResponse:
-            state = self._state
-            return JSONResponse(
-                {
-                    "runs_dir": self.runs_dir,
-                    "runs": [] if state is None else [state.run_info()],
-                }
-            )
-
-        @app.post("/api/sessions/{session_id:path}/messages")
+        @app.post("/api/session/messages")
         def api_submit_message(
-            session_id: str,
             payload: dict[str, Any] = Body(default={}),
         ) -> JSONResponse:
-            live = self._resolve(session_id)
-            if live is None:
-                return JSONResponse({"error": "unknown session"}, status_code=404)
             try:
-                live.submit_input(payload.get("text"))
+                self._state.submit_input(payload.get("text"))
             except ValueError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=422)
             except InteractionUnavailableError as exc:
@@ -230,30 +150,23 @@ class DashboardServer:
             return JSONResponse({"ok": True}, status_code=202)
 
         @app.delete(
-            "/api/sessions/{session_id:path}/messages/{message_id}",
+            "/api/session/messages/{message_id}",
         )
         def api_withdraw_message(
-            session_id: str,
             message_id: str,
         ) -> JSONResponse:
-            live = self._resolve(session_id)
-            if live is None:
-                return JSONResponse({"error": "unknown session"}, status_code=404)
             try:
-                live.withdraw_message(message_id)
+                self._state.withdraw_message(message_id)
             except UnknownDashboardMessageError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=404)
             except (DashboardMessageConflictError, InteractionUnavailableError) as exc:
                 return JSONResponse({"error": str(exc)}, status_code=409)
             return JSONResponse({"ok": True})
 
-        @app.post("/api/sessions/{session_id:path}/interrupt")
-        def api_interrupt(session_id: str) -> JSONResponse:
-            live = self._resolve(session_id)
-            if live is None:
-                return JSONResponse({"error": "unknown session"}, status_code=404)
+        @app.post("/api/session/interrupt")
+        def api_interrupt() -> JSONResponse:
             try:
-                result = live.request_interrupt()
+                result = self._state.request_interrupt()
             except InteractionUnavailableError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=409)
             if result == "noop":
@@ -272,25 +185,21 @@ class DashboardServer:
                 status_code=202,
             )
 
-        @app.get("/api/run")
-        def api_run(run: str) -> JSONResponse:
-            live = self._resolve(run)
-            if live is None:
-                return JSONResponse({"error": "unknown run"}, status_code=404)
-            return JSONResponse(live.run_detail())
+        @app.get("/api/session/state")
+        def api_session_state(timeline_since: int = 0) -> JSONResponse:
+            return JSONResponse(
+                self._state.session_detail(timeline_since=timeline_since)
+            )
 
-        @app.get("/api/run/primitives")
-        def api_primitives(run: str) -> JSONResponse:
-            live = self._resolve(run)
-            if live is None:
-                return JSONResponse({"error": "unknown run"}, status_code=404)
+        @app.get("/api/session/primitives")
+        def api_primitives() -> JSONResponse:
             try:
-                primitives = live.primitive_specs()
+                primitives = self._state.primitive_specs()
             except InteractionUnavailableError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=409)
             return JSONResponse({"primitives": primitives})
 
-        @app.post("/api/run/primitive")
+        @app.post("/api/session/primitive")
         def api_execute_primitive(
             payload: Any = Body(default=None),
         ) -> JSONResponse:
@@ -299,17 +208,8 @@ class DashboardServer:
                     {"error": "request body must be a JSON object"},
                     status_code=422,
                 )
-            run = payload.get("run")
             name = payload.get("name")
             arguments = payload.get("arguments")
-            if not isinstance(run, str) or not run.strip():
-                return JSONResponse(
-                    {"error": "run must be a non-empty string"},
-                    status_code=422,
-                )
-            live = self._resolve(run)
-            if live is None:
-                return JSONResponse({"error": "unknown run"}, status_code=404)
             if not isinstance(name, str) or not name.strip():
                 return JSONResponse(
                     {"error": "name must be a non-empty string"},
@@ -321,7 +221,7 @@ class DashboardServer:
                     status_code=422,
                 )
             try:
-                tool_result = live.execute_primitive(name, arguments)
+                tool_result = self._state.execute_primitive(name, arguments)
             except InteractionUnavailableError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=409)
             except PrimitiveArgumentError as exc:
@@ -340,42 +240,35 @@ class DashboardServer:
                 )
             return JSONResponse({"ok": True})
 
-        @app.get("/api/run/transcript")
-        def api_transcript(run: str, since: int = 0) -> JSONResponse:
-            live = self._resolve(run)
-            events = live.events_since(since) if live else []
-            return JSONResponse({"events": events})
+        @app.get("/api/session/transcript")
+        def api_transcript(since: int = 0) -> JSONResponse:
+            return JSONResponse({"events": self._state.events_since(since)})
 
-        @app.get("/api/run/frame")
+        @app.get("/api/session/frame")
         def api_frame(
-            run: str,
-            kind: str = self._dashboard_spec["frame_channels"][0]["name"],
-            t: str = "",
+            kind: str = self._state.dashboard_spec["frame_channels"][0]["name"],
         ) -> Response:
-            live = self._resolve(run)
             try:
-                frame = live.frame(kind) if live else None
+                frame = self._state.frame(kind)
             except ValueError as exc:
                 return JSONResponse({"detail": str(exc)}, status_code=422)
             if frame is None:
                 return Response(status_code=404)
             return Response(frame, media_type=self._frame_media_types[kind])
 
-        @app.get("/api/run/video")
-        def api_video(run: str) -> Response:
-            live = self._resolve(run)
-            if live is None or not live.has_video():
+        @app.get("/api/session/video")
+        def api_video() -> Response:
+            if not self._state.has_video():
                 return Response(status_code=404)
             return FileResponse(
-                live.video_path,
+                self._state.video_path,
                 media_type="video/mp4",
                 headers={"Cache-Control": "no-store, max-age=0"},
             )
 
-        @app.get("/api/run/action-video")
-        def api_action_video(run: str, step: int) -> Response:
-            live = self._resolve(run)
-            path = live.action_video_path(step) if live else None
+        @app.get("/api/session/action-video")
+        def api_action_video(step: int) -> Response:
+            path = self._state.action_video_path(step)
             if path is None:
                 return Response(status_code=404)
             return FileResponse(
@@ -384,23 +277,21 @@ class DashboardServer:
                 headers={"Cache-Control": "no-store, max-age=0"},
             )
 
-        @app.get("/api/stream")
-        def api_stream(run: str) -> StreamingResponse:
+        @app.get("/api/session/stream")
+        def api_stream() -> StreamingResponse:
             async def gen():
+                version = -1
                 while True:
-                    live = self._resolve(run)
-                    if live is not None:
-                        yield f"data: {json.dumps(live.snapshot())}\n\n"
-                    else:
+                    version, snapshot = await asyncio.to_thread(
+                        self._state.wait_for_snapshot,
+                        version,
+                        timeout=15.0,
+                    )
+                    if snapshot is None:
                         yield ": keepalive\n\n"
-                    await asyncio.sleep(0.1)
+                    else:
+                        yield f"data: {json.dumps(snapshot)}\n\n"
 
             return StreamingResponse(gen(), media_type="text/event-stream")
 
         return app
-
-
-def _free_port(host: str) -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((host, 0))
-        return int(s.getsockname()[1])

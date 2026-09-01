@@ -38,20 +38,6 @@ class TaskSpec(TypedDict):
     output_slug: str
 
 
-class LauncherFieldSpecRequired(TypedDict):
-    name: str
-    label: str
-    kind: Literal["integer", "string"]
-
-
-class LauncherFieldSpec(LauncherFieldSpecRequired, total=False):
-    label_zh_cn: str
-    minimum: int
-    required: bool
-    placeholder: str
-    placeholder_zh_cn: str
-
-
 class RuntimeComponentSpec(TypedDict):
     name: str
     label: str
@@ -66,7 +52,6 @@ class FrameChannelSpec(TypedDict):
 
 class DashboardSpec(TypedDict):
     task: TaskSpec
-    launcher_fields: tuple[LauncherFieldSpec, ...]
     runtime_components: tuple[RuntimeComponentSpec, ...]
     frame_channels: tuple[FrameChannelSpec, ...]
     primitives: tuple[str, ...]

@@ -117,24 +117,6 @@ ROBOTWIN_DASHBOARD_SPEC: DashboardSpec = {
         "display": "{task_name} / {task_config} / seed {seed}",
         "output_slug": "{task_name}_{task_config}_s{seed}",
     },
-    "launcher_fields": (
-        {
-            "name": "max_episode_steps",
-            "label": "Max episode steps",
-            "label_zh_cn": "最大仿真步数",
-            "kind": "integer",
-            "minimum": 1,
-            "required": True,
-        },
-        {
-            "name": "cuda_device",
-            "label": "CUDA_VISIBLE_DEVICES",
-            "label_zh_cn": "CUDA_VISIBLE_DEVICES",
-            "kind": "string",
-            "placeholder": "e.g. 0,1",
-            "placeholder_zh_cn": "例如 0,1",
-        },
-    ),
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},

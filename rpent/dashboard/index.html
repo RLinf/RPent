@@ -7,62 +7,6 @@
 <link rel="stylesheet" href="/static/dashboard.css" />
 </head>
 <body>
-  <div id="launcher" class="hidden">
-    <div class="launch-card">
-      <h2><span class="dot">●</span> RPent · <span data-i18n="newSession">New Session</span></h2>
-      <div class="sub" data-i18n="launcherSubtitle">Review the session config, then start the Dashboard control Session.</div>
-      <div class="lform">
-        <div class="lfield full">
-          <label for="f-planner" data-i18n="planner">Planner (LLM backend)</label>
-          <select id="f-planner">
-            <option value="claude_code" selected>claude_code</option>
-            <option value="codex">codex</option>
-            <option value="api">api</option>
-          </select>
-        </div>
-        <div class="lfield">
-          <label for="f-max-turns" data-i18n="maxTurns">Max turns</label>
-          <input type="number" id="f-max-turns" min="1" step="1" />
-        </div>
-        <div class="lfield full">
-          <label for="f-model_preset" data-i18n="modelPreset">Model</label>
-          <select id="f-model_preset"></select>
-        </div>
-        <div class="lfield full">
-          <label for="f-model_custom"><span data-i18n="customModel">Custom model</span> <span id="modelRequirement" data-i18n="optional" style="text-transform:none">(optional)</span></label>
-          <input type="text" id="f-model_custom" placeholder="provider:model or alias" data-i18n-placeholder="customModelPlaceholder" />
-        </div>
-        <div class="lfield full lcheck" data-planner="api">
-          <input type="checkbox" id="f-no-images" />
-          <label for="f-no-images" data-i18n="noImages">Disable image input (required for text-only models)</label>
-        </div>
-        <div class="lfield" data-planner="claude_code">
-          <label for="f-claude-code-max-budget-usd" data-i18n="claudeBudget">Claude Code budget USD</label>
-          <input type="number" id="f-claude-code-max-budget-usd" min="0" step="0.01" placeholder="MAX_BUDGET_USD" />
-        </div>
-        <div class="lfield">
-          <label for="f-reasoning-effort" data-i18n="plannerReasoningEffort">Reasoning effort (higher may improve success rate)</label>
-          <select id="f-reasoning-effort">
-            <option value="none" selected>none</option>
-            <option value="low">low</option>
-            <option value="medium">medium</option>
-            <option value="high">high</option>
-            <option value="xhigh">xhigh</option>
-          </select>
-        </div>
-        <div class="lfield">
-          <label for="f-planner-timeout-s" data-i18n="plannerTimeout">Planner timeout s</label>
-          <input type="number" id="f-planner-timeout-s" min="1" step="1" placeholder="CELL_TIMEOUT_S" />
-        </div>
-        <div id="environmentLauncherFields"></div>
-      </div>
-      <div class="launch-actions">
-        <button id="runBtn" data-i18n="startSession">Start Session</button>
-        <span id="launchStatus"></span>
-      </div>
-    </div>
-  </div>
-
   <header>
     <h1><span class="dot">●</span> RPent <span class="meta" data-i18n="liveMonitor">Live Monitor</span></h1>
     <span id="statusBadge" class="badge b-stale">—</span>
@@ -87,7 +31,7 @@
           <input type="checkbox" id="autoscroll" checked /> <span data-i18n="autoScroll">auto-scroll</span>
         </label>
       </div>
-      <div id="transcript"><div class="empty" data-i18n="selectRun">Select a run to begin.</div></div>
+      <div id="transcript"><div class="empty" data-i18n="noTranscript">No transcript events yet.</div></div>
       <section id="composer" class="composer" aria-label="Agent message composer" data-i18n-aria-label="composerLabel" hidden>
         <div
           class="gutter gutter-h composer-grip"
@@ -108,16 +52,16 @@
           rows="2"
           placeholder="Message the agent…"
           data-i18n-placeholder="composerPlaceholder"
-          aria-describedby="chatHint interactionStatus suiteSuggestions"
+          aria-describedby="chatHint interactionStatus taskSuggestions"
           aria-keyshortcuts="Enter Shift+Enter Escape"
           disabled
         ></textarea>
         <div
-          id="suiteSuggestions"
-          class="suite-suggestions"
+          id="taskSuggestions"
+          class="task-suggestions"
           role="listbox"
-          aria-label="LIBERO suite suggestions"
-          data-i18n-aria-label="suiteSuggestionsLabel"
+          aria-label="Task value suggestions"
+          data-i18n-aria-label="taskSuggestionsLabel"
           hidden
         ></div>
         <div class="composer-row">
@@ -130,10 +74,7 @@
 
     <div class="col right">
       <div class="framewrap">
-        <div class="frame-tabs">
-          <button data-kind="camera" class="active" data-i18n="cameraView">fixed camera</button>
-          <button data-kind="wrist" data-i18n="wristView">wrist camera</button>
-        </div>
+        <div class="frame-tabs"></div>
         <img class="frame-media" id="frame-a" alt="" />
         <img class="frame-media" id="frame-b" alt="" />
         <video class="frame-media" id="video-a" controls playsinline></video>

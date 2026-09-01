@@ -184,8 +184,9 @@ Dashboard (optional)
 ``rpent/dashboard/`` contains a FastAPI application and a static
 frontend. With ``--dashboard``, ``rpent/cli/main.py`` hands control to
 ``rpent/cli/dashboard.py``, which starts the Dashboard with
-``--dashboard-host`` and ``--dashboard-port`` and confirms the configuration
-before calling ``robot_spec.init_runtime`` once with the shared component names.
+``--dashboard-host`` and ``--dashboard-port``. Session configuration comes from
+the CLI before it calls ``robot_spec.init_runtime`` once with the shared
+component names.
 The environment must provide ``robot_spec.dashboard``; it defines the task
 command and fields, runtime components, and frame channels exposed by the
 frontend. The Session controller waits for that robot-defined command

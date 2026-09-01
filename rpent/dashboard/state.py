@@ -178,12 +178,11 @@ class DashboardState:
     def __init__(
         self,
         *,
-        run_id: str,
         output_dir: str | Path,
         dashboard_spec: DashboardSpec,
     ) -> None:
         root = Path(output_dir)
-        self.run_id = run_id
+        self.dashboard_spec = dashboard_spec
         self.output_dir = root
         self.video_path = root / "episode.mp4"
         self._session_root = root
@@ -222,13 +221,14 @@ class DashboardState:
         self._interrupt_in_flight = False
         self._messages: list[DashboardMessage] = []
         self._messages_by_id: dict[str, DashboardMessage] = {}
+        self._next_pending_message_index = 0
         self._last_interaction_error: str | None = None
         self._interaction_version = 0
+        self._projection_version = 0
         self._session_state = "starting_shared_services"
         self._task_generation = 0
         self._pending_task: TaskRequest | None = None
         self._current_task: TaskRequest | None = None
-        self._task_replacement_requested = False
         self._control_feedback: list[str] = []
         self._control_error: str | None = None
         self._shutdown_requested = False
@@ -237,10 +237,11 @@ class DashboardState:
 
     def bind_toolkit(self, toolkit: Toolkit) -> None:
         """Expose a TaskRun Toolkit through the Dashboard primitive API."""
-        with self._lock:
+        with self._condition:
             if self._toolkit is not None and self._toolkit is not toolkit:
                 raise RuntimeError("a Dashboard Toolkit is already bound")
             self._toolkit = toolkit
+            self._projection_changed_locked()
 
     def unbind_toolkit(
         self,
@@ -253,6 +254,7 @@ class DashboardState:
         with self._condition:
             if self._toolkit is toolkit:
                 self._toolkit = None
+                self._projection_changed_locked()
             drained = self._condition.wait_for(
                 lambda: self._active_primitive_calls.get(toolkit_key, 0) == 0,
                 timeout=timeout_s,
@@ -337,7 +339,7 @@ class DashboardState:
     @property
     def task_replacement_requested(self) -> bool:
         with self._lock:
-            return self._task_replacement_requested
+            return self._session_state == "switch_pending"
 
     def shared_services_ready(self) -> None:
         """Open the command channel after shared services have started."""
@@ -357,7 +359,6 @@ class DashboardState:
             self._error = str(error)
             self._control_error = str(error)
             self._pending_task = None
-            self._task_replacement_requested = False
             self._seal_interaction_locked()
             self._interaction_changed_locked()
 
@@ -395,14 +396,11 @@ class DashboardState:
 
             self._pending_task = dict(request)
             self._control_error = None
-            self._control_feedback = [
-                f"Task selected: {_format_task(self._task_spec, 'display', request)}"
-            ]
+            self._control_feedback = []
 
             active = self._task_state in {"starting", "running"}
             if active:
                 self._session_state = "switch_pending"
-                self._task_replacement_requested = True
                 self._accepting_input = False
                 for message in self._messages:
                     if message.status == "pending":
@@ -437,7 +435,7 @@ class DashboardState:
                 / "tasks"
                 / f"{number:04d}_{self._task_output_slug(request)}"
             )
-            self._begin_task_locked(request, number=number, output_dir=output_dir)
+            self._begin_task_locked(request, output_dir=output_dir)
             return ClaimedTask(
                 number=number,
                 request=request,
@@ -447,7 +445,7 @@ class DashboardState:
     def complete_task_replacement(self, error: str | None = None) -> None:
         """Seal the old planner at the current scheduling boundary."""
         with self._condition:
-            if not self._task_replacement_requested:
+            if self._session_state != "switch_pending":
                 return
             if error is not None:
                 self._last_interaction_error = str(error)
@@ -471,10 +469,7 @@ class DashboardState:
             raise ValueError(f"invalid terminal run state: {state!r}")
         with self._condition:
             self._task_state = state
-            self._terminated = any(item.get("terminated") for item in self._timeline)
-            self._truncated = any(item.get("truncated") for item in self._timeline)
             self._error = None if error is None else str(error)
-            self._task_replacement_requested = False
             self._seal_interaction_locked()
             self._reset_unique_components_locked()
             self._session_state = (
@@ -488,7 +483,6 @@ class DashboardState:
         self,
         request: TaskRequest,
         *,
-        number: int,
         output_dir: Path,
     ) -> None:
         self._current_task = request
@@ -496,7 +490,6 @@ class DashboardState:
         self.video_path = output_dir / "episode.mp4"
         self._session_state = "task_starting"
         self._task_state = "starting"
-        self._task_replacement_requested = False
         self._terminated = False
         self._truncated = False
         self._error = None
@@ -516,9 +509,10 @@ class DashboardState:
         self._interrupt_in_flight = False
         self._messages = []
         self._messages_by_id = {}
+        self._next_pending_message_index = 0
         self._last_interaction_error = None
         self._control_error = None
-        self._control_feedback.append(f"TaskRun {number:04d} starting…")
+        self._control_feedback = []
         self._interaction_changed_locked()
 
     def _task_output_slug(self, request: TaskRequest) -> str:
@@ -576,7 +570,7 @@ class DashboardState:
         with self._condition:
             if self._task_state not in {"starting", "running"}:
                 raise InteractionUnavailableError("Dashboard TaskRun is not active")
-            if self._task_replacement_requested:
+            if self._session_state == "switch_pending":
                 raise InteractionUnavailableError(
                     "Dashboard TaskRun replacement is pending"
                 )
@@ -630,15 +624,16 @@ class DashboardState:
         with self._condition:
             if (
                 self._planner_activity == "ended"
-                or self._task_replacement_requested
+                or self._session_state == "switch_pending"
                 or self._interrupt_requested
             ):
                 return None
-            message = next(
-                (item for item in self._messages if item.status == "pending"),
-                None,
-            )
-            if message is None:
+            while self._next_pending_message_index < len(self._messages):
+                message = self._messages[self._next_pending_message_index]
+                self._next_pending_message_index += 1
+                if message.status == "pending":
+                    break
+            else:
                 return None
             message.status = "sending"
             message.error = None
@@ -742,11 +737,12 @@ class DashboardState:
     def emit(self, event: DashboardEvent) -> None:
         """Project one structured event into the existing frontend state."""
         if isinstance(event, TranscriptEvent):
-            with self._lock:
+            with self._condition:
                 self._events.append(event.payload)
+                self._projection_changed_locked()
             return
         if isinstance(event, UsageEvent):
-            with self._lock:
+            with self._condition:
                 self._usage = {
                     "in": self._planner_usage_base["in"] + int(event.inp),
                     "out": self._planner_usage_base["out"] + int(event.out),
@@ -754,6 +750,7 @@ class DashboardState:
                         self._planner_usage_base["tool_calls"] + int(event.tool_calls)
                     ),
                 }
+                self._projection_changed_locked()
             return
         if isinstance(event, RuntimeStatusEvent):
             self._apply_runtime_status(event)
@@ -776,11 +773,12 @@ class DashboardState:
             raise ValueError(f"unknown runtime component: {event.component!r}")
         if event.status not in RUNTIME_STATUSES:
             raise ValueError(f"unknown runtime status: {event.status!r}")
-        with self._lock:
+        with self._condition:
             self._runtime[event.component] = {
                 "status": event.status,
                 "error": None if event.error is None else str(event.error),
             }
+            self._projection_changed_locked()
 
     def _runtime_snapshot(self) -> dict[str, dict[str, str | None]]:
         """Return a detached copy of runtime status for a locked caller."""
@@ -802,9 +800,9 @@ class DashboardState:
         command = record.command
         if not isinstance(command, dict) or not command.get("action"):
             return
-        action_video = next(
-            (name for name in sorted(record.artifacts) if name.endswith(".mp4")),
-            None,
+        action_video = min(
+            (name for name in record.artifacts if name.endswith(".mp4")),
+            default=None,
         )
         item = {
             "step": display_step,
@@ -817,7 +815,7 @@ class DashboardState:
             "action_video_artifact": action_video,
             "has_action_video": action_video is not None,
         }
-        with self._lock:
+        with self._condition:
             self._timeline.append(item)
             if action_video is not None and self.env_state is not None:
                 self._action_video_sources[display_step] = (
@@ -827,6 +825,7 @@ class DashboardState:
                 )
             self._terminated = self._terminated or record.terminated
             self._truncated = self._truncated or record.truncated
+            self._projection_changed_locked()
 
     def _update_step_frames(self, record: StepRecord, *, display_step: int) -> None:
         """Load dashboard frame bytes from the step's canonical artifacts."""
@@ -855,17 +854,18 @@ class DashboardState:
             frame_idx = int(step)
         except (TypeError, ValueError):
             frame_idx = None
-        with self._lock:
+        with self._condition:
             if frame_idx is not None and frame_idx < self._frame_idx:
                 return
             self._frames = dict(frames)
             if frame_idx is not None:
                 self._frame_idx = frame_idx
+            self._projection_changed_locked()
 
     def _start(self) -> None:
         with self._condition:
             self._task_state = "running"
-            if not self._task_replacement_requested:
+            if self._session_state != "switch_pending":
                 self._session_state = "running"
             self._interaction_changed_locked()
 
@@ -906,11 +906,14 @@ class DashboardState:
 
     def _interaction_changed_locked(self) -> None:
         self._interaction_version += 1
+        self._projection_changed_locked()
+
+    def _projection_changed_locked(self) -> None:
+        self._projection_version += 1
         self._condition.notify_all()
 
     def _interaction_snapshot_locked(self) -> dict[str, Any]:
         return {
-            "session_id": self.run_id,
             "input_mode": self._input_mode_locked(),
             "planner_activity": self._planner_activity,
             "interrupt_requested": self._interrupt_requested,
@@ -924,7 +927,7 @@ class DashboardState:
         if (
             self._session_state == "running"
             and self._accepting_input
-            and not self._task_replacement_requested
+            and self._session_state != "switch_pending"
         ):
             return "conversation"
         return "command_only"
@@ -933,7 +936,6 @@ class DashboardState:
         if request is None:
             return None
         return {
-            **request,
             "parameters": dict(request),
             "label": _format_task(self._task_spec, "display", request),
         }
@@ -1001,47 +1003,54 @@ class DashboardState:
         }
         return self._frame_idx, available
 
+    def _snapshot_locked(self) -> dict[str, Any]:
+        frame_idx, frame_available = self._frame_snapshot()
+        return {
+            "state": self._visible_state_locked(),
+            "terminated": self._terminated,
+            "truncated": self._truncated,
+            "error": self._error,
+            "usage": dict(self._usage),
+            "runtime": self._runtime_snapshot(),
+            "has_video": (
+                self._task_state in TERMINAL_RUN_STATES and self.video_path.exists()
+            ),
+            "frame_idx": frame_idx,
+            "frame_available": frame_available,
+            "n_events": len(self._events),
+            "n_steps": len(self._timeline),
+            "primitives_available": self._toolkit is not None,
+            "interaction": self._interaction_snapshot_locked(),
+            **self._session_fields_locked(),
+        }
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
-            frame_idx, frame_available = self._frame_snapshot()
-            return {
-                "state": self._visible_state_locked(),
-                "terminated": self._terminated,
-                "truncated": self._truncated,
-                "error": self._error,
-                "usage": dict(self._usage),
-                "runtime": self._runtime_snapshot(),
-                "has_video": (
-                    self._task_state in TERMINAL_RUN_STATES and self.video_path.exists()
-                ),
-                "frame_idx": frame_idx,
-                "frame_available": frame_available,
-                "n_steps": len(self._timeline),
-                "primitives_available": self._toolkit is not None,
-                "interaction": self._interaction_snapshot_locked(),
-                **self._session_fields_locked(),
-            }
+            return self._snapshot_locked()
 
-    def run_info(self) -> dict[str, Any]:
-        return {"id": self.run_id}
+    def wait_for_snapshot(
+        self,
+        since: int,
+        timeout: float | None = None,
+    ) -> tuple[int, dict[str, Any] | None]:
+        """Wait for a visible projection change and return one fresh snapshot."""
+        with self._condition:
+            self._condition.wait_for(
+                lambda: self._projection_version != since,
+                timeout=timeout,
+            )
+            version = self._projection_version
+            if version == since:
+                return version, None
+            return version, self._snapshot_locked()
 
-    def run_detail(self) -> dict[str, Any]:
+    def session_detail(self, *, timeline_since: int = 0) -> dict[str, Any]:
+        """Return one snapshot plus the requested incremental timeline suffix."""
         with self._lock:
-            frame_idx, frame_available = self._frame_snapshot()
+            since = int(timeline_since)
+            if since < 0 or since > len(self._timeline):
+                since = 0
             return {
-                "state": self._visible_state_locked(),
-                "terminated": self._terminated,
-                "truncated": self._truncated,
-                "error": self._error,
-                "usage": dict(self._usage),
-                "runtime": self._runtime_snapshot(),
-                "timeline": list(self._timeline),
-                "has_video": (
-                    self._task_state in TERMINAL_RUN_STATES and self.video_path.exists()
-                ),
-                "frame_idx": frame_idx,
-                "frame_available": frame_available,
-                "primitives_available": self._toolkit is not None,
-                "interaction": self._interaction_snapshot_locked(),
-                **self._session_fields_locked(),
+                **self._snapshot_locked(),
+                "timeline": list(self._timeline[since:]),
             }

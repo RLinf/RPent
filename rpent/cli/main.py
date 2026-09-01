@@ -198,7 +198,8 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--dashboard",
         action="store_true",
-        help="Start a local dashboard server for this single run.",
+        help="Start a long-lived local Dashboard Session. Session settings "
+        "are read from the CLI.",
     )
     ap.add_argument(
         "--dashboard-host",

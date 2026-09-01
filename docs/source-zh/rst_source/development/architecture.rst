@@ -159,8 +159,8 @@ Dashboard（可选）
 
 ``rpent/dashboard/`` 由 FastAPI 应用和静态前端组成。启用 ``--dashboard`` 后，
 ``rpent/cli/main.py`` 会将控制权交给 ``rpent/cli/dashboard.py``，由后者根据
-``--dashboard-host`` 和 ``--dashboard-port`` 启动 Dashboard，并在启动共享服务前
-确认配置，然后用共享 component 名称调用一次 ``robot_spec.init_runtime``。环境必须
+``--dashboard-host`` 和 ``--dashboard-port`` 启动 Dashboard。Session 配置全部来自
+命令行，然后用共享 component 名称调用一次 ``robot_spec.init_runtime``。环境必须
 提供 ``robot_spec.dashboard``，由它定义
 前端使用的任务命令与字段、runtime components 和 frame channels。Session
 controller 随后等待该环境定义的命令（LIBERO 使用 ``/rpent-task``）；每次取得一个

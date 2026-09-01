@@ -1,12 +1,4 @@
-function formatValue(value) {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
+import { errorText, requestJSON } from "./http.js";
 
 export function createTaskCommandSuggester() {
   let command = "";
@@ -32,8 +24,18 @@ export function createTaskCommandSuggester() {
       || value.includes("\n")
       || selectionStart !== selectionEnd
       || selectionEnd !== value.length
-      || !value.startsWith(command)
     ) return null;
+
+    if (!/[\t ]/.test(value)) {
+      if (!command.startsWith(value)) return null;
+      return {
+        leading: "",
+        prefix: value,
+        suggestions: [command],
+      };
+    }
+
+    if (!value.startsWith(command)) return null;
 
     const suffix = value.slice(command.length);
     if (!/^[\t ]/.test(suffix)) return null;
@@ -89,66 +91,9 @@ export function createInteractionController({ copy, select, onRefresh }) {
     taskUsage: "",
   };
 
-  function errorText(error) {
-    if (error == null || error === "") return "";
-    if (typeof error === "string") return error;
-    if (typeof error === "object") {
-      if (typeof error.message === "string") return error.message;
-      if (typeof error.detail === "string") return error.detail;
-      if (typeof error.error === "string") return error.error;
-    }
-    return formatValue(error);
-  }
-
-  function controlFeedbackText(feedback) {
-    const text = errorText(feedback);
-    const taskSelectedPrefix = "Task selected: ";
-    if (text.startsWith(taskSelectedPrefix)) {
-      return copy.taskSelectedFeedback(text.slice(taskSelectedPrefix.length));
-    }
-    const taskRunStarting = /^TaskRun (\d+) starting(?:…|\.\.\.)$/.exec(text);
-    if (taskRunStarting) {
-      return copy.taskRunStartingFeedback(taskRunStarting[1]);
-    }
-    return text;
-  }
-
-  async function responseErrorText(response) {
-    let body = "";
-    try {
-      body = await response.text();
-    } catch {}
-    if (!body) return `${response.status} ${response.statusText}`.trim();
-    try {
-      const parsed = JSON.parse(body);
-      return errorText(parsed.detail ?? parsed.error ?? parsed.message ?? parsed);
-    } catch {
-      return body;
-    }
-  }
-
-  async function requestJSON(url, { method = "GET", body } = {}) {
-    const options = { method };
-    if (body !== undefined) {
-      options.headers = { "Content-Type": "application/json" };
-      options.body = JSON.stringify(body);
-    }
-    const response = await fetch(url, options);
-    if (!response.ok) throw new Error(await responseErrorText(response));
-    if (response.status === 204) return null;
-    const text = await response.text();
-    if (!text) return null;
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text;
-    }
-  }
-
   function taskTargetLabel(target) {
     if (!target) return "";
-    if (typeof target.label === "string") return target.label;
-    return formatValue(target.parameters || target);
+    return typeof target.label === "string" ? target.label : "";
   }
 
   function renderPendingMessages(messages) {
@@ -221,7 +166,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
   }
 
   function renderTaskSuggestions() {
-    const area = select("#suiteSuggestions");
+    const area = select("#taskSuggestions");
     const input = select("#chatInput");
     const suggestions = input.disabled
       ? []
@@ -243,7 +188,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     const candidates = suggestions.map(suggestion => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "suite-suggestion";
+      button.className = "task-suggestion";
       button.setAttribute("role", "option");
       button.textContent = suggestion;
       button.addEventListener("click", () => {
@@ -283,8 +228,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     const fatal = session.session_state === "fatal";
     const commandContext = mode === "command_only"
       || session.session_state !== "running";
-    const inputEnabled = !!interaction.session_id
-      && mode !== "disabled";
+    const inputEnabled = mode !== "disabled";
     composer.dataset.inputMode = mode;
     input.placeholder = commandContext
       ? copy.commandPlaceholder(state.taskUsage)
@@ -301,7 +245,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     status.className = "composer-status";
     const backendError = errorText(interaction.last_error);
     const controlError = errorText(session.control_error);
-    const feedback = session.control_feedback.map(controlFeedbackText).filter(Boolean);
+    const feedback = session.control_feedback.map(errorText).filter(Boolean);
     if (state.requestError) {
       status.textContent = state.requestError;
       status.classList.add("is-error");
@@ -383,8 +327,8 @@ export function createInteractionController({ copy, select, onRefresh }) {
     select("#chatInput").value = "";
     select("#pendingArea").hidden = true;
     select("#pendingMessages").replaceChildren();
-    select("#suiteSuggestions").hidden = true;
-    select("#suiteSuggestions").replaceChildren();
+    select("#taskSuggestions").hidden = true;
+    select("#taskSuggestions").replaceChildren();
     select("#interactionStatus").textContent = "";
   }
 
@@ -423,7 +367,6 @@ export function createInteractionController({ copy, select, onRefresh }) {
     const text = draft.trim();
     if (
       !text
-      || !interaction?.session_id
       || interaction.input_mode === "disabled"
       || state.submissionInFlight
     ) return;
@@ -433,7 +376,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     render();
     try {
       await requestJSON(
-        `/api/sessions/${encodeURIComponent(interaction.session_id)}/messages`,
+        "/api/session/messages",
         { method: "POST", body: { text } },
       );
       if (input.value === draft) input.value = "";
@@ -451,7 +394,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
   async function withdrawMessage(messageId) {
     const interaction = state.snapshot?.interaction;
     if (
-      !interaction?.session_id
+      !interaction
       || !messageId
       || state.withdrawalsInFlight.has(messageId)
     ) return;
@@ -461,7 +404,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     render();
     try {
       await requestJSON(
-        `/api/sessions/${encodeURIComponent(interaction.session_id)}/messages/${encodeURIComponent(messageId)}`,
+        `/api/session/messages/${encodeURIComponent(messageId)}`,
         { method: "DELETE" },
       );
       onRefresh();
@@ -478,7 +421,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
   async function requestInterrupt() {
     const interaction = state.snapshot?.interaction;
     if (
-      !interaction?.session_id
+      !interaction
       || interaction.planner_activity !== "busy"
       || interaction.interrupt_requested
       || state.interruptInFlight
@@ -489,12 +432,12 @@ export function createInteractionController({ copy, select, onRefresh }) {
     render();
     try {
       const result = await requestJSON(
-        `/api/sessions/${encodeURIComponent(interaction.session_id)}/interrupt`,
+        "/api/session/interrupt",
         { method: "POST" },
       );
       if (
         result?.interrupt_requested
-        && state.snapshot?.interaction.session_id === interaction.session_id
+        && state.snapshot?.interaction
       ) {
         applySnapshot({
           ...state.snapshot,

@@ -1,3 +1,4 @@
+import { formatValue as fmtArgs, requestJSON } from "./http.js";
 import { createInteractionController } from "./interaction.js";
 import { makeAssistantTextElement } from "./markdown_table.js";
 import {
@@ -15,22 +16,7 @@ const LANGUAGE = document.documentElement.lang === "zh-cn" ? "zh-cn" : "en";
 const COPY = {
   en: {
     pageTitle: "RPent · Live Monitor",
-    newSession: "New Session",
-    launcherSubtitle: "Review the session config, then start the Dashboard control Session.",
-    planner: "Planner (LLM backend)",
-    maxTurns: "Max turns",
-    modelPreset: "Model",
-    customModel: "Custom model",
-    optional: "(optional)",
-    required: "(required)",
-    customModelPlaceholder: "provider:model or alias",
-    noImages: "Disable image input (required for text-only models)",
-    claudeBudget: "Claude Code budget USD",
-    plannerReasoningEffort: "Reasoning effort (higher may improve success rate)",
-    plannerTimeout: "Planner timeout s",
-    startSession: "Start Session",
     liveMonitor: "Live Monitor",
-    runtimeLabels: { env: "ENV", vla: "VLA", sam3: "SAM3" },
     runtimeStates: {
       pending: "waiting",
       starting: "starting",
@@ -40,10 +26,9 @@ const COPY = {
     reasoning: "Agent reasoning & tool calls",
     expandTools: "expand tool calls",
     autoScroll: "auto-scroll",
-    selectRun: "Select a run to begin.",
     resizeColumns: "Drag to resize columns",
     composerLabel: "Agent message composer",
-    suiteSuggestionsLabel: "Task value suggestions",
+    taskSuggestionsLabel: "Task value suggestions",
     resizeComposer: "Drag to resize composer height · double-click to reset",
     composerPlaceholder: "Message the agent…",
     composerKeys: "Enter to send · Shift+Enter for newline · Esc to interrupt",
@@ -53,10 +38,7 @@ const COPY = {
     commandReady: (usage) => `Ready for ${usage}.`,
     taskStarting: "Starting the selected TaskRun…",
     taskSwitchPending: (target) => `Task switch pending${target ? `: ${target}` : ""}.`,
-    taskSelectedFeedback: (target) => `Task selected: ${target}`,
-    taskRunStartingFeedback: (number) => `TaskRun ${number} starting…`,
     sessionFatal: "The Dashboard Session is unavailable.",
-    dashboardConfigFailed: "Dashboard configuration is unavailable.",
     interactionStarting: "Waiting for robot startup…",
     interactionReady: "The agent is ready for another message.",
     interactionBusy: "The agent is working; new messages will be queued.",
@@ -121,19 +103,8 @@ const COPY = {
     loading: "Loading…",
     live: "● live",
     reconnecting: "○ reconnecting…",
-    requiredFields: {
-      maxTurns: "Max turns",
-      apiModel: "API model (provider:model)",
-    },
     fieldRequired: (field) => `${field} is required.`,
-    starting: "starting Session… this page will switch to the live monitor.",
-    startFailed: "failed to start Session — check the terminal.",
-    noRuns: (directory) => `(no runs in ${directory})`,
     awaitingTask: (usage) => `Waiting for ${usage}`,
-    distance: (value) => `dist ${value}m `,
-    steps: (used, maximum) => `${used}/${maximum} steps `,
-    lifted: (value) => `lifted=${value} `,
-    chunks: (value) => `chunks=${value} `,
     actionReplayTitle: "Click to replay this action",
     episodeReplayTitle: "Click to replay the full episode",
     thinking: (count) => `thinking · ${count.toLocaleString()} chars`,
@@ -146,22 +117,7 @@ const COPY = {
   },
   "zh-cn": {
     pageTitle: "RPent · 实时监控",
-    newSession: "新建 Session",
-    launcherSubtitle: "确认 Session 配置后，启动 Dashboard 控制 Session。",
-    planner: "决策大脑(大模型后端)",
-    maxTurns: "最大对话轮数",
-    modelPreset: "模型",
-    customModel: "自定义模型",
-    optional: "(可选)",
-    required: "(必填)",
-    customModelPlaceholder: "provider:model 或别名",
-    noImages: "禁用图像输入（纯文本模型必需）",
-    claudeBudget: "Claude Code 预算 USD",
-    plannerReasoningEffort: "推理强度（提高强度可能提升成功率）",
-    plannerTimeout: "Planner 超时秒数",
-    startSession: "启动 Session",
     liveMonitor: "实时监控",
-    runtimeLabels: { env: "ENV", vla: "VLA", sam3: "SAM3" },
     runtimeStates: {
       pending: "等待中",
       starting: "启动中",
@@ -171,10 +127,9 @@ const COPY = {
     reasoning: "智能体推理与工具调用",
     expandTools: "展开工具调用",
     autoScroll: "自动滚动",
-    selectRun: "请选择一个运行以开始。",
     resizeColumns: "拖动调整左右宽度",
     composerLabel: "智能体消息输入区",
-    suiteSuggestionsLabel: "任务参数候选",
+    taskSuggestionsLabel: "任务参数候选",
     resizeComposer: "拖动调整输入区高度 · 双击复位",
     composerPlaceholder: "向智能体发送消息…",
     composerKeys: "Enter 发送 · Shift+Enter 换行 · Esc 中断",
@@ -184,12 +139,7 @@ const COPY = {
     commandReady: (usage) => `可提交 ${usage}。`,
     taskStarting: "正在启动已选 TaskRun…",
     taskSwitchPending: (target) => `任务切换等待中${target ? `：${target}` : ""}。`,
-    taskSelectedFeedback: (target) => `已选择任务：${target
-      .replace(/\/ task /g, "/ 任务 ")
-      .replace(/\/ seed /g, "/ 种子 ")}`,
-    taskRunStartingFeedback: (number) => `任务运行 ${number} 正在启动…`,
     sessionFatal: "Dashboard Session 已不可用。",
-    dashboardConfigFailed: "Dashboard 配置不可用。",
     interactionStarting: "正在等待环境启动…",
     interactionReady: "智能体已准备好接收新消息。",
     interactionBusy: "智能体正在工作；新消息将进入等待队列。",
@@ -253,19 +203,8 @@ const COPY = {
     loading: "加载中…",
     live: "● 实时",
     reconnecting: "○ 正在重连…",
-    requiredFields: {
-      maxTurns: "最大对话轮数",
-      apiModel: "API 模型（provider:model）",
-    },
     fieldRequired: (field) => `请填写${field}。`,
-    starting: "正在启动 Session… 页面将切换到实时监控。",
-    startFailed: "Session 启动失败，请查看终端输出。",
-    noRuns: (directory) => `(${directory} 中暂无运行)`,
     awaitingTask: (usage) => `等待 ${usage}`,
-    distance: (value) => `距离 ${value}m `,
-    steps: (used, maximum) => `${used}/${maximum} 步 `,
-    lifted: (value) => `已抓取=${value} `,
-    chunks: (value) => `块数=${value} `,
     actionReplayTitle: "点击回放该动作",
     episodeReplayTitle: "点击回放完整过程",
     thinking: (count) => `思考 · ${count.toLocaleString()} 字符`,
@@ -282,7 +221,6 @@ const copy = COPY[LANGUAGE];
 const RUNTIME_STATES = ["pending", "starting", "ready", "failed"];
 let runtimeComponents = [];
 let frameChannels = [];
-let launcherFields = [];
 let taskCommandUsage = "";
 
 function applyStaticCopy() {
@@ -324,7 +262,6 @@ function renderFrameTabs() {
 function configureDashboardSpec(spec) {
   runtimeComponents = spec.runtime_components;
   frameChannels = spec.frame_channels;
-  launcherFields = spec.launcher_fields || [];
   taskCommandUsage = spec.task.usage;
   const initialFrameKind = defaultFrameKind();
   mediaState.kind = initialFrameKind;
@@ -333,11 +270,18 @@ function configureDashboardSpec(spec) {
 }
 
 const runState = {
-  id: null,
+  connected: false,
   eventSource: null,
   lastStepCount: -1,
+  lastEventCount: -1,
   taskGeneration: null,
 };
+
+function selectFrameTab(kind = null) {
+  document.querySelectorAll(".frame-tabs button").forEach(button =>
+    button.classList.toggle("active", button.dataset.kind === kind)
+  );
+}
 
 const transcriptState = {
   shown: 0,
@@ -350,7 +294,8 @@ const transcriptState = {
 
 const timelineState = {
   initialized: false,
-  seen: new Set(),
+  loaded: 0,
+  episodeElement: null,
 };
 
 const mediaState = {
@@ -471,15 +416,11 @@ function renderPrimitiveChoices(primitives) {
 }
 
 async function loadPrimitiveSchemas(generation) {
-  if (!runState.id || primitiveState.loadingGeneration === generation) return;
+  if (!runState.connected || primitiveState.loadingGeneration === generation) return;
   primitiveState.loadingGeneration = generation;
   const epoch = ++primitiveState.epoch;
   try {
-    const response = await fetch(
-      `/api/run/primitives?run=${encodeURIComponent(runState.id)}`,
-    );
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || copy.unknownRequestError);
+    const payload = await requestJSON("/api/session/primitives");
     if (epoch !== primitiveState.epoch || generation !== runState.taskGeneration) return;
     primitiveState.loadedGeneration = generation;
     primitiveState.loadingGeneration = null;
@@ -524,7 +465,7 @@ function setPrimitiveFormDisabled(disabled) {
 async function executeSelectedPrimitive(event) {
   event.preventDefault();
   const primitive = primitiveState.selected;
-  if (!primitive || primitiveState.executing || !runState.id) return;
+  if (!primitive || primitiveState.executing || !runState.connected) return;
   let argumentsObject;
   try {
     argumentsObject = readPrimitiveArguments(
@@ -541,17 +482,13 @@ async function executeSelectedPrimitive(event) {
   $("#executePrimitive").textContent = copy.executingPrimitive;
   setPrimitiveStatus(copy.executingPrimitive);
   try {
-    const response = await fetch("/api/run/primitive", {
+    await requestJSON("/api/session/primitive", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        run: runState.id,
+      body: {
         name: primitive.name,
         arguments: argumentsObject,
-      }),
+      },
     });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || copy.unknownRequestError);
     if (epoch === primitiveState.epoch) {
       setPrimitiveStatus(copy.primitiveSucceeded, "success", 3500);
     }
@@ -571,30 +508,6 @@ $("#primitiveForm").addEventListener("submit", executeSelectedPrimitive);
 
 const AUTO_ACTION_RETURN_DELAY_MS = 300;
 const AUTO_PLAY_ACTION_VIDEOS = false;
-const MODEL_PRESETS = {
-  claude_code: [
-    "deepseek-v4-flash",
-    "kimi-k3",
-    "claude-opus-4-7",
-    "sonnet",
-    "opus",
-  ],
-  codex: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.3-codex"],
-  api: [
-    "openai-chat:deepseek-v4-flash",
-    "openai-chat:deepseek-v4-pro",
-    "openai-chat:kimi-k3",
-    "anthropic:claude-opus-4-7",
-    "openai:gpt-5.6-sol",
-    "openai:gpt-5.6-terra",
-    "openai:gpt-5.6-luna",
-    "openai-chat:glm-5.2",
-  ],
-};
-const launcherModelSelections = Object.fromEntries(
-  Object.entries(MODEL_PRESETS).map(([planner, models]) => [planner, models[0]]),
-);
-let activeLauncherPlanner = "claude_code";
 
 // --- Double-buffered media swap ------------------------------------------
 // Two <img> + two <video> live in the DOM at the same position. Exactly one
@@ -858,11 +771,13 @@ function resetTranscriptForRun() {
 
 function resetTimelineForRun() {
   timelineState.initialized = false;
-  timelineState.seen.clear();
+  timelineState.loaded = 0;
+  timelineState.episodeElement = null;
 }
 
 function resetRenderedTaskProjection() {
   runState.lastStepCount = -1;
+  runState.lastEventCount = -1;
   resetTranscriptForRun();
   resetTimelineForRun();
   resetMediaForRun();
@@ -876,9 +791,7 @@ function resetRenderedTaskProjection() {
   $("#taskMeta").textContent = copy.awaitingTask(taskCommandUsage);
   $("#frameCap").textContent = copy.waitingFrame;
   setResult(false, null);
-  document.querySelectorAll(".frame-tabs button").forEach(button =>
-    button.classList.toggle("active", button.dataset.kind === defaultFrameKind())
-  );
+  selectFrameTab(defaultFrameKind());
 }
 
 function syncTaskGeneration(snapshot) {
@@ -901,14 +814,23 @@ function renderTaskMeta(task) {
     return;
   }
   const label = document.createElement("b");
-  label.textContent = task.label || fmtArgs(task.parameters || task);
+  label.textContent = task.label;
   taskMeta.replaceChildren(label);
 }
 
-function fmtArgs(o) {
-  if (o == null) return "";
-  if (typeof o === "string") return o;
-  try { return JSON.stringify(o); } catch { return String(o); }
+function timelineDetail(item) {
+  const result = item.result;
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const entries = Object.entries(result)
+      .filter(([, value]) =>
+        value == null || ["string", "number", "boolean"].includes(typeof value)
+      )
+      .slice(0, 4);
+    if (entries.length) return fmtArgs(Object.fromEntries(entries)).slice(0, 100);
+  } else if (result != null) {
+    return fmtArgs(result).slice(0, 100);
+  }
+  return fmtArgs(item.args).slice(0, 100);
 }
 
 const interactionController = createInteractionController({
@@ -918,17 +840,6 @@ const interactionController = createInteractionController({
     refreshMeta().catch(() => {});
   },
 });
-
-async function loadRun() {
-  const r = await fetch("/api/runs").then(x => x.json());
-  if (!r.runs.length) {
-    $("#taskMeta").textContent = copy.noRuns(r.runs_dir);
-    return;
-  }
-
-  const run = r.runs[0];
-  selectRun(run.id);
-}
 
 function isRealtimeKind(kind) {
   return frameChannels.some(channel => channel.name === kind);
@@ -956,7 +867,7 @@ function renderRuntimeStatus(runtime) {
     const status = RUNTIME_STATES.includes(candidate) ? candidate : "pending";
     const item = document.createElement("span");
     item.className = `runtime-item runtime-${status}`;
-    const label = copy.runtimeLabels[component.name] || component.label || component.name;
+    const label = component.label || component.name;
     item.textContent = `${label} ${copy.runtimeStates[status]}`;
     if (info && typeof info === "object" && info.error) {
       item.title = info.error;
@@ -998,12 +909,9 @@ function maybeAutoPlayNewAction(tl, nextFrameIdx) {
   });
 }
 
-function timelineItemKey(item) {
-  return `${item.step ?? ""}:${item.action ?? ""}`;
-}
-
 function renderTimeline(
   tl,
+  totalSteps,
   hasEpisodeVideo = mediaState.episodeVideoAvailable,
   { animateNew = false } = {},
 ) {
@@ -1011,30 +919,26 @@ function renderTimeline(
   mediaState.episodeVideoAvailable = !!hasEpisodeVideo;
   const el = $("#timeline");
   const shouldAnimateNew = animateNew && timelineState.initialized;
-  const total = tl.length + (mediaState.episodeVideoAvailable ? 1 : 0);
+  const total = totalSteps + (mediaState.episodeVideoAvailable ? 1 : 0);
   $("#stepCount").textContent = total ? total : "";
-  if (!tl.length && !mediaState.episodeVideoAvailable) {
+  if (!total) {
     el.innerHTML = `<div class="empty">${copy.noActions}</div>`;
+    timelineState.loaded = 0;
+    timelineState.episodeElement = null;
     timelineState.initialized = true;
     return;
   }
-  el.innerHTML = "";
+  if (timelineState.loaded === 0 && (tl.length || mediaState.episodeVideoAvailable)) {
+    el.replaceChildren();
+  }
   for (const s of tl) {
     if (s.step === 0 && !s.action) continue;
-    const key = timelineItemKey(s);
     const div = document.createElement("div");
     div.className = "step" + (s.terminated ? " term" : "");
     if (s.has_action_video) div.className += " hasclip";
-    if (shouldAnimateNew && !timelineState.seen.has(key)) {
-      div.classList.add("entering");
-    }
+    if (shouldAnimateNew) div.classList.add("entering");
     const res = s.result || {};
-    let det = "";
-    if (res.final_dist_m != null) det += copy.distance((+res.final_dist_m).toFixed(3));
-    if (res.steps_used != null) det += copy.steps(res.steps_used, res.max_steps ?? "?");
-    if (res.lifted != null) det += copy.lifted(res.lifted);
-    if (res.chunks != null) det += copy.chunks(res.chunks);
-    det = det.trim() || fmtArgs(s.args).slice(0, 60);
+    const det = timelineDetail(s);
     div.innerHTML = `<span class="idx">${s.step}</span>
       <div class="body"><span class="act">${s.action ?? "—"}</span>
       <div class="det" title="${fmtArgs(res).replace(/"/g,'&quot;')}">${det}</div></div>
@@ -1046,15 +950,13 @@ function renderTimeline(
         returnKind: mediaState.lastRealtimeKind,
       }));
     }
-    el.appendChild(div);
-    timelineState.seen.add(key);
+    el.insertBefore(div, timelineState.episodeElement);
   }
-  if (mediaState.episodeVideoAvailable) {
+  timelineState.loaded = totalSteps;
+  if (mediaState.episodeVideoAvailable && !timelineState.episodeElement) {
     const div = document.createElement("div");
     div.className = "step episode";
-    if (shouldAnimateNew && !timelineState.seen.has("episode-video")) {
-      div.classList.add("entering");
-    }
+    if (shouldAnimateNew) div.classList.add("entering");
     div.title = copy.episodeReplayTitle;
     div.innerHTML = `<span class="idx">${copy.full}</span>
       <div class="body"><span class="act">${copy.episodeVideo}</span>
@@ -1062,7 +964,7 @@ function renderTimeline(
       <span class="el">${copy.finished}</span>`;
     div.addEventListener("click", playEpisodeVideo);
     el.appendChild(div);
-    timelineState.seen.add("episode-video");
+    timelineState.episodeElement = div;
   }
   timelineState.initialized = true;
 }
@@ -1106,6 +1008,7 @@ function appendEvents(events, animateNew = false) {
       if (!transcriptState.toolGroup) {
         const g = document.createElement("div");
         g.className = "toolgroup";
+        g.dataset.toolCalls = "0";
         if (animateNew) g.classList.add("entering");
         g.innerHTML = `<div class="tg-head"><span class="tg-count">0</span> ${copy.toolCalls}</div><div class="tg-body"></div>`;
         g.querySelector(".tg-head").addEventListener("click", () => g.classList.toggle("open"));
@@ -1113,8 +1016,11 @@ function appendEvents(events, animateNew = false) {
         transcriptState.toolGroup = g;
       }
       transcriptState.toolGroup.querySelector(".tg-body").appendChild(makeToolEl(ev));
-      const n = transcriptState.toolGroup.querySelectorAll(".tg-body .ev.tool_call").length;
-      transcriptState.toolGroup.querySelector(".tg-count").textContent = n;
+      if (ev.type === "tool_call") {
+        const n = Number(transcriptState.toolGroup.dataset.toolCalls) + 1;
+        transcriptState.toolGroup.dataset.toolCalls = String(n);
+        transcriptState.toolGroup.querySelector(".tg-count").textContent = n;
+      }
     } else {
       transcriptState.toolGroup = null;  // close the group; turn/text render at top level
       if (ev.type === "thinking") {
@@ -1149,23 +1055,21 @@ function appendEvents(events, animateNew = false) {
 }
 
 async function refreshTranscript() {
-  if (!runState.id) return;
+  if (!runState.connected) return;
   // Serialize: only one fetch in flight at a time. Concurrent triggers
   // (selectRun + SSE ticks) would otherwise read the same `transcriptState.shown`, fetch
   // overlapping chunks, and append in nondeterministic resolution order —
   // which is what made turns show up out of order / duplicated.
   if (transcriptState.inFlight) { transcriptState.refreshAgain = true; return; }
   transcriptState.inFlight = true;
-  const run = runState.id;
   const taskGeneration = runState.taskGeneration;
   const epoch = transcriptState.epoch;
   try {
-    const r = await fetch(
-      `/api/run/transcript?run=${encodeURIComponent(run)}&since=${transcriptState.shown}`
-    ).then(x => x.json());
+    const r = await requestJSON(
+      `/api/session/transcript?since=${transcriptState.shown}`
+    );
     if (
-      run !== runState.id
-      || taskGeneration !== runState.taskGeneration
+      taskGeneration !== runState.taskGeneration
       || epoch !== transcriptState.epoch
     ) {
       transcriptState.refreshAgain = true;
@@ -1193,8 +1097,7 @@ function setFrameKind(kind) {
   }
   mediaState.kind = kind;
   if (kind !== "actionVideo") mediaState.actionVideo = null;
-  document.querySelectorAll(".frame-tabs button").forEach(b =>
-    b.classList.toggle("active", b.dataset.kind === kind));
+  selectFrameTab(kind);
   mediaState.frameIndex = -1;
   refreshFrame(undefined, { source: "user" });
 }
@@ -1213,8 +1116,7 @@ function finishAutoActionPlayback() {
     mediaState.actionVideo = null;
     mediaState.kind = returnKind;
     mediaState.frameIndex = -1;
-    document.querySelectorAll(".frame-tabs button").forEach(b =>
-      b.classList.toggle("active", b.dataset.kind === returnKind));
+    selectFrameTab(returnKind);
     // No video reset here — swapMedia keeps the finished video's last
     // frame painted until the realtime PNG is decoded, then flips visibility
     // — the transition never exposes the black framewrap background.
@@ -1224,7 +1126,7 @@ function finishAutoActionPlayback() {
 }
 
 function playActionVideo(step, opts = {}) {
-  if (!runState.id || !step || !step.has_action_video) return false;
+  if (!runState.connected || !step || !step.has_action_video) return false;
   cancelAutoActionReturn();
   mediaState.actionVideo = step;
   mediaState.autoPlayback = opts.auto || opts.returnAfterEnd
@@ -1236,7 +1138,7 @@ function playActionVideo(step, opts = {}) {
       }
     : null;
   mediaState.kind = "actionVideo";
-  document.querySelectorAll(".frame-tabs button").forEach(b => b.classList.remove("active"));
+  selectFrameTab();
   mediaState.frameIndex = -1;
   // Auto-triggered replays (from maybeAutoPlayNewAction) queue as "auto";
   // manual timeline clicks are user actions and jump the queue.
@@ -1245,12 +1147,12 @@ function playActionVideo(step, opts = {}) {
 }
 
 function playEpisodeVideo() {
-  if (!runState.id || !mediaState.episodeVideoAvailable) return;
+  if (!runState.connected || !mediaState.episodeVideoAvailable) return;
   cancelAutoActionReturn();
   mediaState.autoPlayback = null;
   mediaState.actionVideo = null;
   mediaState.kind = "video";
-  document.querySelectorAll(".frame-tabs button").forEach(b => b.classList.remove("active"));
+  selectFrameTab();
   mediaState.frameIndex = -1;
   refreshFrame(undefined, { source: "user" });
 }
@@ -1264,7 +1166,7 @@ function showFrameUnavailable(kind, idx) {
 }
 
 function refreshFrame(idx, opts = {}) {
-  if (!runState.id) return;
+  if (!runState.connected) return;
   const source = opts.source || "auto";
 
   if (mediaState.kind === "actionVideo") {
@@ -1273,7 +1175,7 @@ function refreshFrame(idx, opts = {}) {
     // Note: no ``t=Date.now()`` cache-buster — action video files are
     // written once and never mutate, so the buffer's ``_loadedSrc`` cache
     // gives us instant replay when the same clip is re-clicked.
-    const url = `/api/run/action-video?run=${encodeURIComponent(runState.id)}&step=${encodeURIComponent(mediaState.actionVideo.step)}`;
+    const url = `/api/session/action-video?step=${encodeURIComponent(mediaState.actionVideo.step)}`;
     const cap = copy.actionCaption(
       mediaState.actionVideo.step,
       mediaState.actionVideo.action,
@@ -1304,7 +1206,7 @@ function refreshFrame(idx, opts = {}) {
   }
 
   if (mediaState.kind === "video") {
-    const url = `/api/run/video?run=${encodeURIComponent(runState.id)}`;
+    const url = "/api/session/video";
     swapMedia({
       kind: "video",
       url,
@@ -1330,7 +1232,7 @@ function refreshFrame(idx, opts = {}) {
   if (idx != null && idx === mediaState.frameIndex) return;
   mediaState.frameIndex = idx ?? mediaState.frameIndex;
   mediaState.unavailableKind = null;
-  const url = `/api/run/frame?run=${encodeURIComponent(runState.id)}&kind=${mediaState.kind}&t=${Date.now()}`;
+  const url = `/api/session/frame?kind=${mediaState.kind}&t=${Date.now()}`;
   swapMedia({
     kind: "img",
     url,
@@ -1345,29 +1247,44 @@ function refreshFrame(idx, opts = {}) {
   });
 }
 
-async function refreshMeta(opts = {}) {
-  if (!runState.id) return;
-  const r = await fetch(`/api/run?run=${encodeURIComponent(runState.id)}`).then(x => x.json());
-  const generationState = syncTaskGeneration(r);
+function applySessionSnapshot(snapshot) {
+  const generationState = syncTaskGeneration(snapshot);
   if (generationState === "stale") return;
-  setBadge(r.state, r.control_error || r.error);
-  setResult(r.terminated, r.state);
-  renderRuntimeStatus(r.runtime);
-  syncPrimitiveAvailability(r);
-  interactionController.applySnapshot(r);
+  setBadge(snapshot.state, snapshot.control_error || snapshot.error);
+  setResult(snapshot.terminated, snapshot.state);
+  renderRuntimeStatus(snapshot.runtime);
+  syncPrimitiveAvailability(snapshot);
+  interactionController.applySnapshot(snapshot);
+  mediaState.frameAvailable = snapshot.frame_available || null;
+  if (snapshot.usage) $("#usageMeta").textContent = copy.usage(snapshot.usage);
+  refreshTranscriptIfChanged(snapshot);
+  return generationState;
+}
+
+async function refreshMeta(opts = {}) {
+  if (!runState.connected) return;
+  const timelineSince = timelineState.loaded;
+  const r = await requestJSON(
+    `/api/session/state?timeline_since=${timelineSince}`,
+  );
+  const generationState = applySessionSnapshot(r);
+  if (generationState == null) return;
   const currentTask = r.current_task;
   renderTaskMeta(currentTask);
-  mediaState.frameAvailable = r.frame_available || null;
-  if (r.usage) $("#usageMeta").textContent = copy.usage(r.usage);
-  renderTimeline(r.timeline || [], r.has_video, {
-    animateNew: timelineState.initialized,
-  });
-  if (opts.primeAutoActionStep) {
-    mediaState.lastActionStep = maxTimelineStep(r.timeline || []);
-    mediaState.autoActionPrimed = true;
+  const timelineCurrent = timelineSince === timelineState.loaded;
+  if (timelineCurrent) {
+    renderTimeline(r.timeline || [], r.n_steps, r.has_video, {
+      animateNew: timelineState.initialized,
+    });
+    runState.lastStepCount = r.n_steps;
+    if (opts.primeAutoActionStep) {
+      mediaState.lastActionStep = maxTimelineStep(r.timeline || []);
+      mediaState.autoActionPrimed = true;
+    }
   }
-  const autoStarted = AUTO_PLAY_ACTION_VIDEOS && opts.autoPlayNewAction
-    && mediaState.autoActionPrimed && !mediaState.autoPlayback
+  const autoStarted = timelineCurrent && AUTO_PLAY_ACTION_VIDEOS
+    && opts.autoPlayNewAction && mediaState.autoActionPrimed
+    && !mediaState.autoPlayback
     ? maybeAutoPlayNewAction(r.timeline || [], opts.nextFrameIdx ?? r.frame_idx)
     : false;
   if (!r.has_video && mediaState.kind === "video") setFrameKind(defaultFrameKind());
@@ -1377,25 +1294,22 @@ async function refreshMeta(opts = {}) {
     && isRealtimeKind(mediaState.kind)
     && currentTask
   ) refreshFrame(r.frame_idx);
-  if (generationState === "changed") refreshTranscript();
+}
+
+function refreshTranscriptIfChanged(snapshot) {
+  if (snapshot.n_events == null || snapshot.n_events === runState.lastEventCount) return;
+  runState.lastEventCount = snapshot.n_events;
+  refreshTranscript();
 }
 
 function connectSSE() {
   if (runState.eventSource) runState.eventSource.close();
-  runState.eventSource = new EventSource(`/api/stream?run=${encodeURIComponent(runState.id)}`);
+  runState.eventSource = new EventSource("/api/session/stream");
   runState.eventSource.onmessage = (e) => {
     const sig = JSON.parse(e.data);
-    const generationState = syncTaskGeneration(sig);
-    if (generationState === "stale") return;
-    setBadge(sig.state, sig.control_error || sig.error);
-    setResult(sig.terminated, sig.state);
-    renderRuntimeStatus(sig.runtime);
-    syncPrimitiveAvailability(sig);
-    interactionController.applySnapshot(sig);
-    mediaState.frameAvailable = sig.frame_available || null;
-    if (sig.usage) $("#usageMeta").textContent = copy.usage(sig.usage);
+    const generationState = applySessionSnapshot(sig);
+    if (generationState == null) return;
     $("#connMeta").textContent = copy.live;
-    refreshTranscript();
     if (generationState === "changed") {
       refreshMeta({ primeAutoActionStep: true });
       return;
@@ -1404,7 +1318,7 @@ function connectSSE() {
     if (sig.n_steps !== runState.lastStepCount) {
       runState.lastStepCount = sig.n_steps;
       // Suppress realtime frame refreshes for the duration of the step
-      // transition. ``refreshMeta`` is async (awaits ``/api/run``); during
+      // transition. ``refreshMeta`` is async (awaits Session state); during
       // that await, intermediate SSE snapshots carry the post-step
       // ``frame_idx`` but ``mediaState.autoPlayback`` is not set yet, so the
       // realtime branch below would queue the completion image BEFORE
@@ -1436,8 +1350,8 @@ function connectSSE() {
   };
 }
 
-function selectRun(id) {
-  runState.id = id;
+function connectSession() {
+  runState.connected = true;
   runState.taskGeneration = null;
   resetRenderedTaskProjection();
   renderRuntimeStatus(null);
@@ -1504,212 +1418,15 @@ setupSplitter($("#composerGrip"), {
   min: 132, max: 160, store: "wm.composerh",
 });
 
-// --- launcher (start screen) ---
-function populateModelPresets(planner, selected = "") {
-  const preset = $("#f-model_preset");
-  const values = MODEL_PRESETS[planner];
-  const model = selected || values[0];
-  preset.innerHTML = "";
-  for (const value of values) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = value;
-    preset.appendChild(option);
-  }
-  const selectedPreset = values.includes(model);
-  preset.value = selectedPreset ? model : values[0];
-  $("#f-model_custom").value = selectedPreset ? "" : model;
-}
-
-function selectedModel() {
-  return $("#f-model_custom").value.trim() || $("#f-model_preset").value.trim();
-}
-
-function renderEnvironmentLauncherFields(defaults) {
-  const fields = launcherFields.map(field => {
-    const container = document.createElement("div");
-    container.className = "lfield";
-
-    const input = document.createElement("input");
-    input.id = `f-environment-${field.name}`;
-    input.dataset.launcherField = field.name;
-    input.type = field.kind === "integer" ? "number" : "text";
-    input.value = defaults[field.name] == null ? "" : defaults[field.name];
-    input.required = Boolean(field.required);
-    if (field.kind === "integer") input.step = "1";
-    if (field.minimum != null) input.min = String(field.minimum);
-    if (field.placeholder) input.placeholder = field.placeholder;
-
-    const label = document.createElement("label");
-    label.htmlFor = input.id;
-    label.textContent = LANGUAGE === "zh-cn"
-      ? field.label_zh_cn || field.label
-      : field.label;
-    if (LANGUAGE === "zh-cn" && field.placeholder_zh_cn) {
-      input.placeholder = field.placeholder_zh_cn;
-    }
-    container.append(label, input);
-    return container;
-  });
-  $("#environmentLauncherFields").replaceChildren(...fields);
-}
-
-function showLauncher(defaults) {
-  const d = defaults || {};
-  const planner = MODEL_PRESETS[d.planner] ? d.planner : "claude_code";
-  const defaultModel = d.model || MODEL_PRESETS[planner][0];
-  const set = (id, val) => { $(id).value = val == null ? "" : val; };
-  set("#f-max-turns", d["max-turns"]);
-  set("#f-planner-timeout-s", d["planner-timeout-s"]);
-  set("#f-reasoning-effort", d["reasoning-effort"] || "none");
-  set("#f-claude-code-max-budget-usd", d["claude-code-max-budget-usd"]);
-  renderEnvironmentLauncherFields(d);
-  $("#f-no-images").checked = Boolean(d["no-images"]);
-  for (const name of Object.keys(launcherModelSelections)) {
-    launcherModelSelections[name] = MODEL_PRESETS[name][0];
-  }
-  launcherModelSelections[planner] = defaultModel;
-  activeLauncherPlanner = planner;
-  $("#f-planner").value = planner;
-  populateModelPresets(planner, defaultModel);
-  updatePlannerFields();
-  $("#launcher").classList.remove("hidden");
-}
-
-function updatePlannerFields() {
-  const planner = $("#f-planner").value;
-  $("#modelRequirement").textContent = planner === "api" ? copy.required : copy.optional;
-  for (const field of document.querySelectorAll("[data-planner]")) {
-    field.classList.toggle("hidden", field.dataset.planner !== planner);
-  }
-}
-
-function collectLaunchConfig() {
-  const numOrNull = (id) => {
-    const v = $(id).value.trim();
-    return v === "" ? null : Number(v);
-  };
-  const planner = $("#f-planner").value;
-  const config = {
-    planner,
-    "max-turns": numOrNull("#f-max-turns"),
-    model: selectedModel(),
-    "planner-timeout-s": numOrNull("#f-planner-timeout-s"),
-    "reasoning-effort": $("#f-reasoning-effort").value,
-    "no-images": $("#f-no-images").checked,
-  };
-  for (const field of launcherFields) {
-    const input = document.querySelector(`[data-launcher-field="${field.name}"]`);
-    if (!input) {
-      throw new Error(`Launcher field did not render: ${field.name}`);
-    }
-    const raw = input.value.trim();
-    if (raw === "") {
-      config[field.name] = null;
-    } else if (field.kind === "integer") {
-      config[field.name] = Number(raw);
-    } else {
-      config[field.name] = raw;
-    }
-  }
-  if (planner === "claude_code") {
-    config["claude-code-max-budget-usd"] = numOrNull("#f-claude-code-max-budget-usd");
-  }
-  return config;
-}
-
-async function pollForRun() {
-  try {
-    const r = await fetch("/api/runs").then(x => x.json());
-    if (r.runs && r.runs.length) {
-      $("#launcher").classList.add("hidden");
-      loadRun();
-      return;
-    }
-  } catch (e) { /* transient — retry */ }
-  setTimeout(pollForRun, 600);
-}
-
-async function onRun() {
-  let config;
-  try {
-    config = collectLaunchConfig();
-  } catch (error) {
-    console.error("Failed to collect Dashboard launch configuration", error);
-    $("#launchStatus").textContent = copy.dashboardConfigFailed;
-    $("#runBtn").disabled = false;
-    return;
-  }
-  if (config.planner === "api" && !/^[^:]+:.+$/.test(config.model)) {
-    $("#launchStatus").textContent = copy.fieldRequired(copy.requiredFields.apiModel);
-    return;
-  }
-  if (config["max-turns"] == null || !Number.isFinite(config["max-turns"])) {
-    $("#launchStatus").textContent = copy.fieldRequired(copy.requiredFields.maxTurns);
-    return;
-  }
-  const invalidEnvironmentField = launcherFields
-    .map(field => document.querySelector(`[data-launcher-field="${field.name}"]`))
-    .find(input => input && !input.checkValidity());
-  if (invalidEnvironmentField) {
-    invalidEnvironmentField.reportValidity();
-    return;
-  }
-  $("#runBtn").disabled = true;
-  $("#launchStatus").textContent = copy.starting;
-  try {
-    const resp = await fetch("/api/launch/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(config),
-    });
-    if (!resp.ok) throw new Error(await resp.text());
-  } catch (e) {
-    $("#runBtn").disabled = false;
-    $("#launchStatus").textContent = copy.startFailed;
-    return;
-  }
-  pollForRun();
-}
-$("#runBtn").addEventListener("click", onRun);
-$("#f-planner").addEventListener("change", () => {
-  launcherModelSelections[activeLauncherPlanner] = selectedModel();
-  activeLauncherPlanner = $("#f-planner").value;
-  populateModelPresets(
-    activeLauncherPlanner,
-    launcherModelSelections[activeLauncherPlanner],
-  );
-  updatePlannerFields();
-});
-
 async function boot() {
   applyStaticCopy();
-  let st;
-  let dashboardSpec;
   try {
-    [st, dashboardSpec] = await Promise.all([
-      fetch("/api/launch/state")
-        .then(response => response.json())
-        .catch(() => ({ enabled: false })),
-      fetch("/api/commands").then(response => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-      }),
-    ]);
+    const dashboardSpec = await requestJSON("/api/commands");
+    configureDashboardSpec(dashboardSpec);
+    interactionController.configureTaskCommand(dashboardSpec.task);
+    connectSession();
   } catch (error) {
     console.error("Failed to load Dashboard configuration", error);
-    $("#launcher").classList.remove("hidden");
-    $("#runBtn").disabled = true;
-    $("#launchStatus").textContent = copy.dashboardConfigFailed;
-    return;
-  }
-  configureDashboardSpec(dashboardSpec);
-  interactionController.configureTaskCommand(dashboardSpec.task);
-  if (st.enabled && st.pending) {
-    showLauncher(st.defaults);
-  } else {
-    // launcher already submitted (page reloaded) or not armed — go to monitor
-    loadRun();
   }
 }
 

@@ -195,19 +195,19 @@
   .composer[data-input-mode="command_only"] textarea {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
-  .suite-suggestions {
+  .task-suggestions {
     display: flex; flex: 0 0 auto; gap: 5px; min-width: 0;
     padding: 1px 2px 3px; overflow-x: auto; scrollbar-width: thin;
   }
-  .suite-suggestions[hidden] { display: none; }
-  .suite-suggestion {
+  .task-suggestions[hidden] { display: none; }
+  .task-suggestion {
     flex: 0 0 auto; appearance: none; border: 0; border-radius: 5px;
     padding: 2px 6px; background: transparent; color: var(--muted);
     opacity: .5; cursor: pointer; white-space: nowrap;
     font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     transition: opacity .16s ease, color .16s ease, background-color .16s ease;
   }
-  .suite-suggestion:hover, .suite-suggestion:focus-visible {
+  .task-suggestion:hover, .task-suggestion:focus-visible {
     opacity: 1; color: var(--accent); background: rgba(47,111,214,.09);
     outline: none;
   }
@@ -372,46 +372,6 @@
   .step .el { color: var(--muted); font-size: 12px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .step.term { background: rgba(47,138,62,.08); }
 
-  /* launcher (start screen) */
-  #launcher {
-    position: fixed; inset: 0; z-index: 50; background: var(--bg);
-    display: flex; align-items: flex-start; justify-content: center;
-    padding: 24px; overflow-y: auto;
-  }
-  #launcher.hidden { display: none; }
-  .launch-card {
-    width: 100%; max-width: 680px; background: var(--panel);
-    border: 1px solid var(--border); border-radius: 14px; padding: 32px 34px;
-    box-shadow: 0 12px 40px rgba(60,50,40,.18);
-  }
-  .launch-card h2 { margin: 0 0 4px; font-size: 22px; font-weight: 600; }
-  .launch-card h2 .dot { color: var(--accent); }
-  .launch-card .sub { color: var(--muted); font-size: 14px; margin-bottom: 22px; }
-  .lform { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; }
-  #environmentLauncherFields { display: contents; }
-  .lfield { display: flex; flex-direction: column; gap: 6px; }
-  .lfield.full { grid-column: 1 / -1; }
-  .lfield.hidden { display: none; }
-  .lfield label { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
-  .lfield input[type=text], .lfield input[type=number], .lfield select {
-    background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
-    border-radius: 6px; padding: 9px 11px; font-size: 15px; width: 100%; max-width: none;
-  }
-  .lfield select option:disabled { color: var(--muted); }
-  .lcheck { flex-direction: row; align-items: center; gap: 8px; }
-  .lcheck label { text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--fg); }
-  .launch-actions { display: flex; align-items: center; gap: 14px; margin-top: 24px; }
-  #runBtn {
-    background: var(--green); color: #07210e; border: none; border-radius: 8px;
-    padding: 12px 30px; font-size: 16px; font-weight: 700; cursor: pointer; letter-spacing: .3px;
-    transition: background-color .16s ease, color .16s ease, box-shadow .16s ease,
-      opacity .16s ease, transform .16s ease;
-  }
-  #runBtn:hover { filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 4px 10px rgba(47,138,62,.18); }
-  #runBtn:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
-  #runBtn:disabled { opacity: .55; cursor: default; }
-  #launchStatus { color: var(--muted); font-size: 14px; }
-
   /* subtle interaction feedback */
   .frame-tabs button:hover {
     color: var(--fg); background: var(--panel); transform: translateY(-1px);
@@ -433,15 +393,12 @@
   @media (prefers-reduced-motion: reduce) {
     .b-starting, .b-running { animation: none; }
     .badge, .runtime-item, .gutter, .tg-head, .step, .composer textarea,
-    .withdraw-message, .suite-suggestion, .primitive-buttons button,
-    .frame-tabs button, #runBtn { transition: none; }
+    .withdraw-message, .task-suggestion, .primitive-buttons button,
+    .frame-tabs button { transition: none; }
     .ev.entering, .toolgroup.entering, .step.entering { animation: none; }
-    .frame-tabs button:hover, #runBtn:hover { transform: none; box-shadow: none; }
+    .frame-tabs button:hover { transform: none; box-shadow: none; }
   }
   @media (max-width: 720px), (max-height: 620px) {
-    #launcher { padding: 12px; }
-    .launch-card { padding: 18px; }
-    .lform { grid-template-columns: 1fr; gap: 12px; }
     .composer { min-height: 116px; }
   }
 
