@@ -78,10 +78,13 @@ class DashboardServer:
         port: int = 0,
         language: str = "en",
         state: DashboardState,
+        planner: str | None = None,
+        model: str | None = None,
     ) -> None:
         self.host = host
         self.port = int(port)
         self._state = state
+        self._planner_config = {"planner": planner, "model": model}
         dashboard_spec = state.dashboard_spec
         self._frame_media_types = {
             channel["name"]: _infer_frame_media_type(channel["artifact"])
@@ -136,6 +139,10 @@ class DashboardServer:
         @app.get("/api/commands")
         def api_commands() -> JSONResponse:
             return JSONResponse(self._state.dashboard_spec)
+
+        @app.get("/api/session/config")
+        def api_session_config() -> JSONResponse:
+            return JSONResponse(self._planner_config)
 
         @app.post("/api/session/messages")
         def api_submit_message(

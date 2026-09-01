@@ -17,6 +17,9 @@ const COPY = {
   en: {
     pageTitle: "RPent · Live Monitor",
     liveMonitor: "Live Monitor",
+    planner: "planner",
+    model: "model",
+    defaultModel: "configured default",
     runtimeStates: {
       pending: "waiting",
       starting: "starting",
@@ -118,6 +121,9 @@ const COPY = {
   "zh-cn": {
     pageTitle: "RPent · 实时监控",
     liveMonitor: "实时监控",
+    planner: "planner",
+    model: "model",
+    defaultModel: "默认配置",
     runtimeStates: {
       pending: "等待中",
       starting: "启动中",
@@ -267,6 +273,14 @@ function configureDashboardSpec(spec) {
   mediaState.kind = initialFrameKind;
   mediaState.lastRealtimeKind = initialFrameKind;
   renderFrameTabs();
+}
+
+function renderPlannerConfig(config) {
+  const planner = config.planner || copy.notSet;
+  const model = config.model || copy.defaultModel;
+  const element = $("#plannerMeta");
+  element.textContent = `${copy.planner} ${planner} · ${copy.model} ${model}`;
+  element.title = element.textContent;
 }
 
 const runState = {
@@ -1421,8 +1435,12 @@ setupSplitter($("#composerGrip"), {
 async function boot() {
   applyStaticCopy();
   try {
-    const dashboardSpec = await requestJSON("/api/commands");
+    const [dashboardSpec, sessionConfig] = await Promise.all([
+      requestJSON("/api/commands"),
+      requestJSON("/api/session/config"),
+    ]);
     configureDashboardSpec(dashboardSpec);
+    renderPlannerConfig(sessionConfig);
     interactionController.configureTaskCommand(dashboardSpec.task);
     connectSession();
   } catch (error) {

@@ -50,6 +50,10 @@
   .runtime-failed { background: rgba(200,57,47,.12); color: var(--red); border-color: var(--red); }
   .meta { color: var(--muted); font-size: 13px; }
   .meta b { color: var(--fg); font-weight: 600; }
+  .planner-meta {
+    max-width: min(420px, 32vw); overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .grow { flex: 1; }
 
   main { flex: 1; display: grid; grid-template-columns: var(--leftw, 1.4fr) 6px 1fr; gap: 0; min-height: 0; }
