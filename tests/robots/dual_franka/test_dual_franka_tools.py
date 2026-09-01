@@ -15,7 +15,7 @@ from robots.dual_franka.tools import (
     dump_state,
     view_env_state,
 )
-from robots.franka.config import set_calibration_path
+from robots.franka.runtime_config import set_calibration_path
 from robots.franka.tools import view_camera_meta
 from rpent.tools.state import EnvState
 
@@ -174,11 +174,7 @@ def test_back_project_base_pixel_reads_rpent_state_artifacts(tmp_path: Path):
         )
 
     set_calibration_path(
-        Path(__file__).parents[3]
-        / "robots"
-        / "dual_franka"
-        / "calibration"
-        / "hand_eye_calibration.json"
+        Path(__file__).parent / "fixtures" / "hand_eye_calibration.json"
     )
     result = back_project_base_pixel(row=2, col=2, state=state)
 

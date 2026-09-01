@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from robots.franka.config import set_calibration_path
 from robots.franka.perception import back_project
+from robots.franka.runtime_config import set_calibration_path
 from robots.franka.tools import (
     FrankaPrimitives,
     coerce_vec3,
@@ -146,11 +146,7 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
         )
 
     set_calibration_path(
-        Path(__file__).parents[3]
-        / "robots"
-        / "franka"
-        / "calibration"
-        / "hand_eye_calibration.json"
+        Path(__file__).parent / "fixtures" / "hand_eye_calibration.json"
     )
     result = back_project(row=2, col=2, camera="wrist", state=state)
 

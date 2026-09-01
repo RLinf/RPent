@@ -22,13 +22,15 @@ RLinf/OpenPI 分支。不需要单独的 RLinf checkout、虚拟环境或安装�
 
 启用机械臂运动前，请检查并修改仓库中的开发默认值：
 
-* ``robots/dual_franka/robot_config.yaml`` 仅包含机器身份（两台机器人 IP、相机
+* ``robots/dual_franka/config/robot_config.yaml`` 仅包含机器身份（两台机器人 IP、相机
   序列号/类型、夹爪连接）、工作空间几何（target poses、安全边界）和感知定位
   边界 + base-frame 变换。
-* ``robots/dual_franka/config.py`` 存放开发者默认值（primitive 控制、感知调优、
+* ``robots/dual_franka/runtime_config.py`` 存放开发者默认值（primitive 控制、感知调优、
   episode 长度、节点放置）。
-* ``robots/dual_franka/calibration/`` 包含 ``easy_handeye`` hand-eye calibration
-  （见下方标定章节）；相机内参在运行时捕获。
+* Hand-eye calibration 由 ``easy_handeye`` 生成（见下方标定章节），不会提交到
+  仓库；离线测试用的样例 bundle 位于
+  ``tests/robots/dual_franka/fixtures/hand_eye_calibration.json``。相机内参在
+  运行时捕获。
 
 仓库中的 robot config 会有意保留当前实验室 IP、序列号和夹爪设备路径，方便
 本地测试。其他系统必须检查并替换这些值。不要复用其他工作空间的 reset pose、
@@ -52,7 +54,7 @@ RPent 读取一个 JSON bundle（``hand_eye_calibration.json``），其中包含
 
 bundle 位置可通过 ``--calibration-path`` 配置（默认
 ``~/.ros/easy_handeye/hand_eye_calibration.json``）。RPent 特有的定位边界和
-base-frame 变换存放在 ``robot_config.yaml`` 的 ``perception`` 段中（
+base-frame 变换存放在 ``config/robot_config.yaml`` 的 ``perception`` 段中（
 ``easy_handeye`` 不生成它们）。相机内参在运行时从 ``camera_meta.json`` 捕获。
 
 使用本地 RLinf checkout

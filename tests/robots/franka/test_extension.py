@@ -67,7 +67,7 @@ def test_franka_uses_rpent_owned_robot_config(monkeypatch):
     monkeypatch.setenv("ROBOT_IP", "10.0.0.5")
     monkeypatch.setenv("CAMERA_SERIAL_WRIST", "111111111111")
     monkeypatch.setenv("CAMERA_SERIAL_EXTERNAL", "222222222222")
-    config_path = Path(__file__).parents[3] / "robots/franka/robot_config.yaml"
+    config_path = Path(__file__).parents[3] / "robots/franka/config/robot_config.yaml"
     runtime = load_runtime_config(config_path, task_description="test task")
     cfg = runtime.rlinf
 
@@ -84,12 +84,12 @@ def test_rpent_franka_registration_exists():
 
 
 def test_franka_identity_resolves_from_flags_over_env(monkeypatch):
-    from robots.franka.config import load_mapping, resolve_identity
+    from robots.franka.runtime_config import load_mapping, resolve_identity
 
     monkeypatch.setenv("ROBOT_IP", "10.0.0.5")
     monkeypatch.setenv("CAMERA_SERIAL_WRIST", "111111111111")
     monkeypatch.setenv("CAMERA_SERIAL_EXTERNAL", "222222222222")
-    config_path = Path(__file__).parents[3] / "robots/franka/robot_config.yaml"
+    config_path = Path(__file__).parents[3] / "robots/franka/config/robot_config.yaml"
     config = resolve_identity(load_mapping(config_path), robot_ip="10.0.0.99")
 
     assert config["robot"]["ip"] == "10.0.0.99"  # flag beats environment
@@ -98,9 +98,9 @@ def test_franka_identity_resolves_from_flags_over_env(monkeypatch):
 
 
 def test_franka_identity_requires_robot_ip(monkeypatch):
-    from robots.franka.config import load_mapping, resolve_identity
+    from robots.franka.runtime_config import load_mapping, resolve_identity
 
     monkeypatch.delenv("ROBOT_IP", raising=False)
-    config_path = Path(__file__).parents[3] / "robots/franka/robot_config.yaml"
+    config_path = Path(__file__).parents[3] / "robots/franka/config/robot_config.yaml"
     with pytest.raises(ValueError, match="ROBOT_IP"):
         resolve_identity(load_mapping(config_path))

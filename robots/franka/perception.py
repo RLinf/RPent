@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
-from robots.franka.config import get_calibration_path
+from robots.franka.runtime_config import get_calibration_path
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import readonly
 

@@ -4,7 +4,7 @@
 # (robot IP, camera serials, gripper) and workspace geometry (target/reset
 # poses, safety limits). Everything else — primitive-control knobs, action
 # scale, tolerances, camera processing — is a developer default in
-# robots/franka/config.py and is applied over RLinf's own dataclass defaults.
+# robots/franka/runtime_config.py and is applied over RLinf's own dataclass defaults.
 #
 # Machine identity is resolved at runtime: a command-line flag (--robot-ip,
 # --camera-serial-wrist, --camera-serial-external, --gripper-connection)

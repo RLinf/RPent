@@ -8,11 +8,11 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
-from robots.franka.config import get_calibration_path, load_mapping
+from robots.franka.runtime_config import get_calibration_path, load_mapping
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import readonly
 
-ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "robot_config.yaml"
+ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "robot_config.yaml"
 
 
 class DualFrankaPerceptionError(ValueError):

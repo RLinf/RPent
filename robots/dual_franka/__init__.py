@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from robots.dual_franka.prompt_bundle import system_prompt, user_prompt
 from robots.dual_franka.spec import DUAL_FRANKA_DASHBOARD_SPEC
 from robots.dual_franka.tasks import DUAL_FRANKA_TASKS, get_dual_franka_task
-from robots.franka.config import DEFAULT_CALIBRATION_PATH
+from robots.franka.runtime_config import DEFAULT_CALIBRATION_PATH
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig

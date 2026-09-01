@@ -9,8 +9,8 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from robots.franka.config import DEFAULT_CALIBRATION_PATH
 from robots.franka.prompt_bundle import system_prompt, user_prompt
+from robots.franka.runtime_config import DEFAULT_CALIBRATION_PATH
 from robots.franka.spec import FRANKA_DASHBOARD_SPEC
 from robots.franka.tasks import FRANKA_TASKS, get_franka_task
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent

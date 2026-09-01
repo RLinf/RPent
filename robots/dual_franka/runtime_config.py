@@ -1,4 +1,9 @@
-"""RPent-owned configuration for a dual-Franka runtime."""
+"""RPent configuration and RLinf adapter for a dual-Franka runtime.
+
+Users edit only ``robot_config.yaml`` (machine identity + workspace geometry).
+Developer defaults (node placement, primitive control, perception tuning,
+episode length) live here and are applied over RLinf's own dataclass defaults.
+"""
 
 from __future__ import annotations
 
@@ -7,24 +12,42 @@ from typing import Any
 
 from omegaconf import OmegaConf
 
-from robots.dual_franka.config import (
-    CONTROL,
-    EPISODE_STEPS,
-    HARDWARE_NODE,
-    LEFT_CONTROLLER_NODE,
-    NODES,
-    PERCEPTION_DEFAULTS,
-    RIGHT_CONTROLLER_NODE,
-)
-from robots.franka.config import (
+from robots.franka.runtime_config import (
+    FrankaRuntimeConfig,
     _require_mapping,
     flatten_control,
     load_mapping,
     strict_mapping,
 )
-from robots.franka.runtime_config import FrankaRuntimeConfig
 
-DEFAULT_CONFIG = Path(__file__).with_name("robot_config.yaml")
+# Fixed two-node placement (the RLinf cluster/placement is a training concern;
+# RPent only evaluates). Users do not change these.
+NODES = [0, 1]
+HARDWARE_NODE = 0
+LEFT_CONTROLLER_NODE = 0
+RIGHT_CONTROLLER_NODE = 1
+
+# Primitive-control knobs consumed by the RPent dual-Franka env server. RLinf
+# has no equivalent fields; ``max_step_*`` bound each interpolation step.
+CONTROL = {
+    "move": {"timeout_s": 20.0, "tolerance_m": 0.005, "max_step_m": 0.02},
+    "rotate": {"timeout_s": 20.0, "tolerance_rad": 0.04, "max_step_rad": 0.1},
+    "servo": {"iteration_multiplier": 4, "min_iterations": 8},
+    "gripper": {"settle_s": 0.4, "timeout_s": 10.0, "max_iterations": 4},
+}
+
+# The d455 perception camera is a depth camera. RLinf's ``CameraInfo`` defaults
+# to ``enable_depth=False``; RPent opts into depth (for back-projection), while
+# resolution/fps keep ``CameraInfo``'s defaults (640x480 @ 15 fps).
+PERCEPTION_DEFAULTS = {
+    "enable_depth": True,
+}
+
+# Episode length, used for both ``override_cfg.max_num_steps`` (RLinf default
+# 100) and ``env.eval.max_episode_steps``.
+EPISODE_STEPS = 300
+
+DEFAULT_CONFIG = Path(__file__).with_name("config") / "robot_config.yaml"
 
 
 def _camera_slot(observation: dict[str, Any], slot: str) -> tuple[list[str], str]:

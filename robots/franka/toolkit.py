@@ -7,7 +7,7 @@ from typing import Any
 
 from robots.franka import perception as franka_perception
 from robots.franka import tools as franka_tools
-from robots.franka.config import set_calibration_path
+from robots.franka.runtime_config import set_calibration_path
 from rpent.dashboard.events import DashboardEventSink
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import Toolkit

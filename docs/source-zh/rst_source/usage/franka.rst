@@ -22,12 +22,13 @@ RLinf/OpenPI 分支。不需要单独的 RLinf checkout、虚拟环境或安装�
 
 仓库中的值是开发默认值，启用机械臂运动前必须逐项检查：
 
-* ``robots/franka/robot_config.yaml`` 仅包含机器身份（机器人 IP、相机序列号、
+* ``robots/franka/config/robot_config.yaml`` 仅包含机器身份（机器人 IP、相机序列号、
   夹爪）和工作空间几何（target/reset pose、安全边界）。
-* ``robots/franka/config.py`` 存放开发者默认值（primitive 控制、action scale、
+* ``robots/franka/runtime_config.py`` 存放开发者默认值（primitive 控制、action scale、
   容差、相机处理），覆盖在 RLinf 自身 dataclass 默认值之上。
-* ``robots/franka/calibration/hand_eye_calibration.json`` 包含感知工具使用的
-  hand-eye calibration。
+* Hand-eye calibration 由 ``easy_handeye`` 生成（见下方标定章节），不会提交到
+  仓库；离线测试用的样例 bundle 位于
+  ``tests/robots/franka/fixtures/hand_eye_calibration.json``。
 
 请替换 robot config 中的 ``ROBOT_IP``、``CAMERA_SERIAL_WRIST`` 和
 ``CAMERA_SERIAL_EXTERNAL``。不要复用其他工作空间的位姿、边界、序列号或标定。
