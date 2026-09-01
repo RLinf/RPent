@@ -38,9 +38,9 @@ from robots.behavior.task_specs import (
     get_task_spec,
     get_task_spec_by_index,
 )
-from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.dashboard.events import DashboardEventSink
 from rpent.robots.robot_spec import RunConfig
-from rpent.robots.runtime import stop_owned_daemons, try_spawn_server, try_wait_server
+from rpent.robots.runtime import try_spawn_server, try_wait_server
 from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
@@ -581,23 +581,26 @@ def _connect_vla(args: argparse.Namespace, rpc: "RpcClient") -> dict[str, Any]:
     return {"model": BehaviorVLAClient(rpc), "vla_meta": dict(server_meta)}
 
 
-def _connect_dino(rpc: "RpcClient") -> dict[str, Any]:
+def _connect_dino(args: argparse.Namespace, rpc: "RpcClient") -> dict[str, Any]:
     from robots.behavior.dino_v2.client import BehaviorDinoClient
-
-    client = BehaviorDinoClient(rpc, expected_meta={"runtime": "behavior_dino"})
-    return {"dino_component": client}
-
-
-def _connect_memory(args: argparse.Namespace) -> dict[str, Any]:
     from robots.behavior.memory.index import load_current_catalog
 
-    explicit = bool(getattr(args, "behavior_memory_dir_explicit", False))
-    memory_dir = Path(args.behavior_memory_dir) if explicit else None
-    index = load_current_catalog(memory_dir)
+    client = BehaviorDinoClient(rpc, expected_meta={"runtime": "behavior_dino"})
+    configured_memory_dir = getattr(args, "behavior_memory_dir", None)
+    explicit_marker = getattr(args, "behavior_memory_dir_explicit", None)
+    explicit = (
+        bool(configured_memory_dir)
+        if explicit_marker is None
+        else bool(explicit_marker)
+    )
+    if explicit and not configured_memory_dir:
+        raise ValueError("explicit BEHAVIOR memory catalog path is missing")
+    memory_dir = (
+        Path(configured_memory_dir).expanduser().resolve() if explicit else None
+    )
     return {
-        "memory_index": index,
-        "memory_episode_count": index.episode_count,
-        "memory_frame_count": index.frame_count,
+        "dino_component": client,
+        "episode_memory_index": load_current_catalog(memory_dir),
     }
 
 
@@ -641,14 +644,7 @@ def init_runtime(
             lambda: _spawn_dino_server(args, output_dir),
         )
     if "memory" in selected:
-        dashboard_events.emit(RuntimeStatusEvent("memory", "starting"))
-        try:
-            primitives_kwargs.update(_connect_memory(args))
-        except Exception as exc:
-            stop_owned_daemons(owned_daemons, dashboard_events)
-            dashboard_events.emit(RuntimeStatusEvent("memory", "failed", error=exc))
-            raise RuntimeError(f"[memory] connect failed: {exc}") from exc
-        dashboard_events.emit(RuntimeStatusEvent("memory", "ready"))
+        primitives_kwargs["_memory_component_selected"] = True
 
     if pending_env is not None:
         daemon, rpc = pending_env
@@ -686,7 +682,7 @@ def init_runtime(
                 rpc,
                 daemon,
                 600.0 if daemon is not None else 120.0,
-                post_fn=lambda: _connect_dino(rpc),
+                post_fn=lambda: _connect_dino(args, rpc),
             )
         )
     return list(owned_daemons.values()), primitives_kwargs

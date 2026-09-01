@@ -227,7 +227,7 @@ class BehaviorPrimitives:
         max_tool_calls: int | None = 350,
         max_wall_clock_s: float = 86400.0,
         pure_vla_baseline: bool = False,
-        memory_index: Any = None,
+        episode_memory_index: Any = None,
         dino_component: Any = None,
         **_ignored: Any,
     ) -> None:
@@ -262,7 +262,7 @@ class BehaviorPrimitives:
         self.max_wall_clock_s = float(max_wall_clock_s)
         if not np.isfinite(self.max_wall_clock_s) or self.max_wall_clock_s <= 0.0:
             raise ValueError("max_wall_clock_s must be positive and finite")
-        self.memory_index = memory_index
+        self.episode_memory_index = episode_memory_index
         self.dino_component = dino_component
         self._episode_memory_decision = self._retrieve_episode_memory(
             self._current_observation
@@ -367,7 +367,7 @@ class BehaviorPrimitives:
 
     def _retrieve_episode_memory(self, observation: Any) -> dict[str, Any] | None:
         if (
-            self.memory_index is None
+            self.episode_memory_index is None
             or self.dino_component is None
             or not isinstance(observation, dict)
         ):
@@ -389,7 +389,7 @@ class BehaviorPrimitives:
             for channel, vector in zip(("left_wrist", "right_wrist"), encoded[1:])
             if vector is not None
         }
-        decision = self.memory_index.retrieve(
+        decision = self.episode_memory_index.retrieve(
             task_name=self.task_name,
             head_embedding=head_embedding,
             wrist_shadow_embeddings=shadow,
@@ -651,10 +651,10 @@ class BehaviorPrimitives:
         return result
 
     def shutdown(self) -> None:
-        # The model belongs to the Dashboard Session shared runtime. A TaskRun
-        # only releases task-scoped ENV/DINO transports; owned VLA daemons are
-        # stopped by the runtime owner after the session finishes.
-        for candidate in (self.dino_component, self.env):
+        # VLA and DINO belong to the Dashboard Session shared runtime. A
+        # TaskRun only releases its task-scoped ENV transport; shared daemons
+        # and clients are released by the runtime owner after the session.
+        for candidate in (self.env,):
             if candidate is None:
                 continue
             closer = getattr(candidate, "close_transport", None)

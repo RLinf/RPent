@@ -32,6 +32,7 @@ from rpent.dashboard.events import (
     NullDashboardEventSink,
     ToolResultEvent,
 )
+from rpent.memory import MemoryManager
 from rpent.session import EnvState
 from rpent.tools import common
 from rpent.tools.toolkit import Toolkit, ToolResult
@@ -60,7 +61,7 @@ class BehaviorToolkit(Toolkit):
         *,
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink | None = None,
-        memory: Any = None,
+        memory: MemoryManager,
         config: Any = None,
         video_path: str | Path | None = None,
     ) -> None:
@@ -83,10 +84,6 @@ class BehaviorToolkit(Toolkit):
             Path(video_path) if video_path is not None else output_dir / "episode.mp4"
         )
 
-        if memory is None:
-            from rpent.memory import MemoryManager
-
-            memory = MemoryManager(root=output_dir / "behavior_memory_empty")
         super().__init__(
             dashboard_events=dashboard_events or NullDashboardEventSink(),
             state=EnvState(output_dir),

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from robots.behavior.prompt_bundle import system_prompt, user_prompt
-from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -83,22 +83,34 @@ def get_toolkit(
 
     from robots.behavior.toolkit import BehaviorToolkit
 
-    mode = str(config.prompt_vars.get("behavior_mode", "eval"))
-    memory_dir = config.prompt_vars.get("memory_dir")
-    if not memory_dir:
-        memory_dir = Path(config.output_dir) / "behavior_memory_empty"
-    memory = MemoryManager(
-        root=Path(memory_dir),
-        memory_access="inbox_write" if mode == "explore" else "read_only",
-        inbox_cell_tag=config.recipe_tag if mode == "explore" else None,
-    )
-    video_path = Path(config.output_dir) / "episode.mp4"
+    toolkit_kwargs = dict(primitives_kwargs)
+    memory_selected = bool(toolkit_kwargs.pop("_memory_component_selected", False))
+    if memory_selected:
+        dashboard_events.emit(RuntimeStatusEvent("memory", "starting"))
+    try:
+        mode = str(config.prompt_vars.get("behavior_mode", "eval"))
+        if mode not in {"eval", "explore"}:
+            raise ValueError(f"unsupported BEHAVIOR toolkit mode: {mode!r}")
+        memory_dir = config.prompt_vars.get("memory_dir")
+        if not memory_dir:
+            memory_dir = Path(config.output_dir) / "behavior_memory_empty"
+        memory = MemoryManager(
+            root=Path(memory_dir),
+            memory_access="inbox_write" if mode == "explore" else "read_only",
+            inbox_cell_tag=config.recipe_tag if mode == "explore" else None,
+        )
+    except Exception as exc:
+        if memory_selected:
+            dashboard_events.emit(RuntimeStatusEvent("memory", "failed", error=exc))
+        raise
+    if memory_selected:
+        dashboard_events.emit(RuntimeStatusEvent("memory", "ready"))
     return BehaviorToolkit(
-        primitives_kwargs=primitives_kwargs,
+        primitives_kwargs=toolkit_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
         config=config,
-        video_path=video_path,
+        video_path=Path(config.output_dir) / "episode.mp4",
     )
 
 
