@@ -113,7 +113,7 @@ class Sam3Engine:
         except ImportError as exc:
             raise RuntimeError(
                 "local SAM3 dependencies are missing; install RPent with "
-                '`pip install -e ".[sam3]"` (or `.[full]`)'
+                '`pip install -e ".[sam3]"` or a LIBERO variant'
             ) from exc
 
         if not torch.cuda.is_available():
@@ -304,7 +304,7 @@ class Sam3Facade(RpcFacade):
     def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
         if method == "segment":
             return self.segment(*args, **kwargs)
-        raise ValueError(f"unknown RPC method: {method!r}")
+        return super()._dispatch(method, args, kwargs)
 
     def segment(
         self,

@@ -346,7 +346,7 @@ class EnvState:
                 record.step_idx,
                 e,
             )
-            raise
+            raise RuntimeError(f"failed to record step {record.step_idx}: {e}") from e
         finally:
             self._step_open = False
             self._write_manifest()

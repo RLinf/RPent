@@ -298,15 +298,19 @@ def test_env_state_reset_clears_memory_but_preserves_disk_artifacts(
     assert env_state.exists("step.bin") is False
 
 
-def test_record_step_propagates_caller_failure_after_rolling_back_record(
+def test_record_step_wraps_caller_failure_after_rolling_back_record(
     tmp_path: Path,
 ) -> None:
     env_state = EnvState(tmp_path)
 
-    with pytest.raises(_StepFailure, match="step failed"):
+    with pytest.raises(
+        RuntimeError,
+        match="failed to record step 0: step failed",
+    ) as exc_info:
         with env_state.record_step(state={"partial": True}):
             raise _StepFailure("step failed")
 
+    assert isinstance(exc_info.value.__cause__, _StepFailure)
     assert env_state.records() == []
 
 
@@ -315,13 +319,12 @@ def test_record_step_failure_removes_artifacts_written_by_discarded_step(
 ) -> None:
     env_state = EnvState(tmp_path)
 
-    try:
+    with pytest.raises(RuntimeError) as exc_info:
         with env_state.record_step(state={"partial": True}) as step:
             assert env_state.save("partial.bin", b"partial") == "partial.bin"
             raise _StepFailure("step failed")
-    except _StepFailure:
-        pass
 
+    assert isinstance(exc_info.value.__cause__, _StepFailure)
     assert env_state.records() == []
     assert not env_state.artifact_path("partial.bin", step=step).exists()
 

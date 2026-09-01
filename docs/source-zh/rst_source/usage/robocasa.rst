@@ -15,8 +15,8 @@ RoboCasa
 安装
 ----
 
-RoboCasa365 已包含在 ``.[full]`` 中。若要单独安装 —— RLDX-1 要求
-Python ``3.10``\ ：
+RLDX-1 要求 Python ``3.10``。请创建独立环境，并通过 ``.[robocasa]``
+安装完整的 RoboCasa365 运行栈：
 
 .. code-block:: bash
 

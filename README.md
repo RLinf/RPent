@@ -97,15 +97,20 @@ RPent is built for four kinds of users:
 
 ## Quick Start
 
-**1. Install RPent with a single `pip install`.**
+**1. Choose an environment and install RPent.**
 
 ```bash
 git clone https://github.com/RLinf/RPent rpent && cd rpent
-pip install -e ".[full]"
+pip install -e ".[libero-pro]"  # Recommended default (LIBERO-PRO)
+
+# Other environment configurations:
+pip install -e ".[robocasa]"    # RoboCasa
+pip install -e ".[robotwin]"    # RoboTwin
 ```
 
-`.[full]` is the default end-to-end stack (openpi Pi0.5 VLA + LIBERO-PRO and RoboCasa365 simulators + SAM 3.0 on the RLinf runtime).
-If you don't need the whole stack, see the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for narrower extras.
+`.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for other environments.
+
+The example below continues with LIBERO-PRO.
 
 **2. Download the LIBERO-PRO simulator assets.**
 

@@ -263,6 +263,8 @@ def test_common_file_tools_enforce_memory_manager_boundaries(
     published.parent.mkdir(parents=True)
     published.write_text("published")
     (memory_root / "MEMORY.md").write_text("index")
+    root_leaf = memory_root / "notes.md"
+    root_leaf.write_text("root-level note")
     evaluation_inbox = memory_root / "_inbox" / "current-cell"
     evaluation_inbox.mkdir(parents=True)
     (evaluation_inbox / "draft.md").write_text("private draft")
@@ -280,6 +282,10 @@ def test_common_file_tools_enforce_memory_manager_boundaries(
     read_published = evaluation.execute_tool(
         "read_text_file",
         {"path": "resources/libero/memory/global/strategy.md"},
+    )
+    read_root_leaf = evaluation.execute_tool(
+        "read_text_file",
+        {"path": str(root_leaf)},
     )
     list_published = evaluation.execute_tool(
         "list_dir",
@@ -300,6 +306,7 @@ def test_common_file_tools_enforce_memory_manager_boundaries(
 
     assert evaluation.memory is read_only_memory
     assert read_published.result["content"] == "published"
+    assert read_root_leaf.result["content"] == "root-level note"
     assert list_published.result["files"] == ["strategy.md"]
     assert "writing to memory is denied" in write_published.result["error"]
     assert "another environment's memory is denied" in read_foreign.result["error"]
