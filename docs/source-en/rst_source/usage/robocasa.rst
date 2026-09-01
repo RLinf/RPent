@@ -23,21 +23,25 @@ the complete RoboCasa365 stack with ``.[robocasa]``:
 .. code-block:: bash
 
    uv venv --python 3.10
-   uv pip install -e ".[robocasa]"
+   uv pip install -e ".[robocasa]" \
+      "torch==2.7.0" "torchvision==0.22.0" \
+      --torch-backend=cu126
 
-To avoid a CUDA-build mismatch between PyPI's torch wheel and the local
-driver, pass ``--index`` to pin a PyTorch CUDA index, e.g.
-``uv pip install -e ".[robocasa]" --index https://download.pytorch.org/whl/cu126``;
-on CUDA 13-only hosts use ``cu130``.
+This pins the Torch pair used by RLDX-1 and lets uv select the official CUDA
+wheel without treating the PyTorch wheel index as a general package index.
+Passing that index through ``--index`` can make uv select stale, unrelated
+packages under its default first-index strategy. The ``cu126`` command above
+is the validated CUDA installation; use another supported Torch backend only
+when required by the host.
 
 For networks closer to Chinese mirrors:
 
 .. code-block:: bash
 
    uv pip install -e ".[robocasa]" \
+      "torch==2.7.0" "torchvision==0.22.0" \
       --default-index https://mirrors.aliyun.com/pypi/simple \
-      --index https://pypi.tuna.tsinghua.edu.cn/simple \
-      --index https://mirrors.aliyun.com/pytorch-wheels/cu126
+      --torch-backend=cu126
 
 .. note::
 

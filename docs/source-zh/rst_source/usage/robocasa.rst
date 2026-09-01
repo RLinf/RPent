@@ -21,21 +21,23 @@ RLDX-1 要求 Python ``3.10``。请创建独立环境，并通过 ``.[robocasa]`
 .. code-block:: bash
 
    uv venv --python 3.10
-   uv pip install -e ".[robocasa]"
+   uv pip install -e ".[robocasa]" \
+      "torch==2.7.0" "torchvision==0.22.0" \
+      --torch-backend=cu126
 
-为避免 PyPI 上 torch 的 CUDA build 与本地驱动不匹配，建议通过
-``--index`` 指定 PyTorch CUDA 索引，例如
-``uv pip install -e ".[robocasa]" --index https://download.pytorch.org/whl/cu126``；
-CUDA 13-only 的机器换成 ``cu130``。
+该命令固定 RLDX-1 使用的 Torch 版本组合，并让 uv 只为 Torch 选择官方 CUDA
+wheel，避免把 PyTorch wheel 源作为通用 ``--index`` 后，在默认 first-index
+策略下误选其中的旧版无关依赖。上面的 ``cu126`` 是已验证的 CUDA 安装方式；
+仅当宿主机确有需要时才切换到其他受支持的 Torch backend。
 
 国内网络可使用 PyPI 镜像加速：\
 
 .. code-block:: bash
 
    uv pip install -e ".[robocasa]" \
+      "torch==2.7.0" "torchvision==0.22.0" \
       --default-index https://mirrors.aliyun.com/pypi/simple \
-      --index https://pypi.tuna.tsinghua.edu.cn/simple \
-      --index https://mirrors.aliyun.com/pytorch-wheels/cu126
+      --torch-backend=cu126
 
 .. note::
 
