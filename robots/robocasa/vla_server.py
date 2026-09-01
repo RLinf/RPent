@@ -21,6 +21,7 @@ import numpy as np
 
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.logging import get_logger
+from rpent.utils.rpc.rpc_facade import DEFAULT_SESSION_TIMEOUT_S
 
 logger = get_logger("vla_server")
 
@@ -56,7 +57,7 @@ def _normalize_legacy_processor_geometry(processor):
 class RoboCasaVLAFacade(BaseVLAFacade):
     """Loads RLDX model and exposes inference-only RPC methods."""
 
-    def __init__(self, model_path, *, session_timeout_s=None):
+    def __init__(self, model_path, *, session_timeout_s=DEFAULT_SESSION_TIMEOUT_S):
         super().__init__(
             enable_sessions=True,
             session_timeout_s=session_timeout_s,
@@ -91,7 +92,7 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         self._rpc["vla.reset_session"] = self.reset_session
         self._readonly_methods.add("vla.get_modality_config")
 
-    def get_modality_config(self):
+    def get_modality_config(self, *, session_id=None):
         return {
             "video_delta_indices": self._vdi.tolist(),
             "hist_maxlen": self._hist_maxlen,

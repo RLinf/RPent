@@ -45,7 +45,7 @@ class RpcClient:
 
     def __init__(self, *, enable_sessions: bool = False) -> None:
         self._session_id: str | None = (
-            f"rpc_{uuid.uuid4().hex[:8]}" if enable_sessions else None
+            f"rpc_{uuid.uuid4().hex}" if enable_sessions else None
         )
         self._closed = False
         if self._session_id is not None:
@@ -62,14 +62,15 @@ class RpcClient:
         if self._closed:
             return
         self._closed = True
-        try:
-            self.call("healthz", timeout_s=0.5)
-        except Exception:
-            return
-        try:
-            self.call("session.close", timeout_s=1.0)
-        except Exception:
-            pass
+        if self._session_id is not None:
+            try:
+                self.call("healthz", timeout_s=0.5)
+            except Exception:
+                return
+            try:
+                self.call("session.close", timeout_s=1.0)
+            except Exception:
+                pass
 
     def call(
         self,

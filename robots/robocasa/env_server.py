@@ -395,6 +395,8 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         threading.Thread(target=render_loop, name="egl-render", daemon=True).start()
 
         def dispatch(method, args, kwargs, *, session_id=None):
+            # env_server does not use sessions: session_id is accepted for
+            # transport-layer signature compatibility and intentionally discarded.
             if method == "healthz":
                 return {"status": "ok"}
             if method == "shutdown":

@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import threading
 import time
+import traceback
 from typing import Any, Callable, Literal
 
 from rpent.utils.logging import get_logger
@@ -53,9 +54,14 @@ DEFAULT_SESSION_TIMEOUT_S = 3600.0
 
 def make_error_response(exc: Exception) -> dict:
     """Build the error envelope for a caught exception."""
-    import traceback as _tb
 
-    return {"ok": False, "error": str(exc), "traceback": _tb.format_exc()}
+    return {
+        "ok": False,
+        "error": str(exc),
+        "traceback": "".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        ),
+    }
 
 
 class RpcFacade:
@@ -74,15 +80,13 @@ class RpcFacade:
         self,
         *,
         enable_sessions: bool = False,
-        session_timeout_s: float | None = DEFAULT_SESSION_TIMEOUT_S,
+        session_timeout_s: float = DEFAULT_SESSION_TIMEOUT_S,
     ) -> None:
         self._enable_sessions = enable_sessions
-        self._session_timeout_s = (
-            float(session_timeout_s) if session_timeout_s is not None else None
-        )
+        self._session_timeout_s = float(session_timeout_s)
         self._shutdown_event = threading.Event()
         self._session_lock = threading.Lock()
-        self._sessions: dict[str, tuple[float | None, float]] = {}
+        self._sessions: dict[str, float] = {}
         self._dispatch_lock = RWLock()
         self._rpc: dict[str, Callable] = {}
         self._readonly_methods: set[str] = set()
@@ -119,10 +123,13 @@ class RpcFacade:
         session; the base handles ``session.register`` and ``session.close``
         RPC methods, session validation, and idle-timeout tracking.
         """
+        result = self._builtin_dispatch(method, args, kwargs)
+        if result is not None:
+            return result
         if self._enable_sessions:
             if session_id is None:
                 raise RpcError(
-                    "session",
+                    method,
                     "this server requires a bound session: call session.register first",
                 )
             if method == "session.register":
@@ -134,9 +141,6 @@ class RpcFacade:
         return self._dispatch_nosession(method, args, kwargs)
 
     def _dispatch_nosession(self, method: str, args: tuple, kwargs: dict) -> Any:
-        result = self._builtin_dispatch(method, args, kwargs)
-        if result is not None:
-            return result
         handler = self._rpc.get(method)
         if handler is None:
             raise ValueError(f"unknown RPC method: {method!r}")
@@ -149,9 +153,6 @@ class RpcFacade:
     def _dispatch_session(
         self, method: str, args: tuple, kwargs: dict, *, session_id: str | None = None
     ) -> Any:
-        result = self._builtin_dispatch(method, args, kwargs)
-        if result is not None:
-            return result
         handler = self._rpc.get(method)
         if handler is None:
             raise ValueError(f"unknown RPC method: {method!r}")
@@ -178,10 +179,7 @@ class RpcFacade:
                 f"session_id must be a non-empty string, got {session_id!r}"
             )
         with self._session_lock:
-            self._sessions[session_id] = (
-                self._session_timeout_s,
-                time.monotonic(),
-            )
+            self._sessions[session_id] = time.monotonic()
         return {"ok": True, "session_id": session_id}
 
     def drop_session(self, session_id: str) -> dict:
@@ -192,25 +190,25 @@ class RpcFacade:
         """
         with self._session_lock:
             existed = self._sessions.pop(session_id, None) is not None
-        if existed:
-            try:
-                self._on_session_drop(session_id)
-            except Exception:
-                logger.warning(
-                    "session %s close: cleanup hook failed",
-                    session_id,
-                    exc_info=True,
-                )
+            if existed:
+                with self._dispatch_lock.write():
+                    try:
+                        self._on_session_drop(session_id)
+                    except Exception:
+                        logger.warning(
+                            "session %s close: cleanup hook failed",
+                            session_id,
+                            exc_info=True,
+                        )
         return {"ok": True, "session_id": session_id}
 
     def _touch_session(self, session_id: str) -> None:
         """Refresh last_active for an active session; raise if unknown."""
         with self._session_lock:
-            entry = self._sessions.get(session_id)
-            if entry is None:
+            last = self._sessions.get(session_id)
+            if last is None:
                 raise RpcError("session", f"session not found: {session_id}")
-            tmo, _ = entry
-            self._sessions[session_id] = (tmo, time.monotonic())
+            self._sessions[session_id] = time.monotonic()
 
     def _on_session_drop(self, session_id: str) -> None:
         """Hook: policy-state cleanup when a session is dropped.
@@ -223,14 +221,14 @@ class RpcFacade:
     def _expire_session(self, session_id: str) -> None:
         """Drop a session whose idle timeout has elapsed and run its cleanup hook."""
         with self._session_lock:
-            entry = self._sessions.get(session_id)
-            if entry is None:
+            last = self._sessions.get(session_id)
+            if last is None:
                 return
-            tmo, last = entry
-            if tmo is None or (time.monotonic() - last) <= tmo:
+            if (time.monotonic() - last) <= self._session_timeout_s:
                 return
             self._sessions.pop(session_id, None)
-        self._on_session_drop(session_id)
+            with self._dispatch_lock.write():
+                self._on_session_drop(session_id)
 
     def _sweep_sessions(self, interval_s: float) -> None:
         """Background loop: drop idle-expired sessions every ``interval_s`` s."""
@@ -239,8 +237,8 @@ class RpcFacade:
             with self._session_lock:
                 expired = [
                     sid
-                    for sid, (tmo, last) in self._sessions.items()
-                    if tmo is not None and (now - last) > tmo
+                    for sid, last in self._sessions.items()
+                    if (now - last) > self._session_timeout_s
                 ]
             for sid in expired:
                 try:
@@ -285,15 +283,15 @@ class RpcFacade:
         print(f"RPC server listening on {url}", flush=True)
         logger.info("RPC server listening on %s", url)
 
+        if self._enable_sessions and (session_sweep_s is None or session_sweep_s <= 0):
+            raise ValueError(
+                "session_sweep_s is required (and > 0) when sessions "
+                "are enabled; idle timeout is only enforced by the "
+                f"sweep thread, got {session_sweep_s!r}"
+            )
         if parent_watch:
             watch_parent_death(self._shutdown_event.set)
         if self._enable_sessions:
-            if session_sweep_s is None or session_sweep_s <= 0:
-                raise ValueError(
-                    "session_sweep_s is required (and > 0) when sessions "
-                    "are enabled; idle timeout is only enforced by the "
-                    f"sweep thread, got {session_sweep_s!r}"
-                )
             threading.Thread(
                 target=self._sweep_sessions,
                 args=(session_sweep_s,),

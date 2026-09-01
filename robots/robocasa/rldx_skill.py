@@ -30,6 +30,9 @@ import imageio.v2 as imageio
 import numpy as np
 
 from robots.robocasa.env_client import RoboCasaEnvClient
+from rpent.utils.logging import get_logger
+
+logger = get_logger("rldx_skill")
 
 
 class RLDXSkill:
@@ -376,7 +379,11 @@ class RLDXSkill:
             try:
                 self._vla_client.reset_session()
             except Exception:
-                pass
+                logger.warning(
+                    "VLA reset_session RPC failed; RLDX memory/RTC state may "
+                    "not be reset for the next task",
+                    exc_info=True,
+                )
         self._last_prompt = None  # post-reset: next call is a fresh task
         if self._hist is not None:
             self._hist.clear()

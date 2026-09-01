@@ -12,9 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unified env client base class. Design reference for adding a new env
-backend: ``docs/source-zh/rst_source/development/add_env.rst``.
-"""
+"""Unified env client base class."""
 
 from __future__ import annotations
 
