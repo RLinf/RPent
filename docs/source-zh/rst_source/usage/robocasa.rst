@@ -9,8 +9,8 @@ RoboCasa
 
 .. note::
 
-   当前代码尚未完全对齐 `harnessvla.github.io <https://harnessvla.github.io>`_
-   展示的效果，完整复现将在后续放出。
+   本页只说明普通的单任务 ``rpent --robot robocasa`` 运行方式，不定义
+   Atomic/Seen/Unseen 全量 benchmark 的正式复现协议。
 
 安装
 ----
@@ -21,21 +21,23 @@ RLDX-1 要求 Python ``3.10``。请创建独立环境，并通过 ``.[robocasa]`
 .. code-block:: bash
 
    uv venv --python 3.10
-   uv pip install -e ".[robocasa]"
+   uv pip install -e ".[robocasa]" \
+      "torch==2.7.0" "torchvision==0.22.0" \
+      --torch-backend=cu126
 
-为避免 PyPI 上 torch 的 CUDA build 与本地驱动不匹配，建议通过
-``--index`` 指定 PyTorch CUDA 索引，例如
-``uv pip install -e ".[robocasa]" --index https://download.pytorch.org/whl/cu126``；
-CUDA 13-only 的机器换成 ``cu130``。
+该命令固定 RLDX-1 使用的 Torch 版本组合，并让 uv 只为 Torch 选择官方 CUDA
+wheel，避免把 PyTorch wheel 源作为通用 ``--index`` 后，在默认 first-index
+策略下误选其中的旧版无关依赖。上面的 ``cu126`` 是已验证的 CUDA 安装方式；
+仅当宿主机确有需要时才切换到其他受支持的 Torch backend。
 
 国内网络可使用 PyPI 镜像加速：\
 
 .. code-block:: bash
 
    uv pip install -e ".[robocasa]" \
+      "torch==2.7.0" "torchvision==0.22.0" \
       --default-index https://mirrors.aliyun.com/pypi/simple \
-      --index https://pypi.tuna.tsinghua.edu.cn/simple \
-      --index https://mirrors.aliyun.com/pytorch-wheels/cu126
+      --torch-backend=cu126
 
 .. note::
 
@@ -68,6 +70,17 @@ CUDA 13-only 的机器换成 ``cu130``。
 
 加 ``--skip-existing`` 重跑会跳过已下载的目录。
 
+**移动相机**
+
+``robocasa`` extra 会安装 ``RLinf/robosuite`` 的 ``rpent`` 分支，该分支
+包含 Omron 底盘固定的 ``navview`` 相机，其组合后的 MuJoCo 相机名为
+``mobilebase0_navview``。RPent 不再执行单独的 reset-time 相机预检；如果相机
+缺失，首次请求导航 RGB-D 或 world map 渲染时会自然报错。此时重新安装
+``.[robocasa]`` 以刷新该分支即可，无需手工修改 ``site-packages`` 中的 XML。
+本 PR 验证时该分支解析为 commit
+``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``；发布实验结果时应记录实际解析
+到的 commit。
+
 **RLDX-1 checkpoint**
 
 下面运行命令的 ``--vla-model-path`` 期望一个本地 ``RLDX-1-FT-RC365``
@@ -82,6 +95,36 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
 .. code-block:: bash
 
    HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
+
+**任务 Memory**
+
+默认评测会复用 RPent 的公共资源同步机制，从 Hugging Face 数据集
+``RLinf/RPent-memory`` 下载 ``robocasa/**`` 到 ``resources/robocasa``。
+当前任务只能使用下面这些同任务 memory：
+
+.. code-block:: text
+
+   resources/robocasa/results/<Task>_s0.json
+   resources/robocasa/results/recipe_<Task>_s0.jsonl
+   resources/robocasa/results/<Task>.md  # 可选
+
+JSON/JSONL pair 保存经过审核的 seed-0 证据。可选的 Markdown 文件保存同任务
+探索 memory，可能汇总多次尝试；当前 16 个 Composite-Seen 和 9 个
+Composite-Unseen 任务包含此文件。Prompt 要求 planner 在开始动作前主动通过
+``read_text_file`` 读取当前任务所有存在的文件；RPent 不会把 Markdown 内容
+强制注入 prompt。
+
+RoboCasa 不要求 planner 使用 global memory，也不会退回读取其他任务的 memory。
+运行时不预检 corpus 的完整性；当前任务文件缺失时，``read_text_file`` 会报告
+该文件不存在，planner 使用其余可用的同任务文件和实时观测继续。公开的默认
+corpus 会在发布阶段单独校验。如需使用经过审核的本地文件，请选择 local
+profile 并传入 results corpus 所在目录：
+
+.. code-block:: bash
+
+   rpent --robot robocasa --task-name OpenDrawer --seed 1 \
+         --vla-model-path /path/to/rldx --planner claude_code \
+         --memory-profile local --memory-dir /path/to/robocasa-results
 
 可用任务列表
 ------------
@@ -131,12 +174,27 @@ RoboCasa 的 CLI 参数由 ``robots/robocasa/__init__`` 注册，可通过
          --planner claude_code \
          --model claude-opus-4-8
 
+RoboCasa 不绑定具体 planner；RPent 支持的任意 planner 都可用于该机器人。
+配置方式参见 :doc:`configure_planner`。
+
 .. note::
 
    使用 ``--env-endpoint`` / ``--vla-endpoint`` 指向已运行的服务器
    (``[protocol://]host:port``)；不指定时，RPent 会就地启动 env 和 VLA
    子进程，日志分别写到 ``<output_dir>/env_server.log`` 和
    ``<output_dir>/vla_server.log``。
+
+常见错误
+--------
+
+- 导航 RGB-D 或 world map 渲染报告缺少 ``mobilebase0_navview`` 时，应重新
+  安装 ``.[robocasa]`` 以刷新 ``RLinf/robosuite`` 的 ``rpent`` 分支；不要手工
+  修改已安装的 XML。
+- ``read_text_file`` 报告缺少当前任务结果时，请检查 Hugging Face 的
+  ``robocasa/results`` corpus 或所选本地目录。RPent 不预检 corpus，也不会
+  退回读取其他任务。
+- 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和
+  ``<output_dir>/vla_server.log``。
 
 Toolkit 与 LIBERO 的差异
 ------------------------
