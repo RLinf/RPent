@@ -76,9 +76,12 @@ class VLAClient:
             if arr.size > 0 and arr.ndim == 3:
                 images[wire_key] = {"format": "png", "data": _png_b64(arr)}
             elif arr.size > 0 and wire_key == "extra" and arr.ndim == 4:
-                images[wire_key] = [
-                    {"format": "png", "data": _png_b64(image)} for image in arr
-                ]
+                if arr.shape[0] == 1:
+                    images[wire_key] = {"format": "png", "data": _png_b64(arr[0])}
+                else:
+                    images[wire_key] = [
+                        {"format": "png", "data": _png_b64(image)} for image in arr
+                    ]
 
         states = np.asarray(env_obs["states"]).astype(np.float32)
         if states.ndim != 1:

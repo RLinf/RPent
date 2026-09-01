@@ -62,7 +62,7 @@ def get_libero_type() -> str:
 
 def get_rlinf_repo_path() -> Path | None:
     """Return the configured RLinf checkout path, or *None*."""
-    env = os.environ.get("RLINF_REPO_PATH")
+    env = os.environ.get("RLINF_REPO_PATH") or os.environ.get("RPENT_RLINF_ROOT")
     if env:
         return Path(env).expanduser().resolve()
     return None
