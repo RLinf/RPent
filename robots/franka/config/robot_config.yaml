@@ -1,32 +1,18 @@
-# RPent user-facing config for one physical Franka arm.
-#
-# This file holds only what is specific to YOUR hardware: machine identity
-# (robot IP, camera serials, gripper) and workspace geometry (target/reset
-# poses, safety limits). Everything else — primitive-control knobs, action
-# scale, tolerances, camera processing — is a developer default in
-# robots/franka/runtime_config.py and is applied over RLinf's own dataclass defaults.
-#
-# Machine identity is resolved at runtime: a command-line flag (--robot-ip,
-# --camera-serial-wrist, --camera-serial-external, --gripper-connection)
-# overrides the environment variable named by the token below (ROBOT_IP,
-# CAMERA_SERIAL_WRIST, ...), which in turn overrides a literal value here.
-#
-#   python robots/franka/env_server.py --print-config --task-description "grasp"
-#   shows the fully resolved RLinf config RPent derives from this file.
+# RPent example config for one physical Franka arm.
 robot:
-  ip: ROBOT_IP
+  ip: "172.16.0.2"
   end_effector:
     type: franka
-    connection: GRIPPER_CONNECTION
+    connection: "/dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAIR00N-if00-port0"
 
 cameras:
   devices:
     wrist_1:
-      serial: CAMERA_SERIAL_WRIST
+      serial: "141722070657"
       type: realsense
       main: true
     third_person:
-      serial: CAMERA_SERIAL_EXTERNAL
+      serial: "311322304048"
       type: realsense
 
 workspace:
