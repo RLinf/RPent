@@ -165,7 +165,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         if memory_arg
         else get_resources_dir("robocasa") / "results"
     )
-    memory_profile = getattr(args, "memory_profile", None) or "hf"
 
     recipe_tag = f"{args.task_name}_{args.split}_s{args.seed}"
     prompt_vars = {
@@ -173,7 +172,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "split": args.split,
         "seed": args.seed,
         "recipe_tag": recipe_tag,
-        "memory_profile": memory_profile,
         "memory_dir": str(results_dir),
     }
 

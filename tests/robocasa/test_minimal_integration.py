@@ -53,7 +53,6 @@ class _DirectRpc:
 def _args(
     tmp_path: Path,
     *,
-    memory_profile: str | None,
     memory_dir: Path | None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
@@ -61,19 +60,17 @@ def _args(
         split="target",
         seed=1,
         output_dir=tmp_path / "run",
-        memory_profile=memory_profile,
         memory_dir=memory_dir,
     )
 
 
-def test_parse_config_uses_default_hf_memory(monkeypatch, tmp_path):
+def test_parse_config_uses_default_results_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("RPENT_REPO_ROOT", str(tmp_path))
 
     config = _parse_config(
-        _args(tmp_path, memory_profile=None, memory_dir=None),
+        _args(tmp_path, memory_dir=None),
     )
 
-    assert config.prompt_vars["memory_profile"] == "hf"
     assert config.prompt_vars["memory_dir"] == str(
         tmp_path / "resources" / "robocasa" / "results"
     )
@@ -119,14 +116,13 @@ def test_results_corpus_is_readable_through_memory_tool(monkeypatch, tmp_path):
     assert read_text_file(path=str(audit))["content"] == '{"success": true}\n'
 
 
-def test_parse_config_resolves_local_memory(tmp_path):
+def test_parse_config_resolves_local_results_dir(tmp_path):
     memory_dir = tmp_path / "local-memory"
 
     config = _parse_config(
-        _args(tmp_path, memory_profile="local", memory_dir=memory_dir),
+        _args(tmp_path, memory_dir=memory_dir),
     )
 
-    assert config.prompt_vars["memory_profile"] == "local"
     assert config.prompt_vars["memory_dir"] == str(memory_dir.resolve())
 
 
