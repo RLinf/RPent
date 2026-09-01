@@ -67,7 +67,7 @@ def test_dual_franka_cli_uses_current_interpreter_without_override_option():
 
 
 def test_dual_franka_uses_rpent_owned_robot_config():
-    config_path = Path(__file__).parents[3] / "robots/dual_franka/config/robot_config.yaml"
+    config_path = Path(__file__).parents[3] / "robots/dual_franka/config/example.yaml"
     runtime = load_runtime_config(None, task_description="test task")
     cfg = runtime.rlinf
 

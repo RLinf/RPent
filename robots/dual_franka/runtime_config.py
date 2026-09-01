@@ -1,6 +1,6 @@
 """RPent configuration and RLinf adapter for a dual-Franka runtime.
 
-Users edit only ``robot_config.yaml`` (machine identity + workspace geometry).
+Users edit only ``example.yaml`` (machine identity + workspace geometry).
 Developer defaults (node placement, primitive control, perception tuning,
 episode length) live here and are applied over RLinf's own dataclass defaults.
 """
@@ -40,7 +40,7 @@ CONTROL = {
 # 100) and ``env.eval.max_episode_steps``.
 EPISODE_STEPS = 300
 
-DEFAULT_CONFIG = Path(__file__).with_name("config") / "robot_config.yaml"
+DEFAULT_CONFIG = Path(__file__).with_name("config") / "example.yaml"
 
 
 def _camera_slot(observation: dict[str, Any], slot: str) -> tuple[list[str], str]:

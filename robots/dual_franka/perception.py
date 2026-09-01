@@ -12,7 +12,7 @@ from robots.franka.runtime_config import get_calibration_path, load_mapping
 from rpent.tools.state import EnvState
 from rpent.tools.toolkit import readonly
 
-ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "robot_config.yaml"
+ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "example.yaml"
 
 
 class DualFrankaPerceptionError(ValueError):
@@ -220,7 +220,7 @@ def _back_project_camera_pixel(
 
 
 def _load_perception_config() -> dict[str, Any]:
-    """Load the RPent perception section from ``robot_config.yaml``.
+    """Load the RPent perception section from ``example.yaml``.
 
     Holds the machine config ``easy_handeye`` does not produce: the tabletop
     ``localization_validity`` bounds and the inter-base ``base_frames``.
@@ -229,7 +229,7 @@ def _load_perception_config() -> dict[str, Any]:
     perception = raw.get("perception")
     if not isinstance(perception, dict):
         raise DualFrankaPerceptionError(
-            "robot_config.yaml missing the 'perception' section"
+            "example.yaml missing the 'perception' section"
         )
     return perception
 
@@ -239,7 +239,7 @@ def load_calibration_bundle(path: str | Path | None = None) -> dict[str, Any]:
 
     Merges the ``easy_handeye`` hand-eye transforms (``hand_eye_calibration.json``)
     with the RPent perception config (localization validity + base frames) from
-    ``robot_config.yaml``, keeping the historical consumer shape:
+    ``example.yaml``, keeping the historical consumer shape:
     ``<camera>.transformation``, ``<camera>.localization_validity``, and
     ``base_frames``.
     """

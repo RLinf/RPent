@@ -17,29 +17,6 @@ RLinf/OpenPI 分支。不需要单独的 RLinf checkout、虚拟环境或安装�
 该命令按照 ``pyproject.toml`` 将自定义 RLinf Franka 分支和
 ``rlinf-openpi`` 安装到 ``.venv``。
 
-开发配置
---------
-
-启用机械臂运动前，请检查并修改仓库中的开发默认值：
-
-* ``robots/dual_franka/config/robot_config.yaml`` 仅包含机器身份（两台机器人 IP、相机
-  序列号/类型、夹爪连接）、工作空间几何（target poses、安全边界）和感知定位
-  边界 + base-frame 变换。
-* ``robots/dual_franka/runtime_config.py`` 存放开发者默认值（primitive 控制、感知调优、
-  episode 长度、节点放置）。
-* Hand-eye calibration 由 ``easy_handeye`` 生成（见下方标定章节），不会提交到
-  仓库；离线测试用的样例 bundle 位于
-  ``tests/robots/dual_franka/fixtures/hand_eye_calibration.json``。相机内参在
-  运行时捕获。
-
-仓库中的 robot config 会有意保留当前实验室 IP、序列号和夹爪设备路径，方便
-本地测试。其他系统必须检查并替换这些值。不要复用其他工作空间的 reset pose、
-边界或标定。
-
-RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境对象。如需使用
-其他文件，请传入 ``--robot-config /path/to/robot_config.yaml``。用户不再需要
-接触 Hydra 或 RLinf 配置流程。
-
 标定（Calibration）
 ----------------------
 
@@ -53,57 +30,19 @@ RPent 读取一个 JSON bundle（``hand_eye_calibration.json``），其中包含
 ``easy_handeye`` YAML 中拷贝这些字段。
 
 bundle 位置可通过 ``--calibration-path`` 配置（默认
-``~/.ros/easy_handeye/hand_eye_calibration.json``）。RPent 特有的定位边界和
-base-frame 变换存放在 ``config/robot_config.yaml`` 的 ``perception`` 段中（
-``easy_handeye`` 不生成它们）。相机内参在运行时从 ``camera_meta.json`` 捕获。
+``~/.ros/easy_handeye/hand_eye_calibration.json``）。
 
-使用本地 RLinf checkout
-------------------------
+开发配置
+--------
 
-开发测试时，需要在启动 Ray 前让两个控制节点都能访问本地 checkout。两个节点
-可以使用不同的绝对路径，但各自的 ``PYTHONPATH`` 必须指向该节点上的源码副本。
+启用机械臂运动前，请检查并修改仓库中的开发默认值：
 
-节点 ``0``：
+* ``robots/dual_franka/config/example.yaml`` 包含机器身份（两台机器人 IP、相机
+  序列号/类型、夹爪连接）、工作空间几何（target poses、安全边界）和感知定位
+  边界 + base-frame 变换。
 
-.. code-block:: bash
-
-	export RLINF_REPO_PATH=/path/to/RLinf
-	export PYTHONPATH=$RLINF_REPO_PATH:${PYTHONPATH:-}
-	export RLINF_NODE_RANK=0
-	ray stop --force
-	ray start --head --port=6379 --node-ip-address=HEAD_IP
-
-节点 ``1``：
-
-.. code-block:: bash
-
-	export PYTHONPATH=$RLINF_REPO_PATH:${PYTHONPATH:-}
-	export RLINF_NODE_RANK=1
-	ray stop --force
-	ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
-
-在节点 ``0`` 使用本地 checkout 运行 RPent：
-
-.. code-block:: bash
-
-	uv run --extra franka rpent --env dual_franka --task-id 0 \
-	  --planner api --model anthropic:claude-sonnet-4-5
-
-自动启动的 ``env_server.py`` 和 ``vla_server.py`` 会在启动时读取
-``RLINF_REPO_PATH`` 并把它放到 ``sys.path`` 最前面。在 ``ray start`` 前导出
-``PYTHONPATH``，可让远程 Ray worker 加载同一 checkout。源码路径发生变化时，
-必须在所有节点重启 Ray。
-
-可以在每个节点运行以下命令确认实际加载位置：
-
-.. code-block:: bash
-
-	PYTHONPATH=/path/to/RLinf:$PYTHONPATH \
-	  uv run --extra franka python -c \
-	  'import rlinf; print(rlinf.__file__)'
-
-若要让本地子进程恢复使用 ``.venv`` 中安装的版本，请取消设置
-``RLINF_REPO_PATH``。
+RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境对象。如需使用
+其他文件，请传入 ``--robot-config /path/to/robot_config.yaml``。
 
 启动双节点 Ray 集群
 --------------------
@@ -135,18 +74,20 @@ base-frame 变换存放在 ``config/robot_config.yaml`` 的 ``perception`` 段�
 .. code-block:: bash
 
 	uv run --extra franka rpent --env dual_franka --task-id 0 \
-	  --planner api --model anthropic:claude-sonnet-4-5
+	  --planner claude_code --model claude-opus-4-8 \
+	  --robot-config robots/dual_franka/config/example.yaml \
+	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
 
 RPent 使用当前解释器启动 ``robots/dual_franka/env_server.py``，加载 RPent
 robot config 并生成内部 RLinf adapter config，然后连接 Ray，等待 ``healthz``，
-并将初始状态记录为 step ``0``。
+并将初始状态记录为 step ``0``。任务 ``0`` 不会加载 VLA。
 
-VLA 任务
+VLA 抓取 DEMO
 --------
 
-任务 ``1`` 会暴露 ``vla_grasp``，并可在本地启动双臂 Franka VLA server。
-``PI05_CHECKPOINT_PATH`` 指向 SFT checkpoint，``DUAL_FRANKA_REPO_ID`` 是用于
-查找对应归一化统计的数据集 ID：
+RPent提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露 ``vla_grasp``。
+并可在本地启动双臂 Franka VLA server。``PI05_CHECKPOINT_PATH`` 指向 
+训练好的 Pi-05 checkpoint，``DUAL_FRANKA_REPO_ID`` 是用于查找对应归一化统计的数据集 ID：
 
 .. code-block:: bash
 
@@ -155,7 +96,9 @@ VLA 任务
 
 	uv run --extra franka rpent --env dual_franka --task-id 1 \
 	  --cuda-device 0 \
-	  --planner api --model anthropic:claude-sonnet-4-5
+	  --planner claude_code --model claude-opus-4-8 \
+	  --robot-config robots/dual_franka/config/example.yaml \
+	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
 
 checkpoint 必须包含：
 
@@ -166,7 +109,7 @@ checkpoint 必须包含：
 
 未设置 ``--vla-endpoint`` 时，RPent 会启动
 ``robots/dual_franka/vla_server.py``，并只加载一次
-``pi05_dualfranka_tcp_rot6d``。任务 ``0`` 不会加载 VLA。
+``pi05_dualfranka_tcp_rot6d``。
 
 也可以单独启动 VLA 服务：
 
@@ -189,7 +132,9 @@ checkpoint 必须包含：
 
 	uv run --extra franka rpent --env dual_franka --task-id 0 \
 	  --env-endpoint http://ROBOT_HOST:PORT \
-	  --planner api --model anthropic:claude-sonnet-4-5
+	  --planner claude_code --model claude-opus-4-8 \
+	  --robot-config robots/dual_franka/config/example.yaml \
+	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
 
 工具与状态产物
 --------------

@@ -378,10 +378,6 @@ def main() -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--robot-config", default=None)
-    parser.add_argument("--robot-ip", default=None)
-    parser.add_argument("--camera-serial-wrist", default=None)
-    parser.add_argument("--camera-serial-external", default=None)
-    parser.add_argument("--gripper-connection", default=None)
     parser.add_argument("--task-description", required=True)
     parser.add_argument("--parent-watch", action="store_true")
     parser.add_argument(
@@ -394,10 +390,6 @@ def main() -> int:
     runtime = load_runtime_config(
         args.robot_config,
         task_description=args.task_description,
-        robot_ip=args.robot_ip,
-        camera_serial_wrist=args.camera_serial_wrist,
-        camera_serial_external=args.camera_serial_external,
-        gripper_connection=args.gripper_connection,
     )
     if args.print_config:
         from omegaconf import OmegaConf
