@@ -45,6 +45,7 @@ dependencies = [
 [project.scripts]
 rpent = "rpent.cli.main:main"
 rpent-memory = "rpent.cli.memory:main"
+rpent-flywheel = "flywheel.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"
@@ -94,6 +95,9 @@ robocasa = [
     "rlinf-rldx>=1.0.1.post10",
     "robosuite @ git+https://github.com/RLinf/robosuite.git@rpent",
 ]
+flywheel = [
+    "lerobot>=0.3.3,<0.4",
+]
 robotwin = [
     # TODO: replace fixed owner-controlled revisions with released versions.
     "rpent[rlinf]",
@@ -109,11 +113,12 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rpent*"]
+include = ["rpent*", "flywheel*"]
 exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
+"flywheel" = ["config/*.yaml"]
 
 [tool.ruff]
 line-length = 88

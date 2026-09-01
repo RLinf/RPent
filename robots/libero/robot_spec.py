@@ -162,6 +162,16 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--task", type=int, default=None, required=required)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
+        "--collect-flywheel-data",
+        action="store_true",
+        help="record this evaluation episode for Flywheel training",
+    )
+    parser.add_argument(
+        "--flywheel-root",
+        default=None,
+        help="Flywheel data root (default: <repo>/datacollection)",
+    )
+    parser.add_argument(
         "--auto-merge-memory",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -227,6 +237,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--explore cannot be used with --memory-profile hf")
     if explore and args.explore_sessions <= 0:
         raise ValueError("--explore-sessions must be greater than 0")
+    if explore and args.collect_flywheel_data:
+        raise ValueError("flywheel collection supports evaluation mode only")
     memory_profile = requested_profile or ("local" if explore else "hf")
     if memory_profile == "hf" and args.memory_dir is not None:
         raise ValueError("--memory-dir requires --memory-profile local or --explore")
@@ -447,5 +459,13 @@ def _init_runtime(
             post_fn=partial(connectors[component], rpc),
         )
         primitives_kwargs.update(component_kwargs)
+
+    if args.collect_flywheel_data:
+        primitives_kwargs["flywheel_config"] = {
+            "root": args.flywheel_root or str(get_repo_root() / "datacollection"),
+            "suite": args.suite,
+            "task_id": args.task,
+            "seed": args.seed,
+        }
 
     return list(owned_daemons.values()), primitives_kwargs
