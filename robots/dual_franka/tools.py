@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from robots.franka.tools import FrankaPrimitives, coerce_vec3
-from rpent.tools.state import EnvState, StepRecord
+from rpent.session import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
 
 _ARM_PROPERTY = {

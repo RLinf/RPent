@@ -6,7 +6,7 @@ from collections.abc import Mapping
 
 from robots.dual_franka.prompts import system as system_parts
 from robots.dual_franka.prompts import user as user_parts
-from rpent.context.prompt_utils import Numbered, PromptNode
+from rpent.prompt.utils import Numbered, PromptNode
 
 
 def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:

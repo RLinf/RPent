@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Claude Agent SDK planner.
 
 A thin, SDK-first backend for RPent. ``solve()`` does four things:
@@ -219,6 +233,13 @@ class ClaudeCodePlanner:
                     )
             except asyncio.TimeoutError:
                 error = f"Claude Agent SDK timed out after {self._timeout_s}s"
+                try:
+                    await asyncio.to_thread(toolkit.cancel_active_and_wait)
+                except Exception as cancel_error:
+                    logger.warning(
+                        "failed to cancel toolkit work after Claude timeout: %s",
+                        cancel_error,
+                    )
                 rendered = f"\n[cc-planner] {error}\n"
                 rendered_chunks.append(rendered)
                 out_f.write(rendered)

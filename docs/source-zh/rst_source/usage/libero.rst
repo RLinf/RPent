@@ -5,7 +5,7 @@ LIBERO
 包含一系列基于 MuJoCo/robosuite 的桌面操作任务。RPent 主要使用四个核心基础
 任务族（``libero_object``、``libero_goal``、``libero_spatial``、
 ``libero_10``）和三个变体（``standard``、``pro``、``plus``）。默认 VLA
-是 **Pi0.5**，由 ``robots/libero/vla_server.py`` 通过 HTTP 提供服务。
+是 **Pi0.5**，由 ``rpent/robots/components/pi05_vla_server.py`` 通过 HTTP 提供服务。
 
 VLA 配置
 --------
@@ -161,10 +161,10 @@ memory 维护命令：
   的 MuJoCo 环境并通过 EGL 渲染。它通过 RPC 传输（默认使用 HTTP；添加
   ``--transport socket`` 后使用 pickle-framed socket）对外暴露
   ``reset``、``step``、``chunk_step``、``render_camera``、
-  ``get_camera_meta``、``cached_image``…
-- **vla_server** （``robots/libero/vla_server.py``）—— 持有 Pi0.5
+  ``get_camera_meta`` 等接口。
+- **vla_server** （``rpent/robots/components/pi05_vla_server.py``）—— 持有 Pi0.5
   权重，通过同一套 RPC 传输（HTTP 或 socket）暴露 ``predict``。
-- **sam3_server** （``robots/libero/sam3_server.py``）—— 持有 SAM 3.0，
+- **sam3_server** （``rpent/robots/components/sam3_server.py``）—— 持有 SAM 3.0，
   通过同一套 RPC 传输（HTTP 或 socket）支持文本或单个正点分割，仅返回
   排名第一的压缩 PNG mask。
 - **toolkit（工具集）** （``robots/libero/toolkit.py``）—— 定义 LLM

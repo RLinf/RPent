@@ -36,7 +36,7 @@ Which VLA runs where
    * - LIBERO (sim)
      - Pi0.5
      - HTTP or socket RPC
-     - ``robots/libero/vla_server.py``
+     - ``rpent/robots/components/pi05_vla_server.py``
    * - RoboCasa (sim)
      - RLDX-1
      - HTTP or socket RPC

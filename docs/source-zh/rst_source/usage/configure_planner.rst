@@ -70,6 +70,8 @@ SDK。
 - ``--no-images`` —— 不向模型发送图片字节；纯文本模型必须加此参数。此时
   智能体只依赖文本状态推理，任务表现可能不够理想。
 
+.. _planner-claude-code:
+
 ``claude_code`` planner
 ------------------------
 
@@ -97,6 +99,8 @@ RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
   `Claude Agent SDK 文档
   <https://code.claude.com/docs/en/agent-sdk/overview>`_。
 
+.. _planner-codex:
+
 ``codex`` planner
 ------------------
 
@@ -120,6 +124,8 @@ RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
   Responses API 兼容端点，请设置 ``CODEX_BASE_URL`` 和
   ``CODEX_API_KEY``；这里不读取 ``OPENAI_BASE_URL`` 或
   ``OPENAI_API_KEY``。
+
+.. _planner-custom:
 
 接入自定义 planner
 ------------------

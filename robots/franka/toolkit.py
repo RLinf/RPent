@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from robots.franka import perception as franka_perception
 from robots.franka import tools as franka_tools
 from robots.franka.runtime_config import set_calibration_path
 from rpent.dashboard.events import DashboardEventSink
-from rpent.tools.state import EnvState
+from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_output_dir
+
+if TYPE_CHECKING:
+    from rpent.memory.manager import MemoryManager
 
 
 class FrankaToolkit(Toolkit):
@@ -22,9 +25,14 @@ class FrankaToolkit(Toolkit):
         *,
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
+        memory: MemoryManager,
     ) -> None:
         state = EnvState(get_output_dir())
-        super().__init__(dashboard_events=dashboard_events, state=state)
+        super().__init__(
+            dashboard_events=dashboard_events,
+            state=state,
+            memory=memory,
+        )
         calibration_path = primitives_kwargs.pop("calibration_path", None)
         if calibration_path is not None:
             set_calibration_path(calibration_path)

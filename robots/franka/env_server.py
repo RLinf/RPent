@@ -61,6 +61,9 @@ class FrankaEnvFacade(RpcFacade):
         self._backend = backend
 
     def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
+        builtin = self._builtin_dispatch(method, args, kwargs)
+        if builtin is not None:
+            return builtin
         if not method.startswith("env."):
             raise ValueError(f"unknown RPC method: {method!r}")
         name = method.removeprefix("env.")

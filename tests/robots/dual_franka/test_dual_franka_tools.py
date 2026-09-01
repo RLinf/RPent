@@ -17,7 +17,7 @@ from robots.dual_franka.tools import (
 )
 from robots.franka.runtime_config import set_calibration_path
 from robots.franka.tools import view_camera_meta
-from rpent.tools.state import EnvState
+from rpent.session import EnvState
 
 
 class FakeEnv:

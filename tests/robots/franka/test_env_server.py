@@ -9,7 +9,7 @@ import pytest
 
 from robots.franka.env_client import FrankaEnvClient
 from robots.franka.env_server import FrankaEnvFacade, _to_numpy_tree
-from rpent.utils.http_rpc import HttpRpcClient, HttpRpcServer
+from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
 
 
 class FakeBackend:

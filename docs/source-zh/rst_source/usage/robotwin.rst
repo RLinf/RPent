@@ -138,6 +138,68 @@ RPent 默认使用 RoboTwin 的 ``demo_randomized`` 任务配置，该配置带�
 规划器配置、外部服务和离线参考资料的说明分别见 :doc:`configure_planner`、
 :doc:`advanced_deployment` 和 :doc:`../development/memory`。
 
-每次运行前，RPent 会自动从公开数据集 ``RLinf/RPent-memory`` 同步可选的 RoboTwin
-经验和任务参考。这些内容包含经过验证的操作方法，可以帮助规划器提高任务表现；
+每次运行前，RPent 会自动从公开数据集 `RLinf/RPent-memory
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robotwin>`_ 同步可选的
+RoboTwin 经验和任务参考。这些内容包含经过验证的操作方法，可以帮助规划器提高任务表现；
 即使无法下载，任务仍可正常启动。
+
+规划器 memory 与 recipe
+------------------------
+
+只读规划资源位于数据集的 ``robotwin/`` 目录，并会同步到
+``<RPent-clone-path>/resources/robotwin/``。
+
+``memory/MEMORY.md`` 索引可跨任务复用的执行经验，包括感知线索、控制启发、恢复策略、
+参数选择建议和常见失败模式。规划器可以通过该索引，只读取与当前任务或已观察到的失败
+相关的 memory 条目。
+
+对于每个评测任务，``recipe/<task>_s0.json`` 是从成功轨迹中提炼的语义 recipe，
+描述阶段目标、可观察的完成 gate、控制与 VLA 使用建议以及已知失败模式。配套的
+``recipe/recipe_<task>_s0.jsonl`` 记录该轨迹中的历史工具调用，用于提供动作顺序、
+工具选择和 action chunk 节奏方面的证据。
+
+文件名中的 ``_s0`` 只是统一的 recipe slot 名称，便于 prompt 查找，并不表示 RoboTwin
+seed 0。由于部分随机 seed 可能不可解，每份 recipe 的来源 seed 通过 RoboTwin 官方
+expert 程序选择；实际来源 seed 记录在 recipe 元数据中。
+
+这些 recipe 来源于成功的 ``demo_clean`` 轨迹，用作独立 ``demo_randomized`` 场景的
+策略先验。可迁移的是阶段结构、可观察 gate、控制方式和 VLA chunk 节奏；来源任务语言、
+机械臂选择、像素、坐标、姿态、净空与接触点均不是新 episode 的直接命令。当前环境原生
+task language 与最新 observation 始终优先，所有几何信息都必须重新定位。
+
+``evidence_status=supported`` 表示 recipe 有成功 clean 轨迹支持；``experimental``
+仍然只是弱先验。使用时先阅读 ``memory/MEMORY.md``，再只选与当前任务和失败模式相关的
+少量笔记。
+
+结果复现
+--------
+
+以下结果复现了 Harness VLA 在 RoboTwin C2R 上的评测。实验使用 ``gpt-5.5`` 模型和
+``xhigh`` 推理强度：
+
+- ``demo_randomized``：58.0%（145/250）
+
+评测覆盖 RoboTwin 的 50 个任务，每个任务运行 5 个 episode，共计 250 个 episode。
+每个任务使用的 5 个 seed 来自 ``robots/robotwin/eval/demo_randomized.json`` 中的
+官方 verified expert seeds。由于不同任务的可解 seed 可能不同，请根据该文件为每个
+任务选择对应 seed，不要对所有任务统一使用一组固定 seed。
+
+单个 episode 的复现命令如下：
+
+.. code-block:: bash
+
+   rpent --robot robotwin \
+     --task-name "task" \
+     --task-config demo_randomized \
+     --seed "seed" \
+     --planner codex \
+     --model gpt-5.5 \
+     --reasoning-effort xhigh \
+     --max-turns 100 \
+     --planner-timeout-s 3600 \
+     --max-episode-steps 10000
+
+其中，``task`` 应替换为 ``demo_randomized.json`` 中的任务名，``seed`` 应替换为
+该任务对应的一个 verified expert seed。运行前还需按照本页前文配置 RoboTwin assets、
+LingBot-VLA checkpoint。任务是否成功以 episode 结束时最新的
+``TASK_ENV.eval_success`` 为准，不能仅根据规划器是否调用 ``finish`` 判断。

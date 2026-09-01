@@ -1,19 +1,37 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """LIBERO toolkit: common tools + LIBERO primitives.
 
 Inherits the common file/IO tools from :class:`Toolkit` and registers the
 LIBERO primitives (``move_to``, ``pi0_pick``, ``release``, ...) on top.
 """
+
 from __future__ import annotations
 
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from robots.libero import tools as libero_tools
 from rpent.dashboard.events import DashboardEventSink
-from rpent.tools.state import EnvState
+from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit, readonly
 from rpent.utils.logging import get_logger, get_output_dir
+
+if TYPE_CHECKING:
+    from rpent.memory.manager import MemoryManager
 
 logger = get_logger("libero_toolkit")
 
@@ -31,22 +49,27 @@ class LiberoToolkit(Toolkit):
         *,
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
+        memory: MemoryManager,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
     ) -> None:
-        self._state_output_dir = Path(state_output_dir or get_output_dir())
-        state = EnvState(self._state_output_dir)
-        super().__init__(dashboard_events=dashboard_events, state=state)
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
+        self._state_output_dir = Path(state_output_dir or get_output_dir())
+        state = EnvState(self._state_output_dir)
+        super().__init__(
+            dashboard_events=dashboard_events,
+            state=state,
+            memory=memory,
+        )
         self._mode = mode
         self._solved: bool = False
         self._attempt: int = 1
         # Bound the resettable attempts owned by this planner session.
         self._attempts_per_session: int = max(0, int(attempts_per_session))
         self._session_attempt: int = 1
-        self.init_primitives_clean(primitives_kwargs=primitives_kwargs)
+        self.init_primitives(primitives_kwargs=primitives_kwargs)
         self._register_libero_tools()
 
     # ------------------------------------------------------------------
@@ -57,9 +80,7 @@ class LiberoToolkit(Toolkit):
         # other spec binds to a primitive-driver method and captures state by
         # default unless that method is explicitly marked @readonly.
         state_handlers = {
-            "view_env_state": partial(
-                libero_tools.view_env_state, state=self._state
-            ),
+            "view_env_state": partial(libero_tools.view_env_state, state=self._state),
             "view_camera_meta": partial(
                 libero_tools.view_camera_meta, state=self._state
             ),
@@ -163,7 +184,7 @@ class LiberoToolkit(Toolkit):
             out.update(result)
         return out
 
-    def init_primitives_clean(
+    def init_primitives(
         self,
         *,
         primitives_kwargs: dict[str, Any],
@@ -191,9 +212,7 @@ class LiberoToolkit(Toolkit):
         except Exception as e:
             # The runner is in the cleanup path; never let a video save
             # abort it.
-            logger.warning(
-                f"failed to save episode video: {e}"
-            )
+            logger.warning(f"failed to save episode video: {e}")
 
     def solved(self) -> bool:
         """Return whether this run has completed the task."""
@@ -201,4 +220,6 @@ class LiberoToolkit(Toolkit):
 
     def write_recipe(self, recipe_tag: str) -> str:
         """Write the LIBERO recipe JSONL from the dumped state trace."""
-        return libero_tools.write_recipe_from_states(self._state, recipe_tag, output_dir=get_output_dir())
+        return libero_tools.write_recipe_from_states(
+            self._state, recipe_tag, output_dir=get_output_dir()
+        )

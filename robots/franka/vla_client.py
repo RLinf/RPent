@@ -1,10 +1,10 @@
 """Thin client wrapping the Pi0.5 VLA RPC server.
 
-The server lifecycle is the caller's responsibility: bring up
-``robots/libero/vla_server.py`` (or any compatible ``predict`` /
-``healthz`` implementation) before constructing this client.
+The server lifecycle is the caller's responsibility: bring up a compatible
+VLA service (the single-Franka VLA is attach-only, and the dual-Franka port
+ships ``robots/dual_franka/vla_server.py``) before constructing this client.
 
-Wire schema (see also ``vla_server.py``):
+This keeps the legacy wire schema used by the real-Franka VLA services:
 
     call("predict", kwargs={
         "instruction": "<task_descriptions>",
@@ -16,7 +16,8 @@ Wire schema (see also ``vla_server.py``):
         "state": [[s0..sN]],           # shape [B, state_dim]
         "mode":  "eval",
     })
-    -> {"actions": [[[a0..a6], ...]], "shape": [B, chunk, action_dim], "dtype": "float32"}
+    -> {"actions": [[[a0..a6], ...]], "shape": [B, chunk, action_dim], "dtype":
+"float32"}
 """
 from __future__ import annotations
 
@@ -43,8 +44,8 @@ def _png_b64(img: np.ndarray) -> str:
 class VLAClient:
     """Client wrapping a remote Pi0.5 VLA over any :class:`RpcClient` transport.
 
-    Only call site is ``LiberoPrimitives``, which uses one method:
-    ``predict_action_batch(env_obs, mode="eval")``.
+    Only call site is ``FrankaPrimitives`` (and its dual-Franka variant), which
+    uses one method: ``predict_action_batch(env_obs, mode="eval")``.
     """
 
     def __init__(self, client: RpcClient):

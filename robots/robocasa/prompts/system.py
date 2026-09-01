@@ -1,7 +1,22 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RoboCasa system prompt fragments."""
+
 from __future__ import annotations
 
-from rpent.context.prompt_utils import BulletList, Numbered
+from rpent.prompt.utils import BulletList
 
 PREAMBLE = """
 You are an LLM-in-the-loop robotic agent for the **RoboCasa365** kitchen
@@ -27,13 +42,15 @@ WHAT IS DIFFERENT FROM A FIXED-ARM BENCHMARK:
 
 GOAL = "Your goal is to complete the manipulation task described in the task_language field of the state. Success is determined by the environment's own _check_success() predicate, surfaced as state.success. Monitor task_progress for intermediate feedback."
 
-RULES = BulletList([
-    "NEVER hard-code world coordinates. Always localize from the latest world map.",
-    "After every navigate_to or move_base, re-localize — the arm frame changed.",
-    "Check task_progress after every command to see if you are making progress.",
-    "Stop when state.success == True. Call finish(status='success', ...).",
-    "If genuinely stuck after honest exploration, call finish(status='stuck', ...).",
-])
+RULES = BulletList(
+    [
+        "NEVER hard-code world coordinates. Always localize from the latest world map.",
+        "After every navigate_to or move_base, re-localize — the arm frame changed.",
+        "Check task_progress after every command to see if you are making progress.",
+        "Stop when state.success == True. Call finish(status='success', ...).",
+        "If genuinely stuck after honest exploration, call finish(status='stuck', ...).",
+    ]
+)
 
 LOCALIZATION = """
 PRIMARY TOOL — back_project_batch: Pass a list of [row, col] pixels from the

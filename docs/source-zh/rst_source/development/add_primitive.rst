@@ -84,26 +84,28 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 由于模型运行在独立进程中，添加基于模型的原语还需要以下组件：
 
 1. **编写 ``vla_server.py``。** 该进程只持有模型权重和 CUDA 上下文。
-   继承 :class:`rpent.utils.rpc.RpcFacade`，并通过 ``_dispatch`` 暴露
-   模型方法（如 ``predict``）：
+   继承 :class:`rpent.robots.components.vla_facade_base.BaseVLAFacade`，实现
+   ``predict``，并通过扩展 ``_register_rpc`` 注册其他模型 RPC：
 
    - 默认传输方式为 **HTTP**，通过 ``POST /call`` 传输 JSON，适合
      LIBERO/Pi0.5 使用的扁平 ``image + state`` 数据。
    - 当观测数据包含多帧历史信息或采用嵌套数据结构时，可以切换到
      **socket RPC**\ （``--transport socket``），避免重复进行 JSON 编码。
 
+   ``BaseVLAFacade`` 会注册 ``vla.predict`` 并串行化模型调用；继承的
    ``RpcFacade.serve`` 负责绑定传输层、处理 ``healthz`` 和 ``shutdown``、
-   检测父进程退出并清理资源；这里只需实现与模型相关的方法。
+   检测父进程退出并清理资源。
 
-2. **编写 model client。** 创建一个轻量的类，封装
-   :class:`rpent.utils.rpc.RpcClient`
-   （:class:`HttpRpcClient` 或 :class:`SocketRpcClient`），并提供模型调用
-   接口。LIBERO 的实现可参考 ``rpent.utils.vla_client.VLAClient``。
+2. **编写 model client。** 继承
+   :class:`rpent.robots.components.vla_client_base.BaseVLAClient`；它已经提供
+   公共的 ``vla.predict`` 调用，子类只需增加环境专用的输入 / 输出适配。
+   LIBERO 的实现可参考
+   ``rpent.robots.components.pi05_vla_client.Pi05VLAClient``。
 
 3. **在 primitives 中添加方法。** 在当前机器人的 primitives
    类中调用 model client，将其返回的动作块交给环境执行，并返回日志字典。
    model client 的接口是
-   :meth:`rpent.utils.vla_client.VLAClient.predict_action_batch`，
+   :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict_action_batch`，
    指令从 ``env_obs["task_descriptions"]`` 中读取，不接受关键字参数：
 
    .. code-block:: python
@@ -117,17 +119,16 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 
 4. **添加工具定义并在 toolkit 中注册。** 具体做法与脚本化原语相同。
 
-5. **在 ``__init__.py`` 中连接各组件。** 机器人的 ``get_toolkit`` 使用
+5. **在 ``robot_spec.py`` 中连接各组件。** 机器人的 ``get_toolkit`` 使用
    ``primitives_kwargs`` 构造 toolkit：
 
    .. code-block:: python
 
-      def get_toolkit(*, primitives_kwargs, dashboard_events, video_path=None):
+      def get_toolkit(*, primitives_kwargs, dashboard_events):
           from robots.myrobot.toolkit import MyRobotToolkit
           return MyRobotToolkit(
               primitives_kwargs=primitives_kwargs,
               dashboard_events=dashboard_events,
-              video_path=video_path,
           )
 
    机器人包中的 ``_init_runtime`` 则负责构造 ``primitives_kwargs``，例如

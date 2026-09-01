@@ -1,4 +1,19 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Physical agent main CLI entrypoint."""
+
 # `rpent/cli/`
 #
 # CLI entrypoints for RPent (currently just `main.py`).
@@ -37,8 +52,9 @@ from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
 )
-from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
+from rpent.memory import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, build_planner
+from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
 
@@ -70,8 +86,10 @@ def _strip_images(value):
 def _serialize_messages(messages: list[dict]) -> list[dict]:
     """Strip inline image payloads from messages before writing the transcript."""
     return [
-        {**{k: v for k, v in m.items() if k != "content"},
-         "content": _strip_images(m.get("content"))}
+        {
+            **{k: v for k, v in m.items() if k != "content"},
+            "content": _strip_images(m.get("content")),
+        }
         for m in messages
     ]
 
@@ -86,6 +104,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     known_robots_text = ", ".join(known_robots) if known_robots else "none"
     ap = argparse.ArgumentParser(
         description="RPent: Agentic Infrastructure for the Physical World",
+        add_help=False,
     )
 
     ap.add_argument(
@@ -104,59 +123,113 @@ def _build_argparser() -> argparse.ArgumentParser:
     )
 
     # models
-    ap.add_argument("--planner", default="api",
-                    choices=["api", "claude_code", "codex"],
-                    help="LLM backend: api | claude_code | codex.")
-    ap.add_argument("--model", default=None,
-                    help="Model id. For the 'api' planner, prefix the provider "
-                         "(e.g. anthropic:claude-opus-4-8, openai:gpt-5.5, "
-                         "openai-chat:glm-5.2). For claude_code/codex this "
-                         "overrides the backend default model.")
-    ap.add_argument("--base-url", default=None,
-                    help="API base URL. Defaults to the selected backend's base URL env var.")
+    ap.add_argument(
+        "--planner",
+        default="api",
+        choices=["api", "claude_code", "codex"],
+        help="LLM backend: api | claude_code | codex.",
+    )
+    ap.add_argument(
+        "--model",
+        default=None,
+        help="Model id. For the 'api' planner, prefix the provider "
+        "(e.g. anthropic:claude-opus-4-8, openai:gpt-5.5, "
+        "openai-chat:glm-5.2). For claude_code/codex this "
+        "overrides the backend default model.",
+    )
+    ap.add_argument(
+        "--base-url",
+        default=None,
+        help="API base URL. Defaults to the selected backend's base URL env var.",
+    )
     ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--max-tokens", type=int, default=8192)
-    ap.add_argument("--reasoning-effort", choices=REASONING_EFFORTS,
-                    default="none",
-                    help="Planner reasoning effort for api, claude_code, and "
-                         "codex. Higher effort may improve task success rate "
-                         "but increases runtime. Defaults to none.")
-    ap.add_argument("--no-images", action="store_true",
-                    help="Never send image bytes to the model (api planner only). "
-                         "Use for text-only models that reject image input "
-                         "(e.g. 400 \"message type 'image_url' is not supported\"); "
-                        "read_image then returns the image name instead, with a notice.")
-    ap.add_argument("--planner-timeout-s", type=int, default=None,
-                    help="Wall-clock cap for api/claude_code/codex planner runs. "
-                         "Terminal interactive API/Claude sessions are exempt. "
-                         "Defaults to CODEX_TIMEOUT_S (codex only), "
-                         "CELL_TIMEOUT_S, or 1200.")
-    ap.add_argument("--claude-code-max-budget-usd", type=float, default=None,
-                    help="Budget passed to claude -p --max-budget-usd. "
-                         "Defaults to MAX_BUDGET_USD env or 10.")
+    ap.add_argument(
+        "--reasoning-effort",
+        choices=REASONING_EFFORTS,
+        default="none",
+        help="Planner reasoning effort for api, claude_code, and "
+        "codex. Higher effort may improve task success rate "
+        "but increases runtime. Defaults to none.",
+    )
+    ap.add_argument(
+        "--no-images",
+        action="store_true",
+        help="Never send image bytes to the model (api planner only). "
+        "Use for text-only models that reject image input "
+        "(e.g. 400 \"message type 'image_url' is not supported\"); "
+        "read_image then returns the image name instead, with a notice.",
+    )
+    ap.add_argument(
+        "--planner-timeout-s",
+        type=int,
+        default=None,
+        help="Wall-clock cap for api/claude_code/codex planner runs. "
+        "Terminal interactive API/Claude sessions are exempt. "
+        "Defaults to CODEX_TIMEOUT_S (codex only), "
+        "CELL_TIMEOUT_S, or 1200.",
+    )
+    ap.add_argument(
+        "--claude-code-max-budget-usd",
+        type=float,
+        default=None,
+        help="Budget passed to claude -p --max-budget-usd. "
+        "Defaults to MAX_BUDGET_USD env or 10.",
+    )
 
     # other config
     ap.add_argument("--output-dir", default=None)
-    ap.add_argument("--memory-profile", choices=["hf", "local"], default=None,
-                    help="Memory profile (default: hf for evaluation, local for exploration).")
-    ap.add_argument("--memory-dir", default=None,
-                    help="Local memory root (environment default when omitted).")
-    ap.add_argument("--explore", action="store_true",
-                    help="Enable exploration and memory distillation.")
-    ap.add_argument("--dashboard", action="store_true",
-                    help="Start a local dashboard server for this single run.")
-    ap.add_argument("--dashboard-host", default="127.0.0.1",
-                    help="Dashboard bind host. Defaults to 127.0.0.1.")
-    ap.add_argument("--dashboard-port", type=int, default=0,
-                    help="Dashboard port. 0 asks the OS for a free port.")
-    ap.add_argument("--dashboard-language", choices=["en", "zh-cn"], default="en",
-                    help="Dashboard UI language. 'zh-cn' serves the Chinese "
-                         "translation; defaults to English.")
-    ap.add_argument("--verbose", action="store_true",
-                    help="Enable DEBUG-level logging for stdout and the run.log "
-                         "file. Defaults to INFO when not set.")
-    ap.add_argument("--interactive", "-i", action="store_true",
-                    help="Interactive mode: opens an interactive cli session.")
+    ap.add_argument(
+        "--memory-profile",
+        choices=["hf", "local"],
+        default=None,
+        help="Memory profile (default: hf for evaluation, local for exploration).",
+    )
+    ap.add_argument(
+        "--memory-dir",
+        default=None,
+        help="Local memory root (environment default when omitted).",
+    )
+    ap.add_argument(
+        "--explore",
+        action="store_true",
+        help="Enable exploration and memory distillation.",
+    )
+    ap.add_argument(
+        "--dashboard",
+        action="store_true",
+        help="Start a local dashboard server for this single run.",
+    )
+    ap.add_argument(
+        "--dashboard-host",
+        default="127.0.0.1",
+        help="Dashboard bind host. Defaults to 127.0.0.1.",
+    )
+    ap.add_argument(
+        "--dashboard-port",
+        type=int,
+        default=0,
+        help="Dashboard port. 0 asks the OS for a free port.",
+    )
+    ap.add_argument(
+        "--dashboard-language",
+        choices=["en", "zh-cn"],
+        default="en",
+        help="Dashboard UI language. 'zh-cn' serves the Chinese "
+        "translation; defaults to English.",
+    )
+    ap.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable DEBUG-level logging for stdout and the run.log "
+        "file. Defaults to INFO when not set.",
+    )
+    ap.add_argument(
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Interactive mode: opens an interactive cli session.",
+    )
 
     return ap
 
@@ -180,12 +253,19 @@ def _handoff_message(output_dir, session_number: int, session_max: int) -> str:
     )
 
 
-def _start_continuation_session(args, *, output_dir, recipe_tag,
-                                dashboard_events, prompt_bundle, prompt_vars,
-                                session_number: int, session_max: int):
+def _start_continuation_session(
+    args,
+    *,
+    output_dir,
+    recipe_tag,
+    dashboard_events,
+    prompt_bundle,
+    prompt_vars,
+    session_number: int,
+    session_max: int,
+):
     """Build a fresh planner and prompts for an exploration handoff."""
-    logger.info("=== handing off to agent %d/%d ===",
-                session_number, session_max)
+    logger.info("=== handing off to agent %d/%d ===", session_number, session_max)
     planner = build_planner(
         args.planner,
         output_dir=output_dir,
@@ -225,10 +305,18 @@ def main() -> int:
         logger.warning("--env is deprecated and will be removed; use --robot instead")
         early.robot_name = early.env_name
     if early.robot_name is None:
-        parser.error("--robot is required")
-
-    robot_spec = get_robot_spec(early.robot_name)
-    robot_spec.add_cli_args(parser, use_dashboard=early.dashboard)
+        if "-h" not in sys.argv and "--help" not in sys.argv:
+            parser.error("--robot is required")
+    else:
+        robot_spec = get_robot_spec(early.robot_name)
+        robot_spec.add_cli_args(parser, use_dashboard=early.dashboard)
+    parser.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        default=argparse.SUPPRESS,
+        help="show this help message and exit",
+    )
     args = parser.parse_args()
     args.robot_name = early.robot_name
     if args.dashboard and args.interactive:
@@ -262,7 +350,7 @@ def main() -> int:
     # Preserve the original HF-backed evaluation behavior by default.
     memory_profile = getattr(args, "memory_profile", "hf")
     if not getattr(args, "explore", False) and memory_profile == "hf":
-        ensure_resources(robot_name)
+        ensure_resources(robot_spec)
     else:
         logger.info("resources: using local %s memory profile", memory_profile)
 
@@ -333,6 +421,8 @@ def main() -> int:
     if not getattr(args, "explore", False):
         sessions = 1
     recipe_path = ""
+    solved = False
+    memory_manager: MemoryManager | None = None
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
@@ -342,23 +432,29 @@ def main() -> int:
                 break
             if session_number > 1:
                 planner, system_prompt, session_msg = _start_continuation_session(
-                    args, output_dir=output_dir, recipe_tag=recipe_tag,
-                    dashboard_events=dashboard_events, prompt_bundle=prompt_bundle,
-                    prompt_vars=prompt_vars, session_number=session_number,
-                    session_max=sessions)
+                    args,
+                    output_dir=output_dir,
+                    recipe_tag=recipe_tag,
+                    dashboard_events=dashboard_events,
+                    prompt_bundle=prompt_bundle,
+                    prompt_vars=prompt_vars,
+                    session_number=session_number,
+                    session_max=sessions,
+                )
             state_output_dir = output_dir
             if getattr(args, "explore", False):
-                state_output_dir = output_dir / "sessions" / f"session_{session_number:03d}"
+                state_output_dir = (
+                    output_dir / "sessions" / f"session_{session_number:03d}"
+                )
             if robot_name == "libero":
                 toolkit = get_toolkit(
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
                     dashboard_events=dashboard_events,
-                    mode=("exploration" if args.explore else "evaluation"),
+                    config=run_config,
+                    mode="exploration" if args.explore else "evaluation",
                     attempts_per_session=getattr(
-                        args,
-                        "explore_attempts_per_session",
-                        0,
+                        args, "explore_attempts_per_session", 0
                     ),
                     state_output_dir=state_output_dir,
                 )
@@ -367,8 +463,9 @@ def main() -> int:
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
                     dashboard_events=dashboard_events,
+                    config=run_config,
                 )
-            solved = False
+            memory_manager = toolkit.memory
             try:
                 result = planner.solve(
                     system_prompt=system_prompt,
@@ -428,18 +525,29 @@ def main() -> int:
         json.dump(record, f, indent=2, default=str)
 
     logger.info("elapsed: %.1fs", elapsed)
-    logger.info("usage: in=%s out=%s tool_calls=%s",
-                 stats.get('total_input_tokens', '?'),
-                 stats.get('total_output_tokens', '?'),
-                 stats.get('tool_calls', '?'))
+    logger.info(
+        "usage: in=%s out=%s tool_calls=%s",
+        stats.get("total_input_tokens", "?"),
+        stats.get("total_output_tokens", "?"),
+        stats.get("tool_calls", "?"),
+    )
     logger.info("transcript: %s", transcript_path)
 
-    # Publish environment-specific artifacts after recipe export and shutdown.
-    if robot_spec.finalize_run is not None and not agent_error:
+    # Publish exploration artifacts into the corpus after the session loop.
+    if (
+        getattr(args, "explore", False)
+        and getattr(args, "auto_merge_memory", False)
+        and not agent_error
+        and memory_manager is not None
+    ):
         try:
-            finalized = robot_spec.finalize_run(args, run_config)
-            if finalized is not None:
-                logger.info("run finalized: %s", finalized)
+            merge_result = memory_manager.merge_memory(
+                cell_tag=run_config.recipe_tag,
+                run_state_dir=run_config.output_dir,
+                solved=solved,
+            )
+            if merge_result:
+                logger.info("memory merged: %s", merge_result)
         except Exception as exc:
             agent_error = f"memory finalization failed: {type(exc).__name__}: {exc}"
             logger.error("%s", agent_error)

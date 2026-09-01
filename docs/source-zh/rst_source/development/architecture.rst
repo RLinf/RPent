@@ -131,11 +131,11 @@ planner 后端集中在 ``rpent/planner/``，
    # robots/myrobot/__init__.py
    def get_robot_spec() -> RobotSpec: ...  # 机器人标识、提示词模板与 Runner 钩子
    def get_toolkit(
-       *, primitives_kwargs, dashboard_events, video_path=None
+       *, primitives_kwargs, dashboard_events
    ): ...
 
-``RobotSpec`` 汇集了环境标识、prompt 模板、可选的 Dashboard 描述与三个 Runner
-钩子：``add_cli_args`` / ``parse_config`` / ``init_runtime``。各字段要填什么见
+``RobotSpec`` 汇集了机器人标识、prompt 模板、可选的 Dashboard 描述与三个 Runner
+钩子（``add_cli_args`` / ``parse_config`` / ``init_runtime``）。各字段要填什么见
 :doc:`interfaces`。
 
 加载器本身不维护机器人名称列表。当前 CLI 将 ``--robot`` 限定为 ``libero``

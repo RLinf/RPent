@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from robots.franka.runtime_config import get_calibration_path, load_mapping
-from rpent.tools.state import EnvState
+from rpent.session import EnvState
 from rpent.tools.toolkit import readonly
 
 ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "example.yaml"

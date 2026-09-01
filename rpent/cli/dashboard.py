@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """CLI orchestration for one long-lived Dashboard Session."""
 
 from __future__ import annotations
@@ -13,10 +27,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from rpent.cli.main import _handoff_message, _serialize_messages
+from rpent.cli.main import (
+    _handoff_message,
+    _serialize_messages,
+)
 from rpent.dashboard.events import RunStartedEvent
-from rpent.robots import get_toolkit
 from rpent.planner.base import build_planner
+from rpent.robots import get_toolkit
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.resources import ensure_resources
 
@@ -43,9 +60,7 @@ def run_dashboard_session(
 
     dashboard_spec = robot_spec.dashboard
     if dashboard_spec is None:
-        parser.error(
-            f"robot {robot_spec.name!r} does not support Dashboard control"
-        )
+        parser.error(f"robot {robot_spec.name!r} does not support Dashboard control")
     runtime_components = dashboard_spec["runtime_components"]
     shared_components = {
         component["name"]
@@ -93,7 +108,7 @@ def run_dashboard_session(
         not getattr(args, "explore", False)
         and getattr(args, "memory_profile", "hf") == "hf"
     ):
-        ensure_resources(args.robot_name)
+        ensure_resources(robot_spec)
     state = DashboardState(
         run_id=f"dashboard-session/{session_root.name}",
         output_dir=session_root,
@@ -159,6 +174,8 @@ def _run_dashboard_task(
     task_daemons: list[ProcessDaemon] = []
     recipe_path = ""
     started = time.time()
+    solved = False
+    memory_manager = None
     try:
         task_daemons, task_primitives_kwargs = robot_spec.init_runtime(
             task_args,
@@ -206,9 +223,7 @@ def _run_dashboard_task(
                 state_output_dir = output_dir
                 if getattr(task_args, "explore", False):
                     state_output_dir = (
-                        output_dir
-                        / "sessions"
-                        / f"session_{session_number:03d}"
+                        output_dir / "sessions" / f"session_{session_number:03d}"
                     )
                     state.begin_planner_session(
                         video_path=state_output_dir / "episode.mp4",
@@ -218,13 +233,10 @@ def _run_dashboard_task(
                         args.robot_name,
                         primitives_kwargs=primitives_kwargs,
                         dashboard_events=state,
-                        mode=(
-                            "exploration" if task_args.explore else "evaluation"
-                        ),
+                        config=run_config,
+                        mode="exploration" if task_args.explore else "evaluation",
                         attempts_per_session=getattr(
-                            task_args,
-                            "explore_attempts_per_session",
-                            0,
+                            task_args, "explore_attempts_per_session", 0
                         ),
                         state_output_dir=state_output_dir,
                     )
@@ -233,8 +245,9 @@ def _run_dashboard_task(
                         args.robot_name,
                         primitives_kwargs=primitives_kwargs,
                         dashboard_events=state,
+                        config=run_config,
                     )
-                solved = False
+                memory_manager = toolkit.memory
                 try:
                     planner = build_planner(
                         args.planner,
@@ -270,10 +283,7 @@ def _run_dashboard_task(
                 if solved or state.task_replacement_requested:
                     break
                 if agent_error:
-                    if (
-                        session_number < sessions
-                        and "timed out" in agent_error.lower()
-                    ):
+                    if session_number < sessions and "timed out" in agent_error.lower():
                         logger.warning(
                             "session %d/%d timed out; continuing with a fresh handoff",
                             session_number,
@@ -321,14 +331,20 @@ def _run_dashboard_task(
         init_output_dir(session_root, verbose=args.verbose)
 
     if (
-        robot_spec.finalize_run is not None
+        getattr(task_args, "explore", False)
+        and getattr(task_args, "auto_merge_memory", False)
         and not agent_error
         and not state.task_replacement_requested
+        and memory_manager is not None
     ):
         try:
-            finalized = robot_spec.finalize_run(task_args, run_config)
-            if finalized is not None:
-                logger.info("run finalized: %s", finalized)
+            merge_result = memory_manager.merge_memory(
+                cell_tag=run_config.recipe_tag,
+                run_state_dir=run_config.output_dir,
+                solved=solved,
+            )
+            if merge_result:
+                logger.info("run finalized: %s", merge_result)
         except Exception as exc:
             warning = f"memory finalization failed: {type(exc).__name__}: {exc}"
             logger.warning("%s", warning)

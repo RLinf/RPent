@@ -14,7 +14,7 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from rpent.tools.vla_facade_base import BaseVLAFacade
+from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.config import get_repo_root, get_rlinf_repo_path
 from rpent.utils.logging import get_logger
 
@@ -119,7 +119,7 @@ class DualFrankaVLAFacade(BaseVLAFacade):
     def _register_rpc(self) -> None:
         super()._register_rpc()
         # The dual-Franka toolkit drives this facade through the legacy
-        # ``VLAClient`` (``rpent.utils.vla_client``), which sends the bare
+        # ``VLAClient`` (``robots.franka.vla_client``), which sends the bare
         # ``predict`` name. Register that alias alongside the standard
         # ``vla.predict`` so both client styles keep working.
         self._rpc["predict"] = self.predict

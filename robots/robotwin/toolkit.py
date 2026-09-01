@@ -1,19 +1,36 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPent tools for the RLinf RoboTwin robot."""
 
 from __future__ import annotations
 
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from robots.robotwin import tools
-from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES
 from robots.robotwin.primitives import RoboTwinPrimitives
+from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES
 from rpent.dashboard.events import DashboardEventSink
-from rpent.tools.state import EnvState
+from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit, readonly
 from rpent.utils.logging import get_output_dir
+
+if TYPE_CHECKING:
+    from rpent.memory.manager import MemoryManager
 
 # State-advancing RoboTwin primitives eligible for the recipe. ``reset``,
 # ``render``, and read-only tools are intentionally excluded so the recipe
@@ -81,9 +98,14 @@ class RoboTwinToolkit(Toolkit):
         *,
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
+        memory: MemoryManager,
     ):
         state = EnvState(get_output_dir())
-        super().__init__(dashboard_events=dashboard_events, state=state)
+        super().__init__(
+            dashboard_events=dashboard_events,
+            state=state,
+            memory=memory,
+        )
         self._latest_status: dict[str, Any] = {}
         self._primitives = RoboTwinPrimitives(
             check_cancelled=self.raise_if_cancelled,
@@ -232,8 +254,7 @@ class RoboTwinToolkit(Toolkit):
             and not (
                 isinstance(record.result, dict)
                 and (
-                    record.result.get("error")
-                    or record.result.get("success") is False
+                    record.result.get("error") or record.result.get("success") is False
                 )
             )
         ]

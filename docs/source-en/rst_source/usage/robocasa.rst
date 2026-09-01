@@ -5,7 +5,7 @@ RoboCasa
 manipulation environment. In RPent it is driven by the **RLDX-1** VLA
 policy, served over HTTP RPC by default (matching LIBERO); a
 pickle-framed socket transport is also supported. See
-``robots/robocasa/vla_server.py`` and ``robots/robocasa/__init__.py``
+``robots/robocasa/vla_server.py`` and ``robots/robocasa/robot_spec.py``
 for the wire/transport selection.
 
 .. note::
@@ -17,8 +17,8 @@ for the wire/transport selection.
 Installation
 ------------
 
-RoboCasa365 is part of ``.[full]``. To install it on its own — RLDX-1
-requires Python ``3.10``:
+RLDX-1 requires Python ``3.10``. Create a dedicated environment and install
+the complete RoboCasa365 stack with ``.[robocasa]``:
 
 .. code-block:: bash
 

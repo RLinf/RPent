@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPC server owning one RLinf RoboTwin environment."""
 
 from __future__ import annotations
@@ -15,17 +29,37 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from rpent.tools.env_facade_base import BaseEnvFacade
+from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
 
 logger = get_logger("robotwin_env_server")
+
+
+def _teardown_env(env: Any) -> None:
+    """Release an environment across RLinf teardown API versions."""
+    offload = getattr(env, "offload", None)
+    if callable(offload):
+        offload(clear_cache=True)
+        return
+
+    close = getattr(env, "close", None)
+    if callable(close):
+        close(clear_cache=True)
+        return
+
+    raise RuntimeError(
+        f"{type(env).__name__} provides neither callable offload() nor close() "
+        "for teardown"
+    )
+
 
 from omegaconf import OmegaConf  # noqa: E402
 from robotwin.assets import validate_root  # noqa: E402
 from robotwin.config import load_task_config  # noqa: E402
 
-from robots.robotwin.robot_spec import RoboTwinActionType  # noqa: E402
+from robots.robotwin.reward_compat import install_native_reward_compat  # noqa: E402
 from robots.robotwin.rlinf_env import RoboTwinAgentEnv  # noqa: E402
+from robots.robotwin.robot_spec import RoboTwinActionType  # noqa: E402
 
 
 def _to_numpy_tree(value: Any) -> Any:
@@ -58,55 +92,52 @@ class RoboTwinEnvFacade(BaseEnvFacade):
         if hasattr(value, "shape"):
             shape = tuple(value.shape)
             if not shape or shape[0] != 1:
-                raise RuntimeError(f"{name} must have leading env dimension 1, got {shape}")
+                raise RuntimeError(
+                    f"{name} must have leading env dimension 1, got {shape}"
+                )
             return value[0]
         if isinstance(value, list):
             if len(value) != 1:
-                raise RuntimeError(f"{name} must contain one environment, got {len(value)}")
+                raise RuntimeError(
+                    f"{name} must contain one environment, got {len(value)}"
+                )
             return value[0]
         raise RuntimeError(f"{name} is missing a single-environment batch dimension")
 
     def _strip_single_env_observation(self, observation: Any) -> dict[str, Any]:
         if not isinstance(observation, dict):
-            raise TypeError(f"RoboTwin observation must be a mapping, got {observation!r}")
+            raise TypeError(
+                f"RoboTwin observation must be a mapping, got {observation!r}"
+            )
         return {
             key: self._strip_single_env_value(value, f"observation.{key}")
             for key, value in observation.items()
         }
 
     def _strip_single_signal(self, value: Any, name: str) -> Any:
-        if hasattr(value, "detach") and hasattr(value, "cpu") and hasattr(value, "numpy"):
+        if (
+            hasattr(value, "detach")
+            and hasattr(value, "cpu")
+            and hasattr(value, "numpy")
+        ):
             value = value.detach().cpu().numpy()
         array = np.asarray(value).reshape(-1)
         if array.size != 1:
-            raise RuntimeError(f"{name} must contain one environment, got {array.shape}")
+            raise RuntimeError(
+                f"{name} must contain one environment, got {array.shape}"
+            )
         return array[0].item()
 
     def _register_rpc(self) -> None:
-        self._rpc.update(
-            {
-                "env.get_env_meta": self.get_env_meta,
-                "env.reset": self.reset,
-                "env.step": self.step,
-                "env.chunk_step": self.chunk_step,
-                "env.render_camera": self.render_camera,
-                "env.get_camera_meta": self.get_camera_meta,
-                "env.get_task_language": self.get_task_language,
-                "env.plan_arm_path": self.plan_arm_path,
-            }
-        )
-        self._readonly_methods.update(
-            {
-                "env.get_env_meta",
-                "env.render_camera",
-                "env.get_camera_meta",
-                "env.get_task_language",
-            }
-        )
+        super()._register_rpc()
+        self._rpc["env.plan_arm_path"] = self.plan_arm_path
 
     def get_env_meta(self) -> dict[str, Any]:
         """Return immutable identity for endpoint compatibility checks."""
         return dict(self._metadata)
+
+    def close(self):
+        _teardown_env(self._env)
 
     def reset(self) -> tuple[dict[str, Any], dict[str, Any]]:
         seed = int(self._metadata["seed"])
@@ -258,6 +289,9 @@ def make_env(
     max_episode_steps: int = 10000,
 ) -> RoboTwinAgentEnv:
     """Construct the only simulator owner used by an RPent run."""
+    # Temporary workaround for the pinned RoboTwin place_fan reward-construction
+    # bug. Remove after the RoboTwin dependency includes the upstream fix.
+    install_native_reward_compat(task_name)
     assets_identity = validate_root(assets_path)
     resolved_assets_path = Path(assets_identity["root"])
     os.environ["ROBOTWIN_ASSETS_PATH"] = str(resolved_assets_path)
@@ -326,15 +360,12 @@ def main() -> None:
             max_episode_steps=args.max_episode_steps,
         ),
     )
-    try:
-        facade.serve(
-            transport=args.transport,
-            host=args.host,
-            port=args.port,
-            parent_watch=args.parent_watch,
-        )
-    finally:
-        env.offload(clear_cache=True)
+    facade.serve(
+        transport=args.transport,
+        host=args.host,
+        port=args.port,
+        parent_watch=args.parent_watch,
+    )
 
 
 if __name__ == "__main__":

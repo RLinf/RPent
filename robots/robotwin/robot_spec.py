@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RoboTwin robot extension — runtime contracts and runtime hooks."""
 
 from __future__ import annotations
@@ -14,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import (
@@ -21,7 +36,7 @@ from rpent.robots.runtime import (
     try_spawn_server,
     try_wait_server,
 )
-from rpent.utils.config import get_repo_root
+from rpent.utils.config import get_memory_dir, get_repo_root
 
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
@@ -175,12 +190,18 @@ def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
+    config: RunConfig,
 ):
+    """Return the RoboTwin toolkit for the current session."""
     from robots.robotwin.toolkit import RoboTwinToolkit
 
+    memory = MemoryManager(
+        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
+    )
     return RoboTwinToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
+        memory=memory,
     )
 
 
@@ -216,10 +237,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--robotwin-assets-path",
         default=os.environ.get("ROBOTWIN_ASSETS_PATH"),
-        help=(
-            "Path to the RoboTwin asset snapshot. "
-            "Defaults to ROBOTWIN_ASSETS_PATH."
-        ),
+        help=("Path to the RoboTwin asset snapshot. Defaults to ROBOTWIN_ASSETS_PATH."),
     )
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument("--vla-endpoint", default=None)
@@ -473,9 +491,7 @@ def _init_runtime(
         except Exception as exc:
             stop_owned_daemons(owned_daemons, dashboard_events)
             dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
-            raise RuntimeError(
-                f"[vla] wait / client connect failed: {exc}"
-            ) from exc
+            raise RuntimeError(f"[vla] wait / client connect failed: {exc}") from exc
         dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
         primitives_kwargs.update(vla_kwargs)
 
@@ -532,7 +548,7 @@ def _spawn_env_server(
             },
             log_path=str(output_dir / "robotwin_env_server.log"),
         )
-        from rpent.utils.http_rpc import HttpRpcClient
+        from rpent.utils.rpc.http_rpc import HttpRpcClient
 
         env_rpc = HttpRpcClient(f"http://{host}:{env_port}")
         env_daemon.start()

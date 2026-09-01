@@ -7,12 +7,18 @@
 机器人入口
 ----------
 
-把包放到 ``robots/<robot>/`` 后，``main.py`` 会调用 ``__init__.py`` 里的两个函数：
+把包放到 ``robots/<robot>/`` 后，包的 ``__init__.py`` 会重导出
+``robot_spec.py`` 中实现的两个函数，供 ``main.py`` 调用：
 
 .. code-block:: python
 
    def get_robot_spec() -> RobotSpec: ...
-   def get_toolkit(*, primitives_kwargs, dashboard_events: DashboardEventSink, video_path=None): ...
+   def get_toolkit(
+       *,
+       primitives_kwargs,
+       dashboard_events: DashboardEventSink,
+       config: RunConfig,
+   ): ...
 
 ``get_robot_spec`` 返回 ``RobotSpec``，其中你需要提供：
 
@@ -41,9 +47,15 @@
        的 shared 和 unique 子集后分别传入。``DashboardEventSink`` 用于上报运行时状态。
 
 ``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给机器人子类；
-``dashboard_events``、``video_path`` 由当前 runner 传入，通常不用改。
+``dashboard_events`` 和 ``config`` 由当前 runner 传入。它需要构造一个
+:class:`~rpent.memory.MemoryManager`（root 取自
+``config.prompt_vars["memory_dir"]``，未设置时回退到
+``get_memory_dir(robot_name)``）并传给 toolkit。Memory 访问权限在
+``MemoryManager`` 上配置。如果某个机器人还需要额外参数，可以继续声明
+keyword-only 参数；例如 LIBERO 还使用 ``mode``、``attempts_per_session`` 和
+``state_output_dir``。
 
-参考实现：``robots/libero/__init__.py`` 和 ``robots/libero/spec.py``。
+参考实现：``robots/libero/robot_spec.py``。
 
 Planner
 -------
@@ -111,7 +123,9 @@ runtime 钩子中解析）：
 观测数据很大、或是多帧堆叠的嵌套 NumPy 字典时可改 ``socket``，用带长度前缀的
 pickle 数据帧传输，省掉反复的 JSON 编解码。pickle 不适合不可信输入，socket 只应连接可信端点。
 
-服务端：继承 ``rpent.utils.rpc.RpcFacade``，实现 ``_dispatch`` 分发业务 RPC
-（如 ``reset``、``step``、``predict``）。``healthz`` / ``shutdown`` 不必在子类里写。
+环境和 VLA client 通常应分别继承 ``BaseEnvClient``、``BaseVLAClient``；服务端
+分别继承 ``BaseEnvFacade``、``BaseVLAFacade``，并通过 ``_register_rpc`` 注册
+扩展路由。这些基类在 ``RpcFacade`` 之上提供公共路由和锁。只有尚无专用基类的
+服务类型才直接继承 ``RpcFacade``。业务子类不必实现 ``healthz`` / ``shutdown``。
 
 细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。

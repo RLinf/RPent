@@ -116,6 +116,8 @@ Quick Start
 -----------
 
 * **Tutorial:** :doc:`LIBERO <../usage/libero>`
+* **Tutorial:** :doc:`RoboCasa <../usage/robocasa>`
+* **Tutorial:** :doc:`RoboTwin <../usage/robotwin>`
 
 Citation
 --------

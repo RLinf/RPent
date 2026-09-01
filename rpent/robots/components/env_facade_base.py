@@ -1,13 +1,24 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Unified env backend base class. Design reference for adding a new env
 backend: ``docs/source-zh/rst_source/development/add_env.rst``.
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable
-
 from rpent.utils.rpc import RpcFacade
-from rpent.utils.rwlock import RWLock
 
 
 class BaseEnvFacade(RpcFacade):
@@ -16,7 +27,7 @@ class BaseEnvFacade(RpcFacade):
     State-caching principle:
         The server side does **not** cache any observation results. Cache
         variables such as ``_last_obs`` / ``_terminated`` live only on the
-        client side (see ``BaseEnvClient`` in ``rpent/tools/env_client_base.py``).
+        client side (see ``BaseEnvClient`` in ``rpent.robots.components.env_client_base.py``).
         The server is stateless (apart from the env's own physical state) and
         re-reads the env on every request.
 
@@ -37,58 +48,56 @@ class BaseEnvFacade(RpcFacade):
     """
 
     def __init__(self):
-        super().__init__()
-        self._dispatch_lock = RWLock()
         # server side does not cache obs / terminated — only the client caches
-        self._rpc: dict[str, Callable] = {}
-        self._readonly_methods: set[str] = set()
+        super().__init__()
         self._register_rpc()
 
-    # ---- lifecycle ----
+    # ---- framework ----
     def get_env_meta(self) -> dict:
         """Returns a snapshot dict of the launch args, used by the client to
         verify config consistency after startup."""
         raise NotImplementedError
 
-    def close(self):
-        raise NotImplementedError
-
     def _register_rpc(self):
         """Can be overridden to register more RPC methods."""
-        self._rpc["env.reset"] = self.reset
         self._rpc["env.get_env_meta"] = self.get_env_meta
-        self._rpc["env.close"] = self.close
+
+        self._rpc["env.reset"] = self.reset
         self._rpc["env.step"] = self.step
         self._rpc["env.chunk_step"] = self.chunk_step
-        self._readonly_methods.add("env.get_env_meta")
 
-    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        handler = self._rpc.get(method)
-        if handler is None:
-            raise ValueError(f"unknown RPC method: {method!r}")
-        if method in self._readonly_methods:
-            with self._dispatch_lock.read():
-                return handler(*args, **kwargs)
-        with self._dispatch_lock.write():
-            return handler(*args, **kwargs)
+        self._rpc["env.get_task_language"] = self.get_task_language
+        self._rpc["env.get_camera_meta"] = self.get_camera_meta
+        self._rpc["env.render_camera"] = self.render_camera
 
-    # ---- functionality (subclasses must override) ----
-    def reset(self):
+        # Read-only methods that can run parallel
+        self._readonly_methods.update(
+            [
+                "env.get_env_meta",
+                "env.get_task_language",
+                "env.get_camera_meta",
+                "env.render_camera",
+            ]
+        )
+
+    # ---- abstract methods (subclasses must override) ----
+    def reset(self, *args, **kwargs):
         """Reset the env and return ``(initial_obs, info)``."""
         raise NotImplementedError
 
-    def step(self, flat_action):
-        """Execute one env action. Returns the gym 5-tuple result."""
+    def step(self, *args, **kwargs):
+        """Execute one env action. Returns the gym tuple result."""
         raise NotImplementedError
 
-    def chunk_step(self, flat_actions, *, return_all_frames: bool = False):
-        """Execute N actions in one batch. Returns the 5-tuple result.
+    def chunk_step(self, *args, **kwargs):
+        """Execute N actions in one batch. Returns the gym tuple result."""
+        raise NotImplementedError
 
-        - ``obs_or_list``: ``list[Obs]`` when ``return_all_frames=True`` (one
-          per step, carrying the per-step render); the final obs dict when
-          ``False``.
-        - ``return_all_frames``: optional capability for backends that can
-          return one observation per action. Unsupported backends must reject
-          it before executing any action.
-        """
+    def get_camera_meta(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def render_camera(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def get_task_language(self, *args, **kwargs):
         raise NotImplementedError

@@ -16,7 +16,7 @@ from robots.franka.tools import (
     view_camera_meta,
     view_env_state,
 )
-from rpent.tools.state import EnvState
+from rpent.session import EnvState
 
 
 class FakeEnv:

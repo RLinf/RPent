@@ -1,19 +1,35 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RoboCasa env server — hosts the raw robosuite env in a subprocess, exposes basic calls via RPC."""
+
 import argparse
 import inspect
 import os
-import sys
 import queue
 import re
+import sys
 import threading
 import traceback
+
 import numpy as np
 
-from rpent.tools.env_facade_base import BaseEnvFacade
-from rpent.utils.logging import get_logger
+from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.daemon import watch_parent_death
-from rpent.utils.http_rpc import HttpRpcServer
-from rpent.utils.socket_rpc import SocketRpcServer
+from rpent.utils.logging import get_logger
+from rpent.utils.rpc.http_rpc import HttpRpcServer
+from rpent.utils.rpc.socket_rpc import SocketRpcServer
 
 logger = get_logger("env_server")
 
@@ -28,29 +44,52 @@ DEFAULT_CAMS = [
 def _split_kwargs(split):
     """Replicate robocasa.utils.env_utils.create_env's split -> layout logic."""
     if split == "target":
-        return dict(obj_instance_split="target", layout_ids=None, style_ids=None,
-                    layout_and_style_ids=list(zip(range(1, 11), range(1, 11))))
+        return {
+            "obj_instance_split": "target",
+            "layout_ids": None,
+            "style_ids": None,
+            "layout_and_style_ids": list(zip(range(1, 11), range(1, 11))),
+        }
     if split == "pretrain":
-        return dict(obj_instance_split="pretrain", layout_ids=-2, style_ids=-2,
-                    layout_and_style_ids=None)
+        return {
+            "obj_instance_split": "pretrain",
+            "layout_ids": -2,
+            "style_ids": -2,
+            "layout_and_style_ids": None,
+        }
     if split == "all":
-        return dict(obj_instance_split=None, layout_ids=-3, style_ids=-3,
-                    layout_and_style_ids=None)
+        return {
+            "obj_instance_split": None,
+            "layout_ids": -3,
+            "style_ids": -3,
+            "layout_and_style_ids": None,
+        }
     if split is None:
-        return dict(obj_instance_split=None, layout_ids=None, style_ids=None,
-                    layout_and_style_ids=None)
+        return {
+            "obj_instance_split": None,
+            "layout_ids": None,
+            "style_ids": None,
+            "layout_and_style_ids": None,
+        }
     raise ValueError('split must be {None,"all","pretrain","target"}')
 
 
 class RoboCasaEnvFacade(BaseEnvFacade):
     """Wraps the raw robosuite env and exposes ONLY basic calls via RPC."""
 
-    def __init__(self, task_name, split="target", seed=0, camera_h=256, camera_w=256,
-                 cameras=None, use_camera_obs=False):
+    def __init__(
+        self,
+        task_name,
+        split="target",
+        seed=0,
+        camera_h=256,
+        camera_w=256,
+        cameras=None,
+        use_camera_obs=False,
+    ):
         super().__init__()
-        import robosuite
         import robocasa  # noqa: F401 — registers robocasa envs
-        import robosuite.utils.camera_utils as CU
+        import robosuite
         from robosuite.controllers import load_composite_controller_config
 
         self.task_name = task_name
@@ -59,7 +98,9 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         self.cameras = list(cameras) if cameras else list(DEFAULT_CAMS)
         self.camera_h, self.camera_w = camera_h, camera_w
 
-        controller_config = load_composite_controller_config(controller=None, robot="PandaOmron")
+        controller_config = load_composite_controller_config(
+            controller=None, robot="PandaOmron"
+        )
         env_kwargs = dict(
             env_name=task_name,
             robots="PandaOmron",
@@ -71,8 +112,8 @@ class RoboCasaEnvFacade(BaseEnvFacade):
             has_offscreen_renderer=True,
             ignore_done=True,
             use_object_obs=True,
-            use_camera_obs=use_camera_obs,   # off -> no per-step render (EGL-safe OSC loops)
-            camera_depths=False,             # depth rendered on demand
+            use_camera_obs=use_camera_obs,  # off -> no per-step render (EGL-safe OSC loops)
+            camera_depths=False,  # depth rendered on demand
             seed=seed,
             **_split_kwargs(split),
         )
@@ -89,26 +130,21 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         """Register all RPC methods."""
         super()._register_rpc()
         self._rpc["env.check_success"] = self.check_success
-        self._rpc["env.render_raw"] = self.render_raw
-        self._rpc["env.get_camera_meta"] = self.get_camera_meta
         self._rpc["env.get_camera_transform"] = self.get_camera_transform
-        self._rpc["env.get_ep_meta"] = self.get_ep_meta
-        self._rpc["env.get_action_dim"] = self.get_action_dim
         self._rpc["env.grasp_contact"] = self.grasp_contact
         self._rpc["env.reassemble_env_action"] = self.reassemble_env_action
         self._rpc["env.get_success_criteria_text"] = self.get_success_criteria_text
         self._rpc["env.get_task_progress"] = self.get_task_progress
         # Read-only methods
-        self._readonly_methods.update([
-            "env.get_camera_meta",
-            "env.get_camera_transform",
-            "env.get_ep_meta",
-            "env.get_action_dim",
-            "env.check_success",
-            "env.grasp_contact",
-            "env.get_success_criteria_text",
-            "env.get_task_progress",
-        ])
+        self._readonly_methods.update(
+            [
+                "env.check_success",
+                "env.get_camera_transform",
+                "env.grasp_contact",
+                "env.get_success_criteria_text",
+                "env.get_task_progress",
+            ]
+        )
 
     def get_env_meta(self):
         return self._meta
@@ -123,6 +159,7 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         rs_env = os.environ.get("RLDX_RESET_SEED")
         if rs_env:
             import random
+
             sd = int(rs_env)
             random.seed(sd)
             np.random.seed(sd)
@@ -137,18 +174,22 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         base_motion(4), control_mode(1)] in the PandaOmron composite layout."""
         a = np.asarray(flat_action, dtype=np.float64).reshape(-1)
         assert a.shape[0] == self.env.action_dim, (
-            f"action dim {a.shape[0]} != env.action_dim {self.env.action_dim}")
+            f"action dim {a.shape[0]} != env.action_dim {self.env.action_dim}"
+        )
         obs, reward, done, info = self.env.step(a)
         return obs, reward, done, info
 
     def check_success(self):
         return bool(self.env._check_success())
 
-    def render_raw(self, cam, h, w, depth):
+    def render_camera(self, camera_name, height, width, depth):
         """sim.render in ROBOSUITE-NATIVE orientation (matches the camera
         transform matrices). rgb uint8 HxWx3, depth metric HxW."""
         import robosuite.utils.camera_utils as CU
-        out = self.env.sim.render(width=w, height=h, camera_name=cam, depth=depth)
+
+        out = self.env.sim.render(
+            width=width, height=height, camera_name=camera_name, depth=depth
+        )
         if depth:
             rgb, d = out
             # Sanitize the raw OpenGL normalized depth into [0,1]: replace NaN/inf
@@ -165,13 +206,15 @@ class RoboCasaEnvFacade(BaseEnvFacade):
 
     def get_camera_meta(self, camera_name, height=None, width=None):
         import robosuite.utils.camera_utils as CU
+
         K = CU.get_camera_intrinsic_matrix(self.env.sim, camera_name, height, width)
         Ext = CU.get_camera_extrinsic_matrix(self.env.sim, camera_name)  # cam->world
         m = self.env.sim.model
         extent = m.stat.extent
         return {
             "camera_name": camera_name,
-            "height": height, "width": width,
+            "height": height,
+            "width": width,
             "intrinsic": np.asarray(K, dtype=np.float64).tolist(),
             "extrinsic_cam2world": np.asarray(Ext, dtype=np.float64).tolist(),
             "depth_near": float(m.vis.map.znear * extent),
@@ -180,20 +223,18 @@ class RoboCasaEnvFacade(BaseEnvFacade):
 
     def get_camera_transform(self, camera_name, height=None, width=None):
         import robosuite.utils.camera_utils as CU
+
         T = CU.get_camera_transform_matrix(self.env.sim, camera_name, height, width)
         return np.linalg.inv(T)  # T_p2w
 
-    def get_ep_meta(self):
-        return self.env.get_ep_meta()
-
-    def get_action_dim(self):
-        return self.env.action_dim
+    def get_task_language(self) -> str | None:
+        return self.env.get_ep_meta().get("lang")
 
     def grasp_contact(self):
         """Check if the gripper is currently contacting a task object."""
         try:
-            robo = self.env                           # robosuite Kitchen env
-            grip = robo.robots[0].gripper             # {"right": GripperModel}
+            robo = self.env  # robosuite Kitchen env
+            grip = robo.robots[0].gripper  # {"right": GripperModel}
             for name, obj in robo.objects.items():
                 try:
                     if robo._check_grasp(grip, obj):
@@ -206,7 +247,10 @@ class RoboCasaEnvFacade(BaseEnvFacade):
 
     def reassemble_env_action(self, unmap_result):
         """Reassemble the unmap result into a flat action using the env's robots."""
-        from robosuite.controllers.composite.composite_controller import HybridMobileBase
+        from robosuite.controllers.composite.composite_controller import (
+            HybridMobileBase,
+        )
+
         env_action = []
         for robot in self.env.robots:
             cc = robot.composite_controller
@@ -226,26 +270,34 @@ class RoboCasaEnvFacade(BaseEnvFacade):
         out = []
         try:
             src = inspect.getsource(type(env)._check_success)
-            out.append("# SUCCESS CONDITION for this task (env._check_success)\n"
-                       "# You must make this return True. Object positions are NOT given —\n"
-                       "# localize every named object/fixture from the camera+world maps.\n\n"
-                       + src)
+            out.append(
+                "# SUCCESS CONDITION for this task (env._check_success)\n"
+                "# You must make this return True. Object positions are NOT given —\n"
+                "# localize every named object/fixture from the camera+world maps.\n\n"
+                + src
+            )
             try:
                 import robocasa.utils.object_utils as OU
-                for fn in sorted(set(re.findall(r'OU\.(\w+)\(', src))):
+
+                for fn in sorted(set(re.findall(r"OU\.(\w+)\(", src))):
                     f = getattr(OU, fn, None)
                     if f is not None:
                         try:
-                            out.append("## helper OU.%s\n%s" % (fn, inspect.getsource(f)))
+                            out.append(
+                                "## helper OU.%s\n%s" % (fn, inspect.getsource(f))
+                            )
                         except Exception:
                             pass
             except Exception:
                 pass
-            for fix, meth in sorted(set(re.findall(r'self\.(\w+)\.(\w+)\(', src))):
+            for fix, meth in sorted(set(re.findall(r"self\.(\w+)\.(\w+)\(", src))):
                 obj = getattr(env, fix, None)
                 if obj is not None and hasattr(type(obj), meth):
                     try:
-                        out.append("## %s.%s\n%s" % (fix, meth, inspect.getsource(getattr(type(obj), meth))))
+                        out.append(
+                            "## %s.%s\n%s"
+                            % (fix, meth, inspect.getsource(getattr(type(obj), meth)))
+                        )
                     except Exception:
                         pass
         except Exception as ex:
@@ -263,7 +315,9 @@ class RoboCasaEnvFacade(BaseEnvFacade):
             # success check (e.g. self.coffee_machine._turned_on) — a bare-attr regex
             # would only grab "coffee_machine" (the fixture object) and miss the real
             # gating flag. Resolve each dotted path to its live scalar/bool value.
-            for path in sorted(set(re.findall(r"self\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)", src))):
+            for path in sorted(
+                set(re.findall(r"self\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)", src))
+            ):
                 obj = env
                 ok = True
                 for part in path.split("."):
@@ -284,14 +338,18 @@ class RoboCasaEnvFacade(BaseEnvFacade):
             pass
         # trace ONE read-only call of _check_success; grab its return-frame locals
         captured = {}
+
         def _tracer(frame, event, arg):
             if event == "call" and frame.f_code is code:
+
                 def _local(f, e, a):
                     if e == "return":
                         captured.update(f.f_locals)
                     return _local
+
                 return _local
             return None
+
         old = sys.gettrace()
         try:
             sys.settrace(_tracer)
@@ -325,7 +383,11 @@ class RoboCasaEnvFacade(BaseEnvFacade):
             while (item := work_queue.get()) is not None:
                 event, req = item
                 try:
-                    req["result"] = self._dispatch(req["method"], req["args"], req["kwargs"])
+                    req["result"] = self._dispatch(
+                        req["method"],
+                        req["args"],
+                        req["kwargs"],
+                    )
                 except Exception:
                     req["error"] = traceback.format_exc()
                 event.set()
@@ -339,7 +401,13 @@ class RoboCasaEnvFacade(BaseEnvFacade):
                 self._shutdown_event.set()
                 return {"ok": True}
             event = threading.Event()
-            req = {"method": method, "args": args, "kwargs": kwargs, "result": None, "error": None}
+            req = {
+                "method": method,
+                "args": args,
+                "kwargs": kwargs,
+                "result": None,
+                "error": None,
+            }
             work_queue.put((event, req))
             event.wait()
             if req["error"]:
@@ -364,6 +432,7 @@ class RoboCasaEnvFacade(BaseEnvFacade):
             work_queue.put(None)
             server.shutdown()
             server.server_close()
+            self.close()
 
 
 def main():
@@ -371,11 +440,18 @@ def main():
     p.add_argument("--transport", choices=["socket", "http"], default="http")
     p.add_argument("--host", type=str, default="127.0.0.1")
     p.add_argument("--port", type=int, default=0)
-    p.add_argument("--parent-watch", action="store_true",
-                   help="watch parent process via stdin pipe and exit when it dies")
-    p.add_argument("--cuda-device", type=int, default=None,
-                   help="GPU device to pin MuJoCo EGL rendering and the torch "
-                        "default device to (physical CUDA ordinal).")
+    p.add_argument(
+        "--parent-watch",
+        action="store_true",
+        help="watch parent process via stdin pipe and exit when it dies",
+    )
+    p.add_argument(
+        "--cuda-device",
+        type=int,
+        default=None,
+        help="GPU device to pin MuJoCo EGL rendering and the torch "
+        "default device to (physical CUDA ordinal).",
+    )
     p.add_argument("--task-name", default="OpenDrawer")
     p.add_argument("--split", default="target")
     p.add_argument("--seed", type=int, default=0)
@@ -398,12 +474,15 @@ def main():
                 "CUDA_VISIBLE_DEVICES=%s is set; clearing it and pinning via "
                 "MUJOCO_EGL_DEVICE_ID + torch.cuda.set_device(--cuda-device=%s) "
                 "instead (robosuite's CVD assertion is incompatible with EGL<->CUDA mapping)",
-                prev, args.cuda_device,
+                prev,
+                args.cuda_device,
             )
             os.environ.pop("CUDA_VISIBLE_DEVICES", None)
         from rpent.utils.egl import configure_egl_device
+
         configure_egl_device(args.cuda_device)
         import torch
+
         torch.cuda.set_device(args.cuda_device)
 
     facade = RoboCasaEnvFacade(

@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPC client for one RLinf RoboTwin environment."""
 
 from __future__ import annotations
@@ -13,7 +27,7 @@ from robots.robotwin.robot_spec import (
     ROBOTWIN_STATUS_KEYS,
     RoboTwinActionType,
 )
-from rpent.tools.env_client_base import BaseEnvClient
+from rpent.robots.components.env_client_base import BaseEnvClient
 from rpent.utils.rpc import RpcClient
 
 
@@ -36,22 +50,8 @@ class RoboTwinEnvClient(BaseEnvClient):
     @staticmethod
     def _require_result_tuple(result: Any, size: int, method: str) -> tuple:
         if not isinstance(result, (list, tuple)) or len(result) != size:
-            raise TypeError(
-                f"{method} must return a {size}-item tuple, got {result!r}"
-            )
+            raise TypeError(f"{method} must return a {size}-item tuple, got {result!r}")
         return tuple(result)
-
-    def _read(
-        self,
-        method: str,
-        *,
-        kwargs: dict[str, Any] | None = None,
-    ) -> Any:
-        return self._client.call(
-            f"env.{method}",
-            kwargs=kwargs,
-            timeout_s=ROBOTWIN_READ_TIMEOUT_S,
-        )
 
     def _require_common_active(self) -> None:
         if self.terminated or self.truncated:
@@ -88,9 +88,7 @@ class RoboTwinEnvClient(BaseEnvClient):
 
     def reset(self) -> tuple[dict[str, Any], dict[str, Any]]:
         """Reset to the TaskRun seed and validate the native result."""
-        result = self._client.call(
-            "env.reset", timeout_s=self._TIMEOUT_S["env.reset"]
-        )
+        result = self._client.call("env.reset", timeout_s=self._TIMEOUT_S["env.reset"])
         observation, info = self._require_result_tuple(result, 2, "env.reset")
         if not isinstance(observation, dict):
             raise TypeError(
@@ -198,10 +196,7 @@ class RoboTwinEnvClient(BaseEnvClient):
             )
         if not isinstance(depth, bool):
             raise TypeError("RoboTwin camera depth flag must be bool")
-        return self._read(
-            "render_camera",
-            kwargs={"camera_name": camera_name, "depth": depth},
-        )
+        return super().render_camera(camera_name, depth=depth)
 
     def get_camera_meta(self, camera_name: str) -> dict[str, Any]:
         """Return calibration metadata for one RoboTwin camera."""
@@ -210,24 +205,19 @@ class RoboTwinEnvClient(BaseEnvClient):
                 f"unknown RoboTwin camera {camera_name!r}; "
                 f"available={list(ROBOTWIN_CAMERA_NAMES)}"
             )
-        result = self._read(
-            "get_camera_meta",
-            kwargs={"camera_name": camera_name},
-        )
-        if not isinstance(result, dict):
-            raise TypeError(f"RoboTwin camera metadata must be a mapping: {result!r}")
-        return result
+        return super().get_camera_meta(camera_name)
 
     def get_task_language(self) -> str:
         """Return the current RoboTwin task instruction."""
-        result = self._read("get_task_language")
+        result = super().get_task_language()
         if not isinstance(result, str):
             raise TypeError(f"RoboTwin task language must be a string: {result!r}")
         return result
 
     def plan_arm_path(self, arm: str, target_pose) -> dict[str, Any]:
         """Plan a native arm path to the target end-effector pose."""
-        return self._read(
-            "plan_arm_path",
+        return self._client.call(
+            "env.plan_arm_path",
             kwargs={"arm": arm, "target_pose": target_pose},
+            timeout_s=ROBOTWIN_READ_TIMEOUT_S,
         )

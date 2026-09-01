@@ -1,25 +1,36 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RPC server wrapping the Pi0.5 VLA."""
+
 from __future__ import annotations
 
 import argparse
-import base64
-import io
 import os
 import sys
 import time
 from typing import Any
 
 import numpy as np
-import torch
-from omegaconf import OmegaConf
 
+from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.config import (
     get_pi05_checkpoint_path,
     get_repo_root,
     get_rlinf_repo_path,
 )
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc import RpcFacade
 
 logger = get_logger("vla_server")
 
@@ -36,6 +47,8 @@ os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
 def build_model_cfg(model_path: str) -> Any:
     """OmegaConf for ``rlinf.models.embodiment.openpi.get_model``."""
+    from omegaconf import OmegaConf
+
     return OmegaConf.create(
         {
             "model_type": "openpi",
@@ -67,91 +80,97 @@ def build_model_cfg(model_path: str) -> Any:
     )
 
 
-def _decode_image_block(block: dict[str, Any]) -> np.ndarray:
-    import imageio.v2 as imageio
-    fmt = (block.get("format") or "png").lower()
-    if fmt != "png":
-        raise ValueError(f"unsupported image format: {fmt!r} (only 'png')")
-    data = block.get("data")
-    if not isinstance(data, str) or not data:
-        raise ValueError("image block missing base64 'data'")
-    raw = base64.b64decode(data)
-    img = np.asarray(imageio.imread(io.BytesIO(raw)))
-    if img.ndim != 3 or img.shape[-1] != 3:
-        raise ValueError(f"image must be HxWx3 RGB; got {img.shape}")
-    if img.dtype != np.uint8:
-        img = img.astype(np.uint8)
-    return img
-
-
-def _build_env_obs(instruction: str, images: dict[str, Any],
-                   state: list) -> dict[str, Any]:
-    if "main" not in images:
-        raise ValueError("'images.main' is required")
-    main = _decode_image_block(images["main"])
-    main_batch = main[None]
-    # ``wrist_images`` / ``extra_view_images`` must be present even when unused;
-    # downstream policies (e.g. openpi ``obs_processor``) index them directly
-    # rather than ``.get`` and would KeyError on missing keys.
-    obs: dict[str, Any] = {
-        "main_images": main_batch,
-        "task_descriptions": [str(instruction)] * main_batch.shape[0],
-        "wrist_images": None,
-        "extra_view_images": None,
-    }
-    if isinstance(images.get("wrist"), dict):
-        obs["wrist_images"] = _decode_image_block(images["wrist"])[None]
-    if isinstance(images.get("extra"), dict):
-        obs["extra_view_images"] = _decode_image_block(images["extra"])[None]
-    states = np.asarray(state, dtype=np.float32)
-    if states.ndim != 2:
-        raise ValueError(f"state must be [B, state_dim]; got shape {states.shape}")
-    obs["states"] = states
-    return obs
-
-
 # ---------------------------------------------------------------------------
-# Facade implementing the rpent.utils.vla_client protocol
+# Facade implementing the Pi0.5 client protocol
 # ---------------------------------------------------------------------------
 
 
-class VLAFacade(RpcFacade):
-    """Implements :class:`rpent.utils.vla_client.VLAClient` over a Pi0.5 model.
+class Pi05VLAFacade(BaseVLAFacade):
+    """Implements :class:`rpent.robots.components.pi05_vla_client.Pi05VLAClient` over a Pi0.5 model.
 
     Loads the model once at construction; each ``predict`` call runs one
-    single-env inference and returns a JSON-safe dict.
+    inference batch and returns its NumPy action array.
     """
 
     def __init__(self, model_path: str):
-        super().__init__()
+        import torch
         from rlinf.models.embodiment.openpi import get_model as get_openpi_model
 
         cfg = build_model_cfg(model_path=model_path)
         t0 = time.time()
         logger.info("loading Pi0.5 (model_path=%s) ...", cfg["model_path"])
         self._model = get_openpi_model(cfg, torch_dtype=None).cuda().eval()
+        self._inference_context = torch.no_grad
         logger.info("model ready in %.1fs", time.time() - t0)
+        super().__init__()
 
-    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if method == "predict":
-            return self.predict(*args, **kwargs)
-        raise ValueError(f"unknown RPC method: {method!r}")
+    def predict(
+        self,
+        observation: dict[str, Any],
+        options: dict[str, Any] | None = None,
+    ) -> np.ndarray:
+        if not isinstance(observation, dict):
+            raise TypeError(f"Pi0.5 observation must be a mapping, got {observation!r}")
+        if options is None:
+            options = {}
+        if not isinstance(options, dict):
+            raise TypeError(f"Pi0.5 options must be a mapping, got {options!r}")
+        unexpected_options = set(options) - {"mode"}
+        if unexpected_options:
+            raise ValueError(
+                f"unsupported Pi0.5 options: {sorted(unexpected_options)!r}"
+            )
 
-    def predict(self, instruction: str, images: dict[str, Any], state: list,
-                mode: str = "eval") -> dict[str, Any]:
-        env_obs = _build_env_obs(instruction, images, state)
-        with torch.no_grad():
-            actions, _ = self._model.predict_action_batch(env_obs, mode=mode)
+        env_obs = dict(observation)
+        main_images = np.asarray(env_obs.get("main_images"))
+        if main_images.ndim != 4 or main_images.shape[-1] != 3:
+            raise ValueError(
+                f"main_images must be [B,H,W,3]; got shape {main_images.shape}"
+            )
+        env_obs["main_images"] = main_images.astype(np.uint8, copy=False)
+
+        batch_size = main_images.shape[0]
+        states = np.asarray(env_obs.get("states"), dtype=np.float32)
+        if states.ndim != 2 or states.shape[0] != batch_size:
+            raise ValueError(
+                "states must be [B,state_dim] with the image batch size; "
+                f"got shape {states.shape}"
+            )
+        env_obs["states"] = states
+
+        task_descriptions = env_obs.get("task_descriptions")
+        if (
+            not isinstance(task_descriptions, list)
+            or len(task_descriptions) != batch_size
+        ):
+            raise ValueError("task_descriptions must contain one string per batch item")
+        env_obs["task_descriptions"] = [str(value) for value in task_descriptions]
+
+        for key in ("wrist_images", "extra_view_images"):
+            view = env_obs.get(key)
+            if view is None:
+                env_obs[key] = None
+                continue
+            array = np.asarray(view)
+            if array.ndim != 4 or array.shape[0] != batch_size or array.shape[-1] != 3:
+                raise ValueError(f"{key} must be [B,H,W,3]; got shape {array.shape}")
+            env_obs[key] = array.astype(np.uint8, copy=False)
+
+        with self._inference_context():
+            actions, _ = self._model.predict_action_batch(
+                env_obs,
+                mode=options.get("mode", "eval"),
+            )
         actions_np = (
             actions.detach().cpu().numpy()
-            if isinstance(actions, torch.Tensor)
+            if (
+                hasattr(actions, "detach")
+                and hasattr(actions, "cpu")
+                and hasattr(actions, "numpy")
+            )
             else np.asarray(actions)
         ).astype(np.float32)
-        return {
-            "actions": actions_np.tolist(),
-            "shape": list(actions_np.shape),
-            "dtype": "float32",
-        }
+        return actions_np
 
 
 # ---------------------------------------------------------------------------
@@ -164,10 +183,17 @@ def main() -> None:
     p.add_argument("--transport", choices=["socket", "http"], default="http")
     p.add_argument("--host", type=str, default="127.0.0.1")
     p.add_argument("--port", type=int, default=0)
-    p.add_argument("--parent-watch", action="store_true",
-                   help="watch parent process via stdin pipe and exit when it dies")
-    p.add_argument("--cuda-device", type=int, default=None,
-                   help="GPU device exposed through CUDA_VISIBLE_DEVICES.")
+    p.add_argument(
+        "--parent-watch",
+        action="store_true",
+        help="watch parent process via stdin pipe and exit when it dies",
+    )
+    p.add_argument(
+        "--cuda-device",
+        type=int,
+        default=None,
+        help="GPU device exposed through CUDA_VISIBLE_DEVICES.",
+    )
     p.add_argument(
         "--model-path",
         default=None,
@@ -181,7 +207,8 @@ def main() -> None:
         if prev is not None and prev != target:
             logger.warning(
                 "CUDA_VISIBLE_DEVICES=%s is already set; overriding with --cuda-device=%s",
-                prev, args.cuda_device,
+                prev,
+                args.cuda_device,
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = target
 
@@ -192,7 +219,7 @@ def main() -> None:
             "path via --model-path or the environment."
         )
 
-    facade = VLAFacade(model_path=model_path)
+    facade = Pi05VLAFacade(model_path=model_path)
     facade.serve(
         transport=args.transport,
         host=args.host,

@@ -15,13 +15,14 @@ from robots.dual_franka.spec import DUAL_FRANKA_DASHBOARD_SPEC
 from robots.dual_franka.tasks import DUAL_FRANKA_TASKS, get_dual_franka_task
 from robots.franka.runtime_config import DEFAULT_CALIBRATION_PATH
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_repo_root
+from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
-from rpent.utils.http_rpc import HttpRpcClient
 from rpent.utils.rpc import make_rpc_client
+from rpent.utils.rpc.http_rpc import HttpRpcClient
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
@@ -43,13 +44,19 @@ def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
+    config: RunConfig,
 ):
     """Return the dual-Franka toolkit."""
     from robots.dual_franka.toolkit import DualFrankaToolkit
 
+    memory = MemoryManager(
+        root=config.prompt_vars.get("memory_dir")
+        or get_memory_dir("dual_franka"),
+    )
     return DualFrankaToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
+        memory=memory,
     )
 
 
@@ -216,7 +223,7 @@ def _init_runtime(
     started for the ``vla_grasp`` task (or an explicit ``--vla-endpoint``).
     """
     from robots.dual_franka.env_client import DualFrankaEnvClient
-    from rpent.utils.vla_client import VLAClient
+    from robots.franka.vla_client import VLAClient
 
     available = {"env", "vla"}
     selected = available if components is None else components

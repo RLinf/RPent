@@ -1,4 +1,19 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RoboCasa robot extension — RobotSpec factory, toolkit factory, and runtime hooks."""
+
 from __future__ import annotations
 
 import argparse
@@ -13,13 +28,14 @@ from robots.robocasa.prompt_bundle import (
     user_prompt,
 )
 from rpent.dashboard.events import DashboardEventSink
-from rpent.robots.robot_spec import RobotSpec, RunConfig
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
+from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_repo_root
+from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
-from rpent.utils.http_rpc import HttpRpcClient
 from rpent.utils.rpc import make_rpc_client
+from rpent.utils.rpc.http_rpc import HttpRpcClient
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
@@ -79,35 +95,61 @@ def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
+    config: RunConfig,
 ):
-    """Return the RoboCasa toolkit (common tools + RoboCasa primitives)."""
+    """Return the RoboCasa toolkit for the current session."""
     from robots.robocasa.toolkit import RoboCasaToolkit
 
+    memory = MemoryManager(
+        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
+    )
     return RoboCasaToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
+        memory=memory,
     )
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """Register RoboCasa CLI flags on the shared ``parser``."""
     required = not use_dashboard
-    parser.add_argument("--task-name", default=None, required=required,
-                        help="RoboCasa task name, e.g. OpenDrawer")
-    parser.add_argument("--split", default="target",
-                        choices=["target", "pretrain", "all"],
-                        help="RoboCasa data split (default: target)")
+    parser.add_argument(
+        "--task-name",
+        default=None,
+        required=required,
+        help="RoboCasa task name, e.g. OpenDrawer",
+    )
+    parser.add_argument(
+        "--split",
+        default="target",
+        choices=["target", "pretrain", "all"],
+        help="RoboCasa data split (default: target)",
+    )
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--hi-res", type=int, default=0,
-                        help="Hi-res agentview resolution (0=off)")
-    parser.add_argument("--env-endpoint", default=None,
-                        help="[protocol://]host:port of an existing env_server")
-    parser.add_argument("--vla-endpoint", default=None,
-                        help="[protocol://]host:port of an existing vla_server")
-    parser.add_argument("--vla-model-path", default=None,
-                        help="RLDX checkpoint path for locally spawned vla_server")
-    parser.add_argument("--cuda-device", type=int, default=None,
-                        help="GPU device to pin MuJoCo and torch(CUDA ordinal).")
+    parser.add_argument(
+        "--hi-res", type=int, default=0, help="Hi-res agentview resolution (0=off)"
+    )
+    parser.add_argument(
+        "--env-endpoint",
+        default=None,
+        help="[protocol://]host:port of an existing env_server",
+    )
+    parser.add_argument(
+        "--vla-endpoint",
+        default=None,
+        help="[protocol://]host:port of an existing vla_server",
+    )
+    parser.add_argument(
+        "--vla-model-path",
+        default=None,
+        help="RLDX checkpoint path for locally spawned vla_server",
+    )
+    parser.add_argument(
+        "--cuda-device",
+        type=int,
+        default=None,
+        help="GPU device to pin MuJoCo and torch(CUDA ordinal).",
+    )
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
@@ -126,7 +168,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     output_dir = args.output_dir
     if output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
-        output_dir = get_repo_root() / "logs" / f"{timestamp}_{args.task_name}_{args.split}_s{args.seed}"
+        output_dir = (
+            get_repo_root()
+            / "logs"
+            / f"{timestamp}_{args.task_name}_{args.split}_s{args.seed}"
+        )
     output_dir = Path(output_dir)
 
     return RunConfig(
@@ -153,12 +199,18 @@ def _spawn_env_server(
             cmd=[
                 sys.executable,
                 str(get_repo_root() / "robots" / "robocasa" / "env_server.py"),
-                "--task-name", args.task_name,
-                "--split", args.split,
-                "--seed", str(args.seed),
-                "--transport", "http",
-                "--host", host,
-                "--port", str(port),
+                "--task-name",
+                args.task_name,
+                "--split",
+                args.split,
+                "--seed",
+                str(args.seed),
+                "--transport",
+                "http",
+                "--host",
+                host,
+                "--port",
+                str(port),
                 "--parent-watch",
                 *(
                     ["--cuda-device", str(args.cuda_device)]
@@ -197,10 +249,14 @@ def _spawn_vla_server(
             cmd=[
                 sys.executable,
                 str(get_repo_root() / "robots" / "robocasa" / "vla_server.py"),
-                "--model-path", args.vla_model_path,
-                "--transport", "http",
-                "--host", host,
-                "--port", str(port),
+                "--model-path",
+                args.vla_model_path,
+                "--transport",
+                "http",
+                "--host",
+                host,
+                "--port",
+                str(port),
                 "--parent-watch",
                 *(
                     ["--cuda-device", str(args.cuda_device)]

@@ -1,18 +1,33 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """RoboCasa tool schemas and handlers backed by the run's ``EnvState``.
 
 The state trace (``states.json`` manifest + per-step artifact files under
-``<step:02d>/``) is owned by :class:`rpent.tools.state.EnvState`. Tool handlers
+``<step:02d>/``) is owned by :class:`rpent.session.EnvState`. Tool handlers
 that need to read it take a ``state: EnvState`` keyword argument (bound by the
 toolkit via :func:`functools.partial`); state-advancing primitive tools capture
 state automatically through :meth:`RoboCasaToolkit.get_env_state`.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from rpent.tools.state import EnvState, StepRecord
+from rpent.session import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
 
 if TYPE_CHECKING:
@@ -115,8 +130,7 @@ TOOLS_SPEC = [
                 "target_pitch": {
                     "type": "number",
                     "description": (
-                        "Absolute pitch target, radians (clamped +/-1.5; "
-                        "default 0.6)"
+                        "Absolute pitch target, radians (clamped +/-1.5; default 0.6)"
                     ),
                 },
                 "gripper": {
@@ -698,10 +712,20 @@ def _save_observation_artifacts(
 
     # ---- agentview + wrist: rgb, depth, world map, camera meta ----
     for cam, image_name, depth_name, world_name, meta_name in (
-        ("agentview", "agentview.png", "agentview_depth.npz",
-         "agentview_world.npz", "agentview_metadata.json"),
-        ("wrist", "wrist.png", "wrist_depth.npz",
-         "wrist_world.npz", "wrist_metadata.json"),
+        (
+            "agentview",
+            "agentview.png",
+            "agentview_depth.npz",
+            "agentview_world.npz",
+            "agentview_metadata.json",
+        ),
+        (
+            "wrist",
+            "wrist.png",
+            "wrist_depth.npz",
+            "wrist_world.npz",
+            "wrist_metadata.json",
+        ),
     ):
         rgb, depth = env.render_camera(cam, depth=True)
         env_state.save(image_name, rgb, step=step_idx)
@@ -797,11 +821,13 @@ def view_env_state(step: int | None = None, *, state: EnvState) -> dict:
                 "_image_nav_bytes": ("nav_view", "navview"),
                 "_image_wrist_bytes": ("calibration_frame", "wrist"),
             }[kind]
-            out["images"].append({
-                "role": label[0],
-                "camera": label[1],
-                "artifact": name,
-            })
+            out["images"].append(
+                {
+                    "role": label[0],
+                    "camera": label[1],
+                    "artifact": name,
+                }
+            )
             break
 
     return out
@@ -861,7 +887,9 @@ def back_project_batch(
         return {"error": f"state step not available: {exc}"}
     nn = record.step_idx
     if source_artifact not in record.artifacts:
-        return {"error": f"{camera} {resolution}-resolution world map not recorded for step {nn}"}
+        return {
+            "error": f"{camera} {resolution}-resolution world map not recorded for step {nn}"
+        }
 
     try:
         world_map = state.load(source_artifact, step=nn)
@@ -872,35 +900,71 @@ def back_project_batch(
     valid_xyzs = []
     for pixel in pixels:
         if not isinstance(pixel, (list, tuple)) or len(pixel) != 2:
-            results.append({"pixel": pixel, "world_xyz": None, "valid": False,
-                            "error": "pixel must be [row, col]"})
+            results.append(
+                {
+                    "pixel": pixel,
+                    "world_xyz": None,
+                    "valid": False,
+                    "error": "pixel must be [row, col]",
+                }
+            )
             continue
         row, col = int(pixel[0]), int(pixel[1])
         h, w = world_map.shape[:2]
         if row < 0 or row >= h or col < 0 or col >= w:
-            results.append({"pixel": pixel, "world_xyz": None, "valid": False,
-                            "error": f"pixel ({row},{col}) out of bounds ({h}x{w})"})
+            results.append(
+                {
+                    "pixel": pixel,
+                    "world_xyz": None,
+                    "valid": False,
+                    "error": f"pixel ({row},{col}) out of bounds ({h}x{w})",
+                }
+            )
             continue
         xyz = world_map[row, col, :3]
         if not np.isfinite(xyz).all() or abs(float(xyz.sum())) <= 1e-6:
-            results.append({"pixel": pixel, "world_xyz": None, "valid": False,
-                            "error": "invalid world xyz at pixel"})
+            results.append(
+                {
+                    "pixel": pixel,
+                    "world_xyz": None,
+                    "valid": False,
+                    "error": "invalid world xyz at pixel",
+                }
+            )
             continue
-        results.append({
-            "pixel": [row, col],
-            "world_xyz": [round(float(xyz[0]), 4), round(float(xyz[1]), 4), round(float(xyz[2]), 4)],
-            "valid": True,
-            "error": None,
-        })
+        results.append(
+            {
+                "pixel": [row, col],
+                "world_xyz": [
+                    round(float(xyz[0]), 4),
+                    round(float(xyz[1]), 4),
+                    round(float(xyz[2]), 4),
+                ],
+                "valid": True,
+                "error": None,
+            }
+        )
         valid_xyzs.append([float(xyz[0]), float(xyz[1]), float(xyz[2])])
 
-    summary: dict = {"valid_count": len(valid_xyzs), "total_count": len(pixels)}
+    summary: dict = {
+        "valid_count": len(valid_xyzs),
+        "total_count": len(pixels),
+    }
     if valid_xyzs:
         median = np.median(valid_xyzs, axis=0)
-        summary["median_xyz"] = [round(float(median[0]), 4), round(float(median[1]), 4),
-                                  round(float(median[2]), 4)]
-    return {"results": results, "summary": summary, "step": nn,
-            "camera": camera, "resolution": resolution}
+        summary["median_xyz"] = [
+            round(float(median[0]), 4),
+            round(float(median[1]), 4),
+            round(float(median[2]), 4),
+        ]
+
+    return {
+        "results": results,
+        "summary": summary,
+        "step": nn,
+        "camera": camera,
+        "resolution": resolution,
+    }
 
 
 @readonly
@@ -929,11 +993,15 @@ def query_world_map(
         return {"error": "no state trace available"}
     nn = record.step_idx
     if source_artifact not in record.artifacts:
-        return {"error": f"{camera} {resolution}-resolution world map not found for step {nn}"}
+        return {
+            "error": f"{camera} {resolution}-resolution world map not found for step {nn}"
+        }
     try:
         world_map = state.load(source_artifact, step=nn)
     except Exception:
-        return {"error": f"{camera} {resolution}-resolution world map not found for step {nn}"}
+        return {
+            "error": f"{camera} {resolution}-resolution world map not found for step {nn}"
+        }
 
     z = world_map[:, :, 2]
     mask = (z >= z_min) & (z <= z_max) & np.isfinite(z)
@@ -947,7 +1015,10 @@ def query_world_map(
     ys, xs = np.where(mask)
     total_pixels = len(ys)
     if total_pixels < min_cluster_size:
-        return {"clusters": [], "summary": {"total_clusters": 0, "total_pixels_matched": 0}}
+        return {
+            "clusters": [],
+            "summary": {"total_clusters": 0, "total_pixels_matched": 0},
+        }
 
     h, w = world_map.shape[:2]
     grid_cells = max(8, min(32, h // 32))
@@ -972,23 +1043,37 @@ def query_world_map(
         bbox_min = pts.min(axis=0)
         bbox_max = pts.max(axis=0)
         center_idx = len(data["pixels"]) // 2
-        clusters.append({
-            "center_xyz": [round(float(center[0]), 4), round(float(center[1]), 4),
-                           round(float(center[2]), 4)],
-            "pixel_count": len(data["pixels"]),
-            "bbox_xyz": {
-                "min": [round(float(bbox_min[0]), 4), round(float(bbox_min[1]), 4),
-                        round(float(bbox_min[2]), 4)],
-                "max": [round(float(bbox_max[0]), 4), round(float(bbox_max[1]), 4),
-                        round(float(bbox_max[2]), 4)],
-            },
-            "sample_pixels": [list(data["pixels"][center_idx])],
-        })
+        clusters.append(
+            {
+                "center_xyz": [
+                    round(float(center[0]), 4),
+                    round(float(center[1]), 4),
+                    round(float(center[2]), 4),
+                ],
+                "pixel_count": len(data["pixels"]),
+                "bbox_xyz": {
+                    "min": [
+                        round(float(bbox_min[0]), 4),
+                        round(float(bbox_min[1]), 4),
+                        round(float(bbox_min[2]), 4),
+                    ],
+                    "max": [
+                        round(float(bbox_max[0]), 4),
+                        round(float(bbox_max[1]), 4),
+                        round(float(bbox_max[2]), 4),
+                    ],
+                },
+                "sample_pixels": [list(data["pixels"][center_idx])],
+            }
+        )
 
     clusters.sort(key=lambda c: -c["pixel_count"])
     return {
         "clusters": clusters[:20],
-        "summary": {"total_clusters": len(clusters[:20]), "total_pixels_matched": total_pixels},
+        "summary": {
+            "total_clusters": len(clusters[:20]),
+            "total_pixels_matched": total_pixels,
+        },
     }
 
 
@@ -1000,10 +1085,21 @@ def finish(status: str, summary: str) -> dict:
 
 # ---- recipe export ----
 
-_PRIMITIVE_ACTIONS = frozenset({
-    "move_to", "move_delta", "rotate_pitch", "set_gripper", "release",
-    "scripted_grasp", "rldx_skill", "rldx_arm", "navigate_to", "move_base", "reset",
-})
+_PRIMITIVE_ACTIONS = frozenset(
+    {
+        "move_to",
+        "move_delta",
+        "rotate_pitch",
+        "set_gripper",
+        "release",
+        "scripted_grasp",
+        "rldx_skill",
+        "rldx_arm",
+        "navigate_to",
+        "move_base",
+        "reset",
+    }
+)
 
 
 def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:

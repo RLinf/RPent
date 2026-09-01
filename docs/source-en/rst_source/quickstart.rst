@@ -70,9 +70,11 @@ Chinese UI.
 Key CLI options
 ---------------
 
-The table lists only the options needed for a first run. Run
-``rpent --help`` for other general options. See the
-:doc:`LIBERO guide <usage/libero>` for detailed robot configuration.
+The table lists the main CLI options. Run ``rpent --help`` for other
+general options. See the :doc:`LIBERO guide <usage/libero>` for detailed
+robot configuration.
+
+**Main**
 
 .. list-table::
    :header-rows: 1
@@ -82,17 +84,30 @@ The table lists only the options needed for a first run. Run
      - Default
      - Description
    * - ``--robot``
-     - required
-     - Robot backend, e.g. ``libero``
+     - — (required)
+     - Robot backend. Currently ``libero``.
    * - ``--suite``
-     - required
+     - — (required)
      - Task suite, e.g. ``libero_object_task``, ``libero_spatial_swap``
    * - ``--task``
-     - required
+     - — (required)
      - Task id within the suite
    * - ``--seed``
      - ``0``
      - Random seed
+   * - ``--libero-type``
+     - ``LIBERO_TYPE`` or ``pro``
+     - LIBERO variant: ``standard`` | ``pro`` | ``plus``
+
+**Planner**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 15 63
+
+   * - Flag
+     - Default
+     - Description
    * - ``--planner``
      - ``api``
      - ``api`` | ``claude_code`` | ``codex``
@@ -100,9 +115,69 @@ The table lists only the options needed for a first run. Run
      - —
      - Model id; for ``api``, prefix the provider (``anthropic:…``,
        ``openai:…``, ``openai-chat:…``)
+   * - ``--max-turns``
+     - ``100``
+     - Max agent turns
+   * - ``--max-tokens``
+     - ``8192``
+     - Max tokens per LLM reply
+   * - ``--reasoning-effort``
+     - ``none``
+     - Reasoning effort for ``api``, ``claude_code``, and ``codex``:
+       ``none`` | ``low`` | ``medium`` | ``high`` | ``xhigh``. Disabling
+       reasoning reduced the average runtime from approximately 13.2 to
+       7.9 minutes (about 40%) in our LIBERO Pro Long evaluations.
+       Higher effort may improve task success rate. Supported levels
+       ultimately depend on the selected model.
+   * - ``--no-images``
+     - off
+     - Text-only mode: never send image bytes (for models that reject
+       image input)
+
+**Environment**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 15 63
+
+   * - Flag
+     - Default
+     - Description
+   * - ``--max-episode-steps``
+     - ``10000``
+     - Max env steps
+   * - ``--cuda-device``
+     - inherited
+     - GPU device exposed to the env / VLA / SAM3 servers
+   * - ``--env-endpoint``
+     - — (spawn)
+     - ``[protocol://]host:port`` of an existing env_server
+       (``protocol=http|socket``, default ``http``). If unset, one is
+       spawned locally.
+   * - ``--vla-endpoint``
+     - — (spawn)
+     - ``[protocol://]host:port`` of an existing vla_server (same rules).
+       If unset, one is spawned locally.
+   * - ``--sam3-endpoint``
+     - — (spawn)
+     - ``[protocol://]host:port`` of an existing RPent SAM3 service
+       (same rules). If unset, one is spawned locally.
+
+**Dashboard**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 15 63
+
+   * - Flag
+     - Default
+     - Description
    * - ``--dashboard``
      - off
-     - Start a local Dashboard service for this run
+     - Start a local Dashboard
+   * - ``--dashboard-language``
+     - ``en``
+     - Dashboard UI language: ``en`` | ``zh-cn``
 
 What you should see
 -------------------
