@@ -203,14 +203,17 @@ During a TaskRun, the Dashboard shows:
 
 - planner output and tool-call events;
 - live fixed-camera and wrist-camera views;
+- environment-allowlisted primitive controls that invoke Toolkit actions;
 - the action timeline and per-action clips;
 - the complete episode recording after the run, if one was generated.
 
 The page accepts ordinary planner messages, new task commands, and interrupt
-requests, but these controls do not issue robot actions directly. Planners,
-toolkits, and robot runtimes publish display updates through a
-``dashboard_events`` sink. The server sends state summaries over SSE, and the
-frontend fetches detailed events, timeline data, and images as needed.
+requests. It also exposes the primitives listed by the environment's Dashboard
+spec and validates their arguments against the Toolkit input schemas before
+executing them directly. Planners, toolkits, and robot runtimes publish display
+updates through a ``dashboard_events`` sink. The server sends state summaries
+over SSE, and the frontend fetches detailed events, timeline data, and images
+as needed.
 
 Next steps
 ----------

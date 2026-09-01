@@ -174,12 +174,13 @@ TaskRun 运行期间，Dashboard 页面提供：
 
 - planner 输出以及工具调用事件；
 - 实时固定相机和腕部相机画面；
+- 由环境 allowlist 声明、可直接调用 Toolkit 动作的 primitive 控件；
 - 动作时间线和单步动作片段；
 - 运行结束后的完整回合录像（如果已生成）。
 
-页面可以提交普通 planner 消息、新任务命令和中断请求，但不会直接发出机器人
-动作。planner、toolkit 和机器人运行时通过 ``dashboard_events`` 事件接收器发布
-展示更新。
+页面可以提交普通 planner 消息、新任务命令和中断请求，也会展示环境 Dashboard
+spec 中列出的 primitive；后者的参数经过 Toolkit input schema 校验后会被直接执行。
+planner、toolkit 和机器人运行时通过 ``dashboard_events`` 事件接收器发布展示更新。
 服务端通过 SSE 推送运行状态摘要，前端再按需读取详细事件、时间线和图像。
 
 下一步

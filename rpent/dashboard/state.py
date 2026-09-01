@@ -58,7 +58,6 @@ InputMode = Literal["command_only", "conversation", "disabled"]
 TaskRequest = dict[str, Any]
 _INTEGER = re.compile(r"-?[0-9]+")
 _UNSAFE_SLUG = re.compile(r"[^A-Za-z0-9_.-]+")
-_PRIMITIVE_UNBIND_TIMEOUT_S = 10.0
 
 logger = get_logger("dashboard_state")
 
@@ -243,37 +242,25 @@ class DashboardState:
             self._toolkit = toolkit
             self._projection_changed_locked()
 
-    def unbind_toolkit(
-        self,
-        toolkit: Toolkit,
-        *,
-        timeout_s: float | None = _PRIMITIVE_UNBIND_TIMEOUT_S,
-    ) -> bool:
-        """Stop new calls and wait a bounded time for this Toolkit to drain."""
+    def unbind_toolkit(self, toolkit: Toolkit) -> None:
+        """Stop new calls, cancel the active operation, and drain this Toolkit."""
         toolkit_key = id(toolkit)
         with self._condition:
             if self._toolkit is toolkit:
                 self._toolkit = None
                 self._projection_changed_locked()
-            drained = self._condition.wait_for(
+        toolkit.cancel_active_and_wait()
+        with self._condition:
+            self._condition.wait_for(
                 lambda: self._active_primitive_calls.get(toolkit_key, 0) == 0,
-                timeout=timeout_s,
             )
-            if not drained:
-                logger.warning(
-                    "forcing Dashboard Toolkit unbind after %.1fs with %d "
-                    "primitive call(s) still active",
-                    timeout_s,
-                    self._active_primitive_calls.get(toolkit_key, 0),
-                )
-            return drained
 
     def primitive_specs(self) -> list[dict[str, Any]]:
         """Return Dashboard control schemas in robot allowlist order."""
         with self._lock:
             toolkit = self._toolkit
             allowlist = self._primitive_allowlist
-            if toolkit is None:
+            if toolkit is None or self._session_state == "switch_pending":
                 raise InteractionUnavailableError(
                     "TaskRun primitives are not available"
                 )
@@ -301,7 +288,7 @@ class DashboardState:
         with self._condition:
             toolkit = self._toolkit
             allowed = name in self._primitive_names
-            if toolkit is None:
+            if toolkit is None or self._session_state == "switch_pending":
                 raise InteractionUnavailableError(
                     "TaskRun primitives are not available"
                 )
@@ -1019,7 +1006,9 @@ class DashboardState:
             "frame_available": frame_available,
             "n_events": len(self._events),
             "n_steps": len(self._timeline),
-            "primitives_available": self._toolkit is not None,
+            "primitives_available": (
+                self._toolkit is not None and self._session_state != "switch_pending"
+            ),
             "interaction": self._interaction_snapshot_locked(),
             **self._session_fields_locked(),
         }

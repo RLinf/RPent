@@ -57,18 +57,6 @@ def _planner_model(args: argparse.Namespace) -> str | None:
     return None
 
 
-def _close_toolkit_when_primitives_finish(
-    state: DashboardState,
-    toolkit: Any,
-) -> None:
-    """Close a forcibly unbound Toolkit after its last primitive returns."""
-    state.unbind_toolkit(toolkit, timeout_s=None)
-    try:
-        toolkit.close()
-    except Exception as exc:
-        logger.warning("deferred Dashboard Toolkit cleanup failed: %s", exc)
-
-
 def run_dashboard_session(
     args: argparse.Namespace,
     robot_spec: RobotSpec,
@@ -299,15 +287,8 @@ def _run_dashboard_task(
                         if solved:
                             recipe_path = toolkit.write_recipe(recipe_tag)
                 finally:
-                    if state.unbind_toolkit(toolkit):
-                        toolkit.close()
-                    else:
-                        threading.Thread(
-                            target=_close_toolkit_when_primitives_finish,
-                            args=(state, toolkit),
-                            name="dashboard-toolkit-cleanup",
-                            daemon=True,
-                        ).start()
+                    state.unbind_toolkit(toolkit)
+                    toolkit.close()
                 if solved or state.task_replacement_requested:
                     break
                 if agent_error:

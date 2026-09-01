@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, TypeAlias
 
 if TYPE_CHECKING:
-    from rpent.tools.state import EnvState, StepRecord
+    from rpent.session import EnvState, StepRecord
 
 
 @dataclass(frozen=True, slots=True)
