@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 import numpy as np
@@ -34,6 +35,8 @@ class BehaviorDinoClient:
         expected_meta: dict[str, Any] | None = None,
     ) -> None:
         self._client = client
+        self._close_lock = threading.Lock()
+        self._transport_closed = False
         meta = self.healthz()
         if expected_meta:
             mismatches = {
@@ -70,14 +73,14 @@ class BehaviorDinoClient:
             result.append(l2_normalize_row(item, path=f"dino.output[{index}]"))
         return tuple(result)
 
-    def close(self) -> None:
-        try:
-            self._client.call("dino.close", timeout_s=5.0)
-        except Exception:
-            pass
-        close = getattr(self._client, "close", None)
-        if callable(close):
-            close()
+    def close_transport(self) -> None:
+        with self._close_lock:
+            if self._transport_closed:
+                return
+            close = getattr(self._client, "close", None)
+            if callable(close):
+                close()
+            self._transport_closed = True
 
 
 __all__ = ["BehaviorDinoClient"]

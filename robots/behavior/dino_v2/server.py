@@ -21,6 +21,7 @@ import hashlib
 import os
 import re
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,8 @@ def _repo_root() -> Path:
 
 if str(_repo_root()) not in sys.path:
     sys.path.insert(0, str(_repo_root()))
+
+from rpent.utils.rpc import RpcFacade  # noqa: E402
 
 
 def _single_cuda_device(value: Any) -> str | None:
@@ -65,13 +68,24 @@ def _resolve_required_path(value: str | None, *, env_name: str, label: str) -> P
     return path
 
 
-class DinoRpc:
+class BehaviorDinoFacade(RpcFacade):
+    """Expose the BEHAVIOR DINOv2 engine through the shared RPC facade."""
+
     def __init__(self, encoder: Any, meta: dict[str, Any]) -> None:
+        super().__init__()
         self._encoder = encoder
         self._meta = dict(meta)
+        self._close_lock = threading.Lock()
+        self._closed = False
+        self._register_rpc()
 
-    def healthz(self) -> dict[str, Any]:
-        return {**self._meta, "pid": os.getpid()}
+    def _register_rpc(self) -> None:
+        self._rpc["dino.encode_batch"] = self.encode_batch
+
+    def _builtin_dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
+        if method == "healthz":
+            return {**self._meta, "pid": os.getpid()}
+        return super()._builtin_dispatch(method, args, kwargs)
 
     def encode_batch(self, *, images: list[Any]) -> list[Any]:
         result = self._encoder.encode_batch(
@@ -85,20 +99,12 @@ class DinoRpc:
             for item in result
         ]
 
-    def close(self) -> dict[str, Any]:
-        self._encoder.close()
-        return {"status": "closed", "pid": os.getpid()}
-
-    def dispatch(
-        self, method: str, args: tuple[Any, ...], kwargs: dict[str, Any]
-    ) -> Any:
-        if method == "healthz":
-            return self.healthz()
-        if method == "dino.encode_batch":
-            return self.encode_batch(*args, **kwargs)
-        if method == "dino.close":
-            return self.close()
-        raise AttributeError(f"unknown DINO RPC method: {method}")
+    def close(self) -> None:
+        with self._close_lock:
+            if self._closed:
+                return
+            self._encoder.close()
+            self._closed = True
 
 
 def _materialize_encoder(args: argparse.Namespace) -> tuple[Any, dict[str, Any]]:
@@ -176,25 +182,18 @@ def main() -> None:
     if cuda_device is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
 
-    from rpent.utils.daemon import watch_parent_death
-    from rpent.utils.rpc.http_rpc import HttpRpcServer
-
     encoder, meta = _materialize_encoder(args)
-    rpc = DinoRpc(encoder, meta)
-    server = HttpRpcServer((args.host, args.port), rpc.dispatch)
-    if args.parent_watch:
-        watch_parent_death(server.shutdown)
-    try:
-        server.serve_forever()
-    finally:
-        try:
-            encoder.close()
-        finally:
-            server.server_close()
+    facade = BehaviorDinoFacade(encoder, meta)
+    facade.serve(
+        transport="http",
+        host=args.host,
+        port=args.port,
+        parent_watch=args.parent_watch,
+    )
 
 
 if __name__ == "__main__":
     main()
 
 
-__all__ = ["DinoRpc", "main"]
+__all__ = ["BehaviorDinoFacade", "main"]

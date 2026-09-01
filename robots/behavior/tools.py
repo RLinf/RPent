@@ -658,7 +658,7 @@ class BehaviorPrimitives:
         return result
 
     def shutdown(self) -> None:
-        candidates = [self.env]
+        candidates = [self.dino_component, self.env]
         if self._close_model_on_shutdown:
             candidates.insert(0, self.model)
         for candidate in candidates:
