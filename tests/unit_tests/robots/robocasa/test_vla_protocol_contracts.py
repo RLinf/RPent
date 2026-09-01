@@ -23,6 +23,7 @@ from typing import Any
 from robots.robocasa.primitives import RoboCasaPrimitives
 from robots.robocasa.prompt_bundle import system_prompt
 from robots.robocasa.tools import TOOLS_SPEC
+from robots.robocasa.vla_server import _normalize_legacy_processor_geometry
 from rpent.prompt.utils import format_prompt
 
 
@@ -138,3 +139,46 @@ def test_vla_does_not_run_without_environment_task_language() -> None:
     assert "task language is unavailable" in result["error"]
     assert rldx.calls == []
     assert primitives._vla_desync is True
+
+
+def test_legacy_rldx_processor_null_geometry_uses_release_defaults(monkeypatch) -> None:
+    processor = SimpleNamespace(
+        image_max_area=None,
+        image_resize_m=None,
+        random_crop_fraction=None,
+        random_rotation_angle=None,
+        color_jitter_params=None,
+    )
+    calls = []
+
+    def fake_build(candidate):
+        calls.append((candidate.image_max_area, candidate.image_resize_m))
+        return "train-transform", "eval-transform"
+
+    monkeypatch.setattr(
+        "robots.robocasa.vla_server._build_processor_image_transforms",
+        fake_build,
+    )
+
+    assert _normalize_legacy_processor_geometry(processor) is True
+    assert processor.image_max_area == 65536
+    assert processor.image_resize_m == 32
+    assert processor.train_image_transform == "train-transform"
+    assert processor.eval_image_transform == "eval-transform"
+    assert calls == [(65536, 32)]
+
+
+def test_current_rldx_processor_geometry_is_not_rebuilt(monkeypatch) -> None:
+    processor = SimpleNamespace(image_max_area=131072, image_resize_m=64)
+
+    def unexpected_build(candidate):
+        raise AssertionError(f"unexpected transform rebuild for {candidate!r}")
+
+    monkeypatch.setattr(
+        "robots.robocasa.vla_server._build_processor_image_transforms",
+        unexpected_build,
+    )
+
+    assert _normalize_legacy_processor_geometry(processor) is False
+    assert processor.image_max_area == 131072
+    assert processor.image_resize_m == 64
