@@ -19,8 +19,8 @@ from __future__ import annotations
 import argparse
 import base64
 import gc
-import hashlib
 import io
+import json
 import os
 import re
 import sys
@@ -45,6 +45,9 @@ from robots.behavior.policy_checkpoint import (  # noqa: E402
     validate_policy_checkpoint,
 )
 from robots.behavior.schemas import ACTION_DIM, DEFAULT_ACTION_CHUNK  # noqa: E402
+from rpent.robots.components.vla_facade_base import BaseVLAFacade  # noqa: E402
+from rpent.utils.rpc.http_rpc import _from_json, _NumpyEncoder  # noqa: E402
+from rpent.utils.rpc.rpc_facade import make_error_response  # noqa: E402
 
 NORM_STATS_REL = Path("assets/behavior-1k/2025-challenge-demos/norm_stats.json")
 NORM_STATS_ASSET_ID = NORM_STATS_REL.parent.as_posix()
@@ -60,19 +63,11 @@ class PredictRequest(BaseModel):
     images: dict[str, ImageBlock]
     state: list[list[float]]
     mode: Literal["eval"] = "eval"
-    binding_id: str | None = None
-
-
-class BindingRequest(BaseModel):
-    binding_id: str
 
 
 _MODEL: Any = None
 _MODEL_META: dict[str, Any] = {}
 _MODEL_LOCK = threading.Lock()
-_ACTIONS_ENABLED = True
-_ACTIONS_LOCK = threading.Lock()
-_ACTION_BINDING_ID: str | None = None
 
 
 def _single_cuda_device(value: Any) -> str | None:
@@ -82,19 +77,6 @@ def _single_cuda_device(value: Any) -> str | None:
     if re.fullmatch(r"[0-9]+", device) is None:
         raise ValueError("--cuda-device must be one physical GPU ordinal")
     return device
-
-
-def _binding_digest(value: str | None) -> str | None:
-    return None if value is None else hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _require_matching_binding(value: str | None) -> None:
-    if _ACTION_BINDING_ID is None:
-        if value is not None:
-            raise ValueError("VLA server is not bound to this attempt")
-        return
-    if value != _ACTION_BINDING_ID:
-        raise ValueError("VLA attempt binding mismatch")
 
 
 def validate_checkpoint(path: str | Path) -> Path:
@@ -142,7 +124,7 @@ def build_model_config(checkpoint: str | Path) -> Any:
 def load_model(checkpoint: str | Path, *, seed: int) -> None:
     """Load Pi0.5 after caller has already applied CUDA_VISIBLE_DEVICES."""
 
-    global _ACTION_BINDING_ID, _ACTIONS_ENABLED, _MODEL, _MODEL_META
+    global _MODEL, _MODEL_META
     import torch
 
     gc_was_enabled = gc.isenabled()
@@ -165,9 +147,6 @@ def load_model(checkpoint: str | Path, *, seed: int) -> None:
         model = get_model(build_model_config(resolved))
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         _MODEL = model.to(device).eval()
-        with _ACTIONS_LOCK:
-            _ACTIONS_ENABLED = True
-            _ACTION_BINDING_ID = None
         _MODEL_META = {
             "status": "ok",
             "runtime": "behavior_vla",
@@ -225,144 +204,141 @@ def build_env_observation(request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_app() -> Any:
-    from fastapi import FastAPI, HTTPException
-    from fastapi.responses import JSONResponse
+def _run_model(env_obs: dict[str, Any], *, mode: str) -> np.ndarray:
+    if _MODEL is None:
+        raise RuntimeError("model not loaded")
+    import torch
 
+    with _MODEL_LOCK, torch.no_grad():
+        actions, _ = _MODEL.predict_action_batch(
+            env_obs,
+            mode=mode,
+            compute_values=False,
+        )
+    if torch.is_tensor(actions):
+        actions = actions.detach().float().cpu().numpy()
+    actions = np.asarray(actions, dtype=np.float32)
+    if (
+        actions.ndim != 3
+        or actions.shape[0] != 1
+        or actions.shape[2] != ACTION_DIM
+        or actions.shape[1] < 1
+        or not np.isfinite(actions).all()
+    ):
+        raise ValueError(
+            f"Pi0.5 returned invalid [1,T,{ACTION_DIM}] shape {actions.shape}"
+        )
+    return actions
+
+
+def _rpc_env_observation(observation: dict[str, Any]) -> dict[str, Any]:
+    import torch
+
+    if not isinstance(observation, dict):
+        raise TypeError("BEHAVIOR VLA observation must be a mapping")
+    main = np.asarray(observation.get("main_images"))
+    wrists = np.asarray(observation.get("wrist_images"))
+    states = np.asarray(observation.get("states"), dtype=np.float32)
+    descriptions = observation.get("task_descriptions")
+    if main.ndim != 4 or main.shape[0] != 1 or main.shape[-1] != 3:
+        raise ValueError(f"main_images must be [1,H,W,3], got {main.shape}")
+    if wrists.ndim != 5 or wrists.shape[:2] != (1, 2) or wrists.shape[-1] != 3:
+        raise ValueError(f"wrist_images must be [1,2,H,W,3], got {wrists.shape}")
+    if states.ndim != 2 or states.shape[0] != 1 or states.shape[1] < 256:
+        raise ValueError(f"states must be [1,N>=256], got {states.shape}")
+    if not isinstance(descriptions, list) or len(descriptions) != 1:
+        raise ValueError("task_descriptions must contain one string")
+    return {
+        "main_images": torch.from_numpy(
+            np.ascontiguousarray(main.astype(np.uint8, copy=False))
+        ),
+        "wrist_images": torch.from_numpy(
+            np.ascontiguousarray(wrists.astype(np.uint8, copy=False))
+        ),
+        "states": torch.from_numpy(np.ascontiguousarray(states)),
+        "task_descriptions": [str(descriptions[0])],
+        "extra_view_images": None,
+    }
+
+
+class BehaviorVLAFacade(BaseVLAFacade):
+    """Expose the legacy BEHAVIOR Pi0.5 model through common VLA RPC."""
+
+    def _builtin_dispatch(
+        self, method: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> Any:
+        if method == "healthz":
+            if _MODEL is None:
+                raise RuntimeError("model not loaded")
+            return {**_MODEL_META, "pid": os.getpid()}
+        return super()._builtin_dispatch(method, args, kwargs)
+
+    def predict(
+        self,
+        observation: dict[str, Any],
+        options: dict[str, Any] | None = None,
+    ) -> np.ndarray:
+        options = {} if options is None else options
+        if not isinstance(options, dict):
+            raise TypeError("VLA options must be a mapping")
+        unexpected = set(options) - {"mode"}
+        if unexpected:
+            raise ValueError(f"unsupported VLA options: {sorted(unexpected)!r}")
+        mode = str(options.get("mode", "eval"))
+        if mode != "eval":
+            raise ValueError("BEHAVIOR VLA inference mode must be 'eval'")
+        return _run_model(_rpc_env_observation(observation), mode=mode)
+
+
+def build_app(facade: BehaviorVLAFacade | None = None) -> Any:
+    from fastapi import FastAPI, HTTPException
+    from fastapi.responses import JSONResponse, Response
+
+    facade = facade or BehaviorVLAFacade()
     app = FastAPI(title="RPent BEHAVIOR Pi0.5")
 
     @app.get("/healthz")
     def healthz():
-        if _MODEL is None:
-            raise HTTPException(status_code=503, detail="model not loaded")
-        with _ACTIONS_LOCK:
-            actions_enabled = bool(_ACTIONS_ENABLED)
-            binding_digest = _binding_digest(_ACTION_BINDING_ID)
-        return {
-            **_MODEL_META,
-            "pid": os.getpid(),
-            "actions_enabled": actions_enabled,
-            "binding_digest": binding_digest,
-        }
-
-    @app.post("/control/disable-actions")
-    def disable_actions(request: BindingRequest | None = None):
-        global _ACTIONS_ENABLED
-        with _MODEL_LOCK, _ACTIONS_LOCK:
-            if request is not None:
-                try:
-                    _require_matching_binding(request.binding_id)
-                except ValueError as error:
-                    raise HTTPException(status_code=409, detail=str(error)) from error
-            _ACTIONS_ENABLED = False
-        return {
-            "status": "ok",
-            "pid": os.getpid(),
-            "actions_enabled": False,
-            "binding_digest": _binding_digest(_ACTION_BINDING_ID),
-        }
-
-    @app.post("/control/bind-actions")
-    def bind_actions(request: BindingRequest):
-        global _ACTION_BINDING_ID
-        binding_id = request.binding_id.strip()
-        if not binding_id or len(binding_id) > 256:
-            raise HTTPException(status_code=400, detail="invalid binding_id")
-        with _MODEL_LOCK, _ACTIONS_LOCK:
-            if _ACTIONS_ENABLED:
-                raise HTTPException(
-                    status_code=409,
-                    detail="disable VLA actions before binding a fresh attempt",
-                )
-            _ACTION_BINDING_ID = binding_id
-        return {
-            "status": "ok",
-            "pid": os.getpid(),
-            "actions_enabled": False,
-            "binding_digest": _binding_digest(binding_id),
-        }
-
-    @app.post("/control/enable-actions")
-    def enable_actions(request: BindingRequest | None = None):
-        global _ACTIONS_ENABLED
-        if _MODEL is None:
-            raise HTTPException(status_code=503, detail="model not loaded")
-        with _MODEL_LOCK, _ACTIONS_LOCK:
-            try:
-                _require_matching_binding(
-                    request.binding_id if request is not None else None
-                )
-            except ValueError as error:
-                raise HTTPException(status_code=409, detail=str(error)) from error
-            _ACTIONS_ENABLED = True
-        return {
-            "status": "ok",
-            "pid": os.getpid(),
-            "actions_enabled": True,
-            "binding_digest": _binding_digest(_ACTION_BINDING_ID),
-        }
+        try:
+            return facade._dispatch("healthz", (), {})
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/predict")
     def predict(request: PredictRequest):
-        if _MODEL is None:
-            raise HTTPException(status_code=503, detail="model not loaded")
-        with _ACTIONS_LOCK:
-            try:
-                _require_matching_binding(request.binding_id)
-            except ValueError as error:
-                raise HTTPException(status_code=409, detail=str(error)) from error
-            if not _ACTIONS_ENABLED:
-                raise HTTPException(
-                    status_code=409, detail="VLA action inference is disabled"
-                )
         try:
-            import torch
-
-            env_obs = build_env_observation(request.model_dump())
-            with _MODEL_LOCK:
-                with _ACTIONS_LOCK:
-                    try:
-                        _require_matching_binding(request.binding_id)
-                    except ValueError as error:
-                        raise HTTPException(
-                            status_code=409, detail=str(error)
-                        ) from error
-                    if not _ACTIONS_ENABLED:
-                        raise HTTPException(
-                            status_code=409, detail="VLA action inference is disabled"
-                        )
-                with torch.no_grad():
-                    actions, _ = _MODEL.predict_action_batch(
-                        env_obs,
-                        mode=request.mode,
-                        compute_values=False,
-                    )
-            if torch.is_tensor(actions):
-                actions = actions.detach().float().cpu().numpy()
-            actions = np.asarray(actions, dtype=np.float32)
-            if (
-                actions.ndim != 3
-                or actions.shape[0] != 1
-                or actions.shape[2] != ACTION_DIM
-                or actions.shape[1] < 1
-                or not np.isfinite(actions).all()
-            ):
-                raise ValueError(
-                    f"Pi0.5 returned invalid [1,T,{ACTION_DIM}] shape {actions.shape}"
-                )
+            actions = _run_model(
+                build_env_observation(request.model_dump()),
+                mode=request.mode,
+            )
             return {
                 "actions": actions.tolist(),
                 "shape": list(actions.shape),
                 "dtype": "float32",
             }
-        except HTTPException:
-            raise
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
         except Exception as exc:
             return JSONResponse(
                 {"error": f"{type(exc).__name__}: {exc}"}, status_code=500
             )
+
+    @app.post("/call")
+    def rpc_call(request: dict[str, Any]):
+        try:
+            method = request["method"]
+            args = tuple(_from_json(value) for value in request.get("args", []))
+            kwargs = {
+                key: _from_json(value)
+                for key, value in request.get("kwargs", {}).items()
+            }
+            response = {"ok": True, "result": facade._dispatch(method, args, kwargs)}
+        except Exception as exc:
+            response = make_error_response(exc)
+        return Response(
+            content=json.dumps(response, cls=_NumpyEncoder),
+            media_type="application/json",
+        )
 
     return app
 
@@ -393,7 +369,12 @@ def main() -> None:
 
     import uvicorn
 
-    uvicorn.run(build_app(), host=args.host, port=args.port, log_level="info")
+    uvicorn.run(
+        build_app(BehaviorVLAFacade()),
+        host=args.host,
+        port=args.port,
+        log_level="info",
+    )
 
 
 if __name__ == "__main__":
@@ -401,6 +382,7 @@ if __name__ == "__main__":
 
 
 __all__ = [
+    "BehaviorVLAFacade",
     "NORM_STATS_REL",
     "build_app",
     "build_env_observation",

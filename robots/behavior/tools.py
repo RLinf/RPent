@@ -229,7 +229,6 @@ class BehaviorPrimitives:
         pure_vla_baseline: bool = False,
         memory_index: Any = None,
         dino_component: Any = None,
-        close_model_on_shutdown: bool = True,
         **_ignored: Any,
     ) -> None:
         self.env = env
@@ -265,7 +264,6 @@ class BehaviorPrimitives:
             raise ValueError("max_wall_clock_s must be positive and finite")
         self.memory_index = memory_index
         self.dino_component = dino_component
-        self._close_model_on_shutdown = bool(close_model_on_shutdown)
         self._episode_memory_decision = self._retrieve_episode_memory(
             self._current_observation
         )
@@ -653,10 +651,10 @@ class BehaviorPrimitives:
         return result
 
     def shutdown(self) -> None:
-        candidates = [self.dino_component, self.env]
-        if self._close_model_on_shutdown:
-            candidates.insert(0, self.model)
-        for candidate in candidates:
+        # The model belongs to the Dashboard Session shared runtime. A TaskRun
+        # only releases task-scoped ENV/DINO transports; owned VLA daemons are
+        # stopped by the runtime owner after the session finishes.
+        for candidate in (self.dino_component, self.env):
             if candidate is None:
                 continue
             closer = getattr(candidate, "close_transport", None)

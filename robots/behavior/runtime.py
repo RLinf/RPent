@@ -445,10 +445,10 @@ def _spawn_env_server(
 def _spawn_vla_server(
     args: argparse.Namespace,
     output_dir: Path,
-) -> tuple[ProcessDaemon | None, str]:
+) -> tuple[ProcessDaemon | None, "RpcClient"]:
     output_dir.mkdir(parents=True, exist_ok=True)
     if args.vla_endpoint is not None:
-        return None, str(args.vla_endpoint).rstrip("/")
+        return None, make_rpc_client(args.vla_endpoint)
     host, port = "127.0.0.1", pick_free_port()
     cuda_device = _component_cuda_device(args, "vla")
     # See _spawn_env_server: do not dereference a virtualenv's python symlink.
@@ -477,7 +477,7 @@ def _spawn_vla_server(
         log_path=str(output_dir / "behavior_vla_server.log"),
     )
     daemon.start()
-    return daemon, f"http://{host}:{port}"
+    return daemon, make_rpc_client(f"http://{host}:{port}")
 
 
 def _spawn_dino_server(
@@ -560,17 +560,25 @@ def _connect_env(
     }
 
 
-def _connect_vla(args: argparse.Namespace, endpoint: str) -> dict[str, Any]:
-    from robots.behavior.policy_checkpoint import validate_policy_checkpoint
+def _connect_vla(args: argparse.Namespace, rpc: "RpcClient") -> dict[str, Any]:
+    from robots.behavior.policy_checkpoint import (
+        assert_matching_policy_checkpoint_binding,
+        validate_policy_checkpoint,
+    )
     from robots.behavior.vla_client import BehaviorVLAClient
 
     expected_binding = validate_policy_checkpoint(args.policy_checkpoint)
-    model = BehaviorVLAClient(endpoint)
-    model.wait_for_healthz(
-        timeout_s=float(getattr(args, "vla_ready_timeout_s", 900.0)),
-        expected_checkpoint_binding=expected_binding,
+    server_meta = rpc.call(
+        "healthz",
+        timeout_s=min(float(getattr(args, "vla_ready_timeout_s", 900.0)), 30.0),
     )
-    return {"model": model, "vla_endpoint": endpoint}
+    if not isinstance(server_meta, dict):
+        raise TypeError("VLA healthz must return a mapping")
+    assert_matching_policy_checkpoint_binding(
+        server_meta.get("checkpoint_binding"),
+        expected_binding,
+    )
+    return {"model": BehaviorVLAClient(rpc), "vla_meta": dict(server_meta)}
 
 
 def _connect_dino(rpc: "RpcClient") -> dict[str, Any]:
@@ -609,79 +617,78 @@ def init_runtime(
     owned_daemons: dict[str, ProcessDaemon] = {}
     primitives_kwargs: dict[str, Any] = {}
     pending_env: tuple[ProcessDaemon | None, RpcClient] | None = None
-    pending_vla: tuple[ProcessDaemon | None, str] | None = None
+    pending_vla: tuple[ProcessDaemon | None, RpcClient] | None = None
     pending_dino: tuple[ProcessDaemon | None, RpcClient] | None = None
-    try:
-        if "env" in selected:
-            pending_env = try_spawn_server(
+    if "env" in selected:
+        pending_env = try_spawn_server(
+            owned_daemons,
+            dashboard_events,
+            "env",
+            lambda: _spawn_env_server(args, output_dir),
+        )
+    if "vla" in selected:
+        pending_vla = try_spawn_server(
+            owned_daemons,
+            dashboard_events,
+            "vla",
+            lambda: _spawn_vla_server(args, output_dir),
+        )
+    if "dino" in selected:
+        pending_dino = try_spawn_server(
+            owned_daemons,
+            dashboard_events,
+            "dino",
+            lambda: _spawn_dino_server(args, output_dir),
+        )
+    if "memory" in selected:
+        dashboard_events.emit(RuntimeStatusEvent("memory", "starting"))
+        try:
+            primitives_kwargs.update(_connect_memory(args))
+        except Exception as exc:
+            stop_owned_daemons(owned_daemons, dashboard_events)
+            dashboard_events.emit(RuntimeStatusEvent("memory", "failed", error=exc))
+            raise RuntimeError(f"[memory] connect failed: {exc}") from exc
+        dashboard_events.emit(RuntimeStatusEvent("memory", "ready"))
+
+    if pending_env is not None:
+        daemon, rpc = pending_env
+        primitives_kwargs.update(
+            try_wait_server(
                 owned_daemons,
                 dashboard_events,
                 "env",
-                lambda: _spawn_env_server(args, output_dir),
+                rpc,
+                daemon,
+                1800.0 if daemon is not None else 120.0,
+                post_fn=lambda: _connect_env(args, rpc, output_dir),
             )
-        if "vla" in selected:
-            pending_vla = try_spawn_server(
+        )
+    if pending_vla is not None:
+        daemon, rpc = pending_vla
+        primitives_kwargs.update(
+            try_wait_server(
                 owned_daemons,
                 dashboard_events,
                 "vla",
-                lambda: _spawn_vla_server(args, output_dir),
+                rpc,
+                daemon,
+                float(getattr(args, "vla_ready_timeout_s", 900.0)),
+                post_fn=lambda: _connect_vla(args, rpc),
             )
-        if "dino" in selected:
-            pending_dino = try_spawn_server(
+        )
+    if pending_dino is not None:
+        daemon, rpc = pending_dino
+        primitives_kwargs.update(
+            try_wait_server(
                 owned_daemons,
                 dashboard_events,
                 "dino",
-                lambda: _spawn_dino_server(args, output_dir),
+                rpc,
+                daemon,
+                600.0 if daemon is not None else 120.0,
+                post_fn=lambda: _connect_dino(rpc),
             )
-        if "memory" in selected:
-            dashboard_events.emit(RuntimeStatusEvent("memory", "starting"))
-            primitives_kwargs.update(_connect_memory(args))
-            dashboard_events.emit(RuntimeStatusEvent("memory", "ready"))
-
-        if pending_env is not None:
-            daemon, rpc = pending_env
-            primitives_kwargs.update(
-                try_wait_server(
-                    owned_daemons,
-                    dashboard_events,
-                    "env",
-                    rpc,
-                    daemon,
-                    1800.0 if daemon is not None else 120.0,
-                    post_fn=lambda: _connect_env(args, rpc, output_dir),
-                )
-            )
-        if pending_vla is not None:
-            daemon, endpoint = pending_vla
-            try:
-                vla_kwargs = _connect_vla(args, endpoint)
-            except Exception as exc:
-                stop_owned_daemons(owned_daemons, dashboard_events)
-                dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
-                raise RuntimeError(
-                    f"[vla] wait / client connect failed: {exc}"
-                ) from exc
-            dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
-            primitives_kwargs.update(vla_kwargs)
-            # Dashboard initializes shared VLA without an env component; the
-            # per-task toolkit must not close that shared HTTP client.
-            primitives_kwargs["close_model_on_shutdown"] = "env" in selected
-        if pending_dino is not None:
-            daemon, rpc = pending_dino
-            primitives_kwargs.update(
-                try_wait_server(
-                    owned_daemons,
-                    dashboard_events,
-                    "dino",
-                    rpc,
-                    daemon,
-                    600.0 if daemon is not None else 120.0,
-                    post_fn=lambda: _connect_dino(rpc),
-                )
-            )
-    except Exception:
-        stop_owned_daemons(owned_daemons, dashboard_events)
-        raise
+        )
     return list(owned_daemons.values()), primitives_kwargs
 
 
