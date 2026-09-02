@@ -24,12 +24,20 @@ the complete RoboCasa365 stack with ``.[robocasa]``:
 .. code-block:: bash
 
    uv venv --python 3.10
+   source .venv/bin/activate
    uv pip install -e ".[robocasa]" \
-      "torch==2.7.0" "torchvision==0.22.0" \
+      --constraint robots/robocasa/eval/target50-constraints.txt \
+      --override robots/robocasa/eval/target50-overrides.txt \
       --torch-backend=cu126
+   uv pip check
 
-This pins the Torch pair used by RLDX-1 and lets uv select the official CUDA
-wheel without treating the PyTorch wheel index as a general package index.
+The RoboCasa-specific constraints file pins the compatibility-sensitive
+package versions validated for Target50 reproduction without narrowing
+RPent's shared LIBERO or RoboTwin dependencies. The companion override file
+resolves the formal environment directly to the immutable Robosuite revision
+while the ordinary ``robocasa`` extra tracks its maintained ``rpent`` branch.
+The command also lets uv select the official CUDA wheel without treating the
+PyTorch wheel index as a general package index.
 Passing that index through ``--index`` can make uv select stale, unrelated
 packages under its default first-index strategy. The ``cu126`` command above
 is the validated CUDA installation; use another supported Torch backend only
@@ -40,7 +48,8 @@ For networks closer to Chinese mirrors:
 .. code-block:: bash
 
    uv pip install -e ".[robocasa]" \
-      "torch==2.7.0" "torchvision==0.22.0" \
+      --constraint robots/robocasa/eval/target50-constraints.txt \
+      --override robots/robocasa/eval/target50-overrides.txt \
       --default-index https://mirrors.aliyun.com/pypi/simple \
       --torch-backend=cu126
 
@@ -60,20 +69,19 @@ For networks closer to Chinese mirrors:
 
 **Post-install setup**
 
-One command writes ``macros_private.py`` and downloads the kitchen assets
-(~10 GB). Point it outside ``site-packages`` so the assets survive
-reinstalls:
+Download the kitchen assets (~10 GB) outside ``site-packages`` so they survive
+reinstalls. Target50 does not use RoboCasa dataset or teleop macros, so skip
+the optional private-macros setup:
 
 .. code-block:: bash
 
-   robocasa-download-assets --assets-path ~/.robocasa/assets -y
+   robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros -y
 
-It prints the environment variables to export afterwards; add them to the
-shell that launches ``rpent``:
+It prints the environment variable to export afterwards; add it to the shell
+that launches ``rpent``:
 
 .. code-block:: bash
 
-   export ROBOCASA_MACROS_PATH=~/.robocasa/macros_private.py
    export ROBOCASA_ASSETS_PATH=~/.robocasa/assets
 
 Re-run with ``--skip-existing`` to leave downloaded folders alone.
@@ -86,13 +94,8 @@ name is ``mobilebase0_navview``. RPent does not run a separate reset-time
 camera preflight; a missing camera fails when navigation RGB-D or world-map
 rendering first requests it. No manual ``site-packages`` XML patch is required.
 Target50 freezes the resolved Robosuite revision at
-``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``. Install that exact revision for
-a formal reproduction:
-
-.. code-block:: bash
-
-   uv pip install --reinstall \
-      "robosuite @ git+https://github.com/RLinf/robosuite.git@97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
+``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``. The Target50 override in the
+installation command above selects that exact revision.
 
 **RLDX-1 checkpoint**
 
@@ -110,7 +113,9 @@ If the download is slow, use the HF mirror:
 
 .. code-block:: bash
 
-   HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
+   HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 \
+      --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
+      --local-dir ./checkpoints/rldx-1-ft-rc365
 
 **Task memory**
 
@@ -258,7 +263,17 @@ RPent can run this robot. See :doc:`configure_planner` for configuration.
 For Target50, first download the fixed resources above, then invoke one ordinary
 command for each manifest cell. The Codex reference profile is ``gpt-5.5``,
 ``xhigh``, and ``max_turns=100``; RoboCasa itself remains planner-agnostic. For
-example, the first ``OpenDrawer`` Atomic cell is:
+the scene identity, use the ordinary ``--seed`` argument and do not set
+``RLDX_RESET_SEED``. Freeze the RLDX execution values first:
+
+.. code-block:: bash
+
+   export RLDX_MAX_CHUNKS=40
+   export RLDX_SETTLE_PATIENCE=999
+   export RLDX_ACTION_STEPS_PER_CHUNK=8
+   unset RLDX_RESET_SEED
+
+The first ``OpenDrawer`` Atomic cell is:
 
 .. code-block:: bash
 
@@ -277,6 +292,16 @@ the final recorded environment state has ``state.success=true``; the planner's
 ``finish(status=...)`` argument is not an evaluation label. Valid task failures
 and planner timeouts are not retried. Retry an infrastructure failure only when
 no valid environment result was produced for that cell.
+
+Every completed command atomically writes ``<output-dir>/result.json`` using
+the final environment ``state.success``. The record includes the effective
+protocol values but omits provider errors and credentials. Once all cells are
+present under ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json``,
+validate the fixed denominator and print the task-weighted score with:
+
+.. code-block:: bash
+
+   python -m robots.robocasa.eval.validate_target50 ./runs/target50
 
 .. note::
 
@@ -312,7 +337,7 @@ following task-level aggregates:
      - 15.00%
      - 11/80 (13.75%)
    * - Overall (task-weighted)
-     - 224/340 cells
+     - N/A
      - 57.00%
      - 55.40%
 
@@ -334,6 +359,9 @@ Troubleshooting
   RPent does not fall back to another task's memory.
 - Environment and VLA startup failures are recorded in
   ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
+- Local ``127.0.0.1`` and ``localhost`` RPC endpoints must bypass
+  ``HTTP_PROXY`` and ``HTTPS_PROXY``. Update RPent if a local endpoint is still
+  sent through a configured proxy.
 
 Toolkit design vs. LIBERO
 -------------------------

@@ -18,7 +18,7 @@ independent per-cell auditing.
 | Atomic | 18 | 163/180 | 90.56% | 165/180 (91.67%) | -1.11 pp |
 | Composite-Seen | 16 | 49/80 | 61.25% | 45/80 (56.25%) | +5.00 pp |
 | Composite-Unseen | 16 | 12/80 | 15.00% | 11/80 (13.75%) | +1.25 pp |
-| **Overall (task-weighted)** | **50** | **224/340 cells** | **57.00%** | **55.40%** | **+1.60 pp** |
+| **Overall (task-weighted)** | **50** | **N/A** | **57.00%** | **55.40%** | **+1.60 pp** |
 
 Split rates use `successful cells / evaluated cells`. The overall result uses
 the task-weighted RoboCasa365 convention, under which every task contributes

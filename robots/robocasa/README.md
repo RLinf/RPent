@@ -35,30 +35,33 @@ environment and install the RoboCasa extra with the validated Torch pair:
 uv venv --python 3.10
 source .venv/bin/activate
 uv pip install -e ".[robocasa]" \
-  "torch==2.7.0" "torchvision==0.22.0" \
+  --constraint robots/robocasa/eval/target50-constraints.txt \
+  --override robots/robocasa/eval/target50-overrides.txt \
   --torch-backend=cu126
+uv pip check
 ```
 
+The Target50-specific [constraints file](eval/target50-constraints.txt) pins
+the compatibility-sensitive package versions validated for reproduction
+without narrowing the shared RPent dependency ranges for LIBERO or RoboTwin.
+The accompanying [override file](eval/target50-overrides.txt) resolves the
+formal environment directly to the immutable Robosuite revision while the
+ordinary `robocasa` extra continues to track its maintained `rpent` branch.
+
 Download the RoboCasa kitchen assets outside `site-packages`, then export the
-paths printed by the command:
+path printed by the command. Target50 does not use RoboCasa dataset or teleop
+macros, so skip the optional private-macros setup:
 
 ```bash
-robocasa-download-assets --assets-path ~/.robocasa/assets -y
-export ROBOCASA_MACROS_PATH=~/.robocasa/macros_private.py
+robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros -y
 export ROBOCASA_ASSETS_PATH=~/.robocasa/assets
 ```
 
 The RPent Robosuite fork provides the Omron base-mounted `navview` camera,
 composed by MuJoCo as `mobilebase0_navview`. Target50 freezes Robosuite at
-`97cfbde4b68d8ec43dad20cf4747297866a6ca2e`. Install that exact revision for a
-formal reproduction:
-
-```bash
-uv pip install --reinstall \
-  "robosuite @ git+https://github.com/RLinf/robosuite.git@97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
-```
-
-No installed XML file needs to be patched manually.
+`97cfbde4b68d8ec43dad20cf4747297866a6ca2e`; the Target50 override in the
+installation command above selects that exact revision. No installed XML file
+needs to be patched manually.
 
 ## RLDX-1 Checkpoint
 
@@ -170,7 +173,18 @@ memory scope, the success source, and retry policy. Its protocol ID is
 
 Run each manifest cell with the ordinary CLI. The reference Codex profile is
 `gpt-5.5`, `xhigh`, and `max_turns=100`; this profile does not restrict the
-RoboCasa runtime to Codex. An Atomic cell is:
+RoboCasa runtime to Codex. The scene identity is the ordinary `--seed` value;
+do not set `RLDX_RESET_SEED`. Freeze the RLDX execution values before running
+the cells:
+
+```bash
+export RLDX_MAX_CHUNKS=40
+export RLDX_SETTLE_PATIENCE=999
+export RLDX_ACTION_STEPS_PER_CHUNK=8
+unset RLDX_RESET_SEED
+```
+
+An Atomic cell is:
 
 ```bash
 rpent --robot robocasa \
@@ -194,6 +208,19 @@ Execute Atomic 180, Composite-Seen 80, then Composite-Unseen 80. Each cell must
 own its environment and VLA worker; GPU concurrency is an execution setting and
 does not change the manifest.
 
+Each completed command atomically writes `<output-dir>/result.json`. This file
+uses the final environment `state.success`, records the effective protocol
+settings, and deliberately omits provider errors and credentials. After all
+cells finish, validate the fixed denominator and print the task-weighted score:
+
+```bash
+python -m robots.robocasa.eval.validate_target50 ./runs/target50
+```
+
+The expected layout is
+`<results-root>/<manifest-split>/<Task>_s<seed>/result.json`. A valid planner
+timeout remains a failed cell; an infrastructure error is rejected for rerun.
+
 ## Success and Retry Policy
 
 - A cell succeeds only when its final recorded environment state has
@@ -216,8 +243,9 @@ the Harness VLA reference results and for the aggregation boundary.
 
 ## Troubleshooting
 
-- **Assets or macros are missing:** rerun `robocasa-download-assets` and export
-  `ROBOCASA_MACROS_PATH` and `ROBOCASA_ASSETS_PATH` in the launch shell.
+- **Assets are missing:** rerun `robocasa-download-assets` and export
+  `ROBOCASA_ASSETS_PATH` in the launch shell. Private dataset and teleop macros
+  are not required by Target50.
 - **`mobilebase0_navview` is missing:** reinstall the frozen Robosuite revision
   above. Do not edit files under `site-packages`.
 - **The RLDX server cannot load:** verify `--vla-model-path`, CUDA visibility,
@@ -227,6 +255,9 @@ the Harness VLA reference results and for the aggregation boundary.
   task's files. Missing memory is expected for the seven tasks listed above.
 - **A server fails to start:** inspect `env_server.log`, `vla_server.log`, and
   `run.log` inside the cell's output directory.
+- **Local RPC follows an HTTP proxy:** update to an RPent revision containing
+  the loopback proxy bypass. Local `127.0.0.1` and `localhost` RPC must not use
+  `HTTP_PROXY` or `HTTPS_PROXY`.
 
 ## Further Documentation
 

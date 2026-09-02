@@ -22,21 +22,28 @@ RLDX-1 要求 Python ``3.10``。请创建独立环境，并通过 ``.[robocasa]`
 .. code-block:: bash
 
    uv venv --python 3.10
+   source .venv/bin/activate
    uv pip install -e ".[robocasa]" \
-      "torch==2.7.0" "torchvision==0.22.0" \
+      --constraint robots/robocasa/eval/target50-constraints.txt \
+      --override robots/robocasa/eval/target50-overrides.txt \
       --torch-backend=cu126
+   uv pip check
 
-该命令固定 RLDX-1 使用的 Torch 版本组合，并让 uv 只为 Torch 选择官方 CUDA
-wheel，避免把 PyTorch wheel 源作为通用 ``--index`` 后，在默认 first-index
-策略下误选其中的旧版无关依赖。上面的 ``cu126`` 是已验证的 CUDA 安装方式；
-仅当宿主机确有需要时才切换到其他受支持的 Torch backend。
+RoboCasa 专用 constraints 文件固定经 Target50 复现验证的兼容性敏感包版本，
+同时不会收窄 RPent 中 LIBERO 或 RoboTwin 的共享依赖。配套 override 文件让
+正式环境直接解析到不可变的 Robosuite revision，而普通 ``robocasa`` extra
+仍跟随维护中的 ``rpent`` 分支。该命令让 uv 只为 Torch 选择官方 CUDA wheel，
+避免把 PyTorch wheel 源作为通用 ``--index`` 后，在默认 first-index 策略下误选
+其中的旧版无关依赖。上面的 ``cu126`` 是已验证的 CUDA 安装方式；仅当宿主机
+确有需要时才切换到其他受支持的 Torch backend。
 
 国内网络可使用 PyPI 镜像加速：\
 
 .. code-block:: bash
 
    uv pip install -e ".[robocasa]" \
-      "torch==2.7.0" "torchvision==0.22.0" \
+      --constraint robots/robocasa/eval/target50-constraints.txt \
+      --override robots/robocasa/eval/target50-overrides.txt \
       --default-index https://mirrors.aliyun.com/pypi/simple \
       --torch-backend=cu126
 
@@ -55,18 +62,18 @@ wheel，避免把 PyTorch wheel 源作为通用 ``--index`` 后，在默认 firs
 
 **安装后处理**
 
-一条命令即可生成 ``macros_private.py`` 并下载厨房 assets（约 10 GB）。建议
-放在 ``site-packages`` 之外，重装不会丢：
+将厨房 assets（约 10 GB）下载到 ``site-packages`` 之外，重装不会丢。
+Target50 不使用 RoboCasa dataset 或 teleop macros，因此跳过可选的 private
+macros 配置：
 
 .. code-block:: bash
 
-   robocasa-download-assets --assets-path ~/.robocasa/assets -y
+   robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros -y
 
-命令结束时会打印需要导出的环境变量，把它们加到启动 ``rpent`` 的 shell 里：
+命令结束时会打印需要导出的环境变量，把它加到启动 ``rpent`` 的 shell 里：
 
 .. code-block:: bash
 
-   export ROBOCASA_MACROS_PATH=~/.robocasa/macros_private.py
    export ROBOCASA_ASSETS_PATH=~/.robocasa/assets
 
 加 ``--skip-existing`` 重跑会跳过已下载的目录。
@@ -78,12 +85,8 @@ wheel，避免把 PyTorch wheel 源作为通用 ``--index`` 后，在默认 firs
 ``mobilebase0_navview``。RPent 不再执行单独的 reset-time 相机预检；如果相机
 缺失，首次请求导航 RGB-D 或 world map 渲染时会自然报错。无需手工修改
 ``site-packages`` 中的 XML。Target50 将 Robosuite 固定为
-``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``；正式复现时安装该 revision：
-
-.. code-block:: bash
-
-   uv pip install --reinstall \
-      "robosuite @ git+https://github.com/RLinf/robosuite.git@97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
+``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``；上面安装命令中的 Target50
+override 会直接选中这一 revision。
 
 **RLDX-1 checkpoint**
 
@@ -100,7 +103,9 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
 
 .. code-block:: bash
 
-   HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
+   HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 \
+      --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
+      --local-dir ./checkpoints/rldx-1-ft-rc365
 
 **任务 Memory**
 
@@ -238,7 +243,17 @@ RoboCasa 不绑定具体 planner；RPent 支持的任意 planner 都可用于该
 
 正式 Target50 先按上文下载固定资源，再为 manifest 中每个 cell 调用一次普通
 命令。Codex 参考 profile 为 ``gpt-5.5``、``xhigh``、``max_turns=100``；
-RoboCasa 运行时本身仍与 planner 解耦。第一个 ``OpenDrawer`` Atomic cell 示例：
+RoboCasa 运行时本身仍与 planner 解耦。场景身份直接使用普通 ``--seed`` 参数，
+不要设置 ``RLDX_RESET_SEED``。先固定 RLDX 执行参数：
+
+.. code-block:: bash
+
+   export RLDX_MAX_CHUNKS=40
+   export RLDX_SETTLE_PATIENCE=999
+   export RLDX_ACTION_STEPS_PER_CHUNK=8
+   unset RLDX_RESET_SEED
+
+第一个 ``OpenDrawer`` Atomic cell 示例：
 
 .. code-block:: bash
 
@@ -255,6 +270,15 @@ Composite-Seen 与 Composite-Unseen 使用 ``--planner-timeout-s 3600``。执行
 Atomic、Composite-Seen、Composite-Unseen。成功只认最终环境记录中的
 ``state.success=true``，planner 的 ``finish(status=...)`` 不是评测标签。有效任务
 失败与 planner timeout 不重跑；只有没有产生有效环境结果的基础设施失败允许重跑。
+
+每条完成的命令都会原子写入 ``<output-dir>/result.json``，成功值只来自最终环境
+``state.success``。文件记录有效协议参数，但不保存 provider 错误原文或凭据。全部
+cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘后，
+用下面命令校验固定分母并输出任务加权指标：
+
+.. code-block:: bash
+
+   python -m robots.robocasa.eval.validate_target50 ./runs/target50
 
 .. note::
 
@@ -289,7 +313,7 @@ Atomic、Composite-Seen、Composite-Unseen。成功只认最终环境记录中�
      - 15.00%
      - 11/80 (13.75%)
    * - 总体（任务加权）
-     - 224/340 cells
+     - 不适用
      - 57.00%
      - 55.40%
 
@@ -309,6 +333,8 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
   memory 作为替代。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和
   ``<output_dir>/vla_server.log``。
+- 本地 ``127.0.0.1`` 与 ``localhost`` RPC 必须绕过 ``HTTP_PROXY`` 和
+  ``HTTPS_PROXY``。如果本地 endpoint 仍被发往代理，请更新 RPent。
 
 Toolkit 与 LIBERO 的差异
 ------------------------
