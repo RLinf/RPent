@@ -23,7 +23,6 @@ from rpent.dashboard.events import (
     RunStartedEvent,
     RuntimeStatusEvent,
     StepRecordEvent,
-    ToolResultEvent,
     TranscriptEvent,
     UsageEvent,
 )
@@ -33,15 +32,16 @@ from rpent.dashboard.interaction import (
     InteractionUnavailableError,
     UnknownDashboardMessageError,
 )
+from rpent.dashboard.spec import DashboardSpec
 from rpent.dashboard.state import DashboardState
 from rpent.session import EnvState
 
-DASHBOARD_SPEC = {
+DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",
         "usage": "/rpent-task <mode> <seed>",
         "fields": (
-            {"name": "mode", "suggestions": ("pick", "place")},
+            {"name": "mode", "choices": ("pick", "place")},
             {"name": "seed", "kind": "integer", "minimum": 0},
         ),
         "display": "{mode} / seed {seed}",
@@ -52,15 +52,15 @@ DASHBOARD_SPEC = {
         {"name": "env", "label": "ENV", "scope": "unique"},
     ),
     "frame_channels": (
-        {"name": "camera", "label": "camera"},
-        {"name": "wrist", "label": "wrist"},
+        {"name": "camera", "label": "camera", "artifact": "frame.bin"},
+        {"name": "wrist", "label": "wrist", "artifact": "wrist.bin"},
     ),
+    "primitives": ("move_to",),
 }
 
 
 def _state(tmp_path: Path) -> DashboardState:
     return DashboardState(
-        run_id="offline-session",
         output_dir=tmp_path,
         dashboard_spec=DASHBOARD_SPEC,
     )
@@ -111,12 +111,7 @@ def test_dashboard_task_commands_validate_and_latest_unclaimed_request_wins(
     assert claimed.output_dir == tmp_path / "tasks" / "0001_place_s2"
     assert state.wait_for_task(timeout=0) is None
     snapshot = state.snapshot()
-    assert snapshot["current_task"] == {
-        "mode": "place",
-        "seed": 2,
-        "parameters": {"mode": "place", "seed": 2},
-        "label": "place / seed 2",
-    }
+    assert snapshot["current_task"] == {"label": "place / seed 2"}
     assert snapshot["pending_task"] is None
     assert snapshot["control_error"] is None
 
@@ -156,7 +151,7 @@ def test_dashboard_task_replacement_seals_input_and_resets_only_unique_runtime(
         "env": {"status": "pending", "error": None},
     }
     assert completed["session_state"] == "task_starting"
-    assert completed["pending_task"]["parameters"] == {"mode": "place", "seed": 3}
+    assert completed["pending_task"] == {"label": "place / seed 3"}
     second = state.wait_for_task(timeout=0)
     assert second is not None
     assert second.number == 2
@@ -227,7 +222,7 @@ def test_dashboard_interrupt_lifecycle_accepts_only_busy_active_tasks(
         state.complete_interrupt()
 
 
-def test_dashboard_events_project_runtime_usage_timeline_and_newest_frames(
+def test_dashboard_events_project_runtime_usage_timeline_and_frames(
     tmp_path: Path,
 ) -> None:
     state = _ready_state(tmp_path)
@@ -237,40 +232,34 @@ def test_dashboard_events_project_runtime_usage_timeline_and_newest_frames(
     state.emit(TranscriptEvent({"type": "assistant", "text": "working"}))
     state.begin_planner_session()
     state.emit(UsageEvent(inp=2, out=1, tool_calls=2))
-    state.emit(
-        ToolResultEvent(
-            "move_to",
-            {
-                "step": 2,
-                "_image_cam_bytes": b"new-camera",
-                "terminated": True,
-                "log": {
-                    "command": {"action": "move_to", "arm": "left"},
-                    "result": {
-                        "position": np.asarray([1.0, 2.0, 3.0]),
-                        "path": Path("artifact.json"),
-                    },
-                    "elapsed_s": 0.5,
-                },
-            },
-        )
-    )
-    state.emit(ToolResultEvent("render", {"step": 1, "_image_cam_bytes": b"old"}))
+    env_state = EnvState(tmp_path / "env")
+    with env_state.record_step(
+        state={"phase": 1},
+        terminated=True,
+        command={"action": "move_to", "arm": "left"},
+        result={
+            "position": np.asarray([1.0, 2.0, 3.0]),
+            "path": Path("artifact.json"),
+        },
+        elapsed_s=0.5,
+    ):
+        env_state.save("frame.bin", b"new-camera")
+    record = env_state.latest_record()
+    assert record is not None
+    state.emit(StepRecordEvent(record, env_state))
 
-    detail = state.run_detail()
+    detail = state.session_detail()
     assert detail["usage"] == {"in": 5, "out": 5, "tool_calls": 3}
     assert detail["runtime"]["model"] == {"status": "ready", "error": None}
     assert detail["timeline"] == [
         {
-            "step": 2,
+            "step": 0,
             "action": "move_to",
             "args": {"arm": "left"},
             "result": {"position": [1.0, 2.0, 3.0], "path": "artifact.json"},
             "elapsed_s": 0.5,
             "terminated": True,
             "truncated": False,
-            "action_video_path": None,
-            "action_video_artifact": None,
             "has_action_video": False,
         }
     ]
@@ -301,13 +290,7 @@ def test_dashboard_step_events_offset_new_traces_and_resolve_action_video(
         first_env.save("action.mp4", b"first-video")
     first_record = first_env.latest_record()
     assert first_record is not None
-    state.emit(
-        StepRecordEvent(
-            first_record,
-            first_env,
-            {"camera": "frame.bin"},
-        )
-    )
+    state.emit(StepRecordEvent(first_record, first_env))
 
     second_env = EnvState(tmp_path / "second")
     with second_env.record_step(
@@ -320,15 +303,9 @@ def test_dashboard_step_events_offset_new_traces_and_resolve_action_video(
         second_env.save("frame.bin", b"second-frame")
     second_record = second_env.latest_record()
     assert second_record is not None
-    state.emit(
-        StepRecordEvent(
-            second_record,
-            second_env,
-            {"camera": "frame.bin"},
-        )
-    )
+    state.emit(StepRecordEvent(second_record, second_env))
 
-    detail = state.run_detail()
+    detail = state.session_detail()
     assert [item["step"] for item in detail["timeline"]] == [0, 1]
     assert detail["timeline"][0]["result"] == {"position": [1, 2, 3]}
     assert detail["timeline"][1]["terminated"] is True
