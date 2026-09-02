@@ -53,3 +53,12 @@ Run the complete suite with:
 ```bash
 pytest tests/unit_tests -v
 ```
+
+Real simulator checks live under `integration_tests` and are always opt-in;
+they are not part of the offline CI suite. For example, after installing the
+RoboCasa extra and assets, run its Target50 environment contract with:
+
+```bash
+RPENT_RUN_ROBOCASA_INTEGRATION=1 \
+  pytest tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py -v
+```
