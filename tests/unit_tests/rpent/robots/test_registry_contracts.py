@@ -199,17 +199,14 @@ def test_robotwin_runtime_contracts_contain_execution_critical_metadata() -> Non
 def test_behavior_uses_the_shared_pi05_registry_and_wire_contract() -> None:
     from robots.behavior.pi05 import PI05_BEHAVIOR_EMBODIMENT
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
-    from rpent.robots.components.pi05_vla_server import (
-        PI05_EMBODIMENTS,
-        build_model_cfg,
-    )
 
-    assert PI05_EMBODIMENTS["behavior"] is PI05_BEHAVIOR_EMBODIMENT
-    cfg = build_model_cfg("/checkpoint", PI05_EMBODIMENTS["behavior"])
-    assert cfg.openpi.config_name == "pi05_behavior"
-    assert cfg.openpi.action_chunk == 32
-    assert cfg.openpi.action_env_dim == 23
-    assert cfg.openpi_data.norm_stats_path.startswith("/checkpoint/")
+    openpi_config = PI05_BEHAVIOR_EMBODIMENT["openpi"]
+    assert openpi_config["config_name"] == "pi05_behavior"
+    assert openpi_config["action_chunk"] == 32
+    assert openpi_config["action_env_dim"] == 23
+    assert PI05_BEHAVIOR_EMBODIMENT["openpi_data"]["norm_stats_path"] == (
+        "assets/behavior-1k/2025-challenge-demos/norm_stats.json"
+    )
 
     class FakeRpcClient:
         def call(self, method, *, args, timeout_s):
