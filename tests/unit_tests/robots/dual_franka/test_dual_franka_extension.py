@@ -22,6 +22,7 @@ from argparse import Namespace
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from robots.dual_franka import get_robot_spec
 from robots.dual_franka.robot_spec import (
@@ -31,7 +32,6 @@ from robots.dual_franka.robot_spec import (
     _vla_server_command,
 )
 from robots.dual_franka.runtime_config import load_runtime_config
-from robots.dual_franka.vla_server import build_model_cfg
 from rpent.robots.base import enumerate_robots
 from rpent.robots.base import get_robot_spec as resolve_robot_spec
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
@@ -77,6 +77,7 @@ def test_dual_franka_cli_uses_current_interpreter_without_override_option():
 
 
 def test_dual_franka_uses_rpent_owned_robot_config():
+    pytest.importorskip("rlinf.envs.realworld.franka.franka_env")
     config_path = Path(__file__).parents[4] / "robots/dual_franka/config/example.yaml"
     runtime = load_runtime_config(None, task_description="test task")
     cfg = runtime.rlinf
@@ -107,6 +108,9 @@ def test_dual_franka_vla_server_command_uses_checkpoint_and_repo_id():
 
 
 def test_dual_franka_vla_config_and_obs_encoding():
+    pytest.importorskip("torch")
+    from robots.dual_franka.vla_server import build_model_cfg
+
     cfg = build_model_cfg("/models/global_step_5000", "org/dataset")
 
     client = Pi05VLAClient(None, embodiment="dual_franka")

@@ -82,7 +82,7 @@ robot config 并生成内部 RLinf adapter config，然后连接 Ray，等待 ``
 并将初始状态记录为 step ``0``。任务 ``0`` 不会加载 VLA。
 
 VLA 抓取 DEMO
---------
+-------------
 
 RPent提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露 ``vla_grasp``。
 并可在本地启动双臂 Franka VLA server。``PI05_CHECKPOINT_PATH`` 指向 

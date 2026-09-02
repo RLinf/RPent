@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import dataclasses
 
+import pytest
+
 # Keys RPent builds into ``env.eval.override_cfg`` and the ``DualFranka``
 # hardware config. Kept here (not a runtime constant) so this test doubles as
 # the authoritative drift guard.
@@ -49,6 +51,7 @@ _HARDWARE_KEYS = {
 
 
 def test_override_keys_are_valid_rlinf_fields():
+    pytest.importorskip("rlinf.envs.realworld.franka.tasks.dual_franka_tcp_env")
     from rlinf.envs.realworld.franka.tasks.dual_franka_tcp_env import (
         DualFrankaTCPRobotConfig,
     )
@@ -59,6 +62,7 @@ def test_override_keys_are_valid_rlinf_fields():
 
 
 def test_hardware_keys_are_valid_rlinf_fields():
+    pytest.importorskip("rlinf.scheduler.hardware.robots.dual_franka")
     from rlinf.scheduler.hardware.robots.dual_franka import DualFrankaConfig
 
     valid = {field.name for field in dataclasses.fields(DualFrankaConfig)}

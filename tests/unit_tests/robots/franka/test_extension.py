@@ -22,10 +22,10 @@ from argparse import Namespace
 from pathlib import Path
 
 import gymnasium as gym
+import pytest
 
 from robots.franka import get_robot_spec
 from robots.franka.robot_spec import _add_cli_args, _env_server_command, _parse_config
-from robots.franka.rpent_env import register_rpent_franka_env
 from robots.franka.runtime_config import load_runtime_config
 from rpent.robots.base import enumerate_robots
 from rpent.robots.base import get_robot_spec as resolve_robot_spec
@@ -71,6 +71,7 @@ def test_franka_cli_uses_current_interpreter_without_override_option():
 
 
 def test_franka_uses_rpent_owned_robot_config():
+    pytest.importorskip("rlinf.envs.realworld.franka.franka_env")
     config_path = Path(__file__).parents[4] / "robots/franka/config/example.yaml"
     runtime = load_runtime_config(config_path, task_description="test task")
     cfg = runtime.rlinf
@@ -83,5 +84,8 @@ def test_franka_uses_rpent_owned_robot_config():
 
 
 def test_rpent_franka_registration_exists():
+    pytest.importorskip("rlinf.envs.realworld.franka.franka_env")
+    from robots.franka.rpent_env import register_rpent_franka_env
+
     register_rpent_franka_env()
     assert gym.spec("RPentFrankaEnv-v1") is not None

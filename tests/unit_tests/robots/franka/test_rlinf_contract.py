@@ -18,11 +18,14 @@ from __future__ import annotations
 
 import dataclasses
 
+import pytest
+
 from robots.franka.runtime_config import ENV_DEFAULTS
 
 
 def test_env_defaults_keys_are_valid_rlinf_fields():
     """RPent's override keys must not drift from RLinf's dataclass fields."""
+    pytest.importorskip("rlinf.envs.realworld.franka.franka_env")
     from rlinf.envs.realworld.franka.franka_env import FrankaRobotConfig
 
     valid = {field.name for field in dataclasses.fields(FrankaRobotConfig)}

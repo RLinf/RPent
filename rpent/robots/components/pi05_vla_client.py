@@ -89,7 +89,9 @@ def _encode_obs_franka(env_obs: dict) -> dict:
         raise ValueError(f"expected [H,W,3] image, got shape {main.shape}")
     states = np.asarray(env_obs["states"], dtype=np.float32)
     if states.ndim != 1:
-        raise ValueError(f"states must be single-env shape [state_dim]; got {states.shape}")
+        raise ValueError(
+            f"states must be single-env shape [state_dim]; got {states.shape}"
+        )
     return {
         "main_images": main.astype(np.uint8)[None],
         "wrist_images": None,
@@ -116,7 +118,9 @@ def _encode_obs_dual_franka(env_obs: dict) -> dict:
         )
     states = np.asarray(env_obs["states"], dtype=np.float32)
     if states.ndim != 1:
-        raise ValueError(f"states must be single-env shape [state_dim]; got {states.shape}")
+        raise ValueError(
+            f"states must be single-env shape [state_dim]; got {states.shape}"
+        )
     return {
         "main_images": main.astype(np.uint8)[None],
         "wrist_images": None,

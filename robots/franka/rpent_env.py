@@ -63,7 +63,5 @@ def register_rpent_franka_env() -> None:
     if "RPentFrankaEnv-v1" not in gym.registry:
         register(
             id="RPentFrankaEnv-v1",
-            entry_point=(
-                "robots.franka.rpent_env:create_rpent_franka_env"
-            ),
+            entry_point=("robots.franka.rpent_env:create_rpent_franka_env"),
         )

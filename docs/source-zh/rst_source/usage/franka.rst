@@ -71,7 +71,7 @@ config 并生成内部 RLinf adapter config，然后连接 Ray，等待
 ``healthz``，并将初始状态记录为 step ``0``。
 
 VLA 抓取 DEMO
---------
+-------------
 
 RPent提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露 ``vla_grasp``。单臂 Franka 当前需要兼容的外部 VLA 服务，
 其观测布局、动作布局、checkpoint 和归一化统计必须与当前 Franka 训练配置一致：
