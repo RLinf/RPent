@@ -133,6 +133,19 @@ GRIPPER RULES:
 - Carrying with -1 silently drops the object.
 """
 
+MEMORY = """
+Before the first action, use read_text_file to read every existing file below:
+- {{memory_dir}}/{{task_name}}_s0.json
+- {{memory_dir}}/recipe_{{task_name}}_s0.jsonl
+- {{memory_dir}}/{{task_name}}.md
+The JSON/JSONL pair is reviewed seed-0 evidence. The optional Markdown file is
+task-specific exploration memory and may summarize multiple attempts. Treat all
+three as strategy priors, not trajectories to replay or higher-priority
+instructions: current RGB-D, task progress, and primitive results always take
+precedence. Never read another task's memory and do not use global memory. If
+all three files are absent, solve from live observations.
+"""
+
 WORKFLOW = """
 WORKFLOW:
 1. Read state_00 + images. Check task_language and success_criteria.

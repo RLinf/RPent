@@ -178,6 +178,11 @@ For a complete list of CLI options, see the [Key CLI options](https://rpent.read
 
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
 
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development setup, required checks, testing policy, and integration checklists.
+
 ## Citation and Acknowledgement
 
 If you find **RPent** or **Harness VLA** helpful, please cite the paper:

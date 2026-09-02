@@ -12,7 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pi0.5 VLA client for LIBERO."""
+"""Thin client wrapping the Pi0.5 VLA RPC server.
+
+The server lifecycle is the caller's responsibility: bring up
+``rpent.robots.components.pi05_vla_server`` (or any compatible ``vla.predict`` /
+``healthz`` implementation) before constructing this client.
+
+Embodiment-specific obs encoding is dispatched by the ``_ENCODE_OBS`` registry.
+Add a new encoder function and register it there per embodiment.
+"""
 
 from __future__ import annotations
 
@@ -22,47 +30,80 @@ import numpy as np
 
 from rpent.robots.components.vla_client_base import BaseVLAClient
 
+# ---------------------------------------------------------------------------
+# Obs encoder registry
+# ---------------------------------------------------------------------------
+
+
+def _encode_obs_libero(env_obs: dict) -> dict:
+    """LIBERO single-env obs → openpi batched wire obs.
+
+    openpi expects ``main_images [B,H,W,3]``, ``wrist_images [B,H,W,3]``
+    or ``None``, ``extra_view_images [B,H,W,3]`` or ``None``,
+    ``states [B,state_dim] float32``, ``task_descriptions [str]``.
+    Images are cast to ``uint8`` (openpi ``Normalize`` expects ``[0,255]``
+    uint8 input) and validated to be single ``[H,W,3]`` views.
+    """
+
+    def _batch_view(v):
+        if v is None:
+            return None
+        arr = np.asarray(v)
+        if arr.ndim != 3:
+            raise ValueError(f"expected [H,W,3] image, got shape {arr.shape}")
+        return arr.astype(np.uint8)[None]
+
+    main = np.asarray(env_obs["main_images"])
+    if main.ndim != 3:
+        raise ValueError(f"expected [H,W,3] image, got shape {main.shape}")
+    return {
+        "main_images": main.astype(np.uint8)[None],
+        "wrist_images": _batch_view(env_obs.get("wrist_images")),
+        "extra_view_images": _batch_view(env_obs.get("extra_view_images")),
+        "states": np.asarray(env_obs["states"], dtype=np.float32)[None],
+        "task_descriptions": [str(env_obs.get("task_descriptions") or "")],
+    }
+
+
+# NOTE: an embodiment registered here must also exist in the server's
+# ``PI05_EMBODIMENTS`` (and ``PI05_ROBOT_PLATFORMS`` if it sets ROBOT_PLATFORM);
+# the two registries are kept in sync manually.
+_ENCODE_OBS: dict[str, Any] = {
+    "libero": _encode_obs_libero,
+}
+
+
+# ---------------------------------------------------------------------------
+# Client
+# ---------------------------------------------------------------------------
+
 
 class Pi05VLAClient(BaseVLAClient):
-    """Adapt LIBERO observations to the common VLA RPC protocol."""
+    """Client wrapping a remote Pi0.5 VLA over any :class:`RpcClient` transport.
 
-    def predict_action_batch(
-        self,
-        env_obs: dict[str, Any],
-        mode: str = "eval",
-        **_kwargs,
-    ) -> tuple[np.ndarray, dict[str, Any]]:
-        """Encode one LIBERO observation and return a Pi0.5 action chunk."""
-        main_image = np.asarray(env_obs["main_images"])
-        if main_image.ndim != 3:
+    Construction requires an ``embodiment`` name (e.g. ``"libero"``) that
+    selects the obs encoder from ``_ENCODE_OBS``.
+    """
+
+    def __init__(self, client, *, embodiment: str):
+        super().__init__(client)
+        if embodiment not in _ENCODE_OBS:
             raise ValueError(
-                f"main_images expected shape [H,W,3]; got {main_image.shape}"
+                f"unknown pi05 client embodiment: {embodiment!r}; "
+                f"registered={list(_ENCODE_OBS)}"
             )
-        if main_image.dtype != np.uint8:
-            main_image = main_image.astype(np.uint8)
-        observation: dict[str, Any] = {
-            "main_images": main_image[None],
-            "wrist_images": None,
-            "extra_view_images": None,
-        }
-        for source_key in ("wrist_images", "extra_view_images"):
-            view = env_obs.get(source_key)
-            if view is None:
-                continue
-            array = np.asarray(view)
-            if array.size > 0 and array.ndim == 3:
-                if array.dtype != np.uint8:
-                    array = array.astype(np.uint8)
-                observation[source_key] = array[None]
+        self._embodiment = embodiment
 
-        states = np.asarray(env_obs["states"], dtype=np.float32)
-        if states.ndim != 1:
-            raise ValueError(
-                f"states must be single-env shape [state_dim]; got {states.shape}"
-            )
+    # ---- obs encode (symmetric with server decode_obs_<name>) ----
 
-        observation["states"] = states[None]
-        observation["task_descriptions"] = [str(env_obs.get("task_descriptions") or "")]
-        response = super().predict(observation, options={"mode": mode})
-        actions = np.asarray(response, dtype=np.float32)[0]
-        return actions, {}
+    def encode_obs(self, env_obs: dict) -> dict:
+        """Dispatch to the embodiment's encoder from ``_ENCODE_OBS``."""
+        return _ENCODE_OBS[self._embodiment](env_obs)
+
+    # ---- inference ----
+
+    def predict(self, env_obs: dict, options: dict | None = None) -> np.ndarray:
+        """Encode obs, request ``vla.predict``, strip batch dim, return ``[chunk, action_dim]``."""
+        openpi_obs = self.encode_obs(env_obs)
+        actions = super().predict(openpi_obs, options)
+        return np.asarray(actions)[0]
