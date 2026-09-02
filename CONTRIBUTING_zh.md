@@ -49,6 +49,18 @@ uv pip install pre-commit==4.6.2
 pre-commit install
 ```
 
+`test` extra 只包含轻量的单元测试依赖。开发新 robot 或修改已有 robot 时，请同时
+安装对应的运行时 extra，例如：
+
+```bash
+uv pip install -e ".[test,libero-pro]"  # LIBERO-Pro
+uv pip install -e ".[test,robocasa]"    # RoboCasa
+uv pip install -e ".[test,robotwin]"    # RoboTwin
+```
+
+只需安装当前改动涉及的 robot extra；模型 checkpoint、模拟器 assets 和其他预置
+资源仍应作为独立输入准备。
+
 ### 第 3 步：开发
 
 开发时请遵守以下约定：
@@ -76,10 +88,10 @@ pre-commit install
 pre-commit run --all-files
 
 # 运行全部单元测试。
-pytest tests -v
+pytest tests/unit_tests -v
 
 # 开发时运行单个文件中的相关测试。
-pytest tests/cli/test_main_contracts.py -k xxx -x
+pytest tests/unit_tests/cli/test_main_contracts.py -k xxx -x
 ```
 
 如果检查失败或修改了文件，请检查这些变化并重新运行。

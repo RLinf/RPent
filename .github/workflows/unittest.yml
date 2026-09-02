@@ -32,4 +32,4 @@ jobs:
       - name: Install test dependencies
         run: uv pip install --system -e ".[test]"
       - name: Run unit tests
-        run: pytest tests -v
+        run: pytest tests/unit_tests -v
