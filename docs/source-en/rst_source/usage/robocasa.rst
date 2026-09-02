@@ -10,9 +10,10 @@ for the wire/transport selection.
 
 .. note::
 
-   This page documents ordinary single-task ``rpent --robot robocasa`` runs.
-   It does not define the full Atomic/Seen/Unseen benchmark reproduction
-   protocol.
+   The public Target50 protocol is frozen in
+   ``robots/robocasa/eval/target50.json``. RPent uses ordinary single-task
+   ``rpent --robot robocasa`` commands for its 340 cells and does not ship a
+   benchmark batch launcher.
 
 Installation
 ------------
@@ -83,10 +84,15 @@ The ``robocasa`` extra installs the ``rpent`` branch of ``RLinf/robosuite``,
 which provides the Omron base's fixed ``navview`` camera. Its composed MuJoCo
 name is ``mobilebase0_navview``. RPent does not run a separate reset-time
 camera preflight; a missing camera fails when navigation RGB-D or world-map
-rendering first requests it. Reinstall ``.[robocasa]`` to refresh that branch;
-no manual ``site-packages`` XML patch is required. During this PR's validation,
-the branch resolved to commit ``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``;
-record the resolved commit when reporting experiments.
+rendering first requests it. No manual ``site-packages`` XML patch is required.
+Target50 freezes the resolved Robosuite revision at
+``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``. Install that exact revision for
+a formal reproduction:
+
+.. code-block:: bash
+
+   uv pip install --reinstall \
+      "robosuite @ git+https://github.com/RLinf/robosuite.git@97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
 
 **RLDX-1 checkpoint**
 
@@ -96,7 +102,9 @@ fine-tune). Download it from HuggingFace:
 
 .. code-block:: bash
 
-   hf download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
+   hf download RLWRLD/RLDX-1-FT-RC365 \
+      --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
+      --local-dir ./checkpoints/rldx-1-ft-rc365
 
 If the download is slow, use the HF mirror:
 
@@ -106,9 +114,13 @@ If the download is slow, use the HF mirror:
 
 **Task memory**
 
-Default evaluation syncs the ``robocasa/**`` subtree from the
-``RLinf/RPent-memory`` Hugging Face dataset into ``memory/robocasa``. The
-current task may use only these task-matched files under ``task_only/``:
+Before every ordinary run with the default ``hf`` profile, RPent's shared
+memory manager synchronizes the ``robocasa/**`` subtree from the
+`RLinf/RPent-memory dataset
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/task_only>`_
+into ``memory/robocasa``. An online ordinary run therefore requires no separate
+memory download. The current task may use only these task-matched files under
+``task_only/``:
 
 .. code-block:: text
 
@@ -116,29 +128,85 @@ current task may use only these task-matched files under ``task_only/``:
    memory/robocasa/task_only/<Task>_s0_recipe.jsonl
    memory/robocasa/task_only/<Task>.md  # optional
 
-The JSON/JSONL pair contains reviewed seed-0 evidence. The optional Markdown
-file contains task-specific exploration memory and may summarize multiple
-attempts; 16 Composite-Seen and 9 Composite-Unseen tasks currently provide one.
-The prompt requires the planner to read every current-task file that exists
-before acting. RPent makes those files available through ``read_text_file``
-but does not inject their contents into the prompt.
+The final published corpus contains 43 audit JSON files, 43 recipe JSONL files,
+and 25 task Markdown files, for 111 files in total and no global memory. The
+JSON/JSONL pair contains reviewed seed-0 evidence. The optional Markdown file
+contains task-specific exploration memory and may summarize multiple attempts;
+all 16 Composite-Seen and 9 Composite-Unseen tasks provide one. The prompt
+requires the planner to read every current-task file that exists before acting.
+RPent makes those files available through ``read_text_file`` but does not inject
+their contents into the prompt.
 
 RoboCasa never asks the planner to use global memory or another task's memory.
-If a current-task file is absent, ``read_text_file`` reports it as missing and
-the planner continues with the available task files and live observations.
-To use reviewed local files instead, select the local profile and pass the
-memory directory:
+Seven Composite-Unseen tasks have no task memory and remain in the evaluation:
+``HeatKebabSandwich``, ``PanTransfer``, ``PortionHotDogs``,
+``SeparateFreezerRack``, ``WaffleReheat``, ``WashFruitColander``, and
+``WeighIngredients``. They continue from live observations. Memory is strategy
+evidence; historical coordinates, poses, pixels, and subtask prompts must not
+replace current localization or the live task language.
+
+Ordinary runs synchronize Hugging Face ``main``. Formal Target50 runs use the
+immutable memory snapshot
+``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``:
+
+.. code-block:: bash
+
+   hf download RLinf/RPent-memory \
+      --repo-type dataset \
+      --revision 551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b \
+      --include "robocasa/**" \
+      --local-dir ./target50-memory
+
+Select the local profile and pass the directory containing the frozen results
+corpus:
 
 .. code-block:: bash
 
    rpent --robot robocasa --task-name OpenDrawer --seed 1 \
-         --vla-model-path /path/to/rldx --planner claude_code \
-         --memory-profile local --memory-dir /path/to/robocasa-memory
+         --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
+         --planner claude_code --model claude-opus-4-8 \
+         --memory-profile local \
+         --memory-dir ./target50-memory/robocasa
 
-Available task list
--------------------
+Target50 evaluation protocol
+----------------------------
 
-The 50 tasks used in RPent split into three groups:
+``robots/robocasa/eval/target50.json`` is the canonical manifest. It freezes the
+``target`` environment split, dependency revisions, memory scope, task and seed
+matrix, cell time limits, success source, and retry policy. Its protocol ID is
+``robocasa-harness-vla-v1``:
+
+.. list-table:: RoboCasa Target50 matrix
+   :header-rows: 1
+   :widths: 30 15 20 20 15
+
+   * - Split
+     - Tasks
+     - Seeds per task
+     - Cell timeout
+     - Cells
+   * - Atomic
+     - 18
+     - 1--10
+     - 1800 s
+     - 180
+   * - Composite-Seen
+     - 16
+     - 1--5
+     - 3600 s
+     - 80
+   * - Composite-Unseen
+     - 16
+     - 1--5
+     - 3600 s
+     - 80
+   * - **Total**
+     - **50**
+     -
+     -
+     - **340**
+
+The tasks split into three groups:
 
 - **Atomic (18)** — single-primitive articulation and pick-place
   tasks: ``CloseBlenderLid``, ``CloseFridge``,
@@ -179,7 +247,7 @@ are visible under ``rpent --robot robocasa --help``:
    rpent --robot robocasa \
          --task-name OpenDrawer \
          --split target \
-         --seed 0 \
+         --seed 1 \
          --vla-model-path /path/to/rldx \
          --planner claude_code \
          --model claude-opus-4-8
@@ -187,12 +255,72 @@ are visible under ``rpent --robot robocasa --help``:
 RoboCasa does not select a planner implementation; any planner supported by
 RPent can run this robot. See :doc:`configure_planner` for configuration.
 
+For Target50, first download the fixed resources above, then invoke one ordinary
+command for each manifest cell. The Codex reference profile is ``gpt-5.5``,
+``xhigh``, and ``max_turns=100``; RoboCasa itself remains planner-agnostic. For
+example, the first ``OpenDrawer`` Atomic cell is:
+
+.. code-block:: bash
+
+   rpent --robot robocasa \
+         --task-name OpenDrawer --split target --seed 1 \
+         --vla-model-path ./checkpoints/rldx-1-ft-rc365 --cuda-device 0 \
+         --planner codex --model gpt-5.5 --reasoning-effort xhigh \
+         --max-turns 100 --planner-timeout-s 1800 \
+         --memory-profile local \
+         --memory-dir ./target50-memory/robocasa/results \
+         --output-dir ./runs/target50/atomic/OpenDrawer_s1
+
+Use ``--planner-timeout-s 3600`` for either composite split. Execute Atomic,
+Composite-Seen, and Composite-Unseen in that order. A cell succeeds only when
+the final recorded environment state has ``state.success=true``; the planner's
+``finish(status=...)`` argument is not an evaluation label. Valid task failures
+and planner timeouts are not retried. Retry an infrastructure failure only when
+no valid environment result was produced for that cell.
+
 .. note::
 
    Use ``--env-endpoint`` / ``--vla-endpoint`` to point at already-running
    servers (``[protocol://]host:port``); when omitted, RPent spawns the env
    and VLA daemons in-process and writes their logs to
    ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
+
+Published Target50 results
+--------------------------
+
+The published Codex reproduction contains all 340 cells and reports the
+following task-level aggregates:
+
+.. list-table:: Codex Target50 reproduction
+   :header-rows: 1
+   :widths: 30 20 20 30
+
+   * - Split
+     - Successful cells
+     - Success rate
+     - Harness VLA reference
+   * - Atomic
+     - 163/180
+     - 90.56%
+     - 165/180 (91.67%)
+   * - Composite-Seen
+     - 49/80
+     - 61.25%
+     - 45/80 (56.25%)
+   * - Composite-Unseen
+     - 12/80
+     - 15.00%
+     - 11/80 (13.75%)
+   * - Overall (task-weighted)
+     - 224/340 cells
+     - 57.00%
+     - 55.40%
+
+The `complete per-task table
+<https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_
+contains the success count and accuracy for every task. The published record is
+task-level aggregate data; it does not include per-seed traces, raw trajectories,
+or failure classifications and therefore is not a per-cell audit artifact.
 
 Troubleshooting
 ---------------

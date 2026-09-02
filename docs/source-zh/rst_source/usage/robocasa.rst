@@ -9,8 +9,9 @@ RoboCasa
 
 .. note::
 
-   本页只说明普通的单任务 ``rpent --robot robocasa`` 运行方式，不定义
-   Atomic/Seen/Unseen 全量 benchmark 的正式复现协议。
+   公开的 Target50 协议固定在 ``robots/robocasa/eval/target50.json`` 中。
+   340 个 cell 均使用普通的单任务 ``rpent --robot robocasa`` 命令；RPent
+   不提供 benchmark 批量启动器。
 
 安装
 ----
@@ -75,11 +76,14 @@ wheel，避免把 PyTorch wheel 源作为通用 ``--index`` 后，在默认 firs
 ``robocasa`` extra 会安装 ``RLinf/robosuite`` 的 ``rpent`` 分支，该分支
 包含 Omron 底盘固定的 ``navview`` 相机，其组合后的 MuJoCo 相机名为
 ``mobilebase0_navview``。RPent 不再执行单独的 reset-time 相机预检；如果相机
-缺失，首次请求导航 RGB-D 或 world map 渲染时会自然报错。此时重新安装
-``.[robocasa]`` 以刷新该分支即可，无需手工修改 ``site-packages`` 中的 XML。
-本 PR 验证时该分支解析为 commit
-``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``；发布实验结果时应记录实际解析
-到的 commit。
+缺失，首次请求导航 RGB-D 或 world map 渲染时会自然报错。无需手工修改
+``site-packages`` 中的 XML。Target50 将 Robosuite 固定为
+``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``；正式复现时安装该 revision：
+
+.. code-block:: bash
+
+   uv pip install --reinstall \
+      "robosuite @ git+https://github.com/RLinf/robosuite.git@97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
 
 **RLDX-1 checkpoint**
 
@@ -88,7 +92,9 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
 
 .. code-block:: bash
 
-   hf download RLWRLD/RLDX-1-FT-RC365 --local-dir ./checkpoints/rldx-1-ft-rc365
+   hf download RLWRLD/RLDX-1-FT-RC365 \
+      --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
+      --local-dir ./checkpoints/rldx-1-ft-rc365
 
 下载慢的话用 HF 镜像:
 
@@ -98,8 +104,11 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
 
 **任务 Memory**
 
-默认评测会从 Hugging Face 数据集 ``RLinf/RPent-memory`` 同步 ``robocasa/**``
-到 ``memory/robocasa``。当前任务只能读取 ``task_only/`` 下与该任务对应的 memory：
+每次使用默认 ``hf`` profile 普通运行前，RPent 都会通过统一 memory manager，从
+`RLinf/RPent-memory 数据集
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/task_only>`_
+自动同步 ``robocasa/**`` 到 ``memory/robocasa``，因此在线普通运行无需单独下载
+memory。当前任务只能读取 ``task_only/`` 下与该任务对应的 memory：
 
 .. code-block:: text
 
@@ -107,27 +116,79 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
    memory/robocasa/task_only/<Task>_s0_recipe.jsonl
    memory/robocasa/task_only/<Task>.md  # 可选
 
-JSON/JSONL pair 保存经过审核的 seed-0 证据。可选的 Markdown 文件保存同任务
-探索 memory，可能汇总多次尝试；当前 16 个 Composite-Seen 和 9 个
-Composite-Unseen 任务包含此文件。Prompt 要求 planner 在开始动作前主动通过
-``read_text_file`` 读取当前任务所有存在的文件；RPent 不会把 Markdown 内容
-强制注入 prompt。
+最终发布的 corpus 包含 43 个 audit JSON、43 个 recipe JSONL 和 25 个任务
+Markdown，共 111 个文件且不含 global memory。JSON/JSONL pair 保存经过审核的
+seed-0 证据。可选 Markdown 保存同任务探索 memory，可能汇总多次尝试；全部
+16 个 Composite-Seen 和 9 个 Composite-Unseen 任务包含该文件。Prompt 要求
+planner 在开始动作前主动通过 ``read_text_file`` 读取当前任务所有存在的文件；
+RPent 不会把 Markdown 内容强制注入 prompt。
 
-RoboCasa 不要求 planner 使用 global memory，也不会读取其他任务的 memory 作为
-替代。当前任务文件缺失时，``read_text_file`` 会报告该文件不存在，planner 使用
-其余可用的同任务文件和实时观测继续。如需使用经过审核的本地 memory，请使用
-``--memory-profile local`` 并通过 ``--memory-dir`` 指定 memory 目录：
+RoboCasa 不要求 planner 使用 global memory，也不会退回读取其他任务的 memory。
+7 个 Composite-Unseen 任务完全没有 task memory，但仍计入评测：
+``HeatKebabSandwich``、``PanTransfer``、``PortionHotDogs``、
+``SeparateFreezerRack``、``WaffleReheat``、``WashFruitColander`` 和
+``WeighIngredients``；这些任务基于实时观测继续。Memory 仅是策略证据，历史
+坐标、位姿、像素和子任务 prompt 不能替代当前定位与完整实时任务语言。
+
+普通运行同步 Hugging Face ``main``；正式 Target50 使用固定 memory snapshot
+``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``：
+
+.. code-block:: bash
+
+   hf download RLinf/RPent-memory \
+      --repo-type dataset \
+      --revision 551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b \
+      --include "robocasa/**" \
+      --local-dir ./target50-memory
+
+随后选择 local profile，并传入固定的 results corpus 目录：
 
 .. code-block:: bash
 
    rpent --robot robocasa --task-name OpenDrawer --seed 1 \
-         --vla-model-path /path/to/rldx --planner claude_code \
-         --memory-profile local --memory-dir /path/to/robocasa-memory
+         --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
+         --planner claude_code --model claude-opus-4-8 \
+         --memory-profile local \
+         --memory-dir ./target50-memory/robocasa
 
-可用任务列表
-------------
+Target50 评测协议
+-----------------
 
-RPent 用的 50 个任务分三组:
+``robots/robocasa/eval/target50.json`` 是唯一规范清单，固定 ``target`` 环境
+split、依赖 revision、memory 边界、task/seed 矩阵、cell 时限、成功来源与重试
+规则；协议 ID 为 ``robocasa-harness-vla-v1``：
+
+.. list-table:: RoboCasa Target50 矩阵
+   :header-rows: 1
+   :widths: 30 15 20 20 15
+
+   * - Split
+     - 任务数
+     - 每任务 seed
+     - Cell 时限
+     - Cells
+   * - Atomic
+     - 18
+     - 1--10
+     - 1800 秒
+     - 180
+   * - Composite-Seen
+     - 16
+     - 1--5
+     - 3600 秒
+     - 80
+   * - Composite-Unseen
+     - 16
+     - 1--5
+     - 3600 秒
+     - 80
+   * - **总计**
+     - **50**
+     -
+     -
+     - **340**
+
+50 个任务分三组:
 
 - **Atomic (18)** —— 单步原语的开合与搬运任务: ``CloseBlenderLid``、
   ``CloseFridge``、``CloseToasterOvenDoor``、``CoffeeSetupMug``、
@@ -167,7 +228,7 @@ RoboCasa 的 CLI 参数由 ``robots/robocasa/__init__`` 注册，可通过
    rpent --robot robocasa \
          --task-name OpenDrawer \
          --split target \
-         --seed 0 \
+         --seed 1 \
          --vla-model-path /path/to/rldx \
          --planner claude_code \
          --model claude-opus-4-8
@@ -175,12 +236,67 @@ RoboCasa 的 CLI 参数由 ``robots/robocasa/__init__`` 注册，可通过
 RoboCasa 不绑定具体 planner；RPent 支持的任意 planner 都可用于该机器人。
 配置方式参见 :doc:`configure_planner`。
 
+正式 Target50 先按上文下载固定资源，再为 manifest 中每个 cell 调用一次普通
+命令。Codex 参考 profile 为 ``gpt-5.5``、``xhigh``、``max_turns=100``；
+RoboCasa 运行时本身仍与 planner 解耦。第一个 ``OpenDrawer`` Atomic cell 示例：
+
+.. code-block:: bash
+
+   rpent --robot robocasa \
+         --task-name OpenDrawer --split target --seed 1 \
+         --vla-model-path ./checkpoints/rldx-1-ft-rc365 --cuda-device 0 \
+         --planner codex --model gpt-5.5 --reasoning-effort xhigh \
+         --max-turns 100 --planner-timeout-s 1800 \
+         --memory-profile local \
+         --memory-dir ./target50-memory/robocasa/results \
+         --output-dir ./runs/target50/atomic/OpenDrawer_s1
+
+Composite-Seen 与 Composite-Unseen 使用 ``--planner-timeout-s 3600``。执行顺序为
+Atomic、Composite-Seen、Composite-Unseen。成功只认最终环境记录中的
+``state.success=true``，planner 的 ``finish(status=...)`` 不是评测标签。有效任务
+失败与 planner timeout 不重跑；只有没有产生有效环境结果的基础设施失败允许重跑。
+
 .. note::
 
    使用 ``--env-endpoint`` / ``--vla-endpoint`` 指向已运行的服务器
    (``[protocol://]host:port``)；不指定时，RPent 会就地启动 env 和 VLA
    子进程，日志分别写到 ``<output_dir>/env_server.log`` 和
    ``<output_dir>/vla_server.log``。
+
+已发布的 Target50 结果
+-----------------------
+
+已发布 Codex 复现覆盖全部 340 cells，任务级汇总如下：
+
+.. list-table:: Codex Target50 复现结果
+   :header-rows: 1
+   :widths: 30 20 20 30
+
+   * - Split
+     - 成功 cells
+     - 成功率
+     - Harness VLA 参考值
+   * - Atomic
+     - 163/180
+     - 90.56%
+     - 165/180 (91.67%)
+   * - Composite-Seen
+     - 49/80
+     - 61.25%
+     - 45/80 (56.25%)
+   * - Composite-Unseen
+     - 12/80
+     - 15.00%
+     - 11/80 (13.75%)
+   * - 总体（任务加权）
+     - 224/340 cells
+     - 57.00%
+     - 55.40%
+
+`完整逐任务结果表
+<https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_
+给出每个任务的成功次数和准确率。当前发布内容是任务级聚合数据，不包含 seed 级
+trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
 
 常见错误
 --------

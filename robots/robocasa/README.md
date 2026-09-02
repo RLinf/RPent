@@ -1,0 +1,236 @@
+# RoboCasa in RPent
+
+## Overview
+
+RPent runs the RoboCasa365 kitchen benchmark with a PandaOmron mobile
+manipulator and the frozen RLDX-1 policy. An agentic planner selects RPent
+primitives, while RLDX-1 executes the manipulation skills. The integration is
+planner-agnostic: API planners, Claude Code, Codex, and future RPent planners
+all use the same RoboCasa toolkit.
+
+The public Target50 protocol covers 50 tasks from the RoboCasa365 `target`
+environment split. It is intentionally expressed as an immutable manifest and
+ordinary single-task `rpent` commands; RPent does not include a benchmark batch
+launcher.
+
+## Runtime Flow
+
+```text
+rpent CLI -> task-memory sync -> environment and VLA servers
+          -> planner toolkit -> RoboCasa state.success
+```
+
+Unless external endpoints are supplied, RPent starts one RoboCasa environment
+server and one RLDX-1 VLA server for the run. The planner receives the current
+task language and observations through the RoboCasa toolkit. The environment's
+own `_check_success()` result is surfaced as `state.success` and is the only
+evaluation success signal.
+
+## Installation
+
+RLDX-1 requires Python 3.10. From the RPent repository root, create a dedicated
+environment and install the RoboCasa extra with the validated Torch pair:
+
+```bash
+uv venv --python 3.10
+source .venv/bin/activate
+uv pip install -e ".[robocasa]" \
+  "torch==2.7.0" "torchvision==0.22.0" \
+  --torch-backend=cu126
+```
+
+Download the RoboCasa kitchen assets outside `site-packages`, then export the
+paths printed by the command:
+
+```bash
+robocasa-download-assets --assets-path ~/.robocasa/assets -y
+export ROBOCASA_MACROS_PATH=~/.robocasa/macros_private.py
+export ROBOCASA_ASSETS_PATH=~/.robocasa/assets
+```
+
+The RPent Robosuite fork provides the Omron base-mounted `navview` camera,
+composed by MuJoCo as `mobilebase0_navview`. Target50 freezes Robosuite at
+`97cfbde4b68d8ec43dad20cf4747297866a6ca2e`. Install that exact revision for a
+formal reproduction:
+
+```bash
+uv pip install --reinstall \
+  "robosuite @ git+https://github.com/RLinf/robosuite.git@97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
+```
+
+No installed XML file needs to be patched manually.
+
+## RLDX-1 Checkpoint
+
+Download the RoboCasa365-finetuned checkpoint at the revision frozen by the
+Target50 manifest:
+
+```bash
+hf download RLWRLD/RLDX-1-FT-RC365 \
+  --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
+  --local-dir ./checkpoints/rldx-1-ft-rc365
+```
+
+Pass that directory to `--vla-model-path`. The checkpoint is not distributed
+inside RPent.
+
+## Task Memory
+
+Before every ordinary run using the default `hf` memory profile, RPent calls
+the shared `ensure_resources()` helper to synchronize the `robocasa/**` subtree
+from the public
+[`RLinf/RPent-memory`](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/results)
+dataset. Files land under `resources/robocasa/results`, so an online ordinary
+run does not require a separate memory download command.
+
+The published RoboCasa corpus contains 111 files: 43 audit JSON files, 43
+recipe JSONL files, and 25 task Markdown files. There is no global memory. For
+the current task, the planner may read only:
+
+```text
+resources/robocasa/results/<Task>_s0.json
+resources/robocasa/results/recipe_<Task>_s0.jsonl
+resources/robocasa/results/<Task>.md  # optional
+```
+
+The Markdown files cover all 16 Composite-Seen tasks and 9 Composite-Unseen
+tasks. Seven Composite-Unseen tasks have no published memory and still run from
+live observations:
+
+```text
+HeatKebabSandwich, PanTransfer, PortionHotDogs, SeparateFreezerRack,
+WaffleReheat, WashFruitColander, WeighIngredients
+```
+
+Memory is strategy evidence, not a trajectory to replay. The planner must not
+read another task's files or reuse historical coordinates, poses, pixels, or
+subtask prompts in place of the current task language and observations.
+
+Ordinary runs synchronize the dataset's current `main`. Formal Target50 runs
+instead use the immutable memory snapshot
+`551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b`:
+
+```bash
+hf download RLinf/RPent-memory \
+  --repo-type dataset \
+  --revision 551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b \
+  --include "robocasa/**" \
+  --local-dir ./target50-memory
+```
+
+## Run One Task
+
+The default HF profile synchronizes memory automatically:
+
+```bash
+rpent --robot robocasa \
+  --task-name OpenDrawer \
+  --split target \
+  --seed 1 \
+  --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
+  --cuda-device 0 \
+  --planner claude_code \
+  --model claude-opus-4-8 \
+  --memory-profile hf
+```
+
+To use a reviewed local corpus, point `--memory-dir` directly at its `results`
+directory:
+
+```bash
+rpent --robot robocasa \
+  --task-name OpenDrawer \
+  --split target \
+  --seed 1 \
+  --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
+  --cuda-device 0 \
+  --planner claude_code \
+  --model claude-opus-4-8 \
+  --memory-profile local \
+  --memory-dir ./target50-memory/robocasa/results
+```
+
+Planner credentials are supplied by the user outside the repository. See the
+[planner configuration guide](../../docs/source-en/rst_source/usage/configure_planner.rst)
+for all supported backends.
+
+## Target50 Reproduction
+
+[`eval/target50.json`](eval/target50.json) is the canonical evaluation
+manifest. It freezes task membership, seeds, time limits, dependency revisions,
+memory scope, the success source, and retry policy. Its protocol ID is
+`robocasa-harness-vla-v1`.
+
+| Split | Tasks | Seeds per task | Cell timeout | Cells |
+|---|---:|---:|---:|---:|
+| Atomic | 18 | 1-10 | 1800 s | 180 |
+| Composite-Seen | 16 | 1-5 | 3600 s | 80 |
+| Composite-Unseen | 16 | 1-5 | 3600 s | 80 |
+| **Total** | **50** | | | **340** |
+
+Run each manifest cell with the ordinary CLI. The reference Codex profile is
+`gpt-5.5`, `xhigh`, and `max_turns=100`; this profile does not restrict the
+RoboCasa runtime to Codex. An Atomic cell is:
+
+```bash
+rpent --robot robocasa \
+  --task-name OpenDrawer \
+  --split target \
+  --seed 1 \
+  --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
+  --cuda-device 0 \
+  --planner codex \
+  --model gpt-5.5 \
+  --reasoning-effort xhigh \
+  --max-turns 100 \
+  --planner-timeout-s 1800 \
+  --memory-profile local \
+  --memory-dir ./target50-memory/robocasa/results \
+  --output-dir ./runs/target50/atomic/OpenDrawer_s1
+```
+
+Use `--planner-timeout-s 3600` for Composite-Seen and Composite-Unseen cells.
+Execute Atomic 180, Composite-Seen 80, then Composite-Unseen 80. Each cell must
+own its environment and VLA worker; GPU concurrency is an execution setting and
+does not change the manifest.
+
+## Success and Retry Policy
+
+- A cell succeeds only when its final recorded environment state has
+  `state.success=true`. A planner-provided `finish(status=...)` value is not an
+  evaluation label.
+- A valid task failure and a planner timeout remain in the fixed denominator
+  and are not retried.
+- An infrastructure failure may be retried only when it produced no valid
+  environment result for the cell.
+- All 340 cells remain in the denominator, including the seven Unseen tasks
+  without task memory.
+
+## Published Results
+
+The published Codex reproduction reports `163/180` Atomic, `49/80`
+Composite-Seen, and `12/80` Composite-Unseen successes, for a task-weighted
+RoboCasa365 score of `57.00%`. See the
+[complete per-task table](eval/target50_codex_results.md) for comparison with
+the Harness VLA reference results and for the aggregation boundary.
+
+## Troubleshooting
+
+- **Assets or macros are missing:** rerun `robocasa-download-assets` and export
+  `ROBOCASA_MACROS_PATH` and `ROBOCASA_ASSETS_PATH` in the launch shell.
+- **`mobilebase0_navview` is missing:** reinstall the frozen Robosuite revision
+  above. Do not edit files under `site-packages`.
+- **The RLDX server cannot load:** verify `--vla-model-path`, CUDA visibility,
+  and `vla_server.log`. FlashAttention is optional; RLDX-1 can use PyTorch SDPA.
+- **Task memory is missing:** check `resources/robocasa/results` for HF mode or
+  the exact directory passed to `--memory-dir`. Do not substitute another
+  task's files. Missing memory is expected for the seven tasks listed above.
+- **A server fails to start:** inspect `env_server.log`, `vla_server.log`, and
+  `run.log` inside the cell's output directory.
+
+## Further Documentation
+
+- [English RoboCasa usage guide](../../docs/source-en/rst_source/usage/robocasa.rst)
+- [Chinese RoboCasa usage guide](../../docs/source-zh/rst_source/usage/robocasa.rst)
+- [Planner configuration](../../docs/source-en/rst_source/usage/configure_planner.rst)
+- [Harness VLA overview](../../docs/source-en/rst_source/awesome_works/harnessvla.rst)
