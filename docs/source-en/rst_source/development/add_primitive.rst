@@ -166,6 +166,34 @@ If the model keeps per-episode state, expose a ``vla_reset`` RPC and
 call it between tasks. The same server process can then be reused safely
 across sequential runs.
 
+Session-aware VLA backends (per-client policy state)
+----------------------------------------------------
+
+Most VLA backends are stateless: ``predict`` only runs inference and keeps
+no per-client state, so ``session_id`` can be ignored. Some models do carry
+per-client policy state (e.g. RLDX-1's memory/RTC); when a single
+``vla_server`` serves multiple clients, their policy state would
+cross-contaminate, so it must be isolated per session. Wiring it up in three
+parts:
+
+- **Facade side**: construct the ``BaseVLAFacade`` subclass with
+  ``enable_sessions=True`` and ``session_timeout_s``, and implement
+  ``_on_session_drop`` — clean up that client's policy state when the session
+  ends (the client's ``session.close`` RPC or idle expiry). If you need an
+  explicit reset, expose an extra ``reset_session`` RPC (clears policy state
+  only, does not destroy the session). ``serve`` must pass ``session_sweep_s``
+  (> 0) so a background thread periodically reclaims expired sessions.
+
+- **Client side**: construct the ``RpcClient`` inside the model client with
+  ``enable_sessions=True``; it registers a session with the server on
+  connect. ``session_id`` is derived from the connection and injected into
+  the server-side handler by the facade — the client does **not** pass it,
+  and must not forge ``session_ids`` inside ``predict``'s ``options``.
+
+- **Primitives side**: call ``reset_session`` before a task starts to clear
+  policy state left over from the previous episode, so consecutive runs do
+  not leak state into each other.
+
 Design principles for a new primitive
 -------------------------------------
 

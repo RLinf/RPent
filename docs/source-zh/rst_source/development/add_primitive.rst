@@ -149,6 +149,29 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 如果模型会保存每个回合的内部状态，应提供 ``vla_reset`` RPC，并在任务之间
 调用它完成重置。这样，同一个服务进程就能安全地复用于多次连续运行。
 
+session-aware 的 VLA 后端（per-client 策略状态）
+------------------------------------------------
+
+大多数 VLA 后端是无状态的：``predict`` 只做推理，不保存 per-client
+中间状态，``session_id`` 可以忽略。但有些模型带 per-client 策略状态
+（如 RLDX-1 的 memory/RTC），同一个 ``vla_server`` 服务多个 client 时，
+不同 client 的策略状态会互相污染，必须按 session 隔离。接入分三块：
+
+- **facade 侧**：构造 ``BaseVLAFacade`` 子类时传 ``enable_sessions=True``
+  和 ``session_timeout_s``，并实现 ``_on_session_drop``——session 结束
+  （client 的 ``session.close`` RPC 或 idle 过期）时在这里清理该 client
+  的策略状态。需要显式重置时，额外提供 ``reset_session`` RPC（只清策略
+  状态，不销毁 session）。``serve`` 必须传 ``session_sweep_s``（> 0），
+  让后台线程定期回收过期 session。
+
+- **client 侧**：model client 内部的 ``RpcClient`` 以
+  ``enable_sessions=True`` 构造，连接时自动向 server 注册 session。
+  ``session_id`` 由 facade 从连接派生并注入 server 端 handler，客户端
+  **不**传，也不应在 ``predict`` 的 ``options`` 里伪造 ``session_ids``。
+
+- **primitives 侧**：任务开始前调用 ``reset_session`` 清空上一回合残留
+  的策略状态，保证连续多次运行之间状态不串。
+
 新原语的设计原则
 ----------------
 
