@@ -115,7 +115,7 @@ VLA EXECUTION RULES (the single most important rule):
 2. NEVER put a manual command (move_to / move_base / navigate_to / set_gripper /
    scripted_grasp) BETWEEN two VLA calls of the same sub-operation. Every non-VLA
    command WIPES the VLA's frame history, forcing it to restart from scratch.
-3. Do NOT pass a small max_chunks (default 70 is fine). Do NOT pass
+3. Omit max_chunks and use the protocol default of 40. Do NOT pass
    settle_patience (default 999 disables settle detection).
 4. If RLDX returns 'cap', call it again with the same full task language to
    preserve history. Only re-stage after 2-3 consecutive calls show neither

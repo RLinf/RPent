@@ -242,7 +242,7 @@ TOOLS_SPEC = [
                 },
                 "max_chunks": {
                     "type": "integer",
-                    "description": "Action-chunk budget (default 70; do NOT set small)",
+                    "description": "Action-chunk budget (default 40)",
                 },
                 "force_reset": {
                     "type": "boolean",
@@ -290,7 +290,7 @@ TOOLS_SPEC = [
                 },
                 "max_chunks": {
                     "type": "integer",
-                    "description": "Action-chunk budget (default 70; do NOT set small)",
+                    "description": "Action-chunk budget (default 40)",
                 },
                 "force_reset": {
                     "type": "boolean",

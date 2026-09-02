@@ -7,6 +7,23 @@
   "total_tasks": 50,
   "total_cells": 340,
   "dependencies": {
+    "runtime": {
+      "python": "3.10",
+      "cuda": "12.6",
+      "constraints_file": "robots/robocasa/eval/target50-constraints.txt",
+      "overrides_file": "robots/robocasa/eval/target50-overrides.txt",
+      "packages": {
+        "mujoco": "3.3.1",
+        "numpy": "1.26.4",
+        "pydantic": "2.13.5",
+        "pydantic-ai-slim": "2.1.0",
+        "rlinf-rldx": "1.0.1.post10",
+        "rlinf-robocasa365": "1.0.1",
+        "torch": "2.7.0",
+        "torchvision": "0.22.0",
+        "transformers": "4.57.6"
+      }
+    },
     "robosuite": {
       "repository": "https://github.com/RLinf/robosuite",
       "commit": "97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
@@ -28,6 +45,15 @@
     "reasoning_effort": "xhigh",
     "max_turns": 100,
     "runtime_is_planner_agnostic": true
+  },
+  "runtime_protocol": {
+    "scene_seed_source": "cli_seed_identity",
+    "use_reset_seed_override": false,
+    "result_schema_version": "1.0",
+    "result_filename": "result.json",
+    "rldx_max_chunks": 40,
+    "rldx_settle_patience": 999,
+    "rldx_action_steps_per_chunk": 8
   },
   "memory_policy": {
     "scope": "same_task_seed_0",

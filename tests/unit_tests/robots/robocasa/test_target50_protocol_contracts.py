@@ -19,9 +19,18 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
+
+from robots.robocasa import robot_spec
+from robots.robocasa.eval.result import build_cell_result, write_cell_result
+from robots.robocasa.eval.validate_target50 import validate_results
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MANIFEST_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50.json"
+CONSTRAINTS_PATH = (
+    REPO_ROOT / "robots" / "robocasa" / "eval" / "target50-constraints.txt"
+)
+OVERRIDES_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50-overrides.txt"
 RESULTS_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50_codex_results.md"
 DOCUMENTATION_PATHS = [
     REPO_ROOT / "robots" / "robocasa" / "README.md",
@@ -115,6 +124,23 @@ def test_target50_manifest_identity_and_dependencies():
     assert manifest["total_cells"] == 340
 
     dependencies = manifest["dependencies"]
+    assert dependencies["runtime"] == {
+        "python": "3.10",
+        "cuda": "12.6",
+        "constraints_file": "robots/robocasa/eval/target50-constraints.txt",
+        "overrides_file": "robots/robocasa/eval/target50-overrides.txt",
+        "packages": {
+            "mujoco": "3.3.1",
+            "numpy": "1.26.4",
+            "pydantic": "2.13.5",
+            "pydantic-ai-slim": "2.1.0",
+            "rlinf-rldx": "1.0.1.post10",
+            "rlinf-robocasa365": "1.0.1",
+            "torch": "2.7.0",
+            "torchvision": "0.22.0",
+            "transformers": "4.57.6",
+        },
+    }
     assert dependencies["robosuite"]["commit"] == (
         "97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
     )
@@ -126,6 +152,30 @@ def test_target50_manifest_identity_and_dependencies():
         "repository_type": "dataset",
         "revision": "551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b",
         "include_pattern": "robocasa/**",
+    }
+
+
+def test_target50_constraints_match_manifest_packages():
+    packages = _manifest()["dependencies"]["runtime"]["packages"]
+    constraints = {
+        line.strip()
+        for line in CONSTRAINTS_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+
+    assert constraints == {f"{name}=={version}" for name, version in packages.items()}
+
+
+def test_target50_override_freezes_robosuite_source():
+    revision = _manifest()["dependencies"]["robosuite"]["commit"]
+    overrides = {
+        line.strip()
+        for line in OVERRIDES_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+
+    assert overrides == {
+        f"robosuite @ git+https://github.com/RLinf/robosuite.git@{revision}"
     }
 
 
@@ -197,6 +247,171 @@ def test_target50_codex_profile_is_reference_only():
     }
 
 
+def test_target50_runtime_protocol_is_frozen():
+    assert _manifest()["runtime_protocol"] == {
+        "scene_seed_source": "cli_seed_identity",
+        "use_reset_seed_override": False,
+        "result_schema_version": "1.0",
+        "result_filename": "result.json",
+        "rldx_max_chunks": 40,
+        "rldx_settle_patience": 999,
+        "rldx_action_steps_per_chunk": 8,
+    }
+
+
+def test_spawned_environment_uses_cli_seed_and_clears_legacy_override(
+    tmp_path, monkeypatch
+):
+    captured = {}
+
+    class FakeDaemon:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def start(self):
+            captured["started"] = True
+
+    monkeypatch.setattr(robot_spec, "ProcessDaemon", FakeDaemon)
+    monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 43210)
+    monkeypatch.setattr(robot_spec, "HttpRpcClient", lambda url: url)
+    args = SimpleNamespace(
+        env_endpoint=None,
+        task_name="OpenDrawer",
+        split="target",
+        seed=7,
+        cuda_device=0,
+    )
+
+    daemon, client = robot_spec._spawn_env_server(args, tmp_path)
+
+    seed_index = captured["cmd"].index("--seed")
+    assert captured["cmd"][seed_index + 1] == "7"
+    assert captured["env_overrides"]["RLDX_RESET_SEED"] == ""
+    assert captured["started"] is True
+    assert daemon is not None
+    assert client == "http://127.0.0.1:43210"
+
+
+def _cell_result(**overrides) -> dict:
+    values = {
+        "task_name": "OpenDrawer",
+        "environment_split": "target",
+        "seed": 1,
+        "success": False,
+        "environment_result_available": True,
+        "agent_error": None,
+        "elapsed_s": 12.34,
+        "planner": "codex",
+        "model": "gpt-5.5",
+        "reasoning_effort": "xhigh",
+        "max_turns": 100,
+        "cell_timeout_seconds": 1800,
+    }
+    values.update(overrides)
+    return build_cell_result(**values)
+
+
+def test_cell_result_uses_environment_success_and_sanitizes_errors(monkeypatch):
+    monkeypatch.setenv("RLDX_MAX_CHUNKS", "40")
+    monkeypatch.setenv("RLDX_SETTLE_PATIENCE", "999")
+    monkeypatch.setenv("RLDX_ACTION_STEPS_PER_CHUNK", "8")
+
+    result = _cell_result(
+        success=False,
+        agent_error="private provider connection failed at a secret endpoint",
+    )
+
+    assert result["protocol_id"] == "robocasa-harness-vla-v1"
+    assert result["evaluation_split"] == "atomic"
+    assert result["success"] is False
+    assert result["success_source"] == "state.success"
+    assert result["valid"] is False
+    assert result["termination_reason"] == "infrastructure_error"
+    assert result["runtime"] == {
+        "cell_timeout_seconds": 1800,
+        "rldx_max_chunks": 40,
+        "rldx_settle_patience": 999,
+        "rldx_action_steps_per_chunk": 8,
+    }
+    assert "secret" not in json.dumps(result)
+    assert "finish" not in result
+
+
+def test_cell_result_counts_planner_timeout_but_not_missing_environment_result():
+    timeout = _cell_result(agent_error="Codex SDK timed out after 1800s")
+    missing = _cell_result(
+        agent_error="Codex SDK timed out after 1800s",
+        environment_result_available=False,
+    )
+
+    assert timeout["termination_reason"] == "planner_timeout"
+    assert timeout["valid"] is True
+    assert timeout["success"] is False
+    assert missing["valid"] is False
+
+
+def test_cell_result_writer_is_atomic(tmp_path, monkeypatch):
+    monkeypatch.setenv("RLDX_MAX_CHUNKS", "40")
+
+    path = write_cell_result(
+        tmp_path,
+        **{
+            "task_name": "OpenDrawer",
+            "environment_split": "target",
+            "seed": 1,
+            "success": True,
+            "environment_result_available": True,
+            "agent_error": None,
+            "elapsed_s": 12.34,
+            "planner": "codex",
+            "model": "gpt-5.5",
+            "reasoning_effort": "xhigh",
+            "max_turns": 100,
+            "cell_timeout_seconds": 1800,
+        },
+    )
+
+    assert path == tmp_path / "result.json"
+    assert json.loads(path.read_text(encoding="utf-8"))["success"] is True
+    assert not (tmp_path / ".result.json.tmp").exists()
+
+
+def test_target50_validator_accepts_exactly_all_340_cells(tmp_path, monkeypatch):
+    monkeypatch.setenv("RLDX_MAX_CHUNKS", "40")
+    manifest = _manifest()
+
+    for split_name, split in manifest["splits"].items():
+        for task_name in split["tasks"]:
+            for seed in split["seeds"]:
+                output_dir = tmp_path / split_name / f"{task_name}_s{seed}"
+                output_dir.mkdir(parents=True)
+                write_cell_result(
+                    output_dir,
+                    task_name=task_name,
+                    environment_split="target",
+                    seed=seed,
+                    success=True,
+                    environment_result_available=True,
+                    agent_error=None,
+                    elapsed_s=1.0,
+                    planner="codex",
+                    model="gpt-5.5",
+                    reasoning_effort="xhigh",
+                    max_turns=100,
+                    cell_timeout_seconds=split["timeout_seconds"],
+                )
+
+    summary, errors = validate_results(tmp_path)
+
+    assert errors == []
+    assert summary["valid_cells"] == summary["expected_cells"] == 340
+    assert summary["overall"] == {
+        "metric": "task_weighted_success_rate",
+        "tasks": 50,
+        "success_rate": 1.0,
+    }
+
+
 def test_published_results_cover_target50_and_match_split_totals():
     manifest = _manifest()
     result_rows = re.findall(
@@ -242,6 +457,9 @@ def test_published_results_cover_target50_and_match_split_totals():
         100 * row["successes"] / row["evaluated"] for row in by_task.values()
     ) / len(by_task)
     assert task_weighted_rate == 57.0
+    assert "**Overall (task-weighted)** | **50** | **N/A** | **57.00%**" in (
+        RESULTS_PATH.read_text(encoding="utf-8")
+    )
 
 
 def test_target50_documentation_uses_frozen_revisions():
@@ -255,3 +473,8 @@ def test_target50_documentation_uses_frozen_revisions():
     for path in DOCUMENTATION_PATHS:
         contents = path.read_text(encoding="utf-8")
         assert all(value in contents for value in frozen_values), path
+        assert "target50-constraints.txt" in contents, path
+        assert "target50-overrides.txt" in contents, path
+        assert "RLDX_MAX_CHUNKS" in contents, path
+        assert "RLDX_RESET_SEED" in contents, path
+        assert "result.json" in contents, path
