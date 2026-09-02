@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 
+from rpent.dashboard import session as dashboard_session
 from rpent.dashboard.session import DashboardSessionController
 from rpent.dashboard.state import ClaimedTask
 from rpent.planner.base import PlannerResult
@@ -152,8 +153,14 @@ def test_dashboard_session_maps_task_outcomes(
 
 
 def test_dashboard_session_stops_shared_daemons_in_reverse_after_cleanup_error(
-    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    warnings: list[str] = []
+
+    def fake_warning(message: str, *args: Any) -> None:
+        warnings.append(message % args if args else message)
+
+    monkeypatch.setattr(dashboard_session.logger, "warning", fake_warning)
     stopped: list[str] = []
     daemons = [
         FakeDaemon("first", stopped),
@@ -170,7 +177,7 @@ def test_dashboard_session_stops_shared_daemons_in_reverse_after_cleanup_error(
     controller.run()
 
     assert stopped == ["third", "second", "first"]
-    assert "shared runtime cleanup failed: stop failed" in caplog.text
+    assert warnings == ["shared runtime cleanup failed: stop failed"]
 
 
 @pytest.mark.parametrize("merge_fails", [False, True])
