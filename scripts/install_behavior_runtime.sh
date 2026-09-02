@@ -10,12 +10,13 @@ RPENT_VENV="${RPENT_VENV:-${REPRO_ROOT}/venvs/rpent}"
 BEHAVIOR_VENV="${BEHAVIOR_VENV:-${REPRO_ROOT}/venvs/behavior}"
 LOG_DIR="${LOG_DIR:-${REPRO_ROOT}/logs/install}"
 TOOLS_DIR="${TOOLS_DIR:-${REPRO_ROOT}/tools}"
+export DOWNLOAD_DIR="${DOWNLOAD_DIR:-${REPRO_ROOT}/downloads}"
 UV_VERSION="${UV_VERSION:-0.12.7}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.10}"
 RLINF_REPO_URL="${RLINF_REPO_URL:-https://github.com/RLinf/RLinf.git}"
 RLINF_COMMIT="${RLINF_COMMIT:-dd92c62857da4c67aa5e7c36f731c0d6a121f6d7}"
 
-mkdir -p "${LOG_DIR}" "${TOOLS_DIR}" "$(dirname "${RPENT_VENV}")"
+mkdir -p "${LOG_DIR}" "${TOOLS_DIR}" "${DOWNLOAD_DIR}" "$(dirname "${RPENT_VENV}")"
 LOG_FILE="${LOG_DIR}/install-$(date -u +%Y%m%dT%H%M%SZ).log"
 exec > >(tee -a "${LOG_FILE}") 2>&1
 
