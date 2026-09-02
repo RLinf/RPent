@@ -61,7 +61,7 @@ Ray 启动时会捕获环境变量，因此必须先设置 node rank：
 .. code-block:: bash
 
 	# replace --robot-config and --calibration-path with your own paths
-	rpent --env franka --task-id 0 \
+	rpent --robot franka --task-id 0 \
 	  --planner claude_code --model claude-opus-4-8      \
 	  --robot-config robots/franka/config/example.yaml   \
 	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
@@ -78,7 +78,7 @@ RPent提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露 ``
 
 .. code-block:: bash
 
-	rpent --env franka --task-id 1 \
+	rpent --robot franka --task-id 1 \
 	  --vla-endpoint http://VLA_HOST:PORT \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/franka/config/example.yaml \

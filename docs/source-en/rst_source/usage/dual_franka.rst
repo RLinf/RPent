@@ -76,7 +76,7 @@ Task ``0`` tests conservative single-arm analytic motion and gripper primitives:
 
 .. code-block:: bash
 
-	rpent --env dual_franka --task-id 0 \
+	rpent --robot dual_franka --task-id 0 \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/dual_franka/config/example.yaml \
 	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
@@ -100,7 +100,7 @@ statistics:
 	export PI05_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
 	export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
 
-	rpent --env dual_franka --task-id 1 \
+	rpent --robot dual_franka --task-id 1 \
 	  --cuda-device 0 \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/dual_franka/config/example.yaml \
@@ -136,7 +136,7 @@ To attach RPent to an already-running dual-Franka environment service:
 
 .. code-block:: bash
 
-	rpent --env dual_franka --task-id 0 \
+	rpent --robot dual_franka --task-id 0 \
 	  --env-endpoint http://ROBOT_HOST:PORT \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/dual_franka/config/example.yaml \

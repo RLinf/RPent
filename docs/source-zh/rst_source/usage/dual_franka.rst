@@ -72,7 +72,7 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 
 .. code-block:: bash
 
-	rpent --env dual_franka --task-id 0 \
+	rpent --robot dual_franka --task-id 0 \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/dual_franka/config/example.yaml \
 	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
@@ -93,7 +93,7 @@ RPent提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露 ``
 	export PI05_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
 	export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
 
-	rpent --env dual_franka --task-id 1 \
+	rpent --robot dual_franka --task-id 1 \
 	  --cuda-device 0 \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/dual_franka/config/example.yaml \
@@ -129,7 +129,7 @@ checkpoint 必须包含：
 
 .. code-block:: bash
 
-	rpent --env dual_franka --task-id 0 \
+	rpent --robot dual_franka --task-id 0 \
 	  --env-endpoint http://ROBOT_HOST:PORT \
 	  --planner claude_code --model claude-opus-4-8 \
 	  --robot-config robots/dual_franka/config/example.yaml \
