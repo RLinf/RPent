@@ -39,13 +39,19 @@ echo "BEHAVIOR venv: ${BEHAVIOR_VENV}"
 echo "Install log: ${LOG_FILE}"
 
 UV_BIN="${TOOLS_DIR}/uv"
-if [[ ! -x "${UV_BIN}" ]] || [[ "$("${UV_BIN}" --version 2>/dev/null || true)" != "uv ${UV_VERSION}" ]]; then
+UV_VERSION_OUTPUT="$("${UV_BIN}" --version 2>/dev/null || true)"
+if [[ ! -x "${UV_BIN}" ]] || {
+    [[ "${UV_VERSION_OUTPUT}" != "uv ${UV_VERSION}" ]] &&
+        [[ "${UV_VERSION_OUTPUT}" != "uv ${UV_VERSION} "* ]]
+}; then
     UV_INSTALLER="${TOOLS_DIR}/uv-install-${UV_VERSION}.sh"
     curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" -o "${UV_INSTALLER}"
     env UV_UNMANAGED_INSTALL="${TOOLS_DIR}" sh "${UV_INSTALLER}"
 fi
-if [[ "$("${UV_BIN}" --version)" != "uv ${UV_VERSION}" ]]; then
-    echo "Expected uv ${UV_VERSION}, got $("${UV_BIN}" --version)." >&2
+UV_VERSION_OUTPUT="$("${UV_BIN}" --version)"
+if [[ "${UV_VERSION_OUTPUT}" != "uv ${UV_VERSION}" ]] &&
+    [[ "${UV_VERSION_OUTPUT}" != "uv ${UV_VERSION} "* ]]; then
+    echo "Expected uv ${UV_VERSION}, got ${UV_VERSION_OUTPUT}." >&2
     exit 1
 fi
 export PATH="${TOOLS_DIR}:${PATH}"
