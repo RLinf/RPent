@@ -28,6 +28,8 @@ import time
 from typing import Any
 
 import numpy as np
+import torch
+from omegaconf import OmegaConf
 
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.config import (
@@ -145,9 +147,7 @@ class Pi05VLAFacade(BaseVLAFacade):
             cfg["model_path"],
         )
         self._model = get_openpi_model(cfg, torch_dtype=None).cuda().eval()
-        self._inference_context = torch.no_grad
         logger.info("model ready in %.1fs", time.time() - t0)
-        super().__init__()
 
     # ---- inference ----
 

@@ -416,7 +416,7 @@ def _init_runtime(
                 },
             )
         },
-        "vla": lambda rpc: {"model": Pi05VLAClient(rpc)},
+        "vla": lambda rpc: {"model": Pi05VLAClient(rpc, embodiment="libero")},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
     }
     selected = set(starters) if components is None else components
