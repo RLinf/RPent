@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from rpent.session import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
+from rpent.tools.tool_spec import readonly
 
 if TYPE_CHECKING:
     from robots.robocasa.primitives import RoboCasaPrimitives

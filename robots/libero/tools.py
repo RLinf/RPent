@@ -27,7 +27,7 @@ from robots.libero.env_client import LiberoEnvClient
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
+from rpent.tools.tool_spec import readonly
 from rpent.utils.logging import get_logger
 
 logger = get_logger("libero")

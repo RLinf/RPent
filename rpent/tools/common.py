@@ -12,90 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Common physical agent tools."""
+"""Common physical agent tools.
+
+Each tool co-locates its hand-written spec (``description`` / ``input_schema``)
+with its function via :func:`~rpent.tools.func_tool.toolspec`; the module-level
+names are therefore :class:`~rpent.tools.tool_spec.ToolSpec` objects whose
+``handler`` holds the raw function. :data:`COMMON_TOOLS` is the registration
+order shared by :class:`Toolkit` and the memory-aware bindings.
+"""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-from rpent.tools.toolkit import readonly
+from rpent.tools.func_tool import toolspec
+from rpent.tools.tool_spec import ToolSpec, readonly
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_output_dir
-
-TOOLS_SPEC: list[dict] = [
-    {
-        "name": "read_text_file",
-        "description": (
-            "Read a UTF-8 text file. Use for past recipe JSONLs, audit JSONs, "
-            "and memory files. Large files are truncated."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Absolute or repo-relative path",
-                },
-                "max_chars": {
-                    "type": "integer",
-                    "description": "Max chars (default 40000)",
-                },
-            },
-            "required": ["path"],
-        },
-    },
-    {
-        "name": "write_text_file",
-        "description": (
-            "Write a UTF-8 text file (creates parent dirs). Use this to save "
-            "the working recipe JSONL and the final audit JSON at the end of "
-            "a successful run."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string"},
-                "content": {"type": "string"},
-            },
-            "required": ["path", "content"],
-        },
-    },
-    {
-        "name": "list_dir",
-        "description": (
-            "List files in a directory (non-recursive). Default = {{output_dir}}. "
-            "Use to inspect the working directory or discover existing resource files."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Default: {{output_dir}}"},
-            },
-        },
-    },
-    {
-        "name": "finish",
-        "description": (
-            "Call when the task is complete or unrecoverable. Halts the agent "
-            "loop. Save any artifacts (recipe, audit) BEFORE calling finish."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "status": {
-                    "type": "string",
-                    "description": "Outcome, e.g. 'success', 'failure', or 'stuck'.",
-                },
-                "summary": {
-                    "type": "string",
-                    "description": "Short natural-language summary of the run.",
-                },
-            },
-            "required": ["status", "summary"],
-        },
-    },
-]
 
 
 def _resolve(path: str) -> Path:
@@ -114,9 +48,29 @@ def _truncate(text: str, max_chars: int) -> str:
     )
 
 
-# Low-level file IO; planner-facing access is wrapped by MemoryManager.
+@toolspec(
+    description=(
+        "Read a UTF-8 text file. Use for past recipe JSONLs, audit JSONs, "
+        "and memory files. Large files are truncated."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Absolute or repo-relative path",
+            },
+            "max_chars": {
+                "type": "integer",
+                "description": "Max chars (default 40000)",
+            },
+        },
+        "required": ["path"],
+    },
+)
 @readonly
 def read_text_file(path: str, max_chars: int = 40000) -> dict:
+    """Read a UTF-8 text file."""
     p = _resolve(path)
     if not p.exists():
         return {"error": f"file not found: {p}"}
@@ -129,17 +83,45 @@ def read_text_file(path: str, max_chars: int = 40000) -> dict:
     return {"path": str(p), "size": len(text), "content": _truncate(text, max_chars)}
 
 
+@toolspec(
+    description=(
+        "Write a UTF-8 text file (creates parent dirs). Use this to save "
+        "the working recipe JSONL and the final audit JSON at the end of "
+        "a successful run."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"},
+        },
+        "required": ["path", "content"],
+    },
+)
 @readonly
 def write_text_file(path: str, content: str) -> dict:
+    """Write a UTF-8 text file (creates parent dirs)."""
     p = _resolve(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content)
     return {"path": str(p), "bytes_written": len(content.encode("utf-8"))}
 
 
+@toolspec(
+    description=(
+        "List files in a directory (non-recursive). Default = {{output_dir}}. "
+        "Use to inspect the working directory or discover existing resource files."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Default: {{output_dir}}"},
+        },
+    },
+)
 @readonly
 def list_dir(path: str = "") -> dict:
-    # Default to the current output dir (so parallel agents see their own).
+    """List files in a directory (non-recursive); defaults to the output dir."""
     p = _resolve(path) if path else get_output_dir()
     if not p.exists():
         return {"error": f"directory not found: {p}"}
@@ -147,6 +129,26 @@ def list_dir(path: str = "") -> dict:
     return {"path": str(p), "count": len(files), "files": files}
 
 
+@toolspec(
+    description=(
+        "Call when the task is complete or unrecoverable. Halts the agent "
+        "loop. Save any artifacts (recipe, audit) BEFORE calling finish."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string",
+                "description": "Outcome, e.g. 'success', 'failure', or 'stuck'.",
+            },
+            "summary": {
+                "type": "string",
+                "description": "Short natural-language summary of the run.",
+            },
+        },
+        "required": ["status", "summary"],
+    },
+)
 @readonly
 def finish(status: str, summary: str) -> dict:
     """Signal that the run is complete. Halts the agent loop.
@@ -160,9 +162,10 @@ def finish(status: str, summary: str) -> dict:
     return {"_finish": True, "status": status, "summary": summary}
 
 
-TOOL_HANDLERS: dict = {
-    "read_text_file": read_text_file,
-    "write_text_file": write_text_file,
-    "list_dir": list_dir,
-    "finish": finish,
-}
+#: Co-located common tools in registration order.
+COMMON_TOOLS: list[ToolSpec] = [
+    read_text_file,
+    write_text_file,
+    list_dir,
+    finish,
+]

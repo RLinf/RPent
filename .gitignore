@@ -22,3 +22,9 @@ docs/build/
 
 build/
 .claude/settings.json
+
+# Isolated test-dependency install target.
+/.testdeps/
+
+# Local Python virtualenv.
+/venv/

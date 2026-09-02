@@ -722,15 +722,14 @@ def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
     # sequential=True serializes a turn's tool calls so the toolkit's
     # single-operation lock never rejects an overlapping call.
     tools: list[Tool] = [Tool(image_reader, name="read_image", sequential=True)]
-    for spec in toolkit.get_tools_spec():
-        name = spec["name"]
+    for tool in toolkit.get_tools_spec():
+        name = tool.name
         tools.append(
             Tool.from_schema(
                 function=_make_tool_function(toolkit, name, no_images=no_images),
                 name=name,
-                description=spec.get("description", ""),
-                json_schema=spec.get("input_schema")
-                or {"type": "object", "properties": {}},
+                description=tool.description,
+                json_schema=tool.input_schema or {"type": "object", "properties": {}},
                 takes_ctx=False,
                 sequential=True,
             )

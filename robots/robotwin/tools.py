@@ -21,7 +21,7 @@ from typing import Any
 import numpy as np
 
 from rpent.session import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
+from rpent.tools.tool_spec import readonly
 
 
 def _tool_error(code: str, message: str, **details: Any) -> dict[str, Any]:

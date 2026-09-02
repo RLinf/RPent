@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rpent.tools.toolkit import readonly
+from rpent.tools.tool_spec import readonly
 from rpent.utils.config import get_repo_root
 
 # Published memory subtrees an eval run may read. ``results`` retains
@@ -123,7 +123,7 @@ def read_text_file(
     )
     from rpent.tools import common
 
-    return common.read_text_file(path, max_chars)
+    return common.read_text_file.handler(path, max_chars)
 
 
 @readonly
@@ -144,7 +144,7 @@ def write_text_file(
     )
     from rpent.tools import common
 
-    return common.write_text_file(path, content)
+    return common.write_text_file.handler(path, content)
 
 
 @readonly
@@ -164,4 +164,4 @@ def list_dir(
     )
     from rpent.tools import common
 
-    return common.list_dir(path)
+    return common.list_dir.handler(path)

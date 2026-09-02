@@ -91,7 +91,7 @@ def test_results_corpus_is_readable_through_memory_tool(monkeypatch, tmp_path):
 
     manager = MemoryManager(root=memory_root)
     bindings = manager.get_common_tool_bindings()
-    read_text_file = bindings["read_text_file"][1]
+    read_text_file = bindings["read_text_file"].handler
     write_text_file = bindings["write_text_file"][1]
 
     assert read_text_file(path=str(audit))["content"] == '{"success": true}\n'

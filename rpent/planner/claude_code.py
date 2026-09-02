@@ -343,9 +343,7 @@ class ClaudeCodePlanner:
             part for part in self._allowed_tools.replace(",", " ").split() if part
         ]
         builtins = [name for name in allowed if "__" not in name]
-        allowed.extend(
-            add_mcp_prefix(str(spec["name"])) for spec in toolkit.get_tools_spec()
-        )
+        allowed.extend(add_mcp_prefix(tool.name) for tool in toolkit.get_tools_spec())
 
         thinking = {"type": "disabled"} if self._reasoning_effort == "none" else None
         effort = None if self._reasoning_effort == "none" else self._reasoning_effort
@@ -790,23 +788,21 @@ class _Recorder:
 
 def _build_rpent_server(sdk: Any, *, toolkit: Toolkit) -> Any:
     sdk_tools = []
-    tool_execution_lock = asyncio.Lock()
-    for spec in toolkit.get_tools_spec():
-        name = str(spec["name"])
-        description = str(spec.get("description", ""))
-        input_schema = spec.get("input_schema", {"type": "object"})
+    for tool in toolkit.get_tools_spec():
+        name = tool.name
+        description = tool.description
+        input_schema = tool.input_schema
 
         async def run_tool(
             args: dict[str, Any],
             *,
             tool_name: str = name,
         ) -> dict[str, Any]:
-            async with tool_execution_lock:
-                result = await asyncio.to_thread(
-                    toolkit.execute_tool,
-                    tool_name,
-                    args or {},
-                )
+            result = await asyncio.to_thread(
+                toolkit.execute_tool,
+                tool_name,
+                args or {},
+            )
             return _tool_result_to_mcp(result)
 
         run_tool.__name__ = f"rpent_{name}"

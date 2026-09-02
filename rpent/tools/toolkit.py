@@ -28,11 +28,11 @@ import time
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from functools import partial
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
-from rpent.utils.templates import substitute
+from rpent.tools.tool_spec import ToolSpec
+from rpent.utils.rwlock import RWLock
 
 if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager
@@ -65,26 +65,6 @@ def _truncate_utf8(text: str, max_bytes: int, *, marker: str = "") -> str:
         errors="ignore",
     )
     return body + marker
-
-
-def readonly(func):
-    """Mark a tool handler as not advancing environment state.
-
-    Tool handlers capture a fresh observation (:meth:`Toolkit.get_env_state`)
-    by default. Apply this marker to observational and file/IO tools that do
-    not move the robot or otherwise change the environment.
-    """
-    func._readonly = True
-    return func
-
-
-def _is_readonly(handler: Callable[..., Any]) -> bool:
-    """Whether ``handler`` was marked with :func:`readonly`."""
-    target = handler
-    while isinstance(target, partial):
-        target = target.func
-    target = getattr(target, "__func__", target)
-    return bool(getattr(target, "_readonly", False))
 
 
 @dataclass
@@ -188,14 +168,15 @@ class Toolkit:
         state: Any = None,
         memory: "MemoryManager",
     ) -> None:
-        self._tools: dict[
-            str,
-            tuple[dict[str, Any], Callable[..., Any]],
-        ] = {}
+        self._tools: dict[str, ToolSpec] = {}
         self._dashboard_events = dashboard_events
         self._state = state
         self._memory = memory
+        #: Guards ``_active_operation`` bookkeeping. Read-only tools run under
+        #: the RWLock's shared read lock (concurrent), stateful tools under the
+        #: exclusive write lock (mutual exclusion); see :meth:`execute_tool`.
         self._operation_lock = threading.Lock()
+        self._lock = RWLock()
         self._active_operation: _ToolOperation | None = None
         self._register_common_tools()
 
@@ -218,21 +199,35 @@ class Toolkit:
             handler: Callable invoked with the tool's input kwargs; returns
                 a result dict. Decorate read-only handlers with
                 :func:`readonly`; all other handlers capture state.
+
+        The hand-written ``spec`` is normalized to a :class:`ToolSpec`
+        internally; see :meth:`add_tool_spec` to register a pre-built
+        ``ToolSpec`` (e.g. from a decorator).
         """
-        self._tools[name] = (spec, handler)
+        self._tools[name] = ToolSpec.from_spec(spec, handler)
+
+    def add_tool_spec(self, spec: ToolSpec) -> None:
+        """Register one tool from a pre-built :class:`ToolSpec`.
+
+        Accepts only a ``ToolSpec`` — bare dicts and unpacked (spec, handler)
+        pairs are rejected so every registration path converges on the same
+        normalized representation.
+        """
+        if not isinstance(spec, ToolSpec):
+            raise TypeError(
+                "add_tool_spec expects a ToolSpec, got "
+                f"{type(spec).__name__}; use add_tool(name, spec, handler) "
+                "for hand-written spec dicts"
+            )
+        self._tools[spec.name] = spec
 
     def _register_common_tools(self) -> None:
         """Register the file/IO tools shared by every run."""
         from rpent.tools import common
 
         memory_bindings = self._memory.get_common_tool_bindings()
-        for spec in common.TOOLS_SPEC:
-            name = spec["name"]
-            binding = memory_bindings.get(name)
-            if binding is None:
-                binding = (spec, common.TOOL_HANDLERS[name])
-            tool_spec, handler = binding
-            self.add_tool(name, tool_spec, handler)
+        for tool in common.COMMON_TOOLS:
+            self.add_tool_spec(memory_bindings.get(tool.name) or tool)
 
     # ------------------------------------------------------------------
     # Planner-facing API
@@ -250,80 +245,106 @@ class Toolkit:
             raise RuntimeError("toolkit has no environment state")
         return self._state
 
-    def get_tools_spec(self) -> list[dict[str, Any]]:
-        """Return the tool schemas the LLM sees."""
-        return substitute([spec for spec, _ in self._tools.values()])
+    def get_tools_spec(self) -> list[ToolSpec]:
+        """Return the tools the LLM sees, with placeholders resolved.
+
+        Each call returns fresh ``ToolSpec`` copies (``{{output_dir}}`` and
+        friends substituted) so callers never mutate the registered tools.
+        """
+        return [tool.resolved() for tool in self._tools.values()]
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
-        """Dispatch a tool call to its registered handler."""
-        entry = self._tools.get(name)
-        if entry is None:
+        """Dispatch a tool call to its registered handler.
+
+        Read-only tools run concurrently under the shared read lock; stateful
+        tools are mutually exclusive under the write lock (they may be
+        cancelled via :meth:`cancel_active_and_wait`).
+        """
+        tool = self._tools.get(name)
+        if tool is None:
             return ToolResult(name=name, result={"error": f"unknown tool: {name}"})
-        _, handler = entry
 
-        with self._operation_lock:
-            if self._active_operation is not None:
-                return ToolResult(
-                    name=name,
-                    result={"error": "another tool operation is still active"},
+        if tool.readonly:
+            with self._lock.read():
+                return self._run_tool(
+                    name, tool.handler, input_dict, capture_state=False
                 )
-            operation = _ToolOperation()
-            self._active_operation = operation
 
-        try:
-            started = time.perf_counter()
-            failed = False
-            try:
-                result = handler(**input_dict)
-            except TypeError as e:
-                result = {
-                    "error": f"bad arguments for {name}: {e}",
-                    "got": input_dict,
-                }
-                failed = True
-            except ToolCancelled as e:
-                result = {
-                    "error": str(e),
-                    "code": "tool_cancelled",
-                    "interrupted": True,
-                }
-                failed = True
-            except Exception as e:
-                result = {"error": str(e), "traceback": traceback.format_exc()}
-                failed = True
-
-            if not _is_readonly(handler):
-                elapsed_s = round(time.perf_counter() - started, 2)
-                result_dict = result if isinstance(result, dict) else {"value": result}
-                command = {"action": name, **input_dict}
-                record: StepRecord | None = None
-                try:
-                    captured = self.get_env_state(
-                        command=command,
-                        result=result_dict,
-                        elapsed_s=elapsed_s,
-                    )
-                except Exception as e:
-                    captured = result_dict
-                    captured["state_capture_error"] = str(e)
-                    captured.setdefault(
-                        "error", f"failed to capture state after {name}: {e}"
-                    )
-                    captured.setdefault("traceback", traceback.format_exc())
-                else:
-                    record = self._state.latest_record()
-                result = captured
-                if failed:
-                    for key, value in result_dict.items():
-                        result.setdefault(key, value)
-                if record is not None:
-                    self._publish_step(record)
-
-            return ToolResult(name=name, result=result)
-        finally:
+        with self._lock.write():
             with self._operation_lock:
-                self._active_operation = None
-                operation.done_event.set()
+                operation = _ToolOperation()
+                self._active_operation = operation
+            try:
+                return self._run_tool(
+                    name, tool.handler, input_dict, capture_state=True
+                )
+            finally:
+                with self._operation_lock:
+                    self._active_operation = None
+                    operation.done_event.set()
+
+    def _run_tool(
+        self,
+        name: str,
+        handler: Callable[..., Any],
+        input_dict: dict[str, Any],
+        *,
+        capture_state: bool,
+    ) -> ToolResult:
+        """Invoke ``handler`` and shape the result; capture state when asked.
+
+        Shared by read-only (``capture_state=False``) and stateful
+        (``capture_state=True``) dispatch paths in :meth:`execute_tool`.
+        """
+        started = time.perf_counter()
+        failed = False
+        try:
+            result = handler(**input_dict)
+        except TypeError as e:
+            result = {
+                "error": f"bad arguments for {name}: {e}",
+                "got": input_dict,
+            }
+            failed = True
+        except ToolCancelled as e:
+            result = {
+                "error": str(e),
+                "code": "tool_cancelled",
+                "interrupted": True,
+            }
+            failed = True
+        except Exception as e:
+            result = {"error": str(e), "traceback": traceback.format_exc()}
+            failed = True
+
+        if capture_state:
+            elapsed_s = round(time.perf_counter() - started, 2)
+            result_dict = result if isinstance(result, dict) else {"value": result}
+            command = {"action": name, **input_dict}
+            record: StepRecord | None = None
+            try:
+                captured = self.get_env_state(
+                    command=command,
+                    result=result_dict,
+                    elapsed_s=elapsed_s,
+                )
+            except Exception as e:
+                captured = result_dict
+                captured["state_capture_error"] = str(e)
+                captured.setdefault(
+                    "error", f"failed to capture state after {name}: {e}"
+                )
+                captured.setdefault("traceback", traceback.format_exc())
+            else:
+                record = self._state.latest_record()
+            result = captured
+            if failed:
+                for key, value in result_dict.items():
+                    result.setdefault(key, value)
+            if record is not None:
+                self._publish_step(record)
+
+        return ToolResult(name=name, result=result)
 
     def _publish_step(self, record: StepRecord) -> None:
         """Publish one recorded environment step to the dashboard sink."""

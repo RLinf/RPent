@@ -20,15 +20,18 @@ import fcntl
 import os
 import re
 import shutil
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from rpent.utils.logging import get_logger
 
+if TYPE_CHECKING:
+    from rpent.tools.tool_spec import ToolSpec
+
 logger = get_logger("memory")
+
 
 SCOPES = {"global", "suite"}
 KINDS = {"primitive", "perception", "strategy", "failure", "infra"}
@@ -146,14 +149,13 @@ class MemoryManager:
         """Resolved corpus root."""
         return self._root
 
-    def get_common_tool_bindings(
-        self,
-    ) -> dict[str, tuple[dict[str, Any], Callable[..., Any]]]:
-        """Return memory-aware bindings for shared file tools."""
+    def get_common_tool_bindings(self) -> dict[str, ToolSpec]:
+        """Return memory-aware :class:`ToolSpec` bindings for shared file tools."""
         from functools import partial
 
         from rpent.memory import tools as memory_tools
         from rpent.tools import common
+        from rpent.tools.tool_spec import ToolSpec
 
         handlers = {
             "read_text_file": partial(
@@ -175,15 +177,18 @@ class MemoryManager:
                 cell_tag=self._inbox_cell_tag,
             ),
         }
-        bindings: dict[str, tuple[dict[str, Any], Callable[..., Any]]] = {}
-        for spec in common.TOOLS_SPEC:
-            name = spec["name"]
-            handler = handlers.get(name)
+        bindings: dict[str, ToolSpec] = {}
+        for tool in common.COMMON_TOOLS:
+            handler = handlers.get(tool.name)
             if handler is None:
                 continue
-            tool_spec = dict(spec)
-            tool_spec["description"] += memory_tools.MEMORY_BOUNDARY_NOTE
-            bindings[name] = (tool_spec, handler)
+            bindings[tool.name] = ToolSpec(
+                name=tool.name,
+                description=tool.description + memory_tools.MEMORY_BOUNDARY_NOTE,
+                input_schema=tool.input_schema,
+                handler=handler,
+                readonly=tool.readonly,
+            )
         return bindings
 
     def merge_memory(

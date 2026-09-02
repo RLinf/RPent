@@ -94,12 +94,12 @@ def _build_asgi_app(toolkit: Toolkit) -> Any:
     @mcp_app.list_tools()
     async def _list_tools() -> list[types.Tool]:
         tools: list[types.Tool] = []
-        for spec in toolkit.get_tools_spec():
+        for tool in toolkit.get_tools_spec():
             tools.append(
                 types.Tool(
-                    name=str(spec["name"]),
-                    description=str(spec.get("description", "")),
-                    inputSchema=spec.get("input_schema", {"type": "object"}),
+                    name=tool.name,
+                    description=tool.description,
+                    inputSchema=tool.input_schema,
                 )
             )
         return tools

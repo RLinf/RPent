@@ -12,14 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Agent tool declarations, handlers, and result serialization."""
+"""Shared fixtures for the toolkit/tool-spec tests."""
 
-from rpent.tools.tool_spec import ToolSpec, readonly
-from rpent.tools.toolkit import Toolkit, ToolResult
+from __future__ import annotations
 
-__all__ = [
-    "Toolkit",
-    "ToolResult",
-    "ToolSpec",
-    "readonly",
-]
+import pytest
+
+from rpent.utils.logging import init_output_dir
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _output_dir(tmp_path_factory) -> None:
+    """Point ``get_output_dir()`` at a scratch dir for the whole session."""
+    init_output_dir(tmp_path_factory.mktemp("rpent_toolkit_tests"))
