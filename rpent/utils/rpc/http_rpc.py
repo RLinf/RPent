@@ -26,6 +26,7 @@ from __future__ import annotations
 import base64
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
@@ -37,8 +38,15 @@ from rpent.utils.rpc.rpc_client import RpcClient, RpcError, check_response
 from rpent.utils.rpc.rpc_facade import make_error_response
 
 DEFAULT_TIMEOUT_S = 30.0
+_DIRECT_HOSTS = frozenset({"127.0.0.1", "localhost"})
 
 logger = get_logger("http_rpc")
+
+
+def _is_direct_url(url: str) -> bool:
+    """Return whether *url* uses a hostname that must bypass HTTP proxies."""
+    hostname = urllib.parse.urlsplit(url).hostname
+    return hostname is not None and hostname.lower() in _DIRECT_HOSTS
 
 
 def _from_json(obj: Any) -> Any:
@@ -66,11 +74,19 @@ class HttpRpcClient(RpcClient):
     ----------
     base_url : str
         Server address, e.g. ``"http://127.0.0.1:8080"``.
+
+        ``127.0.0.1`` and ``localhost`` bypass HTTP proxies. Other hostnames
+        use the process proxy configuration.
     """
 
     def __init__(self, base_url: str) -> None:
         """Initialize with a base URL, e.g. ``"http://127.0.0.1:8080"``."""
         self._base_url = base_url.rstrip("/")
+        self._opener = (
+            urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            if _is_direct_url(self._base_url)
+            else None
+        )
 
     def call(
         self,
@@ -97,7 +113,8 @@ class HttpRpcClient(RpcClient):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=request_timeout) as resp:
+            open_request = self._opener.open if self._opener else urllib.request.urlopen
+            with open_request(req, timeout=request_timeout) as resp:
                 raw = resp.read()
         except urllib.error.HTTPError as exc:
             # HTTPError is an OSError subclass; catch first so we can parse
