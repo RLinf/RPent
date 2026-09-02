@@ -246,6 +246,7 @@ def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
     """Return one recorded dual-Franka state with image blocks for the planner."""
     record = state.get(step)
     output = record.to_blob()
+    output["images"] = []
     for artifact, path_key, bytes_key in (
         ("left_wrist.png", "image_left_wrist_path", "_image_bytes"),
         ("base.png", "image_base_path", "_image_cam_bytes"),
@@ -254,4 +255,5 @@ def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
         if state.exists(artifact, step=record.step_idx):
             output[path_key] = str(state.artifact_path(artifact, step=record.step_idx))
             output[bytes_key] = state.load_bytes(artifact, step=record.step_idx)
+            output["images"].append(artifact.removesuffix(".png"))
     return output

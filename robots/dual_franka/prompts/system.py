@@ -23,6 +23,8 @@ restart robot, Ray, ROS, camera, or VLA services. Use only the structured tools
 shown by the runtime."""
 
 RULES = (
+    "view_env_state's `images` list names its image blocks in order: "
+    "left_wrist, base, right_wrist — map each returned image to that order.",
     "Every rule-based motion must choose exactly one arm, 'left' or 'right'.",
     "There is no 'both' mode; the driver leaves the unselected arm uncommanded.",
     "Express move_delta and rotate_delta in the fixed world (right_base) frame.",

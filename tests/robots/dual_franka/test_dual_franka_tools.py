@@ -169,6 +169,8 @@ def test_view_env_state_emits_multimodal_image_blocks(tmp_path: Path):
 
     dump_state(primitives, state, command=None, result=None, elapsed_s=None)
     output = view_env_state(state=state)
+    # The text must name the views in the same order the image blocks are emitted.
+    assert output["images"] == ["left_wrist", "base", "right_wrist"]
 
     result = ToolResult(name="view_env_state", result=output)
     image_blocks = [b for b in result.content_blocks if b.get("type") == "image"]
