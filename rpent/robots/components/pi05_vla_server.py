@@ -31,8 +31,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
-from omegaconf import OmegaConf
 
 from robots.behavior.pi05 import PI05_BEHAVIOR_EMBODIMENT
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
@@ -127,6 +125,8 @@ def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
                 Path(model_path) / norm_stats_path
             )
 
+    from omegaconf import OmegaConf
+
     return OmegaConf.create(cfg)
 
 
@@ -158,6 +158,7 @@ class Pi05VLAFacade(BaseVLAFacade):
         self._predict_lock = threading.Lock()
         super().__init__()
 
+        import torch
         from rlinf.models.embodiment.openpi import get_model as get_openpi_model
 
         platform = PI05_ROBOT_PLATFORMS.get(embodiment)
@@ -230,6 +231,8 @@ class Pi05VLAFacade(BaseVLAFacade):
         if self._embodiment == "behavior":
             predict_kwargs["compute_values"] = False
         lock = self._predict_lock if self._embodiment == "behavior" else nullcontext()
+        import torch
+
         with lock, torch.no_grad():
             actions, _ = self._model.predict_action_batch(obs, **predict_kwargs)
         result = (
