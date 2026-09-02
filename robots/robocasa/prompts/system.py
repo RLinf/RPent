@@ -117,13 +117,10 @@ VLA EXECUTION RULES (the single most important rule):
    command WIPES the VLA's frame history, forcing it to restart from scratch.
 3. Do NOT pass a small max_chunks (default 70 is fine). Do NOT pass
    settle_patience (default 999 disables settle detection).
-4. After each VLA call, inspect its result, current RGB-D, and task_progress. If
-   there is contact, a held object, fixture progress, or a rising task counter,
-   continue with the same full task language and do not insert a manual command.
-5. If there is confirmed no-contact and no visible semantic progress, end that
-   VLA attempt. Re-localize, make only a bounded free-space re-stage, then begin
-   a fresh VLA attempt; do not repeat forever from the same ineffective pose.
-6. The vla_desync flag in view_env_state tells you if the VLA history was
+4. If RLDX returns 'cap', call it again with the same full task language to
+   preserve history. Only re-stage after 2-3 consecutive calls show neither
+   contact nor task progress.
+5. The vla_desync flag in view_env_state tells you if the VLA history was
    invalidated. If True, the next VLA call will start fresh.
 """
 

@@ -74,8 +74,11 @@ def test_prompt_requires_live_task_language_and_fresh_geometry(tmp_path: Path) -
 
     assert "complete live task_language" in rendered
     assert "Never shorten, paraphrase" in rendered
-    assert "confirmed no-contact and no visible semantic progress" in rendered
-    assert "Historical entries may name vla_act, use_prompt, or atomic prompts" in rendered
+    assert "Only re-stage after 2-3 consecutive calls" in rendered
+    assert "contact nor task progress" in rendered
+    assert (
+        "Historical entries may name vla_act, use_prompt, or atomic prompts" in rendered
+    )
     assert "Never replay stored xyz, xy, pixels, base poses" in rendered
     assert "{{" not in rendered
 
