@@ -292,6 +292,8 @@ def parse_config(args: argparse.Namespace) -> RunConfig:
             "memory_dir": str(memory_dir),
             "memory_profile": memory_profile,
             "memory_inbox": str(memory_dir / "_inbox" / recipe_tag),
+            "recipe_tag": recipe_tag,
+            "output_dir": str(output_dir),
         },
         task_desc={
             "env": "behavior",

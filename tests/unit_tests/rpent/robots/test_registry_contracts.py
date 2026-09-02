@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from string import Formatter
@@ -46,7 +47,8 @@ PROMPT_VARIABLES = {
         "wall_clock_seconds": 7200,
         "public_capabilities": ["observe", "pi0_nav_pick", "finish"],
         "memory_dir": "/memory",
-        "behavior_episode_memory": "empty_episode_catalog",
+        "memory_profile": "local",
+        "memory_inbox": "/memory/_inbox/turning_on_radio_s1",
     },
     "libero": {
         "suite": "libero_object_task",
@@ -233,3 +235,108 @@ def test_behavior_uses_the_shared_pi05_registry_and_wire_contract() -> None:
     )
     assert action.shape == (32, 23)
     assert action.dtype == np.float32
+
+
+@pytest.mark.parametrize(
+    ("mode", "task_name", "public_seed", "role_title"),
+    [
+        ("eval", "turning_on_radio", 1, "ROLE AND EVALUATION"),
+        ("explore", "picking_up_trash", 0, "ROLE AND MODE"),
+    ],
+)
+def test_behavior_prompts_strictly_render_real_run_config(
+    tmp_path: Path,
+    mode: str,
+    task_name: str,
+    public_seed: int,
+    role_title: str,
+) -> None:
+    spec = get_robot_spec("behavior")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-dir")
+    parser.add_argument("--memory-profile", choices=["hf", "local"], default=None)
+    parser.add_argument("--memory-dir")
+    spec.add_cli_args(parser, use_dashboard=False)
+    args = parser.parse_args(
+        [
+            "--task-name",
+            task_name,
+            "--public-seed",
+            str(public_seed),
+            "--behavior-mode",
+            mode,
+            "--output-dir",
+            str(tmp_path / "output"),
+            "--memory-dir",
+            str(tmp_path / "memory"),
+        ]
+    )
+    variables = spec.parse_config(args).prompt_vars
+
+    system = spec.prompts.render("system", variables=variables)
+    user = spec.prompts.render("user", variables=variables)
+
+    assert "{{" not in system
+    assert "{{" not in user
+    for value in (
+        task_name,
+        variables["task_instruction"],
+        str(public_seed),
+        mode,
+        variables["recipe_tag"],
+        variables["output_dir"],
+        str(variables["max_episode_steps"]),
+        str(variables["wall_clock_seconds"]),
+        str(variables["public_capabilities"]),
+        variables["memory_profile"],
+        variables["memory_dir"],
+        variables["memory_inbox"],
+    ):
+        assert value in system or value in user
+
+    ordered_sections = [
+        role_title,
+        "CURRENT INVOCATION",
+        "INVOCATION MODEL",
+        "RUNTIME",
+        "YOUR GOAL",
+        "MEMORY",
+        "EVIDENCE",
+        "PLANNER TOOLS",
+        "TERMINATION",
+        "OUTPUT DISCIPLINE",
+    ]
+    positions = [system.index(title) for title in ordered_sections]
+    assert positions == sorted(positions)
+    assert [user.index(title) for title in ("CELL", "MODE", "BEGIN")] == sorted(
+        user.index(title) for title in ("CELL", "MODE", "BEGIN")
+    )
+
+    required = {
+        "behavior_mode",
+        "task_name",
+        "task_instruction",
+        "public_seed",
+        "recipe_tag",
+        "output_dir",
+        "max_episode_steps",
+        "wall_clock_seconds",
+        "public_capabilities",
+        "memory_profile",
+        "memory_dir",
+        "memory_inbox",
+    }
+    for key in required:
+        incomplete = {name: value for name, value in variables.items() if name != key}
+        with pytest.raises(KeyError, match=key):
+            spec.prompts.render("system", variables=incomplete)
+
+    literal = {**variables, "task_instruction": "literal {{do_not_expand}}"}
+    assert "literal {{do_not_expand}}" in spec.prompts.render(
+        "system", variables=literal
+    )
+
+    with pytest.raises(ValueError, match="unsupported BEHAVIOR prompt mode"):
+        spec.prompts.render(
+            "system", variables={**variables, "behavior_mode": "unknown"}
+        )

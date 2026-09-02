@@ -12,12 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""User prompt section bodies for one BEHAVIOR invocation."""
+"""User prompt sections for one BEHAVIOR invocation."""
 
 from __future__ import annotations
 
-BEGIN = """Execute the selected BEHAVIOR task in this fresh invocation.
-Use the runtime task instruction, public capabilities, and budgets. Episode
-memory, when enabled, arrives in a public tool receipt and returns a whole
-experience without stage inference. Base each action on current public evidence
-and the returned receipts."""
+CELL = """- task:        {{task_name}}
+- seed:        {{public_seed}}
+- instruction: {{task_instruction}}
+- output_dir:  {{output_dir}}
+- audit:       {{output_dir}}/{{recipe_tag}}.json
+- recipe:      {{output_dir}}/recipe_{{recipe_tag}}.jsonl
+- memory:      {{memory_dir}}"""
+
+MODE = """BEHAVIOR {{behavior_mode}}; one fresh episode per planner invocation;
+official success requires current `info[\"done\"][\"success\"] is True`."""
+
+BEGIN = """Execute the selected task using the active public tools. Base each
+action on current public evidence and finish with an honest terminal receipt."""
+
+__all__ = ["BEGIN", "CELL", "MODE"]

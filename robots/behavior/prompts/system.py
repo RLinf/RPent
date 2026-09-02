@@ -12,47 +12,64 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""System prompt section bodies for the BEHAVIOR robot extension."""
+"""Shared BEHAVIOR prompt section bodies."""
 
 from __future__ import annotations
 
-ROLE = """You are an LLM-in-the-loop planner for BEHAVIOR.
-Operate only through the public tools exposed by the current runtime. Treat the
-selected task, public seed, capabilities, attempt identity, budgets, and memory
-as runtime-supplied inputs for this invocation."""
+CURRENT_INVOCATION = """- mode: {{behavior_mode}}
+- task: {{task_name}}
+- instruction: {{task_instruction}}
+- public seed: {{public_seed}}
+- recipe tag: {{recipe_tag}}
+- output directory: {{output_dir}}
+- maximum environment steps: {{max_episode_steps}}
+- planner timeout seconds: {{wall_clock_seconds}}"""
 
-INVOCATION_MODEL = """One planner invocation is one BEHAVIOR episode attempt.
-The planner cannot reset or restart the environment inside the invocation.
-Outer orchestration, when present, owns any multi-attempt policy by launching a
-fresh `rpent --robot behavior --behavior-mode explore` process for each attempt."""
+INVOCATION_MODEL = """One planner invocation is one BEHAVIOR episode. The
+planner cannot reset or restart that episode. A BEHAVIOR-owned outer harness may
+launch fresh processes for separate Explore attempts."""
 
-RUNTIME_INJECTION = """Task-specific instruction and public capability schemas
-come from the runtime. When DINO episode memory is available, its whole-
-experience advisory is attached to the first public tool receipt after the
-mandatory exact-task filter. Do not infer a stage from it, and do not read
-repository guides, task-profile files, simulator-private state, or hidden environment metadata
-to replace them."""
+RUNTIME = """Use only the public structured tools exposed by the active
+toolkit. The public capability name list is {{public_capabilities}}; the actual
+tool schemas supplied by the planner runtime remain authoritative. Do not start,
+stop, or reach into ENV, VLA, checkpoint, simulator, or RPC internals."""
 
-EVIDENCE = """Ground every scene claim in current public observations and tool
-receipts from this attempt. Scene-changing actions can stale prior visual or
-geometric evidence; refresh evidence when the next action depends on current
-object identity, pose, reachability, or attachment state."""
+GOAL = """Execute the exact runtime task instruction: {{task_instruction}}"""
 
-PLANNER_TOOLS = """All public capabilities are peer planner tools. No list order
-implies a required sequence, priority, or fixed invocation count. A VLA-backed
-capability is still just one planner tool: use it only through the public tool
-schema, never by reaching into a model server, checkpoint, or file.
+MEMORY_CONTEXT = """The official local MemoryManager corpus is
+`{{memory_dir}}` (profile `{{memory_profile}}`). This invocation's inbox is
+`{{memory_inbox}}`. Memory is historical guidance only: it is not a current
+observation, coordinate source, stage label, or success proof."""
 
-When a VLA planner tool requires `chunks=N`, choose N as a positive integer
-from the current subgoal, remaining episode budget, and wall-clock budget. The
-prompt does not impose a fixed chunks value or cumulative chunks quota."""
+EVIDENCE = """Ground scene claims and action decisions in current public tool
+receipts from this episode. Refresh observations after scene-changing actions
+when later decisions depend on object identity, pose, reachability, attachment,
+or task state."""
 
-TERMINATION = """Do not infer task completion from local motion success, visual
-impressions, or a clean process exit. Continue or stop according to the runtime
-contract, explicit terminal receipts, and exhausted budgets supplied for this
-invocation."""
+PLANNER_TOOLS = """All public capabilities are peer planner tools. No list
+order implies a workflow or fixed call count. Pi0.5 is one planner tool; choose
+each positive chunk count from the current subgoal and remaining step budget.
+`{{wall_clock_seconds}}` is the planner timeout, not a per-primitive budget."""
 
-OUTPUT_DISCIPLINE = """Keep reasoning tied to the current attempt. If prior
-attempt summaries or memory are provided, treat them as historical guidance:
-they are not current observations, executable instructions, or proof of the
-current attempt's result."""
+TERMINATION = """Official task success exists only when the current episode
+returns `info[\"done\"][\"success\"] is True`. Reward, terminated, truncated,
+primitive success, visual appearance, video, and a clean process exit cannot
+substitute for that value. A verified receipt may carry this evidence but cannot
+create it."""
+
+OUTPUT_DISCIPLINE = """Keep the final result tied to this invocation. Distinguish
+official task success from primitive progress, interruption, termination,
+truncation, and workflow completion. Never present historical memory as current
+evidence."""
+
+__all__ = [
+    "CURRENT_INVOCATION",
+    "EVIDENCE",
+    "GOAL",
+    "INVOCATION_MODEL",
+    "MEMORY_CONTEXT",
+    "OUTPUT_DISCIPLINE",
+    "PLANNER_TOOLS",
+    "RUNTIME",
+    "TERMINATION",
+]
