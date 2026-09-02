@@ -117,16 +117,17 @@ primitive requires a few additional components:
    robot's primitives class, call the model client, pass
    the returned action chunk to the environment, and return a log
    ``dict``. The model client API is
-   :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict_action_batch`,
-   which reads the instruction from ``env_obs["task_descriptions"]`` rather
-   than accepting a keyword argument:
+   :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict`,
+   which reads the instruction from ``env_obs["task_descriptions"]`` and
+   returns a ``[chunk, action_dim]`` numpy action chunk (batch dim already
+   stripped):
 
    .. code-block:: python
 
       def mymodel_pick(self, target: str) -> dict:
           env_obs = self._env.get_obs()
           env_obs["task_descriptions"] = f"pick {target}"
-          chunk, _meta = self._model.predict_action_batch(env_obs)
+          chunk = self._model.predict(env_obs)
           self._env.chunk_step(chunk)
           return {"model": "mymodel", "target": target}
 

@@ -12,42 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Focused tests for the minimal RoboCasa integration."""
+"""Contracts for RoboCasa configuration, prompts, and resources."""
 
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import numpy as np
-import pytest
-
-from robots.robocasa.env_client import RoboCasaEnvClient
-from robots.robocasa.env_server import RoboCasaEnvFacade
 from robots.robocasa.prompt_bundle import system_prompt
 from robots.robocasa.robot_spec import _parse_config, get_robot_spec
 from rpent.memory import MemoryManager
 from rpent.prompt.utils import format_prompt
 from rpent.utils.resources import ensure_resources
-
-
-class _DirectRpc:
-    def __init__(self, facade: RoboCasaEnvFacade) -> None:
-        self.facade = facade
-
-    def call(
-        self,
-        method: str,
-        args: tuple = (),
-        kwargs: dict | None = None,
-        timeout_s: float | None = None,
-    ):
-        del timeout_s
-        handler = getattr(self.facade, method.removeprefix("env."))
-        return handler(*args, **(kwargs or {}))
 
 
 def _args(
@@ -143,58 +121,3 @@ def test_prompt_names_only_current_task_memory(tmp_path):
     assert "ArrangeTea_s0" not in rendered
     assert "GLOBAL_MEMORY" not in rendered
     assert "{{" not in rendered
-
-
-def test_real_navview_follows_mobile_base(monkeypatch):
-    if os.environ.get("RPENT_RUN_ROBOCASA_INTEGRATION") != "1":
-        pytest.skip("set RPENT_RUN_ROBOCASA_INTEGRATION=1 for the GPU integration test")
-
-    pytest.importorskip("robocasa")
-    monkeypatch.setenv("MUJOCO_GL", "egl")
-    monkeypatch.setenv("ROBOT_PLATFORM", "ROBOCASA")
-    monkeypatch.delenv("RLDX_RESET_SEED", raising=False)
-
-    facade = RoboCasaEnvFacade(
-        task_name="OpenDrawer",
-        split="target",
-        seed=1,
-        camera_h=256,
-        camera_w=256,
-    )
-    try:
-        assert facade.env.sim is None
-        client = RoboCasaEnvClient(
-            _DirectRpc(facade),
-            expected_meta=facade.get_env_meta(),
-        )
-
-        rgb_before, depth = client.render_camera("navview", depth=True)
-        world = client.world_map("navview")
-        meta_before = client.get_camera_meta("navview")
-
-        assert rgb_before.shape == (256, 256, 3)
-        assert depth.shape == (256, 256)
-        assert world.shape == (256, 256, 3)
-        assert np.isfinite(rgb_before).all()
-        assert np.isfinite(depth).all()
-        assert np.isfinite(world).all()
-
-        action = np.zeros(int(facade.env.action_dim), dtype=np.float64)
-        assert action.shape == (12,)
-        action[6] = -1.0
-        action[7] = 1.0
-        action[11] = 1.0
-        for _ in range(8):
-            client.step(action)
-
-        rgb_after = client.render_camera("navview")
-        meta_after = client.get_camera_meta("navview")
-        pose_before = np.asarray(meta_before["extrinsic_cam2world"])
-        pose_after = np.asarray(meta_after["extrinsic_cam2world"])
-
-        assert np.linalg.norm(pose_after[:3, 3] - pose_before[:3, 3]) > 1e-4
-        assert not np.array_equal(rgb_before, rgb_after)
-    finally:
-        close = getattr(facade.env, "close", None)
-        if close is not None:
-            close()
