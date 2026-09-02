@@ -65,10 +65,18 @@ def _encode_obs_libero(env_obs: dict) -> dict:
     }
 
 
+def _encode_obs_behavior(env_obs: dict) -> dict:
+    """BEHAVIOR/R1Pro single-env obs -> openpi batched wire obs."""
+    from robots.behavior.pi05 import _encode_obs_behavior as encode_behavior_obs
+
+    return encode_behavior_obs(env_obs)
+
+
 # NOTE: an embodiment registered here must also exist in the server's
 # ``PI05_EMBODIMENTS`` (and ``PI05_ROBOT_PLATFORMS`` if it sets ROBOT_PLATFORM);
 # the two registries are kept in sync manually.
 _ENCODE_OBS: dict[str, Any] = {
+    "behavior": _encode_obs_behavior,
     "libero": _encode_obs_libero,
 }
 
@@ -93,6 +101,8 @@ class Pi05VLAClient(BaseVLAClient):
                 f"registered={list(_ENCODE_OBS)}"
             )
         self._embodiment = embodiment
+        if embodiment == "behavior":
+            self._TIMEOUT_S = {**self._TIMEOUT_S, "predict": 600.0}
 
     # ---- obs encode (symmetric with server decode_obs_<name>) ----
 
@@ -105,5 +115,13 @@ class Pi05VLAClient(BaseVLAClient):
     def predict(self, env_obs: dict, options: dict | None = None) -> np.ndarray:
         """Encode obs, request ``vla.predict``, strip batch dim, return ``[chunk, action_dim]``."""
         openpi_obs = self.encode_obs(env_obs)
-        actions = super().predict(openpi_obs, options)
-        return np.asarray(actions)[0]
+        actions = np.asarray(super().predict(openpi_obs, options))
+        if self._embodiment == "behavior":
+            from robots.behavior.schemas import validate_action_chunk
+
+            if actions.ndim != 3 or actions.shape[0] != 1:
+                raise ValueError(
+                    f"BEHAVIOR Pi0.5 actions must be [1,T,23], got {actions.shape}"
+                )
+            return validate_action_chunk(actions[0])
+        return actions[0]

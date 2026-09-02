@@ -24,13 +24,17 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import threading
 import time
+from contextlib import nullcontext
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
 from omegaconf import OmegaConf
 
+from robots.behavior.pi05 import PI05_BEHAVIOR_EMBODIMENT
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.config import (
     get_pi05_checkpoint_path,
@@ -53,6 +57,7 @@ if str(RLINF_REPO_PATH) not in sys.path:
 # NOTE: an embodiment added here must also be registered in the client's
 # ``_ENCODE_OBS`` (obs encoding); the two registries are kept in sync manually.
 PI05_EMBODIMENTS: dict[str, dict] = {
+    "behavior": PI05_BEHAVIOR_EMBODIMENT,
     "libero": {
         "num_action_chunks": 5,
         "action_dim": 7,
@@ -71,6 +76,7 @@ PI05_EMBODIMENTS: dict[str, dict] = {
 }
 
 PI05_ROBOT_PLATFORMS: dict[str, str] = {
+    "behavior": "BEHAVIOR",
     "libero": "LIBERO",
 }
 
@@ -109,8 +115,17 @@ def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
     for k, v in emb_cfg.items():
         if k == "openpi":
             cfg["openpi"].update(v)
+        elif k == "openpi_data":
+            cfg["openpi_data"] = dict(v)
         else:
             cfg[k] = v
+    openpi_data = cfg.get("openpi_data")
+    if isinstance(openpi_data, dict) and openpi_data.get("norm_stats_path"):
+        norm_stats_path = os.fspath(openpi_data["norm_stats_path"])
+        if not os.path.isabs(norm_stats_path):
+            openpi_data["norm_stats_path"] = os.fspath(
+                Path(model_path) / norm_stats_path
+            )
 
     return OmegaConf.create(cfg)
 
@@ -138,6 +153,9 @@ class Pi05VLAFacade(BaseVLAFacade):
             )
         emb_cfg = PI05_EMBODIMENTS[embodiment]
         self._embodiment = embodiment
+        self._model_path = os.fspath(Path(model_path).expanduser())
+        self._checkpoint_binding: dict[str, Any] | None = None
+        self._predict_lock = threading.Lock()
         super().__init__()
 
         from rlinf.models.embodiment.openpi import get_model as get_openpi_model
@@ -146,7 +164,17 @@ class Pi05VLAFacade(BaseVLAFacade):
         if platform is not None:
             os.environ.setdefault("ROBOT_PLATFORM", platform)
 
-        cfg = build_model_cfg(model_path=model_path, emb_cfg=emb_cfg)
+        if embodiment == "behavior":
+            from robots.behavior.policy_checkpoint import validate_policy_checkpoint
+
+            binding = validate_policy_checkpoint(model_path)
+            self._model_path = binding.resolved_path
+            self._checkpoint_binding = binding.as_dict()
+            torch.manual_seed(0)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(0)
+
+        cfg = build_model_cfg(model_path=self._model_path, emb_cfg=emb_cfg)
         t0 = time.time()
         logger.info(
             "loading Pi0.5 (embodiment=%s, model_path=%s) ...",
@@ -154,7 +182,29 @@ class Pi05VLAFacade(BaseVLAFacade):
             cfg["model_path"],
         )
         self._model = get_openpi_model(cfg, torch_dtype=None).cuda().eval()
-        logger.info("model ready in %.1fs", time.time() - t0)
+        self._model_meta = {
+            "status": "ok",
+            "runtime": "pi05_vla",
+            "embodiment": embodiment,
+            "config_name": emb_cfg.get("openpi", {}).get("config_name"),
+            "action_horizon": emb_cfg.get("openpi", {}).get("action_chunk")
+            or emb_cfg.get("num_action_chunks"),
+            "action_dim": emb_cfg.get("openpi", {}).get("action_env_dim")
+            or emb_cfg.get("action_dim"),
+            "model_path": self._model_path,
+            "device": "cuda",
+            "load_elapsed_s": round(time.time() - t0, 2),
+        }
+        if self._checkpoint_binding is not None:
+            self._model_meta["checkpoint_binding"] = self._checkpoint_binding
+        logger.info("model ready in %.1fs", self._model_meta["load_elapsed_s"])
+
+    def _builtin_dispatch(
+        self, method: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> Any:
+        if method == "healthz":
+            return {**self._model_meta, "pid": os.getpid()}
+        return super()._builtin_dispatch(method, args, kwargs)
 
     # ---- inference ----
 
@@ -164,10 +214,25 @@ class Pi05VLAFacade(BaseVLAFacade):
         The caller (client) is responsible for encoding env-native obs into
         the openpi wire format (see ``Pi05VLAClient.encode_obs``).
         """
+        if self._embodiment == "behavior":
+            if options is None:
+                options = {}
+            if not isinstance(options, dict):
+                raise TypeError("VLA options must be a mapping")
+            unexpected = set(options) - {"mode"}
+            if unexpected:
+                raise ValueError(f"unsupported VLA options: {sorted(unexpected)!r}")
         mode = (options or {}).get("mode", "eval")
-        with torch.no_grad():
-            actions, _ = self._model.predict_action_batch(obs, mode=mode)
-        return (
+        if self._embodiment == "behavior":
+            if mode != "eval":
+                raise ValueError("BEHAVIOR VLA inference mode must be 'eval'")
+        predict_kwargs = {"mode": mode}
+        if self._embodiment == "behavior":
+            predict_kwargs["compute_values"] = False
+        lock = self._predict_lock if self._embodiment == "behavior" else nullcontext()
+        with lock, torch.no_grad():
+            actions, _ = self._model.predict_action_batch(obs, **predict_kwargs)
+        result = (
             actions.detach().cpu().numpy()
             if (
                 hasattr(actions, "detach")
@@ -176,6 +241,20 @@ class Pi05VLAFacade(BaseVLAFacade):
             )
             else np.asarray(actions)
         ).astype(np.float32)
+        if self._embodiment == "behavior":
+            from robots.behavior.schemas import ACTION_DIM
+
+            if (
+                result.ndim != 3
+                or result.shape[0] != 1
+                or result.shape[1] < 1
+                or result.shape[2] != ACTION_DIM
+                or not np.isfinite(result).all()
+            ):
+                raise ValueError(
+                    f"Pi0.5 returned invalid [1,T,{ACTION_DIM}] shape {result.shape}"
+                )
+        return result
 
 
 # ---------------------------------------------------------------------------

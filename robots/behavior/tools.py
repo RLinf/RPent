@@ -487,7 +487,7 @@ class BehaviorPrimitives:
                     break
             env_obs = dict(self._current_observation)
             env_obs["task_descriptions"] = instruction.strip()
-            actions = model.predict(env_obs, mode="eval")
+            actions = model.predict(env_obs, options={"mode": "eval"})
             action_array = validate_action_chunk(actions)
             if remaining is not None:
                 action_array = action_array[:remaining]

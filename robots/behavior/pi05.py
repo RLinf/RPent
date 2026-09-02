@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unwired BEHAVIOR entries for the future shared Pi0.5 registries."""
+"""BEHAVIOR entries consumed by the shared Pi0.5 client/server registries."""
 
 from __future__ import annotations
 

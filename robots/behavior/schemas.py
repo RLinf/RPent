@@ -236,12 +236,15 @@ ENV_WIRE_SCHEMA: dict[str, Any] = {
 }
 
 VLA_WIRE_SCHEMA: dict[str, Any] = {
-    "name": "behavior_vla_http",
-    "version": 1,
+    "name": "pi05_vla_rpc_behavior",
+    "version": 2,
     "request": {
-        "instruction": "str",
-        "images": dict.fromkeys(CAMERA_KEYS, "png-base64"),
-        "state": "float[1,raw_proprio_dim]",
+        "method": "vla.predict",
+        "main_images": "uint8[1,H,W,3]",
+        "wrist_images": "uint8[1,2,H,W,3]",
+        "states": "float[1,raw_proprio_dim]",
+        "task_descriptions": "list[str]",
+        "extra_view_images": "None",
         "compact_state_segments": segment_ranges(POLICY_STATE_SEGMENTS),
         "mode": "eval",
     },

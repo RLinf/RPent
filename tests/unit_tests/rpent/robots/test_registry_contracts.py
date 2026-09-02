@@ -18,6 +18,7 @@ from dataclasses import FrozenInstanceError
 from pathlib import Path
 from string import Formatter
 
+import numpy as np
 import pytest
 
 from robots.robotwin.robot_spec import (
@@ -29,9 +30,24 @@ from robots.robotwin.robot_spec import (
 from rpent.robots import enumerate_robots, get_robot_spec
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 
-EXPECTED_ROBOTS = ("libero", "robocasa", "robotwin")
+EXPECTED_ROBOTS = ("behavior", "libero", "robocasa", "robotwin")
 
 PROMPT_VARIABLES = {
+    "behavior": {
+        "behavior_mode": "eval",
+        "task_name": "turning_on_radio",
+        "task": 0,
+        "task_language": "Turn on the radio.",
+        "task_instruction": "Turn on the radio.",
+        "public_seed": 1,
+        "recipe_tag": "turning_on_radio_s1",
+        "output_dir": Path("/output"),
+        "max_episode_steps": 43200,
+        "wall_clock_seconds": 7200,
+        "public_capabilities": ["observe", "pi0_nav_pick", "finish"],
+        "memory_dir": "/memory",
+        "behavior_episode_memory": "empty_episode_catalog",
+    },
     "libero": {
         "suite": "libero_object_task",
         "task": 2,
@@ -176,3 +192,44 @@ def test_robotwin_runtime_contracts_contain_execution_critical_metadata() -> Non
         )["action_layouts"]
     )
     assert "mutated" not in vla_runtime_contract()["camera_order"]
+
+
+def test_behavior_uses_the_shared_pi05_registry_and_wire_contract() -> None:
+    from robots.behavior.pi05 import PI05_BEHAVIOR_EMBODIMENT
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+    from rpent.robots.components.pi05_vla_server import (
+        PI05_EMBODIMENTS,
+        build_model_cfg,
+    )
+
+    assert PI05_EMBODIMENTS["behavior"] is PI05_BEHAVIOR_EMBODIMENT
+    cfg = build_model_cfg("/checkpoint", PI05_EMBODIMENTS["behavior"])
+    assert cfg.openpi.config_name == "pi05_behavior"
+    assert cfg.openpi.action_chunk == 32
+    assert cfg.openpi.action_env_dim == 23
+    assert cfg.openpi_data.norm_stats_path.startswith("/checkpoint/")
+
+    class FakeRpcClient:
+        def call(self, method, *, args, timeout_s):
+            assert method == "vla.predict"
+            observation, options = args
+            assert observation["main_images"].shape == (1, 720, 720, 3)
+            assert observation["wrist_images"].shape == (1, 2, 480, 480, 3)
+            assert observation["states"].shape == (1, 256)
+            assert observation["task_descriptions"] == ["turn on the radio"]
+            assert options == {"mode": "eval"}
+            assert timeout_s == 600.0
+            return np.zeros((1, 32, 23), dtype=np.float32)
+
+    model = Pi05VLAClient(FakeRpcClient(), embodiment="behavior")
+    action = model.predict(
+        {
+            "main_images": np.zeros((720, 720, 3), dtype=np.uint8),
+            "wrist_images": np.zeros((2, 480, 480, 3), dtype=np.uint8),
+            "states": np.zeros(256, dtype=np.float32),
+            "task_descriptions": "turn on the radio",
+        },
+        options={"mode": "eval"},
+    )
+    assert action.shape == (32, 23)
+    assert action.dtype == np.float32

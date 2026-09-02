@@ -356,7 +356,8 @@ def _behavior_python_path(value: str | Path) -> Path:
 
 def vla_runtime_contract(args: argparse.Namespace) -> dict[str, Any]:
     return {
-        "runtime": "behavior_vla",
+        "runtime": "pi05_vla",
+        "embodiment": "behavior",
         "config_name": "pi05_behavior",
         "action_dim": ACTION_DIM,
         "action_horizon": DEFAULT_ACTION_CHUNK,
@@ -457,12 +458,16 @@ def _spawn_vla_server(
         raise RuntimeError(f"BEHAVIOR Python executable is missing: {behavior_python}")
     cmd = [
         str(behavior_python),
-        str(get_repo_root() / "robots" / "behavior" / "vla_server.py"),
+        str(get_repo_root() / "rpent" / "robots" / "components" / "pi05_vla_server.py"),
+        "--embodiment",
+        "behavior",
+        "--transport",
+        "http",
         "--host",
         host,
         "--port",
         str(port),
-        "--checkpoint",
+        "--model-path",
         str(Path(args.policy_checkpoint).expanduser()),
         "--parent-watch",
     ]
@@ -565,7 +570,7 @@ def _connect_vla(args: argparse.Namespace, rpc: "RpcClient") -> dict[str, Any]:
         assert_matching_policy_checkpoint_binding,
         validate_policy_checkpoint,
     )
-    from robots.behavior.vla_client import BehaviorVLAClient
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
     expected_binding = validate_policy_checkpoint(args.policy_checkpoint)
     server_meta = rpc.call(
@@ -578,7 +583,10 @@ def _connect_vla(args: argparse.Namespace, rpc: "RpcClient") -> dict[str, Any]:
         server_meta.get("checkpoint_binding"),
         expected_binding,
     )
-    return {"model": BehaviorVLAClient(rpc), "vla_meta": dict(server_meta)}
+    return {
+        "model": Pi05VLAClient(rpc, embodiment="behavior"),
+        "vla_meta": dict(server_meta),
+    }
 
 
 def _connect_dino(args: argparse.Namespace, rpc: "RpcClient") -> dict[str, Any]:
