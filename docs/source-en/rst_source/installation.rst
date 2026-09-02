@@ -38,9 +38,12 @@ Other environment configurations are available when needed:
 
 ``.[libero-pro]`` is the recommended default.
 
-BEHAVIOR uses a separate optional workflow because it also requires pinned
-source plugins and official simulator resources. Install ``.[behavior]`` for
-the stable RPent-side dependencies, then follow :doc:`usage/behavior`.
+BEHAVIOR uses a dedicated dual-venv workflow because it also requires pinned
+source plugins and licensed simulator resources. ``.[behavior]`` installs only
+the RPent-side dependencies; it does not install a runnable OmniGibson/Isaac Sim
+environment. Keep ``robots/behavior`` source-editable and follow the complete
+:doc:`usage/behavior` installer. A normal wheel does not promise a directly
+runnable BEHAVIOR stack.
 
 Available extras:
 
@@ -56,7 +59,8 @@ Available extras:
    * - ``.[libero-plus]``
      - LIBERO-plus + openpi Pi0.5 VLA + SAM 3.0 + RLinf runtime
    * - ``.[behavior]``
-     - Stable RPent-side BEHAVIOR dependencies only; see :doc:`usage/behavior`
+     - RPent-side dependencies only; full simulation requires the dedicated
+       source-editable dual-venv workflow in :doc:`usage/behavior`
    * - ``.[robocasa]``
      - RoboCasa365 simulator + the RLDX-1 VLA; see :doc:`usage/robocasa`
    * - ``.[robotwin]``

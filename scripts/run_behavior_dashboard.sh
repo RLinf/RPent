@@ -24,8 +24,9 @@ DASHBOARD_LANGUAGE="${DASHBOARD_LANGUAGE:-zh-cn}"
 PLANNER="${PLANNER:-codex}"
 PLANNER_MODEL="${PLANNER_MODEL:-gpt-5.5}"
 OUTPUT_DIR="${OUTPUT_DIR:-${REPRO_ROOT}/logs/dashboard-$(date -u +%Y%m%dT%H%M%SZ)}"
+MEMORY_DIR="${BEHAVIOR_MEMORY_DIR:-${REPRO_ROOT}/memory/behavior}"
 
-mkdir -p "${OUTPUT_DIR}"
+mkdir -p "${OUTPUT_DIR}" "${MEMORY_DIR}"
 export OMNI_KIT_ACCEPT_EULA=YES
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
@@ -50,6 +51,7 @@ exec "${RPENT_VENV}/bin/rpent" \
     --max-turns "${MAX_TURNS:-60}" \
     --planner-timeout-s "${PLANNER_TIMEOUT_S:-3600}" \
     --memory-profile local \
+    --memory-dir "${MEMORY_DIR}" \
     --output-dir "${OUTPUT_DIR}" \
     --behavior-repo "${RLINF_ROOT}" \
     --behavior-python "${BEHAVIOR_VENV}/bin/python" \

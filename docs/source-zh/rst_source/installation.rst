@@ -36,8 +36,10 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 
 ``.[libero-pro]`` 是默认推荐的依赖组合。
 
-BEHAVIOR 使用独立的可选工作流，因为还需要固定版本的源码插件和官方仿真资源。
-请先安装 RPent 侧稳定依赖 ``.[behavior]``，再按 :doc:`usage/behavior` 操作。
+BEHAVIOR 使用专用双 venv 工作流，因为还需要固定版本的源码插件和受许可保护的
+仿真资源。``.[behavior]`` 只安装 RPent 侧依赖，不会安装可直接运行的
+OmniGibson/Isaac Sim 环境。请保持 ``robots/behavior`` 为源码 editable 模式，
+并按 :doc:`usage/behavior` 完成安装；普通 wheel 不承诺可直接运行 BEHAVIOR。
 
 可选的依赖组合：
 
@@ -53,7 +55,8 @@ BEHAVIOR 使用独立的可选工作流，因为还需要固定版本的源码�
    * - ``.[libero-plus]``
      - LIBERO-plus + openpi Pi0.5 VLA + SAM 3.0 + RLinf 运行时
    * - ``.[behavior]``
-     - 仅 BEHAVIOR 所需的 RPent 侧稳定依赖，详见 :doc:`usage/behavior`
+     - 仅 RPent 侧依赖；完整仿真需按 :doc:`usage/behavior` 使用源码 editable
+       双 venv 专用流程
    * - ``.[robocasa]``
      - RoboCasa365 仿真器 + RLDX-1 VLA，详见 :doc:`usage/robocasa`
    * - ``.[robotwin]``
