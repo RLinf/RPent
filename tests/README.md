@@ -10,14 +10,19 @@ grows.
 tests/
 ├── README.md
 └── unit_tests/
-    ├── cli/              # rpent.cli
-    ├── dashboard/        # rpent.dashboard
-    ├── memory/           # rpent.memory
-    ├── planner/          # rpent.planner
-    ├── robots/           # cross-layer robot extension contracts
-    ├── session/          # rpent.session
-    ├── tools/            # rpent.tools
-    └── utils/            # rpent.utils, including RPC loopback tests
+    ├── rpent/             # tests for the core rpent package
+    │   ├── cli/
+    │   ├── dashboard/
+    │   ├── memory/
+    │   ├── planner/
+    │   ├── robots/
+    │   ├── session/
+    │   ├── tools/
+    │   └── utils/
+    └── robots/           # tests for the top-level robot extensions
+        ├── libero/
+        ├── robocasa/
+        └── robotwin/
 ```
 
 Directories that do not yet have tests do not need empty placeholders. Add
@@ -25,12 +30,13 @@ them when the first test for that module lands.
 
 ## Placement rules
 
-- Mirror the production module under `tests/unit_tests/` whenever there is a
-  clear owner. For example, tests for `rpent.utils.rpc` belong in
-  `tests/unit_tests/utils/rpc/`.
-- Keep contracts that span the `rpent.robots` registry and top-level `robots`
-  extensions directly under `tests/unit_tests/robots/`. Put robot-specific
-  coverage under that directory's `<robot>/` child.
+- Mirror core modules under `tests/unit_tests/rpent/`. For example, tests for
+  `rpent.utils.rpc` belong in `tests/unit_tests/rpent/utils/rpc/`.
+- Mirror top-level robot extensions under `tests/unit_tests/robots/`. Put
+  robot-specific coverage in that directory's `<robot>/` child.
+- Place cross-layer tests with the primary contract owner. Registry and config
+  contracts belong to `rpent/robots/`; extension toolkit and schema contracts
+  belong to `robots/`.
 - Keep one-off fakes in the test module that uses them. Put shared fixtures in
   the nearest `conftest.py`: use `tests/conftest.py` only for suite-wide
   fixtures and a module directory's `conftest.py` for local fixtures.

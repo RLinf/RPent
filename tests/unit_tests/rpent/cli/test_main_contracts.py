@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 ROBOT_HELP_CASES = [
     ("libero", ("--suite", "--task", "--libero-type")),
     ("robocasa", ("--task-name", "--split", "--hi-res")),

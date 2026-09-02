@@ -52,18 +52,9 @@ uv pip install pre-commit==4.6.2
 pre-commit install
 ```
 
-The `test` extra contains only the lightweight unit-test dependencies. When
-working on a robot integration, install it together with that robot's runtime
-extra, for example:
-
-```bash
-uv pip install -e ".[test,libero-pro]"  # LIBERO-Pro
-uv pip install -e ".[test,robocasa]"    # RoboCasa
-uv pip install -e ".[test,robotwin]"    # RoboTwin
-```
-
-Install only the robot extra needed for the change; model checkpoints,
-simulator assets, and other provisioned resources remain separate inputs.
+The `test` extra covers unit tests only. When contributing a new robot or a
+feature for an existing robot, also install the relevant extra listed in the
+[installation guide](docs/source-en/rst_source/installation.rst).
 
 ### Step 3. Develop
 
@@ -98,7 +89,7 @@ pre-commit run --all-files
 pytest tests/unit_tests -v
 
 # Run a focused test while developing.
-pytest tests/unit_tests/cli/test_main_contracts.py -k xxx -x
+pytest tests/unit_tests/rpent/cli/test_main_contracts.py -k xxx -x
 ```
 
 If a check fails or modifies files, review the changes and run it again.

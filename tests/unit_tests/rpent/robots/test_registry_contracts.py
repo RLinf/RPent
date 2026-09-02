@@ -51,6 +51,7 @@ PROMPT_VARIABLES = {
         "split": "target",
         "seed": 3,
         "recipe_tag": "OpenDrawer_target_s3",
+        "memory_dir": "/memory",
         "output_dir": Path("/output"),
     },
     "robotwin": {

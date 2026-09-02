@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from rpent.robots import get_robot_spec
+from rpent.utils.config import get_resources_dir
 
 
 def _parser(robot_name: str, *, dashboard: bool = False) -> argparse.ArgumentParser:
@@ -203,6 +204,7 @@ def test_robocasa_config_defaults_and_valid_override(tmp_path: Path) -> None:
         "split": "pretrain",
         "seed": 11,
         "recipe_tag": "PnPCounterToCab_pretrain_s11",
+        "memory_dir": str(get_resources_dir("robocasa") / "results"),
     }
     assert config.task_desc == {
         "task_name": "PnPCounterToCab",

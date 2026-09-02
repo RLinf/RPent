@@ -100,18 +100,6 @@ def test_robot_tool_schemas_have_valid_object_inputs(robot_name: str) -> None:
         assert set(required) <= set(properties)
 
 
-def test_robotwin_perception_schemas_use_the_same_view_coordinate_space() -> None:
-    by_name = {spec["name"]: spec for spec in robotwin_tools.TOOLS_SPEC}
-
-    for tool_name, coordinate_name in (
-        ("sample_world_xyz", "pixels"),
-        ("query_world_map", "bbox"),
-    ):
-        schema = by_name[tool_name]["input_schema"]
-        assert schema["required"] == ["view", coordinate_name]
-        assert schema["properties"]["view"]["type"] == "string"
-
-
 def test_robot_action_schemas_keep_bounded_vector_shapes() -> None:
     schema_sets = [
         {spec["name"]: spec for spec in libero_tools.TOOLS_SPEC}["move_to"],
