@@ -105,15 +105,16 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 3. **在 primitives 中添加方法。** 在当前机器人的 primitives
    类中调用 model client，将其返回的动作块交给环境执行，并返回日志字典。
    model client 的接口是
-   :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict_action_batch`，
-   指令从 ``env_obs["task_descriptions"]`` 中读取，不接受关键字参数：
+   :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict`，
+   指令从 ``env_obs["task_descriptions"]`` 中读取；返回 ``[chunk, action_dim]``
+   的 numpy 动作块（已剥掉 batch 维）：
 
    .. code-block:: python
 
       def mymodel_pick(self, target: str) -> dict:
           env_obs = self._env.get_obs()
           env_obs["task_descriptions"] = f"pick {target}"
-          chunk, _meta = self._model.predict_action_batch(env_obs)
+          chunk = self._model.predict(env_obs)
           self._env.chunk_step(chunk)
           return {"model": "mymodel", "target": target}
 
