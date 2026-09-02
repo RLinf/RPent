@@ -32,6 +32,7 @@ from robots.dual_franka.tools import (
 from robots.franka.runtime_config import set_calibration_path
 from robots.franka.tools import view_camera_meta
 from rpent.session import EnvState
+from rpent.tools.toolkit import ToolResult
 
 
 class FakeEnv:
@@ -152,13 +153,29 @@ def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
         "camera_meta.json",
     }
     output = view_env_state(state=state)
-    assert output["_image_left_wrist_bytes"]
-    assert output["_image_base_bytes"]
-    assert output["_image_right_wrist_bytes"]
+    assert output["_image_bytes"]
+    assert output["_image_cam_bytes"]
+    assert output["_image_wrist_bytes"]
     np.testing.assert_array_equal(state.load("base.png"), 7)
     np.testing.assert_array_equal(state.load("base_depth.npy"), 9)
     camera_meta = view_camera_meta(state=state)["camera_meta"]
     assert camera_meta["observation_camera_map"]["main"] == "left_wrist_0_rgb"
+
+
+def test_view_env_state_emits_multimodal_image_blocks(tmp_path: Path):
+    env = FakeEnv()
+    primitives = _primitives(env)
+    state = EnvState(tmp_path)
+
+    dump_state(primitives, state, command=None, result=None, elapsed_s=None)
+    output = view_env_state(state=state)
+
+    result = ToolResult(name="view_env_state", result=output)
+    image_blocks = [b for b in result.content_blocks if b.get("type") == "image"]
+    assert len(image_blocks) == 3
+    text_block = next(b for b in result.content_blocks if b.get("type") == "text")
+    # Image bytes must be lifted out of the text block, not serialized into it.
+    assert "_image_" not in text_block["text"]
 
 
 def test_back_project_base_pixel_reads_rpent_state_artifacts(tmp_path: Path):

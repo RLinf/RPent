@@ -247,9 +247,9 @@ def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
     record = state.get(step)
     output = record.to_blob()
     for artifact, path_key, bytes_key in (
-        ("left_wrist.png", "image_left_wrist_path", "_image_left_wrist_bytes"),
-        ("base.png", "image_base_path", "_image_base_bytes"),
-        ("right_wrist.png", "image_right_wrist_path", "_image_right_wrist_bytes"),
+        ("left_wrist.png", "image_left_wrist_path", "_image_bytes"),
+        ("base.png", "image_base_path", "_image_cam_bytes"),
+        ("right_wrist.png", "image_right_wrist_path", "_image_wrist_bytes"),
     ):
         if state.exists(artifact, step=record.step_idx):
             output[path_key] = str(state.artifact_path(artifact, step=record.step_idx))
