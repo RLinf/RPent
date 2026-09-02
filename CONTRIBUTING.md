@@ -47,14 +47,20 @@ source .venv/bin/activate
 # Install the source checkout and the lightweight test dependencies.
 uv pip install -e ".[test]"
 
+# For robot work, choose the matching test environment instead.
+uv pip install -e ".[test,libero-pro]"  # LIBERO
+uv pip install -e ".[test,robocasa]"    # RoboCasa
+uv pip install -e ".[test,robotwin]"    # RoboTwin
+
 # Install and enable the repository hooks.
 uv pip install pre-commit==4.6.2
 pre-commit install
 ```
 
-The `test` extra covers unit tests only. When contributing a new robot or a
-feature for an existing robot, also install the relevant extra listed in the
-[installation guide](docs/source-en/rst_source/installation.rst).
+The commands above are alternatives: install only the robot extra relevant to
+the change. See the
+[installation guide](docs/source-en/rst_source/installation.rst) for
+environment-specific setup.
 
 ### Step 3. Develop
 

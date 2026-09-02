@@ -44,13 +44,18 @@ source .venv/bin/activate
 # 安装源码检出和轻量测试依赖。
 uv pip install -e ".[test]"
 
+# 开发 robot 时，改为选择对应的测试环境。
+uv pip install -e ".[test,libero-pro]"  # LIBERO
+uv pip install -e ".[test,robocasa]"    # RoboCasa
+uv pip install -e ".[test,robotwin]"    # RoboTwin
+
 # 安装并启用仓库 hooks。
 uv pip install pre-commit==4.6.2
 pre-commit install
 ```
 
-`test` extra 只包含单元测试依赖。贡献新 robot 或为现有 robot 开发功能时，还需安装
-[安装指南](docs/source-zh/rst_source/installation.rst)中对应的 extra。
+以上命令是不同选择；只安装当前改动涉及的 robot extra。各环境的具体配置见
+[安装指南](docs/source-zh/rst_source/installation.rst)。
 
 ### 第 3 步：开发
 
