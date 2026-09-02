@@ -180,6 +180,11 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
 
 更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
 
+## 参与贡献
+
+欢迎社区贡献。开发环境、必需检查、测试规范和集成检查清单请参见
+[CONTRIBUTING_zh.md](CONTRIBUTING_zh.md)。
+
 ## 引用与致谢
 
 如果 **RPent** 或 **Harness VLA** 对你的工作有帮助，请引用：

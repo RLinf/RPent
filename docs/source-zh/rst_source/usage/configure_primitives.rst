@@ -19,7 +19,7 @@ RPent 内置两类原语：
 :doc:`franka`、:doc:`so101`。
 
 各机器人使用的 VLA
------------------
+------------------
 
 .. list-table::
    :header-rows: 1

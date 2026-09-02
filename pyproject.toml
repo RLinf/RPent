@@ -53,6 +53,10 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 "Bug Report" = "https://github.com/RLinf/RPent/issues"
 
 [project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-timeout",
+]
 rlinf = [
     "rpent-rlinf",
 ]
@@ -117,6 +121,11 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
+
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+pythonpath = ["."]
+timeout = 60
 
 [tool.ruff]
 line-length = 88
