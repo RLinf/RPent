@@ -16,7 +16,7 @@
 
 Embodiment-specific settings (openpi config name, action dim, …) are
 selected by the ``--embodiment`` CLI flag and looked up in
-:data:`PI05_EMBODIMENTS`.
+``PI05_EMBODIMENTS``.
 """
 
 from __future__ import annotations
@@ -50,6 +50,8 @@ if str(RLINF_REPO_PATH) not in sys.path:
 # Embodiment registry
 # ---------------------------------------------------------------------------
 
+# NOTE: an embodiment added here must also be registered in the client's
+# ``_ENCODE_OBS`` (obs encoding); the two registries are kept in sync manually.
 PI05_EMBODIMENTS: dict[str, dict] = {
     "libero": {
         "num_action_chunks": 5,
@@ -81,7 +83,7 @@ PI05_ROBOT_PLATFORMS: dict[str, str] = {
 def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
     """OmegaConf for ``rlinf.models.embodiment.openpi.get_model``.
 
-    Deep-merge ``emb_cfg`` into a default config template.  ``emb_cfg``
+    Two-level merge ``emb_cfg`` into a default config template.  ``emb_cfg``
     mirrors the OmegaConf structure (top-level keys + ``openpi`` sub-dict),
     so adding a new key to an embodiment preset automatically flows into
     the model config.  ``model_path`` is set at runtime, not from the
@@ -129,6 +131,11 @@ class Pi05VLAFacade(BaseVLAFacade):
     """
 
     def __init__(self, *, model_path: str, embodiment: str):
+        if embodiment not in PI05_EMBODIMENTS:
+            raise ValueError(
+                f"unknown pi05 server embodiment: {embodiment!r}; "
+                f"registered={list(PI05_EMBODIMENTS)}"
+            )
         emb_cfg = PI05_EMBODIMENTS[embodiment]
         self._embodiment = embodiment
         super().__init__()

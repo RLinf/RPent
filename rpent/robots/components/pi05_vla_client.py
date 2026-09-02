@@ -18,7 +18,7 @@ The server lifecycle is the caller's responsibility: bring up
 ``rpent.robots.components.pi05_vla_server`` (or any compatible ``vla.predict`` /
 ``healthz`` implementation) before constructing this client.
 
-Embodiment-specific obs encoding is dispatched by :data:`_ENCODE_OBS` registry.
+Embodiment-specific obs encoding is dispatched by the ``_ENCODE_OBS`` registry.
 Add a new encoder function and register it there per embodiment.
 """
 
@@ -41,13 +41,23 @@ def _encode_obs_libero(env_obs: dict) -> dict:
     openpi expects ``main_images [B,H,W,3]``, ``wrist_images [B,H,W,3]``
     or ``None``, ``extra_view_images [B,H,W,3]`` or ``None``,
     ``states [B,state_dim] float32``, ``task_descriptions [str]``.
+    Images are cast to ``uint8`` (openpi ``Normalize`` expects ``[0,255]``
+    uint8 input) and validated to be single ``[H,W,3]`` views.
     """
 
     def _batch_view(v):
-        return None if v is None else np.asarray(v)[None]
+        if v is None:
+            return None
+        arr = np.asarray(v)
+        if arr.ndim != 3:
+            raise ValueError(f"expected [H,W,3] image, got shape {arr.shape}")
+        return arr.astype(np.uint8)[None]
 
+    main = np.asarray(env_obs["main_images"])
+    if main.ndim != 3:
+        raise ValueError(f"expected [H,W,3] image, got shape {main.shape}")
     return {
-        "main_images": np.asarray(env_obs["main_images"])[None],
+        "main_images": main.astype(np.uint8)[None],
         "wrist_images": _batch_view(env_obs.get("wrist_images")),
         "extra_view_images": _batch_view(env_obs.get("extra_view_images")),
         "states": np.asarray(env_obs["states"], dtype=np.float32)[None],
@@ -55,6 +65,9 @@ def _encode_obs_libero(env_obs: dict) -> dict:
     }
 
 
+# NOTE: an embodiment registered here must also exist in the server's
+# ``PI05_EMBODIMENTS`` (and ``PI05_ROBOT_PLATFORMS`` if it sets ROBOT_PLATFORM);
+# the two registries are kept in sync manually.
 _ENCODE_OBS: dict[str, Any] = {
     "libero": _encode_obs_libero,
 }
@@ -92,9 +105,5 @@ class Pi05VLAClient(BaseVLAClient):
     def predict(self, env_obs: dict, options: dict | None = None) -> np.ndarray:
         """Encode obs, request ``vla.predict``, strip batch dim, return ``[chunk, action_dim]``."""
         openpi_obs = self.encode_obs(env_obs)
-        actions = self._client.call(
-            "vla.predict",
-            args=(openpi_obs, options),
-            timeout_s=self._TIMEOUT_S["predict"],
-        )
+        actions = super().predict(openpi_obs, options)
         return np.asarray(actions)[0]
