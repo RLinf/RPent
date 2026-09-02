@@ -121,9 +121,12 @@ class _RequestHandler(socketserver.StreamRequestHandler):
             args = payload.get("args") or ()
             kwargs = payload.get("kwargs") or {}
             session_id = payload.get("session_id")
-            result = self.server.dispatch(  # type: ignore[attr-defined]
-                method, args, kwargs, session_id=session_id
-            )
+            if session_id is None:
+                result = self.server.dispatch(method, args, kwargs)
+            else:
+                result = self.server.dispatch(  # type: ignore[attr-defined]
+                    method, args, kwargs, session_id=session_id
+                )
             response: dict = {"ok": True, "result": result}
         except Exception as exc:
             response = make_error_response(exc)

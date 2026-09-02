@@ -181,9 +181,12 @@ class _HttpRpcHandler(BaseHTTPRequestHandler):
             args = tuple(_from_json(v) for v in request.get("args", []))
             kwargs = {k: _from_json(v) for k, v in request.get("kwargs", {}).items()}
             session_id = request.get("session_id")
-            result = self.server.dispatch(  # type: ignore[attr-defined]
-                method, args, kwargs, session_id=session_id
-            )
+            if session_id is None:
+                result = self.server.dispatch(method, args, kwargs)
+            else:
+                result = self.server.dispatch(  # type: ignore[attr-defined]
+                    method, args, kwargs, session_id=session_id
+                )
             response: dict = {"ok": True, "result": result}
         except Exception as exc:
             response = make_error_response(exc)
