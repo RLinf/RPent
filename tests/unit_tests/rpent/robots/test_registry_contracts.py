@@ -232,6 +232,43 @@ def test_behavior_uses_the_shared_pi05_registry_and_wire_contract() -> None:
     assert action.dtype == np.float32
 
 
+def test_behavior_resolves_the_official_challenge_instance_layout(
+    tmp_path: Path,
+) -> None:
+    from robots.behavior.rlinf_env import (
+        _bootstrap_template_path,
+        _resolve_activity_instance_dir,
+    )
+
+    dataset_root = tmp_path / "2025-challenge-task-instances"
+    json_dir = dataset_root / "scenes" / "house" / "json"
+    instance_dir = json_dir / "house_task_demo_instances"
+    instance_dir.mkdir(parents=True)
+    bootstrap = json_dir / "house_task_demo_0_0_template.json"
+    bootstrap.write_text("{}")
+    selected = instance_dir / "house_task_demo_0_242_template-tro_state.json"
+    selected.write_text("{}")
+
+    resolved = _resolve_activity_instance_dir(
+        dataset_root,
+        scene_model="house",
+        task_name="demo",
+        activity_definition_id=0,
+        activity_instance_id=242,
+    )
+
+    assert resolved == instance_dir
+    assert (
+        _bootstrap_template_path(
+            resolved,
+            scene_model="house",
+            task_name="demo",
+            activity_definition_id=0,
+        )
+        == bootstrap
+    )
+
+
 @pytest.mark.parametrize(
     ("mode", "task_name", "public_seed", "role_title"),
     [

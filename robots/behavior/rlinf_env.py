@@ -456,6 +456,44 @@ def _bootstrap_template_path(
     return template_path
 
 
+def _resolve_activity_instance_dir(
+    activity_dir: Path,
+    *,
+    scene_model: str,
+    task_name: str,
+    activity_definition_id: int,
+    activity_instance_id: int,
+) -> Path:
+    """Resolve a task instance directory from either supported CLI shape.
+
+    The public launcher accepts the downloaded challenge dataset root, while
+    RLinf's loader requires the task-specific directory that directly contains
+    the cached instance JSON files.  An already task-specific directory remains
+    valid for callers that supply one explicitly.
+    """
+
+    instance_name = (
+        f"{scene_model}_task_{task_name}_{activity_definition_id}_"
+        f"{activity_instance_id}_template-tro_state.json"
+    )
+    task_dir_name = f"{scene_model}_task_{task_name}_instances"
+    candidates = (
+        activity_dir,
+        activity_dir / task_dir_name,
+        activity_dir / "scenes" / scene_model / "json" / task_dir_name,
+    )
+    instance_dir = next(
+        (path for path in candidates if (path / instance_name).is_file()),
+        None,
+    )
+    if instance_dir is None:
+        raise FileNotFoundError(
+            "BEHAVIOR activity instance not found: "
+            + " or ".join(str(path / instance_name) for path in candidates)
+        )
+    return instance_dir
+
+
 def _apply_default_config_identity(
     cfg: Any,
     *,
@@ -497,7 +535,13 @@ def _apply_default_config_identity(
         ACTIVITY_INSTANCE_DIR_ENV
     )
     if activity_dir:
-        instance_dir = Path(str(activity_dir)).expanduser().resolve()
+        instance_dir = _resolve_activity_instance_dir(
+            Path(str(activity_dir)).expanduser().resolve(),
+            scene_model=str(identity["scene_model"]),
+            task_name=str(identity["task_name"]),
+            activity_definition_id=int(identity["activity_definition_id"]),
+            activity_instance_id=int(identity["activity_instance_id"]),
+        )
         cfg.omni_config.task.activity_instance_dir = str(instance_dir)
         cfg.omni_config.task.instance_resample_mode = "disabled"
         instance_file_format = str(
