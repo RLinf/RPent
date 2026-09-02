@@ -11,8 +11,6 @@ BEHAVIOR_VENV="${BEHAVIOR_VENV:-${REPRO_ROOT}/venvs/behavior}"
 
 : "${OMNIGIBSON_DATA_PATH:?Set OMNIGIBSON_DATA_PATH}"
 : "${PI05_CHECKPOINT_PATH:?Set PI05_CHECKPOINT_PATH}"
-: "${DINOV2_SOURCE_ARCHIVE:?Set DINOV2_SOURCE_ARCHIVE}"
-: "${DINOV2_WEIGHTS:?Set DINOV2_WEIGHTS}"
 
 "${SCRIPT_DIR}/verify_behavior_assets.sh"
 
@@ -59,7 +57,4 @@ exec "${RPENT_VENV}/bin/rpent" \
     --policy-checkpoint "${PI05_CHECKPOINT_PATH}" \
     --behavior-env-cuda-device "${ENV_GPU}" \
     --behavior-model-cuda-device "${MODEL_GPU}" \
-    --dino-source-archive "${DINOV2_SOURCE_ARCHIVE}" \
-    --dino-weights "${DINOV2_WEIGHTS}" \
-    --dino-cache-dir "${REPRO_ROOT}/cache/dinov2" \
     --vla-ready-timeout-s "${VLA_READY_TIMEOUT_S:-600}"

@@ -41,7 +41,7 @@ from robots.behavior.task_specs import (
 from rpent.dashboard.events import DashboardEventSink
 from rpent.robots.robot_spec import RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_repo_root
+from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
@@ -50,8 +50,8 @@ if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
 
 BEHAVIOR_MODES = ("eval", "explore")
-BEHAVIOR_COMPONENTS = {"env", "vla", "dino", "memory"}
-DEFAULT_EVAL_COMPONENTS = {"env", "vla", "dino", "memory"}
+BEHAVIOR_COMPONENTS = {"env", "vla", "memory"}
+DEFAULT_EVAL_COMPONENTS = {"env", "vla", "memory"}
 DEFAULT_MAX_EPISODE_STEPS = 43_200
 DEFAULT_PLANNER_TIMEOUT_S = 7_200
 RLINF_ROOT_ENV = "RPENT_RLINF_ROOT"
@@ -87,7 +87,7 @@ def _component_cuda_device(
 ) -> str | None:
     if component == "env":
         specific = getattr(args, "behavior_env_cuda_device", None)
-    elif component in {"vla", "dino"}:
+    elif component == "vla":
         specific = getattr(args, "behavior_model_cuda_device", None)
     else:
         raise ValueError(f"unsupported CUDA component: {component}")
@@ -131,6 +131,7 @@ def _public_seed_from_args(args: argparse.Namespace) -> int:
 def add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     required = not use_dashboard
     parser.set_defaults(planner="codex", planner_timeout_s=DEFAULT_PLANNER_TIMEOUT_S)
+    parser.set_defaults(memory_profile="local")
     parser.add_argument(
         "--task-name",
         required=required,
@@ -161,7 +162,6 @@ def add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument("--vla-endpoint", default=None)
-    parser.add_argument("--dino-endpoint", default=None)
     default_behavior_repo = _default_behavior_repo()
     parser.add_argument(
         "--behavior-repo",
@@ -213,16 +213,8 @@ def add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--behavior-model-cuda-device",
         default=None,
-        help="Physical GPU ordinal shared by the BEHAVIOR VLA and DINO processes.",
+        help="Physical GPU ordinal exposed only to the BEHAVIOR VLA process.",
     )
-    parser.add_argument(
-        "--behavior-memory-dir",
-        default=None,
-        help="Explicit episode-memory catalog root. Omission selects a legal empty catalog.",
-    )
-    parser.add_argument("--dino-source-archive", default=None)
-    parser.add_argument("--dino-weights", default=None)
-    parser.add_argument("--dino-cache-dir", default=None)
     parser.add_argument("--vla-ready-timeout-s", type=float, default=900.0)
 
 
@@ -264,15 +256,18 @@ def parse_config(args: argparse.Namespace) -> RunConfig:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         output_dir = get_repo_root() / "logs" / f"{timestamp}_behavior_{recipe_tag}"
     output_dir = Path(output_dir).expanduser().resolve()
-    configured_memory_dir = getattr(args, "behavior_memory_dir", None)
+    requested_memory_profile = getattr(args, "memory_profile", None)
+    memory_profile = str(requested_memory_profile or "local")
+    if memory_profile != "local":
+        raise ValueError("BEHAVIOR requires --memory-profile local")
+    configured_memory_dir = getattr(args, "memory_dir", None)
     memory_dir = (
         Path(configured_memory_dir).expanduser().resolve()
         if configured_memory_dir
-        else (output_dir / "behavior_memory_empty").resolve()
+        else get_memory_dir("behavior").resolve()
     )
-    memory_profile = "explicit" if configured_memory_dir else "empty_episode_catalog"
-    args.behavior_memory_dir = str(memory_dir)
-    args.behavior_memory_dir_explicit = bool(configured_memory_dir)
+    args.memory_profile = memory_profile
+    args.memory_dir = str(memory_dir)
     return RunConfig(
         recipe_tag=recipe_tag,
         output_dir=output_dir,
@@ -295,8 +290,8 @@ def parse_config(args: argparse.Namespace) -> RunConfig:
             ]
             + ["finish"],
             "memory_dir": str(memory_dir),
-            "behavior_episode_memory": memory_profile,
-            "behavior_memory_dir_explicit": bool(configured_memory_dir),
+            "memory_profile": memory_profile,
+            "memory_inbox": str(memory_dir / "_inbox" / recipe_tag),
         },
         task_desc={
             "env": "behavior",
@@ -314,8 +309,8 @@ def parse_config(args: argparse.Namespace) -> RunConfig:
             "cuda_device": cuda_device,
             "behavior_env_cuda_device": env_cuda_device,
             "behavior_model_cuda_device": model_cuda_device,
-            "behavior_episode_memory": memory_profile,
-            "behavior_memory_dir_explicit": bool(configured_memory_dir),
+            "memory_profile": memory_profile,
+            "memory_dir": str(memory_dir),
         },
     )
 
@@ -485,54 +480,6 @@ def _spawn_vla_server(
     return daemon, make_rpc_client(f"http://{host}:{port}")
 
 
-def _spawn_dino_server(
-    args: argparse.Namespace,
-    output_dir: Path,
-) -> tuple[ProcessDaemon | None, "RpcClient"]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    if args.dino_endpoint is not None:
-        return None, make_rpc_client(args.dino_endpoint)
-    host, port = "127.0.0.1", pick_free_port()
-    cuda_device = _component_cuda_device(args, "dino")
-    behavior_python = _behavior_python_path(args.behavior_python)
-    if not behavior_python.is_file():
-        raise RuntimeError(f"BEHAVIOR Python executable is missing: {behavior_python}")
-    cmd = [
-        str(behavior_python),
-        str(get_repo_root() / "robots" / "behavior" / "dino_v2" / "server.py"),
-        "--host",
-        host,
-        "--port",
-        str(port),
-        "--parent-watch",
-    ]
-    if getattr(args, "dino_source_archive", None):
-        cmd.extend(
-            [
-                "--source-archive",
-                str(Path(args.dino_source_archive).expanduser().resolve()),
-            ]
-        )
-    if getattr(args, "dino_weights", None):
-        cmd.extend(["--weights", str(Path(args.dino_weights).expanduser().resolve())])
-    if getattr(args, "dino_cache_dir", None):
-        cmd.extend(
-            ["--cache-dir", str(Path(args.dino_cache_dir).expanduser().resolve())]
-        )
-    if cuda_device is not None:
-        cmd.extend(["--cuda-device", cuda_device])
-    daemon = ProcessDaemon(
-        name="behavior_dino_server",
-        cmd=cmd,
-        env_overrides={
-            **({"CUDA_VISIBLE_DEVICES": cuda_device} if cuda_device is not None else {})
-        },
-        log_path=str(output_dir / "behavior_dino_server.log"),
-    )
-    daemon.start()
-    return daemon, HttpRpcClient(f"http://{host}:{port}")
-
-
 def _connect_env(
     args: argparse.Namespace,
     rpc: "RpcClient",
@@ -589,29 +536,6 @@ def _connect_vla(args: argparse.Namespace, rpc: "RpcClient") -> dict[str, Any]:
     }
 
 
-def _connect_dino(args: argparse.Namespace, rpc: "RpcClient") -> dict[str, Any]:
-    from robots.behavior.dino_v2.client import BehaviorDinoClient
-    from robots.behavior.memory.index import load_current_catalog
-
-    client = BehaviorDinoClient(rpc, expected_meta={"runtime": "behavior_dino"})
-    configured_memory_dir = getattr(args, "behavior_memory_dir", None)
-    explicit_marker = getattr(args, "behavior_memory_dir_explicit", None)
-    explicit = (
-        bool(configured_memory_dir)
-        if explicit_marker is None
-        else bool(explicit_marker)
-    )
-    if explicit and not configured_memory_dir:
-        raise ValueError("explicit BEHAVIOR memory catalog path is missing")
-    memory_dir = (
-        Path(configured_memory_dir).expanduser().resolve() if explicit else None
-    )
-    return {
-        "dino_component": client,
-        "episode_memory_index": load_current_catalog(memory_dir),
-    }
-
-
 def init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
@@ -629,7 +553,6 @@ def init_runtime(
     primitives_kwargs: dict[str, Any] = {}
     pending_env: tuple[ProcessDaemon | None, RpcClient] | None = None
     pending_vla: tuple[ProcessDaemon | None, RpcClient] | None = None
-    pending_dino: tuple[ProcessDaemon | None, RpcClient] | None = None
     if "env" in selected:
         pending_env = try_spawn_server(
             owned_daemons,
@@ -643,13 +566,6 @@ def init_runtime(
             dashboard_events,
             "vla",
             lambda: _spawn_vla_server(args, output_dir),
-        )
-    if "dino" in selected:
-        pending_dino = try_spawn_server(
-            owned_daemons,
-            dashboard_events,
-            "dino",
-            lambda: _spawn_dino_server(args, output_dir),
         )
     if "memory" in selected:
         primitives_kwargs["_memory_component_selected"] = True
@@ -678,19 +594,6 @@ def init_runtime(
                 daemon,
                 float(getattr(args, "vla_ready_timeout_s", 900.0)),
                 post_fn=lambda: _connect_vla(args, rpc),
-            )
-        )
-    if pending_dino is not None:
-        daemon, rpc = pending_dino
-        primitives_kwargs.update(
-            try_wait_server(
-                owned_daemons,
-                dashboard_events,
-                "dino",
-                rpc,
-                daemon,
-                600.0 if daemon is not None else 120.0,
-                post_fn=lambda: _connect_dino(args, rpc),
             )
         )
     return list(owned_daemons.values()), primitives_kwargs

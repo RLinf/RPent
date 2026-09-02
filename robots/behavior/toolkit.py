@@ -83,6 +83,12 @@ class BehaviorToolkit(Toolkit):
         values["video_path"] = (
             Path(video_path) if video_path is not None else output_dir / "episode.mp4"
         )
+        self._recipe_tag = str(
+            getattr(config, "recipe_tag", "")
+            or get_task_spec(str(values.get("task_name") or "turning_on_radio")).tag(
+                int(values.get("public_seed") or 0)
+            )
+        )
 
         super().__init__(
             dashboard_events=dashboard_events or NullDashboardEventSink(),
@@ -128,23 +134,33 @@ class BehaviorToolkit(Toolkit):
             and isinstance(result.result, dict)
             and result.result.get("_finish") is True
         ):
-            receipt_path = self._primitives.output_dir / "terminal_receipt.json"
-            receipt_path.parent.mkdir(parents=True, exist_ok=True)
-            fd, temporary_name = tempfile.mkstemp(
-                prefix=".terminal_receipt.", suffix=".tmp", dir=receipt_path.parent
-            )
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                    json.dump(
-                        result.result, stream, indent=2, sort_keys=True, default=str
-                    )
-                    stream.write("\n")
-                os.replace(temporary_name, receipt_path)
-            finally:
+            for receipt_path in (
+                self._primitives.output_dir / "terminal_receipt.json",
+                self._primitives.output_dir / f"{self._recipe_tag}.json",
+            ):
+                receipt_path.parent.mkdir(parents=True, exist_ok=True)
+                fd, temporary_name = tempfile.mkstemp(
+                    prefix=f".{receipt_path.stem}.",
+                    suffix=".tmp",
+                    dir=receipt_path.parent,
+                )
                 try:
-                    os.unlink(temporary_name)
-                except FileNotFoundError:
-                    pass
+                    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                        json.dump(
+                            result.result,
+                            stream,
+                            indent=2,
+                            sort_keys=True,
+                            default=str,
+                        )
+                        stream.write("\n")
+                    os.replace(temporary_name, receipt_path)
+                finally:
+                    try:
+                        os.unlink(temporary_name)
+                    except FileNotFoundError:
+                        pass
+            self.write_recipe(self._recipe_tag)
         return BehaviorToolResult(
             name=result.name,
             result=result.result,

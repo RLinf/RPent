@@ -42,7 +42,6 @@ BEHAVIOR_DASHBOARD_SPEC = {
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
-        {"name": "dino", "label": "DINO", "scope": "shared"},
         {"name": "memory", "label": "MEM", "scope": "unique"},
     ),
     "frame_channels": (
@@ -93,7 +92,7 @@ def get_toolkit(
             raise ValueError(f"unsupported BEHAVIOR toolkit mode: {mode!r}")
         memory_dir = config.prompt_vars.get("memory_dir")
         if not memory_dir:
-            memory_dir = Path(config.output_dir) / "behavior_memory_empty"
+            raise ValueError("BEHAVIOR RunConfig is missing memory_dir")
         memory = MemoryManager(
             root=Path(memory_dir),
             memory_access="inbox_write" if mode == "explore" else "read_only",

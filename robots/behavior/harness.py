@@ -39,7 +39,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from robots.behavior.task_specs import get_task_spec
 from robots.behavior.terminal_success import validate_terminal_success_receipt
+from rpent.memory import MemoryManager
 
 _FORBIDDEN_RPENT_FLAGS = {
     "--env",
@@ -47,6 +49,8 @@ _FORBIDDEN_RPENT_FLAGS = {
     "--output-dir",
     "--robot",
     "--behavior-mode",
+    "--memory-dir",
+    "--memory-profile",
 }
 
 
@@ -104,6 +108,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional wall-clock timeout per attempt.",
     )
     explore.add_argument(
+        "--memory-dir",
+        type=Path,
+        default=None,
+        help="Official MemoryManager corpus root (default: <output-dir>/memory).",
+    )
+    explore.add_argument(
+        "--auto-merge-memory",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Merge the shared attempt inbox with MemoryManager after the run.",
+    )
+    explore.add_argument(
         "--stop-on-explicit-success",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -139,6 +155,7 @@ def _attempt_argv(
     *,
     rpent_executable: str,
     attempt_dir: Path,
+    memory_dir: Path,
     passthrough: Sequence[str],
 ) -> list[str]:
     return [
@@ -149,8 +166,34 @@ def _attempt_argv(
         "explore",
         "--output-dir",
         str(attempt_dir),
+        "--memory-profile",
+        "local",
+        "--memory-dir",
+        str(memory_dir),
         *passthrough,
     ]
+
+
+def _cell_tag_from_passthrough(passthrough: Sequence[str]) -> str:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--task-name")
+    parser.add_argument("--public-seed", type=int)
+    parser.add_argument("--seed", type=int)
+    identity, _ = parser.parse_known_args(list(passthrough))
+    if not identity.task_name:
+        raise ValueError("Explore passthrough requires --task-name")
+    public_seed = (
+        identity.public_seed if identity.public_seed is not None else identity.seed
+    )
+    if public_seed is None:
+        raise ValueError("Explore passthrough requires --public-seed or --seed")
+    if (
+        identity.public_seed is not None
+        and identity.seed is not None
+        and identity.public_seed != identity.seed
+    ):
+        raise ValueError("--public-seed and --seed disagree")
+    return get_task_spec(identity.task_name).tag(public_seed)
 
 
 def _collect_terminal_receipts(attempt_dir: Path) -> list[dict[str, Any]]:
@@ -195,6 +238,12 @@ def run_explore(args: argparse.Namespace, passthrough: Sequence[str]) -> int:
     passthrough = _normalize_passthrough(passthrough)
     output_dir = args.output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    memory_dir = (
+        args.memory_dir.expanduser().resolve()
+        if args.memory_dir is not None
+        else (output_dir / "memory").resolve()
+    )
+    cell_tag = _cell_tag_from_passthrough(passthrough)
     attempts: list[dict[str, Any]] = []
     summary_path = output_dir / "explore_harness_summary.json"
 
@@ -204,6 +253,7 @@ def run_explore(args: argparse.Namespace, passthrough: Sequence[str]) -> int:
         argv = _attempt_argv(
             rpent_executable=args.rpent_executable,
             attempt_dir=attempt_dir,
+            memory_dir=memory_dir,
             passthrough=passthrough,
         )
         started_at = time.time()
@@ -258,11 +308,37 @@ def run_explore(args: argparse.Namespace, passthrough: Sequence[str]) -> int:
     successful_attempts = [
         attempt["attempt_index"] for attempt in attempts if attempt["explicit_success"]
     ]
+    merge_result: dict[str, Any] | None = None
+    merge_error: str | None = None
+    merge_candidates = [
+        attempt for attempt in attempts if attempt.get("returncode") == 0
+    ]
+    if args.auto_merge_memory and not args.dry_run and merge_candidates:
+        selected = next(
+            (
+                attempt
+                for attempt in merge_candidates
+                if attempt.get("explicit_success") is True
+            ),
+            merge_candidates[-1],
+        )
+        try:
+            merge_result = MemoryManager(memory_dir).merge_memory(
+                cell_tag=cell_tag,
+                run_state_dir=selected["output_dir"],
+                solved=bool(selected.get("explicit_success")),
+            )
+        except Exception as exc:
+            merge_error = f"{type(exc).__name__}: {exc}"
     summary = {
         "schema_version": 1,
         "kind": "behavior_explore_outer_harness_summary",
         "dry_run": bool(args.dry_run),
         "output_dir": str(output_dir),
+        "memory_dir": str(memory_dir),
+        "memory_cell_tag": cell_tag,
+        "memory_merge": merge_result,
+        "memory_merge_error": merge_error,
         "attempts_requested": args.attempts,
         "attempts_run": len(attempts),
         "successful_attempts": successful_attempts,
@@ -275,6 +351,8 @@ def run_explore(args: argparse.Namespace, passthrough: Sequence[str]) -> int:
     print(json.dumps(summary, indent=2, default=str))
     if args.dry_run:
         return 0
+    if merge_error is not None:
+        return 1
     return 0 if successful_attempts else 1
 
 
