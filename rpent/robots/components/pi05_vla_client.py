@@ -82,7 +82,7 @@ class Pi05VLAClient(BaseVLAClient):
     """Client wrapping a remote Pi0.5 VLA over any :class:`RpcClient` transport.
 
     Construction requires an ``embodiment`` name (e.g. ``"libero"``) that
-    selects the obs encoder from :data:`_ENCODE_OBS`.
+    selects the obs encoder from ``_ENCODE_OBS``.
     """
 
     def __init__(self, client, *, embodiment: str):
@@ -97,7 +97,7 @@ class Pi05VLAClient(BaseVLAClient):
     # ---- obs encode (symmetric with server decode_obs_<name>) ----
 
     def encode_obs(self, env_obs: dict) -> dict:
-        """Dispatch to the embodiment's encoder from :data:`_ENCODE_OBS`."""
+        """Dispatch to the embodiment's encoder from ``_ENCODE_OBS``."""
         return _ENCODE_OBS[self._embodiment](env_obs)
 
     # ---- inference ----
