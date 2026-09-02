@@ -85,15 +85,9 @@ def test_toolspec_co_location_matches_from_spec():
     assert sample_tool.description == "Sample tool description"
     assert sample_tool.input_schema == _spec_dict()["input_schema"]
     # The co-location decorator and normalizing the equivalent hand-written
-    # dict must produce the same public shape.
+    # dict must produce the same ToolSpec (handlers are the same function).
     plain = ToolSpec.from_spec(_spec_dict(), sample_tool.handler)
-    assert plain.to_spec_dict() == sample_tool.to_spec_dict()
-
-
-def test_to_spec_dict_round_trips_hand_written_dict():
-    spec = _spec_dict()
-    ts = ToolSpec.from_spec(spec, lambda x: x)
-    assert ts.to_spec_dict() == spec
+    assert plain == sample_tool
 
 
 def test_resolved_substitutes_without_mutating():

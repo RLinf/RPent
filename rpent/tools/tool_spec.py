@@ -121,11 +121,3 @@ class ToolSpec:
             handler=self.handler,
             readonly=self.readonly,
         )
-
-    def to_spec_dict(self) -> dict[str, Any]:
-        """Return the Anthropic-shaped spec dict for dict-consuming callers."""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "input_schema": self.input_schema,
-        }

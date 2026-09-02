@@ -154,11 +154,13 @@ class Toolkit:
     """Base toolkit: registers common tools and dispatches tool calls.
 
     Subclasses extend ``__init__`` (calling ``super().__init__()`` first)
-    and register additional tools with :meth:`add_tool`. Robot-specific
-    subclasses receive their env/model/etc. as constructor arguments and
-    build the underlying env Primitives in ``__init__``; the toolkit
-    base class only contributes the common file/IO tools. Override
-    :meth:`close` to release robot-side primitives / servers at the end of the run.
+    and register additional tools with :meth:`add_tool` (hand-written spec
+    dicts) or :meth:`add_tool_spec` (pre-built :class:`~rpent.tools.tool_spec.ToolSpec`
+    objects, e.g. from the co-location decorators). Robot-specific subclasses
+    receive their env/model/etc. as constructor arguments and build the
+    underlying env Primitives in ``__init__``; the toolkit base class only
+    contributes the common file/IO tools. Override :meth:`close` to release
+    robot-side primitives / servers at the end of the run.
     """
 
     def __init__(

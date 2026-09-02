@@ -47,7 +47,7 @@ def toolspec(
         description: The hand-written description the LLM sees.
         input_schema: Hand-written Anthropic-shaped JSON schema dict.
         readonly: Mark the tool as observation-only (runs concurrently).
-            Defaults to the :func:`~rpent.tools.toolkit.readonly` marker on
+            Defaults to the :func:`~rpent.tools.tool_spec.readonly` marker on
             the function.
     """
 
