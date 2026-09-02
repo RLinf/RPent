@@ -65,8 +65,8 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 	ray stop --force
 	ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
 
-运行 smoke test
----------------
+运行冒烟测试
+------------
 
 任务 ``0`` 用于测试保守的单臂解析式运动和夹爪 primitives：
 

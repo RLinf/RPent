@@ -25,7 +25,7 @@ from rlinf.envs.realworld.common.wrappers import apply_single_arm_wrappers
 from rlinf.envs.realworld.franka.franka_env import FrankaEnv
 
 
-class PhysicalAgentFrankaEnv(FrankaEnv):
+class RPentFrankaEnv(FrankaEnv):
     """FrankaEnv variant used as the RPent real-robot contract."""
 
     def go_to_rest(self, joint_reset: bool = False) -> None:
@@ -41,7 +41,7 @@ class PhysicalAgentFrankaEnv(FrankaEnv):
         super().go_to_rest(joint_reset)
 
 
-def create_physical_agent_franka_env(
+def create_rpent_franka_env(
     override_cfg: dict,
     worker_info: object,
     hardware_info: object,
@@ -49,7 +49,7 @@ def create_physical_agent_franka_env(
     env_cfg: dict,
 ) -> gym.Env:
     """Create the RPent-specific single-Franka environment."""
-    env = PhysicalAgentFrankaEnv(
+    env = RPentFrankaEnv(
         override_cfg=override_cfg,
         worker_info=worker_info,
         hardware_info=hardware_info,
@@ -58,12 +58,12 @@ def create_physical_agent_franka_env(
     return apply_single_arm_wrappers(env, env_cfg)
 
 
-def register_physical_agent_franka_env() -> None:
+def register_rpent_franka_env() -> None:
     """Register the RPent-specific Franka environment with Gymnasium."""
-    if "PhysicalAgentFrankaEnv-v1" not in gym.registry:
+    if "RPentFrankaEnv-v1" not in gym.registry:
         register(
-            id="PhysicalAgentFrankaEnv-v1",
+            id="RPentFrankaEnv-v1",
             entry_point=(
-                "robots.franka.physical_agent_env:create_physical_agent_franka_env"
+                "robots.franka.rpent_env:create_rpent_franka_env"
             ),
         )

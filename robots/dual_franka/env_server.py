@@ -122,7 +122,7 @@ def _create_worker_class():
 
         # ------------------------------------------------------------ lifecycle
 
-        def ready(self) -> dict[str, Any]:
+        def get_env_meta(self) -> dict[str, Any]:
             return {
                 "ok": True,
                 "action_dim": self.action_dim,
@@ -157,8 +157,10 @@ def _create_worker_class():
 
         def _ensure_obs(self) -> dict[str, Any]:
             if self.last_obs is None:
-                observation, _ = self.env.reset()
-                self.last_obs = observation
+                raise RuntimeError(
+                    "env.reset() has not been called; observation is unavailable. "
+                    "Call reset before reading observations."
+                )
             return self.last_obs
 
         @staticmethod
@@ -232,7 +234,7 @@ def _create_worker_class():
                 "action_scale": self.action_scale.tolist(),
             }
 
-        def get_camera_metadata(self) -> dict[str, Any] | None:
+        def get_camera_meta(self) -> dict[str, Any] | None:
             metadata: dict[str, Any] = {}
             try:
                 specs_getter = self.env.env.call(
@@ -471,7 +473,7 @@ def _create_worker_class():
                 "robot_state": self.get_robot_state(),
             }
 
-        def step_chunk(
+        def chunk_step(
             self,
             actions: Any,
             *,
@@ -511,7 +513,7 @@ def _launch_worker(cfg: Any, controller_config: dict[str, Any]):
         name="DualFrankaRPentEnvGroup",
         placement_strategy=placement,
     )
-    worker.ready().wait()
+    worker.get_env_meta().wait()
     return worker
 
 

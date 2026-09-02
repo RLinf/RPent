@@ -548,21 +548,6 @@ def _base_frame_transform(
     inverse_key = f"T_{source}_{target}"
     if isinstance(frames.get(inverse_key), dict):
         return np.linalg.inv(_transform_to_matrix(frames[inverse_key]))
-
-    # Backward-compatible fallback for the current dual-Franka calibration:
-    # right_base origin expressed in left_base, with identity rotation.
-    if target == "left_base" and source == "right_base":
-        xyz = frames.get("right_base_in_left_base_xyz_m")
-        if xyz is not None:
-            mat = np.eye(4, dtype=np.float64)
-            mat[:3, 3] = np.asarray(xyz, dtype=np.float64)
-            return mat
-    if target == "right_base" and source == "left_base":
-        xyz = frames.get("right_base_in_left_base_xyz_m")
-        if xyz is not None:
-            mat = np.eye(4, dtype=np.float64)
-            mat[:3, 3] = -np.asarray(xyz, dtype=np.float64)
-            return mat
     raise DualFrankaPerceptionError(f"missing base-frame transform {key}")
 
 

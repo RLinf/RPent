@@ -67,19 +67,19 @@ class FakeEnv:
     def get_robot_state(self):
         return {"tcp_pose": [0.5, 0.0, 0.2, 0.0, 0.0, 0.0, 1.0]}
 
-    def get_camera_metadata(self):
+    def get_camera_meta(self):
         return {"depth_unit": "m", "cameras": {"wrist_1": {"fx": 100.0}}}
 
-    def step_chunk(self, actions):
+    def chunk_step(self, actions):
         self.chunks.append(np.asarray(actions))
         return {"terminated": False, "truncated": False}
 
 
 class FakeModel:
-    def predict_action_batch(self, observation, mode="eval"):
+    def predict(self, observation, options=None):
         assert observation["task_descriptions"] == "pick up the cube"
-        assert mode == "eval"
-        return np.zeros((2, 7), dtype=np.float32), {}
+        assert options == {"mode": "eval"}
+        return np.zeros((2, 7), dtype=np.float32)
 
 
 def _primitives(env: FakeEnv, *, model=None, check_cancelled=lambda: None):

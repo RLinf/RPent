@@ -53,8 +53,8 @@ Ray 启动时会捕获环境变量，因此必须先设置 node rank：
 	ray stop --force
 	ray start --head
 
-运行 smoke test
----------------
+运行冒烟测试
+------------
 
 任务 ``0`` 用于测试保守的解析式运动和夹爪 primitives：
 

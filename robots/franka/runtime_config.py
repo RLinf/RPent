@@ -114,13 +114,21 @@ _PRECISION_PARAM = {
 # ``FrankaRobotConfig`` defaults. Keys are RLinf field names; anything omitted
 # here keeps RLinf's default.
 ENV_DEFAULTS = {
-    "enable_camera_player": False,  # RLinf default True
-    "enable_camera_depth": True,  # RLinf default False
-    "camera_resize": False,  # RLinf default True (keep native resolution)
-    "max_num_steps": 200_000_000,  # effectively no step cap
+    # RPent drives the cameras through its own env server; it does not run the
+    # in-process camera player.
+    "enable_camera_player": False,
+    # The back-projection primitives need per-pixel depth.
+    "enable_camera_depth": True,
+    # Native resolution keeps pixel back-projection aligned with calibration.
+    "camera_resize": False,
+    # Episodes are bounded by the planner, not a step budget.
+    "max_num_steps": 200_000_000,
+    # Success is decided by the planner; these thresholds are nominal.
     "reward_threshold": [0.01, 0.01, 0.01, 0.0, 0.0, 0.0],
+    # Bounded per-step motion increments (xyz m, rpy rad, gripper) for safety.
     "action_scale": [0.02, 0.1, 1.0],
-    "enable_gripper_penalty": False,  # RLinf default True
+    # Grasp timing is planner-controlled; no fixed per-step gripper penalty.
+    "enable_gripper_penalty": False,
     "compliance_param": _COMPLIANCE_PARAM,
     "precision_param": _PRECISION_PARAM,
 }
@@ -292,7 +300,7 @@ def load_runtime_config(
                     "keyboard_reward_wrapper": None,
                     "use_relative_frame": True,
                     "video_cfg": {},
-                    "init_params": {"id": "PhysicalAgentFrankaEnv-v1"},
+                    "init_params": {"id": "RPentFrankaEnv-v1"},
                     "override_cfg": override_cfg,
                 }
             },

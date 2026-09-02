@@ -17,8 +17,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
-import io
 import os
 import sys
 import time
@@ -75,44 +73,6 @@ def build_model_cfg(model_path: str, repo_id: str) -> Any:
     )
 
 
-def _decode_image_block(block: dict[str, Any]) -> np.ndarray:
-    import imageio.v2 as imageio
-
-    if (block.get("format") or "png").lower() != "png":
-        raise ValueError("only PNG image blocks are supported")
-    data = block.get("data")
-    if not isinstance(data, str) or not data:
-        raise ValueError("image block missing base64 'data'")
-    image = np.asarray(imageio.imread(io.BytesIO(base64.b64decode(data))))
-    if image.ndim != 3 or image.shape[-1] != 3:
-        raise ValueError(f"image must be HxWx3 RGB; got {image.shape}")
-    return image.astype(np.uint8, copy=False)
-
-
-def _build_env_obs(
-    instruction: str,
-    images: dict[str, Any],
-    state: list,
-) -> dict[str, Any]:
-    extras = images.get("extra")
-    if "main" not in images or not isinstance(extras, list) or len(extras) != 2:
-        raise ValueError(
-            "dual-Franka inference requires images.main and two images.extra views"
-        )
-    states = np.asarray(state, dtype=np.float32)
-    if states.ndim != 2 or states.shape[1] < 20:
-        raise ValueError(f"state must be [B, >=20]; got shape {states.shape}")
-    main = _decode_image_block(images["main"])
-    extra_views = np.stack([_decode_image_block(block) for block in extras])
-    return {
-        "main_images": main[None],
-        "wrist_images": None,
-        "extra_view_images": extra_views[None],
-        "states": states,
-        "task_descriptions": [str(instruction)] * states.shape[0],
-    }
-
-
 class DualFrankaVLAFacade(BaseVLAFacade):
     """Serve one loaded dual-Franka Pi0.5 model over RPent RPC."""
 
@@ -130,34 +90,16 @@ class DualFrankaVLAFacade(BaseVLAFacade):
         self._model = get_openpi_model(cfg, torch_dtype=None).cuda().eval()
         logger.info("model ready in %.1fs", time.time() - started_at)
 
-    def _register_rpc(self) -> None:
-        super()._register_rpc()
-        # The dual-Franka toolkit drives this facade through the legacy
-        # ``VLAClient`` (``robots.franka.vla_client``), which sends the bare
-        # ``predict`` name. Register that alias alongside the standard
-        # ``vla.predict`` so both client styles keep working.
-        self._rpc["predict"] = self.predict
-
-    def predict(
-        self,
-        instruction: str,
-        images: dict[str, Any],
-        state: list,
-        mode: str = "eval",
-    ) -> dict[str, Any]:
-        env_obs = _build_env_obs(instruction, images, state)
+    def predict(self, obs: dict, options: dict | None = None) -> np.ndarray:
+        """Run one inference on the openpi wire obs produced by ``Pi05VLAClient``."""
+        mode = (options or {}).get("mode", "eval")
         with torch.no_grad():
-            actions, _ = self._model.predict_action_batch(env_obs, mode=mode)
-        actions_np = (
+            actions, _ = self._model.predict_action_batch(obs, mode=mode)
+        return (
             actions.detach().cpu().numpy()
             if isinstance(actions, torch.Tensor)
             else np.asarray(actions)
         ).astype(np.float32)
-        return {
-            "actions": actions_np.tolist(),
-            "shape": list(actions_np.shape),
-            "dtype": "float32",
-        }
 
 
 def main() -> None:

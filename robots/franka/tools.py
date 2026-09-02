@@ -195,8 +195,8 @@ class FrankaPrimitives:
             self._check_cancelled()
             observation = dict(self.env.get_observation())
             observation["task_descriptions"] = prompt or self.task_description
-            actions, _ = self.model.predict_action_batch(observation, mode="eval")
-            result = self.env.step_chunk(actions)
+            actions = self.model.predict(observation, options={"mode": "eval"})
+            result = self.env.chunk_step(actions)
             chunk_results.append(result)
             if result.get("terminated") or result.get("truncated"):
                 break
@@ -220,7 +220,7 @@ def dump_state(
     """Capture robot state and synchronized camera artifacts in ``EnvState``."""
     observation = primitives.env.get_observation()
     robot_state = primitives.env.get_robot_state()
-    metadata = primitives.env.get_camera_metadata()
+    metadata = primitives.env.get_camera_meta()
     with state.record_step(
         state=robot_state,
         command=command,

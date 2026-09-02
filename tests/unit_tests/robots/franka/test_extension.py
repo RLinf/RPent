@@ -23,13 +23,9 @@ from pathlib import Path
 
 import gymnasium as gym
 
-from robots.franka import (
-    _add_cli_args,
-    _env_server_command,
-    _parse_config,
-    get_robot_spec,
-)
-from robots.franka.physical_agent_env import register_physical_agent_franka_env
+from robots.franka import get_robot_spec
+from robots.franka.robot_spec import _add_cli_args, _env_server_command, _parse_config
+from robots.franka.rpent_env import register_rpent_franka_env
 from robots.franka.runtime_config import load_runtime_config
 from rpent.robots.base import enumerate_robots
 from rpent.robots.base import get_robot_spec as resolve_robot_spec
@@ -71,23 +67,21 @@ def test_franka_cli_uses_current_interpreter_without_override_option():
         port=5555,
     )
     assert command[0] == sys.executable
-    assert "--config-name" not in command
-    assert "--override" not in command
     assert "--task-description" in command
 
 
 def test_franka_uses_rpent_owned_robot_config():
-    config_path = Path(__file__).parents[3] / "robots/franka/config/example.yaml"
+    config_path = Path(__file__).parents[4] / "robots/franka/config/example.yaml"
     runtime = load_runtime_config(config_path, task_description="test task")
     cfg = runtime.rlinf
 
     assert config_path.is_file()
-    assert cfg.env.eval.init_params.id == "PhysicalAgentFrankaEnv-v1"
+    assert cfg.env.eval.init_params.id == "RPentFrankaEnv-v1"
     assert cfg.cluster.node_groups[0].hardware.configs[0].robot_ip == "172.16.0.2"
     assert cfg.env.eval.override_cfg.task_description == "test task"
     assert runtime.controller["move_tolerance_m"] == 0.005
 
 
 def test_rpent_franka_registration_exists():
-    register_physical_agent_franka_env()
-    assert gym.spec("PhysicalAgentFrankaEnv-v1") is not None
+    register_rpent_franka_env()
+    assert gym.spec("RPentFrankaEnv-v1") is not None

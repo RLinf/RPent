@@ -25,9 +25,9 @@ from typing import Any
 import numpy as np
 
 from robots.franka.runtime_config import load_runtime_config
+from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.config import get_repo_root, get_rlinf_repo_path
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc import RpcFacade
 
 logger = get_logger("franka_env_server")
 
@@ -55,35 +55,36 @@ def _to_numpy_tree(value: Any) -> Any:
     return value
 
 
-class FrankaEnvFacade(RpcFacade):
-    """Expose explicit ``env.*`` methods from a local or Ray-backed worker."""
+class FrankaEnvFacade(BaseEnvFacade):
+    """Expose the single-Franka ``env.*`` protocol from a Ray-backed worker."""
 
-    _METHODS = {
-        "ready",
+    _METHODS = (
+        "get_env_meta",
         "reset",
         "get_robot_state",
         "get_observation",
-        "get_camera_metadata",
+        "get_camera_meta",
         "move_delta",
         "rotate_delta",
         "set_gripper",
-        "step_chunk",
-    }
+        "chunk_step",
+    )
 
     def __init__(self, backend: Any) -> None:
-        super().__init__()
         self._backend = backend
+        super().__init__()
 
-    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        builtin = self._builtin_dispatch(method, args, kwargs)
-        if builtin is not None:
-            return builtin
-        if not method.startswith("env."):
-            raise ValueError(f"unknown RPC method: {method!r}")
-        name = method.removeprefix("env.")
-        if name not in self._METHODS:
-            raise ValueError(f"unknown Franka env method: {name!r}")
-        return getattr(self._backend, name)(*args, **kwargs)
+    def _register_rpc(self) -> None:
+        for name in self._METHODS:
+            self._rpc[f"env.{name}"] = getattr(self._backend, name)
+        self._readonly_methods.update(
+            {
+                "env.get_env_meta",
+                "env.get_robot_state",
+                "env.get_observation",
+                "env.get_camera_meta",
+            }
+        )
 
 
 class _RayBackend:
@@ -112,11 +113,11 @@ def _create_worker_class():
 
         def __init__(self, cfg: Any, controller_config: dict[str, Any]):
             super().__init__()
-            from robots.franka.physical_agent_env import (
-                register_physical_agent_franka_env,
+            from robots.franka.rpent_env import (
+                register_rpent_franka_env,
             )
 
-            register_physical_agent_franka_env()
+            register_rpent_franka_env()
             self.cfg = cfg
             self.controller = dict(controller_config)
             self.env = RealWorldEnv(
@@ -132,7 +133,7 @@ def _create_worker_class():
             self.use_relative_frame = bool(cfg.env.eval.get("use_relative_frame", True))
             self.last_obs: dict[str, Any] | None = None
 
-        def ready(self) -> dict[str, Any]:
+        def get_env_meta(self) -> dict[str, Any]:
             return {
                 "ok": True,
                 "action_dim": self.action_dim,
@@ -157,8 +158,10 @@ def _create_worker_class():
 
         def _ensure_obs(self) -> dict[str, Any]:
             if self.last_obs is None:
-                observation, _ = self.env.reset()
-                self.last_obs = observation
+                raise RuntimeError(
+                    "env.reset() has not been called; observation is unavailable. "
+                    "Call reset before reading observations."
+                )
             return self.last_obs
 
         @staticmethod
@@ -197,7 +200,7 @@ def _create_worker_class():
                 "use_relative_frame": self.use_relative_frame,
             }
 
-        def get_camera_metadata(self) -> dict[str, Any] | None:
+        def get_camera_meta(self) -> dict[str, Any] | None:
             try:
                 metadata = self.env.env.call("get_camera_metadata")[0]
             except Exception as exc:
@@ -345,7 +348,7 @@ def _create_worker_class():
                 "robot_state": self.get_robot_state(),
             }
 
-        def step_chunk(
+        def chunk_step(
             self,
             actions: Any,
             *,
@@ -385,7 +388,7 @@ def _launch_worker(cfg: Any, controller_config: dict[str, Any]):
         name="FrankaRPentEnvGroup",
         placement_strategy=placement,
     )
-    worker.ready().wait()
+    worker.get_env_meta().wait()
     return worker
 
 

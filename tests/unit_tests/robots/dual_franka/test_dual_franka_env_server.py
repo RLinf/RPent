@@ -31,23 +31,44 @@ from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
 
 
 class FakeBackend:
-    def ready(self):
+    def get_env_meta(self):
         return {"ok": True}
+
+    def reset(self):
+        return {"ok": True}
+
+    def get_robot_state(self):
+        return {}
+
+    def get_observation(self):
+        return {}
+
+    def get_camera_meta(self):
+        return {}
 
     def move_delta(self, arm, delta_xyz):
         return {"arm": arm, "delta_xyz": np.asarray(delta_xyz)}
+
+    def rotate_delta(self, arm, delta_rpy):
+        return {"arm": arm, "delta_rpy": np.asarray(delta_rpy)}
+
+    def set_gripper(self, arm, *, open):
+        return {"arm": arm, "open": open}
+
+    def chunk_step(self, actions, *, return_all_frames=False):
+        return {"actions": np.asarray(actions), "return_all_frames": return_all_frames}
 
 
 def test_facade_dispatches_only_explicit_env_methods():
     facade = FrankaEnvFacade(FakeBackend())
 
-    assert facade._dispatch("env.ready", (), {}) == {"ok": True}
+    assert facade._dispatch("env.get_env_meta", (), {}) == {"ok": True}
     result = facade._dispatch(
         "env.move_delta", (), {"arm": "left", "delta_xyz": [1, 2, 3]}
     )
     assert result["arm"] == "left"
     np.testing.assert_array_equal(result["delta_xyz"], [1, 2, 3])
-    with pytest.raises(ValueError, match="unknown Franka env method"):
+    with pytest.raises(ValueError, match="unknown RPC method"):
         facade._dispatch("env.delete_everything", (), {})
 
 

@@ -65,11 +65,74 @@ def _encode_obs_libero(env_obs: dict) -> dict:
     }
 
 
+def _batch_views(v):
+    """``[H,W,3]`` → ``[1,H,W,3]`` or ``[N,H,W,3]`` → ``[1,N,H,W,3]``."""
+    if v is None:
+        return None
+    arr = np.asarray(v)
+    if arr.ndim == 3:
+        return arr.astype(np.uint8)[None]
+    if arr.ndim == 4:
+        return arr.astype(np.uint8)[None]
+    raise ValueError(f"expected [H,W,3] or [N,H,W,3] image, got shape {arr.shape}")
+
+
+def _encode_obs_franka(env_obs: dict) -> dict:
+    """Single-Franka obs → openpi batched wire obs.
+
+    The single-arm rig exposes one main (wrist) camera and one external
+    camera, so ``main_images`` is the primary view and ``extra_view_images``
+    carries the single external view (if present).
+    """
+    main = np.asarray(env_obs["main_images"])
+    if main.ndim != 3:
+        raise ValueError(f"expected [H,W,3] image, got shape {main.shape}")
+    states = np.asarray(env_obs["states"], dtype=np.float32)
+    if states.ndim != 1:
+        raise ValueError(f"states must be single-env shape [state_dim]; got {states.shape}")
+    return {
+        "main_images": main.astype(np.uint8)[None],
+        "wrist_images": None,
+        "extra_view_images": _batch_views(env_obs.get("extra_view_images")),
+        "states": states[None],
+        "task_descriptions": [str(env_obs.get("task_descriptions") or "")],
+    }
+
+
+def _encode_obs_dual_franka(env_obs: dict) -> dict:
+    """Dual-Franka obs → openpi batched wire obs.
+
+    The rig sends the left-wrist camera as ``main_images`` plus the base and
+    right-wrist cameras stacked as two ``extra_view_images`` and a 20-D TCP
+    rot6d ``states`` vector.
+    """
+    main = np.asarray(env_obs["main_images"])
+    if main.ndim != 3:
+        raise ValueError(f"expected [H,W,3] image, got shape {main.shape}")
+    extras = np.asarray(env_obs["extra_view_images"])
+    if extras.ndim != 4:
+        raise ValueError(
+            f"extra_view_images must be [N,H,W,3]; got shape {extras.shape}"
+        )
+    states = np.asarray(env_obs["states"], dtype=np.float32)
+    if states.ndim != 1:
+        raise ValueError(f"states must be single-env shape [state_dim]; got {states.shape}")
+    return {
+        "main_images": main.astype(np.uint8)[None],
+        "wrist_images": None,
+        "extra_view_images": extras.astype(np.uint8)[None],
+        "states": states[None],
+        "task_descriptions": [str(env_obs.get("task_descriptions") or "")],
+    }
+
+
 # NOTE: an embodiment registered here must also exist in the server's
 # ``PI05_EMBODIMENTS`` (and ``PI05_ROBOT_PLATFORMS`` if it sets ROBOT_PLATFORM);
 # the two registries are kept in sync manually.
 _ENCODE_OBS: dict[str, Any] = {
     "libero": _encode_obs_libero,
+    "franka": _encode_obs_franka,
+    "dual_franka": _encode_obs_dual_franka,
 }
 
 

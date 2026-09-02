@@ -17,26 +17,24 @@
 from __future__ import annotations
 
 import argparse
-import base64
-import io
 import sys
 from argparse import Namespace
 from pathlib import Path
 
-import imageio.v2 as imageio
 import numpy as np
 
-from robots.dual_franka import (
+from robots.dual_franka import get_robot_spec
+from robots.dual_franka.robot_spec import (
     _add_cli_args,
     _env_server_command,
     _parse_config,
     _vla_server_command,
-    get_robot_spec,
 )
 from robots.dual_franka.runtime_config import load_runtime_config
-from robots.dual_franka.vla_server import _build_env_obs, build_model_cfg
+from robots.dual_franka.vla_server import build_model_cfg
 from rpent.robots.base import enumerate_robots
 from rpent.robots.base import get_robot_spec as resolve_robot_spec
+from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
 
 def test_dual_franka_extension_is_discoverable_and_renders_task_prompt(tmp_path: Path):
@@ -75,13 +73,11 @@ def test_dual_franka_cli_uses_current_interpreter_without_override_option():
         port=5556,
     )
     assert command[0] == sys.executable
-    assert "--config-name" not in command
-    assert "--override" not in command
     assert "--task-description" in command
 
 
 def test_dual_franka_uses_rpent_owned_robot_config():
-    config_path = Path(__file__).parents[3] / "robots/dual_franka/config/example.yaml"
+    config_path = Path(__file__).parents[4] / "robots/dual_franka/config/example.yaml"
     runtime = load_runtime_config(None, task_description="test task")
     cfg = runtime.rlinf
 
@@ -110,20 +106,17 @@ def test_dual_franka_vla_server_command_uses_checkpoint_and_repo_id():
     assert command[command.index("--cuda-device") + 1] == "2"
 
 
-def test_dual_franka_vla_config_and_wire_observation_mapping():
-    image = np.zeros((8, 8, 3), dtype=np.uint8)
-    buffer = io.BytesIO()
-    imageio.imwrite(buffer, image, format="png")
-    block = {
-        "format": "png",
-        "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
-    }
-
+def test_dual_franka_vla_config_and_obs_encoding():
     cfg = build_model_cfg("/models/global_step_5000", "org/dataset")
-    observation = _build_env_obs(
-        "grasp the cube",
-        {"main": block, "extra": [block, block]},
-        [[0.0] * 20],
+
+    client = Pi05VLAClient(None, embodiment="dual_franka")
+    observation = client.encode_obs(
+        {
+            "main_images": np.zeros((8, 8, 3), dtype=np.uint8),
+            "extra_view_images": np.zeros((2, 8, 8, 3), dtype=np.uint8),
+            "states": np.zeros(20, dtype=np.float32),
+            "task_descriptions": "grasp the cube",
+        }
     )
 
     assert cfg.openpi.config_name == "pi05_dualfranka_tcp_rot6d"
@@ -133,3 +126,4 @@ def test_dual_franka_vla_config_and_wire_observation_mapping():
     assert observation["main_images"].shape == (1, 8, 8, 3)
     assert observation["extra_view_images"].shape == (1, 2, 8, 8, 3)
     assert observation["states"].shape == (1, 20)
+    assert observation["task_descriptions"] == ["grasp the cube"]

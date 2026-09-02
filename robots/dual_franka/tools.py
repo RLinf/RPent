@@ -188,7 +188,7 @@ def dump_state(
     """Capture per-arm robot state and the three synchronized camera images."""
     observation = primitives.env.get_observation()
     robot_state = primitives.env.get_robot_state()
-    metadata = primitives.env.get_camera_metadata()
+    metadata = primitives.env.get_camera_meta()
     with state.record_step(
         state=robot_state,
         command=command,

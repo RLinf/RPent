@@ -115,7 +115,7 @@ robotwin = [
 ]
 
 [tool.uv]
-prerelease = "if-necessary"
+prerelease = "allow"
 
 [tool.setuptools]
 include-package-data = true

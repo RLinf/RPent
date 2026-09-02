@@ -80,22 +80,22 @@ class FakeEnv:
             "right_arm": {"tcp_pose": [0.5, 0.2, 0.5, 0.0, 0.0, 0.0, 1.0]},
         }
 
-    def get_camera_metadata(self):
+    def get_camera_meta(self):
         return {
             "cameras": {"left_wrist_0_rgb": {"serial": "left", "type": "zed"}},
             "observation_camera_map": {"main": "left_wrist_0_rgb"},
         }
 
-    def step_chunk(self, actions):
+    def chunk_step(self, actions):
         self.chunks.append(np.asarray(actions))
         return {"terminated": False, "truncated": False}
 
 
 class FakeModel:
-    def predict_action_batch(self, observation, mode="eval"):
+    def predict(self, observation, options=None):
         assert observation["task_descriptions"] == "hand over the cube"
-        assert mode == "eval"
-        return np.zeros((2, 20), dtype=np.float32), {}
+        assert options == {"mode": "eval"}
+        return np.zeros((2, 20), dtype=np.float32)
 
 
 def _primitives(env: FakeEnv, *, model=None, check_cancelled=lambda: None):

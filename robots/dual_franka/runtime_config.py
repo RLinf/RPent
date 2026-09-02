@@ -50,8 +50,8 @@ CONTROL = {
     "gripper": {"settle_s": 0.4, "timeout_s": 10.0, "max_iterations": 4},
 }
 
-# Episode length, used for both ``override_cfg.max_num_steps`` (RLinf default
-# 100) and ``env.eval.max_episode_steps``.
+# Episode length used for both ``override_cfg.max_num_steps`` and
+# ``env.eval.max_episode_steps``; the planner may end an episode earlier.
 EPISODE_STEPS = 300
 
 DEFAULT_CONFIG = Path(__file__).with_name("config") / "example.yaml"
