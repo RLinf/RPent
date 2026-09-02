@@ -132,7 +132,7 @@ class LiberoPrimitives:
             self._last_obs["task_descriptions"] = instruction
             self._last_obs.setdefault("extra_view_images", None)
 
-            actions, _ = self.model.predict_action_batch(self._last_obs, mode="eval")
+            actions = self.model.predict(self._last_obs, options={"mode": "eval"})
             self._check_cancelled()
 
             if not self._recording:

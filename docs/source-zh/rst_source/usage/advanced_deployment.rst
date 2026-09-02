@@ -39,6 +39,7 @@ Pi0.5 VLA 服务
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
    python -m rpent.robots.components.pi05_vla_server \
+     --embodiment libero \
      --cuda-device 0 \
      --transport http --host 0.0.0.0 --port VLA_PORT
 

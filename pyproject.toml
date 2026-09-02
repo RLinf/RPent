@@ -53,6 +53,10 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 "Bug Report" = "https://github.com/RLinf/RPent/issues"
 
 [project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-timeout",
+]
 rlinf = [
     "rpent-rlinf",
 ]
@@ -101,7 +105,7 @@ robocasa = [
     "rpent[rlinf]",
     "rlinf-robocasa365",
     "rlinf-rldx>=1.0.1.post10",
-    "robosuite @ git+https://github.com/RLinf/robosuite.git@rlinf",
+    "robosuite @ git+https://github.com/RLinf/robosuite.git@rpent",
 ]
 robotwin = [
     # TODO: replace fixed owner-controlled revisions with released versions.
@@ -123,6 +127,11 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
+
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+pythonpath = ["."]
+timeout = 60
 
 [tool.ruff]
 line-length = 88

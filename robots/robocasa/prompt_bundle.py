@@ -31,6 +31,7 @@ def system_prompt(
         "Intro": robocasa_prompt.PREAMBLE,
         "Goal": robocasa_prompt.GOAL,
         "Rules": robocasa_prompt.RULES,
+        "Memory": robocasa_prompt.MEMORY,
         "Localization": robocasa_prompt.LOCALIZATION,
         "Navigation": robocasa_prompt.NAVIGATION,
         "Primitives": robocasa_prompt.PRIMITIVES,

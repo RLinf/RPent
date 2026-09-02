@@ -4,6 +4,19 @@
 本指南介绍如何将新的物理机器人或仿真环境接入 RPent 的 LLM-in-the-loop
 runner。完整的参考实现见 ``robots/libero/``。
 
+接入原则
+--------
+
+- **复用 RPent 公共抽象。** Env、VLA、运行时和 Memory 优先复用已有组件，
+  例如 ``BaseEnvClient``、``BaseEnvFacade``、``BaseVLAClient``、
+  ``BaseVLAFacade`` 和 ``MemoryManager``。
+- **优先复用 RLinf 的 Env 或 VLA。** 如果 RLinf 已有对应实现，RPent 尽量只增加
+  必要的适配层。
+- **尽量和现有机器人接入方式保持一致。** ``RobotSpec``、Prompt、Toolkit
+  和运行时尽量参考已有实现，不为单个机器人引入新的公共机制。
+- **无法复用时说明原因。** 如果 RPent 或 RLinf 已有相关 Env / VLA 但无法复用，
+  请在 PR 描述中说明或提交 issue，帮助改进现有抽象。
+
 接入步骤概览
 ------------
 
@@ -126,10 +139,10 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
 
 继承 :class:`rpent.robots.components.env_client_base.BaseEnvClient`。它已经负责启动时校验
 ``env.get_env_meta``、执行首次 reset、缓存 ``last_obs``，并实现公共的
-``reset``、``step`` 和 ``chunk_step`` RPC。子类只需增加环境专用方法（LIBERO
-增加了 ``render_camera``、``get_camera_meta``、``get_task_language`` 等）；扩展方法
-需要独立超时时，再扩展超时表。RPC 名称需要保持稳定，因为服务端 facade 会显式
-注册每个名称。
+``reset``、``step``、``chunk_step``、``render_camera``、
+``get_camera_meta`` 和 ``get_task_language`` RPC。子类只需增加环境专用方法；
+扩展方法需要独立超时时，再扩展超时表。RPC 名称需要保持稳定，因为服务端
+facade 会显式注册每个名称。
 
 .. code-block:: python
 
@@ -138,14 +151,14 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
    class MyEnvClient(BaseEnvClient):
        _TIMEOUT_S = {
            **BaseEnvClient._TIMEOUT_S,
-           "env.render_camera": 120.0,
+           "env.custom_method": 30.0,
        }
 
-       def render_camera(self, camera_name):
+       def custom_method(self, arg):
            return self._client.call(
-               "env.render_camera",
-               args=(camera_name,),
-               timeout_s=self._TIMEOUT_S["env.render_camera"],
+               "env.custom_method",
+               args=(arg,),
+               timeout_s=self._TIMEOUT_S["env.custom_method"],
            )
 
    env = MyEnvClient(rpc_client, expected_meta=expected_meta)
@@ -167,6 +180,7 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
    class MyEnvFacade(BaseEnvFacade):
        def __init__(self, env, meta):
            self._env = env
+           self._meta = meta
            super().__init__()
 
        def _register_rpc(self):
@@ -175,8 +189,13 @@ slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境
            self._rpc["env.custom_method"] = self.custom_method
 
        # BaseEnvFacade 要求的抽象方法必须实现
+       def get_env_meta(self): ...
        def reset(self): ...
        def step(self, action): ...
+       def chunk_step(self, actions, **kwargs): ...
+       def get_camera_meta(self, camera_name, **kwargs): ...
+       def render_camera(self, camera_name, **kwargs): ...
+       def get_task_language(self): ...
 
        def custom_method(self, arg): ...
 
@@ -382,13 +401,6 @@ endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
    PI05_CHECKPOINT_PATH=<path> ANTHROPIC_API_KEY=<key> \
      rpent --robot myrobot --suite <suite> --task <id> --seed 0 \
      --output-dir /tmp/myrobot_smoke --planner api --model anthropic:claude-opus-4-8
-
-.. note::
-
-   共享 CLI parser 将 ``--robot`` 限定为 ``libero`` 和 ``robocasa``
-   (见 ``rpent/cli/main.py``)。要让上面这条命令在全新的 ``myrobot`` 上跑通，
-   需要先把新名字加到 ``rpent/cli/main.py`` 中 ``--robot`` 的
-   ``choices=[...]`` 列表里。
 
 预期结果是 agent 完成 prompt 中指定的任务并调用 ``finish``。运行结束后，
 可在 ``<output_dir>/transcript_*.json`` 中查看总结。

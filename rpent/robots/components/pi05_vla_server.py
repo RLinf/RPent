@@ -12,7 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""RPC server wrapping the Pi0.5 VLA."""
+"""RPC server wrapping the Pi0.5 VLA.
+
+Embodiment-specific settings (openpi config name, action dim, …) are
+selected by the ``--embodiment`` CLI flag and looked up in
+``PI05_EMBODIMENTS``.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +28,8 @@ import time
 from typing import Any
 
 import numpy as np
+import torch
+from omegaconf import OmegaConf
 
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.config import (
@@ -38,130 +45,129 @@ RPENT_ROOT = get_repo_root()
 RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
 if str(RLINF_REPO_PATH) not in sys.path:
     sys.path.insert(0, str(RLINF_REPO_PATH))
-os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
 # ---------------------------------------------------------------------------
-# Config builders
+# Embodiment registry
 # ---------------------------------------------------------------------------
 
-
-def build_model_cfg(model_path: str) -> Any:
-    """OmegaConf for ``rlinf.models.embodiment.openpi.get_model``."""
-    from omegaconf import OmegaConf
-
-    return OmegaConf.create(
-        {
-            "model_type": "openpi",
-            "model_path": model_path,
-            "precision": None,
-            "num_action_chunks": 5,
-            "action_dim": 7,
-            "is_lora": False,
-            "lora_rank": 32,
-            "use_proprio": True,
+# NOTE: an embodiment added here must also be registered in the client's
+# ``_ENCODE_OBS`` (obs encoding); the two registries are kept in sync manually.
+PI05_EMBODIMENTS: dict[str, dict] = {
+    "libero": {
+        "num_action_chunks": 5,
+        "action_dim": 7,
+        "use_proprio": True,
+        "num_steps": 5,
+        "add_value_head": False,
+        "openpi": {
+            "config_name": "pi05_libero",
+            "num_images_in_input": 2,
+            "action_chunk": 5,
             "num_steps": 5,
+            "action_env_dim": 7,
             "add_value_head": False,
-            "openpi": {
-                "config_name": "pi05_libero",
-                "num_images_in_input": 2,
-                "noise_level": 0.5,
-                "action_chunk": 5,
-                "num_steps": 5,
-                "train_expert_only": True,
-                "action_env_dim": 7,
-                "noise_method": "flow_sde",
-                "add_value_head": False,
-                "value_after_vlm": False,
-                "value_vlm_mode": "mean_token",
-                "detach_critic_input": None,
-                "use_dsrl": False,
-            },
-        }
-    )
+        },
+    },
+}
+
+PI05_ROBOT_PLATFORMS: dict[str, str] = {
+    "libero": "LIBERO",
+}
 
 
 # ---------------------------------------------------------------------------
-# Facade implementing the Pi0.5 client protocol
+# Config builder
+# ---------------------------------------------------------------------------
+
+
+def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
+    """OmegaConf for ``rlinf.models.embodiment.openpi.get_model``.
+
+    Two-level merge ``emb_cfg`` into a default config template.  ``emb_cfg``
+    mirrors the OmegaConf structure (top-level keys + ``openpi`` sub-dict),
+    so adding a new key to an embodiment preset automatically flows into
+    the model config.  ``model_path`` is set at runtime, not from the
+    embodiment preset.
+    """
+    cfg = {
+        "model_type": "openpi",
+        "model_path": model_path,
+        "precision": None,
+        "is_lora": False,
+        "lora_rank": 32,
+        "openpi": {
+            "noise_level": 0.5,
+            "train_expert_only": True,
+            "noise_method": "flow_sde",
+            "value_after_vlm": False,
+            "value_vlm_mode": "mean_token",
+            "detach_critic_input": None,
+            "use_dsrl": False,
+        },
+    }
+    # Deep merge: top-level keys override, openpi sub-dict merges into cfg.openpi
+    for k, v in emb_cfg.items():
+        if k == "openpi":
+            cfg["openpi"].update(v)
+        else:
+            cfg[k] = v
+
+    return OmegaConf.create(cfg)
+
+
+# ---------------------------------------------------------------------------
+# VLA facade
 # ---------------------------------------------------------------------------
 
 
 class Pi05VLAFacade(BaseVLAFacade):
-    """Implements :class:`rpent.robots.components.pi05_vla_client.Pi05VLAClient` over a Pi0.5 model.
+    """Pi0.5 VLA inference backed by an openpi model.
 
-    Loads the model once at construction; each ``predict`` call runs one
-    inference batch and returns its NumPy action array.
+    Wires ``vla.predict`` to :meth:`predict` (registered by the base class).
+    Embodiment-specific behavior (model config, obs decode) is driven by
+    the ``embodiment`` name passed at construction.
+
+    Session-isolation is not supported (``reset_session`` is not registered).
     """
 
-    def __init__(self, model_path: str):
-        import torch
-        from rlinf.models.embodiment.openpi import get_model as get_openpi_model
-
-        cfg = build_model_cfg(model_path=model_path)
-        t0 = time.time()
-        logger.info("loading Pi0.5 (model_path=%s) ...", cfg["model_path"])
-        self._model = get_openpi_model(cfg, torch_dtype=None).cuda().eval()
-        self._inference_context = torch.no_grad
-        logger.info("model ready in %.1fs", time.time() - t0)
+    def __init__(self, *, model_path: str, embodiment: str):
+        if embodiment not in PI05_EMBODIMENTS:
+            raise ValueError(
+                f"unknown pi05 server embodiment: {embodiment!r}; "
+                f"registered={list(PI05_EMBODIMENTS)}"
+            )
+        emb_cfg = PI05_EMBODIMENTS[embodiment]
+        self._embodiment = embodiment
         super().__init__()
 
-    def predict(
-        self,
-        observation: dict[str, Any],
-        options: dict[str, Any] | None = None,
-    ) -> np.ndarray:
-        if not isinstance(observation, dict):
-            raise TypeError(f"Pi0.5 observation must be a mapping, got {observation!r}")
-        if options is None:
-            options = {}
-        if not isinstance(options, dict):
-            raise TypeError(f"Pi0.5 options must be a mapping, got {options!r}")
-        unexpected_options = set(options) - {"mode"}
-        if unexpected_options:
-            raise ValueError(
-                f"unsupported Pi0.5 options: {sorted(unexpected_options)!r}"
-            )
+        from rlinf.models.embodiment.openpi import get_model as get_openpi_model
 
-        env_obs = dict(observation)
-        main_images = np.asarray(env_obs.get("main_images"))
-        if main_images.ndim != 4 or main_images.shape[-1] != 3:
-            raise ValueError(
-                f"main_images must be [B,H,W,3]; got shape {main_images.shape}"
-            )
-        env_obs["main_images"] = main_images.astype(np.uint8, copy=False)
+        platform = PI05_ROBOT_PLATFORMS.get(embodiment)
+        if platform is not None:
+            os.environ.setdefault("ROBOT_PLATFORM", platform)
 
-        batch_size = main_images.shape[0]
-        states = np.asarray(env_obs.get("states"), dtype=np.float32)
-        if states.ndim != 2 or states.shape[0] != batch_size:
-            raise ValueError(
-                "states must be [B,state_dim] with the image batch size; "
-                f"got shape {states.shape}"
-            )
-        env_obs["states"] = states
+        cfg = build_model_cfg(model_path=model_path, emb_cfg=emb_cfg)
+        t0 = time.time()
+        logger.info(
+            "loading Pi0.5 (embodiment=%s, model_path=%s) ...",
+            embodiment,
+            cfg["model_path"],
+        )
+        self._model = get_openpi_model(cfg, torch_dtype=None).cuda().eval()
+        logger.info("model ready in %.1fs", time.time() - t0)
 
-        task_descriptions = env_obs.get("task_descriptions")
-        if (
-            not isinstance(task_descriptions, list)
-            or len(task_descriptions) != batch_size
-        ):
-            raise ValueError("task_descriptions must contain one string per batch item")
-        env_obs["task_descriptions"] = [str(value) for value in task_descriptions]
+    # ---- inference ----
 
-        for key in ("wrist_images", "extra_view_images"):
-            view = env_obs.get(key)
-            if view is None:
-                env_obs[key] = None
-                continue
-            array = np.asarray(view)
-            if array.ndim != 4 or array.shape[0] != batch_size or array.shape[-1] != 3:
-                raise ValueError(f"{key} must be [B,H,W,3]; got shape {array.shape}")
-            env_obs[key] = array.astype(np.uint8, copy=False)
+    def predict(self, obs: dict, options: dict | None = None) -> np.ndarray:
+        """Run one inference and return the action ndarray.
 
-        with self._inference_context():
-            actions, _ = self._model.predict_action_batch(
-                env_obs,
-                mode=options.get("mode", "eval"),
-            )
-        actions_np = (
+        The caller (client) is responsible for encoding env-native obs into
+        the openpi wire format (see ``Pi05VLAClient.encode_obs``).
+        """
+        mode = (options or {}).get("mode", "eval")
+        with torch.no_grad():
+            actions, _ = self._model.predict_action_batch(obs, mode=mode)
+        return (
             actions.detach().cpu().numpy()
             if (
                 hasattr(actions, "detach")
@@ -170,16 +176,20 @@ class Pi05VLAFacade(BaseVLAFacade):
             )
             else np.asarray(actions)
         ).astype(np.float32)
-        return actions_np
 
 
 # ---------------------------------------------------------------------------
-# Main
+# CLI entry point
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
     p = argparse.ArgumentParser()
+    p.add_argument(
+        "--embodiment",
+        required=True,
+        help="Embodiment preset name (e.g. 'libero'); see PI05_EMBODIMENTS",
+    )
     p.add_argument("--transport", choices=["socket", "http"], default="http")
     p.add_argument("--host", type=str, default="127.0.0.1")
     p.add_argument("--port", type=int, default=0)
@@ -219,7 +229,7 @@ def main() -> None:
             "path via --model-path or the environment."
         )
 
-    facade = Pi05VLAFacade(model_path=model_path)
+    facade = Pi05VLAFacade(model_path=model_path, embodiment=args.embodiment)
     facade.serve(
         transport=args.transport,
         host=args.host,
