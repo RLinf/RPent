@@ -194,6 +194,41 @@ parts:
   policy state left over from the previous episode, so consecutive runs do
   not leak state into each other.
 
+Single-threaded serve (EGL-rendering backends)
+----------------------------------------------
+
+Most backends use the ``serve`` inherited from their base class, which
+spawns a worker thread per request. If your server process renders with EGL
+(e.g. robosuite / MuJoCo offscreen rendering, see ``render_camera``), the
+EGL context must stay on one thread, and concurrent dispatch would break
+context affinity.
+
+Mix :class:`~rpent.utils.rpc.main_thread_serve.MainThreadServeMixin` into
+your facade class (**before** ``BaseEnvFacade`` / ``BaseVLAFacade``) and
+inherit the ``serve`` it overrides — it runs the transport server on a
+daemon thread but executes every dispatch serially on the thread that
+called ``serve`` (normally the process main thread), handing requests from
+the transport thread over via a work queue:
+
+.. code-block:: python
+
+   from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
+   from rpent.robots.components.env_facade_base import BaseEnvFacade
+
+   class MyEnvFacade(MainThreadServeMixin, BaseEnvFacade):
+       ...
+
+   facade.serve(transport="http", host=host, port=port)  # dispatch on the main thread
+
+The overridden ``serve`` keeps the same contract as
+:class:`~rpent.utils.rpc.RpcFacade`'s ``serve``: it still supports
+``healthz`` / ``shutdown``, parent-watch, and sessions (when constructed
+with ``enable_sessions=True``, ``serve`` still requires ``session_sweep_s``).
+Subclasses do **not** need to override ``serve`` to delegate — just inherit
+it (see ``RoboCasaEnvFacade`` in ``robots/robocasa/env_server.py``).
+Backends that do not need EGL single-threading keep the plain inherited
+``serve``.
+
 Design principles for a new primitive
 -------------------------------------
 

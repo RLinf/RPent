@@ -172,6 +172,38 @@ session-aware 的 VLA 后端（per-client 策略状态）
 - **primitives 侧**：任务开始前调用 ``reset_session`` 清空上一回合残留
   的策略状态，保证连续多次运行之间状态不串。
 
+单线程 serve（EGL 渲染后端）
+----------------------------
+
+大多数后端直接使用基类继承的 ``serve``：transport server 为每个请求
+开一个工作线程并发处理。但如果你的服务器进程用 EGL 渲染（如
+robosuite / MuJoCo 的 offscreen 渲染，见 ``render_camera``），EGL context
+必须留在同一线程，并发 dispatch 会破坏 context 亲和。
+
+这时把 :class:`~rpent.utils.rpc.main_thread_serve.MainThreadServeMixin`
+混入你的 facade 类（**先于** ``BaseEnvFacade`` / ``BaseVLAFacade``），
+直接继承它覆盖的 ``serve`` 即可——它在守护线程跑 transport server，但
+在调用 ``serve`` 的线程（通常是主线程）串行执行每个 dispatch，通过 work
+queue 把请求从 transport 线程交给该线程：
+
+.. code-block:: python
+
+   from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
+   from rpent.robots.components.env_facade_base import BaseEnvFacade
+
+   class MyEnvFacade(MainThreadServeMixin, BaseEnvFacade):
+       ...
+
+   facade.serve(transport="http", host=host, port=port)  # dispatch 在主线程串行
+
+mixin 覆盖的 ``serve`` 与 :class:`~rpent.utils.rpc.RpcFacade` 的
+``serve`` 契约一致：同样支持 ``healthz`` / ``shutdown``、parent-watch
+和 session 支持（构造传 ``enable_sessions=True`` 时，``serve`` 仍须传
+``session_sweep_s``）。子类**不需要**重写 ``serve`` 来委托——直接继承
+即可（参考 ``robots/robocasa/env_server.py`` 的
+``RoboCasaEnvFacade``）。不需要 EGL 单线程的后端直接继承基类用默认
+``serve``。
+
 新原语的设计原则
 ----------------
 

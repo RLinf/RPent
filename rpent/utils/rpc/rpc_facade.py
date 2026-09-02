@@ -246,6 +246,30 @@ class RpcFacade:
                 except Exception:
                     logger.warning("session sweep: drop %s failed", sid, exc_info=True)
 
+    def _bind_and_announce(
+        self,
+        transport: Literal["socket", "http"],
+        host: str,
+        port: int,
+        dispatch: Callable[..., Any],
+    ):
+        """Bind the transport server and print its listening URL.
+
+        Returns the bound server, whose ``server_address`` reflects the
+        actually-bound ``(host, port)`` (useful when ``port == 0``).
+        """
+        from rpent.utils.rpc.http_rpc import HttpRpcServer
+        from rpent.utils.rpc.socket_rpc import SocketRpcServer
+
+        server_cls = HttpRpcServer if transport == "http" else SocketRpcServer
+        server = server_cls((host, port), dispatch)
+        bound_host, bound_port = server.server_address
+        client_host = "127.0.0.1" if bound_host == "0.0.0.0" else bound_host
+        url = f"{transport}://{client_host}:{bound_port}"
+        print(f"RPC server listening on {url}", flush=True)
+        logger.info("RPC server listening on %s", url)
+        return server
+
     def serve(
         self,
         *,
@@ -272,16 +296,8 @@ class RpcFacade:
         that many seconds and fires :meth:`_on_session_drop`.
         """
         from rpent.utils.daemon import watch_parent_death
-        from rpent.utils.rpc.http_rpc import HttpRpcServer
-        from rpent.utils.rpc.socket_rpc import SocketRpcServer
 
-        server_cls = HttpRpcServer if transport == "http" else SocketRpcServer
-        server = server_cls((host, port), self._dispatch)
-        bound_host, bound_port = server.server_address
-        client_host = "127.0.0.1" if bound_host == "0.0.0.0" else bound_host
-        url = f"{transport}://{client_host}:{bound_port}"
-        print(f"RPC server listening on {url}", flush=True)
-        logger.info("RPC server listening on %s", url)
+        server = self._bind_and_announce(transport, host, port, self._dispatch)
 
         if self._enable_sessions and (session_sweep_s is None or session_sweep_s <= 0):
             raise ValueError(
