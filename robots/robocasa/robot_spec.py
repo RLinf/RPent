@@ -32,7 +32,7 @@ from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_repo_root, get_resources_dir
+from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
@@ -99,12 +99,9 @@ def get_toolkit(
     """Return the RoboCasa toolkit for the current session."""
     from robots.robocasa.toolkit import RoboCasaToolkit
 
-    results_dir = Path(
-        config.prompt_vars.get("memory_dir")
-        or (get_resources_dir("robocasa") / "results")
+    memory = MemoryManager(
+        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
     )
-    # Reference results are a sibling of persistent memory, matching LIBERO.
-    memory = MemoryManager(root=results_dir.parent / "memory")
     return RoboCasaToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
@@ -160,10 +157,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--task-name is required")
 
     memory_arg = getattr(args, "memory_dir", None)
-    results_dir = (
+    memory_dir = (
         Path(memory_arg).expanduser().resolve()
         if memory_arg
-        else get_resources_dir("robocasa") / "results"
+        else get_memory_dir("robocasa")
     )
 
     recipe_tag = f"{args.task_name}_{args.split}_s{args.seed}"
@@ -172,7 +169,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "split": args.split,
         "seed": args.seed,
         "recipe_tag": recipe_tag,
-        "memory_dir": str(results_dir),
+        "memory_dir": str(memory_dir),
     }
 
     output_dir = args.output_dir

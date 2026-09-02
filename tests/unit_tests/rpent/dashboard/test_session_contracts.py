@@ -197,7 +197,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
             return True
 
         def write_recipe(self, recipe_tag: str) -> str:
-            return str(tmp_path / f"recipe_{recipe_tag}.jsonl")
+            return str(tmp_path / f"{recipe_tag}_recipe.jsonl")
 
         def close(self) -> None:
             pass

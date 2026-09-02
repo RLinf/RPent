@@ -351,7 +351,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
         def write_recipe(self, recipe_tag: str) -> str:
             calls["write_recipe"] = recipe_tag
-            return str(tmp_path / f"recipe_{recipe_tag}.jsonl")
+            return str(tmp_path / f"{recipe_tag}_recipe.jsonl")
 
     class ScriptedPlanner:
         def solve(
@@ -427,17 +427,15 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         calls["get_toolkit"] = (args, kwargs)
         return toolkit
 
-    def reject_resource_download(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError(
-            f"CPU-only smoke test tried to download resources: {args!r}"
-        )
+    def reject_memory_sync(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError(f"CPU-only smoke test tried to sync memory: {args!r}")
 
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
     monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
     monkeypatch.setattr(cli, "build_planner", build_planner)
     monkeypatch.setattr(cli, "get_toolkit", get_toolkit)
-    monkeypatch.setattr(cli, "ensure_resources", reject_resource_download)
+    monkeypatch.setattr("rpent.memory.MemoryManager.sync", reject_memory_sync)
     monkeypatch.setattr(
         sys,
         "argv",

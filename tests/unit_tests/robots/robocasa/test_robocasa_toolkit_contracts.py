@@ -67,12 +67,12 @@ def _readonly_names(robot_toolkit: Toolkit) -> set[str]:
     }
 
 
-def test_toolkit_falls_back_to_resource_memory_root(
+def test_toolkit_falls_back_to_memory_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    resources_dir = tmp_path / "robocasa"
-    monkeypatch.setattr(robot_spec, "get_resources_dir", lambda _: resources_dir)
+    memory_dir = tmp_path / "robocasa"
+    monkeypatch.setattr(robot_spec, "get_memory_dir", lambda _: memory_dir)
     monkeypatch.setattr(
         toolkit,
         "RoboCasaToolkit",
@@ -91,7 +91,7 @@ def test_toolkit_falls_back_to_resource_memory_root(
         config=config,
     )
 
-    assert robot_toolkit.memory.root == (resources_dir / "memory").resolve()
+    assert robot_toolkit.memory.root == memory_dir.resolve()
 
 
 def test_toolkit_constructs_and_classifies_tools_with_a_fake(

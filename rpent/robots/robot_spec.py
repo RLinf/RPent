@@ -63,5 +63,5 @@ class RobotSpec:
         tuple[list["ProcessDaemon"], dict[str, Any]],
     ]
     dashboard: dict[str, Any] | None = None
-    resources_repo_id: str = "RLinf/RPent-memory"
+    memory_repo_id: str = "RLinf/RPent-memory"
     finalize_run: RunFinalizer | None = None

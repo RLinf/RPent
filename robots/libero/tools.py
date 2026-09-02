@@ -863,7 +863,7 @@ def write_recipe_from_states(
     if not solved:
         return ""
     command_events.sort(key=lambda event: event[0])
-    recipe_name = f"recipe_{recipe_tag}.jsonl"
+    recipe_name = f"{recipe_tag}_recipe.jsonl"
     recipe_path = Path(output_dir) / recipe_name
     recipe_path.parent.mkdir(parents=True, exist_ok=True)
     recipe_path.write_text(
