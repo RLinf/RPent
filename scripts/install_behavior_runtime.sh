@@ -79,13 +79,16 @@ fi
 "${UV_BIN}" pip install --python "${RPENT_VENV}/bin/python" -e "${RPENT_ROOT}"
 
 export UV_TORCH_BACKEND=cu124
-bash "${RLINF_ROOT}/requirements/install.sh" embodied \
-    --model openpi \
-    --env behavior \
-    --venv "${BEHAVIOR_VENV}" \
-    --install-rlinf \
-    --no-flash-attn \
-    --no-root
+(
+    cd "${RLINF_ROOT}"
+    bash requirements/install.sh embodied \
+        --model openpi \
+        --env behavior \
+        --venv "${BEHAVIOR_VENV}" \
+        --install-rlinf \
+        --no-flash-attn \
+        --no-root
+)
 
 BEHAVIOR_PYTHON="${BEHAVIOR_VENV}/bin/python"
 if [[ ! -x "${BEHAVIOR_PYTHON}" ]]; then
