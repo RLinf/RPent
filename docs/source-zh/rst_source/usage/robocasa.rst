@@ -225,6 +225,19 @@ split、依赖 revision、memory 边界、task/seed 矩阵、cell 时限、成�
 运行一个任务
 ------------
 
+RPent 默认在 loopback 地址上启动环境与 VLA worker。如果启动 shell 配置了
+``HTTP_PROXY`` 或 ``HTTPS_PROXY``，请保留远程服务所需的代理，同时通过大小写
+两种常用环境变量排除本地 RPC：
+
+.. code-block:: bash
+
+   export NO_PROXY="${NO_PROXY:+${NO_PROXY},}127.0.0.1,localhost,::1"
+   export no_proxy="${no_proxy:+${no_proxy},}127.0.0.1,localhost,::1"
+
+上述写法会保留已有排除项。如果 ``--env-endpoint`` 或 ``--vla-endpoint`` 使用
+其他本地主机名或 IP，请把该值也加入两个变量。Hugging Face、远程 planner 及
+其他远程 endpoint 仍使用原有代理。
+
 RoboCasa 的 CLI 参数由 ``robots/robocasa/__init__`` 注册，可通过
 ``rpent --robot robocasa --help`` 查看:
 
@@ -244,7 +257,8 @@ RoboCasa 不绑定具体 planner；RPent 支持的任意 planner 都可用于该
 正式 Target50 先按上文下载固定资源，再为 manifest 中每个 cell 调用一次普通
 命令。Codex 参考 profile 为 ``gpt-5.5``、``xhigh``、``max_turns=100``；
 RoboCasa 运行时本身仍与 planner 解耦。场景身份直接使用普通 ``--seed`` 参数，
-不要设置 ``RLDX_RESET_SEED``。先固定 RLDX 执行参数：
+不要设置 ``RLDX_RESET_SEED``。保留上面的 loopback ``NO_PROXY`` / ``no_proxy``
+设置，并先固定 RLDX 执行参数：
 
 .. code-block:: bash
 
@@ -333,8 +347,9 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
   memory 作为替代。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和
   ``<output_dir>/vla_server.log``。
-- 本地 ``127.0.0.1`` 与 ``localhost`` RPC 必须绕过 ``HTTP_PROXY`` 和
-  ``HTTPS_PROXY``。如果本地 endpoint 仍被发往代理，请更新 RPent。
+- 如果本地 RPC 被发往 HTTP 代理，请按“运行一个任务”同时设置 ``NO_PROXY``
+  与 ``no_proxy``。保留远程流量所需的 ``HTTP_PROXY`` 和 ``HTTPS_PROXY``，并
+  将自定义本地 endpoint 的主机名加入排除列表。
 
 Toolkit 与 LIBERO 的差异
 ------------------------

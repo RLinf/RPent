@@ -123,6 +123,19 @@ hf download RLinf/RPent-memory \
 
 ## Run One Task
 
+RPent starts its default environment and VLA workers on loopback addresses. If
+the launch shell defines `HTTP_PROXY` or `HTTPS_PROXY`, preserve that proxy for
+remote services while exempting local RPC in both commonly recognized forms:
+
+```bash
+export NO_PROXY="${NO_PROXY:+${NO_PROXY},}127.0.0.1,localhost,::1"
+export no_proxy="${no_proxy:+${no_proxy},}127.0.0.1,localhost,::1"
+```
+
+These assignments keep existing exclusions. Add the exact hostname or IP when
+`--env-endpoint` or `--vla-endpoint` uses a different local address. They do not
+bypass the proxy for Hugging Face, a remote planner, or other remote endpoints.
+
 The default HF profile synchronizes memory automatically:
 
 ```bash
@@ -175,7 +188,7 @@ Run each manifest cell with the ordinary CLI. The reference Codex profile is
 `gpt-5.5`, `xhigh`, and `max_turns=100`; this profile does not restrict the
 RoboCasa runtime to Codex. The scene identity is the ordinary `--seed` value;
 do not set `RLDX_RESET_SEED`. Freeze the RLDX execution values before running
-the cells:
+the cells, keeping the loopback `NO_PROXY` / `no_proxy` settings above:
 
 ```bash
 export RLDX_MAX_CHUNKS=40
@@ -255,9 +268,9 @@ the Harness VLA reference results and for the aggregation boundary.
   task's files. Missing memory is expected for the seven tasks listed above.
 - **A server fails to start:** inspect `env_server.log`, `vla_server.log`, and
   `run.log` inside the cell's output directory.
-- **Local RPC follows an HTTP proxy:** update to an RPent revision containing
-  the loopback proxy bypass. Local `127.0.0.1` and `localhost` RPC must not use
-  `HTTP_PROXY` or `HTTPS_PROXY`.
+- **Local RPC follows an HTTP proxy:** set both `NO_PROXY` and `no_proxy` as
+  shown under "Run One Task". Keep `HTTP_PROXY` and `HTTPS_PROXY` enabled for
+  remote traffic, and add any custom local endpoint hostname to the exclusions.
 
 ## Further Documentation
 

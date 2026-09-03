@@ -244,6 +244,20 @@ larger; see the `RoboCasa <https://robocasa.ai>`_ upstream.
 Running a task
 --------------
 
+RPent starts its default environment and VLA workers on loopback addresses. If
+the launch shell defines ``HTTP_PROXY`` or ``HTTPS_PROXY``, keep that proxy for
+remote services while exempting local RPC in both commonly recognized forms:
+
+.. code-block:: bash
+
+   export NO_PROXY="${NO_PROXY:+${NO_PROXY},}127.0.0.1,localhost,::1"
+   export no_proxy="${no_proxy:+${no_proxy},}127.0.0.1,localhost,::1"
+
+These assignments preserve existing exclusions. If ``--env-endpoint`` or
+``--vla-endpoint`` names another local host or IP, add that exact value to both
+variables. Hugging Face, remote planners, and other remote endpoints continue
+to use the configured proxy.
+
 The RoboCasa CLI flags are registered by ``robots/robocasa/__init__`` and
 are visible under ``rpent --robot robocasa --help``:
 
@@ -264,7 +278,8 @@ For Target50, first download the fixed resources above, then invoke one ordinary
 command for each manifest cell. The Codex reference profile is ``gpt-5.5``,
 ``xhigh``, and ``max_turns=100``; RoboCasa itself remains planner-agnostic. For
 the scene identity, use the ordinary ``--seed`` argument and do not set
-``RLDX_RESET_SEED``. Freeze the RLDX execution values first:
+``RLDX_RESET_SEED``. Keep the loopback ``NO_PROXY`` / ``no_proxy`` settings
+above and freeze the RLDX execution values first:
 
 .. code-block:: bash
 
@@ -359,9 +374,10 @@ Troubleshooting
   RPent does not fall back to another task's memory.
 - Environment and VLA startup failures are recorded in
   ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
-- Local ``127.0.0.1`` and ``localhost`` RPC endpoints must bypass
-  ``HTTP_PROXY`` and ``HTTPS_PROXY``. Update RPent if a local endpoint is still
-  sent through a configured proxy.
+- If local RPC is sent through an HTTP proxy, set both ``NO_PROXY`` and
+  ``no_proxy`` as shown under "Running a task". Keep ``HTTP_PROXY`` and
+  ``HTTPS_PROXY`` for remote traffic, and add any custom local endpoint host to
+  the exclusions.
 
 Toolkit design vs. LIBERO
 -------------------------

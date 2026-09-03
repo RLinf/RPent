@@ -477,4 +477,6 @@ def test_target50_documentation_uses_frozen_revisions():
         assert "target50-overrides.txt" in contents, path
         assert "RLDX_MAX_CHUNKS" in contents, path
         assert "RLDX_RESET_SEED" in contents, path
+        assert "NO_PROXY" in contents, path
+        assert "no_proxy" in contents, path
         assert "result.json" in contents, path
