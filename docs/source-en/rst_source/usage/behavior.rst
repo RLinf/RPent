@@ -252,6 +252,58 @@ The main logs are:
    <output-dir>/tasks/<task-run>/episode.mp4
    <output-dir>/tasks/<task-run>/terminal_receipt.json
 
+Reproducing results
+-------------------
+
+The record below is a bounded operational acceptance, not a long-horizon
+benchmark result. To reproduce it, use a new ``RPENT_REPRO_ROOT``, run the
+installation and download commands above, verify the checkpoint and assets,
+then start the known ``turning_on_radio`` development instance with activity
+definition ``0``, activity instance ``242``, and public seed ``0``. After
+reset, execute one ``env.step`` and one Pi0.5-generated ``env.chunk_step``, and
+inspect the component metadata, observation and action shapes, Dashboard
+snapshot, and generated ``episode.mp4``. This bounded run did not use the
+held-out layouts; the video remains a run artifact and is not stored in the
+repository.
+
+**Operational reproduction.**
+
+- A fresh isolated runtime root produced separate RPent and BEHAVIOR venvs
+  using the ``uv 0.12.7`` CLI and Python ``3.10.12``. The final retry reused
+  only those venvs inside the same runtime root, completed the compatibility
+  repin to ``torch 2.5.1+cu124``, ``torchaudio 2.5.1+cu124``,
+  ``torchcodec 0.2.0+cu124``, ``torchvision 0.20.1+cu124``, and
+  ``transformers 4.53.2``, passed the CUDA smoke and critical-import checks,
+  and exited with code ``0``. Its report-only dependency metadata check still
+  recorded ``15`` upstream pin incompatibilities.
+- Checkpoint verification recorded ``model.safetensors`` at exactly
+  ``7,233,650,408`` bytes with SHA-256
+  ``7e257666d835f6af701de493676a6c86a0421b2efc737a0f911d782b7a09f635``.
+  The three OmniGibson source archives totalled exactly ``31,887,356,541``
+  bytes; after extraction, the three validated asset directories contained
+  ``118,491`` files and exactly ``37,532,605,007`` bytes.
+- The live GPU observation contained head RGB ``[720, 720, 3] uint8``, wrist
+  RGB ``[2, 480, 480, 3] uint8`` in left/right order, and finite proprio
+  ``[256] float32``. Pi0.5 returned a finite raw action
+  ``[1, 32, 23] float32`` and the client returned ``[32, 23] float32``.
+- The environment executed one step and one complete 32-step chunk, for
+  exactly ``33`` environment steps. The output video contained exactly ``34``
+  frames. ENV, VLA, MemoryManager, and the Dashboard reported ready. The
+  specified acceptance snapshot explicitly marked DINO as ``not_applicable``
+  because its official MemoryManager path did not include a DINO component; it
+  therefore does not establish current DINO readiness.
+
+**Exploration boundary.**
+
+The long-horizon task benchmark recipe remains exploratory, and no aggregate
+task-completion metric is reported at this stage. The only accepted official
+success evidence is a ``terminal_receipt.json`` with ``task_success=true`` and
+an embedded receipt whose ``source`` is ``info["done"]["success"]``. This
+operational run recorded ``task_success=false`` (the probe field is
+``official_task_success``), so it makes no task-completion claim. A primitive
+result cannot substitute for official success, and operational execution does
+not establish benchmark readiness.
+
 Success and diagnostics
 -----------------------
 
