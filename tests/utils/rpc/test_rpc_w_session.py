@@ -24,16 +24,15 @@ from __future__ import annotations
 
 import pytest
 
-from tests.utils.rpc._rpc_test_helpers import (
-    TRANSPORTS,
-    _server_and_client,
-    _serve_in_thread,
-)
-
 from rpent.utils.rpc.client_utils import wait_for_ready
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
 from rpent.utils.rpc.rpc_client import RpcError
 from rpent.utils.rpc.rpc_facade import RpcFacade
+from tests.utils.rpc._rpc_test_helpers import (
+    TRANSPORTS,
+    _serve_in_thread,
+    _server_and_client,
+)
 
 
 @pytest.fixture(params=TRANSPORTS)

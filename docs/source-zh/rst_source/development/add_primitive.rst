@@ -161,13 +161,13 @@ session-aware 的 VLA 后端（per-client 策略状态）
   和 ``session_timeout_s``，并实现 ``_on_session_drop``——session 结束
   （client 的 ``session.close`` RPC 或 idle 过期）时在这里清理该 client
   的策略状态。需要显式重置时，额外提供 ``reset_session`` RPC（只清策略
-  状态，不销毁 session）。``serve`` 必须传 ``session_sweep_s``（> 0），
+  状态，不销毁 session）。``serve`` 必须传 ``session_sweep_s`` （> 0），
   让后台线程定期回收过期 session。
 
 - **client 侧**：model client 内部的 ``RpcClient`` 以
   ``enable_sessions=True`` 构造，连接时自动向 server 注册 session。
   ``session_id`` 由 facade 从连接派生并注入 server 端 handler，客户端
-  **不**传，也不应在 ``predict`` 的 ``options`` 里伪造 ``session_ids``。
+  **不传**，也不应在 ``predict`` 的 ``options`` 里伪造 ``session_ids``。
 
 - **primitives 侧**：任务开始前调用 ``reset_session`` 清空上一回合残留
   的策略状态，保证连续多次运行之间状态不串。

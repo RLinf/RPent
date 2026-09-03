@@ -49,9 +49,7 @@ def _server_and_client(facade, transport, *, enable_sessions=False):
     port = server.server_address[1]
     try:
         if transport == "socket":
-            client = SocketRpcClient(
-                "127.0.0.1", port, enable_sessions=enable_sessions
-            )
+            client = SocketRpcClient("127.0.0.1", port, enable_sessions=enable_sessions)
         else:
             client = HttpRpcClient(
                 f"http://127.0.0.1:{port}", enable_sessions=enable_sessions
@@ -94,9 +92,7 @@ def _serve_in_thread(facade, transport, *, enable_sessions):
                 raise TimeoutError("server did not become ready")
             time.sleep(0.01)
     if transport == "socket":
-        client = SocketRpcClient(
-            "127.0.0.1", port, enable_sessions=enable_sessions
-        )
+        client = SocketRpcClient("127.0.0.1", port, enable_sessions=enable_sessions)
     else:
         client = HttpRpcClient(
             f"http://127.0.0.1:{port}", enable_sessions=enable_sessions
