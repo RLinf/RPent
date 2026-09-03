@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -35,6 +36,7 @@ from rpent.dashboard.interaction import (
 from rpent.dashboard.spec import DashboardSpec
 from rpent.dashboard.state import DashboardState
 from rpent.session import EnvState
+from rpent.tools.toolkit import Toolkit, ToolResult
 
 DASHBOARD_SPEC: DashboardSpec = {
     "task": {
@@ -220,6 +222,39 @@ def test_dashboard_interrupt_lifecycle_accepts_only_busy_active_tasks(
     assert state.claim_next_pending_message().message_id == pending.message_id
     with pytest.raises(DashboardInteractionError, match="no interrupt request"):
         state.complete_interrupt()
+
+
+def test_dashboard_primitives_are_available_only_while_planner_is_idle(
+    tmp_path: Path,
+) -> None:
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    toolkit = MagicMock(spec=Toolkit)
+    toolkit.get_tools_spec.return_value = [
+        {
+            "name": "move_to",
+            "input_schema": {"type": "object", "additionalProperties": False},
+        }
+    ]
+    tool_result = ToolResult(name="move_to", result={"ok": True})
+    toolkit.execute_tool.return_value = tool_result
+    state.bind_toolkit(toolkit)
+
+    assert state.snapshot()["primitives_available"] is False
+    with pytest.raises(InteractionUnavailableError, match="not available"):
+        state.primitive_specs()
+    with pytest.raises(InteractionUnavailableError, match="not available"):
+        state.execute_primitive("move_to", {})
+
+    state.set_planner_activity("idle", accepting_input=True)
+    assert state.snapshot()["primitives_available"] is True
+    assert state.primitive_specs() == toolkit.get_tools_spec.return_value
+    assert state.execute_primitive("move_to", {}) is tool_result
+
+    state.set_planner_activity("busy")
+    assert state.snapshot()["primitives_available"] is False
+    with pytest.raises(InteractionUnavailableError, match="not available"):
+        state.execute_primitive("move_to", {})
 
 
 def test_dashboard_events_project_runtime_usage_timeline_and_frames(

@@ -253,15 +253,24 @@ class DashboardState:
                 lambda: self._active_primitive_calls.get(toolkit_key, 0) == 0,
             )
 
+    def _primitives_available_locked(self) -> bool:
+        """Return whether manual primitives are safe at this planner boundary."""
+        return (
+            self._toolkit is not None
+            and self._session_state != "switch_pending"
+            and self._planner_activity == "idle"
+        )
+
     def primitive_specs(self) -> list[dict[str, Any]]:
         """Return Dashboard control schemas in robot allowlist order."""
         with self._lock:
             toolkit = self._toolkit
             allowlist = self._primitive_allowlist
-            if toolkit is None or self._session_state == "switch_pending":
+            if not self._primitives_available_locked():
                 raise InteractionUnavailableError(
                     "TaskRun primitives are not available"
                 )
+            assert toolkit is not None
             by_name = {spec.get("name"): spec for spec in toolkit.get_tools_spec()}
             primitives = []
             for name in allowlist:
@@ -285,10 +294,11 @@ class DashboardState:
         """Execute one allowlisted primitive through the current Toolkit."""
         with self._condition:
             toolkit = self._toolkit
-            if toolkit is None or self._session_state == "switch_pending":
+            if not self._primitives_available_locked():
                 raise InteractionUnavailableError(
                     "TaskRun primitives are not available"
                 )
+            assert toolkit is not None
             if name not in self._primitive_allowlist:
                 raise ValueError(f"primitive is not allowed: {name}")
             available = {spec.get("name"): spec for spec in toolkit.get_tools_spec()}
@@ -973,9 +983,7 @@ class DashboardState:
             "frame_available": frame_available,
             "n_events": len(self._events),
             "n_steps": len(self._timeline),
-            "primitives_available": (
-                self._toolkit is not None and self._session_state != "switch_pending"
-            ),
+            "primitives_available": self._primitives_available_locked(),
             "interaction": self._interaction_snapshot_locked(),
             **self._session_fields_locked(),
         }
