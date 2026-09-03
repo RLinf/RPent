@@ -226,15 +226,14 @@ task/seed 矩阵、cell 时限、成功来源与重试规则；协议 ID 为
 运行一个任务
 ------------
 
-RPent 自己启动的环境与 VLA worker 使用 request-local 的 HTTP 直连客户端。
-Codex 也只在其子进程环境中为本地 MCP 追加 loopback 排除项。如果远程服务需要
-``HTTP_PROXY`` 或 ``HTTPS_PROXY``，请保持原有代理；默认运行不再要求 shell 统一
-配置 ``NO_PROXY``。
+HTTP RPC endpoint 的主机名为 ``127.0.0.1`` 或 ``localhost`` 时一律直连，无论
+worker 由 RPent 启动还是由用户指定。其他主机名与 IP 均遵循标准代理环境。Codex
+只在其子进程环境中为本地 MCP 应用相同的两个主机名例外。如果 Hugging Face、
+远程 planner 或其他远程服务需要 ``HTTP_PROXY`` 或 ``HTTPS_PROXY``，请保持原有
+代理；默认运行不要求 shell 统一配置 ``NO_PROXY``。
 
-用户通过 ``--env-endpoint`` 或 ``--vla-endpoint`` 指定的服务会遵循标准代理环境。
-如果该 endpoint 位于本地且应当直连，请将准确的主机名或 IP 加入用户已有的
-``NO_PROXY`` 与 ``no_proxy`` 配置。该选择不会影响 Hugging Face、远程 planner
-或其他远程 endpoint。
+如果用户指定的本地服务使用其他主机名或 IP 且应当直连，请将该准确值加入用户
+已有的 ``NO_PROXY`` 与 ``no_proxy`` 配置。
 
 RoboCasa 的 CLI 参数由 ``robots/robocasa/__init__`` 注册，可通过
 ``rpent --robot robocasa --help`` 查看:
@@ -344,9 +343,9 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
   memory 作为替代。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和
   ``<output_dir>/vla_server.log``。
-- 用户指定的本地 ``--env-endpoint`` 或 ``--vla-endpoint`` 会遵循标准代理环境。
-  只有该服务应当直连时，才需要把主机名加入用户的 ``NO_PROXY`` 与
-  ``no_proxy`` 配置；RPent 自己启动的 worker 无需代理设置。
+- 只有准确的 ``127.0.0.1`` 与 ``localhost`` 主机名会自动绕过 HTTP 代理。其他
+  主机名与 IP 均遵循标准代理环境；只有该服务应当直连时，才需要把准确主机名
+  加入 ``NO_PROXY`` 与 ``no_proxy`` 配置。
 
 Toolkit 与 LIBERO 的差异
 ------------------------

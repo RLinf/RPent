@@ -245,17 +245,17 @@ larger; see the `RoboCasa <https://robocasa.ai>`_ upstream.
 Running a task
 --------------
 
-RPent-owned environment and VLA workers use request-local direct HTTP clients.
-Codex likewise adds loopback exclusions only to its child process for the local
-MCP connection. Leave ``HTTP_PROXY`` and ``HTTPS_PROXY`` unchanged when remote
-services require them; the default runtime does not require a shell-wide
-``NO_PROXY`` setup.
+HTTP RPC endpoints whose hostname is ``127.0.0.1`` or ``localhost`` are reached
+directly, whether RPent starts the worker or the user supplies the endpoint.
+Every other hostname and IP uses the standard proxy environment. Codex applies
+the same two-host exception only to its child process for the local MCP
+connection. Leave ``HTTP_PROXY`` and ``HTTPS_PROXY`` unchanged when Hugging
+Face, a remote planner, or another remote service requires them; the default
+runtime does not require a shell-wide ``NO_PROXY`` setup.
 
-User-supplied ``--env-endpoint`` and ``--vla-endpoint`` values deliberately
-honor the standard proxy environment. If such an endpoint is local and should
-be reached directly, add its exact hostname or IP to the user's existing
-``NO_PROXY`` and ``no_proxy`` configuration. This choice does not affect
-Hugging Face, a remote planner, or other remote endpoints.
+If a user-supplied local service uses another hostname or IP and should be
+reached directly, add that exact value to the user's existing ``NO_PROXY`` and
+``no_proxy`` configuration.
 
 The RoboCasa CLI flags are registered by ``robots/robocasa/__init__`` and
 are visible under ``rpent --robot robocasa --help``:
@@ -372,10 +372,10 @@ Troubleshooting
   RPent does not fall back to another task's memory.
 - Environment and VLA startup failures are recorded in
   ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
-- A user-supplied local ``--env-endpoint`` or ``--vla-endpoint`` follows the
-  standard proxy environment. Add that host to the user's ``NO_PROXY`` and
-  ``no_proxy`` configuration only when it should be reached directly.
-  RPent-owned workers need no proxy setup.
+- Only the exact ``127.0.0.1`` and ``localhost`` hostnames bypass HTTP proxies
+  automatically. Other hostnames and IPs use the standard proxy environment;
+  add the exact host to ``NO_PROXY`` and ``no_proxy`` only when it should be
+  reached directly.
 
 Toolkit design vs. LIBERO
 -------------------------
