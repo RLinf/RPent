@@ -38,6 +38,9 @@ from robots.behavior.terminal_success import (
     official_task_success,
 )
 from rpent.tools.toolkit import readonly
+from rpent.utils.logging import get_logger
+
+logger = get_logger("behavior_tools")
 
 _PRIVATE_RESULT_KEYS = {
     "_memory_source",
@@ -215,7 +218,7 @@ class BehaviorPrimitives:
         model: Any = None,
         max_episode_steps: int | None = None,
         output_dir: str | Path | None = None,
-        video_path: str | Path | None = None,
+        episode_video_writer: Any = None,
         action_horizon: int = DEFAULT_ACTION_CHUNK,
         initial_observation: dict[str, Any] | None = None,
         initial_info: Any = None,
@@ -238,9 +241,8 @@ class BehaviorPrimitives:
             None if max_episode_steps is None else int(max_episode_steps)
         )
         self.output_dir = Path(output_dir) if output_dir else Path.cwd()
-        self.video_path = (
-            Path(video_path) if video_path else self.output_dir / "episode.mp4"
-        )
+        self._episode_video_writer = episode_video_writer
+        self._recording = episode_video_writer is not None
         self.action_horizon = int(action_horizon)
         self._current_observation = initial_observation
         self._current_info = initial_info if isinstance(initial_info, dict) else {}
@@ -278,6 +280,8 @@ class BehaviorPrimitives:
         self._official_success_receipt = official_success_receipt_from_info(
             self._current_info
         ) or make_raw_success_receipt(self._current_info, env_step=self.total_env_steps)
+        if self._recording:
+            self.record_frame(self._current_observation)
 
     @property
     def elapsed_wall_clock_s(self) -> float:
@@ -341,6 +345,46 @@ class BehaviorPrimitives:
             self._official_success_receipt = official_success_receipt_from_info(
                 info
             ) or make_raw_success_receipt(info, env_step=self.total_env_steps)
+
+    def start_recording(self) -> None:
+        """Enable streaming episode recording when a writer is attached."""
+
+        self._recording = self._episode_video_writer is not None
+        if self._recording:
+            self.record_frame(self._current_observation)
+
+    def recorded_frame_count(self) -> int:
+        writer = self._episode_video_writer
+        return int(getattr(writer, "frames_written", 0) or 0)
+
+    def record_frame(self, observation: Any) -> None:
+        if not self._recording or self._episode_video_writer is None:
+            return
+        if not isinstance(observation, dict):
+            return
+        image = self._rgb8(observation.get("main_images"))
+        if image is None:
+            return
+        try:
+            appended = bool(self._episode_video_writer.append(image))
+        except Exception as exc:
+            self._recording = False
+            logger.warning("failed to append BEHAVIOR episode frame: %s", exc)
+            return
+        if not appended:
+            self._recording = False
+            logger.warning("stopped BEHAVIOR episode recording after frame limit")
+
+    def stop_recording(self) -> str | None:
+        writer = self._episode_video_writer
+        self._recording = False
+        if writer is None:
+            return None
+        try:
+            return writer.close()
+        except Exception as exc:
+            logger.warning("failed to save BEHAVIOR episode video: %s", exc)
+            return None
 
     @staticmethod
     def _rgb8(value: Any, *, first: int | None = None) -> np.ndarray | None:
@@ -495,13 +539,19 @@ class BehaviorPrimitives:
             if action_array.shape[0] <= 0:
                 stop_reason = "episode_step_budget_exhausted"
                 break
-            ret = env.chunk_step(action_array)
+            ret = env.chunk_step(action_array, return_all_frames=self._recording)
             chunks_used += 1
             self._vla_invocations += 1
             self._vla_chunks += 1
             obs, _reward, terminated, truncated, info = ret
-            if isinstance(obs, dict):
+            if isinstance(obs, list):
+                for frame_obs in obs:
+                    self.record_frame(frame_obs)
+                if obs and isinstance(obs[-1], dict):
+                    self._current_observation = obs[-1]
+            elif isinstance(obs, dict):
                 self._current_observation = obs
+                self.record_frame(obs)
             last_info = info if isinstance(info, dict) else {}
             self._note_info(last_info)
             executed_steps = None
@@ -521,12 +571,15 @@ class BehaviorPrimitives:
                 full_chunks += 1
             if self.solved():
                 stop_reason = "official_task_success"
+                self.stop_recording()
                 break
             if bool(terminated):
                 stop_reason = "terminated"
+                self.stop_recording()
                 break
             if bool(truncated):
                 stop_reason = "truncated"
+                self.stop_recording()
                 break
 
         env_steps_used = max(0, self.total_env_steps - started_steps)
@@ -618,6 +671,7 @@ class BehaviorPrimitives:
             raise ValueError("status must be a non-empty string")
         if not isinstance(summary, str) or not summary.strip():
             raise ValueError("summary must be a non-empty string")
+        episode_video_artifact = self.stop_recording()
         receipt = {
             "schema_version": 1,
             "kind": "behavior_finish_terminal_receipt",
@@ -629,6 +683,9 @@ class BehaviorPrimitives:
             "total_env_steps": self.total_env_steps,
             "max_episode_steps": self.max_episode_steps,
         }
+        if episode_video_artifact:
+            receipt["episode_video_artifact"] = episode_video_artifact
+            receipt["episode_video_frames"] = self.recorded_frame_count()
         result = {"_finish": True, **receipt}
         self.last_result = result
         return result
@@ -637,6 +694,7 @@ class BehaviorPrimitives:
         # VLA and DINO belong to the Dashboard Session shared runtime. A
         # TaskRun only releases its task-scoped ENV transport; shared daemons
         # and clients are released by the runtime owner after the session.
+        self.stop_recording()
         for candidate in (self.env,):
             if candidate is None:
                 continue

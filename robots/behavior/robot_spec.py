@@ -133,7 +133,6 @@ def get_toolkit(
         dashboard_events=dashboard_events,
         memory=memory,
         config=config,
-        video_path=toolkit_kwargs.get("video_path"),
         state_output_dir=state_output_dir,
     )
 

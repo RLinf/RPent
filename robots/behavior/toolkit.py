@@ -52,7 +52,6 @@ class BehaviorToolkit(Toolkit):
         dashboard_events: DashboardEventSink | None = None,
         memory: MemoryManager,
         config: Any = None,
-        video_path: str | Path | None = None,
         state_output_dir: str | Path | None = None,
     ) -> None:
         values = dict(primitives_kwargs)
@@ -73,11 +72,6 @@ class BehaviorToolkit(Toolkit):
         self._run_output_dir = Path(getattr(config, "output_dir", output_dir))
         self._state_output_dir = Path(state_output_dir or output_dir)
         values["output_dir"] = self._state_output_dir
-        values["video_path"] = (
-            Path(video_path)
-            if video_path is not None
-            else self._state_output_dir / "episode.mp4"
-        )
         self._recipe_tag = str(
             getattr(config, "recipe_tag", "")
             or get_task_spec(str(values.get("task_name") or "turning_on_radio")).tag(
@@ -93,6 +87,12 @@ class BehaviorToolkit(Toolkit):
         self._run_state = EnvState(self._run_output_dir)
         self._task_spec = get_task_spec(
             str(values.get("task_name") or "turning_on_radio")
+        )
+        values["episode_video_writer"] = self._state.open_video_writer(
+            "episode.mp4",
+            step=None,
+            fps=20,
+            max_frames=2000,
         )
         self._primitives = BehaviorPrimitives(**values)
         for spec in behavior_tool_specs_for_task(self._task_spec):

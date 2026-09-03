@@ -17,6 +17,7 @@
 from rpent.session.base import (
     EnvState,
     StepRecord,
+    VideoArtifactWriter,
     recipe_commands_from_states,
     write_recipe_from_states,
 )
@@ -24,6 +25,7 @@ from rpent.session.base import (
 __all__ = [
     "EnvState",
     "StepRecord",
+    "VideoArtifactWriter",
     "recipe_commands_from_states",
     "write_recipe_from_states",
 ]

@@ -608,7 +608,6 @@ def _connect_env(
         "initial_observation": initial_observation,
         "initial_info": initial_info,
         "output_dir": Path(output_dir),
-        "video_path": Path(output_dir) / "episode.mp4",
     }
 
 

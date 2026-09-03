@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 
 from robots.behavior.dino_v2.client import BehaviorDinoClient
@@ -92,6 +93,50 @@ class _FakeRpcClient:
                 "dimension": DINOV2_DIMENSION,
             }
         return {"status": "success"}
+
+
+class _FakeModel:
+    def predict(self, observation: dict[str, Any], *, options: dict[str, Any]) -> Any:
+        assert observation["task_descriptions"] == "turn on the radio"
+        assert options == {"mode": "eval"}
+        return np.zeros((32, 23), dtype=np.float32)
+
+
+class _FakeChunkEnv:
+    total_env_steps = 0
+    official_success_latched = False
+    official_success_receipt = None
+
+    def __init__(self) -> None:
+        self.return_all_frames: list[bool] = []
+
+    def chunk_step(
+        self,
+        actions: Any,
+        *,
+        return_all_frames: bool = False,
+    ) -> tuple[Any, float, bool, bool, dict[str, Any]]:
+        array = np.asarray(actions)
+        self.return_all_frames.append(bool(return_all_frames))
+        self.total_env_steps += int(array.shape[0])
+        frames = [
+            {
+                "main_images": np.full((16, 16, 3), idx, dtype=np.uint8),
+                "task_descriptions": "turn on the radio",
+            }
+            for idx in range(int(array.shape[0]))
+        ]
+        obs: Any = frames if return_all_frames else frames[-1]
+        return (
+            obs,
+            0.0,
+            False,
+            False,
+            {
+                "executed_steps": int(array.shape[0]),
+                "_rpent": {"total_env_steps": self.total_env_steps},
+            },
+        )
 
 
 def _both_hand_request() -> dict[str, Any]:
@@ -414,3 +459,51 @@ def test_unsolved_behavior_session_does_not_write_recipe(tmp_path: Path) -> None
 
     assert toolkit.write_recipe("turning_on_radio_s0") is None
     assert not (tmp_path / "run" / "recipe_turning_on_radio_s0.jsonl").exists()
+
+
+def test_behavior_pi0_chunk_records_streaming_episode_video(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    session_dir = run_dir / "sessions" / "session_001"
+    toolkit = BehaviorToolkit(
+        primitives_kwargs={
+            "env": _FakeChunkEnv(),
+            "model": _FakeModel(),
+            "task_name": "turning_on_radio",
+            "public_seed": 0,
+            "max_episode_steps": 64,
+            "initial_observation": {
+                "main_images": np.zeros((16, 16, 3), dtype=np.uint8),
+                "task_descriptions": "turn on the radio",
+            },
+        },
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        config=RunConfig(
+            recipe_tag="turning_on_radio_s0",
+            output_dir=run_dir,
+            prompt_vars={
+                "behavior_mode": "explore",
+                "task_name": "turning_on_radio",
+                "public_seed": 0,
+                "memory_dir": str(tmp_path / "memory"),
+            },
+            task_desc={},
+        ),
+        state_output_dir=session_dir,
+    )
+
+    result = toolkit.primitives.pi0_nav_pick(
+        instruction="turn on the radio",
+        chunks=1,
+    )
+    toolkit.execute_tool("finish", {"status": "incomplete", "summary": "done"})
+
+    assert result["chunks_used"] == 1
+    assert result["env_steps_used"] == 32
+    assert toolkit.primitives.env.return_all_frames == [True]
+    video_path = session_dir / "episode.mp4"
+    assert video_path.is_file()
+    assert video_path.stat().st_size > 0
+    assert "episode.mp4" in json.loads((session_dir / "states.json").read_text())[
+        "run_artifacts"
+    ]
