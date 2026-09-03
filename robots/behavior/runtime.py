@@ -154,7 +154,19 @@ def add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "--behavior-mode",
         choices=BEHAVIOR_MODES,
         default="eval",
-        help="BEHAVIOR-owned mode. Does not use the shared --explore loop.",
+        help="BEHAVIOR prompt/runtime mode: eval or explore.",
+    )
+    parser.add_argument(
+        "--explore-attempts-per-session",
+        type=int,
+        default=0,
+        help="Unsupported for BEHAVIOR; use --explore-sessions instead.",
+    )
+    parser.add_argument(
+        "--explore-sessions",
+        type=int,
+        default=1,
+        help="Fresh one-attempt BEHAVIOR sessions per exploration run.",
     )
     parser.add_argument(
         "--max-episode-steps",

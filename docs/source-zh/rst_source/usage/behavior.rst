@@ -7,8 +7,8 @@ robot plugin 接入，源码位于 ``robots/behavior``。
 
 接入合同与 LIBERO、RoboCasa、RoboTwin 相同：``get_robot_spec()`` 提供
 CLI/config/runtime hooks，``get_toolkit()`` 提供公开工具。BEHAVIOR 生命周期逻辑
-留在 ``robots/behavior`` 内。公共 ``--explore`` loop 仍只属于 LIBERO；
-BEHAVIOR 使用 ``--behavior-mode explore`` 和自己的外层 harness。
+留在 ``robots/behavior`` 内。公共 ``--explore`` 入口现已支持 BEHAVIOR，同时保留
+每个 session 只运行一个 attempt 的环境生命周期。
 
 安装状态
 --------
@@ -174,23 +174,36 @@ BEHAVIOR 使用和其他机器人相同的 Markdown/YAML ``MemoryManager`` 格�
 ``--behavior-memory-dir`` 只用于经审查的 DINO episode-memory catalog。省略该参数
 会选择合法的空 episode catalog，不会下载或静默替换为特定任务 memory。
 
-多次 Explore attempt 必须通过 BEHAVIOR 外层 harness 执行。它为每次 attempt 启动
-fresh RPent 进程和 episode，让全部 attempt 指向同一个官方 corpus，并在结束后调用
-现有 ``MemoryManager.merge_memory()``。planner 不能在单次 invocation 内 reset。
+使用标准 RPent Explore 入口运行一组有界 session：
 
 .. code-block:: bash
 
-   python -m robots.behavior.harness explore \
-     --attempts 3 \
+   "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" --robot behavior \
+     --behavior-mode explore \
+     --explore \
+     --explore-sessions 3 \
+     --task-name picking_up_trash --public-seed 0 \
      --output-dir /path/to/behavior-explore \
      --memory-dir /path/to/behavior-memory \
-     -- \
-     --task-name picking_up_trash --public-seed 0 \
-     --planner codex --model gpt-5.5
+     --planner codex --model gpt-5.5 \
+     --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
+     --behavior-python "$RPENT_REPRO_ROOT/venvs/behavior/bin/python" \
+     --activity-instance-dir \
+       "$OMNIGIBSON_DATA_PATH/2025-challenge-task-instances" \
+     --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
+     --behavior-env-cuda-device 0 \
+     --behavior-model-cuda-device 1 \
+     --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
+     --dino-weights "$DINOV2_WEIGHTS"
 
-如果 review 合同要求先保留 inbox、不立即发布，可传
-``--no-auto-merge-memory``。只有 terminal receipt 携带官方成功时，task audit/recipe
-pair 才会晋升。
+对 BEHAVIOR 而言，一个 session 就是一个 attempt。每个 session 都启动 fresh env
+sidecar、new episode，并写入独立的 ``sessions/session_NNN`` 目录；VLA 与 DINO
+sidecar 在各 session 之间共享。planner 无权在单次 invocation 内 reset，且
+``--explore-attempts-per-session`` 大于零会被拒绝。
+
+当每个 attempt 都必须运行在完全隔离的 RPent 进程中，且需要跨 attempt 汇总结果时，
+仍可使用 ``robots.behavior.harness`` 这一强化路径。在该 harness 路径中，只有
+terminal receipt 携带官方成功时，task audit/recipe pair 才会晋升。
 
 Runtime 与 Dashboard
 --------------------

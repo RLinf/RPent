@@ -78,26 +78,42 @@ def get_toolkit(
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
+    mode: str | None = None,
+    attempts_per_session: int = 0,
 ):
     """Return the BEHAVIOR toolkit through the standard main contract."""
 
     from robots.behavior.toolkit import BehaviorToolkit
 
     toolkit_kwargs = dict(primitives_kwargs)
+    if attempts_per_session > 0:
+        raise ValueError(
+            "BEHAVIOR explore runs one attempt per session; use --explore-sessions"
+        )
     memory_selected = bool(toolkit_kwargs.pop("_memory_component_selected", False))
     if memory_selected:
         dashboard_events.emit(RuntimeStatusEvent("memory", "starting"))
     try:
-        mode = str(config.prompt_vars.get("behavior_mode", "eval"))
-        if mode not in {"eval", "explore"}:
+        if mode is None:
+            behavior_mode = str(config.prompt_vars.get("behavior_mode", "eval"))
+        elif mode == "exploration":
+            behavior_mode = "explore"
+        elif mode == "evaluation":
+            behavior_mode = "eval"
+        else:
             raise ValueError(f"unsupported BEHAVIOR toolkit mode: {mode!r}")
+        if behavior_mode not in {"eval", "explore"}:
+            raise ValueError(f"unsupported BEHAVIOR toolkit mode: {behavior_mode!r}")
+        toolkit_kwargs["behavior_phase"] = behavior_mode
         memory_dir = config.prompt_vars.get("memory_dir")
         if not memory_dir:
             raise ValueError("BEHAVIOR RunConfig is missing memory_dir")
         memory = MemoryManager(
             root=Path(memory_dir),
-            memory_access="inbox_write" if mode == "explore" else "read_only",
-            inbox_cell_tag=config.recipe_tag if mode == "explore" else None,
+            memory_access=(
+                "inbox_write" if behavior_mode == "explore" else "read_only"
+            ),
+            inbox_cell_tag=(config.recipe_tag if behavior_mode == "explore" else None),
         )
     except Exception as exc:
         if memory_selected:
@@ -110,7 +126,7 @@ def get_toolkit(
         dashboard_events=dashboard_events,
         memory=memory,
         config=config,
-        video_path=Path(config.output_dir) / "episode.mp4",
+        video_path=toolkit_kwargs.get("video_path"),
     )
 
 

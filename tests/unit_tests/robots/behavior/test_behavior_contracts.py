@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -27,11 +28,13 @@ from robots.behavior.dino_v2.encoder import DINOV2_DIMENSION
 from robots.behavior.dino_v2.server import BehaviorDinoFacade
 from robots.behavior.env_client import BehaviorEnvClient
 from robots.behavior.env_server import BehaviorEnvFacade
+from robots.behavior.robot_spec import get_toolkit
 from robots.behavior.schemas import BEHAVIOR_TOOL_NAMES, MOVE_TO_SPEC
 from robots.behavior.toolkit import BehaviorToolkit
 from robots.behavior.tools import BehaviorPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
+from rpent.robots import RunConfig
 
 EXPECTED_TOOLS = (
     "pi0_nav_pick",
@@ -117,6 +120,117 @@ def _both_hand_request() -> dict[str, Any]:
 
 def test_public_behavior_surface_is_exactly_nine_tools() -> None:
     assert BEHAVIOR_TOOL_NAMES == EXPECTED_TOOLS
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "message"),
+    [
+        (
+            [
+                "--behavior-mode",
+                "explore",
+                "--explore-attempts-per-session",
+                "1",
+            ],
+            "BEHAVIOR explore runs one attempt per session; use --explore-sessions",
+        ),
+        ([], "BEHAVIOR --explore requires --behavior-mode explore"),
+        (
+            ["--behavior-mode", "explore", "--dashboard"],
+            "BEHAVIOR --explore is CLI-only",
+        ),
+        (
+            ["--behavior-mode", "explore", "--env-endpoint", "127.0.0.1:1"],
+            "BEHAVIOR explore requires an owned env sidecar; omit --env-endpoint",
+        ),
+    ],
+)
+def test_behavior_explore_rejects_incompatible_options(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    extra_args: list[str],
+    message: str,
+) -> None:
+    from rpent.cli import main as cli
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "behavior",
+            "--task-name",
+            "turning_on_radio",
+            "--public-seed",
+            "0",
+            "--explore",
+            *extra_args,
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 2
+    assert message in capsys.readouterr().err
+
+
+def test_behavior_toolkit_factory_maps_shared_modes(tmp_path: Path) -> None:
+    config = RunConfig(
+        recipe_tag="turning_on_radio_s0",
+        output_dir=tmp_path / "run",
+        prompt_vars={
+            "behavior_mode": "eval",
+            "memory_dir": str(tmp_path / "memory"),
+            "task_name": "turning_on_radio",
+            "public_seed": 0,
+            "max_episode_steps": 64,
+        },
+        task_desc={},
+    )
+    dashboard_events = NullDashboardEventSink()
+
+    evaluation = get_toolkit(
+        primitives_kwargs={},
+        dashboard_events=dashboard_events,
+        config=config,
+        mode="evaluation",
+    )
+    exploration = get_toolkit(
+        primitives_kwargs={"output_dir": tmp_path / "session"},
+        dashboard_events=dashboard_events,
+        config=config,
+        mode="exploration",
+    )
+    config.prompt_vars["behavior_mode"] = "explore"
+    inherited = get_toolkit(
+        primitives_kwargs={},
+        dashboard_events=dashboard_events,
+        config=config,
+    )
+
+    assert evaluation.primitives.behavior_phase == "eval"
+    assert exploration.primitives.behavior_phase == "explore"
+    assert inherited.primitives.behavior_phase == "explore"
+    assert evaluation.memory._memory_access == "read_only"
+    assert exploration.memory._memory_access == "inbox_write"
+    assert exploration.primitives.output_dir == tmp_path / "session"
+    with pytest.raises(ValueError, match="one attempt per session"):
+        get_toolkit(
+            primitives_kwargs={},
+            dashboard_events=dashboard_events,
+            config=config,
+            mode="exploration",
+            attempts_per_session=1,
+        )
+    with pytest.raises(ValueError, match="unsupported BEHAVIOR toolkit mode"):
+        get_toolkit(
+            primitives_kwargs={},
+            dashboard_events=dashboard_events,
+            config=config,
+            mode="unsupported",
+        )
 
 
 def test_behavior_facades_use_default_healthz_and_registered_metadata() -> None:

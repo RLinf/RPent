@@ -9,9 +9,8 @@ tasks in OmniGibson. RPent exposes ``turning_on_radio`` and
 The integration follows the same lightweight contract as LIBERO, RoboCasa, and
 RoboTwin: ``get_robot_spec()`` supplies CLI/config/runtime hooks and
 ``get_toolkit()`` supplies the public tools. BEHAVIOR-specific lifecycle code
-stays inside ``robots/behavior``. The common ``--explore`` loop remains a
-LIBERO feature; BEHAVIOR uses ``--behavior-mode explore`` and its own outer
-harness.
+stays inside ``robots/behavior``. The common ``--explore`` entry point supports
+BEHAVIOR while preserving its one-attempt-per-session environment lifecycle.
 
 Installation status
 -------------------
@@ -185,24 +184,38 @@ Use ``--behavior-memory-dir`` only for the reviewed DINO episode-memory catalog.
 Omitting it selects a legal empty episode catalog and does not download or
 silently substitute task-specific memory.
 
-For repeated Explore attempts, use the BEHAVIOR-owned harness. It launches a
-fresh RPent process and episode for every attempt, points every attempt at one
-official corpus, and calls the existing ``MemoryManager.merge_memory()`` after
-the run. The planner cannot reset inside an invocation.
+Use the standard RPent Explore entry point for a bounded sequence of sessions:
 
 .. code-block:: bash
 
-   python -m robots.behavior.harness explore \
-     --attempts 3 \
+   "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" --robot behavior \
+     --behavior-mode explore \
+     --explore \
+     --explore-sessions 3 \
+     --task-name picking_up_trash --public-seed 0 \
      --output-dir /path/to/behavior-explore \
      --memory-dir /path/to/behavior-memory \
-     -- \
-     --task-name picking_up_trash --public-seed 0 \
-     --planner codex --model gpt-5.5
+     --planner codex --model gpt-5.5 \
+     --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
+     --behavior-python "$RPENT_REPRO_ROOT/venvs/behavior/bin/python" \
+     --activity-instance-dir \
+       "$OMNIGIBSON_DATA_PATH/2025-challenge-task-instances" \
+     --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
+     --behavior-env-cuda-device 0 \
+     --behavior-model-cuda-device 1 \
+     --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
+     --dino-weights "$DINOV2_WEIGHTS"
 
-Use ``--no-auto-merge-memory`` when review policy requires preserving the inbox
-without publication. Task audit/recipe pairs are promoted only when the
-terminal receipt carries official success.
+For BEHAVIOR, one session is exactly one attempt. Each session starts a fresh
+environment sidecar, episode, and ``sessions/session_NNN`` output directory;
+the VLA and DINO sidecars stay shared across sessions. The planner cannot reset
+inside an invocation, and ``--explore-attempts-per-session`` values above zero
+are rejected.
+
+``robots.behavior.harness`` remains available as the strengthened path when
+every attempt must run in a fully isolated RPent process and results must be
+aggregated across attempts. On that harness path, task audit/recipe pairs are
+promoted only when the terminal receipt carries official success.
 
 Runtime and Dashboard
 ---------------------
