@@ -117,7 +117,7 @@ robotwin = [
 ]
 
 [tool.uv]
-prerelease = "if-necessary-or-explicit"
+prerelease = "if-necessary"
 
 # Each robot extra pulls a separately pinned VLA runtime whose Torch,
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
@@ -140,22 +140,6 @@ conflicts = [
     ],
     [
         { extra = "franka" },
-        { extra = "robotwin" },
-    ],
-    [
-        { extra = "libero" },
-        { extra = "robotwin" },
-    ],
-    [
-        { extra = "libero-pro" },
-        { extra = "robotwin" },
-    ],
-    [
-        { extra = "libero-plus" },
-        { extra = "robotwin" },
-    ],
-    [
-        { extra = "robocasa" },
         { extra = "robotwin" },
     ],
 ]
