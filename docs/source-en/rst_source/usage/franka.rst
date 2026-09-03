@@ -2,10 +2,7 @@ Franka
 ======
 
 RPent can control one physical Franka arm through an RLinf ``RealWorldEnv``
-worker. This development branch keeps the runtime configuration in RPent and
-installs the required RLinf/OpenPI branch through the ``franka`` extra. A
-separate RLinf checkout, virtual environment, or installation step is not
-required.
+worker.
 
 Install
 -------
@@ -63,7 +60,8 @@ startup:
 Run a smoke test
 ----------------
 
-Task ``0`` exercises conservative analytic motion and gripper primitives:
+The smoke test verifies that basic analytic motion and gripper primitives work
+correctly. To run it, launch RPent with task ``0``:
 
 .. code-block:: bash
 
