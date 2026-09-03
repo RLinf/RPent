@@ -35,16 +35,9 @@ Other environment configurations are available when needed:
 
    pip install -e ".[robocasa]"    # RoboCasa
    pip install -e ".[robotwin]"    # RoboTwin
-   pip install -e ".[behavior]"    # RPent-side BEHAVIOR dependencies
+   pip install -e ".[behavior]"    # BEHAVIOR
 
 ``.[libero-pro]`` is the recommended default.
-
-BEHAVIOR uses a dedicated dual-venv workflow because it also requires pinned
-source plugins and licensed simulator resources. ``.[behavior]`` installs only
-the RPent-side dependencies; it does not install a runnable OmniGibson/Isaac Sim
-environment. Keep ``robots/behavior`` source-editable and follow the complete
-:doc:`usage/behavior` installer. A normal wheel does not promise a directly
-runnable BEHAVIOR stack.
 
 Available extras:
 
@@ -60,9 +53,9 @@ Available extras:
    * - ``.[libero-plus]``
      - LIBERO-plus + openpi Pi0.5 VLA + SAM 3.0 + RLinf runtime
    * - ``.[behavior]``
-     - RPent-side dependencies only; full simulation requires the dedicated
-       source-editable dual-venv workflow in :doc:`usage/behavior`, starting
-       with ``behavior-install-runtime`` and ``behavior-download-assets``
+     - RPent-side BEHAVIOR dependencies; the full OmniGibson/Isaac Sim stack
+       uses the source-editable dual-venv workflow and licensed assets documented
+       in :doc:`usage/behavior`
    * - ``.[robocasa]``
      - RoboCasa365 simulator + the RLDX-1 VLA; see :doc:`usage/robocasa`
    * - ``.[robotwin]``
@@ -72,11 +65,6 @@ Available extras:
      - RLinf runtime only
    * - ``.[sam3]``
      - SAM 3.0 only
-
-For BEHAVIOR, run ``behavior-install-runtime`` from the source-editable
-checkout, then use ``behavior-download-assets --accept-license
---skip-existing``. The latter delegates all simulator downloads to the
-BEHAVIOR venv. See :doc:`usage/behavior` before accepting the data licence.
 
 2. Download the assets required to run LIBERO
 ---------------------------------------------

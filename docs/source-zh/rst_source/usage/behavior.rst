@@ -251,20 +251,3 @@ active tool schema 和 backend capability 为准。
    <output-dir>/tasks/<task-run>/behavior_env_server.log
    <output-dir>/tasks/<task-run>/episode.mp4
    <output-dir>/tasks/<task-run>/terminal_receipt.json
-
-成功与诊断
-----------
-
-官方 task success 只等于当前 episode 的
-``info["done"]["success"] is True``。reward、``terminated``、``truncated``、
-primitive success、截图、视频和进程退出都不能替代它。receipt 只能记录 raw evidence，
-不能制造成功。
-
-启动仿真前可运行轻量源码检查：
-
-.. code-block:: bash
-
-   python -m robots.behavior.selfcheck
-
-self-check 验证 plugin discovery、CLI/config、任务映射、memory profile 和公开工具数量；
-它不会加载资产、启动 GPU 服务、执行动作或证明 task success。

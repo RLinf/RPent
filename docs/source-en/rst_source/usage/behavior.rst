@@ -264,21 +264,3 @@ The main logs are:
    <output-dir>/tasks/<task-run>/behavior_env_server.log
    <output-dir>/tasks/<task-run>/episode.mp4
    <output-dir>/tasks/<task-run>/terminal_receipt.json
-
-Success and diagnostics
------------------------
-
-Official task success is exactly the current episode's
-``info["done"]["success"] is True``. Reward, ``terminated``, ``truncated``,
-primitive success, screenshots, video, and process exit do not substitute for
-it. The receipt records that raw evidence; it cannot manufacture success.
-
-Run the lightweight source check before starting the simulator:
-
-.. code-block:: bash
-
-   python -m robots.behavior.selfcheck
-
-The self-check validates plugin discovery, CLI/config derivation, task mapping,
-memory profile, and public tool count. It does not load assets, start a GPU
-service, execute an action, or establish task success.
