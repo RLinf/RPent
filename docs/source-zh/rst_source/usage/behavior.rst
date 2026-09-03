@@ -252,59 +252,6 @@ active tool schema 和 backend capability 为准。
    <output-dir>/tasks/<task-run>/episode.mp4
    <output-dir>/tasks/<task-run>/terminal_receipt.json
 
-结果复现
---------
-
-以下记录是一次有界的运行链路验收，不是长程 benchmark 结果。复现时应使用新的
-``RPENT_REPRO_ROOT``，执行前文安装与下载命令并验证 checkpoint 和资产，然后启动
-已知的 ``turning_on_radio`` development instance：activity definition ``0``、
-activity instance ``242``、public seed ``0``。reset 后执行一次 ``env.step`` 和一次
-由 Pi0.5 动作驱动的 ``env.chunk_step``，再检查 component metadata、观察和动作 shape、
-Dashboard snapshot 与生成的 ``episode.mp4``。这次有界运行没有使用 held-out 布局；
-视频只保留为运行 artifact，不写入仓库。
-
-**运行链路复现。**
-
-- fresh 独立 runtime root 生成了相互分离的 RPent 与 BEHAVIOR venv，使用
-  ``uv 0.12.7`` CLI 和 Python ``3.10.12``。最终一次重试只复用该新 runtime root
-  内的 venv，完成兼容性 repin：``torch 2.5.1+cu124``、
-  ``torchaudio 2.5.1+cu124``、``torchcodec 0.2.0+cu124``、
-  ``torchvision 0.20.1+cu124``、``transformers 4.53.2``；CUDA smoke 与关键
-  import 检查通过，安装器退出码为 ``0``。report-only 依赖 metadata 检查仍记录了
-  ``15`` 个上游 pin 不兼容项。
-- checkpoint 校验记录的 ``model.safetensors`` 大小精确为
-  ``7,233,650,408`` bytes，SHA-256 为
-  ``7e257666d835f6af701de493676a6c86a0421b2efc737a0f911d782b7a09f635``。
-  三个 OmniGibson 源归档合计精确为 ``31,887,356,541`` bytes；解压后，三个已验证
-  资产目录共含 ``118,491`` 个文件、精确为 ``37,532,605,007`` bytes。
-- 真实 GPU observation 包含 head RGB ``[720, 720, 3] uint8``、按 left/right
-  排列的 wrist RGB ``[2, 480, 480, 3] uint8``，以及有限值 proprio
-  ``[256] float32``。Pi0.5 返回有限值 raw action ``[1, 32, 23] float32``，client
-  返回 ``[32, 23] float32``。
-- 环境真实执行了一次单步和一个完整的 32-step chunk，共精确执行 ``33`` 个 env
-  steps；输出视频精确包含 ``34`` 帧。ENV、VLA、MemoryManager 与 Dashboard 均报告
-  ready。
-- 后续 DINOv2 GPU smoke 使用已恢复的 ``behavior_dino`` RPC service，并指定 CUDA
-  device ``2``。``healthz`` 返回 ``status=ok``，``dino.get_meta`` 报告
-  ``facebookresearch/dinov2_vits14`` 在 revision
-  ``facebookresearch/dinov2@7764ea0f912e53c92e82eb78a2a1631e92725fc8`` 上的
-  dimension 为 ``384``。source archive 精确为 ``2,869,642`` bytes，SHA-256 为
-  ``c27dcdaf50e9fb5bbdf2bb529da357716372e19c6afab17d5350f3f0094aed4b``；weights
-  文件精确为 ``88,283,115`` bytes，SHA-256 为
-  ``b938bf1bc15cd2ec0feacfe3a1bb553fe8ea9ca46a7e1d8d00217f29aef60cd9``。对一张
-  RGB ``[224, 224, 3] uint8`` 测试图执行 encode 后，raw RPC 与
-  ``BehaviorDinoClient`` 均返回有限值 ``[384] float32`` 向量；client 归一化后的
-  L2 norm 为 ``0.9999999997354404``。连续两次 encode 的最大绝对差为 ``0.0``。
-  owner shutdown 返回 ``ok=true``，server 退出码为 ``0``，端口已释放。
-
-**探索阶段边界。**
-
-长程任务的 benchmark recipe 仍在探索中，现阶段不提供汇总任务完成指标。官方成功
-证据只接受 ``terminal_receipt.json`` 中 ``task_success=true``，且其内嵌 receipt 的
-``source`` 为 ``info["done"]["success"]``。这次运行记录为
-``task_success=false``（探针字段名为 ``official_task_success``），因此不声称任务完成。
-primitive 结果不能替代官方成功，运行链路可执行也不代表已具备 benchmark readiness。
-
 成功与诊断
 ----------
 
