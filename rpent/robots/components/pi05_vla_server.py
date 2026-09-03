@@ -22,17 +22,19 @@ selected by the ``--embodiment`` CLI flag and looked up in
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import sys
 import threading
 import time
 from contextlib import nullcontext
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 
-from robots.behavior.pi05 import PI05_BEHAVIOR_EMBODIMENT
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.config import (
     get_pi05_checkpoint_path,
@@ -52,10 +54,146 @@ if str(RLINF_REPO_PATH) not in sys.path:
 # Embodiment registry
 # ---------------------------------------------------------------------------
 
+_BEHAVIOR_ACTION_DIM = 23
+
+
+@dataclass(frozen=True)
+class _CheckpointFileRequirement:
+    relative_path: str
+    size_bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True)
+class _PolicyCheckpointProfile:
+    profile_id: str
+    files: tuple[_CheckpointFileRequirement, ...]
+
+
+_BEHAVIOR_POLICY_PROFILE = _PolicyCheckpointProfile(
+    profile_id="pi05-b1kpt50-cs32",
+    files=(
+        _CheckpointFileRequirement(
+            relative_path="model.safetensors",
+            size_bytes=7_233_650_408,
+            sha256="7e257666d835f6af701de493676a6c86a0421b2efc737a0f911d782b7a09f635",
+        ),
+        _CheckpointFileRequirement(
+            relative_path="config.json",
+            size_bytes=149,
+            sha256="a4ae208203adfdd64c5fdbd4b0dc257e4ebbc82e464cb146dd0377051b25fc0a",
+        ),
+        _CheckpointFileRequirement(
+            relative_path="assets/behavior-1k/2025-challenge-demos/norm_stats.json",
+            size_bytes=6_368,
+            sha256="d66ed16830a98f90dde8a315058b4a0df59f5e05734c1686d8b3f66787d0a929",
+        ),
+    ),
+)
+
+
+def _canonical_sha256(value: Mapping[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _validate_behavior_policy_checkpoint(
+    path: str | Path,
+) -> tuple[str, dict[str, Any]]:
+    profile = _BEHAVIOR_POLICY_PROFILE
+    requested = Path(path).expanduser()
+    try:
+        resolved = requested.resolve(strict=True)
+    except OSError as error:
+        raise ValueError(
+            f"your Pi05-Behavior model checkpoint is unavailable: {error}"
+        ) from error
+    if not resolved.is_dir():
+        raise ValueError(
+            f"your Pi05-Behavior model checkpoint is not a directory: {resolved}"
+        )
+    for requirement in profile.files:
+        candidate = resolved / requirement.relative_path
+        if candidate.is_symlink() or not candidate.is_file():
+            raise ValueError(
+                "your Pi05-Behavior model checkpoint file is missing or unsafe: "
+                f"{candidate}"
+            )
+        size = candidate.stat().st_size
+        if size != requirement.size_bytes:
+            raise ValueError(
+                "your Pi05-Behavior model checkpoint size mismatch for "
+                f"{requirement.relative_path}: expected {requirement.size_bytes}, "
+                f"got {size}"
+            )
+        actual_sha256 = _file_sha256(candidate)
+        if actual_sha256 != requirement.sha256:
+            raise ValueError(
+                "your Pi05-Behavior model checkpoint SHA256 mismatch for "
+                f"{requirement.relative_path}: expected {requirement.sha256}, "
+                f"got {actual_sha256}"
+            )
+    payload = {
+        "schema_version": 1,
+        "profile_id": profile.profile_id,
+        "resolved_path": str(resolved),
+        "files": {
+            item.relative_path: {
+                "size_bytes": item.size_bytes,
+                "sha256": item.sha256,
+            }
+            for item in profile.files
+        },
+    }
+    return str(resolved), {**payload, "binding_sha256": _canonical_sha256(payload)}
+
+
 # NOTE: an embodiment added here must also be registered in the client's
 # ``_ENCODE_OBS`` (obs encoding); the two registries are kept in sync manually.
 PI05_EMBODIMENTS: dict[str, dict] = {
-    "behavior": PI05_BEHAVIOR_EMBODIMENT,
+    "behavior": {
+        "num_action_chunks": 32,
+        "action_dim": 32,
+        "use_proprio": True,
+        "num_steps": 4,
+        "add_value_head": False,
+        "openpi_data": {
+            "norm_stats_path": (
+                "assets/behavior-1k/2025-challenge-demos/norm_stats.json"
+            ),
+            "extra_delta_transform": False,
+            "extract_state_from_proprio": True,
+            "use_all_wrist_images": True,
+            "use_quantile_norm": True,
+        },
+        "openpi": {
+            "config_name": "pi05_behavior",
+            "num_images_in_input": 3,
+            "action_dim": 32,
+            "action_horizon": 32,
+            "action_chunk": 32,
+            "action_env_dim": 23,
+            "num_steps": 4,
+            "add_value_head": False,
+            "noise_level": 0.0,
+            "noise_method": "flow_sde",
+            "joint_logprob": False,
+        },
+    },
     "libero": {
         "num_action_chunks": 5,
         "action_dim": 7,
@@ -166,11 +304,9 @@ class Pi05VLAFacade(BaseVLAFacade):
             os.environ.setdefault("ROBOT_PLATFORM", platform)
 
         if embodiment == "behavior":
-            from robots.behavior.policy_checkpoint import validate_policy_checkpoint
-
-            binding = validate_policy_checkpoint(model_path)
-            self._model_path = binding.resolved_path
-            self._checkpoint_binding = binding.as_dict()
+            self._model_path, self._checkpoint_binding = (
+                _validate_behavior_policy_checkpoint(model_path)
+            )
             torch.manual_seed(0)
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(0)
@@ -245,17 +381,16 @@ class Pi05VLAFacade(BaseVLAFacade):
             else np.asarray(actions)
         ).astype(np.float32)
         if self._embodiment == "behavior":
-            from robots.behavior.schemas import ACTION_DIM
-
             if (
                 result.ndim != 3
                 or result.shape[0] != 1
                 or result.shape[1] < 1
-                or result.shape[2] != ACTION_DIM
+                or result.shape[2] != _BEHAVIOR_ACTION_DIM
                 or not np.isfinite(result).all()
             ):
                 raise ValueError(
-                    f"Pi0.5 returned invalid [1,T,{ACTION_DIM}] shape {result.shape}"
+                    "Pi0.5 returned invalid "
+                    f"[1,T,{_BEHAVIOR_ACTION_DIM}] shape {result.shape}"
                 )
         return result
 

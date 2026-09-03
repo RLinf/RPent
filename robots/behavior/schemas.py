@@ -616,8 +616,6 @@ NAVIGATE_TO_SPEC = _planner_spec(
             "minimum": 0.45,
             "maximum": 1.5,
         },
-        "plan_only": {"type": "boolean"},
-        "prepared_plan_id": {"type": "string", "minLength": 1},
     },
     one_of=[
         {

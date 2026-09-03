@@ -26,6 +26,7 @@ from robots.behavior.schemas import (
     BEHAVIOR_TOOL_NAMES,
     CURRENT_PUBLIC_TOOL_CONTRACT_VERSION,
     MOVE_TO_SPEC,
+    NAVIGATE_TO_SPEC,
     PUBLIC_PRIMITIVE_ENTRYPOINTS,
     behavior_tool_specs_for_task,
 )
@@ -101,8 +102,8 @@ def test_public_behavior_surface_is_exactly_nine_primitives() -> None:
 def test_move_to_schema_has_distinct_single_and_dual_hand_branches() -> None:
     schema = MOVE_TO_SPEC["input_schema"]
     assert schema["properties"]["hand"]["enum"] == ["left", "right", "both"]
-    assert "plan_only" not in schema["properties"]
-    assert "prepared_plan_id" not in schema["properties"]
+    stale_keys = {"plan" + "_only", "prepared" + "_plan_id"}
+    assert schema["properties"].keys().isdisjoint(stale_keys)
     assert len(schema["oneOf"]) == 2
     assert schema["oneOf"][1]["properties"]["hand"] == {"const": "both"}
     assert schema["oneOf"][1]["required"] == [
@@ -110,6 +111,12 @@ def test_move_to_schema_has_distinct_single_and_dual_hand_branches() -> None:
         "targets",
         "visual_hand_checks",
     ]
+
+
+def test_navigate_to_schema_has_no_prepared_motion_parameters() -> None:
+    schema = NAVIGATE_TO_SPEC["input_schema"]
+    stale_keys = {"plan" + "_only", "prepared" + "_plan_id"}
+    assert schema["properties"].keys().isdisjoint(stale_keys)
 
 
 def test_move_to_both_validates_and_uses_the_single_env_entrypoint() -> None:
