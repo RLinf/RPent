@@ -35,6 +35,11 @@ SDK。
        Streamable HTTP MCP 服务，把 toolkit 接入 Codex。
      - 想使用 Codex 原生提供的 agent 能力，或者已有可用的 OpenAI
        或 Codex 配额。
+   * - ``task_card``
+     - 完全不用 LLM。重放一次早先运行录下的 **任务卡**，并对每个路点
+       的锚点重新定位，使方案能跟随移动过的物体。参见
+       :doc:`task_card`。
+     - 想在新布局上低成本地重跑一个已知可行的方案，且不产生模型开销。
 
 ``api`` planner（直接调用模型 API）
 -------------------------------------

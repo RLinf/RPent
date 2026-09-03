@@ -218,4 +218,13 @@ def build_planner(
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
         )
+    if planner_type == "task_card":
+        from rpent.planner.task_card import TaskCardPlanner
+
+        return TaskCardPlanner(
+            recipe_tag=recipe_tag,
+            robot_name=robot_name,
+            output_dir=output_dir,
+            dashboard_events=dashboard_events,
+        )
     raise ValueError(f"unknown planner_type: {planner_type}")

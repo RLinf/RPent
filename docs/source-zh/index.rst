@@ -81,6 +81,7 @@
    RoboTwin <rst_source/usage/robotwin>
    Franka <rst_source/usage/franka>
    SO-101 <rst_source/usage/so101>
+   任务卡模式 <rst_source/usage/task_card>
    高级部署 <rst_source/usage/advanced_deployment>
 
 .. toctree::

@@ -24,8 +24,10 @@ and the decode is explicit.
 from __future__ import annotations
 
 import base64
+import ipaddress
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
@@ -71,6 +73,8 @@ class HttpRpcClient(RpcClient):
     def __init__(self, base_url: str) -> None:
         """Initialize with a base URL, e.g. ``"http://127.0.0.1:8080"``."""
         self._base_url = base_url.rstrip("/")
+        hostname = urllib.parse.urlsplit(self._base_url).hostname
+        self._opener = _build_opener(hostname)
 
     def call(
         self,
@@ -97,7 +101,7 @@ class HttpRpcClient(RpcClient):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=request_timeout) as resp:
+            with self._opener.open(req, timeout=request_timeout) as resp:
                 raw = resp.read()
         except urllib.error.HTTPError as exc:
             # HTTPError is an OSError subclass; catch first so we can parse
@@ -112,6 +116,19 @@ class HttpRpcClient(RpcClient):
             raise RpcError(method, f"invalid JSON response: {exc}") from exc
 
         return check_response(response, method)
+
+
+def _build_opener(hostname: str | None) -> urllib.request.OpenerDirector:
+    """Bypass environment proxies for loopback RPC, but preserve remote proxies."""
+    is_loopback = hostname == "localhost"
+    if hostname is not None and not is_loopback:
+        try:
+            is_loopback = ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            pass
+    if is_loopback:
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return urllib.request.build_opener()
 
 
 # ---------------------------------------------------------------------------

@@ -68,6 +68,16 @@ sam3 = [
     "torchvision",
     "pillow>=10",
 ]
+molmo = [
+    # Molmo's remote code uses transformers' video-processing API, which the
+    # LIBERO extra cannot supply: OpenPI pins transformers==4.53.2 exactly, and
+    # 4.53.2 has no transformers.video_utils.make_batched_metadata. Install this
+    # into its own environment and point the grounder at it over RPC.
+    "transformers>=4.57",
+    "torch",
+    "torchvision",
+    "pillow>=10",
+]
 libero = [
     "rpent[rlinf]",
     "rpent[sam3]",
