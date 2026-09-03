@@ -47,14 +47,20 @@ BEHAVIOR_DASHBOARD_SPEC = {
     ),
     "frame_channels": (
         {
-            "name": "camera",
+            "name": "head",
             "label": "head camera",
+            "result_key": "_image_bytes",
             "legacy_path_key": "image_cam_path",
         },
         {
-            "name": "wrist",
-            "label": "wrist cameras",
-            "legacy_path_key": "image_wrist_path",
+            "name": "left_wrist",
+            "label": "left wrist",
+            "result_key": "_image_left_wrist_bytes",
+        },
+        {
+            "name": "right_wrist",
+            "label": "right wrist",
+            "result_key": "_image_right_wrist_bytes",
         },
     ),
 }

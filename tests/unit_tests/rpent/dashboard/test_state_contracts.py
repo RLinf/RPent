@@ -269,6 +269,7 @@ def test_dashboard_events_project_runtime_usage_timeline_and_newest_frames(
             "elapsed_s": 0.5,
             "terminated": True,
             "truncated": False,
+            "official_success": True,
             "action_video_path": None,
             "action_video_artifact": None,
             "has_action_video": False,
@@ -332,5 +333,144 @@ def test_dashboard_step_events_offset_new_traces_and_resolve_action_video(
     assert [item["step"] for item in detail["timeline"]] == [0, 1]
     assert detail["timeline"][0]["result"] == {"position": [1, 2, 3]}
     assert detail["timeline"][1]["terminated"] is True
+    assert detail["timeline"][1]["official_success"] is True
     assert state.frame("camera") == b"second-frame"
     assert state.action_video_path(0) == first_env.artifact_path("action.mp4", step=0)
+
+
+def test_dashboard_maps_declared_result_keys_to_physical_frames(
+    tmp_path: Path,
+) -> None:
+    spec = {
+        **DASHBOARD_SPEC,
+        "frame_channels": (
+            {"name": "head", "label": "head", "result_key": "_image_bytes"},
+            {
+                "name": "left_wrist",
+                "label": "left wrist",
+                "result_key": "_image_left_wrist_bytes",
+            },
+            {
+                "name": "right_wrist",
+                "label": "right wrist",
+                "result_key": "_image_right_wrist_bytes",
+            },
+        ),
+    }
+    state = DashboardState(
+        run_id="three-camera",
+        output_dir=tmp_path,
+        dashboard_spec=spec,
+    )
+
+    state.emit(
+        ToolResultEvent(
+            "observe",
+            {
+                "step": 4,
+                "_image_bytes": b"head",
+                "_image_left_wrist_bytes": b"left",
+                "_image_right_wrist_bytes": b"right",
+            },
+        )
+    )
+
+    snapshot = state.snapshot()
+    assert snapshot["frame_available"] == {
+        "head": True,
+        "left_wrist": True,
+        "right_wrist": True,
+    }
+    assert state.frame("head") == b"head"
+    assert state.frame("left_wrist") == b"left"
+    assert state.frame("right_wrist") == b"right"
+
+
+def test_dashboard_legacy_frame_key_fallbacks_remain_supported(
+    tmp_path: Path,
+) -> None:
+    spec = {
+        **DASHBOARD_SPEC,
+        "frame_channels": (
+            {"name": "head", "label": "head"},
+            {"name": "left_wrist", "label": "left wrist"},
+            {"name": "right_wrist", "label": "right wrist"},
+            {"name": "camera", "label": "camera"},
+            {"name": "wrist", "label": "wrist"},
+        ),
+    }
+    state = DashboardState(
+        run_id="legacy-fallbacks",
+        output_dir=tmp_path,
+        dashboard_spec=spec,
+    )
+
+    state.emit(
+        ToolResultEvent(
+            "view_env_state",
+            {
+                "step": 1,
+                "_image_bytes": b"head",
+                "_image_cam_bytes": b"left-and-camera",
+                "_image_wrist_bytes": b"right-and-wrist",
+            },
+        )
+    )
+
+    assert state.frame("head") == b"head"
+    assert state.frame("left_wrist") == b"left-and-camera"
+    assert state.frame("right_wrist") == b"right-and-wrist"
+    assert state.frame("camera") == b"left-and-camera"
+    assert state.frame("wrist") == b"right-and-wrist"
+
+
+def test_behavior_official_success_fields_gate_success_projection(
+    tmp_path: Path,
+) -> None:
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    state.emit(
+        ToolResultEvent(
+            "finish",
+            {
+                "step": 1,
+                "terminated": True,
+                "task_success": False,
+                "official_success_source": 'info["done"]["success"]',
+                "official_success_receipt": None,
+                "log": {
+                    "command": {"action": "finish"},
+                    "result": {"task_success": False},
+                },
+            },
+        )
+    )
+    detail = state.run_detail()
+    assert detail["terminated"] is True
+    assert detail["official_success"] is False
+    assert detail["timeline"][0]["official_success"] is False
+
+    state = _ready_state(tmp_path / "success")
+    _claim_started_task(state)
+    state.emit(
+        ToolResultEvent(
+            "finish",
+            {
+                "step": 1,
+                "terminated": True,
+                "task_success": True,
+                "official_success_source": 'info["done"]["success"]',
+                "official_success_receipt": {
+                    "source": 'info["done"]["success"]',
+                    "raw_done": {"success": True},
+                },
+                "log": {
+                    "command": {"action": "finish"},
+                    "result": {"task_success": True},
+                },
+            },
+        )
+    )
+    detail = state.run_detail()
+    assert detail["official_success"] is True
+    assert detail["timeline"][0]["official_success"] is True
