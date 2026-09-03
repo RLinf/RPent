@@ -14,12 +14,15 @@
 
 from __future__ import annotations
 
+import os
 import socket
 import threading
 import time
+import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Literal
 
 import numpy as np
@@ -33,8 +36,26 @@ from rpent.utils.rpc import (
     make_rpc_client,
     wait_for_ready,
 )
+from rpent.utils.rpc.http_rpc import HttpRpcClient, _is_direct_url
 
 Transport = Literal["http", "socket"]
+PROXY_ENVIRONMENT_VARIABLES = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_proxy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in PROXY_ENVIRONMENT_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(urllib.request, "_opener", None)
 
 
 class ContractFacade(RpcFacade):
@@ -94,7 +115,11 @@ def _port_accepts_connections(port: int) -> bool:
 
 
 @contextmanager
-def _running_facade(transport: Transport) -> Iterator[RunningFacade]:
+def _running_facade(
+    transport: Transport,
+    *,
+    client_host: str = "127.0.0.1",
+) -> Iterator[RunningFacade]:
     facade = ContractFacade()
     port = pick_free_port()
     thread = threading.Thread(
@@ -107,7 +132,7 @@ def _running_facade(transport: Transport) -> Iterator[RunningFacade]:
         daemon=True,
     )
     thread.start()
-    client = make_rpc_client(f"{transport}://127.0.0.1:{port}")
+    client = make_rpc_client(f"{transport}://{client_host}:{port}")
 
     try:
         wait_for_ready(client, timeout_s=3.0, poll_interval_s=0.01)
@@ -154,6 +179,103 @@ def test_transport_round_trips_nested_numpy_payloads(transport: Transport) -> No
         }
         result["values"][0, 0] = -1
         assert original[0, 0] == 0
+
+
+def _configure_dead_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    monkeypatch.setattr(urllib.request, "_opener", None)
+
+
+class _RecordingProxyHandler(BaseHTTPRequestHandler):
+    def log_message(self, format: str, *args) -> None:  # noqa: A002
+        return
+
+    def do_POST(self) -> None:
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length:
+            self.rfile.read(content_length)
+        self.server.request_targets.append(self.path)  # type: ignore[attr-defined]
+        body = b'{"ok": true, "result": {"status": "proxied"}}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+@contextmanager
+def _running_http_proxy() -> Iterator[tuple[int, list[str]]]:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _RecordingProxyHandler)
+    request_targets: list[str] = []
+    server.request_targets = request_targets  # type: ignore[attr-defined]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        yield int(server.server_port), request_targets
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3.0)
+
+    assert not thread.is_alive()
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost"])
+def test_http_local_hosts_bypass_proxy_without_mutating_environment(
+    host: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_dead_proxy(monkeypatch)
+    proxy_environment = {
+        name: value
+        for name in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "no_proxy")
+        if (value := os.environ.get(name)) is not None
+    }
+
+    with _running_facade("http", client_host=host) as running:
+        assert running.client.call("healthz", timeout_s=1.0) == {"status": "ok"}
+
+    assert {
+        name: value
+        for name in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "no_proxy")
+        if (value := os.environ.get(name)) is not None
+    } == proxy_environment
+
+
+@pytest.mark.parametrize("host", ["service.example.invalid", "127.0.0.2"])
+def test_other_http_hosts_use_environment_proxy(
+    host: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _running_http_proxy() as (proxy_port, request_targets):
+        monkeypatch.setenv("HTTP_PROXY", f"http://127.0.0.1:{proxy_port}")
+        monkeypatch.delenv("NO_PROXY", raising=False)
+        monkeypatch.delenv("no_proxy", raising=False)
+        monkeypatch.setattr(urllib.request, "_opener", None)
+        client = HttpRpcClient(f"http://{host}:8123")
+
+        assert client.call("healthz", timeout_s=1.0) == {"status": "proxied"}
+
+    assert request_targets == [f"http://{host}:8123/call"]
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("http://127.0.0.1:8000", True),
+        ("http://localhost:8000", True),
+        ("http://LOCALHOST:8000", True),
+        ("http://127.0.0.2:8000", False),
+        ("http://[::1]:8000", False),
+        ("http://service.example.invalid:8000", False),
+    ],
+)
+def test_http_direct_host_classification(url: str, expected: bool) -> None:
+    assert _is_direct_url(url) is expected
 
 
 @pytest.mark.parametrize("transport", ["http", "socket"])
