@@ -110,15 +110,17 @@ PERCEPTION TOOLS:
 
 VLA_RULES = """
 VLA EXECUTION RULES (the single most important rule):
-1. NEVER put a manual command (move_to / move_base / navigate_to / set_gripper /
+1. Every rldx_skill / rldx_arm call must pass the complete live task_language
+   verbatim. Never shorten, paraphrase, or replace it with an atomic sub-task.
+2. NEVER put a manual command (move_to / move_base / navigate_to / set_gripper /
    scripted_grasp) BETWEEN two VLA calls of the same sub-operation. Every non-VLA
    command WIPES the VLA's frame history, forcing it to restart from scratch.
-2. Do NOT pass a small max_chunks (default 70 is fine). Do NOT pass
+3. Do NOT pass a small max_chunks (default 70 is fine). Do NOT pass
    settle_patience (default 999 disables settle detection).
-3. If rldx_skill returns 'cap' (didn't finish in budget), simply CALL IT AGAIN
-   with the same prompt — continuity is preserved. Only re-stance if 2-3 consecutive
-   calls never touched the object (grasp_detected was never true).
-4. The vla_desync flag in view_env_state tells you if the VLA history was
+4. If RLDX returns 'cap', call it again with the same full task language to
+   preserve history. Only re-stage after 2-3 consecutive calls show neither
+   contact nor task progress.
+5. The vla_desync flag in view_env_state tells you if the VLA history was
    invalidated. If True, the next VLA call will start fresh.
 """
 
@@ -142,8 +144,12 @@ The JSON/JSONL pair is reviewed seed-0 evidence. The optional Markdown file is
 task-specific exploration memory and may summarize multiple attempts. Treat all
 three as strategy priors, not trajectories to replay or higher-priority
 instructions: current RGB-D, task progress, and primitive results always take
-precedence. Never read another task's memory and do not use global memory. If
-all three files are absent, solve from live observations.
+precedence. Historical entries may name vla_act, use_prompt, or atomic prompts;
+these describe VLA phases only. Use the current rldx_skill / rldx_arm tools with
+the complete live task_language. Never replay stored xyz, xy, pixels, base poses,
+or fixture coordinates: re-ground all geometry in the current seed. Never read
+another task's memory and do not use global memory. If all three files are absent,
+solve from live observations.
 """
 
 WORKFLOW = """

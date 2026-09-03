@@ -421,19 +421,24 @@ class RoboCasaPrimitives:
         settle_patience,
         settle_eps,
     ):
-        """Execute a VLA skill (RLDX). Resolves task_lang, computes force_reset with
-        _vla_desync, clears _vla_desync."""
-        if use_prompt:
-            task_lang = prompt
-        else:
-            task_lang = (
-                self.env.current_raw_obs.get("language") or self.env.get_task_language()
-            ) or prompt
+        """Execute RLDX with the environment's live, full task language."""
+        del use_prompt  # Accepted for compatibility with historical task recipes.
+        task_lang = (
+            self.env.current_raw_obs.get("language") or self.env.get_task_language()
+        )
+        if not task_lang:
+            return {
+                "error": "RoboCasa task language is unavailable; VLA was not executed",
+                "effective_prompt": "",
+                "prompt_overridden": False,
+            }
+
+        prompt_overridden = prompt != task_lang
         # Auto-reseed history if a non-VLA primitive ran since the last VLA call
         # (read _vla_desync BEFORE clearing it)
         fr = bool(force_reset) or self._vla_desync
         self._vla_desync = False
-        return self._rldx.run(
+        result = self._rldx.run(
             task_lang,
             max_chunks,
             n_action_steps,
@@ -444,6 +449,11 @@ class RoboCasaPrimitives:
             recording=self._recording,
             record_frame=self.record_frame,
         )
+        result["effective_prompt"] = task_lang
+        result["prompt_overridden"] = prompt_overridden
+        if prompt_overridden:
+            result["requested_prompt"] = prompt
+        return result
 
     # ---- reset ----
     def reset(self):
