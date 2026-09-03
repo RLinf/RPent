@@ -602,11 +602,11 @@ class BehaviorPrimitives:
 
     def close(self, **kwargs: Any) -> dict[str, Any]:
         env = self._require_env()
-        return self._envelope("close", env.close(**kwargs))
+        return self._envelope("close", env.close_gripper(**kwargs))
 
     def open(self, **kwargs: Any) -> dict[str, Any]:
         env = self._require_env()
-        return self._envelope("open", env.open(**kwargs))
+        return self._envelope("open", env.open_gripper(**kwargs))
 
     def press(self, **kwargs: Any) -> dict[str, Any]:
         env = self._require_env()

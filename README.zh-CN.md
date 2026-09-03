@@ -114,9 +114,6 @@ pip install -e ".[robotwin]"    # RoboTwin
 `.[libero-pro]` 是默认推荐配置。其他环境见
 [安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
 
-BEHAVIOR 使用独立的可选工作流，不属于默认的 LIBERO-PRO 快速开始安装；详见
-[BEHAVIOR 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/behavior.html)。
-
 下面的示例继续使用 LIBERO-PRO。
 
 **2. 下载 LIBERO-PRO 仿真资产。**

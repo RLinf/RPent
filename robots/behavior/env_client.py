@@ -100,8 +100,8 @@ class BehaviorEnvClient(BaseEnvClient):
         "env.move_to": 1800.0,
         "env.navigate_to": 1800.0,
         "env.rotate_wrist": 1800.0,
-        "env.close": 120.0,
-        "env.open": 120.0,
+        "env.close_gripper": 120.0,
+        "env.open_gripper": 120.0,
         "env.press": 1800.0,
         "env.finalize_paused_runtime": 120.0,
     }
@@ -316,11 +316,11 @@ class BehaviorEnvClient(BaseEnvClient):
     def rotate_wrist(self, **kwargs: Any) -> dict[str, Any]:
         return self._rpc_call("env.rotate_wrist", kwargs=kwargs)
 
-    def close(self, **kwargs: Any) -> dict[str, Any]:
-        return self._rpc_call("env.close", kwargs=kwargs)
+    def close_gripper(self, **kwargs: Any) -> dict[str, Any]:
+        return self._rpc_call("env.close_gripper", kwargs=kwargs)
 
-    def open(self, **kwargs: Any) -> dict[str, Any]:
-        return self._rpc_call("env.open", kwargs=kwargs)
+    def open_gripper(self, **kwargs: Any) -> dict[str, Any]:
+        return self._rpc_call("env.open_gripper", kwargs=kwargs)
 
     def press(self, **kwargs: Any) -> dict[str, Any]:
         return self._rpc_call("env.press", kwargs=kwargs)

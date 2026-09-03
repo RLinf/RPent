@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -37,7 +38,7 @@ class BehaviorDinoClient:
         self._client = client
         self._close_lock = threading.Lock()
         self._transport_closed = False
-        meta = self.healthz()
+        meta = self.get_meta()
         if expected_meta:
             mismatches = {
                 key: {"expected": expected, "actual": meta.get(key)}
@@ -51,13 +52,13 @@ class BehaviorDinoClient:
     def _call(self, method: str, **kwargs: Any) -> Any:
         return self._client.call(method, kwargs=kwargs, timeout_s=120.0)
 
-    def healthz(self) -> dict[str, Any]:
-        payload = self._client.call("healthz", timeout_s=5.0)
-        if not isinstance(payload, dict):
-            raise TypeError("dino healthz must return a mapping")
+    def get_meta(self) -> dict[str, Any]:
+        payload = self._client.call("dino.get_meta", timeout_s=5.0)
+        if not isinstance(payload, Mapping):
+            raise TypeError("dino.get_meta must return a mapping")
         if payload.get("dimension") != DINOV2_DIMENSION:
             raise RuntimeError("DINO service dimension does not match CLS384")
-        return payload
+        return dict(payload)
 
     def encode_batch(
         self, images: list[np.ndarray | None]

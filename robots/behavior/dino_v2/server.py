@@ -81,11 +81,11 @@ class BehaviorDinoFacade(RpcFacade):
 
     def _register_rpc(self) -> None:
         self._rpc["dino.encode_batch"] = self.encode_batch
+        self._rpc["dino.get_meta"] = self.get_meta
+        self._readonly_methods.add("dino.get_meta")
 
-    def _builtin_dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if method == "healthz":
-            return {**self._meta, "pid": os.getpid()}
-        return super()._builtin_dispatch(method, args, kwargs)
+    def get_meta(self) -> dict[str, Any]:
+        return {**self._meta, "pid": os.getpid()}
 
     def encode_batch(self, *, images: list[Any]) -> list[Any]:
         result = self._encoder.encode_batch(
@@ -154,7 +154,7 @@ def _materialize_encoder(args: argparse.Namespace) -> tuple[Any, dict[str, Any]]
         else None,
     )
     encoder = Dinov2Engine(identity, deployment)
-    # Force backend construction now so healthz never advertises a placeholder.
+    # Force backend construction before get_meta advertises the deployment.
     blank = np.zeros((224, 224, 3), dtype=np.uint8)
     encoder.encode_batch([blank])
     return encoder, {

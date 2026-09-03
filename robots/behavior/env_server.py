@@ -107,8 +107,8 @@ class BehaviorEnvFacade(BaseEnvFacade):
                 "env.navigate_to": self.navigate_to,
                 "env.move_to": self.move_to,
                 "env.rotate_wrist": self.rotate_wrist,
-                "env.close": self.close_gripper,
-                "env.open": self.open_gripper,
+                "env.close_gripper": self.close_gripper,
+                "env.open_gripper": self.open_gripper,
                 "env.press": self.press,
                 "env.finalize_paused_runtime": self.finalize_paused_runtime,
             }
@@ -119,18 +119,6 @@ class BehaviorEnvFacade(BaseEnvFacade):
                 "env.finalize_paused_runtime",
             }
         )
-
-    def _builtin_dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if method == "healthz":
-            backend_health = getattr(self._backend, "healthz", None)
-            details = backend_health() if callable(backend_health) else {}
-            return {
-                **(dict(details) if isinstance(details, dict) else {}),
-                "status": "ok",
-                "pid": os.getpid(),
-                **self._meta,
-            }
-        return super()._builtin_dispatch(method, args, kwargs)
 
     def _call_backend(self, name: str, *args: Any, **kwargs: Any) -> Any:
         method = getattr(self._backend, name, None)

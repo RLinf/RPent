@@ -22,6 +22,11 @@ from typing import Any
 
 import pytest
 
+from robots.behavior.dino_v2.client import BehaviorDinoClient
+from robots.behavior.dino_v2.encoder import DINOV2_DIMENSION
+from robots.behavior.dino_v2.server import BehaviorDinoFacade
+from robots.behavior.env_client import BehaviorEnvClient
+from robots.behavior.env_server import BehaviorEnvFacade
 from robots.behavior.schemas import BEHAVIOR_TOOL_NAMES, MOVE_TO_SPEC
 from robots.behavior.toolkit import BehaviorToolkit
 from robots.behavior.tools import BehaviorPrimitives
@@ -48,10 +53,42 @@ class _FakeEnv:
 
     def __init__(self) -> None:
         self.last_move: dict[str, Any] | None = None
+        self.gripper_calls: list[tuple[str, dict[str, Any]]] = []
 
     def move_to(self, **kwargs: Any) -> dict[str, Any]:
         self.last_move = kwargs
         return {"status": "failed", "stop_reason": "motion_unavailable"}
+
+    def close_gripper(self, **kwargs: Any) -> dict[str, Any]:
+        self.gripper_calls.append(("close_gripper", kwargs))
+        return {"status": "success"}
+
+    def open_gripper(self, **kwargs: Any) -> dict[str, Any]:
+        self.gripper_calls.append(("open_gripper", kwargs))
+        return {"status": "success"}
+
+
+class _FakeRpcClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def call(
+        self,
+        method: str,
+        *,
+        args: tuple = (),
+        kwargs: dict[str, Any] | None = None,
+        timeout_s: float | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append((method, kwargs or {}))
+        if method == "env.get_env_meta":
+            return {}
+        if method == "dino.get_meta":
+            return {
+                "runtime": "behavior_dino",
+                "dimension": DINOV2_DIMENSION,
+            }
+        return {"status": "success"}
 
 
 def _both_hand_request() -> dict[str, Any]:
@@ -80,6 +117,55 @@ def _both_hand_request() -> dict[str, Any]:
 
 def test_public_behavior_surface_is_exactly_nine_tools() -> None:
     assert BEHAVIOR_TOOL_NAMES == EXPECTED_TOOLS
+
+
+def test_behavior_facades_use_default_healthz_and_registered_metadata() -> None:
+    facade = BehaviorEnvFacade(backend=object(), meta={"task_language": "test"})
+    dino = BehaviorDinoFacade(
+        encoder=object(),
+        meta={"runtime": "behavior_dino", "dimension": DINOV2_DIMENSION},
+    )
+
+    assert facade._dispatch("healthz", (), {}) == {"status": "ok"}
+    assert facade._dispatch("env.get_env_meta", (), {}) == {"task_language": "test"}
+    assert "env.close_gripper" in facade._rpc
+    assert "env.open_gripper" in facade._rpc
+    assert "env.close" not in facade._rpc
+    assert "env.open" not in facade._rpc
+    assert dino._dispatch("healthz", (), {}) == {"status": "ok"}
+    dino_meta = dino._dispatch("dino.get_meta", (), {})
+    assert dino_meta["runtime"] == "behavior_dino"
+    assert dino_meta["dimension"] == DINOV2_DIMENSION
+    assert isinstance(dino_meta["pid"], int)
+
+
+def test_behavior_clients_and_tools_use_explicit_component_rpc_names() -> None:
+    rpc = _FakeRpcClient()
+    client = BehaviorEnvClient(rpc, expected_meta={})
+    dino_client = BehaviorDinoClient(rpc, expected_meta={"runtime": "behavior_dino"})
+    env = _FakeEnv()
+    primitives = BehaviorPrimitives(env=env, task_name="turning_on_radio")
+
+    client.close_gripper(hand="right")
+    client.open_gripper(hand="right")
+    primitives.close(hand="right")
+    primitives.open(hand="right")
+
+    assert rpc.calls == [
+        ("env.get_env_meta", {}),
+        ("dino.get_meta", {}),
+        ("env.close_gripper", {"hand": "right"}),
+        ("env.open_gripper", {"hand": "right"}),
+    ]
+    assert dino_client.server_meta["dimension"] == DINOV2_DIMENSION
+    assert env.gripper_calls == [
+        ("close_gripper", {"hand": "right"}),
+        ("open_gripper", {"hand": "right"}),
+    ]
+    assert "env.close_gripper" in BehaviorEnvClient._TIMEOUT_S
+    assert "env.open_gripper" in BehaviorEnvClient._TIMEOUT_S
+    assert "env.close" not in BehaviorEnvClient._TIMEOUT_S
+    assert "env.open" not in BehaviorEnvClient._TIMEOUT_S
 
 
 def test_move_to_contract_separates_single_and_dual_hand_branches() -> None:

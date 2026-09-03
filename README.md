@@ -112,8 +112,6 @@ pip install -e ".[robotwin]"    # RoboTwin
 
 `.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for other environments.
 
-BEHAVIOR uses a separate optional workflow and is not part of the default LIBERO-PRO quick-start install; see the [BEHAVIOR docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/behavior.html).
-
 The example below continues with LIBERO-PRO.
 
 **2. Download the LIBERO-PRO simulator assets.**
