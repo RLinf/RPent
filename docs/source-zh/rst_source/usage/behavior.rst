@@ -84,6 +84,29 @@ right wrist 和 raw R1Pro proprio；原始 RPC 输出为 ``[1, 32, 23]``，公�
 
    scripts/verify_behavior_assets.sh
 
+DINOv2 配置
+-------------
+
+BEHAVIOR 保留经审查的 `DINOv2 <https://github.com/facebookresearch/dinov2>`_
+ViT-S/14 部署，用于整图 embedding 与 episode memory 检索。运行前提供 DINOv2
+源码归档和 ``dinov2_vits14_pretrain.pth`` 权重：
+
+.. code-block:: bash
+
+   export DINOV2_SOURCE_ARCHIVE=/path/to/dinov2-source.tar.gz
+   export DINOV2_WEIGHTS=/path/to/dinov2_vits14_pretrain.pth
+
+   curl -L \
+     https://github.com/facebookresearch/dinov2/archive/7764ea0f912e53c92e82eb78a2a1631e92725fc8.tar.gz \
+     -o "$DINOV2_SOURCE_ARCHIVE"
+   curl -L \
+     https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth \
+     -o "$DINOV2_WEIGHTS"
+
+DINOv2 是共享视觉 memory component；它不是分割模型，不替代 SAM3 mask、当前
+公开观察或 MemoryManager 的 Markdown/YAML 语料。接受的源码 revision 和两个资产
+SHA-256 固定在 ``robots/behavior/dino_v2/encoder.py``；runtime 会拒绝不匹配的资产。
+
 任务身份
 --------
 
@@ -125,17 +148,21 @@ right wrist 和 raw R1Pro proprio；原始 RPC 输出为 ``[1, 32, 23]``，公�
      --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
      --behavior-env-cuda-device 0 \
      --behavior-model-cuda-device 1 \
+     --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
+     --dino-weights "$DINOV2_WEIGHTS" \
      --memory-profile local \
-     --memory-dir /path/to/behavior-memory
+     --memory-dir /path/to/behavior-memory \
+     --behavior-memory-dir /path/to/reviewed-behavior-episode-memory
 
-首次加载环境通常需要数分钟。env 与 VLA 是不同进程，每个进程只接收自己显式选择
-的 GPU。
+首次加载环境通常需要数分钟。env、VLA 和 DINO 是不同进程，每个进程只接收自己
+显式选择的 GPU。
 
 官方 MemoryManager
 ------------------
 
 BEHAVIOR 使用和其他机器人相同的 Markdown/YAML ``MemoryManager`` 格式与公共 memory
-工具；不会加载、迁移或静默回退到旧 DINO episode catalog。
+工具。DINO episode-memory catalog 是独立的视觉经验检索源；配置后，它的 advisory
+会附加到公开 tool receipt，并始终只作为历史建议。
 
 - Eval 只构造一个 ``read_only`` MemoryManager；
 - Explore 只构造一个 ``inbox_write`` MemoryManager，写入范围限定为
@@ -145,6 +172,9 @@ BEHAVIOR 使用和其他机器人相同的 Markdown/YAML ``MemoryManager`` 格�
 
 缺失或空 corpus 是合法状态，但不会提供任何建议。需要共享已审查 memory 的运行应
 显式传入同一个 ``--memory-dir``。
+
+``--behavior-memory-dir`` 只用于经审查的 DINO episode-memory catalog。省略该参数
+会选择合法的空 episode catalog，不会下载或静默替换为特定任务 memory。
 
 多次 Explore attempt 必须通过 BEHAVIOR 外层 harness 执行。它为每次 attempt 启动
 fresh RPent 进程和 episode，让全部 attempt 指向同一个官方 corpus，并在结束后调用
@@ -167,10 +197,12 @@ pair 才会晋升。
 Runtime 与 Dashboard
 --------------------
 
-runtime 有三个 component role：
+runtime 有四个 component role：
 
 - ``env``：task-scoped 官方 BEHAVIOR/OmniGibson 环境；
 - ``vla``：共享 ``rpent/robots/components/pi05_vla_server.py`` 服务；
+- ``dino``：共享 ``robots/behavior/dino_v2/server.py`` episode-memory
+  embedding 服务；
 - ``memory``：task-scoped 官方 MemoryManager。
 
 启动 Dashboard Session：
@@ -193,6 +225,7 @@ active tool schema 和 backend capability 为准。
 
    <output-dir>/run.log
    <output-dir>/behavior_vla_server.log
+   <output-dir>/behavior_dino_server.log
    <output-dir>/tasks/<task-run>/behavior_env_server.log
    <output-dir>/tasks/<task-run>/episode.mp4
    <output-dir>/tasks/<task-run>/terminal_receipt.json

@@ -174,4 +174,4 @@ def test_behavior_toolkit_uses_one_official_memory_manager(
         item["name"]
         for item in behavior_robot_spec.BEHAVIOR_DASHBOARD_SPEC["runtime_components"]
     }
-    assert component_names == {"env", "vla", "memory"}
+    assert component_names == {"env", "vla", "dino", "memory"}

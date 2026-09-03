@@ -9,6 +9,8 @@ RPENT_VENV="${RPENT_VENV:-${REPRO_ROOT}/venvs/rpent}"
 
 : "${OMNIGIBSON_DATA_PATH:?Set OMNIGIBSON_DATA_PATH to the complete BEHAVIOR data root}"
 : "${PI05_CHECKPOINT_PATH:?Set PI05_CHECKPOINT_PATH to the downloaded Pi0.5 checkpoint}"
+: "${DINOV2_SOURCE_ARCHIVE:?Set DINOV2_SOURCE_ARCHIVE to the pinned DINOv2 source archive}"
+: "${DINOV2_WEIGHTS:?Set DINOV2_WEIGHTS to dinov2_vits14_pretrain.pth}"
 
 required_directories=(
     "${OMNIGIBSON_DATA_PATH}/behavior-1k-assets/scenes"
@@ -19,6 +21,8 @@ required_files=(
     "${OMNIGIBSON_DATA_PATH}/omnigibson.key"
     "${PI05_CHECKPOINT_PATH}/model.safetensors"
     "${PI05_CHECKPOINT_PATH}/assets/behavior-1k/2025-challenge-demos/norm_stats.json"
+    "${DINOV2_SOURCE_ARCHIVE}"
+    "${DINOV2_WEIGHTS}"
 )
 
 for path in "${required_directories[@]}"; do
@@ -33,6 +37,24 @@ for path in "${required_files[@]}"; do
         exit 1
     fi
 done
+
+check_sha256() {
+    local path="$1"
+    local expected="$2"
+    local actual
+    actual="$(sha256sum "${path}" | awk '{print $1}')"
+    if [[ "${actual}" != "${expected}" ]]; then
+        echo "SHA-256 mismatch for ${path}" >&2
+        echo "expected: ${expected}" >&2
+        echo "actual:   ${actual}" >&2
+        exit 1
+    fi
+}
+
+check_sha256 "${DINOV2_SOURCE_ARCHIVE}" \
+    "c27dcdaf50e9fb5bbdf2bb529da357716372e19c6afab17d5350f3f0094aed4b"
+check_sha256 "${DINOV2_WEIGHTS}" \
+    "b938bf1bc15cd2ec0feacfe3a1bb553fe8ea9ca46a7e1d8d00217f29aef60cd9"
 
 if [[ ! -x "${RPENT_VENV}/bin/python" ]]; then
     echo "Missing RPent Python: ${RPENT_VENV}/bin/python" >&2

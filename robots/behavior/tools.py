@@ -40,6 +40,7 @@ from robots.behavior.terminal_success import (
 from rpent.tools.toolkit import readonly
 
 _PRIVATE_RESULT_KEYS = {
+    "_memory_source",
     "activity_instance_id",
     "ground_truth",
     "gt",
@@ -226,6 +227,8 @@ class BehaviorPrimitives:
         max_tool_calls: int | None = 350,
         max_wall_clock_s: float = 86400.0,
         pure_vla_baseline: bool = False,
+        episode_memory_index: Any = None,
+        dino_component: Any = None,
         **_ignored: Any,
     ) -> None:
         self.env = env
@@ -259,6 +262,11 @@ class BehaviorPrimitives:
         self.max_wall_clock_s = float(max_wall_clock_s)
         if not np.isfinite(self.max_wall_clock_s) or self.max_wall_clock_s <= 0.0:
             raise ValueError("max_wall_clock_s must be positive and finite")
+        self.episode_memory_index = episode_memory_index
+        self.dino_component = dino_component
+        self._episode_memory_decision = self._retrieve_episode_memory(
+            self._current_observation
+        )
         self._progress_callback = progress_callback
         self.started_monotonic = time.monotonic()
         self.last_result: dict[str, Any] | None = None
@@ -357,6 +365,37 @@ class BehaviorPrimitives:
             image = np.clip(image, 0, 255).astype(np.uint8)
         return np.ascontiguousarray(image)
 
+    def _retrieve_episode_memory(self, observation: Any) -> dict[str, Any] | None:
+        if (
+            self.episode_memory_index is None
+            or self.dino_component is None
+            or not isinstance(observation, dict)
+        ):
+            return None
+        head = self._rgb8(observation.get("main_images"))
+        if head is None:
+            return None
+        wrists = observation.get("wrist_images")
+        left = self._rgb8(wrists, first=0)
+        right = self._rgb8(wrists, first=1)
+        encoded = self.dino_component.encode_batch([head, left, right])
+        head_embedding = encoded[0]
+        if head_embedding is None:
+            raise RuntimeError(
+                "DINO returned no head embedding for episode-memory retrieval"
+            )
+        shadow = {
+            channel: vector
+            for channel, vector in zip(("left_wrist", "right_wrist"), encoded[1:])
+            if vector is not None
+        }
+        decision = self.episode_memory_index.retrieve(
+            task_name=self.task_name,
+            head_embedding=head_embedding,
+            wrist_shadow_embeddings=shadow,
+        )
+        return _jsonable(decision)
+
     def _envelope(
         self,
         name: str,
@@ -388,6 +427,8 @@ class BehaviorPrimitives:
             result.update(public_payload)
         else:
             result["value"] = public_payload
+        if self._episode_memory_decision is not None:
+            result["episode_memory"] = self._episode_memory_decision
         if self.solved():
             result["official_success_receipt"] = self.official_success_receipt()
             terminal_capture = _terminal_capture_pointer_from_info(self._current_info)
@@ -408,6 +449,7 @@ class BehaviorPrimitives:
             "max_episode_steps": self.max_episode_steps,
             "elapsed_wall_clock_s": round(self.elapsed_wall_clock_s, 3),
             "observation": _observation_summary(self._current_observation),
+            "episode_memory": self._episode_memory_decision,
         }
 
     def pi0_nav_pick(self, *, instruction: str, chunks: int) -> dict[str, Any]:
@@ -609,9 +651,9 @@ class BehaviorPrimitives:
         return result
 
     def shutdown(self) -> None:
-        # VLA belongs to the Dashboard Session shared runtime. A TaskRun only
-        # releases its task-scoped ENV transport; shared daemons and clients are
-        # released by the runtime owner after the session.
+        # VLA and DINO belong to the Dashboard Session shared runtime. A
+        # TaskRun only releases its task-scoped ENV transport; shared daemons
+        # and clients are released by the runtime owner after the session.
         for candidate in (self.env,):
             if candidate is None:
                 continue

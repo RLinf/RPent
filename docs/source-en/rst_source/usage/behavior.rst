@@ -89,6 +89,31 @@ The raw RPC result is ``[1, 32, 23]``; the common client returns ``[32, 23]``.
 
    scripts/verify_behavior_assets.sh
 
+DINOv2 configuration
+--------------------
+
+BEHAVIOR keeps a reviewed `DINOv2 <https://github.com/facebookresearch/dinov2>`_
+ViT-S/14 deployment for whole-image embeddings and episode-memory retrieval.
+Provide a DINOv2 source archive and the ``dinov2_vits14_pretrain.pth`` weights:
+
+.. code-block:: bash
+
+   export DINOV2_SOURCE_ARCHIVE=/path/to/dinov2-source.tar.gz
+   export DINOV2_WEIGHTS=/path/to/dinov2_vits14_pretrain.pth
+
+   curl -L \
+     https://github.com/facebookresearch/dinov2/archive/7764ea0f912e53c92e82eb78a2a1631e92725fc8.tar.gz \
+     -o "$DINOV2_SOURCE_ARCHIVE"
+   curl -L \
+     https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth \
+     -o "$DINOV2_WEIGHTS"
+
+DINOv2 is the shared visual-memory component. It is not a segmentation model,
+does not replace SAM3 masks, and does not replace current public observations
+or MemoryManager Markdown/YAML material. The accepted DINOv2 source revision
+and both asset SHA-256 identities are pinned in
+``robots/behavior/dino_v2/encoder.py``; the runtime rejects mismatched assets.
+
 Task identity
 -------------
 
@@ -130,18 +155,22 @@ Bind each CUDA child to one physical GPU explicitly:
      --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
      --behavior-env-cuda-device 0 \
      --behavior-model-cuda-device 1 \
+     --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
+     --dino-weights "$DINOV2_WEIGHTS" \
      --memory-profile local \
-     --memory-dir /path/to/behavior-memory
+     --memory-dir /path/to/behavior-memory \
+     --behavior-memory-dir /path/to/reviewed-behavior-episode-memory
 
-The first environment load can take several minutes. The environment and VLA
-are separate processes, and each receives only its explicitly selected GPU.
+The first environment load can take several minutes. The environment, VLA, and
+DINO are separate processes, and each receives only its explicitly selected GPU.
 
 Official MemoryManager
 ----------------------
 
 BEHAVIOR uses the same Markdown/YAML ``MemoryManager`` format and common memory
-tools as the other robots. It does not load, migrate, or silently fall back to
-the former DINO episode catalog.
+tools as the other robots. The DINO episode-memory catalog is a separate visual
+experience retrieval source; when configured, its advisory is attached to
+public tool receipts and remains historical guidance only.
 
 - Eval creates one ``MemoryManager`` with ``read_only`` access.
 - Explore creates one ``MemoryManager`` with ``inbox_write`` access scoped to
@@ -151,6 +180,10 @@ the former DINO episode catalog.
 
 An absent or empty corpus is valid, but it contains no advice. Pass the same
 explicit ``--memory-dir`` to runs that should share reviewed memory.
+
+Use ``--behavior-memory-dir`` only for the reviewed DINO episode-memory catalog.
+Omitting it selects a legal empty episode catalog and does not download or
+silently substitute task-specific memory.
 
 For repeated Explore attempts, use the BEHAVIOR-owned harness. It launches a
 fresh RPent process and episode for every attempt, points every attempt at one
@@ -174,10 +207,12 @@ terminal receipt carries official success.
 Runtime and Dashboard
 ---------------------
 
-The runtime has three component roles:
+The runtime has four component roles:
 
 - ``env``: the task-scoped official BEHAVIOR/OmniGibson environment;
 - ``vla``: the shared ``rpent/robots/components/pi05_vla_server.py`` service;
+- ``dino``: the shared ``robots/behavior/dino_v2/server.py`` episode-memory
+  embedding service;
 - ``memory``: the task-scoped official MemoryManager.
 
 Start a Dashboard Session with:
@@ -201,6 +236,7 @@ The main logs are:
 
    <output-dir>/run.log
    <output-dir>/behavior_vla_server.log
+   <output-dir>/behavior_dino_server.log
    <output-dir>/tasks/<task-run>/behavior_env_server.log
    <output-dir>/tasks/<task-run>/episode.mp4
    <output-dir>/tasks/<task-run>/terminal_receipt.json

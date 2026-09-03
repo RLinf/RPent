@@ -48,6 +48,10 @@ def run_import_selfcheck() -> dict[str, Any]:
         "behavior_mode": config.prompt_vars["behavior_mode"],
         "memory_profile": config.prompt_vars["memory_profile"],
         "memory_dir": config.prompt_vars["memory_dir"],
+        "behavior_episode_memory": config.prompt_vars["behavior_episode_memory"],
+        "runtime_components": [
+            item["name"] for item in spec.dashboard["runtime_components"]
+        ],
         "tool_count_without_finish": len(BEHAVIOR_TOOL_NAMES),
         "radio_task_language": get_task_spec("turning_on_radio").task_language,
     }

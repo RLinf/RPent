@@ -42,6 +42,7 @@ BEHAVIOR_DASHBOARD_SPEC = {
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
+        {"name": "dino", "label": "DINO", "scope": "shared"},
         {"name": "memory", "label": "MEM", "scope": "unique"},
     ),
     "frame_channels": (

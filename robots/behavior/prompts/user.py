@@ -25,7 +25,9 @@ CELL = """- task:        {{task_name}}
 - memory:      {{memory_dir}}"""
 
 MODE = """BEHAVIOR {{behavior_mode}}; one fresh episode per planner invocation;
-official success requires current `info[\"done\"][\"success\"] is True`."""
+official success requires current `info[\"done\"][\"success\"] is True`.
+DINO episode memory, when enabled, appears only as advisory content in public
+tool receipts."""
 
 BEGIN = """Execute the selected task using the active public tools. Base each
 action on current public evidence and finish with an honest terminal receipt."""
