@@ -432,12 +432,13 @@ class RoboCasaPrimitives:
         configured_settle_patience = os.environ.get("RLDX_SETTLE_PATIENCE")
         if configured_settle_patience is not None:
             settle_patience = int(configured_settle_patience)
-        if max_chunks < 1:
-            raise ValueError("max_chunks must be positive")
-        if n_action_steps < 1:
-            raise ValueError("n_action_steps must be positive")
-        if settle_patience < 1:
-            raise ValueError("settle_patience must be positive")
+        for name, value in (
+            ("max_chunks", max_chunks),
+            ("n_action_steps", n_action_steps),
+            ("settle_patience", settle_patience),
+        ):
+            if value < 1:
+                return {"error": f"{name} must be positive; VLA was not executed"}
         task_lang = (
             self.env.current_raw_obs.get("language") or self.env.get_task_language()
         )

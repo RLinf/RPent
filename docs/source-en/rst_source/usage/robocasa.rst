@@ -12,8 +12,7 @@ for the wire/transport selection.
 
    The public Target50 protocol is frozen in
    ``robots/robocasa/eval/target50.json``. RPent uses ordinary single-task
-   ``rpent --robot robocasa`` commands for its 340 cells and does not ship a
-   benchmark batch launcher.
+   ``rpent --robot robocasa`` commands for its 340 cells.
 
 Installation
 ------------
@@ -119,8 +118,9 @@ If the download is slow, use the HF mirror:
 
 **Task memory**
 
-Before every ordinary run with the default ``hf`` profile, RPent's shared
-memory manager synchronizes the ``robocasa/**`` subtree from the
+Select automatic synchronization with ``--memory-profile hf`` (the default).
+Before every such ordinary run, RPent's shared memory manager synchronizes the
+``robocasa/**`` subtree from the
 `RLinf/RPent-memory dataset
 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/task_only>`_
 into ``memory/robocasa``. An online ordinary run therefore requires no separate
@@ -173,12 +173,13 @@ corpus:
          --memory-profile local \
          --memory-dir ./target50-memory/robocasa
 
-Target50 evaluation protocol
-----------------------------
+Harness VLA Target50 reproduction protocol
+-------------------------------------------
 
-``robots/robocasa/eval/target50.json`` is the canonical manifest. It freezes the
-``target`` environment split, dependency revisions, memory scope, task and seed
-matrix, cell time limits, success source, and retry policy. Its protocol ID is
+``robots/robocasa/eval/target50.json`` is the canonical manifest for reproducing
+Harness VLA on RoboCasa Target50. It freezes the ``target`` environment split,
+dependency revisions, memory scope, task and seed matrix, cell time limits,
+success source, and retry policy. Its protocol ID is
 ``robocasa-harness-vla-v1``:
 
 .. list-table:: RoboCasa Target50 matrix

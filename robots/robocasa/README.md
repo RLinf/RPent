@@ -79,9 +79,9 @@ inside RPent.
 
 ## Task Memory
 
-Before every ordinary run using the default `hf` memory profile, RPent calls
-the shared `ensure_resources()` helper to synchronize the `robocasa/**` subtree
-from the public
+Select automatic synchronization with `--memory-profile hf` (the default).
+Before every such ordinary run, RPent calls the shared `ensure_resources()`
+helper to synchronize the `robocasa/**` subtree from the public
 [`RLinf/RPent-memory`](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/results)
 dataset. Files land under `resources/robocasa/results`, so an online ordinary
 run does not require a separate memory download command.
@@ -170,11 +170,12 @@ Planner credentials are supplied by the user outside the repository. See the
 [planner configuration guide](../../docs/source-en/rst_source/usage/configure_planner.rst)
 for all supported backends.
 
-## Target50 Reproduction
+## Harness VLA Target50 Reproduction
 
-[`eval/target50.json`](eval/target50.json) is the canonical evaluation
-manifest. It freezes task membership, seeds, time limits, dependency revisions,
-memory scope, the success source, and retry policy. Its protocol ID is
+[`eval/target50.json`](eval/target50.json) is the canonical manifest for the
+Harness VLA reproduction on RoboCasa Target50. It freezes task membership,
+seeds, time limits, dependency revisions, memory scope, the success source,
+and retry policy. Its protocol ID is
 `robocasa-harness-vla-v1`.
 
 | Split | Tasks | Seeds per task | Cell timeout | Cells |

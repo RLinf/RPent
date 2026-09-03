@@ -157,6 +157,31 @@ def test_environment_locks_all_formal_rldx_runtime_values(monkeypatch) -> None:
     assert result["effective_settle_patience"] == 999
 
 
+def test_invalid_vla_budgets_return_errors_without_executing_rldx(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("RLDX_MAX_CHUNKS", raising=False)
+    monkeypatch.delenv("RLDX_ACTION_STEPS_PER_CHUNK", raising=False)
+    monkeypatch.delenv("RLDX_SETTLE_PATIENCE", raising=False)
+
+    for arguments, parameter in (
+        ({"max_chunks": 0}, "max_chunks"),
+        ({"n_action_steps": 0}, "n_action_steps"),
+        ({"settle_patience": 0}, "settle_patience"),
+    ):
+        primitives, rldx = _fake_primitives("Open the left drawer.")
+
+        result = primitives.rldx_skill(
+            prompt="Open the left drawer.",
+            **arguments,
+        )
+
+        assert result == {
+            "error": f"{parameter} must be positive; VLA was not executed"
+        }
+        assert rldx.calls == []
+
+
 def test_matching_vla_prompt_is_reported_without_override() -> None:
     task_language = "Open the left drawer."
     primitives, rldx = _fake_primitives(task_language)

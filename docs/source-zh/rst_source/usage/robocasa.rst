@@ -10,8 +10,7 @@ RoboCasa
 .. note::
 
    公开的 Target50 协议固定在 ``robots/robocasa/eval/target50.json`` 中。
-   340 个 cell 均使用普通的单任务 ``rpent --robot robocasa`` 命令；RPent
-   不提供 benchmark 批量启动器。
+   340 个 cell 均使用普通的单任务 ``rpent --robot robocasa`` 命令。
 
 安装
 ----
@@ -109,7 +108,8 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
 
 **任务 Memory**
 
-每次使用默认 ``hf`` profile 普通运行前，RPent 都会通过统一 memory manager，从
+通过 ``--memory-profile hf``（默认值）启用自动同步。每次以该 profile 普通
+运行前，RPent 都会通过统一 memory manager，从
 `RLinf/RPent-memory 数据集
 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/task_only>`_
 自动同步 ``robocasa/**`` 到 ``memory/robocasa``，因此在线普通运行无需单独下载
@@ -156,12 +156,13 @@ RoboCasa 不要求 planner 使用 global memory，也不会退回读取其他任
          --memory-profile local \
          --memory-dir ./target50-memory/robocasa
 
-Target50 评测协议
------------------
+Harness VLA Target50 复现协议
+-----------------------------
 
-``robots/robocasa/eval/target50.json`` 是唯一规范清单，固定 ``target`` 环境
-split、依赖 revision、memory 边界、task/seed 矩阵、cell 时限、成功来源与重试
-规则；协议 ID 为 ``robocasa-harness-vla-v1``：
+``robots/robocasa/eval/target50.json`` 是 Harness VLA 在 RoboCasa Target50
+上的规范复现清单。它固定 ``target`` 环境 split、依赖 revision、memory 边界、
+task/seed 矩阵、cell 时限、成功来源与重试规则；协议 ID 为
+``robocasa-harness-vla-v1``：
 
 .. list-table:: RoboCasa Target50 矩阵
    :header-rows: 1
