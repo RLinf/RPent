@@ -394,6 +394,22 @@ def _behavior_python_path(value: str | Path) -> Path:
     return Path(value).expanduser().absolute()
 
 
+def _behavior_subprocess_env(
+    *,
+    cuda_device: str | None = None,
+    **overrides: str,
+) -> dict[str, str]:
+    repo_root = str(get_repo_root())
+    pythonpath = os.environ.get("PYTHONPATH")
+    return {
+        **overrides,
+        "PYTHONPATH": (
+            repo_root if not pythonpath else os.pathsep.join([repo_root, pythonpath])
+        ),
+        **({"CUDA_VISIBLE_DEVICES": cuda_device} if cuda_device is not None else {}),
+    }
+
+
 def vla_runtime_contract(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "runtime": "pi05_vla",
@@ -467,16 +483,16 @@ def _spawn_env_server(
     daemon = ProcessDaemon(
         name="behavior_env_server",
         cmd=cmd,
-        env_overrides={
-            "ROBOT_PLATFORM": "BEHAVIOR",
-            "OMNIGIBSON_HEADLESS": "1",
-            # Ray otherwise clears CUDA_VISIBLE_DEVICES for the zero-GPU actor
-            # that owns the single OmniGibson subprocess.
-            "RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO": "0",
-            **(
-                {"CUDA_VISIBLE_DEVICES": cuda_device} if cuda_device is not None else {}
-            ),
-        },
+        env_overrides=_behavior_subprocess_env(
+            cuda_device=cuda_device,
+            **{
+                "ROBOT_PLATFORM": "BEHAVIOR",
+                "OMNIGIBSON_HEADLESS": "1",
+                # Ray otherwise clears CUDA_VISIBLE_DEVICES for the zero-GPU actor
+                # that owns the single OmniGibson subprocess.
+                "RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO": "0",
+            },
+        ),
         log_path=str(output_dir / "behavior_env_server.log"),
     )
     daemon.start()
@@ -523,9 +539,7 @@ def _spawn_vla_server(
     daemon = ProcessDaemon(
         name="behavior_vla_server",
         cmd=cmd,
-        env_overrides={
-            **({"CUDA_VISIBLE_DEVICES": cuda_device} if cuda_device is not None else {})
-        },
+        env_overrides=_behavior_subprocess_env(cuda_device=cuda_device),
         log_path=str(output_dir / "behavior_vla_server.log"),
     )
     daemon.start()
@@ -571,9 +585,7 @@ def _spawn_dino_server(
     daemon = ProcessDaemon(
         name="behavior_dino_server",
         cmd=cmd,
-        env_overrides={
-            **({"CUDA_VISIBLE_DEVICES": cuda_device} if cuda_device is not None else {})
-        },
+        env_overrides=_behavior_subprocess_env(cuda_device=cuda_device),
         log_path=str(output_dir / "behavior_dino_server.log"),
     )
     daemon.start()

@@ -280,6 +280,26 @@ def test_behavior_toolkit_factory_maps_shared_modes(tmp_path: Path) -> None:
         )
 
 
+def test_behavior_external_sidecar_python_gets_source_checkout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from robots.behavior import runtime
+
+    monkeypatch.setenv("PYTHONPATH", "/tmp/existing-pythonpath")
+
+    env = runtime._behavior_subprocess_env(
+        cuda_device="2",
+        ROBOT_PLATFORM="BEHAVIOR",
+    )
+
+    assert env["ROBOT_PLATFORM"] == "BEHAVIOR"
+    assert env["CUDA_VISIBLE_DEVICES"] == "2"
+    assert env["PYTHONPATH"].split(os.pathsep)[:2] == [
+        str(runtime.get_repo_root()),
+        "/tmp/existing-pythonpath",
+    ]
+
+
 def test_behavior_facades_use_default_healthz_and_registered_metadata() -> None:
     facade = BehaviorEnvFacade(backend=object(), meta={"task_language": "test"})
     dino = BehaviorDinoFacade(
