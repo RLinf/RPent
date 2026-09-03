@@ -182,6 +182,22 @@ def validate_policy_checkpoint(
     )
 
 
+def write_policy_checkpoint_manifest(
+    destination: str | Path,
+    path: str | Path = SHARED_POLICY_CHECKPOINT_PATH,
+) -> PolicyCheckpointBinding:
+    """Validate the checkpoint and write the shared server manifest."""
+
+    binding = validate_policy_checkpoint(path)
+    target = Path(destination).expanduser()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(binding.as_dict(), sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return binding
+
+
 def assert_matching_policy_checkpoint_binding(
     actual: Mapping[str, Any] | None,
     expected: PolicyCheckpointBinding | Mapping[str, Any],
@@ -214,4 +230,5 @@ __all__ = [
     "PolicyCheckpointProfile",
     "assert_matching_policy_checkpoint_binding",
     "validate_policy_checkpoint",
+    "write_policy_checkpoint_manifest",
 ]

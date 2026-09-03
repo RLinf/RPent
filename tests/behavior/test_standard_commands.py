@@ -14,35 +14,34 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from rpent.cli import behavior as behavior_cli
-from robots.behavior import assets_cli, install_runtime
+from robots.behavior import assets_cli, install_runtime, policy_checkpoint, runtime
+from rpent.robots.components.pi05_vla_server import _validate_checkpoint_manifest
 
 
 def test_behavior_console_scripts_are_registered() -> None:
     pyproject = (Path(__file__).parents[2] / "pyproject.toml").read_text()
-    assert 'behavior-download-assets = "rpent.cli.behavior:download_assets"' in pyproject
-    assert 'behavior-install-runtime = "rpent.cli.behavior:install_runtime"' in pyproject
+    assert 'behavior-download-assets = "robots.behavior.assets_cli:main"' in pyproject
+    assert (
+        'behavior-install-runtime = "robots.behavior.install_runtime:main"' in pyproject
+    )
+    assert 'include = ["rpent*", "robots", "robots.behavior*"]' in pyproject
+    assert "robots.libero*" not in pyproject
+    assert "robots.robocasa*" not in pyproject
+    assert "robots.robotwin*" not in pyproject
+    assert "rpent.cli." + "behavior" not in pyproject
 
 
-@pytest.mark.parametrize(
-    ("entry", "module"),
-    [
-        (behavior_cli.download_assets, "robots.behavior.assets_cli"),
-        (behavior_cli.install_runtime, "robots.behavior.install_runtime"),
-    ],
-)
-def test_packaged_console_dispatches_to_source_plugin(monkeypatch, entry, module) -> None:
-    calls: list[str] = []
-    monkeypatch.setattr(behavior_cli, "_run_source_module", calls.append)
-
-    assert entry() is None
-    assert calls == [module]
+def test_behavior_standard_command_modules_document_source_checkout_contract() -> None:
+    assert "requires an RPent source checkout" in (assets_cli.__doc__ or "")
+    assert "requires an RPent source checkout" in (install_runtime.__doc__ or "")
 
 
 @pytest.mark.parametrize("entry", [assets_cli.main, install_runtime.main])
@@ -66,9 +65,7 @@ def test_install_runtime_delegates_to_packaged_shell(monkeypatch) -> None:
         [
             "bash",
             str(
-                Path(install_runtime.__file__).with_name(
-                    "install_behavior_runtime.sh"
-                )
+                Path(install_runtime.__file__).with_name("install_behavior_runtime.sh")
             ),
         ]
     ]
@@ -132,7 +129,9 @@ def test_assets_download_skip_existing_avoids_behavior_subprocess(
     )
 
 
-def test_assets_download_uses_behavior_python_and_official_api(tmp_path, monkeypatch) -> None:
+def test_assets_download_uses_behavior_python_and_official_api(
+    tmp_path, monkeypatch
+) -> None:
     data_path = tmp_path / "data"
     behavior_python = tmp_path / "behavior-python"
     behavior_python.write_text("")
@@ -156,3 +155,111 @@ def test_assets_download_uses_behavior_python_and_official_api(tmp_path, monkeyp
     assert command[3:] == ["robot,behavior,challenge", "1"]
     assert captured["check"] is True
     assert captured["env"]["OMNIGIBSON_DATA_PATH"] == str(data_path)
+
+
+def test_pi05_server_uses_generic_checkpoint_manifest(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    model = checkpoint / "model.bin"
+    model.write_bytes(b"fixture")
+    digest = hashlib.sha256(b"fixture").hexdigest()
+    manifest = {
+        "schema_version": 1,
+        "profile_id": "test-profile",
+        "resolved_path": str(checkpoint.resolve()),
+        "files": {
+            "model.bin": {
+                "size_bytes": len(b"fixture"),
+                "sha256": digest,
+            }
+        },
+        "binding_sha256": "test-binding",
+    }
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    resolved, binding = _validate_checkpoint_manifest(checkpoint, manifest_path)
+
+    assert resolved == str(checkpoint.resolve())
+    assert binding == manifest
+
+
+def test_policy_checkpoint_writes_validated_binding_manifest(
+    tmp_path: Path, monkeypatch
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "profile_id": "fixture",
+        "resolved_path": str(tmp_path / "checkpoint"),
+        "files": {},
+        "binding_sha256": "fixture-binding",
+    }
+    binding = SimpleNamespace(as_dict=lambda: payload)
+    validated: list[Path] = []
+
+    def fake_validate(path: Path):
+        validated.append(path)
+        return binding
+
+    monkeypatch.setattr(policy_checkpoint, "validate_policy_checkpoint", fake_validate)
+    destination = tmp_path / "runtime" / "checkpoint-manifest.json"
+
+    result = policy_checkpoint.write_policy_checkpoint_manifest(
+        destination,
+        tmp_path / "checkpoint",
+    )
+
+    assert result is binding
+    assert validated == [tmp_path / "checkpoint"]
+    assert json.loads(destination.read_text(encoding="utf-8")) == payload
+
+
+def test_behavior_vla_spawn_passes_generated_checkpoint_manifest(
+    tmp_path: Path, monkeypatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeDaemon:
+        def __init__(self, name, cmd, *, env_overrides, log_path):
+            captured.update(
+                name=name,
+                cmd=cmd,
+                env_overrides=env_overrides,
+                log_path=log_path,
+            )
+            self.started = False
+
+        def start(self) -> None:
+            self.started = True
+
+    def fake_write_manifest(destination: Path, checkpoint: Path):
+        captured.update(manifest=destination, checkpoint=checkpoint)
+
+    rpc = object()
+    monkeypatch.setattr(runtime, "ProcessDaemon", FakeDaemon)
+    monkeypatch.setattr(runtime, "pick_free_port", lambda: 45678)
+    monkeypatch.setattr(runtime, "make_rpc_client", lambda endpoint: rpc)
+    monkeypatch.setattr(
+        runtime,
+        "write_policy_checkpoint_manifest",
+        fake_write_manifest,
+    )
+    checkpoint = tmp_path / "checkpoint"
+    args = SimpleNamespace(
+        vla_endpoint=None,
+        behavior_model_cuda_device=None,
+        cuda_device=None,
+        behavior_python=Path(__file__),
+        policy_checkpoint=checkpoint,
+    )
+
+    daemon, returned_rpc = runtime._spawn_vla_server(args, tmp_path / "output")
+
+    manifest = tmp_path / "output" / "policy_checkpoint_manifest.json"
+    assert daemon.started is True
+    assert returned_rpc is rpc
+    assert captured["manifest"] == manifest
+    assert captured["checkpoint"] == checkpoint
+    command = captured["cmd"]
+    manifest_index = command.index("--checkpoint-manifest")
+    assert command[manifest_index + 1] == str(manifest)

@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Console entry point for the reviewed BEHAVIOR dual-venv installer."""
+"""Console entry point for the reviewed BEHAVIOR dual-venv installer.
+
+This command requires an RPent source checkout with ``robots.behavior``
+available through editable install.
+"""
 
 from __future__ import annotations
 

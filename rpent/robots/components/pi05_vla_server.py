@@ -29,7 +29,6 @@ import sys
 import threading
 import time
 from contextlib import nullcontext
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -57,53 +56,7 @@ if str(RLINF_REPO_PATH) not in sys.path:
 _BEHAVIOR_ACTION_DIM = 23
 
 
-@dataclass(frozen=True)
-class _CheckpointFileRequirement:
-    relative_path: str
-    size_bytes: int
-    sha256: str
-
-
-@dataclass(frozen=True)
-class _PolicyCheckpointProfile:
-    profile_id: str
-    files: tuple[_CheckpointFileRequirement, ...]
-
-
-_BEHAVIOR_POLICY_PROFILE = _PolicyCheckpointProfile(
-    profile_id="pi05-b1kpt50-cs32",
-    files=(
-        _CheckpointFileRequirement(
-            relative_path="model.safetensors",
-            size_bytes=7_233_650_408,
-            sha256="7e257666d835f6af701de493676a6c86a0421b2efc737a0f911d782b7a09f635",
-        ),
-        _CheckpointFileRequirement(
-            relative_path="config.json",
-            size_bytes=149,
-            sha256="a4ae208203adfdd64c5fdbd4b0dc257e4ebbc82e464cb146dd0377051b25fc0a",
-        ),
-        _CheckpointFileRequirement(
-            relative_path="assets/behavior-1k/2025-challenge-demos/norm_stats.json",
-            size_bytes=6_368,
-            sha256="d66ed16830a98f90dde8a315058b4a0df59f5e05734c1686d8b3f66787d0a929",
-        ),
-    ),
-)
-
-
-def _canonical_sha256(value: Mapping[str, Any]) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode("utf-8")
-    ).hexdigest()
-
-
-def _file_sha256(path: Path) -> str:
+def _checkpoint_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -111,55 +64,84 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _validate_behavior_policy_checkpoint(
+def _validate_checkpoint_manifest(
     path: str | Path,
+    manifest_path: str | Path,
 ) -> tuple[str, dict[str, Any]]:
-    profile = _BEHAVIOR_POLICY_PROFILE
     requested = Path(path).expanduser()
     try:
         resolved = requested.resolve(strict=True)
     except OSError as error:
         raise ValueError(
-            f"your Pi05-Behavior model checkpoint is unavailable: {error}"
+            f"your Pi0.5 model checkpoint is unavailable: {error}"
         ) from error
     if not resolved.is_dir():
-        raise ValueError(
-            f"your Pi05-Behavior model checkpoint is not a directory: {resolved}"
-        )
-    for requirement in profile.files:
-        candidate = resolved / requirement.relative_path
+        raise ValueError(f"your Pi0.5 model checkpoint is not a directory: {resolved}")
+
+    manifest_file = Path(manifest_path).expanduser()
+    try:
+        manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise ValueError(f"checkpoint manifest is unavailable: {error}") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f"checkpoint manifest is invalid JSON: {error}") from error
+    if not isinstance(manifest, dict):
+        raise ValueError("checkpoint manifest must be a JSON object")
+
+    manifest_resolved_path = manifest.get("resolved_path")
+    if manifest_resolved_path is not None:
+        manifest_resolved = Path(str(manifest_resolved_path)).expanduser()
+        try:
+            manifest_resolved = manifest_resolved.resolve(strict=True)
+        except OSError as error:
+            raise ValueError(
+                f"checkpoint manifest resolved_path is unavailable: {error}"
+            ) from error
+        if manifest_resolved != resolved:
+            raise ValueError(
+                "checkpoint manifest resolved_path does not match --model-path: "
+                f"{manifest_resolved} != {resolved}"
+            )
+
+    files = manifest.get("files")
+    if not isinstance(files, dict) or not files:
+        raise ValueError("checkpoint manifest files must be a non-empty object")
+    for relative_path, requirement in files.items():
+        if not isinstance(relative_path, str) or not relative_path:
+            raise ValueError("checkpoint manifest file paths must be non-empty strings")
+        if Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
+            raise ValueError(
+                f"checkpoint manifest file path is not a safe relative path: {relative_path}"
+            )
+        if not isinstance(requirement, Mapping):
+            raise ValueError(
+                f"checkpoint manifest entry must be an object: {relative_path}"
+            )
+        try:
+            expected_size = int(requirement["size_bytes"])
+            expected_sha256 = str(requirement["sha256"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(
+                "checkpoint manifest entries require size_bytes and sha256: "
+                f"{relative_path}"
+            ) from error
+        candidate = resolved / relative_path
         if candidate.is_symlink() or not candidate.is_file():
-            raise ValueError(
-                "your Pi05-Behavior model checkpoint file is missing or unsafe: "
-                f"{candidate}"
-            )
+            raise ValueError(f"checkpoint file is missing or unsafe: {candidate}")
         size = candidate.stat().st_size
-        if size != requirement.size_bytes:
+        if size != expected_size:
             raise ValueError(
-                "your Pi05-Behavior model checkpoint size mismatch for "
-                f"{requirement.relative_path}: expected {requirement.size_bytes}, "
-                f"got {size}"
+                "checkpoint file size mismatch for "
+                f"{relative_path}: expected {expected_size}, got {size}"
             )
-        actual_sha256 = _file_sha256(candidate)
-        if actual_sha256 != requirement.sha256:
+        actual_sha256 = _checkpoint_sha256(candidate)
+        if actual_sha256 != expected_sha256:
             raise ValueError(
-                "your Pi05-Behavior model checkpoint SHA256 mismatch for "
-                f"{requirement.relative_path}: expected {requirement.sha256}, "
+                "checkpoint file SHA256 mismatch for "
+                f"{relative_path}: expected {expected_sha256}, "
                 f"got {actual_sha256}"
             )
-    payload = {
-        "schema_version": 1,
-        "profile_id": profile.profile_id,
-        "resolved_path": str(resolved),
-        "files": {
-            item.relative_path: {
-                "size_bytes": item.size_bytes,
-                "sha256": item.sha256,
-            }
-            for item in profile.files
-        },
-    }
-    return str(resolved), {**payload, "binding_sha256": _canonical_sha256(payload)}
+    return str(resolved), manifest
 
 
 # NOTE: an embodiment added here must also be registered in the client's
@@ -283,7 +265,13 @@ class Pi05VLAFacade(BaseVLAFacade):
     Session-isolation is not supported (``reset_session`` is not registered).
     """
 
-    def __init__(self, *, model_path: str, embodiment: str):
+    def __init__(
+        self,
+        *,
+        model_path: str,
+        embodiment: str,
+        checkpoint_manifest: str | None = None,
+    ):
         if embodiment not in PI05_EMBODIMENTS:
             raise ValueError(
                 f"unknown pi05 server embodiment: {embodiment!r}; "
@@ -303,10 +291,12 @@ class Pi05VLAFacade(BaseVLAFacade):
         if platform is not None:
             os.environ.setdefault("ROBOT_PLATFORM", platform)
 
-        if embodiment == "behavior":
-            self._model_path, self._checkpoint_binding = (
-                _validate_behavior_policy_checkpoint(model_path)
+        if checkpoint_manifest is not None:
+            self._model_path, self._checkpoint_binding = _validate_checkpoint_manifest(
+                model_path,
+                checkpoint_manifest,
             )
+        if embodiment == "behavior":
             torch.manual_seed(0)
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(0)
@@ -426,6 +416,14 @@ def main() -> None:
         default=None,
         help="Pi0.5 checkpoint (defaults to PI05_CHECKPOINT_PATH env)",
     )
+    p.add_argument(
+        "--checkpoint-manifest",
+        default=None,
+        help=(
+            "Optional generic JSON manifest describing required checkpoint files "
+            "and SHA-256 values."
+        ),
+    )
     args = p.parse_args()
 
     if args.cuda_device is not None:
@@ -446,7 +444,11 @@ def main() -> None:
             "path via --model-path or the environment."
         )
 
-    facade = Pi05VLAFacade(model_path=model_path, embodiment=args.embodiment)
+    facade = Pi05VLAFacade(
+        model_path=model_path,
+        embodiment=args.embodiment,
+        checkpoint_manifest=args.checkpoint_manifest,
+    )
     facade.serve(
         transport=args.transport,
         host=args.host,

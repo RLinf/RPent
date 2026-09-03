@@ -27,6 +27,7 @@ from robots.behavior.policy_checkpoint import (
     POLICY_CHECKPOINT_ENV,
     SHARED_POLICY_CHECKPOINT_PATH,
     SHARED_POLICY_PROFILE_ID,
+    write_policy_checkpoint_manifest,
 )
 from robots.behavior.schemas import (
     ACTION_DIM,
@@ -483,6 +484,11 @@ def _spawn_vla_server(
     behavior_python = _behavior_python_path(args.behavior_python)
     if not behavior_python.is_file():
         raise RuntimeError(f"BEHAVIOR Python executable is missing: {behavior_python}")
+    checkpoint_manifest = output_dir / "policy_checkpoint_manifest.json"
+    write_policy_checkpoint_manifest(
+        checkpoint_manifest,
+        Path(args.policy_checkpoint).expanduser(),
+    )
     cmd = [
         str(behavior_python),
         str(get_repo_root() / "rpent" / "robots" / "components" / "pi05_vla_server.py"),
@@ -496,6 +502,8 @@ def _spawn_vla_server(
         str(port),
         "--model-path",
         str(Path(args.policy_checkpoint).expanduser()),
+        "--checkpoint-manifest",
+        str(checkpoint_manifest),
         "--parent-watch",
     ]
     if cuda_device is not None:

@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Download and verify the external assets required by BEHAVIOR."""
+"""Download and verify BEHAVIOR assets.
+
+This command requires an RPent source checkout with ``robots.behavior``
+available through editable install.
+"""
 
 from __future__ import annotations
 
