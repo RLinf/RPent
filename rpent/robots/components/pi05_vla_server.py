@@ -148,6 +148,7 @@ def _validate_checkpoint_manifest(
 # ``_ENCODE_OBS`` (obs encoding); the two registries are kept in sync manually.
 PI05_EMBODIMENTS: dict[str, dict] = {
     "behavior": {
+        "seed": 0,
         "num_action_chunks": 32,
         "action_dim": 32,
         "use_proprio": True,
@@ -296,10 +297,11 @@ class Pi05VLAFacade(BaseVLAFacade):
                 model_path,
                 checkpoint_manifest,
             )
-        if embodiment == "behavior":
-            torch.manual_seed(0)
+        seed = emb_cfg.get("seed")
+        if seed is not None:
+            torch.manual_seed(int(seed))
             if torch.cuda.is_available():
-                torch.cuda.manual_seed_all(0)
+                torch.cuda.manual_seed_all(int(seed))
 
         cfg = build_model_cfg(model_path=self._model_path, emb_cfg=emb_cfg)
         t0 = time.time()
