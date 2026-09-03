@@ -55,9 +55,10 @@ _IMAGE_BYTE_FIELDS = frozenset(
     {
         "_depth_image_bytes",
         "_image_bytes",
-        "_image_cam_bytes",
-        "_image_nav_bytes",
-        "_image_wrist_bytes",
+        "_image_left_wrist_bytes",
+        "_depth_left_wrist_bytes",
+        "_image_right_wrist_bytes",
+        "_depth_right_wrist_bytes",
     }
 )
 
@@ -105,20 +106,16 @@ class BehaviorEnvFacade(BaseEnvFacade):
                 "env.pixel_to_world": self.pixel_to_world,
                 "env.navigate_to": self.navigate_to,
                 "env.move_to": self.move_to,
-                "env.move_both_to": self.move_both_to,
-                "env.get_prepared_motion_status": self.get_prepared_motion_status,
                 "env.rotate_wrist": self.rotate_wrist,
                 "env.close": self.close_gripper,
                 "env.open": self.open_gripper,
                 "env.press": self.press,
-                "env.save_robot_state_checkpoint": self.save_robot_state_checkpoint,
                 "env.finalize_paused_runtime": self.finalize_paused_runtime,
             }
         )
         self._readonly_methods.update(
             {
                 "env.current_observation",
-                "env.get_prepared_motion_status",
                 "env.finalize_paused_runtime",
             }
         )
@@ -233,12 +230,6 @@ class BehaviorEnvFacade(BaseEnvFacade):
     def move_to(self, **kwargs: Any) -> dict[str, Any]:
         return self._call_backend("move_to", **kwargs)
 
-    def move_both_to(self, **kwargs: Any) -> dict[str, Any]:
-        return self._call_backend("move_both_to", **kwargs)
-
-    def get_prepared_motion_status(self, **kwargs: Any) -> dict[str, Any]:
-        return self._call_backend("get_prepared_motion_status", **kwargs)
-
     def rotate_wrist(self, **kwargs: Any) -> dict[str, Any]:
         return self._call_backend("rotate_wrist", **kwargs)
 
@@ -250,9 +241,6 @@ class BehaviorEnvFacade(BaseEnvFacade):
 
     def press(self, **kwargs: Any) -> dict[str, Any]:
         return self._call_backend("press", **kwargs)
-
-    def save_robot_state_checkpoint(self, **kwargs: Any) -> dict[str, Any]:
-        return self._call_backend("save_robot_state_checkpoint", **kwargs)
 
     def finalize_paused_runtime(
         self, vla_status: dict[str, Any] | None = None

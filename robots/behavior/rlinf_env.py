@@ -1262,45 +1262,31 @@ class OfficialBehaviorBackend:
 
     def observe(self, camera: str = "head", **_kwargs: Any) -> dict[str, Any]:
         camera = _physical_camera(camera)
-        image = self.render_camera(camera)
-        payload = _png_bytes(image)
+        observation, _info = self.current_observation()
+        wrists = np.asarray(observation["wrist_images"], dtype=np.uint8)
+        payloads = {
+            "head": _png_bytes(np.asarray(observation["main_images"], dtype=np.uint8)),
+            "left_wrist": _png_bytes(wrists[0]),
+            "right_wrist": _png_bytes(wrists[1]),
+        }
         frame_id = f"behavior-{self.total_env_steps}-{camera}"
-        frame_payload = (
-            {"_image_cam_bytes": payload}
-            if camera == "head"
-            else {"_image_wrist_bytes": payload}
-        )
         return {
             "status": "ok",
             "camera": camera,
             "frame_id": frame_id,
             "step": self.total_env_steps,
-            "_image_bytes": payload,
-            **frame_payload,
+            "_image_bytes": payloads["head"],
+            "_depth_image_bytes": None,
+            "_image_left_wrist_bytes": payloads["left_wrist"],
+            "_depth_left_wrist_bytes": None,
+            "_image_right_wrist_bytes": payloads["right_wrist"],
+            "_depth_right_wrist_bytes": None,
             "frames": _write_frame_files(
-                {camera: payload},
+                payloads,
                 output_dir=self.output_dir,
                 group_id=frame_id,
             ),
             "info": self._last_info,
-        }
-
-    def get_prepared_motion_status(
-        self,
-        *,
-        prepared_plan_id: str,
-        **_kwargs: Any,
-    ) -> dict[str, Any]:
-        return {
-            "status": "unknown",
-            "prepared_plan_id": str(prepared_plan_id),
-            "motion_available": (
-                self._last_obs is not None
-                and not self._closed
-                and not self._episode_ended
-                and not self._official_success_latched
-            ),
-            "prepared": None,
         }
 
     def finalize_paused_runtime(
@@ -1336,10 +1322,15 @@ class OfficialBehaviorBackend:
         }
 
     def move_to(self, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("hand") == "both":
+            return self._move_both_hands_to(kwargs)
+        return self._move_single_hand_to(kwargs)
+
+    def _move_single_hand_to(self, kwargs: Mapping[str, Any]) -> dict[str, Any]:
         return self._motion_unavailable("move_to", kwargs)
 
-    def move_both_to(self, **kwargs: Any) -> dict[str, Any]:
-        return self._motion_unavailable("move_both_to", kwargs)
+    def _move_both_hands_to(self, kwargs: Mapping[str, Any]) -> dict[str, Any]:
+        return self._motion_unavailable("move_to", kwargs)
 
     def navigate_to(self, **kwargs: Any) -> dict[str, Any]:
         return self._motion_unavailable("navigate_to", kwargs)
@@ -1363,16 +1354,6 @@ class OfficialBehaviorBackend:
 
     def press(self, **kwargs: Any) -> dict[str, Any]:
         return self._motion_unavailable("press", kwargs)
-
-    def save_robot_state_checkpoint(self, **kwargs: Any) -> dict[str, Any]:
-        return {
-            "status": "failed",
-            "primitive_success": False,
-            "task_success": self.official_success_latched,
-            "stop_reason": "checkpoint_unavailable",
-            "error": "official RLinf backend does not expose RPent robot checkpoints",
-            "request": _strict_public_json(dict(kwargs)),
-        }
 
     def pixel_to_world(self, **kwargs: Any) -> dict[str, Any]:
         return {

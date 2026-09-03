@@ -20,7 +20,7 @@ from robots.behavior.prompts import system as base
 from rpent.prompt.utils import PromptNode
 
 ROLE_AND_EVALUATION = """You are the planner for one BEHAVIOR evaluation
-episode. There is no in-invocation reset or retry. Pursue the exact task while
+episode. The invocation controls only that episode. Pursue the exact task while
 remaining honest about official success."""
 
 MEMORY = """Memory access is read-only in Eval. Read only relevant material

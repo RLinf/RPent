@@ -95,29 +95,37 @@ PUBLIC_TOOL_CONTRACTS: dict[int, tuple[str, ...]] = {
         "move_both_to",
         "get_prepared_motion_status",
     ),
+    5: (
+        "pi0_nav_pick",
+        "observe",
+        "pixel_to_world",
+        "navigate_to",
+        "move_to",
+        "rotate_wrist",
+        "close",
+        "open",
+        "press",
+    ),
 }
-CURRENT_PUBLIC_TOOL_CONTRACT_VERSION = 4
+CURRENT_PUBLIC_TOOL_CONTRACT_VERSION = 5
 BEHAVIOR_TOOL_NAMES = PUBLIC_TOOL_CONTRACTS[CURRENT_PUBLIC_TOOL_CONTRACT_VERSION]
 PUBLIC_PRIMITIVE_ENTRYPOINTS = {
     "pi0_nav_pick": "BehaviorPrimitives.pi0_nav_pick",
     "observe": "BehaviorPrimitives.observe",
     "pixel_to_world": "BehaviorPrimitives.pixel_to_world",
+    "navigate_to": "BehaviorPrimitives.navigate_to",
     "move_to": "BehaviorPrimitives.move_to",
     "rotate_wrist": "BehaviorPrimitives.rotate_wrist",
     "close": "BehaviorPrimitives.close",
     "open": "BehaviorPrimitives.open",
     "press": "BehaviorPrimitives.press",
-    "save_robot_state_checkpoint": "BehaviorPrimitives.save_robot_state_checkpoint",
-    "navigate_to": "BehaviorPrimitives.navigate_to",
-    "move_both_to": "BehaviorPrimitives.move_both_to",
-    "get_prepared_motion_status": "BehaviorPrimitives.get_prepared_motion_status",
 }
-if tuple(PUBLIC_TOOL_CONTRACTS) != (1, 2, 3, 4):
+if tuple(PUBLIC_TOOL_CONTRACTS) != (1, 2, 3, 4, 5):
     raise ValueError("BEHAVIOR public tool contract versions must be contiguous")
 if tuple(PUBLIC_PRIMITIVE_ENTRYPOINTS) != BEHAVIOR_TOOL_NAMES:
     raise ValueError("BEHAVIOR primitive entrypoints must match the public contract")
-if len(BEHAVIOR_TOOL_NAMES) != 12 or len(set(BEHAVIOR_TOOL_NAMES)) != 12:
-    raise ValueError("BEHAVIOR toolkit must expose 12 unique public primitives")
+if len(BEHAVIOR_TOOL_NAMES) != 9 or len(set(BEHAVIOR_TOOL_NAMES)) != 9:
+    raise ValueError("BEHAVIOR toolkit must expose 9 unique public primitives")
 
 POLICY_STATE_SEGMENTS: dict[str, slice] = {
     "base": slice(0, 3),
@@ -450,21 +458,79 @@ _MOVE_TARGET_SCHEMA = {
     "additionalProperties": False,
 }
 
+_MOVE_TO_HAND_SCHEMA = {"type": "string", "enum": ["left", "right", "both"]}
+_MOVE_TO_BOTH_TARGETS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "left": {
+            "type": "object",
+            "properties": {
+                "delta_xyz": _DELTA_XYZ_SCHEMA,
+                "frame": {"type": "string", "enum": ["world", "eef"]},
+            },
+            "required": ["delta_xyz", "frame"],
+            "additionalProperties": False,
+        },
+        "right": {
+            "type": "object",
+            "properties": {
+                "delta_xyz": _DELTA_XYZ_SCHEMA,
+                "frame": {"type": "string", "enum": ["world", "eef"]},
+            },
+            "required": ["delta_xyz", "frame"],
+            "additionalProperties": False,
+        },
+    },
+    "required": ["left", "right"],
+    "additionalProperties": False,
+}
+_MOVE_TO_BOTH_VISUAL_HAND_CHECKS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "left": _VISUAL_HAND_CHECK_SCHEMA,
+        "right": _VISUAL_HAND_CHECK_SCHEMA,
+    },
+    "required": ["left", "right"],
+    "additionalProperties": False,
+}
+
 MOVE_TO_SPEC = _planner_spec(
     "move_to",
-    "Move one selected BEHAVIOR hand to a projection or relative target.",
+    "Move the selected BEHAVIOR hand, or coordinate both hands when hand is both.",
     {
-        "hand": _HAND_SCHEMA,
+        "hand": _MOVE_TO_HAND_SCHEMA,
         "visual_hand_check": _VISUAL_HAND_CHECK_SCHEMA,
         "target": _MOVE_TARGET_SCHEMA,
+        "targets": _MOVE_TO_BOTH_TARGETS_SCHEMA,
+        "visual_hand_checks": _MOVE_TO_BOTH_VISUAL_HAND_CHECKS_SCHEMA,
         "support_motion_phase": {
             "type": "string",
             "enum": ["carry_can", "transit_next_can"],
         },
-        "plan_only": {"type": "boolean"},
-        "prepared_plan_id": {"type": "string", "minLength": 1},
     },
-    required=["hand", "target"],
+    one_of=[
+        {
+            "properties": {"hand": {"enum": ["left", "right"]}},
+            "required": ["hand", "target"],
+            "not": {
+                "anyOf": [
+                    {"required": ["targets"]},
+                    {"required": ["visual_hand_checks"]},
+                ]
+            },
+        },
+        {
+            "properties": {"hand": {"const": "both"}},
+            "required": ["hand", "targets", "visual_hand_checks"],
+            "not": {
+                "anyOf": [
+                    {"required": ["target"]},
+                    {"required": ["visual_hand_check"]},
+                    {"required": ["support_motion_phase"]},
+                ]
+            },
+        },
+    ],
 )
 
 ROTATE_WRIST_SPEC = _planner_spec(
@@ -509,17 +575,6 @@ PRESS_SPEC = _planner_spec(
         "duration_s": {"type": "number", "exclusiveMinimum": 0.0, "maximum": 10.0},
     },
     required=["hand", "visual_hand_check"],
-)
-
-SAVE_ROBOT_STATE_CHECKPOINT_SPEC = _planner_spec(
-    "save_robot_state_checkpoint",
-    "Record a public BEHAVIOR state checkpoint without asserting task success.",
-    {
-        "label": {"type": "string", "minLength": 1},
-        "stop_reason": {"type": "string"},
-        "terminal_failure_receipt": {"type": "object"},
-    },
-    required=["label"],
 )
 
 _NAVIGATION_VISUAL_CHECK_SCHEMA = {
@@ -582,57 +637,6 @@ NAVIGATE_TO_SPEC = _planner_spec(
     ],
 )
 
-MOVE_BOTH_TO_SPEC = _planner_spec(
-    "move_both_to",
-    "Move both BEHAVIOR hands by explicit relative targets.",
-    {
-        "targets": {
-            "type": "object",
-            "properties": {
-                "left": {
-                    "type": "object",
-                    "properties": {
-                        "delta_xyz": _DELTA_XYZ_SCHEMA,
-                        "frame": {"type": "string", "enum": ["world", "eef"]},
-                    },
-                    "required": ["delta_xyz", "frame"],
-                    "additionalProperties": False,
-                },
-                "right": {
-                    "type": "object",
-                    "properties": {
-                        "delta_xyz": _DELTA_XYZ_SCHEMA,
-                        "frame": {"type": "string", "enum": ["world", "eef"]},
-                    },
-                    "required": ["delta_xyz", "frame"],
-                    "additionalProperties": False,
-                },
-            },
-            "required": ["left", "right"],
-            "additionalProperties": False,
-        },
-        "visual_hand_checks": {
-            "type": "object",
-            "properties": {
-                "left": _VISUAL_HAND_CHECK_SCHEMA,
-                "right": _VISUAL_HAND_CHECK_SCHEMA,
-            },
-            "required": ["left", "right"],
-            "additionalProperties": False,
-        },
-        "plan_only": {"type": "boolean"},
-        "prepared_plan_id": {"type": "string", "minLength": 1},
-    },
-    required=["targets", "visual_hand_checks"],
-)
-
-GET_PREPARED_MOTION_STATUS_SPEC = _planner_spec(
-    "get_prepared_motion_status",
-    "Query one prepared motion by id; this does not execute it.",
-    {"prepared_plan_id": {"type": "string", "minLength": 1}},
-    required=["prepared_plan_id"],
-)
-
 
 def _non_bool_number(value: Any, *, field: str) -> float:
     if isinstance(value, (bool, np.bool_)) or not isinstance(
@@ -688,10 +692,6 @@ def _identifier(value: Any, *, name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must be a non-empty string")
     return value.strip()
-
-
-def validate_prepared_plan_id(value: Any) -> str:
-    return _identifier(value, name="prepared_plan_id")
 
 
 def validate_relative_navigation_motion(value: Any) -> dict[str, Any]:
@@ -801,15 +801,12 @@ def behavior_tool_specs_for_task(
         "pi0_nav_pick": copy.deepcopy(PI0_NAV_PICK_SPEC),
         "observe": copy.deepcopy(OBSERVE_SPEC),
         "pixel_to_world": copy.deepcopy(PIXEL_TO_WORLD_SPEC),
+        "navigate_to": copy.deepcopy(NAVIGATE_TO_SPEC),
         "move_to": copy.deepcopy(MOVE_TO_SPEC),
         "rotate_wrist": copy.deepcopy(ROTATE_WRIST_SPEC),
         "close": copy.deepcopy(CLOSE_SPEC),
         "open": copy.deepcopy(OPEN_SPEC),
         "press": copy.deepcopy(PRESS_SPEC),
-        "save_robot_state_checkpoint": copy.deepcopy(SAVE_ROBOT_STATE_CHECKPOINT_SPEC),
-        "navigate_to": copy.deepcopy(NAVIGATE_TO_SPEC),
-        "move_both_to": copy.deepcopy(MOVE_BOTH_TO_SPEC),
-        "get_prepared_motion_status": copy.deepcopy(GET_PREPARED_MOTION_STATUS_SPEC),
     }
     if task_spec.release_visual_policy is None:
         specs["open"]["input_schema"]["properties"].pop("release_visual_check", None)
@@ -826,9 +823,7 @@ __all__ = [
     "ENV_ACTION_SEGMENTS",
     "ENV_WIRE_SCHEMA",
     "FRAME_REVIEW_ASSESSMENTS",
-    "GET_PREPARED_MOTION_STATUS_SPEC",
     "HEAD_VIEW_PRESETS",
-    "MOVE_BOTH_TO_SPEC",
     "MOVE_TO_SPEC",
     "NAVIGATE_TO_SPEC",
     "OBSERVE_SPEC",
@@ -841,7 +836,6 @@ __all__ = [
     "PUBLIC_PRIMITIVE_ENTRYPOINTS",
     "PUBLIC_TOOL_CONTRACTS",
     "ROTATE_WRIST_SPEC",
-    "SAVE_ROBOT_STATE_CHECKPOINT_SPEC",
     "VLA_WIRE_SCHEMA",
     "behavior_tool_specs_for_task",
     "extract_policy_state",
@@ -850,7 +844,6 @@ __all__ = [
     "validate_move_both_targets",
     "validate_move_both_visual_hand_checks",
     "validate_observe_request",
-    "validate_prepared_plan_id",
     "validate_policy_state",
     "validate_relative_navigation_motion",
     "validate_visibility_recovery_check",

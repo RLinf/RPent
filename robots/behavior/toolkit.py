@@ -39,14 +39,6 @@ from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.templates import substitute
 
 
-class BehaviorToolResult(ToolResult):
-    """BEHAVIOR result wrapper.
-
-    The base ``ToolResult`` already supports public PNG byte payloads and finish
-    detection.  This subclass exists as a stable BEHAVIOR-facing type.
-    """
-
-
 class BehaviorToolkit(Toolkit):
     """Expose BEHAVIOR primitives through the latest standard-main contract."""
 
@@ -120,7 +112,7 @@ class BehaviorToolkit(Toolkit):
             variables={"output_dir": str(self._primitives.output_dir)},
         )
 
-    def execute_tool(self, name: str, input_dict: dict[str, Any]) -> BehaviorToolResult:
+    def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
         result = super().execute_tool(name, input_dict)
         if self._dashboard_result_has_frames(result.result):
             try:
@@ -161,11 +153,7 @@ class BehaviorToolkit(Toolkit):
                     except FileNotFoundError:
                         pass
             self.write_recipe(self._recipe_tag)
-        return BehaviorToolResult(
-            name=result.name,
-            result=result.result,
-            call_id=result.call_id,
-        )
+        return result
 
     @staticmethod
     def _dashboard_result_has_frames(result: Any) -> bool:
@@ -173,9 +161,11 @@ class BehaviorToolkit(Toolkit):
             return False
         for key in (
             "_image_bytes",
-            "_image_cam_bytes",
-            "_image_nav_bytes",
-            "_image_wrist_bytes",
+            "_depth_image_bytes",
+            "_image_left_wrist_bytes",
+            "_depth_left_wrist_bytes",
+            "_image_right_wrist_bytes",
+            "_depth_right_wrist_bytes",
             "_frames_bytes",
         ):
             if result.get(key):
@@ -275,4 +265,4 @@ class BehaviorToolkit(Toolkit):
         return str(path)
 
 
-__all__ = ["BehaviorToolkit", "BehaviorToolResult"]
+__all__ = ["BehaviorToolkit"]

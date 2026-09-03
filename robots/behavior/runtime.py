@@ -309,8 +309,7 @@ def parse_config(args: argparse.Namespace) -> RunConfig:
             "wall_clock_seconds": int(getattr(args, "planner_timeout_s", 7200) or 7200),
             "public_capabilities": [
                 item["name"] for item in behavior_tool_specs_for_task(spec)
-            ]
-            + ["finish"],
+            ],
             "memory_dir": str(memory_dir),
             "memory_profile": memory_profile,
             "memory_inbox": str(memory_dir / "_inbox" / recipe_tag),

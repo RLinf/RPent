@@ -28,7 +28,6 @@ from robots.behavior.schemas import (
     validate_move_both_targets,
     validate_move_both_visual_hand_checks,
     validate_observe_request,
-    validate_prepared_plan_id,
     validate_relative_navigation_motion,
 )
 from robots.behavior.terminal_success import validate_official_success_receipt
@@ -38,7 +37,6 @@ from rpent.utils.rpc import RpcClient
 _POST_SUCCESS_ALLOWED = frozenset(
     {
         "env.get_env_meta",
-        "env.get_prepared_motion_status",
         "env.current_observation",
         "env.finalize_paused_runtime",
     }
@@ -47,9 +45,10 @@ _IMAGE_BYTE_FIELDS = frozenset(
     {
         "_depth_image_bytes",
         "_image_bytes",
-        "_image_cam_bytes",
-        "_image_nav_bytes",
-        "_image_wrist_bytes",
+        "_image_left_wrist_bytes",
+        "_depth_left_wrist_bytes",
+        "_image_right_wrist_bytes",
+        "_depth_right_wrist_bytes",
     }
 )
 
@@ -99,14 +98,11 @@ class BehaviorEnvClient(BaseEnvClient):
         "env.observe": 120.0,
         "env.pixel_to_world": 120.0,
         "env.move_to": 1800.0,
-        "env.move_both_to": 1800.0,
-        "env.get_prepared_motion_status": 30.0,
         "env.navigate_to": 1800.0,
         "env.rotate_wrist": 1800.0,
         "env.close": 120.0,
         "env.open": 120.0,
         "env.press": 1800.0,
-        "env.save_robot_state_checkpoint": 120.0,
         "env.finalize_paused_runtime": 120.0,
     }
 
@@ -307,23 +303,15 @@ class BehaviorEnvClient(BaseEnvClient):
         return self._rpc_call("env.navigate_to", kwargs=kwargs)
 
     def move_to(self, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("hand") == "both":
+            kwargs = {
+                **kwargs,
+                "targets": validate_move_both_targets(kwargs.get("targets")),
+                "visual_hand_checks": validate_move_both_visual_hand_checks(
+                    kwargs.get("visual_hand_checks")
+                ),
+            }
         return self._rpc_call("env.move_to", kwargs=kwargs)
-
-    def move_both_to(self, **kwargs: Any) -> dict[str, Any]:
-        kwargs = {
-            **kwargs,
-            "targets": validate_move_both_targets(kwargs.get("targets")),
-            "visual_hand_checks": validate_move_both_visual_hand_checks(
-                kwargs.get("visual_hand_checks")
-            ),
-        }
-        return self._rpc_call("env.move_both_to", kwargs=kwargs)
-
-    def get_prepared_motion_status(self, *, prepared_plan_id: str) -> dict[str, Any]:
-        return self._rpc_call(
-            "env.get_prepared_motion_status",
-            kwargs={"prepared_plan_id": validate_prepared_plan_id(prepared_plan_id)},
-        )
 
     def rotate_wrist(self, **kwargs: Any) -> dict[str, Any]:
         return self._rpc_call("env.rotate_wrist", kwargs=kwargs)
@@ -336,9 +324,6 @@ class BehaviorEnvClient(BaseEnvClient):
 
     def press(self, **kwargs: Any) -> dict[str, Any]:
         return self._rpc_call("env.press", kwargs=kwargs)
-
-    def save_robot_state_checkpoint(self, **kwargs: Any) -> dict[str, Any]:
-        return self._rpc_call("env.save_robot_state_checkpoint", kwargs=kwargs)
 
     def finalize_paused_runtime(
         self, vla_status: dict[str, Any] | None = None

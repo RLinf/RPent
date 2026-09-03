@@ -27,6 +27,9 @@ def run_import_selfcheck() -> dict[str, Any]:
     from robots.behavior.schemas import BEHAVIOR_TOOL_NAMES
     from robots.behavior.task_specs import get_task_spec
 
+    if len(BEHAVIOR_TOOL_NAMES) != 9:
+        raise RuntimeError("BEHAVIOR must expose exactly 9 public primitives")
+
     spec = get_robot_spec()
     parser = argparse.ArgumentParser(prog="behavior-selfcheck")
     spec.add_cli_args(parser, use_dashboard=False)

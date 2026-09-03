@@ -54,9 +54,10 @@ _PRIVATE_RESULT_KEYS = {
 _PUBLIC_IMAGE_BYTE_FIELDS = {
     "_image_bytes",
     "_depth_image_bytes",
-    "_image_cam_bytes",
-    "_image_wrist_bytes",
-    "_image_nav_bytes",
+    "_image_left_wrist_bytes",
+    "_depth_left_wrist_bytes",
+    "_image_right_wrist_bytes",
+    "_depth_right_wrist_bytes",
 }
 
 
@@ -582,27 +583,18 @@ class BehaviorPrimitives:
 
     def move_to(self, **kwargs: Any) -> dict[str, Any]:
         env = self._require_env()
+        hand = kwargs.get("hand")
+        if hand == "both":
+            kwargs = {
+                **kwargs,
+                "targets": validate_move_both_targets(kwargs.get("targets")),
+                "visual_hand_checks": validate_move_both_visual_hand_checks(
+                    kwargs.get("visual_hand_checks")
+                ),
+            }
+        elif hand not in {"left", "right"}:
+            raise ValueError("hand must be 'left', 'right', or 'both'")
         return self._envelope("move_to", env.move_to(**kwargs))
-
-    def move_both_to(self, **kwargs: Any) -> dict[str, Any]:
-        env = self._require_env()
-        kwargs = {
-            **kwargs,
-            "targets": validate_move_both_targets(kwargs.get("targets")),
-            "visual_hand_checks": validate_move_both_visual_hand_checks(
-                kwargs.get("visual_hand_checks")
-            ),
-        }
-        return self._envelope("move_both_to", env.move_both_to(**kwargs))
-
-    @readonly
-    def get_prepared_motion_status(self, **kwargs: Any) -> dict[str, Any]:
-        env = self._require_env()
-        return self._envelope(
-            "get_prepared_motion_status",
-            env.get_prepared_motion_status(**kwargs),
-            primitive_success=True,
-        )
 
     def rotate_wrist(self, **kwargs: Any) -> dict[str, Any]:
         env = self._require_env()
@@ -619,15 +611,6 @@ class BehaviorPrimitives:
     def press(self, **kwargs: Any) -> dict[str, Any]:
         env = self._require_env()
         return self._envelope("press", env.press(**kwargs))
-
-    def save_robot_state_checkpoint(self, **kwargs: Any) -> dict[str, Any]:
-        env = self._require_env()
-        return self._envelope(
-            "save_robot_state_checkpoint",
-            env.save_robot_state_checkpoint(**kwargs),
-            primitive_success=True,
-            stop_reason=kwargs.get("stop_reason"),
-        )
 
     @readonly
     def finish(self, *, status: str, summary: str) -> dict[str, Any]:

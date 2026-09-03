@@ -25,13 +25,12 @@ CURRENT_INVOCATION = """- mode: {{behavior_mode}}
 - maximum environment steps: {{max_episode_steps}}
 - planner timeout seconds: {{wall_clock_seconds}}"""
 
-INVOCATION_MODEL = """One planner invocation is one BEHAVIOR episode. The
-planner cannot reset or restart that episode. A BEHAVIOR-owned outer harness may
-launch fresh processes for separate Explore attempts."""
+INVOCATION_MODEL = """One planner invocation controls one BEHAVIOR episode.
+Only the BEHAVIOR-owned outer harness can create another episode."""
 
 RUNTIME = """Use only the public structured tools exposed by the active
-toolkit. The public capability name list is {{public_capabilities}}; the actual
-tool schemas supplied by the planner runtime remain authoritative. Do not start,
+toolkit. The BEHAVIOR primitive names are {{public_capabilities}}; their actual
+schemas supplied by the planner runtime remain authoritative. Do not start,
 stop, or reach into ENV, VLA, checkpoint, simulator, or RPC internals."""
 
 GOAL = """Execute the exact runtime task instruction: {{task_instruction}}"""
@@ -39,7 +38,7 @@ GOAL = """Execute the exact runtime task instruction: {{task_instruction}}"""
 MEMORY_CONTEXT = """The official local MemoryManager corpus is
 `{{memory_dir}}` (profile `{{memory_profile}}`). This invocation's inbox is
 `{{memory_inbox}}`. Memory is historical guidance only: it is not a current
-observation, coordinate source, stage label, or success proof.
+observation, coordinate source, progress label, or success proof.
 
 When DINO episode memory is enabled, its whole-experience advisory is attached
 to public tool receipts after the exact-task filter. Treat it as visual
@@ -51,10 +50,13 @@ receipts from this episode. Refresh observations after scene-changing actions
 when later decisions depend on object identity, pose, reachability, attachment,
 or task state."""
 
-PLANNER_TOOLS = """All public capabilities are peer planner tools. No list
-order implies a workflow or fixed call count. Pi0.5 is one planner tool; choose
-each positive chunk count from the current subgoal and remaining step budget.
-`{{wall_clock_seconds}}` is the planner timeout, not a per-primitive budget."""
+PLANNER_TOOLS = """The nine BEHAVIOR primitives in {{public_capabilities}} are
+unordered peer tools. The planner autonomously chooses the VLA instruction,
+positive chunk count, number and ordering of calls, and a left, right, or both
+hand selection. `move_to` moves the selected hand; `hand=both` requests
+coordinated dual-arm motion when the planner judges it appropriate.
+`{{wall_clock_seconds}}` is the planner timeout, not a per-primitive budget.
+Use `finish` to end the invocation and emit its terminal receipt."""
 
 TERMINATION = """Official task success exists only when the current episode
 returns `info[\"done\"][\"success\"] is True`. Reward, terminated, truncated,

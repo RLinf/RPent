@@ -30,6 +30,6 @@ DINO episode memory, when enabled, appears only as advisory content in public
 tool receipts."""
 
 BEGIN = """Execute the selected task using the active public tools. Base each
-action on current public evidence and finish with an honest terminal receipt."""
+action on current public evidence and report the outcome honestly."""
 
 __all__ = ["BEGIN", "CELL", "MODE"]
