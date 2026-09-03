@@ -328,3 +328,89 @@ def test_finish_writes_terminal_receipt(tmp_path: Path) -> None:
     assert receipt["kind"] == "behavior_finish_terminal_receipt"
     assert receipt["planner_status"] == "incomplete"
     assert receipt["summary"] == "bounded test"
+
+
+def test_receipt_is_session_artifact_and_recipe_is_run_artifact(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run"
+    session_dir = run_dir / "sessions" / "session_001"
+    toolkit = BehaviorToolkit(
+        primitives_kwargs={
+            "task_name": "turning_on_radio",
+            "output_dir": run_dir,
+        },
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        config=RunConfig(
+            recipe_tag="turning_on_radio_s0",
+            output_dir=run_dir,
+            prompt_vars={
+                "task_name": "turning_on_radio",
+                "public_seed": 0,
+                "memory_dir": str(tmp_path / "memory"),
+            },
+            task_desc={},
+        ),
+        state_output_dir=session_dir,
+    )
+    run_audit = run_dir / "turning_on_radio_s0.json"
+    run_audit.parent.mkdir(parents=True, exist_ok=True)
+    run_audit.write_text('{"audit": true}\n')
+
+    toolkit.execute_tool("finish", {"status": "incomplete", "summary": "done"})
+    assert (session_dir / "terminal_receipt.json").is_file()
+    assert json.loads((session_dir / "states.json").read_text())["run_artifacts"] == [
+        "terminal_receipt.json"
+    ]
+    assert run_audit.read_text() == '{"audit": true}\n'
+
+    toolkit.primitives._official_success_latched = True
+    with toolkit.state.record_step(
+        state={"task_success": True},
+        terminated=True,
+        command={"action": "future_stateful_command", "arg": 1},
+        result={"ok": True},
+        elapsed_s=0.1,
+    ):
+        pass
+    with toolkit.state.record_step(
+        state={"task_success": True},
+        terminated=True,
+        command={"action": "bad_command"},
+        result={"error": "failed"},
+        elapsed_s=0.1,
+    ):
+        pass
+
+    recipe_path = Path(toolkit.write_recipe("turning_on_radio_s0") or "")
+    assert recipe_path == run_dir / "recipe_turning_on_radio_s0.jsonl"
+    assert not (session_dir / "recipe_turning_on_radio_s0.jsonl").exists()
+    commands = [
+        json.loads(line)
+        for line in recipe_path.read_text().splitlines()
+        if line.strip()
+    ]
+    assert commands == [{"action": "future_stateful_command", "arg": 1}]
+    assert "command" not in commands[0]
+
+
+def test_unsolved_behavior_session_does_not_write_recipe(tmp_path: Path) -> None:
+    toolkit = BehaviorToolkit(
+        primitives_kwargs={
+            "task_name": "turning_on_radio",
+            "output_dir": tmp_path / "run",
+        },
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    with toolkit.state.record_step(
+        state={"task_success": False},
+        command={"action": "pi0_nav_pick", "instruction": "turn on the radio"},
+        result={"ok": True},
+        elapsed_s=0.1,
+    ):
+        pass
+
+    assert toolkit.write_recipe("turning_on_radio_s0") is None
+    assert not (tmp_path / "run" / "recipe_turning_on_radio_s0.jsonl").exists()

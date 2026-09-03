@@ -359,3 +359,39 @@ class EnvState:
 
     def records(self) -> list[StepRecord]:
         return copy.deepcopy(self._steps)
+
+
+def recipe_commands_from_states(env_state: EnvState) -> list[dict[str, Any]]:
+    """Return replayable top-level tool commands from stateful records."""
+
+    commands: list[dict[str, Any]] = []
+    for record in env_state.records():
+        command = record.command
+        if not isinstance(command, dict) or command.get("action") is None:
+            continue
+        if isinstance(record.result, dict) and record.result.get("error"):
+            continue
+        commands.append(copy.deepcopy(command))
+    return commands
+
+
+def write_recipe_from_states(
+    env_state: EnvState,
+    recipe_tag: str,
+    *,
+    output_state: EnvState | None = None,
+) -> str | None:
+    """Write a ``recipe_<tag>.jsonl`` artifact with top-level commands."""
+
+    tag = str(recipe_tag).strip()
+    if not tag:
+        raise ValueError("recipe_tag must be a non-empty string")
+    commands = recipe_commands_from_states(env_state)
+    if not commands:
+        return None
+    target_state = output_state or env_state
+    name = f"recipe_{tag}.jsonl"
+    saved = target_state.save(name, commands, step=None)
+    if saved is None:
+        raise RuntimeError(f"failed to write {name}")
+    return str(target_state.artifact_path(saved, step=None))

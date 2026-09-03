@@ -495,7 +495,7 @@ def main() -> int:
                 behavior_env_daemon = env_daemons[0]
                 daemons.extend(env_daemons)
                 primitives_kwargs.update(env_kwargs)
-            if robot_name == "libero":
+            if robot_name in ("libero", "behavior"):
                 toolkit = get_toolkit(
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
@@ -506,17 +506,6 @@ def main() -> int:
                         args, "explore_attempts_per_session", 0
                     ),
                     state_output_dir=state_output_dir,
-                )
-            elif robot_name == "behavior":
-                toolkit = get_toolkit(
-                    robot_name,
-                    primitives_kwargs=primitives_kwargs,
-                    dashboard_events=dashboard_events,
-                    config=run_config,
-                    mode="exploration" if args.explore else "evaluation",
-                    attempts_per_session=getattr(
-                        args, "explore_attempts_per_session", 0
-                    ),
                 )
             else:
                 toolkit = get_toolkit(
@@ -540,7 +529,7 @@ def main() -> int:
                 agent_error = result.error
                 if robot_name in ("libero", "behavior"):
                     solved = toolkit.solved()
-                    if solved and robot_name == "libero":
+                    if solved:
                         recipe_path = toolkit.write_recipe(recipe_tag)
             finally:
                 toolkit.close()

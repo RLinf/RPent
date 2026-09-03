@@ -16,9 +16,6 @@
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +30,7 @@ from rpent.dashboard.events import (
     ToolResultEvent,
 )
 from rpent.memory import MemoryManager
-from rpent.session import EnvState
+from rpent.session import EnvState, write_recipe_from_states
 from rpent.tools import common
 from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.templates import substitute
@@ -56,24 +53,30 @@ class BehaviorToolkit(Toolkit):
         memory: MemoryManager,
         config: Any = None,
         video_path: str | Path | None = None,
+        state_output_dir: str | Path | None = None,
     ) -> None:
         values = dict(primitives_kwargs)
         if config is not None:
             prompt_vars = dict(getattr(config, "prompt_vars", {}) or {})
             values.setdefault("task_name", prompt_vars.get("task_name"))
             values.setdefault("public_seed", prompt_vars.get("public_seed"))
-            values.setdefault(
-                "behavior_phase",
-                prompt_vars.get("behavior_phase", prompt_vars.get("behavior_mode")),
+            behavior_phase = prompt_vars.get("behavior_phase") or prompt_vars.get(
+                "behavior_mode"
             )
+            if behavior_phase is not None:
+                values.setdefault("behavior_phase", behavior_phase)
             values.setdefault("max_episode_steps", prompt_vars.get("max_episode_steps"))
             values.setdefault("output_dir", getattr(config, "output_dir", None))
         output_dir = Path(
             values.get("output_dir") or getattr(config, "output_dir", Path.cwd())
         )
-        values["output_dir"] = output_dir
+        self._run_output_dir = Path(getattr(config, "output_dir", output_dir))
+        self._state_output_dir = Path(state_output_dir or output_dir)
+        values["output_dir"] = self._state_output_dir
         values["video_path"] = (
-            Path(video_path) if video_path is not None else output_dir / "episode.mp4"
+            Path(video_path)
+            if video_path is not None
+            else self._state_output_dir / "episode.mp4"
         )
         self._recipe_tag = str(
             getattr(config, "recipe_tag", "")
@@ -84,9 +87,10 @@ class BehaviorToolkit(Toolkit):
 
         super().__init__(
             dashboard_events=dashboard_events or NullDashboardEventSink(),
-            state=EnvState(output_dir),
+            state=EnvState(self._state_output_dir),
             memory=memory,
         )
+        self._run_state = EnvState(self._run_output_dir)
         self._task_spec = get_task_spec(
             str(values.get("task_name") or "turning_on_radio")
         )
@@ -126,33 +130,9 @@ class BehaviorToolkit(Toolkit):
             and isinstance(result.result, dict)
             and result.result.get("_finish") is True
         ):
-            for receipt_path in (
-                self._primitives.output_dir / "terminal_receipt.json",
-                self._primitives.output_dir / f"{self._recipe_tag}.json",
-            ):
-                receipt_path.parent.mkdir(parents=True, exist_ok=True)
-                fd, temporary_name = tempfile.mkstemp(
-                    prefix=f".{receipt_path.stem}.",
-                    suffix=".tmp",
-                    dir=receipt_path.parent,
-                )
-                try:
-                    with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                        json.dump(
-                            result.result,
-                            stream,
-                            indent=2,
-                            sort_keys=True,
-                            default=str,
-                        )
-                        stream.write("\n")
-                    os.replace(temporary_name, receipt_path)
-                finally:
-                    try:
-                        os.unlink(temporary_name)
-                    except FileNotFoundError:
-                        pass
-            self.write_recipe(self._recipe_tag)
+            saved = self._state.save("terminal_receipt.json", result.result, step=None)
+            if saved is None:
+                raise RuntimeError("failed to write terminal_receipt.json")
         return result
 
     @staticmethod
@@ -233,36 +213,17 @@ class BehaviorToolkit(Toolkit):
         return self._primitives.solved()
 
     def write_recipe(self, recipe_tag: str) -> str | None:
-        """Write an idempotent best-effort public recipe JSONL."""
+        """Write an idempotent public recipe JSONL for a solved session."""
 
+        if not self.solved():
+            return None
         if not isinstance(recipe_tag, str) or not recipe_tag.strip():
             recipe_tag = self._task_spec.tag(self._primitives.public_seed)
-        records: list[dict[str, Any]] = []
-        for record in self._state.records():
-            command = record.command or {}
-            if command.get("action") in self._tools:
-                records.append(
-                    {
-                        "step_idx": record.step_idx,
-                        "command": command,
-                        "result": record.result or {},
-                        "terminated": record.terminated,
-                        "truncated": record.truncated,
-                        "elapsed_s": record.elapsed_s,
-                    }
-                )
-        if not records:
-            records = self._primitives.recipe_records()
-        name = f"recipe_{recipe_tag.strip()}.jsonl"
-        self._state.save(name, records, step=None)
-        path = self._state.artifact_path(name, step=None)
-        if not path.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                "".join(json.dumps(item, default=str) + "\n" for item in records),
-                encoding="utf-8",
-            )
-        return str(path)
+        return write_recipe_from_states(
+            self._state,
+            recipe_tag.strip(),
+            output_state=self._run_state,
+        )
 
 
 __all__ = ["BehaviorToolkit"]

@@ -80,6 +80,7 @@ def get_toolkit(
     config: RunConfig,
     mode: str | None = None,
     attempts_per_session: int = 0,
+    state_output_dir: Path | str | None = None,
 ):
     """Return the BEHAVIOR toolkit through the standard main contract."""
 
@@ -127,6 +128,7 @@ def get_toolkit(
         memory=memory,
         config=config,
         video_path=toolkit_kwargs.get("video_path"),
+        state_output_dir=state_output_dir,
     )
 
 
