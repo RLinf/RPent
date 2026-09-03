@@ -270,9 +270,19 @@ Dashboard snapshot 与生成的 ``episode.mp4``。这次有界运行没有使用
   返回 ``[32, 23] float32``。
 - 环境真实执行了一次单步和一个完整的 32-step chunk，共精确执行 ``33`` 个 env
   steps；输出视频精确包含 ``34`` 帧。ENV、VLA、MemoryManager 与 Dashboard 均报告
-  ready。指定的验收 snapshot 明确把 DINO 标为 ``not_applicable``，原因是当时的
-  官方 MemoryManager 路径不包含 DINO component；因此这次运行不能证明当前 DINO
-  readiness。
+  ready。
+- 后续 DINOv2 GPU smoke 使用已恢复的 ``behavior_dino`` RPC service，并指定 CUDA
+  device ``2``。``healthz`` 返回 ``status=ok``，``dino.get_meta`` 报告
+  ``facebookresearch/dinov2_vits14`` 在 revision
+  ``facebookresearch/dinov2@7764ea0f912e53c92e82eb78a2a1631e92725fc8`` 上的
+  dimension 为 ``384``。source archive 精确为 ``2,869,642`` bytes，SHA-256 为
+  ``c27dcdaf50e9fb5bbdf2bb529da357716372e19c6afab17d5350f3f0094aed4b``；weights
+  文件精确为 ``88,283,115`` bytes，SHA-256 为
+  ``b938bf1bc15cd2ec0feacfe3a1bb553fe8ea9ca46a7e1d8d00217f29aef60cd9``。对一张
+  RGB ``[224, 224, 3] uint8`` 测试图执行 encode 后，raw RPC 与
+  ``BehaviorDinoClient`` 均返回有限值 ``[384] float32`` 向量；client 归一化后的
+  L2 norm 为 ``0.9999999997354404``。连续两次 encode 的最大绝对差为 ``0.0``。
+  owner shutdown 返回 ``ok=true``，server 退出码为 ``0``，端口已释放。
 
 **探索阶段边界。**
 

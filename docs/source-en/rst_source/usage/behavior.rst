@@ -288,10 +288,22 @@ repository.
   ``[1, 32, 23] float32`` and the client returned ``[32, 23] float32``.
 - The environment executed one step and one complete 32-step chunk, for
   exactly ``33`` environment steps. The output video contained exactly ``34``
-  frames. ENV, VLA, MemoryManager, and the Dashboard reported ready. The
-  specified acceptance snapshot explicitly marked DINO as ``not_applicable``
-  because its official MemoryManager path did not include a DINO component; it
-  therefore does not establish current DINO readiness.
+  frames. ENV, VLA, MemoryManager, and the Dashboard reported ready.
+- A follow-up DINOv2 GPU smoke used the restored ``behavior_dino`` RPC service
+  on CUDA device ``2``. ``healthz`` returned ``status=ok`` and
+  ``dino.get_meta`` reported dimension ``384`` for
+  ``facebookresearch/dinov2_vits14`` at revision
+  ``facebookresearch/dinov2@7764ea0f912e53c92e82eb78a2a1631e92725fc8``. The
+  source archive was exactly ``2,869,642`` bytes with SHA-256
+  ``c27dcdaf50e9fb5bbdf2bb529da357716372e19c6afab17d5350f3f0094aed4b`` and
+  the weights file was exactly ``88,283,115`` bytes with SHA-256
+  ``b938bf1bc15cd2ec0feacfe3a1bb553fe8ea9ca46a7e1d8d00217f29aef60cd9``.
+  Encoding one RGB ``[224, 224, 3] uint8`` image produced finite
+  ``[384] float32`` vectors through both raw RPC and ``BehaviorDinoClient``;
+  the client-normalized L2 norm was ``0.9999999997354404``. Repeating the
+  encode produced maximum absolute difference ``0.0``. Owner shutdown returned
+  ``ok=true``, the server exited with return code ``0``, and the port was
+  released.
 
 **Exploration boundary.**
 
