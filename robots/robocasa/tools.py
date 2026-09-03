@@ -223,7 +223,9 @@ TOOLS_SPEC = [
             "RLDX VLA closed-loop skill — FULL base motion allowed. The VLA "
             "drives both arm and mobile base. Use for full-body tasks where "
             "the base must reposition (e.g. navigating to a counter while "
-            "reaching). Do NOT interrupt consecutive VLA calls with manual "
+            "reaching). Pass the complete live task_language verbatim; the "
+            "runtime always uses that environment language for RLDX. Do NOT "
+            "interrupt consecutive VLA calls with manual "
             "primitives — that breaks VLA frame history continuity "
             "(sets vla_desync=True)."
         ),
@@ -232,7 +234,7 @@ TOOLS_SPEC = [
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "VLA prompt, e.g. 'pick up the red mug'",
+                    "description": "Complete live task_language, copied verbatim",
                 },
                 "base_clip": {
                     "type": ["number", "null"],
@@ -241,13 +243,6 @@ TOOLS_SPEC = [
                 "max_chunks": {
                     "type": "integer",
                     "description": "Action-chunk budget (default 70; do NOT set small)",
-                },
-                "use_prompt": {
-                    "type": ["boolean", "null"],
-                    "description": (
-                        "If true, use the explicit prompt; "
-                        "if null/False, use env task language"
-                    ),
                 },
                 "force_reset": {
                     "type": "boolean",
@@ -278,15 +273,16 @@ TOOLS_SPEC = [
             "RLDX VLA closed-loop skill — base CLAMPED to small motions "
             "(base_clip=0.1 default). The VLA drives the arm for precise "
             "micro-alignment (e.g. fine-tuning a grasp approach) but cannot "
-            "drive the base away. Do NOT interrupt consecutive VLA calls "
-            "with manual primitives."
+            "drive the base away. Pass the complete live task_language "
+            "verbatim; the runtime always uses that environment language for "
+            "RLDX. Do NOT interrupt consecutive VLA calls with manual primitives."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "VLA prompt, e.g. 'pick up the red mug'",
+                    "description": "Complete live task_language, copied verbatim",
                 },
                 "base_clip": {
                     "type": ["number", "null"],
@@ -295,13 +291,6 @@ TOOLS_SPEC = [
                 "max_chunks": {
                     "type": "integer",
                     "description": "Action-chunk budget (default 70; do NOT set small)",
-                },
-                "use_prompt": {
-                    "type": ["boolean", "null"],
-                    "description": (
-                        "If true, use the explicit prompt; "
-                        "if null/False, use env task language"
-                    ),
                 },
                 "force_reset": {
                     "type": "boolean",
