@@ -27,9 +27,10 @@ not promise a directly runnable BEHAVIOR stack. From a source checkout, run:
 
 .. code-block:: bash
 
+   python -m pip install -e ".[behavior]"
    export RPENT_REPRO_ROOT="$PWD/.behavior-runtime"
    export UV_CACHE_DIR="$RPENT_REPRO_ROOT/uv-cache"
-   bash scripts/install_behavior_runtime.sh
+   behavior-install-runtime
 
 The installer keeps RPent editable in both venvs, clones the reviewed RLinf
 revision, invokes the official RLinf BEHAVIOR installer, applies the reviewed
@@ -41,21 +42,20 @@ wrong or dirty RLinf checkout.
 Simulator assets
 ----------------
 
-Accept the BEHAVIOR/OmniGibson licences, choose a dedicated data root, and run
-the three official download functions from the BEHAVIOR venv:
+Accept the BEHAVIOR/OmniGibson licences, choose a dedicated data root, and use
+the standard asset command. It invokes the three official OmniGibson download
+functions in the BEHAVIOR venv rather than importing OmniGibson into the RPent
+environment:
 
 .. code-block:: bash
 
    export OMNIGIBSON_DATA_PATH=/path/to/BEHAVIOR-1K-datasets
    export BEHAVIOR_PYTHON="$RPENT_REPRO_ROOT/venvs/behavior/bin/python"
-   mkdir -p "$OMNIGIBSON_DATA_PATH"
+   behavior-download-assets --accept-license --skip-existing
 
-   "$BEHAVIOR_PYTHON" -c \
-     "from omnigibson.utils.asset_utils import download_omnigibson_robot_assets; download_omnigibson_robot_assets()"
-   "$BEHAVIOR_PYTHON" -c \
-     "from omnigibson.utils.asset_utils import download_behavior_1k_assets; download_behavior_1k_assets(accept_license=True)"
-   "$BEHAVIOR_PYTHON" -c \
-     "from omnigibson.utils.asset_utils import download_2025_challenge_task_instances; download_2025_challenge_task_instances()"
+Omit ``--accept-license`` to let the official downloader display its
+interactive licence prompt. The flag is an explicit non-interactive
+confirmation; do not use it unless you accept the licence terms.
 
 The final data root must contain:
 
@@ -80,14 +80,14 @@ Download the reviewed checkpoint into a directory outside the source tree:
      RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
      --local-dir "$PI05_CHECKPOINT_PATH"
 
-``scripts/verify_behavior_assets.sh`` verifies the required OmniGibson layout
+``behavior-download-assets --verify`` verifies the required OmniGibson layout
 and the source-controlled checkpoint size/SHA binding. The shared #136 Pi0.5
 component receives head, left-wrist, right-wrist, and raw R1Pro proprio data.
 The raw RPC result is ``[1, 32, 23]``; the common client returns ``[32, 23]``.
 
 .. code-block:: bash
 
-   scripts/verify_behavior_assets.sh
+   behavior-download-assets --verify
 
 DINOv2 configuration
 --------------------
@@ -219,9 +219,20 @@ Start a Dashboard Session with:
 
 .. code-block:: bash
 
-   TASK_NAME=turning_on_radio PUBLIC_SEED=1 \
-     BEHAVIOR_MEMORY_DIR=/path/to/behavior-memory \
-     scripts/run_behavior_dashboard.sh
+   export RPENT_BEHAVIOR_PYTHON="$RPENT_REPRO_ROOT/venvs/behavior/bin/python"
+   "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" \
+     --robot behavior --dashboard \
+     --task-name turning_on_radio --public-seed 1 \
+     --behavior-mode eval \
+     --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
+     --behavior-python "$RPENT_BEHAVIOR_PYTHON" \
+     --activity-instance-dir \
+       "$OMNIGIBSON_DATA_PATH/2025-challenge-task-instances" \
+     --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
+     --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
+     --dino-weights "$DINOV2_WEIGHTS" \
+     --memory-profile local --memory-dir /path/to/behavior-memory \
+     --output-dir /path/to/behavior-dashboard-run
 
 The Dashboard uses the common Start Session flow and head/left-wrist/right-
 wrist camera views. BEHAVIOR does not add robot-local manual buttons, a manual

@@ -35,6 +35,7 @@ Other environment configurations are available when needed:
 
    pip install -e ".[robocasa]"    # RoboCasa
    pip install -e ".[robotwin]"    # RoboTwin
+   pip install -e ".[behavior]"    # RPent-side BEHAVIOR dependencies
 
 ``.[libero-pro]`` is the recommended default.
 
@@ -60,7 +61,8 @@ Available extras:
      - LIBERO-plus + openpi Pi0.5 VLA + SAM 3.0 + RLinf runtime
    * - ``.[behavior]``
      - RPent-side dependencies only; full simulation requires the dedicated
-       source-editable dual-venv workflow in :doc:`usage/behavior`
+       source-editable dual-venv workflow in :doc:`usage/behavior`, starting
+       with ``behavior-install-runtime`` and ``behavior-download-assets``
    * - ``.[robocasa]``
      - RoboCasa365 simulator + the RLDX-1 VLA; see :doc:`usage/robocasa`
    * - ``.[robotwin]``
@@ -70,6 +72,11 @@ Available extras:
      - RLinf runtime only
    * - ``.[sam3]``
      - SAM 3.0 only
+
+For BEHAVIOR, run ``behavior-install-runtime`` from the source-editable
+checkout, then use ``behavior-download-assets --accept-license
+--skip-existing``. The latter delegates all simulator downloads to the
+BEHAVIOR venv. See :doc:`usage/behavior` before accepting the data licence.
 
 2. Download the assets required to run LIBERO
 ---------------------------------------------

@@ -23,9 +23,10 @@ BEHAVIOR 以源码 editable 方式运行，并使用两个相互独立的 Python
 
 .. code-block:: bash
 
+   python -m pip install -e ".[behavior]"
    export RPENT_REPRO_ROOT="$PWD/.behavior-runtime"
    export UV_CACHE_DIR="$RPENT_REPRO_ROOT/uv-cache"
-   bash scripts/install_behavior_runtime.sh
+   behavior-install-runtime
 
 安装器会在两个 venv 中保持 RPent editable，克隆已审查的 RLinf revision，调用
 官方 RLinf BEHAVIOR 安装器，应用已审查的 CUDA/OpenPI 兼容性 pin，验证关键 import
@@ -36,21 +37,18 @@ checkout。
 仿真资产
 --------
 
-接受 BEHAVIOR/OmniGibson 许可后，选择独立数据根，并在 BEHAVIOR venv 中调用三个
-官方下载函数：
+接受 BEHAVIOR/OmniGibson 许可后，选择独立数据根并使用标准资产命令。该命令会在
+BEHAVIOR venv 中调用三个 OmniGibson 官方下载函数，不会把 OmniGibson import 到
+RPent 环境：
 
 .. code-block:: bash
 
    export OMNIGIBSON_DATA_PATH=/path/to/BEHAVIOR-1K-datasets
    export BEHAVIOR_PYTHON="$RPENT_REPRO_ROOT/venvs/behavior/bin/python"
-   mkdir -p "$OMNIGIBSON_DATA_PATH"
+   behavior-download-assets --accept-license --skip-existing
 
-   "$BEHAVIOR_PYTHON" -c \
-     "from omnigibson.utils.asset_utils import download_omnigibson_robot_assets; download_omnigibson_robot_assets()"
-   "$BEHAVIOR_PYTHON" -c \
-     "from omnigibson.utils.asset_utils import download_behavior_1k_assets; download_behavior_1k_assets(accept_license=True)"
-   "$BEHAVIOR_PYTHON" -c \
-     "from omnigibson.utils.asset_utils import download_2025_challenge_task_instances; download_2025_challenge_task_instances()"
+不传 ``--accept-license`` 时，官方下载器会显示交互式许可确认。该参数代表明确的
+非交互许可确认；仅在接受许可条款后使用。
 
 最终数据根必须包含：
 
@@ -75,14 +73,14 @@ Pi0.5 checkpoint
      RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
      --local-dir "$PI05_CHECKPOINT_PATH"
 
-``scripts/verify_behavior_assets.sh`` 会检查 OmniGibson 必需目录，以及源码中固定的
+``behavior-download-assets --verify`` 会检查 OmniGibson 必需目录，以及源码中固定的
 checkpoint size/SHA binding。#136 的共享 Pi0.5 component 接收 head、left wrist、
 right wrist 和 raw R1Pro proprio；原始 RPC 输出为 ``[1, 32, 23]``，公共 client
 返回 ``[32, 23]``。
 
 .. code-block:: bash
 
-   scripts/verify_behavior_assets.sh
+   behavior-download-assets --verify
 
 DINOv2 配置
 -------------
@@ -209,9 +207,20 @@ runtime 有四个 component role：
 
 .. code-block:: bash
 
-   TASK_NAME=turning_on_radio PUBLIC_SEED=1 \
-     BEHAVIOR_MEMORY_DIR=/path/to/behavior-memory \
-     scripts/run_behavior_dashboard.sh
+   export RPENT_BEHAVIOR_PYTHON="$RPENT_REPRO_ROOT/venvs/behavior/bin/python"
+   "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" \
+     --robot behavior --dashboard \
+     --task-name turning_on_radio --public-seed 1 \
+     --behavior-mode eval \
+     --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
+     --behavior-python "$RPENT_BEHAVIOR_PYTHON" \
+     --activity-instance-dir \
+       "$OMNIGIBSON_DATA_PATH/2025-challenge-task-instances" \
+     --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
+     --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
+     --dino-weights "$DINOV2_WEIGHTS" \
+     --memory-profile local --memory-dir /path/to/behavior-memory \
+     --output-dir /path/to/behavior-dashboard-run
 
 Dashboard 使用公共 Start Session 流程与 head/left-wrist/right-wrist 相机视图。
 BEHAVIOR 不增加 robot-local 手动按钮、手动控制 backend 或

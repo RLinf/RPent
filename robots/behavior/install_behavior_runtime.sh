@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RPENT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+RPENT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 REPRO_ROOT="${RPENT_REPRO_ROOT:-${RPENT_ROOT}/.behavior-runtime}"
 RLINF_ROOT="${RLINF_ROOT:-${REPRO_ROOT}/RLinf}"
 RPENT_VENV="${RPENT_VENV:-${REPRO_ROOT}/venvs/rpent}"
@@ -234,4 +234,4 @@ cd "${RPENT_ROOT}"
 echo "Installation complete."
 echo "Behavior Python: ${BEHAVIOR_PYTHON}"
 echo "Version manifests: ${MANIFEST_DIR}"
-echo "Next: export the asset variables and run scripts/verify_behavior_assets.sh"
+echo "Next: export the asset variables and run behavior-download-assets --verify"
