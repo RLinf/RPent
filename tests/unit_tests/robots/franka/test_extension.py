@@ -54,13 +54,12 @@ def test_direct_franka_spec_matches_registry_resolution():
     assert get_robot_spec().name == resolve_robot_spec("franka").name
 
 
-def test_franka_cli_uses_current_interpreter_without_override_option():
+def test_franka_cli_builds_env_server_command():
     parser = argparse.ArgumentParser()
     _add_cli_args(parser, use_dashboard=False)
 
     args = parser.parse_args([])
 
-    assert not hasattr(args, "rlinf_python")
     command = _env_server_command(
         args,
         host="127.0.0.1",

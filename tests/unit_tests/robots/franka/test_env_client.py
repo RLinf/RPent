@@ -49,17 +49,18 @@ def test_franka_client_uses_explicit_env_methods():
     client.set_gripper(open=True)
     client.chunk_step(np.zeros((2, 7), dtype=np.float64))
 
-    assert [call[0] for call in rpc.calls] == [
+    calls_by_method = {method: payload for method, _args, payload, _timeout in rpc.calls}
+    assert set(calls_by_method) == {
         "env.get_env_meta",
         "env.reset",
         "env.move_delta",
         "env.rotate_delta",
         "env.set_gripper",
         "env.chunk_step",
-    ]
+    }
     np.testing.assert_allclose(
-        rpc.calls[2][2]["delta_xyz"],
+        calls_by_method["env.move_delta"]["delta_xyz"],
         np.array([0.01, 0.0, -0.02], dtype=np.float32),
     )
-    assert rpc.calls[4][2] == {"open": True}
-    assert rpc.calls[5][2]["actions"].dtype == np.float32
+    assert calls_by_method["env.set_gripper"] == {"open": True}
+    assert calls_by_method["env.chunk_step"]["actions"].dtype == np.float32

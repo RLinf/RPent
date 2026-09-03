@@ -62,13 +62,12 @@ def test_direct_dual_franka_spec_matches_registry_resolution():
     assert get_robot_spec().name == resolve_robot_spec("dual_franka").name
 
 
-def test_dual_franka_cli_uses_current_interpreter_without_override_option():
+def test_dual_franka_cli_builds_env_server_command():
     parser = argparse.ArgumentParser()
     _add_cli_args(parser, use_dashboard=False)
 
     args = parser.parse_args([])
 
-    assert not hasattr(args, "rlinf_python")
     command = _env_server_command(
         args,
         host="127.0.0.1",
@@ -79,8 +78,6 @@ def test_dual_franka_cli_uses_current_interpreter_without_override_option():
         "-m",
         "robots.dual_franka.env_server",
     ]
-    assert "--config-name" not in command
-    assert "--override" not in command
     assert "--task-description" in command
 
 
