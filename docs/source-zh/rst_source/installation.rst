@@ -29,7 +29,8 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 
 .. tip::
 
-   如果安装 ``openai-codex-cli-bin`` 较慢，可以使用阿里云 PyPI 镜像：
+   ``openai-codex-cli-bin`` 目前在清华 TUNA PyPI 镜像中不可用。
+   如果从默认 PyPI 安装较慢，可以使用阿里云 PyPI 镜像：
 
    .. code-block:: bash
 
