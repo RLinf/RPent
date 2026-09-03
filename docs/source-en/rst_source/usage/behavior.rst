@@ -113,6 +113,21 @@ or MemoryManager Markdown/YAML material. The accepted DINOv2 source revision
 and both asset SHA-256 identities are pinned in
 ``robots/behavior/dino_v2/encoder.py``; the runtime rejects mismatched assets.
 
+The DINO episode-memory catalog is a rebuildable derivative of official
+BEHAVIOR demonstration data. Build it with the standard command below; do not
+edit the catalog by hand.
+
+.. code-block:: bash
+
+   behavior-build-memory \
+     --selection-manifest /path/to/selection_manifest.json \
+     --video-root /path/to/2025-challenge-demos \
+     --rollups-dir /path/to/episode_rollups \
+     --source-archive "$DINOV2_SOURCE_ARCHIVE" \
+     --weights "$DINOV2_WEIGHTS" \
+     --cuda-device 2 \
+     --output-dir /path/to/behavior-dino-catalog
+
 Task identity
 -------------
 

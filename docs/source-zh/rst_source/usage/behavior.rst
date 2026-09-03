@@ -105,6 +105,20 @@ DINOv2 是共享视觉 memory component；它不是分割模型，不替代 SAM3
 公开观察或 MemoryManager 的 Markdown/YAML 语料。接受的源码 revision 和两个资产
 SHA-256 固定在 ``robots/behavior/dino_v2/encoder.py``；runtime 会拒绝不匹配的资产。
 
+DINO episode-memory catalog 是官方 BEHAVIOR demonstration 数据的可重建派生物。
+使用下面的标准命令生成；不要手工编辑 catalog。
+
+.. code-block:: bash
+
+   behavior-build-memory \
+     --selection-manifest /path/to/selection_manifest.json \
+     --video-root /path/to/2025-challenge-demos \
+     --rollups-dir /path/to/episode_rollups \
+     --source-archive "$DINOV2_SOURCE_ARCHIVE" \
+     --weights "$DINOV2_WEIGHTS" \
+     --cuda-device 2 \
+     --output-dir /path/to/behavior-dino-catalog
+
 任务身份
 --------
 

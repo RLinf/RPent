@@ -46,6 +46,7 @@ dependencies = [
 rpent = "rpent.cli.main:main"
 rpent-memory = "rpent.cli.memory:main"
 behavior-download-assets = "robots.behavior.assets_cli:main"
+behavior-build-memory = "robots.behavior.build_memory_cli:main"
 behavior-install-runtime = "robots.behavior.install_runtime:main"
 
 [project.urls]

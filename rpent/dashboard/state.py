@@ -807,8 +807,8 @@ class DashboardState:
                 )
             self._terminated = self._terminated or record.terminated
             self._truncated = self._truncated or record.truncated
-            self._official_success = (
-                self._official_success or bool(item["official_success"])
+            self._official_success = self._official_success or bool(
+                item["official_success"]
             )
 
     def _update_step_frames(self, record: StepRecord, *, display_step: int) -> None:

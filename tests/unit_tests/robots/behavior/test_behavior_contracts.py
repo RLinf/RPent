@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from robots.behavior import build_memory_cli
 from robots.behavior.dino_v2.client import BehaviorDinoClient
 from robots.behavior.dino_v2.encoder import DINOV2_DIMENSION
 from robots.behavior.dino_v2.server import BehaviorDinoFacade
@@ -504,6 +506,87 @@ def test_behavior_pi0_chunk_records_streaming_episode_video(tmp_path: Path) -> N
     video_path = session_dir / "episode.mp4"
     assert video_path.is_file()
     assert video_path.stat().st_size > 0
-    assert "episode.mp4" in json.loads((session_dir / "states.json").read_text())[
-        "run_artifacts"
-    ]
+    assert (
+        "episode.mp4"
+        in json.loads((session_dir / "states.json").read_text())["run_artifacts"]
+    )
+
+
+def test_behavior_build_memory_cli_wraps_existing_catalog_compiler(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_compile_runtime_catalog(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"artifact_dir": str(kwargs["output_dir"]), "preliminary": True}
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "7")
+    monkeypatch.setattr(
+        build_memory_cli,
+        "compile_runtime_catalog",
+        fake_compile_runtime_catalog,
+    )
+
+    rc = build_memory_cli.main(
+        [
+            "--selection-manifest",
+            str(tmp_path / "selection.json"),
+            "--output-dir",
+            str(tmp_path / "catalog"),
+            "--video-root",
+            str(tmp_path / "videos"),
+            "--rollups-dir",
+            str(tmp_path / "rollups"),
+            "--source-archive",
+            str(tmp_path / "dinov2.tar.gz"),
+            "--weights",
+            str(tmp_path / "dinov2.pth"),
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--cuda-device",
+            "2",
+            "--batch-size",
+            "8",
+        ]
+    )
+
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "artifact_dir": str((tmp_path / "catalog").resolve()),
+        "preliminary": True,
+    }
+    assert captured["selection_manifest"] == (tmp_path / "selection.json").resolve()
+    assert captured["output_dir"] == (tmp_path / "catalog").resolve()
+    assert captured["video_roots"] == ((tmp_path / "videos").resolve(),)
+    assert captured["rollups_dir"] == (tmp_path / "rollups").resolve()
+    assert captured["source_archive"] == (tmp_path / "dinov2.tar.gz").resolve()
+    assert captured["weights"] == (tmp_path / "dinov2.pth").resolve()
+    assert captured["cache_dir"] == (tmp_path / "cache").resolve()
+    assert captured["batch_size"] == 8
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "2"
+
+
+def test_behavior_build_memory_cli_rejects_multi_cuda_device() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        build_memory_cli.main(
+            [
+                "--selection-manifest",
+                "selection.json",
+                "--output-dir",
+                "catalog",
+                "--video-root",
+                "videos",
+                "--rollups-dir",
+                "rollups",
+                "--source-archive",
+                "dinov2.tar.gz",
+                "--weights",
+                "dinov2.pth",
+                "--cuda-device",
+                "2,7",
+            ]
+        )
+    assert exc_info.value.code == 2
