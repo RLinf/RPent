@@ -29,12 +29,14 @@ from robots.dual_franka.robot_spec import (
     _add_cli_args,
     _env_server_command,
     _parse_config,
+    _spawn_env_server,
     _vla_server_command,
 )
 from robots.dual_franka.runtime_config import load_runtime_config
 from rpent.robots.base import enumerate_robots
 from rpent.robots.base import get_robot_spec as resolve_robot_spec
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+from rpent.utils.daemon import ProcessDaemon
 
 
 def test_dual_franka_extension_is_discoverable_and_renders_task_prompt(tmp_path: Path):
@@ -72,7 +74,13 @@ def test_dual_franka_cli_uses_current_interpreter_without_override_option():
         host="127.0.0.1",
         port=5556,
     )
-    assert command[0] == sys.executable
+    assert command[:3] == [
+        sys.executable,
+        "-m",
+        "robots.dual_franka.env_server",
+    ]
+    assert "--config-name" not in command
+    assert "--override" not in command
     assert "--task-description" in command
 
 
@@ -92,6 +100,21 @@ def test_dual_franka_uses_rpent_owned_robot_config():
     assert runtime.controller["move_max_step_m"] == 0.02
 
 
+def test_dual_franka_env_server_reuses_preprovisioned_ray_environments(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setattr("robots.dual_franka.robot_spec.pick_free_port", lambda: 5556)
+    monkeypatch.setattr(ProcessDaemon, "start", lambda self: None)
+
+    daemon, _rpc = _spawn_env_server(
+        Namespace(env_endpoint=None, task_id=1, robot_config=None),
+        tmp_path,
+    )
+
+    assert daemon is not None
+    assert daemon.subprocess_env["RAY_ENABLE_UV_RUN_RUNTIME_ENV"] == "0"
+
+
 def test_dual_franka_vla_server_command_uses_checkpoint_and_repo_id():
     args = Namespace(
         vla_model_path="/models/global_step_5000",
@@ -101,7 +124,11 @@ def test_dual_franka_vla_server_command_uses_checkpoint_and_repo_id():
 
     command = _vla_server_command(args, host="127.0.0.1", port=6000)
 
-    assert command[0] == sys.executable
+    assert command[:3] == [
+        sys.executable,
+        "-m",
+        "robots.dual_franka.vla_server",
+    ]
     assert command[command.index("--model-path") + 1] == args.vla_model_path
     assert command[command.index("--repo-id") + 1] == args.vla_repo_id
     assert command[command.index("--cuda-device") + 1] == "2"
