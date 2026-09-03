@@ -103,7 +103,7 @@ robocasa = [
 robotwin = [
     # TODO: replace fixed owner-controlled revisions with released versions.
     "rpent[rlinf]",
-    "rlinf-robotwin-runtime @ git+https://github.com/RoboTwin-Platform/RoboTwin.git@11d2d4ba1ba4819ebf63bb91ba0c5dfd4b0f81f2",
+    "rlinf-robotwin-runtime @ git+https://github.com/Sonorous281/RoboTwin.git@11d2d4ba1ba4819ebf63bb91ba0c5dfd4b0f81f2",
     "rlinf-lingbotvla @ git+https://github.com/RLinf/lingbot-vla.git@e158cce02f50dbb48b7f5bf76fdb34c1c1f97e12",
 ]
 
