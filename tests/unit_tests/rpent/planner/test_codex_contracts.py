@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,7 +32,10 @@ from rpent.planner.codex import (
     _codex_mcp_config_overrides,
     _interrupt,
 )
-from rpent.planner.utils.http_mcp_server import _toolkit_to_mcp_content
+from rpent.planner.utils.http_mcp_server import (
+    HttpMcpServer,
+    _toolkit_to_mcp_content,
+)
 from rpent.tools.toolkit import ToolResult
 
 
@@ -186,6 +190,23 @@ def test_mcp_content_conversion_preserves_text_images_and_error_status() -> None
     assert is_error is True
 
 
+def test_http_mcp_readiness_ignores_environment_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    server = HttpMcpServer(FakeToolkit())
+
+    try:
+        url = server.start(ready_timeout_s=3.0)
+    finally:
+        server.stop()
+
+    assert url.startswith("http://127.0.0.1:")
+
+
 def test_config_overrides_normalize_provider_url() -> None:
     assert _codex_mcp_config_overrides(
         mcp_url="http://fake.invalid/mcp/",
@@ -249,6 +270,39 @@ def test_build_config_constructs_with_the_installed_codex_sdk(
     assert config.experimental_api is True
     assert config.env[PROVIDER_ENV_KEY] == "contract-key"
     assert f'model_provider="{PROVIDER_ID}"' in config.config_overrides
+
+
+def test_build_config_scopes_loopback_no_proxy_to_codex_child(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.invalid:8080")
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.invalid:8080")
+    monkeypatch.setenv("NO_PROXY", "metadata.internal")
+    monkeypatch.setenv("no_proxy", ".corp.invalid")
+    captured: list[dict[str, Any]] = []
+
+    def codex_config(**kwargs: Any) -> dict[str, Any]:
+        captured.append(kwargs)
+        return kwargs
+
+    monkeypatch.setattr(codex_module.openai_codex, "CodexConfig", codex_config)
+    planner = make_planner(tmp_path, RecordingSink())
+
+    config = planner._build_config("http://127.0.0.1:8765/mcp/")
+
+    child_env = config["env"]
+    assert child_env["HTTP_PROXY"] == "http://proxy.invalid:8080"
+    assert child_env["HTTPS_PROXY"] == "http://proxy.invalid:8080"
+    assert child_env["NO_PROXY"].split(",") == [
+        "metadata.internal",
+        ".corp.invalid",
+        "127.0.0.1",
+        "localhost",
+    ]
+    assert child_env["no_proxy"] == child_env["NO_PROXY"]
+    assert os.environ["NO_PROXY"] == "metadata.internal"
+    assert os.environ["no_proxy"] == ".corp.invalid"
 
 
 def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(

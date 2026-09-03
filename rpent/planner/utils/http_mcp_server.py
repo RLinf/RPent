@@ -164,7 +164,9 @@ def _wait_for_ready(url: str, *, timeout_s: float) -> None:
     }
     transport = httpx.HTTPTransport(retries=10)
     with httpx.Client(
-        transport=transport, timeout=httpx.Timeout(timeout_s, connect=2)
+        transport=transport,
+        timeout=httpx.Timeout(timeout_s, connect=2),
+        trust_env=False,
     ) as c:
         resp = c.post(url, json=body, headers={"Accept": "application/json"})
         body_preview = resp.text[:200]
