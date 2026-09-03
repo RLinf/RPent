@@ -25,6 +25,34 @@ from rpent.utils.logging import get_logger
 logger = get_logger("vla_server")
 
 
+def _build_processor_image_transforms(processor):
+    from rldx.data.augmentations import build_image_transformations_albumentations
+
+    return build_image_transformations_albumentations(
+        image_max_area=processor.image_max_area,
+        image_resize_m=processor.image_resize_m,
+        random_crop_fraction=getattr(processor, "random_crop_fraction", None),
+        random_rotation_angle=getattr(processor, "random_rotation_angle", None),
+        color_jitter_params=getattr(processor, "color_jitter_params", None),
+    )
+
+
+def _normalize_legacy_processor_geometry(processor):
+    """Restore required image geometry omitted by older checkpoint metadata."""
+    image_max_area = getattr(processor, "image_max_area", None)
+    image_resize_m = getattr(processor, "image_resize_m", None)
+    if image_max_area is not None and image_resize_m is not None:
+        return False
+
+    processor.image_max_area = 65536 if image_max_area is None else image_max_area
+    processor.image_resize_m = 32 if image_resize_m is None else image_resize_m
+    (
+        processor.train_image_transform,
+        processor.eval_image_transform,
+    ) = _build_processor_image_transforms(processor)
+    return True
+
+
 class RoboCasaVLAFacade(BaseVLAFacade):
     """Loads RLDX model and exposes inference-only RPC methods."""
 
@@ -39,6 +67,11 @@ class RoboCasaVLAFacade(BaseVLAFacade):
             "",
             None,
         )
+        if _normalize_legacy_processor_geometry(self.policy.policy.processor):
+            logger.warning(
+                "RLDX checkpoint omitted required image geometry; using "
+                "image_max_area=65536 and image_resize_m=32"
+            )
         mod = self.policy.get_modality_config()
         self._vdi = np.asarray(mod["video"].delta_indices)
         self._hist_maxlen = int(self._vdi.max() - self._vdi.min()) + 2
