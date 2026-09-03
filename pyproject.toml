@@ -117,7 +117,61 @@ robotwin = [
 ]
 
 [tool.uv]
-prerelease = "allow"
+# Only accept pre-releases that are explicitly named by this project.
+prerelease = "explicit"
+# Ray's Prometheus exporter stack and RoboTwin's SAPIEN runtime publish the
+# required versions with beta suffixes. Keep those exceptions narrow instead
+# of enabling pre-releases for the entire dependency graph.
+constraint-dependencies = [
+    "opentelemetry-exporter-prometheus>=0.51b0",
+    "opentelemetry-semantic-conventions>=0.51b0",
+    "sapien==3.0.0b1",
+]
+# RoboTwin's pinned runtime packages require Python >=3.11,<3.12, and the
+# supported robot stacks target Linux x86-64.
+environments = [
+    "python_version == '3.11' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+# Each robot environment selects a separately pinned VLA runtime. These pairs
+# require incompatible Torch, Transformers, Tokenizers, or Diffusers versions.
+conflicts = [
+    [
+        { extra = "franka" },
+        { extra = "libero" },
+    ],
+    [
+        { extra = "franka" },
+        { extra = "libero-pro" },
+    ],
+    [
+        { extra = "franka" },
+        { extra = "libero-plus" },
+    ],
+    [
+        { extra = "franka" },
+        { extra = "robocasa" },
+    ],
+    [
+        { extra = "franka" },
+        { extra = "robotwin" },
+    ],
+    [
+        { extra = "libero" },
+        { extra = "robotwin" },
+    ],
+    [
+        { extra = "libero-pro" },
+        { extra = "robotwin" },
+    ],
+    [
+        { extra = "libero-plus" },
+        { extra = "robotwin" },
+    ],
+    [
+        { extra = "robocasa" },
+        { extra = "robotwin" },
+    ],
+]
 
 [tool.setuptools]
 include-package-data = true

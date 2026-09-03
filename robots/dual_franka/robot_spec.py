@@ -175,7 +175,8 @@ def _env_server_command(
     task = get_dual_franka_task(args.task_id)
     command = [
         sys.executable,
-        str(get_repo_root() / "robots" / "dual_franka" / "env_server.py"),
+        "-m",
+        "robots.dual_franka.env_server",
         "--transport",
         "http",
         "--host",
@@ -199,7 +200,8 @@ def _vla_server_command(
 ) -> list[str]:
     command = [
         sys.executable,
-        str(get_repo_root() / "robots" / "dual_franka" / "vla_server.py"),
+        "-m",
+        "robots.dual_franka.vla_server",
         "--transport",
         "http",
         "--host",
@@ -232,6 +234,10 @@ def _spawn_env_server(
     daemon = ProcessDaemon(
         name="dual_franka_env_server",
         cmd=_env_server_command(args, host=host, port=port),
+        # Both Ray nodes already use this project's pre-provisioned environment.
+        # Disable Ray's automatic uv hook: it otherwise runs uv from a temporary
+        # uploaded directory and can repeatedly miss the worker startup timeout.
+        env_overrides={"RAY_ENABLE_UV_RUN_RUNTIME_ENV": "0"},
         log_path=str(output_dir / "dual_franka_env_server.log"),
     )
     daemon.start()
