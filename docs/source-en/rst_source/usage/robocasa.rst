@@ -245,19 +245,17 @@ larger; see the `RoboCasa <https://robocasa.ai>`_ upstream.
 Running a task
 --------------
 
-RPent starts its default environment and VLA workers on loopback addresses. If
-the launch shell defines ``HTTP_PROXY`` or ``HTTPS_PROXY``, keep that proxy for
-remote services while exempting local RPC in both commonly recognized forms:
+RPent-owned environment and VLA workers use request-local direct HTTP clients.
+Codex likewise adds loopback exclusions only to its child process for the local
+MCP connection. Leave ``HTTP_PROXY`` and ``HTTPS_PROXY`` unchanged when remote
+services require them; the default runtime does not require a shell-wide
+``NO_PROXY`` setup.
 
-.. code-block:: bash
-
-   export NO_PROXY="${NO_PROXY:+${NO_PROXY},}127.0.0.1,localhost,::1"
-   export no_proxy="${no_proxy:+${no_proxy},}127.0.0.1,localhost,::1"
-
-These assignments preserve existing exclusions. If ``--env-endpoint`` or
-``--vla-endpoint`` names another local host or IP, add that exact value to both
-variables. Hugging Face, remote planners, and other remote endpoints continue
-to use the configured proxy.
+User-supplied ``--env-endpoint`` and ``--vla-endpoint`` values deliberately
+honor the standard proxy environment. If such an endpoint is local and should
+be reached directly, add its exact hostname or IP to the user's existing
+``NO_PROXY`` and ``no_proxy`` configuration. This choice does not affect
+Hugging Face, a remote planner, or other remote endpoints.
 
 The RoboCasa CLI flags are registered by ``robots/robocasa/__init__`` and
 are visible under ``rpent --robot robocasa --help``:
@@ -279,8 +277,7 @@ For Target50, first download the fixed resources above, then invoke one ordinary
 command for each manifest cell. The Codex reference profile is ``gpt-5.5``,
 ``xhigh``, and ``max_turns=100``; RoboCasa itself remains planner-agnostic. For
 the scene identity, use the ordinary ``--seed`` argument and do not set
-``RLDX_RESET_SEED``. Keep the loopback ``NO_PROXY`` / ``no_proxy`` settings
-above and freeze the RLDX execution values first:
+``RLDX_RESET_SEED``. Freeze the RLDX execution values first:
 
 .. code-block:: bash
 
@@ -375,10 +372,10 @@ Troubleshooting
   RPent does not fall back to another task's memory.
 - Environment and VLA startup failures are recorded in
   ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
-- If local RPC is sent through an HTTP proxy, set both ``NO_PROXY`` and
-  ``no_proxy`` as shown under "Running a task". Keep ``HTTP_PROXY`` and
-  ``HTTPS_PROXY`` for remote traffic, and add any custom local endpoint host to
-  the exclusions.
+- A user-supplied local ``--env-endpoint`` or ``--vla-endpoint`` follows the
+  standard proxy environment. Add that host to the user's ``NO_PROXY`` and
+  ``no_proxy`` configuration only when it should be reached directly.
+  RPent-owned workers need no proxy setup.
 
 Toolkit design vs. LIBERO
 -------------------------
