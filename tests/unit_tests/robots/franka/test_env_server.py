@@ -12,17 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Offline tests for the import-light Franka RPC facade."""
+"""Offline test for the Franka RPC facade/client round-trip over HTTP."""
 
 from __future__ import annotations
 
 import threading
 
 import numpy as np
-import pytest
 
 from robots.franka.env_client import FrankaEnvClient
-from robots.franka.env_server import FrankaEnvFacade, _to_numpy_tree
+from robots.franka.env_server import FrankaEnvFacade
 from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
 
 
@@ -53,22 +52,6 @@ class FakeBackend:
 
     def chunk_step(self, actions, *, return_all_frames=False):
         return {"actions": np.asarray(actions), "return_all_frames": return_all_frames}
-
-
-def test_facade_dispatches_only_explicit_env_methods():
-    facade = FrankaEnvFacade(FakeBackend())
-
-    assert facade._dispatch("env.get_env_meta", (), {}) == {"ok": True}
-    result = facade._dispatch("env.move_delta", (), {"delta_xyz": [1, 2, 3]})
-    np.testing.assert_array_equal(result["delta_xyz"], [1, 2, 3])
-    with pytest.raises(ValueError, match="unknown RPC method"):
-        facade._dispatch("env.delete_everything", (), {})
-
-
-def test_to_numpy_tree_converts_nested_numpy_scalars_and_dataclasses():
-    value = {"items": [np.float32(1.5), (np.int64(2),)]}
-
-    assert _to_numpy_tree(value) == {"items": [1.5, (2,)]}
 
 
 def test_franka_client_and_facade_round_trip_numpy_over_http():

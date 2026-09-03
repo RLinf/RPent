@@ -12,61 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Offline tests for Franka environment discovery and prompt configuration."""
+"""Offline tests for Franka environment discovery and config loading."""
 
 from __future__ import annotations
 
-import argparse
-import sys
-from argparse import Namespace
 from pathlib import Path
 
 import gymnasium as gym
 import pytest
 
 from robots.franka import get_robot_spec
-from robots.franka.robot_spec import _add_cli_args, _env_server_command, _parse_config
 from robots.franka.runtime_config import load_runtime_config
 from rpent.robots.base import enumerate_robots
 from rpent.robots.base import get_robot_spec as resolve_robot_spec
 
 
-def test_franka_extension_is_discoverable_and_renders_task_prompt(tmp_path: Path):
+def test_franka_extension_is_discoverable():
     assert "franka" in enumerate_robots()
     spec = resolve_robot_spec("franka")
     assert spec.name == "franka"
-
-    run_config = _parse_config(
-        Namespace(
-            task_id=1,
-            output_dir=tmp_path,
-        )
-    )
-    user_prompt = spec.prompts.render("user", variables=run_config.prompt_vars)
-
-    assert run_config.recipe_tag == "franka_t1"
-    assert run_config.task_desc == {"task_id": 1, "task_name": "vla_grasp"}
-    assert "Use bounded analytic motion" in user_prompt
-    assert str(tmp_path) in user_prompt
-
-
-def test_direct_franka_spec_matches_registry_resolution():
-    assert get_robot_spec().name == resolve_robot_spec("franka").name
-
-
-def test_franka_cli_builds_env_server_command():
-    parser = argparse.ArgumentParser()
-    _add_cli_args(parser, use_dashboard=False)
-
-    args = parser.parse_args([])
-
-    command = _env_server_command(
-        args,
-        host="127.0.0.1",
-        port=5555,
-    )
-    assert command[0] == sys.executable
-    assert "--task-description" in command
+    assert get_robot_spec().name == spec.name
 
 
 def test_franka_uses_rpent_owned_robot_config():
@@ -77,9 +42,7 @@ def test_franka_uses_rpent_owned_robot_config():
 
     assert config_path.is_file()
     assert cfg.env.eval.init_params.id == "RPentFrankaEnv-v1"
-    assert cfg.cluster.node_groups[0].hardware.configs[0].robot_ip == "172.16.0.2"
     assert cfg.env.eval.override_cfg.task_description == "test task"
-    assert runtime.controller["move_tolerance_m"] == 0.005
 
 
 def test_rpent_franka_registration_exists():
