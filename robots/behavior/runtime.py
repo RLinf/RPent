@@ -331,7 +331,7 @@ def parse_config(args: argparse.Namespace) -> RunConfig:
             ],
             "memory_dir": str(memory_dir),
             "memory_profile": memory_profile,
-            "memory_inbox": str(memory_dir / "_inbox" / recipe_tag),
+            "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
             "behavior_episode_memory": episode_memory_profile,
             "behavior_memory_dir": str(episode_memory_dir)
             if episode_memory_dir is not None

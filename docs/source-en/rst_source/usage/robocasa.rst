@@ -106,16 +106,15 @@ If the download is slow, use the HF mirror:
 
 **Task memory**
 
-Default evaluation uses RPent's public resource sync to download the
-``robocasa/**`` subtree from the ``RLinf/RPent-memory`` Hugging Face dataset
-into ``resources/robocasa``. The current task may use only these task-matched
-files:
+Default evaluation syncs the ``robocasa/**`` subtree from the
+``RLinf/RPent-memory`` Hugging Face dataset into ``memory/robocasa``. The
+current task may use only these task-matched files under ``task_only/``:
 
 .. code-block:: text
 
-   resources/robocasa/results/<Task>_s0.json
-   resources/robocasa/results/recipe_<Task>_s0.jsonl
-   resources/robocasa/results/<Task>.md  # optional
+   memory/robocasa/task_only/<Task>_s0.json
+   memory/robocasa/task_only/<Task>_s0_recipe.jsonl
+   memory/robocasa/task_only/<Task>.md  # optional
 
 The JSON/JSONL pair contains reviewed seed-0 evidence. The optional Markdown
 file contains task-specific exploration memory and may summarize multiple
@@ -125,17 +124,16 @@ before acting. RPent makes those files available through ``read_text_file``
 but does not inject their contents into the prompt.
 
 RoboCasa never asks the planner to use global memory or another task's memory.
-The runtime does not preflight corpus completeness. If a current-task file is
-absent, ``read_text_file`` reports it as missing and the planner continues with
-the available task files and live observations. The published default corpus
-is validated separately. To use reviewed local files instead, select the local
-profile and pass the directory containing this results corpus:
+If a current-task file is absent, ``read_text_file`` reports it as missing and
+the planner continues with the available task files and live observations.
+To use reviewed local files instead, select the local profile and pass the
+memory directory:
 
 .. code-block:: bash
 
    rpent --robot robocasa --task-name OpenDrawer --seed 1 \
          --vla-model-path /path/to/rldx --planner claude_code \
-         --memory-profile local --memory-dir /path/to/robocasa-results
+         --memory-profile local --memory-dir /path/to/robocasa-memory
 
 Available task list
 -------------------
@@ -204,8 +202,8 @@ Troubleshooting
   ``RLinf/robosuite`` ``rpent`` branch. Do not patch installed XML files
   manually.
 - If ``read_text_file`` reports a missing current-task result, check the
-  Hugging Face ``robocasa/results`` corpus or the selected local directory.
-  RPent does not preflight the corpus or fall back to another task.
+  ``memory/robocasa/task_only/`` corpus or the selected local directory.
+  RPent does not fall back to another task's memory.
 - Environment and VLA startup failures are recorded in
   ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
 
@@ -223,5 +221,13 @@ aspects:
   :doc:`../development/add_robot` for the rationale.
 - **Observation shape.** RLDX-1 sees 3 camera video tensors
   ``(1, T, H, W, 3)`` stacked over history ``T``, plus ``state.*``
-  fields, an annotation, and a session id used by ``reset_session`` /
-  ``predict``.
+  and ``annotation.*`` fields. The session id is **not** part of the
+  observation — it is managed automatically by the RPC framework:
+  ``RpcClient`` generates a private ``rpc_`` + uuid hex session id,
+  ``wait_for_ready`` registers it with the server on connect; the
+  server tracks each session's idle time and a background sweep thread
+  reaps sessions idle longer than the timeout (default 3600s), and the
+  client sends ``session.close`` via atexit on process exit. Business
+  code (``rldx_skill`` / ``vla_client``) never sees the session id
+  directly; the server injects it into ``predict`` / ``reset_session``
+  to isolate per-client RLDX memory/RTC policy state.

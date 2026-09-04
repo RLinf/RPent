@@ -32,10 +32,11 @@ from rpent.cli.main import (
     _serialize_messages,
 )
 from rpent.dashboard.events import RunStartedEvent
+from rpent.memory import MemoryManager
 from rpent.planner.base import build_planner
 from rpent.robots import get_toolkit
+from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
-from rpent.utils.resources import ensure_resources
 
 if TYPE_CHECKING:
     from rpent.dashboard.state import ClaimedTask, DashboardState
@@ -108,7 +109,9 @@ def run_dashboard_session(
         not getattr(args, "explore", False)
         and getattr(args, "memory_profile", "hf") == "hf"
     ):
-        ensure_resources(robot_spec)
+        MemoryManager(get_memory_dir(robot_spec.name)).sync(
+            remote_repo=robot_spec.memory_repo_id,
+        )
     state = DashboardState(
         run_id=f"dashboard-session/{session_root.name}",
         output_dir=session_root,

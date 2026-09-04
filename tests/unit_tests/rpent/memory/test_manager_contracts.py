@@ -69,7 +69,7 @@ def _write_memory_leaf(
 def _write_task_pair(output_dir: Path, cell: str, *, solved: bool) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / f"{cell}.json").write_text(json.dumps({"libero_terminated": solved}))
-    (output_dir / f"recipe_{cell}.jsonl").write_text('{"action":"move_to"}\n')
+    (output_dir / f"{cell}_recipe.jsonl").write_text('{"action":"move_to"}\n')
 
 
 def test_memory_manager_index_lists_valid_leaves_by_scope(tmp_path: Path) -> None:
@@ -86,7 +86,6 @@ def test_memory_manager_index_lists_valid_leaves_by_scope(tmp_path: Path) -> Non
         scope="suite",
         cells=["10_task_t2_s0"],
     )
-    (memory_dir / "global" / "malformed.md").write_text("no frontmatter\n")
 
     index = MemoryManager(memory_dir).rebuild_index()
     text = index.read_text()
@@ -95,7 +94,49 @@ def test_memory_manager_index_lists_valid_leaves_by_scope(tmp_path: Path) -> Non
     assert text.index("## Global") < text.index("## Suite")
     assert "[Reliable strategy](global/global_strategy.md) — the scene matches" in text
     assert "[suite_libero10_task_t2](suite/suite_libero10_task_t2.md)" in text
-    assert "malformed.md" not in text
+
+
+def test_rebuild_index_regenerates_from_valid_leaves_skipping_plain_ones(
+    tmp_path: Path,
+) -> None:
+    memory_dir = tmp_path / "memory"
+    _write_memory_leaf(
+        memory_dir / "global" / "global_strategy.md",
+        memory_id="global_strategy",
+        scope="global",
+        cells=["10_task_t2_s0"],
+    )
+    # A hand-curated published note without frontmatter is skipped, not
+    # indexed, and does not block regeneration from valid leaves.
+    (memory_dir / "global" / "hand_note.md").write_text("# Hand-curated note\n")
+    hand_index = memory_dir / "MEMORY.md"
+    hand_index.write_text("# Hand-maintained index\n\n- [note](global/hand_note.md)\n")
+
+    index = MemoryManager(memory_dir).rebuild_index()
+
+    assert index == hand_index
+    text = index.read_text()
+    # The hand-maintained index is replaced by the auto-generated one built
+    # from frontmatter-bearing leaves; the plain leaf is not listed.
+    assert text.startswith("# Layered memory index")
+    assert "[Reliable strategy](global/global_strategy.md)" in text
+    assert "hand_note.md" not in text
+
+
+def test_rebuild_index_noops_when_no_frontmatter_leaves_exist(
+    tmp_path: Path,
+) -> None:
+    memory_dir = tmp_path / "memory"
+    (memory_dir / "global").mkdir(parents=True)
+    (memory_dir / "global" / "hand_note.md").write_text("# Hand-curated note\n")
+    hand_index = memory_dir / "MEMORY.md"
+    hand_index.write_text("# Hand-maintained index\n")
+
+    index = MemoryManager(memory_dir).rebuild_index()
+
+    assert index is None
+    # Nothing written, so a hand-maintained index (if any) is left alone.
+    assert hand_index.read_text() == "# Hand-maintained index\n"
 
 
 def test_memory_manager_validation_reports_schema_filename_and_duplicate_errors(
@@ -128,7 +169,7 @@ def test_memory_manager_publishes_draft_and_solved_task_pair(tmp_path: Path) -> 
     output_dir = tmp_path / "run"
     cell = "10_task_t2_s0"
     _write_memory_leaf(
-        memory_dir / "_inbox" / cell / "suite_draft.md",
+        memory_dir / "_internal" / "inbox" / cell / "suite_draft.md",
         memory_id="draft_id_is_replaced",
         scope="suite",
         cells=[cell],
@@ -145,9 +186,9 @@ def test_memory_manager_publishes_draft_and_solved_task_pair(tmp_path: Path) -> 
     assert result["task"] == 1
     assert result["skipped"] == []
     assert (memory_dir / "suite" / "suite_libero10_task_t2.md").is_file()
-    assert (memory_dir / "task" / f"{cell}.json").is_file()
-    assert (memory_dir / "task" / f"recipe_{cell}.jsonl").is_file()
-    assert (memory_dir / "_merged" / cell / "suite_draft.md").is_file()
+    assert (memory_dir / "task_only" / f"{cell}.json").is_file()
+    assert (memory_dir / "task_only" / f"{cell}_recipe.jsonl").is_file()
+    assert (memory_dir / "_internal" / "merged" / cell / "suite_draft.md").is_file()
     assert "suite_libero10_task_t2.md" in (memory_dir / "MEMORY.md").read_text()
 
 
@@ -166,8 +207,8 @@ def test_memory_manager_does_not_publish_unsolved_task_artifacts(
     )
 
     assert result["task"] == 0
-    assert not (memory_dir / "task" / f"{cell}.json").exists()
-    assert not (memory_dir / "task" / f"recipe_{cell}.jsonl").exists()
+    assert not (memory_dir / "task_only" / f"{cell}.json").exists()
+    assert not (memory_dir / "task_only" / f"{cell}_recipe.jsonl").exists()
 
 
 def test_memory_manager_skips_invalid_draft_without_archiving_its_inbox(
@@ -177,7 +218,7 @@ def test_memory_manager_skips_invalid_draft_without_archiving_its_inbox(
     output_dir = tmp_path / "run"
     output_dir.mkdir()
     cell = "10_task_t0_s0"
-    inbox = memory_dir / "_inbox" / cell
+    inbox = memory_dir / "_internal" / "inbox" / cell
     inbox.mkdir(parents=True)
     (inbox / "new_global_strategy.md").write_text(
         """---
@@ -201,7 +242,7 @@ Test body.
     assert result["global"] == 0
     assert result["skipped"] == ["new_global_strategy.md: evidence must be a mapping"]
     assert inbox.is_dir()
-    assert not (memory_dir / "_merged" / cell).exists()
+    assert not (memory_dir / "_internal" / "merged" / cell).exists()
 
 
 def test_memory_manager_accumulates_evidence_and_preserves_conflicting_prose(
@@ -212,8 +253,8 @@ def test_memory_manager_accumulates_evidence_and_preserves_conflicting_prose(
     output_dir.mkdir()
     first_cell = "10_task_t2_s0"
     second_cell = "10_task_t2_s1"
-    first_inbox = memory_dir / "_inbox" / first_cell
-    second_inbox = memory_dir / "_inbox" / second_cell
+    first_inbox = memory_dir / "_internal" / "inbox" / first_cell
+    second_inbox = memory_dir / "_internal" / "inbox" / second_cell
     _write_memory_leaf(
         first_inbox / "suite_draft.md",
         memory_id="ignored",
@@ -253,9 +294,47 @@ def test_memory_manager_accumulates_evidence_and_preserves_conflicting_prose(
     assert published_metadata["confidence"] == "probable"
     assert "First published prose." in published.read_text()
     conflict = (
-        memory_dir / "_conflicts" / f"suite_libero10_task_t2__from_{second_cell}.md"
+        memory_dir
+        / "_internal"
+        / "conflicts"
+        / f"suite_libero10_task_t2__from_{second_cell}.md"
     )
     assert "Conflicting new prose." in conflict.read_text()
+
+
+def test_merge_memory_leaves_existing_plain_markdown_untouched(
+    tmp_path: Path,
+) -> None:
+    memory_dir = tmp_path / "memory"
+    output_dir = tmp_path / "run"
+    cell = "10_task_t2_s0"
+    existing = memory_dir / "global" / "grasp_strategy.md"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("# Hand-curated grasp note\nno frontmatter\n")
+    _write_memory_leaf(
+        memory_dir / "_internal" / "inbox" / cell / "grasp_strategy_draft.md",
+        memory_id="grasp_strategy",
+        scope="global",
+        cells=[cell],
+        body="Conflicting structured draft.\n",
+    )
+
+    result = MemoryManager(memory_dir).merge_memory(
+        cell_tag=cell,
+        run_state_dir=output_dir,
+        solved=False,
+    )
+
+    assert result["global"] == 0
+    assert result["conflicts"] == 1
+    assert any("grasp_strategy" in item for item in result["skipped"])
+    # The hand-curated plain note is left untouched.
+    assert existing.read_text() == "# Hand-curated grasp note\nno frontmatter\n"
+    # The incoming structured draft is archived as a conflict.
+    conflict = (
+        memory_dir / "_internal" / "conflicts" / f"grasp_strategy__from_{cell}.md"
+    )
+    assert "Conflicting structured draft." in conflict.read_text()
 
 
 def test_memory_manager_is_idempotent_for_evidence_from_the_same_cell(
@@ -265,7 +344,7 @@ def test_memory_manager_is_idempotent_for_evidence_from_the_same_cell(
     output_dir = tmp_path / "run"
     output_dir.mkdir()
     cell = "10_task_t2_s0"
-    draft = memory_dir / "_inbox" / cell / "suite_draft.md"
+    draft = memory_dir / "_internal" / "inbox" / cell / "suite_draft.md"
     _write_memory_leaf(
         draft,
         memory_id="ignored",
@@ -304,7 +383,7 @@ def test_memory_manager_refuses_to_complete_an_existing_partial_task_pair(
     output_dir = tmp_path / "run"
     cell = "10_task_t2_s0"
     _write_task_pair(output_dir, cell, solved=True)
-    task_dir = memory_dir / "task"
+    task_dir = memory_dir / "task_only"
     task_dir.mkdir(parents=True)
     (task_dir / f"{cell}.json").write_text("{}")
 
@@ -316,4 +395,4 @@ def test_memory_manager_refuses_to_complete_an_existing_partial_task_pair(
 
     assert result["task"] == 0
     assert result["skipped"] == ["incomplete existing task audit/recipe pair"]
-    assert not (task_dir / f"recipe_{cell}.jsonl").exists()
+    assert not (task_dir / f"{cell}_recipe.jsonl").exists()

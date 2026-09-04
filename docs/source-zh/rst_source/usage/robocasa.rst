@@ -98,15 +98,14 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
 
 **任务 Memory**
 
-默认评测会复用 RPent 的公共资源同步机制，从 Hugging Face 数据集
-``RLinf/RPent-memory`` 下载 ``robocasa/**`` 到 ``resources/robocasa``。
-当前任务只能使用下面这些同任务 memory：
+默认评测会从 Hugging Face 数据集 ``RLinf/RPent-memory`` 同步 ``robocasa/**``
+到 ``memory/robocasa``。当前任务只能读取 ``task_only/`` 下与该任务对应的 memory：
 
 .. code-block:: text
 
-   resources/robocasa/results/<Task>_s0.json
-   resources/robocasa/results/recipe_<Task>_s0.jsonl
-   resources/robocasa/results/<Task>.md  # 可选
+   memory/robocasa/task_only/<Task>_s0.json
+   memory/robocasa/task_only/<Task>_s0_recipe.jsonl
+   memory/robocasa/task_only/<Task>.md  # 可选
 
 JSON/JSONL pair 保存经过审核的 seed-0 证据。可选的 Markdown 文件保存同任务
 探索 memory，可能汇总多次尝试；当前 16 个 Composite-Seen 和 9 个
@@ -114,17 +113,16 @@ Composite-Unseen 任务包含此文件。Prompt 要求 planner 在开始动作�
 ``read_text_file`` 读取当前任务所有存在的文件；RPent 不会把 Markdown 内容
 强制注入 prompt。
 
-RoboCasa 不要求 planner 使用 global memory，也不会退回读取其他任务的 memory。
-运行时不预检 corpus 的完整性；当前任务文件缺失时，``read_text_file`` 会报告
-该文件不存在，planner 使用其余可用的同任务文件和实时观测继续。公开的默认
-corpus 会在发布阶段单独校验。如需使用经过审核的本地文件，请选择 local
-profile 并传入 results corpus 所在目录：
+RoboCasa 不要求 planner 使用 global memory，也不会读取其他任务的 memory 作为
+替代。当前任务文件缺失时，``read_text_file`` 会报告该文件不存在，planner 使用
+其余可用的同任务文件和实时观测继续。如需使用经过审核的本地 memory，请使用
+``--memory-profile local`` 并通过 ``--memory-dir`` 指定 memory 目录：
 
 .. code-block:: bash
 
    rpent --robot robocasa --task-name OpenDrawer --seed 1 \
          --vla-model-path /path/to/rldx --planner claude_code \
-         --memory-profile local --memory-dir /path/to/robocasa-results
+         --memory-profile local --memory-dir /path/to/robocasa-memory
 
 可用任务列表
 ------------
@@ -190,9 +188,9 @@ RoboCasa 不绑定具体 planner；RPent 支持的任意 planner 都可用于该
 - 导航 RGB-D 或 world map 渲染报告缺少 ``mobilebase0_navview`` 时，应重新
   安装 ``.[robocasa]`` 以刷新 ``RLinf/robosuite`` 的 ``rpent`` 分支；不要手工
   修改已安装的 XML。
-- ``read_text_file`` 报告缺少当前任务结果时，请检查 Hugging Face 的
-  ``robocasa/results`` corpus 或所选本地目录。RPent 不预检 corpus，也不会
-  退回读取其他任务。
+- ``read_text_file`` 报告缺少当前任务结果时，请检查
+  ``memory/robocasa/task_only/`` 目录或所选本地目录。RPent 不会读取其他任务的
+  memory 作为替代。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和
   ``<output_dir>/vla_server.log``。
 
@@ -202,10 +200,17 @@ Toolkit 与 LIBERO 的差异
 RoboCasa toolkit 提供的工具 *形式* 与 LIBERO 相同（一次原语调用、
 一次状态查看、一次 ``finish``），但有两处 RoboCasa 特有的差异:
 
-- **Env 侧的辅助方法。** 抓取检测与动作组装需要活着的仿真 env, 所以
+- **Env 侧的辅助方法。** 抓取检测与动作组装需要运行中的仿真 env, 所以
   它们是 env_server 的 RPC。Agent 侧的 skill 因此同时持有 **两个**
   client: env client 做 render/step, model client 做 RLDX-1 推理。
   理由参见 :doc:`../development/add_robot`。
-- **观测形状。** RLDX-1 看到的是 3 路相机 video 张量
-  ``(1, T, H, W, 3)``, 按历史 ``T`` 堆叠，加上 ``state.*``、annotation、
-  以及一个 session id (用于 ``reset_session`` / ``predict``)。
+- **观测形状。** RLDX-1 看到的是 3 路相机的视频张量
+  ``(1, T, H, W, 3)``, 按历史 ``T`` 堆叠, 加上 ``state.*`` 与
+  ``annotation.*`` 字段。session id 不在观测里——它由 RPC 框架自动
+  管理: ``RpcClient`` 生成 ``rpc_`` + uuid hex 的私有 session id,
+  ``wait_for_ready`` 在连接时注册到服务端; 服务端跟踪每个 session
+  的空闲时间, 后台 sweep 线程定期回收超时 (默认 3600 秒) 的 session,
+  进程退出时客户端通过 atexit 发送 ``session.close``。业务代码
+  (``rldx_skill`` / ``vla_client``) 从不直接看到 session id, 服务端
+  把它注入到 ``predict`` / ``reset_session`` 中, 按客户端隔离
+  RLDX memory/RTC 策略状态。

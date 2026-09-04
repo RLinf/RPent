@@ -30,7 +30,7 @@ def _parser() -> argparse.ArgumentParser:
         "--memory-dir",
         type=Path,
         default=get_memory_dir("libero"),
-        help="Local corpus root (default: resources/libero/memory).",
+        help="Local corpus root (default: memory/libero).",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -65,8 +65,12 @@ def main() -> int:
             return 1
         print("local memory is valid")
         return 0
+
     index = manager.rebuild_index()
-    print(index)
+    if index is None:
+        print("no indexable memory leaves; MEMORY.md not regenerated")
+    else:
+        print(index)
     return 0
 
 

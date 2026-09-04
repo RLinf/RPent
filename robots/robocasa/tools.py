@@ -1101,6 +1101,6 @@ def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:
         if isinstance(result, dict) and result.get("error"):
             continue
         commands.append(command)
-    recipe_name = f"recipe_{recipe_tag}.jsonl"
+    recipe_name = f"{recipe_tag}_recipe.jsonl"
     state.save(recipe_name, commands, step=None)
     return recipe_name
