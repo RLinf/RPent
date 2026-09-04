@@ -57,6 +57,7 @@ class LiberoPrimitives:
         model: Pi05VLAClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
+        flywheel_config: dict[str, Any] | None = None,
     ):
         self.env = env
         self.model = model
@@ -70,6 +71,8 @@ class LiberoPrimitives:
         # Toggled via start_recording() / stop_recording().
         self._recording = False
         self._frames = []
+        self._flywheel_config = flywheel_config
+        self._flywheel = None
 
     def start_recording(self):
         self._recording = True
@@ -105,12 +108,32 @@ class LiberoPrimitives:
     def reset(self):
         obs, info = self.env.reset()
         self.set_obs(obs)
+        if self._flywheel_config is not None:
+            from rpent.flywheel.episode import EpisodeWriter
+
+            self._flywheel = EpisodeWriter(
+                **self._flywheel_config,
+                initial_observation=obs,
+            )
         return self._last_obs, info
+
+    def begin_primitive(self, name: str) -> None:
+        if self._flywheel is not None:
+            self._flywheel.begin_primitive(name)
+
+    def end_primitive(self) -> None:
+        if self._flywheel is not None:
+            self._flywheel.end_primitive()
+
+    def finalize_flywheel(self) -> Path | None:
+        return self._flywheel.finalize() if self._flywheel is not None else None
 
     def _step_env(self, action) -> None:
         """Execute one env action between cancellation checkpoints."""
         self._check_cancelled()
-        obs, _r, _t, _tr, _i = self.env.step(action)
+        obs, reward, terminated, truncated, _info = self.env.step(action)
+        if self._flywheel is not None:
+            self._flywheel.add_transition(action, obs, reward, terminated, truncated)
         self.set_obs(obs)
         if self._recording:
             self.record_frame(obs)
@@ -135,15 +158,32 @@ class LiberoPrimitives:
             actions = self.model.predict(self._last_obs, options={"mode": "eval"})
             self._check_cancelled()
 
-            if not self._recording:
+            vla_id = (
+                self._flywheel.add_proposal(instruction, actions)
+                if self._flywheel is not None
+                else -1
+            )
+
+            if not self._recording and self._flywheel is None:
                 chunk_obs, _r, _t, _tr, _i = self.env.chunk_step(actions)
                 obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
             else:
-                chunk_obs, _r, _t, _tr, _i = self.env.chunk_step(
+                chunk_obs, rewards, terminated, truncated, _info = self.env.chunk_step(
                     actions, return_all_frames=True
                 )
-                for obs in chunk_obs:
-                    self.record_frame(obs)
+                for index, obs in enumerate(chunk_obs):
+                    if self._recording:
+                        self.record_frame(obs)
+                    if self._flywheel is not None:
+                        self._flywheel.add_transition(
+                            actions[index],
+                            obs,
+                            rewards[index],
+                            terminated[index],
+                            truncated[index],
+                            vla_id=vla_id,
+                            proposal_index=index,
+                        )
                 obs = chunk_obs[-1]
             self.set_obs(obs)
             return self._last_obs
