@@ -23,6 +23,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from robots.robocasa.eval.result import finalize_cell_result
 from robots.robocasa.prompt_bundle import (
     system_prompt,
     user_prompt,
@@ -87,6 +88,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=ROBOCASA_DASHBOARD_SPEC,
+        finalize_run=finalize_cell_result,
     )
 
 
@@ -228,6 +230,9 @@ def _spawn_env_server(
             env_overrides={
                 "MUJOCO_GL": "egl",
                 "ROBOT_PLATFORM": "ROBOCASA",
+                # Standard RPent evaluation uses --seed directly. Do not let a
+                # stale variable from legacy paired-scene runs change the reset.
+                "RLDX_RESET_SEED": "",
             },
             log_path=str(Path(output_dir) / "env_server.log"),
         )
