@@ -155,10 +155,7 @@ PI05_EMBODIMENTS: dict[str, dict] = {
         "num_steps": 4,
         "add_value_head": False,
         "openpi_data": {
-            "assets": {
-                "assets_dir": None,
-                "asset_id": "assets/behavior-1k/2025-challenge-demos",
-            },
+            "norm_stats_path": "assets/behavior-1k/2025-challenge-demos/norm_stats.json",
             "extra_delta_transform": False,
             "extract_state_from_proprio": True,
             "use_all_wrist_images": True,
@@ -240,9 +237,12 @@ def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
         else:
             cfg[k] = v
     openpi_data = cfg.get("openpi_data")
-    if isinstance(openpi_data, dict) and isinstance(openpi_data.get("assets"), dict):
-        if not openpi_data["assets"].get("assets_dir"):
-            openpi_data["assets"]["assets_dir"] = os.fspath(Path(model_path))
+    if isinstance(openpi_data, dict):
+        norm_stats_path = openpi_data.get("norm_stats_path")
+        if norm_stats_path is not None and not Path(norm_stats_path).is_absolute():
+            openpi_data["norm_stats_path"] = os.fspath(
+                Path(model_path) / norm_stats_path
+            )
     from omegaconf import OmegaConf
 
     return OmegaConf.create(cfg)
