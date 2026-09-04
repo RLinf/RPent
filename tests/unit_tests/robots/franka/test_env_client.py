@@ -49,7 +49,9 @@ def test_franka_client_uses_explicit_env_methods():
     client.set_gripper(open=True)
     client.chunk_step(np.zeros((2, 7), dtype=np.float64))
 
-    calls_by_method = {method: payload for method, _args, payload, _timeout in rpc.calls}
+    calls_by_method = {
+        method: payload for method, _args, payload, _timeout in rpc.calls
+    }
     assert set(calls_by_method) == {
         "env.get_env_meta",
         "env.reset",
