@@ -25,6 +25,7 @@ def ensure_resources(env_name: str) -> Path:
         snapshot_download(
             repo_id=RESOURCES_HF_REPO,
             repo_type="dataset",
+            revision="551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b",
             local_dir=str(resources_dir.parent),
             allow_patterns=[f"{env_name}/**"],
         )
