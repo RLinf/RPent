@@ -117,8 +117,12 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 
 ``dashboard`` 是可选项；环境不支持 Dashboard 控制时保持为 ``None``。支持时，
 在机器人包中定义该 spec：其中 ``task`` 描述命令、校验字段、展示模板和输出目录
-slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境专用服务行
-和相机视图。完整结构参考 ``robots/libero/robot_spec.py``。
+slug；机器人专用的 Session 设置继续使用普通命令行参数；
+``runtime_components`` 描述服务行；``frame_channels`` 将相机名称映射到
+标准图像 artifact；``primitives`` 按顺序列出 Dashboard 展示并允许直接执行的
+Toolkit 动作。
+任务候选项应直接保存在 spec 中，避免导入机器人包时依赖仿真器包。
+完整结构参考 ``robots/libero/robot_spec.py``。
 
 ``_resolve_robot(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
 动态加载机器人包。因此，只需将机器人包放在 ``robots/`` 下，无需维护中央注册列表。

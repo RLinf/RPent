@@ -17,7 +17,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol, TypeAlias
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias
+
+if TYPE_CHECKING:
+    from rpent.session import EnvState, StepRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,20 +49,11 @@ class RuntimeStatusEvent:
 
 
 @dataclass(frozen=True, slots=True)
-class ToolResultEvent:
-    """Publish one raw tool result for Dashboard projection."""
-
-    name: str
-    result: Any
-
-
-@dataclass(frozen=True, slots=True)
 class StepRecordEvent:
-    """Publish one recorded robot step and its artifact context."""
+    """Publish one recorded robot step and its source environment state."""
 
-    record: Any
-    env_state: Any
-    frame_artifacts: dict[str, str]
+    record: StepRecord
+    env_state: EnvState
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +65,6 @@ DashboardEvent: TypeAlias = (
     TranscriptEvent
     | UsageEvent
     | RuntimeStatusEvent
-    | ToolResultEvent
     | StepRecordEvent
     | RunStartedEvent
 )

@@ -184,8 +184,9 @@ Dashboard (optional)
 ``rpent/dashboard/`` contains a FastAPI application and a static
 frontend. With ``--dashboard``, ``rpent/cli/main.py`` hands control to
 ``rpent/cli/dashboard.py``, which starts the Dashboard with
-``--dashboard-host`` and ``--dashboard-port`` and confirms the configuration
-before calling ``robot_spec.init_runtime`` once with the shared component names.
+``--dashboard-host`` and ``--dashboard-port``. Session configuration comes from
+the CLI before it calls ``robot_spec.init_runtime`` once with the shared
+component names.
 The environment must provide ``robot_spec.dashboard``; it defines the task
 command and fields, runtime components, and frame channels exposed by the
 frontend. The Session controller waits for that robot-defined command
@@ -202,14 +203,17 @@ During a TaskRun, the Dashboard shows:
 
 - planner output and tool-call events;
 - live fixed-camera and wrist-camera views;
+- environment-allowlisted primitive controls that invoke Toolkit actions;
 - the action timeline and per-action clips;
 - the complete episode recording after the run, if one was generated.
 
 The page accepts ordinary planner messages, new task commands, and interrupt
-requests, but these controls do not issue robot actions directly. Planners,
-toolkits, and robot runtimes publish display updates through a
-``dashboard_events`` sink. The server sends state summaries over SSE, and the
-frontend fetches detailed events, timeline data, and images as needed.
+requests. It also exposes the primitives listed by the environment's Dashboard
+spec and validates their arguments against the Toolkit input schemas before
+executing them directly. Planners, toolkits, and robot runtimes publish display
+updates through a ``dashboard_events`` sink. The server sends state summaries
+over SSE, and the frontend fetches detailed events, timeline data, and images
+as needed.
 
 Next steps
 ----------

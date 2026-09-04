@@ -7,74 +7,12 @@
 <link rel="stylesheet" href="/static/dashboard.css" />
 </head>
 <body>
-  <div id="launcher" class="hidden">
-    <div class="launch-card">
-      <h2><span class="dot">●</span> RPent · <span data-i18n="newSession">New Session</span></h2>
-      <div class="sub" data-i18n="launcherSubtitle">Review the session config, then start the Dashboard control Session.</div>
-      <div class="lform">
-        <div class="lfield full">
-          <label for="f-planner" data-i18n="planner">Planner (LLM backend)</label>
-          <select id="f-planner">
-            <option value="claude_code" selected>claude_code</option>
-            <option value="codex">codex</option>
-            <option value="api">api</option>
-          </select>
-        </div>
-        <div class="lfield">
-          <label for="f-max-turns" data-i18n="maxTurns">Max turns</label>
-          <input type="number" id="f-max-turns" min="1" step="1" />
-        </div>
-        <div class="lfield">
-          <label for="f-max-episode-steps" data-i18n="maxEpisodeSteps">Max episode steps</label>
-          <input type="number" id="f-max-episode-steps" min="1" step="1" />
-        </div>
-        <div class="lfield full">
-          <label for="f-model_preset" data-i18n="modelPreset">Model</label>
-          <select id="f-model_preset"></select>
-        </div>
-        <div class="lfield full">
-          <label for="f-model_custom"><span data-i18n="customModel">Custom model</span> <span id="modelRequirement" data-i18n="optional" style="text-transform:none">(optional)</span></label>
-          <input type="text" id="f-model_custom" placeholder="provider:model or alias" data-i18n-placeholder="customModelPlaceholder" />
-        </div>
-        <div class="lfield full lcheck" data-planner="api">
-          <input type="checkbox" id="f-no-images" />
-          <label for="f-no-images" data-i18n="noImages">Disable image input (required for text-only models)</label>
-        </div>
-        <div class="lfield" data-planner="claude_code">
-          <label for="f-claude-code-max-budget-usd" data-i18n="claudeBudget">Claude Code budget USD</label>
-          <input type="number" id="f-claude-code-max-budget-usd" min="0" step="0.01" placeholder="MAX_BUDGET_USD" />
-        </div>
-        <div class="lfield">
-          <label for="f-reasoning-effort" data-i18n="plannerReasoningEffort">Reasoning effort (higher may improve success rate)</label>
-          <select id="f-reasoning-effort">
-            <option value="none" selected>none</option>
-            <option value="low">low</option>
-            <option value="medium">medium</option>
-            <option value="high">high</option>
-            <option value="xhigh">xhigh</option>
-          </select>
-        </div>
-        <div class="lfield">
-          <label for="f-planner-timeout-s" data-i18n="plannerTimeout">Planner timeout s</label>
-          <input type="number" id="f-planner-timeout-s" min="1" step="1" placeholder="CELL_TIMEOUT_S" />
-        </div>
-        <div class="lfield">
-          <label for="f-cuda-device"><span data-i18n="cudaDevice">CUDA device</span> <span data-i18n="blankDefault" style="text-transform:none">(blank = default)</span></label>
-          <input type="text" id="f-cuda-device" placeholder="default" data-i18n-placeholder="defaultPlaceholder" />
-        </div>
-      </div>
-      <div class="launch-actions">
-        <button id="runBtn" data-i18n="startSession">Start Session</button>
-        <span id="launchStatus"></span>
-      </div>
-    </div>
-  </div>
-
   <header>
     <h1><span class="dot">●</span> RPent <span class="meta" data-i18n="liveMonitor">Live Monitor</span></h1>
     <span id="statusBadge" class="badge b-stale">—</span>
     <span id="resultBadge" class="badge b-fail" style="display:none"></span>
     <div id="runtimeStatus" class="runtime-status" aria-live="polite"></div>
+    <span class="meta planner-meta" id="plannerMeta"></span>
     <span class="meta" id="taskMeta"></span>
     <span class="grow"></span>
     <span class="meta" id="usageMeta"></span>
@@ -94,7 +32,7 @@
           <input type="checkbox" id="autoscroll" checked /> <span data-i18n="autoScroll">auto-scroll</span>
         </label>
       </div>
-      <div id="transcript"><div class="empty" data-i18n="selectRun">Select a run to begin.</div></div>
+      <div id="transcript"><div class="empty" data-i18n="noTranscript">No transcript events yet.</div></div>
       <section id="composer" class="composer" aria-label="Agent message composer" data-i18n-aria-label="composerLabel" hidden>
         <div
           class="gutter gutter-h composer-grip"
@@ -115,16 +53,16 @@
           rows="2"
           placeholder="Message the agent…"
           data-i18n-placeholder="composerPlaceholder"
-          aria-describedby="chatHint interactionStatus suiteSuggestions"
+          aria-describedby="chatHint interactionStatus taskSuggestions"
           aria-keyshortcuts="Enter Shift+Enter Escape"
           disabled
         ></textarea>
         <div
-          id="suiteSuggestions"
-          class="suite-suggestions"
+          id="taskSuggestions"
+          class="task-suggestions"
           role="listbox"
-          aria-label="LIBERO suite suggestions"
-          data-i18n-aria-label="suiteSuggestionsLabel"
+          aria-label="Task value suggestions"
+          data-i18n-aria-label="taskSuggestionsLabel"
           hidden
         ></div>
         <div class="composer-row">
@@ -137,10 +75,7 @@
 
     <div class="col right">
       <div class="framewrap">
-        <div class="frame-tabs">
-          <button data-kind="camera" class="active" data-i18n="cameraView">fixed camera</button>
-          <button data-kind="wrist" data-i18n="wristView">wrist camera</button>
-        </div>
+        <div class="frame-tabs"></div>
         <img class="frame-media" id="frame-a" alt="" />
         <img class="frame-media" id="frame-b" alt="" />
         <video class="frame-media" id="video-a" controls playsinline></video>
@@ -149,6 +84,26 @@
       </div>
       <div class="gutter gutter-h" id="gutterH" title="Drag to resize frame height" data-i18n-title="resizeFrame"></div>
       <div class="col" style="min-height:0">
+        <details class="primitive-panel">
+          <summary>
+            <span data-i18n="primitiveControls">Primitive controls</span>
+            <span id="primitiveAvailability" class="primitive-availability" data-i18n="primitiveWaiting">waiting for TaskRun</span>
+          </summary>
+          <div class="primitive-panel-body">
+            <div id="primitiveButtons" class="primitive-buttons" role="tablist"></div>
+            <form id="primitiveForm" novalidate>
+              <div id="primitiveRequiredFields" class="primitive-fields"></div>
+              <details id="primitiveAdvanced" class="primitive-advanced" hidden>
+                <summary data-i18n="advanced">Advanced</summary>
+                <div id="primitiveOptionalFields" class="primitive-fields"></div>
+              </details>
+              <div class="primitive-actions">
+                <button id="executePrimitive" type="submit" disabled data-i18n="executePrimitive">Execute</button>
+                <span id="primitiveStatus" class="primitive-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+          </div>
+        </details>
         <div class="panel-title"><span data-i18n="actionTimeline">Action timeline</span> <span class="count" id="stepCount"></span></div>
         <div id="timeline"><div class="empty" data-i18n="noActions">No actions yet.</div></div>
       </div>

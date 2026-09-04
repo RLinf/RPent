@@ -143,6 +143,8 @@ class RoboCasaPrimitives:
                 if self._check_cancelled is not None:
                     self._check_cancelled()
                 self.env.step(a)
+                if self._recording:
+                    self.record_frame()
             d = (self.env.eef_pos - p0) / (0.4 * 3)  # world dpos per unit action
             cols.append(d)
             # settle back is not needed (closed-loop re-reads); keep going
@@ -214,6 +216,8 @@ class RoboCasaPrimitives:
             if self._check_cancelled is not None:
                 self._check_cancelled()
             self.env.step(a)
+            if self._recording:
+                self.record_frame()
         return {"ok": True, "gripper_qpos": self.env.gripper_qpos.tolist()}
 
     def release(self, steps=10):
@@ -268,6 +272,8 @@ class RoboCasaPrimitives:
             if self._check_cancelled is not None:
                 self._check_cancelled()
             self.env.step(a)
+            if self._recording:
+                self.record_frame()
         bp1, _ = self._base_pose()
         return {
             "ok": True,
@@ -296,6 +302,8 @@ class RoboCasaPrimitives:
             if self._check_cancelled is not None:
                 self._check_cancelled()
             self.env.step(a)
+            if self._recording:
+                self.record_frame()
         p1, _ = self._base_pose()
         disp = (p1 - p0)[:2]
         if np.linalg.norm(disp) > 0.005:
@@ -343,6 +351,8 @@ class RoboCasaPrimitives:
             if self._check_cancelled is not None:
                 self._check_cancelled()
             self.env.step(a)
+            if self._recording:
+                self.record_frame()
         bp, _ = self._base_pose()
         self._pos_jac = None
         moved = float(np.linalg.norm(bp[:2] - start))

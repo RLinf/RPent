@@ -169,7 +169,7 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 
 ### 实时 Dashboard
 
-加上 `--dashboard` 后，会启动本地 Dashboard，并在终端输出访问地址。打开该地址并确认配置；服务就绪后，通过 `/rpent-task <suite> <task> <seed>` 启动任务。页面会实时显示智能体的推理过程、相机画面和动作时间线，任务结束后可以继续提交下一任务。使用 `--dashboard-language zh-cn` 可切换到中文界面。
+加上 `--dashboard` 后，会启动本地 Dashboard，并在终端输出访问地址。Session 配置全部来自命令行，页面打开后直接进入实时监控；服务就绪后，通过 `/rpent-task <suite> <task> <seed>` 启动任务。页面会实时显示智能体的推理过程、相机画面和动作时间线，任务结束后可以继续提交下一任务。使用 `--dashboard-language zh-cn` 可切换到中文界面。
 
 ```bash
 rpent --robot libero --dashboard --dashboard-language zh-cn \

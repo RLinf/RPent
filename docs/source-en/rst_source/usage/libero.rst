@@ -238,16 +238,16 @@ selects an available port and prints the URL in the terminal:
    rpent --robot libero --dashboard \
      --planner claude_code --model claude-opus-4-8
 
-Open the URL, confirm the Session configuration, and click **Start Session**.
-After the shared services are ready, start a TaskRun from the page with:
+Session configuration comes from the command line, and the URL opens directly
+in the live monitor. After the shared services are ready, start a TaskRun with:
 
 .. code-block:: text
 
    /rpent-task libero_object_swap 2 0
 
-The Dashboard launcher supports the ``api``, ``claude_code``, and ``codex``
-planners. Configure ``--planner`` and ``--model`` as for a normal run; see
-:doc:`configure_planner`.
+The Dashboard supports the ``api``, ``claude_code``, and ``codex`` planners.
+Configure ``--planner`` and ``--model`` on the command line as for a normal
+run; see :doc:`configure_planner`.
 
 Each TaskRun gets a fresh environment while the VLA and SAM3 services are
 reused by the Session. Submit a new ``/rpent-task`` to start or switch tasks;

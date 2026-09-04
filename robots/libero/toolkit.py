@@ -39,11 +39,6 @@ logger = get_logger("libero_toolkit")
 class LiberoToolkit(Toolkit):
     """Toolkit for the LIBERO robot."""
 
-    _FRAME_ARTIFACTS = {
-        "camera": "agentview.png",
-        "wrist": "wrist.png",
-    }
-
     def __init__(
         self,
         *,

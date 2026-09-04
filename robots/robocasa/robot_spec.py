@@ -28,6 +28,7 @@ from robots.robocasa.prompt_bundle import (
     user_prompt,
 )
 from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -40,13 +41,73 @@ from rpent.utils.rpc.http_rpc import HttpRpcClient
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
 
-ROBOCASA_DASHBOARD_SPEC = {
+
+ROBOCASA_SPLITS = ("target", "pretrain", "all")
+
+ROBOCASA_DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",
         "usage": "/rpent-task <task_name> <split> <seed>",
         "fields": (
-            {"name": "task_name"},
-            {"name": "split", "suggestions": ("target", "pretrain", "all")},
+            {
+                "name": "task_name",
+                "suggestions": (
+                    "CloseBlenderLid",
+                    "CloseFridge",
+                    "CloseToasterOvenDoor",
+                    "CoffeeSetupMug",
+                    "NavigateKitchen",
+                    "OpenCabinet",
+                    "OpenDrawer",
+                    "OpenStandMixerHead",
+                    "PickPlaceCounterToCabinet",
+                    "PickPlaceCounterToStove",
+                    "PickPlaceDrawerToCounter",
+                    "PickPlaceSinkToCounter",
+                    "PickPlaceToasterToCounter",
+                    "SlideDishwasherRack",
+                    "TurnOffStove",
+                    "TurnOnElectricKettle",
+                    "TurnOnMicrowave",
+                    "TurnOnSinkFaucet",
+                    "ScrubCuttingBoard",
+                    "StackBowlsCabinet",
+                    "WashLettuce",
+                    "RinseSinkBasin",
+                    "PreSoakPan",
+                    "StirVegetables",
+                    "LoadDishwasher",
+                    "SteamInMicrowave",
+                    "SetUpCuttingStation",
+                    "GetToastedBread",
+                    "DeliverStraw",
+                    "KettleBoiling",
+                    "PrepareCoffee",
+                    "StoreLeftoversInBowl",
+                    "SearingMeat",
+                    "PackIdenticalLunches",
+                    "ArrangeBreadBasket",
+                    "ArrangeTea",
+                    "BreadSelection",
+                    "CategorizeCondiments",
+                    "CuttingToolSelection",
+                    "GarnishPancake",
+                    "GatherTableware",
+                    "HeatKebabSandwich",
+                    "MakeIceLemonade",
+                    "PanTransfer",
+                    "PortionHotDogs",
+                    "RecycleBottlesByType",
+                    "SeparateFreezerRack",
+                    "WaffleReheat",
+                    "WashFruitColander",
+                    "WeighIngredients",
+                ),
+            },
+            {
+                "name": "split",
+                "choices": ROBOCASA_SPLITS,
+            },
             {"name": "seed", "kind": "integer", "minimum": 0},
         ),
         "display": "{task_name} / {split} / seed {seed}",
@@ -60,13 +121,25 @@ ROBOCASA_DASHBOARD_SPEC = {
         {
             "name": "camera",
             "label": "fixed camera",
-            "legacy_path_key": "image_cam_path",
+            "artifact": "agentview.png",
         },
         {
             "name": "wrist",
             "label": "wrist camera",
-            "legacy_path_key": "image_wrist_path",
+            "artifact": "wrist.png",
         },
+    ),
+    "primitives": (
+        "move_to",
+        "move_delta",
+        "rotate_pitch",
+        "set_gripper",
+        "release",
+        "scripted_grasp",
+        "rldx_skill",
+        "rldx_arm",
+        "navigate_to",
+        "move_base",
     ),
 }
 
@@ -124,7 +197,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--split",
         default="target",
-        choices=["target", "pretrain", "all"],
+        choices=ROBOCASA_SPLITS,
         help="RoboCasa data split (default: target)",
     )
     parser.add_argument("--seed", type=int, default=0)
