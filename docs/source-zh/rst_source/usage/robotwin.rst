@@ -174,7 +174,9 @@ task language 与最新 observation 始终优先，所有几何信息都必须�
 结果复现
 --------
 
-以下结果复现了 Harness VLA 在 RoboTwin C2R 上的评测。实验使用 ``gpt-5.5`` 模型和
+以下结果复现了 :doc:`Harness VLA <../awesome_works/harnessvla>` 在 RoboTwin C2R
+上的评测。实验使用 `reproduce/robotwin
+<https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_ 分支、``gpt-5.5`` 模型和
 ``xhigh`` 推理强度：
 
 - ``demo_randomized``：58.0%（145/250）
@@ -196,7 +198,7 @@ task language 与最新 observation 始终优先，所有几何信息都必须�
      --model gpt-5.5 \
      --reasoning-effort xhigh \
      --max-turns 100 \
-     --planner-timeout-s 3600 \
+     --planner-timeout-s 4800 \
      --max-episode-steps 10000
 
 其中，``task`` 应替换为 ``demo_randomized.json`` 中的任务名，``seed`` 应替换为

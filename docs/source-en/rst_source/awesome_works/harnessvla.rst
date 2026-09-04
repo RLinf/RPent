@@ -115,9 +115,14 @@ non-contact execution.
 Quick Start
 -----------
 
-* **Tutorial:** :doc:`LIBERO <../usage/libero>`
-* **Tutorial:** :doc:`RoboCasa <../usage/robocasa>`
-* **Tutorial:** :doc:`RoboTwin <../usage/robotwin>`
+For paper-result reproduction, use the environment-specific branch listed
+below. See each tutorial for the exact setup and commands.
+
+* **LIBERO:** :doc:`Tutorial <../usage/libero>` —
+  `reproduce/libero <https://github.com/RLinf/RPent/tree/reproduce/libero>`_
+* **RoboCasa:** :doc:`Tutorial <../usage/robocasa>` — use ``main``
+* **RoboTwin:** :doc:`Tutorial <../usage/robotwin>` —
+  `reproduce/robotwin <https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_
 
 Citation
 --------
