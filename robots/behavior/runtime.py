@@ -157,6 +157,12 @@ def add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="BEHAVIOR prompt/runtime mode: eval or explore.",
     )
     parser.add_argument(
+        "--auto-merge-memory",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Merge exploration output into layered memory (default: enabled).",
+    )
+    parser.add_argument(
         "--explore-attempts-per-session",
         type=int,
         default=0,
