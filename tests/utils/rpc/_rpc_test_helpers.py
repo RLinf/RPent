@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import os
 import socket
 import threading
 import time
@@ -24,13 +23,6 @@ from contextlib import contextmanager
 
 from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
 from rpent.utils.rpc.socket_rpc import SocketRpcClient, SocketRpcServer
-
-# Keep urllib off the host's system proxy. ``urllib.request.urlopen`` consults
-# the macOS system proxy (e.g. a local Clash at 127.0.0.1:7892); routed
-# through it, calls to 127.0.0.1 get a 502 / empty body. ``no_proxy`` forces
-# a direct connection so the HTTP transport is deterministic in tests.
-os.environ["no_proxy"] = "*"
-os.environ["NO_PROXY"] = "*"
 
 TRANSPORTS = ["socket", "http"]
 
