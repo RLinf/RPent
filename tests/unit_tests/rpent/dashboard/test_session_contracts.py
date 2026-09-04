@@ -180,15 +180,19 @@ def test_dashboard_session_stops_shared_daemons_in_reverse_after_cleanup_error(
     assert warnings == ["shared runtime cleanup failed: stop failed"]
 
 
+@pytest.mark.parametrize("robot_name", ["libero", "behavior"])
 @pytest.mark.parametrize("merge_fails", [False, True])
 def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    robot_name: str,
     merge_fails: bool,
 ) -> None:
     from rpent.cli import dashboard as dashboard_cli
 
     merge_calls: list[dict[str, Any]] = []
+    toolkit_calls: list[dict[str, Any]] = []
+    recipe_calls: list[str] = []
 
     class FakeMemoryManager:
         def merge_memory(self, **kwargs: Any) -> dict[str, int]:
@@ -204,6 +208,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
             return True
 
         def write_recipe(self, recipe_tag: str) -> str:
+            recipe_calls.append(recipe_tag)
             return str(tmp_path / f"recipe_{recipe_tag}.jsonl")
 
         def close(self) -> None:
@@ -235,10 +240,10 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
     output_dir = tmp_path / "task"
     run_config = RunConfig(
-        recipe_tag="libero_s0",
+        recipe_tag=f"{robot_name}_s0",
         output_dir=output_dir,
         prompt_vars={},
-        task_desc={"robot": "libero"},
+        task_desc={"robot": robot_name},
     )
     robot_spec = SimpleNamespace(
         parse_config=lambda args: run_config,
@@ -250,11 +255,11 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
     args = SimpleNamespace(
         verbose=False,
-        robot_name="libero",
+        robot_name=robot_name,
         explore=True,
         auto_merge_memory=True,
         explore_sessions=1,
-        explore_attempts_per_session=2,
+        explore_attempts_per_session=0,
         planner="api",
         base_url=None,
         model="offline",
@@ -267,9 +272,12 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
     claimed = ClaimedTask(number=1, request={}, output_dir=output_dir)
     state = FakeState()
-    monkeypatch.setattr(
-        dashboard_cli, "get_toolkit", lambda *args, **kwargs: FakeToolkit()
-    )
+
+    def fake_get_toolkit(*args: Any, **kwargs: Any) -> FakeToolkit:
+        toolkit_calls.append({"args": args, "kwargs": kwargs})
+        return FakeToolkit()
+
+    monkeypatch.setattr(dashboard_cli, "get_toolkit", fake_get_toolkit)
     monkeypatch.setattr(
         dashboard_cli, "build_planner", lambda *args, **kwargs: FakePlanner()
     )
@@ -285,9 +293,14 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
 
     assert error is None
+    assert recipe_calls == [f"{robot_name}_s0"]
+    assert toolkit_calls[0]["kwargs"]["mode"] == "exploration"
+    assert toolkit_calls[0]["kwargs"]["state_output_dir"] == (
+        output_dir / "sessions" / "session_001"
+    )
     assert merge_calls == [
         {
-            "cell_tag": "libero_s0",
+            "cell_tag": f"{robot_name}_s0",
             "run_state_dir": output_dir,
             "solved": True,
         }

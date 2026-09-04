@@ -228,13 +228,19 @@ def _run_dashboard_task(
                     state.begin_planner_session(
                         video_path=state_output_dir / "episode.mp4",
                     )
-                if args.robot_name == "libero":
+                if args.robot_name in ("libero", "behavior"):
+                    toolkit_mode = "exploration" if task_args.explore else "evaluation"
+                    if (
+                        args.robot_name == "behavior"
+                        and getattr(task_args, "behavior_mode", "eval") == "explore"
+                    ):
+                        toolkit_mode = "exploration"
                     toolkit = get_toolkit(
                         args.robot_name,
                         primitives_kwargs=primitives_kwargs,
                         dashboard_events=state,
                         config=run_config,
-                        mode="exploration" if task_args.explore else "evaluation",
+                        mode=toolkit_mode,
                         attempts_per_session=getattr(
                             task_args, "explore_attempts_per_session", 0
                         ),
@@ -274,7 +280,7 @@ def _run_dashboard_task(
                     messages += result.messages
                     stats = result.stats
                     agent_error = result.error
-                    if args.robot_name == "libero":
+                    if args.robot_name in ("libero", "behavior"):
                         solved = toolkit.solved()
                         if solved:
                             recipe_path = toolkit.write_recipe(recipe_tag)
