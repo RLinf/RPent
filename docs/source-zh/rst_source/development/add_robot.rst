@@ -394,11 +394,12 @@ endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
 可选的运行结果 finalizer
 ------------------------
 
-需要发布机器可读评测产物的机器人可以设置 ``RobotSpec.finalize_run``。其默认值为
-``None``，不会改变 runner 行为。配置该钩子后，普通终端 runner 会在关闭 toolkit
-前读取 ``toolkit.solved()``，完成运行时清理后再把结构化的
-``RunFinalizationContext`` 传给钩子。产物 schema 与文件名由钩子负责，RPent 只定义
-生命周期边界。
+``RobotSpec.finalize_run`` 是面向所有机器人、与具体 benchmark 无关的通用运行结束
+钩子。RoboCasa 是当前使用方，用它记录单 cell 评测结果，供后续结果统计和聚合。
+任何需要发布机器可读评测产物的机器人都可以注册该钩子。其默认值为 ``None``，不会
+改变 runner 行为。配置该钩子后，普通终端 runner 会在关闭 toolkit 前读取
+``toolkit.solved()``，完成运行时清理后再把结构化的 ``RunFinalizationContext`` 传给
+钩子。产物 schema 与文件名由钩子负责，RPent 只定义生命周期边界。
 
 JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整结果：
 
