@@ -27,6 +27,7 @@ jobs:
       group: robot-gpu-${{ inputs.scope }}-${{ inputs.target }}
       cancel-in-progress: true
     env:
+      CUDA_VISIBLE_DEVICES: "0"
       MUJOCO_GL: egl
       PYOPENGL_PLATFORM: egl
 
