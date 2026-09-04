@@ -15,8 +15,8 @@
 """BEHAVIOR environment RPC adapter.
 
 OmniGibson scene operations stay on the process main thread. The facade uses
-the common environment RPC contract while ``serve`` keeps HTTP dispatch
-serial, rather than using the shared threaded HTTP server.
+the common main-thread RPC serve mixin so transport handling can run on a
+daemon thread while BEHAVIOR dispatch remains serialized on the calling thread.
 """
 
 from __future__ import annotations
@@ -26,10 +26,8 @@ import base64
 import os
 import re
 import sys
-import threading
-from http.server import HTTPServer
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any
 
 import numpy as np
 
@@ -48,8 +46,7 @@ from robots.behavior.schemas import (  # noqa: E402
 )
 from robots.behavior.task_specs import get_task_spec  # noqa: E402
 from rpent.robots.components.env_facade_base import BaseEnvFacade  # noqa: E402
-from rpent.utils.daemon import watch_parent_death  # noqa: E402
-from rpent.utils.rpc.http_rpc import _HttpRpcHandler  # noqa: E402
+from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin  # noqa: E402
 
 _IMAGE_BYTE_FIELDS = frozenset(
     {
@@ -88,7 +85,7 @@ def _encode_observe_images(result: Any) -> Any:
     return encoded
 
 
-class BehaviorEnvFacade(BaseEnvFacade):
+class BehaviorEnvFacade(MainThreadServeMixin, BaseEnvFacade):
     """Expose one official RLinf BEHAVIOR backend through common ENV RPC."""
 
     def __init__(self, *, backend: Any, meta: dict[str, Any]) -> None:
@@ -243,56 +240,6 @@ class BehaviorEnvFacade(BaseEnvFacade):
             closer()
         self._closed = True
 
-    def serve(
-        self,
-        *,
-        transport: Literal["socket", "http"],
-        host: str,
-        port: int,
-        parent_watch: bool = False,
-    ) -> None:
-        if transport != "http":
-            raise ValueError("BEHAVIOR env supports only HTTP RPC")
-        server = BehaviorMainThreadHttpRpcServer((host, port), self._dispatch)
-        bound_host, bound_port = server.server_address
-        client_host = "127.0.0.1" if bound_host == "0.0.0.0" else bound_host
-        print(f"RPC server listening on http://{client_host}:{bound_port}", flush=True)
-
-        if parent_watch:
-            watch_parent_death(self._shutdown_event.set)
-
-        def stop_server() -> None:
-            self._shutdown_event.wait()
-            server.shutdown()
-
-        stopper = threading.Thread(
-            target=stop_server,
-            name="behavior-env-stop",
-            daemon=True,
-        )
-        stopper.start()
-        try:
-            server.serve_forever()
-        finally:
-            self._shutdown_event.set()
-            server.server_close()
-            self.close()
-            stopper.join(timeout=5.0)
-
-
-class BehaviorMainThreadHttpRpcServer(HTTPServer):
-    """Serial HTTP RPC server whose handlers run on the serving thread."""
-
-    allow_reuse_address = True
-
-    def __init__(
-        self,
-        server_address: tuple[str, int],
-        dispatch: Callable[[str, tuple[Any, ...], dict[str, Any]], Any],
-    ) -> None:
-        super().__init__(server_address, _HttpRpcHandler)
-        self.dispatch = dispatch
-
 
 def _build_meta(args: argparse.Namespace) -> dict[str, Any]:
     task_spec = get_task_spec(args.task_name)
@@ -367,4 +314,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["BehaviorEnvFacade", "BehaviorMainThreadHttpRpcServer", "main"]
+__all__ = ["BehaviorEnvFacade", "main"]

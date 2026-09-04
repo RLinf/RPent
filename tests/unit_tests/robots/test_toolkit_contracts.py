@@ -162,9 +162,7 @@ def test_behavior_toolkit_uses_one_official_memory_manager(
     assert toolkit.memory is captured["memory"]
     assert toolkit.memory.root == memory_dir.resolve()
     write = toolkit.memory.get_common_tool_bindings()["write_text_file"][1]
-    destination = (
-            memory_dir / "_internal" / "inbox" / recipe_tag / "wip" / "notes.md"
-        )
+    destination = memory_dir / "_internal" / "inbox" / recipe_tag / "wip" / "notes.md"
     if write_allowed:
         write(str(destination), "evidence")
         assert destination.read_text() == "evidence"

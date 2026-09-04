@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +41,8 @@ from robots.behavior.tools import BehaviorPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
+from rpent.utils.daemon import pick_free_port
+from rpent.utils.rpc.http_rpc import HttpRpcClient
 
 EXPECTED_TOOLS = (
     "pi0_nav_pick",
@@ -141,6 +146,21 @@ class _FakeChunkEnv:
         )
 
 
+class _ThreadRecordingBehaviorEnvFacade(BehaviorEnvFacade):
+    def __init__(self) -> None:
+        super().__init__(backend=object(), meta={"task_language": "test"})
+        self.serve_thread_id: int | None = None
+        self.business_thread_id: int | None = None
+
+    def serve(self, **kwargs: Any) -> None:
+        self.serve_thread_id = threading.get_ident()
+        super().serve(**kwargs)
+
+    def get_env_meta(self) -> dict[str, Any]:
+        self.business_thread_id = threading.get_ident()
+        return super().get_env_meta()
+
+
 def _both_hand_request() -> dict[str, Any]:
     return {
         "hand": "both",
@@ -163,6 +183,12 @@ def _both_hand_request() -> dict[str, Any]:
             },
         },
     }
+
+
+def _port_accepts_connections(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.1)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
 
 
 def test_public_behavior_surface_is_exactly_nine_tools() -> None:
@@ -318,6 +344,50 @@ def test_behavior_facades_use_default_healthz_and_registered_metadata() -> None:
     assert dino_meta["runtime"] == "behavior_dino"
     assert dino_meta["dimension"] == DINOV2_DIMENSION
     assert isinstance(dino_meta["pid"], int)
+
+
+def test_behavior_env_facade_serve_dispatches_business_calls_on_serving_thread() -> (
+    None
+):
+    facade = _ThreadRecordingBehaviorEnvFacade()
+    port = pick_free_port()
+    thread = threading.Thread(
+        target=facade.serve,
+        kwargs={
+            "transport": "http",
+            "host": "127.0.0.1",
+            "port": port,
+        },
+        daemon=True,
+    )
+    thread.start()
+    client = HttpRpcClient(f"http://127.0.0.1:{port}")
+
+    try:
+        deadline = time.monotonic() + 3.0
+        while True:
+            try:
+                assert client.call("healthz", timeout_s=0.5) == {"status": "ok"}
+                break
+            except Exception:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.01)
+
+        assert client.call("env.get_env_meta", timeout_s=1.0) == {
+            "task_language": "test"
+        }
+        assert facade.business_thread_id == facade.serve_thread_id
+        assert facade.business_thread_id != threading.get_ident()
+        assert client.call("shutdown", timeout_s=1.0) == {"ok": True}
+    finally:
+        client.close()
+        facade._shutdown_event.set()
+        thread.join(timeout=3.0)
+
+    assert not thread.is_alive()
+    assert facade._closed
+    assert not _port_accepts_connections(port)
 
 
 def test_behavior_clients_and_tools_use_explicit_component_rpc_names() -> None:
