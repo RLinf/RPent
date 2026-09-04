@@ -89,6 +89,7 @@ def _strip_mcp_prefix(name: str) -> str:
 def _build_asgi_app(toolkit: Toolkit) -> Any:
     """Build a raw ASGI3 app wrapping an MCP ``Server`` + streamable HTTP."""
     mcp_app: Server = Server(SERVER_NAME, version="0.1.0")
+    tool_execution_lock = asyncio.Lock()
 
     @mcp_app.list_tools()
     async def _list_tools() -> list[types.Tool]:
@@ -106,9 +107,10 @@ def _build_asgi_app(toolkit: Toolkit) -> Any:
     @mcp_app.call_tool()
     async def _call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         lookup = _strip_mcp_prefix(name)
-        tr = await asyncio.get_running_loop().run_in_executor(
-            None, toolkit.execute_tool, lookup, arguments or {}
-        )
+        async with tool_execution_lock:
+            tr = await asyncio.get_running_loop().run_in_executor(
+                None, toolkit.execute_tool, lookup, arguments or {}
+            )
         content, is_error = _toolkit_to_mcp_content(tr)
         return types.CallToolResult(content=content, isError=is_error)
 

@@ -12,9 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unified VLA client base class.
-Design reference: ``docs/source-zh/rst_source/development/add_vla.rst``.
-"""
+"""Unified VLA client base class."""
 
 from __future__ import annotations
 

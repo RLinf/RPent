@@ -20,19 +20,22 @@ from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.prompt.utils import format_prompt
 
 
-def test_prompts_render_with_repo_relative_resource_paths():
+def test_prompts_render_with_memory_relative_paths():
     variables = {
         "task_name": "beat_block_hammer",
         "task_config": "demo_randomized",
         "seed": 100000,
+        "memory_dir": "memory/robotwin",
+        "reference_tag": "beat_block_hammer_s0",
     }
 
     system = format_prompt(system_prompt(), variables=variables)
     user = format_prompt(user_prompt(), variables=variables)
 
     assert "robots/robotwin/guides/GUIDE_RPENT.md" in system
-    assert "resources/robotwin/recipe/beat_block_hammer_s0.json" in system
-    assert "resources/robotwin/memory/MEMORY.md" in system
+    assert "memory/robotwin/task_only/beat_block_hammer_s0.json" in system
+    assert "memory/robotwin/task_only/beat_block_hammer_s0_recipe.jsonl" in system
+    assert "memory/robotwin/MEMORY.md" in system
     assert "task: beat_block_hammer" in user
     assert "seed: 100000" in user
     assert "task_config: demo_randomized" in user

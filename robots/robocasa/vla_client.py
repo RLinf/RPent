@@ -20,6 +20,13 @@ from rpent.robots.components.vla_client_base import BaseVLAClient
 
 
 class RoboCasaVLAClient(BaseVLAClient):
+    """RoboCasa VLA client. ``predict`` inherited from :class:`BaseVLAClient`.
+
+    The session id is the client's private one (injected by the RPC
+    facade); the caller does not pass it. ``predict`` does not set
+    ``options["session_ids"]`` — the server injects it.
+    """
+
     _TIMEOUT_S = BaseVLAClient._TIMEOUT_S
 
     def __init__(self, client):
@@ -42,9 +49,12 @@ class RoboCasaVLAClient(BaseVLAClient):
             timeout_s=self._TIMEOUT_S["predict"],
         )
 
-    def reset_session(self, session_id: str) -> dict:
+    def reset_session(self) -> dict:
+        """Reset RLDX internal state (memory/RTC) for this client's session.
+
+        The session stays live for subsequent calls.
+        """
         return self._client.call(
             "vla.reset_session",
-            args=(session_id,),
             timeout_s=self._TIMEOUT_S["default"],
         )
