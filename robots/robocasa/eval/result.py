@@ -21,6 +21,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from rpent.evaluation import RunFinalizationContext, write_json_atomic
+
 RESULT_SCHEMA_VERSION = "1.0"
 TARGET50_MANIFEST = Path(__file__).with_name("target50.json")
 
@@ -100,16 +102,21 @@ def build_cell_result(
     }
 
 
-def write_cell_result(output_dir: Path | str, **kwargs: Any) -> Path:
-    """Atomically write ``result.json`` and return its path."""
-    destination = Path(output_dir) / "result.json"
-    temporary = destination.with_name(".result.json.tmp")
-    record = build_cell_result(**kwargs)
-    try:
-        with temporary.open("w", encoding="utf-8") as file:
-            json.dump(record, file, indent=2)
-            file.write("\n")
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return destination
+def finalize_cell_result(context: RunFinalizationContext) -> Path:
+    """Adapt shared run state to the RoboCasa Target50 result schema."""
+    task = context.task_desc
+    record = build_cell_result(
+        task_name=str(task["task_name"]),
+        environment_split=str(task["split"]),
+        seed=int(task["seed"]),
+        success=bool(context.environment_success),
+        environment_result_available=context.environment_success is not None,
+        agent_error=context.agent_error,
+        elapsed_s=context.elapsed_s,
+        planner=context.planner,
+        model=context.model,
+        reasoning_effort=context.reasoning_effort,
+        max_turns=context.max_turns,
+        cell_timeout_seconds=context.planner_timeout_s,
+    )
+    return write_json_atomic(context.output_dir / "result.json", record)

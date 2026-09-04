@@ -22,8 +22,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from robots.robocasa import robot_spec
-from robots.robocasa.eval.result import build_cell_result, write_cell_result
+from robots.robocasa.eval.result import build_cell_result, finalize_cell_result
 from robots.robocasa.eval.validate_target50 import validate_results
+from rpent.evaluation import RunFinalizationContext, write_json_atomic
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MANIFEST_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50.json"
@@ -350,30 +351,95 @@ def test_cell_result_counts_planner_timeout_but_not_missing_environment_result()
     assert missing["valid"] is False
 
 
-def test_cell_result_writer_is_atomic(tmp_path, monkeypatch):
+def test_robocasa_registers_and_adapts_shared_result_finalizer(tmp_path, monkeypatch):
     monkeypatch.setenv("RLDX_MAX_CHUNKS", "40")
 
-    path = write_cell_result(
-        tmp_path,
-        **{
-            "task_name": "OpenDrawer",
-            "environment_split": "target",
-            "seed": 1,
-            "success": True,
-            "environment_result_available": True,
-            "agent_error": None,
-            "elapsed_s": 12.34,
-            "planner": "codex",
-            "model": "gpt-5.5",
-            "reasoning_effort": "xhigh",
-            "max_turns": 100,
-            "cell_timeout_seconds": 1800,
-        },
+    spec = robot_spec.get_robot_spec()
+    assert spec.finalize_run is finalize_cell_result
+
+    path = finalize_cell_result(
+        RunFinalizationContext(
+            output_dir=tmp_path,
+            robot_name="robocasa",
+            task_desc={
+                "task_name": "OpenDrawer",
+                "split": "target",
+                "seed": 1,
+            },
+            environment_success=True,
+            agent_error=None,
+            elapsed_s=12.34,
+            planner="codex",
+            model="gpt-5.5",
+            reasoning_effort="xhigh",
+            max_turns=100,
+            planner_timeout_s=1800,
+            finish_result={"status": "failure", "summary": "ignored claim"},
+            stats={"tool_calls": 3},
+        )
     )
 
     assert path == tmp_path / "result.json"
-    assert json.loads(path.read_text(encoding="utf-8"))["success"] is True
-    assert not (tmp_path / ".result.json.tmp").exists()
+    assert json.loads(path.read_text(encoding="utf-8")) == _cell_result(success=True)
+
+
+def test_robocasa_finalizer_marks_missing_environment_result_invalid(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("RLDX_MAX_CHUNKS", "40")
+
+    path = finalize_cell_result(
+        RunFinalizationContext(
+            output_dir=tmp_path,
+            robot_name="robocasa",
+            task_desc={
+                "task_name": "OpenDrawer",
+                "split": "target",
+                "seed": 1,
+            },
+            environment_success=None,
+            agent_error="environment unavailable",
+            elapsed_s=12.34,
+            planner="codex",
+            model="gpt-5.5",
+            reasoning_effort="xhigh",
+            max_turns=100,
+            planner_timeout_s=1800,
+            finish_result=None,
+            stats={},
+        )
+    )
+
+    result = json.loads(path.read_text(encoding="utf-8"))
+    assert result["valid"] is False
+    assert result["success"] is False
+    assert result["termination_reason"] == "infrastructure_error"
+
+
+def _write_valid_cell_result(
+    output_dir: Path,
+    *,
+    task_name: str,
+    seed: int,
+    cell_timeout_seconds: int,
+) -> None:
+    write_json_atomic(
+        output_dir / "result.json",
+        build_cell_result(
+            task_name=task_name,
+            environment_split="target",
+            seed=seed,
+            success=True,
+            environment_result_available=True,
+            agent_error=None,
+            elapsed_s=1.0,
+            planner="codex",
+            model="gpt-5.5",
+            reasoning_effort="xhigh",
+            max_turns=100,
+            cell_timeout_seconds=cell_timeout_seconds,
+        ),
+    )
 
 
 def test_target50_validator_accepts_exactly_all_340_cells(tmp_path, monkeypatch):
@@ -385,19 +451,10 @@ def test_target50_validator_accepts_exactly_all_340_cells(tmp_path, monkeypatch)
             for seed in split["seeds"]:
                 output_dir = tmp_path / split_name / f"{task_name}_s{seed}"
                 output_dir.mkdir(parents=True)
-                write_cell_result(
+                _write_valid_cell_result(
                     output_dir,
                     task_name=task_name,
-                    environment_split="target",
                     seed=seed,
-                    success=True,
-                    environment_result_available=True,
-                    agent_error=None,
-                    elapsed_s=1.0,
-                    planner="codex",
-                    model="gpt-5.5",
-                    reasoning_effort="xhigh",
-                    max_turns=100,
                     cell_timeout_seconds=split["timeout_seconds"],
                 )
 

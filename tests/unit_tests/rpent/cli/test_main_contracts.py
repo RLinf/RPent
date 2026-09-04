@@ -503,6 +503,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     from rpent.robots import PromptBundle, RobotSpec, RunConfig
 
     captured: list[RunFinalizationContext] = []
+
     class FakeDaemon:
         stopped = False
 

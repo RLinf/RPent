@@ -23,6 +23,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from robots.robocasa.eval.result import finalize_cell_result
 from robots.robocasa.prompt_bundle import (
     system_prompt,
     user_prompt,
@@ -87,6 +88,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=ROBOCASA_DASHBOARD_SPEC,
+        finalize_run=finalize_cell_result,
     )
 
 
