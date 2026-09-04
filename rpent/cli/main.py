@@ -52,6 +52,7 @@ from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
 )
+from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, build_planner
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
@@ -422,6 +423,7 @@ def main() -> int:
         sessions = 1
     recipe_path = ""
     solved = False
+    environment_success: bool | None = None
     memory_manager: MemoryManager | None = None
     try:
         if first_user_msg is not None:
@@ -483,7 +485,12 @@ def main() -> int:
                     if solved:
                         recipe_path = toolkit.write_recipe(recipe_tag)
             finally:
-                toolkit.close()
+                try:
+                    if robot_spec.finalize_run is not None:
+                        environment_success = bool(toolkit.solved())
+                        solved = environment_success
+                finally:
+                    toolkit.close()
             if solved:
                 break
             if agent_error:
@@ -532,6 +539,33 @@ def main() -> int:
         stats.get("tool_calls", "?"),
     )
     logger.info("transcript: %s", transcript_path)
+
+    if robot_spec.finalize_run is not None:
+        try:
+            result_path = robot_spec.finalize_run(
+                RunFinalizationContext(
+                    output_dir=Path(output_dir),
+                    robot_name=robot_name,
+                    task_desc=dict(task_desc),
+                    environment_success=environment_success,
+                    agent_error=agent_error,
+                    elapsed_s=elapsed,
+                    planner=args.planner,
+                    model=args.model,
+                    reasoning_effort=args.reasoning_effort,
+                    max_turns=args.max_turns,
+                    planner_timeout_s=args.planner_timeout_s,
+                    finish_result=(
+                        dict(finish_result) if finish_result is not None else None
+                    ),
+                    stats=dict(stats),
+                )
+            )
+            if result_path:
+                logger.info("run result: %s", result_path)
+        except Exception as exc:
+            agent_error = f"result finalization failed: {type(exc).__name__}: {exc}"
+            logger.error("%s", agent_error)
 
     # Publish exploration artifacts into the corpus after the session loop.
     if (
