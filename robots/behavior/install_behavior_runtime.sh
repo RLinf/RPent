@@ -78,6 +78,9 @@ if [[ ! -x "${RPENT_VENV}/bin/python" ]]; then
     "${UV_BIN}" venv --python "${PYTHON_VERSION}" "${RPENT_VENV}"
 fi
 "${UV_BIN}" pip install --python "${RPENT_VENV}/bin/python" -e "${RPENT_ROOT}"
+# Episode video writer backend; mirrors the .[behavior] extra pin.
+# Do NOT switch the rpent venv to .[behavior] (keeps the CLI venv light).
+"${UV_BIN}" pip install --python "${RPENT_VENV}/bin/python" "imageio-ffmpeg>=0.5"
 
 export UV_TORCH_BACKEND=cu124
 (
