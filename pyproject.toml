@@ -45,6 +45,9 @@ dependencies = [
 [project.scripts]
 rpent = "rpent.cli.main:main"
 rpent-memory = "rpent.cli.memory:main"
+behavior-download-assets = "robots.behavior.assets_cli:main"
+behavior-build-memory = "robots.behavior.build_memory_cli:main"
+behavior-install-runtime = "robots.behavior.install_runtime:main"
 
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"
@@ -67,6 +70,16 @@ sam3 = [
     "torch",
     "torchvision",
     "pillow>=10",
+]
+behavior = [
+    "rpent[rlinf]",
+    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
+    # OpenPI's tool.uv source is not propagated through package metadata.
+    "lerobot @ git+https://github.com/huggingface/lerobot.git@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5",
+    "torch",
+    "torchvision",
+    "pillow>=10",
+    "imageio-ffmpeg>=0.5",
 ]
 libero = [
     "rpent[rlinf]",
@@ -115,7 +128,7 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rpent*"]
+include = ["rpent*", "robots", "robots.behavior*"]
 exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]

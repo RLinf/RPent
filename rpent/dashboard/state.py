@@ -54,6 +54,7 @@ InputMode = Literal["command_only", "conversation", "disabled"]
 TaskRequest = dict[str, Any]
 _INTEGER = re.compile(r"-?[0-9]+")
 _UNSAFE_SLUG = re.compile(r"[^A-Za-z0-9_.-]+")
+_OFFICIAL_SUCCESS_SOURCE = 'info["done"]["success"]'
 
 
 def _to_json_safe(value: Any) -> Any:
@@ -69,6 +70,46 @@ def _to_json_safe(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_to_json_safe(item) for item in value]
     return value
+
+
+def _channel_result_keys(channel: dict[str, Any]) -> tuple[str, ...]:
+    explicit = channel.get("result_key", channel.get("result_bytes_key"))
+    if isinstance(explicit, str) and explicit:
+        return (explicit,)
+    if isinstance(explicit, (list, tuple)):
+        return tuple(str(key) for key in explicit if key)
+    name = str(channel.get("name", ""))
+    if name == "camera":
+        return ("_image_cam_bytes", "_image_bytes")
+    if name == "wrist":
+        return ("_image_wrist_bytes",)
+    if name == "head":
+        return ("_image_bytes",)
+    if name == "left_wrist":
+        return ("_image_left_wrist_bytes", "_image_cam_bytes")
+    if name == "right_wrist":
+        return ("_image_right_wrist_bytes", "_image_wrist_bytes")
+    return ()
+
+
+def _result_official_success(result: dict[str, Any], *, terminated: bool) -> bool:
+    """Return whether a tool result contains robot-official success evidence."""
+
+    if (
+        result.get("official_success_source") == _OFFICIAL_SUCCESS_SOURCE
+        or "official_success_receipt" in result
+    ):
+        receipt = result.get("official_success_receipt")
+        if not isinstance(receipt, dict):
+            return False
+        raw_done = receipt.get("raw_done")
+        return (
+            result.get("task_success") is True
+            and receipt.get("source") == _OFFICIAL_SUCCESS_SOURCE
+            and isinstance(raw_done, dict)
+            and raw_done.get("success") is True
+        )
+    return bool(terminated)
 
 
 def _parse_task(task_spec: dict[str, Any], text: str) -> TaskRequest | None:
@@ -147,6 +188,7 @@ class DashboardState:
         self._task_state: str | None = None
         self._terminated = False
         self._truncated = False
+        self._official_success = False
         self._error: str | None = None
         self._usage = {"in": 0, "out": 0, "tool_calls": 0}
         self._planner_usage_base = {"in": 0, "out": 0, "tool_calls": 0}
@@ -157,6 +199,10 @@ class DashboardState:
         self._events: list[dict[str, Any]] = []
         self._timeline: list[dict[str, Any]] = []
         self._frames: dict[str, bytes] = {}
+        self._frame_result_keys = {
+            channel["name"]: _channel_result_keys(channel)
+            for channel in self._frame_channels
+        }
         self._frame_idx = -1
         self.env_state: EnvState | None = None
         self.frame_artifacts: dict[str, str] = {}
@@ -323,6 +369,9 @@ class DashboardState:
             self._task_state = state
             self._terminated = any(item.get("terminated") for item in self._timeline)
             self._truncated = any(item.get("truncated") for item in self._timeline)
+            self._official_success = any(
+                item.get("official_success") for item in self._timeline
+            )
             self._error = None if error is None else str(error)
             self._task_replacement_requested = False
             self._seal_interaction_locked()
@@ -349,6 +398,7 @@ class DashboardState:
         self._task_replacement_requested = False
         self._terminated = False
         self._truncated = False
+        self._official_success = False
         self._error = None
         self._usage = {"in": 0, "out": 0, "tool_calls": 0}
         self._planner_usage_base = {"in": 0, "out": 0, "tool_calls": 0}
@@ -655,10 +705,12 @@ class DashboardState:
         result = event.result
         if not isinstance(result, dict):
             return
-        frames = {
-            "camera": result.get("_image_cam_bytes") or result.get("_image_bytes"),
-            "wrist": result.get("_image_wrist_bytes"),
-        }
+        frames: dict[str, Any] = {}
+        for kind, keys in self._frame_result_keys.items():
+            for key in keys:
+                if result.get(key):
+                    frames[kind] = result[key]
+                    break
         self._update_frames(
             step=result.get("step"),
             frames={kind: data for kind, data in frames.items() if data},
@@ -676,6 +728,7 @@ class DashboardState:
         action = str(command.get("action", name))
         terminated = bool(result.get("terminated"))
         truncated = bool(result.get("truncated"))
+        official_success = _result_official_success(result, terminated=terminated)
         action_video_path = self._action_video_from_result(
             result,
             step=step,
@@ -691,6 +744,7 @@ class DashboardState:
             "elapsed_s": log.get("elapsed_s"),
             "terminated": terminated,
             "truncated": truncated,
+            "official_success": official_success,
             "action_video_path": action_video,
             "action_video_artifact": action_video_artifact,
             "has_action_video": bool(action_video_artifact or action_video_path),
@@ -699,6 +753,7 @@ class DashboardState:
             self._timeline.append(item)
             self._terminated = self._terminated or terminated
             self._truncated = self._truncated or truncated
+            self._official_success = self._official_success or official_success
 
     def _action_video_from_result(
         self,
@@ -735,6 +790,10 @@ class DashboardState:
             "elapsed_s": record.elapsed_s,
             "terminated": record.terminated,
             "truncated": record.truncated,
+            "official_success": _result_official_success(
+                record.result if isinstance(record.result, dict) else {},
+                terminated=record.terminated,
+            ),
             "action_video_artifact": action_video,
             "has_action_video": action_video is not None,
         }
@@ -748,6 +807,9 @@ class DashboardState:
                 )
             self._terminated = self._terminated or record.terminated
             self._truncated = self._truncated or record.truncated
+            self._official_success = self._official_success or bool(
+                item["official_success"]
+            )
 
     def _update_step_frames(self, record: StepRecord, *, display_step: int) -> None:
         """Load dashboard frame bytes from the step's canonical artifacts."""
@@ -962,6 +1024,7 @@ class DashboardState:
                 "state": self._visible_state_locked(),
                 "terminated": self._terminated,
                 "truncated": self._truncated,
+                "official_success": self._official_success,
                 "error": self._error,
                 "usage": dict(self._usage),
                 "runtime": self._runtime_snapshot(),
@@ -985,6 +1048,7 @@ class DashboardState:
                 "state": self._visible_state_locked(),
                 "terminated": self._terminated,
                 "truncated": self._truncated,
+                "official_success": self._official_success,
                 "error": self._error,
                 "usage": dict(self._usage),
                 "runtime": self._runtime_snapshot(),

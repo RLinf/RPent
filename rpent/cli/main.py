@@ -56,6 +56,7 @@ from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, build_planner
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
+from rpent.robots.runtime import stop_owned_daemons
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
 
@@ -322,8 +323,35 @@ def main() -> int:
     args.robot_name = early.robot_name
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
-    if args.explore and args.robot_name != "libero":
-        parser.error("--explore is currently supported only for LIBERO")
+    if args.explore and args.robot_name not in ("libero", "behavior"):
+        parser.error("--explore is currently supported only for LIBERO and BEHAVIOR")
+    if (
+        args.explore
+        and args.robot_name == "behavior"
+        and getattr(args, "behavior_mode", "eval") != "explore"
+    ):
+        parser.error("BEHAVIOR --explore requires --behavior-mode explore")
+    if args.explore and args.robot_name == "behavior" and args.dashboard:
+        parser.error(
+            "BEHAVIOR --explore is CLI-only; use --behavior-mode explore "
+            "without --explore for Dashboard TaskRuns"
+        )
+    if (
+        args.explore
+        and args.robot_name == "behavior"
+        and getattr(args, "env_endpoint", None) is not None
+    ):
+        parser.error(
+            "BEHAVIOR explore requires an owned env sidecar; omit --env-endpoint"
+        )
+    if (
+        args.explore
+        and args.robot_name == "behavior"
+        and getattr(args, "explore_attempts_per_session", 0) > 0
+    ):
+        parser.error(
+            "BEHAVIOR explore runs one attempt per session; use --explore-sessions"
+        )
     if args.explore and args.memory_profile == "hf":
         parser.error("--explore cannot be used with --memory-profile hf")
     if args.explore and getattr(args, "explore_sessions", 1) <= 0:
@@ -401,11 +429,14 @@ def main() -> int:
         await_first_prompt = start_first_prompt_resolver(input_queue)
 
     # --- initialise robot runtime --------------------------------------------
+    runtime_components = None
+    if args.explore and robot_name == "behavior":
+        runtime_components = {"vla", "dino", "memory"}
     daemons, primitives_kwargs = robot_spec.init_runtime(
         args,
         output_dir,
         dashboard_events,
-        None,
+        runtime_components,
     )
 
     # --- agent loop --------------------------------------------------------
@@ -426,6 +457,7 @@ def main() -> int:
     solved = False
     environment_success: bool | None = None
     memory_manager: MemoryManager | None = None
+    behavior_env_daemon = None
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
@@ -449,7 +481,24 @@ def main() -> int:
                 state_output_dir = (
                     output_dir / "sessions" / f"session_{session_number:03d}"
                 )
-            if robot_name == "libero":
+            if robot_name == "behavior" and args.explore:
+                if behavior_env_daemon is not None:
+                    stop_owned_daemons({"env": behavior_env_daemon}, dashboard_events)
+                    daemons.remove(behavior_env_daemon)
+                env_daemons, env_kwargs = robot_spec.init_runtime(
+                    args,
+                    state_output_dir,
+                    dashboard_events,
+                    {"env"},
+                )
+                if len(env_daemons) != 1:
+                    raise RuntimeError(
+                        "BEHAVIOR explore requires one owned env daemon per session"
+                    )
+                behavior_env_daemon = env_daemons[0]
+                daemons.extend(env_daemons)
+                primitives_kwargs.update(env_kwargs)
+            if robot_name in ("libero", "behavior"):
                 toolkit = get_toolkit(
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
@@ -481,7 +530,7 @@ def main() -> int:
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
-                if robot_name == "libero":
+                if robot_name in ("libero", "behavior"):
                     solved = toolkit.solved()
                     if solved:
                         recipe_path = toolkit.write_recipe(recipe_tag)

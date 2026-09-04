@@ -46,7 +46,7 @@
       :link-type: doc
       :text-align: center
 
-      使用 LIBERO / RoboCasa 仿真环境或 Franka / SO-101 机械臂，
+      使用 LIBERO / BEHAVIOR / RoboCasa 仿真环境或 Franka / SO-101 机械臂，
       切换 planner 并选择动作原语。
 
    .. grid-item-card:: 开发教程
@@ -79,6 +79,7 @@
    LIBERO <rst_source/usage/libero>
    RoboCasa <rst_source/usage/robocasa>
    RoboTwin <rst_source/usage/robotwin>
+   BEHAVIOR <rst_source/usage/behavior>
    Franka <rst_source/usage/franka>
    SO-101 <rst_source/usage/so101>
    高级部署 <rst_source/usage/advanced_deployment>

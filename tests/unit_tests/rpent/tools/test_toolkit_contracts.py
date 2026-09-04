@@ -93,9 +93,14 @@ class _ContractToolkit(Toolkit):
 def test_tool_result_builds_text_and_images_without_mutating_result() -> None:
     image_payloads = {
         "_image_bytes": b"main",
+        "_depth_image_bytes": b"main-depth",
         "_image_cam_bytes": b"camera",
         "_image_nav_bytes": b"navigation",
         "_image_wrist_bytes": b"wrist",
+        "_image_left_wrist_bytes": b"left-wrist",
+        "_depth_left_wrist_bytes": b"left-wrist-depth",
+        "_image_right_wrist_bytes": b"right-wrist",
+        "_depth_right_wrist_bytes": b"right-wrist-depth",
     }
     result = {"status": "ok", "count": 2, **image_payloads}
     original = copy.deepcopy(result)
@@ -111,6 +116,11 @@ def test_tool_result_builds_text_and_images_without_mutating_result() -> None:
     }
     assert [block["type"] for block in tool_result.content_blocks] == [
         "text",
+        "image",
+        "image",
+        "image",
+        "image",
+        "image",
         "image",
         "image",
         "image",

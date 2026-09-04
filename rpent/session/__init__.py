@@ -14,6 +14,18 @@
 
 """Single-session, mutable state (EnvState)."""
 
-from rpent.session.base import EnvState, StepRecord
+from rpent.session.base import (
+    EnvState,
+    StepRecord,
+    VideoArtifactWriter,
+    recipe_commands_from_states,
+    write_command_recipe_from_states,
+)
 
-__all__ = ["EnvState", "StepRecord"]
+__all__ = [
+    "EnvState",
+    "StepRecord",
+    "VideoArtifactWriter",
+    "write_command_recipe_from_states",
+    "recipe_commands_from_states",
+]

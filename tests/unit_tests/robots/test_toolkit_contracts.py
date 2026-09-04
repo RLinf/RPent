@@ -20,6 +20,8 @@ from typing import Any
 
 import pytest
 
+from robots.behavior import robot_spec as behavior_robot_spec
+from robots.behavior import toolkit as behavior_toolkit
 from robots.libero import robot_spec as libero_robot_spec
 from robots.libero import toolkit as libero_toolkit
 from robots.robocasa import robot_spec as robocasa_robot_spec
@@ -120,3 +122,56 @@ def test_toolkit_factories_fall_back_to_each_robot_memory_root(
     )
 
     assert toolkit.memory.root == default_memory.resolve()
+
+
+@pytest.mark.parametrize(
+    ("mode", "write_allowed"),
+    [("eval", False), ("explore", True)],
+)
+def test_behavior_toolkit_uses_one_official_memory_manager(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    mode: str,
+    write_allowed: bool,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_toolkit(**kwargs: Any) -> SimpleNamespace:
+        captured.update(kwargs)
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(behavior_toolkit, "BehaviorToolkit", fake_toolkit)
+    memory_dir = tmp_path / "memory"
+    recipe_tag = "turning_on_radio_s1"
+    config = RunConfig(
+        recipe_tag=recipe_tag,
+        output_dir=tmp_path / "run",
+        prompt_vars={
+            "behavior_mode": mode,
+            "memory_dir": str(memory_dir),
+        },
+        task_desc={},
+    )
+
+    toolkit = behavior_robot_spec.get_toolkit(
+        primitives_kwargs={"_memory_component_selected": True},
+        dashboard_events=NullDashboardEventSink(),
+        config=config,
+    )
+
+    assert toolkit.memory is captured["memory"]
+    assert toolkit.memory.root == memory_dir.resolve()
+    write = toolkit.memory.get_common_tool_bindings()["write_text_file"][1]
+    destination = memory_dir / "_internal" / "inbox" / recipe_tag / "wip" / "notes.md"
+    if write_allowed:
+        write(str(destination), "evidence")
+        assert destination.read_text() == "evidence"
+    else:
+        with pytest.raises(PermissionError, match="writing to memory is denied"):
+            write(str(destination), "evidence")
+
+    component_names = {
+        item["name"]
+        for item in behavior_robot_spec.BEHAVIOR_DASHBOARD_SPEC["runtime_components"]
+    }
+    assert component_names == {"env", "vla", "dino", "memory"}
