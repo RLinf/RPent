@@ -262,19 +262,6 @@ case "$target" in
     timeout --foreground --kill-after=2m "$install_timeout" uv pip install \
       --python "$venv_dir/bin/python" \
       --editable "${repo_root}[libero-pro,test]"
-    # LIBERO-PRO resolves package data through realpath(__file__). Materialize
-    # this distribution so its package path remains inside the job venv even
-    # when the rest of the environment uses the shared cache via symlinks.
-    liberopro_version=$(
-      "$venv_dir/bin/python" -c \
-        'from importlib.metadata import version; print(version("rpent-liberopro"))'
-    )
-    timeout --foreground --kill-after=2m "$install_timeout" \
-      env UV_LINK_MODE=copy uv pip install \
-      --python "$venv_dir/bin/python" \
-      --force-reinstall \
-      --no-deps \
-      "rpent-liberopro==$liberopro_version"
     timeout --foreground --kill-after=2m "$install_timeout" \
       uv pip check --python "$venv_dir/bin/python"
     timeout --foreground --kill-after=2m "$install_timeout" \
