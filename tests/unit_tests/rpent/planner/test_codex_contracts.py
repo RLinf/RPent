@@ -383,6 +383,132 @@ def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
     assert any(isinstance(event, UsageEvent) for event in sink.events)
 
 
+def test_finish_downgrades_recorder_only_stream_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_backend(monkeypatch)
+    FakeCodex.events = [
+        {
+            "method": "error",
+            "payload": {
+                "error": {
+                    "message": "Reconnecting... 2/5",
+                    "codex_error_info": {"response_stream_disconnected": {}},
+                },
+                "will_retry": True,
+            },
+        },
+        {
+            "method": "item/completed",
+            "payload": {
+                "item": {
+                    "type": "mcpToolCall",
+                    "tool": "mcp__rpent__finish",
+                    "status": "completed",
+                    "arguments": {"status": "success", "summary": "done"},
+                    "result": "accepted",
+                }
+            },
+        },
+        {
+            "method": "turn/completed",
+            "payload": {"turn": {"status": "completed", "duration_ms": 1000}},
+        },
+    ]
+
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="",
+        user_message="task",
+        toolkit=FakeToolkit(),
+        max_turns=3,
+    )
+
+    assert result.finish_result == {
+        "_finish": True,
+        "status": "success",
+        "summary": "done",
+    }
+    assert result.error is None
+    assert result.stats["nonfatal_recorder_errors"] == 1
+
+
+def test_recorder_stream_error_remains_fatal_without_finish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_backend(monkeypatch)
+    FakeCodex.events = [
+        {
+            "method": "error",
+            "payload": {
+                "error": {
+                    "message": "Reconnecting... 2/5",
+                    "codex_error_info": {"response_stream_disconnected": {}},
+                },
+                "will_retry": True,
+            },
+        },
+        {
+            "method": "turn/completed",
+            "payload": {"turn": {"status": "completed", "duration_ms": 1000}},
+        },
+    ]
+
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="",
+        user_message="task",
+        toolkit=FakeToolkit(),
+        max_turns=3,
+    )
+
+    assert result.finish_result is None
+    assert result.error is not None
+    assert "Reconnecting... 2/5" in result.error
+    assert result.stats["nonfatal_recorder_errors"] == 0
+
+
+def test_failed_turn_error_is_not_suppressed_after_finish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_backend(monkeypatch)
+    FakeCodex.events = [
+        {
+            "method": "item/completed",
+            "payload": {
+                "item": {
+                    "type": "mcpToolCall",
+                    "tool": "mcp__rpent__finish",
+                    "status": "completed",
+                    "arguments": {"status": "success", "summary": "done"},
+                    "result": "accepted",
+                }
+            },
+        },
+        {
+            "method": "turn/completed",
+            "payload": {
+                "turn": {
+                    "status": "failed",
+                    "error": {"message": "Codex turn failed"},
+                }
+            },
+        },
+    ]
+
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="",
+        user_message="task",
+        toolkit=FakeToolkit(),
+        max_turns=3,
+    )
+
+    assert result.finish_result is not None
+    assert result.error == "Codex turn failed"
+    assert result.stats["nonfatal_recorder_errors"] == 0
+
+
 def test_rejected_finish_item_is_not_promoted() -> None:
     from rpent.planner.codex import _Recorder
 
