@@ -1,0 +1,59 @@
+# RPent example config for a dual-Franka setup.
+robot:
+  arms:
+    left:
+      ip: "172.16.0.2"
+      gripper:
+        type: robotiq
+        connection: "/dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAIR00N-if00-port0"
+    right:
+      ip: "172.16.0.2"
+      gripper:
+        type: robotiq
+        connection: "/dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAIT8PU-if00-port0"
+
+cameras:
+  main: left_wrist_0_rgb
+  observation:
+    base:
+      - serial: "141722070657"
+        type: realsense
+    left_wrist:
+      - serial: "usb-XVisio_Technology_XVisio_vSLAM_250801DR48FB26001216-video-index0"
+        type: lumos
+    right_wrist:
+      - serial: "usb-XVisio_Technology_XVisio_vSLAM_250801DR48FB26001242-video-index0"
+        type: lumos
+  perception:
+    d455:
+      serial: "311322304048"
+      type: realsense
+
+workspace:
+  target_ee_pose:
+    - [0.5, -0.2, 0.5, -3.14, 0.0, 0.0]
+    - [0.5, 0.2, 0.5, -3.14, 0.0, 0.0]
+  ee_pose_limit_min:
+    - [0.3, -0.4, 0.1, -3.1416, -3.1416, -3.1416]
+    - [0.3, -0.4, 0.1, -3.1416, -3.1416, -3.1416]
+  ee_pose_limit_max:
+    - [0.8, 0.4, 0.7, 3.1416, 3.1416, 3.1416]
+    - [0.8, 0.4, 0.7, 3.1416, 3.1416, 3.1416]
+
+perception:
+  localization_validity:
+    base_camera:
+      depth_m: [0.15, 1.25]
+      right_base_xyz_min: [0.1, -0.85, 0.0]
+      right_base_xyz_max: [1.15, 0.85, 0.85]
+    d455_camera:
+      depth_m: [0.15, 1.5]
+      right_base_xyz_min: [0.1, -0.85, 0.0]
+      right_base_xyz_max: [1.15, 1.25, 0.85]
+  base_frames:
+    T_right_base_left_base:
+      matrix:
+        - [1.0, 0.0, 0.0, 0.01]
+        - [0.0, 1.0, 0.0, 0.69]
+        - [0.0, 0.0, 1.0, 0.0]
+        - [0.0, 0.0, 0.0, 1.0]

@@ -16,7 +16,7 @@ RPent 内置两类原语：
 
 各机器人的具体配置，例如使用哪个 VLA、checkpoint 路径以及对外提供的工具，
 请参考对应的机器人页面：:doc:`libero`、:doc:`robocasa`、
-:doc:`franka`、:doc:`so101`。
+:doc:`franka`、:doc:`dual_franka`、:doc:`so101`。
 
 各机器人使用的 VLA
 ------------------

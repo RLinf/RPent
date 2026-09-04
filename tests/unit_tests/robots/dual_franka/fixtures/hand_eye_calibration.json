@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "base_camera": {
+    "source_name": "third_to_right_base_calib_eye_on_base.yaml",
+    "parameters": {
+      "eye_on_hand": false,
+      "robot_base_frame": "right_base",
+      "tracking_base_frame": "third_camera_color_optical_frame"
+    },
+    "transformation": {
+      "qw": 0.39683199797658536,
+      "qx": -0.5953705982581375,
+      "qy": 0.5978248726823736,
+      "qz": -0.36147425594911003,
+      "x": 0.21805217194241686,
+      "y": 0.3410047286324316,
+      "z": 0.789199431837733
+    }
+  },
+  "d455_camera": {
+    "source_name": "d455_to_right_base_eye_on_base.yaml",
+    "parameters": {
+      "eye_on_hand": false,
+      "robot_base_frame": "right_base",
+      "tracking_base_frame": "d455_color_optical_frame"
+    },
+    "transformation": {
+      "qw": 0.5846891204182749,
+      "qx": -0.7326935448819889,
+      "qy": -0.3328489017830779,
+      "qz": 0.10252029230629359,
+      "x": 1.0742812281624636,
+      "y": -0.48059006109294633,
+      "z": 0.7710512624107811
+    }
+  }
+}

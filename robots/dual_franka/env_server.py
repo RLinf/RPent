@@ -1,0 +1,506 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""RPC server owning one RLinf dual-Franka ``RealWorldEnv`` worker."""
+
+from __future__ import annotations
+
+import queue
+import sys
+import time
+from typing import Any
+
+import numpy as np
+
+from robots.dual_franka.runtime_config import load_runtime_config
+from robots.franka.env_server import _to_numpy_tree, main
+from rpent.utils.config import get_repo_root, get_rlinf_repo_path
+
+# Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
+RPENT_ROOT = get_repo_root()
+RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
+if str(RLINF_REPO_PATH) not in sys.path:
+    sys.path.insert(0, str(RLINF_REPO_PATH))
+
+_ARM_INDEX = {"left": 0, "right": 1}
+
+
+def _matrix_to_rot6d(matrix: np.ndarray) -> np.ndarray:
+    """Encode a 3x3 rotation as its first two columns (RLinf rot6d convention)."""
+    matrix = np.asarray(matrix, dtype=np.float32)
+    return np.concatenate([matrix[:, 0], matrix[:, 1]]).astype(np.float32)
+
+
+def _pack_dual_action(
+    left_xyz: np.ndarray,
+    left_rot6d: np.ndarray,
+    right_xyz: np.ndarray,
+    right_rot6d: np.ndarray,
+    *,
+    left_grip: float = 0.0,
+    right_grip: float = 0.0,
+) -> np.ndarray:
+    """Assemble a 20-D ``[L_xyz, L_rot6d, L_grip, R_xyz, R_rot6d, R_grip]`` action."""
+    left = np.concatenate(
+        [
+            np.asarray(left_xyz, dtype=np.float32),
+            np.asarray(left_rot6d, dtype=np.float32),
+            np.array([left_grip], dtype=np.float32),
+        ]
+    )
+    right = np.concatenate(
+        [
+            np.asarray(right_xyz, dtype=np.float32),
+            np.asarray(right_rot6d, dtype=np.float32),
+            np.array([right_grip], dtype=np.float32),
+        ]
+    )
+    return np.concatenate([left, right]).astype(np.float32)
+
+
+def _create_worker_class():
+    """Build the Worker subclass only inside the RLinf server environment."""
+    from rlinf.envs.realworld.common.camera import CameraInfo, create_camera
+    from rlinf.envs.realworld.realworld_env import RealWorldEnv
+    from rlinf.scheduler import Worker
+    from scipy.spatial.transform import Rotation as Rotation
+
+    class DualFrankaEnvWorker(Worker):
+        """Ray worker that owns both physical Franka arms and camera resources."""
+
+        def __init__(self, cfg: Any, controller_config: dict[str, Any]):
+            super().__init__()
+            self.cfg = cfg
+            self.controller = dict(controller_config)
+            self.env = RealWorldEnv(
+                cfg.env.eval,
+                num_envs=1,
+                seed_offset=0,
+                total_num_processes=1,
+                worker_info=self.worker_info,
+            )
+            self.action_dim = int(self.env.action_space.shape[-1])
+            self.per_arm_dim = int(
+                self.env.env.call("get_wrapper_attr", "PER_ARM_ACTION_DIM")[0]
+            )
+            self.gripper_idx = int(
+                self.env.env.call("get_wrapper_attr", "GRIPPER_IDX_IN_ARM")[0]
+            )
+            if self.per_arm_dim != 10 or self.action_dim != 2 * self.per_arm_dim:
+                raise ValueError(
+                    "dual-Franka RPent bridge requires the TCP rot6d env "
+                    f"(20-D); got action_dim={self.action_dim}, "
+                    f"per_arm_dim={self.per_arm_dim}"
+                )
+            env_config = self.env.env.call("get_wrapper_attr", "config")[0]
+            self.action_scale = np.asarray(env_config.action_scale, dtype=np.float32)
+            self.last_obs: dict[str, Any] | None = None
+            self._perception_cameras: dict[str, Any] = {}
+            self._perception_camera_last_frames: dict[str, np.ndarray] = {}
+            self._perception_camera_meta: dict[str, dict[str, Any]] = {}
+            try:
+                self._open_perception_cameras()
+            except Exception:
+                self.env.close()
+                raise
+
+        # ------------------------------------------------------------ lifecycle
+
+        def get_env_meta(self) -> dict[str, Any]:
+            return {
+                "ok": True,
+                "action_dim": self.action_dim,
+                "per_arm_dim": self.per_arm_dim,
+                "action_scale": self.action_scale.tolist(),
+                "arms": ["left", "right"],
+                "perception_cameras": sorted(self._perception_cameras),
+            }
+
+        def close_env(self) -> None:
+            for camera in self._perception_cameras.values():
+                try:
+                    camera.close()
+                except Exception:
+                    pass
+            self._perception_cameras.clear()
+            try:
+                self.env.close()
+            except Exception:
+                pass
+
+        def reset(self) -> dict[str, Any]:
+            observation, info = self.env.reset()
+            self.last_obs = observation
+            return {
+                "ok": True,
+                "info": _to_numpy_tree(info),
+                "robot_state": self.get_robot_state(),
+            }
+
+        # --------------------------------------------------------- observation
+
+        def _ensure_obs(self) -> dict[str, Any]:
+            if self.last_obs is None:
+                raise RuntimeError(
+                    "env.reset() has not been called; observation is unavailable. "
+                    "Call reset before reading observations."
+                )
+            return self.last_obs
+
+        @staticmethod
+        def _strip_batch(value: Any) -> Any:
+            array = _to_numpy_tree(value)
+            if isinstance(array, np.ndarray) and array.ndim > 0 and array.shape[0] == 1:
+                return array[0]
+            if isinstance(array, list) and len(array) == 1:
+                return array[0]
+            return array
+
+        def get_observation(self) -> dict[str, Any]:
+            observation = self._ensure_obs()
+            output = {
+                key: self._strip_batch(value) for key, value in observation.items()
+            }
+            value = output.get("extra_view_images")
+            if (
+                isinstance(value, np.ndarray)
+                and value.ndim == 5
+                and value.shape[0] == 1
+            ):
+                output["extra_view_images"] = value[0]
+            snapshot_getter = self.env.env.call(
+                "get_wrapper_attr", "get_raw_camera_snapshot"
+            )[0]
+            snapshot = _to_numpy_tree(snapshot_getter())
+            output["raw_camera_frames"] = snapshot.get("raw_frames", {})
+            output["raw_camera_depths"] = snapshot.get("raw_depths", {})
+            perception = self._capture_perception_camera_snapshot()
+            for raw_key, frame in perception["raw_frames"].items():
+                alias = raw_key.removesuffix("_rgb")
+                output[f"{alias}_images"] = frame
+            for raw_key, depth in perception["raw_depths"].items():
+                alias = raw_key.removesuffix("_rgb")
+                output[f"{alias}_depths"] = depth
+            return output
+
+        # --------------------------------------------------------- arm state
+
+        def _arm_states(self) -> tuple[Any, Any]:
+            left = self.env.env.call("get_wrapper_attr", "_left_state")[0]
+            right = self.env.env.call("get_wrapper_attr", "_right_state")[0]
+            return left, right
+
+        def _arm_poses(self) -> tuple[np.ndarray, np.ndarray]:
+            left, right = self._arm_states()
+            return (
+                np.asarray(left.tcp_pose, dtype=np.float32),
+                np.asarray(right.tcp_pose, dtype=np.float32),
+            )
+
+        def _arm_rot6d(self, pose: np.ndarray) -> np.ndarray:
+            return _matrix_to_rot6d(Rotation.from_quat(pose[3:]).as_matrix())
+
+        def _hold_action(self, left: np.ndarray, right: np.ndarray) -> np.ndarray:
+            return _pack_dual_action(
+                left[:3],
+                self._arm_rot6d(left),
+                right[:3],
+                self._arm_rot6d(right),
+            )
+
+        def get_robot_state(self) -> dict[str, Any]:
+            left, right = self._arm_states()
+            return {
+                "left_arm": _to_numpy_tree(left),
+                "right_arm": _to_numpy_tree(right),
+                "action_dim": self.action_dim,
+                "per_arm_dim": self.per_arm_dim,
+                "action_scale": self.action_scale.tolist(),
+            }
+
+        def get_camera_meta(self) -> dict[str, Any] | None:
+            metadata: dict[str, Any] = {}
+            try:
+                specs_getter = self.env.env.call(
+                    "get_wrapper_attr", "_all_camera_specs"
+                )[0]
+                specs = list(specs_getter())
+            except Exception as exc:
+                return metadata or {
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                }
+            cameras = {
+                name: {"serial": serial, "type": camera_type}
+                for name, serial, camera_type in specs
+            }
+            main_key = self.cfg.env.eval.get("main_image_key")
+            extras = [name for name, _, _ in specs if name != main_key]
+            metadata.update(
+                {
+                    name: {"serial": serial, "type": camera_type}
+                    for name, serial, camera_type in specs
+                }
+            )
+            metadata_getter = self.env.env.call(
+                "get_wrapper_attr", "get_raw_camera_metadata"
+            )[0]
+            metadata.update(_to_numpy_tree(metadata_getter()))
+            metadata.update(self._perception_camera_meta)
+            return {
+                "cameras": cameras,
+                "observation_camera_map": {
+                    "main": main_key,
+                    **{f"extra_{index}": name for index, name in enumerate(extras)},
+                },
+                **metadata,
+            }
+
+        def _open_perception_cameras(self) -> None:
+            cameras = self.controller["perception"].get("cameras")
+            if not isinstance(cameras, dict):
+                return
+            for alias, raw_config in cameras.items():
+                if not isinstance(raw_config, dict) or not bool(
+                    raw_config.get("enabled", True)
+                ):
+                    continue
+                resolution = tuple(
+                    int(value) for value in raw_config.get("resolution", [640, 480])
+                )
+                if len(resolution) != 2:
+                    raise ValueError(
+                        f"perception camera {alias!r} resolution must have two values"
+                    )
+                info = CameraInfo(
+                    name=f"{alias}_rgb",
+                    serial_number=str(raw_config["serial_number"]),
+                    camera_type=str(raw_config.get("camera_type", "realsense")),
+                    resolution=resolution,
+                    fps=int(raw_config.get("fps", 15)),
+                    enable_depth=bool(raw_config.get("enable_depth", True)),
+                )
+                camera = create_camera(info)
+                camera.open()
+                try:
+                    first_frame = camera.get_frame(timeout=8)
+                except Exception:
+                    camera.close()
+                    raise
+                self._perception_cameras[str(alias)] = camera
+                self._perception_camera_last_frames[str(alias)] = np.asarray(
+                    first_frame
+                )
+
+        def _capture_perception_camera_snapshot(self) -> dict[str, dict[str, Any]]:
+            output: dict[str, dict[str, Any]] = {
+                "raw_frames": {},
+                "raw_depths": {},
+                "camera_meta": {},
+            }
+            for alias, camera in self._perception_cameras.items():
+                try:
+                    frame = camera.get_frame(timeout=2)
+                    self._perception_camera_last_frames[alias] = np.asarray(frame)
+                except queue.Empty:
+                    frame = self._perception_camera_last_frames.get(alias)
+                    if frame is None:
+                        continue
+                frame = np.asarray(frame)
+                if frame.ndim != 3 or frame.shape[-1] < 3:
+                    continue
+                rgb = frame[..., :3][..., ::-1].astype(np.uint8, copy=True)
+                raw_key = f"{alias}_rgb"
+                output["raw_frames"][raw_key] = rgb
+                depth = None
+                if frame.shape[-1] >= 4:
+                    depth_scale = float(getattr(camera, "depth_scale", 1.0))
+                    depth = frame[..., 3].astype(np.float32) * depth_scale
+                    output["raw_depths"][raw_key] = depth
+                intrinsics_getter = getattr(camera, "get_color_intrinsics", None)
+                intrinsics = (
+                    intrinsics_getter() if callable(intrinsics_getter) else None
+                )
+                info = camera._camera_info
+                meta = {
+                    "name": raw_key,
+                    "camera_alias": alias,
+                    "camera_type": info.camera_type,
+                    "serial_number": info.serial_number,
+                    "rgb_shape": list(rgb.shape),
+                    "depth_shape": list(depth.shape) if depth is not None else None,
+                    "depth_enabled": bool(info.enable_depth),
+                    "depth_available": depth is not None,
+                    "color_intrinsics": intrinsics,
+                }
+                output["camera_meta"][raw_key] = meta
+                self._perception_camera_meta[raw_key] = meta
+            return output
+
+        # --------------------------------------------------------- primitives
+
+        def _arm_index(self, arm: str) -> int:
+            index = _ARM_INDEX.get(str(arm).strip().lower())
+            if index is None:
+                raise ValueError("arm must be 'left' or 'right'")
+            return index
+
+        def move_delta(self, arm: str, delta_xyz: Any) -> dict[str, Any]:
+            arm_idx = self._arm_index(arm)
+            requested = np.asarray(delta_xyz, dtype=np.float32)
+            left, right = self._arm_poses()
+            start = left if arm_idx == 0 else right
+            target_xyz = start[:3] + requested
+            max_step = self.controller["move_max_step_m"]
+            deadline = time.time() + self.controller["move_timeout_s"]
+            max_iterations = max(
+                self.controller["min_iterations"],
+                int(np.ceil(np.max(np.abs(requested)) / max_step))
+                * self.controller["iteration_multiplier"],
+            )
+            iterations = 0
+            while iterations < max_iterations and time.time() < deadline:
+                left, right = self._arm_poses()
+                current = left if arm_idx == 0 else right
+                remaining = target_xyz - current[:3]
+                if np.linalg.norm(remaining) <= self.controller["move_tolerance_m"]:
+                    break
+                step_xyz = np.clip(remaining, -max_step, max_step)
+                action = self._hold_action(left, right)
+                base = arm_idx * self.per_arm_dim
+                action[base : base + 3] = current[:3] + step_xyz
+                self.env.step(action[None, :])
+                iterations += 1
+            left, right = self._arm_poses()
+            final = left if arm_idx == 0 else right
+            error = float(np.linalg.norm(target_xyz - final[:3]))
+            return {
+                "ok": error <= self.controller["move_tolerance_m"],
+                "arm": ["left", "right"][arm_idx],
+                "requested_delta_xyz": requested.tolist(),
+                "start_tcp_pose": start.tolist(),
+                "final_tcp_pose": final.tolist(),
+                "final_error_m": error,
+                "steps_used": iterations,
+            }
+
+        def rotate_delta(self, arm: str, delta_rpy: Any) -> dict[str, Any]:
+            arm_idx = self._arm_index(arm)
+            requested = np.asarray(delta_rpy, dtype=np.float32)
+            left, right = self._arm_poses()
+            start = left if arm_idx == 0 else right
+            start_rot = Rotation.from_quat(start[3:])
+            target_rot = Rotation.from_euler("xyz", requested) * start_rot
+            max_step = self.controller["rotate_max_step_rad"]
+            deadline = time.time() + self.controller["rotate_timeout_s"]
+            max_iterations = max(
+                self.controller["min_iterations"],
+                int(np.ceil(np.linalg.norm(requested) / max_step))
+                * self.controller["iteration_multiplier"],
+            )
+            iterations = 0
+            error = float("inf")
+            while iterations < max_iterations and time.time() < deadline:
+                left, right = self._arm_poses()
+                current = left if arm_idx == 0 else right
+                current_rot = Rotation.from_quat(current[3:])
+                error_rotvec = (target_rot * current_rot.inv()).as_rotvec()
+                error = float(np.linalg.norm(error_rotvec))
+                if error <= self.controller["rotate_tolerance_rad"]:
+                    break
+                if error > max_step:
+                    error_rotvec = error_rotvec * (max_step / error)
+                step_rot = Rotation.from_rotvec(error_rotvec) * current_rot
+                action = self._hold_action(left, right)
+                base = arm_idx * self.per_arm_dim
+                action[base + 3 : base + 9] = _matrix_to_rot6d(step_rot.as_matrix())
+                self.env.step(action[None, :])
+                iterations += 1
+            left, right = self._arm_poses()
+            final = left if arm_idx == 0 else right
+            return {
+                "ok": error <= self.controller["rotate_tolerance_rad"],
+                "arm": ["left", "right"][arm_idx],
+                "requested_delta_rpy": requested.tolist(),
+                "start_tcp_pose": start.tolist(),
+                "final_tcp_pose": final.tolist(),
+                "final_error_rad": error,
+                "steps_used": iterations,
+            }
+
+        def set_gripper(self, arm: str, *, open: bool) -> dict[str, Any]:
+            arm_idx = self._arm_index(arm)
+            deadline = time.time() + self.controller["gripper_timeout_s"]
+            command = 1.0 if open else -1.0
+            iterations = 0
+            reached = False
+            while (
+                iterations < self.controller["gripper_max_iterations"]
+                and time.time() < deadline
+            ):
+                left, right = self._arm_poses()
+                action = self._hold_action(left, right)
+                action[arm_idx * self.per_arm_dim + self.gripper_idx] = command
+                self.env.step(action[None, :])
+                time.sleep(self.controller["gripper_settle_s"])
+                left_state, right_state = self._arm_states()
+                state = left_state if arm_idx == 0 else right_state
+                reached = bool(getattr(state, "gripper_open")) == bool(open)
+                iterations += 1
+                if reached:
+                    break
+            return {
+                "ok": reached,
+                "arm": ["left", "right"][arm_idx],
+                "target_gripper_open": bool(open),
+                "steps_used": iterations,
+                "robot_state": self.get_robot_state(),
+            }
+
+        def chunk_step(
+            self,
+            actions: Any,
+            *,
+            return_all_frames: bool = False,
+        ) -> dict[str, Any]:
+            observations = []
+            terminated = False
+            truncated = False
+            last_info: Any = None
+            for action in np.asarray(actions, dtype=np.float32):
+                observation, _reward, term, trunc, info = self.env.step(action[None, :])
+                self.last_obs = observation
+                observations.append(self.get_observation())
+                terminated = terminated or bool(np.asarray(_to_numpy_tree(term)).any())
+                truncated = truncated or bool(np.asarray(_to_numpy_tree(trunc)).any())
+                last_info = _to_numpy_tree(info)
+                if terminated or truncated:
+                    break
+            return {
+                "observation": observations if return_all_frames else observations[-1],
+                "terminated": terminated,
+                "truncated": truncated,
+                "info": last_info,
+            }
+
+    return DualFrankaEnvWorker
+
+
+if __name__ == "__main__":
+    raise SystemExit(
+        main(
+            create_worker_class=_create_worker_class,
+            load_runtime_config=load_runtime_config,
+        )
+    )

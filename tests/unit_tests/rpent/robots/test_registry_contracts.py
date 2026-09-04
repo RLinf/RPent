@@ -29,7 +29,7 @@ from robots.robotwin.robot_spec import (
 from rpent.robots import enumerate_robots, get_robot_spec
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 
-EXPECTED_ROBOTS = ("libero", "robocasa", "robotwin")
+EXPECTED_ROBOTS = ("dual_franka", "franka", "libero", "robocasa", "robotwin")
 
 PROMPT_VARIABLES = {
     "libero": {
@@ -61,6 +61,22 @@ PROMPT_VARIABLES = {
         "instruction": "pick up the hammer",
         "memory_dir": "/memory",
         "reference_tag": "block_hammer_beat_s0",
+        "output_dir": Path("/output"),
+    },
+    "franka": {
+        "task_id": 1,
+        "task_name": "vla_grasp",
+        "instruction": "Use bounded analytic motion",
+        "success_criteria": "object follows the gripper",
+        "constraints": "1. Keep translation at or below 0.02 m",
+        "output_dir": Path("/output"),
+    },
+    "dual_franka": {
+        "task_id": 1,
+        "task_name": "vla_grasp",
+        "instruction": "Use bounded analytic motion",
+        "success_criteria": "object follows the chosen gripper",
+        "constraints": "1. Move exactly one arm per call",
         "output_dir": Path("/output"),
     },
 }
