@@ -405,13 +405,19 @@ def recipe_commands_from_states(env_state: EnvState) -> list[dict[str, Any]]:
     return commands
 
 
-def write_recipe_from_states(
+def write_command_recipe_from_states(
     env_state: EnvState,
     recipe_tag: str,
     *,
     output_state: EnvState | None = None,
 ) -> str | None:
-    """Write a ``recipe_<tag>.jsonl`` artifact with top-level commands."""
+    """Write a generic ``recipe_<tag>.jsonl`` command-sequence artifact.
+
+    This shared helper exports top-level replay commands from generic
+    :class:`EnvState` records. It is intentionally distinct from robot-specific
+    recipe writers such as LIBERO's ``write_recipe_from_states``, which also
+    applies reset-window filtering, segment artifacts, and solved gating.
+    """
 
     tag = str(recipe_tag).strip()
     if not tag:

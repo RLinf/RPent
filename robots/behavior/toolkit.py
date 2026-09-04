@@ -30,7 +30,7 @@ from rpent.dashboard.events import (
     ToolResultEvent,
 )
 from rpent.memory import MemoryManager
-from rpent.session import EnvState, write_recipe_from_states
+from rpent.session import EnvState, write_command_recipe_from_states
 from rpent.tools import common
 from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.templates import substitute
@@ -219,7 +219,7 @@ class BehaviorToolkit(Toolkit):
             return None
         if not isinstance(recipe_tag, str) or not recipe_tag.strip():
             recipe_tag = self._task_spec.tag(self._primitives.public_seed)
-        return write_recipe_from_states(
+        return write_command_recipe_from_states(
             self._state,
             recipe_tag.strip(),
             output_state=self._run_state,
