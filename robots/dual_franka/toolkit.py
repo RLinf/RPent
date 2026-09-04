@@ -27,7 +27,7 @@ from robots.franka.toolkit import FrankaToolkit
 class DualFrankaToolkit(FrankaToolkit):
     """Common RPent tools plus safe dual-Franka planner primitives."""
 
-    _tools = dual_franka_tools
+    _tools_module = dual_franka_tools
     _primitives_cls = dual_franka_tools.DualFrankaPrimitives
 
     def _register_tools(self) -> None:
@@ -48,7 +48,7 @@ class DualFrankaToolkit(FrankaToolkit):
                 state=self._state,
             ),
         }
-        for spec in self._tools.TOOLS_SPEC:
+        for spec in self._tools_module.TOOLS_SPEC:
             name = spec["name"]
             handler = state_handlers.get(name) or getattr(self._primitives, name)
             self.add_tool(name, spec, handler)

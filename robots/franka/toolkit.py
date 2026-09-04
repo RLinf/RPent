@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 class FrankaToolkit(Toolkit):
     """Common RPent tools plus safe single-Franka planner primitives."""
 
-    _tools = franka_tools
+    _tools_module = franka_tools
     _primitives_cls = franka_tools.FrankaPrimitives
 
     def __init__(
@@ -60,7 +60,7 @@ class FrankaToolkit(Toolkit):
         self._register_tools()
         self._state.reset()
         self._primitives.reset()
-        record = self._tools.dump_state(
+        record = self._tools_module.dump_state(
             self._primitives,
             self._state,
             command=None,
@@ -89,7 +89,7 @@ class FrankaToolkit(Toolkit):
                 state=self._state,
             ),
         }
-        for spec in self._tools.TOOLS_SPEC:
+        for spec in self._tools_module.TOOLS_SPEC:
             name = spec["name"]
             handler = state_handlers.get(name) or getattr(self._primitives, name)
             self.add_tool(name, spec, handler)
@@ -101,13 +101,13 @@ class FrankaToolkit(Toolkit):
         result: dict[str, Any],
         elapsed_s: float,
     ) -> dict[str, Any]:
-        record = self._tools.dump_state(
+        record = self._tools_module.dump_state(
             self._primitives,
             self._state,
             command=command,
             result=result,
             elapsed_s=elapsed_s,
         )
-        output = self._tools.view_env_state(record.step_idx, state=self._state)
+        output = self._tools_module.view_env_state(record.step_idx, state=self._state)
         output["agent_elapsed_s"] = elapsed_s
         return output
