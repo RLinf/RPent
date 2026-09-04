@@ -157,7 +157,8 @@ def _env_server_command(
     task = get_franka_task(args.task_id)
     command = [
         sys.executable,
-        str(get_repo_root() / "robots" / "franka" / "env_server.py"),
+        "-m",
+        "robots.franka.env_server",
         "--transport",
         "http",
         "--host",
