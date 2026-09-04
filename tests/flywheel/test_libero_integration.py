@@ -16,8 +16,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from flywheel.episode import validate_episode
+from robots.libero import robot_spec
 from robots.libero.tools import LiberoPrimitives
+from rpent.flywheel.episode import validate_episode
 
 
 def _obs(value: int) -> dict:
@@ -106,3 +107,34 @@ def test_collection_disabled_keeps_fast_chunk_path():
     primitives._vlm_chunk("pick up the bowl")
     assert env.chunk_return_all_frames is None
     assert primitives.finalize_flywheel() is None
+
+
+def test_dashboard_flywheel_config_belongs_to_unique_env(tmp_path, monkeypatch):
+    args = SimpleNamespace(
+        collect_flywheel_data=True,
+        flywheel_root=str(tmp_path),
+        suite="libero_object",
+        task=2,
+        seed=3,
+    )
+    monkeypatch.setattr(
+        robot_spec,
+        "try_spawn_server",
+        lambda owned, events, component, starter: (None, component),
+    )
+    monkeypatch.setattr(
+        robot_spec,
+        "try_wait_server",
+        lambda *args, **kwargs: {},
+    )
+
+    _, shared = robot_spec._init_runtime(args, tmp_path, None, {"vla", "sam3"})
+    _, unique = robot_spec._init_runtime(args, tmp_path, None, {"env"})
+
+    assert "flywheel_config" not in shared
+    assert unique["flywheel_config"] == {
+        "root": str(tmp_path),
+        "suite": "libero_object",
+        "task_id": 2,
+        "seed": 3,
+    }

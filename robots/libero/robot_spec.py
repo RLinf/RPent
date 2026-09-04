@@ -460,7 +460,7 @@ def _init_runtime(
         )
         primitives_kwargs.update(component_kwargs)
 
-    if args.collect_flywheel_data:
+    if args.collect_flywheel_data and "env" in selected:
         primitives_kwargs["flywheel_config"] = {
             "root": args.flywheel_root or str(get_repo_root() / "datacollection"),
             "suite": args.suite,

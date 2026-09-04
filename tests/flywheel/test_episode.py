@@ -16,8 +16,8 @@ import json
 
 import numpy as np
 
-from flywheel.episode import EpisodeWriter, validate_episode
-from flywheel.export import export_lerobot
+from rpent.flywheel.episode import EpisodeWriter, validate_episode
+from rpent.flywheel.export import export_lerobot
 
 
 def _obs(value: int) -> dict:

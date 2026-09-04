@@ -70,11 +70,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.command == "validate":
-        from flywheel.episode import validate_episode
+        from rpent.flywheel.episode import validate_episode
 
         result = validate_episode(args.episode)
     elif args.command == "export-lerobot":
-        from flywheel.export import export_lerobot
+        from rpent.flywheel.export import export_lerobot
 
         result = export_lerobot(
             args.data_root,
@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
             output_root=args.output_root,
         )
     else:
-        from flywheel.train import train_rlinf
+        from rpent.flywheel.train import train_rlinf
 
         result = train_rlinf(
             dataset=args.dataset,

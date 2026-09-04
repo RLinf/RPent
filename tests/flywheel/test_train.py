@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import yaml
 
-from flywheel.train import train_rlinf
+from rpent.flywheel.train import train_rlinf
 
 
 def test_train_launcher_uses_official_rlinf_environment(tmp_path, monkeypatch):
@@ -42,9 +42,10 @@ def test_train_launcher_uses_official_rlinf_environment(tmp_path, monkeypatch):
         assert kwargs["env"]["RPENT_FLYWHEEL_CHECKPOINT"] == str(checkpoint)
         return SimpleNamespace(returncode=0)
 
-    monkeypatch.setattr("flywheel.train.subprocess.run", fake_run)
+    monkeypatch.setattr("rpent.flywheel.train.subprocess.run", fake_run)
     monkeypatch.setattr(
-        "flywheel.train.subprocess.check_output", lambda *args, **kwargs: "abc123\n"
+        "rpent.flywheel.train.subprocess.check_output",
+        lambda *args, **kwargs: "abc123\n",
     )
     report = train_rlinf(
         dataset=dataset,
@@ -63,7 +64,7 @@ def test_train_launcher_uses_official_rlinf_environment(tmp_path, monkeypatch):
 
 
 def test_training_config_uses_pi05_full_sft():
-    config_path = Path(__file__).parents[2] / "flywheel/config/pi05_sft.yaml"
+    config_path = Path(__file__).parents[2] / "rpent/flywheel/config/pi05_sft.yaml"
     config = yaml.safe_load(config_path.read_text())
     assert config["actor"]["model"]["is_lora"] is False
     assert config["actor"]["model"]["openpi"]["train_expert_only"] is False

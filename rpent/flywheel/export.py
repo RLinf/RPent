@@ -25,7 +25,7 @@ from typing import Any
 
 import numpy as np
 
-from flywheel.episode import validate_episode
+from rpent.flywheel.episode import validate_episode
 
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 

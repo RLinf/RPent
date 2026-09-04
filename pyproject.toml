@@ -45,7 +45,7 @@ dependencies = [
 [project.scripts]
 rpent = "rpent.cli.main:main"
 rpent-memory = "rpent.cli.memory:main"
-rpent-flywheel = "flywheel.cli:main"
+rpent-flywheel = "rpent.flywheel.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"
@@ -113,12 +113,12 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rpent*", "flywheel*"]
+include = ["rpent*"]
 exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
-"flywheel" = ["config/*.yaml"]
+"rpent.flywheel" = ["config/*.yaml"]
 
 [tool.ruff]
 line-length = 88

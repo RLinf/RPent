@@ -109,7 +109,7 @@ class LiberoPrimitives:
         obs, info = self.env.reset()
         self.set_obs(obs)
         if self._flywheel_config is not None:
-            from flywheel.episode import EpisodeWriter
+            from rpent.flywheel.episode import EpisodeWriter
 
             self._flywheel = EpisodeWriter(
                 **self._flywheel_config,
