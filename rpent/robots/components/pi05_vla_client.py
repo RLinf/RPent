@@ -66,7 +66,9 @@ def _encode_obs_libero(env_obs: dict) -> dict:
 
 
 def _batch_views(v):
-    """``[H,W,3]`` → ``[1,H,W,3]`` or ``[N,H,W,3]`` → ``[1,N,H,W,3]``."""
+    """``[H,W,3]`` → ``[1,H,W,3]`` or ``[N,H,W,3]`` → ``[1,N,H,W,3]``.
+    Used by the dual-Franka encoder to batch the two extra views (base + right-wrist).
+    """
     if v is None:
         return None
     arr = np.asarray(v)
