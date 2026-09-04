@@ -391,6 +391,35 @@ endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
 一致；runner 不处理这些环境细节。参考模式见 ``robots/libero/robot_spec.py`` 和
 ``robots/robocasa/robot_spec.py``。
 
+可选的运行结果 finalizer
+------------------------
+
+需要发布机器可读评测产物的机器人可以设置 ``RobotSpec.finalize_run``。其默认值为
+``None``，不会改变 runner 行为。配置该钩子后，普通终端 runner 会在关闭 toolkit
+前读取 ``toolkit.solved()``，完成运行时清理后再把结构化的
+``RunFinalizationContext`` 传给钩子。产物 schema 与文件名由钩子负责，RPent 只定义
+生命周期边界。
+
+JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整结果：
+
+.. code-block:: python
+
+   from rpent.evaluation import RunFinalizationContext, write_json_atomic
+
+   def _finalize_run(context: RunFinalizationContext):
+       return write_json_atomic(
+           context.output_dir / "result.json",
+           {
+               "robot": context.robot_name,
+               "task": dict(context.task_desc),
+               "success": context.environment_success,
+           },
+       )
+
+通过 ``RobotSpec(..., finalize_run=_finalize_run)`` 注册回调。该钩子目前只用于普通
+终端运行，Dashboard 不会调用。benchmark manifest、机器人专用 runtime 字段和
+聚合逻辑应继续放在机器人目录中，而不是共享 CLI。
+
 冒烟测试
 --------
 
