@@ -1,0 +1,100 @@
+name: Embodied GPU E2E run
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        required: true
+        type: string
+      revision:
+        required: true
+        type: string
+      scope:
+        required: true
+        type: string
+      target:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  gpu-suite:
+    runs-on: embodied
+    timeout-minutes: 180
+    concurrency:
+      group: robot-gpu-${{ inputs.scope }}-${{ inputs.target }}
+      cancel-in-progress: true
+    env:
+      MUJOCO_GL: egl
+      PYOPENGL_PLATFORM: egl
+
+      # Shared install policy used by RLinf's NVIDIA embodied runner.
+      UV_CACHE_DIR: /workspace/dataset/.uv_cache
+      UV_LINK_MODE: symlink
+      UV_PYTHON_INSTALL_DIR: /workspace/dataset/.uv_python
+      UV_TORCH_BACKEND: auto
+
+      # Runner provisioning TODO
+      #
+      # LIBERO-PRO
+      LIBERO_PRO_ASSET_PATH: /workspace/dataset/LIBERO-PRO
+      #   PI05_CHECKPOINT_PATH:  # directory
+      #   SAM3_CHECKPOINT_PATH:  # checkpoint file
+      #
+      # RoboCasa
+      ROBOCASA_ASSETS_PATH: /workspace/dataset/robocasa365_assets
+      ROBOCASA_MACROS_PATH: /workspace/dataset/robocasa365/robocasa/macros_private.py
+      #   RLDX_MODEL_PATH:  # directory
+      #
+      # RoboTwin
+      ROBOTWIN_ASSETS_PATH: /workspace/dataset/RoboTwin
+      #   LINGBOT_MODEL_PATH:  # directory containing qwen_base/
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: false
+
+      - name: Run selected GPU suite
+        timeout-minutes: 165
+        shell: bash
+        env:
+          RPENT_INSTALL_TIMEOUT: 45m
+          RPENT_TEST_TIMEOUT: 45m
+          RPENT_GPU_PYTEST_TIMEOUT_SECONDS: "1200"
+        run: |
+          uv cache dir
+          uv python dir
+          bash tests/e2e_tests/run_gpu_suite.sh \
+            "${{ inputs.target }}" \
+            "$RUNNER_TEMP/rpent-gpu-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            "$RUNNER_TEMP/rpent-venvs-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: robot-${{ inputs.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rpent-gpu-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+
+      - name: Clean up
+        if: always()
+        shell: bash
+        run: |
+          for path in \
+            "$RUNNER_TEMP/rpent-gpu-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            "$RUNNER_TEMP/rpent-venvs-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"; do
+            if [[ -d "$path" ]]; then
+              find "$path" -depth -delete
+            fi
+          done
