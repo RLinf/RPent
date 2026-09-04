@@ -139,12 +139,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         recipe_tag=f"franka_t{args.task_id}",
         output_dir=output_dir,
         prompt_vars={
-            "task_id": args.task_id,
             "task_name": task.name,
             "instruction": task.instruction,
             "success_criteria": task.success_criteria,
             "constraints": constraints,
-            "output_dir": str(output_dir),
         },
         task_desc={"task_id": args.task_id, "task_name": task.name},
     )

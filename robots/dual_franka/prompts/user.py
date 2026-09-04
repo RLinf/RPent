@@ -14,11 +14,9 @@
 
 """User prompt sections for one dual-Franka task run."""
 
-TASK = """- task_id: {{task_id}}
-- task_name: {{task_name}}
+TASK = """- task_name: {{task_name}}
 - instruction: {{instruction}}
-- success_criteria: {{success_criteria}}
-- output_dir: {{output_dir}}"""
+- success_criteria: {{success_criteria}}"""
 
 CONSTRAINTS = """{{constraints}}"""
 
