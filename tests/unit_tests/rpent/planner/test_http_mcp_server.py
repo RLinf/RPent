@@ -20,11 +20,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.memory.manager import MemoryManager
-from rpent.planner.utils.http_mcp_server import _build_mcp_server
+from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit, readonly
 from rpent.utils.logging import init_output_dir
@@ -138,11 +139,22 @@ class FakeToolkit(Toolkit):
 def test_http_mcp_server_serializes_concurrent_tool_calls(tmp_path: Path) -> None:
     init_output_dir(tmp_path / "log")
     toolkit = FakeToolkit(tmp_path)
-    mcp_app = _build_mcp_server(toolkit)
+    server = HttpMcpServer(toolkit)
+    try:
+        url = server.start()
+        rejected = asyncio.run(_fire_concurrent(url))
+    finally:
+        server.stop()
 
-    async def _fire() -> int:
-        rejected = 0
-        async with create_connected_server_and_client_session(mcp_app) as session:
+    assert rejected == 0
+    assert toolkit.overlap_errors == []
+
+
+async def _fire_concurrent(url: str) -> int:
+    rejected = 0
+    async with streamable_http_client(url) as (read, write, _get_session_id):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
             results = await asyncio.gather(
                 *(session.call_tool(name, args) for name, args in CONCURRENT_CALLS)
             )
@@ -151,9 +163,4 @@ def test_http_mcp_server_serializes_concurrent_tool_calls(tmp_path: Path) -> Non
                     result.content, default=str
                 ):
                     rejected += 1
-        return rejected
-
-    rejected = asyncio.run(_fire())
-
-    assert rejected == 0
-    assert toolkit.overlap_errors == []
+    return rejected
