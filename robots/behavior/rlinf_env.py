@@ -36,10 +36,14 @@ from typing import Any
 
 import numpy as np
 
+from robots.behavior.schemas import ENV_ACTION_SEGMENTS, RAW_PROPRIO_SEGMENTS
 from robots.behavior.terminal_success import official_success_receipt_sha256
 
 ACTION_DIM = 23
 ACTION_HORIZON = 32
+GRIPPER_COMMAND_CONTROL_CYCLES = 15
+GRIPPER_OPEN_COMMAND = 1.0
+GRIPPER_CLOSE_COMMAND = -1.0
 PHYSICAL_CAMERAS = ("head", "left_wrist", "right_wrist")
 EXACT_OFFICIAL_CONFIG_MODE = "exact_official_v1"
 EXACT_OFFICIAL_RUNTIME_SUPPORT_SCHEMA = (
@@ -923,6 +927,10 @@ class OfficialBehaviorBackend:
         self._total_env_steps = 0
         self._official_success_latched = False
         self._official_success_receipt: dict[str, Any] | None = None
+        self._gripper_latch = {
+            "left": GRIPPER_OPEN_COMMAND,
+            "right": GRIPPER_OPEN_COMMAND,
+        }
         self.cfg = (
             cfg
             if cfg is not None
@@ -1126,6 +1134,10 @@ class OfficialBehaviorBackend:
         try:
             self._total_env_steps = 0
             self._episode_ended = False
+            self._gripper_latch = {
+                "left": GRIPPER_OPEN_COMMAND,
+                "right": GRIPPER_OPEN_COMMAND,
+            }
             raw_obs, info = self._reset_raw()
             self._last_raw_obs = raw_obs
             self._last_obs = self._wrap_raw_obs(raw_obs)
@@ -1152,6 +1164,143 @@ class OfficialBehaviorBackend:
         if self._last_obs is None:
             raise RuntimeError("no BEHAVIOR observation is available before reset")
         return self._last_obs, self._last_info
+
+    def _remember_gripper_commands(self, action: np.ndarray) -> None:
+        for hand in ("left", "right"):
+            segment = ENV_ACTION_SEGMENTS[f"{hand}_gripper"]
+            value = float(np.asarray(action[segment], dtype=np.float32).reshape(-1)[0])
+            if np.isfinite(value):
+                self._gripper_latch[hand] = value
+
+    def _latest_raw_proprio(self) -> np.ndarray:
+        obs, _info = self.current_observation()
+        raw = np.asarray(obs.get("states"), dtype=np.float32)
+        required = max(segment.stop or 0 for segment in RAW_PROPRIO_SEGMENTS.values())
+        if raw.ndim != 1 or raw.shape[0] < required:
+            raise ValueError(
+                "raw R1Pro proprio must be a vector with at least "
+                f"{required} values, got {raw.shape}"
+            )
+        if not np.isfinite(raw).all():
+            raise ValueError("raw R1Pro proprio contains NaN or infinity")
+        return raw
+
+    def _hold_action_from_current_proprio(self) -> np.ndarray:
+        raw = self._latest_raw_proprio()
+        action = np.zeros(ACTION_DIM, dtype=np.float32)
+        action[ENV_ACTION_SEGMENTS["base"]] = 0.0
+        for segment_name in ("trunk", "left_arm", "right_arm"):
+            action[ENV_ACTION_SEGMENTS[segment_name]] = raw[
+                RAW_PROPRIO_SEGMENTS[segment_name]
+            ]
+        action[ENV_ACTION_SEGMENTS["left_gripper"]] = self._gripper_latch["left"]
+        action[ENV_ACTION_SEGMENTS["right_gripper"]] = self._gripper_latch["right"]
+        return _validate_action_chunk(action[None, :])[0]
+
+    def _motion_error(
+        self,
+        name: str,
+        kwargs: Mapping[str, Any],
+        *,
+        stop_reason: str,
+        error: str,
+    ) -> dict[str, Any]:
+        return {
+            "status": "failed",
+            "name": name,
+            "primitive_success": False,
+            "task_success": self.official_success_latched,
+            "stop_reason": stop_reason,
+            "error": error,
+            "request": _strict_public_json(dict(kwargs)),
+            "info": self._last_info,
+        }
+
+    def _gripper_command(
+        self,
+        name: str,
+        kwargs: Mapping[str, Any],
+        *,
+        command: float,
+    ) -> dict[str, Any]:
+        request = dict(kwargs)
+        hand = request.get("hand")
+        if hand not in {"left", "right"}:
+            raise ValueError("hand must be 'left' or 'right'")
+        if "visual_hand_check" not in request:
+            raise ValueError("visual_hand_check is required")
+        if self.official_success_latched:
+            return {
+                "status": "skipped",
+                "name": name,
+                "primitive_success": False,
+                "task_success": True,
+                "stop_reason": "already_officially_successful",
+                "request": _strict_public_json(request),
+                "info": self._last_info,
+            }
+        if self._episode_ended:
+            return self._motion_error(
+                name,
+                request,
+                stop_reason="episode_ended",
+                error="BEHAVIOR episode already terminated or truncated",
+            )
+
+        try:
+            action = self._hold_action_from_current_proprio()
+            action[ENV_ACTION_SEGMENTS[f"{hand}_gripper"]] = float(command)
+            chunk = np.repeat(action[None, :], GRIPPER_COMMAND_CONTROL_CYCLES, axis=0)
+            _obs, reward, terminated, truncated, info = self.chunk_step(
+                chunk,
+                return_all_frames=False,
+            )
+        except Exception as exc:
+            return self._motion_error(
+                name,
+                request,
+                stop_reason="error",
+                error=str(exc),
+            )
+        except Exception as exc:
+            return self._motion_error(
+                name,
+                request,
+                stop_reason="error",
+                error=str(exc),
+            )
+        executed_steps = int(info.get("executed_steps") or 0)
+        stop_reason = str(info.get("stop_reason") or "requested_actions_completed")
+        result: dict[str, Any] = {
+            "status": "ok" if executed_steps > 0 else "failed",
+            "name": name,
+            "primitive_success": executed_steps > 0,
+            "task_success": self.official_success_latched,
+            "stop_reason": stop_reason,
+            "hand": hand,
+            "gripper_command": float(command),
+            "requested_steps": GRIPPER_COMMAND_CONTROL_CYCLES,
+            "executed_steps": executed_steps,
+            "total_env_steps": int(self.total_env_steps),
+            "reward": float(reward),
+            "terminated": bool(terminated),
+            "truncated": bool(truncated),
+            "action_shape": [1, ACTION_DIM],
+            "action_chunk_shape": [int(chunk.shape[0]), int(chunk.shape[1])],
+            "hold_action_source": "raw_proprio_reordered_with_gripper_command_latches",
+            "visual_hand_check": _strict_public_json(request["visual_hand_check"]),
+            "visual_hand_check_verification": "not_verified",
+            "request": _strict_public_json(request),
+            "info": info,
+        }
+        if "release_visual_check" in request:
+            result["release_visual_check"] = _strict_public_json(
+                request["release_visual_check"]
+            )
+            result["release_visual_check_verification"] = "not_verified"
+        if self.official_success_latched:
+            result["official_success_receipt"] = self.official_success_receipt
+        return result
 
     def step(
         self,
@@ -1183,6 +1332,7 @@ class OfficialBehaviorBackend:
             raw_obs, reward, step_terminated, step_truncated, info = self._step_one_raw(
                 action
             )
+            self._remember_gripper_commands(action)
             executed_steps = step_offset + 1
             self._total_env_steps += 1
             last_obs = raw_obs
@@ -1339,11 +1489,11 @@ class OfficialBehaviorBackend:
         return self._motion_unavailable("rotate_wrist", kwargs)
 
     def open(self, **kwargs: Any) -> dict[str, Any]:
-        return self._motion_unavailable("open", kwargs)
+        return self._gripper_command("open", kwargs, command=GRIPPER_OPEN_COMMAND)
 
     def close(self, **kwargs: Any) -> dict[str, Any]:
         if kwargs:
-            return self._motion_unavailable("close", kwargs)
+            return self._gripper_command("close", kwargs, command=GRIPPER_CLOSE_COMMAND)
         if self._closed:
             return {"status": "ok", "closed": True, "already_closed": True}
         closer = getattr(self._env, "close", None)

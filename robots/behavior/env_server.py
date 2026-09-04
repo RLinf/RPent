@@ -219,6 +219,11 @@ class BehaviorEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         return self._call_backend("rotate_wrist", **kwargs)
 
     def close_gripper(self, **kwargs: Any) -> dict[str, Any]:
+        if not kwargs:
+            raise ValueError(
+                "env.close_gripper requires primitive arguments; "
+                "lifecycle shutdown uses BehaviorEnvFacade.close()"
+            )
         return self._call_backend("close", **kwargs)
 
     def open_gripper(self, **kwargs: Any) -> dict[str, Any]:

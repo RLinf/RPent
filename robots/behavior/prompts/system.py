@@ -52,8 +52,8 @@ or task state."""
 
 PLANNER_TOOLS = """The nine BEHAVIOR primitives registered in
 {{public_capabilities}} are unordered peer tools, but the currently operable
-paths are `pi0_nav_pick`, `observe`, and `pixel_to_world`. Motion primitives
-`navigate_to`, `move_to`, `rotate_wrist`, `open`, `close`, and `press` are
+paths are `pi0_nav_pick`, `observe`, `pixel_to_world`, `open`, and `close`.
+Motion primitives `navigate_to`, `move_to`, `rotate_wrist`, and `press` are
 registered but return `motion_unavailable` in this integration stage; do not
 call them until a motion adapter PR provides implementations. The planner
 autonomously chooses the VLA instruction, positive chunk count, and number and

@@ -34,8 +34,20 @@ from robots.behavior.dino_v2.encoder import DINOV2_DIMENSION
 from robots.behavior.dino_v2.server import BehaviorDinoFacade
 from robots.behavior.env_client import BehaviorEnvClient
 from robots.behavior.env_server import BehaviorEnvFacade
+from robots.behavior.rlinf_env import (
+    GRIPPER_CLOSE_COMMAND,
+    GRIPPER_COMMAND_CONTROL_CYCLES,
+    GRIPPER_OPEN_COMMAND,
+    OfficialBehaviorBackend,
+)
 from robots.behavior.robot_spec import get_toolkit
-from robots.behavior.schemas import BEHAVIOR_TOOL_NAMES, MOVE_TO_SPEC
+from robots.behavior.schemas import (
+    BEHAVIOR_TOOL_NAMES,
+    ENV_ACTION_SEGMENTS,
+    MOVE_TO_SPEC,
+    RAW_PROPRIO_SEGMENTS,
+    validate_action_chunk,
+)
 from robots.behavior.toolkit import BehaviorToolkit
 from robots.behavior.tools import BehaviorPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
@@ -146,6 +158,68 @@ class _FakeChunkEnv:
         )
 
 
+class _FakeOfficialBehaviorEnv:
+    def __init__(
+        self,
+        *_args: Any,
+        terminated_on_step: int | None = None,
+        success_on_step: int | None = None,
+        **_kwargs: Any,
+    ) -> None:
+        self.actions: list[np.ndarray] = []
+        self.closed = False
+        self.terminated_on_step = terminated_on_step
+        self.success_on_step = success_on_step
+        self.raw = np.zeros(256, dtype=np.float32)
+        self.raw[RAW_PROPRIO_SEGMENTS["trunk"]] = np.asarray(
+            [0.11, 0.12, 0.13, 0.14],
+            dtype=np.float32,
+        )
+        self.raw[RAW_PROPRIO_SEGMENTS["left_arm"]] = np.linspace(
+            0.21,
+            0.27,
+            7,
+            dtype=np.float32,
+        )
+        self.raw[RAW_PROPRIO_SEGMENTS["right_arm"]] = np.linspace(
+            -0.31,
+            -0.37,
+            7,
+            dtype=np.float32,
+        )
+        self.raw[RAW_PROPRIO_SEGMENTS["left_gripper"]] = 0.05
+        self.raw[RAW_PROPRIO_SEGMENTS["right_gripper"]] = 0.06
+
+    def _obs(self) -> dict[str, Any]:
+        return {
+            "main_images": np.zeros((8, 8, 3), dtype=np.uint8),
+            "wrist_images": np.zeros((2, 8, 8, 3), dtype=np.uint8),
+            "states": self.raw.copy(),
+            "task_descriptions": "turn on the radio",
+        }
+
+    def reset_raw(self, *, env_idx: int = 0) -> tuple[dict[str, Any], dict[str, Any]]:
+        assert env_idx == 0
+        return self._obs(), {"done": {"success": False}}
+
+    def step_raw(
+        self,
+        action: Any,
+        *,
+        env_idx: int = 0,
+    ) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
+        assert env_idx == 0
+        action_array = np.asarray(action, dtype=np.float32)
+        self.actions.append(action_array.copy())
+        step_index = len(self.actions)
+        terminated = self.terminated_on_step == step_index
+        success = self.success_on_step == step_index
+        return self._obs(), 0.0, terminated, False, {"done": {"success": success}}
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class _ThreadRecordingBehaviorEnvFacade(BehaviorEnvFacade):
     def __init__(self) -> None:
         super().__init__(backend=object(), meta={"task_language": "test"})
@@ -185,6 +259,38 @@ def _both_hand_request() -> dict[str, Any]:
     }
 
 
+def _visual_check(hand: str) -> dict[str, str]:
+    return {
+        "camera": f"{hand}_wrist",
+        "frame_id": f"{hand}-frame",
+        "selected_hand": hand,
+        "assessment": "selected_hand_visually_confirmed",
+    }
+
+
+def _official_backend(
+    tmp_path: Path,
+    fake_env: _FakeOfficialBehaviorEnv | None = None,
+) -> tuple[OfficialBehaviorBackend, _FakeOfficialBehaviorEnv]:
+    env = fake_env or _FakeOfficialBehaviorEnv()
+    backend = OfficialBehaviorBackend(
+        meta={
+            "task_name": "turning_on_radio",
+            "task_language": "turn on the radio",
+            "activity_definition_id": 0,
+            "activity_instance_id": 242,
+            "public_seed": 0,
+            "scene_model": "house_double_floor_lower",
+            "max_episode_steps": 64,
+        },
+        output_dir=tmp_path,
+        behavior_env_cls=lambda *_args, **_kwargs: env,
+        cfg=object(),
+    )
+    backend.reset()
+    return backend, env
+
+
 def _port_accepts_connections(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.settimeout(0.1)
@@ -193,6 +299,139 @@ def _port_accepts_connections(port: int) -> bool:
 
 def test_public_behavior_surface_is_exactly_nine_tools() -> None:
     assert BEHAVIOR_TOOL_NAMES == EXPECTED_TOOLS
+
+
+def test_gripper_close_builds_hold_action_and_target_command(tmp_path: Path) -> None:
+    backend, env = _official_backend(tmp_path)
+
+    result = backend.close(hand="left", visual_hand_check=_visual_check("left"))
+    chunk = validate_action_chunk(np.stack(env.actions, axis=0))
+    first = chunk[0]
+
+    assert result["status"] == "ok"
+    assert result["primitive_success"] is True
+    assert result["task_success"] is False
+    assert result["stop_reason"] == "requested_actions_completed"
+    assert result["visual_hand_check"] == _visual_check("left")
+    assert result["visual_hand_check_verification"] == "not_verified"
+    assert result["action_shape"] == [1, 23]
+    assert result["action_chunk_shape"] == [GRIPPER_COMMAND_CONTROL_CYCLES, 23]
+    assert chunk.shape == (GRIPPER_COMMAND_CONTROL_CYCLES, 23)
+    assert np.allclose(chunk, first)
+    assert np.allclose(first[ENV_ACTION_SEGMENTS["base"]], 0.0)
+    assert np.allclose(
+        first[ENV_ACTION_SEGMENTS["trunk"]],
+        env.raw[RAW_PROPRIO_SEGMENTS["trunk"]],
+    )
+    assert np.allclose(
+        first[ENV_ACTION_SEGMENTS["left_arm"]],
+        env.raw[RAW_PROPRIO_SEGMENTS["left_arm"]],
+    )
+    assert np.allclose(
+        first[ENV_ACTION_SEGMENTS["right_arm"]],
+        env.raw[RAW_PROPRIO_SEGMENTS["right_arm"]],
+    )
+    assert first[ENV_ACTION_SEGMENTS["left_gripper"]][0] == GRIPPER_CLOSE_COMMAND
+    assert first[ENV_ACTION_SEGMENTS["right_gripper"]][0] == GRIPPER_OPEN_COMMAND
+
+
+def test_gripper_latch_holds_non_target_hand_and_open_echoes_release_check(
+    tmp_path: Path,
+) -> None:
+    backend, env = _official_backend(tmp_path)
+
+    backend.close(hand="left", visual_hand_check=_visual_check("left"))
+    env.actions.clear()
+    release_check = {
+        "camera": "head",
+        "frame_id": "release-frame",
+        "assessment": "target_visibly_released",
+    }
+    result = backend.open(
+        hand="right",
+        visual_hand_check=_visual_check("right"),
+        release_visual_check=release_check,
+    )
+    first = validate_action_chunk(np.stack(env.actions, axis=0))[0]
+
+    assert result["status"] == "ok"
+    assert result["release_visual_check"] == release_check
+    assert result["release_visual_check_verification"] == "not_verified"
+    assert first[ENV_ACTION_SEGMENTS["left_gripper"]][0] == GRIPPER_CLOSE_COMMAND
+    assert first[ENV_ACTION_SEGMENTS["right_gripper"]][0] == GRIPPER_OPEN_COMMAND
+
+
+def test_gripper_task_success_uses_only_official_done_success(tmp_path: Path) -> None:
+    terminated_env = _FakeOfficialBehaviorEnv(terminated_on_step=1)
+    backend, env = _official_backend(tmp_path / "terminated", terminated_env)
+
+    result = backend.close(hand="left", visual_hand_check=_visual_check("left"))
+
+    assert result["stop_reason"] == "terminated"
+    assert result["primitive_success"] is True
+    assert result["task_success"] is False
+    assert backend.official_success_latched is False
+    assert len(env.actions) == 1
+    rejected = backend.open(hand="left", visual_hand_check=_visual_check("left"))
+    assert rejected["stop_reason"] == "episode_ended"
+    assert len(env.actions) == 1
+
+    success_env = _FakeOfficialBehaviorEnv(success_on_step=1)
+    success_backend, _success_env = _official_backend(tmp_path / "success", success_env)
+    success = success_backend.open(
+        hand="right",
+        visual_hand_check=_visual_check("right"),
+    )
+
+    assert success["stop_reason"] == "official_task_success"
+    assert success["task_success"] is True
+    assert success["official_success_receipt"]["source"] == 'info["done"]["success"]'
+
+
+def test_gripper_execution_error_uses_motion_error_envelope(tmp_path: Path) -> None:
+    backend, env = _official_backend(tmp_path)
+    assert backend._last_obs is not None
+    backend._last_obs["states"][RAW_PROPRIO_SEGMENTS["trunk"]] = np.nan
+
+    result = backend.open(hand="left", visual_hand_check=_visual_check("left"))
+
+    assert result["status"] == "failed"
+    assert result["primitive_success"] is False
+    assert result["task_success"] is False
+    assert result["stop_reason"] == "error"
+    assert "NaN or infinity" in result["error"]
+    assert env.actions == []
+
+
+def test_backend_lifecycle_close_still_closes_env_without_primitive_args(
+    tmp_path: Path,
+) -> None:
+    backend, env = _official_backend(tmp_path)
+
+    assert backend.close() == {"status": "ok", "closed": True}
+    assert env.closed is True
+    assert backend.close() == {
+        "status": "ok",
+        "closed": True,
+        "already_closed": True,
+    }
+
+
+def test_press_remains_unavailable_without_motion_adapter(tmp_path: Path) -> None:
+    backend, env = _official_backend(tmp_path)
+
+    result = backend.press(
+        hand="left",
+        visual_hand_check=_visual_check("left"),
+        duration_s=0.1,
+    )
+
+    assert result["status"] == "failed"
+    assert result["primitive_success"] is False
+    assert result["task_success"] is False
+    assert result["stop_reason"] == "motion_unavailable"
+    assert result["request"]["visual_hand_check"] == _visual_check("left")
+    assert env.actions == []
 
 
 @pytest.mark.parametrize(
@@ -339,6 +578,8 @@ def test_behavior_facades_use_default_healthz_and_registered_metadata() -> None:
     assert "env.open_gripper" in facade._rpc
     assert "env.close" not in facade._rpc
     assert "env.open" not in facade._rpc
+    with pytest.raises(ValueError, match="requires primitive arguments"):
+        facade.close_gripper()
     assert dino._dispatch("healthz", (), {}) == {"status": "ok"}
     dino_meta = dino._dispatch("dino.get_meta", (), {})
     assert dino_meta["runtime"] == "behavior_dino"

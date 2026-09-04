@@ -261,8 +261,8 @@ The Dashboard uses the common Start Session flow and head/left-wrist/right-
 wrist camera views. BEHAVIOR does not add robot-local manual buttons, a manual
 control backend, or ``env.dashboard_*`` RPC methods. The public contract
 currently registers nine planner primitives. In this integration stage, the
-operable paths are ``pi0_nav_pick``, ``observe``, and ``pixel_to_world``;
-``navigate_to``, ``move_to``, ``rotate_wrist``, ``open``, ``close``, and
+operable paths are ``pi0_nav_pick``, ``observe``, ``pixel_to_world``,
+``open``, and ``close``. ``navigate_to``, ``move_to``, ``rotate_wrist``, and
 ``press`` are registered but return ``motion_unavailable`` until a later motion
 adapter PR provides implementations.
 
