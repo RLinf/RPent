@@ -41,7 +41,7 @@ PROMPT_VARIABLES = {
         "memory_profile": "hf",
         "memory_dir": "/memory",
         "reference_tag": "object_task_t2_s0",
-        "memory_inbox": "/memory/_inbox/object_task_t2_s3",
+        "memory_inbox": "/memory/_internal/inbox/object_task_t2_s3",
         "session_number": 1,
         "session_max": 1,
         "output_dir": Path("/output"),
@@ -59,6 +59,8 @@ PROMPT_VARIABLES = {
         "seed": 3,
         "task_config": "demo_randomized",
         "instruction": "pick up the hammer",
+        "memory_dir": "/memory",
+        "reference_tag": "block_hammer_beat_s0",
         "output_dir": Path("/output"),
     },
 }

@@ -56,8 +56,8 @@ from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, build_planner
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
+from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
-from rpent.utils.resources import ensure_resources
 
 logger = get_logger("agent")
 
@@ -348,12 +348,13 @@ def main() -> int:
     output_dir = init_output_dir(output_dir, verbose=args.verbose)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
-    # Preserve the original HF-backed evaluation behavior by default.
     memory_profile = getattr(args, "memory_profile", "hf")
     if not getattr(args, "explore", False) and memory_profile == "hf":
-        ensure_resources(robot_spec)
+        MemoryManager(get_memory_dir(robot_name)).sync(
+            remote_repo=robot_spec.memory_repo_id,
+        )
     else:
-        logger.info("resources: using local %s memory profile", memory_profile)
+        logger.info("memory: using local %s profile", memory_profile)
 
     dashboard_events = NullDashboardEventSink()
 

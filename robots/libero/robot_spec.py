@@ -237,11 +237,17 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         else get_memory_dir("libero")
     )
     local_eval = not explore and memory_profile == "local"
-    if local_eval and not (memory_dir / "MEMORY.md").is_file():
-        raise ValueError(
-            f"local memory corpus not found at {memory_dir}; "
-            "run exploration first or use --memory-profile hf"
+    if local_eval:
+        has_local_memory = (memory_dir / "MEMORY.md").is_file() or any(
+            path.is_file()
+            for scope in ("global", "suite", "task_only")
+            for path in (memory_dir / scope).rglob("*")
         )
+        if not has_local_memory:
+            raise ValueError(
+                f"local memory corpus not found at {memory_dir}; "
+                "run exploration first or use --memory-profile hf"
+            )
     prompt_vars = {
         "suite": args.suite,
         "task": args.task,
@@ -252,7 +258,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "memory_dir": str(memory_dir),
         "reference_tag": f"{args.suite.replace('libero_', '')}_t{args.task}_s0",
         # Per-cell inbox: parallel explore runs must not append to a shared file.
-        "memory_inbox": str(memory_dir / "_inbox" / recipe_tag),
+        "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
         "session_number": 1,
         "session_max": max(1, args.explore_sessions) if explore else 1,
     }

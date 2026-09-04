@@ -75,8 +75,8 @@ GOAL = """YOUR GOAL: produce `state.libero_terminated == true`, then distil what
 learned into memory.
 
 Memory has three layers, and you write to all of them:
-  `task`   the audit `{{output_dir}}/{{recipe_tag}}.json` plus the replayable
-           `recipe_{{recipe_tag}}.jsonl` the runner exports — a matched pair
+  `task_only`   the audit `{{output_dir}}/{{recipe_tag}}.json` plus the replayable
+           `{{recipe_tag}}_recipe.jsonl` the runner exports — a matched pair
            describing the ONE sequence that worked. SOLVED CELLS ONLY.
   `suite`  one curated md write-up FOR THIS TASK: technique, parameter ranges,
            per-entity recognition, failure table. Grown at every attempt.
@@ -183,19 +183,19 @@ order of specificity, because the most specific layer is also the cheapest to
 retrieve.
 
 a. **THIS TASK** — `read_text_file` the `suite` write-up for this cell if one
-   exists (look for `suite_*` under the memory directory). It is the single
+   exists (look for `suite_*` under `{{memory_dir}}/suite/`). It is the single
    highest-value file you will read: the technique, per-entity `segment`
    phrasings, the failure table with attempt numbers, and the fragility flags
    for exactly this task. Its numbers are RANGES and its coordinates are
    deliberately absent — re-derive every xyz from THIS scene. If it does not
    exist, say so and continue; you will be creating it.
 
-b. **GLOBAL** — `resources/libero/memory/MEMORY.md` indexes the cross-task
+b. **GLOBAL** — `{{memory_dir}}/MEMORY.md` indexes the cross-task
    library. Each line states *when* that memory applies, so use the index to
    rule entries OUT fast, then read the few leaves that match your scene.
-   `list_dir` the memory directory to see everything available; a keyword often
-   matches several near-identical files, so open the top candidates and choose
-   from the file BODY, not the index line.
+   `list_dir` `{{memory_dir}}/global/` to see everything available; a keyword
+   often matches several near-identical files, so open the top candidates and
+   choose from the file BODY, not the index line.
 
 ⭐ Do this even when a seed-0 reference exists: the reference gives commands,
 memory gives the reasoning and failure modes needed to adapt them. In your
@@ -242,7 +242,7 @@ b. NOTE WHAT YOU LEARNED, NOW — as WORKING NOTES, not as corpus entries. Appen
    method the wall was measured under; you do not yet know which walls are
    properties of the task and which are properties of your approach.
 
-   ⚠ Nothing goes into the final `suite`/`global` files or the `task` layer at
+   ⚠ Nothing goes into the final `suite`/`global` files or the `task_only` layer at
    this point. Those are written once, after the cell is solved.
 
 Then `reset` and try again with a plan that differs in a NAMED lever.

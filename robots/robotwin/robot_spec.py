@@ -283,6 +283,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     recipe_tag = f"robotwin_{args.task_name}_s{args.seed}"
     task_config = getattr(args, "task_config", "demo_randomized")
     initial_seed = int(args.seed)
+    memory_dir = (
+        Path(args.memory_dir).expanduser().resolve()
+        if args.memory_dir
+        else get_memory_dir("robotwin")
+    )
     return RunConfig(
         recipe_tag=recipe_tag,
         output_dir=output_dir,
@@ -291,6 +296,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "seed": args.seed,
             "task_config": task_config,
             "instruction": "<native task_language from state_00>",
+            "memory_dir": str(memory_dir),
+            "reference_tag": f"{args.task_name}_s0",
         },
         task_desc={
             "env": "robotwin",
