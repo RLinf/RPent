@@ -21,6 +21,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from robots.robocasa.prompt_bundle import system_prompt
 from robots.robocasa.robot_spec import _parse_config
 from rpent.memory import MemoryManager
@@ -79,18 +81,22 @@ def test_default_memory_sync_uses_robocasa_subtree(monkeypatch, tmp_path):
     }
 
 
-def test_task_only_corpus_is_readable_through_memory_tool(monkeypatch, tmp_path):
+def test_results_corpus_is_readable_through_memory_tool(monkeypatch, tmp_path):
     monkeypatch.setenv("RPENT_REPO_ROOT", str(tmp_path))
     memory_root = tmp_path / "memory" / "robocasa"
-    task_only = memory_root / "task_only"
-    task_only.mkdir(parents=True)
-    audit = task_only / "OpenDrawer_s0.json"
+    results = memory_root / "results"
+    results.mkdir(parents=True)
+    audit = results / "OpenDrawer_s0.json"
     audit.write_text('{"success": true}\n')
 
     manager = MemoryManager(root=memory_root)
-    read_text_file = manager.get_common_tool_bindings()["read_text_file"][1]
+    bindings = manager.get_common_tool_bindings()
+    read_text_file = bindings["read_text_file"][1]
+    write_text_file = bindings["write_text_file"][1]
 
     assert read_text_file(path=str(audit))["content"] == '{"success": true}\n'
+    with pytest.raises(PermissionError, match="writing to memory is denied"):
+        write_text_file(path=str(audit), content="{}\n")
 
 
 def test_parse_config_resolves_local_memory_dir(tmp_path):
@@ -113,9 +119,9 @@ def test_prompt_names_only_current_task_memory(tmp_path):
         },
     )
 
-    assert str(memory_dir / "task_only" / "OpenDrawer_s0.json") in rendered
-    assert str(memory_dir / "task_only" / "OpenDrawer_s0_recipe.jsonl") in rendered
-    assert str(memory_dir / "task_only" / "OpenDrawer.md") in rendered
+    assert str(memory_dir / "results" / "OpenDrawer_s0.json") in rendered
+    assert str(memory_dir / "results" / "recipe_OpenDrawer_s0.jsonl") in rendered
+    assert str(memory_dir / "results" / "OpenDrawer.md") in rendered
     assert "read every existing file" in rendered
     assert "ArrangeTea_s0" not in rendered
     assert "GLOBAL_MEMORY" not in rendered

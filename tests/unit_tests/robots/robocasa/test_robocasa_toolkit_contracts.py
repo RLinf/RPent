@@ -52,7 +52,7 @@ EXPECTED_TOOLS = COMMON_TOOLS | {
 
 
 def _record(step_idx: int = 0) -> SimpleNamespace:
-    return SimpleNamespace(step_idx=step_idx, terminated=False)
+    return SimpleNamespace(step_idx=step_idx, terminated=False, extras={})
 
 
 def _tool_names(robot_toolkit: Toolkit) -> set[str]:
@@ -139,3 +139,14 @@ def test_toolkit_constructs_and_classifies_tools_with_a_fake(
     assert primitive.recording_started is True
     assert callable(primitive.kwargs["check_cancelled"])
     assert (tmp_path / "success_criteria.md").read_text() == "offline success criteria"
+
+
+def test_solved_reads_only_the_final_environment_record() -> None:
+    records = [SimpleNamespace(extras={"success": True})]
+    robot_toolkit = toolkit.RoboCasaToolkit.__new__(toolkit.RoboCasaToolkit)
+    robot_toolkit._state = SimpleNamespace(latest_record=lambda: records[-1])
+
+    assert robot_toolkit.solved() is True
+
+    records.append(SimpleNamespace(extras={"success": False}))
+    assert robot_toolkit.solved() is False

@@ -248,6 +248,7 @@ def test_tool_schema_and_dispatch_are_mapped_to_pydantic_ai() -> None:
     tools = _build_tools(toolkit)
 
     assert [tool.name for tool in tools] == ["read_image", "finish"]
+    assert all(tool.sequential for tool in tools)
     finish = tools[1]
     assert finish.description == "Finish after the environment accepts the result."
     assert (
