@@ -81,8 +81,8 @@ macros 配置：
 
 ``robocasa`` extra 会安装 ``RLinf/robosuite`` 的 ``rpent`` 分支，该分支
 包含 Omron 底盘固定的 ``navview`` 相机，其组合后的 MuJoCo 相机名为
-``mobilebase0_navview``。RPent 不再执行单独的 reset-time 相机预检；如果相机
-缺失，首次请求导航 RGB-D 或 world map 渲染时会自然报错。无需手工修改
+``mobilebase0_navview``。导航 RGB-D 与 world map 渲染会在首次请求时验证该
+相机，并在缺失时明确报错。无需手工修改
 ``site-packages`` 中的 XML。Target50 将 Robosuite 固定为
 ``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``；上面安装命令中的 Target50
 override 会直接选中这一 revision。
@@ -111,15 +111,15 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
 通过 ``--memory-profile hf``（默认值）启用自动同步。每次以该 profile 普通
 运行前，RPent 都会通过统一 memory manager，从
 `RLinf/RPent-memory 数据集
-<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/task_only>`_
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/results>`_
 自动同步 ``robocasa/**`` 到 ``memory/robocasa``，因此在线普通运行无需单独下载
-memory。当前任务只能读取 ``task_only/`` 下与该任务对应的 memory：
+memory。当前任务只能读取 ``results/`` 下与该任务对应的 memory：
 
 .. code-block:: text
 
-   memory/robocasa/task_only/<Task>_s0.json
-   memory/robocasa/task_only/<Task>_s0_recipe.jsonl
-   memory/robocasa/task_only/<Task>.md  # 可选
+   memory/robocasa/results/<Task>_s0.json
+   memory/robocasa/results/recipe_<Task>_s0.jsonl
+   memory/robocasa/results/<Task>.md  # 可选
 
 最终发布的 corpus 包含 43 个 audit JSON、43 个 recipe JSONL 和 25 个任务
 Markdown，共 111 个文件且不含 global memory。JSON/JSONL pair 保存经过审核的
@@ -146,7 +146,7 @@ RoboCasa 不要求 planner 使用 global memory，也不会退回读取其他任
       --include "robocasa/**" \
       --local-dir ./target50-memory
 
-随后选择 local profile，并传入固定的 results corpus 目录：
+随后选择 local profile，并传入固定的 RoboCasa memory 根目录：
 
 .. code-block:: bash
 
@@ -254,7 +254,8 @@ RoboCasa 不绑定具体 planner；RPent 支持的任意 planner 都可用于该
 正式 Target50 先按上文下载固定资源，再为 manifest 中每个 cell 调用一次普通
 命令。Codex 参考 profile 为 ``gpt-5.5``、``xhigh``、``max_turns=100``；
 RoboCasa 运行时本身仍与 planner 解耦。场景身份直接使用普通 ``--seed`` 参数，
-不要设置 ``RLDX_RESET_SEED``，并先固定 RLDX 执行参数：
+不要设置 ``RLDX_RESET_SEED``。普通 RoboCasa 使用 ``max_chunks=70``，只有
+Target50 将其覆盖为 40。运行前固定 Target50 的 RLDX 执行参数：
 
 .. code-block:: bash
 
@@ -273,7 +274,7 @@ RoboCasa 运行时本身仍与 planner 解耦。场景身份直接使用普通 `
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \
-         --memory-dir ./target50-memory/robocasa/results \
+         --memory-dir ./target50-memory/robocasa \
          --output-dir ./runs/target50/atomic/OpenDrawer_s1
 
 Composite-Seen 与 Composite-Unseen 使用 ``--planner-timeout-s 3600``。执行顺序为
@@ -339,7 +340,7 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
   安装 ``.[robocasa]`` 以刷新 ``RLinf/robosuite`` 的 ``rpent`` 分支；不要手工
   修改已安装的 XML。
 - ``read_text_file`` 报告缺少当前任务结果时，请检查
-  ``memory/robocasa/task_only/`` 目录或所选本地目录。RPent 不会读取其他任务的
+  ``memory/robocasa/results/`` 目录或所选本地目录。RPent 不会读取其他任务的
   memory 作为替代。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和
   ``<output_dir>/vla_server.log``。

@@ -498,7 +498,7 @@ class RoboCasaPrimitives:
     def rldx_skill(
         self,
         base_clip=None,
-        max_chunks=40,
+        max_chunks=70,
         use_prompt=None,
         prompt="",
         force_reset=False,
@@ -521,7 +521,7 @@ class RoboCasaPrimitives:
     def rldx_arm(
         self,
         base_clip=0.1,
-        max_chunks=40,
+        max_chunks=70,
         use_prompt=None,
         prompt="",
         force_reset=False,

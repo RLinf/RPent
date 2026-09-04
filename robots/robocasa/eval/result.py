@@ -72,7 +72,7 @@ def build_cell_result(
         task_name, environment_split, seed
     )
     reason = _termination_reason(agent_error, success)
-    max_chunks = int(os.environ.get("RLDX_MAX_CHUNKS", "40"))
+    max_chunks = int(os.environ.get("RLDX_MAX_CHUNKS", "70"))
     settle_patience = int(os.environ.get("RLDX_SETTLE_PATIENCE", "999"))
     action_steps = int(os.environ.get("RLDX_ACTION_STEPS_PER_CHUNK", "8"))
     return {

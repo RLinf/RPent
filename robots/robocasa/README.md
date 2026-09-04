@@ -80,10 +80,10 @@ inside RPent.
 ## Task Memory
 
 Select automatic synchronization with `--memory-profile hf` (the default).
-Before every such ordinary run, RPent calls the shared `ensure_resources()`
-helper to synchronize the `robocasa/**` subtree from the public
+Before every such ordinary run, RPent's shared memory manager synchronizes the
+`robocasa/**` subtree from the public
 [`RLinf/RPent-memory`](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/results)
-dataset. Files land under `resources/robocasa/results`, so an online ordinary
+dataset. Files land under `memory/robocasa/results`, so an online ordinary
 run does not require a separate memory download command.
 
 The published RoboCasa corpus contains 111 files: 43 audit JSON files, 43
@@ -91,9 +91,9 @@ recipe JSONL files, and 25 task Markdown files. There is no global memory. For
 the current task, the planner may read only:
 
 ```text
-resources/robocasa/results/<Task>_s0.json
-resources/robocasa/results/recipe_<Task>_s0.jsonl
-resources/robocasa/results/<Task>.md  # optional
+memory/robocasa/results/<Task>_s0.json
+memory/robocasa/results/recipe_<Task>_s0.jsonl
+memory/robocasa/results/<Task>.md  # optional
 ```
 
 The Markdown files cover all 16 Composite-Seen tasks and 9 Composite-Unseen
@@ -149,8 +149,8 @@ rpent --robot robocasa \
   --memory-profile hf
 ```
 
-To use a reviewed local corpus, point `--memory-dir` directly at its `results`
-directory:
+To use a reviewed local corpus, point `--memory-dir` at its RoboCasa memory
+root (the directory that contains `results/`):
 
 ```bash
 rpent --robot robocasa \
@@ -162,7 +162,7 @@ rpent --robot robocasa \
   --planner claude_code \
   --model claude-opus-4-8 \
   --memory-profile local \
-  --memory-dir ./target50-memory/robocasa/results
+  --memory-dir ./target50-memory/robocasa
 ```
 
 Planner credentials are supplied by the user outside the repository. See the
@@ -187,8 +187,9 @@ and retry policy. Its protocol ID is
 Run each manifest cell with the ordinary CLI. The reference Codex profile is
 `gpt-5.5`, `xhigh`, and `max_turns=100`; this profile does not restrict the
 RoboCasa runtime to Codex. The scene identity is the ordinary `--seed` value;
-do not set `RLDX_RESET_SEED`. Freeze the RLDX execution values before running
-the cells:
+do not set `RLDX_RESET_SEED`. Ordinary RoboCasa uses `max_chunks=70`; Target50
+alone overrides it to 40. Freeze the Target50 RLDX execution values before
+running the cells:
 
 ```bash
 export RLDX_MAX_CHUNKS=40
@@ -212,7 +213,7 @@ rpent --robot robocasa \
   --max-turns 100 \
   --planner-timeout-s 1800 \
   --memory-profile local \
-  --memory-dir ./target50-memory/robocasa/results \
+  --memory-dir ./target50-memory/robocasa \
   --output-dir ./runs/target50/atomic/OpenDrawer_s1
 ```
 
@@ -263,7 +264,7 @@ the Harness VLA reference results and for the aggregation boundary.
   above. Do not edit files under `site-packages`.
 - **The RLDX server cannot load:** verify `--vla-model-path`, CUDA visibility,
   and `vla_server.log`. FlashAttention is optional; RLDX-1 can use PyTorch SDPA.
-- **Task memory is missing:** check `resources/robocasa/results` for HF mode or
+- **Task memory is missing:** check `memory/robocasa/results` for HF mode or
   the exact directory passed to `--memory-dir`. Do not substitute another
   task's files. Missing memory is expected for the seven tasks listed above.
 - **A server fails to start:** inspect `env_server.log`, `vla_server.log`, and

@@ -135,6 +135,17 @@ def test_environment_max_chunks_locks_the_formal_protocol(monkeypatch) -> None:
     assert result["effective_max_chunks"] == 40
 
 
+def test_ordinary_robocasa_keeps_default_max_chunks_at_70(monkeypatch) -> None:
+    task_language = "Open the left drawer."
+    primitives, rldx = _fake_primitives(task_language)
+    monkeypatch.delenv("RLDX_MAX_CHUNKS", raising=False)
+
+    result = primitives.rldx_skill(prompt=task_language)
+
+    assert rldx.calls[0]["max_chunks"] == 70
+    assert result["effective_max_chunks"] == 70
+
+
 def test_environment_locks_all_formal_rldx_runtime_values(monkeypatch) -> None:
     task_language = "Open the left drawer."
     primitives, rldx = _fake_primitives(task_language)

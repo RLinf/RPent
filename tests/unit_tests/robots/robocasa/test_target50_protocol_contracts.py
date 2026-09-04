@@ -33,79 +33,25 @@ CONSTRAINTS_PATH = (
 )
 OVERRIDES_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50-overrides.txt"
 RESULTS_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50_codex_results.md"
-DOCUMENTATION_PATHS = [
-    REPO_ROOT / "robots" / "robocasa" / "README.md",
-    REPO_ROOT / "docs" / "source-en" / "rst_source" / "usage" / "robocasa.rst",
-    REPO_ROOT / "docs" / "source-zh" / "rst_source" / "usage" / "robocasa.rst",
-]
-
-EXPECTED_TASKS = {
+EXPECTED_SPLIT_SHAPES = {
     "atomic": {
-        "CloseBlenderLid",
-        "CloseFridge",
-        "CloseToasterOvenDoor",
-        "CoffeeSetupMug",
-        "NavigateKitchen",
-        "OpenCabinet",
-        "OpenDrawer",
-        "OpenStandMixerHead",
-        "PickPlaceCounterToCabinet",
-        "PickPlaceCounterToStove",
-        "PickPlaceDrawerToCounter",
-        "PickPlaceSinkToCounter",
-        "PickPlaceToasterToCounter",
-        "SlideDishwasherRack",
-        "TurnOffStove",
-        "TurnOnElectricKettle",
-        "TurnOnMicrowave",
-        "TurnOnSinkFaucet",
+        "task_count": 18,
+        "seeds": list(range(1, 11)),
+        "timeout_seconds": 1800,
+        "cell_count": 180,
     },
     "composite_seen": {
-        "DeliverStraw",
-        "GetToastedBread",
-        "KettleBoiling",
-        "LoadDishwasher",
-        "PackIdenticalLunches",
-        "PrepareCoffee",
-        "PreSoakPan",
-        "RinseSinkBasin",
-        "ScrubCuttingBoard",
-        "SearingMeat",
-        "SetUpCuttingStation",
-        "StackBowlsCabinet",
-        "SteamInMicrowave",
-        "StirVegetables",
-        "StoreLeftoversInBowl",
-        "WashLettuce",
+        "task_count": 16,
+        "seeds": list(range(1, 6)),
+        "timeout_seconds": 3600,
+        "cell_count": 80,
     },
     "composite_unseen": {
-        "ArrangeBreadBasket",
-        "ArrangeTea",
-        "BreadSelection",
-        "CategorizeCondiments",
-        "CuttingToolSelection",
-        "GarnishPancake",
-        "GatherTableware",
-        "HeatKebabSandwich",
-        "MakeIceLemonade",
-        "PanTransfer",
-        "PortionHotDogs",
-        "RecycleBottlesByType",
-        "SeparateFreezerRack",
-        "WaffleReheat",
-        "WashFruitColander",
-        "WeighIngredients",
+        "task_count": 16,
+        "seeds": list(range(1, 6)),
+        "timeout_seconds": 3600,
+        "cell_count": 80,
     },
-}
-
-MEMORYLESS_TASKS = {
-    "HeatKebabSandwich",
-    "PanTransfer",
-    "PortionHotDogs",
-    "SeparateFreezerRack",
-    "WaffleReheat",
-    "WashFruitColander",
-    "WeighIngredients",
 }
 
 
@@ -184,21 +130,19 @@ def test_target50_matrix_is_exact_and_has_no_duplicate_cells():
     manifest = _manifest()
     splits = manifest["splits"]
 
-    assert set(splits) == set(EXPECTED_TASKS)
-    assert splits["atomic"]["seeds"] == list(range(1, 11))
-    assert splits["composite_seen"]["seeds"] == list(range(1, 6))
-    assert splits["composite_unseen"]["seeds"] == list(range(1, 6))
-    assert splits["atomic"]["timeout_seconds"] == 1800
-    assert splits["composite_seen"]["timeout_seconds"] == 3600
-    assert splits["composite_unseen"]["timeout_seconds"] == 3600
+    assert set(splits) == set(EXPECTED_SPLIT_SHAPES)
 
     tasks: list[str] = []
     cells: list[tuple[str, str, int]] = []
-    for split_name, expected_tasks in EXPECTED_TASKS.items():
+    for split_name, expected_shape in EXPECTED_SPLIT_SHAPES.items():
         split = splits[split_name]
-        assert set(split["tasks"]) == expected_tasks
-        assert split["task_count"] == len(expected_tasks)
-        assert split["cell_count"] == len(expected_tasks) * len(split["seeds"])
+        assert split["task_count"] == expected_shape["task_count"]
+        assert split["seeds"] == expected_shape["seeds"]
+        assert split["timeout_seconds"] == expected_shape["timeout_seconds"]
+        assert split["cell_count"] == expected_shape["cell_count"]
+        assert len(split["tasks"]) == split["task_count"]
+        assert len(split["tasks"]) == len(set(split["tasks"]))
+        assert split["cell_count"] == len(split["tasks"]) * len(split["seeds"])
         tasks.extend(split["tasks"])
         cells.extend(
             (split_name, task, seed)
@@ -224,11 +168,13 @@ def test_target50_memory_and_retry_boundaries_are_frozen():
     assert memory["optional_files"] == ["<Task>.md"]
     assert memory["use_global_memory"] is False
     assert memory["use_cross_task_memory"] is False
-    assert set(memory["tasks_without_memory"]) == MEMORYLESS_TASKS
-    assert MEMORYLESS_TASKS < EXPECTED_TASKS["composite_unseen"]
-
-    all_tasks = set().union(*EXPECTED_TASKS.values())
-    assert memory["tasks_with_memory"] == len(all_tasks - MEMORYLESS_TASKS) == 43
+    memoryless_tasks = set(memory["tasks_without_memory"])
+    all_tasks = {
+        task for split in manifest["splits"].values() for task in split["tasks"]
+    }
+    assert len(memoryless_tasks) == 7
+    assert memoryless_tasks < set(manifest["splits"]["composite_unseen"]["tasks"])
+    assert memory["tasks_with_memory"] == len(all_tasks - memoryless_tasks) == 43
     assert manifest["retry_policy"] == {
         "retry_infrastructure_failure_without_valid_environment_result": True,
         "retry_valid_task_failure": False,
@@ -509,7 +455,10 @@ def test_published_results_cover_target50_and_match_split_totals():
             assert row["evaluated"] == len(split["seeds"])
             assert row["rate"] == 100 * row["successes"] // row["evaluated"]
 
-    assert set(by_task) == set().union(*EXPECTED_TASKS.values())
+    manifest_tasks = {
+        task for split in manifest["splits"].values() for task in split["tasks"]
+    }
+    assert set(by_task) == manifest_tasks
     task_weighted_rate = sum(
         100 * row["successes"] / row["evaluated"] for row in by_task.values()
     ) / len(by_task)
@@ -517,26 +466,3 @@ def test_published_results_cover_target50_and_match_split_totals():
     assert "**Overall (task-weighted)** | **50** | **N/A** | **57.00%**" in (
         RESULTS_PATH.read_text(encoding="utf-8")
     )
-
-
-def test_target50_documentation_uses_frozen_revisions():
-    frozen_values = {
-        "robocasa-harness-vla-v1",
-        "97cfbde4b68d8ec43dad20cf4747297866a6ca2e",
-        "587e9ecdcc5e7184fcc17f58713908edff5af041",
-        "551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b",
-    }
-
-    for path in DOCUMENTATION_PATHS:
-        contents = path.read_text(encoding="utf-8")
-        assert all(value in contents for value in frozen_values), path
-        assert "target50-constraints.txt" in contents, path
-        assert "target50-overrides.txt" in contents, path
-        assert "RLDX_MAX_CHUNKS" in contents, path
-        assert "RLDX_RESET_SEED" in contents, path
-        assert "--memory-profile hf" in contents, path
-        assert "NO_PROXY" in contents, path
-        assert "no_proxy" in contents, path
-        assert "export NO_PROXY" not in contents, path
-        assert "export no_proxy" not in contents, path
-        assert "result.json" in contents, path

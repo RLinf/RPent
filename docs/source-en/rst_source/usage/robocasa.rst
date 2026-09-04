@@ -89,9 +89,9 @@ Re-run with ``--skip-existing`` to leave downloaded folders alone.
 
 The ``robocasa`` extra installs the ``rpent`` branch of ``RLinf/robosuite``,
 which provides the Omron base's fixed ``navview`` camera. Its composed MuJoCo
-name is ``mobilebase0_navview``. RPent does not run a separate reset-time
-camera preflight; a missing camera fails when navigation RGB-D or world-map
-rendering first requests it. No manual ``site-packages`` XML patch is required.
+name is ``mobilebase0_navview``. Navigation RGB-D and world-map rendering
+validate the camera when they first request it, and report an error if it is
+missing. No manual ``site-packages`` XML patch is required.
 Target50 freezes the resolved Robosuite revision at
 ``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``. The Target50 override in the
 installation command above selects that exact revision.
@@ -122,16 +122,16 @@ Select automatic synchronization with ``--memory-profile hf`` (the default).
 Before every such ordinary run, RPent's shared memory manager synchronizes the
 ``robocasa/**`` subtree from the
 `RLinf/RPent-memory dataset
-<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/task_only>`_
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/results>`_
 into ``memory/robocasa``. An online ordinary run therefore requires no separate
 memory download. The current task may use only these task-matched files under
-``task_only/``:
+``results/``:
 
 .. code-block:: text
 
-   memory/robocasa/task_only/<Task>_s0.json
-   memory/robocasa/task_only/<Task>_s0_recipe.jsonl
-   memory/robocasa/task_only/<Task>.md  # optional
+   memory/robocasa/results/<Task>_s0.json
+   memory/robocasa/results/recipe_<Task>_s0.jsonl
+   memory/robocasa/results/<Task>.md  # optional
 
 The final published corpus contains 43 audit JSON files, 43 recipe JSONL files,
 and 25 task Markdown files, for 111 files in total and no global memory. The
@@ -277,7 +277,8 @@ For Target50, first download the fixed resources above, then invoke one ordinary
 command for each manifest cell. The Codex reference profile is ``gpt-5.5``,
 ``xhigh``, and ``max_turns=100``; RoboCasa itself remains planner-agnostic. For
 the scene identity, use the ordinary ``--seed`` argument and do not set
-``RLDX_RESET_SEED``. Freeze the RLDX execution values first:
+``RLDX_RESET_SEED``. Ordinary RoboCasa uses ``max_chunks=70``; Target50 alone
+overrides it to 40. Freeze the Target50 RLDX execution values first:
 
 .. code-block:: bash
 
@@ -296,7 +297,7 @@ The first ``OpenDrawer`` Atomic cell is:
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \
-         --memory-dir ./target50-memory/robocasa/results \
+         --memory-dir ./target50-memory/robocasa \
          --output-dir ./runs/target50/atomic/OpenDrawer_s1
 
 Use ``--planner-timeout-s 3600`` for either composite split. Execute Atomic,
@@ -368,7 +369,7 @@ Troubleshooting
   ``RLinf/robosuite`` ``rpent`` branch. Do not patch installed XML files
   manually.
 - If ``read_text_file`` reports a missing current-task result, check the
-  ``memory/robocasa/task_only/`` corpus or the selected local directory.
+  ``memory/robocasa/results/`` corpus or the selected local directory.
   RPent does not fall back to another task's memory.
 - Environment and VLA startup failures are recorded in
   ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
