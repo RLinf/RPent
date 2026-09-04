@@ -23,6 +23,7 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
+from robots.franka.perception import _resolve_step
 from robots.franka.runtime_config import get_calibration_path, load_mapping
 from rpent.session import EnvState
 from rpent.tools.toolkit import readonly
@@ -46,12 +47,6 @@ _PROJECTION_CAMERAS = {
         "display_name": "D455",
     },
 }
-
-
-def _resolve_step(state: EnvState, step: int | None) -> tuple[int, dict[str, Any]]:
-    """Resolve a step selector (None or -1 = latest) to index and robot state."""
-    record = state.get(-1 if step is None else step)
-    return record.step_idx, record.state
 
 
 @readonly

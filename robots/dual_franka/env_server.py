@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import argparse
 import queue
 import sys
 import time
@@ -25,11 +24,7 @@ from typing import Any
 import numpy as np
 
 from robots.dual_franka.runtime_config import load_runtime_config
-from robots.franka.env_server import (
-    FrankaEnvFacade,
-    _RayBackend,
-    _to_numpy_tree,
-)
+from robots.franka.env_server import _to_numpy_tree, main
 from rpent.utils.config import get_repo_root, get_rlinf_repo_path
 
 # Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
@@ -502,58 +497,10 @@ def _create_worker_class():
     return DualFrankaEnvWorker
 
 
-def _launch_worker(cfg: Any, controller_config: dict[str, Any]):
-    from rlinf.scheduler import Cluster, ComponentPlacement
-
-    worker_class = _create_worker_class()
-    cluster = Cluster(cluster_cfg=cfg.cluster)
-    placement = ComponentPlacement(cfg, cluster).get_strategy("env")
-    worker = worker_class.create_group(cfg, controller_config).launch(
-        cluster=cluster,
-        name="DualFrankaRPentEnvGroup",
-        placement_strategy=placement,
-    )
-    worker.get_env_meta().wait()
-    return worker
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--transport", choices=["http", "socket"], default="http")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=0)
-    parser.add_argument("--robot-config", default=None)
-    parser.add_argument("--task-description", required=True)
-    parser.add_argument("--parent-watch", action="store_true")
-    parser.add_argument(
-        "--print-config",
-        action="store_true",
-        help="Print the resolved RLinf config and exit without launching.",
-    )
-    args = parser.parse_args()
-
-    runtime = load_runtime_config(
-        args.robot_config,
-        task_description=args.task_description,
-    )
-    if args.print_config:
-        from omegaconf import OmegaConf
-
-        print(OmegaConf.to_yaml(runtime.rlinf))
-        return 0
-    worker = _launch_worker(runtime.rlinf, runtime.controller)
-    facade = FrankaEnvFacade(_RayBackend(worker))
-    try:
-        facade.serve(
-            transport=args.transport,
-            host=args.host,
-            port=args.port,
-            parent_watch=args.parent_watch,
-        )
-    finally:
-        worker.close_env().wait()
-    return 0
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(
+        main(
+            create_worker_class=_create_worker_class,
+            load_runtime_config=load_runtime_config,
+        )
+    )

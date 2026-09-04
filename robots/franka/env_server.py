@@ -20,6 +20,7 @@ import argparse
 import dataclasses
 import sys
 import time
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -377,10 +378,15 @@ def _create_worker_class():
     return FrankaEnvWorker
 
 
-def _launch_worker(cfg: Any, controller_config: dict[str, Any]):
+def _launch_worker(
+    cfg: Any,
+    controller_config: dict[str, Any],
+    *,
+    create_worker_class: Callable[[], Any],
+):
     from rlinf.scheduler import Cluster, ComponentPlacement
 
-    worker_class = _create_worker_class()
+    worker_class = create_worker_class()
     cluster = Cluster(cluster_cfg=cfg.cluster)
     placement = ComponentPlacement(cfg, cluster).get_strategy("env")
     worker = worker_class.create_group(cfg, controller_config).launch(
@@ -392,7 +398,11 @@ def _launch_worker(cfg: Any, controller_config: dict[str, Any]):
     return worker
 
 
-def main() -> int:
+def main(
+    *,
+    create_worker_class: Callable[[], Any],
+    load_runtime_config: Callable[..., Any],
+) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--transport", choices=["http", "socket"], default="http")
     parser.add_argument("--host", default="127.0.0.1")
@@ -416,7 +426,9 @@ def main() -> int:
 
         print(OmegaConf.to_yaml(runtime.rlinf))
         return 0
-    worker = _launch_worker(runtime.rlinf, runtime.controller)
+    worker = _launch_worker(
+        runtime.rlinf, runtime.controller, create_worker_class=create_worker_class
+    )
     facade = FrankaEnvFacade(_RayBackend(worker))
     try:
         facade.serve(
@@ -431,4 +443,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(
+        main(
+            create_worker_class=_create_worker_class,
+            load_runtime_config=load_runtime_config,
+        )
+    )

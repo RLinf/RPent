@@ -34,6 +34,9 @@ if TYPE_CHECKING:
 class FrankaToolkit(Toolkit):
     """Common RPent tools plus safe single-Franka planner primitives."""
 
+    _tools = franka_tools
+    _primitives_cls = franka_tools.FrankaPrimitives
+
     def __init__(
         self,
         *,
@@ -50,14 +53,14 @@ class FrankaToolkit(Toolkit):
         calibration_path = primitives_kwargs.pop("calibration_path", None)
         if calibration_path is not None:
             set_calibration_path(calibration_path)
-        self._primitives = franka_tools.FrankaPrimitives(
+        self._primitives = self._primitives_cls(
             check_cancelled=self.raise_if_cancelled,
             **primitives_kwargs,
         )
-        self._register_franka_tools()
+        self._register_tools()
         self._state.reset()
         self._primitives.reset()
-        record = franka_tools.dump_state(
+        record = self._tools.dump_state(
             self._primitives,
             self._state,
             command=None,
@@ -66,7 +69,7 @@ class FrankaToolkit(Toolkit):
         )
         self._publish_step(record)
 
-    def _register_franka_tools(self) -> None:
+    def _register_tools(self) -> None:
         state_handlers = {
             "view_env_state": partial(franka_tools.view_env_state, state=self._state),
             "view_camera_meta": partial(
@@ -86,7 +89,7 @@ class FrankaToolkit(Toolkit):
                 state=self._state,
             ),
         }
-        for spec in franka_tools.TOOLS_SPEC:
+        for spec in self._tools.TOOLS_SPEC:
             name = spec["name"]
             handler = state_handlers.get(name) or getattr(self._primitives, name)
             self.add_tool(name, spec, handler)
@@ -98,13 +101,13 @@ class FrankaToolkit(Toolkit):
         result: dict[str, Any],
         elapsed_s: float,
     ) -> dict[str, Any]:
-        record = franka_tools.dump_state(
+        record = self._tools.dump_state(
             self._primitives,
             self._state,
             command=command,
             result=result,
             elapsed_s=elapsed_s,
         )
-        output = franka_tools.view_env_state(record.step_idx, state=self._state)
+        output = self._tools.view_env_state(record.step_idx, state=self._state)
         output["agent_elapsed_s"] = elapsed_s
         return output
