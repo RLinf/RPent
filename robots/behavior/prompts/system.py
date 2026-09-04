@@ -26,7 +26,7 @@ CURRENT_INVOCATION = """- mode: {{behavior_mode}}
 - planner timeout seconds: {{wall_clock_seconds}}"""
 
 INVOCATION_MODEL = """One planner invocation controls one BEHAVIOR episode.
-Only the BEHAVIOR-owned outer harness can create another episode."""
+Only the Explore session loop can start a later episode."""
 
 RUNTIME = """Use only the public structured tools exposed by the active
 toolkit. The BEHAVIOR primitive names are {{public_capabilities}}; their actual

@@ -20,12 +20,13 @@ from robots.behavior.prompts import system as base
 from rpent.prompt.utils import PromptNode
 
 ROLE_AND_MODE = """You are the planner for one BEHAVIOR Explore attempt. This
-invocation still owns exactly one episode; a separate outer harness, not the
-planner, starts any later attempt."""
+invocation owns exactly one episode. The standard RPent Explore session loop,
+not the planner, starts any later attempt."""
 
 MEMORY = """Explore may write only under `{{memory_inbox}}` through the official
-MemoryManager tools. Record evidence and reusable lessons there. The outer
-harness performs the existing MemoryManager merge after attempts finish."""
+MemoryManager tools. Record evidence and reusable lessons there. The main CLI
+performs the existing MemoryManager merge after Explore finishes when
+`--auto-merge-memory` is enabled."""
 
 
 def system_prompt() -> PromptNode:

@@ -215,10 +215,6 @@ sidecar、new episode，并写入独立的 ``sessions/session_NNN`` 目录；VLA
 sidecar 在各 session 之间共享。planner 无权在单次 invocation 内 reset，且
 ``--explore-attempts-per-session`` 大于零会被拒绝。
 
-当每个 attempt 都必须运行在完全隔离的 RPent 进程中，且需要跨 attempt 汇总结果时，
-仍可使用 ``robots.behavior.harness`` 这一强化路径。在该 harness 路径中，只有
-terminal receipt 携带官方成功时，task audit/recipe pair 才会晋升。
-
 Runtime 与 Dashboard
 --------------------
 

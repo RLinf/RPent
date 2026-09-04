@@ -227,11 +227,6 @@ the VLA and DINO sidecars stay shared across sessions. The planner cannot reset
 inside an invocation, and ``--explore-attempts-per-session`` values above zero
 are rejected.
 
-``robots.behavior.harness`` remains available as the strengthened path when
-every attempt must run in a fully isolated RPent process and results must be
-aggregated across attempts. On that harness path, task audit/recipe pairs are
-promoted only when the terminal receipt carries official success.
-
 Runtime and Dashboard
 ---------------------
 
