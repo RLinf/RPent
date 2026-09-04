@@ -12,13 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unified VLA backend base class.
-Design reference: ``docs/source-zh/rst_source/development/add_vla.rst``.
-"""
+"""Unified VLA backend base class."""
 
 from __future__ import annotations
 
 from rpent.utils.rpc import RpcFacade
+from rpent.utils.rpc.rpc_facade import DEFAULT_SESSION_TIMEOUT_S
 
 
 class BaseVLAFacade(RpcFacade):
@@ -41,8 +40,15 @@ class BaseVLAFacade(RpcFacade):
         evict expired sessions.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(
+        self,
+        *,
+        enable_sessions: bool = False,
+        session_timeout_s: float = DEFAULT_SESSION_TIMEOUT_S,
+    ):
+        super().__init__(
+            enable_sessions=enable_sessions, session_timeout_s=session_timeout_s
+        )
         self._register_rpc()
 
     # ---- framework ----

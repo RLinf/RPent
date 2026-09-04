@@ -223,5 +223,13 @@ aspects:
   :doc:`../development/add_robot` for the rationale.
 - **Observation shape.** RLDX-1 sees 3 camera video tensors
   ``(1, T, H, W, 3)`` stacked over history ``T``, plus ``state.*``
-  fields, an annotation, and a session id used by ``reset_session`` /
-  ``predict``.
+  and ``annotation.*`` fields. The session id is **not** part of the
+  observation — it is managed automatically by the RPC framework:
+  ``RpcClient`` generates a private ``rpc_`` + uuid hex session id,
+  ``wait_for_ready`` registers it with the server on connect; the
+  server tracks each session's idle time and a background sweep thread
+  reaps sessions idle longer than the timeout (default 3600s), and the
+  client sends ``session.close`` via atexit on process exit. Business
+  code (``rldx_skill`` / ``vla_client``) never sees the session id
+  directly; the server injects it into ``predict`` / ``reset_session``
+  to isolate per-client RLDX memory/RTC policy state.
