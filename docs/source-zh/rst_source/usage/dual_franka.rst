@@ -106,6 +106,31 @@ checkpoint 必须包含：
 	actor/model_state_dict/full_weights.pt
 	<DUAL_FRANKA_REPO_ID>/norm_stats.json
 
+**预训练 checkpoint**
+
+ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint：
+`Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000
+<https://modelscope.cn/models/Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000>`_。
+下载后将 ``PI05_CHECKPOINT_PATH`` 指向下载目录，并将 ``DUAL_FRANKA_REPO_ID``
+设置为包含 ``norm_stats.json`` 的子目录：
+
+.. code-block:: bash
+
+	modelscope download \
+	  --model Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000 \
+	  --local_dir /path/to/pi05-dualfranka-clean-desk
+
+	export PI05_CHECKPOINT_PATH=/path/to/pi05-dualfranka-clean-desk
+
+.. warning::
+
+	该 checkpoint 仅在我们的内部测试环境（机器人位姿、相机、工作空间布局和物体）
+	上训练，切换到不同的环境时预计表现会较差。若要部署到你自己的机器上，请使用
+	RLinf 采集示教数据并微调你自己的 checkpoint，参见
+	`RLinf 双臂 Franka 指南
+	<https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/dual_franka.html>`_
+	（采集 GELLO 示教数据、转换为 tcp_rot6d、运行 SFT，然后部署）。
+
 未设置 ``--vla-endpoint`` 时，RPent 会启动
 ``robots/dual_franka/vla_server.py``，并只加载一次
 ``pi05_dualfranka_tcp_rot6d``。

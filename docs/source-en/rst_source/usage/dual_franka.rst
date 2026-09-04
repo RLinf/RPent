@@ -114,6 +114,32 @@ The checkpoint must contain:
 	actor/model_state_dict/full_weights.pt
 	<DUAL_FRANKA_REPO_ID>/norm_stats.json
 
+**Pretrained checkpoint**
+
+A ready-made task ``1`` checkpoint is published on ModelScope:
+`Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000
+<https://modelscope.cn/models/Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000>`_.
+Download it, point ``PI05_CHECKPOINT_PATH`` at the downloaded directory, and set
+``DUAL_FRANKA_REPO_ID`` to the subdirectory that holds ``norm_stats.json``:
+
+.. code-block:: bash
+
+	modelscope download \
+	  --model Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000 \
+	  --local_dir /path/to/pi05-dualfranka-clean-desk
+
+	export PI05_CHECKPOINT_PATH=/path/to/pi05-dualfranka-clean-desk
+
+.. warning::
+
+	This checkpoint is trained only on our in-house test environment (robot
+	poses, cameras, workspace layout, and objects), so it is expected to
+	generalize poorly to a different setup. To deploy on your own rig, collect
+	demonstrations and fine-tune your own checkpoint with RLinf by following the
+	`RLinf dual-Franka guide
+	<https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/dual_franka.html>`_
+	(collect GELLO demos, convert to tcp_rot6d, run SFT, then deploy).
+
 When ``--vla-endpoint`` is absent, RPent starts
 ``robots/dual_franka/vla_server.py`` and loads
 ``pi05_dualfranka_tcp_rot6d`` once.
