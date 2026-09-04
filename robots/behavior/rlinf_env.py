@@ -1262,13 +1262,6 @@ class OfficialBehaviorBackend:
                 stop_reason="error",
                 error=str(exc),
             )
-        except Exception as exc:
-            return self._motion_error(
-                name,
-                request,
-                stop_reason="error",
-                error=str(exc),
-            )
         executed_steps = int(info.get("executed_steps") or 0)
         stop_reason = str(info.get("stop_reason") or "requested_actions_completed")
         result: dict[str, Any] = {
