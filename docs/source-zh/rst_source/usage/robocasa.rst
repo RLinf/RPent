@@ -202,10 +202,17 @@ Toolkit 与 LIBERO 的差异
 RoboCasa toolkit 提供的工具 *形式* 与 LIBERO 相同（一次原语调用、
 一次状态查看、一次 ``finish``），但有两处 RoboCasa 特有的差异:
 
-- **Env 侧的辅助方法。** 抓取检测与动作组装需要活着的仿真 env, 所以
+- **Env 侧的辅助方法。** 抓取检测与动作组装需要运行中的仿真 env, 所以
   它们是 env_server 的 RPC。Agent 侧的 skill 因此同时持有 **两个**
   client: env client 做 render/step, model client 做 RLDX-1 推理。
   理由参见 :doc:`../development/add_robot`。
-- **观测形状。** RLDX-1 看到的是 3 路相机 video 张量
-  ``(1, T, H, W, 3)``, 按历史 ``T`` 堆叠，加上 ``state.*``、annotation、
-  以及一个 session id (用于 ``reset_session`` / ``predict``)。
+- **观测形状。** RLDX-1 看到的是 3 路相机的视频张量
+  ``(1, T, H, W, 3)``, 按历史 ``T`` 堆叠, 加上 ``state.*`` 与
+  ``annotation.*`` 字段。session id 不在观测里——它由 RPC 框架自动
+  管理: ``RpcClient`` 生成 ``rpc_`` + uuid hex 的私有 session id,
+  ``wait_for_ready`` 在连接时注册到服务端; 服务端跟踪每个 session
+  的空闲时间, 后台 sweep 线程定期回收超时 (默认 3600 秒) 的 session,
+  进程退出时客户端通过 atexit 发送 ``session.close``。业务代码
+  (``rldx_skill`` / ``vla_client``) 从不直接看到 session id, 服务端
+  把它注入到 ``predict`` / ``reset_session`` 中, 按客户端隔离
+  RLDX memory/RTC 策略状态。

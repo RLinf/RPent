@@ -100,7 +100,7 @@ Planner
    * - ``spec``
      - 工具说明与参数 schema（``name``、``description``、``input_schema``）。
    * - ``handler``
-     - 执行逻辑，须返回 ``dict``。任务结束时在dict里设 ``_finish``；
+     - 执行逻辑，须返回 ``dict``。任务结束时在该 ``dict`` 里设 ``_finish``；
        需要回传相机图时可设 ``_image_bytes`` 等字段。
 
 基类已注册公共文件工具；子类 ``super().__init__()`` 后追加本机器人工具即可。逐步状态与
