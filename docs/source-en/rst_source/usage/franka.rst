@@ -7,6 +7,18 @@ worker.
 Install
 -------
 
+.. note::
+
+	The following guide installs only the Python side (the custom RLinf
+	Franka branch and ``rlinf-openpi``); it does **not** build the robot
+	controller stack the arm needs. Before installing RPent, follow the RLinf
+	single-arm Franka guide to set up the controller node: check Franka firmware
+	compatibility, install the real-time kernel, choose your gripper (Franka hand
+	or Robotiq 2F-85/2F-140) and camera, and build the ROS control packages (ROS
+	Noetic, the matching libfranka and franka_ros, and serl_franka_controllers).
+	See the `RLinf single-arm Franka guide
+	<https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/franka.html>`_.
+
 From the RPent repository root:
 
 .. code-block:: bash

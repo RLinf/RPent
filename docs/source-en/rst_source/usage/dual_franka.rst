@@ -2,13 +2,22 @@ Dual Franka
 ===========
 
 RPent can control a two-node dual-Franka setup through an RLinf
-``RealWorldEnv`` worker. This development branch keeps its runtime configuration
-in RPent and installs the required RLinf/OpenPI branch through the ``franka``
-extra. A separate RLinf checkout, virtual environment, or installation step is
-not required.
+``RealWorldEnv`` worker.
 
 Install
 -------
+
+.. note::
+
+	The following guide installs only the Python side (the custom RLinf
+	Franka branch and ``rlinf-openpi``); it does **not** build the robot-node
+	control stack the two arms need. Before installing RPent, follow the RLinf
+	dual-Franka guide to set up both robot nodes: choose a compatible
+	``LIBFRANKA_VERSION``, build the ``franka-franky`` (franky/libfranka) control
+	stack, configure the PREEMPT_RT real-time kernel and permissions, and install
+	the GELLO teleoperation and gripper dependencies. See the `RLinf dual-Franka
+	guide
+	<https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/dual_franka.html>`_.
 
 From the RPent repository root:
 
