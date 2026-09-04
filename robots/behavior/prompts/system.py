@@ -50,13 +50,16 @@ receipts from this episode. Refresh observations after scene-changing actions
 when later decisions depend on object identity, pose, reachability, attachment,
 or task state."""
 
-PLANNER_TOOLS = """The nine BEHAVIOR primitives in {{public_capabilities}} are
-unordered peer tools. The planner autonomously chooses the VLA instruction,
-positive chunk count, number and ordering of calls, and a left, right, or both
-hand selection. `move_to` moves the selected hand; `hand=both` requests
-coordinated dual-arm motion when the planner judges it appropriate.
-`{{wall_clock_seconds}}` is the planner timeout, not a per-primitive budget.
-Use `finish` to end the invocation and emit its terminal receipt."""
+PLANNER_TOOLS = """The nine BEHAVIOR primitives registered in
+{{public_capabilities}} are unordered peer tools, but the currently operable
+paths are `pi0_nav_pick`, `observe`, and `pixel_to_world`. Motion primitives
+`navigate_to`, `move_to`, `rotate_wrist`, `open`, `close`, and `press` are
+registered but return `motion_unavailable` in this integration stage; do not
+call them until a motion adapter PR provides implementations. The planner
+autonomously chooses the VLA instruction, positive chunk count, and number and
+ordering of operable calls. `{{wall_clock_seconds}}` is the planner timeout,
+not a per-primitive budget. Use `finish` to end the invocation and emit its
+terminal receipt."""
 
 TERMINATION = """Official task success exists only when the current episode
 returns `info[\"done\"][\"success\"] is True`. Reward, terminated, truncated,

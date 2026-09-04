@@ -251,9 +251,10 @@ runtime 有四个 component role：
 
 Dashboard 使用公共 Start Session 流程与 head/left-wrist/right-wrist 相机视图。
 BEHAVIOR 不增加 robot-local 手动按钮、手动控制 backend 或
-``env.dashboard_*`` RPC。``pi0_nav_pick``、``observe``、``navigate_to``、
-``move_to``、``press``、``open``、``close`` 等 planner primitive 是否可用，以
-active tool schema 和 backend capability 为准。
+``env.dashboard_*`` RPC。公开合同当前注册 9 个 planner primitive；本集成阶段可操作
+路径是 ``pi0_nav_pick``、``observe`` 和 ``pixel_to_world``。``navigate_to``、
+``move_to``、``rotate_wrist``、``open``、``close`` 和 ``press`` 已注册，但在后续
+motion adapter PR 提供实现前会返回 ``motion_unavailable``。
 
 主要日志：
 

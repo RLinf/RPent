@@ -349,6 +349,9 @@ def test_behavior_prompts_strictly_render_real_run_config(
     ]
     positions = [system.index(title) for title in ordered_sections]
     assert positions == sorted(positions)
+    assert "currently operable" in system
+    assert "`pi0_nav_pick`, `observe`, and `pixel_to_world`" in system
+    assert "return `motion_unavailable`" in system
     assert [user.index(title) for title in ("CELL", "MODE", "BEGIN")] == sorted(
         user.index(title) for title in ("CELL", "MODE", "BEGIN")
     )
