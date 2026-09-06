@@ -53,7 +53,7 @@ from robots.behavior.tools import BehaviorPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
-from rpent.utils.daemon import pick_free_port
+from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc.http_rpc import HttpRpcClient
 
 EXPECTED_TOOLS = (
@@ -67,6 +67,53 @@ EXPECTED_TOOLS = (
     "open",
     "press",
 )
+
+
+def test_env_endpoint_discovery_uses_actual_bind_and_ignores_old_log(tmp_path: Path):
+    from robots.behavior.runtime import _wait_for_server_endpoint
+
+    log = tmp_path / "env.log"
+    log.write_text("RPC server listening on http://127.0.0.1:1\n")
+    offset = log.stat().st_size
+    daemon = ProcessDaemon(
+        "test_env",
+        [
+            sys.executable,
+            "-c",
+            "from types import SimpleNamespace; "
+            "from robots.behavior.env_server import BehaviorEnvFacade; "
+            "print('Ray started; no application endpoint yet', flush=True); "
+            "BehaviorEnvFacade(backend=SimpleNamespace(close=lambda: None), "
+            "meta={'task_language': 'test'}).serve("
+            "transport='http', host='127.0.0.1', port=0, parent_watch=True)",
+        ],
+        log_path=str(log),
+    )
+    daemon.start()
+    rpc = None
+    try:
+        endpoint = _wait_for_server_endpoint(daemon, log_offset=offset)
+        assert endpoint != "http://127.0.0.1:1"
+        rpc = HttpRpcClient(endpoint)
+        assert rpc.call("healthz") == {"status": "ok"}
+        assert rpc.call("env.get_env_meta") == {"task_language": "test"}
+        assert rpc.call("shutdown") == {"ok": True}
+    finally:
+        if rpc is not None:
+            rpc.close()
+        daemon.stop()
+
+
+def test_env_endpoint_discovery_reports_early_exit(tmp_path: Path):
+    from types import SimpleNamespace
+
+    from robots.behavior.runtime import _wait_for_server_endpoint
+
+    log = tmp_path / "env.log"
+    log.write_text("initialization failed\n")
+    daemon = SimpleNamespace(log_path=str(log), name="test_env", poll=lambda: 2)
+    with pytest.raises(RuntimeError, match="exited with code 2"):
+        _wait_for_server_endpoint(daemon)
 
 
 class _FakeEnv:

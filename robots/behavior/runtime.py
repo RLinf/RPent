@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -428,6 +429,46 @@ def vla_runtime_contract(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _wait_for_server_endpoint(
+    daemon: ProcessDaemon,
+    *,
+    log_offset: int = 0,
+    timeout_s: float = 1800.0,
+) -> str:
+    """Read this launch's bound RPC address, never a preselected free port.
+
+    ProcessDaemon appends logs, so callers supply the pre-launch byte offset.
+    Application readiness is still checked by the shared RPC health probe.
+    """
+    if daemon.log_path is None:
+        raise ValueError("endpoint discovery requires a daemon log_path")
+    deadline = time.monotonic() + timeout_s
+    with Path(daemon.log_path).open("rb") as log:
+        log.seek(log_offset)
+        while time.monotonic() < deadline:
+            exit_code = daemon.poll()
+            if exit_code is not None:
+                raise RuntimeError(
+                    f"{daemon.name} exited with code {exit_code}; see {daemon.log_path}"
+                )
+            position = log.tell()
+            line = log.readline()
+            if not line.endswith(b"\n"):
+                log.seek(position)
+                time.sleep(0.1)
+                continue
+            match = re.fullmatch(
+                rb"RPC server listening on (http://[^\s:]+:[1-9][0-9]*)\r?\n",
+                line,
+            )
+            if match is not None:
+                return match.group(1).decode("ascii")
+    raise TimeoutError(
+        f"{daemon.name} did not announce an RPC endpoint within {timeout_s}s; "
+        f"see {daemon.log_path}"
+    )
+
+
 def _spawn_env_server(
     args: argparse.Namespace,
     output_dir: Path,
@@ -435,7 +476,8 @@ def _spawn_env_server(
     output_dir.mkdir(parents=True, exist_ok=True)
     if args.env_endpoint is not None:
         return None, make_rpc_client(args.env_endpoint)
-    host, port = "127.0.0.1", pick_free_port()
+    # Bind only after Ray/OmniGibson initialization; the OS chooses the port.
+    host, port = "127.0.0.1", 0
     cuda_device = _component_cuda_device(args, "env")
     # Keep the virtualenv launcher path intact.  Resolving ``bin/python``
     # follows its symlink to the system interpreter and silently drops the
@@ -501,8 +543,16 @@ def _spawn_env_server(
         ),
         log_path=str(output_dir / "behavior_env_server.log"),
     )
+    log_path = Path(daemon.log_path)
+    log_offset = log_path.stat().st_size if log_path.exists() else 0
     daemon.start()
-    return daemon, HttpRpcClient(f"http://{host}:{port}")
+    try:
+        endpoint = _wait_for_server_endpoint(daemon, log_offset=log_offset)
+        return daemon, HttpRpcClient(endpoint)
+    except BaseException:
+        # try_spawn_server cannot own this daemon until this function returns.
+        daemon.stop()
+        raise
 
 
 def _spawn_vla_server(
