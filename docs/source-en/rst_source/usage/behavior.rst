@@ -262,8 +262,10 @@ wrist camera views. BEHAVIOR does not add robot-local manual buttons, a manual
 control backend, or ``env.dashboard_*`` RPC methods. The public contract
 currently registers nine planner primitives. In this integration stage, the
 operable paths are ``pi0_nav_pick``, ``observe``, ``pixel_to_world``,
-``open``, and ``close``. ``navigate_to``, ``move_to``, ``rotate_wrist``, and
-``press`` are registered but return ``motion_unavailable`` until a later motion
+``open``, ``close``, and ``press``. ``press`` advances an already aligned hand
+at most 2 cm for at most 10 seconds, stopping on external contact or episode end.
+Contact is not verified button contact; visual hand checks remain unverified.
+``navigate_to``, ``move_to``, and ``rotate_wrist`` are registered but return ``motion_unavailable`` until a later motion
 adapter PR provides implementations.
 
 The main logs are:

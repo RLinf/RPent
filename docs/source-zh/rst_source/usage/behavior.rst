@@ -248,8 +248,10 @@ runtime 有四个 component role：
 Dashboard 使用公共 Start Session 流程与 head/left-wrist/right-wrist 相机视图。
 BEHAVIOR 不增加 robot-local 手动按钮、手动控制 backend 或
 ``env.dashboard_*`` RPC。公开合同当前注册 9 个 planner primitive；本集成阶段可操作
-路径是 ``pi0_nav_pick``、``observe``、``pixel_to_world``、``open`` 和
-``close``。``navigate_to``、``move_to``、``rotate_wrist`` 和 ``press`` 已注册，
+路径是 ``pi0_nav_pick``、``observe``、``pixel_to_world``、``open``、
+``close`` 和 ``press``。``press`` 沿已对准的手部方向推进，最多 2 cm、10 秒，
+遇外部接触或 episode 结束即停；接触不等于已验证按钮接触，视觉手部检查仍未验证。
+``navigate_to``、``move_to`` 和 ``rotate_wrist`` 已注册，
 但在后续 motion adapter PR 提供实现前会返回 ``motion_unavailable``。
 
 主要日志：

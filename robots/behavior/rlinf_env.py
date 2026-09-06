@@ -1496,7 +1496,122 @@ class OfficialBehaviorBackend:
         return {"status": "ok", "closed": True}
 
     def press(self, **kwargs: Any) -> dict[str, Any]:
-        return self._motion_unavailable("press", kwargs)
+        """Press along the currently aligned hand axis, at most 2 cm.
+
+        Differential IK keeps orientation fixed. This local contact motion does
+        not choose a button or claim official success from contact alone.
+        """
+        request = dict(kwargs)
+        hand = request.get("hand")
+        if hand not in {"left", "right"}:
+            raise ValueError("hand must be 'left' or 'right'")
+        check = request.get("visual_hand_check")
+        if not isinstance(check, Mapping) or check.get("selected_hand") != hand:
+            raise ValueError("visual_hand_check must identify the selected hand")
+        duration = float(request.get("duration_s", 1.0))
+        if not np.isfinite(duration) or not 0.0 < duration <= 10.0:
+            raise ValueError("duration_s must be finite and in (0, 10]")
+        if self._episode_ended or self.official_success_latched:
+            return self._motion_error(
+                "press", request, stop_reason="episode_ended", error="episode has ended"
+            )
+
+        started = self.total_env_steps
+        try:
+            state = self._get_motion_state()
+            initial = state["hands"][hand]
+            origin = np.asarray(initial["position"], dtype=np.float64)
+            direction = np.asarray(initial["approach_direction"], dtype=np.float64)
+            dt = float(state["control_dt"])
+            if not np.isfinite(dt) or dt <= 0:
+                raise ValueError("invalid environment control timestep")
+            target = origin + direction * 0.02
+            stop_reason = "duration_limit"
+            contacts = []
+            travel = 0.0
+            for _ in range(int(np.ceil(duration / dt))):
+                live = state["hands"][hand]
+                position = np.asarray(live["position"], dtype=np.float64)
+                travel = float(np.linalg.norm(position - origin))
+                contacts = live["contacts"]
+                if contacts:
+                    stop_reason = "contact"
+                    break
+                if travel >= 0.02:
+                    stop_reason = "travel_limit"
+                    break
+                error = target - position
+                if np.linalg.norm(error) <= 0.001:
+                    stop_reason = "target_reached"
+                    break
+                delta = error * min(1.0, 0.02 * dt / np.linalg.norm(error))
+                jacobian = np.asarray(live["jacobian"], dtype=np.float64)
+                if jacobian.shape != (6, 7) or not np.isfinite(jacobian).all():
+                    raise ValueError("expected a finite [6,7] arm Jacobian")
+                twist = np.concatenate((delta, np.zeros(3)))
+                dq = jacobian.T @ np.linalg.solve(
+                    jacobian @ jacobian.T + 1e-4 * np.eye(6), twist
+                )
+                # Cap joint speed at 0.5 rad/s; preserve unselected joints/latches.
+                dq *= min(1.0, 0.5 * dt / max(float(np.max(np.abs(dq))), 1e-12))
+                q = np.asarray(live["joint_positions"]) + dq
+                if np.any(q < live["joint_lower_limits"]) or np.any(
+                    q > live["joint_upper_limits"]
+                ):
+                    stop_reason = "joint_limit"
+                    break
+                action = self._hold_action_from_current_proprio()
+                action[ENV_ACTION_SEGMENTS[f"{hand}_arm"]] = q
+                _, _, terminated, truncated, info = self.chunk_step(action[None, :])
+                state = self._get_motion_state()
+                if self.official_success_latched or terminated or truncated:
+                    stop_reason = str(info["stop_reason"])
+                    break
+            live = state["hands"][hand]
+            travel = float(np.linalg.norm(np.asarray(live["position"]) - origin))
+            succeeded = stop_reason in {
+                "contact",
+                "target_reached",
+                "official_task_success",
+            }
+            return {
+                "status": "ok" if succeeded else "failed",
+                "name": "press",
+                "hand": hand,
+                "primitive_success": succeeded,
+                "task_success": self.official_success_latched,
+                "stop_reason": stop_reason,
+                "executed_steps": self.total_env_steps - started,
+                "total_env_steps": self.total_env_steps,
+                "travel_m": travel,
+                "travel_limit_m": 0.02,
+                "contacts": contacts,
+                "contact_verification": "any_non_robot_contact_not_button_verified",
+                "visual_hand_check": _strict_public_json(check),
+                "visual_hand_check_verification": "not_verified",
+                "request": _strict_public_json(request),
+                "info": self._last_info,
+            }
+        except Exception as exc:
+            result = self._motion_error(
+                "press", request, stop_reason="error", error=str(exc)
+            )
+            result["executed_steps"] = self.total_env_steps - started
+            return result
+
+    def _get_motion_state(self) -> dict[str, Any]:
+        import ray
+
+        from robots.behavior.motion import get_motion_state
+
+        # RLinf owns the OG actor; query it on its existing serial execution lane.
+        pool = self._env.pool
+        index = self._env.pool_offset
+        shard = index % pool.num_env_subprocess
+        local_row = index // pool.num_env_subprocess
+        return ray.get(
+            pool.env_processes[shard].__ray_call__.remote(get_motion_state, local_row)
+        )
 
     def pixel_to_world(self, **kwargs: Any) -> dict[str, Any]:
         return {

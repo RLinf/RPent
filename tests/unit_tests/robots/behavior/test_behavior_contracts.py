@@ -464,21 +464,65 @@ def test_backend_lifecycle_close_still_closes_env_without_primitive_args(
     }
 
 
-def test_press_remains_unavailable_without_motion_adapter(tmp_path: Path) -> None:
-    backend, env = _official_backend(tmp_path)
-
-    result = backend.press(
-        hand="left",
-        visual_hand_check=_visual_check("left"),
-        duration_s=0.1,
+@pytest.mark.parametrize(
+    "ending", ["contact", "terminated", "official_task_success", "duration_limit"]
+)
+def test_press_executes_bounded_hold_actions_and_reports_raw_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ending: str
+) -> None:
+    backend, env = _official_backend(
+        tmp_path,
+        _FakeOfficialBehaviorEnv(
+            terminated_on_step=1 if ending == "terminated" else None,
+            success_on_step=1 if ending == "official_task_success" else None,
+        ),
     )
 
-    assert result["status"] == "failed"
-    assert result["primitive_success"] is False
-    assert result["task_success"] is False
-    assert result["stop_reason"] == "motion_unavailable"
-    assert result["request"]["visual_hand_check"] == _visual_check("left")
-    assert env.actions == []
+    def state():
+        return {
+            "control_dt": 0.05,
+            "hands": {
+                "left": {
+                    "position": np.array([0.0, 0.0, len(env.actions) * 0.0005]),
+                    "approach_direction": np.array([0.0, 0.0, 1.0]),
+                    "joint_positions": env.raw[RAW_PROPRIO_SEGMENTS["left_arm"]],
+                    "joint_lower_limits": np.full(7, -3.0),
+                    "joint_upper_limits": np.full(7, 3.0),
+                    "jacobian": np.eye(6, 7),
+                    "contacts": ["button"]
+                    if ending == "contact" and env.actions
+                    else [],
+                }
+            },
+        }
+
+    monkeypatch.setattr(backend, "_get_motion_state", state)
+    hold = backend._hold_action_from_current_proprio()
+    result = backend.press(
+        hand="left", visual_hand_check=_visual_check("left"), duration_s=0.1
+    )
+    assert result["stop_reason"] == ending
+    assert result["task_success"] is (ending == "official_task_success")
+    assert result["primitive_success"] is (
+        ending in {"contact", "official_task_success"}
+    )
+    assert result["executed_steps"] == (2 if ending == "duration_limit" else 1)
+    untouched = np.ones(23, dtype=bool)
+    untouched[ENV_ACTION_SEGMENTS["left_arm"]] = False
+    for action in env.actions:
+        assert validate_action_chunk(action[None, :]).shape == (1, 23)
+        np.testing.assert_array_equal(action[untouched], hold[untouched])
+    assert result["visual_hand_check_verification"] == "not_verified"
+
+
+@pytest.mark.parametrize("duration", [0, -1, 11, float("nan"), float("inf")])
+def test_press_rejects_invalid_duration_before_motion(tmp_path: Path, duration: float):
+    backend, env = _official_backend(tmp_path)
+    with pytest.raises(ValueError, match="duration_s"):
+        backend.press(
+            hand="left", visual_hand_check=_visual_check("left"), duration_s=duration
+        )
+    assert not env.actions
 
 
 @pytest.mark.parametrize(
