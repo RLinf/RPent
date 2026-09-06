@@ -59,6 +59,7 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 test = [
     "pytest",
     "pytest-timeout",
+    "scipy>=1.10,<2",
 ]
 rlinf = [
     "rpent-rlinf",
@@ -72,6 +73,7 @@ sam3 = [
     "pillow>=10",
 ]
 behavior = [
+    "scipy>=1.10,<2",
     "rpent[rlinf]",
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
     # OpenPI's tool.uv source is not propagated through package metadata.

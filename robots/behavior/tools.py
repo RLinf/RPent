@@ -451,6 +451,19 @@ class BehaviorPrimitives:
     ) -> dict[str, Any]:
         info = _info_from_result(payload)
         self._note_info(info)
+        if isinstance(payload, dict) and "_observation" in payload:
+            payload = dict(payload)
+            observation = payload.pop("_observation")
+            if isinstance(observation, dict):
+                self._current_observation = observation
+                # Backend primitives return their final physical observation;
+                # do not issue a new RPC after official success just for video.
+                self.record_frame(observation)
+            if self.solved() or payload.get("stop_reason") in {
+                "terminated",
+                "truncated",
+            }:
+                self.stop_recording()
         public_payload = _sanitize_public_result(payload)
         result: dict[str, Any] = {
             "name": name,

@@ -927,6 +927,10 @@ class OfficialBehaviorBackend:
         self._total_env_steps = 0
         self._official_success_latched = False
         self._official_success_receipt: dict[str, Any] | None = None
+        self._camera_frames: dict[str, Any] = {}
+        self._camera_frame_step = -1
+        self._projections: dict[str, Any] = {}
+        self._motion_planner = None
         self._gripper_latch = {
             "left": GRIPPER_OPEN_COMMAND,
             "right": GRIPPER_OPEN_COMMAND,
@@ -1134,6 +1138,9 @@ class OfficialBehaviorBackend:
         try:
             self._total_env_steps = 0
             self._episode_ended = False
+            self._camera_frames = {}
+            self._camera_frame_step = -1
+            self._projections = {}
             self._gripper_latch = {
                 "left": GRIPPER_OPEN_COMMAND,
                 "right": GRIPPER_OPEN_COMMAND,
@@ -1285,6 +1292,7 @@ class OfficialBehaviorBackend:
             "visual_hand_check_verification": "not_verified",
             "request": _strict_public_json(request),
             "info": info,
+            "_observation": self._last_obs,
         }
         if "release_visual_check" in request:
             result["release_visual_check"] = _strict_public_json(
@@ -1389,41 +1397,92 @@ class OfficialBehaviorBackend:
         **_kwargs: Any,
     ) -> dict[str, Any]:
         camera = _physical_camera(camera_name)
-        image = self.render_camera(camera)
+        frame = self._get_camera_frames()[camera]
         return {
             "camera_name": camera,
             "available": True,
-            "rgb_shape": list(image.shape),
-            "rgb_dtype": str(image.dtype),
-            "calibration_available": False,
-            "depth_available": False,
-            "reason": (
-                "RLinf BehaviorEnv RPC adapter exposes RGB/proprio only; "
-                "calibration/depth are not exported"
-            ),
+            "rgb_shape": list(frame["rgb"].shape),
+            "rgb_dtype": str(frame["rgb"].dtype),
+            "calibration_available": True,
+            "depth_available": True,
+            "intrinsic": frame["intrinsic"],
+            "camera_to_world": frame["camera_to_world"],
         }
 
-    def observe(self, camera: str = "head", **_kwargs: Any) -> dict[str, Any]:
+    def observe(self, camera: str = "head", **kwargs: Any) -> dict[str, Any]:
+        from robots.behavior.schemas import (
+            FRAME_REVIEW_ASSESSMENTS,
+            validate_observe_request,
+        )
+
+        request = validate_observe_request(camera=camera, **kwargs)
         camera = _physical_camera(camera)
-        observation, _info = self.current_observation()
-        wrists = np.asarray(observation["wrist_images"], dtype=np.uint8)
-        payloads = {
-            "head": _png_bytes(np.asarray(observation["main_images"], dtype=np.uint8)),
-            "left_wrist": _png_bytes(wrists[0]),
-            "right_wrist": _png_bytes(wrists[1]),
-        }
+        if request.get("head_view", "center") != "center":
+            return self._motion_error(
+                "observe",
+                request,
+                stop_reason="head_view_unavailable",
+                error="R1Pro has no movable head camera; use the current physical view",
+            )
+        review = request.get("frame_review")
+        probe = request.get("depth_probe")
+        if review is not None or probe is not None:
+            value = review if review is not None else probe
+            frame_id = f"behavior-{self.total_env_steps}-{camera}"
+            if (
+                not isinstance(value, Mapping)
+                or value.get("frame_id") != frame_id
+                or self._camera_frame_step != self.total_env_steps
+            ):
+                return self._motion_error(
+                    "observe",
+                    request,
+                    stop_reason="stale_frame",
+                    error="review/probe requires the current observed frame",
+                )
+            if review is not None:
+                if review.get("assessment") not in FRAME_REVIEW_ASSESSMENTS:
+                    raise ValueError("invalid frame_review assessment")
+                return {
+                    "status": "ok",
+                    "primitive_success": True,
+                    "frame_review": dict(review),
+                    "verification": "planner_assessment_not_independently_verified",
+                    "info": self._last_info,
+                }
+            if probe.get("assessment") != "target_point_visually_confirmed":
+                raise ValueError("invalid depth_probe assessment")
+            result = self.pixel_to_world(
+                camera=camera, **{k: v for k, v in probe.items() if k != "assessment"}
+            )
+            result.pop("projection_id", None)
+            return {
+                **result,
+                "depth_probe": dict(probe),
+                "verification": "depth_measured_visual_assessment_not_verified",
+                "info": self._last_info,
+            }
+        frames = self._get_camera_frames()
+        payloads = {name: _png_bytes(frame["rgb"]) for name, frame in frames.items()}
+        depths = {}
+        for name, frame in frames.items():
+            gray = np.nan_to_num(frame["depth"], nan=0, posinf=0, neginf=0)
+            gray = np.rint(np.clip(gray / 5.0, 0, 1) * 255).astype(np.uint8)
+            depths[name] = _png_bytes(np.repeat(gray[..., None], 3, axis=-1))
         frame_id = f"behavior-{self.total_env_steps}-{camera}"
         return {
             "status": "ok",
             "camera": camera,
+            "paired_hand": request.get("paired_hand"),
             "frame_id": frame_id,
             "step": self.total_env_steps,
             "_image_bytes": payloads["head"],
-            "_depth_image_bytes": None,
+            "_depth_image_bytes": depths["head"],
             "_image_left_wrist_bytes": payloads["left_wrist"],
-            "_depth_left_wrist_bytes": None,
+            "_depth_left_wrist_bytes": depths["left_wrist"],
             "_image_right_wrist_bytes": payloads["right_wrist"],
-            "_depth_right_wrist_bytes": None,
+            "_depth_right_wrist_bytes": depths["right_wrist"],
+            "depth_display_range_m": [0, 5],
             "frames": _write_frame_files(
                 payloads,
                 output_dir=self.output_dir,
@@ -1445,41 +1504,328 @@ class OfficialBehaviorBackend:
             "total_env_steps": int(self.total_env_steps),
         }
 
-    def _motion_unavailable(
-        self, name: str, kwargs: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        return {
-            "status": "failed",
-            "name": name,
-            "primitive_success": False,
-            "task_success": self.official_success_latched,
-            "stop_reason": "motion_unavailable",
-            "error": (
-                f"{name} requires a reviewed motion adapter; this "
-                "backend only supports reset/current_observation/pi0 chunk "
-                "stepping and observation"
-            ),
-            "motion_available": False,
-            "request": _strict_public_json(dict(kwargs)),
-            "info": self._last_info,
-        }
-
     def move_to(self, **kwargs: Any) -> dict[str, Any]:
         if kwargs.get("hand") == "both":
             return self._move_both_hands_to(kwargs)
         return self._move_single_hand_to(kwargs)
 
     def _move_single_hand_to(self, kwargs: Mapping[str, Any]) -> dict[str, Any]:
-        return self._motion_unavailable("move_to", kwargs)
+        return self._plan_motion("move_to", kwargs, {kwargs["hand"]: kwargs["target"]})
 
     def _move_both_hands_to(self, kwargs: Mapping[str, Any]) -> dict[str, Any]:
-        return self._motion_unavailable("move_to", kwargs)
+        from robots.behavior.schemas import (
+            validate_move_both_targets,
+            validate_move_both_visual_hand_checks,
+        )
+
+        validate_move_both_visual_hand_checks(kwargs.get("visual_hand_checks"))
+        return self._plan_motion(
+            "move_to", kwargs, validate_move_both_targets(kwargs.get("targets"))
+        )
+
+    def _plan_motion(
+        self, name: str, request: Mapping[str, Any], targets: dict
+    ) -> dict:
+        from scipy.spatial.transform import Rotation
+
+        from robots.behavior.motion import BehaviorMotionPlanner, get_planning_state
+
+        started = self.total_env_steps
+        try:
+            if self._episode_ended:
+                return self._motion_error(
+                    name,
+                    request,
+                    stop_reason="episode_ended",
+                    error="episode has ended",
+                )
+            state = self._call_actor(get_planning_state)
+            poses = {}
+            for hand, target in targets.items():
+                live = state["hands"][hand]
+                position = np.array(live["position"], dtype=np.float64, copy=True)
+                rotation = Rotation.from_quat(live["quaternion_xyzw"])
+                orientation = live["quaternion_xyzw"]
+                if name == "rotate_wrist":
+                    angle = float(request["angle_deg"])
+                    if not np.isfinite(angle) or abs(angle) > 180:
+                        raise ValueError(
+                            "angle_deg must be finite and within [-180,180]"
+                        )
+                    direction = request.get("direction", "counterclockwise")
+                    if direction not in {"clockwise", "counterclockwise"}:
+                        raise ValueError("invalid wrist rotation direction")
+                    angle *= -1 if direction == "clockwise" else 1
+                    orientation = (
+                        rotation * Rotation.from_rotvec([0, 0, np.deg2rad(angle)])
+                    ).as_quat()
+                elif "projection_id" in target:
+                    point = self._projection(target["projection_id"])
+                    goal = np.asarray(point["world_xyz"])
+                    delta = goal - position
+                    standoff = float(target.get("standoff_m", 0))
+                    if not np.isfinite(standoff) or standoff < 0:
+                        raise ValueError("standoff_m must be finite and nonnegative")
+                    position = (
+                        goal - delta / max(np.linalg.norm(delta), 1e-12) * standoff
+                    )
+                else:
+                    delta = np.asarray(target["delta_xyz"], dtype=np.float64)
+                    if delta.shape != (3,) or not np.isfinite(delta).all():
+                        raise ValueError("delta_xyz must be finite [3]")
+                    if target["frame"] == "eef":
+                        delta = rotation.apply(delta)
+                    elif target["frame"] != "world":
+                        raise ValueError("frame must be world or eef")
+                    position += delta
+                poses[hand] = {"position": position, "quaternion_xyzw": orientation}
+            if self._motion_planner is None:
+                self._motion_planner = BehaviorMotionPlanner()
+            planned = self._motion_planner.plan(state, poses)
+            if not planned["success"]:
+                return self._motion_error(
+                    name,
+                    request,
+                    stop_reason=planned["stop_reason"],
+                    error=planned["details"],
+                )
+            positions = planned["positions"]
+            times = np.arange(len(positions)) * planned["dt"]
+            dt = state["control_dt"]
+            if times[-1] > 30 or not np.isfinite(positions).all():
+                raise ValueError(
+                    "planned trajectory exceeds 30 seconds or is nonfinite"
+                )
+            sample_times = np.minimum(
+                np.arange(int(np.ceil(times[-1] / dt)) + 1) * dt, times[-1]
+            )
+            positions = np.stack(
+                [
+                    np.interp(sample_times, times, positions[:, i])
+                    for i in range(positions.shape[1])
+                ],
+                axis=1,
+            )
+            hold = self._hold_action_from_current_proprio()
+            actions = np.repeat(hold[None, :], len(positions), axis=0)
+            for i, joint_name in enumerate(planned["joint_names"]):
+                hand, _, number = joint_name.partition("_arm_joint")
+                actions[
+                    :, ENV_ACTION_SEGMENTS[f"{hand}_arm"].start + int(number) - 1
+                ] = positions[:, i]
+            reason = "trajectory_completed"
+            for offset in range(0, len(actions), 32):
+                _, _, terminated, truncated, info = self.chunk_step(
+                    actions[offset : offset + 32]
+                )
+                if self.official_success_latched or terminated or truncated:
+                    reason = str(info["stop_reason"])
+                    break
+            # Terminal observations are already captured by chunk_step. Never
+            # issue another actor query after official success or truncation.
+            final = self._get_motion_state() if not self._episode_ended else None
+            errors = {
+                hand: float(
+                    np.linalg.norm(
+                        np.asarray(final["hands"][hand]["position"])
+                        - target["position"]
+                    )
+                )
+                for hand, target in poses.items()
+                if final is not None
+            }
+            angles = {
+                hand: float(
+                    (
+                        Rotation.from_quat(
+                            final["hands"][hand]["quaternion_xyzw"]
+                        ).inv()
+                        * Rotation.from_quat(target["quaternion_xyzw"])
+                    ).magnitude()
+                )
+                for hand, target in poses.items()
+                if final is not None
+            }
+            reached = (
+                final is not None
+                and all(x <= 0.01 for x in errors.values())
+                and all(x <= 0.1 for x in angles.values())
+            )
+            succeeded = self.official_success_latched or (
+                reason == "trajectory_completed" and reached
+            )
+            if reason == "trajectory_completed" and not reached:
+                reason = "tracking_error"
+            return {
+                "status": "ok" if succeeded else "failed",
+                "name": name,
+                "primitive_success": succeeded,
+                "task_success": self.official_success_latched,
+                "stop_reason": reason,
+                "executed_steps": self.total_env_steps - started,
+                "total_env_steps": self.total_env_steps,
+                "position_error_m": errors,
+                "orientation_error_rad": angles,
+                "_observation": self._last_obs,
+                "visual_hand_check_verification": "not_verified",
+                "request": _strict_public_json(request),
+                "info": self._last_info,
+            }
+        except Exception as exc:
+            result = self._motion_error(
+                name, request, stop_reason="error", error=str(exc)
+            )
+            result["executed_steps"] = self.total_env_steps - started
+            return result
+
+    def _projection(self, projection_id: str) -> dict:
+        if (
+            self._camera_frame_step != self.total_env_steps
+            or projection_id not in self._projections
+        ):
+            raise ValueError("projection is not from the current observed frame")
+        return self._projections[projection_id]
 
     def navigate_to(self, **kwargs: Any) -> dict[str, Any]:
-        return self._motion_unavailable("navigate_to", kwargs)
+        from scipy.spatial.transform import Rotation
+
+        from robots.behavior.motion import get_planning_state, navigation_collision
+        from robots.behavior.schemas import validate_relative_navigation_motion
+
+        started = self.total_env_steps
+        try:
+            if self._episode_ended:
+                return self._motion_error(
+                    "navigate_to",
+                    kwargs,
+                    stop_reason="episode_ended",
+                    error="episode has ended",
+                )
+            state = self._call_actor(get_planning_state)
+            position = np.asarray(state["base_position"])
+            yaw = Rotation.from_quat(state["base_quaternion_xyzw"]).as_euler("xyz")[2]
+            target, target_yaw = position.copy(), yaw
+            if "relative_motion" in kwargs:
+                motion = validate_relative_navigation_motion(kwargs["relative_motion"])
+                if motion["kind"] == "translation":
+                    distance = motion["distance_m"] * (
+                        1 if motion["direction"] == "forward" else -1
+                    )
+                    target[:2] += distance * np.array([np.cos(yaw), np.sin(yaw)])
+                else:
+                    target_yaw += np.deg2rad(motion["angle_deg"]) * (
+                        1 if motion["direction"] == "left" else -1
+                    )
+            else:
+                check = kwargs.get("navigation_visual_check")
+                if (
+                    not isinstance(check, Mapping)
+                    or check.get("camera") != "head"
+                    or check.get("frame_id") != f"behavior-{self.total_env_steps}-head"
+                    or check.get("assessment") != "navigation_target_visually_confirmed"
+                ):
+                    raise ValueError(
+                        "navigation_visual_check must confirm the head target"
+                    )
+                goal = np.asarray(
+                    self._projection(kwargs["projection_id"])["world_xyz"]
+                )
+                standoff = float(kwargs.get("standoff_m", 0.85))
+                if not 0.45 <= standoff <= 1.5:
+                    raise ValueError("standoff_m must be within [0.45,1.5]")
+                delta = goal[:2] - position[:2]
+                length = np.linalg.norm(delta)
+                target[:2] += delta / max(length, 1e-12) * max(0, length - standoff)
+                target_yaw = np.arctan2(delta[1], delta[0])
+            obstacle = navigation_collision(state, target)
+            if obstacle:
+                return self._motion_error(
+                    "navigate_to",
+                    kwargs,
+                    stop_reason="collision",
+                    error=f"swept footprint intersects {obstacle}",
+                )
+            dt = state["control_dt"]
+            reason = "duration_limit"
+            for _ in range(int(np.ceil(30 / dt))):
+                live = state["base_position"]
+                yaw = Rotation.from_quat(state["base_quaternion_xyzw"]).as_euler("xyz")[
+                    2
+                ]
+                delta = target[:2] - np.asarray(live)[:2]
+                angle = (target_yaw - yaw + np.pi) % (2 * np.pi) - np.pi
+                if np.linalg.norm(delta) < 0.01 and abs(angle) < np.deg2rad(1):
+                    reason = "target_reached"
+                    break
+                world_velocity = delta * min(
+                    2.0, 0.2 / max(np.linalg.norm(delta), 1e-12)
+                )
+                local_velocity = (
+                    np.array([[np.cos(yaw), np.sin(yaw)], [-np.sin(yaw), np.cos(yaw)]])
+                    @ world_velocity
+                )
+                action = self._hold_action_from_current_proprio()
+                # RLinf base controller scales normalized x/y commands by 0.75 m/s.
+                action[:2] = local_velocity / 0.75
+                action[2] = np.clip(2 * angle, -0.4, 0.4)
+                _, _, terminated, truncated, info = self.chunk_step(action[None, :])
+                if self.official_success_latched or terminated or truncated:
+                    reason = str(info["stop_reason"])
+                    break
+                state = self._call_actor(get_planning_state)
+                obstacle = navigation_collision(state, target)
+                if obstacle:
+                    reason = "collision"
+                    break
+            if not self._episode_ended:
+                _, _, terminated, truncated, info = self.chunk_step(
+                    self._hold_action_from_current_proprio()[None, :]
+                )
+                if self.official_success_latched or terminated or truncated:
+                    reason = str(info["stop_reason"])
+            succeeded = self.official_success_latched or reason == "target_reached"
+            return {
+                "status": "ok" if succeeded else "failed",
+                "name": "navigate_to",
+                "primitive_success": succeeded,
+                "_observation": self._last_obs,
+                "task_success": self.official_success_latched,
+                "stop_reason": reason,
+                "executed_steps": self.total_env_steps - started,
+                "total_env_steps": self.total_env_steps,
+                "request": _strict_public_json(kwargs),
+                "info": self._last_info,
+            }
+        except Exception as exc:
+            # If a read/planning error followed a base command, release that
+            # command through the same monitored action channel before returning.
+            brake_error = None
+            if self.total_env_steps > started and not self._episode_ended:
+                try:
+                    self.chunk_step(self._hold_action_from_current_proprio()[None, :])
+                except Exception as brake_exc:
+                    brake_error = str(brake_exc)
+            result = self._motion_error(
+                "navigate_to", kwargs, stop_reason="error", error=str(exc)
+            )
+            result["executed_steps"] = self.total_env_steps - started
+            if brake_error is not None:
+                result["brake_error"] = brake_error
+            return result
 
     def rotate_wrist(self, **kwargs: Any) -> dict[str, Any]:
-        return self._motion_unavailable("rotate_wrist", kwargs)
+        check = kwargs.get("visual_hand_check")
+        if (
+            not isinstance(check, Mapping)
+            or set(check) != {"camera", "frame_id", "selected_hand", "assessment"}
+            or check.get("camera") not in PHYSICAL_CAMERAS
+            or not isinstance(check.get("frame_id"), str)
+            or not check.get("frame_id")
+            or check.get("assessment") != "selected_hand_visually_confirmed"
+            or check.get("selected_hand") != kwargs.get("hand")
+        ):
+            raise ValueError("visual_hand_check must identify the selected hand")
+        return self._plan_motion("rotate_wrist", kwargs, {kwargs["hand"]: {}})
 
     def open(self, **kwargs: Any) -> dict[str, Any]:
         return self._gripper_command("open", kwargs, command=GRIPPER_OPEN_COMMAND)
@@ -1489,6 +1835,8 @@ class OfficialBehaviorBackend:
             return self._gripper_command("close", kwargs, command=GRIPPER_CLOSE_COMMAND)
         if self._closed:
             return {"status": "ok", "closed": True, "already_closed": True}
+        if self._motion_planner is not None:
+            self._motion_planner.close()
         closer = getattr(self._env, "close", None)
         if callable(closer):
             closer()
@@ -1563,10 +1911,10 @@ class OfficialBehaviorBackend:
                 action = self._hold_action_from_current_proprio()
                 action[ENV_ACTION_SEGMENTS[f"{hand}_arm"]] = q
                 _, _, terminated, truncated, info = self.chunk_step(action[None, :])
-                state = self._get_motion_state()
                 if self.official_success_latched or terminated or truncated:
                     stop_reason = str(info["stop_reason"])
                     break
+                state = self._get_motion_state()
             live = state["hands"][hand]
             travel = float(np.linalg.norm(np.asarray(live["position"]) - origin))
             succeeded = stop_reason in {
@@ -1578,6 +1926,7 @@ class OfficialBehaviorBackend:
                 "status": "ok" if succeeded else "failed",
                 "name": "press",
                 "hand": hand,
+                "_observation": self._last_obs,
                 "primitive_success": succeeded,
                 "task_success": self.official_success_latched,
                 "stop_reason": stop_reason,
@@ -1600,28 +1949,93 @@ class OfficialBehaviorBackend:
             return result
 
     def _get_motion_state(self) -> dict[str, Any]:
-        import ray
-
         from robots.behavior.motion import get_motion_state
 
         # RLinf owns the OG actor; query it on its existing serial execution lane.
-        pool = self._env.pool
-        index = self._env.pool_offset
-        shard = index % pool.num_env_subprocess
-        local_row = index // pool.num_env_subprocess
-        return ray.get(
-            pool.env_processes[shard].__ray_call__.remote(get_motion_state, local_row)
-        )
+        return self._call_actor(get_motion_state)
 
     def pixel_to_world(self, **kwargs: Any) -> dict[str, Any]:
-        return {
-            "status": "failed",
-            "primitive_success": False,
-            "task_success": self.official_success_latched,
-            "stop_reason": "calibration_unavailable",
-            "error": "RGB-only RLinf observation does not expose depth/camera calibration",
-            "request": _strict_public_json(dict(kwargs)),
+        camera = _physical_camera(kwargs.get("camera"))
+        expected = f"behavior-{self.total_env_steps}-{camera}"
+        if (
+            kwargs.get("frame_id") != expected
+            or self._camera_frame_step != self.total_env_steps
+        ):
+            return self._motion_error(
+                "pixel_to_world",
+                kwargs,
+                stop_reason="stale_frame",
+                error="observe the current frame before projection",
+            )
+        frame = self._camera_frames[camera]
+        u, v = kwargs["u"], kwargs["v"]
+        depth = frame["depth"]
+        if (
+            type(u) is not int
+            or type(v) is not int
+            or not 0 <= u < depth.shape[1]
+            or not 0 <= v < depth.shape[0]
+        ):
+            raise ValueError("pixel must be an integer inside the observed image")
+        window = kwargs.get("depth_window_px", 7)
+        if type(window) is not int or not 1 <= window <= 31:
+            raise ValueError("depth_window_px must be in [1,31]")
+        radius = window // 2
+        samples = depth[
+            max(0, v - radius) : v + radius + 1, max(0, u - radius) : u + radius + 1
+        ]
+        valid = samples[np.isfinite(samples) & (samples > 0)]
+        if not valid.size:
+            return self._motion_error(
+                "pixel_to_world",
+                kwargs,
+                stop_reason="invalid_depth",
+                error="no finite positive depth at this pixel",
+            )
+        z = float(np.median(valid))
+        k = frame["intrinsic"]
+        # USD cameras face -Z, +Y up; image rows increase downwards.
+        optical = np.array(
+            [(u - k[0, 2]) * z / k[0, 0], -(v - k[1, 2]) * z / k[1, 1], -z, 1.0]
+        )
+        xyz = (frame["camera_to_world"] @ optical)[:3]
+        value = {
+            "camera": camera,
+            "frame_id": expected,
+            "u": u,
+            "v": v,
+            "world_xyz": xyz.tolist(),
+            "depth_m": z,
         }
+        projection_id = _canonical_json_sha256(value)
+        self._projections[projection_id] = value
+        return {
+            "status": "ok",
+            "primitive_success": True,
+            "task_success": self.official_success_latched,
+            "projection_id": projection_id,
+            **value,
+        }
+
+    def _get_camera_frames(self) -> dict[str, Any]:
+        from robots.behavior.motion import get_camera_observation
+
+        if self._camera_frame_step != self.total_env_steps:
+            self._camera_frames = self._call_actor(get_camera_observation)
+            self._camera_frame_step = self.total_env_steps
+            self._projections = {}
+        return self._camera_frames
+
+    def _call_actor(self, function):
+        import ray
+
+        pool = self._env.pool
+        index = self._env.pool_offset
+        return ray.get(
+            pool.env_processes[index % pool.num_env_subprocess].__ray_call__.remote(
+                function, index // pool.num_env_subprocess
+            )
+        )
 
 
 def _physical_camera(value: Any) -> str:
