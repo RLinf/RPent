@@ -257,8 +257,9 @@ TURNING_ON_RADIO_TASK_SPEC: Final = BehaviorTaskSpec(
 PICKING_UP_TRASH_TASK_SPEC: Final = BehaviorTaskSpec(
     task_index=1,
     task_name="picking_up_trash",
+    # Match the pinned RLinf behavior_task.jsonl verbatim, including its spelling.
     task_language=(
-        "Put the three soda cans from the living room inside the trash can "
+        "Put the three can of soda from the living room inside the tash can "
         "in the kitchen."
     ),
     prompt_profile_id="picking_up_trash",

@@ -69,6 +69,88 @@ EXPECTED_TOOLS = (
 )
 
 
+@pytest.mark.parametrize(
+    ("task_name", "mode", "seed", "instruction"),
+    [
+        (
+            "turning_on_radio",
+            "explore",
+            0,
+            "Turn on the radio receiver that's on the table in the living room.",
+        ),
+        (
+            "picking_up_trash",
+            "explore",
+            0,
+            "Put the three can of soda from the living room inside the tash can "
+            "in the kitchen.",
+        ),
+        (
+            "picking_up_trash",
+            "eval",
+            10,
+            "Put the three can of soda from the living room inside the tash can "
+            "in the kitchen.",
+        ),
+    ],
+)
+@pytest.mark.parametrize("batched", [False, True])
+def test_runtime_preserves_rlinf_task_language(
+    tmp_path: Path,
+    task_name: str,
+    mode: str,
+    seed: int,
+    instruction: str,
+    batched: bool,
+) -> None:
+    import argparse
+
+    from robots.behavior import runtime
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-dir")
+    runtime.add_cli_args(parser, use_dashboard=False)
+    args = parser.parse_args(
+        [
+            "--task-name",
+            task_name,
+            "--public-seed",
+            str(seed),
+            "--behavior-mode",
+            mode,
+            "--behavior-repo",
+            str(tmp_path / "RLinf"),
+            "--output-dir",
+            str(tmp_path / "output"),
+        ]
+    )
+    config = runtime.parse_config(args)
+    meta = runtime.env_runtime_contract(args)
+    assert meta["task_language"] == instruction
+    for key in ("task_language", "task_instruction", "instruction"):
+        assert config.prompt_vars[key] == instruction
+
+    class Rpc:
+        language = instruction
+
+        def call(self, method, **kwargs):
+            if method == "env.get_env_meta":
+                return meta
+            assert method == "env.reset"
+            text = [self.language] if batched else self.language
+            return {"task_descriptions": text}, {"done": {"success": False}}
+
+    rpc = Rpc()
+    connected = runtime._connect_env(args, rpc, config.output_dir)
+    expected = [instruction] if batched else instruction
+    assert connected["initial_observation"]["task_descriptions"] == expected
+    assert connected["env"].official_success_latched is False
+
+    rpc.language = "Put the three soda cans from the living room inside the trash can in the kitchen."
+    with pytest.raises(RuntimeError, match="task language does not match TaskSpec"):
+        runtime._connect_env(args, rpc, config.output_dir)
+
+
 def test_env_endpoint_discovery_uses_actual_bind_and_ignores_old_log(tmp_path: Path):
     from robots.behavior.runtime import _wait_for_server_endpoint
 
