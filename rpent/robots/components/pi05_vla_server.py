@@ -165,7 +165,11 @@ class Pi05VLAFacade(BaseVLAFacade):
         the openpi wire format (see ``Pi05VLAClient.encode_obs``).
         """
         mode = (options or {}).get("mode", "eval")
-        with torch.no_grad():
+        # OpenPI inference mixes fp32 activations with bf16 Pi0.5 weights.
+        with torch.inference_mode(), torch.autocast(
+            device_type = next(self._model.parameters()).device.type,
+            dtype = torch.bfloat16,
+        ):
             actions, _ = self._model.predict_action_batch(obs, mode=mode)
         return (
             actions.detach().cpu().numpy()
