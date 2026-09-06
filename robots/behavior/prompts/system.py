@@ -50,18 +50,22 @@ receipts from this episode. Refresh observations after scene-changing actions
 when later decisions depend on object identity, pose, reachability, attachment,
 or task state."""
 
-PLANNER_TOOLS = """The nine BEHAVIOR primitives registered in
-{{public_capabilities}} are unordered peer tools, but the currently operable
-paths are `pi0_nav_pick`, `observe`, `pixel_to_world`, `open`, `close`, and `press`.
-`press` advances the already aligned hand at most 2 cm for at most 10 seconds;
-contact does not identify a button or establish task success.
-Motion primitives `navigate_to`, `move_to`, and `rotate_wrist` are
-registered but return `motion_unavailable` in this integration stage; do not
-call them until a motion adapter PR provides implementations. The planner
-autonomously chooses the VLA instruction, positive chunk count, and number and
-ordering of operable calls. `{{wall_clock_seconds}}` is the planner timeout,
-not a per-primitive budget. Use `finish` to end the invocation and emit its
-terminal receipt."""
+PLANNER_TOOLS = """All nine BEHAVIOR primitives in {{public_capabilities}} have
+execution paths: `pi0_nav_pick`, `observe`, `pixel_to_world`, `navigate_to`,
+`move_to`, `rotate_wrist`, `close`, `open`, and `press`.
+Choose the VLA instruction, positive chunk count, call order and selected hand
+autonomously. `move_to(hand=both)` coordinates both arms. Arm motions use
+collision-checked cuRobo trajectories; navigation executes a bounded straight
+base segment or rotation and rejects obstructed paths. Projection targets must
+come from the current observed frame. R1Pro's physical head camera is fixed;
+use its current view, not a non-center head_view preset.
+`press` advances an already aligned hand at most 2 cm for at most 10 seconds,
+stopping on external contact or episode end. Contact is not verified button
+contact, and visual hand checks are planner assessments, not independent VLM
+verification. Read each result: a planning, collision, tracking or duration
+failure is not primitive or task success. `{{wall_clock_seconds}}` is the planner
+timeout, not a per-primitive budget. Use `finish` to end the invocation and emit
+its terminal receipt."""
 
 TERMINATION = """Official task success exists only when the current episode
 returns `info[\"done\"][\"success\"] is True`. Reward, terminated, truncated,

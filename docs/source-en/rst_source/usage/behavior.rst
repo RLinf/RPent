@@ -266,13 +266,20 @@ Start a Dashboard Session with:
 The Dashboard uses the common Start Session flow and head/left-wrist/right-
 wrist camera views. BEHAVIOR does not add robot-local manual buttons, a manual
 control backend, or ``env.dashboard_*`` RPC methods. The public contract
-currently registers nine planner primitives. In this integration stage, the
-operable paths are ``pi0_nav_pick``, ``observe``, ``pixel_to_world``,
-``open``, ``close``, and ``press``. ``press`` advances an already aligned hand
+registers nine executable planner primitives: ``pi0_nav_pick``, ``observe``,
+``pixel_to_world``, ``navigate_to``, ``move_to``, ``rotate_wrist``, ``close``,
+``open``, and ``press``. ``move_to(hand=both)`` coordinates both arms through
+cuRobo collision-checked trajectories; wrist rotation uses the same planner.
+Navigation executes a bounded straight base segment or rotation and rejects
+obstructed paths. RGB-D projections use the current physical camera frame;
+R1Pro has no movable head camera, so non-center ``head_view`` presets are rejected.
+``press`` advances an already aligned hand
 at most 2 cm for at most 10 seconds, stopping on external contact or episode end.
 Contact is not verified button contact; visual hand checks remain unverified.
-``navigate_to``, ``move_to``, and ``rotate_wrist`` are registered but return ``motion_unavailable`` until a later motion
-adapter PR provides implementations.
+Planning, collision, tracking and duration failures are reported explicitly.
+Only raw ``info["done"]["success"]`` establishes task success. Motion primitives
+return their final observation for the next policy call and streaming video;
+VLA chunks additionally record each returned environment frame.
 
 The main logs are:
 
