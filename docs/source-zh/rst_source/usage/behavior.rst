@@ -34,6 +34,11 @@ BEHAVIOR 以源码 editable 方式运行，并使用两个相互独立的 Python
 应使用新的 ``RPENT_REPRO_ROOT``；脚本不会覆盖 revision 错误或 dirty 的 RLinf
 checkout。
 
+运动规划在 BEHAVIOR venv 中使用 NVlabs/cuRobo v0.8.0，固定 commit
+``4ea77366ca48ee453e7df139e39fa6532af49f3b``。安装器在最终 repin 前使用
+constraints，保留 NumPy 1.26.4、Torch 2.5.1+cu124 和 Isaac Sim 4.5.0.0。
+不要无约束安装 cuRobo：resolver 升级到 NumPy 2 会破坏此环境的兼容性。
+
 仿真资产
 --------
 

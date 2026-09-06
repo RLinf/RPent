@@ -112,8 +112,7 @@ fi
     'torchvision==0.20.1+cu124' \
     'torchaudio==2.5.1+cu124'
 
-# Final compatibility repin. This intentionally runs after every dependency installer.
-# --no-deps prevents a late resolver pass from silently changing Isaac/OpenPI versions.
+# Shared constraints protect the simulation stack during motion-planner installation.
 FINAL_PINS=(
     'numpy==1.26.4'
     'protobuf==6.33.0'
@@ -147,6 +146,19 @@ FINAL_PINS=(
     'lerobot==0.3.3'
     'openpi-client==0.1.2'
 )
+CUROBO_COMMIT=4ea77366ca48ee453e7df139e39fa6532af49f3b # v0.8.0
+CUROBO_CONSTRAINTS="${LOG_DIR}/curobo-constraints.txt"
+printf '%s\n' "${FINAL_PINS[@]}" \
+    'torch==2.5.1+cu124' 'torchvision==0.20.1+cu124' 'torchaudio==2.5.1+cu124' \
+    'isaacsim==4.5.0.0' 'isaacsim-core==4.5.0.0' 'isaacsim-rl==4.5.0.0' \
+    'omnigibson==3.7.2' 'transformers==4.53.2' 'trimesh==5.1.0' \
+    > "${CUROBO_CONSTRAINTS}"
+"${UV_BIN}" pip install --python "${BEHAVIOR_PYTHON}" \
+    --constraint "${CUROBO_CONSTRAINTS}" \
+    "nvidia-curobo[cu12-torch] @ git+https://github.com/NVlabs/curobo.git@${CUROBO_COMMIT}"
+
+# Final compatibility repin runs after every dependency installer. --no-deps
+# prevents a late resolver pass from silently changing Isaac/OpenPI versions.
 "${UV_BIN}" pip install --python "${BEHAVIOR_PYTHON}" --no-deps "${FINAL_PINS[@]}"
 
 # OpenPI's replacement files must match the final transformers build. No package

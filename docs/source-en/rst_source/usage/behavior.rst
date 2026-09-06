@@ -38,6 +38,12 @@ freezes plus source identities under ``$RPENT_REPRO_ROOT/manifests``. Use a new
 ``RPENT_REPRO_ROOT`` for a fresh install; the script refuses to overwrite a
 wrong or dirty RLinf checkout.
 
+Motion planning uses NVlabs/cuRobo v0.8.0 at commit
+``4ea77366ca48ee453e7df139e39fa6532af49f3b`` in the BEHAVIOR venv.
+The installer applies constraints before its final repin, retaining NumPy
+1.26.4, Torch 2.5.1+cu124 and Isaac Sim 4.5.0.0. Do not install cuRobo with
+an unconstrained resolver: a NumPy 2 upgrade is incompatible with this stack.
+
 Simulator assets
 ----------------
 
