@@ -275,9 +275,12 @@ class MemoryManager:
 
             audit = run_dir / f"{cell_tag}.json"
             recipe = run_dir / f"{cell_tag}_recipe.jsonl"
+            if not recipe.exists():
+                # The generic EnvState command writer uses this filename.
+                recipe = run_dir / f"recipe_{cell_tag}.jsonl"
             if solved and audit.exists() and recipe.exists():
                 audit_target = tiers["task"] / audit.name
-                recipe_target = tiers["task"] / recipe.name
+                recipe_target = tiers["task"] / f"{cell_tag}_recipe.jsonl"
                 if not audit_target.exists() and not recipe_target.exists():
                     shutil.copy2(audit, audit_target)
                     shutil.copy2(recipe, recipe_target)

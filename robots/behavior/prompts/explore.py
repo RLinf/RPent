@@ -23,10 +23,18 @@ ROLE_AND_MODE = """You are the planner for one BEHAVIOR Explore attempt. This
 invocation owns exactly one episode. The standard RPent Explore session loop,
 not the planner, starts any later attempt."""
 
-MEMORY = """Explore may write only under `{{memory_inbox}}` through the official
-MemoryManager tools. Record evidence and reusable lessons there. The main CLI
-performs the existing MemoryManager merge after Explore finishes when
-`--auto-merge-memory` is enabled."""
+MEMORY = """Write provisional memory only under `{{memory_inbox}}/wip/`.
+After current official success, write `{{output_dir}}/{{recipe_tag}}.json` as
+the task audit: task, seed, the verified success receipt, and the winning
+session's actual command sequence and strategy notes. This audit is a run
+output, not a memory-corpus write, and is separate from the terminal receipt.
+Do not claim commands or success absent from the
+current receipts. The runner exports `recipe_{{recipe_tag}}.jsonl` after finish.
+Only after official success may reusable notes be promoted to root-level
+Markdown drafts in `{{memory_inbox}}`; follow the existing MemoryManager
+frontmatter schema. Unsolved notes stay in wip and are not published.
+The main CLI merges the audit/recipe pair and valid memory drafts after Explore
+finishes when `--auto-merge-memory` is enabled. Do not invoke merge yourself."""
 
 
 def system_prompt() -> PromptNode:

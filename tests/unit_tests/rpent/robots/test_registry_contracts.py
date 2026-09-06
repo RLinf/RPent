@@ -351,6 +351,11 @@ def test_behavior_prompts_strictly_render_real_run_config(
     ]
     positions = [system.index(title) for title in ordered_sections]
     assert positions == sorted(positions)
+    if mode == "explore":
+        assert f"{variables['output_dir']}/{variables['recipe_tag']}.json" in system
+        assert f"{variables['memory_inbox']}/wip/" in system
+        assert "Only after official success" in system
+        assert "Do not invoke merge yourself" in system
     for tool in (
         "pi0_nav_pick",
         "observe",

@@ -18,6 +18,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from rpent.memory import MemoryManager
@@ -209,6 +210,51 @@ def test_memory_manager_does_not_publish_unsolved_task_artifacts(
     assert result["task"] == 0
     assert not (memory_dir / "task_only" / f"{cell}.json").exists()
     assert not (memory_dir / "task_only" / f"{cell}_recipe.jsonl").exists()
+
+
+@pytest.mark.parametrize("solved", [False, True])
+def test_memory_manager_publishes_generic_command_recipe_only_when_solved(
+    tmp_path: Path, solved: bool
+) -> None:
+    from rpent.session import EnvState, write_command_recipe_from_states
+
+    memory_dir = tmp_path / "memory"
+    output_dir = tmp_path / "run"
+    cell = "turning_on_radio_s0"
+    output_dir.mkdir()
+    audit = output_dir / f"{cell}.json"
+    audit.write_text(json.dumps({"raw_done": {"success": solved}}))
+    # Exercise the real shared writer, not a duplicated filename convention.
+    state = EnvState(output_dir)
+    with state.record_step(
+        state={}, command={"action": "press", "hand": "left"}, result={}
+    ):
+        pass
+    recipe = Path(write_command_recipe_from_states(state, cell))
+    result = MemoryManager(memory_dir).merge_memory(
+        cell_tag=cell, run_state_dir=output_dir, solved=solved
+    )
+    assert result["task"] == int(solved)
+    target = memory_dir / "task_only" / f"{cell}_recipe.jsonl"
+    assert target.exists() is solved
+    if solved:
+        assert target.read_bytes() == recipe.read_bytes()
+        assert (target.parent / audit.name).read_bytes() == audit.read_bytes()
+
+
+def test_memory_manager_prefers_existing_sibling_recipe_name(tmp_path: Path) -> None:
+    memory_dir, output_dir = tmp_path / "memory", tmp_path / "run"
+    cell = "10_task_t2_s0"
+    _write_task_pair(output_dir, cell, solved=True)
+    canonical = output_dir / f"{cell}_recipe.jsonl"
+    (output_dir / f"recipe_{cell}.jsonl").write_text('{"action":"wrong_source"}\n')
+    result = MemoryManager(memory_dir).merge_memory(
+        cell_tag=cell, run_state_dir=output_dir, solved=True
+    )
+    assert result["task"] == 1
+    assert (
+        memory_dir / "task_only" / canonical.name
+    ).read_bytes() == canonical.read_bytes()
 
 
 def test_memory_manager_skips_invalid_draft_without_archiving_its_inbox(
