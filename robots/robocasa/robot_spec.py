@@ -82,7 +82,7 @@ def get_robot_spec() -> RobotSpec:
 
 def get_toolkit(
     *,
-    primitives_kwargs: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
 ):
@@ -93,7 +93,8 @@ def get_toolkit(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
     )
     return RoboCasaToolkit(
-        primitives_kwargs=primitives_kwargs,
+        runtime_kwargs=runtime_kwargs,
+        output_dir=config.output_dir,
         dashboard_events=dashboard_events,
         memory=memory,
     )
@@ -291,7 +292,7 @@ def _init_runtime(
     }
     connectors = {
         "env": lambda rpc: {
-            "env_client": RoboCasaEnvClient(
+            "env": RoboCasaEnvClient(
                 rpc,
                 expected_meta={
                     "task_name": args.task_name,
@@ -301,10 +302,9 @@ def _init_runtime(
                     "camera_w": 256,
                 },
             ),
-            "workdir": str(output_dir),
             "hi_res": args.hi_res or None,
         },
-        "vla": lambda rpc: {"vla_client": RoboCasaVLAClient(rpc)},
+        "vla": lambda rpc: {"model": RoboCasaVLAClient(rpc)},
     }
     timeouts = {"env": 120.0, "vla": 300.0}
     selected = set(starters) if components is None else components
@@ -323,7 +323,7 @@ def _init_runtime(
                 starter,
             )
 
-    primitives_kwargs: dict[str, Any] = {}
+    runtime_kwargs: dict[str, Any] = {}
     for component, (daemon, rpc) in pending.items():
         component_kwargs = try_wait_server(
             owned_daemons,
@@ -334,6 +334,6 @@ def _init_runtime(
             timeouts[component],
             post_fn=partial(connectors[component], rpc),
         )
-        primitives_kwargs.update(component_kwargs)
+        runtime_kwargs.update(component_kwargs)
 
-    return list(owned_daemons.values()), primitives_kwargs
+    return list(owned_daemons.values()), runtime_kwargs

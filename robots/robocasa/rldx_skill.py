@@ -25,6 +25,7 @@ with a per-call session id + reset_memory for the RLDX memory module.
 
 import os
 from collections import deque
+from collections.abc import Callable
 
 import imageio.v2 as imageio
 import numpy as np
@@ -36,17 +37,13 @@ logger = get_logger("rldx_skill")
 
 
 class RLDXSkill:
-    def __init__(
-        self, env_client: RoboCasaEnvClient, vla_client=None, check_cancelled=None
-    ):
+    def __init__(self, env_client: RoboCasaEnvClient, vla_client):
         self.env = env_client  # RoboCasaEnvClient
-        self._vla_client = vla_client  # VLA RPC client (when set, _load() uses it instead of loading the model directly)
-        self._check_cancelled = (
-            check_cancelled  # optional cancellation checkpoint callback
-        )
+        self._vla_client = vla_client
         self._vdi = None  # video delta indices, e.g. [-6,-4,-2,0]
         self._hist = None  # deque of raw frame dicts
         self._unmap = None  # lazy: eval's PandaOmronKeyConverter.unmap_action
+        self._last_prompt = None
         # OPTIONAL per-sim-step video capture. OFF by default (env RLDX_VIDEO_DIR unset):
         # the VLA rollout is closed-loop over 100s of sim-steps but the primitives only dump
         # single frames at command boundaries, so the actual motion is never recorded.
@@ -222,8 +219,9 @@ class RLDXSkill:
         settle_eps=0.012,
         settle_patience=2,
         force_reset=False,
-        recording=False,
-        record_frame=None,
+        *,
+        step_env: Callable[[np.ndarray], None],
+        check_cancelled: Callable[[], None],
     ):
         """Drive RLDX-1 closed-loop until it FINISHES, not a fixed tiny budget. The VLA
         has no terminate signal (like the eval, which runs to env-success), so we stop
@@ -234,6 +232,7 @@ class RLDXSkill:
         base_clip=None -> full base motion; base_clip=v -> clamp base_motion to [-v,v]
         (whole-body policy: never zero it). Returns status + grasp signals so the LLM
         decides: continue (call again) vs done vs genuinely-failed."""
+        check_cancelled()
         self._load()
         # Start a fresh video buffer for this run() call (no-op if RLDX_VIDEO_DIR unset).
         self._frames = [] if self._video_dir is not None else None
@@ -247,7 +246,7 @@ class RLDXSkill:
         # the same instruction (e.g. multi-trial fullshot comparison): the eval resets the
         # policy session EVERY episode, so without this, stale RTC/memory from the prior
         # episode bleeds into the next and degrades it.
-        new_task = force_reset or (prompt != getattr(self, "_last_prompt", None))
+        new_task = force_reset or prompt != self._last_prompt
         self._last_prompt = prompt
         # Reseed the per-sim-step history with the current frame on a new instruction or
         # the first call ever; same-prompt retries KEEP the continuous history (matches
@@ -272,8 +271,7 @@ class RLDXSkill:
             obs = self._build_obs(prompt)
             options = {"reset_memory": [fresh]}
             fresh = False
-            if self._check_cancelled is not None:
-                self._check_cancelled()
+            check_cancelled()
             actions = self._vla_client.predict(obs, options)
             # gym Dict -> native flat 12-d [eef_pos(3),eef_rot(3),gripper(1),base(4),mode(1)]
             horizon = actions["action.gripper_close"].shape[1]
@@ -300,11 +298,7 @@ class RLDXSkill:
                     base_motion,
                     np.asarray(actions["action.control_mode"])[0, step],
                 )
-                if self._check_cancelled is not None:
-                    self._check_cancelled()
-                self.env.step(a)
-                if recording:
-                    record_frame()
+                step_env(a)
                 applied += 1
                 self._record_frame(
                     prompt
@@ -375,15 +369,14 @@ class RLDXSkill:
         return result
 
     def reset_session(self):
-        if self._vla_client is not None:
-            try:
-                self._vla_client.reset_session()
-            except Exception:
-                logger.warning(
-                    "VLA reset_session RPC failed; RLDX memory/RTC state may "
-                    "not be reset for the next task",
-                    exc_info=True,
-                )
+        try:
+            self._vla_client.reset_session()
+        except Exception:
+            logger.warning(
+                "VLA reset_session RPC failed; RLDX memory/RTC state may "
+                "not be reset for the next task",
+                exc_info=True,
+            )
         self._last_prompt = None  # post-reset: next call is a fresh task
         if self._hist is not None:
             self._hist.clear()

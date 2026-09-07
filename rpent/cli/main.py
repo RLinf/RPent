@@ -461,6 +461,13 @@ def main() -> int:
                     ),
                     state_output_dir=state_output_dir,
                 )
+            elif robot_name == "robocasa":
+                toolkit = get_toolkit(
+                    robot_name,
+                    runtime_kwargs=runtime_kwargs,
+                    dashboard_events=dashboard_events,
+                    config=run_config,
+                )
             else:
                 toolkit = get_toolkit(
                     robot_name,

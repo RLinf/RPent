@@ -21,12 +21,13 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from robots.robocasa.prompt_bundle import system_prompt
 from robots.robocasa.robot_spec import _parse_config
+from robots.robocasa.tools import finish
 from rpent.memory import MemoryManager
 from rpent.prompt.utils import format_prompt
+from rpent.session import EnvState
+from rpent.tools import Toolkit
 
 
 def _args(
@@ -90,13 +91,20 @@ def test_results_corpus_is_readable_through_memory_tool(monkeypatch, tmp_path):
     audit.write_text('{"success": true}\n')
 
     manager = MemoryManager(root=memory_root)
-    bindings = manager.get_common_tool_bindings()
-    read_text_file = bindings["read_text_file"][1]
-    write_text_file = bindings["write_text_file"][1]
-
-    assert read_text_file(path=str(audit))["content"] == '{"success": true}\n'
-    with pytest.raises(PermissionError, match="writing to memory is denied"):
-        write_text_file(path=str(audit), content="{}\n")
+    toolkit = Toolkit(
+        state=EnvState(tmp_path / "run"),
+        memory=manager,
+        robot=None,
+        output_dir=tmp_path / "run",
+        tools=(finish,),
+    )
+    read = toolkit.execute_tool("read_text_file", {"path": str(audit)})
+    assert not read.is_error
+    assert read.data["content"] == '{"success": true}\n'
+    write = toolkit.execute_tool(
+        "write_text_file", {"path": str(audit), "content": "{}\n"}
+    )
+    assert write.is_error and "writing to memory is denied" in write.error
 
 
 def test_parse_config_resolves_local_memory_dir(tmp_path):

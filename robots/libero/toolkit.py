@@ -103,7 +103,6 @@ class LiberoToolkit(Toolkit[LiberoRuntime]):
             tools=tools,
             dashboard_events=dashboard_events,
         )
-        state.reset()
         runtime.reset()
         record = dump_state(runtime, state, log=None)
         try:
@@ -214,11 +213,27 @@ def _save_observation_artifacts(
     raw: dict[str, Any],
 ) -> None:
     """Save the policy view, then each camera's calibrated and high-res views."""
-    _save_agentview_policy(state, step, runtime._last_obs["main_images"])
+    state.save("agentview_policy.png", runtime._last_obs["main_images"], step=step)
     _save_agentview_artifacts(runtime.env, state, step, raw)
     _save_wrist_artifacts(runtime.env, state, step, raw)
-    _save_agentview_high_resolution_artifacts(runtime.env, state, step)
-    _save_wrist_high_resolution_artifacts(runtime.env, state, step)
+
+    for camera, prefix in (
+        ("agentview", "agentview"),
+        ("robot0_eye_in_hand", "wrist"),
+    ):
+        try:
+            rgb, depth = runtime.env.render_camera(
+                camera_name=camera, height=1024, width=1024, depth=True
+            )
+            camera_meta = runtime.env.get_camera_meta(camera, 1024, 1024)
+            if camera_meta is None:
+                raise RuntimeError(f"{camera} camera metadata missing")
+            state.save(f"{prefix}_high.png", np.asarray(rgb)[::-1], step=step)
+            depth_metric = _metric_depth(depth, camera_meta)[::-1]
+            world = _world_from_depth(depth_metric, camera_meta).astype(np.float16)
+            state.save(f"{prefix}_world_high.npz", world, step=step)
+        except Exception as exc:
+            logger.warning("%s high-res dump failed: %s", prefix, exc)
 
 
 def _save_agentview_artifacts(
@@ -228,12 +243,25 @@ def _save_agentview_artifacts(
         env.get_camera_meta(camera_name="agentview", height=256, width=256) or {}
     )
     if camera_meta:
-        _save_agentview_metadata(state, step, camera_meta)
+        metadata = dict(camera_meta)
+        metadata["projection"] = (
+            "Prefer the back_project(row, col, step=NN) MCP tool; it "
+            "uses the 1024x1024 high-resolution world map by default. "
+            "Pass resolution='low' only when row/col came from the "
+            "256x256 calibration-frame image."
+        )
+        metadata["note"] = (
+            "The agentview_depth.npz observation is aligned with agentview.png. "
+            "agentview_policy.png uses the Pi0 orientation and must not supply "
+            "pixels for back-projection."
+        )
+        state.save("agentview_metadata.json", metadata, step=step)
 
     try:
         image = raw.get("agentview_image")
         if image is not None:
-            _save_agentview_image(state, step, image)
+            image = np.asarray(image, dtype=np.uint8)
+            state.save("agentview.png", image[::-1], step=step)
     except Exception as exc:
         logger.warning("image_cam dump failed: %s", exc)
 
@@ -241,8 +269,11 @@ def _save_agentview_artifacts(
         depth = raw.get("agentview_depth")
         if depth is not None:
             depth_metric = _metric_depth(depth, camera_meta)[::-1]
-            _save_agentview_depth(state, step, depth_metric)
-            _save_agentview_world(state, step, depth_metric, camera_meta)
+            state.save(
+                "agentview_depth.npz", depth_metric.astype(np.float32), step=step
+            )
+            world = _world_from_depth(depth_metric, camera_meta).astype(np.float32)
+            state.save("agentview_world.npz", world, step=step)
     except Exception as exc:
         logger.warning("depth dump failed: %s", exc)
 
@@ -255,7 +286,8 @@ def _save_wrist_artifacts(
         if image is None:
             logger.warning("wrist image missing from raw_obs")
         else:
-            _save_wrist_image(state, step, image)
+            image = np.asarray(image, dtype=np.uint8)
+            state.save("wrist.png", image[::-1], step=step)
     except Exception as exc:
         logger.warning("wrist image dump failed: %s", exc)
 
@@ -273,143 +305,19 @@ def _save_wrist_artifacts(
             logger.warning("wrist camera meta missing; skipping wrist depth/world")
             return
         depth_metric = _metric_depth(depth, camera_meta)[::-1]
-        _save_wrist_depth(state, step, depth_metric)
-        _save_wrist_world(state, step, depth_metric, camera_meta)
-        _save_wrist_metadata(state, step, camera_meta)
+        state.save("wrist_depth.npz", depth_metric.astype(np.float32), step=step)
+        world = _world_from_depth(depth_metric, camera_meta).astype(np.float32)
+        state.save("wrist_world.npz", world, step=step)
+        metadata = dict(camera_meta)
+        metadata["note"] = (
+            "MOVING camera: extrinsic_cam2world is for THIS step "
+            "only. The matching wrist world-map observation gives world "
+            "(x,y,z) for that pixel in the same world frame as the "
+            "agentview world-map artifact."
+        )
+        state.save("wrist_metadata.json", metadata, step=step)
     except Exception as exc:
         logger.warning("wrist depth/world dump failed: %s", exc)
-
-
-def _save_agentview_high_resolution_artifacts(
-    env: LiberoEnvClient, state: EnvState, step: int
-) -> None:
-    try:
-        rgb, depth = env.render_camera(
-            camera_name="agentview", height=1024, width=1024, depth=True
-        )
-        camera_meta = env.get_camera_meta("agentview", 1024, 1024)
-        if camera_meta is None:
-            raise RuntimeError("agentview camera metadata missing")
-        _save_agentview_high_image(state, step, rgb)
-        _save_agentview_world_high(state, step, depth, camera_meta)
-    except Exception as exc:
-        logger.warning("agentview high-res dump failed: %s", exc)
-
-
-def _save_wrist_high_resolution_artifacts(
-    env: LiberoEnvClient, state: EnvState, step: int
-) -> None:
-    try:
-        rgb, depth = env.render_camera(
-            camera_name="robot0_eye_in_hand", height=1024, width=1024, depth=True
-        )
-        camera_meta = env.get_camera_meta("robot0_eye_in_hand", 1024, 1024)
-        if camera_meta is None:
-            raise RuntimeError("robot0_eye_in_hand camera metadata missing")
-        _save_wrist_high_image(state, step, rgb)
-        _save_wrist_world_high(state, step, depth, camera_meta)
-    except Exception as exc:
-        logger.warning("wrist high-res dump failed: %s", exc)
-
-
-def _save_agentview_policy(state: EnvState, step: int, image: Any) -> None:
-    """Save agentview_policy.png in Pi0 orientation, for policy inspection."""
-    state.save("agentview_policy.png", image, step=step)
-
-
-def _save_agentview_metadata(state: EnvState, step: int, camera_meta: dict) -> None:
-    """Save agentview_metadata.json with calibration and pixel-frame guidance."""
-    metadata = dict(camera_meta)
-    metadata["projection"] = (
-        "Prefer the back_project(row, col, step=NN) MCP tool; it "
-        "uses the 1024x1024 high-resolution world map by default. "
-        "Pass resolution='low' only when row/col came from the "
-        "256x256 calibration-frame image."
-    )
-    metadata["note"] = (
-        "The agentview_depth.npz observation is aligned with agentview.png. "
-        "agentview_policy.png uses the Pi0 orientation and must not supply "
-        "pixels for back-projection."
-    )
-    state.save("agentview_metadata.json", metadata, step=step)
-
-
-def _save_agentview_image(state: EnvState, step: int, image: Any) -> None:
-    """Save agentview.png with pixels aligned to depth and camera calibration."""
-    image = np.asarray(image, dtype=np.uint8)
-    state.save("agentview.png", image[::-1], step=step)
-
-
-def _save_agentview_depth(state: EnvState, step: int, depth_metric: np.ndarray) -> None:
-    """Save agentview_depth.npz in meters, aligned to agentview.png."""
-    state.save("agentview_depth.npz", depth_metric.astype(np.float32), step=step)
-
-
-def _save_agentview_world(
-    state: EnvState, step: int, depth_metric: np.ndarray, camera_meta: dict
-) -> None:
-    """Save agentview_world.npz with a float32 world XYZ for each image pixel."""
-    world = _world_from_depth(depth_metric, camera_meta).astype(np.float32)
-    state.save("agentview_world.npz", world, step=step)
-
-
-def _save_wrist_image(state: EnvState, step: int, image: Any) -> None:
-    """Save wrist.png with pixels aligned to depth and camera calibration."""
-    image = np.asarray(image, dtype=np.uint8)
-    state.save("wrist.png", image[::-1], step=step)
-
-
-def _save_wrist_depth(state: EnvState, step: int, depth_metric: np.ndarray) -> None:
-    """Save wrist_depth.npz in meters, aligned to wrist.png."""
-    state.save("wrist_depth.npz", depth_metric.astype(np.float32), step=step)
-
-
-def _save_wrist_world(
-    state: EnvState, step: int, depth_metric: np.ndarray, camera_meta: dict
-) -> None:
-    """Save wrist_world.npz using the moving camera's calibration at this step."""
-    world = _world_from_depth(depth_metric, camera_meta).astype(np.float32)
-    state.save("wrist_world.npz", world, step=step)
-
-
-def _save_wrist_metadata(state: EnvState, step: int, camera_meta: dict) -> None:
-    """Save wrist_metadata.json for this step's moving camera pose."""
-    metadata = dict(camera_meta)
-    metadata["note"] = (
-        "MOVING camera: extrinsic_cam2world is for THIS step "
-        "only. The matching wrist world-map observation gives world "
-        "(x,y,z) for that pixel in the same world frame as the "
-        "agentview world-map artifact."
-    )
-    state.save("wrist_metadata.json", metadata, step=step)
-
-
-def _save_agentview_high_image(state: EnvState, step: int, image: Any) -> None:
-    """Save agentview_high.png in the 1024x1024 calibration frame."""
-    state.save("agentview_high.png", np.asarray(image)[::-1], step=step)
-
-
-def _save_agentview_world_high(
-    state: EnvState, step: int, depth: Any, camera_meta: dict
-) -> None:
-    """Save agentview_world_high.npz with float16 XYZ aligned to the high-res RGB."""
-    depth_metric = _metric_depth(depth, camera_meta)[::-1]
-    world = _world_from_depth(depth_metric, camera_meta).astype(np.float16)
-    state.save("agentview_world_high.npz", world, step=step)
-
-
-def _save_wrist_high_image(state: EnvState, step: int, image: Any) -> None:
-    """Save wrist_high.png in the 1024x1024 calibration frame."""
-    state.save("wrist_high.png", np.asarray(image)[::-1], step=step)
-
-
-def _save_wrist_world_high(
-    state: EnvState, step: int, depth: Any, camera_meta: dict
-) -> None:
-    """Save wrist_world_high.npz with float16 XYZ aligned to the high-res RGB."""
-    depth_metric = _metric_depth(depth, camera_meta)[::-1]
-    world = _world_from_depth(depth_metric, camera_meta).astype(np.float16)
-    state.save("wrist_world_high.npz", world, step=step)
 
 
 def _metric_depth(depth: Any, camera_meta: dict) -> np.ndarray:

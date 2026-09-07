@@ -231,6 +231,64 @@ def test_env_state_per_step_paths_save_load_and_exists(tmp_path: Path) -> None:
     assert env_state.get(1).artifacts == {"detail.json"}
 
 
+def test_prune_artifacts_keeps_recent_files_and_historical_records(
+    tmp_path: Path,
+) -> None:
+    env_state = EnvState(tmp_path)
+    env_state.save("session.txt", "session", step=None)
+    names = ("world.npz", "optional_world.npz")
+
+    for value in range(2):
+        with env_state.record_step(state={"value": value}) as step:
+            env_state.save("world.npz", np.array([value]))
+            env_state.save("frame.png", np.zeros((2, 2, 3), dtype=np.uint8))
+            env_state.save("metadata.json", {"value": value})
+            env_state.prune_artifacts(names, step=step, keep_last=2)
+
+    assert env_state.exists("world.npz", step=0)
+    first_record = env_state.get(0)
+
+    with env_state.record_step(state={"value": 2}) as step:
+        env_state.save("world.npz", np.array([2]))
+        env_state.prune_artifacts(names, step=step, keep_last=2)
+
+    assert not env_state.exists("world.npz", step=0)
+    np.testing.assert_array_equal(env_state.load("world.npz", step=1), [1])
+    np.testing.assert_array_equal(env_state.load("world.npz", step=2), [2])
+    assert env_state.exists("frame.png", step=0)
+    assert env_state.load("metadata.json", step=0) == {"value": 0}
+    assert env_state.load("session.txt", step=None) == "session"
+    assert env_state.get(0) == first_record
+    manifest = json.loads((tmp_path / "states.json").read_text())
+    assert manifest["steps"][0] == first_record.to_blob()
+
+
+def test_prune_artifacts_logs_deletion_failure_and_continues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    env_state = EnvState(tmp_path)
+    with env_state.record_step(state={}):
+        env_state.save("depth.npz", np.array([1]))
+        env_state.save("world.npz", np.array([2]))
+    with env_state.record_step(state={}):
+        pass
+
+    blocked = env_state.artifact_path("depth.npz", step=0)
+    original_unlink = Path.unlink
+
+    def unlink(path: Path, *, missing_ok: bool = False) -> None:
+        if path == blocked:
+            raise PermissionError("deletion denied")
+        original_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    env_state.prune_artifacts(("depth.npz", "world.npz"), step=1, keep_last=1)
+
+    assert env_state.exists("depth.npz", step=0)
+    assert not env_state.exists("world.npz", step=0)
+    assert "failed to prune artifact depth.npz at step 0" in caplog.text
+
+
 def test_manifest_updates_with_deterministic_artifact_order(tmp_path: Path) -> None:
     env_state = EnvState(tmp_path)
     assert env_state.save("z.txt", "last", step=None) == "z.txt"

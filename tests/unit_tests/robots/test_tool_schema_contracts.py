@@ -14,20 +14,26 @@
 
 from __future__ import annotations
 
+from importlib import import_module
+
 import pytest
 
-from robots.libero import tools as libero_tools
-from robots.robocasa import tools as robocasa_tools
-from robots.robotwin import tools as robotwin_tools
+ROBOT_NAMES = ("libero", "robocasa", "robotwin")
 
-ROBOT_SCHEMAS = {
-    "libero": libero_tools.TOOLS_SPEC,
-    "robocasa": robocasa_tools.TOOLS_SPEC,
-    "robotwin": robotwin_tools.TOOLS_SPEC,
-}
+
+def _schemas(robot_name):
+    module = import_module(f"robots.{robot_name}.tools")
+    if robot_name == "robotwin":
+        return module.TOOLS_SPEC
+    return [
+        {"name": t.name, "description": t.description, "input_schema": t.input_schema}
+        for t in getattr(module, f"{robot_name.upper()}_TOOLS")
+    ]
+
 
 EXPECTED_TOOL_NAMES = {
     "libero": {
+        "finish",
         "reset",
         "view_env_state",
         "move_to",
@@ -55,8 +61,6 @@ EXPECTED_TOOL_NAMES = {
         "move_base",
         "reset",
         "view_env_state",
-        "view_camera_meta",
-        "back_project",
         "back_project_batch",
         "query_world_map",
         "finish",
@@ -76,18 +80,18 @@ EXPECTED_TOOL_NAMES = {
 }
 
 
-@pytest.mark.parametrize("robot_name", sorted(ROBOT_SCHEMAS))
+@pytest.mark.parametrize("robot_name", ROBOT_NAMES)
 def test_robot_tool_names_are_an_explicit_unique_contract(robot_name: str) -> None:
-    specs = ROBOT_SCHEMAS[robot_name]
+    specs = _schemas(robot_name)
     names = [spec["name"] for spec in specs]
 
     assert set(names) == EXPECTED_TOOL_NAMES[robot_name]
     assert len(names) == len(set(names))
 
 
-@pytest.mark.parametrize("robot_name", sorted(ROBOT_SCHEMAS))
+@pytest.mark.parametrize("robot_name", ROBOT_NAMES)
 def test_robot_tool_schemas_have_valid_object_inputs(robot_name: str) -> None:
-    for spec in ROBOT_SCHEMAS[robot_name]:
+    for spec in _schemas(robot_name):
         assert set(spec) >= {"name", "description", "input_schema"}
         assert isinstance(spec["description"], str) and spec["description"].strip()
 
@@ -102,8 +106,8 @@ def test_robot_tool_schemas_have_valid_object_inputs(robot_name: str) -> None:
 
 def test_robot_action_schemas_keep_bounded_vector_shapes() -> None:
     schema_sets = [
-        {spec["name"]: spec for spec in libero_tools.TOOLS_SPEC}["move_to"],
-        {spec["name"]: spec for spec in robotwin_tools.TOOLS_SPEC}["move_to"],
+        {spec["name"]: spec for spec in _schemas("libero")}["move_to"],
+        {spec["name"]: spec for spec in _schemas("robotwin")}["move_to"],
     ]
     for spec in schema_sets:
         xyz = spec["input_schema"]["properties"]["xyz"]

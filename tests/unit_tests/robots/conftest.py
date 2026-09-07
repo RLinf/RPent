@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from rpent.tools.toolkit import readonly
+from rpent.tools import readonly
 
 
 class FakeSingleArmPrimitives:
