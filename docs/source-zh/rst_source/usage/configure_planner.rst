@@ -148,14 +148,20 @@ agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
            toolkit,
            max_turns,
            input_queue=None,
+           dashboard_interaction=None,
        ):
-           tool_specs = toolkit.get_tools_spec()
+           tools = toolkit.list_tools()
+           tool_specs = [
+               {"name": tool.name, "description": tool.description,
+                "input_schema": tool.input_schema}
+               for tool in tools
+           ]
            # 使用 system_prompt、user_message 和 tool_specs 调用模型。
            # 每次工具调用都通过下面的接口执行：
            tool_result = toolkit.execute_tool(tool_name, arguments)
            ...
            return PlannerResult(
-               finish_result=finish_result,
+               finish_result=toolkit.finish_result,
                messages=messages,
                stats=stats,
                error=error,
@@ -164,11 +170,13 @@ agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
 任何 planner 必须：
 
 1. 接收已经渲染好的 ``system_prompt`` 和 ``user_message``。
-2. 从 ``toolkit.get_tools_spec()`` 取得工具定义，并通过
-   ``toolkit.execute_tool(name, arguments)`` 执行工具。
-3. 将 ``ToolResult.content_blocks`` 中的文本和图片转换成模型 SDK
-   所需的格式。
-4. 识别 ``ToolResult.is_finish``，并按 ``max_turns`` 等限制终止循环。
+2. 从 ``toolkit.list_tools()`` 读取原生工具，并将其 ``name``、``description``
+   和 ``input_schema`` 转为 SDK 格式。通过 ``toolkit.execute_tool(name, arguments)``
+   执行调用；异步适配器使用支持取消清理的 ``rpent.planner.base.execute_tool``。
+3. 将 ``ToolResult.to_text()`` 和 ``ToolResult.images`` 中的 PNG 字节转换为
+   SDK 格式，并保留 ``ToolResult.is_error``。
+4. 检查 ``toolkit.finish_result``，按 ``max_turns`` 等限制终止循环；
+   结束结果本身不会关闭 toolkit。
 5. 返回包含结束状态、消息、统计信息和可选错误的 ``PlannerResult``。
 
 由于 RPent 工具定义和 prompt 渲染流程保持不变，新增 planner 不需要修改

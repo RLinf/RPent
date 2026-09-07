@@ -161,14 +161,20 @@ construction branch to ``rpent.planner.base.build_planner``:
            toolkit,
            max_turns,
            input_queue=None,
+           dashboard_interaction=None,
        ):
-           tool_specs = toolkit.get_tools_spec()
+           tools = toolkit.list_tools()
+           tool_specs = [
+               {"name": tool.name, "description": tool.description,
+                "input_schema": tool.input_schema}
+               for tool in tools
+           ]
            # Call the model with system_prompt, user_message, and tool_specs.
            # Execute each tool call through this interface:
            tool_result = toolkit.execute_tool(tool_name, arguments)
            ...
            return PlannerResult(
-               finish_result=finish_result,
+               finish_result=toolkit.finish_result,
                messages=messages,
                stats=stats,
                error=error,
@@ -177,12 +183,14 @@ construction branch to ``rpent.planner.base.build_planner``:
 Any planner must:
 
 1. Accept the rendered ``system_prompt`` and ``user_message``.
-2. Read the tool schemas from ``toolkit.get_tools_spec()`` and execute
-   tools with ``toolkit.execute_tool(name, arguments)``.
-3. Convert the text and images in ``ToolResult.content_blocks`` to the
-   format expected by the model SDK.
-4. Detect ``ToolResult.is_finish`` and stop according to
-   ``max_turns`` and any other limits.
+2. Read native tools from ``toolkit.list_tools()`` and adapt their ``name``,
+   ``description``, and ``input_schema`` to the SDK. Execute calls through
+   ``toolkit.execute_tool(name, arguments)``; asynchronous adapters use
+   ``rpent.planner.base.execute_tool`` for cancellation-aware execution.
+3. Convert ``ToolResult.to_text()`` and the PNG bytes in ``ToolResult.images``
+   to the SDK format, preserving ``ToolResult.is_error``.
+4. Check ``toolkit.finish_result`` and stop according to ``max_turns`` and
+   other limits. A finish result does not itself close the toolkit.
 5. Return a ``PlannerResult`` containing the finish state, messages,
    statistics, and an optional error.
 

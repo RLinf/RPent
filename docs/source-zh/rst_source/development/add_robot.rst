@@ -28,7 +28,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
    服务和 model client，参见
    :ref:`添加一个 VLA（或其他基于模型的原语）<add-primitive-model-based>`。
 3. :ref:`定义 prompt <add-robot-prompts>`。
-4. :ref:`实现 toolkit 和 primitives <add-robot-toolkit>`。
+4. :ref:`实现 toolkit 和工具函数 <add-robot-toolkit>`。
 5. :ref:`注册环境参数并生成 RunConfig <add-robot-config>`。
 6. 实现 :ref:`runtime 钩子 <add-robot-runtime>`：同一个钩子既能为普通 CLI
    初始化完整 runtime，也能为 Dashboard 初始化指定的 component 子集。
@@ -47,7 +47,8 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
        robot_spec.py          # RobotSpec、工厂、Dashboard 描述和 runtime 钩子
        env_client.py          # MyEnvClient —— agent 侧 RPC client (§1)
        prompt_bundle.py       # system()/user() prompt 工厂              (§2)
-       toolkit.py             # MyRobotToolkit + primitives + 工具定义     (§3)
+       toolkit.py             # Runtime、MyRobotToolkit 和观测处理 (§3)
+       tools.py               # 原生工具声明与 handler (§3)
        env_server.py          # 环境侧 facade + RPC 服务                 (§1)
        vla_server.py          # （可选）VLA 模型服务
 
@@ -82,13 +83,14 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 
    def get_toolkit(
        *,
-       primitives_kwargs,
+       runtime_kwargs,
        dashboard_events: DashboardEventSink,
        config: RunConfig,
    ):
        from robots.myrobot.toolkit import MyRobotToolkit
        return MyRobotToolkit(
-           primitives_kwargs=primitives_kwargs,
+           runtime_kwargs=runtime_kwargs,
+           output_dir=config.output_dir,
            dashboard_events=dashboard_events,
            memory=MemoryManager(
                root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
@@ -111,7 +113,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
    ):
        """初始化全部 runtime components，或只初始化指定子集。
 
-       返回 (daemons, primitives_kwargs)。见第 5 节。
+       返回 (daemons, runtime_kwargs)。见第 5 节。
        """
        ...
 
@@ -255,63 +257,62 @@ API 版本。
 3. ``toolkit.py``
 ------------------
 
-这个模块持有 LLM 能调用的一切: 工具 schema、primitives、每步状态 dump 以及
-MCP allowlist。(LIBERO 中由于历史原因把这些拆到了 ``tools.py`` 和 ``toolkit.py``
-两个文件; 新增 robot 时全部放在 ``toolkit.py`` 里没问题。)
+这个模块负责组织 LLM 可以调用的工具，以及这些工具需要的客户端和环境状态。
+现有的 LIBERO、RoboCasa 和 RoboTwin 实现将工具函数放在 ``tools.py``，
+其余部分放在 ``toolkit.py``，新增机器人时可以沿用这一划分。
 
-toolkit 模块通常包含四部分：
+通常需要实现以下四部分：
 
-**Primitives 类**\ （例如 ``MyRobotPrimitives``）是 toolkit 持有的 Python
-对象。它保存 ``EnvClient``、VLA ``model`` client 和单次运行所需的状态。每个
-原语工具（``move_to``、``pi0_pick``、``release`` 等）对应一个方法，并返回
-日志字典。
+**运行时对象**\ （例如 ``MyRobotRuntime``）由 toolkit 持有，保存 ``EnvClient``、
+VLA 客户端和本次会话的状态。工具函数通过 ``ctx.robot`` 访问它，从而共用同一个
+环境、缓存观测和任务进度。
 
-**工具定义和处理函数** 包括模块级的 ``TOOLS_SPEC`` 列表（列表元素采用
-Anthropic API 的工具定义格式，包含 ``name``、``description`` 和
-``input_schema``），以及 toolkit 引用的模块级函数，例如
-``view_env_state``、``back_project`` 和 ``finish``。
+**工具定义和处理函数** 放在 ``tools.py`` 中，用 ``@tool`` 声明。函数签名描述
+工具参数，Google 风格 docstring 提供工具说明，函数本身负责执行动作并返回
+``ToolResult``。将这些声明收集到 ``MYROBOT_TOOLS`` 元组中，就得到了该机器人
+提供的工具集合。具体写法见 :doc:`add_primitive`。
 
-**每步状态 dump** —— ``dump_state(driver, env_state, log)`` 通过
-``env_state.record_step(...)`` 创建由 ``EnvState`` 持有的步骤，并取得分配的
-step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过
-``env_state.save(...)`` 保存——在 ``record_step`` 块内可省略 ``step`` 参数
-（默认指向刚创建的步骤），传显式 ``step=<int>`` 可指定其它步骤，``step=None``
-用于运行级工件。每次保存成功后，``EnvState`` 会自动把基础文件名加入该
-``StepRecord`` 的扁平 ``artifacts`` 集合；读取方直接使用规范化的工件文件名。
+**每步状态保存** 由 ``dump_state(runtime, env_state, log)`` 完成。它通过
+``env_state.record_step(...)`` 创建步骤记录，并用 ``env_state.save(...)``
+保存观测。在 ``record_step`` 块内省略 ``step`` 时，文件属于当前步骤；指定
+``step=<int>`` 可以保存到其他步骤，``step=None`` 则用于整次运行的文件。
+每次保存成功后，文件名会自动加入该 ``StepRecord`` 的 ``artifacts`` 集合。
+再由 ``build_observation(state, record)`` 将记录整理成文本数据和图片，供动作
+响应与 ``view_env_state`` 共用。
 
-**Toolkit 类** 继承 ``rpent.tools.toolkit.Toolkit``：
+**Toolkit 类** 继承 ``Toolkit[MyRobotRuntime]``，将前面几部分连接起来：
 
-- 在 ``super().__init__(...)`` 中传入 ``memory``（一个
-  :class:`~rpent.memory.MemoryManager`）和 ``state``。``memory_access`` 和
-  ``inbox_cell_tag`` 在构造 ``MemoryManager`` 时配置；eval 默认只读。
-- 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitives（LIBERO
-  中的方法名为 ``init_primitives``；它会调用 ``EnvState.reset()``、构造
-  原语并 dump 第 0 步）,
-- 用 ``self.add_tool(name, spec, handler)`` 注册每个工具。无状态的读取工具
-  （如 ``view_env_state``、``finish``）直接绑定模块级函数；原语工具通过
-  ``_step(name, **kwargs)`` 调用。``_step`` 使用
-  ``getattr(self._primitives, name)(**kwargs)`` 调用 driver 方法并重新渲染状态；
-- 重写 ``close()``，通过 ``EnvState`` 保存 agent 侧剩余工件（例如
-  ``state.save("episode.mp4", frames, step=None)``）。
+- 在 ``__init__`` 中构造运行时对象和 ``EnvState``，并将它们连同 ``memory``、
+  ``output_dir``、``tools=MYROBOT_TOOLS`` 和 ``dashboard_events`` 传给基类。
+  运行时对象使用 ``robot`` 参数传入；memory 的访问权限在 ``MemoryManager``
+  上配置，评测时默认为只读。
+- 初始化环境并保存第 0 步状态。如果支持 Dashboard，同时发布
+  ``StepRecordEvent``，让页面显示初始观测。
+- 实现 ``_capture_observation(*, command, result, elapsed_s)``，调用上述
+  状态保存与观测整理函数，返回观测数据和 PNG 图片。Toolkit 会在动作执行后
+  自动调用它；原始执行结果可通过 ``result.to_dict()`` 保存到步骤日志中。
+- 实现 ``solved()``，根据环境状态判断任务是否成功。工具调用、取消和录像收尾
+  由基类处理；若需要额外的关闭逻辑，在重写 ``close()`` 时保留对基类的调用。
 
-``primitives_kwargs`` 由 ``robot_spec.py:get_toolkit`` 转发给 toolkit，再原样传入
-primitives 的 ``__init__``。其中通常包含
-``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``。
+``runtime_kwargs`` 由 ``robot_spec.py:get_toolkit`` 转发给 toolkit，用于构造
+运行时对象。其中通常包含 ``{"env": MyEnvClient(...), "model": VLAClient(...)}``
+及其他辅助客户端。
 
 建议遵循的约定
 --------------
 
 - ``output_dir`` 是 runner 为单次运行创建的工作目录。环境观测由
-  ``EnvState`` 管理；调用方只使用逻辑基础文件名，不自行拼接存储路径。
-  transcript 等运行管理输出与环境工件共享该目录。
-- 工具定义使用 Anthropic API 格式（``name`` / ``description`` /
-  ``input_schema``）。
-  每个用 ``self.add_tool(...)`` 注册的工具都会暴露给所有 planner。
-- 环境侧的返回值必须可 pickle，且不包含 torch 对象。
-- 每个原语工具执行后要 dump 一次新的状态快照, 这样下一次
-  ``view_env_state`` 看到的是动作后的世界。
-- ``dump_state`` 是 Agent 获取环境状态的唯一数据来源；任何新的模态
-  （例如触觉、力）都通过它提供。
+  ``EnvState`` 管理；调用方使用逻辑文件名，不自行拼接存储路径。
+  transcript 等运行记录与环境文件共享该目录。
+- 工具定义来自带 ``@tool`` 的函数，planner 负责将它们转换为各自 SDK 所需的格式。
+  机器人工具只需实现一次，就能供不同 planner 调用。
+- 环境侧返回传输层支持的 Python / NumPy 数据，不包含 torch 对象。
+- 动作工具执行后，由 toolkit 保存新的状态快照，让下一次 ``view_env_state``
+  能读到动作后的环境。工具需要录制过程画面时，通过 ``ctx.record_frame`` 提交帧。
+- 新增触觉、力等观测模态时，仍通过 ``dump_state`` 保存，再由
+  ``build_observation`` 提供给 planner。
+
+工具的参数、返回值和执行约定见 :doc:`interfaces`。
 
 .. _add-robot-config:
 
@@ -364,20 +365,20 @@ main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参�
 5. Runtime 初始化钩子
 ---------------------
 
-``init_runtime`` 返回 ``(owned_daemons, primitives_kwargs)``：
+``init_runtime`` 返回 ``(owned_daemons, runtime_kwargs)``：
 
 - ``owned_daemons: list[ProcessDaemon]`` 只包含当前进程实际启动的子进程，
   当前 runner 会在清理阶段停止它们。连接外部 endpoint 时，不能把外部服务加入
   该列表。
-- ``primitives_kwargs: dict`` 会传给 toolkit 构造器，再由后者传入 primitives
-  的 ``__init__``。完整参数通常包含
-  ``{"env": MyEnvClient(...), "model": VLAClient(...)}``，以及其他辅助 client。
+- ``runtime_kwargs: dict`` 包含本次运行所需的客户端，通常是
+  ``{"env": MyEnvClient(...), "model": VLAClient(...)}`` 及其他辅助客户端。
+  Toolkit 使用这些参数构造运行时对象，供工具函数共用。
 
 第四个参数 ``components`` 指定要初始化的服务名称。``None`` 表示全部服务，普通
 CLI 会传入这个值。Dashboard 根据 ``dashboard.runtime_components`` 得到两个子集，
 每个 component 都必须显式声明 ``scope: "shared"`` 或 ``scope: "unique"``。Dashboard
 先初始化一次 shared components，再为每个新的环境实例初始化 unique
-components。两次都调用同一个钩子，最后合并返回的 ``primitives_kwargs``。在
+components。两次都调用同一个钩子，最后合并返回的 ``runtime_kwargs``。在
 LIBERO 中，这两个子集分别是 ``{"vla", "sam3"}`` 和 ``{"env"}``。
 
 实现应在启动任何服务前拒绝未知 component 名称。如果多个选中的本地服务初始化

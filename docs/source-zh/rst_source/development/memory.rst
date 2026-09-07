@@ -56,6 +56,15 @@ memory 同步到 ``memory/<robot>/``。数据集是公开的，无需 token 即�
 本地 memory 配置使用。Hugging Face memory 和本地 memory 使用相同的目录规范，区别只
 在于来源。
 
+工具读写 memory 时，会使用当前会话的 ``MemoryManager`` 检查权限：评测只能读取
+当前机器人的已发布内容，探索时可以向自己的 ``_internal/inbox/<cell>/`` 写入草稿。
+公共文件工具已接入这些检查；新增需要访问 memory 的工具时，可通过
+``ctx.memory.authorize_read(path)`` 或 ``authorize_write(path)`` 获取允许访问的路径。
+
+运行中的 recipe 由 ``Toolkit.write_recipe(recipe_tag)`` 统一导出，记录成功的
+机器人动作与感知调用，也保留同一会话中的 reset。文件操作和 ``finish`` 不会写入
+recipe。是否将生成的 audit 和 recipe 纳入 memory，仍由运行流程根据结果决定。
+
 贡献 memory
 -----------
 

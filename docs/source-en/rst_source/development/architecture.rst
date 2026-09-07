@@ -55,7 +55,7 @@ A single run is an LLM-in-the-loop cycle:
 
 1. The LLM reasons about the task and calls a tool
    (e.g. ``pi0_pick``).
-2. The tool's primitives requests an action from the ``vla_server``
+2. The native tool handler requests an action from the ``vla_server``
    (``predict``).
 3. The ``env_server`` executes the action.
 4. The environment returns updated observations and camera frames.
@@ -79,12 +79,15 @@ The framework code is organized by responsibility:
      context/        # Prompt utilities and shared prompt sections.
      dashboard/      # FastAPI monitor + SSE streams (optional).
      robots/         # RobotSpec, PromptBundle, and on-demand robot loading.
-     tools/          # Toolkit base class and shared tool helpers.
+     tools/          # Native tool protocol, executor, and common tools.
+     session/        # EnvState, step records, and artifact storage.
+     memory/         # Memory sync, access control, and exploration merge.
      utils/          # Config, logging, RPC, and VLA client helpers.
    robots/
      libero/         # LIBERO env_client / env_server / vla_server /
                      # toolkit / prompt_bundle. The reference robot.
      robocasa/       # RoboCasa robot (RLDX-1 VLA, kitchen tasks).
+     robotwin/       # RoboTwin robot (LingBot-VLA, dual-arm tasks).
      (franka/)       # Franka robot — in progress.
      (so101/)        # SO-101 robot — in progress.
    scripts/
@@ -124,8 +127,8 @@ components required for a run. On startup, it:
    environment implementation starts or connects to the runtime services
    required by that environment, such as ``env_server``, ``vla_server``, and
    optional supporting services (for example, LIBERO's ``sam3_server`` for
-   segmentation), and returns ``(daemons, primitives_kwargs)``.
-9. Passes ``primitives_kwargs`` and a ``dashboard_events`` sink to the robot's
+   segmentation), and returns ``(daemons, runtime_kwargs)``.
+9. Passes ``runtime_kwargs`` and a ``dashboard_events`` sink to the robot's
    ``get_toolkit`` factory to construct the **toolkit**. The one-shot path
    uses a no-op event sink.
 10. Runs the tool-calling loop, then writes
@@ -150,7 +153,7 @@ two factories exposed by that package:
    # robots/myrobot/__init__.py
    def get_robot_spec() -> RobotSpec: ...  # identity, prompt bundle, and runner hooks
    def get_toolkit(
-       *, primitives_kwargs, dashboard_events
+       *, runtime_kwargs, dashboard_events, config
    ): ...
 
 ``RobotSpec`` gathers the robot's identity, prompt templates, optional
@@ -158,25 +161,27 @@ Dashboard description, and three runner hooks (``add_cli_args`` /
 ``parse_config`` / ``init_runtime``). See :doc:`interfaces` for what each
 field must provide.
 
-The loader itself does not maintain a list of robot names. The
-current CLI restricts ``--robot`` to ``libero`` and ``robocasa``; adding a
-new name therefore also requires updating the CLI choices. See
-:doc:`add_robot` for the complete procedure.
+The loader discovers robot packages on disk. The CLI obtains its ``--robot``
+choices from ``enumerate_robots()``; LIBERO, RoboCasa, and RoboTwin are available.
+See :doc:`add_robot` for the complete procedure.
 
 Planner, Toolkit, and RPC transports
 -------------------------------------
 
-These three layers stay decoupled, each owning one segment of the path. The
-planner only pulls the tool list via ``get_tools_spec`` and invokes tools with
-``execute_tool``, indifferent to whether a tool is scripted or a VLA. The
-toolkit translates each tool call into a primitive call, and the primitives
-issues ``reset`` / ``step`` / ``predict`` requests to ``env_server`` /
-``vla_server`` over RPC. The RPC transport (HTTP or socket) only ferries those
-calls and their NumPy observations across processes, transparent to the layers
-above. That is why swapping the planner leaves the tools untouched, and
-swapping the transport leaves the planner untouched. The concrete interface
-contracts (``Planner.solve``, ``Toolkit.add_tool``, ``RpcFacade._dispatch``)
-are collected in :doc:`interfaces`.
+The planner reads native ``Tool`` declarations through ``list_tools()`` and
+invokes them through ``execute_tool``. It adapts schemas and ``ToolResult``
+text / PNG images to its SDK; Claude Code and Codex use MCP adapters at this
+boundary. Robot handlers are independent of the planner transport.
+
+``Toolkit`` validates arguments, schedules calls, injects ``ToolContext``, and
+captures post-action observations. Handlers use ``ctx.robot`` to access their
+session runtime and issue ``reset`` / ``step`` / ``predict`` requests through
+environment and model clients. HTTP or socket RPC carries those calls and
+NumPy observations between processes.
+
+The toolkit also owns cancellation, frame recording, recipe export, and
+``finish_result``. Robot-specific subclasses build observations and report
+native success through ``solved()``. See :doc:`interfaces` for the contracts.
 
 Dashboard (optional)
 --------------------
@@ -192,7 +197,7 @@ frontend. The Session controller waits for that robot-defined command
 (``/rpent-task`` for LIBERO). For every claimed TaskRun, the Dashboard calls
 ``parse_config`` and the same ``robot_spec.init_runtime`` hook with the unique
 component names, merges the shared and unique
-primitive inputs, and creates a fresh toolkit and planner conversation. Both
+runtime inputs, and creates a fresh toolkit and planner conversation. Both
 subsets come from explicit ``shared`` / ``unique`` scope values in the
 environment's Dashboard spec. In LIBERO, VLA and SAM3 are reused while the
 Dashboard is running, while every TaskRun gets a separate environment runtime

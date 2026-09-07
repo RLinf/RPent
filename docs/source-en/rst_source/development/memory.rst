@@ -73,3 +73,20 @@ repository ships no self-serve upload path. To contribute a new or updated
 memory note, open an RPent issue with the proposed memory file and its
 provenance, and a maintainer will review and publish accepted files to
 ``RLinf/RPent-memory``.
+
+Tool access and recipe export
+-----------------------------
+
+Shared file tools live in ``rpent.tools.common_tools`` and use the current
+``ToolContext.memory``. ``MemoryManager.authorize_read(path)`` and
+``authorize_write(path)`` resolve paths relative to the repository root and
+apply the current robot's memory permissions. Published memory is read-only;
+exploration may write to its configured ``_internal/inbox/<cell>/``. Access to
+another robot's repository memory is denied. These checks govern memory
+access; they do not restrict all files to the output directory.
+
+``Toolkit.write_recipe(recipe_tag)`` exports successful robot action and
+perception calls in completion order, including resets across attempts in the
+same session. Common file/image tools and ``finish`` are excluded. A failed
+call is not exported. The runner decides whether the resulting audit and
+recipe qualify for publication to memory.
