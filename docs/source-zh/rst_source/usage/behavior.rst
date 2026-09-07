@@ -183,9 +183,12 @@ BEHAVIOR 使用和其他机器人相同的 Markdown/YAML ``MemoryManager`` 格�
 
 - Eval 只构造一个 ``read_only`` MemoryManager；
 - Explore 只构造一个 ``inbox_write`` MemoryManager，写入范围限定为
-  ``<memory-dir>/_inbox/<recipe-tag>``；
-- ``MEMORY.md``、``global/``、``suite/``、``task/``、``_inbox/`` 和
-  ``_merged/`` 保持 RPent 标准语义。
+  ``<memory-dir>/_internal/inbox/<recipe-tag>``；
+- ``MEMORY.md``、``global/``、``suite/`` 和 ``task_only/`` 保存已发布语料，
+  成功的 audit/recipe 对复制到 ``task_only/``；
+- merge 处理有效的根级草稿后，将该 cell 的 inbox 归档到
+  ``_internal/merged/<recipe-tag>``。只有无效草稿的 inbox 保留原位；
+  冲突文本归档到 ``_internal/conflicts/``。
 
 缺失或空 corpus 是合法状态，但不会提供任何建议。需要共享已审查 memory 的运行应
 显式传入同一个 ``--memory-dir``。

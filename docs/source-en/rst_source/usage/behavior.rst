@@ -194,9 +194,12 @@ public tool receipts and remains historical guidance only.
 
 - Eval creates one ``MemoryManager`` with ``read_only`` access.
 - Explore creates one ``MemoryManager`` with ``inbox_write`` access scoped to
-  ``<memory-dir>/_inbox/<recipe-tag>``.
-- ``MEMORY.md``, ``global/``, ``suite/``, ``task/``, ``_inbox/``, and
-  ``_merged/`` retain their standard RPent meanings.
+  ``<memory-dir>/_internal/inbox/<recipe-tag>``.
+- ``MEMORY.md``, ``global/``, ``suite/``, and ``task_only/`` hold the published
+  corpus. Solved audit/recipe pairs are copied to ``task_only/``.
+- When merge processes a valid root-level draft, the cell inbox is archived to
+  ``_internal/merged/<recipe-tag>``. An inbox containing only invalid drafts
+  stays in place; conflicting prose is archived under ``_internal/conflicts/``.
 
 An absent or empty corpus is valid, but it contains no advice. Pass the same
 explicit ``--memory-dir`` to runs that should share reviewed memory.
