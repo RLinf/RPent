@@ -53,7 +53,7 @@ class DashboardSessionController:
         shared_daemons: list[ProcessDaemon] = []
         try:
             try:
-                shared_daemons, shared_primitives_kwargs = self._start_shared()
+                shared_daemons, shared_runtime_kwargs = self._start_shared()
             except Exception as exc:
                 self._state.fail_session(exc)
                 return
@@ -64,7 +64,7 @@ class DashboardSessionController:
                 if claimed is None:
                     break
                 try:
-                    error = self._run_task(claimed, shared_primitives_kwargs)
+                    error = self._run_task(claimed, shared_runtime_kwargs)
                 except Exception as exc:
                     error = exc
 

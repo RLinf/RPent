@@ -16,14 +16,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import queue
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Protocol
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.interaction import DashboardInteractionPort
-from rpent.tools.toolkit import Toolkit
+from rpent.tools import Toolkit, ToolResult
 from rpent.utils.config import (
     get_memory_dir,
     get_repo_root,
@@ -45,6 +48,27 @@ def add_mcp_prefix(name: str) -> str:
 def strip_mcp_prefix(name: str) -> str:
     """Return the bare tool name, dropping the MCP namespace if present."""
     return name.removeprefix(MCP_TOOL_PREFIX)
+
+
+async def cancel_and_wait(cancel: Callable[[], None]) -> None:
+    """Keep cancellation independent of a tool pool full of waiting calls."""
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="tool-control") as pool:
+        await asyncio.get_running_loop().run_in_executor(pool, cancel)
+
+
+async def execute_tool(toolkit: Toolkit, name: str, arguments: dict) -> ToolResult:
+    """Retain the worker through cancellation, including queued executor jobs."""
+    worker = asyncio.create_task(
+        asyncio.to_thread(toolkit.execute_tool, name, arguments)
+    )
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        await cancel_and_wait(toolkit.cancel_active_and_wait)
+        # Jobs still in the executor queue must observe paused admission before
+        # the adapter can resume the next turn.
+        await asyncio.shield(worker)
+        raise
 
 
 class PlannerResult:
@@ -96,7 +120,7 @@ class Planner(Protocol):
             user_message: Initial user message (task description, first steps).
             toolkit: The full :class:`~rpent.tools.toolkit.Toolkit`
                 (common + robot tools). Backends derive ``tools_spec`` via
-                ``toolkit.get_tools_spec()`` and dispatch calls via
+                ``toolkit.list_tools()`` and dispatch calls via
                 ``toolkit.execute_tool()``.
             max_turns: Maximum LLM turns before giving up.
             input_queue: Optional queue of user-typed lines for interactive steering.

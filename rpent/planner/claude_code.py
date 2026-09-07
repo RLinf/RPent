@@ -47,8 +47,10 @@ from rpent.planner.base import (
     REASONING_EFFORTS,
     PlannerResult,
     add_mcp_prefix,
+    cancel_and_wait,
     strip_mcp_prefix,
 )
+from rpent.planner.utils.http_mcp_server import build_mcp_server, list_mcp_tools
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
@@ -145,6 +147,7 @@ class ClaudeCodePlanner:
             output_path.parent.mkdir(parents=True, exist_ok=True)
         raw_stream_path = output_path.with_suffix(output_path.suffix + ".stream.jsonl")
         recorder = _Recorder(
+            toolkit=toolkit,
             max_turns=max_turns,
             dashboard_events=self._dashboard_events,
         )
@@ -228,13 +231,14 @@ class ClaudeCodePlanner:
                         options,
                         recorder,
                         input_queue,
+                        toolkit=toolkit,
                         emit=_emit,
                         emit_user=_emit_user,
                     )
             except asyncio.TimeoutError:
                 error = f"Claude Agent SDK timed out after {self._timeout_s}s"
                 try:
-                    await asyncio.to_thread(toolkit.cancel_active_and_wait)
+                    await cancel_and_wait(toolkit.cancel_active_and_wait)
                 except Exception as cancel_error:
                     logger.warning(
                         "failed to cancel toolkit work after Claude timeout: %s",
@@ -254,6 +258,16 @@ class ClaudeCodePlanner:
                 out_f.flush()
                 _write_jsonl(raw_f, {"type": "error", "message": error})
                 logger.info(rendered.rstrip())
+
+            finally:
+                try:
+                    await cancel_and_wait(toolkit.cancel_active_and_wait)
+                except Exception as exc:
+                    logger.exception("Claude toolkit cleanup failed")
+                    error = error or f"Toolkit cleanup failed: {exc}"
+                _write_jsonl(
+                    raw_f, {"type": "toolkit_finish", "finish": toolkit.finish_result}
+                )
 
         elapsed = time.time() - started
         text = "".join(rendered_chunks) or output_path.read_text(errors="replace")
@@ -285,6 +299,7 @@ class ClaudeCodePlanner:
         recorder: "_Recorder",
         input_queue,
         *,
+        toolkit: Toolkit,
         emit,
         emit_user,
     ) -> None:
@@ -296,7 +311,9 @@ class ClaudeCodePlanner:
         sentinel (or ``/quit``) interrupts the run; the ``finish`` tool ends it
         normally. Because a human supervises, there is no wall-clock cap here.
         """
-        adapter = _TerminalSessionAdapter(input_queue=input_queue, emit_user=emit_user)
+        adapter = _TerminalSessionAdapter(
+            toolkit=toolkit, input_queue=input_queue, emit_user=emit_user
+        )
         driver = _ClaudeSessionDriver(
             sdk=sdk,
             options=options,
@@ -322,6 +339,7 @@ class ClaudeCodePlanner:
         adapter = _ClaudeDashboardAdapter(
             interaction=dashboard_interaction,
             cancel_active_and_wait=toolkit.cancel_active_and_wait,
+            resume_calls=toolkit.resume_calls,
             emit_user=emit_user,
             emit_initial_user=lambda: emit_user(
                 initial_user_text,
@@ -343,9 +361,7 @@ class ClaudeCodePlanner:
             part for part in self._allowed_tools.replace(",", " ").split() if part
         ]
         builtins = [name for name in allowed if "__" not in name]
-        allowed.extend(
-            add_mcp_prefix(str(spec["name"])) for spec in toolkit.get_tools_spec()
-        )
+        allowed.extend(add_mcp_prefix(tool.name) for tool in list_mcp_tools(toolkit))
 
         thinking = {"type": "disabled"} if self._reasoning_effort == "none" else None
         effort = None if self._reasoning_effort == "none" else self._reasoning_effort
@@ -359,7 +375,6 @@ class ClaudeCodePlanner:
             allowed_tools=list(dict.fromkeys(allowed)),
             mcp_servers={
                 "rpent": _build_rpent_server(
-                    sdk,
                     toolkit=toolkit,
                 ),
             },
@@ -393,6 +408,10 @@ class _ClaudeSessionDriver:
         self._recorder = recorder
         self._emit = emit
         self._client: Any | None = None
+        self._pending_results = 0
+        self._turns_drained = asyncio.Event()
+        self._turns_drained.set()
+        self._interrupting = False
 
     async def run(self, prompt: str, adapter: Any) -> None:
         """Open one client, submit the first query, and run one input adapter."""
@@ -431,7 +450,15 @@ class _ClaudeSessionDriver:
         """Submit one user turn to the owned client."""
         if self._client is None:
             raise RuntimeError("Claude session is not connected")
-        await self._client.query(text)
+        self._pending_results += 1
+        self._turns_drained.clear()
+        try:
+            await self._client.query(text)
+        except BaseException:
+            self._pending_results -= 1
+            if not self._pending_results:
+                self._turns_drained.set()
+            raise
 
     async def submit(self, text: str) -> int:
         """Submit Dashboard input as a new Claude query."""
@@ -442,34 +469,54 @@ class _ClaudeSessionDriver:
         """Interrupt the owned client and suppress its expected error result."""
         if self._client is None:
             raise RuntimeError("Claude session is not connected")
+        interrupted = self._pending_results
+        if not interrupted:
+            return 0
+        self._interrupting = True
         self._recorder.suppress_next_result_error = True
         try:
             await self._client.interrupt()
+            # The SDK acknowledgement alone does not close old tool requests.
+            # The consumer signals before calling control hooks (which may be
+            # waiting for this interrupt to release the Dashboard lock).
+            await asyncio.wait_for(self._turns_drained.wait(), timeout=15)
         except BaseException:
-            # A failed interrupt must not hide a later unrelated SDK error.
             self._recorder.suppress_next_result_error = False
             raise
-        # Claude emits a ResultMessage for the interrupted query, so the
-        # matching completion is accounted for by the normal message path.
-        return 0
+        finally:
+            self._interrupting = False
+        return interrupted
 
     async def _consume(self, adapter: Any) -> None:
         if self._client is None:
             raise RuntimeError("Claude session is not connected")
         async for message in self._client.receive_messages():
             self._emit(message)
+            if _kind(message) == "ResultMessage":
+                self._pending_results = max(0, self._pending_results - 1)
+                if not self._pending_results:
+                    self._turns_drained.set()
             # A successful finish tool result owns the boundary: end the
             # session without giving queued Dashboard input a chance to flush.
             if self._recorder.finish_result is not None:
                 logger.info("FINISH called: %s", self._recorder.finish_result)
                 return
+            if self._interrupting:
+                continue
             await adapter.on_message(self, message)
 
 
 class _TerminalSessionAdapter:
     """Preserve the terminal TUI's interrupt-then-query steering policy."""
 
-    def __init__(self, *, input_queue: Any, emit_user) -> None:
+    def __init__(
+        self,
+        *,
+        toolkit: Toolkit,
+        input_queue: queue.Queue[str | None],
+        emit_user: Callable[[str], None],
+    ) -> None:
+        self._toolkit = toolkit
         self._input_queue = input_queue
         self._emit_user = emit_user
 
@@ -478,18 +525,14 @@ class _TerminalSessionAdapter:
 
     async def run(self, driver: _ClaudeSessionDriver) -> None:
         while True:
-            nxt = await asyncio.to_thread(next_user_line, self._input_queue)
-            if nxt is None:
-                with contextlib.suppress(Exception):
-                    await driver.interrupt()
+            user_text = await asyncio.to_thread(next_user_line, self._input_queue)
+            await cancel_and_wait(self._toolkit.cancel_active_and_wait)
+            await driver.interrupt()
+            if user_text is None or self._toolkit.finish_result is not None:
                 return
-            self._emit_user(nxt)
-            # Keep the current terminal semantics: every steering line
-            # interrupts the in-flight turn, then enters the same session.
-            with contextlib.suppress(Exception):
-                await driver.interrupt()
-            with contextlib.suppress(Exception):
-                await driver.query(nxt)
+            self._toolkit.resume_calls()
+            self._emit_user(user_text)
+            await driver.query(user_text)
 
     async def on_message(
         self,
@@ -511,12 +554,14 @@ class _ClaudeDashboardAdapter:
         *,
         interaction: DashboardInteractionPort,
         cancel_active_and_wait: Callable[[], None],
+        resume_calls: Callable[[], None],
         emit_user: Callable[[str], None],
         emit_initial_user: Callable[[], None],
     ) -> None:
         self._control = DashboardPlannerControl(
             interaction=interaction,
             cancel_active_and_wait=cancel_active_and_wait,
+            resume_calls=resume_calls,
             emit_user=emit_user,
             emit_initial_user=emit_initial_user,
         )
@@ -569,13 +614,13 @@ class _Recorder:
     ``recorder.error``; transport-level errors are written beside the transcript.
     """
 
+    toolkit: Toolkit
     max_turns: int
     dashboard_events: DashboardEventSink
     turns: int = 0
     _seen_assistant_ids: set[str] = field(default_factory=set)
     tool_calls: int = 0
     tool_names: dict[str, str] = field(default_factory=dict)
-    pending_finish: dict[str, dict[str, Any]] = field(default_factory=dict)
     usage: dict[str, int] = field(
         default_factory=lambda: {
             "total_input_tokens": 0,
@@ -585,7 +630,6 @@ class _Recorder:
         }
     )
     total_cost_usd: float | None = None
-    finish_result: dict[str, Any] | None = None
     error: str | None = None
     #: Set by the interactive loop before a user-initiated ``interrupt`` so the
     #: next result (which the CLI may flag ``is_error``) is not mistaken for a
@@ -593,6 +637,10 @@ class _Recorder:
     suppress_next_result_error: bool = False
 
     # -- public ------------------------------------------------------------
+
+    @property
+    def finish_result(self) -> dict[str, str] | None:
+        return self.toolkit.finish_result
 
     def stats(self) -> dict[str, int | float | None]:
         return {
@@ -665,8 +713,6 @@ class _Recorder:
                 name = strip_mcp_prefix(str(_get(block, "name", "tool")))
                 self.tool_names[tool_id] = name
                 tool_input = _get(block, "input", {}) or {}
-                if name == "finish" and isinstance(tool_input, dict):
-                    self.pending_finish[tool_id] = dict(tool_input)
                 lines.append(f"[tool->] {name}: {_short_json(tool_input, limit=500)}\n")
                 self.dashboard_events.emit(
                     TranscriptEvent(
@@ -714,10 +760,6 @@ class _Recorder:
             summary["images"] = image_count
         if is_error:
             summary["is_error"] = bool(is_error)
-        # Promote the finish payload once the tool result lands successfully.
-        pending = self.pending_finish.pop(tool_use_id, None)
-        if pending is not None and not is_error and self.finish_result is None:
-            self.finish_result = {"_finish": True, **pending}
         self.dashboard_events.emit(
             TranscriptEvent(
                 {
@@ -788,63 +830,10 @@ class _Recorder:
 # ---------------------------------------------------------------------------
 
 
-def _build_rpent_server(sdk: Any, *, toolkit: Toolkit) -> Any:
-    sdk_tools = []
-    tool_execution_lock = asyncio.Lock()
-    for spec in toolkit.get_tools_spec():
-        name = str(spec["name"])
-        description = str(spec.get("description", ""))
-        input_schema = spec.get("input_schema", {"type": "object"})
-
-        async def run_tool(
-            args: dict[str, Any],
-            *,
-            tool_name: str = name,
-        ) -> dict[str, Any]:
-            async with tool_execution_lock:
-                result = await asyncio.to_thread(
-                    toolkit.execute_tool,
-                    tool_name,
-                    args or {},
-                )
-            return _tool_result_to_mcp(result)
-
-        run_tool.__name__ = f"rpent_{name}"
-        sdk_tools.append(sdk.tool(name, description, input_schema)(run_tool))
-
-    return sdk.create_sdk_mcp_server(name="rpent", version="0.1.0", tools=sdk_tools)
-
-
-def _tool_result_to_mcp(tr: Any) -> dict[str, Any]:
-    # The toolkit already formatted the result into Anthropic content blocks;
-    # translate those into the MCP content shape (text + image).
-    blocks = getattr(tr, "content_blocks", None)
-    if blocks is None:
-        return {"content": [{"type": "text", "text": str(tr)}]}
-
-    content: list[dict[str, Any]] = []
-    for block in blocks:
-        block_type = _get(block, "type")
-        if block_type == "text":
-            content.append({"type": "text", "text": _get(block, "text", "")})
-        elif block_type == "image":
-            src = _get(block, "source", {})
-            content.append(
-                {
-                    "type": "image",
-                    "data": _get(src, "data", ""),
-                    "mimeType": _get(src, "media_type", "image/png"),
-                }
-            )
-
-    response: dict[str, Any] = {"content": content}
-    # Surface toolkit-level failures as MCP errors. Without this every result
-    # looks successful to the SDK, and `_Recorder` promotes a `finish` call to
-    # the run's finish_result even when the handler rejected it.
-    result_dict = getattr(tr, "result", None)
-    if isinstance(result_dict, dict) and result_dict.get("error"):
-        response["is_error"] = True
-    return response
+def _build_rpent_server(*, toolkit: Toolkit) -> dict[str, Any]:
+    # A native MCP Server avoids the SDK helper's extra JSON Schema validator,
+    # which would reject values the Args Model intentionally converts.
+    return {"type": "sdk", "name": "rpent", "instance": build_mcp_server(toolkit)}
 
 
 # ---------------------------------------------------------------------------

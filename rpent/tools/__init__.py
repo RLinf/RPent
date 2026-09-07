@@ -12,11 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Agent tool declarations, handlers, and result serialization."""
+"""Native tool protocol and execution."""
 
-from rpent.tools.toolkit import Toolkit, ToolResult
+from rpent.tools.base import (
+    Tool,
+    ToolCancelled,
+    ToolContext,
+    ToolResult,
+    parallel,
+    readonly,
+    tool,
+)
+from rpent.tools.toolkit import Toolkit
 
 __all__ = [
-    "Toolkit",
+    "Tool",
+    "ToolCancelled",
+    "ToolContext",
     "ToolResult",
+    "Toolkit",
+    "parallel",
+    "readonly",
+    "tool",
 ]

@@ -59,7 +59,6 @@ class StepRecordEvent:
 
     record: Any
     env_state: Any
-    frame_artifacts: dict[str, str]
 
 
 @dataclass(frozen=True, slots=True)

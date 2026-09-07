@@ -401,7 +401,7 @@ def main() -> int:
         await_first_prompt = start_first_prompt_resolver(input_queue)
 
     # --- initialise robot runtime --------------------------------------------
-    daemons, primitives_kwargs = robot_spec.init_runtime(
+    daemons, runtime_kwargs = robot_spec.init_runtime(
         args,
         output_dir,
         dashboard_events,
@@ -452,7 +452,7 @@ def main() -> int:
             if robot_name == "libero":
                 toolkit = get_toolkit(
                     robot_name,
-                    primitives_kwargs=primitives_kwargs,
+                    runtime_kwargs=runtime_kwargs,
                     dashboard_events=dashboard_events,
                     config=run_config,
                     mode="exploration" if args.explore else "evaluation",
@@ -464,7 +464,7 @@ def main() -> int:
             else:
                 toolkit = get_toolkit(
                     robot_name,
-                    primitives_kwargs=primitives_kwargs,
+                    primitives_kwargs=runtime_kwargs,
                     dashboard_events=dashboard_events,
                     config=run_config,
                 )

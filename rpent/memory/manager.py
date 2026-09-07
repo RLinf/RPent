@@ -20,12 +20,12 @@ import fcntl
 import os
 import re
 import shutil
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
 
 logger = get_logger("memory")
@@ -146,45 +146,42 @@ class MemoryManager:
         """Resolved corpus root."""
         return self._root
 
-    def get_common_tool_bindings(
-        self,
-    ) -> dict[str, tuple[dict[str, Any], Callable[..., Any]]]:
-        """Return memory-aware bindings for shared file tools."""
-        from functools import partial
+    def authorize_read(self, path: str | Path) -> Path:
+        """Resolve a path and enforce the current run's memory read permissions."""
+        return self._authorize(path, write=False)
 
-        from rpent.memory import tools as memory_tools
-        from rpent.tools import common
+    def authorize_write(self, path: str | Path) -> Path:
+        """Resolve a path and enforce the current run's memory write permissions."""
+        return self._authorize(path, write=True)
 
-        handlers = {
-            "read_text_file": partial(
-                memory_tools.read_text_file,
-                memory_root=self._root,
-                memory_access=self._memory_access,
-                cell_tag=self._inbox_cell_tag,
-            ),
-            "write_text_file": partial(
-                memory_tools.write_text_file,
-                memory_root=self._root,
-                memory_access=self._memory_access,
-                cell_tag=self._inbox_cell_tag,
-            ),
-            "list_dir": partial(
-                memory_tools.list_dir,
-                memory_root=self._root,
-                memory_access=self._memory_access,
-                cell_tag=self._inbox_cell_tag,
-            ),
-        }
-        bindings: dict[str, tuple[dict[str, Any], Callable[..., Any]]] = {}
-        for spec in common.TOOLS_SPEC:
-            name = spec["name"]
-            handler = handlers.get(name)
-            if handler is None:
-                continue
-            tool_spec = dict(spec)
-            tool_spec["description"] += memory_tools.MEMORY_BOUNDARY_NOTE
-            bindings[name] = (tool_spec, handler)
-        return bindings
+    def _authorize(self, path: str | Path, *, write: bool) -> Path:
+        repo_root = get_repo_root()
+        resolved = (repo_root / path).resolve()
+        if not resolved.is_relative_to(self._root):
+            if resolved.is_relative_to((repo_root / "memory").resolve()):
+                raise PermissionError(
+                    f"access to another robot's memory is denied: {path}"
+                )
+            return resolved
+
+        parts = resolved.relative_to(self._root).parts
+        if self._memory_access == "inbox_write" and parts[:3] == (
+            "_internal",
+            "inbox",
+            self._inbox_cell_tag,
+        ):
+            return resolved
+        if write:
+            raise PermissionError(f"writing to memory is denied in this mode: {path}")
+        # Keep published results and root-level Markdown readable, including
+        # hand-maintained notes without frontmatter.
+        if (
+            not parts
+            or parts[0] in {"global", "suite", "task_only", "results"}
+            or (len(parts) == 1 and parts[0].endswith(".md"))
+        ):
+            return resolved
+        raise PermissionError(f"reading this memory path is denied: {path}")
 
     def merge_memory(
         self,

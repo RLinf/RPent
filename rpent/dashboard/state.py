@@ -136,11 +136,9 @@ class DashboardState:
         self._session_root = root
         self._task_spec = dashboard_spec["task"]
         self._runtime_components = dashboard_spec["runtime_components"]
-        self._frame_channels = dashboard_spec["frame_channels"]
         self._runtime_names = {
             component["name"] for component in self._runtime_components
         }
-        self._frame_names = {channel["name"] for channel in self._frame_channels}
 
         self._lock = threading.Lock()
         self._condition = threading.Condition(self._lock)
@@ -159,7 +157,6 @@ class DashboardState:
         self._frames: dict[str, bytes] = {}
         self._frame_idx = -1
         self.env_state: EnvState | None = None
-        self.frame_artifacts: dict[str, str] = {}
         self._state_step_offset = 0
         self._action_video_sources: dict[int, tuple[EnvState, int, str]] = {}
         self._accepting_input = False
@@ -358,7 +355,6 @@ class DashboardState:
         self._frames = {}
         self._frame_idx = -1
         self.env_state = None
-        self.frame_artifacts = {}
         self._state_step_offset = 0
         self._action_video_sources = {}
         self._accepting_input = False
@@ -617,7 +613,6 @@ class DashboardState:
                 if event.env_state is not self.env_state:
                     self._state_step_offset = max(0, self._frame_idx + 1)
                     self.env_state = event.env_state
-                    self.frame_artifacts = dict(event.frame_artifacts)
                 step_offset = self._state_step_offset
             self.on_step(event.record, step_offset=step_offset)
             return
@@ -755,11 +750,12 @@ class DashboardState:
         if env_state is None:
             return
         frames: dict[str, bytes] = {}
-        for kind, artifact in self.frame_artifacts.items():
-            if kind not in self._frame_names or artifact not in record.artifacts:
+        for artifact in sorted(record.artifacts):
+            name = Path(artifact)
+            if name.suffix.lower() != ".png":
                 continue
             try:
-                frames[kind] = env_state.load_bytes(artifact, step=record.step_idx)
+                frames[name.stem] = env_state.load_bytes(artifact, step=record.step_idx)
             except FileNotFoundError:
                 continue
         self._update_frames(step=display_step, frames=frames)
@@ -769,30 +765,6 @@ class DashboardState:
         if path.is_absolute() or path.is_relative_to(self.output_dir):
             return path
         return self.output_dir / path
-
-    def _apply_frame_paths(self, result: dict[str, Any]) -> None:
-        projected = result.get("frames")
-        frame_paths = dict(projected) if isinstance(projected, dict) else {}
-        for channel in self._frame_channels:
-            name = channel["name"]
-            path_key = channel.get("legacy_path_key")
-            if name in frame_paths or path_key is None:
-                continue
-            if path_key in result:
-                frame_paths[name] = result[path_key]
-        if not frame_paths:
-            return
-        frames: dict[str, bytes] = {}
-        for kind, path in frame_paths.items():
-            if kind not in self._frame_names:
-                continue
-            if not path:
-                continue
-            try:
-                frames[kind] = self._resolve_output_path(path).read_bytes()
-            except (OSError, TypeError):
-                continue
-        self._update_frames(step=result.get("step"), frames=frames)
 
     def _update_frames(
         self,
@@ -909,8 +881,6 @@ class DashboardState:
             return list(self._events[since:])
 
     def frame(self, kind: str) -> bytes | None:
-        if kind not in self._frame_names:
-            raise ValueError(f"unknown frame kind: {kind!r}")
         with self._lock:
             return self._frames.get(kind)
 
@@ -949,11 +919,7 @@ class DashboardState:
             return self._task_state in TERMINAL_RUN_STATES and self.video_path.exists()
 
     def _frame_snapshot(self) -> tuple[int, dict[str, bool]]:
-        available = {
-            channel["name"]: channel["name"] in self._frames
-            for channel in self._frame_channels
-        }
-        return self._frame_idx, available
+        return self._frame_idx, dict.fromkeys(self._frames, True)
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:

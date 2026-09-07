@@ -256,14 +256,11 @@ class DashboardServer:
         @app.get("/api/run/frame")
         def api_frame(
             run: str,
-            kind: str = self._dashboard_spec["frame_channels"][0]["name"],
+            kind: str,
             t: str = "",
         ) -> Response:
             live = self._resolve(run)
-            try:
-                png = live.frame(kind) if live else None
-            except ValueError as exc:
-                return JSONResponse({"detail": str(exc)}, status_code=422)
+            png = live.frame(kind) if live else None
             if png is None:
                 return Response(status_code=404)
             return Response(png, media_type="image/png")
