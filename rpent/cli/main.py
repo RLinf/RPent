@@ -252,6 +252,11 @@ def _handoff_message(
         if robot_name == "robotwin"
         else "A fresh toolkit has already restored a clean scene; inspect it before acting."
     )
+    if robot_name == "robocasa":
+        episode_notice = (
+            "按配置 seed 重新初始化，完整物理布局确定性仍需真实仿真验证。"
+            "Re-run perception before acting."
+        )
     return (
         f"You are agent {session_number} of up to {session_max} on this cell. "
         f"{len(prior)} attempt(s) by earlier agents are archived in "

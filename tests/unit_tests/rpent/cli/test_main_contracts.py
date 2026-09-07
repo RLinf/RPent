@@ -319,7 +319,7 @@ def test_robotwin_handoff_limits_reset_claim_to_exact_seed(tmp_path: Path) -> No
     )
 
 
-@pytest.mark.parametrize("robot_name", ["libero", "robotwin"])
+@pytest.mark.parametrize("robot_name", ["libero", "robotwin", "robocasa"])
 def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     robot_name: str,
     tmp_path: Path,
@@ -449,7 +449,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         raise AssertionError(f"CPU-only smoke test tried to sync memory: {args!r}")
 
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
-    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero", "robotwin"))
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero", "robotwin", "robocasa"))
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
     monkeypatch.setattr(cli, "build_planner", build_planner)
     monkeypatch.setattr(cli, "get_toolkit", get_toolkit)
@@ -510,6 +510,70 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert transcript["messages"] == [
         {"role": "assistant", "content": "finished offline"}
     ]
+
+
+@pytest.mark.parametrize("solved_session", [1, 2, None])
+def test_robocasa_cli_real_config_handoff_and_native_success(
+    tmp_path, monkeypatch, solved_session,
+):
+    from dataclasses import replace
+    from robots.robocasa.robot_spec import get_robot_spec
+    from rpent.planner.base import PlannerResult
+
+    cli = _cli_module()
+    calls = []
+    prompts = []
+    merges = []
+    recipes = []
+
+    class FakeToolkit:
+        memory = SimpleNamespace(merge_memory=lambda **kw: merges.append(kw))
+
+        def solved(self):
+            return len(calls) == solved_session
+
+        def write_recipe(self, tag):
+            recipes.append(tag)
+            return f"{tag}_recipe.jsonl"
+
+        def close(self):
+            pass
+
+    class FakePlanner:
+        def solve(self, **kwargs):
+            prompts.append(kwargs)
+            return PlannerResult(
+                finish_result={"_finish": True, "status": "success"},
+                messages=[], stats={},
+            )
+
+    def make_toolkit(*args, **kwargs):
+        calls.append(kwargs)
+        return FakeToolkit()
+
+    spec = replace(get_robot_spec(), init_runtime=lambda *args: ([], {}))
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
+    monkeypatch.setattr(cli, "get_toolkit", make_toolkit)
+    monkeypatch.setattr(cli, "build_planner", lambda *args, **kwargs: FakePlanner())
+    monkeypatch.setattr(sys, "argv", [
+        "rpent", "--robot", "robocasa", "--task-name", "OpenDrawer",
+        "--explore", "--explore-sessions", "3", "--explore-attempts-per-session", "1",
+        "--memory-dir", str(tmp_path / "memory"), "--output-dir", str(tmp_path),
+    ])
+    assert cli.main() == 0
+    assert len(calls) == (solved_session or 3)
+    for number, call in enumerate(calls, 1):
+        assert call["mode"] == "exploration"
+        assert call["attempts_per_session"] == 1
+        assert call["state_output_dir"] == tmp_path / "sessions" / f"session_{number:03d}"
+    assert "完整物理布局确定性仍需真实仿真验证" in prompts[0]["system_prompt"]
+    if len(prompts) > 1:
+        assert "完整物理布局确定性仍需真实仿真验证" in prompts[1]["user_message"]
+    assert bool(recipes) is (solved_session is not None)
+    assert merges[0]["solved"] is (solved_session is not None)
+    assert json.loads((tmp_path / "result.json").read_text())["success"] is (
+        solved_session is not None
+    )
 
 
 def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(

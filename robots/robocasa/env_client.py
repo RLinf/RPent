@@ -45,8 +45,11 @@ class RoboCasaEnvClient(BaseEnvClient):
         "env.grasp_contact": 10.0,
     }
 
-    def __init__(self, client: RpcClient, *, expected_meta: dict):
+    def __init__(self, client: RpcClient, *, expected_meta: dict, defer_reset=False):
+        self._defer_reset = defer_reset
+        self._configured_seed = expected_meta["seed"]
         super().__init__(client, expected_meta=expected_meta)
+        self._defer_reset = False
         self.camera_h = expected_meta["camera_h"]
         self.camera_w = expected_meta["camera_w"]
 
@@ -55,10 +58,24 @@ class RoboCasaEnvClient(BaseEnvClient):
 
     # ---- state accessors ----
     def reset(self):
+        if self._defer_reset:
+            return None
         self.last_obs = self._client.call(
             "env.reset", timeout_s=self._TIMEOUT_S["env.reset"]
         )
         return self.last_obs
+
+    def reset_exploration(self):
+        """Rebuild from configuration; seed identity is not physical identity."""
+        result = self._client.call(
+            "env.reset_exploration", timeout_s=self._TIMEOUT_S["env.reset"]
+        )
+        if result["reset_contract"] != "configured_seed_reinitialization" or (
+            result["seed"] != self._configured_seed
+        ):
+            raise RuntimeError("RoboCasa exploration reset contract mismatch")
+        self.last_obs = result["observation"]
+        return {key: value for key, value in result.items() if key != "observation"}
 
     def step(self, flat_action):
         result = self._client.call(

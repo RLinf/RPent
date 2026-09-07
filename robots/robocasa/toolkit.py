@@ -21,12 +21,13 @@ RoboCasa primitives (``move_to``, ``rldx_skill``, ``release``, ...) on top.
 from __future__ import annotations
 
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.robocasa import tools as robocasa_tools
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit
+from rpent.tools.toolkit import Toolkit, readonly
 from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
@@ -49,9 +50,22 @@ class RoboCasaToolkit(Toolkit):
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
+        mode: str = "evaluation",
+        attempts_per_session: int = 0,
+        state_output_dir: Path | str | None = None,
+        recipe_output_dir: Path | str | None = None,
     ) -> None:
         """Create a RoboCasa toolkit, wiring the primitives and tools."""
-        state = EnvState(get_output_dir())
+        if mode not in {"evaluation", "exploration"}:
+            raise ValueError(f"unsupported RoboCasa toolkit mode: {mode!r}")
+        self._mode = mode
+        self._attempts_per_session = max(0, int(attempts_per_session))
+        self._session_attempt = 1
+        self._reset_failed = False
+        self._attempt_start_step = -1
+        self._recipe_output_dir = Path(recipe_output_dir or get_output_dir())
+        self._state_output_dir = Path(state_output_dir or get_output_dir())
+        state = EnvState(self._state_output_dir)
         super().__init__(
             dashboard_events=dashboard_events,
             state=state,
@@ -87,6 +101,63 @@ class RoboCasaToolkit(Toolkit):
                 if handler is None:
                     continue  # spec without a backing primitive method
             self.add_tool(name, spec, handler)
+        if self._mode == "exploration":
+            for name in robocasa_tools._PRIMITIVE_ACTIONS - {"reset"}:
+                spec, handler = self._tools[name]
+                self.add_tool(name, spec, partial(self._exploration_action, handler))
+            self.add_tool(
+                "reset",
+                {
+                    "name": "reset",
+                    "description": (
+                        "Archive failure, then reinitialize with configured seed. "
+                        "Full physical layout determinism requires simulator verification."
+                    ),
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"reason": {"type": "string"}},
+                        "required": ["reason"],
+                    },
+                },
+                self._reset_episode,
+            )
+            spec, _ = self._tools["finish"]
+            self.add_tool("finish", spec, self._guarded_finish)
+
+    def _exploration_action(self, handler, **kwargs):
+        if self._reset_failed:
+            return {"error": "Reset failed; reset successfully before further actions."}
+        if self.solved():
+            return {"error": "Task already solved; write audit and finish."}
+        return handler(**kwargs)
+
+    def _reset_episode(self, reason: str) -> dict[str, Any]:
+        if self.solved():
+            return {"error": "reset refused", "reason": "Task already solved; finish."}
+        budget = self._attempts_per_session
+        if budget and self._session_attempt >= budget:
+            return {
+                "error": "reset refused",
+                "reason": "Attempt budget spent; archive and finish for handoff.",
+            }
+        # A reset invocation consumes an attempt even on RPC failure (LIBERO parity).
+        self._session_attempt += 1
+        self._reset_failed = True
+        latest = self._state.latest_record()
+        self._attempt_start_step = latest.step_idx if latest is not None else -1
+        result = self._primitives.reset_exploration()
+        self._reset_failed = False
+        return {**result, "attempt": self._session_attempt, "reason": reason}
+
+    @readonly
+    def _guarded_finish(self, *, status: str, summary: str) -> dict[str, Any]:
+        budget = self._attempts_per_session
+        if budget and not self.solved() and self._session_attempt < budget:
+            return {
+                "error": "finish refused",
+                "reason": "Attempts remain; archive, reset and try another approach.",
+            }
+        return robocasa_tools.finish(status=status, summary=summary)
 
     def get_env_state(
         self,
@@ -121,7 +192,9 @@ class RoboCasaToolkit(Toolkit):
                 )
         out = robocasa_tools.view_env_state(record.step_idx, state=self._state)
         out["agent_elapsed_s"] = elapsed_s
-        if result.get("interrupted"):
+        if result.get("interrupted") or (
+            self._mode == "exploration" and result.get("error")
+        ):
             out.update(result)
         return out
 
@@ -135,14 +208,31 @@ class RoboCasaToolkit(Toolkit):
 
         from robots.robocasa.primitives import RoboCasaPrimitives
 
+        if self._mode == "exploration":
+            primitives_kwargs = {
+                **primitives_kwargs, "workdir": str(self._state_output_dir)
+            }
         primitives = RoboCasaPrimitives(
             check_cancelled=self.raise_if_cancelled,
+            **({"exploration": True} if self._mode == "exploration" else {}),
             **primitives_kwargs,
         )
-        primitives.reset()
+        if self._mode == "exploration":
+            reset_result = primitives.reset_exploration()
+            logger.warning(reset_result["notice"])
+        else:
+            primitives.reset()
         primitives.start_recording()
         self._action_frame_cursor = primitives.recorded_frame_count()
-        record = robocasa_tools.dump_state(primitives, self._state, log=None)
+        record = robocasa_tools.dump_state(
+            primitives,
+            self._state,
+            log=(
+                {"command": {"action": "reset"}, "result": reset_result, "elapsed_s": 0.0}
+                if self._mode == "exploration"
+                else None
+            ),
+        )
         try:
             self._state.save(
                 "success_criteria.md",
@@ -165,9 +255,19 @@ class RoboCasaToolkit(Toolkit):
 
     def solved(self) -> bool:
         """Return the success value from the final recorded environment state."""
+        if getattr(self, "_reset_failed", False):
+            return False
         record = self._state.latest_record()
         return bool(record is not None and record.extras.get("success", False))
 
     def write_recipe(self, recipe_tag: str) -> str:
         """Write the RoboCasa recipe JSONL from the dumped state trace."""
+        if self._mode == "exploration":
+            if not self.solved():
+                return ""
+            return robocasa_tools.write_recipe_from_states(
+                self._state, recipe_tag,
+                output_dir=self._recipe_output_dir,
+                after_step=self._attempt_start_step,
+            )
         return robocasa_tools.write_recipe_from_states(self._state, recipe_tag)

@@ -375,15 +375,11 @@ class RLDXSkill:
         return result
 
     def reset_session(self):
-        if self._vla_client is not None:
-            try:
-                self._vla_client.reset_session()
-            except Exception:
-                logger.warning(
-                    "VLA reset_session RPC failed; RLDX memory/RTC state may "
-                    "not be reset for the next task",
-                    exc_info=True,
-                )
+        if self._frames:
+            self._flush_video()
+            self._video_idx += 1
         self._last_prompt = None  # post-reset: next call is a fresh task
         if self._hist is not None:
             self._hist.clear()
+        if self._vla_client is not None:
+            self._vla_client.reset_session()
