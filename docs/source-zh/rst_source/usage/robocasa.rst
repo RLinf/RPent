@@ -75,7 +75,10 @@ macros 配置：
 
    export ROBOCASA_ASSETS_PATH=~/.robocasa/assets
 
-加 ``--skip-existing`` 重跑会跳过已下载的目录。
+外置根目录需要同时包含六类下载资源，以及发行包内的 scene、arena 和 fixture
+静态文件。修正后的安装器会补齐静态文件，不覆盖内容不同的已有文件。
+``--skip-existing`` 会检查成功下载的文件清单，不再把非空目录当作完整安装。
+请保留官方 attribution 文件，并在实验开始前完成中断的下载。
 
 **移动相机**
 
@@ -105,6 +108,28 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
    HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 \
       --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
       --local-dir ./checkpoints/rldx-1-ft-rc365
+
+**RLDX-1 backbone 支持文件**
+
+FT checkpoint 虽包含权重，仍引用 ``RLWRLD/RLDX-1-VLM`` 的架构、processor
+和 tokenizer。Target50 将此第四类资源固定到
+``4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7``，共 15 个非权重文件，约
+16.4 MB（包括模型文档和图片）。下载到启动 RPent 时使用的同一缓存：
+
+.. code-block:: bash
+
+   export HF_HOME="$PWD/.cache/huggingface"
+   export HF_HUB_CACHE="$HF_HOME/hub"
+   hf download RLWRLD/RLDX-1-VLM \
+      --revision 4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7 \
+      --include "*.json" "*.txt" "*.jinja" "*.md" "*.png" ".gitattributes" \
+      --exclude "*.safetensors.index.json"
+
+无需额外下载基础模型权重。启动时保留上述缓存变量，不要通过
+``TRANSFORMERS_CACHE`` 指向空缓存。正式命令使用 ``--vla-support-revision``
+固定实际加载版本，不依赖缓存中的 ``main`` 引用。连接外部 VLA worker 时，应在
+该服务上配置 ``--support-revision``；普通在线运行可以省略此参数。
+模型和 assets 的许可证独立于 RPent 代码许可证。
 
 **任务 Memory**
 
@@ -271,6 +296,7 @@ Target50 将其覆盖为 40。运行前固定 Target50 的 RLDX 执行参数：
    rpent --robot robocasa \
          --task-name OpenDrawer --split target --seed 1 \
          --vla-model-path ./checkpoints/rldx-1-ft-rc365 --cuda-device 0 \
+         --vla-support-revision 4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7 \
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \
@@ -336,12 +362,49 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
 常见错误
 --------
 
+资源自检无需 planner 凭据。安装 ``pytest`` 和 ``pytest-timeout`` 后，现有环境
+测试会覆盖全部 340 个 task/seed 组合；首次检查可增加 ``-k OpenDrawer``：
+
+.. code-block:: bash
+
+   uv pip install pytest pytest-timeout
+   RPENT_RUN_ROBOCASA_INTEGRATION=1 MUJOCO_GL=egl \
+      python -m pytest -q tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py
+
+四类资源下载完成后，再检查模型加载和首次推理：
+
+.. code-block:: bash
+
+   RPENT_RUN_RLDX_INTEGRATION=1 \
+   RPENT_RLDX_CHECKPOINT=./checkpoints/rldx-1-ft-rc365 \
+   HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 NO_ALBUMENTATIONS_UPDATE=1 \
+   MUJOCO_GL=egl python -m pytest -q \
+      tests/integration_tests/robots/robocasa/test_rldx_support_smoke.py
+
+这些检查不会启动 planner 或生成 benchmark 成绩，默认 skip 不能当作通过。
+离线变量仅作用于该自检命令；普通 HF memory 同步仍需要网络。保持远程 planner
+的代理配置不变。
+
+- 下载慢时可使用 ``UV_HTTP_TIMEOUT=600``，并将缓存和临时目录放在空间足够的
+  文件系统上。重新执行固定 revision 的 HF 下载命令；不能只看 shard 文件大小
+  判断完整性，不要禁用 TLS 校验。
+- 只读 assets 报错需要安装修正后的 RoboCasa 依赖，不要开放资源目录写权限；
+  转换后的 XML 应写入临时目录。
+- RLDX 离线缓存缺失时检查上述支持文件和缓存变量。
+  ``NO_ALBUMENTATIONS_UPDATE=1`` 只关闭导入时的更新检查，不改变图像处理；
+  保持现有 image geometry fallback 参数。
+- CUDA 兼容性应通过 GPU 运算和 EGL render 验证，不能只看驱动显示版本；推荐
+  Torch/CUDA 组合见安装部分。
+- 共享只读环境应将 ``NUMBA_CACHE_DIR`` 设置到当前用户可写目录，不要修改包的
+  代码权限。
+
 - 导航 RGB-D 或 world map 渲染报告缺少 ``mobilebase0_navview`` 时，应重新
   安装 ``.[robocasa]`` 以刷新 ``RLinf/robosuite`` 的 ``rpent`` 分支；不要手工
   修改已安装的 XML。
 - ``read_text_file`` 报告缺少当前任务结果时，请检查
   ``memory/robocasa/results/`` 目录或所选本地目录。RPent 不会读取其他任务的
   memory 作为替代。
+  Markdown 为可选文件；Atomic 任务没有发布 ``<Task>.md``。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和
   ``<output_dir>/vla_server.log``。
 - 只有准确的 ``127.0.0.1`` 与 ``localhost`` 主机名会自动绕过 HTTP 代理。其他

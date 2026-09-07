@@ -83,7 +83,12 @@ that launches ``rpent``:
 
    export ROBOCASA_ASSETS_PATH=~/.robocasa/assets
 
-Re-run with ``--skip-existing`` to leave downloaded folders alone.
+The external root requires the six downloaded collections and the bundled
+static scene, arena and fixture files. The corrected installer supplements
+the latter without replacing different existing content. Re-run with
+``--skip-existing`` to verify successful download inventories; a nonempty
+directory alone is not a complete installation. Keep official attribution
+files and finish interrupted downloads before starting experiments.
 
 **Navigation camera**
 
@@ -115,6 +120,30 @@ If the download is slow, use the HF mirror:
    HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 \
       --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
       --local-dir ./checkpoints/rldx-1-ft-rc365
+
+**RLDX-1 backbone support files**
+
+The FT checkpoint contains the weights but also references
+``RLWRLD/RLDX-1-VLM`` for architecture, processor and tokenizer metadata.
+Target50 freezes revision ``4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7``:
+15 non-weight files, about 16.4 MB including documentation and images.
+Download these into the same cache used when launching RPent:
+
+.. code-block:: bash
+
+   export HF_HOME="$PWD/.cache/huggingface"
+   export HF_HUB_CACHE="$HF_HOME/hub"
+   hf download RLWRLD/RLDX-1-VLM \
+      --revision 4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7 \
+      --include "*.json" "*.txt" "*.jinja" "*.md" "*.png" ".gitattributes" \
+      --exclude "*.safetensors.index.json"
+
+No additional base weights are required. Keep these cache variables in the
+launch shell; do not shadow them with an empty ``TRANSFORMERS_CACHE``.
+The formal command's ``--vla-support-revision`` pins the actual load without
+depending on a cached ``main`` ref. For an external VLA server configure
+``--support-revision`` on that server instead. Ordinary runs may omit the
+option. Model and asset licenses apply separately from RPent's code license.
 
 **Task memory**
 
@@ -294,6 +323,7 @@ The first ``OpenDrawer`` Atomic cell is:
    rpent --robot robocasa \
          --task-name OpenDrawer --split target --seed 1 \
          --vla-model-path ./checkpoints/rldx-1-ft-rc365 --cuda-device 0 \
+         --vla-support-revision 4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7 \
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \
@@ -364,6 +394,43 @@ or failure classifications and therefore is not a per-cell audit artifact.
 Troubleshooting
 ---------------
 
+Resource checks can run without planner credentials. First install
+``pytest`` and ``pytest-timeout``. The existing environment test covers all
+340 task/seed combinations; add ``-k OpenDrawer`` for an initial check:
+
+.. code-block:: bash
+
+   uv pip install pytest pytest-timeout
+   RPENT_RUN_ROBOCASA_INTEGRATION=1 MUJOCO_GL=egl \
+      python -m pytest -q tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py
+
+After downloading all four resources, verify model loading and first inference:
+
+.. code-block:: bash
+
+   RPENT_RUN_RLDX_INTEGRATION=1 \
+   RPENT_RLDX_CHECKPOINT=./checkpoints/rldx-1-ft-rc365 \
+   HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 NO_ALBUMENTATIONS_UPDATE=1 \
+   MUJOCO_GL=egl python -m pytest -q \
+      tests/integration_tests/robots/robocasa/test_rldx_support_smoke.py
+
+These checks do not run a planner or create benchmark results. Skipped tests
+are not passes. Offline variables apply only to the check; ordinary HF memory
+sync needs network access. Keep remote planner proxies unchanged.
+
+- For slow package downloads, use ``UV_HTTP_TIMEOUT=600`` and put caches and
+  temporary files on a sufficiently large filesystem. Retry the pinned HF
+  download; apparent shard size is not a completeness check. Do not disable TLS.
+- A read-only asset failure needs the corrected RoboCasa dependency, not
+  writable canonical assets. Transformed XML uses the temporary directory.
+- For an RLDX offline cache miss, check the support snapshot and cache variables
+  above. ``NO_ALBUMENTATIONS_UPDATE=1`` disables only an import-time version
+  check, not image processing. Keep the existing image-geometry fallback.
+- Test CUDA with a GPU operation and EGL render, not just the driver's version
+  display. The validated Torch/CUDA combination is listed above.
+- For shared read-only installations, set ``NUMBA_CACHE_DIR`` to a writable
+  per-user directory instead of making package code writable.
+
 - If navigation RGB-D or world-map rendering reports a missing
   ``mobilebase0_navview``, reinstall ``.[robocasa]`` to refresh the
   ``RLinf/robosuite`` ``rpent`` branch. Do not patch installed XML files
@@ -371,6 +438,7 @@ Troubleshooting
 - If ``read_text_file`` reports a missing current-task result, check the
   ``memory/robocasa/results/`` corpus or the selected local directory.
   RPent does not fall back to another task's memory.
+  Markdown is optional; Atomic tasks have no published ``<Task>.md``.
 - Environment and VLA startup failures are recorded in
   ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
 - Only the exact ``127.0.0.1`` and ``localhost`` hostnames bypass HTTP proxies
