@@ -175,3 +175,24 @@ def test_memory_cli_build_index_prints_created_path(
     assert memory_cli.main() == 0
     assert built == [memory_dir]
     assert capsys.readouterr().out == f"{index_path}\n"
+
+
+def test_memory_cli_build_index_reports_when_not_regenerated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    memory_dir = tmp_path / "memory"
+
+    def fake_manager(root: Path) -> SimpleNamespace:
+        return SimpleNamespace(rebuild_index=lambda: None)
+
+    monkeypatch.setattr(memory_cli, "MemoryManager", fake_manager)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["rpent-memory", "--memory-dir", str(memory_dir), "build-index"],
+    )
+
+    assert memory_cli.main() == 0
+    assert "not regenerated" in capsys.readouterr().out

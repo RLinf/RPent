@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from rpent.robots import get_robot_spec
-from rpent.utils.config import get_resources_dir
+from rpent.utils.config import get_memory_dir
 
 
 def _parser(robot_name: str, *, dashboard: bool = False) -> argparse.ArgumentParser:
@@ -133,7 +133,7 @@ def test_libero_exploration_uses_local_memory_and_session_metadata(
     assert config.prompt_vars["session_number"] == 1
     assert config.prompt_vars["session_max"] == 4
     assert config.prompt_vars["memory_dir"] == str(memory_dir.resolve())
-    assert config.prompt_vars["memory_inbox"].endswith("_inbox/spatial_t1_s0")
+    assert config.prompt_vars["memory_inbox"].endswith("_internal/inbox/spatial_t1_s0")
 
 
 def test_libero_local_evaluation_requires_an_existing_corpus(tmp_path: Path) -> None:
@@ -155,7 +155,12 @@ def test_libero_local_evaluation_requires_an_existing_corpus(tmp_path: Path) -> 
         get_robot_spec("libero").parse_config(args)
 
     memory_dir.mkdir()
-    (memory_dir / "MEMORY.md").write_text("# Offline corpus\n")
+    with pytest.raises(ValueError, match="local memory corpus not found"):
+        get_robot_spec("libero").parse_config(args)
+
+    task_only = memory_dir / "task_only"
+    task_only.mkdir()
+    (task_only / "goal_t0_s0.json").write_text("{}")
     config = get_robot_spec("libero").parse_config(args)
     assert config.prompt_vars["memory_profile"] == "local"
 
@@ -204,7 +209,7 @@ def test_robocasa_config_defaults_and_valid_override(tmp_path: Path) -> None:
         "split": "pretrain",
         "seed": 11,
         "recipe_tag": "PnPCounterToCab_pretrain_s11",
-        "memory_dir": str(get_resources_dir("robocasa") / "results"),
+        "memory_dir": str(get_memory_dir("robocasa")),
     }
     assert config.task_desc == {
         "task_name": "PnPCounterToCab",

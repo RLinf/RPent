@@ -32,23 +32,23 @@ from rpent.prompt.utils import Numbered, PromptNode
 ) = base.WORKFLOW_STEPS
 
 MEMORY_PROFILE = """Use the LOCAL exploration corpus for this evaluation. Its three layers have
-different jobs and all applicable layers are mandatory:
+different jobs; use every layer that is available:
 
 1. GLOBAL: `{{memory_dir}}/global/` — reusable robot/perception/primitive lessons.
 2. SUITE: `{{memory_dir}}/suite/suite_libero10_<regime>_t{{task}}.md` — the
    task/regime strategy, validated ranges, and failure table.
-3. TASK: `{{memory_dir}}/task/{{reference_tag}}.json` plus
-   `{{memory_dir}}/task/recipe_{{reference_tag}}.jsonl` — the matched successful
+3. TASK: `{{memory_dir}}/task_only/{{reference_tag}}.json` plus
+   `{{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl` — the matched successful
    audit and command order from seed 0.
 
 Read the task pair and the exact suite leaf when present, then select only the
 relevant global leaves through `MEMORY.md`. Recipes are technique references,
-not coordinates: re-localize every entity in the current image. Never read or
-promote `_inbox/`, `_merged/`, or `wip/` during evaluation."""
+not coordinates: re-localize every entity in the current image. Never read
+`_internal/` during evaluation."""
 
-STEP_READ_LOCAL_MEMORY = """READ THE THREE LOCAL MEMORY LAYERS FIRST:
-- task audit: `{{memory_dir}}/task/{{reference_tag}}.json`
-- task recipe: `{{memory_dir}}/task/recipe_{{reference_tag}}.jsonl`
+STEP_READ_LOCAL_MEMORY = """READ EACH AVAILABLE LOCAL MEMORY LAYER FIRST:
+- task audit: `{{memory_dir}}/task_only/{{reference_tag}}.json`
+- task recipe: `{{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl`
 - suite leaf: find the matching task/regime leaf under `{{memory_dir}}/suite/`
 - global index: `{{memory_dir}}/MEMORY.md`, then only relevant leaves under
   `{{memory_dir}}/global/`

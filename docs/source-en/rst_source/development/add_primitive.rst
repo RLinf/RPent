@@ -166,6 +166,69 @@ If the model keeps per-episode state, expose a ``vla_reset`` RPC and
 call it between tasks. The same server process can then be reused safely
 across sequential runs.
 
+Session-aware VLA backends (per-client policy state)
+----------------------------------------------------
+
+Most VLA backends are stateless: ``predict`` only runs inference and keeps
+no per-client state, so ``session_id`` can be ignored. Some models do carry
+per-client policy state (e.g. RLDX-1's memory/RTC); when a single
+``vla_server`` serves multiple clients, their policy state would
+cross-contaminate, so it must be isolated per session. Wiring it up in three
+parts:
+
+- **Facade side**: construct the ``BaseVLAFacade`` subclass with
+  ``enable_sessions=True`` and ``session_timeout_s``, and implement
+  ``_on_session_drop`` — clean up that client's policy state when the session
+  ends (the client's ``session.close`` RPC or idle expiry). If you need an
+  explicit reset, expose an extra ``reset_session`` RPC (clears policy state
+  only, does not destroy the session). ``serve`` must pass ``session_sweep_s``
+  (> 0) so a background thread periodically reclaims expired sessions.
+
+- **Client side**: construct the ``RpcClient`` inside the model client with
+  ``enable_sessions=True``; it registers a session with the server on
+  connect. ``session_id`` is derived from the connection and injected into
+  the server-side handler by the facade — the client does **not** pass it,
+  and must not forge ``session_ids`` inside ``predict``'s ``options``.
+
+- **Primitives side**: call ``reset_session`` before a task starts to clear
+  policy state left over from the previous episode, so consecutive runs do
+  not leak state into each other.
+
+Single-threaded serve (EGL-rendering backends)
+----------------------------------------------
+
+Most backends use the ``serve`` inherited from their base class, which
+spawns a worker thread per request. If your server process renders with EGL
+(e.g. robosuite / MuJoCo offscreen rendering, see ``render_camera``), the
+EGL context must stay on one thread, and concurrent dispatch would break
+context affinity.
+
+Mix :class:`~rpent.utils.rpc.main_thread_serve.MainThreadServeMixin` into
+your facade class (**before** ``BaseEnvFacade`` / ``BaseVLAFacade``) and
+inherit the ``serve`` it overrides — it runs the transport server on a
+daemon thread but executes every dispatch serially on the thread that
+called ``serve`` (normally the process main thread), handing requests from
+the transport thread over via a work queue:
+
+.. code-block:: python
+
+   from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
+   from rpent.robots.components.env_facade_base import BaseEnvFacade
+
+   class MyEnvFacade(MainThreadServeMixin, BaseEnvFacade):
+       ...
+
+   facade.serve(transport="http", host=host, port=port)  # dispatch on the main thread
+
+The overridden ``serve`` keeps the same contract as
+:class:`~rpent.utils.rpc.RpcFacade`'s ``serve``: it still supports
+``healthz`` / ``shutdown``, parent-watch, and sessions (when constructed
+with ``enable_sessions=True``, ``serve`` still requires ``session_sweep_s``).
+Subclasses do **not** need to override ``serve`` to delegate — just inherit
+it (see ``RoboCasaEnvFacade`` in ``robots/robocasa/env_server.py``).
+Backends that do not need EGL single-threading keep the plain inherited
+``serve``.
+
 Design principles for a new primitive
 -------------------------------------
 

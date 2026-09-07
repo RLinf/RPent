@@ -74,8 +74,10 @@ class SocketRpcClient(RpcClient):
         host: str,
         port: int,
         *,
+        enable_sessions: bool = False,
         connect_timeout_s: float = DEFAULT_CONNECT_TIMEOUT_S,
     ):
+        super().__init__(enable_sessions=enable_sessions)
         self.host = host
         self.port = int(port)
         self.connect_timeout_s = connect_timeout_s
@@ -92,6 +94,7 @@ class SocketRpcClient(RpcClient):
             "method": method,
             "args": tuple(args),
             "kwargs": dict(kwargs or {}),
+            "session_id": self._session_id,
         }
         request_timeout_s = (
             DEFAULT_REQUEST_TIMEOUT_S if timeout_s is None else timeout_s
@@ -117,7 +120,13 @@ class _RequestHandler(socketserver.StreamRequestHandler):
             method = payload["method"]
             args = payload.get("args") or ()
             kwargs = payload.get("kwargs") or {}
-            result = self.server.dispatch(method, args, kwargs)  # type: ignore[attr-defined]
+            session_id = payload.get("session_id")
+            if session_id is None:
+                result = self.server.dispatch(method, args, kwargs)
+            else:
+                result = self.server.dispatch(  # type: ignore[attr-defined]
+                    method, args, kwargs, session_id=session_id
+                )
             response: dict = {"ok": True, "result": result}
         except Exception as exc:
             response = make_error_response(exc)
@@ -136,7 +145,7 @@ class SocketRpcServer(socketserver.ThreadingTCPServer):
     def __init__(
         self,
         server_address: tuple[str, int],
-        dispatch: Callable[[str, tuple, dict], Any],
+        dispatch: Callable[..., Any],
     ):
         super().__init__(server_address, _RequestHandler)
         self.dispatch = dispatch

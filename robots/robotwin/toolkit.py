@@ -258,7 +258,7 @@ class RoboTwinToolkit(Toolkit):
                 )
             )
         ]
-        name = f"recipe_{recipe_tag}.jsonl"
+        name = f"{recipe_tag}_recipe.jsonl"
         saved = self._state.save(name, recipe, step=None)
         if saved is None:
             raise RuntimeError(f"failed to save RoboTwin recipe artifact: {name}")

@@ -71,15 +71,11 @@ sam3 = [
     "pillow>=10",
 ]
 libero = [
-    "rpent[rlinf]",
-    "rpent[sam3]",
+    "rpent[rlinf,sam3]",
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
-    # OpenPI's tool.uv source is not propagated through package metadata.
-    "lerobot @ git+https://github.com/huggingface/lerobot.git@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5",
     "rpent-libero>=0.2.0",
     # MuJoCo 3.4+ changes LIBERO settling, misplacing objects and reducing task success; see https://github.com/RLinf/RLinf/issues/1460.
     "mujoco==3.3.0",
-    "h5py",
 ]
 libero-pro = [
     "rpent[libero]",
@@ -87,11 +83,8 @@ libero-pro = [
 ]
 libero-plus = [
     # LIBERO-plus requires robosuite<1.5, so it cannot inherit the standard LIBERO extra.
-    "rpent[rlinf]",
-    "rpent[sam3]",
+    "rpent[rlinf,sam3]",
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
-    # Keep this revision aligned with the source declared by OpenPI.
-    "lerobot @ git+https://github.com/huggingface/lerobot.git@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5",
     "rlinf-liberoplus",
     "mujoco==3.3.0",
     "h5py",

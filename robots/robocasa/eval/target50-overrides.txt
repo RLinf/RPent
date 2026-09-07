@@ -1,0 +1,2 @@
+# Freeze direct-source dependencies for the formal Target50 environment.
+robosuite @ git+https://github.com/RLinf/robosuite.git@97cfbde4b68d8ec43dad20cf4747297866a6ca2e

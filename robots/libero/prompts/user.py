@@ -21,7 +21,7 @@ CELL = """- suite:      {{suite}}
 - seed:       {{seed}}
 - output_dir: {{output_dir}}
 - audit:      {{output_dir}}/{{recipe_tag}}.json
-- recipe:     {{output_dir}}/recipe_{{recipe_tag}}.jsonl"""
+- recipe:     {{output_dir}}/{{recipe_tag}}_recipe.jsonl"""
 
 
 MODE = """Inspect `agentview_high.png` returned by `view_env_state`, then use

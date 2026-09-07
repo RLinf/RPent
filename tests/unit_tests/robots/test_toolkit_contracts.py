@@ -42,7 +42,7 @@ def _run_config(memory_dir: Path, *, recipe_tag: str = "cell-s0") -> RunConfig:
 @pytest.mark.parametrize(
     ("robot_spec", "toolkit_module", "toolkit_name", "configured_leaf"),
     [
-        (robocasa_robot_spec, robocasa_toolkit, "RoboCasaToolkit", "results"),
+        (robocasa_robot_spec, robocasa_toolkit, "RoboCasaToolkit", "memory"),
         (robotwin_robot_spec, robotwin_toolkit, "RoboTwinToolkit", "memory"),
     ],
 )

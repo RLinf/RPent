@@ -11,6 +11,7 @@ logs/
 /rlinf/
 /rlinf.egg-info/
 
+/memory/
 /resources/
 
 uv.lock

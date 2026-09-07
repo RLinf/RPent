@@ -351,7 +351,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
         def write_recipe(self, recipe_tag: str) -> str:
             calls["write_recipe"] = recipe_tag
-            return str(tmp_path / f"recipe_{recipe_tag}.jsonl")
+            return str(tmp_path / f"{recipe_tag}_recipe.jsonl")
 
     class ScriptedPlanner:
         def solve(
@@ -427,17 +427,15 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         calls["get_toolkit"] = (args, kwargs)
         return toolkit
 
-    def reject_resource_download(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError(
-            f"CPU-only smoke test tried to download resources: {args!r}"
-        )
+    def reject_memory_sync(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError(f"CPU-only smoke test tried to sync memory: {args!r}")
 
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
     monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
     monkeypatch.setattr(cli, "build_planner", build_planner)
     monkeypatch.setattr(cli, "get_toolkit", get_toolkit)
-    monkeypatch.setattr(cli, "ensure_resources", reject_resource_download)
+    monkeypatch.setattr("rpent.memory.MemoryManager.sync", reject_memory_sync)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -493,3 +491,134 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert transcript["messages"] == [
         {"role": "assistant", "content": "finished offline"}
     ]
+
+
+def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cli = _cli_module()
+    from rpent.evaluation import RunFinalizationContext, write_json_atomic
+    from rpent.planner.base import PlannerResult
+    from rpent.robots import PromptBundle, RobotSpec, RunConfig
+
+    captured: list[RunFinalizationContext] = []
+
+    class FakeDaemon:
+        stopped = False
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    class FakeToolkit:
+        memory = SimpleNamespace()
+        closed = False
+
+        def solved(self) -> bool:
+            return False
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakePlanner:
+        def solve(self, **kwargs: Any) -> PlannerResult:
+            del kwargs
+            return PlannerResult(
+                finish_result={"status": "success", "summary": "planner claim"},
+                messages=[],
+                stats={"tool_calls": 0},
+            )
+
+    def add_cli_args(parser: Any, use_dashboard: bool) -> None:
+        del use_dashboard
+        parser.add_argument("--task-name", required=True)
+        parser.add_argument("--seed", type=int, default=0)
+
+    def parse_config(args: Any) -> RunConfig:
+        return RunConfig(
+            recipe_tag=f"{args.task_name}_s{args.seed}",
+            output_dir=Path(args.output_dir),
+            prompt_vars={"memory_dir": args.memory_dir},
+            task_desc={"task_name": args.task_name, "seed": args.seed},
+        )
+
+    def finalize_run(context: RunFinalizationContext) -> Path:
+        captured.append(context)
+        assert robot_toolkit.closed is True
+        return write_json_atomic(
+            context.output_dir / "result.json",
+            {
+                "robot": context.robot_name,
+                "task": dict(context.task_desc),
+                "success": context.environment_success,
+                "planner_claim": context.finish_result,
+            },
+        )
+
+    daemon = FakeDaemon()
+    robot_toolkit = FakeToolkit()
+    robot_spec = RobotSpec(
+        name="testrobot",
+        prompts=PromptBundle(
+            system=lambda variables: "system",
+            user=lambda variables: "task",
+        ),
+        add_cli_args=add_cli_args,
+        parse_config=parse_config,
+        init_runtime=lambda *args: ([daemon], {"runtime": "simulated"}),
+        finalize_run=finalize_run,
+    )
+
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("testrobot",))
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
+    monkeypatch.setattr(cli, "build_planner", lambda *args, **kwargs: FakePlanner())
+    monkeypatch.setattr(cli, "get_toolkit", lambda *args, **kwargs: robot_toolkit)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "testrobot",
+            "--task-name",
+            "OpenDrawer",
+            "--seed",
+            "1",
+            "--planner",
+            "codex",
+            "--model",
+            "gpt-5.5",
+            "--reasoning-effort",
+            "xhigh",
+            "--planner-timeout-s",
+            "1800",
+            "--memory-profile",
+            "local",
+            "--memory-dir",
+            str(tmp_path / "memory"),
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert cli.main() == 0
+
+    assert len(captured) == 1
+    context = captured[0]
+    assert context.robot_name == "testrobot"
+    assert context.environment_success is False
+    assert context.agent_error is None
+    assert context.planner == "codex"
+    assert context.model == "gpt-5.5"
+    assert context.reasoning_effort == "xhigh"
+    assert context.max_turns == 100
+    assert context.planner_timeout_s == 1800
+    assert context.stats == {"tool_calls": 0}
+    assert json.loads((tmp_path / "result.json").read_text(encoding="utf-8")) == {
+        "robot": "testrobot",
+        "task": {"task_name": "OpenDrawer", "seed": 1},
+        "success": False,
+        "planner_claim": {"status": "success", "summary": "planner claim"},
+    }
+    assert robot_toolkit.closed is True
+    assert daemon.stopped is True

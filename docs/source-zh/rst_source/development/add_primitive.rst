@@ -149,6 +149,61 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 如果模型会保存每个回合的内部状态，应提供 ``vla_reset`` RPC，并在任务之间
 调用它完成重置。这样，同一个服务进程就能安全地复用于多次连续运行。
 
+带会话状态的 VLA 后端（按客户端隔离策略状态）
+------------------------------------------------
+
+大多数 VLA 后端是无状态的：``predict`` 只做推理，不保存各客户端的
+中间状态，``session_id`` 可以忽略。但有些模型带按客户端隔离的策略状态
+（如 RLDX-1 的 memory/RTC），同一个 ``vla_server`` 服务多个客户端时，
+不同客户端的策略状态会互相污染，必须按 session 隔离。接入分三块：
+
+- **facade 侧**：构造 ``BaseVLAFacade`` 子类时传 ``enable_sessions=True``
+  和 ``session_timeout_s``，并实现 ``_on_session_drop``——session 结束
+  （客户端调用 ``session.close`` RPC 或空闲超时）时在这里清理该客户端
+  的策略状态。需要显式重置时，额外提供 ``reset_session`` RPC（只清策略
+  状态，不销毁 session）。``serve`` 必须传 ``session_sweep_s`` （> 0），
+  让后台线程定期回收过期 session。
+
+- **client 侧**：model client 内部的 ``RpcClient`` 以
+  ``enable_sessions=True`` 构造，连接时自动向 server 注册 session。
+  ``session_id`` 由 facade 从连接派生并注入 server 端 handler，客户端
+  **不传**，也不应在 ``predict`` 的 ``options`` 里伪造 ``session_ids``。
+
+- **primitives 侧**：任务开始前调用 ``reset_session`` 清空上一回合残留
+  的策略状态，保证连续多次运行之间状态不串。
+
+单线程 serve（EGL 渲染后端）
+----------------------------
+
+大多数后端直接使用基类继承的 ``serve``：transport server 为每个请求
+开一个工作线程并发处理。但如果你的服务器进程用 EGL 渲染（如
+robosuite / MuJoCo 的 offscreen 渲染，见 ``render_camera``），EGL context
+必须留在同一线程，并发 dispatch 会破坏 context 亲和。
+
+这时把 :class:`~rpent.utils.rpc.main_thread_serve.MainThreadServeMixin`
+混入你的 facade 类（**先于** ``BaseEnvFacade`` / ``BaseVLAFacade``），
+直接继承它覆盖的 ``serve`` 即可——它在守护线程跑 transport server，但
+在调用 ``serve`` 的线程（通常是主线程）串行执行每个 dispatch，通过 work
+queue 把请求从 transport 线程交给该线程：
+
+.. code-block:: python
+
+   from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
+   from rpent.robots.components.env_facade_base import BaseEnvFacade
+
+   class MyEnvFacade(MainThreadServeMixin, BaseEnvFacade):
+       ...
+
+   facade.serve(transport="http", host=host, port=port)  # dispatch 在主线程串行
+
+mixin 覆盖的 ``serve`` 与 :class:`~rpent.utils.rpc.RpcFacade` 的
+``serve`` 契约一致：同样支持 ``healthz`` / ``shutdown``、parent-watch
+和 session 支持（构造传 ``enable_sessions=True`` 时，``serve`` 仍须传
+``session_sweep_s``）。子类**不需要**重写 ``serve`` 来委托——直接继承
+即可（参考 ``robots/robocasa/env_server.py`` 的
+``RoboCasaEnvFacade``）。不需要 EGL 单线程的后端直接继承基类用默认
+``serve``。
+
 新原语的设计原则
 ----------------
 

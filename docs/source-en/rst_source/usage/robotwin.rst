@@ -154,18 +154,18 @@ techniques; the run still starts if they are unavailable.
 Planner memory and recipes
 --------------------------
 
-The read-only planner resources live under ``robotwin/`` in the dataset and are
-synced to ``<RPent-clone-path>/resources/robotwin/``.
+The read-only planner memory lives under ``robotwin/`` in the dataset and is
+synced to ``<RPent-clone-path>/memory/robotwin/``.
 
-``memory/MEMORY.md`` indexes reusable experience across tasks, including
+``MEMORY.md`` indexes reusable experience across tasks, including
 perception cues, control heuristics, recovery strategies, parameter-selection
 guidance, and common failure modes. The planner can follow the index to read
 only the memory entries relevant to the current task or observed failure.
 
-For each evaluation task, ``recipe/<task>_s0.json`` is the semantic recipe
+For each evaluation task, ``task_only/<task>_s0.json`` is the semantic recipe
 distilled from a successful trajectory. It describes the phase-level goals,
 observable completion gates, control and VLA guidance, and known failure modes.
-The companion ``recipe/recipe_<task>_s0.jsonl`` records the historical tool
+The companion ``task_only/<task>_s0_recipe.jsonl`` records the historical tool
 calls from that trajectory, providing evidence about action order, tool choice,
 and action-chunk cadence.
 
@@ -185,14 +185,17 @@ must be localized again.
 
 An ``evidence_status`` of ``supported`` means the recipe is backed by a
 successful clean trajectory. An ``experimental`` recipe remains a weak prior.
-Start with ``memory/MEMORY.md`` and read only the notes relevant to the current
+Start with ``MEMORY.md`` and read only the notes relevant to the current
 task and failure mode.
 
 Reproducing results
 -------------------
 
-The following result reproduces Harness VLA on RoboTwin C2R using ``gpt-5.5``
-with ``xhigh`` reasoning effort:
+The following result reproduces
+:doc:`Harness VLA <../awesome_works/harnessvla>` on RoboTwin C2R. On the
+`reproduce/robotwin
+<https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_ branch, use
+``gpt-5.5`` with ``xhigh`` reasoning effort to reproduce this result:
 
 - ``demo_randomized``: 58.0% (145/250)
 
@@ -214,7 +217,7 @@ Reproduction command for one episode:
      --model gpt-5.5 \
      --reasoning-effort xhigh \
      --max-turns 100 \
-     --planner-timeout-s 3600 \
+     --planner-timeout-s 4800 \
      --max-episode-steps 10000
 
 Replace ``task`` with a task name from ``demo_randomized.json`` and ``seed``
