@@ -222,18 +222,11 @@ class BehaviorPrimitives:
         action_horizon: int = DEFAULT_ACTION_CHUNK,
         initial_observation: dict[str, Any] | None = None,
         initial_info: Any = None,
-        progress_callback: Any = None,
         behavior_phase: str = "eval",
         task_name: str = "turning_on_radio",
         public_seed: int = 0,
-        initial_attempt_index: int = 1,
-        job_id: str | None = None,
-        max_tool_calls: int | None = 350,
-        max_wall_clock_s: float = 86400.0,
-        pure_vla_baseline: bool = False,
         episode_memory_index: Any = None,
         dino_component: Any = None,
-        **_ignored: Any,
     ) -> None:
         self.env = env
         self.model = model
@@ -253,29 +246,14 @@ class BehaviorPrimitives:
         self.task_name = self.task_spec.task_name
         self.public_seed = int(public_seed)
         self.task_spec.instance_for_public_seed(self.public_seed, phase=None)
-        self.attempt_index = int(initial_attempt_index)
-        if self.attempt_index < 1:
-            raise ValueError("initial_attempt_index must be at least 1")
-        self.job_id = str(job_id) if job_id is not None else None
-        self.max_tool_calls = None if max_tool_calls is None else int(max_tool_calls)
-        if self.max_tool_calls is not None and self.max_tool_calls <= 0:
-            raise ValueError("max_tool_calls must be positive")
-        if not isinstance(pure_vla_baseline, bool):
-            raise TypeError("pure_vla_baseline must be boolean")
-        self.max_wall_clock_s = float(max_wall_clock_s)
-        if not np.isfinite(self.max_wall_clock_s) or self.max_wall_clock_s <= 0.0:
-            raise ValueError("max_wall_clock_s must be positive and finite")
         self.episode_memory_index = episode_memory_index
         self.dino_component = dino_component
         self._episode_memory_decision = self._retrieve_episode_memory(
             self._current_observation
         )
-        self._progress_callback = progress_callback
         self.started_monotonic = time.monotonic()
         self.last_result: dict[str, Any] | None = None
         self._local_env_steps = 0
-        self._vla_invocations = 0
-        self._vla_chunks = 0
         self._official_success_latched = official_task_success(self._current_info)
         self._official_success_receipt = official_success_receipt_from_info(
             self._current_info
@@ -345,13 +323,6 @@ class BehaviorPrimitives:
             self._official_success_receipt = official_success_receipt_from_info(
                 info
             ) or make_raw_success_receipt(info, env_step=self.total_env_steps)
-
-    def start_recording(self) -> None:
-        """Enable streaming episode recording when a writer is attached."""
-
-        self._recording = self._episode_video_writer is not None
-        if self._recording:
-            self.record_frame(self._current_observation)
 
     def recorded_frame_count(self) -> int:
         writer = self._episode_video_writer
@@ -554,8 +525,6 @@ class BehaviorPrimitives:
                 break
             ret = env.chunk_step(action_array, return_all_frames=self._recording)
             chunks_used += 1
-            self._vla_invocations += 1
-            self._vla_chunks += 1
             obs, _reward, terminated, truncated, info = ret
             if isinstance(obs, list):
                 for frame_obs in obs:

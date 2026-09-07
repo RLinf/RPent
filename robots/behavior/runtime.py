@@ -52,8 +52,8 @@ if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
 
 BEHAVIOR_MODES = ("eval", "explore")
-BEHAVIOR_COMPONENTS = {"env", "vla", "dino", "memory"}
-DEFAULT_EVAL_COMPONENTS = {"env", "vla", "dino", "memory"}
+BEHAVIOR_COMPONENTS = {"env", "vla", "dino"}
+DEFAULT_EVAL_COMPONENTS = {"env", "vla", "dino"}
 DEFAULT_MAX_EPISODE_STEPS = 43_200
 DEFAULT_PLANNER_TIMEOUT_S = 7_200
 RLINF_ROOT_ENV = "RPENT_RLINF_ROOT"
@@ -699,7 +699,6 @@ def _connect_vla(args: argparse.Namespace, rpc: "RpcClient") -> dict[str, Any]:
     )
     return {
         "model": Pi05VLAClient(rpc, embodiment="behavior"),
-        "vla_meta": dict(server_meta),
     }
 
 
@@ -765,9 +764,6 @@ def init_runtime(
             "dino",
             lambda: _spawn_dino_server(args, output_dir),
         )
-    if "memory" in selected:
-        primitives_kwargs["_memory_component_selected"] = True
-
     if pending_env is not None:
         daemon, rpc = pending_env
         primitives_kwargs.update(

@@ -26,20 +26,9 @@ import hashlib
 import hmac
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import numpy as np
-
-
-@dataclass(frozen=True)
-class TerminalReceiptValidation:
-    """Result of validating one output-bound official-success receipt."""
-
-    valid: bool
-    terminal_image_path: Path | None = None
-    reason: str | None = None
 
 
 def _canonical_json_bytes(value: Any) -> bytes:
@@ -138,114 +127,10 @@ def make_raw_success_receipt(
     }
 
 
-def _exact_bool_at(record: dict[str, Any], path: tuple[str, ...]) -> bool | None:
-    value: Any = record
-    for field in path:
-        if not isinstance(value, dict) or field not in value:
-            return None
-        value = value[field]
-    return value if type(value) is bool else None
-
-
-def summarize_action_trace_success(action_trace_bytes: bytes) -> dict[str, Any] | None:
-    """Summarize first raw ``info_done.success`` evidence from a JSONL trace."""
-
-    action_trace_sha256 = hashlib.sha256(action_trace_bytes).hexdigest()
-    malformed_lines = 0
-    observations: list[tuple[int, int | None, bool]] = []
-    last_trace_step: int | None = None
-    for line_number, line in enumerate(action_trace_bytes.splitlines(), start=1):
-        try:
-            record = json.loads(line)
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            malformed_lines += 1
-            continue
-        if not isinstance(record, dict):
-            malformed_lines += 1
-            continue
-        raw_step = record.get("step")
-        step = (
-            raw_step
-            if isinstance(raw_step, int)
-            and not isinstance(raw_step, bool)
-            and raw_step >= 0
-            else None
-        )
-        if step is not None:
-            last_trace_step = step
-        value = _exact_bool_at(record, ("info_done", "success"))
-        if value is not None:
-            observations.append((line_number, step, value))
-    if not any(value is True for _, _, value in observations):
-        return None
-    first_index = next(
-        i for i, (_, _, value) in enumerate(observations) if value is True
-    )
-    first_line, first_step, _ = observations[first_index]
-    success_count = sum(1 for _, _, value in observations if value is True)
-    last_success_step = next(
-        step for _, step, value in reversed(observations) if value is True
-    )
-    success_later_reverted = any(
-        value is False for _, _, value in observations[first_index + 1 :]
-    )
-    notes = [f"malformed_json_lines={malformed_lines}"] if malformed_lines else []
-    return {
-        "source": "behavior_action_trace",
-        "field_path": "info_done.success",
-        "first_success_line": first_line,
-        "first_success_step": first_step,
-        "success_count": success_count,
-        "success_later_reverted": success_later_reverted,
-        "last_success_step": last_success_step,
-        "last_trace_step": last_trace_step,
-        "action_trace_sha256": action_trace_sha256,
-        "receipt_sha256": None,
-        "notes": notes,
-    }
-
-
-def validate_terminal_success_receipt(
-    *,
-    tool_name: str,
-    step: Any,
-    result: Any,
-    output_dir: str | Path,
-) -> TerminalReceiptValidation:
-    """Validate raw official success without terminal-hold or image gates."""
-
-    del tool_name, output_dir
-    if not isinstance(step, int) or isinstance(step, bool) or step < 0:
-        return TerminalReceiptValidation(valid=False, reason="invalid trace step")
-    if not isinstance(result, Mapping):
-        return TerminalReceiptValidation(valid=False, reason="result is not a mapping")
-    if result.get("kind") != "behavior_finish_terminal_receipt":
-        return TerminalReceiptValidation(valid=False, reason="invalid receipt kind")
-    if result.get("_finish") is not True:
-        return TerminalReceiptValidation(valid=False, reason="receipt is not terminal")
-    if result.get("task_success") is not True:
-        return TerminalReceiptValidation(valid=False, reason="task success is not true")
-    if result.get("official_success_source") != 'info["done"]["success"]':
-        return TerminalReceiptValidation(
-            valid=False, reason="invalid official success source"
-        )
-    if (
-        validate_official_success_receipt(result.get("official_success_receipt"))
-        is None
-    ):
-        return TerminalReceiptValidation(
-            valid=False, reason="invalid official success receipt"
-        )
-    return TerminalReceiptValidation(valid=True)
-
-
 __all__ = [
-    "TerminalReceiptValidation",
     "make_raw_success_receipt",
     "official_success_receipt_sha256",
     "official_success_receipt_from_info",
     "official_task_success",
-    "summarize_action_trace_success",
     "validate_official_success_receipt",
-    "validate_terminal_success_receipt",
 ]

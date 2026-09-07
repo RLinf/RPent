@@ -72,12 +72,6 @@ class BehaviorToolkit(Toolkit):
         self._run_output_dir = Path(getattr(config, "output_dir", output_dir))
         self._state_output_dir = Path(state_output_dir or output_dir)
         values["output_dir"] = self._state_output_dir
-        self._recipe_tag = str(
-            getattr(config, "recipe_tag", "")
-            or get_task_spec(str(values.get("task_name") or "turning_on_radio")).tag(
-                int(values.get("public_seed") or 0)
-            )
-        )
 
         super().__init__(
             dashboard_events=dashboard_events or NullDashboardEventSink(),
@@ -146,12 +140,8 @@ class BehaviorToolkit(Toolkit):
             "_depth_left_wrist_bytes",
             "_image_right_wrist_bytes",
             "_depth_right_wrist_bytes",
-            "_frames_bytes",
         ):
             if result.get(key):
-                return True
-        for key in ("frames", "views", "images", "visual_review"):
-            if isinstance(result.get(key), dict):
                 return True
         return False
 

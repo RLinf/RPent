@@ -431,7 +431,7 @@ def main() -> int:
     # --- initialise robot runtime --------------------------------------------
     runtime_components = None
     if args.explore and robot_name == "behavior":
-        runtime_components = {"vla", "dino", "memory"}
+        runtime_components = {"vla", "dino"}
     daemons, primitives_kwargs = robot_spec.init_runtime(
         args,
         output_dir,

@@ -38,6 +38,7 @@ import numpy as np
 
 from robots.behavior.schemas import ENV_ACTION_SEGMENTS, RAW_PROPRIO_SEGMENTS
 from robots.behavior.terminal_success import official_success_receipt_sha256
+from rpent.utils.config import get_repo_root, get_rlinf_repo_path
 
 ACTION_DIM = 23
 ACTION_HORIZON = 32
@@ -69,42 +70,15 @@ _COMPLETE_EXACT_FIELDS = {
 }
 
 
-def _module_repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def _candidate_rlinf_roots() -> tuple[Path, ...]:
-    explicit = os.environ.get(RLINF_ROOT_ENV)
-    roots: list[Path] = []
-    if explicit:
-        roots.append(Path(explicit).expanduser())
-    projects = _module_repo_root().parent
-    roots.extend(
-        [
-            projects / "RLinf",
-        ]
-    )
-    deduped: list[Path] = []
-    seen: set[str] = set()
-    for root in roots:
-        resolved = root.resolve()
-        key = str(resolved)
-        if key not in seen:
-            seen.add(key)
-            deduped.append(resolved)
-    return tuple(deduped)
-
-
 def discover_rlinf_root() -> Path:
     """Return the RLinf checkout that contains the official BehaviorEnv."""
 
-    for root in _candidate_rlinf_roots():
-        if (root / "rlinf" / "envs" / "behavior" / "behavior_env.py").is_file():
-            return root
-    searched = ", ".join(str(path) for path in _candidate_rlinf_roots())
+    root = (get_rlinf_repo_path() or (get_repo_root().parent / "RLinf")).resolve()
+    if (root / "rlinf" / "envs" / "behavior" / "behavior_env.py").is_file():
+        return root
     raise FileNotFoundError(
         "could not locate RLinf behavior_env.py; set "
-        f"{RLINF_ROOT_ENV} to the RLinf checkout. searched: {searched}"
+        f"{RLINF_ROOT_ENV} to the RLinf checkout. searched: {root}"
     )
 
 
@@ -1489,19 +1463,6 @@ class OfficialBehaviorBackend:
                 group_id=frame_id,
             ),
             "info": self._last_info,
-        }
-
-    def finalize_paused_runtime(
-        self,
-        vla_status: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return {
-            "status": "ok",
-            "task_success": self.official_success_latched,
-            "official_success_source": 'info["done"]["success"]',
-            "official_success_receipt": self.official_success_receipt,
-            "vla_status": _strict_public_json(vla_status),
-            "total_env_steps": int(self.total_env_steps),
         }
 
     def move_to(self, **kwargs: Any) -> dict[str, Any]:

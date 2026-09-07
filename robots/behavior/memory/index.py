@@ -52,7 +52,6 @@ REVISION_SCHEMA_ID = "rpent_behavior_episode_memory_revision_v1"
 CURRENT_POINTER_SCHEMA_ID = "rpent_behavior_episode_memory_current_v1"
 MANIFEST_SCHEMA_ID = "rpent_behavior_episode_memory_manifest_v1"
 HEAD_ACTIVE_DISTANCE_MAX = 0.05367707759141922
-MERGE_COVERAGE = 0.95
 ACTIVE_CHANNEL = "head"
 SHADOW_CHANNELS = ("left_wrist", "right_wrist")
 
@@ -312,11 +311,9 @@ class EpisodeMemoryIndex:
         self._experience_by_id = {
             item.experience_id: item for item in self._experiences
         }
-        self._experience_by_episode = {
-            item.episode_id: item for item in self._experiences
-        }
+        episode_ids = {item.episode_id for item in self._experiences}
         if len(self._experience_by_id) != len(self._experiences) or len(
-            self._experience_by_episode
+            episode_ids
         ) != len(self._experiences):
             fail(
                 "MEMORY_EPISODE_INDEX_INVALID",
@@ -685,60 +682,6 @@ def write_candidate_revision(
     )
 
 
-def merge_same_task_experience(
-    *,
-    existing: EpisodeExperience,
-    candidate: EpisodeExperience,
-    existing_head_embeddings: np.ndarray,
-    candidate_head_embeddings: np.ndarray,
-    evidence: Mapping[str, Any],
-) -> Mapping[str, Any]:
-    """Return a same-layout merge proposal without overwriting the canonical trajectory."""
-
-    if existing.task_name != candidate.task_name:
-        fail("MEMORY_EPISODE_MERGE_REJECTED", "task_name", "same-task merge required")
-    forward = keyframe_coverage(candidate_head_embeddings, existing_head_embeddings)
-    backward = keyframe_coverage(existing_head_embeddings, candidate_head_embeddings)
-    accepted = forward >= MERGE_COVERAGE and backward >= MERGE_COVERAGE
-    return MappingProxyType(
-        {
-            "schema_id": "rpent_behavior_episode_memory_merge_v1",
-            "decision": "append_reproduction_evidence"
-            if accepted
-            else "record_new_experience",
-            "reason": "same_task_bidirectional_95pct_keyframe_coverage"
-            if accepted
-            else "coverage_below_threshold",
-            "head_distance_max": HEAD_ACTIVE_DISTANCE_MAX,
-            "coverage_required": MERGE_COVERAGE,
-            "forward_coverage": forward,
-            "backward_coverage": backward,
-            "same_layout_success_failure_can_share_logical_experience": accepted,
-            "logical_experience_id": existing.logical_experience_id
-            if accepted
-            else candidate.logical_experience_id,
-            "canonical_trajectory_ref": None
-            if existing.canonical_trajectory_ref is None
-            else dict(existing.canonical_trajectory_ref),
-            "canonical_trajectory_overwritten": False,
-            "reproduction_evidence_to_append": dict(evidence) if accepted else None,
-            "existing_outcome": dict(existing.outcome),
-            "candidate_outcome": dict(candidate.outcome),
-        }
-    )
-
-
-def keyframe_coverage(
-    query_embeddings: np.ndarray, catalog_embeddings: np.ndarray
-) -> float:
-    query = l2_matrix(query_embeddings, path="merge.query")
-    catalog = l2_matrix(catalog_embeddings, path="merge.catalog")
-    if query.shape[0] == 0 or catalog.shape[0] == 0:
-        return 0.0
-    distances = 1.0 - np.clip(query @ catalog.T, -1.0, 1.0)
-    return float(np.mean(np.min(distances, axis=1) <= HEAD_ACTIVE_DISTANCE_MAX))
-
-
 def _npz_bytes(arrays: Mapping[str, np.ndarray]) -> bytes:
     with io.BytesIO() as buffer:
         np.savez(
@@ -818,9 +761,7 @@ __all__ = [
     "EpisodeMemoryIndex",
     "MemoryValidationError",
     "empty_episode_memory_index",
-    "keyframe_coverage",
     "load_current_catalog",
     "load_revision_dir",
-    "merge_same_task_experience",
     "write_candidate_revision",
 ]

@@ -38,7 +38,6 @@ _POST_SUCCESS_ALLOWED = frozenset(
     {
         "env.get_env_meta",
         "env.current_observation",
-        "env.finalize_paused_runtime",
     }
 )
 _IMAGE_BYTE_FIELDS = frozenset(
@@ -103,7 +102,6 @@ class BehaviorEnvClient(BaseEnvClient):
         "env.close_gripper": 120.0,
         "env.open_gripper": 120.0,
         "env.press": 1800.0,
-        "env.finalize_paused_runtime": 120.0,
     }
 
     def __init__(self, client: RpcClient, *, expected_meta: dict[str, Any]) -> None:
@@ -324,14 +322,6 @@ class BehaviorEnvClient(BaseEnvClient):
 
     def press(self, **kwargs: Any) -> dict[str, Any]:
         return self._rpc_call("env.press", kwargs=kwargs)
-
-    def finalize_paused_runtime(
-        self, vla_status: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        return self._rpc_call(
-            "env.finalize_paused_runtime",
-            kwargs={"vla_status": vla_status},
-        )
 
     def close_transport(self) -> None:
         close = getattr(self._client, "close", None)

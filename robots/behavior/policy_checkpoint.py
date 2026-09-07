@@ -25,7 +25,6 @@ from typing import Any, Mapping
 
 POLICY_CHECKPOINT_BINDING_SCHEMA_VERSION = 1
 POLICY_CHECKPOINT_ENV = "PI05_CHECKPOINT_PATH"
-PUBLIC_POLICY_REPOSITORY = "RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32"
 SHARED_POLICY_PROFILE_ID = "pi05-b1kpt50-cs32"
 SHARED_POLICY_CHECKPOINT_PATH = Path(
     os.environ.get(POLICY_CHECKPOINT_ENV, SHARED_POLICY_PROFILE_ID)
@@ -46,7 +45,6 @@ class CheckpointFileRequirement:
 @dataclass(frozen=True)
 class PolicyCheckpointProfile:
     profile_id: str
-    path: Path
     files: tuple[CheckpointFileRequirement, ...]
 
 
@@ -76,7 +74,6 @@ class PolicyCheckpointBinding:
 
 SHARED_POLICY_PROFILE = PolicyCheckpointProfile(
     profile_id=SHARED_POLICY_PROFILE_ID,
-    path=SHARED_POLICY_CHECKPOINT_PATH,
     files=(
         CheckpointFileRequirement(
             relative_path="model.safetensors",
@@ -220,7 +217,6 @@ def assert_matching_policy_checkpoint_binding(
 __all__ = [
     "POLICY_CHECKPOINT_BINDING_SCHEMA_VERSION",
     "POLICY_CHECKPOINT_ENV",
-    "PUBLIC_POLICY_REPOSITORY",
     "SHARED_POLICY_CHECKPOINT_PATH",
     "SHARED_POLICY_PROFILE",
     "SHARED_POLICY_PROFILE_ID",

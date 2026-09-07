@@ -368,7 +368,6 @@ def test_behavior_prompts_strictly_render_real_run_config(
         "press",
     ):
         assert f"`{tool}`" in system
-    assert "collision-checked cuRobo trajectories" in system
     assert [user.index(title) for title in ("CELL", "MODE", "BEGIN")] == sorted(
         user.index(title) for title in ("CELL", "MODE", "BEGIN")
     )

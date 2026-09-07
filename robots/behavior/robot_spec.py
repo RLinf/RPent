@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from robots.behavior.prompt_bundle import system_prompt, user_prompt
-from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.dashboard.events import DashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -43,7 +43,6 @@ BEHAVIOR_DASHBOARD_SPEC = {
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
         {"name": "dino", "label": "DINO", "scope": "shared"},
-        {"name": "memory", "label": "MEM", "scope": "unique"},
     ),
     "frame_channels": (
         {
@@ -97,37 +96,25 @@ def get_toolkit(
         raise ValueError(
             "BEHAVIOR explore runs one attempt per session; use --explore-sessions"
         )
-    memory_selected = bool(toolkit_kwargs.pop("_memory_component_selected", False))
-    if memory_selected:
-        dashboard_events.emit(RuntimeStatusEvent("memory", "starting"))
-    try:
-        if mode is None:
-            behavior_mode = str(config.prompt_vars.get("behavior_mode", "eval"))
-        elif mode == "exploration":
-            behavior_mode = "explore"
-        elif mode == "evaluation":
-            behavior_mode = "eval"
-        else:
-            raise ValueError(f"unsupported BEHAVIOR toolkit mode: {mode!r}")
-        if behavior_mode not in {"eval", "explore"}:
-            raise ValueError(f"unsupported BEHAVIOR toolkit mode: {behavior_mode!r}")
-        toolkit_kwargs["behavior_phase"] = behavior_mode
-        memory_dir = config.prompt_vars.get("memory_dir")
-        if not memory_dir:
-            raise ValueError("BEHAVIOR RunConfig is missing memory_dir")
-        memory = MemoryManager(
-            root=Path(memory_dir),
-            memory_access=(
-                "inbox_write" if behavior_mode == "explore" else "read_only"
-            ),
-            inbox_cell_tag=(config.recipe_tag if behavior_mode == "explore" else None),
-        )
-    except Exception as exc:
-        if memory_selected:
-            dashboard_events.emit(RuntimeStatusEvent("memory", "failed", error=exc))
-        raise
-    if memory_selected:
-        dashboard_events.emit(RuntimeStatusEvent("memory", "ready"))
+    if mode is None:
+        behavior_mode = str(config.prompt_vars.get("behavior_mode", "eval"))
+    elif mode == "exploration":
+        behavior_mode = "explore"
+    elif mode == "evaluation":
+        behavior_mode = "eval"
+    else:
+        raise ValueError(f"unsupported BEHAVIOR toolkit mode: {mode!r}")
+    if behavior_mode not in {"eval", "explore"}:
+        raise ValueError(f"unsupported BEHAVIOR toolkit mode: {behavior_mode!r}")
+    toolkit_kwargs["behavior_phase"] = behavior_mode
+    memory_dir = config.prompt_vars.get("memory_dir")
+    if not memory_dir:
+        raise ValueError("BEHAVIOR RunConfig is missing memory_dir")
+    memory = MemoryManager(
+        root=Path(memory_dir),
+        memory_access="inbox_write" if behavior_mode == "explore" else "read_only",
+        inbox_cell_tag=config.recipe_tag if behavior_mode == "explore" else None,
+    )
     return BehaviorToolkit(
         primitives_kwargs=toolkit_kwargs,
         dashboard_events=dashboard_events,

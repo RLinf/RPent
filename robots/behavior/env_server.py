@@ -31,13 +31,9 @@ from typing import Any
 
 import numpy as np
 
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-if str(_repo_root()) not in sys.path:
-    sys.path.insert(0, str(_repo_root()))
+# Support direct execution from an RPent checkout before package imports.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from robots.behavior.schemas import (  # noqa: E402
     ACTION_DIM,
@@ -107,13 +103,11 @@ class BehaviorEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 "env.close_gripper": self.close_gripper,
                 "env.open_gripper": self.open_gripper,
                 "env.press": self.press,
-                "env.finalize_paused_runtime": self.finalize_paused_runtime,
             }
         )
         self._readonly_methods.update(
             {
                 "env.current_observation",
-                "env.finalize_paused_runtime",
             }
         )
 
@@ -231,11 +225,6 @@ class BehaviorEnvFacade(MainThreadServeMixin, BaseEnvFacade):
 
     def press(self, **kwargs: Any) -> dict[str, Any]:
         return self._call_backend("press", **kwargs)
-
-    def finalize_paused_runtime(
-        self, vla_status: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        return self._call_backend("finalize_paused_runtime", vla_status=vla_status)
 
     def close(self) -> None:
         if self._closed:

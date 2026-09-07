@@ -27,7 +27,7 @@ import importlib
 import os
 import tarfile
 import tempfile
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
@@ -118,10 +118,6 @@ class Dinov2RevisionIdentity:
                     "must be exact non-empty version",
                 )
 
-    @classmethod
-    def from_mapping(cls, value: Mapping[str, Any]) -> "Dinov2RevisionIdentity":
-        return cls(**dict(value))
-
     def as_dict(self) -> dict[str, Any]:
         return {
             "model_id": self.model_id,
@@ -193,12 +189,6 @@ def l2_matrix(values: Any, *, path: str) -> np.ndarray:
         if matrix.shape[0]
         else np.zeros((0, DINOV2_DIMENSION), dtype=np.float32)
     )
-
-
-def one_minus_cosine(query: np.ndarray, candidates: np.ndarray) -> np.ndarray:
-    q = l2_matrix(query, path="query")
-    c = l2_matrix(candidates, path="candidates")
-    return np.asarray(1.0 - np.clip(q @ c.T, -1.0, 1.0), dtype=np.float32)
 
 
 def _sha256_file(path: Path, *, label: str) -> str:
@@ -517,7 +507,6 @@ __all__ = [
     "Dinov2Engine",
     "Dinov2RevisionIdentity",
     "MemoryValidationError",
-    "one_minus_cosine",
     "l2_matrix",
     "l2_normalize_row",
 ]

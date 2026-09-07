@@ -154,7 +154,7 @@ def test_behavior_toolkit_uses_one_official_memory_manager(
     )
 
     toolkit = behavior_robot_spec.get_toolkit(
-        primitives_kwargs={"_memory_component_selected": True},
+        primitives_kwargs={},
         dashboard_events=NullDashboardEventSink(),
         config=config,
     )
@@ -174,4 +174,4 @@ def test_behavior_toolkit_uses_one_official_memory_manager(
         item["name"]
         for item in behavior_robot_spec.BEHAVIOR_DASHBOARD_SPEC["runtime_components"]
     }
-    assert component_names == {"env", "vla", "dino", "memory"}
+    assert component_names == {"env", "vla", "dino"}

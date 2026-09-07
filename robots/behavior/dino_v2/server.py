@@ -27,13 +27,9 @@ from typing import Any
 
 import numpy as np
 
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
-
-
-if str(_repo_root()) not in sys.path:
-    sys.path.insert(0, str(_repo_root()))
+# Support direct execution from an RPent checkout before package imports.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from rpent.utils.rpc import RpcFacade  # noqa: E402
 
