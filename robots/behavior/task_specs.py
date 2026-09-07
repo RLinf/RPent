@@ -25,26 +25,6 @@ InstanceKind = Literal["explore", "eval", "candidate"]
 
 
 @dataclass(frozen=True)
-class TerminalFailurePolicy:
-    """One task-specific visual terminal-failure contract."""
-
-    condition: str
-    runner_reason: str
-    causes: tuple[str, ...]
-    cameras: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class SurfaceReviewPolicy:
-    """One task-specific target/opposite-surface review contract."""
-
-    target_assessment: str
-    opposite_assessment: str
-    indeterminate_assessment: str
-    opposite_cycles_before_pi0_disable: int
-
-
-@dataclass(frozen=True)
 class ReleaseVisualPolicy:
     """One task-specific visual authorization contract for object release."""
 
@@ -77,8 +57,6 @@ class BehaviorTaskSpec:
     candidate_mapping_version: str
     explore_public_seeds: tuple[int, ...]
     eval_public_seeds: tuple[int, ...]
-    terminal_failure_policy: TerminalFailurePolicy | None = None
-    surface_review_policy: SurfaceReviewPolicy | None = None
     release_visual_policy: ReleaseVisualPolicy | None = None
 
     def __post_init__(self) -> None:
@@ -208,20 +186,6 @@ class BehaviorTaskSpec:
         )
 
 
-_RADIO_TERMINAL_FAILURE_POLICY: Final = TerminalFailurePolicy(
-    condition="radio_tipped_flat",
-    runner_reason="visual_radio_tipped_flat",
-    causes=("knocked_over_by_robot_hand", "dropped_out_of_gripper"),
-    cameras=("head", "left_wrist", "right_wrist"),
-)
-
-_RADIO_SURFACE_REVIEW_POLICY: Final = SurfaceReviewPolicy(
-    target_assessment="target_bearing_surface_confirmed",
-    opposite_assessment="opposite_surface_confirmed",
-    indeterminate_assessment="side_or_indeterminate",
-    opposite_cycles_before_pi0_disable=2,
-)
-
 _TRASH_RELEASE_VISUAL_POLICY: Final = ReleaseVisualPolicy(
     camera="head",
     assessment="attached_object_fully_inside_receptacle_opening",
@@ -250,8 +214,6 @@ TURNING_ON_RADIO_TASK_SPEC: Final = BehaviorTaskSpec(
     candidate_mapping_version="turning_on_radio_candidate_instance_v1",
     explore_public_seeds=(0,),
     eval_public_seeds=tuple(range(1, 10)),
-    terminal_failure_policy=_RADIO_TERMINAL_FAILURE_POLICY,
-    surface_review_policy=_RADIO_SURFACE_REVIEW_POLICY,
 )
 
 PICKING_UP_TRASH_TASK_SPEC: Final = BehaviorTaskSpec(
@@ -354,9 +316,7 @@ __all__ = [
     "InstanceKind",
     "PICKING_UP_TRASH_TASK_SPEC",
     "ReleaseVisualPolicy",
-    "SurfaceReviewPolicy",
     "TURNING_ON_RADIO_TASK_SPEC",
-    "TerminalFailurePolicy",
     "classify_instance",
     "get_task_spec",
     "get_task_spec_by_index",
