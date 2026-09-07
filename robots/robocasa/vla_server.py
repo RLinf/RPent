@@ -57,7 +57,13 @@ def _normalize_legacy_processor_geometry(processor):
 class RoboCasaVLAFacade(BaseVLAFacade):
     """Loads RLDX model and exposes inference-only RPC methods."""
 
-    def __init__(self, model_path, *, session_timeout_s=DEFAULT_SESSION_TIMEOUT_S):
+    def __init__(
+        self,
+        model_path,
+        *,
+        support_revision=None,
+        session_timeout_s=DEFAULT_SESSION_TIMEOUT_S,
+    ):
         super().__init__(
             enable_sessions=True,
             session_timeout_s=session_timeout_s,
@@ -65,11 +71,17 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         from rldx.data.embodiment_tags import EmbodimentTag
         from rldx.eval.rollout_policy import create_rldx_sim_policy
 
+        loading_kwargs = (
+            {"backbone_revision": support_revision}
+            if support_revision is not None
+            else {}
+        )
         self.policy = create_rldx_sim_policy(
             model_path,
             EmbodimentTag.GENERAL_EMBODIMENT,
             "",
             None,
+            **loading_kwargs,
         )
         if _normalize_legacy_processor_geometry(self.policy.policy.processor):
             logger.warning(
@@ -81,7 +93,7 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         self._hist_maxlen = int(self._vdi.max() - self._vdi.min()) + 2
         print(
             f"[vla_server] policy loaded; video_delta_indices={self._vdi.tolist()} "
-            f"hist_maxlen={self._hist_maxlen}",
+            f"hist_maxlen={self._hist_maxlen} backbone_revision={support_revision}",
             flush=True,
         )
 
@@ -154,6 +166,11 @@ def main():
     )
     p.add_argument("--model-path", required=True, help="RLDX checkpoint path")
     p.add_argument(
+        "--support-revision",
+        default=None,
+        help="Hub revision for backbone config/tokenizer, not checkpoint weights",
+    )
+    p.add_argument(
         "--session-timeout-s",
         type=float,
         default=3600.0,
@@ -181,7 +198,9 @@ def main():
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
 
     facade = RoboCasaVLAFacade(
-        args.model_path, session_timeout_s=args.session_timeout_s
+        args.model_path,
+        support_revision=args.support_revision,
+        session_timeout_s=args.session_timeout_s,
     )
     facade.serve(
         transport=args.transport,

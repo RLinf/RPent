@@ -32,6 +32,14 @@
       "repository": "RLWRLD/RLDX-1-FT-RC365",
       "revision": "587e9ecdcc5e7184fcc17f58713908edff5af041"
     },
+    "rldx_support": {
+      "repository": "RLWRLD/RLDX-1-VLM",
+      "revision": "4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7",
+      "include_patterns": ["*.json", "*.txt", "*.jinja", "*.md", "*.png", ".gitattributes"],
+      "exclude_patterns": ["*.safetensors.index.json"],
+      "file_count": 15,
+      "download_weights": false
+    },
     "task_memory": {
       "repository": "RLinf/RPent-memory",
       "repository_type": "dataset",
