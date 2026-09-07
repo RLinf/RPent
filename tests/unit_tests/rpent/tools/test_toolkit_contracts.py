@@ -29,7 +29,17 @@ from rpent.memory import MemoryManager
 from rpent.memory import tools as memory_tools
 from rpent.session import EnvState
 from rpent.tools import common
-from rpent.tools.toolkit import Toolkit, ToolResult, readonly
+from rpent.tools.tool_spec import readonly
+from rpent.tools.toolkit import Toolkit, ToolResult
+
+
+def _min_spec(name: str) -> dict[str, Any]:
+    """A minimal but complete hand-written spec for :meth:`Toolkit.add_tool`."""
+    return {
+        "name": name,
+        "description": "test tool",
+        "input_schema": {"type": "object", "properties": {}},
+    }
 
 
 class _RecordingEventSink:
@@ -184,30 +194,30 @@ def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     output_dir = tmp_path / "run-output"
-    original_specs = copy.deepcopy(common.TOOLS_SPEC)
+    original_specs = copy.deepcopy(common.COMMON_TOOLS)
     monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: output_dir)
     toolkit = _ContractToolkit(tmp_path / "state")
 
     first = toolkit.get_tools_spec()
     second = toolkit.get_tools_spec()
 
-    assert [spec["name"] for spec in first] == [
+    assert [spec.name for spec in first] == [
         "read_text_file",
         "write_text_file",
         "list_dir",
         "finish",
     ]
-    list_dir_spec = next(spec for spec in first if spec["name"] == "list_dir")
-    assert str(output_dir) in list_dir_spec["description"]
-    assert memory_tools.MEMORY_BOUNDARY_NOTE in list_dir_spec["description"]
+    list_dir_spec = next(spec for spec in first if spec.name == "list_dir")
+    assert str(output_dir) in list_dir_spec.description
+    assert memory_tools.MEMORY_BOUNDARY_NOTE in list_dir_spec.description
     assert (
         str(output_dir)
-        in list_dir_spec["input_schema"]["properties"]["path"]["description"]
+        in list_dir_spec.input_schema["properties"]["path"]["description"]
     )
-    assert common.TOOLS_SPEC == original_specs
+    assert common.COMMON_TOOLS == original_specs
     assert first == second
     assert first is not second
-    assert first[0] is not common.TOOLS_SPEC[0]
+    assert first[0] is not common.COMMON_TOOLS[0]
 
 
 def test_common_file_tools_dispatch_offline_without_capturing_robot_state(
@@ -377,11 +387,11 @@ def test_readonly_marker_handles_functions_bound_methods_and_nested_partials(
             return {"value": prefix + value}
 
     handler = Handler()
-    toolkit.add_tool("function", {"name": "function"}, readonly_function)
-    toolkit.add_tool("method", {"name": "method"}, handler.readonly_method)
+    toolkit.add_tool("function", _min_spec("function"), readonly_function)
+    toolkit.add_tool("method", _min_spec("method"), handler.readonly_method)
     toolkit.add_tool(
         "partial",
-        {"name": "partial"},
+        _min_spec("partial"),
         partial(partial(handler.readonly_method, prefix="pre-"), value="bound"),
     )
 
@@ -412,7 +422,7 @@ def test_stateful_dispatch_captures_state_and_emits_the_record(
         assert distance == 3
         return handler_result
 
-    toolkit.add_tool("move", {"name": "move"}, move)
+    toolkit.add_tool("move", _min_spec("move"), move)
 
     result = toolkit.execute_tool("move", {"distance": 3})
 
@@ -446,8 +456,8 @@ def test_handler_error_is_retained_when_state_capture_also_fails(
     def probe() -> dict[str, bool]:
         return {"ready": True}
 
-    toolkit.add_tool("fail", {"name": "fail"}, fail)
-    toolkit.add_tool("probe", {"name": "probe"}, probe)
+    toolkit.add_tool("fail", _min_spec("fail"), fail)
+    toolkit.add_tool("probe", _min_spec("probe"), probe)
 
     failed = toolkit.execute_tool("fail", {})
 
@@ -459,7 +469,7 @@ def test_handler_error_is_retained_when_state_capture_also_fails(
 
 
 @pytest.mark.timeout(5)
-def test_toolkit_rejects_overlapping_operations_and_cleans_up_after_success(
+def test_toolkit_serializes_stateful_operations_and_cleans_up_after_success(
     tmp_path: Path,
 ) -> None:
     toolkit = _ContractToolkit(tmp_path)
@@ -468,13 +478,12 @@ def test_toolkit_rejects_overlapping_operations_and_cleans_up_after_success(
     results: list[ToolResult] = []
     worker_errors: list[BaseException] = []
 
-    @readonly
     def blocking() -> dict[str, bool]:
         started.set()
         assert release.wait(2), "test did not release the blocking handler"
         return {"released": True}
 
-    toolkit.add_tool("blocking", {"name": "blocking"}, blocking)
+    toolkit.add_tool("blocking", _min_spec("blocking"), blocking)
 
     def run_blocking() -> None:
         try:
@@ -484,10 +493,21 @@ def test_toolkit_rejects_overlapping_operations_and_cleans_up_after_success(
 
     worker = threading.Thread(target=run_blocking, daemon=True)
     worker.start()
+    finished: list[ToolResult] = []
     try:
         assert started.wait(2), "blocking handler did not start"
-        overlap = toolkit.execute_tool("finish", {"status": "failure", "summary": "x"})
-        assert overlap.result == {"error": "another tool operation is still active"}
+        queued = threading.Thread(
+            target=lambda: finished.append(
+                toolkit.execute_tool(
+                    "finish", {"status": "success", "summary": "queued"}
+                )
+            ),
+            daemon=True,
+        )
+        queued.start()
+        # The queued tool is not rejected; it blocks on the write lock held by
+        # the stateful handler and therefore cannot complete yet.
+        assert not finished
     finally:
         release.set()
         worker.join(2)
@@ -495,10 +515,11 @@ def test_toolkit_rejects_overlapping_operations_and_cleans_up_after_success(
     assert not worker.is_alive()
     assert worker_errors == []
     assert len(results) == 1
-    assert results[0].result == {"released": True}
-    assert toolkit.execute_tool(
-        "finish", {"status": "success", "summary": "clean"}
-    ).is_finish
+    assert results[0].result == {"observation": 1}
+    assert toolkit.capture_calls[0]["result"] == {"released": True}
+    queued.join(2)
+    assert len(finished) == 1
+    assert finished[0].is_finish is True
 
 
 def test_toolkit_cleans_up_operation_after_handler_failure(tmp_path: Path) -> None:
@@ -508,7 +529,7 @@ def test_toolkit_cleans_up_operation_after_handler_failure(tmp_path: Path) -> No
     def fail() -> dict[str, Any]:
         raise RuntimeError("tool failed")
 
-    toolkit.add_tool("fail", {"name": "fail"}, fail)
+    toolkit.add_tool("fail", _min_spec("fail"), fail)
 
     failed = toolkit.execute_tool("fail", {})
 
@@ -534,7 +555,7 @@ def test_toolkit_cooperatively_cancels_and_cleans_up_active_operation(
             toolkit.raise_if_cancelled()
         return {"unexpected": True}
 
-    toolkit.add_tool("cancellable", {"name": "cancellable"}, cancellable)
+    toolkit.add_tool("cancellable", _min_spec("cancellable"), cancellable)
     worker = threading.Thread(
         target=lambda: results.append(toolkit.execute_tool("cancellable", {})),
         daemon=True,

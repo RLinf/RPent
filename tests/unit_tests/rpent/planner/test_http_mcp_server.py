@@ -27,7 +27,8 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.memory.manager import MemoryManager
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, readonly
+from rpent.tools.tool_spec import readonly
+from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import init_output_dir
 
 CONCURRENT_CALLS = [

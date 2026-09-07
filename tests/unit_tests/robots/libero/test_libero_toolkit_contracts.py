@@ -22,12 +22,13 @@ from typing import Any
 
 import pytest
 
+import rpent.tools.tool_spec as tool_spec
 from robots.libero import robot_spec, toolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
-from rpent.tools.toolkit import Toolkit, _is_readonly
-from rpent.utils import templates
+from rpent.tools.tool_spec import _is_readonly
+from rpent.tools.toolkit import Toolkit
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
 
@@ -52,14 +53,14 @@ def _record(step_idx: int = 0) -> SimpleNamespace:
 
 
 def _tool_names(robot_toolkit: Toolkit) -> set[str]:
-    return {spec["name"] for spec in robot_toolkit.get_tools_spec()}
+    return {spec.name for spec in robot_toolkit.get_tools_spec()}
 
 
 def _readonly_names(robot_toolkit: Toolkit) -> set[str]:
     return {
         name
-        for name, (_, handler) in robot_toolkit._tools.items()
-        if _is_readonly(handler)
+        for name, tool in robot_toolkit._tools.items()
+        if _is_readonly(tool.handler)
     }
 
 
@@ -102,12 +103,12 @@ def test_toolkit_factory_configures_memory_access_by_mode(
 
     assert evaluation.memory.root == memory_dir.resolve()
     assert exploration.memory.root == memory_dir.resolve()
-    evaluation_write = evaluation.memory.get_common_tool_bindings()["write_text_file"][
-        1
-    ]
+    evaluation_write = evaluation.memory.get_common_tool_bindings()[
+        "write_text_file"
+    ].handler
     exploration_write = exploration.memory.get_common_tool_bindings()[
         "write_text_file"
-    ][1]
+    ].handler
     own_draft = memory_dir / "_internal" / "inbox" / config.recipe_tag / "draft.md"
     with pytest.raises(PermissionError, match="writing to memory is denied"):
         evaluation_write(str(own_draft), "draft")
@@ -124,7 +125,7 @@ def test_toolkit_modes_construct_with_fake_primitives(
 ) -> None:
     dumped: list[Any] = []
     monkeypatch.setattr(
-        templates, "default_variables", lambda: {"output_dir": "/offline/output"}
+        tool_spec, "default_variables", lambda: {"output_dir": "/offline/output"}
     )
     monkeypatch.setattr(
         toolkit.libero_tools,

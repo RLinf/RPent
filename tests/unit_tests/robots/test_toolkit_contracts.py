@@ -72,7 +72,7 @@ def test_evaluation_toolkit_factories_use_configured_read_only_memory(
     )
 
     assert toolkit.memory.root == memory_dir.resolve()
-    write = toolkit.memory.get_common_tool_bindings()["write_text_file"][1]
+    write = toolkit.memory.get_common_tool_bindings()["write_text_file"].handler
     with pytest.raises(PermissionError, match="writing to memory is denied"):
         write(str(memory_dir / "global" / "strategy.md"), "changed")
     assert captured["primitives_kwargs"] == {"env": "offline"}

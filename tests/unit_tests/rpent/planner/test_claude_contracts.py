@@ -17,6 +17,8 @@ from __future__ import annotations
 import asyncio
 import json
 import queue
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +33,8 @@ from rpent.planner.claude_code import (
     _Recorder,
     _tool_result_to_mcp,
 )
-from rpent.tools.toolkit import ToolResult
+from rpent.tools.tool_spec import ToolSpec
+from rpent.tools.toolkit import Toolkit, ToolResult
 
 
 class RecordingSink:
@@ -51,21 +54,18 @@ class FakeToolkit:
         self.result = result or {"value": "ok"}
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.cancel_calls = 0
-
-    def get_tools_spec(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": "inspect_scene",
-                "description": "Inspect the current scene.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"detail": {"type": "string"}},
-                },
-            },
-            {
-                "name": "finish",
-                "description": "Finish the task.",
-                "input_schema": {
+        self._specs = [
+            ToolSpec(
+                name="inspect_scene",
+                description="Inspect the current scene.",
+                input_schema={"type": "object", "properties": {"detail": {"type": "string"}}},
+                handler=lambda **kwargs: {},
+                readonly=False,
+            ),
+            ToolSpec(
+                name="finish",
+                description="Finish the task.",
+                input_schema={
                     "type": "object",
                     "properties": {
                         "status": {"type": "string"},
@@ -73,8 +73,13 @@ class FakeToolkit:
                     },
                     "required": ["status", "summary"],
                 },
-            },
+                handler=lambda **kwargs: {},
+                readonly=False,
+            ),
         ]
+
+    def get_tools_spec(self) -> list[ToolSpec]:
+        return self._specs
 
     def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
         self.calls.append((name, args))
@@ -197,7 +202,7 @@ def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors() -> None:
     tools = {tool.sdk_name: tool for tool in server["tools"]}
     assert tools["inspect_scene"].sdk_description == "Inspect the current scene."
     assert (
-        tools["inspect_scene"].sdk_schema == toolkit.get_tools_spec()[0]["input_schema"]
+        tools["inspect_scene"].sdk_schema == toolkit.get_tools_spec()[0].input_schema
     )
 
     response = asyncio.run(tools["inspect_scene"]({"detail": "high"}))
@@ -486,3 +491,103 @@ def test_queue_and_dashboard_are_mutually_exclusive_before_sdk_use(
             input_queue=queue.Queue(),
             dashboard_interaction=object(),
         )
+
+
+class _ConcurrentToolkit(Toolkit):
+    """Real ``Toolkit`` (RWLock in ``execute_tool``) with probe tools.
+
+    The other tests use :class:`FakeToolkit`, whose stub ``execute_tool`` never
+    serializes. The SDK bridge tests need the real concurrency semantics, so
+    they register read-only (parallel) and stateful (exclusive) probe tools.
+    """
+
+    _FRAME_ARTIFACTS = {}
+
+    def __init__(self) -> None:
+        super().__init__(
+            dashboard_events=RecordingSink(),
+            state=_FakeState(),
+            memory=_FakeMemory(),
+        )
+        self._tools = {}  # isolate from the common file tools
+        self.captured_commands: list[dict[str, Any]] = []
+
+    def get_env_state(
+        self,
+        *,
+        command: dict[str, Any],
+        result: dict[str, Any],
+        elapsed_s: float,
+    ) -> dict[str, Any]:
+        del result, elapsed_s
+        self.captured_commands.append(command)
+        return {"state": "captured"}
+
+
+class _FakeState:
+    def latest_record(self) -> None:
+        return None
+
+
+class _FakeMemory:
+    def get_common_tool_bindings(self) -> dict[str, Any]:
+        return {}
+
+
+def test_rpent_server_dispatches_readonly_in_parallel_and_stateful_serialized() -> None:
+    gate = threading.Barrier(2)
+    toolkit = _ConcurrentToolkit()
+    toolkit.add_tool_spec(
+        ToolSpec(
+            name="rd",
+            description="read-only probe",
+            input_schema={"type": "object", "properties": {}},
+            handler=lambda x: (gate.wait(timeout=2), {"value": x})[1],
+            readonly=True,
+        )
+    )
+    toolkit.add_tool_spec(
+        ToolSpec(
+            name="st",
+            description="stateful probe",
+            input_schema={"type": "object", "properties": {}},
+            handler=lambda: (time.sleep(0.2), {"ok": True})[1],
+            readonly=False,
+        )
+    )
+    server = _build_rpent_server(FakeSdkTools(), toolkit=toolkit)
+    tools = {tool.sdk_name: tool for tool in server["tools"]}
+
+    async def run_readonly() -> tuple[float, list[dict[str, Any]]]:
+        start = time.perf_counter()
+        results = await asyncio.gather(
+            tools["rd"]({"x": "a"}),
+            tools["rd"]({"x": "b"}),
+        )
+        return time.perf_counter() - start, results
+
+    async def run_stateful() -> float:
+        start = time.perf_counter()
+        await asyncio.gather(tools["st"]({}), tools["st"]({}))
+        return time.perf_counter() - start
+
+    parallel_elapsed, read_results = asyncio.run(run_readonly())
+    # ``Barrier(2)`` proves both read-only handlers ran at once; a serialized
+    # dispatch (or the old global-lock rejection) could not satisfy it.
+    assert parallel_elapsed < 0.5, (
+        f"read-only dispatch should overlap, took {parallel_elapsed:.3f}s"
+    )
+    values = {
+        json.loads(res["content"][0]["text"])["value"] for res in read_results
+    }
+    assert values == {"a", "b"}
+    assert all(
+        "another tool operation" not in res["content"][0]["text"]
+        for res in read_results
+    )
+
+    stateful_elapsed = asyncio.run(run_stateful())
+    assert stateful_elapsed >= 0.35, (
+        f"stateful dispatch must serialize, took {stateful_elapsed:.3f}s"
+    )
+    assert [c["action"] for c in toolkit.captured_commands] == ["st", "st"]

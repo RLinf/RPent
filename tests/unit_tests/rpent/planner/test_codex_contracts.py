@@ -14,14 +14,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import queue
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 
 import rpent.planner.codex as codex_module
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
@@ -36,7 +41,8 @@ from rpent.planner.utils.http_mcp_server import (
     HttpMcpServer,
     _toolkit_to_mcp_content,
 )
-from rpent.tools.toolkit import ToolResult
+from rpent.tools.tool_spec import ToolSpec
+from rpent.tools.toolkit import Toolkit, ToolResult
 
 
 class RecordingSink:
@@ -554,3 +560,115 @@ def test_interrupt_attempts_both_turn_and_codex_cleanup() -> None:
     _interrupt({"turn": Turn(), "codex": Codex()})
 
     assert events == ["turn-interrupt", "codex-close"]
+
+
+class _ConcurrentToolkit(Toolkit):
+    """Real ``Toolkit`` (RWLock in ``execute_tool``) with probe tools.
+
+    The codex contract tests otherwise use :class:`FakeToolkit`, whose stub
+    ``execute_tool`` never serializes. These tests need the real concurrency
+    semantics, so they register read-only (parallel) and stateful (exclusive)
+    probe tools on the base toolkit.
+    """
+
+    _FRAME_ARTIFACTS = {}
+
+    def __init__(self) -> None:
+        super().__init__(
+            dashboard_events=RecordingSink(),
+            state=_FakeState(),
+            memory=_FakeMemory(),
+        )
+        self._tools = {}  # isolate from the common file tools
+        self.captured_commands: list[dict[str, Any]] = []
+
+    def get_env_state(
+        self,
+        *,
+        command: dict[str, Any],
+        result: dict[str, Any],
+        elapsed_s: float,
+    ) -> dict[str, Any]:
+        del result, elapsed_s
+        self.captured_commands.append(command)
+        return {"state": "captured"}
+
+
+class _FakeState:
+    def latest_record(self) -> None:
+        return None
+
+
+class _FakeMemory:
+    def get_common_tool_bindings(self) -> dict[str, Any]:
+        return {}
+
+
+def test_http_mcp_dispatch_runs_readonly_in_parallel_and_stateful_serialized(
+    tmp_path: Path,
+) -> None:
+    from rpent.utils.logging import init_output_dir
+
+    init_output_dir(str(tmp_path))
+    gate = threading.Barrier(2)
+    toolkit = _ConcurrentToolkit()
+    toolkit.add_tool_spec(
+        ToolSpec(
+            name="rd",
+            description="read-only probe",
+            input_schema={"type": "object", "properties": {}},
+            handler=lambda x: (gate.wait(timeout=2), {"value": x})[1],
+            readonly=True,
+        )
+    )
+    toolkit.add_tool_spec(
+        ToolSpec(
+            name="st",
+            description="stateful probe",
+            input_schema={"type": "object", "properties": {}},
+            handler=lambda: (time.sleep(0.2), {"ok": True})[1],
+            readonly=False,
+        )
+    )
+    server = HttpMcpServer(toolkit)
+
+    async def call_pair(
+        name: str, arguments: list[dict[str, Any]]
+    ) -> tuple[float, list[Any]]:
+        async with streamable_http_client(server.url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                start = time.perf_counter()
+                results = await asyncio.gather(
+                    *(session.call_tool(name, args) for args in arguments)
+                )
+                elapsed = time.perf_counter() - start
+                return elapsed, results
+
+    try:
+        server.start()
+        parallel_elapsed, read_results = asyncio.run(
+            call_pair("rd", [{"x": "a"}, {"x": "b"}])
+        )
+        # ``Barrier(2)`` proves both read-only handlers ran at once; a
+        # serialized dispatch (or the old global-lock rejection) could not
+        # satisfy it without hitting the 2s barrier timeout.
+        assert parallel_elapsed < 0.5, (
+            f"read-only dispatch should overlap, took {parallel_elapsed:.3f}s"
+        )
+        for result in read_results:
+            body = json.dumps(result.model_dump())
+            assert "another tool operation" not in body
+            text = next(
+                block.text for block in result.content if block.type == "text"
+            )
+            assert json.loads(text)["value"] in ("a", "b")
+
+        stateful_elapsed, _ = asyncio.run(call_pair("st", [{}, {}]))
+        assert stateful_elapsed >= 0.35, (
+            f"stateful dispatch must serialize, took {stateful_elapsed:.3f}s"
+        )
+    finally:
+        server.stop()
+
+    assert [c["action"] for c in toolkit.captured_commands] == ["st", "st"]

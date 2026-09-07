@@ -104,9 +104,15 @@ class LiberoToolkit(Toolkit):
                 spec for spec in libero_tools.TOOLS_SPEC if spec["name"] == "reset"
             )
             self.add_tool("reset", reset_spec, self._reset_episode)
-            finish_spec, finish_handler = self._tools["finish"]
+            finish_tool = self._tools["finish"]
             self.add_tool(
-                "finish", finish_spec, partial(self._guarded_finish, finish_handler)
+                "finish",
+                {
+                    "name": finish_tool.name,
+                    "description": finish_tool.description,
+                    "input_schema": finish_tool.input_schema,
+                },
+                partial(self._guarded_finish, finish_tool.handler),
             )
 
     @readonly

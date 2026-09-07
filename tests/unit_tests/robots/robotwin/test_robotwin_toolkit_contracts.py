@@ -22,12 +22,13 @@ from typing import Any
 
 import pytest
 
+import rpent.tools.tool_spec as tool_spec
 from robots.robotwin import toolkit
 from robots.robotwin.primitives import RoboTwinPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
-from rpent.tools.toolkit import Toolkit, _is_readonly, readonly
-from rpent.utils import templates
+from rpent.tools.tool_spec import _is_readonly, readonly
+from rpent.tools.toolkit import Toolkit
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
 
@@ -118,14 +119,14 @@ def _record(step_idx: int = 0) -> SimpleNamespace:
 
 
 def _tool_names(robot_toolkit: Toolkit) -> set[str]:
-    return {spec["name"] for spec in robot_toolkit.get_tools_spec()}
+    return {spec.name for spec in robot_toolkit.get_tools_spec()}
 
 
 def _readonly_names(robot_toolkit: Toolkit) -> set[str]:
     return {
         name
-        for name, (_, handler) in robot_toolkit._tools.items()
-        if _is_readonly(handler)
+        for name, tool in robot_toolkit._tools.items()
+        if _is_readonly(tool.handler)
     }
 
 
@@ -148,7 +149,7 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
     FakeRoboTwinPrimitives.instances.clear()
     dumped: list[dict[str, Any]] = []
     monkeypatch.setattr(
-        templates, "default_variables", lambda: {"output_dir": "/offline/output"}
+        tool_spec, "default_variables", lambda: {"output_dir": "/offline/output"}
     )
     monkeypatch.setattr(toolkit, "RoboTwinPrimitives", FakeRoboTwinPrimitives)
     monkeypatch.setattr(toolkit, "get_output_dir", lambda: tmp_path)

@@ -12,14 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""API-loop contract tests for the pydantic-ai integration.
+
+Forked from ``rpent_planner_multi_mcp``'s
+``tests/unit_tests/rpent/planner/test_api_contracts.py`` and adapted to this
+branch's ``ToolSpec`` interface. The upstream suite asserts
+``all(tool.sequential for tool in tools)`` to pin the multi-MCP fix that
+serializes a turn's tool calls at the planner layer. This branch solves the
+same problem at the toolkit layer (``Toolkit.execute_tool`` serializes
+stateful calls under an RWLock write lock and runs read-only calls
+concurrently under the read lock, queueing instead of rejecting), so the
+``sequential`` flag is intentionally absent here — the functional contracts
+below are what must hold regardless of the serialization strategy.
+"""
+
 from __future__ import annotations
 
 import asyncio
 import base64
-import json
 import queue
-import threading
-import time
 from typing import Any
 
 import pytest
@@ -41,7 +52,7 @@ from rpent.planner.api_loop import (
     _make_tool_function,
 )
 from rpent.tools.tool_spec import ToolSpec
-from rpent.tools.toolkit import Toolkit, ToolResult
+from rpent.tools.toolkit import ToolResult
 
 
 class RecordingSink:
@@ -77,8 +88,7 @@ class FakeToolkit:
                     },
                     "required": ["status", "summary"],
                 },
-                handler=lambda **kwargs: self.execute_tool("finish", kwargs),
-                readonly=False,
+                handler=lambda **kw: {"ok": True},
             )
         ]
 
@@ -254,11 +264,11 @@ def test_tool_schema_and_dispatch_are_mapped_to_pydantic_ai() -> None:
     tools = _build_tools(toolkit)
 
     assert [tool.name for tool in tools] == ["read_image", "finish"]
-    assert all(tool.sequential for tool in tools)
     finish = tools[1]
     assert finish.description == "Finish after the environment accepts the result."
     assert (
-        finish.function_schema.json_schema == toolkit.get_tools_spec()[0].input_schema
+        finish.function_schema.json_schema
+        == toolkit.get_tools_spec()[0].input_schema
     )
 
 
@@ -302,100 +312,3 @@ def test_no_images_mode_suppresses_binary_tool_content() -> None:
     assert isinstance(multimodal.content[0], BinaryContent)
     assert text_only == '{\n  "value": "visible"\n}'
     assert "secret" not in text_only
-
-
-class _ConcurrentToolkit(Toolkit):
-    """Real ``Toolkit`` (RWLock in ``execute_tool``) with probe tools.
-
-    The planner contract tests otherwise use :class:`FakeToolkit`, whose stub
-    ``execute_tool`` never serializes. These tests need the real concurrency
-    semantics, so they register read-only (parallel) and stateful (exclusive)
-    probe tools on the base toolkit.
-    """
-
-    _FRAME_ARTIFACTS = {}
-
-    def __init__(self) -> None:
-        super().__init__(
-            dashboard_events=RecordingSink(),
-            state=_FakeState(),
-            memory=_FakeMemory(),
-        )
-        self._tools = {}  # isolate from the common file tools
-        self.captured_commands: list[dict[str, Any]] = []
-
-    def get_env_state(
-        self,
-        *,
-        command: dict[str, Any],
-        result: dict[str, Any],
-        elapsed_s: float,
-    ) -> dict[str, Any]:
-        del result, elapsed_s
-        self.captured_commands.append(command)
-        return {"state": "captured"}
-
-
-class _FakeState:
-    def latest_record(self) -> None:
-        return None
-
-
-class _FakeMemory:
-    def get_common_tool_bindings(self) -> dict[str, Any]:
-        return {}
-
-
-def test_api_tool_dispatch_runs_readonly_in_parallel_and_stateful_serialized() -> None:
-    gate = threading.Barrier(2)
-    toolkit = _ConcurrentToolkit()
-    toolkit.add_tool_spec(
-        ToolSpec(
-            name="rd",
-            description="read-only probe",
-            input_schema={"type": "object", "properties": {}},
-            handler=lambda x: (gate.wait(timeout=2), {"value": x})[1],
-            readonly=True,
-        )
-    )
-    toolkit.add_tool_spec(
-        ToolSpec(
-            name="st",
-            description="stateful probe",
-            input_schema={"type": "object", "properties": {}},
-            handler=lambda: (time.sleep(0.2), {"ok": True})[1],
-            readonly=False,
-        )
-    )
-    rd = _make_tool_function(toolkit, "rd")
-    st = _make_tool_function(toolkit, "st")
-
-    async def run_readonly() -> tuple[float, list[Any]]:
-        start = time.perf_counter()
-        results = await asyncio.gather(
-            asyncio.to_thread(rd, x="a"),
-            asyncio.to_thread(rd, x="b"),
-        )
-        return time.perf_counter() - start, results
-
-    async def run_stateful() -> float:
-        start = time.perf_counter()
-        await asyncio.gather(asyncio.to_thread(st), asyncio.to_thread(st))
-        return time.perf_counter() - start
-
-    parallel_elapsed, read_results = asyncio.run(run_readonly())
-    # ``Barrier(2)`` proves both read-only handlers were inside at once: a
-    # serialized dispatch (or the old global-lock rejection) could not return
-    # from ``gate.wait`` without the second thread arriving.
-    assert parallel_elapsed < 0.5, (
-        f"read-only dispatch should overlap, took {parallel_elapsed:.3f}s"
-    )
-    values = {json.loads(r)["value"] for r in read_results}
-    assert values == {"a", "b"}
-    assert all("another tool operation" not in r for r in read_results)
-
-    stateful_elapsed = asyncio.run(run_stateful())
-    assert stateful_elapsed >= 0.35, (
-        f"stateful dispatch must serialize, took {stateful_elapsed:.3f}s"
-    )
-    assert [c["action"] for c in toolkit.captured_commands] == ["st", "st"]
