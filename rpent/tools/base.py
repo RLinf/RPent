@@ -34,6 +34,7 @@ from typing import (
     get_type_hints,
 )
 
+import numpy as np
 from docstring_parser import DocstringStyle, parse
 from pydantic import BaseModel, Field, create_model
 from pydantic.json_schema import GenerateJsonSchema
@@ -119,6 +120,7 @@ class ToolContext(Generic[RobotT]):
     memory: MemoryManager
     robot: RobotT
     output_dir: Path
+    record_frame: Callable[[np.ndarray], None]
     _cancel_event: threading.Event = field(repr=False)
 
     def check_cancelled(self) -> None:

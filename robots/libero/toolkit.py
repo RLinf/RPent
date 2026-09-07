@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -30,11 +30,49 @@ from rpent.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from robots.libero.env_client import LiberoEnvClient
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+    from rpent.robots.components.sam3_client import Sam3Client
 
 logger = get_logger("libero_toolkit")
 
 
-class LiberoToolkit(Toolkit[libero_tools.LiberoRuntime]):
+class LiberoRuntime:
+    """Environment clients, cached observations, and session progress."""
+
+    def __init__(
+        self,
+        env: LiberoEnvClient,
+        model: Pi05VLAClient,
+        sam3_client: Sam3Client,
+    ):
+        self.env = env
+        self.model = model
+        self._sam3_client = sam3_client
+        self._last_obs = None
+        self._last_obs_eef_pos = None
+        self._last_obs_gripper = None
+        self.executed_steps = 0
+        self.mode: Literal["evaluation", "exploration"] = "evaluation"
+        self.solved = False
+        self.attempt = 1
+        self.attempts_per_session = 0
+
+    def set_obs(self, obs):
+        self._last_obs = obs
+        states_arr = np.asarray(obs["states"])
+        self._last_obs_eef_pos = np.asarray(states_arr[:3], dtype=np.float32)
+        # robosuite 2f85: qpos[6] in [~0, ~0.04], qpos[7] in [~-0.04, ~0.].
+        # Use |qpos[6]| + |qpos[7]| ≈ finger separation proxy.
+        # When open ≈ 0.08; when closed ≈ 0.
+        gp = np.asarray(states_arr[6:8], dtype=np.float32)
+        self._last_obs_gripper = float(abs(gp[0]) + abs(gp[1]))
+
+    def reset(self) -> None:
+        obs, _ = self.env.reset()
+        self.set_obs(obs)
+
+
+class LiberoToolkit(Toolkit[LiberoRuntime]):
     """Native tools and resources for one LIBERO planner session."""
 
     def __init__(
@@ -50,7 +88,7 @@ class LiberoToolkit(Toolkit[libero_tools.LiberoRuntime]):
     ) -> None:
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
-        runtime = libero_tools.LiberoRuntime(**runtime_kwargs)
+        runtime = LiberoRuntime(**runtime_kwargs)
         runtime.mode = mode
         runtime.attempts_per_session = max(0, int(attempts_per_session))
         state = EnvState(state_output_dir or output_dir)
@@ -67,7 +105,6 @@ class LiberoToolkit(Toolkit[libero_tools.LiberoRuntime]):
         )
         state.reset()
         runtime.reset()
-        runtime.start_recording()
         record = dump_state(runtime, state, log=None)
         try:
             self._dashboard_events.emit(
@@ -106,7 +143,7 @@ class LiberoToolkit(Toolkit[libero_tools.LiberoRuntime]):
 
 
 def dump_state(
-    runtime: libero_tools.LiberoRuntime,
+    runtime: LiberoRuntime,
     env_state: EnvState,
     log: dict | None = None,
 ) -> StepRecord:
@@ -171,7 +208,7 @@ def build_observation(
 
 
 def _save_observation_artifacts(
-    runtime: libero_tools.LiberoRuntime,
+    runtime: LiberoRuntime,
     state: EnvState,
     step: int,
     raw: dict[str, Any],

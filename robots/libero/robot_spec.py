@@ -75,18 +75,6 @@ LIBERO_DASHBOARD_SPEC = {
         {"name": "vla", "label": "VLA", "scope": "shared"},
         {"name": "sam3", "label": "SAM3", "scope": "shared"},
     ),
-    "frame_channels": (
-        {
-            "name": "camera",
-            "label": "fixed camera",
-            "legacy_path_key": "image_cam_path",
-        },
-        {
-            "name": "wrist",
-            "label": "wrist camera",
-            "legacy_path_key": "image_wrist_path",
-        },
-    ),
 }
 
 
@@ -111,7 +99,7 @@ def get_robot_spec() -> RobotSpec:
 
 def get_toolkit(
     *,
-    primitives_kwargs: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
     mode: str = "evaluation",
@@ -128,7 +116,8 @@ def get_toolkit(
         inbox_cell_tag=config.recipe_tag if explore else None,
     )
     return LiberoToolkit(
-        primitives_kwargs=primitives_kwargs,
+        runtime_kwargs=runtime_kwargs,
+        output_dir=config.output_dir,
         dashboard_events=dashboard_events,
         memory=memory,
         mode=mode,
@@ -441,7 +430,7 @@ def _init_runtime(
                 starter,
             )
 
-    primitives_kwargs: dict[str, Any] = {}
+    runtime_kwargs: dict[str, Any] = {}
     wait_order = ("env", "sam3", "vla")
     for component in (name for name in wait_order if name in pending):
         daemon, rpc = pending[component]
@@ -454,6 +443,6 @@ def _init_runtime(
             300.0,
             post_fn=partial(connectors[component], rpc),
         )
-        primitives_kwargs.update(component_kwargs)
+        runtime_kwargs.update(component_kwargs)
 
-    return list(owned_daemons.values()), primitives_kwargs
+    return list(owned_daemons.values()), runtime_kwargs

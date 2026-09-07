@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Generic, Literal
 
+import numpy as np
 from pydantic import ValidationError
 
 from rpent.dashboard.events import (
@@ -133,8 +134,8 @@ class _Scheduler:
 class Toolkit(Generic[RobotT]):
     """A fixed tool collection and its execution resources for one planner session.
 
-    The robot collects frames and provides recorded_frame_count(), frame_slice(),
-    and stop_recording(). This toolkit saves action clips and the episode video.
+    Robot tools submit RGB frames through ctx.record_frame(). This toolkit owns
+    the frame buffer and saves action clips and the episode video.
     """
 
     def __init__(
@@ -158,6 +159,7 @@ class Toolkit(Generic[RobotT]):
         self._scheduler = _Scheduler()
         self._finish_result: dict[str, str] | None = None
         self._recipe_commands: list[dict[str, Any]] = []
+        self._frames: list[np.ndarray] = []
 
     @property
     def state(self) -> EnvState:
@@ -175,6 +177,10 @@ class Toolkit(Generic[RobotT]):
 
     def list_tools(self) -> tuple[Tool, ...]:
         return tuple(self._tools.values())
+
+    def record_frame(self, rgb: np.ndarray) -> None:
+        """Collect one environment-step image for action and episode videos."""
+        self._frames.append(np.ascontiguousarray(np.asarray(rgb)))
 
     def execute_tool(self, name: str, arguments: dict) -> ToolResult:
         """Validate, wait, execute, and capture before releasing the call."""
@@ -202,10 +208,11 @@ class Toolkit(Generic[RobotT]):
                 memory=self._memory,
                 robot=self._robot,
                 output_dir=self._task_output_dir,
+                record_frame=self.record_frame,
                 _cancel_event=call.cancel_event,
             )
             if not tool.readonly and self._dashboard_events.enabled:
-                frame_start = self._robot.recorded_frame_count()
+                frame_start = len(self._frames)
             started = time.perf_counter()
             # Read fields directly so nested models reach the handler intact.
             kwargs = {name: getattr(args, name) for name in type(args).model_fields}
@@ -237,7 +244,7 @@ class Toolkit(Generic[RobotT]):
                 if record is not None and record is not previous:
                     if self._dashboard_events.enabled:
                         try:
-                            frames = self._robot.frame_slice(frame_start)
+                            frames = self._frames[frame_start:]
                             if frames:
                                 self._state.save(
                                     f"action_{tool.name}.mp4",
@@ -307,8 +314,9 @@ class Toolkit(Generic[RobotT]):
     def close(self) -> None:
         """Called once by the runner to drain calls and save the episode video."""
         self._scheduler.cancel_and_wait(close=True)
+        frames = self._frames
+        self._frames = []
         try:
-            frames = self._robot.stop_recording()
             if frames:
                 self._state.save("episode.mp4", frames, step=None, fps=20)
         except Exception as exc:
