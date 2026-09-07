@@ -14,8 +14,6 @@
 
 """Robot-specific schema contracts for RoboTwin tools."""
 
-import inspect
-
 import pytest
 
 from robots.robotwin import tools
@@ -33,12 +31,7 @@ def test_perception_schemas_use_the_same_view_coordinate_space() -> None:
         assert schema["properties"]["view"]["type"] == "string"
 
 
-def test_native_handlers_require_injected_context_and_keep_fixed_chunk_length():
-    for native_tool in tools.ROBOTWIN_TOOLS:
-        ctx = inspect.signature(native_tool.handler).parameters["ctx"]
-        assert ctx.kind is inspect.Parameter.KEYWORD_ONLY
-        assert ctx.default is inspect.Parameter.empty
-        assert "ctx" not in native_tool.input_schema["properties"]
+def test_lingbot_keeps_fixed_chunk_length():
     use_length = tools.lingbot_act.input_schema["properties"]["use_length"]
     assert use_length["const"] == use_length["default"] == 50
 

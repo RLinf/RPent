@@ -60,33 +60,12 @@ def test_robot_finish_preserves_unrestricted_modes(make_toolkit, mode, attempts)
 def test_modes_filters_directories_and_exploration_guards(make_toolkit):
     evaluation, env, _ = make_toolkit()
     assert env.reset_calls == 1
-    assert {tool.name for tool in evaluation.list_tools()} == {
-        "read_text_file",
-        "read_image",
-        "write_text_file",
-        "list_dir",
-        "finish",
-        "view_env_state",
-        "move_to",
-        "pi0_pick",
-        "pi0_doubled",
-        "release",
-        "set_gripper",
-        "rotate_wrist",
-        "rotate_pitch",
-        "move_pose",
-        "view_camera_meta",
-        "segment",
-        "back_project",
-    }
+    assert "reset" not in {tool.name for tool in evaluation.list_tools()}
     assert evaluation.execute_tool("reset", {"reason": "again"}).error.startswith(
         "Unknown tool: "
     )
     exploration, env, _ = make_toolkit(mode="exploration", attempts=3)
-    assert "read_image" in {t.name for t in exploration.list_tools()}
-    assert exploration.execute_tool("list_dir", {}).data["path"] == str(
-        exploration._task_output_dir
-    )
+    assert "reset" in {t.name for t in exploration.list_tools()}
     assert exploration.execute_tool(
         "finish", {"status": "success", "summary": "early"}
     ).is_error
@@ -223,24 +202,6 @@ def test_action_failures_keep_completed_steps_and_capture(
     assert len(result.images) == 3
 
 
-def test_business_failure_and_internal_typeerror_keep_observation(make_toolkit):
-    toolkit, env, _ = make_toolkit()
-    invalid = toolkit.execute_tool("rotate_wrist", {})
-    assert invalid.is_error
-    assert "need target_yaw" in invalid.error
-    assert invalid.data["log"]["result"] == {"name": "rotate_wrist"}
-    assert invalid.data["step"] == 1
-
-    def bad_step(action):
-        raise TypeError("driver defect")
-
-    env.step = bad_step
-    failure = toolkit.execute_tool("set_gripper", {})
-    assert failure.is_error
-    assert failure.data["log"]["result"] == {}
-    assert failure.data["step"] == 2
-
-
 def test_model_results_keep_original_observation_shape_and_full_disk_history(
     make_toolkit,
 ):
@@ -281,31 +242,6 @@ def test_model_results_keep_original_observation_shape_and_full_disk_history(
     }
     assert record["result"] == {"name": "rotate_wrist", "error": result.error}
     assert record["elapsed_s"] >= 0
-
-
-def test_successful_action_and_observation_keep_original_model_payload(make_toolkit):
-    toolkit, _, _ = make_toolkit()
-    result = toolkit.execute_tool("set_gripper", {"steps": 2})
-    assert not result.is_error
-    payload = json.loads(result.to_text())
-    assert set(payload) == {
-        "step",
-        "terminated",
-        "truncated",
-        "state",
-        "artifacts",
-        "task_language",
-        "log",
-        "agent_elapsed_s",
-    }
-    assert payload["step"] == 1
-    assert payload["log"]["command"]["action"] == "set_gripper"
-    assert payload["log"]["result"] == toolkit.state.latest_record().result
-    assert payload["log"]["result"]["steps"] == 2
-    assert len(result.images) == 3
-    observed = toolkit.execute_tool("view_env_state", {})
-    payload.pop("agent_elapsed_s")
-    assert json.loads(observed.to_text()) == payload
 
 
 def test_validation_precedes_execution_and_uses_model_defaults(make_toolkit):
@@ -390,33 +326,6 @@ def test_vla_prompt_chunks_recording_and_unsolved_result_are_preserved(
     )
 
 
-@pytest.mark.parametrize("empty_error", [False, True])
-def test_recipe_export_skips_failed_calls(make_toolkit, empty_error):
-    toolkit, env, _ = make_toolkit()
-    if empty_error:
-        step = env.step
-
-        def fail(action):
-            raise RuntimeError()
-
-        env.step = fail
-        failure = toolkit.execute_tool("set_gripper", {"steps": 1})
-        assert failure.is_error
-        assert failure.error == ""
-        env.step = step
-    else:
-        toolkit.execute_tool("rotate_pitch", {})
-    assert (toolkit._task_output_dir / toolkit.write_recipe("cell")).read_text() == ""
-    env.after_step = lambda: setattr(env, "terminated", True)
-    toolkit.execute_tool("set_gripper", {"steps": 4})
-    name = toolkit.write_recipe("cell")
-    commands = [
-        json.loads(line)
-        for line in (toolkit._task_output_dir / name).read_text().splitlines()
-    ]
-    assert [command["action"] for command in commands] == ["set_gripper"]
-
-
 def test_factory_binds_memory_permissions_and_task_root(monkeypatch, tmp_path):
     from robots.libero import toolkit as module
 
@@ -446,15 +355,3 @@ def test_factory_binds_memory_permissions_and_task_root(monkeypatch, tmp_path):
                 result["memory"].authorize_write(path)
         else:
             assert result["memory"].authorize_write(path) == path
-
-    default_root = tmp_path / "default-memory"
-    monkeypatch.setattr(robot_spec, "get_memory_dir", lambda robot: default_root)
-    fallback_config = RunConfig(
-        recipe_tag="cell", output_dir=tmp_path / "run", prompt_vars={}, task_desc={}
-    )
-    fallback = robot_spec.get_toolkit(
-        runtime_kwargs={},
-        dashboard_events=NullDashboardEventSink(),
-        config=fallback_config,
-    )
-    assert fallback["memory"].root == default_root

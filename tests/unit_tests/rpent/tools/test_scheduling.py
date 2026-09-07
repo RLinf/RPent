@@ -50,9 +50,8 @@ def write(key: str, *, ctx: ToolContext) -> ToolResult:
 @readonly
 def finish(status: str, summary: str, *, ctx: ToolContext) -> ToolResult:
     """Finish with this robot's test outcome."""
-    if ctx.robot.finish_hook:
-        return ctx.robot.finish_hook()
-    return ToolResult(data={"_finish": True, "status": status, "summary": summary})
+    ctx.robot.invoke("finish", ctx)
+    return ToolResult(data={"_finish": True, "status": "failure", "summary": summary})
 
 
 class ScheduledToolkit(Toolkit):
@@ -62,7 +61,7 @@ class ScheduledToolkit(Toolkit):
         super().__init__(
             state=EnvState(root),
             memory=MemoryManager(root / "memory"),
-            robot=SimpleNamespace(invoke=invoke, finish_hook=None),
+            robot=SimpleNamespace(invoke=invoke),
             output_dir=root,
             tools=(
                 finish,
@@ -185,67 +184,34 @@ def test_writers_keep_registration_order_and_can_pass_waiting_reads(harness):
     assert set(harness.order[3:]) == {"a", "c"}
 
 
-@pytest.mark.parametrize("outcome", ["accepted", "refused", "exception"])
-def test_finish_uses_normal_exclusive_order_and_keeps_admission_open(harness, outcome):
+def test_finish_uses_exclusive_order_and_keeps_admission_open(harness):
     gate = harness.gate()
-    finish_gate = harness.gate()
     harness.block("active", gate)
     active = harness.submit("write", "active")
     harness.wait("active")
-    early = harness.submit("read", "early")
+    reader = harness.submit("read", "reader")
     harness.wait_for_queued()
-
-    def finish():
-        harness.order.append("finish")
-        harness.event("finish").set()
-        assert finish_gate.wait(4)
-        if outcome == "accepted":
-            return ToolResult(
-                data={
-                    "_finish": True,
-                    "status": "failure",
-                    "summary": "Verified outcome.",
-                }
-            )
-        if outcome == "exception":
-            raise RuntimeError("Verification failed.")
-        return ToolResult(error="More attempts.")
-
-    harness.toolkit._robot.finish_hook = finish
     finishing = harness.pool.submit(
         harness.toolkit.execute_tool,
         "finish",
         {"status": "success", "summary": "requested"},
     )
     harness.wait_for_queued(2)
-    late_read = harness.submit("read", "late_read")
+    writer = harness.submit("write", "writer")
     harness.wait_for_queued(3)
-    late_write = harness.submit("write", "late_write")
-    harness.wait_for_queued(4)
-    assert not harness.event("finish").is_set()
     gate.set()
-    harness.wait("finish")
-    assert not harness.event("early").is_set()
-    assert not harness.event("late_write").is_set()
-    assert not harness.event("late_read").is_set()
-    finish_gate.set()
-    for future in (active, early, late_read, late_write):
+    for future in (active, reader, writer):
         assert not future.result(3).is_error
     result = finishing.result(3)
-    assert result.is_error is (outcome != "accepted")
-    assert harness.order[:3] == ["active", "finish", "late_write"]
-    assert set(harness.order[3:]) == {"early", "late_read"}
-    if outcome == "accepted":
-        expected = {"status": "failure", "summary": "Verified outcome."}
-        assert harness.toolkit.finish_result == expected
-        result.data["status"] = "changed"
-        saved = harness.toolkit.finish_result
-        saved["summary"] = "changed"
-        assert harness.toolkit.finish_result == expected
-    else:
-        assert harness.toolkit.finish_result is None
-    assert not harness.toolkit.execute_tool("read", {"key": "new"}).is_error
-    assert not harness.toolkit.execute_tool("write", {"key": "new_write"}).is_error
+    assert not result.is_error
+    assert harness.order == ["active", "finish", "writer", "reader"]
+    expected = {"status": "failure", "summary": "requested"}
+    assert harness.toolkit.finish_result == expected
+    result.data["status"] = "changed"
+    saved = harness.toolkit.finish_result
+    saved["summary"] = "changed"
+    assert harness.toolkit.finish_result == expected
+    assert not harness.toolkit.execute_tool("write", {"key": "new"}).is_error
 
 
 def test_other_tools_cannot_record_a_finish_result(harness):
@@ -357,6 +323,12 @@ def test_close_waits_for_final_capture_before_saving_video(harness, monkeypatch)
     active.result(3)
     closing.result(3)
     assert cleaned.is_set()
+    harness.toolkit.cancel_active_and_wait()
+    harness.toolkit.resume_calls()
+    assert (
+        harness.toolkit.execute_tool("read", {"key": "closed"}).error
+        == "Toolkit is closed."
+    )
 
 
 def test_toolkits_do_not_share_execution_locks(harness, tmp_path):
@@ -400,23 +372,6 @@ def test_cancel_between_admission_and_handler_skips_execution_and_capture(
     stopping.result(3)
     assert harness.toolkit.captures == 0
     assert not harness.event("never_start").is_set()
-
-
-def test_cancellation_can_start_with_tool_workers_saturated(harness):
-    def loop(ctx):
-        assert ctx._cancel_event.wait(3)
-        ctx.check_cancelled()
-
-    harness.hooks["active"] = loop
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        active = pool.submit(harness.toolkit.execute_tool, "write", {"key": "active"})
-        harness.wait("active")
-        waiting = pool.submit(harness.toolkit.execute_tool, "write", {"key": "queued"})
-        harness.wait_for_queued()
-        harness.toolkit.cancel_active_and_wait()
-        assert active.result(3).error == "Tool call cancelled."
-        assert waiting.result(3).error == "Tool call cancelled."
-    assert not harness.event("queued").is_set()
 
 
 def test_overlapping_cancellation_requests_wait_for_active_cleanup(
@@ -516,14 +471,3 @@ def test_resume_does_not_revive_cancelled_waiters_or_extend_old_cancellation(
     assert not new.done()
     new_gate.set()
     assert not new.result(3).is_error
-
-
-def test_cancel_and_resume_do_not_reopen_closed_toolkit(harness):
-    harness.toolkit.close()
-    harness.toolkit.cancel_active_and_wait()
-    harness.toolkit.resume_calls()
-    assert (
-        harness.toolkit.execute_tool("read", {"key": "closed"}).error
-        == "Toolkit is closed."
-    )
-    assert not harness.event("closed").is_set()

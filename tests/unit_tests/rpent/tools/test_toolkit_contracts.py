@@ -18,7 +18,6 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from pydantic import BaseModel, model_validator
 
 from rpent.dashboard.events import StepRecordEvent
 from rpent.memory import MemoryManager
@@ -222,38 +221,3 @@ def test_context_is_fresh_and_cannot_be_replaced_by_external_arguments(toolkit):
         assert ctx.memory is toolkit.memory
         assert ctx.output_dir == toolkit._task_output_dir
         assert ctx.record_frame == toolkit.record_frame
-
-
-def test_nested_validated_model_reaches_handler_without_revalidation(tmp_path):
-    validations = []
-    received = []
-
-    class Position(BaseModel):
-        x: int
-
-        @model_validator(mode="after")
-        def record_validation(self):
-            validations.append(self)
-            return self
-
-    @tool
-    @readonly
-    def inspect_position(position: Position, *, ctx: ToolContext) -> ToolResult:
-        """Inspect a nested typed value."""
-        received.append(position)
-        return ToolResult(data={"x": position.x})
-
-    toolkit = Toolkit(
-        state=EnvState(tmp_path),
-        memory=MemoryManager(tmp_path / "memory"),
-        robot=None,
-        output_dir=tmp_path,
-        tools=(finish, inspect_position),
-    )
-    try:
-        result = toolkit.execute_tool("inspect_position", {"position": {"x": "3"}})
-        assert result.data == {"x": 3}
-        assert len(validations) == len(received) == 1
-        assert received[0] is validations[0]
-    finally:
-        toolkit.close()

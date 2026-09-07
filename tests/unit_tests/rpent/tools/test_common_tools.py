@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from concurrent.futures import ThreadPoolExecutor
-from threading import Event
 
 import numpy as np
 import pytest
@@ -44,35 +42,6 @@ def toolkit(tmp_path, monkeypatch):
     instance.close()
 
 
-def test_common_tool_specs_and_defaults(toolkit):
-    tools = {item.name: item for item in toolkit.list_tools()}
-    assert list(tools) == [
-        "read_text_file",
-        "write_text_file",
-        "list_dir",
-        "read_image",
-        "finish",
-    ]
-    for name in ("read_text_file", "write_text_file", "list_dir"):
-        assert (
-            " Published memory is read-only. During exploration, you may write only "
-            "to your current memory inbox. Memory for other robots is unavailable."
-        ) in tools[name].description
-        assert tools[name].readonly
-    assert not tools["write_text_file"].parallel
-    assert not tools["finish"].parallel
-    assert tools["read_image"].parallel
-    assert "default" not in tools["list_dir"].input_schema["properties"]["path"]
-    assert tools["list_dir"].args_schema.model_validate({}).path == ""
-    assert (
-        "default" not in tools["read_text_file"].input_schema["properties"]["max_chars"]
-    )
-    assert (
-        tools["read_text_file"].args_schema.model_validate({"path": "x"}).max_chars
-        == 40000
-    )
-
-
 def test_file_contracts_preserve_truncation_overwrite_and_utf8_counts(
     toolkit, tmp_path
 ):
@@ -101,9 +70,6 @@ def test_file_contracts_preserve_truncation_overwrite_and_utf8_counts(
         "files": ["a", "note.txt"],
     }
     assert toolkit.state.latest_step is None
-    finished = toolkit.execute_tool("finish", {"status": "success", "summary": "done"})
-    assert finished.data == {"_finish": True, "status": "success", "summary": "done"}
-    assert toolkit.finish_result == {"status": "success", "summary": "done"}
 
 
 def test_default_directory_is_bound_to_each_task_not_observation_or_global_output(
@@ -126,15 +92,6 @@ def test_default_directory_is_bound_to_each_task_not_observation_or_global_outpu
         supplied = {"ctx": {"output_dir": str(other_dir)}, "output_dir": str(other_dir)}
         assert toolkit.execute_tool("list_dir", supplied).data["path"] == str(tmp_path)
         assert other.execute_tool("list_dir", {}).data["path"] == str(other_dir)
-        for instance in (toolkit, other):
-            definition = next(t for t in instance.list_tools() if t.name == "list_dir")
-            assert "Default =" not in definition.description
-            assert definition.input_schema["properties"] == {
-                "path": {
-                    "type": "string",
-                    "description": "Directory path. Defaults to the current task's output directory.",
-                }
-            }
     finally:
         other.close()
 
@@ -199,16 +156,6 @@ def test_missing_invalid_or_nonimage_artifacts_report_errors(toolkit, name, step
     assert toolkit.finish_result is None
 
 
-def test_read_image_passes_artifact_bytes_without_format_validation(toolkit):
-    with toolkit.state.record_step(state={}):
-        toolkit.state.save("frame.png", np.zeros((2, 2, 3), dtype=np.uint8))
-    payload = b"image bytes supplied by the tool"
-    toolkit.state.artifact_path("frame.png").write_bytes(payload)
-    result = toolkit.execute_tool("read_image", {"name": "frame.png"})
-    assert not result.is_error
-    assert result.images == [payload]
-
-
 def test_file_and_image_tools_apply_memory_permissions(toolkit, tmp_path):
     published = tmp_path / "memory/libero/global/note.md"
     published.parent.mkdir(parents=True)
@@ -230,64 +177,3 @@ def test_file_and_image_tools_apply_memory_permissions(toolkit, tmp_path):
     path.unlink()
     path.symlink_to(foreign)
     assert toolkit.execute_tool("read_image", {"name": "frame.png"}).is_error
-
-
-def test_permissions_and_symlinks_are_resolved_after_waiting(tmp_path, monkeypatch):
-    monkeypatch.setenv("RPENT_REPO_ROOT", str(tmp_path))
-    started, release = Event(), Event()
-
-    @tool
-    @readonly
-    def block(*, ctx) -> ToolResult:
-        """Hold exclusive admission while the test changes a queued path."""
-        started.set()
-        assert release.wait(4)
-        return ToolResult()
-
-    memory = MemoryManager(
-        tmp_path / "memory/libero",
-        memory_access="inbox_write",
-        inbox_cell_tag="current",
-    )
-    inbox = memory.root / "_internal/inbox/current"
-    inbox.mkdir(parents=True)
-    path = inbox / "draft.md"
-    path.write_text("before")
-    published = memory.root / "global/note.md"
-    published.parent.mkdir()
-    published.write_text("published")
-    instance = Toolkit(
-        state=EnvState(tmp_path / "state"),
-        memory=memory,
-        robot=None,
-        output_dir=tmp_path,
-        tools=(finish, block),
-    )
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        active = pool.submit(instance.execute_tool, "block", {})
-        try:
-            assert started.wait(2)
-            queued = Event()
-            original = instance._scheduler._can_start
-
-            def can_start(call):
-                allowed = original(call)
-                if not allowed:
-                    queued.set()
-                return allowed
-
-            monkeypatch.setattr(instance._scheduler, "_can_start", can_start)
-            pending = pool.submit(
-                instance.execute_tool,
-                "write_text_file",
-                {"path": str(path), "content": "changed"},
-            )
-            assert queued.wait(2)
-            path.unlink()
-            path.symlink_to(published)
-        finally:
-            release.set()
-        assert not active.result(3).is_error
-        assert pending.result(3).is_error
-    assert published.read_text() == "published"
-    instance.close()

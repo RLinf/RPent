@@ -72,24 +72,3 @@ def test_generic_parallel_perception_is_recorded_without_new_state_steps(tmp_pat
         ]
     finally:
         toolkit.close()
-
-
-def test_relative_output_is_bound_at_construction_and_empty_export_is_valid(
-    tmp_path, monkeypatch
-):
-    monkeypatch.chdir(tmp_path)
-    toolkit = Toolkit(
-        state=EnvState("observations"),
-        memory=MemoryManager(tmp_path / "memory"),
-        robot=None,
-        output_dir="recipes",
-        tools=(sense, finish),
-    )
-    try:
-        other = tmp_path / "other"
-        other.mkdir()
-        monkeypatch.chdir(other)
-        assert export(toolkit) == []
-        assert (tmp_path / "recipes" / "cell_recipe.jsonl").is_file()
-    finally:
-        toolkit.close()

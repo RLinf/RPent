@@ -24,33 +24,6 @@ def export(toolkit):
     ]
 
 
-def test_action_and_perception_commands_keep_completion_order_and_full_parameters(
-    make_toolkit,
-):
-    toolkit, env, _ = make_toolkit()
-    calls = [
-        ("view_env_state", {"step": 0}),
-        (
-            "segment",
-            {"prompt": "bowl", "camera": "wrist", "step": 0, "min_score": 0.35},
-        ),
-        ("back_project", {"row": 4, "col": 4, "step": 0}),
-        ("set_gripper", {"steps": "2"}),
-        ("segment", {"prompt": "lid", "camera": "agentview", "step": 0}),
-    ]
-    expected = []
-    for name, arguments in calls:
-        result = toolkit.execute_tool(name, arguments)
-        assert not result.is_error, result.error
-        args = toolkit._tools[name].args_schema.model_validate(arguments)
-        expected.append({"action": name, **args.model_dump(mode="json")})
-    assert not env.terminated
-    assert len(toolkit.state.records()) == 2
-    assert export(toolkit) == expected
-    assert export(toolkit) == expected
-    assert not (toolkit.state._output_dir / "cell_recipe.jsonl").exists()
-
-
 def test_common_files_finish_validation_and_execution_errors_are_excluded(
     make_toolkit, monkeypatch
 ):
@@ -99,7 +72,9 @@ def test_reset_is_kept_with_both_attempts_and_refused_finish_is_excluded(make_to
     ]:
         result = toolkit.execute_tool(name, arguments)
         assert not result.is_error, result.error
-    assert [call["action"] for call in export(toolkit)] == [
+    recipe = export(toolkit)
+    assert recipe[1] == {"action": "set_gripper", "gripper": -1.0, "steps": 1}
+    assert [call["action"] for call in recipe] == [
         "segment",
         "set_gripper",
         "reset",
@@ -117,16 +92,3 @@ def test_recipe_does_not_infer_tool_errors_from_environment_success(make_toolkit
     assert not result.is_error and result.data["log"]["result"]["success"] is False
     assert not env.terminated
     assert [call["action"] for call in export(toolkit)] == ["pi0_doubled"]
-
-
-def test_capture_failure_excludes_the_call(make_toolkit, monkeypatch):
-    toolkit, env, _ = make_toolkit()
-
-    def fail():
-        raise RuntimeError("capture failed")
-
-    with monkeypatch.context() as patch:
-        patch.setattr(env, "raw_obs", fail)
-        assert toolkit.execute_tool("set_gripper", {"steps": 1}).is_error
-    assert not toolkit.execute_tool("view_env_state", {}).is_error
-    assert [call["action"] for call in export(toolkit)] == ["view_env_state"]

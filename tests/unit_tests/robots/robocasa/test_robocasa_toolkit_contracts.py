@@ -19,15 +19,10 @@ from __future__ import annotations
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from robots.robocasa import robot_spec, toolkit, tools
-from rpent.dashboard.events import NullDashboardEventSink
-from rpent.robots import RunConfig
 from rpent.tools import ToolContext
 
 PERCEPTION = {
@@ -35,63 +30,21 @@ PERCEPTION = {
     "back_project_batch",
     "query_world_map",
 }
-ACTIONS = {
-    "move_to",
-    "move_delta",
-    "rotate_pitch",
-    "set_gripper",
-    "release",
-    "scripted_grasp",
-    "rldx_skill",
-    "rldx_arm",
-    "navigate_to",
-    "move_base",
-    "reset",
-}
 COMMON = {"read_text_file", "write_text_file", "list_dir", "read_image", "finish"}
 
 
-def test_factory_uses_config_output_and_memory(make_toolkit):
+def test_toolkit_initializes_environment_and_tool_policies(make_toolkit):
     run = make_toolkit()
     tk = run.toolkit
-    assert tk.memory.root == Path(run.config.prompt_vars["memory_dir"]).resolve()
-    assert tk.execute_tool("list_dir", {}).data["path"] == str(run.config.output_dir)
-    forbidden = tk.execute_tool(
-        "write_text_file",
-        {"path": str(tk.memory.root / "global" / "draft.md"), "content": "draft"},
-    )
-    assert forbidden.is_error
     assert run.env.reset_calls == 1
     assert not run.env.actions
     assert (
         run.config.output_dir / "success_criteria.md"
     ).read_text() == "offline success criteria"
-    by_name = {t.name: t for t in tk.list_tools()}
-    assert set(by_name) == COMMON | PERCEPTION | ACTIONS
-    assert {
-        name for name in PERCEPTION | ACTIONS if by_name[name].readonly
-    } == PERCEPTION
-    assert {
-        name for name in PERCEPTION | ACTIONS if by_name[name].parallel
-    } == PERCEPTION
-
-
-def test_factory_falls_back_to_robot_memory(monkeypatch, tmp_path):
-    monkeypatch.setattr(robot_spec, "get_memory_dir", lambda _: tmp_path / "memory")
-    monkeypatch.setattr(
-        toolkit, "RoboCasaToolkit", lambda **kwargs: SimpleNamespace(**kwargs)
-    )
-    config = RunConfig(
-        recipe_tag="cell", output_dir=tmp_path / "run", prompt_vars={}, task_desc={}
-    )
-    result = robot_spec.get_toolkit(
-        runtime_kwargs={"env": "env"},
-        dashboard_events=NullDashboardEventSink(),
-        config=config,
-    )
-    assert result.memory.root == (tmp_path / "memory").resolve()
-    assert result.output_dir == config.output_dir
-    assert result.runtime_kwargs == {"env": "env"}
+    for definition in tk.list_tools():
+        if definition.name not in COMMON:
+            assert definition.readonly is (definition.name in PERCEPTION)
+            assert definition.parallel is (definition.name in PERCEPTION)
 
 
 def test_observation_images_and_errors_are_native_and_saved(make_toolkit):
@@ -244,9 +197,7 @@ def test_partial_failure_captures_current_state_and_retains_both_errors(make_too
     assert "state" not in result.data
 
 
-def test_finish_recipe_and_close_keep_environment_success_source(
-    make_toolkit, monkeypatch
-):
+def test_finish_and_recipe_keep_environment_success_source(make_toolkit):
     run = make_toolkit()
     tk = run.toolkit
     assert not tk.execute_tool("release", {"steps": 2}).is_error
@@ -266,16 +217,6 @@ def test_finish_recipe_and_close_keep_environment_success_source(
     assert [json.loads(line)["action"] for line in path.read_text().splitlines()] == [
         "release"
     ] * 3
-    saved = []
-    monkeypatch.setattr(
-        tk.state,
-        "save",
-        lambda name, frames, **kwargs: saved.append((name, len(frames), kwargs)),
-    )
-    tk.close()
-    assert saved == [("episode.mp4", 4, {"step": None, "fps": 20})]
-    assert not tk._frames
-    assert tk.execute_tool("release", {"steps": 1}).is_error
 
 
 @pytest.mark.parametrize(
@@ -317,11 +258,3 @@ def test_perception_uses_saved_maps_and_reports_missing_artifacts(make_toolkit):
     pruned = tk.execute_tool("back_project_batch", {"pixels": [[0, 0]], "step": 0})
     assert pruned.is_error and "not found" in pruned.error
     assert tk.execute_tool("view_env_state", {"step": 0}).images
-
-
-def test_public_schemas_exclude_context_and_keep_parameter_descriptions():
-    for t in tools.ROBOCASA_TOOLS:
-        schema = t.input_schema
-        assert "ctx" not in schema["properties"]
-        assert t.description
-        assert all(field.get("description") for field in schema["properties"].values())

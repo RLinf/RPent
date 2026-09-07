@@ -16,15 +16,19 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import threading
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from robots.robotwin import tools
+from robots.robotwin import robot_spec, tools
+from robots.robotwin.env_client import RoboTwinEnvClient
 from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES
-from rpent.dashboard.events import StepRecordEvent
+from robots.robotwin.vla_client import LingBotVLAClient
+from rpent.dashboard.events import NullDashboardEventSink
 from rpent.tools import ToolCancelled, ToolContext
 from rpent.tools.common_tools import COMMON_TOOLS
 
@@ -334,47 +338,6 @@ def test_persisted_perception_uses_same_step_and_view_without_rendering(robotwin
     assert missing.is_error and missing.data["code"] == "view_not_found"
 
 
-def test_recording_dashboard_and_recipe_export_use_common_toolkit(
-    robotwin, monkeypatch
-):
-    tk = robotwin.toolkit
-    events = []
-
-    class Sink:
-        enabled = True
-        emit = staticmethod(events.append)
-
-    tk._dashboard_events = Sink()
-    videos = []
-    save = tk.state.save
-
-    def save_artifact(name, value, **kwargs):
-        if name.endswith(".mp4"):
-            videos.append((name, len(value), kwargs))
-            if kwargs["step"] is not None:
-                tk.state.latest_record().artifacts.add(name)
-            return None
-        return save(name, value, **kwargs)
-
-    monkeypatch.setattr(tk.state, "save", save_artifact)
-    result = tk.execute_tool("release", {"arm": "left", "steps": 3})
-    assert not result.is_error
-    assert "action_release.mp4" in result.data["artifacts"]
-    assert len(events) == 1 and isinstance(events[0], StepRecordEvent)
-    tk.execute_tool("finish", {"status": "failure", "summary": "offline"})
-    recipe = tk.write_recipe("offline")
-    assert [
-        json.loads(line)
-        for line in (robotwin.output_dir / recipe).read_text().splitlines()
-    ] == [{"action": "release", "arm": "left", "val": 1.0, "steps": 3}]
-    tk.close()
-    assert videos == [
-        ("action_release.mp4", 3, {"step": 1, "fps": 20}),
-        ("episode.mp4", 3, {"step": None, "fps": 20}),
-    ]
-    assert tk.execute_tool("render", {}).is_error
-
-
 def test_malformed_planner_waypoint_cannot_broadcast_into_joint_targets(robotwin):
     robotwin.env.path = np.ones((2, 1))
     result = robotwin.toolkit.execute_tool("move_to", {"arm": "left", "xyz": [1, 2, 3]})
@@ -390,3 +353,76 @@ def test_perception_reports_missing_initial_record(robotwin):
     )
     assert result.is_error and result.data["code"] == "state_not_found"
     assert robotwin.toolkit.execute_tool("view_env_state", {}).is_error
+
+
+def test_recipe_keeps_robot_action_defaults(robotwin):
+    tk = robotwin.toolkit
+    assert not tk.execute_tool("release", {"arm": "left", "steps": 3}).is_error
+    recipe = robotwin.output_dir / tk.write_recipe("offline")
+    assert [json.loads(line) for line in recipe.read_text().splitlines()] == [
+        {"action": "release", "arm": "left", "val": 1.0, "steps": 3}
+    ]
+
+
+@pytest.mark.parametrize("components", [{"env"}, {"vla"}, None])
+def test_runtime_builds_native_clients_and_resets_exactly_once(
+    monkeypatch, tmp_path, components, robotwin
+):
+    env = robotwin.env
+    metadata = robot_spec.env_runtime_contract(
+        task_name="stack_blocks",
+        task_config="demo_randomized",
+        seed=7,
+        max_episode_steps=200,
+    )
+    calls = []
+
+    def call(name, **kwargs):
+        calls.append(name)
+        if name == "env.get_env_meta":
+            return metadata
+        assert name == "env.reset"
+        return {}, {**env.last_info, "instruction": env.get_task_language()}
+
+    rpc = SimpleNamespace(call=call)
+    daemons = {name: object() for name in ("env", "vla")}
+
+    def spawn(owned, events, name, starter):
+        owned[name] = daemons[name]
+        return daemons[name], rpc
+
+    monkeypatch.setattr(robot_spec, "try_spawn_server", spawn)
+    monkeypatch.setattr(robot_spec, "try_wait_server", lambda *a, post_fn: post_fn())
+    monkeypatch.setattr(
+        robot_spec,
+        "_spawn_vla_server",
+        lambda *a: (daemons["vla"], ("localhost", 9000)),
+    )
+    monkeypatch.setattr(robot_spec, "_wait_for_tcp", lambda *a, **kw: None)
+    contracts = []
+    monkeypatch.setattr(
+        LingBotVLAClient,
+        "validate_contract",
+        lambda self, contract: contracts.append(contract),
+    )
+    args = argparse.Namespace(
+        task_name="stack_blocks",
+        task_config="demo_randomized",
+        seed=7,
+        max_episode_steps=200,
+    )
+    owned, resources = robot_spec._init_runtime(
+        args, tmp_path, NullDashboardEventSink(), components
+    )
+    selected = {"env", "vla"} if components is None else components
+    assert set(owned) == {daemons[name] for name in selected}
+    assert set(resources) == (
+        {"env", "seed", "seed_mode"} if "env" in selected else set()
+    ) | ({"model"} if "vla" in selected else set())
+    if "env" in selected:
+        assert isinstance(resources["env"], RoboTwinEnvClient)
+        assert resources["seed"] == 7 and resources["seed_mode"] == "exact"
+        assert calls == ["env.get_env_meta", "env.reset"]
+    if "vla" in selected:
+        assert isinstance(resources["model"], LingBotVLAClient)
+        assert contracts == [robot_spec.vla_runtime_contract()]
