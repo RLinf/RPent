@@ -102,7 +102,7 @@ def export_lerobot(
         raise FileExistsError(f"dataset already exists: {destination}")
 
     try:
-        from lerobot.datasets.lerobot_dataset import LeRobotDataset
+        from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
     except ImportError as exc:
         raise RuntimeError("install RPent with the 'flywheel' extra") from exc
     parent.mkdir(parents=True, exist_ok=True)
@@ -129,8 +129,8 @@ def export_lerobot(
                         "wrist_image": data["wrist_images"][index],
                         "state": data["states"][index],
                         "actions": data["actions"][index],
-                    },
-                    task=language,
+                        "task": language,
+                    }
                 )
         dataset.save_episode()
         frame_count += count

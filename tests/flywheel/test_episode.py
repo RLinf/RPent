@@ -133,7 +133,7 @@ def test_export_uses_only_success_prefix(tmp_path):
     assert report["episode_count"] == 1
     assert report["frame_count"] == 1
 
-    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
     dataset = LeRobotDataset(report["repo_id"], root=report["dataset_path"])
     assert len(dataset) == 1
