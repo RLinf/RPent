@@ -115,11 +115,6 @@ ROBOTWIN_DASHBOARD_SPEC = {
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
     ),
-    "frame_channels": (
-        {"name": "camera", "label": "head camera"},
-        {"name": "left_wrist", "label": "left wrist"},
-        {"name": "right_wrist", "label": "right wrist"},
-    ),
 }
 
 

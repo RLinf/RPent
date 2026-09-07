@@ -24,24 +24,15 @@ import numpy as np
 from robots.robotwin import tools
 from robots.robotwin.primitives import RoboTwinPrimitives
 from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES
-from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
 from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit, readonly
-from rpent.utils.logging import get_output_dir
+from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager
 
-# State-advancing RoboTwin primitives eligible for the recipe. ``reset``,
-# ``render``, and read-only tools are intentionally excluded so the recipe
-# records only commands that actually move the robot.
-_RECIPE_ACTIONS = {
-    "lingbot_act",
-    "move_to",
-    "rotate_wrist",
-    "set_gripper",
-    "release",
-}
+logger = get_logger("robotwin_toolkit")
 
 
 def _world_from_depth(
@@ -87,11 +78,6 @@ class RoboTwinToolkit(Toolkit):
     """Common RPent tools plus RoboTwin primitives."""
 
     _SPECS = {spec["name"]: spec for spec in tools.TOOLS_SPEC}
-    _FRAME_ARTIFACTS = {
-        "camera": "head_rgb.png",
-        "left_wrist": "left_wrist_rgb.png",
-        "right_wrist": "right_wrist_rgb.png",
-    }
 
     def __init__(
         self,
@@ -112,7 +98,6 @@ class RoboTwinToolkit(Toolkit):
             **primitives_kwargs,
         )
         self._primitives.start_recording()
-        self._action_frame_cursor = self._primitives.recorded_frame_count()
         reset_result = {
             **self._primitives.env.last_reset_info,
             "success": True,
@@ -125,7 +110,12 @@ class RoboTwinToolkit(Toolkit):
         )
         record = self._state.latest_record()
         if record is not None:
-            self._publish_step(record)
+            try:
+                self._dashboard_events.emit(
+                    StepRecordEvent(record=record, env_state=self._state)
+                )
+            except Exception:
+                logger.exception("Dashboard failed to publish step %s", record.step_idx)
         initial_state = initial.get("state")
         if isinstance(initial_state, dict):
             self._latest_status = initial_state.get(
@@ -205,8 +195,6 @@ class RoboTwinToolkit(Toolkit):
         result: dict[str, Any],
         elapsed_s: float,
     ) -> dict[str, Any]:
-        frame_start = self._action_frame_cursor
-        self._action_frame_cursor = self._primitives.recorded_frame_count()
         status = self._primitives.status()
         self._latest_status = status
         observation = self._capture_full_observation()
@@ -220,46 +208,10 @@ class RoboTwinToolkit(Toolkit):
                 "elapsed_s": elapsed_s,
             },
         )
-        if self._dashboard_events.enabled:
-            frames = self._primitives.frame_slice(frame_start)
-            if frames:
-                self._state.save(
-                    f"action_{command['action']}.mp4",
-                    frames,
-                    step=record.step_idx,
-                    fps=20,
-                )
         return tools.view_env_state(record.step_idx, state=self._state)
-
-    def close(self) -> None:
-        """Flush the per-step frame buffer into ``episode.mp4`` (LIBERO parity)."""
-        frames = self._primitives.stop_recording()
-        if frames:
-            self._state.save("episode.mp4", frames, step=None, fps=20)
 
     def _step(self, name: str, **kwargs) -> dict[str, Any]:
         self.raise_if_cancelled()
         if name == "render":
             return {"success": True}
         return getattr(self._primitives, name)(**kwargs)
-
-    def write_recipe(self, recipe_tag: str) -> str:
-        """Export state-advancing RoboTwin primitives with no error and no
-        explicit ``success=False`` from ``EnvState.records()``."""
-        recipe = [
-            record.command
-            for record in self._state.records()
-            if isinstance(record.command, dict)
-            and record.command.get("action") in _RECIPE_ACTIONS
-            and not (
-                isinstance(record.result, dict)
-                and (
-                    record.result.get("error") or record.result.get("success") is False
-                )
-            )
-        ]
-        name = f"{recipe_tag}_recipe.jsonl"
-        saved = self._state.save(name, recipe, step=None)
-        if saved is None:
-            raise RuntimeError(f"failed to save RoboTwin recipe artifact: {name}")
-        return str(self._state.artifact_path(name, step=None))

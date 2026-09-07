@@ -133,7 +133,8 @@ class _Scheduler:
 class Toolkit(Generic[RobotT]):
     """A fixed tool collection and its execution resources for one planner session.
 
-    The robot provides stop_recording(), returning its recorded frames.
+    The robot collects frames and provides recorded_frame_count(), frame_slice(),
+    and stop_recording(). This toolkit saves action clips and the episode video.
     """
 
     def __init__(
@@ -156,6 +157,7 @@ class Toolkit(Generic[RobotT]):
         }
         self._scheduler = _Scheduler()
         self._finish_result: dict[str, str] | None = None
+        self._recipe_commands: list[dict[str, Any]] = []
 
     @property
     def state(self) -> EnvState:
@@ -202,6 +204,8 @@ class Toolkit(Generic[RobotT]):
                 output_dir=self._task_output_dir,
                 _cancel_event=call.cancel_event,
             )
+            if not tool.readonly and self._dashboard_events.enabled:
+                frame_start = self._robot.recorded_frame_count()
             started = time.perf_counter()
             # Read fields directly so nested models reach the handler intact.
             kwargs = {name: getattr(args, name) for name in type(args).model_fields}
@@ -213,6 +217,7 @@ class Toolkit(Generic[RobotT]):
             if not tool.readonly:
                 elapsed_s = time.perf_counter() - started
                 previous = self._state.latest_record()
+                observation_data = None
                 try:
                     observation_data, observation_images = self._capture_observation(
                         command={"action": tool.name, **args.model_dump()},
@@ -230,6 +235,26 @@ class Toolkit(Generic[RobotT]):
                     result.error = error
                 record = self._state.latest_record()
                 if record is not None and record is not previous:
+                    if self._dashboard_events.enabled:
+                        try:
+                            frames = self._robot.frame_slice(frame_start)
+                            if frames:
+                                self._state.save(
+                                    f"action_{tool.name}.mp4",
+                                    frames,
+                                    step=record.step_idx,
+                                    fps=20,
+                                )
+                                if observation_data is not None:
+                                    observation_data["artifacts"] = sorted(
+                                        record.artifacts
+                                    )
+                        except Exception as exc:
+                            logger.warning(
+                                "failed to save action clip for step %s: %s",
+                                record.step_idx,
+                                exc,
+                            )
                     try:
                         self._dashboard_events.emit(
                             StepRecordEvent(record=record, env_state=self._state)
@@ -242,6 +267,10 @@ class Toolkit(Generic[RobotT]):
                 self._finish_result = {
                     key: result.data[key] for key in ("status", "summary")
                 }
+            elif tool not in COMMON_TOOLS and not result.is_error:
+                self._recipe_commands.append(
+                    {"action": tool.name, **args.model_dump(mode="json")}
+                )
             # Images are logged by their owning artifact paths, not their bytes.
             logger.info(
                 "Tool %s result: %s",
@@ -262,7 +291,8 @@ class Toolkit(Generic[RobotT]):
         """Save a step with the action log and return its observation and images.
 
         Returned data replaces the action's data and must include the recorded
-        step. Include action details in that data where needed (e.g. log.result).
+        step and its artifact names. Include action details in that data where
+        needed (e.g. log.result). The executor adds action videos to the artifacts.
         The executor appends the images and retains the action's error. Raise if
         capture fails; an already saved step is still published to the Dashboard.
         """
@@ -287,5 +317,17 @@ class Toolkit(Generic[RobotT]):
     def solved(self) -> bool:
         raise NotImplementedError
 
-    def write_recipe(self, recipe_tag: str) -> str | None:
-        return None
+    def write_recipe(self, recipe_tag: str) -> str:
+        """Export successful robot action and perception calls in completion order.
+
+        Keep the full session, including resets. File tools and finish are
+        excluded. The caller decides whether the task qualifies for publication.
+        """
+        name = f"{recipe_tag}_recipe.jsonl"
+        path = self._task_output_dir / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "".join(json.dumps(command) + "\n" for command in self._recipe_commands),
+            encoding="utf-8",
+        )
+        return name

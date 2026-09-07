@@ -24,7 +24,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from robots.robocasa import tools as robocasa_tools
-from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
 from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
@@ -37,11 +37,6 @@ logger = get_logger("robocasa_toolkit")
 
 class RoboCasaToolkit(Toolkit):
     """Toolkit for the RoboCasa robot."""
-
-    _FRAME_ARTIFACTS = {
-        "camera": "agentview.png",
-        "wrist": "wrist.png",
-    }
 
     def __init__(
         self,
@@ -95,30 +90,11 @@ class RoboCasaToolkit(Toolkit):
         result: dict[str, Any],
         elapsed_s: float,
     ) -> dict[str, Any]:
-        frame_start = self._action_frame_cursor
-        self._action_frame_cursor = self._primitives.recorded_frame_count()
         record = robocasa_tools.dump_state(
             self._primitives,
             self._state,
             log={"command": command, "result": result, "elapsed_s": elapsed_s},
         )
-        if self._dashboard_events.enabled:
-            try:
-                frames = self._primitives.frame_slice(frame_start)
-                if frames:
-                    candidate = f"action_{command['action']}.mp4"
-                    self._state.save(
-                        candidate,
-                        frames,
-                        step=record.step_idx,
-                        fps=20,
-                    )
-            except Exception as e:
-                logger.warning(
-                    "failed to save action clip for step %s: %s",
-                    record.step_idx,
-                    e,
-                )
         out = robocasa_tools.view_env_state(record.step_idx, state=self._state)
         out["agent_elapsed_s"] = elapsed_s
         if result.get("interrupted"):
@@ -141,7 +117,6 @@ class RoboCasaToolkit(Toolkit):
         )
         primitives.reset()
         primitives.start_recording()
-        self._action_frame_cursor = primitives.recorded_frame_count()
         record = robocasa_tools.dump_state(primitives, self._state, log=None)
         try:
             self._state.save(
@@ -152,22 +127,14 @@ class RoboCasaToolkit(Toolkit):
         except Exception as e:
             logger.warning("failed to save success_criteria.md: %s", e)
         self._primitives = primitives
-        self._publish_step(record)
-
-    def close(self) -> None:
-        """Flush the agent-side video buffer through ``EnvState``."""
         try:
-            frames = self._primitives.stop_recording()
-            if frames:
-                self._state.save("episode.mp4", frames, step=None, fps=20)
-        except Exception as e:
-            logger.warning("failed to save episode video: %s", e)
+            self._dashboard_events.emit(
+                StepRecordEvent(record=record, env_state=self._state)
+            )
+        except Exception:
+            logger.exception("Dashboard failed to publish step %s", record.step_idx)
 
     def solved(self) -> bool:
         """Return the success value from the final recorded environment state."""
         record = self._state.latest_record()
         return bool(record is not None and record.extras.get("success", False))
-
-    def write_recipe(self, recipe_tag: str) -> str:
-        """Write the RoboCasa recipe JSONL from the dumped state trace."""
-        return robocasa_tools.write_recipe_from_states(self._state, recipe_tag)

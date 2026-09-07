@@ -29,6 +29,7 @@ classifiers = [
 dependencies = [
     "pydantic-ai-slim[anthropic,openai]>=2.1",
     "pydantic>=2",
+    "docstring-parser>=0.16,<1",
     "fastapi>=0.110",
     "uvicorn>=0.27",
     "httpx>=0.27",
@@ -56,6 +57,7 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 test = [
     "pytest",
     "pytest-timeout",
+    "scipy",
 ]
 rlinf = [
     "rpent-rlinf",

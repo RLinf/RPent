@@ -12,42 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""LIBERO toolkit: common tools + LIBERO primitives.
-
-Inherits the common file/IO tools from :class:`Toolkit` and registers the
-LIBERO primitives (``move_to``, ``pi0_pick``, ``release``, ...) on top.
-"""
+"""LIBERO tool composition, observations, exploration, and recording lifecycle."""
 
 from __future__ import annotations
 
-from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 from robots.libero import tools as libero_tools
-from rpent.dashboard.events import DashboardEventSink
-from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, readonly
-from rpent.utils.logging import get_logger, get_output_dir
+from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
+from rpent.memory import MemoryManager
+from rpent.session import EnvState, StepRecord
+from rpent.tools import Toolkit, ToolResult
+from rpent.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from rpent.memory.manager import MemoryManager
+    from robots.libero.env_client import LiberoEnvClient
 
 logger = get_logger("libero_toolkit")
 
 
-class LiberoToolkit(Toolkit):
-    """Toolkit for the LIBERO robot."""
-
-    _FRAME_ARTIFACTS = {
-        "camera": "agentview.png",
-        "wrist": "wrist.png",
-    }
+class LiberoToolkit(Toolkit[libero_tools.LiberoRuntime]):
+    """Native tools and resources for one LIBERO planner session."""
 
     def __init__(
         self,
         *,
-        primitives_kwargs: dict[str, Any],
+        runtime_kwargs: dict[str, Any],
+        output_dir: Path | str,
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
         mode: str = "evaluation",
@@ -56,170 +50,354 @@ class LiberoToolkit(Toolkit):
     ) -> None:
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
-        self._state_output_dir = Path(state_output_dir or get_output_dir())
-        state = EnvState(self._state_output_dir)
+        runtime = libero_tools.LiberoRuntime(**runtime_kwargs)
+        runtime.mode = mode
+        runtime.attempts_per_session = max(0, int(attempts_per_session))
+        state = EnvState(state_output_dir or output_dir)
+        tools = libero_tools.LIBERO_TOOLS
+        if mode == "evaluation":
+            tools = tuple(tool for tool in tools if tool.name != "reset")
         super().__init__(
-            dashboard_events=dashboard_events,
             state=state,
             memory=memory,
+            robot=runtime,
+            output_dir=output_dir,
+            tools=tools,
+            dashboard_events=dashboard_events,
         )
-        self._mode = mode
-        self._solved: bool = False
-        self._attempt: int = 1
-        # Bound the resettable attempts owned by this planner session.
-        self._attempts_per_session: int = max(0, int(attempts_per_session))
-        self._session_attempt: int = 1
-        self.init_primitives(primitives_kwargs=primitives_kwargs)
-        self._register_libero_tools()
-
-    # ------------------------------------------------------------------
-    # Registration
-    # ------------------------------------------------------------------
-    def _register_libero_tools(self) -> None:
-        # These read-only handlers need the run's EnvState bound in. Every
-        # other spec binds to a primitive-driver method and captures state by
-        # default unless that method is explicitly marked @readonly.
-        state_handlers = {
-            "view_env_state": partial(libero_tools.view_env_state, state=self._state),
-            "view_camera_meta": partial(
-                libero_tools.view_camera_meta, state=self._state
-            ),
-            "back_project": partial(libero_tools.back_project, state=self._state),
-            "segment": partial(self._primitives.segment, state=self._state),
-        }
-        for spec in libero_tools.TOOLS_SPEC:
-            name = spec["name"]
-            if name == "reset" and self._mode != "exploration":
-                continue
-            if name in state_handlers:
-                handler = state_handlers[name]
-            else:
-                handler = getattr(self._primitives, name, None)
-                if handler is None:
-                    continue  # spec without a backing primitive method
-            self.add_tool(name, spec, handler)
-        if self._mode == "exploration":
-            reset_spec = next(
-                spec for spec in libero_tools.TOOLS_SPEC if spec["name"] == "reset"
-            )
-            self.add_tool("reset", reset_spec, self._reset_episode)
-            finish_spec, finish_handler = self._tools["finish"]
-            self.add_tool(
-                "finish", finish_spec, partial(self._guarded_finish, finish_handler)
-            )
-
-    @readonly
-    def _guarded_finish(self, inner: Any, **kwargs: Any) -> dict[str, Any]:
-        """Refuse to end an unsolved session while attempts remain."""
-        budget = self._attempts_per_session
-        if budget and not self.solved() and self._session_attempt < budget:
-            remaining = budget - self._session_attempt
-            return {
-                "error": "finish refused",
-                "reason": (
-                    f"This session has {remaining} of its {budget} attempts left "
-                    "and the task is not solved. Archive this attempt, call "
-                    "`reset`, and try another approach."
-                ),
-            }
-        return inner(**kwargs)
-
-    def _reset_episode(self, reason: str) -> dict[str, Any]:
-        """Restart the episode while preserving the full exploration trace."""
-        budget = self._attempts_per_session
-        if budget and self._session_attempt >= budget:
-            return {
-                "error": "reset refused",
-                "reason": (
-                    f"This session's attempt budget is spent ({budget} attempts). "
-                    "Archive the attempt, update the handoff notes, and call "
-                    "`finish` so the next session can continue."
-                ),
-            }
-        self._attempt += 1
-        self._session_attempt += 1
-        result = self._primitives.reset_episode(reason=reason)
-        result["attempt"] = self._attempt
-        result["notice"] = (
-            f"Episode restarted; this is attempt {self._attempt}. The original "
-            "layout was restored. Re-run perception before acting."
-        )
-        return result
-
-    def get_env_state(
-        self,
-        *,
-        command: dict[str, Any],
-        result: dict[str, Any],
-        elapsed_s: float,
-    ) -> dict[str, Any]:
-        frame_start = self._action_frame_cursor
-        self._action_frame_cursor = self._primitives.recorded_frame_count()
-        record = libero_tools.dump_state(
-            self._primitives,
-            self._state,
-            log={"command": command, "result": result, "elapsed_s": elapsed_s},
-        )
-        self._solved |= record.terminated
-        if self._dashboard_events.enabled:
-            try:
-                frames = self._primitives.frame_slice(frame_start)
-                if frames:
-                    candidate = f"action_{command['action']}.mp4"
-                    self._state.save(
-                        candidate,
-                        frames,
-                        step=record.step_idx,
-                        fps=20,
-                    )
-            except Exception as e:
-                logger.warning(
-                    "failed to save action clip for step %s: %s",
-                    record.step_idx,
-                    e,
-                )
-        out = libero_tools.view_env_state(record.step_idx, state=self._state)
-        out["agent_elapsed_s"] = elapsed_s
-        if result.get("interrupted"):
-            out.update(result)
-        return out
-
-    def init_primitives(
-        self,
-        *,
-        primitives_kwargs: dict[str, Any],
-    ) -> None:
-        """Wipe stale run artifacts, build the LiberoPrimitives, dump step 0."""
-        self._state.reset()
-
-        primitives = libero_tools.LiberoPrimitives(
-            check_cancelled=self.raise_if_cancelled,
-            **primitives_kwargs,
-        )
-        primitives.reset()
-        primitives.start_recording()
-        self._action_frame_cursor = primitives.recorded_frame_count()
-        record = libero_tools.dump_state(primitives, self._state, log=None)
-        self._primitives = primitives
-        self._publish_step(record)
-
-    def close(self) -> None:
-        """Flush the agent-side video buffer through ``EnvState``."""
+        state.reset()
+        runtime.reset()
+        runtime.start_recording()
+        record = dump_state(runtime, state, log=None)
         try:
-            frames = self._primitives.stop_recording()
-            if frames:
-                self._state.save("episode.mp4", frames, step=None, fps=20)
-        except Exception as e:
-            # The runner is in the cleanup path; never let a video save
-            # abort it.
-            logger.warning(f"failed to save episode video: {e}")
+            self._dashboard_events.emit(
+                StepRecordEvent(record=record, env_state=self._state)
+            )
+        except Exception:
+            logger.exception("Dashboard failed to publish step %s", record.step_idx)
+
+    def _capture_observation(
+        self, *, command: dict[str, Any], result: ToolResult, elapsed_s: float
+    ) -> tuple[dict[str, Any], list[bytes]]:
+        """Save the full action log, then assemble the current observation response."""
+        logged_result = result.to_dict()
+        record = dump_state(
+            self._robot,
+            self._state,
+            log={
+                "command": command,
+                "result": logged_result,
+                "elapsed_s": elapsed_s,
+            },
+        )
+        self._robot.solved |= record.terminated
+        data, images = build_observation(self._state, record)
+        if result.is_error:
+            # Report the error once in this response; retain it in the saved log
+            # so later view_env_state calls can still inspect the failed action.
+            data["log"]["result"] = {
+                key: value for key, value in logged_result.items() if key != "error"
+            }
+        data["agent_elapsed_s"] = elapsed_s
+        return data, images
 
     def solved(self) -> bool:
-        """Return whether this run has completed the task."""
-        return self._solved
+        return self._robot.solved
 
-    def write_recipe(self, recipe_tag: str) -> str:
-        """Write the LIBERO recipe JSONL from the dumped state trace."""
-        return libero_tools.write_recipe_from_states(
-            self._state, recipe_tag, output_dir=get_output_dir()
+
+def dump_state(
+    runtime: libero_tools.LiberoRuntime,
+    env_state: EnvState,
+    log: dict | None = None,
+) -> StepRecord:
+    """Save one Libero observation through its owned state record."""
+    raw = runtime.env.raw_obs()
+    state = {
+        "robot0_eef_pos": [float(x) for x in raw["robot0_eef_pos"]],
+        "robot0_eef_quat": [float(x) for x in raw["robot0_eef_quat"]],
+        "robot0_gripper_qpos": [float(x) for x in raw["robot0_gripper_qpos"]],
+        "object_names": sorted(
+            k[:-4]
+            for k in raw
+            if k.endswith("_pos") and "robot0" not in k and "to_robot" not in k
+        ),
+    }
+    log = log or {}
+    with env_state.record_step(
+        state=state,
+        terminated=runtime.env.terminated,
+        truncated=runtime.env.truncated,
+        command=log.get("command"),
+        result=log.get("result"),
+        elapsed_s=log.get("elapsed_s"),
+        extras={"task_language": runtime.env.get_task_language()},
+    ) as step_idx:
+        _save_observation_artifacts(runtime, env_state, step_idx, raw)
+    return env_state.get(step_idx)
+
+
+def build_observation(
+    state: EnvState, record: StepRecord
+) -> tuple[dict[str, Any], list[bytes]]:
+    """Assemble a recorded observation and its ordered PNG images."""
+    nn = record.step_idx
+    extras = record.extras
+    out: dict = {
+        "step": nn,
+        "terminated": record.terminated,
+        "truncated": record.truncated,
+        "state": record.state,
+        "artifacts": sorted(record.artifacts),
+    }
+    out["task_language"] = extras.get("task_language")
+    out["log"] = {
+        "command": record.command,
+        "result": record.result,
+        "elapsed_s": record.elapsed_s,
+    }
+    images: list[bytes] = []
+    for names in (
+        ("agentview_policy.png",),
+        ("agentview_high.png", "agentview.png"),
+        ("wrist_high.png", "wrist.png"),
+    ):
+        name = next((name for name in names if name in record.artifacts), None)
+        if name:
+            try:
+                images.append(state.load_bytes(name, step=nn))
+            except FileNotFoundError:
+                pass
+    return out, images
+
+
+def _save_observation_artifacts(
+    runtime: libero_tools.LiberoRuntime,
+    state: EnvState,
+    step: int,
+    raw: dict[str, Any],
+) -> None:
+    """Save the policy view, then each camera's calibrated and high-res views."""
+    _save_agentview_policy(state, step, runtime._last_obs["main_images"])
+    _save_agentview_artifacts(runtime.env, state, step, raw)
+    _save_wrist_artifacts(runtime.env, state, step, raw)
+    _save_agentview_high_resolution_artifacts(runtime.env, state, step)
+    _save_wrist_high_resolution_artifacts(runtime.env, state, step)
+
+
+def _save_agentview_artifacts(
+    env: LiberoEnvClient, state: EnvState, step: int, raw: dict[str, Any]
+) -> None:
+    camera_meta = (
+        env.get_camera_meta(camera_name="agentview", height=256, width=256) or {}
+    )
+    if camera_meta:
+        _save_agentview_metadata(state, step, camera_meta)
+
+    try:
+        image = raw.get("agentview_image")
+        if image is not None:
+            _save_agentview_image(state, step, image)
+    except Exception as exc:
+        logger.warning("image_cam dump failed: %s", exc)
+
+    try:
+        depth = raw.get("agentview_depth")
+        if depth is not None:
+            depth_metric = _metric_depth(depth, camera_meta)[::-1]
+            _save_agentview_depth(state, step, depth_metric)
+            _save_agentview_world(state, step, depth_metric, camera_meta)
+    except Exception as exc:
+        logger.warning("depth dump failed: %s", exc)
+
+
+def _save_wrist_artifacts(
+    env: LiberoEnvClient, state: EnvState, step: int, raw: dict[str, Any]
+) -> None:
+    try:
+        image = raw.get("robot0_eye_in_hand_image")
+        if image is None:
+            logger.warning("wrist image missing from raw_obs")
+        else:
+            _save_wrist_image(state, step, image)
+    except Exception as exc:
+        logger.warning("wrist image dump failed: %s", exc)
+
+    try:
+        depth = raw.get("robot0_eye_in_hand_depth")
+        if depth is None:
+            logger.warning("wrist depth missing from raw_obs")
+            return
+        depth = np.asarray(depth, dtype=np.float32)
+        height, width = depth.shape[:2]
+        camera_meta = env.get_camera_meta(
+            camera_name="robot0_eye_in_hand", height=int(height), width=int(width)
         )
+        if camera_meta is None:
+            logger.warning("wrist camera meta missing; skipping wrist depth/world")
+            return
+        depth_metric = _metric_depth(depth, camera_meta)[::-1]
+        _save_wrist_depth(state, step, depth_metric)
+        _save_wrist_world(state, step, depth_metric, camera_meta)
+        _save_wrist_metadata(state, step, camera_meta)
+    except Exception as exc:
+        logger.warning("wrist depth/world dump failed: %s", exc)
+
+
+def _save_agentview_high_resolution_artifacts(
+    env: LiberoEnvClient, state: EnvState, step: int
+) -> None:
+    try:
+        rgb, depth = env.render_camera(
+            camera_name="agentview", height=1024, width=1024, depth=True
+        )
+        camera_meta = env.get_camera_meta("agentview", 1024, 1024)
+        if camera_meta is None:
+            raise RuntimeError("agentview camera metadata missing")
+        _save_agentview_high_image(state, step, rgb)
+        _save_agentview_world_high(state, step, depth, camera_meta)
+    except Exception as exc:
+        logger.warning("agentview high-res dump failed: %s", exc)
+
+
+def _save_wrist_high_resolution_artifacts(
+    env: LiberoEnvClient, state: EnvState, step: int
+) -> None:
+    try:
+        rgb, depth = env.render_camera(
+            camera_name="robot0_eye_in_hand", height=1024, width=1024, depth=True
+        )
+        camera_meta = env.get_camera_meta("robot0_eye_in_hand", 1024, 1024)
+        if camera_meta is None:
+            raise RuntimeError("robot0_eye_in_hand camera metadata missing")
+        _save_wrist_high_image(state, step, rgb)
+        _save_wrist_world_high(state, step, depth, camera_meta)
+    except Exception as exc:
+        logger.warning("wrist high-res dump failed: %s", exc)
+
+
+def _save_agentview_policy(state: EnvState, step: int, image: Any) -> None:
+    """Save agentview_policy.png in Pi0 orientation, for policy inspection."""
+    state.save("agentview_policy.png", image, step=step)
+
+
+def _save_agentview_metadata(state: EnvState, step: int, camera_meta: dict) -> None:
+    """Save agentview_metadata.json with calibration and pixel-frame guidance."""
+    metadata = dict(camera_meta)
+    metadata["projection"] = (
+        "Prefer the back_project(row, col, step=NN) MCP tool; it "
+        "uses the 1024x1024 high-resolution world map by default. "
+        "Pass resolution='low' only when row/col came from the "
+        "256x256 calibration-frame image."
+    )
+    metadata["note"] = (
+        "The agentview_depth.npz observation is aligned with agentview.png. "
+        "agentview_policy.png uses the Pi0 orientation and must not supply "
+        "pixels for back-projection."
+    )
+    state.save("agentview_metadata.json", metadata, step=step)
+
+
+def _save_agentview_image(state: EnvState, step: int, image: Any) -> None:
+    """Save agentview.png with pixels aligned to depth and camera calibration."""
+    image = np.asarray(image, dtype=np.uint8)
+    state.save("agentview.png", image[::-1], step=step)
+
+
+def _save_agentview_depth(state: EnvState, step: int, depth_metric: np.ndarray) -> None:
+    """Save agentview_depth.npz in meters, aligned to agentview.png."""
+    state.save("agentview_depth.npz", depth_metric.astype(np.float32), step=step)
+
+
+def _save_agentview_world(
+    state: EnvState, step: int, depth_metric: np.ndarray, camera_meta: dict
+) -> None:
+    """Save agentview_world.npz with a float32 world XYZ for each image pixel."""
+    world = _world_from_depth(depth_metric, camera_meta).astype(np.float32)
+    state.save("agentview_world.npz", world, step=step)
+
+
+def _save_wrist_image(state: EnvState, step: int, image: Any) -> None:
+    """Save wrist.png with pixels aligned to depth and camera calibration."""
+    image = np.asarray(image, dtype=np.uint8)
+    state.save("wrist.png", image[::-1], step=step)
+
+
+def _save_wrist_depth(state: EnvState, step: int, depth_metric: np.ndarray) -> None:
+    """Save wrist_depth.npz in meters, aligned to wrist.png."""
+    state.save("wrist_depth.npz", depth_metric.astype(np.float32), step=step)
+
+
+def _save_wrist_world(
+    state: EnvState, step: int, depth_metric: np.ndarray, camera_meta: dict
+) -> None:
+    """Save wrist_world.npz using the moving camera's calibration at this step."""
+    world = _world_from_depth(depth_metric, camera_meta).astype(np.float32)
+    state.save("wrist_world.npz", world, step=step)
+
+
+def _save_wrist_metadata(state: EnvState, step: int, camera_meta: dict) -> None:
+    """Save wrist_metadata.json for this step's moving camera pose."""
+    metadata = dict(camera_meta)
+    metadata["note"] = (
+        "MOVING camera: extrinsic_cam2world is for THIS step "
+        "only. The matching wrist world-map observation gives world "
+        "(x,y,z) for that pixel in the same world frame as the "
+        "agentview world-map artifact."
+    )
+    state.save("wrist_metadata.json", metadata, step=step)
+
+
+def _save_agentview_high_image(state: EnvState, step: int, image: Any) -> None:
+    """Save agentview_high.png in the 1024x1024 calibration frame."""
+    state.save("agentview_high.png", np.asarray(image)[::-1], step=step)
+
+
+def _save_agentview_world_high(
+    state: EnvState, step: int, depth: Any, camera_meta: dict
+) -> None:
+    """Save agentview_world_high.npz with float16 XYZ aligned to the high-res RGB."""
+    depth_metric = _metric_depth(depth, camera_meta)[::-1]
+    world = _world_from_depth(depth_metric, camera_meta).astype(np.float16)
+    state.save("agentview_world_high.npz", world, step=step)
+
+
+def _save_wrist_high_image(state: EnvState, step: int, image: Any) -> None:
+    """Save wrist_high.png in the 1024x1024 calibration frame."""
+    state.save("wrist_high.png", np.asarray(image)[::-1], step=step)
+
+
+def _save_wrist_world_high(
+    state: EnvState, step: int, depth: Any, camera_meta: dict
+) -> None:
+    """Save wrist_world_high.npz with float16 XYZ aligned to the high-res RGB."""
+    depth_metric = _metric_depth(depth, camera_meta)[::-1]
+    world = _world_from_depth(depth_metric, camera_meta).astype(np.float16)
+    state.save("wrist_world_high.npz", world, step=step)
+
+
+def _metric_depth(depth: Any, camera_meta: dict) -> np.ndarray:
+    """Convert the raw depth buffer to meters before flipping to the RGB frame."""
+    d = np.asarray(depth, dtype=np.float32)
+    if d.ndim == 3:
+        d = d[..., 0]
+    near = camera_meta.get("depth_near")
+    far = camera_meta.get("depth_far")
+    if near is not None and far is not None:
+        d = near / (1.0 - d * (1.0 - near / far))
+    return d
+
+
+def _world_from_depth(depth_metric: np.ndarray, camera_meta: dict) -> np.ndarray:
+    """Back-project calibrated image pixels to world XYZ in meters."""
+    k_matrix = np.array(camera_meta["intrinsic_K"], dtype=np.float64)
+    extrinsic = np.array(camera_meta["extrinsic_cam2world"], dtype=np.float64)
+    fx, fy = k_matrix[0, 0], k_matrix[1, 1]
+    cx, cy = k_matrix[0, 2], k_matrix[1, 2]
+    height, width = depth_metric.shape
+    rr, cc = np.mgrid[0:height, 0:width]
+    z = depth_metric.astype(np.float64)
+    camera_points = np.stack(
+        [(cc - cx) * z / fx, (rr - cy) * z / fy, z, np.ones_like(z)],
+        axis=-1,
+    )
+    return (camera_points @ extrinsic.T)[..., :3]

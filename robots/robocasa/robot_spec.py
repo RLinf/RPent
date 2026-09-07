@@ -57,18 +57,6 @@ ROBOCASA_DASHBOARD_SPEC = {
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
     ),
-    "frame_channels": (
-        {
-            "name": "camera",
-            "label": "fixed camera",
-            "legacy_path_key": "image_cam_path",
-        },
-        {
-            "name": "wrist",
-            "label": "wrist camera",
-            "legacy_path_key": "image_wrist_path",
-        },
-    ),
 }
 
 
