@@ -17,19 +17,14 @@
 import argparse
 import inspect
 import os
-import queue
 import re
 import sys
-import threading
-import traceback
 
 import numpy as np
 
 from rpent.robots.components.env_facade_base import BaseEnvFacade
-from rpent.utils.daemon import watch_parent_death
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc.http_rpc import HttpRpcServer
-from rpent.utils.rpc.socket_rpc import SocketRpcServer
+from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
 
 logger = get_logger("env_server")
 
@@ -74,8 +69,13 @@ def _split_kwargs(split):
     raise ValueError('split must be {None,"all","pretrain","target"}')
 
 
-class RoboCasaEnvFacade(BaseEnvFacade):
-    """Wraps the raw robosuite env and exposes ONLY basic calls via RPC."""
+class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
+    """Wraps the raw robosuite env and exposes ONLY basic calls via RPC.
+
+    Mixes in :class:`MainThreadServeMixin` so every env op runs on a single
+    thread (the MuJoCo EGL context must stay on one thread); the inherited
+    ``serve`` handles this.
+    """
 
     def __init__(
         self,
@@ -374,65 +374,6 @@ class RoboCasaEnvFacade(BaseEnvFacade):
             self.env.close()
         except Exception:
             pass
-
-    def serve(self, *, transport, host, port, parent_watch=False):
-        """Override: single render-thread dispatch so EGL context stays current."""
-        work_queue = queue.Queue()
-
-        def render_loop():
-            while (item := work_queue.get()) is not None:
-                event, req = item
-                try:
-                    req["result"] = self._dispatch(
-                        req["method"],
-                        req["args"],
-                        req["kwargs"],
-                    )
-                except Exception:
-                    req["error"] = traceback.format_exc()
-                event.set()
-
-        threading.Thread(target=render_loop, name="egl-render", daemon=True).start()
-
-        def dispatch(method, args, kwargs):
-            if method == "healthz":
-                return {"status": "ok"}
-            if method == "shutdown":
-                self._shutdown_event.set()
-                return {"ok": True}
-            event = threading.Event()
-            req = {
-                "method": method,
-                "args": args,
-                "kwargs": kwargs,
-                "result": None,
-                "error": None,
-            }
-            work_queue.put((event, req))
-            event.wait()
-            if req["error"]:
-                raise RuntimeError(req["error"])
-            return req["result"]
-
-        server_cls = HttpRpcServer if transport == "http" else SocketRpcServer
-        server = server_cls((host, port), dispatch)
-        bound_host, bound_port = server.server_address
-        bound_host = "127.0.0.1" if bound_host == "0.0.0.0" else bound_host
-        url = f"{transport}://{bound_host}:{bound_port}"
-        print(f"RPC server listening on {url}", flush=True)
-        logger.info("RPC server listening on %s", url)
-
-        if parent_watch:
-            watch_parent_death(self._shutdown_event.set)
-
-        try:
-            threading.Thread(target=server.serve_forever, daemon=True).start()
-            self._shutdown_event.wait()
-        finally:
-            work_queue.put(None)
-            server.shutdown()
-            server.server_close()
-            self.close()
 
 
 def main():

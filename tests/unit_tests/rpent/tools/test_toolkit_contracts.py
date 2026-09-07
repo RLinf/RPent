@@ -258,17 +258,17 @@ def test_common_file_tools_enforce_memory_manager_boundaries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo_root = tmp_path / "repo"
-    memory_root = repo_root / "resources" / "libero" / "memory"
+    memory_root = repo_root / "memory" / "libero"
     published = memory_root / "global" / "strategy.md"
     published.parent.mkdir(parents=True)
     published.write_text("published")
     (memory_root / "MEMORY.md").write_text("index")
     root_leaf = memory_root / "notes.md"
     root_leaf.write_text("root-level note")
-    evaluation_inbox = memory_root / "_inbox" / "current-cell"
+    evaluation_inbox = memory_root / "_internal" / "inbox" / "current-cell"
     evaluation_inbox.mkdir(parents=True)
     (evaluation_inbox / "draft.md").write_text("private draft")
-    foreign = repo_root / "resources" / "robotwin" / "memory" / "global" / "x.md"
+    foreign = repo_root / "memory" / "robotwin" / "global" / "x.md"
     foreign.parent.mkdir(parents=True)
     foreign.write_text("foreign")
     monkeypatch.setattr(memory_tools, "get_repo_root", lambda: repo_root)
@@ -281,7 +281,7 @@ def test_common_file_tools_enforce_memory_manager_boundaries(
     )
     read_published = evaluation.execute_tool(
         "read_text_file",
-        {"path": "resources/libero/memory/global/strategy.md"},
+        {"path": "memory/libero/global/strategy.md"},
     )
     read_root_leaf = evaluation.execute_tool(
         "read_text_file",
@@ -309,7 +309,7 @@ def test_common_file_tools_enforce_memory_manager_boundaries(
     assert read_root_leaf.result["content"] == "root-level note"
     assert list_published.result["files"] == ["strategy.md"]
     assert "writing to memory is denied" in write_published.result["error"]
-    assert "another environment's memory is denied" in read_foreign.result["error"]
+    assert "another robot's memory is denied" in read_foreign.result["error"]
     assert "reading this memory path is denied" in read_evaluation_inbox.result["error"]
 
     exploration = _ContractToolkit(
@@ -320,8 +320,8 @@ def test_common_file_tools_enforce_memory_manager_boundaries(
             inbox_cell_tag="current-cell",
         ),
     )
-    own_draft = memory_root / "_inbox" / "current-cell" / "draft.md"
-    other_draft = memory_root / "_inbox" / "other-cell" / "draft.md"
+    own_draft = memory_root / "_internal" / "inbox" / "current-cell" / "draft.md"
+    other_draft = memory_root / "_internal" / "inbox" / "other-cell" / "draft.md"
     write_own = exploration.execute_tool(
         "write_text_file",
         {"path": str(own_draft), "content": "draft"},

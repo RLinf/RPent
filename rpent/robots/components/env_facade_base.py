@@ -12,9 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unified env backend base class. Design reference for adding a new env
-backend: ``docs/source-zh/rst_source/development/add_env.rst``.
-"""
+"""Unified env backend base class."""
 
 from __future__ import annotations
 
@@ -42,9 +40,12 @@ class BaseEnvFacade(RpcFacade):
         ``_register_rpc``.
 
     EGL single-thread:
-        Subclasses that must keep EGL single-threaded must override ``serve``
-        and dispatch everything to a dedicated render thread, so the MuJoCo EGL
-        context stays on the same thread. See robocasa's override for reference.
+        Subclasses that must keep EGL single-threaded (MuJoCo EGL context must
+        stay on one thread) should mix in :class:`MainThreadServeMixin`
+        (``rpent.utils.rpc.main_thread_serve``) ahead of this class. It
+        overrides ``serve`` to run the transport server on a daemon thread and
+        execute every dispatch on the main thread. See robocasa's
+        ``RoboCasaEnvFacade``, which mixes it in and inherits ``serve``.
     """
 
     def __init__(self):

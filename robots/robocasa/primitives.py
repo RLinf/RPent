@@ -423,6 +423,22 @@ class RoboCasaPrimitives:
     ):
         """Execute RLDX with the environment's live, full task language."""
         del use_prompt  # Accepted for compatibility with historical task recipes.
+        configured_max_chunks = os.environ.get("RLDX_MAX_CHUNKS")
+        if configured_max_chunks is not None:
+            max_chunks = int(configured_max_chunks)
+        configured_action_steps = os.environ.get("RLDX_ACTION_STEPS_PER_CHUNK")
+        if configured_action_steps is not None:
+            n_action_steps = int(configured_action_steps)
+        configured_settle_patience = os.environ.get("RLDX_SETTLE_PATIENCE")
+        if configured_settle_patience is not None:
+            settle_patience = int(configured_settle_patience)
+        for name, value in (
+            ("max_chunks", max_chunks),
+            ("n_action_steps", n_action_steps),
+            ("settle_patience", settle_patience),
+        ):
+            if value < 1:
+                return {"error": f"{name} must be positive; VLA was not executed"}
         task_lang = (
             self.env.current_raw_obs.get("language") or self.env.get_task_language()
         )
@@ -450,6 +466,9 @@ class RoboCasaPrimitives:
             record_frame=self.record_frame,
         )
         result["effective_prompt"] = task_lang
+        result["effective_max_chunks"] = max_chunks
+        result["effective_n_action_steps"] = n_action_steps
+        result["effective_settle_patience"] = settle_patience
         result["prompt_overridden"] = prompt_overridden
         if prompt_overridden:
             result["requested_prompt"] = prompt
@@ -479,7 +498,7 @@ class RoboCasaPrimitives:
     def rldx_skill(
         self,
         base_clip=None,
-        max_chunks=int(os.environ.get("RLDX_MAX_CHUNKS", 70)),
+        max_chunks=70,
         use_prompt=None,
         prompt="",
         force_reset=False,
@@ -502,7 +521,7 @@ class RoboCasaPrimitives:
     def rldx_arm(
         self,
         base_clip=0.1,
-        max_chunks=int(os.environ.get("RLDX_MAX_CHUNKS", 70)),
+        max_chunks=70,
         use_prompt=None,
         prompt="",
         force_reset=False,

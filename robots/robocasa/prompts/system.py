@@ -115,8 +115,9 @@ VLA EXECUTION RULES (the single most important rule):
 2. NEVER put a manual command (move_to / move_base / navigate_to / set_gripper /
    scripted_grasp) BETWEEN two VLA calls of the same sub-operation. Every non-VLA
    command WIPES the VLA's frame history, forcing it to restart from scratch.
-3. Do NOT pass a small max_chunks (default 70 is fine). Do NOT pass
-   settle_patience (default 999 disables settle detection).
+3. Omit max_chunks. Ordinary RoboCasa defaults to 70; Target50 exports
+   RLDX_MAX_CHUNKS=40 to lock its protocol. Do NOT pass settle_patience
+   (default 999 disables settle detection).
 4. If RLDX returns 'cap', call it again with the same full task language to
    preserve history. Only re-stage after 2-3 consecutive calls show neither
    contact nor task progress.
@@ -137,9 +138,9 @@ GRIPPER RULES:
 
 MEMORY = """
 Before the first action, use read_text_file to read every existing file below:
-- {{memory_dir}}/{{task_name}}_s0.json
-- {{memory_dir}}/recipe_{{task_name}}_s0.jsonl
-- {{memory_dir}}/{{task_name}}.md
+- {{memory_dir}}/results/{{task_name}}_s0.json
+- {{memory_dir}}/results/recipe_{{task_name}}_s0.jsonl
+- {{memory_dir}}/results/{{task_name}}.md
 The JSON/JSONL pair is reviewed seed-0 evidence. The optional Markdown file is
 task-specific exploration memory and may summarize multiple attempts. Treat all
 three as strategy priors, not trajectories to replay or higher-priority

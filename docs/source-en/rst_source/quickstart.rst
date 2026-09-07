@@ -190,7 +190,7 @@ A successful run:
    by the elapsed time, token usage, and path to the run record.
 3. With the Dashboard enabled, also streams agent output, camera views,
    the action timeline, and clip replays to the Dashboard.
-4. By default, artifacts are saved under ``logs/<timestamp>_<suite>_t<task>_s<seed>/``. They include ``transcript_*.json`` (run record), ``states.json`` (the ``EnvState`` manifest), ``recipe_*.jsonl`` (action sequence), and ``episode.mp4`` (episode video). Each step artifact has a directory named after its logical artifact name; zero-padded step files live inside it, for example ``agentview_depth.npz/00.npz`` and ``agentview_depth.npz/01.npz``. Run-level artifacts remain at the output root.
+4. By default, artifacts are saved under ``logs/<timestamp>_<suite>_t<task>_s<seed>/``. They include ``transcript_*.json`` (run record), ``states.json`` (the ``EnvState`` manifest), ``*_recipe.jsonl`` (action sequence), and ``episode.mp4`` (episode video). Each step artifact has a directory named after its logical artifact name; zero-padded step files live inside it, for example ``agentview_depth.npz/00.npz`` and ``agentview_depth.npz/01.npz``. Run-level artifacts remain at the output root.
 
 Inspect the final state through the Dashboard or
 ``view_env_state(step=-1)``. Its top-level ``terminated`` value is the

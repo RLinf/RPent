@@ -146,16 +146,16 @@ RoboTwin 经验和任务参考。这些内容包含经过验证的操作方法�
 规划器 memory 与 recipe
 ------------------------
 
-只读规划资源位于数据集的 ``robotwin/`` 目录，并会同步到
-``<RPent-clone-path>/resources/robotwin/``。
+规划器使用的只读 memory 位于数据集的 ``robotwin/`` 目录，并会同步到
+``<RPent-clone-path>/memory/robotwin/``。
 
-``memory/MEMORY.md`` 索引可跨任务复用的执行经验，包括感知线索、控制启发、恢复策略、
+``MEMORY.md`` 索引可跨任务复用的执行经验，包括感知线索、控制启发、恢复策略、
 参数选择建议和常见失败模式。规划器可以通过该索引，只读取与当前任务或已观察到的失败
 相关的 memory 条目。
 
-对于每个评测任务，``recipe/<task>_s0.json`` 是从成功轨迹中提炼的语义 recipe，
+对于每个评测任务，``task_only/<task>_s0.json`` 是从成功轨迹中提炼的语义 recipe，
 描述阶段目标、可观察的完成 gate、控制与 VLA 使用建议以及已知失败模式。配套的
-``recipe/recipe_<task>_s0.jsonl`` 记录该轨迹中的历史工具调用，用于提供动作顺序、
+``task_only/<task>_s0_recipe.jsonl`` 记录该轨迹中的历史工具调用，用于提供动作顺序、
 工具选择和 action chunk 节奏方面的证据。
 
 文件名中的 ``_s0`` 只是统一的 recipe slot 名称，便于 prompt 查找，并不表示 RoboTwin
@@ -168,13 +168,15 @@ expert 程序选择；实际来源 seed 记录在 recipe 元数据中。
 task language 与最新 observation 始终优先，所有几何信息都必须重新定位。
 
 ``evidence_status=supported`` 表示 recipe 有成功 clean 轨迹支持；``experimental``
-仍然只是弱先验。使用时先阅读 ``memory/MEMORY.md``，再只选与当前任务和失败模式相关的
+仍然只是弱先验。使用时先阅读 ``MEMORY.md``，再只选与当前任务和失败模式相关的
 少量笔记。
 
 结果复现
 --------
 
-以下结果复现了 Harness VLA 在 RoboTwin C2R 上的评测。实验使用 ``gpt-5.5`` 模型和
+以下结果复现了 :doc:`Harness VLA <../awesome_works/harnessvla>` 在 RoboTwin C2R
+上的评测。实验使用 `reproduce/robotwin
+<https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_ 分支、``gpt-5.5`` 模型和
 ``xhigh`` 推理强度：
 
 - ``demo_randomized``：58.0%（145/250）
@@ -196,7 +198,7 @@ task language 与最新 observation 始终优先，所有几何信息都必须�
      --model gpt-5.5 \
      --reasoning-effort xhigh \
      --max-turns 100 \
-     --planner-timeout-s 3600 \
+     --planner-timeout-s 4800 \
      --max-episode-steps 10000
 
 其中，``task`` 应替换为 ``demo_randomized.json`` 中的任务名，``seed`` 应替换为

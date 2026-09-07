@@ -42,14 +42,9 @@ def get_repo_root() -> Path:
 # ============================================================================
 
 
-def get_resources_dir(robot_name: str) -> Path:
-    """Return the per-robot resources directory (memory + reference corpora)."""
-    return get_repo_root() / "resources" / robot_name
-
-
 def get_memory_dir(robot_name: str) -> Path:
     """Return the persistent, cross-run memory directory for a robot."""
-    return get_resources_dir(robot_name) / "memory"
+    return get_repo_root() / "memory" / robot_name
 
 
 def get_pi05_checkpoint_path() -> str:

@@ -14,8 +14,8 @@
 
 """Memory-aware file-tool handlers for the common tools.
 
-These wrap the shared IO in :mod:`rpent.tools.common` with the two-layer memory
-access boundary: environment isolation plus run-mode permission. Each handler
+These wrap the shared IO in :mod:`rpent.tools.common` with two access
+checks: robot isolation and run-mode permission. Each handler
 only validates the path and checks access, then delegates the actual IO.
 """
 
@@ -26,14 +26,15 @@ from pathlib import Path
 from rpent.tools.toolkit import readonly
 from rpent.utils.config import get_repo_root
 
-# Published memory subtrees an eval run may read.
-_READABLE_SCOPES = {"global", "suite", "task"}
+# Published memory subtrees an eval run may read. ``results`` retains
+# compatibility with the immutable RoboCasa task-only corpus.
+_READABLE_SCOPES = {"global", "suite", "task_only", "results"}
 
 # Suffix appended to shared file-tool descriptions when registered through
 # the memory access boundary.
 MEMORY_BOUNDARY_NOTE = (
     " Published memory is read-only. During exploration, you may write only "
-    "to your current memory inbox. Memory for other environments is unavailable."
+    "to your current memory inbox. Memory for other robots is unavailable."
 )
 
 
@@ -49,12 +50,8 @@ def _classify_memory_path(resolved: Path, *, memory_root: Path) -> str:
     """Classify a resolved path as current, foreign, or non_memory."""
     if resolved.is_relative_to(memory_root):
         return "current"
-    resources_root = get_repo_root() / "resources"
-    if not resolved.is_relative_to(resources_root):
-        return "non_memory"
-    rel = resolved.relative_to(resources_root)
-    # A path under another env's memory namespace.
-    if len(rel.parts) >= 2 and rel.parts[1] == "memory":
+    memory_namespace = get_repo_root() / "memory"
+    if resolved.is_relative_to(memory_namespace):
         return "foreign"
     return "non_memory"
 
@@ -69,9 +66,10 @@ def _check_memory_access(
 ) -> None:
     """Enforce current-memory read/write permissions.
 
-    Foreign-env memory is always rejected. Within the current env, read_only
-    exposes published subtrees read-only and rejects writes; inbox_write also
-    allows the current cell's inbox. Empty and non-memory paths are skipped.
+    Other robots' memory is always rejected. Within the current robot's memory,
+    read_only exposes published subtrees read-only and rejects writes;
+    inbox_write also allows the current cell's inbox. Empty and non-memory
+    paths are skipped.
     """
     if not path:
         return
@@ -80,9 +78,7 @@ def _check_memory_access(
     if bucket == "non_memory":
         return
     if bucket == "foreign":
-        raise PermissionError(
-            f"access to another environment's memory is denied: {path}"
-        )
+        raise PermissionError(f"access to another robot's memory is denied: {path}")
     parts = resolved.relative_to(memory_root).parts
     if not parts:
         if access == "read":
@@ -90,7 +86,12 @@ def _check_memory_access(
         raise PermissionError(f"writing to memory is denied in this mode: {path}")
 
     top = parts[0]
-    own_inbox = top == "_inbox" and len(parts) >= 2 and parts[1] == cell_tag
+    own_inbox = (
+        len(parts) >= 3
+        and parts[0] == "_internal"
+        and parts[1] == "inbox"
+        and parts[2] == cell_tag
+    )
 
     if access == "write":
         if memory_access == "inbox_write" and own_inbox:
