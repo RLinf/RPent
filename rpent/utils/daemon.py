@@ -45,7 +45,11 @@ def watch_parent_death(on_death: Callable[[], None]) -> None:
 
     def _watch() -> None:
         try:
-            sys.stdin.buffer.read()
+            # A daemon thread must not hold BufferedReader's lock while Python
+            # finalizes stdin (that aborts the interpreter on RPC shutdown).
+            fd = sys.stdin.fileno()
+            while os.read(fd, 65536):
+                pass
         except Exception:
             pass
         on_death()

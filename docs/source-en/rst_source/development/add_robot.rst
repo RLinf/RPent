@@ -131,9 +131,9 @@ template, and output slug; ``runtime_components`` and ``frame_channels``
 describe the robot-specific rows and camera views rendered by the
 frontend. See ``robots/libero/robot_spec.py`` for the reference shape.
 
-That's the entire registration step — ``_resolve_robot(name)`` does an
-``importlib.import_module(f"robots.{name}")``, so dropping the package under
-``robots/`` on disk is enough. No central list to update.
+The standard source tree currently includes ``libero``, ``robocasa``,
+``robotwin``, and ``behavior`` robot packages. New robot packages should follow
+the same entry-point contract before being wired into a release.
 
 The sections below describe what each referenced module must contain.
 ``_add_cli_args`` / ``_parse_config`` are covered in §4 and the runtime hook

@@ -745,12 +745,12 @@ function renderRuntimeStatus(runtime) {
   container.replaceChildren(...items);
 }
 
-function setResult(terminated, state) {
+function setResult(terminated, state, officialSuccess = false) {
   const b = $("#resultBadge");
   if (state === "succeeded" || terminated) {
     b.style.display = "";
-    b.className = "badge " + (terminated ? "b-ok" : "b-fail");
-    b.textContent = terminated ? copy.solved : copy.notSolved;
+    b.className = "badge " + (officialSuccess ? "b-ok" : "b-fail");
+    b.textContent = officialSuccess ? copy.solved : copy.notSolved;
   } else {
     b.style.display = "none";
   }
@@ -1128,7 +1128,7 @@ async function refreshMeta(opts = {}) {
   const generationState = syncTaskGeneration(r);
   if (generationState === "stale") return;
   setBadge(r.state, r.control_error || r.error);
-  setResult(r.terminated, r.state);
+  setResult(r.terminated, r.state, r.official_success);
   renderRuntimeStatus(r.runtime);
   interactionController.applySnapshot(r);
   const currentTask = r.current_task;
@@ -1164,7 +1164,7 @@ function connectSSE() {
     const generationState = syncTaskGeneration(sig);
     if (generationState === "stale") return;
     setBadge(sig.state, sig.control_error || sig.error);
-    setResult(sig.terminated, sig.state);
+    setResult(sig.terminated, sig.state, sig.official_success);
     renderRuntimeStatus(sig.runtime);
     interactionController.applySnapshot(sig);
     mediaState.frameAvailable = sig.frame_available || null;

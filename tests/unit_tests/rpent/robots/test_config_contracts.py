@@ -36,6 +36,11 @@ def _parser(robot_name: str, *, dashboard: bool = False) -> argparse.ArgumentPar
 @pytest.mark.parametrize(
     ("robot_name", "required_args", "identity_fields"),
     [
+        (
+            "behavior",
+            ["--task-name", "turning_on_radio", "--public-seed", "1"],
+            ("task_name", "public_seed"),
+        ),
         ("libero", ["--suite", "libero_object_task", "--task", "2"], ("suite", "task")),
         ("robocasa", ["--task-name", "OpenDrawer"], ("task_name",)),
         (
@@ -62,6 +67,7 @@ def test_robot_arguments_are_required_on_cli_but_deferred_for_dashboard(
 @pytest.mark.parametrize(
     ("robot_name", "message"),
     [
+        ("behavior", "--task-name is required"),
         ("libero", "--suite is required"),
         ("robocasa", "--task-name is required"),
         ("robotwin", "--task-name is required"),
@@ -104,6 +110,45 @@ def test_libero_default_evaluation_config(tmp_path: Path) -> None:
         "task": 2,
         "seed": 7,
     }
+
+
+def test_behavior_uses_only_the_official_local_memory_profile(tmp_path: Path) -> None:
+    memory_dir = tmp_path / "behavior-memory"
+    args = _parser("behavior").parse_args(
+        [
+            "--task-name",
+            "turning_on_radio",
+            "--public-seed",
+            "1",
+            "--memory-dir",
+            str(memory_dir),
+            "--output-dir",
+            str(tmp_path / "output"),
+        ]
+    )
+
+    config = get_robot_spec("behavior").parse_config(args)
+
+    assert args.memory_profile == "local"
+    assert args.memory_dir == str(memory_dir.resolve())
+    assert config.prompt_vars["memory_profile"] == "local"
+    assert config.prompt_vars["memory_dir"] == str(memory_dir.resolve())
+    assert config.prompt_vars["memory_inbox"].endswith(
+        "_internal/inbox/turning_on_radio_s1"
+    )
+
+    invalid = _parser("behavior").parse_args(
+        [
+            "--task-name",
+            "turning_on_radio",
+            "--public-seed",
+            "1",
+            "--memory-profile",
+            "hf",
+        ]
+    )
+    with pytest.raises(ValueError, match="requires --memory-profile local"):
+        get_robot_spec("behavior").parse_config(invalid)
 
 
 def test_libero_exploration_uses_local_memory_and_session_metadata(

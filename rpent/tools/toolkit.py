@@ -134,9 +134,14 @@ class ToolResult:
 
         result_for_text = dict(result)
         image = result_for_text.pop("_image_bytes", None)
+        depth_image = result_for_text.pop("_depth_image_bytes", None)
         image_cam = result_for_text.pop("_image_cam_bytes", None)
         image_nav = result_for_text.pop("_image_nav_bytes", None)
         image_wrist = result_for_text.pop("_image_wrist_bytes", None)
+        image_left_wrist = result_for_text.pop("_image_left_wrist_bytes", None)
+        depth_left_wrist = result_for_text.pop("_depth_left_wrist_bytes", None)
+        image_right_wrist = result_for_text.pop("_image_right_wrist_bytes", None)
+        depth_right_wrist = result_for_text.pop("_depth_right_wrist_bytes", None)
         text = json.dumps(result_for_text, indent=2, default=str)
         text = _truncate_utf8(
             text,
@@ -161,12 +166,22 @@ class ToolResult:
 
         if image:
             _add_image_bytes(image)
+        if depth_image:
+            _add_image_bytes(depth_image)
         if image_cam:
             _add_image_bytes(image_cam)
         if image_nav:
             _add_image_bytes(image_nav)
         if image_wrist:
             _add_image_bytes(image_wrist)
+        if image_left_wrist:
+            _add_image_bytes(image_left_wrist)
+        if depth_left_wrist:
+            _add_image_bytes(depth_left_wrist)
+        if image_right_wrist:
+            _add_image_bytes(image_right_wrist)
+        if depth_right_wrist:
+            _add_image_bytes(depth_right_wrist)
         return blocks
 
 

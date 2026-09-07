@@ -320,10 +320,11 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    on_explore_session = getattr(robot_spec, "on_explore_session", None)
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
-    if args.explore and args.robot_name != "libero":
-        parser.error("--explore is currently supported only for LIBERO")
+    if args.explore and args.robot_name != "libero" and on_explore_session is None:
+        parser.error(f"--explore is not supported for {args.robot_name}")
     if args.explore and args.memory_profile == "hf":
         parser.error("--explore cannot be used with --memory-profile hf")
     if args.explore and getattr(args, "explore_sessions", 1) <= 0:
@@ -331,12 +332,21 @@ def main() -> int:
     args.memory_profile = args.memory_profile or ("local" if args.explore else "hf")
     if args.memory_profile == "hf" and args.memory_dir is not None:
         parser.error("--memory-dir requires --memory-profile local or --explore")
+    run_config = None
+    if args.explore and on_explore_session is not None:
+        # Let session-owning plugins validate their constraints before startup,
+        # including requests routed to the Dashboard launcher.
+        try:
+            run_config = robot_spec.parse_config(args)
+        except ValueError as exc:
+            parser.error(str(exc))
     if args.dashboard:
         from rpent.cli.dashboard import run_dashboard_session
 
         return run_dashboard_session(args, robot_spec, parser=parser)
 
-    run_config = robot_spec.parse_config(args)
+    if run_config is None:
+        run_config = robot_spec.parse_config(args)
     recipe_tag = run_config.recipe_tag
     output_dir = run_config.output_dir
     prompt_vars = run_config.prompt_vars
@@ -449,7 +459,13 @@ def main() -> int:
                 state_output_dir = (
                     output_dir / "sessions" / f"session_{session_number:03d}"
                 )
-            if robot_name == "libero":
+            if args.explore and on_explore_session is not None:
+                primitives_kwargs.update(
+                    on_explore_session(
+                        args, state_output_dir, dashboard_events, daemons
+                    )
+                )
+            if robot_name == "libero" or on_explore_session is not None:
                 toolkit = get_toolkit(
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
@@ -481,7 +497,7 @@ def main() -> int:
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
-                if robot_name == "libero":
+                if robot_name == "libero" or on_explore_session is not None:
                     solved = toolkit.solved()
                     if solved:
                         recipe_path = toolkit.write_recipe(recipe_tag)

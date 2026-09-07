@@ -18,6 +18,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import imageio.v2 as imageio
 import numpy as np
 import pytest
 
@@ -206,6 +207,56 @@ def test_env_state_run_level_artifact_round_trips(tmp_path: Path) -> None:
     np.testing.assert_array_equal(env_state.load("frame.png", step=None), image)
     assert env_state.load("payload.bin", step=None) == b"\x00\x01bytes"
     assert env_state.load_bytes("episode.mp4", step=None) == b"offline-mp4-bytes"
+
+
+def test_env_state_streams_video_artifact_without_frame_buffer(tmp_path: Path) -> None:
+    env_state = EnvState(tmp_path)
+    writer = env_state.open_video_writer(
+        "episode.mp4",
+        step=None,
+        fps=5,
+        max_frames=3,
+    )
+    frame = np.zeros((16, 16, 3), dtype=np.uint8)
+
+    assert not hasattr(writer, "_frames")
+    assert writer.append(frame) is True
+    assert writer.append(frame + 20) is True
+    assert writer.append(frame + 40) is True
+    assert writer.append(frame + 60) is False
+    assert writer.frames_written == 3
+    assert writer.frames_dropped == 1
+    assert writer.close() == "episode.mp4"
+    assert writer.close() == "episode.mp4"
+
+    path = env_state.artifact_path("episode.mp4", step=None)
+    assert path.stat().st_size > 0
+    reader = imageio.get_reader(path)
+    try:
+        frames = [np.asarray(item) for item in reader]
+    finally:
+        reader.close()
+    assert len(frames) == 3
+    assert json.loads((tmp_path / "states.json").read_text())["run_artifacts"] == [
+        "episode.mp4"
+    ]
+    assert list(tmp_path.glob(".*.tmp*.mp4")) == []
+
+
+def test_env_state_video_writer_abort_and_empty_close_do_not_publish(
+    tmp_path: Path,
+) -> None:
+    env_state = EnvState(tmp_path)
+    empty = env_state.open_video_writer("empty.mp4", step=None)
+    assert empty.close() is None
+    assert not env_state.exists("empty.mp4", step=None)
+
+    aborted = env_state.open_video_writer("aborted.mp4", step=None)
+    aborted.append(np.zeros((16, 16, 3), dtype=np.uint8))
+    aborted.abort()
+    aborted.abort()
+    assert not env_state.exists("aborted.mp4", step=None)
+    assert list(tmp_path.glob(".*.tmp*.mp4")) == []
 
 
 def test_env_state_per_step_paths_save_load_and_exists(tmp_path: Path) -> None:

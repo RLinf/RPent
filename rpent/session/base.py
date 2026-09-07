@@ -292,6 +292,36 @@ class EnvState:
             return False
         return self._artifact_file(name, resolved_step).exists()
 
+    def _register_artifact(self, name: str, step: int | None) -> None:
+        if step is not None:
+            self._record_for(step).artifacts.add(name)
+        else:
+            self._run_artifacts.add(name)
+        if not self._step_open:
+            self._write_manifest()
+
+    def open_video_writer(
+        self,
+        name: str,
+        *,
+        step: int | None = None,
+        fps: int = 20,
+        max_frames: int | None = None,
+    ) -> "VideoArtifactWriter":
+        """Open a streaming MP4 writer for an EnvState artifact."""
+
+        resolved_step = self._resolve_read_step(step)
+        path = self._artifact_file(name, resolved_step)
+        if path.suffix.lower() != ".mp4":
+            raise ValueError("video artifacts must use .mp4")
+        return VideoArtifactWriter(
+            self,
+            name=name,
+            step=resolved_step,
+            fps=fps,
+            max_frames=max_frames,
+        )
+
     # -- step records ----------------------------------------------------
 
     @contextmanager
@@ -359,3 +389,137 @@ class EnvState:
 
     def records(self) -> list[StepRecord]:
         return copy.deepcopy(self._steps)
+
+
+def recipe_commands_from_states(env_state: EnvState) -> list[dict[str, Any]]:
+    """Return replayable top-level tool commands from stateful records."""
+
+    commands: list[dict[str, Any]] = []
+    for record in env_state.records():
+        command = record.command
+        if not isinstance(command, dict) or command.get("action") is None:
+            continue
+        if isinstance(record.result, dict) and record.result.get("error"):
+            continue
+        commands.append(copy.deepcopy(command))
+    return commands
+
+
+def write_command_recipe_from_states(
+    env_state: EnvState,
+    recipe_tag: str,
+    *,
+    output_state: EnvState | None = None,
+) -> str | None:
+    """Write a generic ``recipe_<tag>.jsonl`` command-sequence artifact.
+
+    This shared helper exports top-level replay commands from generic
+    :class:`EnvState` records. It is intentionally distinct from robot-specific
+    recipe writers such as LIBERO's ``write_recipe_from_states``, which also
+    applies reset-window filtering, segment artifacts, and solved gating.
+    """
+
+    tag = str(recipe_tag).strip()
+    if not tag:
+        raise ValueError("recipe_tag must be a non-empty string")
+    commands = recipe_commands_from_states(env_state)
+    if not commands:
+        return None
+    target_state = output_state or env_state
+    name = f"recipe_{tag}.jsonl"
+    saved = target_state.save(name, commands, step=None)
+    if saved is None:
+        raise RuntimeError(f"failed to write {name}")
+    return str(target_state.artifact_path(saved, step=None))
+
+
+class VideoArtifactWriter:
+    """Streaming MP4 writer that registers the artifact only on successful close."""
+
+    def __init__(
+        self,
+        env_state: EnvState,
+        *,
+        name: str,
+        step: int | None,
+        fps: int,
+        max_frames: int | None,
+    ) -> None:
+        if not isinstance(fps, int) or fps <= 0:
+            raise ValueError("fps must be a positive integer")
+        if max_frames is not None and int(max_frames) <= 0:
+            raise ValueError("max_frames must be positive when provided")
+        self._env_state = env_state
+        self._name = env_state._validate_name(name)
+        self._step = step
+        self._fps = fps
+        self._max_frames = None if max_frames is None else int(max_frames)
+        self._destination = env_state._artifact_file(self._name, step)
+        self._temporary = self._destination.with_name(
+            f".{self._destination.stem}.{os.getpid()}.{id(self)}.tmp"
+            f"{self._destination.suffix}"
+        )
+        self._writer: Any | None = None
+        self._closed = False
+        self._aborted = False
+        self.frames_written = 0
+        self.frames_dropped = 0
+
+    def append(self, frame: Any) -> bool:
+        """Append one RGB frame; return False when the configured cap is reached."""
+
+        if self._closed:
+            raise RuntimeError("video writer is closed")
+        if self._aborted:
+            return False
+        if self._max_frames is not None and self.frames_written >= self._max_frames:
+            self.frames_dropped += 1
+            return False
+        array = np.asarray(frame)
+        if array.ndim != 3 or array.shape[2] < 3:
+            raise ValueError("video frame must have shape [H, W, C>=3]")
+        array = array[..., :3]
+        if array.dtype != np.uint8:
+            array = np.clip(array, 0, 255).astype(np.uint8)
+        if self._writer is None:
+            self._destination.parent.mkdir(parents=True, exist_ok=True)
+            self._writer = imageio.get_writer(self._temporary, fps=self._fps)
+        self._writer.append_data(np.ascontiguousarray(array))
+        self.frames_written += 1
+        return True
+
+    def close(self) -> str | None:
+        """Finalize the video and register it in the EnvState manifest."""
+
+        if self._closed:
+            return self._name if self._destination.exists() else None
+        self._closed = True
+        try:
+            if self._writer is not None:
+                self._writer.close()
+                self._writer = None
+            if self._aborted or self.frames_written <= 0:
+                self._temporary.unlink(missing_ok=True)
+                return None
+            os.replace(self._temporary, self._destination)
+            self._env_state._register_artifact(self._name, self._step)
+            return self._name
+        except Exception:
+            self.abort()
+            raise
+        finally:
+            self._temporary.unlink(missing_ok=True)
+
+    def abort(self) -> None:
+        """Close and remove the temporary file without publishing the artifact."""
+
+        if self._aborted:
+            return
+        self._aborted = True
+        try:
+            if self._writer is not None:
+                self._writer.close()
+                self._writer = None
+        finally:
+            self._closed = True
+            self._temporary.unlink(missing_ok=True)

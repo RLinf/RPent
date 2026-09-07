@@ -35,6 +35,7 @@ Other environment configurations are available when needed:
 
    pip install -e ".[robocasa]"    # RoboCasa
    pip install -e ".[robotwin]"    # RoboTwin
+   pip install -e ".[behavior]"    # BEHAVIOR
 
 ``.[libero-pro]`` is the recommended default.
 
@@ -51,6 +52,10 @@ Available extras:
      - LIBERO-PRO + openpi Pi0.5 VLA + SAM 3.0 + RLinf runtime
    * - ``.[libero-plus]``
      - LIBERO-plus + openpi Pi0.5 VLA + SAM 3.0 + RLinf runtime
+   * - ``.[behavior]``
+     - RPent-side BEHAVIOR dependencies; the full OmniGibson/Isaac Sim stack
+       uses the source-editable dual-venv workflow and licensed assets documented
+       in :doc:`usage/behavior`
    * - ``.[robocasa]``
      - RoboCasa365 simulator + the RLDX-1 VLA; see :doc:`usage/robocasa`
    * - ``.[robotwin]``

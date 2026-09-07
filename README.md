@@ -40,6 +40,7 @@ RPent is built for four kinds of users:
 
 - [2026/08] 🔥 RPent supports RoboCasa with RLDX-1 as manipulation model. See the [RoboCasa setup and Target50 guide](robots/robocasa/README.md) and [full documentation](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
 - [2026/08] 🔥 RPent supports the non-reasoning mode, which reduces average execution time by ~40%.
+- [2026/08] 🔥 RPent supports BEHAVIOR with Pi0.5 for long-horizon household tasks. Doc: [BEHAVIOR](https://rpent.readthedocs.io/en/latest/rst_source/usage/behavior.html).
 - [2026/08] 🔥 RPent supports exploration mode for LIBERO. Doc: [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#exploration-and-local-memory-evaluation).
 - [2026/08] 🔥 RPent supports RoboTwin with LingBot-VLA for dual-arm manipulation tasks. Doc: [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html).
 - [2026/07] 🔥 Our first RPent publication, [Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents](https://arxiv.org/abs/2607.08448), is released.
@@ -81,6 +82,7 @@ RPent is built for four kinds of users:
       <td style="text-align: left; padding-left: 8px;">
         <ul style="margin-left: 0; padding-left: 16px;">
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html">LIBERO-PRO</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/behavior.html">BEHAVIOR-1K</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html">RoboTwin</a> ✅</li>
         </ul>

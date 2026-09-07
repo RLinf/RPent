@@ -219,7 +219,7 @@ class CodexPlanner:
 
         elapsed = time.time() - started
         text = state.get("text", "") or output_path.read_text(errors="replace")
-        error = error or recorder.error
+        error = _planner_result_error(error=error, recorder=recorder)
 
         logger.info("Codex SDK finished in %.1fs", elapsed)
         logger.info("output: %s", output_path)
@@ -236,6 +236,7 @@ class CodexPlanner:
                 "raw_stream_path": str(raw_stream_path),
                 "last_message_path": str(last_message_path),
                 "last_message_chars": len(recorder.final_response or ""),
+                "nonfatal_recorder_errors": _nonfatal_recorder_error_count(recorder),
                 **recorder.stats(),
             },
             error=error,
@@ -445,9 +446,14 @@ class CodexPlanner:
                 "raw_stream_path": str(raw_stream_path),
                 "last_message_path": str(last_message_path),
                 "last_message_chars": len(recorder.final_response or ""),
+                "nonfatal_recorder_errors": _nonfatal_recorder_error_count(recorder),
                 **recorder.stats(),
             },
-            error=error or session.error or recorder.error,
+            error=_planner_result_error(
+                error=error,
+                session_error=session.error,
+                recorder=recorder,
+            ),
         )
 
     # -- config builder ----------------------------------------------------
@@ -640,6 +646,7 @@ class _Recorder:
     final_response: str | None = None
     finish_result: dict[str, Any] | None = None
     error: str | None = None
+    turn_failed: bool = False
 
     def stats(self) -> dict[str, int]:
         return {"turns_used": self.turns, "tool_calls": self.tool_calls, **self.usage}
@@ -726,6 +733,8 @@ class _Recorder:
         duration_ms = _get(turn, "duration_ms")
         if error := _get(turn, "error"):
             self.error = str(_get(error, "message", str(error)))
+        if status == "failed":
+            self.turn_failed = True
 
         parts = ["[codex-result]", status]
         if duration_ms is not None:
@@ -780,6 +789,35 @@ class _Recorder:
                 args = None
         if isinstance(args, dict):
             self.finish_result = {"_finish": True, **args}
+
+
+def _nonfatal_recorder_error_count(recorder: _Recorder) -> int:
+    return int(
+        recorder.finish_result is not None
+        and recorder.error is not None
+        and not recorder.turn_failed
+    )
+
+
+def _planner_result_error(
+    *,
+    error: str | None,
+    recorder: _Recorder,
+    session_error: str | None = None,
+) -> str | None:
+    """Return fatal planner error without treating post-finish stream noise as fatal."""
+
+    if error is not None:
+        return error
+    if session_error is not None:
+        return session_error
+    if _nonfatal_recorder_error_count(recorder):
+        logger.warning(
+            "Codex stream reported a non-fatal event after finish: %s",
+            recorder.error,
+        )
+        return None
+    return recorder.error
 
 
 # ---------------------------------------------------------------------------

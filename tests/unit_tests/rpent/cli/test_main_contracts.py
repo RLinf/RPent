@@ -184,7 +184,7 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
             ["--robot", "libero", "--dashboard", "--interactive"],
             "cannot be used together",
         ),
-        (["--robot", "robocasa", "--explore"], "supported only for LIBERO"),
+        (["--robot", "robocasa", "--explore"], "--explore is not supported"),
         (
             ["--robot", "libero", "--explore", "--memory-profile", "hf"],
             "cannot be used with --memory-profile hf",
@@ -473,6 +473,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert calls["get_toolkit"][1]["primitives_kwargs"] == {"runtime": "simulated"}
     assert calls["get_toolkit"][1]["mode"] == "exploration"
     assert calls["get_toolkit"][1]["attempts_per_session"] == 2
+    assert robot_spec.on_explore_session is None
+    assert calls["init_runtime"][3] is None
     assert calls["write_recipe"] == "libero_s0"
     assert calls["merge_memory"] == {
         "cell_tag": "libero_s0",
@@ -622,3 +624,127 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     }
     assert robot_toolkit.closed is True
     assert daemon.stopped is True
+
+
+def test_behavior_explore_hook_restarts_only_env_between_cli_sessions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from dataclasses import replace
+
+    from robots.behavior import runtime
+    from robots.behavior.robot_spec import get_robot_spec
+    from rpent.planner.base import PlannerResult
+    from rpent.robots.prompt_bundle import PromptBundle
+
+    cli = _cli_module()
+    spawned = []
+    stopped = []
+    toolkit_calls = []
+    runtime_calls = []
+    merge_calls = []
+    solve_calls = []
+
+    class FakeDaemon:
+        def __init__(self, component):
+            self.name = f"behavior_{component}_server"
+            self.component = component
+
+        def stop(self):
+            stopped.append(self)
+
+    def spawn(owned, events, component, spawn_fn):
+        daemon = FakeDaemon(component)
+        owned[component] = daemon
+        spawned.append(daemon)
+        return daemon, daemon
+
+    def wait(owned, events, component, rpc, daemon, timeout_s, **kwargs):
+        return {component: daemon}
+
+    original_init_runtime = runtime.init_runtime
+
+    def init_runtime(args, output_dir, events, components):
+        runtime_calls.append((output_dir, components))
+        return original_init_runtime(args, output_dir, events, components)
+
+    def get_toolkit(*args, **kwargs):
+        toolkit_calls.append(
+            {**kwargs, "primitives_kwargs": dict(kwargs["primitives_kwargs"])}
+        )
+        return SimpleNamespace(
+            memory=SimpleNamespace(merge_memory=lambda **kw: merge_calls.append(kw)),
+            solved=lambda: False,
+            close=lambda: None,
+        )
+
+    def solve(**kwargs):
+        solve_calls.append(kwargs)
+        assert spawned[-1] not in stopped
+        if len(solve_calls) == 2:
+            assert spawned[2] in stopped
+        return PlannerResult(
+            finish_result={"status": "incomplete"}, messages=[], stats={}
+        )
+
+    monkeypatch.setattr(runtime, "try_spawn_server", spawn)
+    monkeypatch.setattr(runtime, "try_wait_server", wait)
+    monkeypatch.setattr(runtime, "init_runtime", init_runtime)
+    spec = replace(
+        get_robot_spec(),
+        prompts=PromptBundle(
+            system=lambda variables: "system", user=lambda variables: "user"
+        ),
+    )
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
+    monkeypatch.setattr(cli, "get_toolkit", get_toolkit)
+    monkeypatch.setattr(
+        cli, "build_planner", lambda *args, **kwargs: SimpleNamespace(solve=solve)
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "behavior",
+            "--behavior-mode",
+            "explore",
+            "--explore",
+            "--explore-sessions",
+            "2",
+            "--task-name",
+            "turning_on_radio",
+            "--public-seed",
+            "0",
+            "--output-dir",
+            str(tmp_path),
+            "--memory-dir",
+            str(tmp_path / "memory"),
+        ],
+    )
+
+    assert cli.main() == 0
+    session_dirs = [tmp_path / "sessions" / f"session_{n:03d}" for n in (1, 2)]
+    assert runtime_calls == [
+        (tmp_path, None),
+        *[(path, {"env"}) for path in session_dirs],
+    ]
+    assert [daemon.component for daemon in spawned] == ["vla", "dino", "env", "env"]
+    assert len(toolkit_calls) == len(solve_calls) == 2
+    for index, call in enumerate(toolkit_calls):
+        assert call["state_output_dir"] == session_dirs[index]
+        assert call["mode"] == "exploration"
+        assert call["attempts_per_session"] == 0
+        assert call["primitives_kwargs"] == {
+            "vla": spawned[0],
+            "dino": spawned[1],
+            "env": spawned[index + 2],
+        }
+    assert stopped == [spawned[2], spawned[0], spawned[1], spawned[3]]
+    assert merge_calls == [
+        {
+            "cell_tag": "turning_on_radio_s0",
+            "run_state_dir": tmp_path,
+            "solved": False,
+        }
+    ]

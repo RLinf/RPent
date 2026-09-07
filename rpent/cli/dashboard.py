@@ -179,6 +179,17 @@ def _run_dashboard_task(
     started = time.time()
     solved = False
     memory_manager = None
+    # BEHAVIOR TaskRuns use behavior_mode; LIBERO uses the shared explore flag.
+    # A BEHAVIOR TaskRun already owns its fresh ENV (one episode per TaskRun).
+    toolkit_mode = (
+        "exploration"
+        if (
+            getattr(task_args, "behavior_mode", "eval") == "explore"
+            if args.robot_name == "behavior"
+            else getattr(task_args, "explore", False)
+        )
+        else "evaluation"
+    )
     try:
         task_daemons, task_primitives_kwargs = robot_spec.init_runtime(
             task_args,
@@ -231,13 +242,13 @@ def _run_dashboard_task(
                     state.begin_planner_session(
                         video_path=state_output_dir / "episode.mp4",
                     )
-                if args.robot_name == "libero":
+                if args.robot_name in ("libero", "behavior"):
                     toolkit = get_toolkit(
                         args.robot_name,
                         primitives_kwargs=primitives_kwargs,
                         dashboard_events=state,
                         config=run_config,
-                        mode="exploration" if task_args.explore else "evaluation",
+                        mode=toolkit_mode,
                         attempts_per_session=getattr(
                             task_args, "explore_attempts_per_session", 0
                         ),
@@ -277,7 +288,7 @@ def _run_dashboard_task(
                     messages += result.messages
                     stats = result.stats
                     agent_error = result.error
-                    if args.robot_name == "libero":
+                    if args.robot_name in ("libero", "behavior"):
                         solved = toolkit.solved()
                         if solved:
                             recipe_path = toolkit.write_recipe(recipe_tag)
@@ -334,7 +345,7 @@ def _run_dashboard_task(
         init_output_dir(session_root, verbose=args.verbose)
 
     if (
-        getattr(task_args, "explore", False)
+        toolkit_mode == "exploration"
         and getattr(task_args, "auto_merge_memory", False)
         and not agent_error
         and not state.task_replacement_requested
@@ -351,6 +362,6 @@ def _run_dashboard_task(
         except Exception as exc:
             warning = f"memory finalization failed: {type(exc).__name__}: {exc}"
             logger.warning("%s", warning)
-            state.report_task_warning(f"Task succeeded, but {warning}")
+            state.report_task_warning(f"Memory finalization warning: {warning}")
 
     return agent_error

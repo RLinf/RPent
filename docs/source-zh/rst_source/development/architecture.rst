@@ -138,9 +138,9 @@ planner 后端集中在 ``rpent/planner/``，
 钩子（``add_cli_args`` / ``parse_config`` / ``init_runtime``）。各字段要填什么见
 :doc:`interfaces`。
 
-加载器本身不维护机器人名称列表。当前 CLI 将 ``--robot`` 限定为 ``libero``
-和 ``robocasa``；接入新的机器人名称时，还需要同步更新 CLI 的可选值。完整步骤见
-:doc:`add_robot`。
+标准源码树当前包含 ``libero``、``robocasa``、``robotwin`` 和 ``behavior``
+robot package。新的集成应沿用 :doc:`add_robot` 中说明的 ``RobotSpec`` /
+``get_toolkit`` package 结构。
 
 Planner、Toolkit 与 RPC 传输层
 ------------------------------
