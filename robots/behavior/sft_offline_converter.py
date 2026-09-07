@@ -12,11 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Offline SFT selection rollup into a non-activating episode-memory artifact."""
+"""BEHAVIOR episode-memory library for SFT rollups and runtime catalogs.
+
+``behavior-build-memory`` consumes ``compile_runtime_catalog``; callers can use
+``write_content_addressed_rollup`` to prepare immutable expert episode rollups.
+This module has no command-line entry point and does not activate memory.
+"""
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import io
 import json
@@ -657,50 +661,3 @@ def _write_once(path: Path, payload: bytes) -> None:
             return
         fail("MEMORY_SFT_OUTPUT_COLLISION", str(path), "existing bytes differ")
     _atomic_write(path, payload)
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="behavior-sft-offline-rollup")
-    sub = parser.add_subparsers(dest="command", required=True)
-    rollup = sub.add_parser("rollup")
-    rollup.add_argument("--selection-manifest", required=True, type=Path)
-    rollup.add_argument("--output-dir", required=True, type=Path)
-    compile_catalog = sub.add_parser("compile-runtime-catalog")
-    compile_catalog.add_argument("--selection-manifest", required=True, type=Path)
-    compile_catalog.add_argument("--output-dir", required=True, type=Path)
-    compile_catalog.add_argument(
-        "--video-root", required=True, type=Path, action="append"
-    )
-    compile_catalog.add_argument("--rollups-dir", required=True, type=Path)
-    compile_catalog.add_argument("--source-archive", required=True, type=Path)
-    compile_catalog.add_argument("--weights", required=True, type=Path)
-    compile_catalog.add_argument("--cache-dir", type=Path, default=None)
-    compile_catalog.add_argument("--cuda-device", choices=("2", "7"), required=True)
-    compile_catalog.add_argument("--batch-size", type=int, default=32)
-    args = parser.parse_args(argv)
-    if args.command == "rollup":
-        result = write_content_addressed_rollup(
-            selection_manifest=args.selection_manifest.resolve(),
-            output_dir=args.output_dir.resolve(),
-        )
-        print(json.dumps(dict(result), sort_keys=True))
-        return 0
-    if args.command == "compile-runtime-catalog":
-        os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_device
-        result = compile_runtime_catalog(
-            selection_manifest=args.selection_manifest.resolve(),
-            output_dir=args.output_dir.resolve(),
-            video_roots=tuple(path.resolve() for path in args.video_root),
-            rollups_dir=args.rollups_dir.resolve(),
-            source_archive=args.source_archive.resolve(),
-            weights=args.weights.resolve(),
-            cache_dir=None if args.cache_dir is None else args.cache_dir.resolve(),
-            batch_size=args.batch_size,
-        )
-        print(json.dumps(dict(result), sort_keys=True))
-        return 0
-    return 2
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
