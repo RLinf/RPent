@@ -69,6 +69,34 @@ EXPECTED_TOOLS = (
 )
 
 
+def test_episode_memory_is_structured_in_public_results():
+    from robots.behavior.memory.index import empty_episode_memory_index
+
+    class Encoder:
+        def encode_batch(self, images):
+            vector = np.zeros(DINOV2_DIMENSION, dtype=np.float32)
+            vector[0] = 1
+            return [vector if image is not None else None for image in images]
+
+    class Env:
+        def observe(self, **kwargs):
+            return {"status": "ok", "info": {"done": {"success": False}}}
+
+    primitives = BehaviorPrimitives(
+        env=Env(),
+        initial_observation={"main_images": np.zeros((8, 8, 3), dtype=np.uint8)},
+        episode_memory_index=empty_episode_memory_index(),
+        dino_component=Encoder(),
+    )
+    decision = primitives.snapshot()["episode_memory"]
+    assert isinstance(decision, dict)
+    assert decision["decision"] == "record_new"
+    assert decision["candidate_count_after_task_filter"] == 0
+    assert decision["stage_inference"] is None
+    assert primitives.observe(camera="head")["episode_memory"] == decision
+    assert json.loads(json.dumps(decision)) == decision
+
+
 @pytest.mark.parametrize(
     ("task_name", "mode", "seed", "instruction"),
     [

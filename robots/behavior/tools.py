@@ -410,7 +410,7 @@ class BehaviorPrimitives:
             head_embedding=head_embedding,
             wrist_shadow_embeddings=shadow,
         )
-        return _jsonable(decision)
+        return _jsonable(dict(decision))
 
     def _envelope(
         self,
