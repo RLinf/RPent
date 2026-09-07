@@ -42,25 +42,45 @@ LIBERO 数据飞轮
      --dataset-id goal-task-00 \
      --output-root /path/to/lerobot
 
+其中 ``--data-root`` 是原始数据根目录，``--output-root`` 是导出数据集的父目录。
+本例导出的数据集位于 ``/path/to/lerobot/goal-task-00``。
+
+成功轨迹的训练前缀包含首次成功动作及其之前的全部实际执行动作，包括脚本原语和
+VLA 产生的动作；首次成功后的动作不进入导出数据。
+
 导出程序不会改写原始轨迹。失败轨迹会继续保留以便审计，但不会进入这份监督训练
 数据。
 
 使用 RLinf 训练
 ---------------
 
-使用 Flywheel 训练命令，显式指定官方 RLinf checkout、导出的数据集、初始 Pi0.5
-checkpoint 和一个全新的输出目录：
+将成功轨迹导出为 LeRobot 数据集后，可以在独立的 RLinf 环境中进行 Pi0.5 监督
+微调。RPent 负责采集和导出；模型训练、日志和权重保存由 RLinf 管理。
+
+环境安装和训练配置请参考
+`RLinf OpenPI_RLinf 监督微调指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/sft_openpi_rlinf.html>`_。
+训练数据路径应指向导出的 LeRobot 数据集目录，即包含 ``meta/info.json`` 的目录，
+而不是原始轨迹目录。
+
+在已准备好 Pi0.5 LIBERO SFT 配置及对应 RLinf 环境后，可以直接运行：
 
 .. code-block:: bash
 
-   rpent-flywheel train-rlinf \
-     --dataset /path/to/lerobot/goal-task-00 \
-     --checkpoint /path/to/pi05-checkpoint \
-     --rlinf-root /path/to/RLinf \
-     --output-dir /path/to/new-training-output \
-     --max-steps 1000 \
-     --save-interval 100 \
-     --cuda-device 0
+   cd /path/to/RLinf
+   unset PYTHONPATH
+   export PYTHONPATH="$PWD"
+   export EMBODIED_PATH="$PWD/examples/sft"
 
-该命令会记录 RLinf commit，并使用随 Flywheel 提供的 Pi0.5 配置调用 RLinf 原生
-VLA SFT 入口。输出目录必须尚不存在。
+   .venv/bin/python examples/sft/train_vla_sft.py \
+     --config-path /path/to/sft-config \
+     --config-name libero_pi05_sft \
+     data.train_data_paths=/path/to/lerobot/goal-task-00 \
+     actor.model.model_path=/path/to/pi05-checkpoint \
+     runner.logger.log_path=/path/to/new-training-output
+
+其中 ``/path/to/sft-config/libero_pi05_sft.yaml`` 是用户预先准备的训练配置，
+不是 RPent 随包提供或 RLinf 官方预置的文件。可见 GPU 应与训练配置中的资源分配
+保持一致；batch size、初始权重及归一化设置也需匹配。
+
+我们验证使用的环境为 RLinf ``e3977b9``，包含 LIBERO 数据加载和动作模块 SFT
+的本地适配。

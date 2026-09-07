@@ -46,34 +46,12 @@ def main(argv: list[str] | None = None) -> int:
         help="parent directory for the exported LeRobot dataset",
     )
 
-    train = commands.add_parser(
-        "train-rlinf", help="train Pi0.5 with an official RLinf checkout"
-    )
-    train.add_argument(
-        "--dataset", type=Path, required=True, help="exported LeRobot dataset"
-    )
-    train.add_argument(
-        "--checkpoint", type=Path, required=True, help="initial Pi0.5 checkpoint"
-    )
-    train.add_argument(
-        "--rlinf-root", type=Path, required=True, help="official RLinf source checkout"
-    )
-    train.add_argument(
-        "--output-dir",
-        type=Path,
-        required=True,
-        help="new directory for RLinf training output",
-    )
-    train.add_argument("--max-steps", type=int, required=True)
-    train.add_argument("--save-interval", type=int, default=100)
-    train.add_argument("--cuda-device", type=int, default=0)
-
     args = parser.parse_args(argv)
     if args.command == "validate":
         from rpent.flywheel.episode import validate_episode
 
         result = validate_episode(args.episode)
-    elif args.command == "export-lerobot":
+    else:
         from rpent.flywheel.export import export_lerobot
 
         result = export_lerobot(
@@ -82,18 +60,6 @@ def main(argv: list[str] | None = None) -> int:
             task_id=args.task,
             dataset_id=args.dataset_id,
             output_root=args.output_root,
-        )
-    else:
-        from rpent.flywheel.train import train_rlinf
-
-        result = train_rlinf(
-            dataset=args.dataset,
-            checkpoint=args.checkpoint,
-            rlinf_root=args.rlinf_root,
-            output_dir=args.output_dir,
-            max_steps=args.max_steps,
-            save_interval=args.save_interval,
-            cuda_device=args.cuda_device,
         )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

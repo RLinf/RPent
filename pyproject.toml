@@ -118,7 +118,6 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
-"rpent.flywheel" = ["config/*.yaml"]
 
 [tool.ruff]
 line-length = 88
