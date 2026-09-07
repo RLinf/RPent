@@ -179,9 +179,13 @@ def _create_worker_class():
             output = {
                 key: self._strip_batch(value) for key, value in observation.items()
             }
-            for key in ("extra_view_images", "extra_view_depths"):
+            for key, ndim in (("extra_view_images", 5), ("extra_view_depths", 4)):
                 value = output.get(key)
-                if isinstance(value, np.ndarray) and value.shape[0] == 1:
+                if (
+                    isinstance(value, np.ndarray)
+                    and value.ndim == ndim
+                    and value.shape[0] == 1
+                ):
                     output[key] = value[0]
             return output
 
