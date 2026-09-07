@@ -90,18 +90,18 @@ class BehaviorEnvClient(BaseEnvClient):
 
     _TIMEOUT_S = {
         **BaseEnvClient._TIMEOUT_S,
-        "env.reset": 1800.0,
-        "env.step": 1800.0,
-        "env.chunk_step": 1800.0,
+        "env.reset": 300.0,
+        "env.step": 60.0,
+        "env.chunk_step": 600.0,
         "env.current_observation": 120.0,
         "env.observe": 120.0,
         "env.pixel_to_world": 120.0,
-        "env.move_to": 1800.0,
-        "env.navigate_to": 1800.0,
-        "env.rotate_wrist": 1800.0,
+        "env.move_to": 600.0,
+        "env.navigate_to": 600.0,
+        "env.rotate_wrist": 600.0,
         "env.close_gripper": 120.0,
         "env.open_gripper": 120.0,
-        "env.press": 1800.0,
+        "env.press": 300.0,
     }
 
     def __init__(self, client: RpcClient, *, expected_meta: dict[str, Any]) -> None:
