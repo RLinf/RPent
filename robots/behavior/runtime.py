@@ -42,7 +42,7 @@ from robots.behavior.task_specs import (
 )
 from rpent.dashboard.events import DashboardEventSink
 from rpent.robots.robot_spec import RunConfig
-from rpent.robots.runtime import try_spawn_server, try_wait_server
+from rpent.robots.runtime import stop_owned_daemons, try_spawn_server, try_wait_server
 from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
@@ -251,6 +251,22 @@ def parse_config(args: argparse.Namespace) -> RunConfig:
     mode = str(getattr(args, "behavior_mode", None) or "eval")
     if mode not in BEHAVIOR_MODES:
         raise ValueError(f"unsupported --behavior-mode {mode!r}")
+    if getattr(args, "explore", False):
+        if mode != "explore":
+            raise ValueError("BEHAVIOR --explore requires --behavior-mode explore")
+        if getattr(args, "dashboard", False):
+            raise ValueError(
+                "BEHAVIOR --explore is CLI-only; use --behavior-mode explore "
+                "without --explore for Dashboard TaskRuns"
+            )
+        if getattr(args, "env_endpoint", None) is not None:
+            raise ValueError(
+                "BEHAVIOR explore requires an owned env sidecar; omit --env-endpoint"
+            )
+        if getattr(args, "explore_attempts_per_session", 0) > 0:
+            raise ValueError(
+                "BEHAVIOR explore runs one attempt per session; use --explore-sessions"
+            )
     spec = _task_from_args(args)
     public_seed = _public_seed_from_args(args)
     activity_instance_id = spec.instance_for_public_seed(public_seed, phase=mode)
@@ -734,6 +750,9 @@ def init_runtime(
     """Initialize requested BEHAVIOR components under the RobotSpec contract."""
 
     selected = set(DEFAULT_EVAL_COMPONENTS if components is None else components)
+    if components is None and getattr(args, "explore", False):
+        # The CLI session hook owns a fresh ENV; VLA/DINO survive handoffs.
+        selected.discard("env")
     unknown = selected.difference(BEHAVIOR_COMPONENTS)
     if unknown:
         raise ValueError(f"unknown BEHAVIOR runtime components: {sorted(unknown)}")
@@ -806,6 +825,26 @@ def init_runtime(
     return list(owned_daemons.values()), primitives_kwargs
 
 
+def on_explore_session(
+    args: argparse.Namespace,
+    state_output_dir: Path,
+    dashboard_events: DashboardEventSink,
+    daemons: list[ProcessDaemon],
+) -> dict[str, Any]:
+    """Replace only this run's ENV sidecar for a fresh Explore episode."""
+    for daemon in tuple(daemons):
+        if daemon.name == "behavior_env_server":
+            stop_owned_daemons({"env": daemon}, dashboard_events)
+            daemons.remove(daemon)
+    env_daemons, env_kwargs = init_runtime(
+        args, state_output_dir, dashboard_events, {"env"}
+    )
+    daemons.extend(env_daemons)
+    if len(env_daemons) != 1:
+        raise RuntimeError("BEHAVIOR explore requires one owned env daemon per session")
+    return env_kwargs
+
+
 __all__ = [
     "BEHAVIOR_COMPONENTS",
     "BEHAVIOR_MODES",
@@ -815,6 +854,7 @@ __all__ = [
     "add_cli_args",
     "env_runtime_contract",
     "init_runtime",
+    "on_explore_session",
     "parse_config",
     "vla_runtime_contract",
 ]

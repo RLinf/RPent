@@ -74,6 +74,7 @@ def get_robot_spec() -> RobotSpec:
         add_cli_args=runtime.add_cli_args,
         parse_config=runtime.parse_config,
         init_runtime=runtime.init_runtime,
+        on_explore_session=runtime.on_explore_session,
         dashboard=BEHAVIOR_DASHBOARD_SPEC,
     )
 

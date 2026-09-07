@@ -179,7 +179,17 @@ def _run_dashboard_task(
     started = time.time()
     solved = False
     memory_manager = None
-    toolkit_mode = "evaluation"
+    # BEHAVIOR TaskRuns use behavior_mode; LIBERO uses the shared explore flag.
+    # A BEHAVIOR TaskRun already owns its fresh ENV (one episode per TaskRun).
+    toolkit_mode = (
+        "exploration"
+        if (
+            getattr(task_args, "behavior_mode", "eval") == "explore"
+            if args.robot_name == "behavior"
+            else getattr(task_args, "explore", False)
+        )
+        else "evaluation"
+    )
     try:
         task_daemons, task_primitives_kwargs = robot_spec.init_runtime(
             task_args,
@@ -233,12 +243,6 @@ def _run_dashboard_task(
                         video_path=state_output_dir / "episode.mp4",
                     )
                 if args.robot_name in ("libero", "behavior"):
-                    toolkit_mode = "exploration" if task_args.explore else "evaluation"
-                    if (
-                        args.robot_name == "behavior"
-                        and getattr(task_args, "behavior_mode", "eval") == "explore"
-                    ):
-                        toolkit_mode = "exploration"
                     toolkit = get_toolkit(
                         args.robot_name,
                         primitives_kwargs=primitives_kwargs,

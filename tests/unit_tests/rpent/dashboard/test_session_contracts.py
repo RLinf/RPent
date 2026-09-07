@@ -184,6 +184,7 @@ def test_dashboard_session_stops_shared_daemons_in_reverse_after_cleanup_error(
 @pytest.mark.parametrize("merge_fails", [False, True])
 @pytest.mark.parametrize("auto_merge", [False, True])
 @pytest.mark.parametrize("solved", [False, True])
+@pytest.mark.parametrize("mode_explore", [False, True])
 def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -191,6 +192,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     merge_fails: bool,
     auto_merge: bool,
     solved: bool,
+    mode_explore: bool,
 ) -> None:
     from rpent.cli import dashboard as dashboard_cli
 
@@ -260,8 +262,8 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     args = SimpleNamespace(
         verbose=False,
         robot_name=robot_name,
-        explore=robot_name == "libero",
-        behavior_mode="explore",
+        explore=robot_name == "libero" and mode_explore,
+        behavior_mode="explore" if robot_name == "libero" or mode_explore else "eval",
         auto_merge_memory=auto_merge,
         explore_sessions=1,
         explore_attempts_per_session=0,
@@ -299,10 +301,12 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
     assert error is None
     assert recipe_calls == ([f"{robot_name}_s0"] if solved else [])
-    assert toolkit_calls[0]["kwargs"]["mode"] == "exploration"
+    assert toolkit_calls[0]["kwargs"]["mode"] == (
+        "exploration" if mode_explore else "evaluation"
+    )
     assert toolkit_calls[0]["kwargs"]["state_output_dir"] == (
         output_dir / "sessions" / "session_001"
-        if robot_name == "libero"
+        if robot_name == "libero" and mode_explore
         else output_dir
     )
     assert merge_calls == (
@@ -313,10 +317,10 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
                 "solved": solved,
             }
         ]
-        if auto_merge
+        if auto_merge and mode_explore
         else []
     )
-    if merge_fails and auto_merge:
+    if merge_fails and auto_merge and mode_explore:
         assert len(state.warnings) == 1
         assert (
             "memory finalization failed: RuntimeError: merge exploded"

@@ -65,3 +65,14 @@ class RobotSpec:
     dashboard: dict[str, Any] | None = None
     memory_repo_id: str = "RLinf/RPent-memory"
     finalize_run: RunFinalizer | None = None
+    # Optional session-scoped runtime refresh before Explore toolkit creation.
+    # Mutate the runner's owned-daemon list and return primitive kwargs updates.
+    # init_runtime(..., None) remains responsible for shared runtime startup.
+    # Opts into the CLI Explore toolkit mode/state-dir and solved/recipe contract.
+    on_explore_session: (
+        Callable[
+            [argparse.Namespace, Path, DashboardEventSink, list["ProcessDaemon"]],
+            dict[str, Any],
+        ]
+        | None
+    ) = None

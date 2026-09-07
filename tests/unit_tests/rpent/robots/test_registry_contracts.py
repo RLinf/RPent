@@ -101,6 +101,10 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
         assert callable(spec.add_cli_args)
         assert callable(spec.parse_config)
         assert callable(spec.init_runtime)
+        if name == "behavior":
+            assert callable(spec.on_explore_session)
+        else:
+            assert spec.on_explore_session is None
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
