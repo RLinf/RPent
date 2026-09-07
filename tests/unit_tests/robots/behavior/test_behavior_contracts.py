@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import socket
 import sys
 import threading
@@ -1037,6 +1038,61 @@ def test_behavior_env_facade_serve_dispatches_business_calls_on_serving_thread()
     assert not thread.is_alive()
     assert facade._closed
     assert not _port_accepts_connections(port)
+
+
+def test_env_main_sigterm_uses_owning_thread_cleanup(monkeypatch, tmp_path):
+    from robots.behavior import env_server, rlinf_env
+
+    closed_on = []
+
+    class Backend:
+        def __init__(self, **kwargs):
+            pass
+
+        def close(self):
+            closed_on.append(threading.get_ident())
+
+    def serve(facade, **kwargs):
+        try:
+            signal.raise_signal(signal.SIGTERM)
+            assert facade._shutdown_event.is_set()
+        finally:
+            facade.close()
+
+    previous = signal.getsignal(signal.SIGTERM)
+    monkeypatch.setattr(rlinf_env, "OfficialBehaviorBackend", Backend)
+    monkeypatch.setattr(env_server.BehaviorEnvFacade, "serve", serve)
+    monkeypatch.setattr(env_server, "_build_meta", lambda args: {})
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "env_server",
+            "--task-name",
+            "turning_on_radio",
+            "--public-seed",
+            "0",
+            "--task-index",
+            "0",
+            "--activity-definition-id",
+            "0",
+            "--activity-instance-id",
+            "242",
+            "--scene-model",
+            "test",
+            "--max-episode-steps",
+            "32",
+            "--output-dir",
+            str(tmp_path),
+            "--behavior-repo",
+            str(tmp_path),
+            "--port",
+            "0",
+        ],
+    )
+    env_server.main()
+    assert closed_on == [threading.get_ident()]
+    assert signal.getsignal(signal.SIGTERM) == previous
 
 
 def test_behavior_clients_and_tools_use_explicit_component_rpc_names() -> None:

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import time
 from collections.abc import Callable
@@ -122,3 +123,40 @@ def test_daemon_force_kills_after_terminate_timeout(tmp_path: Path) -> None:
         _wait_until(lambda: daemon.poll() is not None)
     finally:
         daemon.stop(timeout=1.0)
+
+
+@pytest.mark.parametrize("close_stdin", [False, True])
+def test_parent_watch_does_not_abort_interpreter_shutdown(close_stdin: bool) -> None:
+    script = """
+import sys, threading, time
+from rpent.utils.daemon import watch_parent_death
+done = threading.Event()
+watch_parent_death(lambda: (print('eof', flush=True), done.set()))
+print('ready', flush=True)
+if CLOSE_STDIN:
+    assert done.wait(5)
+else:
+    time.sleep(0.1)  # Leave the watcher blocked while the interpreter exits.
+""".replace("CLOSE_STDIN", repr(close_stdin))
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        assert proc.stdout.readline() == b"ready\n"
+        if close_stdin:
+            proc.stdin.write(b"not EOF yet")
+            proc.stdin.flush()
+            assert proc.poll() is None
+            proc.stdin.close()
+        assert proc.wait(timeout=10) == 0
+        assert proc.stdout.read() == (b"eof\n" if close_stdin else b"")
+        assert b"_enter_buffered_busy" not in proc.stderr.read()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        for stream in (proc.stdin, proc.stdout, proc.stderr):
+            stream.close()

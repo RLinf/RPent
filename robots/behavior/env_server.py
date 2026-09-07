@@ -25,6 +25,7 @@ import argparse
 import base64
 import os
 import re
+import signal
 import sys
 from pathlib import Path
 from typing import Any
@@ -296,12 +297,20 @@ def main() -> None:
     meta = _build_meta(args)
     backend = OfficialBehaviorBackend(meta=meta, output_dir=output_dir)
     facade = BehaviorEnvFacade(backend=backend, meta=meta)
-    facade.serve(
-        transport="http",
-        host=args.host,
-        port=args.port,
-        parent_watch=args.parent_watch,
+    # ProcessDaemon.stop sends SIGTERM. Let the serving loop finish and close
+    # the RLinf actor pool on its owning thread, not Ray's exit handler.
+    previous_sigterm = signal.signal(
+        signal.SIGTERM, lambda signum, frame: facade._shutdown_event.set()
     )
+    try:
+        facade.serve(
+            transport="http",
+            host=args.host,
+            port=args.port,
+            parent_watch=args.parent_watch,
+        )
+    finally:
+        signal.signal(signal.SIGTERM, previous_sigterm)
 
 
 if __name__ == "__main__":
