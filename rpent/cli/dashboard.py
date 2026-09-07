@@ -179,6 +179,7 @@ def _run_dashboard_task(
     started = time.time()
     solved = False
     memory_manager = None
+    toolkit_mode = "evaluation"
     try:
         task_daemons, task_primitives_kwargs = robot_spec.init_runtime(
             task_args,
@@ -340,7 +341,7 @@ def _run_dashboard_task(
         init_output_dir(session_root, verbose=args.verbose)
 
     if (
-        getattr(task_args, "explore", False)
+        toolkit_mode == "exploration"
         and getattr(task_args, "auto_merge_memory", False)
         and not agent_error
         and not state.task_replacement_requested
@@ -357,6 +358,6 @@ def _run_dashboard_task(
         except Exception as exc:
             warning = f"memory finalization failed: {type(exc).__name__}: {exc}"
             logger.warning("%s", warning)
-            state.report_task_warning(f"Task succeeded, but {warning}")
+            state.report_task_warning(f"Memory finalization warning: {warning}")
 
     return agent_error

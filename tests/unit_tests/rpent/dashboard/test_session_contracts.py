@@ -182,11 +182,15 @@ def test_dashboard_session_stops_shared_daemons_in_reverse_after_cleanup_error(
 
 @pytest.mark.parametrize("robot_name", ["libero", "behavior"])
 @pytest.mark.parametrize("merge_fails", [False, True])
+@pytest.mark.parametrize("auto_merge", [False, True])
+@pytest.mark.parametrize("solved", [False, True])
 def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     robot_name: str,
     merge_fails: bool,
+    auto_merge: bool,
+    solved: bool,
 ) -> None:
     from rpent.cli import dashboard as dashboard_cli
 
@@ -205,7 +209,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         memory = FakeMemoryManager()
 
         def solved(self) -> bool:
-            return True
+            return solved
 
         def write_recipe(self, recipe_tag: str) -> str:
             recipe_calls.append(recipe_tag)
@@ -233,7 +237,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         def solve(self, **kwargs: Any) -> PlannerResult:
             del kwargs
             return PlannerResult(
-                finish_result={"status": "success"},
+                finish_result={"status": "success" if solved else "failure"},
                 messages=[],
                 stats={},
             )
@@ -256,8 +260,9 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     args = SimpleNamespace(
         verbose=False,
         robot_name=robot_name,
-        explore=True,
-        auto_merge_memory=True,
+        explore=robot_name == "libero",
+        behavior_mode="explore",
+        auto_merge_memory=auto_merge,
         explore_sessions=1,
         explore_attempts_per_session=0,
         planner="api",
@@ -293,23 +298,30 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
 
     assert error is None
-    assert recipe_calls == [f"{robot_name}_s0"]
+    assert recipe_calls == ([f"{robot_name}_s0"] if solved else [])
     assert toolkit_calls[0]["kwargs"]["mode"] == "exploration"
     assert toolkit_calls[0]["kwargs"]["state_output_dir"] == (
         output_dir / "sessions" / "session_001"
+        if robot_name == "libero"
+        else output_dir
     )
-    assert merge_calls == [
-        {
-            "cell_tag": f"{robot_name}_s0",
-            "run_state_dir": output_dir,
-            "solved": True,
-        }
-    ]
-    if merge_fails:
+    assert merge_calls == (
+        [
+            {
+                "cell_tag": f"{robot_name}_s0",
+                "run_state_dir": output_dir,
+                "solved": solved,
+            }
+        ]
+        if auto_merge
+        else []
+    )
+    if merge_fails and auto_merge:
         assert len(state.warnings) == 1
         assert (
             "memory finalization failed: RuntimeError: merge exploded"
             in state.warnings[0]
         )
+        assert "succeeded" not in state.warnings[0].lower()
     else:
         assert state.warnings == []
