@@ -77,6 +77,7 @@ def _capture_validated_args(
     def get_robot_spec(name: str):
         captured["robot_name"] = name
         return SimpleNamespace(
+            supports_exploration=name in {"libero", "robotwin"},
             add_cli_args=add_cli_args,
             parse_config=parse_config,
         )
@@ -184,7 +185,7 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
             ["--robot", "libero", "--dashboard", "--interactive"],
             "cannot be used together",
         ),
-        (["--robot", "robocasa", "--explore"], "supported only for LIBERO"),
+        (["--robot", "robocasa", "--explore"], "deterministic reset is not yet supported"),
         (
             ["--robot", "libero", "--explore", "--memory-profile", "hf"],
             "cannot be used with --memory-profile hf",
@@ -232,6 +233,7 @@ def test_shared_cli_validation_stops_before_robot_runtime(
         "get_robot_spec",
         lambda name: SimpleNamespace(
             name=name,
+            supports_exploration=name in {"libero", "robotwin"},
             add_cli_args=add_cli_args,
             parse_config=parse_config,
         ),
@@ -304,7 +306,22 @@ def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) 
     assert "memory inbox under wip/" in message
 
 
+def test_robotwin_handoff_limits_reset_claim_to_exact_seed(tmp_path: Path) -> None:
+    cli = _cli_module()
+    message = cli._handoff_message(
+        tmp_path, session_number=2, session_max=3, robot_name="robotwin"
+    )
+    assert "Episode reinitialized with the configured exact seed" in message
+    assert "physical layout determinism has not been verified" in message
+    assert "restored a clean scene" not in message
+    assert "restored a clean scene" in cli._handoff_message(
+        tmp_path, session_number=2, session_max=3, robot_name="libero"
+    )
+
+
+@pytest.mark.parametrize("robot_name", ["libero", "robotwin"])
 def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
+    robot_name: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -392,7 +409,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     def add_cli_args(parser: Any, use_dashboard: bool) -> None:
         del use_dashboard
         parser.add_argument("--auto-merge-memory", action="store_true")
-        parser.add_argument("--explore-sessions", type=int, default=1)
+        parser.add_argument("--explore-sessions", type=int, default=3)
         parser.add_argument("--explore-attempts-per-session", type=int, default=2)
 
     def parse_config(args: Any) -> RunConfig:
@@ -409,7 +426,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         return [daemon], {"runtime": "simulated"}
 
     robot_spec = RobotSpec(
-        name="libero",
+        name=robot_name,
+        supports_exploration=True,
         prompts=PromptBundle(
             system=lambda variables: "simulated system prompt",
             user=lambda variables: "simulated user task",
@@ -431,7 +449,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         raise AssertionError(f"CPU-only smoke test tried to sync memory: {args!r}")
 
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
-    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero", "robotwin"))
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
     monkeypatch.setattr(cli, "build_planner", build_planner)
     monkeypatch.setattr(cli, "get_toolkit", get_toolkit)
@@ -442,7 +460,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         [
             "rpent",
             "--robot",
-            "libero",
+            robot_name,
             "--explore",
             "--auto-merge-memory",
             "--memory-profile",
@@ -471,6 +489,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert toolkit.closed is True
     assert daemon.stopped is True
     assert calls["get_toolkit"][1]["primitives_kwargs"] == {"runtime": "simulated"}
+    assert calls["get_toolkit"][1]["state_output_dir"] == tmp_path / "sessions" / "session_001"
     assert calls["get_toolkit"][1]["mode"] == "exploration"
     assert calls["get_toolkit"][1]["attempts_per_session"] == 2
     assert calls["write_recipe"] == "libero_s0"

@@ -406,6 +406,20 @@ def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
 
 
 TOOLS_SPEC = [
+    # Only registered by the exploration toolkit.
+    {
+        "name": "reset",
+        "description": (
+            "Reinitialize the episode with the configured exact seed after "
+            "archiving a failed attempt. actual_seed is checked; full physical "
+            "layout determinism has not been verified. Re-run perception."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"reason": {"type": "string"}},
+            "required": ["reason"],
+        },
+    },
     {
         "name": "view_env_state",
         "description": (

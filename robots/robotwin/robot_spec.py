@@ -178,6 +178,7 @@ def vla_runtime_contract() -> dict[str, object]:
 def get_robot_spec() -> RobotSpec:
     return RobotSpec(
         name="robotwin",
+        supports_exploration=True,
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
@@ -191,21 +192,35 @@ def get_toolkit(
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
+    mode: str = "evaluation",
+    attempts_per_session: int = 0,
+    state_output_dir: Path | str | None = None,
 ):
     """Return the RoboTwin toolkit for the current session."""
     from robots.robotwin.toolkit import RoboTwinToolkit
 
     memory = MemoryManager(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
+        memory_access="inbox_write" if mode == "exploration" else "read_only",
+        inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
     )
     return RoboTwinToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
+        mode=mode,
+        attempts_per_session=attempts_per_session,
+        state_output_dir=state_output_dir,
+        recipe_output_dir=config.output_dir,
     )
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
+    parser.add_argument(
+        "--auto-merge-memory", action=argparse.BooleanOptionalAction, default=True
+    )
+    parser.add_argument("--explore-attempts-per-session", type=int, default=5)
+    parser.add_argument("--explore-sessions", type=int, default=3)
     required = not use_dashboard
     parser.add_argument("--task-name", required=required)
     parser.add_argument(
@@ -270,6 +285,13 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     if not args.task_name:
         raise ValueError("--task-name is required")
+    explore = bool(getattr(args, "explore", False))
+    profile = getattr(args, "memory_profile", None) or ("local" if explore else "hf")
+    if explore and profile != "local":
+        raise ValueError("--explore cannot be used with --memory-profile hf")
+    sessions = getattr(args, "explore_sessions", 3)
+    if explore and sessions <= 0:
+        raise ValueError("--explore-sessions must be greater than 0")
     env_cuda_device, vla_cuda_device = _resolve_cuda_devices(args)
     output_dir = args.output_dir
     if output_dir is None:
@@ -297,7 +319,18 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "task_config": task_config,
             "instruction": "<native task_language from state_00>",
             "memory_dir": str(memory_dir),
-            "reference_tag": f"{args.task_name}_s0",
+            "reference_tag": (
+                f"robotwin_{args.task_name}_s0"
+                if profile == "local"
+                else f"{args.task_name}_s0"
+            ),
+            "recipe_tag": recipe_tag,
+            "mode": "explore" if explore else "eval",
+            "memory_profile": profile,
+            "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
+            "session_number": 1,
+            "session_max": sessions if explore else 1,
+            "attempts_per_session": getattr(args, "explore_attempts_per_session", 5),
         },
         task_desc={
             "env": "robotwin",

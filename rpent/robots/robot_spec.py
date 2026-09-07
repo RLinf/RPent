@@ -65,3 +65,4 @@ class RobotSpec:
     dashboard: dict[str, Any] | None = None
     memory_repo_id: str = "RLinf/RPent-memory"
     finalize_run: RunFinalizer | None = None
+    supports_exploration: bool = False

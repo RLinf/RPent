@@ -91,6 +91,8 @@ class RoboTwinPrimitives:
         """Reset the RoboTwin episode and return the native info plus success."""
         del instruction, feasibility_precheck
         _, info = self.env.reset()
+        self.policy_actions = 0
+        self.native_actions = 0
         return {**info, "success": True}
 
     @staticmethod
