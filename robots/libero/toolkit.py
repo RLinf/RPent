@@ -212,20 +212,22 @@ class LiberoToolkit(Toolkit):
         self._publish_step(record)
 
     def close(self) -> None:
-        """Flush the agent-side video buffer through ``EnvState``."""
+        """Finalize collected data and save the episode video independently."""
         try:
             episode = self._primitives.finalize_flywheel()
             if episode is not None:
                 logger.info("flywheel episode finalized: %s", episode)
-        finally:
-            try:
-                frames = self._primitives.stop_recording()
-                if frames:
-                    self._state.save("episode.mp4", frames, step=None, fps=20)
-            except Exception as e:
-                # The runner is in the cleanup path; never let a video save
-                # abort it.
-                logger.warning(f"failed to save episode video: {e}")
+        except Exception as e:
+            logger.warning("failed to finalize flywheel episode: %s", e)
+
+        try:
+            frames = self._primitives.stop_recording()
+            if frames:
+                self._state.save("episode.mp4", frames, step=None, fps=20)
+        except Exception as e:
+            # The runner is in the cleanup path; never let a video save
+            # abort it.
+            logger.warning(f"failed to save episode video: {e}")
 
     def solved(self) -> bool:
         """Return whether this run has completed the task."""

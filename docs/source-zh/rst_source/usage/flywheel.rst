@@ -1,14 +1,13 @@
 LIBERO 数据飞轮
 ===============
 
-可选的 Flywheel 功能会记录 LIBERO evaluation 中实际执行的轨迹，但不会改变
-planner 或 action primitive。它首先保存不可变的 raw episode；转换为训练格式是
-独立的后续步骤。
+可选的数据飞轮功能会记录 LIBERO 评测中实际执行的轨迹，但不会改变规划器或动作
+原语。它首先保存不可变的原始轨迹；转换为训练格式是独立的后续步骤。
 
-采集 episode
-------------
+采集轨迹
+--------
 
-在普通 LIBERO evaluation 命令中开启采集，并指定数据根目录：
+在普通 LIBERO 评测命令中开启采集，并指定数据根目录：
 
 .. code-block:: bash
 
@@ -19,20 +18,20 @@ planner 或 action primitive。它首先保存不可变的 raw episode；转换�
      --flywheel-root /path/to/datacollection
 
 每次运行会在
-``/path/to/datacollection/raw/libero/<suite>/<task>/<seed>/`` 下写入一个
-episode，其中包含 policy observation、实际执行的 action、reward、终止标记、
-primitive ID 和 VLA proposal。采集功能默认关闭，首版仅支持 evaluation mode。
+``/path/to/datacollection/raw/libero/<suite>/task_<id>/seed_<seed>/`` 下写入一条
+轨迹，其中包含策略观测、实际执行的动作、奖励、终止标记、原语调用编号和 VLA
+提议的动作序列。采集功能默认关闭，首版仅支持评测模式。
 
 校验并导出成功轨迹
 ------------------
 
-使用 episode 前可以单独校验 raw 数据：
+使用轨迹前可以单独校验原始数据：
 
 .. code-block:: bash
 
    rpent-flywheel validate /path/to/raw/episode
 
-将一个 suite/task 下所有已完成的成功 episode 导出为 LeRobot 数据集：
+将同一任务套件中某个任务下所有已完成的成功轨迹导出为 LeRobot 数据集：
 
 .. code-block:: bash
 
@@ -43,8 +42,8 @@ primitive ID 和 VLA proposal。采集功能默认关闭，首版仅支持 evalu
      --dataset-id goal-task-00 \
      --output-root /path/to/lerobot
 
-exporter 不会改写 raw episode。失败 episode 会继续保留以便审计，但不会进入这份
-监督训练数据。
+导出程序不会改写原始轨迹。失败轨迹会继续保留以便审计，但不会进入这份监督训练
+数据。
 
 使用 RLinf 训练
 ---------------

@@ -19,7 +19,7 @@ Enable collection on a normal LIBERO evaluation run and choose a data root:
      --flywheel-root /path/to/datacollection
 
 The run writes one episode below
-``/path/to/datacollection/raw/libero/<suite>/<task>/<seed>/``. Each episode
+``/path/to/datacollection/raw/libero/<suite>/task_<id>/seed_<seed>/``. Each episode
 contains the policy observations, executed actions, rewards, terminal flags,
 primitive IDs, and VLA proposals. Collection is opt-in and is supported only
 for evaluation mode.

@@ -13,10 +13,13 @@
 # limitations under the License.
 
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import numpy as np
+import pytest
 
 from robots.libero import robot_spec
+from robots.libero import toolkit as libero_toolkit
 from robots.libero.tools import LiberoPrimitives
 from rpent.flywheel.episode import validate_episode
 
@@ -138,3 +141,40 @@ def test_dashboard_flywheel_config_belongs_to_unique_env(tmp_path, monkeypatch):
         "task_id": 2,
         "seed": 3,
     }
+
+
+@pytest.mark.parametrize("failure", [None, "finalize", "stop", "save"])
+def test_close_handles_collection_and_video_independently(
+    tmp_path, monkeypatch, failure
+):
+    toolkit = libero_toolkit.LiberoToolkit.__new__(libero_toolkit.LiberoToolkit)
+    frames = [_obs(0)["main_images"]]
+    finalize = Mock(return_value=tmp_path / "episode")
+    stop = Mock(return_value=frames)
+    save = Mock()
+    if failure is not None:
+        {"finalize": finalize, "stop": stop, "save": save}[
+            failure
+        ].side_effect = RuntimeError(failure)
+    toolkit._primitives = SimpleNamespace(
+        finalize_flywheel=finalize, stop_recording=stop
+    )
+    toolkit._state = SimpleNamespace(save=save)
+    logger = Mock()
+    monkeypatch.setattr(libero_toolkit, "logger", logger)
+
+    toolkit.close()
+
+    finalize.assert_called_once_with()
+    stop.assert_called_once_with()
+    if failure == "stop":
+        save.assert_not_called()
+    else:
+        save.assert_called_once_with("episode.mp4", frames, step=None, fps=20)
+    if failure == "finalize":
+        logger.info.assert_not_called()
+    else:
+        logger.info.assert_called_once_with(
+            "flywheel episode finalized: %s", tmp_path / "episode"
+        )
+    assert logger.warning.call_count == (failure is not None)
