@@ -23,8 +23,6 @@ ROBOT_NAMES = ("libero", "robocasa", "robotwin")
 
 def _schemas(robot_name):
     module = import_module(f"robots.{robot_name}.tools")
-    if robot_name == "robotwin":
-        return module.TOOLS_SPEC
     return [
         {"name": t.name, "description": t.description, "input_schema": t.input_schema}
         for t in getattr(module, f"{robot_name.upper()}_TOOLS")

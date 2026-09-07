@@ -53,9 +53,8 @@ def test_evaluation_toolkit_factories_use_configured_read_only_memory(
 
     monkeypatch.setattr(toolkit_module, toolkit_name, fake_toolkit)
     memory_dir = tmp_path / robot_name / "memory"
-    kwargs_name = "primitives_kwargs" if robot_name == "robotwin" else "runtime_kwargs"
     toolkit = robot_spec.get_toolkit(
-        **{kwargs_name: {"env": "offline"}},
+        runtime_kwargs={"env": "offline"},
         dashboard_events=NullDashboardEventSink(),
         config=_run_config(memory_dir),
     )
@@ -63,7 +62,8 @@ def test_evaluation_toolkit_factories_use_configured_read_only_memory(
     assert toolkit.memory.root == memory_dir.resolve()
     with pytest.raises(PermissionError, match="writing to memory is denied"):
         toolkit.memory.authorize_write(memory_dir / "global" / "strategy.md")
-    assert captured[kwargs_name] == {"env": "offline"}
+    assert captured["runtime_kwargs"] == {"env": "offline"}
+    assert captured["output_dir"] == memory_dir.parent / "run"
 
 
 @pytest.mark.parametrize("robot_name", ["libero", "robocasa", "robotwin"])
@@ -90,9 +90,8 @@ def test_toolkit_factories_fall_back_to_each_robot_memory_root(
         prompt_vars={},
         task_desc={},
     )
-    kwargs_name = "primitives_kwargs" if robot_name == "robotwin" else "runtime_kwargs"
     toolkit = robot_spec.get_toolkit(
-        **{kwargs_name: {}},
+        runtime_kwargs={},
         dashboard_events=NullDashboardEventSink(),
         config=config,
     )

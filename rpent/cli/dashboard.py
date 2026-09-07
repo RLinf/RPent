@@ -243,17 +243,10 @@ def _run_dashboard_task(
                         ),
                         state_output_dir=state_output_dir,
                     )
-                elif args.robot_name == "robocasa":
-                    toolkit = get_toolkit(
-                        args.robot_name,
-                        runtime_kwargs=runtime_kwargs,
-                        dashboard_events=state,
-                        config=run_config,
-                    )
                 else:
                     toolkit = get_toolkit(
                         args.robot_name,
-                        primitives_kwargs=runtime_kwargs,
+                        runtime_kwargs=runtime_kwargs,
                         dashboard_events=state,
                         config=run_config,
                     )

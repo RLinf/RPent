@@ -49,7 +49,7 @@ ROBOTWIN_TASK_CONFIGS = (
 )
 
 #: Env-side camera names exposed by the RoboTwin EnvServer, in fixed order.
-#: Shared across the env client, primitives, and toolkit.
+#: Shared across the env client, tools, and toolkit.
 ROBOTWIN_CAMERA_NAMES = (
     "head",
     "left_wrist",
@@ -183,7 +183,7 @@ def get_robot_spec() -> RobotSpec:
 
 def get_toolkit(
     *,
-    primitives_kwargs: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
 ):
@@ -194,7 +194,8 @@ def get_toolkit(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
     )
     return RoboTwinToolkit(
-        primitives_kwargs=primitives_kwargs,
+        runtime_kwargs=runtime_kwargs,
+        output_dir=config.output_dir,
         dashboard_events=dashboard_events,
         memory=memory,
     )
@@ -464,7 +465,7 @@ def _init_runtime(
             dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
             raise RuntimeError(f"[vla] spawn failed: {exc}") from exc
 
-    primitives_kwargs: dict[str, Any] = {}
+    runtime_kwargs: dict[str, Any] = {}
 
     if env_pending is not None:
         env_daemon, env_rpc = env_pending
@@ -477,7 +478,7 @@ def _init_runtime(
             900.0 if env_daemon is not None else 300.0,
             post_fn=lambda: _build_env_runtime_kwargs(args, env_rpc),
         )
-        primitives_kwargs.update(env_kwargs)
+        runtime_kwargs.update(env_kwargs)
 
     if vla_pending is not None:
         vla_daemon, endpoint = vla_pending
@@ -495,9 +496,9 @@ def _init_runtime(
             dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
             raise RuntimeError(f"[vla] wait / client connect failed: {exc}") from exc
         dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
-        primitives_kwargs.update(vla_kwargs)
+        runtime_kwargs.update(vla_kwargs)
 
-    return list(owned_daemons.values()), primitives_kwargs
+    return list(owned_daemons.values()), runtime_kwargs
 
 
 def _spawn_env_server(
