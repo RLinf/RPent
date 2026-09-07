@@ -1282,9 +1282,16 @@ setupSplitter($("#composerGrip"), {
 // --- launcher (start screen) ---
 function populateModelPresets(planner, selected = "") {
   const preset = $("#f-model_preset");
-  const values = MODEL_PRESETS[planner];
-  const model = selected || values[0];
+  const values = MODEL_PRESETS[planner] || [];
+  const model = selected || values[0] || "";
   preset.innerHTML = "";
+  preset.disabled = values.length === 0;
+  if (values.length === 0) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "—";
+    preset.appendChild(option);
+  }
   for (const value of values) {
     const option = document.createElement("option");
     option.value = value;
@@ -1292,7 +1299,7 @@ function populateModelPresets(planner, selected = "") {
     preset.appendChild(option);
   }
   const selectedPreset = values.includes(model);
-  preset.value = selectedPreset ? model : values[0];
+  preset.value = selectedPreset ? model : values[0] || "";
   $("#f-model_custom").value = selectedPreset ? "" : model;
 }
 
@@ -1302,8 +1309,15 @@ function selectedModel() {
 
 function showLauncher(defaults) {
   const d = defaults || {};
-  const planner = MODEL_PRESETS[d.planner] ? d.planner : "claude_code";
-  const defaultModel = d.model || MODEL_PRESETS[planner][0];
+  const planner = d.planner || "claude_code";
+  const plannerSelect = $("#f-planner");
+  if (![...plannerSelect.options].some(option => option.value === planner)) {
+    const option = document.createElement("option");
+    option.value = planner;
+    option.textContent = planner;
+    plannerSelect.appendChild(option);
+  }
+  const defaultModel = d.model || MODEL_PRESETS[planner]?.[0] || "";
   const set = (id, val) => { $(id).value = val == null ? "" : val; };
   set("#f-max-turns", d["max-turns"]);
   set("#f-max-episode-steps", d["max-episode-steps"]);
@@ -1317,7 +1331,7 @@ function showLauncher(defaults) {
   }
   launcherModelSelections[planner] = defaultModel;
   activeLauncherPlanner = planner;
-  $("#f-planner").value = planner;
+  plannerSelect.value = planner;
   populateModelPresets(planner, defaultModel);
   updatePlannerFields();
   $("#launcher").classList.remove("hidden");

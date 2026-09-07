@@ -107,7 +107,7 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
      - 说明
    * - ``--planner``
      - ``api``
-     - ``api`` | ``claude_code`` | ``codex``
+     - ``api`` | ``claude_code`` | ``codex`` | ``package.module:factory``
    * - ``--model``
      - —
      - 模型 ID；``api`` 需带 provider 前缀（``anthropic:…``、

@@ -16,10 +16,12 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 import queue
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.interaction import DashboardInteractionPort
@@ -32,6 +34,7 @@ from rpent.utils.config import (
 #: MCP namespace prefix for RPent tools (``mcp__<server>__<tool>``).
 #: Toolkits expose plain tool names; planners add/strip this prefix.
 MCP_TOOL_PREFIX = "mcp__rpent__"
+BUILTIN_PLANNERS = ("api", "claude_code", "codex")
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
 
 
@@ -107,6 +110,69 @@ class Planner(Protocol):
             token-usage stats, and optional error string.
         """
         ...
+
+
+@dataclass(frozen=True, slots=True)
+class PlannerBuildConfig:
+    """Shared runtime configuration passed to an external planner factory."""
+
+    output_dir: Path
+    recipe_tag: str
+    robot_name: str
+    base_url: str | None
+    model: str | None
+    max_tokens: int
+    planner_timeout_s: int | None
+    reasoning_effort: str
+    dashboard_events: DashboardEventSink
+    no_images: bool
+
+
+def is_planner_reference(value: str) -> bool:
+    """Return whether ``value`` names a built-in or external planner factory."""
+    if value in BUILTIN_PLANNERS:
+        return True
+    module_name, separator, factory_name = value.partition(":")
+    return bool(
+        separator
+        and ":" not in factory_name
+        and factory_name.isidentifier()
+        and all(part.isidentifier() for part in module_name.split("."))
+    )
+
+
+def _load_external_planner(
+    reference: str,
+    config: PlannerBuildConfig,
+) -> Planner:
+    """Load ``module:factory`` and build a planner from ``config``."""
+    module_name, separator, factory_name = reference.partition(":")
+    if not separator or not module_name or not factory_name:
+        raise ValueError(
+            f"invalid planner reference {reference!r}; expected 'module:factory'"
+        )
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as error:
+        raise ValueError(
+            f"could not import custom planner module {module_name!r}: {error}"
+        ) from error
+    try:
+        factory = getattr(module, factory_name)
+    except AttributeError as error:
+        raise ValueError(
+            f"custom planner module {module_name!r} has no factory {factory_name!r}"
+        ) from error
+    if not callable(factory):
+        raise TypeError(f"custom planner factory {reference!r} is not callable")
+
+    planner = factory(config)
+    if not callable(getattr(planner, "solve", None)):
+        raise TypeError(
+            f"custom planner factory {reference!r} returned an object without "
+            "a callable solve method"
+        )
+    return cast(Planner, planner)
 
 
 # ---------------------------------------------------------------------------
@@ -217,5 +283,21 @@ def build_planner(
             output_path=Path(output_dir) / f"codex_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
+        )
+    if is_planner_reference(planner_type):
+        return _load_external_planner(
+            planner_type,
+            PlannerBuildConfig(
+                output_dir=Path(output_dir),
+                recipe_tag=recipe_tag,
+                robot_name=robot_name,
+                base_url=base_url,
+                model=model,
+                max_tokens=max_tokens,
+                planner_timeout_s=planner_timeout_s,
+                reasoning_effort=reasoning_effort,
+                dashboard_events=dashboard_events,
+                no_images=no_images,
+            ),
         )
     raise ValueError(f"unknown planner_type: {planner_type}")

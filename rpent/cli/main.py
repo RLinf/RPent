@@ -54,7 +54,7 @@ from rpent.dashboard.events import (
 )
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import REASONING_EFFORTS, build_planner
+from rpent.planner.base import REASONING_EFFORTS, build_planner, is_planner_reference
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
@@ -100,6 +100,16 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _planner_reference(value: str) -> str:
+    """Validate a built-in planner name or an external ``module:factory`` ref."""
+    if is_planner_reference(value):
+        return value
+    raise argparse.ArgumentTypeError(
+        f"invalid planner {value!r}; choose api, claude_code, codex, or use "
+        "package.module:factory"
+    )
+
+
 def _build_argparser() -> argparse.ArgumentParser:
     known_robots = enumerate_robots()
     known_robots_text = ", ".join(known_robots) if known_robots else "none"
@@ -127,8 +137,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--planner",
         default="api",
-        choices=["api", "claude_code", "codex"],
-        help="LLM backend: api | claude_code | codex.",
+        type=_planner_reference,
+        metavar="BACKEND",
+        help="LLM backend: api | claude_code | codex | package.module:factory.",
     )
     ap.add_argument(
         "--model",

@@ -143,6 +143,31 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     assert args.memory_profile == "hf"
 
 
+def test_shared_cli_accepts_external_planner_factory_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, args = _capture_validated_args(
+        monkeypatch,
+        ["--robot", "libero", "--planner", "acme.planner:create_planner"],
+    )
+
+    assert args.planner == "acme.planner:create_planner"
+
+
+def test_shared_cli_rejects_malformed_planner_reference(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli._build_argparser().parse_args(["--planner", "acme-planner"])
+
+    assert exc_info.value.code == 2
+    assert "package.module:factory" in capsys.readouterr().err
+
+
 def test_deprecated_env_alias_routes_to_the_same_robot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

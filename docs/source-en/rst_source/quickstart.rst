@@ -110,7 +110,7 @@ robot configuration.
      - Description
    * - ``--planner``
      - ``api``
-     - ``api`` | ``claude_code`` | ``codex``
+     - ``api`` | ``claude_code`` | ``codex`` | ``package.module:factory``
    * - ``--model``
      - —
      - Model id; for ``api``, prefix the provider (``anthropic:…``,

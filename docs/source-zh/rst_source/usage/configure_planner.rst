@@ -5,9 +5,9 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
 
 .. code-block:: bash
 
-   --planner {api, claude_code, codex}
+   --planner {api, claude_code, codex, package.module:factory}
 
-三种 planner 接收相同的系统提示词和用户提示词，也使用同一套 RPent 工具定义。
+所有 planner 都接收相同的系统提示词和用户提示词，也使用同一套 RPent 工具定义。
 它们的区别在于如何将这些工具接入模型、如何组织工具调用循环，以及使用哪个模型
 SDK。
 
@@ -35,6 +35,9 @@ SDK。
        Streamable HTTP MCP 服务，把 toolkit 接入 Codex。
      - 想使用 Codex 原生提供的 agent 能力，或者已有可用的 OpenAI
        或 Codex 配额。
+   * - ``package.module:factory``
+     - 可导入的外部工厂函数，由它返回自定义 planner。
+     - 希望开发或分发 planner，而不修改 RPent 的 planner 构造代码。
 
 ``api`` planner（直接调用模型 API）
 -------------------------------------
@@ -131,15 +134,18 @@ RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
 ------------------
 
 如果三种内置 planner 都不合适，例如需要接入内部 planner、研究原型或其他
-agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
-``rpent.planner.base.build_planner`` 中增加对应的构造分支：
+agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并从一个可导入模块
+中暴露工厂函数：
 
 .. code-block:: python
 
-   # rpent/planner/my_planner.py
-   from rpent.planner.base import PlannerResult
+   # my_package/my_planner.py
+   from rpent.planner.base import PlannerBuildConfig, PlannerResult
 
    class MyPlanner:
+       def __init__(self, config: PlannerBuildConfig):
+           self.config = config
+
        def solve(
            self,
            *,
@@ -148,6 +154,7 @@ agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
            toolkit,
            max_turns,
            input_queue=None,
+           dashboard_interaction=None,
        ):
            tool_specs = toolkit.get_tools_spec()
            # 使用 system_prompt、user_message 和 tool_specs 调用模型。
@@ -161,6 +168,23 @@ agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
                error=error,
            )
 
+   def create_planner(config: PlannerBuildConfig) -> MyPlanner:
+       return MyPlanner(config)
+
+先把模块安装到 RPent 所在的同一 Python 环境，再通过
+``module:factory`` 引用传给命令行：
+
+.. code-block:: bash
+
+   pip install -e /path/to/my-package
+   rpent --planner my_package.my_planner:create_planner ...
+
+RPent 会延迟导入该工厂，并在每个 planner session 创建时传入一个
+``PlannerBuildConfig``。其中包含输出目录、recipe 与 robot 名称、模型与端点
+选项、token 与超时限制、推理强度、图片设置以及 Dashboard 事件接收器。
+返回对象必须具有符合上述协议的可调用 ``solve`` 方法。模块无法导入、工厂
+不存在或返回对象无效时，会给出明确的构造错误。
+
 任何 planner 必须：
 
 1. 接收已经渲染好的 ``system_prompt`` 和 ``user_message``。
@@ -170,10 +194,11 @@ agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
    所需的格式。
 4. 识别 ``ToolResult.is_finish``，并按 ``max_turns`` 等限制终止循环。
 5. 返回包含结束状态、消息、统计信息和可选错误的 ``PlannerResult``。
+6. 接受可选的 ``input_queue`` 和 ``dashboard_interaction`` 关键字参数，即使
+   自定义后端不支持交互模式也应保留这两个参数。
 
 由于 RPent 工具定义和 prompt 渲染流程保持不变，新增 planner 不需要修改
-工具或环境服务。接口参见
-:doc:`../development/architecture`；想给
+RPent、工具或环境服务。接口参见 :doc:`../development/architecture`；想给
 自定义 planner 暴露新工具，见 :doc:`../development/add_primitive`。
 
 设置 planner 的运行限制

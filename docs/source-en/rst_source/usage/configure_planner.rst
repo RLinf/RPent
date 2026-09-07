@@ -5,12 +5,12 @@ Select the Agentic Planner backend with one CLI flag:
 
 .. code-block:: bash
 
-   --planner {api, claude_code, codex}
+   --planner {api, claude_code, codex, package.module:factory}
 
-All three planners receive the same rendered system and user prompts
-and use the RPent tool schemas from the same toolkit. They differ in
-how those schemas are connected to the model, how the tool-calling
-loop is orchestrated, and which model SDK is used.
+Every planner receives the same rendered system and user prompts and uses the
+RPent tool schemas from the same toolkit. Planners differ in how those schemas
+are connected to the model, how the tool-calling loop is orchestrated, and
+which model SDK is used.
 
 .. list-table::
    :header-rows: 1
@@ -39,6 +39,10 @@ loop is orchestrated, and which model SDK is used.
        Streamable HTTP MCP server that connects the toolkit to Codex.
      - You want the agent capabilities built into Codex or already have
        OpenAI or Codex quota available.
+   * - ``package.module:factory``
+     - An importable external factory that returns a custom planner.
+     - You want to develop or distribute a planner without editing RPent's
+       planner construction code.
 
 The ``api`` planner (direct model API)
 ---------------------------------------
@@ -142,17 +146,20 @@ Notes:
 Add a custom planner
 --------------------
 
-If none of the three planners fit — say you want to plug in an
-in-house planner, a research prototype, or a different agent SDK —
-implement the ``rpent.planner.base.Planner`` protocol and add a
-construction branch to ``rpent.planner.base.build_planner``:
+If none of the three built-in planners fit — say you want to plug in an
+in-house planner, a research prototype, or a different agent SDK — implement
+the ``rpent.planner.base.Planner`` protocol and expose a factory from an
+importable module:
 
 .. code-block:: python
 
-   # rpent/planner/my_planner.py
-   from rpent.planner.base import PlannerResult
+   # my_package/my_planner.py
+   from rpent.planner.base import PlannerBuildConfig, PlannerResult
 
    class MyPlanner:
+       def __init__(self, config: PlannerBuildConfig):
+           self.config = config
+
        def solve(
            self,
            *,
@@ -161,6 +168,7 @@ construction branch to ``rpent.planner.base.build_planner``:
            toolkit,
            max_turns,
            input_queue=None,
+           dashboard_interaction=None,
        ):
            tool_specs = toolkit.get_tools_spec()
            # Call the model with system_prompt, user_message, and tool_specs.
@@ -174,6 +182,25 @@ construction branch to ``rpent.planner.base.build_planner``:
                error=error,
            )
 
+   def create_planner(config: PlannerBuildConfig) -> MyPlanner:
+       return MyPlanner(config)
+
+Install the module into the same Python environment as RPent, then pass its
+``module:factory`` reference on the command line:
+
+.. code-block:: bash
+
+   pip install -e /path/to/my-package
+   rpent --planner my_package.my_planner:create_planner ...
+
+RPent imports the factory lazily and calls it once per planner session with a
+``PlannerBuildConfig``. The config contains the output directory, recipe and
+robot names, model and endpoint options, token and timeout limits, reasoning
+effort, image setting, and Dashboard event sink. The returned object must have
+a callable ``solve`` method matching the protocol above. Invalid modules,
+missing factories, and invalid return objects produce focused construction
+errors.
+
 Any planner must:
 
 1. Accept the rendered ``system_prompt`` and ``user_message``.
@@ -185,12 +212,14 @@ Any planner must:
    ``max_turns`` and any other limits.
 5. Return a ``PlannerResult`` containing the finish state, messages,
    statistics, and an optional error.
+6. Accept the optional ``input_queue`` and ``dashboard_interaction`` keyword
+   arguments, even if the custom backend does not support interactive modes.
 
-Because the RPent tool schemas and prompt-rendering path stay the same,
-adding a planner does not require changes to tools or environment
-servers. See :doc:`../development/architecture` for the interface, and
-:doc:`../development/add_primitive` if you want to expose new tools to
-your custom planner.
+Because the RPent tool schemas and prompt-rendering path stay the same, adding
+a planner does not require changes to RPent, its tools, or environment servers.
+See :doc:`../development/architecture` for the interface, and
+:doc:`../development/add_primitive` if you want to expose new tools to your
+custom planner.
 
 Configure planner limits
 ------------------------
