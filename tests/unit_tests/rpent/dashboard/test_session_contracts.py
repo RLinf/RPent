@@ -272,7 +272,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         robot_spec=robot_spec,
         state=state,
         claimed=claimed,
-        shared_primitives_kwargs={},
+        shared_runtime_kwargs={},
         unique_components=set(),
         session_root=tmp_path / "session",
     )

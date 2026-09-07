@@ -151,6 +151,9 @@ def robotwin(tmp_path):
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "memory"),
     )
-    return SimpleNamespace(
+    yield SimpleNamespace(
         env=env, model=model, toolkit=toolkit, output_dir=tmp_path / "run"
     )
+    toolkit._frames.clear()
+    if toolkit._scheduler._state != "closed":
+        toolkit.close()

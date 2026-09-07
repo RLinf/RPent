@@ -117,6 +117,7 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 
 [tool.pytest.ini_options]
+testpaths = ["tests/unit_tests"]
 addopts = ["--import-mode=importlib"]
 pythonpath = ["."]
 timeout = 60

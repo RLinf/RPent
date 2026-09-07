@@ -28,7 +28,8 @@ from rpent.utils.rpc.client_utils import wait_for_ready
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
 from rpent.utils.rpc.rpc_client import RpcError
 from rpent.utils.rpc.rpc_facade import RpcFacade
-from tests.utils.rpc._rpc_test_helpers import (
+
+from ._rpc_helpers import (
     TRANSPORTS,
     _serve_in_thread,
     _server_and_client,
@@ -57,21 +58,8 @@ class SessionFacade(RpcFacade):
         self.dropped_sessions.append(session_id)
 
 
-class MTWSessionFacade(MainThreadServeMixin, RpcFacade):
-    """Main-thread served, ``enable_sessions=True``; records sessions + drops."""
-
-    def __init__(self):
-        super().__init__(enable_sessions=True)
-        self._rpc["ping"] = self.ping
-        self.received_sessions: list[str | None] = []
-        self.dropped_sessions: list[str] = []
-
-    def ping(self, value, *, session_id=None):
-        self.received_sessions.append(session_id)
-        return {"pong": value}
-
-    def _on_session_drop(self, session_id):
-        self.dropped_sessions.append(session_id)
+class MainThreadSessionFacade(MainThreadServeMixin, SessionFacade):
+    """Use the same session lifecycle through main-thread dispatch."""
 
 
 def _assert_lifecycle(client, facade):
@@ -98,6 +86,6 @@ def test_session_lifecycle_over_transports(transport):
 
 
 def test_main_thread_session_lifecycle_over_transports(transport):
-    facade = MTWSessionFacade()
+    facade = MainThreadSessionFacade()
     with _serve_in_thread(facade, transport, enable_sessions=True) as client:
         _assert_lifecycle(client, facade)

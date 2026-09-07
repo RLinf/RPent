@@ -12,190 +12,449 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Offline contracts for the LIBERO toolkit."""
-
 from __future__ import annotations
 
-from pathlib import Path
-from types import SimpleNamespace
-from typing import Any
+import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from robots.libero import robot_spec, toolkit
+from robots.libero import robot_spec
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
-from rpent.tools.toolkit import Toolkit, _is_readonly
-from rpent.utils import templates
-
-COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
-
-EVALUATION_TOOLS = COMMON_TOOLS | {
-    "view_env_state",
-    "move_to",
-    "pi0_pick",
-    "pi0_doubled",
-    "release",
-    "set_gripper",
-    "rotate_wrist",
-    "rotate_pitch",
-    "move_pose",
-    "view_camera_meta",
-    "segment",
-    "back_project",
-}
+from rpent.robots.components.sam3_client import Sam3Result
 
 
-def _record(step_idx: int = 0) -> SimpleNamespace:
-    return SimpleNamespace(step_idx=step_idx, terminated=False)
+@pytest.mark.parametrize("reset_after_success", [False, True])
+def test_robot_finish_uses_cumulative_solved_state(make_toolkit, reset_after_success):
+    toolkit, env, _ = make_toolkit(mode="exploration", attempts=4)
+    assert toolkit._robot.mode == "exploration"
+    assert not toolkit.solved()
+    env.after_step = lambda: setattr(env, "terminated", True)
+    assert not toolkit.execute_tool("set_gripper", {"steps": 1}).is_error
+    assert toolkit.solved() and toolkit._robot.solved
+    if reset_after_success:
+        assert not toolkit.execute_tool(
+            "reset", {"reason": "record another attempt"}
+        ).is_error
+        assert not env.terminated
+        assert toolkit.solved() and toolkit._robot.solved
+    record_count = len(toolkit.state.records())
+    result = toolkit.execute_tool("finish", {"status": "success", "summary": "完成"})
+    assert not result.is_error
+    assert toolkit.finish_result == {"status": "success", "summary": "完成"}
+    assert len(toolkit.state.records()) == record_count
 
 
-def _tool_names(robot_toolkit: Toolkit) -> set[str]:
-    return {spec["name"] for spec in robot_toolkit.get_tools_spec()}
+@pytest.mark.parametrize("mode, attempts", [("evaluation", 4), ("exploration", 0)])
+def test_robot_finish_preserves_unrestricted_modes(make_toolkit, mode, attempts):
+    toolkit, _, _ = make_toolkit(mode=mode, attempts=attempts)
+    assert not toolkit.solved()
+    result = toolkit.execute_tool("finish", {"status": "stuck", "summary": "无法完成"})
+    assert result.data == {"_finish": True, "status": "stuck", "summary": "无法完成"}
+    assert not result.is_error
+    assert not toolkit.solved()
 
 
-def _readonly_names(robot_toolkit: Toolkit) -> set[str]:
-    return {
-        name
-        for name, (_, handler) in robot_toolkit._tools.items()
-        if _is_readonly(handler)
-    }
-
-
-def _run_config(memory_dir: Path, *, recipe_tag: str = "cell-s0") -> RunConfig:
-    return RunConfig(
-        recipe_tag=recipe_tag,
-        output_dir=memory_dir.parent / "run",
-        prompt_vars={"memory_dir": str(memory_dir)},
-        task_desc={},
-    )
-
-
-def test_toolkit_factory_configures_memory_access_by_mode(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    captured: list[dict[str, Any]] = []
-
-    def fake_toolkit(**kwargs: Any) -> SimpleNamespace:
-        captured.append(kwargs)
-        return SimpleNamespace(**kwargs)
-
-    monkeypatch.setattr(toolkit, "LiberoToolkit", fake_toolkit)
-    memory_dir = tmp_path / "libero-memory"
-    config = _run_config(memory_dir)
-
-    evaluation = robot_spec.get_toolkit(
-        primitives_kwargs={"env": "evaluation"},
-        dashboard_events=NullDashboardEventSink(),
-        config=config,
-    )
-    exploration = robot_spec.get_toolkit(
-        primitives_kwargs={"env": "exploration"},
-        dashboard_events=NullDashboardEventSink(),
-        config=config,
-        mode="exploration",
-        attempts_per_session=2,
-        state_output_dir=tmp_path / "state",
-    )
-
-    assert evaluation.memory.root == memory_dir.resolve()
-    assert exploration.memory.root == memory_dir.resolve()
-    evaluation_write = evaluation.memory.get_common_tool_bindings()["write_text_file"][
-        1
-    ]
-    exploration_write = exploration.memory.get_common_tool_bindings()[
-        "write_text_file"
-    ][1]
-    own_draft = memory_dir / "_internal" / "inbox" / config.recipe_tag / "draft.md"
-    with pytest.raises(PermissionError, match="writing to memory is denied"):
-        evaluation_write(str(own_draft), "draft")
-    assert exploration_write(str(own_draft), "draft")["bytes_written"] == 5
-    assert captured[0]["mode"] == "evaluation"
-    assert captured[1]["mode"] == "exploration"
-    assert captured[1]["attempts_per_session"] == 2
-
-
-def test_toolkit_modes_construct_with_fake_primitives(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    fake_single_arm_primitives: type[Any],
-) -> None:
-    dumped: list[Any] = []
-    monkeypatch.setattr(
-        templates, "default_variables", lambda: {"output_dir": "/offline/output"}
-    )
-    monkeypatch.setattr(
-        toolkit.libero_tools,
-        "LiberoPrimitives",
-        fake_single_arm_primitives,
-    )
-    monkeypatch.setattr(
-        toolkit.libero_tools,
-        "dump_state",
-        lambda primitives, state, log: dumped.append(primitives) or _record(),
-    )
-
-    evaluation = toolkit.LiberoToolkit(
-        primitives_kwargs={"env_client": object()},
-        dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "evaluation-memory"),
-        mode="evaluation",
-        state_output_dir=tmp_path / "evaluation",
-    )
-    exploration = toolkit.LiberoToolkit(
-        primitives_kwargs={"env_client": object()},
-        dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(
-            tmp_path / "exploration-memory",
-            memory_access="inbox_write",
-            inbox_cell_tag="offline-cell",
-        ),
-        mode="exploration",
-        attempts_per_session=3,
-        state_output_dir=tmp_path / "exploration",
-    )
-
-    assert _tool_names(evaluation) == EVALUATION_TOOLS
-    assert _tool_names(exploration) == EVALUATION_TOOLS | {"reset"}
-    assert _readonly_names(evaluation) == COMMON_TOOLS | {
+def test_modes_filters_directories_and_exploration_guards(make_toolkit):
+    evaluation, env, _ = make_toolkit()
+    assert env.reset_calls == 1
+    assert {tool.name for tool in evaluation.list_tools()} == {
+        "read_text_file",
+        "read_image",
+        "write_text_file",
+        "list_dir",
+        "finish",
         "view_env_state",
+        "move_to",
+        "pi0_pick",
+        "pi0_doubled",
+        "release",
+        "set_gripper",
+        "rotate_wrist",
+        "rotate_pitch",
+        "move_pose",
         "view_camera_meta",
         "segment",
         "back_project",
     }
-    assert _readonly_names(exploration) == _readonly_names(evaluation)
-    assert len(dumped) == 2
-    assert all(
-        instance.reset_calls == 1 for instance in fake_single_arm_primitives.instances
+    assert evaluation.execute_tool("reset", {"reason": "again"}).error.startswith(
+        "Unknown tool: "
     )
-    assert all(
-        instance.recording_started for instance in fake_single_arm_primitives.instances
+    exploration, env, _ = make_toolkit(mode="exploration", attempts=3)
+    assert "read_image" in {t.name for t in exploration.list_tools()}
+    assert exploration.execute_tool("list_dir", {}).data["path"] == str(
+        exploration._task_output_dir
     )
-    assert all(
-        callable(instance.kwargs["check_cancelled"])
-        for instance in fake_single_arm_primitives.instances
+    assert exploration.execute_tool(
+        "finish", {"status": "success", "summary": "early"}
+    ).is_error
+    assert exploration.finish_result is None
+    for attempt in [2, 3]:
+        reset = exploration.execute_tool("reset", {"reason": "new strategy"})
+        assert not reset.is_error
+        assert reset.data["log"]["result"]["attempt"] == attempt
+        assert reset.data["step"] == attempt - 1
+    assert exploration.execute_tool("reset", {"reason": "too many"}).is_error
+    assert env.reset_calls == 3
+    accepted = exploration.execute_tool(
+        "finish", {"status": "failure", "summary": "spent"}
+    )
+    assert accepted.data == {"_finish": True, "status": "failure", "summary": "spent"}
+    assert exploration.finish_result == {"status": "failure", "summary": "spent"}
+
+
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        ("move_to", {"xyz": [0, 0, 0.3]}),
+        ("move_pose", {"xyz": [0, 0, 0.3]}),
+        ("rotate_wrist", {"target_yaw": 0}),
+        ("rotate_pitch", {"target_pitch": 0}),
+        ("move_pose", {"xyz": [1, 1, 1], "max_steps": 0}),
+        ("move_to", {"xyz": [1, 1, 1], "max_steps": 0}),
+    ],
+)
+def test_already_reached_and_zero_budget_report_zero_actions(make_toolkit, name, args):
+    toolkit, env, _ = make_toolkit()
+    result = toolkit.execute_tool(name, args)
+    assert not result.is_error
+    assert result.data["log"]["result"]["steps_used"] == 0
+    assert result.data["step"] == 1
+    assert env.actions == []
+    assert len(result.images) == 3
+    assert all(image.startswith(b"\x89PNG\r\n\x1a\n") for image in result.images)
+
+
+@pytest.mark.parametrize(
+    ("name", "args", "field"),
+    [
+        ("move_to", {"xyz": [1, 0, 0.3], "max_steps": 4}, "steps_used"),
+        ("move_pose", {"xyz": [1, 0, 0.3], "max_steps": 4}, "steps_used"),
+        ("rotate_wrist", {"target_yaw": 1, "max_steps": 4}, "steps_used"),
+        ("rotate_pitch", {"target_pitch": 1, "max_steps": 4}, "steps_used"),
+        ("set_gripper", {"steps": 4}, "steps"),
+        ("release", {"max_steps": 4}, "steps_used"),
+    ],
+)
+def test_early_termination_counts_and_records_only_sent_actions(
+    make_toolkit, name, args, field
+):
+    toolkit, env, _ = make_toolkit()
+    env.after_step = lambda: setattr(env, "terminated", True)
+    result = toolkit.execute_tool(name, args)
+    assert not result.is_error
+    assert (
+        result.data["log"]["result"][field]
+        == len(env.actions)
+        == len(toolkit._frames)
+        == 1
+    )
+    assert toolkit.solved()
+    assert result.data["terminated"]
+
+
+ACTION_CASES = [
+    ("move_to", {"xyz": [1, 0, 0.3], "max_steps": 4}, 1),
+    ("move_pose", {"xyz": [1, 0, 0.3], "max_steps": 4}, 1),
+    ("rotate_wrist", {"target_yaw": 1, "max_steps": 4}, 1),
+    ("rotate_pitch", {"target_pitch": 1, "max_steps": 4}, 1),
+    ("set_gripper", {"steps": 4}, 1),
+    ("release", {"max_steps": 4}, 1),
+    ("pi0_pick", {"prompt": "pick bowl", "max_chunks": 2}, 3),
+    ("pi0_doubled", {"prompt": "touch bowl", "max_chunks": 2}, 3),
+]
+
+
+@pytest.mark.parametrize(("name", "args", "completed"), ACTION_CASES)
+def test_cancellation_preserves_partial_execution_capture_and_resume(
+    make_toolkit, name, args, completed
+):
+    toolkit, env, _ = make_toolkit()
+    stepped, release_step = threading.Event(), threading.Event()
+
+    def after_step():
+        stepped.set()
+        assert release_step.wait(3)
+
+    env.after_step = after_step
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        action = pool.submit(toolkit.execute_tool, name, args)
+        assert stepped.wait(3)
+        cancellation = pool.submit(toolkit.cancel_active_and_wait)
+        # Confirm cancellation was delivered before allowing another action boundary.
+        for call in list(toolkit._scheduler._active_calls):
+            assert call.cancel_event.wait(3)
+        release_step.set()
+        result = action.result(3)
+        cancellation.result(3)
+    assert result.is_error and result.error == "Tool call cancelled."
+    assert len(env.actions) == toolkit._robot.executed_steps == completed
+    assert len(toolkit._frames) == completed
+    assert toolkit.state.latest_record().result == {"error": result.error}
+    assert result.data["step"] == 1
+    toolkit.resume_calls()
+    env.after_step = lambda: None
+    assert not toolkit.execute_tool("set_gripper", {"steps": 1}).is_error
+    assert len(env.actions) == completed + 1
+
+
+@pytest.mark.parametrize(("name", "args", "completed"), ACTION_CASES)
+def test_action_failures_keep_completed_steps_and_capture(
+    make_toolkit, monkeypatch, name, args, completed
+):
+    toolkit, env, _ = make_toolkit()
+    step = env.step
+
+    def fail_after_completed(action):
+        if toolkit._robot.executed_steps >= completed:
+            raise TypeError("driver defect")
+        return step(action)
+
+    monkeypatch.setattr(env, "step", fail_after_completed)
+    result = toolkit.execute_tool(name, args)
+    assert result.is_error
+    assert result.data["log"]["result"] == {}
+    assert toolkit._robot.executed_steps == completed
+    assert toolkit.state.latest_record().result == {"error": result.error}
+    assert len(env.actions) == len(toolkit._frames) == completed
+    assert result.data["step"] == 1
+    assert len(result.images) == 3
+
+
+def test_business_failure_and_internal_typeerror_keep_observation(make_toolkit):
+    toolkit, env, _ = make_toolkit()
+    invalid = toolkit.execute_tool("rotate_wrist", {})
+    assert invalid.is_error
+    assert "need target_yaw" in invalid.error
+    assert invalid.data["log"]["result"] == {"name": "rotate_wrist"}
+    assert invalid.data["step"] == 1
+
+    def bad_step(action):
+        raise TypeError("driver defect")
+
+    env.step = bad_step
+    failure = toolkit.execute_tool("set_gripper", {})
+    assert failure.is_error
+    assert failure.data["log"]["result"] == {}
+    assert failure.data["step"] == 2
+
+
+def test_model_results_keep_original_observation_shape_and_full_disk_history(
+    make_toolkit,
+):
+    toolkit, _, _ = make_toolkit()
+    result = toolkit.execute_tool("rotate_wrist", {})
+    model_text = result.to_text()
+    assert model_text.count(result.error) == 1
+    assert "error" not in result.data["log"]["result"]
+    payload = json.loads(model_text)
+    assert set(payload) == {
+        "step",
+        "terminated",
+        "truncated",
+        "state",
+        "artifacts",
+        "task_language",
+        "log",
+        "agent_elapsed_s",
+        "error",
+    }
+    assert payload["error"] == result.error
+    assert payload["log"]["result"] == {"name": "rotate_wrist"}
+    # Rendering must not strip the error from the stored observation/history.
+    assert toolkit.state.latest_record().result["error"] == result.error
+    observed = toolkit.execute_tool("view_env_state", {})
+    historical = json.loads(observed.to_text())
+    assert "error" not in historical
+    assert historical["log"]["result"] == {
+        "name": "rotate_wrist",
+        "error": result.error,
+    }
+
+    manifest = json.loads((toolkit.state._output_dir / "states.json").read_text())
+    record = manifest["steps"][-1]
+    assert record["command"] == {
+        "action": "rotate_wrist",
+        **toolkit._tools.get("rotate_wrist").args_schema().model_dump(),
+    }
+    assert record["result"] == {"name": "rotate_wrist", "error": result.error}
+    assert record["elapsed_s"] >= 0
+
+
+def test_successful_action_and_observation_keep_original_model_payload(make_toolkit):
+    toolkit, _, _ = make_toolkit()
+    result = toolkit.execute_tool("set_gripper", {"steps": 2})
+    assert not result.is_error
+    payload = json.loads(result.to_text())
+    assert set(payload) == {
+        "step",
+        "terminated",
+        "truncated",
+        "state",
+        "artifacts",
+        "task_language",
+        "log",
+        "agent_elapsed_s",
+    }
+    assert payload["step"] == 1
+    assert payload["log"]["command"]["action"] == "set_gripper"
+    assert payload["log"]["result"] == toolkit.state.latest_record().result
+    assert payload["log"]["result"]["steps"] == 2
+    assert len(result.images) == 3
+    observed = toolkit.execute_tool("view_env_state", {})
+    payload.pop("agent_elapsed_s")
+    assert json.loads(observed.to_text()) == payload
+
+
+def test_validation_precedes_execution_and_uses_model_defaults(make_toolkit):
+    toolkit, env, _ = make_toolkit(mode="exploration")
+    assert toolkit.execute_tool("move_to", {"xyz": [0, 1]}).error.startswith(
+        "Invalid arguments for "
+    )
+    assert toolkit.execute_tool("reset", {}).error.startswith("Invalid arguments for ")
+    assert len(toolkit.state.records()) == 1
+    result = toolkit.execute_tool(
+        "set_gripper", {"steps": "2", "ctx": "ignored", "extra": 1}
+    )
+    assert not result.is_error
+    assert result.data["log"]["result"]["steps"] == 2
+    assert len(env.actions) == 2
+
+
+def test_segment_writes_existing_step_without_recapture_and_uses_exclusive_admission(
+    make_toolkit,
+):
+    toolkit, env, _ = make_toolkit()
+    definition = next(t for t in toolkit.list_tools() if t.name == "segment")
+    assert definition.readonly
+    assert not definition.parallel
+    for index in [0, 1]:
+        result = toolkit.execute_tool("segment", {"prompt": "bowl"})
+        assert not result.is_error
+        assert result.data["segment_artifact"] == f"segment_{index:02d}.json"
+        assert result.images[0].startswith(b"\x89PNG\r\n\x1a\n")
+    assert len(toolkit.state.records()) == 1
+    assert env.actions == []
+    assert not toolkit.execute_tool("back_project", {"row": 4, "col": 4}).is_error
+    assert not toolkit.execute_tool("view_camera_meta", {}).is_error
+
+
+@pytest.mark.parametrize("save_fails", [False, True])
+def test_segment_errors_appear_once_and_keep_diagnostics(
+    make_toolkit, monkeypatch, save_fails
+):
+    toolkit, env, _ = make_toolkit()
+    reason = "SAM3 found no matching mask"
+    monkeypatch.setattr(
+        toolkit._robot._sam3_client,
+        "segment",
+        lambda *args, **kwargs: Sam3Result(found=False, reason=reason),
+    )
+    if save_fails:
+        monkeypatch.setattr(toolkit.state, "save", lambda *args, **kwargs: None)
+
+    result = toolkit.execute_tool("segment", {"prompt": "bowl"})
+    assert not ({"code", "segmentation_error", "world_error"} & result.data.keys())
+    assert result.data["found"] is False
+    assert result.data["world_xyz"] is None
+    assert result.to_text().count(reason) == 1
+    assert len(toolkit.state.records()) == 1
+    assert env.actions == []
+    if save_fails:
+        assert result.is_error
+        assert json.loads(result.error.split("\n", 1)[1]) == {
+            "segmentation_error": reason
+        }
+        assert "segment_artifact" not in result.data
+    else:
+        assert result.is_error
+        assert result.error == reason
+        assert toolkit.state.load(result.data["segment_artifact"])["error"] == reason
+
+
+@pytest.mark.parametrize("name", ["pi0_pick", "pi0_doubled"])
+def test_vla_prompt_chunks_recording_and_unsolved_result_are_preserved(
+    make_toolkit, name
+):
+    toolkit, env, model = make_toolkit()
+    result = toolkit.execute_tool(name, {"prompt": "touch bowl", "max_chunks": 2})
+    assert not result.is_error
+    assert result.data["log"]["result"]["success"] is False
+    assert result.data["log"]["result"]["chunks_used"] == 2
+    assert model.instructions == ["touch bowl", "touch bowl"]
+    assert toolkit._robot._last_obs["task_descriptions"] == "original task"
+    assert (
+        len(env.actions) == toolkit._robot.executed_steps == len(toolkit._frames) == 6
     )
 
-    refused = exploration.execute_tool(
-        "finish", {"status": "failure", "summary": "first attempt"}
-    )
-    assert refused.result["error"] == "finish refused"
-    assert refused.is_finish is False
 
-    exploration.get_env_state = lambda *, command, result, elapsed_s: dict(result)
-    assert (
-        exploration.execute_tool("reset", {"reason": "new approach"}).result["attempt"]
-        == 2
+@pytest.mark.parametrize("empty_error", [False, True])
+def test_recipe_export_skips_failed_calls(make_toolkit, empty_error):
+    toolkit, env, _ = make_toolkit()
+    if empty_error:
+        step = env.step
+
+        def fail(action):
+            raise RuntimeError()
+
+        env.step = fail
+        failure = toolkit.execute_tool("set_gripper", {"steps": 1})
+        assert failure.is_error
+        assert failure.error == ""
+        env.step = step
+    else:
+        toolkit.execute_tool("rotate_pitch", {})
+    assert (toolkit._task_output_dir / toolkit.write_recipe("cell")).read_text() == ""
+    env.after_step = lambda: setattr(env, "terminated", True)
+    toolkit.execute_tool("set_gripper", {"steps": 4})
+    name = toolkit.write_recipe("cell")
+    commands = [
+        json.loads(line)
+        for line in (toolkit._task_output_dir / name).read_text().splitlines()
+    ]
+    assert [command["action"] for command in commands] == ["set_gripper"]
+
+
+def test_factory_binds_memory_permissions_and_task_root(monkeypatch, tmp_path):
+    from robots.libero import toolkit as module
+
+    captured = []
+    monkeypatch.setattr(
+        module, "LiberoToolkit", lambda **kwargs: captured.append(kwargs) or kwargs
     )
-    assert (
-        exploration.execute_tool("reset", {"reason": "third approach"}).result[
-            "attempt"
-        ]
-        == 3
+    config = RunConfig(
+        recipe_tag="cell",
+        output_dir=tmp_path / "run",
+        prompt_vars={"memory_dir": str(tmp_path / "memory")},
+        task_desc={},
     )
-    allowed = exploration.execute_tool(
-        "finish", {"status": "failure", "summary": "budget spent"}
+    for mode in ["evaluation", "exploration"]:
+        result = robot_spec.get_toolkit(
+            runtime_kwargs={"env": "offline"},
+            dashboard_events=NullDashboardEventSink(),
+            config=config,
+            mode=mode,
+            state_output_dir=tmp_path / "state",
+        )
+        assert result["runtime_kwargs"] == {"env": "offline"}
+        assert result["output_dir"] == config.output_dir
+        path = tmp_path / "memory" / "_internal" / "inbox" / "cell" / "draft.md"
+        if mode == "evaluation":
+            with pytest.raises(PermissionError):
+                result["memory"].authorize_write(path)
+        else:
+            assert result["memory"].authorize_write(path) == path
+
+    default_root = tmp_path / "default-memory"
+    monkeypatch.setattr(robot_spec, "get_memory_dir", lambda robot: default_root)
+    fallback_config = RunConfig(
+        recipe_tag="cell", output_dir=tmp_path / "run", prompt_vars={}, task_desc={}
     )
-    assert allowed.is_finish is True
+    fallback = robot_spec.get_toolkit(
+        runtime_kwargs={},
+        dashboard_events=NullDashboardEventSink(),
+        config=fallback_config,
+    )
+    assert fallback["memory"].root == default_root

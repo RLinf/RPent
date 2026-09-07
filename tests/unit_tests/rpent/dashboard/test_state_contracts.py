@@ -51,10 +51,6 @@ DASHBOARD_SPEC = {
         {"name": "model", "label": "MODEL", "scope": "shared"},
         {"name": "env", "label": "ENV", "scope": "unique"},
     ),
-    "frame_channels": (
-        {"name": "camera", "label": "camera"},
-        {"name": "wrist", "label": "wrist"},
-    ),
 }
 
 
@@ -276,8 +272,7 @@ def test_dashboard_events_project_runtime_usage_timeline_and_newest_frames(
     ]
     assert state.events_since(0) == [{"type": "assistant", "text": "working"}]
     assert state.frame("camera") == b"new-camera"
-    with pytest.raises(ValueError, match="unknown frame kind"):
-        state.frame("unknown")
+    assert state.frame("unknown") is None
     with pytest.raises(ValueError, match="unknown runtime component"):
         state.emit(RuntimeStatusEvent("missing", "ready"))
     with pytest.raises(ValueError, match="unknown runtime status"):
@@ -297,7 +292,7 @@ def test_dashboard_step_events_offset_new_traces_and_resolve_action_video(
         result={"position": np.asarray([1, 2, 3])},
         elapsed_s=0.25,
     ):
-        first_env.save("frame.bin", b"first-frame")
+        first_env.save("agentview.png", np.zeros((2, 2, 3), dtype=np.uint8))
         first_env.save("action.mp4", b"first-video")
     first_record = first_env.latest_record()
     assert first_record is not None
@@ -305,7 +300,6 @@ def test_dashboard_step_events_offset_new_traces_and_resolve_action_video(
         StepRecordEvent(
             first_record,
             first_env,
-            {"camera": "frame.bin"},
         )
     )
 
@@ -317,14 +311,13 @@ def test_dashboard_step_events_offset_new_traces_and_resolve_action_video(
         result={"released": True},
         elapsed_s=0.5,
     ):
-        second_env.save("frame.bin", b"second-frame")
+        second_env.save("agentview.png", np.full((2, 2, 3), 255, dtype=np.uint8))
     second_record = second_env.latest_record()
     assert second_record is not None
     state.emit(
         StepRecordEvent(
             second_record,
             second_env,
-            {"camera": "frame.bin"},
         )
     )
 
@@ -332,5 +325,85 @@ def test_dashboard_step_events_offset_new_traces_and_resolve_action_video(
     assert [item["step"] for item in detail["timeline"]] == [0, 1]
     assert detail["timeline"][0]["result"] == {"position": [1, 2, 3]}
     assert detail["timeline"][1]["terminated"] is True
-    assert state.frame("camera") == b"second-frame"
+    assert state.frame("agentview") == second_env.load_bytes("agentview.png")
     assert state.action_video_path(0) == first_env.artifact_path("action.mp4", step=0)
+
+
+def test_all_step_png_artifacts_use_their_stems_and_replace_old_frames(tmp_path):
+    state = _ready_state(tmp_path / "dashboard")
+    _claim_started_task(state)
+    env = EnvState(tmp_path / "observations")
+    assert state.snapshot()["frame_available"] == {}
+    image_names = [
+        "agentview.png",
+        "agentview_high.png",
+        "head_rgb.png",
+        "left_wrist_rgb.png",
+        "arm view.png",
+        "debug.PNG",
+    ]
+    with env.record_step(state={}):
+        for index, name in enumerate(image_names):
+            assert env.save(name, np.full((2, 2, 3), index, dtype=np.uint8)) == name
+        env.save("agentview_metadata.json", {"camera": "agentview"})
+        env.save("depth.npz", np.zeros((2, 2)))
+        env.save("preview.jpg", np.zeros((2, 2, 3), dtype=np.uint8))
+        env.save("missing.png", np.zeros((2, 2, 3), dtype=np.uint8))
+        env.artifact_path("missing.png").unlink()
+    state.emit(StepRecordEvent(env.latest_record(), env))
+    expected = {Path(name).stem: True for name in sorted(image_names)}
+    assert state.snapshot()["frame_available"] == expected
+    assert state.run_detail()["frame_available"] == expected
+    for name in image_names:
+        assert state.frame(Path(name).stem) == env.load_bytes(name)
+    assert state.frame("camera") is None
+    assert state.frame("preview") is None
+    with env.record_step(state={}):
+        env.save("right_wrist_rgb.png", np.ones((2, 2, 3), dtype=np.uint8))
+    state.emit(StepRecordEvent(env.latest_record(), env))
+    assert state.snapshot()["frame_available"] == {"right_wrist_rgb": True}
+    assert state.frame("agentview") is None
+    with env.record_step(state={}):
+        env.save("metadata.json", {})
+    state.emit(StepRecordEvent(env.latest_record(), env))
+    assert state.snapshot()["frame_available"] == {}
+    assert state.frame("right_wrist_rgb") is None
+
+
+def test_frame_endpoint_serves_artifact_name_without_configured_channels(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from rpent.dashboard.server import DashboardServer
+
+    state = _ready_state(tmp_path / "dashboard")
+    _claim_started_task(state)
+    env = EnvState(tmp_path / "observations")
+    with env.record_step(state={}):
+        env.save("arm view.png", np.zeros((2, 2, 3), dtype=np.uint8))
+    state.emit(StepRecordEvent(env.latest_record(), env))
+    server = DashboardServer(dashboard_spec=DASHBOARD_SPEC)
+    server.register(state)
+    with TestClient(server._app) as client:
+        assert "frame_channels" not in client.get("/api/commands").json()
+        response = client.get(
+            "/api/run/frame", params={"run": state.run_id, "kind": "arm view"}
+        )
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        assert response.content == env.load_bytes("arm view.png")
+        assert (
+            client.get(
+                "/api/run/frame", params={"run": state.run_id, "kind": "camera"}
+            ).status_code
+            == 404
+        )
+        assert (
+            client.get(
+                "/api/run/frame", params={"run": "unknown", "kind": "arm view"}
+            ).status_code
+            == 404
+        )
+        assert (
+            client.get("/api/run/frame", params={"run": state.run_id}).status_code
+            == 422
+        )

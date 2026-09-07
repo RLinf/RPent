@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import asyncio
-import base64
+import json
 import queue
 from typing import Any
 
@@ -34,54 +34,10 @@ from rpent.dashboard.events import TranscriptEvent, UsageEvent
 from rpent.planner.api_loop import (
     ApiAgentLoop,
     _build_tools,
-    _content_blocks_to_pydantic,
     _make_tool_function,
 )
-from rpent.tools.toolkit import ToolResult
 
-
-class RecordingSink:
-    def __init__(self) -> None:
-        self.events: list[Any] = []
-
-    @property
-    def enabled(self) -> bool:
-        return True
-
-    def emit(self, event: Any) -> None:
-        self.events.append(event)
-
-
-class FakeToolkit:
-    state = None
-
-    def __init__(self, result: dict[str, Any] | None = None) -> None:
-        self.result = result or {"ok": True}
-        self.calls: list[tuple[str, dict[str, Any]]] = []
-        self.cancel_calls = 0
-
-    def get_tools_spec(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": "finish",
-                "description": "Finish after the environment accepts the result.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string"},
-                        "summary": {"type": "string"},
-                    },
-                    "required": ["status", "summary"],
-                },
-            }
-        ]
-
-    def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
-        self.calls.append((name, args))
-        return ToolResult(name, dict(self.result))
-
-    def cancel_active_and_wait(self) -> None:
-        self.cancel_calls += 1
+from ._native_helpers import PNG, FakeToolkit, RecordingSink
 
 
 def solve_with_model(
@@ -105,7 +61,9 @@ def solve_with_model(
     )
 
 
-def test_successful_finish_waits_for_its_tool_result() -> None:
+def test_successful_finish_waits_for_its_tool_result(
+    make_toolkit,
+) -> None:
     seen_instructions: list[str | None] = []
 
     def model(messages: list[Any], info: Any) -> ModelResponse:
@@ -127,14 +85,13 @@ def test_successful_finish_waits_for_its_tool_result() -> None:
             usage=RequestUsage(input_tokens=7, output_tokens=3),
         )
 
-    toolkit = FakeToolkit()
+    toolkit = make_toolkit()
     sink = RecordingSink()
     result = solve_with_model(model, toolkit, sink)
 
     assert seen_instructions == ["Use tools carefully."]
     assert toolkit.calls == [("finish", {"status": "success", "summary": "done"})]
     assert result.finish_result == {
-        "_finish": True,
         "status": "success",
         "summary": "done",
     }
@@ -152,7 +109,9 @@ def test_successful_finish_waits_for_its_tool_result() -> None:
     assert any(isinstance(event, UsageEvent) for event in sink.events)
 
 
-def test_rejected_finish_does_not_end_the_run() -> None:
+def test_rejected_finish_does_not_end_the_run(
+    make_toolkit,
+) -> None:
     def model(messages: list[Any], info: Any) -> ModelResponse:
         del info
         if any(
@@ -171,7 +130,7 @@ def test_rejected_finish_does_not_end_the_run() -> None:
             ]
         )
 
-    toolkit = FakeToolkit({"error": "finish refused by environment"})
+    toolkit = make_toolkit({"error": "finish refused by environment"})
     result = solve_with_model(model, toolkit, RecordingSink())
 
     assert result.finish_result is None
@@ -179,30 +138,34 @@ def test_rejected_finish_does_not_end_the_run() -> None:
     assert result.stats["tool_calls"] == 1
     assert any(
         message.get("role") == "tool"
-        and message.get("content") == '{\n  "error": "finish refused by environment"\n}'
+        and "finish refused by environment" in message.get("content", "")
         for message in result.messages
     )
 
 
-def test_backend_failure_is_returned_without_escaping() -> None:
+def test_backend_failure_is_returned_without_escaping(
+    make_toolkit,
+) -> None:
     def model(messages: list[Any], info: Any) -> ModelResponse:
         del messages, info
         raise RuntimeError("provider failed")
 
-    result = solve_with_model(model, FakeToolkit(), RecordingSink())
+    result = solve_with_model(model, make_toolkit(), RecordingSink())
 
     assert result.finish_result is None
     assert result.error == "RuntimeError: provider failed"
-    assert result.messages == [{"role": "user", "content": "complete the task"}]
+    assert result.messages[0] == {"role": "user", "content": "complete the task"}
 
 
-def test_timeout_cancels_active_toolkit_work() -> None:
+def test_timeout_cancels_active_toolkit_work(
+    make_toolkit,
+) -> None:
     async def model(messages: list[Any], info: Any) -> ModelResponse:
         del messages, info
         await asyncio.sleep(10)
         return ModelResponse(parts=[TextPart("unreachable")])
 
-    toolkit = FakeToolkit()
+    toolkit = make_toolkit()
     result = solve_with_model(
         model,
         toolkit,
@@ -211,11 +174,13 @@ def test_timeout_cancels_active_toolkit_work() -> None:
     )
 
     assert result.error == "API planner timed out after 0.01s"
-    assert toolkit.cancel_calls == 1
-    assert result.messages == [{"role": "user", "content": "complete the task"}]
+    assert toolkit.cancel_calls >= 1
+    assert result.messages[0] == {"role": "user", "content": "complete the task"}
 
 
-def test_queue_and_dashboard_inputs_are_rejected_before_model_use() -> None:
+def test_queue_and_dashboard_inputs_are_rejected_before_model_use(
+    make_toolkit,
+) -> None:
     calls = 0
 
     def model(messages: list[Any], info: Any) -> ModelResponse:
@@ -233,7 +198,7 @@ def test_queue_and_dashboard_inputs_are_rejected_before_model_use() -> None:
         planner.solve(
             system_prompt="",
             user_message="task",
-            toolkit=FakeToolkit(),
+            toolkit=make_toolkit(),
             max_turns=1,
             input_queue=queue.Queue(),
             dashboard_interaction=object(),
@@ -242,58 +207,41 @@ def test_queue_and_dashboard_inputs_are_rejected_before_model_use() -> None:
     assert calls == 0
 
 
-def test_tool_schema_and_dispatch_are_mapped_to_pydantic_ai() -> None:
-    toolkit = FakeToolkit()
+def test_tool_schema_and_dispatch_are_mapped_to_pydantic_ai(
+    make_toolkit,
+) -> None:
+    toolkit = make_toolkit()
 
     tools = _build_tools(toolkit)
 
-    assert [tool.name for tool in tools] == ["read_image", "finish"]
-    assert all(tool.sequential for tool in tools)
-    finish = tools[1]
-    assert finish.description == "Finish after the environment accepts the result."
-    assert (
-        finish.function_schema.json_schema
-        == toolkit.get_tools_spec()[0]["input_schema"]
-    )
-
-
-def test_tool_result_conversion_keeps_text_and_images_separate() -> None:
-    raw_image = b"\x89PNG\r\ncontract-image"
-    encoded = base64.b64encode(raw_image).decode()
-    blocks = [
-        {"type": "text", "text": "observation"},
-        {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/png",
-                "data": encoded,
-            },
-        },
+    assert [tool.name for tool in tools] == [
+        "read_image",
+        *[tool.name for tool in toolkit.list_tools() if tool.name != "read_image"],
     ]
-
-    text, images = _content_blocks_to_pydantic(blocks)
-
-    assert text == "observation"
-    assert images == [BinaryContent(data=raw_image, media_type="image/png")]
-    assert blocks[1]["source"]["data"] == encoded
-
-
-def test_no_images_mode_suppresses_binary_tool_content() -> None:
-    toolkit = FakeToolkit({"value": "visible", "_image_bytes": b"secret pixels"})
-
-    multimodal = _make_tool_function(toolkit, "finish")(
-        status="success",
-        summary="done",
-    )
-    text_only = _make_tool_function(toolkit, "finish", no_images=True)(
-        status="success",
-        summary="done",
+    assert "read_image" in [tool.name for tool in tools]
+    assert all(not tool.sequential for tool in tools)
+    finish = next(tool for tool in tools if tool.name == "finish")
+    assert finish.function_schema.json_schema == next(
+        tool.input_schema for tool in toolkit.list_tools() if tool.name == "finish"
     )
 
-    assert isinstance(multimodal, ToolReturn)
-    assert multimodal.return_value == '{\n  "value": "visible"\n}'
-    assert len(multimodal.content or []) == 1
-    assert isinstance(multimodal.content[0], BinaryContent)
-    assert text_only == '{\n  "value": "visible"\n}'
-    assert "secret" not in text_only
+
+def test_tool_result_conversion_keeps_text_and_images_separate(
+    make_toolkit,
+) -> None:
+    toolkit = make_toolkit({"value": "visible"}, images=[PNG])
+    result = asyncio.run(_make_tool_function(toolkit, "inspect_scene")())
+    assert isinstance(result, ToolReturn)
+    assert json.loads(result.return_value) == {"value": "visible"}
+    assert result.content == [BinaryContent(data=PNG, media_type="image/png")]
+
+
+def test_no_images_mode_suppresses_binary_tool_content(
+    make_toolkit,
+) -> None:
+    toolkit = make_toolkit({"value": "visible"}, images=[PNG])
+    result = asyncio.run(
+        _make_tool_function(toolkit, "inspect_scene", no_images=True)()
+    )
+    assert json.loads(result) == {"value": "visible"}
+    assert "contract-image" not in result

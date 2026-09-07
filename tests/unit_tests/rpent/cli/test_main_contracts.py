@@ -309,9 +309,10 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cli = _cli_module()
+
     from rpent.planner.base import PlannerResult
     from rpent.robots import PromptBundle, RobotSpec, RunConfig
-    from rpent.tools.toolkit import ToolResult
+    from rpent.tools import ToolResult
 
     calls: dict[str, Any] = {}
 
@@ -331,17 +332,12 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             self.calls: list[tuple[str, dict[str, Any]]] = []
             self.closed = False
             self.memory = FakeMemoryManager()
+            self.finish_result = None
 
         def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
             self.calls.append((name, args))
-            return ToolResult(
-                name,
-                {
-                    "_finish": True,
-                    "status": args["status"],
-                    "summary": args["summary"],
-                },
-            )
+            self.finish_result = {"status": args["status"], "summary": args["summary"]}
+            return ToolResult(data={"_finish": True, **self.finish_result})
 
         def close(self) -> None:
             self.closed = True
@@ -371,12 +367,12 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
                 "input_queue": input_queue,
                 "dashboard_interaction": dashboard_interaction,
             }
-            finish = toolkit.execute_tool(
+            toolkit.execute_tool(
                 "finish",
                 {"status": "success", "summary": "simulated task complete"},
             )
             return PlannerResult(
-                finish_result=finish.result,
+                finish_result=toolkit.finish_result,
                 messages=[{"role": "assistant", "content": "finished offline"}],
                 stats={
                     "total_input_tokens": 0,
@@ -470,7 +466,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     ]
     assert toolkit.closed is True
     assert daemon.stopped is True
-    assert calls["get_toolkit"][1]["primitives_kwargs"] == {"runtime": "simulated"}
+    assert calls["get_toolkit"][1]["runtime_kwargs"] == {"runtime": "simulated"}
     assert calls["get_toolkit"][1]["mode"] == "exploration"
     assert calls["get_toolkit"][1]["attempts_per_session"] == 2
     assert calls["write_recipe"] == "libero_s0"
@@ -483,7 +479,6 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
     assert transcript["robot"] == "libero"
     assert transcript["finish"] == {
-        "_finish": True,
         "status": "success",
         "summary": "simulated task complete",
     }

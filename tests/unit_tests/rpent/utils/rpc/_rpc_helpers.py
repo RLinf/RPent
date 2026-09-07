@@ -37,7 +37,8 @@ def _server_and_client(facade, transport, *, enable_sessions=False):
         server = SocketRpcServer(("127.0.0.1", 0), facade._dispatch)
     else:
         server = HttpRpcServer(("127.0.0.1", 0), facade._dispatch)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
     port = server.server_address[1]
     try:
         if transport == "socket":
@@ -48,8 +49,12 @@ def _server_and_client(facade, transport, *, enable_sessions=False):
             )
         yield client
     finally:
+        client.close()
         server.shutdown()
+        thread.join(timeout=3)
         server.server_close()
+        facade.close()
+    assert not thread.is_alive()
 
 
 def _free_port() -> int:
@@ -95,5 +100,7 @@ def _serve_in_thread(facade, transport, *, enable_sessions):
         try:
             client.call("shutdown", timeout_s=2.0)
         except Exception:
-            pass
+            facade._shutdown_event.set()
         t.join(timeout=5.0)
+        client.close()
+    assert not t.is_alive(), "main-thread RPC server did not stop"

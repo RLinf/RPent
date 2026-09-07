@@ -16,151 +16,80 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
+import threading
 from pathlib import Path
-from typing import Any
 
+import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from rpent.dashboard.events import DashboardEventSink
-from rpent.memory.manager import MemoryManager
+from rpent.memory import MemoryManager
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, readonly
-from rpent.utils.logging import init_output_dir
+from rpent.tools import ToolContext, Toolkit, ToolResult, readonly, tool
 
-CONCURRENT_CALLS = [
-    ("list_dir", {"path": "resources/libero/memory"}),
-    ("read_text_file", {"path": "robots/libero/guides/strict_hybrid_guide.md"}),
-    ("read_text_file", {"path": "robots/libero/guides/pro_hybrid_guide.md"}),
-    ("read_text_file", {"path": "robots/libero/guides/env_calibration.md"}),
-    ("view_env_state", {"step": 0}),
-]
+from ._native_helpers import read
 
 
-class RecordingSink(DashboardEventSink):
-    def __init__(self) -> None:
-        self.events: list[Any] = []
-
-    @property
-    def enabled(self) -> bool:
-        return True
-
-    def emit(self, event: Any) -> None:
-        self.events.append(event)
+@tool
+@readonly
+def finish(status: str, summary: str, *, ctx: ToolContext) -> ToolResult:
+    """Accept the requested outcome for this test toolkit."""
+    return ToolResult(data={"_finish": True, "status": status, "summary": summary})
 
 
-class FakeToolkit(Toolkit):
-    """Minimal toolkit whose tools sleep to widen the overlap window."""
-
-    def __init__(self, state_dir: Path) -> None:
-        super().__init__(
-            dashboard_events=RecordingSink(),
-            state=EnvState(state_dir),
-            memory=MemoryManager(state_dir / "memory"),
-        )
-        self.overlap_errors: list[tuple[str, dict[str, Any]]] = []
-        self._register_fake_tools()
-
-    def _register_fake_tools(self) -> None:
-        @readonly
-        def read_text_file(path: str, max_chars: int = 40000) -> dict:
-            time.sleep(0.05)
-            p = Path(path)
-            return {"path": str(p), "size": 0, "content": "fake content"}
-
-        @readonly
-        def list_dir(path: str = "") -> dict:
-            time.sleep(0.05)
-            return {"path": path, "count": 0, "files": []}
-
-        def view_env_state(step: int = -1) -> dict:
-            time.sleep(0.3)
-            return {"step": step, "mode": "evaluation"}
-
-        self.add_tool(
-            "read_text_file",
-            {
-                "name": "read_text_file",
-                "description": "Read a UTF-8 text file.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"path": {"type": "string"}},
-                    "required": ["path"],
-                },
-            },
-            read_text_file,
-        )
-        self.add_tool(
-            "list_dir",
-            {
-                "name": "list_dir",
-                "description": "List files in a directory.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"path": {"type": "string"}},
-                },
-            },
-            list_dir,
-        )
-        self.add_tool(
-            "view_env_state",
-            {
-                "name": "view_env_state",
-                "description": "View the current environment state.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"step": {"type": "integer"}},
-                },
-            },
-            view_env_state,
-        )
-
-    def execute_tool(self, name: str, input_dict: dict[str, Any]) -> Any:
-        result = super().execute_tool(name, input_dict)
-        if result.result.get("error") == "another tool operation is still active":
-            self.overlap_errors.append((name, dict(input_dict)))
-        return result
-
-    def get_env_state(
-        self,
-        *,
-        command: dict[str, Any],
-        result: dict[str, Any],
-        elapsed_s: float,
-    ) -> dict[str, Any]:
-        return {"observed": True}
-
-    def solved(self) -> bool:
-        return False
-
-
-def test_http_mcp_server_serializes_concurrent_tool_calls(tmp_path: Path) -> None:
-    init_output_dir(tmp_path / "log")
-    toolkit = FakeToolkit(tmp_path)
+def test_http_shared_calls_overlap_and_keep_native_validation(tmp_path: Path) -> None:
+    toolkit = Toolkit(
+        state=EnvState(tmp_path),
+        memory=MemoryManager(tmp_path / "memory"),
+        robot=threading.Barrier(2),
+        output_dir=tmp_path,
+        tools=(finish, read),
+    )
     server = HttpMcpServer(toolkit)
+
+    async def scenario(url):
+        async with (
+            httpx.AsyncClient(trust_env=False) as client,
+            streamable_http_client(url, http_client=client) as (reader, writer, _),
+        ):
+            async with ClientSession(reader, writer) as session:
+                await session.initialize()
+                specs = await session.list_tools()
+                assert "read_image" not in {tool.name for tool in specs.tools}
+                for name in ("read_image", "mcp__rpent__read_image"):
+                    rejected = await session.call_tool(name, {"name": "frame.png"})
+                    assert rejected.isError
+                    assert json.loads(rejected.content[0].text) == {
+                        "error": "Unknown tool: read_image"
+                    }
+                assert (
+                    next(t for t in specs.tools if t.name == "read").inputSchema
+                    == read.input_schema
+                )
+                results = await asyncio.gather(
+                    session.call_tool("read", {"number": "1", "ctx": "ignored"}),
+                    session.call_tool("read", {"number": 2}),
+                )
+                assert all(not result.isError for result in results)
+                assert [json.loads(r.content[0].text)["number"] for r in results] == [
+                    1,
+                    2,
+                ]
+                invalid = await session.call_tool("read", {"number": "bad"})
+                assert invalid.isError
+                failure = json.loads(invalid.content[0].text)
+                assert set(failure) == {"error"}
+                assert failure["error"].startswith("Invalid arguments for read.")
+                assert "number" in failure["error"]
+                assert "valid integer" in failure["error"]
+                results = await asyncio.gather(
+                    *[session.call_tool("list_dir", {}) for _ in range(4)]
+                )
+                assert all(not r.isError for r in results)
+
     try:
-        url = server.start()
-        rejected = asyncio.run(_fire_concurrent(url))
+        asyncio.run(scenario(server.start()))
     finally:
         server.stop()
-
-    assert rejected == 0
-    assert toolkit.overlap_errors == []
-
-
-async def _fire_concurrent(url: str) -> int:
-    rejected = 0
-    async with streamable_http_client(url) as (read, write, _get_session_id):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            results = await asyncio.gather(
-                *(session.call_tool(name, args) for name, args in CONCURRENT_CALLS)
-            )
-            for result in results:
-                if "another tool operation is still active" in json.dumps(
-                    result.content, default=str
-                ):
-                    rejected += 1
-    return rejected
+        toolkit.close()

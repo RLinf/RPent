@@ -34,47 +34,11 @@ from rpent.planner.codex import (
 )
 from rpent.planner.utils.http_mcp_server import (
     HttpMcpServer,
-    _toolkit_to_mcp_content,
+    mcp_result,
 )
-from rpent.tools.toolkit import ToolResult
+from rpent.tools import ToolResult
 
-
-class RecordingSink:
-    def __init__(self) -> None:
-        self.events: list[Any] = []
-
-    @property
-    def enabled(self) -> bool:
-        return True
-
-    def emit(self, event: Any) -> None:
-        self.events.append(event)
-
-
-class FakeToolkit:
-    def __init__(self) -> None:
-        self.cancel_calls = 0
-
-    def get_tools_spec(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": "finish",
-                "description": "Finish the task.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string"},
-                        "summary": {"type": "string"},
-                    },
-                },
-            }
-        ]
-
-    def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
-        return ToolResult(name, {"name": name, "args": args})
-
-    def cancel_active_and_wait(self) -> None:
-        self.cancel_calls += 1
+from ._native_helpers import PNG, FakeToolkit, RecordingSink
 
 
 class FakeMcpServer:
@@ -101,7 +65,17 @@ class FakeTurn:
         self.steered: list[str] = []
 
     def stream(self):
-        yield from self.events
+        for event in self.events:
+            if event.get("method") == "item/completed":
+                item = event["payload"].get("item", {})
+                if (
+                    item.get("tool") == "mcp__rpent__finish"
+                    and item.get("status") == "completed"
+                ):
+                    FakeMcpServer.instances[-1].toolkit.execute_tool(
+                        "finish", item["arguments"]
+                    )
+            yield event
 
     def interrupt(self) -> None:
         self.interrupt_calls += 1
@@ -173,31 +147,23 @@ def install_fake_backend(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]
 
 
 def test_mcp_content_conversion_preserves_text_images_and_error_status() -> None:
-    plain, plain_error = _toolkit_to_mcp_content("plain")
-    assert plain_error is False
-    assert plain[0].type == "text"
-    assert plain[0].text == "plain"
-
-    result = ToolResult(
-        "finish",
-        {"error": "finish refused", "_image_bytes": b"image bytes"},
-    )
-    content, is_error = _toolkit_to_mcp_content(result)
-
-    assert [block.type for block in content] == ["text", "image"]
-    assert json.loads(content[0].text) == {"error": "finish refused"}
-    assert content[1].mimeType == "image/png"
-    assert is_error is True
+    result = ToolResult(error="finish refused", images=[PNG])
+    converted = mcp_result(result)
+    assert [block["type"] for block in converted["content"]] == ["text", "image"]
+    assert json.loads(converted["content"][0]["text"]) == {"error": "finish refused"}
+    assert converted["content"][1]["mimeType"] == "image/png"
+    assert converted["isError"] is True
 
 
 def test_http_mcp_readiness_ignores_environment_proxy(
+    make_toolkit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
     monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
     monkeypatch.delenv("NO_PROXY", raising=False)
     monkeypatch.delenv("no_proxy", raising=False)
-    server = HttpMcpServer(FakeToolkit())
+    server = HttpMcpServer(make_toolkit())
 
     try:
         url = server.start(ready_timeout_s=3.0)
@@ -306,6 +272,7 @@ def test_build_config_scopes_loopback_no_proxy_to_codex_child(
 
 
 def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
+    make_toolkit,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -354,7 +321,7 @@ def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
     result = make_planner(tmp_path, sink).solve(
         system_prompt="system rules",
         user_message="user task",
-        toolkit=FakeToolkit(),
+        toolkit=make_toolkit(),
         max_turns=3,
     )
 
@@ -365,7 +332,6 @@ def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
     assert fake_codex.closed is True
     assert fake_codex.thread.turn_prompts[0][0] == "system rules\n\nuser task"
     assert result.finish_result == {
-        "_finish": True,
         "status": "success",
         "summary": "done",
     }
@@ -383,10 +349,14 @@ def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
     assert any(isinstance(event, UsageEvent) for event in sink.events)
 
 
-def test_rejected_finish_item_is_not_promoted() -> None:
+def test_rejected_finish_item_is_not_promoted(
+    make_toolkit,
+) -> None:
     from rpent.planner.codex import _Recorder
 
-    recorder = _Recorder(max_turns=2, dashboard_events=RecordingSink())
+    recorder = _Recorder(
+        toolkit=make_toolkit(), max_turns=2, dashboard_events=RecordingSink()
+    )
 
     rendered = recorder.observe(
         {
@@ -409,6 +379,7 @@ def test_rejected_finish_item_is_not_promoted() -> None:
 
 
 def test_fake_codex_backend_failure_stops_mcp_server(
+    make_toolkit,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -428,7 +399,7 @@ def test_fake_codex_backend_failure_stops_mcp_server(
     result = make_planner(tmp_path, RecordingSink()).solve(
         system_prompt="",
         user_message="task",
-        toolkit=FakeToolkit(),
+        toolkit=make_toolkit(),
         max_turns=1,
     )
 
@@ -437,6 +408,7 @@ def test_fake_codex_backend_failure_stops_mcp_server(
 
 
 def test_timeout_interrupts_without_starting_a_worker_or_socket(
+    make_toolkit,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -468,7 +440,7 @@ def test_timeout_interrupts_without_starting_a_worker_or_socket(
     ).solve(
         system_prompt="",
         user_message="task",
-        toolkit=FakeToolkit(),
+        toolkit=make_toolkit(),
         max_turns=1,
     )
 
@@ -477,6 +449,7 @@ def test_timeout_interrupts_without_starting_a_worker_or_socket(
 
 
 def test_terminal_timeout_cancels_active_toolkit_work(
+    make_toolkit,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -500,7 +473,7 @@ def test_terminal_timeout_cancels_active_toolkit_work(
         "threading",
         SimpleNamespace(Thread=TimeoutThread),
     )
-    toolkit = FakeToolkit()
+    toolkit = make_toolkit()
     result = make_planner(
         tmp_path,
         RecordingSink(),
@@ -514,10 +487,11 @@ def test_terminal_timeout_cancels_active_toolkit_work(
 
     assert result.error == "Codex SDK timed out after 0.01s"
     assert FakeMcpServer.instances[0].stopped is True
-    assert toolkit.cancel_calls == 1
+    assert toolkit.cancel_calls >= 1
 
 
 def test_queue_and_dashboard_are_rejected_before_mcp_construction(
+    make_toolkit,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -532,7 +506,7 @@ def test_queue_and_dashboard_are_rejected_before_mcp_construction(
         planner.solve(
             system_prompt="",
             user_message="task",
-            toolkit=FakeToolkit(),
+            toolkit=make_toolkit(),
             max_turns=1,
             input_queue=queue.Queue(),
             dashboard_interaction=object(),

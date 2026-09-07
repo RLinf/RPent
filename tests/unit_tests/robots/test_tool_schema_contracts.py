@@ -14,9 +14,12 @@
 
 from __future__ import annotations
 
+import inspect
 from importlib import import_module
 
 import pytest
+
+from rpent.tools.common_tools import COMMON_TOOLS
 
 ROBOT_NAMES = ("libero", "robocasa", "robotwin")
 
@@ -111,3 +114,18 @@ def test_robot_action_schemas_keep_bounded_vector_shapes() -> None:
         xyz = spec["input_schema"]["properties"]["xyz"]
         assert xyz["type"] == "array"
         assert xyz["minItems"] == xyz["maxItems"] == 3
+
+
+@pytest.mark.parametrize("robot_name", ROBOT_NAMES)
+def test_owned_tool_collections_satisfy_executor_invariants(robot_name):
+    module = import_module(f"robots.{robot_name}.tools")
+    tools = (*COMMON_TOOLS, *getattr(module, f"{robot_name.upper()}_TOOLS"))
+    names = [item.name for item in tools]
+    assert len(names) == len(set(names))
+    (finish,) = [item for item in tools if item.name == "finish"]
+    assert finish.readonly and not finish.parallel
+    for item in tools:
+        parameter = inspect.signature(item.handler).parameters["ctx"]
+        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        assert parameter.default is inspect.Parameter.empty
+        assert "ctx" not in item.input_schema["properties"]

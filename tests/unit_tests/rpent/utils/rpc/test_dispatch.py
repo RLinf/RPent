@@ -29,7 +29,8 @@ import pytest
 
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
 from rpent.utils.rpc.rpc_facade import RpcFacade
-from tests.utils.rpc._rpc_test_helpers import (
+
+from ._rpc_helpers import (
     TRANSPORTS,
     _serve_in_thread,
     _server_and_client,
@@ -61,15 +62,8 @@ class PlainFacade(RpcFacade):
         return {"pong": value}
 
 
-class MTWoSessionFacade(MainThreadServeMixin, RpcFacade):
-    """Main-thread served facade; handler takes NO ``session_id``."""
-
-    def __init__(self):
-        super().__init__()
-        self._rpc["ping"] = self.ping
-
-    def ping(self, value):
-        return {"pong": value}
+class MainThreadPlainFacade(MainThreadServeMixin, PlainFacade):
+    """Use the session-less handlers through main-thread dispatch."""
 
 
 def test_override_dispatch_over_transports(transport):
@@ -85,6 +79,6 @@ def test_plain_facade_over_transports(transport):
 
 
 def test_main_thread_wo_session_over_transports(transport):
-    facade = MTWoSessionFacade()
+    facade = MainThreadPlainFacade()
     with _serve_in_thread(facade, transport, enable_sessions=False) as client:
         assert client.call("ping", args=(7,)) == {"pong": 7}
