@@ -27,6 +27,7 @@ from robots.franka.prompt_bundle import system_prompt, user_prompt
 from robots.franka.runtime_config import DEFAULT_CALIBRATION_PATH
 from robots.franka.tasks import FRANKA_TASKS, get_franka_task
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
 
 
-FRANKA_DASHBOARD_SPEC = {
+FRANKA_DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",
         "usage": "/rpent-task <task_id>",
@@ -63,13 +64,20 @@ FRANKA_DASHBOARD_SPEC = {
         {
             "name": "camera",
             "label": "external camera",
-            "legacy_path_key": "image_cam_path",
+            "artifact": "camera.png",
         },
         {
             "name": "wrist",
             "label": "wrist camera",
-            "legacy_path_key": "image_wrist_path",
+            "artifact": "wrist.png",
         },
+    ),
+    "primitives": (
+        "move_delta",
+        "rotate_delta",
+        "open_gripper",
+        "close_gripper",
+        "vla_grasp",
     ),
 }
 

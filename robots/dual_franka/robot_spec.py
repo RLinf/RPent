@@ -28,6 +28,7 @@ from robots.dual_franka.prompt_bundle import system_prompt, user_prompt
 from robots.dual_franka.tasks import DUAL_FRANKA_TASKS, get_dual_franka_task
 from robots.franka.runtime_config import DEFAULT_CALIBRATION_PATH
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -41,7 +42,7 @@ if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
 
 
-DUAL_FRANKA_DASHBOARD_SPEC = {
+DUAL_FRANKA_DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",
         "usage": "/rpent-task <task_id>",
@@ -64,18 +65,25 @@ DUAL_FRANKA_DASHBOARD_SPEC = {
         {
             "name": "left_wrist",
             "label": "left wrist camera",
-            "legacy_path_key": "image_left_wrist_path",
+            "artifact": "left_wrist.png",
         },
         {
             "name": "base",
             "label": "base camera",
-            "legacy_path_key": "image_base_path",
+            "artifact": "base.png",
         },
         {
             "name": "right_wrist",
             "label": "right wrist camera",
-            "legacy_path_key": "image_right_wrist_path",
+            "artifact": "right_wrist.png",
         },
+    ),
+    "primitives": (
+        "move_delta",
+        "rotate_delta",
+        "open_gripper",
+        "close_gripper",
+        "vla_grasp",
     ),
 }
 
