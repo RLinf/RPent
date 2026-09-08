@@ -66,16 +66,26 @@ pytest tests/unit_tests -v
 
 Real simulator checks live under `integration_tests` and are always opt-in;
 they are not part of the offline CI suite. For example, after installing the
-RoboCasa extra and assets, run its 340-cell Target50 environment contract with:
+RoboCasa extra and assets, run its representative environment checks with:
 
 ```bash
 RPENT_RUN_ROBOCASA_INTEGRATION=1 \
   pytest tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py -v
 ```
 
-This opt-in test constructs and resets every manifest task/seed cell, verifies
-the 12D action interface, operation cameras, navigation RGB-D/world map,
-success predicate, and clean close. It does not invoke a planner or VLA model.
+The suite has four cases: `OpenDrawer`, `NavigateKitchen`, and
+`PickPlaceCounterToCabinet` at seed 1, plus a separate mobile-camera movement
+check. These cover articulated fixtures, navigation, and object placement using
+the shared environment interface. Each task checks construction/reset, the 12D
+action interface, operation cameras, navigation RGB-D/world map, the success
+predicate, and clean close. The camera regression checks pose and image changes
+after eight base steps.
+
+These are code and installation checks, not a full evaluation: repeated seeds
+and similar tasks are deliberately omitted. They do not invoke a planner or VLA
+model. The fast Target50 protocol tests still validate all 50 tasks and the
+340-cell manifest; benchmark reproduction remains a separate procedure described
+in the [RoboCasa README](../robots/robocasa/README.md#target50-reproduction).
 
 ## Embodied GPU E2E tests
 

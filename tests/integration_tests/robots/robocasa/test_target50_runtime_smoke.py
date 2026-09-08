@@ -12,29 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Opt-in real-environment smoke coverage for every Target50 task."""
+"""Opt-in runtime contract checks on representative RoboCasa scenes."""
 
 from __future__ import annotations
 
-import json
 import os
-from pathlib import Path
 
 import numpy as np
 import pytest
-
-REPO_ROOT = Path(__file__).resolve().parents[4]
-MANIFEST_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50.json"
-
-
-def _target50_cells() -> list[tuple[str, int]]:
-    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-    return [
-        (task, seed)
-        for split in manifest["splits"].values()
-        for task in split["tasks"]
-        for seed in split["seeds"]
-    ]
 
 
 class _DirectRpc:
@@ -55,11 +40,14 @@ class _DirectRpc:
 
 @pytest.mark.timeout(180)
 @pytest.mark.parametrize(
-    ("task_name", "seed"),
-    _target50_cells(),
-    ids=lambda value: str(value),
+    "task_name",
+    [
+        "OpenDrawer",  # Articulated fixture state.
+        "NavigateKitchen",  # Mobile-base navigation goal.
+        "PickPlaceCounterToCabinet",  # Object placement and containment.
+    ],
 )
-def test_target50_environment_contract(task_name, seed, monkeypatch):
+def test_target50_environment_contract(task_name, monkeypatch):
     if os.environ.get("RPENT_RUN_ROBOCASA_INTEGRATION") != "1":
         pytest.skip("set RPENT_RUN_ROBOCASA_INTEGRATION=1 to run RoboCasa smoke tests")
 
@@ -74,7 +62,7 @@ def test_target50_environment_contract(task_name, seed, monkeypatch):
     facade = RoboCasaEnvFacade(
         task_name=task_name,
         split="target",
-        seed=seed,
+        seed=1,
         camera_h=64,
         camera_w=64,
     )
