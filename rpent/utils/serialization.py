@@ -23,18 +23,7 @@ import numpy as np
 
 
 def to_numpy_tree(value: Any) -> Any:
-    """Recursively convert tensors and nested values into pickle-safe data.
-
-    Converts torch-style tensors to CPU numpy arrays, dataclasses to dicts,
-    and numpy scalars to native Python scalars so the result pickles cleanly
-    across the agent/env_server wire.
-
-    Args:
-        value: The object to convert.
-
-    Returns:
-        A pickle-safe representation of ``value``.
-    """
+    """Recursively convert tensors and nested values into pickle-safe data."""
     if hasattr(value, "detach") and hasattr(value, "cpu") and hasattr(value, "numpy"):
         return value.detach().cpu().numpy()
     if dataclasses.is_dataclass(value):
