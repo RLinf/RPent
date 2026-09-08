@@ -1,0 +1,162 @@
+{
+  "schema_version": "1.0",
+  "protocol_id": "robocasa-harness-vla-v1",
+  "benchmark": "RoboCasa365",
+  "environment_split": "target",
+  "success_source": "state.success",
+  "total_tasks": 50,
+  "total_cells": 340,
+  "dependencies": {
+    "runtime": {
+      "python": "3.10",
+      "cuda": "12.6",
+      "constraints_file": "robots/robocasa/eval/target50-constraints.txt",
+      "overrides_file": "robots/robocasa/eval/target50-overrides.txt",
+      "packages": {
+        "mujoco": "3.3.1",
+        "numpy": "1.26.4",
+        "pydantic": "2.13.5",
+        "pydantic-ai-slim": "2.1.0",
+        "rlinf-rldx": "1.0.1.post10",
+        "rlinf-robocasa365": "1.0.1",
+        "torch": "2.7.0",
+        "torchvision": "0.22.0",
+        "transformers": "4.57.6"
+      }
+    },
+    "robosuite": {
+      "repository": "https://github.com/RLinf/robosuite",
+      "commit": "97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
+    },
+    "rldx_checkpoint": {
+      "repository": "RLWRLD/RLDX-1-FT-RC365",
+      "revision": "587e9ecdcc5e7184fcc17f58713908edff5af041"
+    },
+    "task_memory": {
+      "repository": "RLinf/RPent-memory",
+      "repository_type": "dataset",
+      "revision": "551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b",
+      "include_pattern": "robocasa/**"
+    }
+  },
+  "planner_reference": {
+    "planner": "codex",
+    "model": "gpt-5.5",
+    "reasoning_effort": "xhigh",
+    "max_turns": 100,
+    "runtime_is_planner_agnostic": true
+  },
+  "runtime_protocol": {
+    "scene_seed_source": "cli_seed_identity",
+    "use_reset_seed_override": false,
+    "result_schema_version": "1.0",
+    "result_filename": "result.json",
+    "rldx_max_chunks": 40,
+    "rldx_settle_patience": 999,
+    "rldx_action_steps_per_chunk": 8
+  },
+  "memory_policy": {
+    "scope": "same_task_seed_0",
+    "results_directory": "robocasa/results",
+    "required_files": [
+      "<Task>_s0.json",
+      "recipe_<Task>_s0.jsonl"
+    ],
+    "optional_files": [
+      "<Task>.md"
+    ],
+    "use_global_memory": false,
+    "use_cross_task_memory": false,
+    "tasks_with_memory": 43,
+    "tasks_without_memory": [
+      "HeatKebabSandwich",
+      "PanTransfer",
+      "PortionHotDogs",
+      "SeparateFreezerRack",
+      "WaffleReheat",
+      "WashFruitColander",
+      "WeighIngredients"
+    ]
+  },
+  "retry_policy": {
+    "retry_infrastructure_failure_without_valid_environment_result": true,
+    "retry_valid_task_failure": false,
+    "retry_planner_timeout": false
+  },
+  "splits": {
+    "atomic": {
+      "task_count": 18,
+      "seeds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      "timeout_seconds": 1800,
+      "cell_count": 180,
+      "tasks": [
+        "CloseBlenderLid",
+        "CloseFridge",
+        "CloseToasterOvenDoor",
+        "CoffeeSetupMug",
+        "NavigateKitchen",
+        "OpenCabinet",
+        "OpenDrawer",
+        "OpenStandMixerHead",
+        "PickPlaceCounterToCabinet",
+        "PickPlaceCounterToStove",
+        "PickPlaceDrawerToCounter",
+        "PickPlaceSinkToCounter",
+        "PickPlaceToasterToCounter",
+        "SlideDishwasherRack",
+        "TurnOffStove",
+        "TurnOnElectricKettle",
+        "TurnOnMicrowave",
+        "TurnOnSinkFaucet"
+      ]
+    },
+    "composite_seen": {
+      "task_count": 16,
+      "seeds": [1, 2, 3, 4, 5],
+      "timeout_seconds": 3600,
+      "cell_count": 80,
+      "tasks": [
+        "ScrubCuttingBoard",
+        "StackBowlsCabinet",
+        "WashLettuce",
+        "RinseSinkBasin",
+        "PreSoakPan",
+        "StirVegetables",
+        "LoadDishwasher",
+        "SteamInMicrowave",
+        "SetUpCuttingStation",
+        "GetToastedBread",
+        "DeliverStraw",
+        "KettleBoiling",
+        "PrepareCoffee",
+        "StoreLeftoversInBowl",
+        "SearingMeat",
+        "PackIdenticalLunches"
+      ]
+    },
+    "composite_unseen": {
+      "task_count": 16,
+      "seeds": [1, 2, 3, 4, 5],
+      "timeout_seconds": 3600,
+      "cell_count": 80,
+      "tasks": [
+        "ArrangeBreadBasket",
+        "ArrangeTea",
+        "BreadSelection",
+        "CategorizeCondiments",
+        "CuttingToolSelection",
+        "GarnishPancake",
+        "GatherTableware",
+        "HeatKebabSandwich",
+        "MakeIceLemonade",
+        "PanTransfer",
+        "PortionHotDogs",
+        "RecycleBottlesByType",
+        "SeparateFreezerRack",
+        "WaffleReheat",
+        "WashFruitColander",
+        "WeighIngredients"
+      ]
+    }
+  }
+}

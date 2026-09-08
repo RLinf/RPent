@@ -100,6 +100,8 @@ Minimal command
 
 To switch planners, see :doc:`configure_planner`.
 
+.. _libero-exploration:
+
 Exploration and local-memory evaluation
 ---------------------------------------
 
@@ -107,7 +109,7 @@ RPent supports two LIBERO run modes:
 
 - **Exploration** uses multiple resettable attempts and independent planner
   sessions to discover successful strategies and distil them into a local
-  global/suite/task memory corpus. It is a memory-generation workflow, not the
+  global/suite/task_only memory corpus. It is a memory-generation workflow, not the
   benchmark success-rate measurement.
 - **Evaluation** is the default, single-attempt mode. It does not reset the
   episode or update memory. Local-memory evaluation consumes the validated
@@ -125,11 +127,11 @@ in where the evaluation memory comes from and which memory prompt is used.
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
      --planner claude_code --memory-profile hf
 
-Use ``local`` only after a local global/suite/task corpus exists, for example
+Use ``local`` after a local memory corpus has been prepared, for example
 after running the exploration workflow below. This option does not enable
 exploration and does not download memory from Hugging Face; it runs the normal
 single-attempt evaluation against ``--memory-dir`` (default:
-``resources/libero/memory``) without overwriting that directory. If you want to
+``memory/libero``) without overwriting that directory. If you want to
 evaluate with the prebuilt Hugging Face corpus, keep ``--memory-profile hf``:
 
 .. code-block:: bash
@@ -139,9 +141,9 @@ evaluate with the prebuilt Hugging Face corpus, keep ``--memory-profile hf``:
 
 Exploration uses the same CLI, runtime, tools, and planner implementations.  It
 adds resettable attempts and fresh planner sessions, then distils drafts into
-``<memory-dir>/_inbox/<cell>/``.  On normal completion the Python runner
+``<memory-dir>/_internal/inbox/<cell>/``.  On normal completion the Python runner
 validates and merges those drafts, publishes a task audit/recipe pair only when
-LIBERO reported success, and rebuilds ``MEMORY.md``. Exploration can start with
+LIBERO reported success, and refreshes ``MEMORY.md``. Exploration can start with
 an empty ``--memory-dir`` and always uses the local profile; ``--explore`` is
 the flag that enables this workflow:
 

@@ -30,6 +30,9 @@ import imageio.v2 as imageio
 import numpy as np
 
 from robots.robocasa.env_client import RoboCasaEnvClient
+from rpent.utils.logging import get_logger
+
+logger = get_logger("rldx_skill")
 
 
 class RLDXSkill:
@@ -43,7 +46,6 @@ class RLDXSkill:
         )
         self._vdi = None  # video delta indices, e.g. [-6,-4,-2,0]
         self._hist = None  # deque of raw frame dicts
-        self._sid = "rc_agent_rldx_0"  # TODO: fix for vla, single server multi client
         self._unmap = None  # lazy: eval's PandaOmronKeyConverter.unmap_action
         # OPTIONAL per-sim-step video capture. OFF by default (env RLDX_VIDEO_DIR unset):
         # the VLA rollout is closed-loop over 100s of sim-steps but the primitives only dump
@@ -268,7 +270,7 @@ class RLDXSkill:
         last_cmd_close = False
         for c in range(max_chunks):
             obs = self._build_obs(prompt)
-            options = {"reset_memory": [fresh], "session_ids": [self._sid]}
+            options = {"reset_memory": [fresh]}
             fresh = False
             if self._check_cancelled is not None:
                 self._check_cancelled()
@@ -375,9 +377,13 @@ class RLDXSkill:
     def reset_session(self):
         if self._vla_client is not None:
             try:
-                self._vla_client.reset_session(self._sid)
+                self._vla_client.reset_session()
             except Exception:
-                pass
+                logger.warning(
+                    "VLA reset_session RPC failed; RLDX memory/RTC state may "
+                    "not be reset for the next task",
+                    exc_info=True,
+                )
         self._last_prompt = None  # post-reset: next call is a fresh task
         if self._hist is not None:
             self._hist.clear()

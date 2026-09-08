@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import fcntl
+import os
 import re
 import shutil
 from collections.abc import Callable
@@ -24,6 +25,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from rpent.utils.logging import get_logger
+
+logger = get_logger("memory")
 
 SCOPES = {"global", "suite"}
 KINDS = {"primitive", "perception", "strategy", "failure", "infra"}
@@ -114,8 +119,12 @@ def _merge_evidence(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     return {**old, "evidence": evidence, "confidence": confidence}
 
 
+def _has_local_memory(root: Path) -> bool:
+    return root.is_dir() and any(path.is_file() for path in root.rglob("*"))
+
+
 class MemoryManager:
-    """Manage merge, index rebuild, and validation for one memory corpus.
+    """Manage merge, validation, and synchronization for one memory corpus.
 
     root is the corpus root. It is stored resolved and created lazily by
     mutating operations.
@@ -184,20 +193,23 @@ class MemoryManager:
         run_state_dir: str | Path,
         solved: bool,
     ) -> dict[str, Any]:
-        """Validate and publish one cell's completed exploration artifacts.
+        """Publish one cell's inbox drafts and solved task artifacts.
 
-        Drafts from the cell inbox are published into the layered corpus,
-        merging evidence without overwriting conflicting prose, and the
-        consumed inbox is archived under _merged/. When solved is true and the
-        run produced an audit/recipe pair, that pair is copied into task/. The
-        index is rebuilt at the end.
+        Drafts merge into global/suite; conflicting prose is
+        archived under _internal/conflicts. Solved audit/recipe pairs are
+        copied to task_only/. MEMORY.md is refreshed at the end.
         """
         root = self._root
         run_dir = Path(run_state_dir).resolve()
-        inbox = root / "_inbox" / cell_tag
-        conflicts = root / "_conflicts"
-        merged = root / "_merged"
-        tiers = {scope: root / scope for scope in ("global", "suite", "task")}
+        internal = root / "_internal"
+        inbox = internal / "inbox" / cell_tag
+        conflicts = internal / "conflicts"
+        merged = internal / "merged"
+        tiers = {
+            "global": root / "global",
+            "suite": root / "suite",
+            "task": root / "task_only",
+        }
         for directory in (*tiers.values(), conflicts, merged, inbox.parent):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -210,7 +222,7 @@ class MemoryManager:
             "conflicts": 0,
             "skipped": [],
         }
-        lock_path = root / ".merge.lock"
+        lock_path = internal / "merge.lock"
         lock_path.touch(exist_ok=True)
         with lock_path.open("r+") as lock_file:
             fcntl.flock(lock_file, fcntl.LOCK_EX)
@@ -230,7 +242,18 @@ class MemoryManager:
                     destination.write_text(_render(metadata, body))
                     result[metadata["scope"]] += 1
                     continue
-                old_metadata, old_body = _split_frontmatter(destination)
+                try:
+                    old_metadata, old_body = _split_frontmatter(destination)
+                except ValueError:
+                    # Archive the incoming draft as a conflict.
+                    conflict = conflicts / f"{memory_id}__from_{cell_tag}.md"
+                    conflict.write_text(_render(metadata, body))
+                    result["conflicts"] += 1
+                    result["skipped"].append(
+                        f"{source.name}: existing non-mergeable note "
+                        f"{destination.name} left untouched"
+                    )
+                    continue
                 credited = cell_tag in (
                     (old_metadata.get("evidence") or {}).get("cells") or []
                 )
@@ -251,7 +274,7 @@ class MemoryManager:
                 shutil.move(str(inbox), str(archive))
 
             audit = run_dir / f"{cell_tag}.json"
-            recipe = run_dir / f"recipe_{cell_tag}.jsonl"
+            recipe = run_dir / f"{cell_tag}_recipe.jsonl"
             if solved and audit.exists() and recipe.exists():
                 audit_target = tiers["task"] / audit.name
                 recipe_target = tiers["task"] / recipe.name
@@ -267,8 +290,13 @@ class MemoryManager:
             self.rebuild_index()
         return result
 
-    def rebuild_index(self) -> Path:
-        """Rebuild and return the generated MEMORY.md path."""
+    def rebuild_index(self) -> Path | None:
+        """Regenerate MEMORY.md from global and suite leaves.
+
+        Leaves without parseable frontmatter are skipped individually; the
+        index is rebuilt from the rest. Returns None and writes nothing when
+        there are no leaves with parseable frontmatter.
+        """
         root = self._root
         groups: dict[str, list[tuple[str, dict[str, Any]]]] = {
             "global": [],
@@ -276,11 +304,17 @@ class MemoryManager:
         }
         for scope in groups:
             for path in sorted((root / scope).glob("*.md")):
+                text = path.read_text(errors="replace")
+                if not text.startswith("---"):
+                    continue
                 try:
                     metadata, _ = _split_frontmatter(path)
                 except ValueError:
                     continue
                 groups[scope].append((path.name, metadata))
+        index = root / "MEMORY.md"
+        if not any(groups.values()):
+            return None
         lines = [
             "# Layered memory index",
             "",
@@ -302,12 +336,19 @@ class MemoryManager:
         return index
 
     def validate(self) -> list[str]:
-        """Return validation problems for all global/suite leaves."""
+        """Return validation problems for global and suite leaves.
+
+        Only frontmatter-bearing leaves are schema-validated; plain Markdown
+        is allowed silently.
+        """
         root = self._root
         problems: list[str] = []
         ids: dict[str, Path] = {}
         for scope in ("global", "suite"):
             for path in sorted((root / scope).glob("*.md")):
+                text = path.read_text(errors="replace")
+                if not text.startswith("---"):
+                    continue
                 try:
                     metadata, _ = _split_frontmatter(path)
                     _validate(metadata)
@@ -326,6 +367,53 @@ class MemoryManager:
                     )
                 ids[memory_id] = path
         return problems
+
+    def sync(self, *, remote_repo: str) -> Path:
+        """Sync this memory corpus from its Hugging Face dataset."""
+        robot_name = self._root.name
+        repo_id = os.environ.get(
+            "RPENT_MEMORY_HF_REPO",
+            remote_repo,
+        )
+
+        if os.environ.get("HF_HUB_OFFLINE") == "1":
+            if not _has_local_memory(self._root):
+                logger.warning(
+                    "HF_HUB_OFFLINE=1 but no local memory was found under %s",
+                    self._root,
+                )
+            return self._root
+
+        try:
+            from huggingface_hub import snapshot_download
+
+            snapshot_download(
+                repo_id=repo_id,
+                repo_type="dataset",
+                local_dir=str(self._root.parent),
+                allow_patterns=[f"{robot_name}/**"],
+            )
+        except Exception as exc:
+            if _has_local_memory(self._root):
+                logger.warning(
+                    "could not sync '%s' from '%s': %s; "
+                    "continuing with local memory under %s",
+                    robot_name,
+                    repo_id,
+                    exc,
+                    self._root,
+                )
+            else:
+                logger.warning(
+                    "could not sync '%s' from '%s': %s; "
+                    "no local memory was found under %s",
+                    robot_name,
+                    repo_id,
+                    exc,
+                    self._root,
+                )
+
+        return self._root
 
 
 __all__ = ["MemoryManager"]

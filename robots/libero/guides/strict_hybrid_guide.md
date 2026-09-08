@@ -128,7 +128,7 @@ entities up front instead of recovering later.
 Operating wisdom lives in the in-repo memory:
 
 ```
-resources/libero/memory/MEMORY.md
+memory/libero/MEMORY.md
 ```
 
 Scan the ~30 one-line hooks. For perception cells **always** open:
@@ -532,7 +532,7 @@ allowed physics primitives (`move_to`, `pi0_pick`, `pi0_doubled`, `release`,
 
 When top-level `terminated == true`:
 
-a. The working command recipe (`{output_dir}/recipe_{recipe_tag}.jsonl`) is
+a. The working command recipe (`{output_dir}/{recipe_tag}_recipe.jsonl`) is
   **auto-exported by the runner** from non-error primitive commands in the
   recorded state trace plus successful `segment_XX.json` artifacts, merged in
   execution order — you do NOT
@@ -586,18 +586,18 @@ which step failed. Then call `finish` (NO reset, NO second attempt).
 
 ## Reference cases
 
-The seed-0 sweep results live under `resources/libero/results_*_pert/`
-(`results_10_pert`, `results_object_pert`, `results_spatial_pert`,
-`results_goal_pert` — PRO swap+task, t0–t9). Each solved cell has an audit JSON
-+ a `recipe_{tag}.jsonl` command sequence. The consistent winning pattern:
+The curated seed-0 references for the 10, object, spatial, and goal suites
+live under `memory/libero/task_only/` (PRO swap+task, t0-t9). Each solved
+cell has an audit JSON + a `{tag}_recipe.jsonl` command sequence. The
+consistent winning pattern:
 localize → pre-pos → `pi0_pick` → `set_gripper` → move → `release` in 6–12
 commands.
 
-When you write a new audit, browse a sibling cell's `recipe_{tag}.jsonl` as a
+When you write a new audit, browse a sibling cell's `{tag}_recipe.jsonl` as a
 *technique* template — but never paste its xyz; re-derive every position via
 `back_project` from THIS scene's depth.
 
-Begin by reading `resources/libero/memory/MEMORY.md`, then call
+Begin by reading `memory/libero/MEMORY.md`, then call
 `view_env_state({"step": 0})` and inspect `agentview_high.png`
 (+ metadata via `view_camera_meta`); localize the target object via
 `back_project`, then plan and execute.

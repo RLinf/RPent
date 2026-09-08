@@ -108,7 +108,7 @@ def test_toolkit_factory_configures_memory_access_by_mode(
     exploration_write = exploration.memory.get_common_tool_bindings()[
         "write_text_file"
     ][1]
-    own_draft = memory_dir / "_inbox" / config.recipe_tag / "draft.md"
+    own_draft = memory_dir / "_internal" / "inbox" / config.recipe_tag / "draft.md"
     with pytest.raises(PermissionError, match="writing to memory is denied"):
         evaluation_write(str(own_draft), "draft")
     assert exploration_write(str(own_draft), "draft")["bytes_written"] == 5

@@ -31,7 +31,7 @@ this; use runtime state and visual evidence.
 KITCHEN_SCENE split — the PRO BDDLs rename the prefix to `MAIN_TABLE_SCENE1` but
 reuse the same underlying table assets. The `object` frame is a third, lower
 table specific to `libero_object`; its per-item pick/place altitudes are in
-`resources/libero/memory/project_libero_object_pro_done.md`.)
+`memory/libero/global/project_libero_object_pro_done.md`.)
 
 ## OSC reachable workspace — LIVING_ROOM frame (eef home z=0.68)
 
@@ -141,7 +141,7 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
    precisely above the remaining target at z=`floor + 0.07`; re-localize and
    recover in the current episode if safe; or use an LLM-scripted grasp via
    `move_to` + `set_gripper` (last resort; unreliable for objects <6 cm — see
-   `resources/libero/memory/feedback_scripted_pick_limits.md`).
+   `memory/libero/global/feedback_scripted_pick_limits.md`).
 
 ## Calibration records
 

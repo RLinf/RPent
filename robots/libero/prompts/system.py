@@ -37,8 +37,8 @@ PROVEN_LEVERS = """These are battle-tested on seed 0 of THIS suite. You are now 
 seed — object/fixture positions differ, so RE-LOCALIZE everything per scene
 (never hard-code an xyz). But the TECHNIQUES and the per-task target zones
 transfer directly. For your task, FIRST read the solved seed-0 reference (if
-present): `resources/libero/results_*_pert/<seed-0 tag>.json` (+
-`recipe_<seed-0 tag>.jsonl`)
+present): `{{memory_dir}}/task_only/{{reference_tag}}.json` (+
+`{{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl`)
 — it has the winning strategy_notes and command sequence for the SAME task at
 seed 0. Reuse its approach; re-derive every coordinate from THIS scene.
 The recipe is ONLY the command sequence. You must ALSO read the matching task
@@ -381,22 +381,24 @@ consistent with the agentview anchor, or for basket/cavity geometry.)"""
 WORKFLOW_STEPS = (
     """READ MEMORY FIRST — a general skill library (operating wisdom, magic numbers,
 gotchas, and reusable manipulation patterns), indexed by:
-  `resources/libero/memory/MEMORY.md`
+  `{{memory_dir}}/MEMORY.md`
 Scan the index, then `read_text_file` the few leaf memories most relevant to
 your cell. They are not all named `feedback_*`, and the index lines do not spell
 out every scene a memory covers — so SEARCH the library yourself rather than
-reading the index alone: `list_dir` `resources/libero/memory/` to see every
-memory file, and pick candidates by the objects, container, fixture or motion
-your scene involves (wording taken from your task description works as a search
-key too). If a shell / grep tool is available to you, `grep -rl "<keyword>"
-resources/libero/memory/` jumps straight to the files that mention your objects
-— use it when you can; otherwise fall back to `list_dir` + `read_text_file`. A given theme often has several near-identical skill files (e.g.
-multiple stove / basket / mug patterns that differ only in WHICH objects or step
+reading the index alone: `list_dir` `{{memory_dir}}/global/` and
+`{{memory_dir}}/suite/` to see every memory file, and pick candidates by the
+objects, container, fixture or motion your scene involves (wording taken from
+your task description works as a search key too). If a shell / grep tool is
+available to you, `grep -rl "<keyword>" {{memory_dir}}/global/
+{{memory_dir}}/suite/` jumps straight to the files that mention your objects
+— use it when you can; otherwise fall back to `list_dir` + `read_text_file`.
+A given theme often has several near-identical skill files (e.g. multiple
+stove / basket / mug patterns that differ only in WHICH objects or step
 order). When it does, do NOT pick from the one-line index or stop at the first
 name — `read_text_file` the top candidates and choose the one whose objects,
-spatial relation and step order actually match YOUR scene, deciding from the file
-body (not its index blurb). Entries are written as reusable patterns: take the
-technique and the parameter ranges as general know-how, and re-derive every
+spatial relation and step order actually match YOUR scene, deciding from the
+file body (not its index blurb). Entries are written as reusable patterns: take
+the technique and the parameter ranges as general know-how, and re-derive every
 coordinate by perception in YOUR scene.
 ⭐ MANDATORY — do this even when a seed-0 recipe exists: the recipe gives the
 commands, this memory gives the reasoning and failure-modes needed to adapt them,
@@ -412,10 +414,8 @@ internals, which would tempt you to use GT coords) once each:
 """,
     """READ SEED-0 STRATEGY REFERENCES IF PRESENT, then solve from scratch.
 Strategy references live under:
-- `resources/libero/results_10_pert/`
-- `resources/libero/results_object_pert/`
-- `resources/libero/results_spatial_pert/`
-- `resources/libero/results_goal_pert/`
+- `{{memory_dir}}/task_only/` (solved seed-0 audit + recipe pairs:
+  `<tag>.json` + `<tag>_recipe.jsonl`)
 Use these for strategy_notes, prompt ladders, primitive ordering, gotchas, and
 qualitative target zones. They were built on different scenes and sometimes
 with older/oracle assumptions; do NOT copy coordinates and do NOT replay stale
