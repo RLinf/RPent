@@ -27,16 +27,16 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 标定（Calibration）
 ----------------------
 
-Hand-eye calibration 使用 ROS `easy_handeye
-<https://github.com/IFL-CAMP/easy_handeye>`_ 完成。它为每个投影相机（
+手眼标定使用 ROS `easy_handeye
+<https://github.com/IFL-CAMP/easy_handeye>`_ 完成。它为每台投影相机（
 ``base_camera`` 和 ``d455_camera``）生成一个 YAML，默认保存在
 ``~/.ros/easy_handeye/`` 下。
 
-RPent 读取一个 JSON bundle（``hand_eye_calibration.json``），其中包含每个相机的
+RPent 会读取一个 JSON 文件（``hand_eye_calibration.json``），其中包含每台相机的
 ``source_name``、``parameters`` 和 ``transformation``。生成方式是从每个
-``easy_handeye`` YAML 中拷贝这些字段。
+``easy_handeye`` YAML 中复制这些字段。
 
-bundle 位置可通过 ``--calibration-path`` 配置（默认
+该文件的位置可通过 ``--calibration-path`` 配置（默认
 ``~/.ros/easy_handeye/hand_eye_calibration.json``）。
 
 开发配置
@@ -44,8 +44,8 @@ bundle 位置可通过 ``--calibration-path`` 配置（默认
 
 启用机械臂运动前，请检查并修改仓库中的开发默认值：
 
-* ``robots/dual_franka/config/example.yaml`` 包含机器身份（两台机器人 IP、相机
-  序列号/类型、夹爪连接）、工作空间几何（target poses、安全边界）和感知定位
+* ``robots/dual_franka/config/example.yaml`` 包含机器人身份（两台机器人 IP、相机
+  序列号/类型、夹爪连接）、工作空间几何（目标位姿、安全边界）和感知定位
   边界 + base-frame 变换。
 
 RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境对象。如需使用
@@ -59,7 +59,7 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 
 * 节点 ``0`` 是 Ray head 节点：运行双臂 Franka 环境 worker
   （全部相机、感知以及双臂和夹爪状态）和**左臂**的实时控制器。VLA 任务的
-  本地 VLA server 也运行在该节点上。
+  本地 VLA 服务也运行在该节点上。
 * 节点 ``1`` 是 Ray worker 节点：只运行**右臂**的实时控制器，不接相机，
   也不运行 RPent 进程。
 
@@ -84,7 +84,7 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 运行冒烟测试
 ------------
 
-任务 ``0`` 用于测试保守的单臂解析式运动和夹爪 primitives：
+任务 ``0`` 用于测试稳妥的单臂解析式运动和夹爪 primitives：
 
 .. code-block:: bash
 
@@ -100,8 +100,8 @@ robot config 并生成内部 RLinf adapter config，然后连接 Ray，等待 ``
 VLA 抓取 DEMO
 -------------
 
-RPent提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露 ``vla_grasp``。
-并可在本地启动双臂 Franka VLA server。``PI05_CHECKPOINT_PATH`` 指向 
+RPent 提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露 ``vla_grasp``，
+并可在本地启动双臂 Franka VLA 服务。``PI05_CHECKPOINT_PATH`` 指向 
 训练好的 Pi-05 checkpoint，``DUAL_FRANKA_REPO_ID`` 是用于查找对应归一化统计的数据集 ID：
 
 .. code-block:: bash
@@ -181,13 +181,13 @@ ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint：
 
 双臂 Franka 扩展提供 ``view_env_state``、``view_camera_meta``、
 ``move_delta``、``rotate_delta``、``open_gripper``、``close_gripper`` 和
-``vla_grasp``。每次解析式运动都只选择一条臂（``left`` 或 ``right``）。
-每个会改变环境的工具都会在 RPent 中央 ``EnvState`` 中保存每条臂的状态以及
+``vla_grasp``。每次解析式运动只会作用于一条臂（``left`` 或 ``right``）。
+所有会改变环境状态的工具都会在 RPent 统一的 ``EnvState`` 中保存每条臂的状态以及
 同步的 left-wrist、base 和 right-wrist 图像。
 
 安全要求
 --------
 
 两条臂都必须有操作员留在急停按钮旁。先使用极小的单臂动作验证任务 ``0``，
-再尝试抓取。当相机与状态结果不一致、目标运动未达到，或任何标定存在疑问时，
+再尝试抓取。当相机与状态结果不一致、目标运动没有到位，或任何标定存在疑问时，
 应立即停止。
