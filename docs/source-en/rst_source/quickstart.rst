@@ -61,7 +61,8 @@ Add ``--dashboard`` to start a local Dashboard and print its URL in the terminal
    rpent --robot libero --dashboard --dashboard-language zh-cn \
      --planner claude_code --model claude-opus-4-8
 
-Open the URL and confirm the configuration. Once the services are ready, enter
+Session configuration comes from the CLI and the URL opens directly in the
+live monitor. Once the services are ready, enter
 ``/rpent-task libero_object_swap 2 0`` in the page to start a task. The Dashboard
 streams agent reasoning, camera views, and the action timeline; submit another
 task after the current one finishes. Use ``--dashboard-language zh-cn`` for the

@@ -331,7 +331,6 @@ class Toolkit:
             StepRecordEvent(
                 record=record,
                 env_state=self._state,
-                frame_artifacts=dict(getattr(type(self), "_FRAME_ARTIFACTS", {})),
             )
         )
 
