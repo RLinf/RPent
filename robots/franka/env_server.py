@@ -194,9 +194,7 @@ def _create_worker_class():
             Frames pass through the observation wrappers unchanged, so re-reading
             them without a robot step yields the same format as a stepped obs.
             """
-            getter = self.env.env.call(
-                "get_wrapper_attr", "_get_camera_observation"
-            )[0]
+            getter = self.env.env.call("get_wrapper_attr", "_get_camera_observation")[0]
             frames, depths = getter()
             main_key = self.cfg.env.eval.get("main_image_key")
             output: dict[str, Any] = {"main_images": np.asarray(frames[main_key])}

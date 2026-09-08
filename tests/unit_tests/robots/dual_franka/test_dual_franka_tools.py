@@ -197,7 +197,9 @@ def test_dump_state_falls_back_to_policy_view_when_raw_missing(tmp_path: Path):
     # base keeps its raw frame; the wrists fall back to the policy views.
     np.testing.assert_array_equal(state.load("base.png"), 7)
     np.testing.assert_array_equal(state.load("left_wrist.png"), 0)  # main_images
-    np.testing.assert_array_equal(state.load("right_wrist.png"), 1)  # extra_view_images[1]
+    np.testing.assert_array_equal(
+        state.load("right_wrist.png"), 1
+    )  # extra_view_images[1]
 
 
 def test_view_env_state_emits_multimodal_image_blocks(tmp_path: Path):

@@ -46,9 +46,7 @@ class FrankaEnvClient(BaseEnvClient):
         self.reset()
 
     def reset(self) -> dict[str, Any]:
-        result = self._client.call(
-            "env.reset", timeout_s=self._TIMEOUT_S["env.reset"]
-        )
+        result = self._client.call("env.reset", timeout_s=self._TIMEOUT_S["env.reset"])
         self.last_obs = result
         self._remember_states(result.get("states"))
         return result
