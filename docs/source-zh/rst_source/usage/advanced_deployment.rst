@@ -13,6 +13,17 @@ Pi0.5 VLA 用 ``--vla-endpoint``，SAM3 用 ``--sam3-endpoint``。每个都取
 Dashboard Session 不支持 ``--env-endpoint``，因为每个 TaskRun 都需要使用新的
 环境服务；Dashboard 模式仍可使用 ``--vla-endpoint`` 和 ``--sam3-endpoint``。
 
+环境服务和 VLA 服务需要导入 ``rlinf``。手动启动时如果使用开发中的 RLinf
+源码而非已安装的包，请先把 ``PYTHONPATH`` 指向该源码目录：
+
+.. code-block:: bash
+
+   export PYTHONPATH=/path/to/rlinf:$PYTHONPATH
+
+由 RPent 自动拉起的 server 无需手动设置：RLinf 源码路径从
+``RPENT_RLINF_ROOT`` （或 ``RLINF_REPO_PATH`` ）解析，默认回退到 RPent
+仓库旁边的 ``rlinf`` 目录。
+
 LIBERO 环境服务
 ---------------
 

@@ -17,22 +17,15 @@
 from __future__ import annotations
 
 import queue
-import sys
 import time
 from typing import Any
 
 import numpy as np
 
 from robots.dual_franka.runtime_config import load_runtime_config
-from robots.franka.env_server import _to_numpy_tree, main
-from rpent.utils.config import get_repo_root, get_rlinf_repo_path
+from robots.franka.env_server import main
 from rpent.utils.logging import get_logger
-
-# Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
-RPENT_ROOT = get_repo_root()
-RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
-if str(RLINF_REPO_PATH) not in sys.path:
-    sys.path.insert(0, str(RLINF_REPO_PATH))
+from rpent.utils.serialization import to_numpy_tree
 
 logger = get_logger("dual_franka_env_server")
 
@@ -145,7 +138,7 @@ def _create_worker_class():
             observation, info = self.env.reset()
             return {
                 "ok": True,
-                "info": _to_numpy_tree(info),
+                "info": to_numpy_tree(info),
                 "robot_state": self.get_robot_state(),
                 "states": self._strip_batch(observation.get("states")),
             }
@@ -154,7 +147,7 @@ def _create_worker_class():
 
         @staticmethod
         def _strip_batch(value: Any) -> Any:
-            array = _to_numpy_tree(value)
+            array = to_numpy_tree(value)
             if isinstance(array, np.ndarray) and array.ndim > 0 and array.shape[0] == 1:
                 return array[0]
             if isinstance(array, list) and len(array) == 1:
@@ -195,7 +188,7 @@ def _create_worker_class():
             snapshot_getter = self.env.env.call(
                 "get_wrapper_attr", "get_raw_camera_snapshot"
             )[0]
-            snapshot = _to_numpy_tree(snapshot_getter())
+            snapshot = to_numpy_tree(snapshot_getter())
             output["raw_camera_frames"] = snapshot.get("raw_frames", {})
             output["raw_camera_depths"] = snapshot.get("raw_depths", {})
             perception = self._capture_perception_camera_snapshot()
@@ -268,8 +261,8 @@ def _create_worker_class():
         def get_robot_state(self) -> dict[str, Any]:
             left, right = self._arm_states()
             return {
-                "left_arm": _to_numpy_tree(left),
-                "right_arm": _to_numpy_tree(right),
+                "left_arm": to_numpy_tree(left),
+                "right_arm": to_numpy_tree(right),
                 "action_dim": self.action_dim,
                 "per_arm_dim": self.per_arm_dim,
                 "action_scale": self.action_scale.tolist(),
@@ -302,7 +295,7 @@ def _create_worker_class():
             metadata_getter = self.env.env.call(
                 "get_wrapper_attr", "get_raw_camera_metadata"
             )[0]
-            metadata.update(_to_numpy_tree(metadata_getter()))
+            metadata.update(to_numpy_tree(metadata_getter()))
             metadata.update(self._perception_camera_meta)
             return {
                 "cameras": cameras,
@@ -530,9 +523,9 @@ def _create_worker_class():
             for action in np.asarray(actions, dtype=np.float32):
                 observation, _reward, term, trunc, info = self.env.step(action[None, :])
                 observations.append(self._decorate_step_observation(observation))
-                terminated = terminated or bool(np.asarray(_to_numpy_tree(term)).any())
-                truncated = truncated or bool(np.asarray(_to_numpy_tree(trunc)).any())
-                last_info = _to_numpy_tree(info)
+                terminated = terminated or bool(np.asarray(to_numpy_tree(term)).any())
+                truncated = truncated or bool(np.asarray(to_numpy_tree(trunc)).any())
+                last_info = to_numpy_tree(info)
                 if terminated or truncated:
                     break
             return {

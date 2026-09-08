@@ -23,7 +23,7 @@ import sys
 import threading
 from typing import Callable
 
-from rpent.utils.config import get_repo_root
+from rpent.utils.config import get_repo_root, get_rlinf_repo_path
 from rpent.utils.logging import get_logger
 
 logger = get_logger("daemon")
@@ -69,6 +69,15 @@ def pick_free_port(host: str = "127.0.0.1") -> int:
         return int(s.getsockname()[1])
 
 
+def prepend_pythonpath(env: dict[str, str], path: str) -> None:
+    """Prepend ``path`` to ``env["PYTHONPATH"]``, keeping each entry once."""
+    entries = [path]
+    for entry in env.get("PYTHONPATH", "").split(os.pathsep):
+        if entry and entry not in entries:
+            entries.append(entry)
+    env["PYTHONPATH"] = os.pathsep.join(entries)
+
+
 class ProcessDaemon:
     """Wraps a subprocess server with ready-detection and lifecycle."""
 
@@ -85,6 +94,7 @@ class ProcessDaemon:
         self.cmd = cmd
         self.subprocess_env = os.environ.copy()
         self.subprocess_env.update(env_overrides or {})
+        prepend_pythonpath(self.subprocess_env, str(get_rlinf_repo_path()))
         self.log_path = log_path
         self.cwd = cwd
         self._proc: subprocess.Popen | None = None

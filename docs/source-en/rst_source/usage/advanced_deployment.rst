@@ -15,6 +15,18 @@ Dashboard Sessions do not support ``--env-endpoint`` because every TaskRun
 uses a fresh environment service. ``--vla-endpoint`` and ``--sam3-endpoint``
 remain available in Dashboard mode.
 
+The environment and VLA services import ``rlinf``. When starting them
+manually against a development RLinf checkout instead of the installed
+package, point ``PYTHONPATH`` at the checkout first:
+
+.. code-block:: bash
+
+   export PYTHONPATH=/path/to/rlinf:$PYTHONPATH
+
+Servers spawned by RPent get this automatically: the checkout is resolved
+from ``RPENT_RLINF_ROOT`` (or ``RLINF_REPO_PATH``), falling back to the
+``rlinf`` directory next to the RPent checkout.
+
 LIBERO environment service
 --------------------------
 

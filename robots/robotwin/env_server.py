@@ -31,6 +31,7 @@ if __package__ in (None, ""):
 
 from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
+from rpent.utils.serialization import to_numpy_tree
 
 logger = get_logger("robotwin_env_server")
 
@@ -60,21 +61,6 @@ from robotwin.config import load_task_config  # noqa: E402
 from robots.robotwin.reward_compat import install_native_reward_compat  # noqa: E402
 from robots.robotwin.rlinf_env import RoboTwinAgentEnv  # noqa: E402
 from robots.robotwin.robot_spec import RoboTwinActionType  # noqa: E402
-
-
-def _to_numpy_tree(value: Any) -> Any:
-    """Convert RPC results to numpy arrays and plain Python values."""
-    if hasattr(value, "detach") and hasattr(value, "cpu") and hasattr(value, "numpy"):
-        return value.detach().cpu().numpy()
-    if isinstance(value, dict):
-        return {key: _to_numpy_tree(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_to_numpy_tree(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_to_numpy_tree(item) for item in value)
-    if isinstance(value, np.generic):
-        return value.item()
-    return value
 
 
 class RoboTwinEnvFacade(BaseEnvFacade):
@@ -229,7 +215,7 @@ class RoboTwinEnvFacade(BaseEnvFacade):
         return self._env.plan_arm_path(0, arm, target_pose)
 
     def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        return _to_numpy_tree(super()._dispatch(method, args, kwargs))
+        return to_numpy_tree(super()._dispatch(method, args, kwargs))
 
 
 def build_env_cfg(
