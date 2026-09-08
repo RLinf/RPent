@@ -54,8 +54,16 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 启动双节点 Ray 集群
 --------------------
 
-每个控制节点都必须在启动 Ray 前设置 ``RLINF_NODE_RANK``。仅在节点 ``0``
-运行 RPent。
+两个节点的角色不同（定义在 ``robots/dual_franka/runtime_config.py``
+中）：
+
+* 节点 ``0`` 是 Ray head 节点：运行双臂 Franka 环境 worker
+  （全部相机、感知以及双臂和夹爪状态）和**左臂**的实时控制器。VLA 任务的
+  本地 VLA server 也运行在该节点上。
+* 节点 ``1`` 是 Ray worker 节点：只运行**右臂**的实时控制器，不接相机，
+  也不运行 RPent 进程。
+
+每个控制节点都必须在启动 Ray 前设置 ``RLINF_NODE_RANK``。
 
 节点 ``0``：
 

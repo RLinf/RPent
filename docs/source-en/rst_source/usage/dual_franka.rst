@@ -60,8 +60,17 @@ cluster and environment objects. To use a different file, pass
 Start the two-node Ray cluster
 ------------------------------
 
-Set ``RLINF_NODE_RANK`` before starting Ray on each controller node. Run RPent
-only on node ``0``.
+The two nodes have fixed, different roles (defined in
+``robots/dual_franka/runtime_config.py``):
+
+* Node ``0`` is the Ray head: it runs the dual-Franka environment
+	worker (all cameras, perception, and arm/gripper state), and the **left**
+	arm's real-time controller. For the VLA task, the
+	local VLA server also runs here.
+* Node ``1`` is a Ray worker: it runs only the **right** arm's real-time
+	controller, with no cameras and no RPent process.
+
+Set ``RLINF_NODE_RANK`` before starting Ray on each controller node.
 
 Node ``0``:
 
