@@ -58,10 +58,10 @@ class _Env:
 
 
 class _Model:
-    def predict_action_batch(self, observation, *, mode):
+    def predict(self, observation, *, options):
         assert observation["task_descriptions"] == "pick up the bowl"
-        assert mode == "eval"
-        return np.ones((2, 7), np.float32), {}
+        assert options["mode"] == "eval"
+        return np.ones((2, 7), np.float32)
 
 
 def _primitives(env, config=None):

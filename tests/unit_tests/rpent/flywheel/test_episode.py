@@ -15,6 +15,7 @@
 import json
 
 import numpy as np
+import pytest
 
 from rpent.flywheel.episode import EpisodeWriter, validate_episode
 from rpent.flywheel.export import export_lerobot
@@ -104,6 +105,8 @@ def test_failed_episode_has_no_training_prefix(tmp_path):
 
 
 def test_export_uses_only_success_prefix(tmp_path):
+    pytest.importorskip("lerobot")
+
     success = EpisodeWriter(
         tmp_path,
         suite="libero_object",
@@ -133,7 +136,7 @@ def test_export_uses_only_success_prefix(tmp_path):
     assert report["episode_count"] == 1
     assert report["frame_count"] == 1
 
-    from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     dataset = LeRobotDataset(report["repo_id"], root=report["dataset_path"])
     assert len(dataset) == 1
