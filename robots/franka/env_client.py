@@ -39,20 +39,39 @@ class FrankaEnvClient(BaseEnvClient):
 
     def __init__(self, client: RpcClient) -> None:
         self._client = client
+        self._last_states: np.ndarray | None = None
         self.meta = self._client.call(
             "env.get_env_meta", timeout_s=self._TIMEOUT_S["default"]
         )
         self.reset()
 
+    def reset(self) -> dict[str, Any]:
+        result = self._client.call(
+            "env.reset", timeout_s=self._TIMEOUT_S["env.reset"]
+        )
+        self.last_obs = result
+        self._remember_states(result.get("states"))
+        return result
+
+    def _remember_states(self, states: Any) -> None:
+        if states is not None:
+            self._last_states = states
+
     def get_robot_state(self) -> dict[str, Any]:
-        return self._client.call(
+        robot_state = self._client.call(
             "env.get_robot_state", timeout_s=self._TIMEOUT_S["default"]
         )
+        if self._last_states is not None:
+            robot_state["wrapped_state_vector"] = self._last_states
+        return robot_state
 
     def get_observation(self) -> dict[str, Any]:
-        return self._client.call(
+        observation = self._client.call(
             "env.get_observation", timeout_s=self._TIMEOUT_S["default"]
         )
+        if self._last_states is not None:
+            observation["states"] = self._last_states
+        return observation
 
     def get_camera_meta(self) -> dict[str, Any] | None:
         return self._client.call(
@@ -61,25 +80,31 @@ class FrankaEnvClient(BaseEnvClient):
         )
 
     def move_delta(self, delta_xyz: np.ndarray | list[float]) -> dict[str, Any]:
-        return self._client.call(
+        result = self._client.call(
             "env.move_delta",
             kwargs={"delta_xyz": np.asarray(delta_xyz, dtype=np.float32)},
             timeout_s=self._TIMEOUT_S["env.move_delta"],
         )
+        self._remember_states(result.get("states"))
+        return result
 
     def rotate_delta(self, delta_rpy: np.ndarray | list[float]) -> dict[str, Any]:
-        return self._client.call(
+        result = self._client.call(
             "env.rotate_delta",
             kwargs={"delta_rpy": np.asarray(delta_rpy, dtype=np.float32)},
             timeout_s=self._TIMEOUT_S["env.rotate_delta"],
         )
+        self._remember_states(result.get("states"))
+        return result
 
     def set_gripper(self, *, open: bool) -> dict[str, Any]:
-        return self._client.call(
+        result = self._client.call(
             "env.set_gripper",
             kwargs={"open": bool(open)},
             timeout_s=self._TIMEOUT_S["env.set_gripper"],
         )
+        self._remember_states(result.get("states"))
+        return result
 
     def chunk_step(
         self,
@@ -87,7 +112,7 @@ class FrankaEnvClient(BaseEnvClient):
         *,
         return_all_frames: bool = False,
     ) -> dict[str, Any]:
-        return self._client.call(
+        result = self._client.call(
             "env.chunk_step",
             kwargs={
                 "actions": np.asarray(actions, dtype=np.float32),
@@ -95,3 +120,9 @@ class FrankaEnvClient(BaseEnvClient):
             },
             timeout_s=self._TIMEOUT_S["env.chunk_step"],
         )
+        observation = result.get("observation")
+        if isinstance(observation, list) and observation:
+            self._remember_states(observation[-1].get("states"))
+        elif isinstance(observation, dict):
+            self._remember_states(observation.get("states"))
+        return result

@@ -39,6 +39,7 @@ class FakeEnv:
         self.rotations: list[np.ndarray] = []
         self.gripper_open = True
         self.chunks: list[np.ndarray] = []
+        self.observation_calls = 0
 
     def reset(self):
         return {"ok": True}
@@ -55,7 +56,7 @@ class FakeEnv:
         self.gripper_open = open
         return {"ok": True, "open": open}
 
-    def get_observation(self):
+    def _obs(self):
         return {
             "main_images": np.zeros((8, 8, 3), dtype=np.uint8),
             "extra_view_images": np.ones((1, 8, 8, 3), dtype=np.uint8),
@@ -63,6 +64,10 @@ class FakeEnv:
             "extra_view_depths": np.ones((1, 8, 8), dtype=np.float32) * 2,
             "states": np.zeros(8, dtype=np.float32),
         }
+
+    def get_observation(self):
+        self.observation_calls += 1
+        return self._obs()
 
     def get_robot_state(self):
         return {"tcp_pose": [0.5, 0.0, 0.2, 0.0, 0.0, 0.0, 1.0]}
@@ -72,7 +77,7 @@ class FakeEnv:
 
     def chunk_step(self, actions):
         self.chunks.append(np.asarray(actions))
-        return {"terminated": False, "truncated": False}
+        return {"terminated": False, "truncated": False, "observation": self._obs()}
 
 
 class FakeModel:
@@ -138,6 +143,8 @@ def test_vla_grasp_runs_bounded_chunks():
 
     assert result["chunks_executed"] == 3
     assert len(env.chunks) == 3
+    # Obs is fetched once, then threaded from each chunk_step result.
+    assert env.observation_calls == 1
 
 
 def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):

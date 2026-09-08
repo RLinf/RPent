@@ -191,15 +191,20 @@ class FrankaPrimitives:
             raise ValueError("max_chunks must be between 1 and 20")
 
         chunk_results: list[dict[str, Any]] = []
+        observation: dict[str, Any] | None = None
         for _ in range(int(max_chunks)):
             self._check_cancelled()
-            observation = dict(self.env.get_observation())
+            if observation is None:
+                observation = dict(self.env.get_observation())
             observation["task_descriptions"] = prompt or self.task_description
             actions = self.model.predict(observation, options={"mode": "eval"})
             result = self.env.chunk_step(actions)
             chunk_results.append(result)
             if result.get("terminated") or result.get("truncated"):
                 break
+            # Reuse the obs chunk_step already returned instead of re-fetching it.
+            next_obs = result.get("observation")
+            observation = dict(next_obs) if isinstance(next_obs, dict) else None
 
         return {
             "ok": True,

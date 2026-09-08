@@ -41,6 +41,7 @@ class FakeEnv:
         self.rotations: list[tuple[str, np.ndarray]] = []
         self.grippers: list[tuple[str, bool]] = []
         self.chunks: list[np.ndarray] = []
+        self.observation_calls = 0
 
     def reset(self):
         return {"ok": True}
@@ -57,7 +58,7 @@ class FakeEnv:
         self.grippers.append((arm, open))
         return {"ok": True, "arm": arm, "open": open}
 
-    def get_observation(self):
+    def _obs(self):
         return {
             "main_images": np.zeros((8, 8, 3), dtype=np.uint8),
             "extra_view_images": np.ones((2, 8, 8, 3), dtype=np.uint8),
@@ -66,13 +67,21 @@ class FakeEnv:
             "d455_images": np.ones((8, 8, 3), dtype=np.uint8) * 3,
             "d455_depths": np.ones((8, 8), dtype=np.float32) * 4,
             "raw_camera_frames": {
+                "left_wrist_0_rgb": np.full((10, 12, 3), 5, dtype=np.uint8),
                 "base_0_rgb": np.full((10, 12, 3), 7, dtype=np.uint8),
+                "right_wrist_0_rgb": np.full((10, 12, 3), 6, dtype=np.uint8),
             },
             "raw_camera_depths": {
+                "left_wrist_0_rgb": np.full((10, 12), 8, dtype=np.float32),
                 "base_0_rgb": np.full((10, 12), 9, dtype=np.float32),
+                "right_wrist_0_rgb": np.full((10, 12), 11, dtype=np.float32),
             },
             "states": np.zeros(20, dtype=np.float32),
         }
+
+    def get_observation(self):
+        self.observation_calls += 1
+        return self._obs()
 
     def get_robot_state(self):
         return {
@@ -88,7 +97,7 @@ class FakeEnv:
 
     def chunk_step(self, actions):
         self.chunks.append(np.asarray(actions))
-        return {"terminated": False, "truncated": False}
+        return {"terminated": False, "truncated": False, "observation": self._obs()}
 
 
 class FakeModel:
@@ -156,10 +165,39 @@ def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
     assert output["_image_bytes"]
     assert output["_image_cam_bytes"]
     assert output["_image_wrist_bytes"]
+    # Every VLA camera persists its raw frame as the single canonical version.
+    np.testing.assert_array_equal(state.load("left_wrist.png"), 5)
     np.testing.assert_array_equal(state.load("base.png"), 7)
+    np.testing.assert_array_equal(state.load("right_wrist.png"), 6)
+    np.testing.assert_array_equal(state.load("left_wrist_depth.npy"), 8)
     np.testing.assert_array_equal(state.load("base_depth.npy"), 9)
+    np.testing.assert_array_equal(state.load("right_wrist_depth.npy"), 11)
     camera_meta = view_camera_meta(state=state)["camera_meta"]
     assert camera_meta["observation_camera_map"]["main"] == "left_wrist_0_rgb"
+
+
+def test_dump_state_falls_back_to_policy_view_when_raw_missing(tmp_path: Path):
+    env = FakeEnv()
+    full_obs = env.get_observation()
+
+    def base_raw_only() -> dict:
+        obs = dict(full_obs)
+        obs["raw_camera_frames"] = {
+            "base_0_rgb": full_obs["raw_camera_frames"]["base_0_rgb"]
+        }
+        obs["raw_camera_depths"] = {
+            "base_0_rgb": full_obs["raw_camera_depths"]["base_0_rgb"]
+        }
+        return obs
+
+    env.get_observation = base_raw_only
+    state = EnvState(tmp_path)
+    dump_state(_primitives(env), state, command=None, result=None, elapsed_s=None)
+
+    # base keeps its raw frame; the wrists fall back to the policy views.
+    np.testing.assert_array_equal(state.load("base.png"), 7)
+    np.testing.assert_array_equal(state.load("left_wrist.png"), 0)  # main_images
+    np.testing.assert_array_equal(state.load("right_wrist.png"), 1)  # extra_view_images[1]
 
 
 def test_view_env_state_emits_multimodal_image_blocks(tmp_path: Path):
@@ -224,3 +262,5 @@ def test_vla_grasp_runs_bounded_chunks():
 
     assert result["chunks_executed"] == 3
     assert len(env.chunks) == 3
+    # Inherited from FrankaPrimitives: obs fetched once, then threaded per chunk.
+    assert env.observation_calls == 1

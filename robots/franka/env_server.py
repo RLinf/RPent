@@ -132,7 +132,6 @@ def _create_worker_class():
             env_config = self.env.env.call("get_wrapper_attr", "config")[0]
             self.action_scale = np.asarray(env_config.action_scale, dtype=np.float32)
             self.use_relative_frame = bool(cfg.env.eval.get("use_relative_frame", True))
-            self.last_obs: dict[str, Any] | None = None
 
         def get_env_meta(self) -> dict[str, Any]:
             return {
@@ -150,20 +149,12 @@ def _create_worker_class():
 
         def reset(self) -> dict[str, Any]:
             observation, info = self.env.reset()
-            self.last_obs = observation
             return {
                 "ok": True,
                 "info": _to_numpy_tree(info),
                 "robot_state": self.get_robot_state(),
+                "states": self._strip_batch(observation.get("states")),
             }
-
-        def _ensure_obs(self) -> dict[str, Any]:
-            if self.last_obs is None:
-                raise RuntimeError(
-                    "env.reset() has not been called; observation is unavailable. "
-                    "Call reset before reading observations."
-                )
-            return self.last_obs
 
         @staticmethod
         def _strip_batch(value: Any) -> Any:
@@ -174,8 +165,8 @@ def _create_worker_class():
                 return array[0]
             return array
 
-        def get_observation(self) -> dict[str, Any]:
-            observation = self._ensure_obs()
+        def _strip_observation(self, observation: dict[str, Any]) -> dict[str, Any]:
+            """Strip the leading batch dimension from a wrapped observation."""
             output = {
                 key: self._strip_batch(value) for key, value in observation.items()
             }
@@ -189,6 +180,43 @@ def _create_worker_class():
                     output[key] = value[0]
             return output
 
+        def get_observation(self) -> dict[str, Any]:
+            # Live camera read only; proprio state is supplied by the client cache.
+            try:
+                return self._read_live_frames()
+            except Exception as exc:
+                logger.warning("live camera refresh failed: %s", exc)
+                return {}
+
+        def _read_live_frames(self) -> dict[str, Any]:
+            """Re-read the cameras live and map them to policy image keys.
+
+            Frames pass through the observation wrappers unchanged, so re-reading
+            them without a robot step yields the same format as a stepped obs.
+            """
+            getter = self.env.env.call(
+                "get_wrapper_attr", "_get_camera_observation"
+            )[0]
+            frames, depths = getter()
+            main_key = self.cfg.env.eval.get("main_image_key")
+            output: dict[str, Any] = {"main_images": np.asarray(frames[main_key])}
+            extras = [
+                np.asarray(frames[name]) for name in sorted(frames) if name != main_key
+            ]
+            if extras:
+                output["extra_view_images"] = np.stack(extras, axis=0)
+            if depths:
+                if main_key in depths:
+                    output["main_depths"] = np.asarray(depths[main_key])
+                extra_depths = [
+                    np.asarray(depths[name])
+                    for name in sorted(depths)
+                    if name != main_key
+                ]
+                if extra_depths:
+                    output["extra_view_depths"] = np.stack(extra_depths, axis=0)
+            return output
+
         def _raw_state(self) -> Any:
             return self.env.env.call("get_wrapper_attr", "_franka_state")[0]
 
@@ -196,10 +224,8 @@ def _create_worker_class():
             return np.asarray(self._raw_state().tcp_pose, dtype=np.float32)
 
         def get_robot_state(self) -> dict[str, Any]:
-            wrapped = self.get_observation().get("states")
             return {
                 "raw_base_state": _to_numpy_tree(self._raw_state()),
-                "wrapped_state_vector": _to_numpy_tree(wrapped),
                 "action_dim": self.action_dim,
                 "action_scale": self.action_scale.tolist(),
                 "use_relative_frame": self.use_relative_frame,
@@ -227,7 +253,7 @@ def _create_worker_class():
             *,
             frame: str,
             gripper: float | None = None,
-        ) -> tuple[Any, Any, Any, Any, Any]:
+        ) -> Any:
             action = np.zeros(self.action_dim, dtype=np.float32)
             twist = np.zeros(6, dtype=np.float32)
             twist[:3] = delta_xyz / max(float(self.action_scale[0]), 1e-6)
@@ -245,8 +271,7 @@ def _create_worker_class():
             if gripper is not None and self.action_dim >= 7:
                 action[-1] = float(gripper)
             result = self.env.step(action[None, :])
-            self.last_obs = result[0]
-            return result
+            return self._strip_batch(result[0].get("states"))
 
         def move_delta(self, delta_xyz: Any) -> dict[str, Any]:
             requested = np.asarray(delta_xyz, dtype=np.float32)
@@ -259,6 +284,7 @@ def _create_worker_class():
                 * self.controller["iteration_multiplier"],
             )
             iterations = 0
+            states: Any = None
             while iterations < max_iterations and time.time() < deadline:
                 remaining = target - self._raw_tcp_pose()[:3]
                 if np.linalg.norm(remaining) <= self.controller["move_tolerance_m"]:
@@ -268,7 +294,9 @@ def _create_worker_class():
                     -float(self.action_scale[0]),
                     float(self.action_scale[0]),
                 )
-                self._step_delta(step, np.zeros(3, dtype=np.float32), frame="base")
+                states = self._step_delta(
+                    step, np.zeros(3, dtype=np.float32), frame="base"
+                )
                 iterations += 1
             final = self._raw_tcp_pose()
             error = float(np.linalg.norm(target - final[:3]))
@@ -279,6 +307,7 @@ def _create_worker_class():
                 "final_tcp_pose": final.tolist(),
                 "final_error_m": error,
                 "steps_used": iterations,
+                "states": states,
             }
 
         def rotate_delta(self, delta_rpy: Any) -> dict[str, Any]:
@@ -295,6 +324,7 @@ def _create_worker_class():
             )
             iterations = 0
             error = float("inf")
+            states: Any = None
             while iterations < max_iterations and time.time() < deadline:
                 current = Rotation.from_quat(self._raw_tcp_pose()[3:])
                 error_eef = current.inv().apply(
@@ -307,7 +337,7 @@ def _create_worker_class():
                 if error > max_step:
                     error_eef *= max_step / error
                 step_rpy = Rotation.from_rotvec(error_eef).as_euler("xyz")
-                self._step_delta(
+                states = self._step_delta(
                     np.zeros(3, dtype=np.float32),
                     step_rpy.astype(np.float32),
                     frame="eef",
@@ -321,6 +351,7 @@ def _create_worker_class():
                 "final_tcp_pose": final.tolist(),
                 "final_error_rad": error,
                 "steps_used": iterations,
+                "states": states,
             }
 
         def set_gripper(self, *, open: bool) -> dict[str, Any]:
@@ -330,11 +361,12 @@ def _create_worker_class():
             command = 1.0 if open else -1.0
             iterations = 0
             reached = False
+            states: Any = None
             while (
                 iterations < self.controller["gripper_max_iterations"]
                 and time.time() < deadline
             ):
-                self._step_delta(
+                states = self._step_delta(
                     np.zeros(3, dtype=np.float32),
                     np.zeros(3, dtype=np.float32),
                     frame="base",
@@ -351,6 +383,7 @@ def _create_worker_class():
                 "target_gripper_open": bool(open),
                 "steps_used": iterations,
                 "robot_state": self.get_robot_state(),
+                "states": states,
             }
 
         def chunk_step(
@@ -365,8 +398,7 @@ def _create_worker_class():
             last_info: Any = None
             for action in np.asarray(actions, dtype=np.float32):
                 observation, _reward, term, trunc, info = self.env.step(action[None, :])
-                self.last_obs = observation
-                observations.append(self.get_observation())
+                observations.append(self._strip_observation(observation))
                 terminated = terminated or bool(np.asarray(_to_numpy_tree(term)).any())
                 truncated = truncated or bool(np.asarray(_to_numpy_tree(trunc)).any())
                 last_info = _to_numpy_tree(info)

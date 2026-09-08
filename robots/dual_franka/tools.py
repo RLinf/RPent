@@ -177,6 +177,33 @@ class DualFrankaPrimitives(FrankaPrimitives):
         return self.env.set_gripper(coerce_arm(arm), open=False)
 
 
+# VLA policy-obs slots mapped to their EnvState stem and raw-frame key. The
+# left wrist is ``main_images``; ``extra_view_images`` stacks [base, right wrist].
+_VLA_CAMERAS = (
+    ("left_wrist", "left_wrist_0_rgb"),
+    ("base", "base_0_rgb"),
+    ("right_wrist", "right_wrist_0_rgb"),
+)
+
+
+def _policy_views(main: Any, extra: Any, *, channels: bool) -> list[Any]:
+    """Return policy views ordered ``[left_wrist, base, right_wrist]``.
+
+    ``extra`` stacks the non-main views as ``[N,H,W,3]`` (RGB) or ``[N,H,W]``
+    (depth), optionally behind a leading singleton batch dim stripped here.
+    """
+    views: list[Any] = [None if main is None else np.asarray(main)]
+    if extra is None:
+        return views
+    array = np.asarray(extra)
+    view_ndim = 4 if channels else 3
+    if array.ndim == view_ndim + 1 and array.shape[0] == 1:
+        array = array[0]
+    if array.ndim == view_ndim:
+        views.extend(array[index] for index in range(array.shape[0]))
+    return views
+
+
 def dump_state(
     primitives: DualFrankaPrimitives,
     state: EnvState,
@@ -185,51 +212,45 @@ def dump_state(
     result: dict[str, Any] | None,
     elapsed_s: float | None,
 ) -> StepRecord:
-    """Capture per-arm robot state and the three synchronized camera images."""
+    """Capture per-arm robot state and one canonical frame per camera.
+
+    Each VLA camera stores its uncropped raw RGB-D as the single version; the
+    policy-resolution view is derived on demand from it with RLinf's crop
+    helpers (crop parameters live in ``camera_meta.json``). The policy view is
+    persisted only as a fallback when a camera's raw frame is unavailable.
+    """
     observation = primitives.env.get_observation()
     robot_state = primitives.env.get_robot_state()
     metadata = primitives.env.get_camera_meta()
+    raw_frames = observation.get("raw_camera_frames") or {}
+    raw_depths = observation.get("raw_camera_depths") or {}
+    policy_frames = _policy_views(
+        observation.get("main_images"),
+        observation.get("extra_view_images"),
+        channels=True,
+    )
+    policy_depths = _policy_views(
+        observation.get("main_depths"),
+        observation.get("extra_view_depths"),
+        channels=False,
+    )
     with state.record_step(
         state=robot_state,
         command=command,
         result=result,
         elapsed_s=elapsed_s,
     ) as step:
-        raw_frames = observation.get("raw_camera_frames") or {}
-        raw_depths = observation.get("raw_camera_depths") or {}
-        main_image = observation.get("main_images")
-        if main_image is not None:
-            state.save("left_wrist.png", np.asarray(main_image), step=step)
-        extra_images = observation.get("extra_view_images")
-        if extra_images is not None:
-            extra_array = np.asarray(extra_images)
-            if extra_array.ndim == 5:
-                extra_array = extra_array[0]
-            if extra_array.ndim == 4:
-                if extra_array.shape[0] >= 1:
-                    state.save(
-                        "base.png",
-                        np.asarray(raw_frames.get("base_0_rgb", extra_array[0])),
-                        step=step,
-                    )
-                if extra_array.shape[0] >= 2:
-                    state.save("right_wrist.png", extra_array[1], step=step)
-        main_depth = observation.get("main_depths")
-        if main_depth is not None:
-            state.save("left_wrist_depth.npy", np.asarray(main_depth), step=step)
-        extra_depths = observation.get("extra_view_depths")
-        base_raw_depth = raw_depths.get("base_0_rgb")
-        if base_raw_depth is not None:
-            state.save("base_depth.npy", np.asarray(base_raw_depth), step=step)
-        if extra_depths is not None:
-            depth_array = np.asarray(extra_depths)
-            if depth_array.ndim == 4 and depth_array.shape[0] == 1:
-                depth_array = depth_array[0]
-            if depth_array.ndim == 3:
-                if depth_array.shape[0] >= 1 and base_raw_depth is None:
-                    state.save("base_depth.npy", depth_array[0], step=step)
-                if depth_array.shape[0] >= 2:
-                    state.save("right_wrist_depth.npy", depth_array[1], step=step)
+        for index, (stem, raw_key) in enumerate(_VLA_CAMERAS):
+            frame = raw_frames.get(raw_key)
+            if frame is None and index < len(policy_frames):
+                frame = policy_frames[index]
+            if frame is not None:
+                state.save(f"{stem}.png", np.asarray(frame), step=step)
+            depth = raw_depths.get(raw_key)
+            if depth is None and index < len(policy_depths):
+                depth = policy_depths[index]
+            if depth is not None:
+                state.save(f"{stem}_depth.npy", np.asarray(depth), step=step)
         d455_image = observation.get("d455_images")
         if d455_image is not None:
             state.save("d455.png", np.asarray(d455_image), step=step)
