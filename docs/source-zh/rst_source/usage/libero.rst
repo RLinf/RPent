@@ -169,7 +169,7 @@ memory 维护命令：
   通过同一套 RPC 传输（HTTP 或 socket）支持文本或单个正点分割，仅返回
   排名第一的压缩 PNG mask。
 - **toolkit（工具集）** （``robots/libero/toolkit.py``）—— 定义 LLM
-  能调用的工具：``pi0_pick``（交给 Pi0.5）、``move_to``、``rotate_wrist``、
+  能调用的工具：``pi0_pick`` （交给 Pi0.5）、``move_to``、``rotate_wrist``、
   ``back_project``、``view_env_state``、``finish``…
 
 Planner 能调用的工具

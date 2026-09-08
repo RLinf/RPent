@@ -214,7 +214,7 @@ socket）、提供 ``healthz`` 和 ``shutdown``、检测父进程退出并执行
 
 定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在机器人的
 ``robot_spec.py`` 中构造
-``PromptBundle(system=system_prompt, user=user_prompt)``（见上面的“入口”）。
+``PromptBundle(system=system_prompt, user=user_prompt)`` （见上面的“入口”）。
 每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节；
 ``PromptBundle.render`` 负责组装和填充。一套 prompt 供 API loop、Claude Code
 和 Codex 等 planner 共用。正文使用工具的裸名（如 ``move_to``），并说明 Claude
@@ -281,7 +281,7 @@ step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过
 
 **Toolkit 类** 继承 ``rpent.tools.toolkit.Toolkit``：
 
-- 在 ``super().__init__(...)`` 中传入 ``memory``（一个
+- 在 ``super().__init__(...)`` 中传入 ``memory`` （一个
   :class:`~rpent.memory.MemoryManager`）和 ``state``。``memory_access`` 和
   ``inbox_cell_tag`` 在构造 ``MemoryManager`` 时配置；eval 默认只读。
 - 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitives（LIBERO

@@ -11,7 +11,7 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 	以下的步骤只会安装 Python 侧依赖（自定义的 RLinf Franka 分支和
 	``rlinf-openpi``），并 **不会** 构建双臂真正需要的机器人节点控制栈。在安装
 	RPent 之前，请先按照 RLinf 双臂 Franka 指南配置两个机器人节点：选择兼容的
-	``LIBFRANKA_VERSION``，构建 ``franka-franky``（franky/libfranka）控制栈，配置
+	``LIBFRANKA_VERSION``，构建 ``franka-franky`` （franky/libfranka）控制栈，配置
 	PREEMPT_RT 实时内核与相关权限，并安装 GELLO 遥操作与夹爪依赖。参见
 	`RLinf 双臂 Franka 指南
 	<https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/dual_franka.html>`_。
