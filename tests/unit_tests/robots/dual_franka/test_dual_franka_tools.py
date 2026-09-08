@@ -25,7 +25,7 @@ from robots.dual_franka.perception import (
     back_project_base_pixel,
     load_calibration_bundle,
 )
-from robots.dual_franka.runtime_config import DEFAULT_CONFIG
+from robots.dual_franka.runtime_config import DUAL_FRANKA_CONFIG
 from robots.dual_franka.tools import (
     DualFrankaPrimitives,
     coerce_arm,
@@ -249,7 +249,7 @@ def test_back_project_base_pixel_reads_rpent_state_artifacts(tmp_path: Path):
     set_calibration_path(
         Path(__file__).parent / "fixtures" / "hand_eye_calibration.json"
     )
-    set_robot_config_path(DEFAULT_CONFIG)
+    set_robot_config_path(DUAL_FRANKA_CONFIG)
     result = back_project_base_pixel(row=2, col=2, state=state)
 
     assert result["coordinate_frame"] == "right_base"

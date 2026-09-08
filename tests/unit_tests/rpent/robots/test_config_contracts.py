@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from robots.dual_franka.runtime_config import DEFAULT_CONFIG as DUAL_FRANKA_CONFIG
+from robots.dual_franka.runtime_config import DUAL_FRANKA_CONFIG
 from robots.franka.runtime_config import (
     DEFAULT_CONFIG as FRANKA_CONFIG,
 )

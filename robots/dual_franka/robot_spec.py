@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.dual_franka.prompt_bundle import system_prompt, user_prompt
+from robots.dual_franka.runtime_config import DUAL_FRANKA_CONFIG
 from robots.dual_franka.tasks import DUAL_FRANKA_TASKS, get_dual_franka_task
 from robots.franka.runtime_config import (
     DEFAULT_CALIBRATION_PATH,
@@ -151,7 +152,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
-    set_robot_config_path(args.robot_config)
+    set_robot_config_path(args.robot_config or DUAL_FRANKA_CONFIG)
     if args.task_id is None:
         raise ValueError("--task-id is required")
     task = get_dual_franka_task(args.task_id)

@@ -56,6 +56,11 @@ CONTROL = {
 # ``env.eval.max_episode_steps``; the planner may end an episode earlier.
 EPISODE_STEPS = 300
 
+# Packaged default robot config (dual-Franka's own ``config/example.yaml``).
+# Kept under a distinct name from ``franka.runtime_config.DEFAULT_CONFIG`` so
+# dual-Franka never imports franka's default.
+DUAL_FRANKA_CONFIG = Path(__file__).with_name("config") / "example.yaml"
+
 
 def _camera_slot(observation: dict[str, Any], slot: str) -> tuple[list[str], str]:
     values = observation.get(slot, [])
@@ -102,7 +107,7 @@ def load_runtime_config(
     )
     from rlinf.scheduler.hardware.robots.dual_franka import DualFrankaConfig
 
-    set_robot_config_path(path)
+    set_robot_config_path(path or DUAL_FRANKA_CONFIG)
     raw = load_mapping(get_robot_config_path())
     robot = _require_mapping(raw.get("robot"), "robot")
     arms = _require_mapping(robot.get("arms"), "robot.arms")
