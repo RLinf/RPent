@@ -258,11 +258,7 @@ def load_calibration_bundle(path: str | Path | None = None) -> dict[str, Any]:
     Combines two sources: the ``easy_handeye`` hand-eye transforms from
     ``hand_eye_calibration.json`` (``path``, else ``--calibration-path`` or
     the easy_handeye default) and the ``perception`` section of the active
-    robot config (``--robot-config``). Each camera entry keeps the
-    easy_handeye fields verbatim (``source_name``, ``parameters``,
-    ``transformation``) and gains ``localization_validity`` when configured;
-    the top level also carries ``base_frames`` (``T_<target>_<source>``
-    inter-base transforms).
+    robot config (``--robot-config``).
     """
     bundle_path = Path(path or get_calibration_path())
     data = json.loads(bundle_path.read_text(errors="replace"))
