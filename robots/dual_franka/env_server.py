@@ -26,12 +26,15 @@ import numpy as np
 from robots.dual_franka.runtime_config import load_runtime_config
 from robots.franka.env_server import _to_numpy_tree, main
 from rpent.utils.config import get_repo_root, get_rlinf_repo_path
+from rpent.utils.logging import get_logger
 
 # Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
 RPENT_ROOT = get_repo_root()
 RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
 if str(RLINF_REPO_PATH) not in sys.path:
     sys.path.insert(0, str(RLINF_REPO_PATH))
+
+logger = get_logger("dual_franka_env_server")
 
 _ARM_INDEX = {"left": 0, "right": 1}
 
@@ -105,7 +108,6 @@ def _create_worker_class():
                 )
             env_config = self.env.env.call("get_wrapper_attr", "config")[0]
             self.action_scale = np.asarray(env_config.action_scale, dtype=np.float32)
-            self.last_obs: dict[str, Any] | None = None
             self._perception_cameras: dict[str, Any] = {}
             self._perception_camera_last_frames: dict[str, np.ndarray] = {}
             self._perception_camera_meta: dict[str, dict[str, Any]] = {}
@@ -141,22 +143,14 @@ def _create_worker_class():
 
         def reset(self) -> dict[str, Any]:
             observation, info = self.env.reset()
-            self.last_obs = observation
             return {
                 "ok": True,
                 "info": _to_numpy_tree(info),
                 "robot_state": self.get_robot_state(),
+                "states": self._strip_batch(observation.get("states")),
             }
 
         # --------------------------------------------------------- observation
-
-        def _ensure_obs(self) -> dict[str, Any]:
-            if self.last_obs is None:
-                raise RuntimeError(
-                    "env.reset() has not been called; observation is unavailable. "
-                    "Call reset before reading observations."
-                )
-            return self.last_obs
 
         @staticmethod
         def _strip_batch(value: Any) -> Any:
@@ -167,18 +161,37 @@ def _create_worker_class():
                 return array[0]
             return array
 
-        def get_observation(self) -> dict[str, Any]:
-            observation = self._ensure_obs()
-            output = {
-                key: self._strip_batch(value) for key, value in observation.items()
-            }
-            value = output.get("extra_view_images")
-            if (
-                isinstance(value, np.ndarray)
-                and value.ndim == 5
-                and value.shape[0] == 1
-            ):
-                output["extra_view_images"] = value[0]
+        def _read_live_frames(self) -> dict[str, Any]:
+            """Re-read the policy cameras live and map them to policy image keys.
+
+            Mirrors ``RealWorldEnv._wrap_obs``: the main camera becomes
+            ``main_images`` and the remaining cameras stack (sorted by name)
+            into ``extra_view_images``; depths map the same way. The read also
+            refreshes the raw camera bundle behind ``get_raw_camera_snapshot``.
+            """
+            getter = self.env.env.call("get_wrapper_attr", "_get_camera_observation")[0]
+            frames, depths = getter()
+            main_key = self.cfg.env.eval.get("main_image_key")
+            output: dict[str, Any] = {"main_images": np.asarray(frames[main_key])}
+            extras = [
+                np.asarray(frames[name]) for name in sorted(frames) if name != main_key
+            ]
+            if extras:
+                output["extra_view_images"] = np.stack(extras, axis=0)
+            if depths:
+                if main_key in depths:
+                    output["main_depths"] = np.asarray(depths[main_key])
+                extra_depths = [
+                    np.asarray(depths[name])
+                    for name in sorted(depths)
+                    if name != main_key
+                ]
+                if extra_depths:
+                    output["extra_view_depths"] = np.stack(extra_depths, axis=0)
+            return output
+
+        def _attach_camera_snapshots(self, output: dict[str, Any]) -> dict[str, Any]:
+            """Attach raw env-camera and perception-camera frames to ``output``."""
             snapshot_getter = self.env.env.call(
                 "get_wrapper_attr", "get_raw_camera_snapshot"
             )[0]
@@ -193,6 +206,24 @@ def _create_worker_class():
                 alias = raw_key.removesuffix("_rgb")
                 output[f"{alias}_depths"] = depth
             return output
+
+        def get_observation(self) -> dict[str, Any]:
+            # Live camera read only; proprio state is supplied by the client cache.
+            output: dict[str, Any] = {}
+            try:
+                output.update(self._read_live_frames())
+            except Exception as exc:
+                logger.warning("live camera refresh failed: %s", exc)
+            return self._attach_camera_snapshots(output)
+
+        def _decorate_step_observation(
+            self, observation: dict[str, Any]
+        ) -> dict[str, Any]:
+            """Strip the batch dim from one ``env.step`` obs, attach cameras."""
+            output = {
+                key: self._strip_batch(value) for key, value in observation.items()
+            }
+            return self._attach_camera_snapshots(output)
 
         # --------------------------------------------------------- arm state
 
@@ -211,13 +242,28 @@ def _create_worker_class():
         def _arm_rot6d(self, pose: np.ndarray) -> np.ndarray:
             return _matrix_to_rot6d(Rotation.from_quat(pose[3:]).as_matrix())
 
-        def _hold_action(self, left: np.ndarray, right: np.ndarray) -> np.ndarray:
-            return _pack_dual_action(
-                left[:3],
-                self._arm_rot6d(left),
-                right[:3],
-                self._arm_rot6d(right),
-            )
+        def _wrapped_states(self) -> np.ndarray:
+            """Build the 20-D ``states`` vector live from the arm controllers.
+
+            Mirrors ``RealWorldEnv._wrap_obs`` over the dual TCP env: sorted
+            state keys concatenate ``gripper_position(2)`` before
+            ``tcp_pose_rot6d(18)`` (per-arm ``[xyz, rot6d]`` blocks).
+            """
+            left, right = self._arm_states()
+            left_pose = np.asarray(left.tcp_pose, dtype=np.float32)
+            right_pose = np.asarray(right.tcp_pose, dtype=np.float32)
+            return np.concatenate(
+                [
+                    np.array(
+                        [left.gripper_position, right.gripper_position],
+                        dtype=np.float32,
+                    ),
+                    left_pose[:3],
+                    self._arm_rot6d(left_pose),
+                    right_pose[:3],
+                    self._arm_rot6d(right_pose),
+                ]
+            ).astype(np.float32)
 
         def get_robot_state(self) -> dict[str, Any]:
             left, right = self._arm_states()
@@ -393,6 +439,7 @@ def _create_worker_class():
                 "final_tcp_pose": final.tolist(),
                 "final_error_m": error,
                 "steps_used": iterations,
+                "states": self._wrapped_states(),
             }
 
         def rotate_delta(self, arm: str, delta_rpy: Any) -> dict[str, Any]:
@@ -437,6 +484,7 @@ def _create_worker_class():
                 "final_tcp_pose": final.tolist(),
                 "final_error_rad": error,
                 "steps_used": iterations,
+                "states": self._wrapped_states(),
             }
 
         def set_gripper(self, arm: str, *, open: bool) -> dict[str, Any]:
@@ -465,6 +513,7 @@ def _create_worker_class():
                 "arm": ["left", "right"][arm_idx],
                 "target_gripper_open": bool(open),
                 "steps_used": iterations,
+                "states": self._wrapped_states(),
                 "robot_state": self.get_robot_state(),
             }
 
@@ -480,8 +529,7 @@ def _create_worker_class():
             last_info: Any = None
             for action in np.asarray(actions, dtype=np.float32):
                 observation, _reward, term, trunc, info = self.env.step(action[None, :])
-                self.last_obs = observation
-                observations.append(self.get_observation())
+                observations.append(self._decorate_step_observation(observation))
                 terminated = terminated or bool(np.asarray(_to_numpy_tree(term)).any())
                 truncated = truncated or bool(np.asarray(_to_numpy_tree(trunc)).any())
                 last_info = _to_numpy_tree(info)

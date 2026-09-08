@@ -31,7 +31,7 @@ class DualFrankaEnvClient(FrankaEnvClient):
     def move_delta(
         self, arm: str, delta_xyz: np.ndarray | list[float]
     ) -> dict[str, Any]:
-        return self._client.call(
+        result = self._client.call(
             "env.move_delta",
             kwargs={
                 "arm": str(arm),
@@ -39,11 +39,13 @@ class DualFrankaEnvClient(FrankaEnvClient):
             },
             timeout_s=_MOTION_TIMEOUT_S,
         )
+        self._remember_states(result.get("states"))
+        return result
 
     def rotate_delta(
         self, arm: str, delta_rpy: np.ndarray | list[float]
     ) -> dict[str, Any]:
-        return self._client.call(
+        result = self._client.call(
             "env.rotate_delta",
             kwargs={
                 "arm": str(arm),
@@ -51,10 +53,14 @@ class DualFrankaEnvClient(FrankaEnvClient):
             },
             timeout_s=_MOTION_TIMEOUT_S,
         )
+        self._remember_states(result.get("states"))
+        return result
 
     def set_gripper(self, arm: str, *, open: bool) -> dict[str, Any]:
-        return self._client.call(
+        result = self._client.call(
             "env.set_gripper",
             kwargs={"arm": str(arm), "open": bool(open)},
             timeout_s=_MOTION_TIMEOUT_S,
         )
+        self._remember_states(result.get("states"))
+        return result
