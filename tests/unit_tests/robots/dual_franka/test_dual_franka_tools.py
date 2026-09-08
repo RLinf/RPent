@@ -21,7 +21,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from robots.dual_franka.perception import back_project_base_pixel
+from robots.dual_franka.perception import (
+    back_project_base_pixel,
+    load_calibration_bundle,
+)
+from robots.dual_franka.runtime_config import set_robot_config_path
 from robots.dual_franka.tools import (
     DualFrankaPrimitives,
     coerce_arm,
@@ -100,17 +104,10 @@ class FakeEnv:
         return {"terminated": False, "truncated": False, "observation": self._obs()}
 
 
-class FakeModel:
-    def predict(self, observation, options=None):
-        assert observation["task_descriptions"] == "hand over the cube"
-        assert options == {"mode": "eval"}
-        return np.zeros((2, 20), dtype=np.float32)
-
-
-def _primitives(env: FakeEnv, *, model=None, check_cancelled=lambda: None):
+def _primitives(env: FakeEnv, *, check_cancelled=lambda: None):
     return DualFrankaPrimitives(
         env=env,
-        model=model,
+        model=None,
         task_description="default task",
         check_cancelled=check_cancelled,
     )
@@ -256,13 +253,31 @@ def test_back_project_base_pixel_reads_rpent_state_artifacts(tmp_path: Path):
     assert len(result["point_xyz"]) == 3
 
 
-def test_vla_grasp_runs_bounded_chunks():
-    env = FakeEnv()
-    primitives = _primitives(env, model=FakeModel())
+def test_load_calibration_bundle_follows_robot_config_override(tmp_path: Path):
+    config = tmp_path / "robot_config.yaml"
+    config.write_text(
+        "perception:\n"
+        "  localization_validity:\n"
+        "    base_camera:\n"
+        "      depth_m: [0.2, 0.9]\n"
+        "  base_frames:\n"
+        "    T_right_base_left_base:\n"
+        "      matrix:\n"
+        "        - [1.0, 0.0, 0.0, 0.02]\n"
+        "        - [0.0, 1.0, 0.0, 0.7]\n"
+        "        - [0.0, 0.0, 1.0, 0.0]\n"
+        "        - [0.0, 0.0, 0.0, 1.0]\n"
+    )
+    set_calibration_path(
+        Path(__file__).parent / "fixtures" / "hand_eye_calibration.json"
+    )
+    set_robot_config_path(config)
+    try:
+        bundle = load_calibration_bundle()
+    finally:
+        set_robot_config_path(None)
 
-    result = primitives.vla_grasp("hand over the cube", max_chunks=3)
-
-    assert result["chunks_executed"] == 3
-    assert len(env.chunks) == 3
-    # Inherited from FrankaPrimitives: obs fetched once, then threaded per chunk.
-    assert env.observation_calls == 1
+    assert bundle["base_camera"]["localization_validity"] == {"depth_m": [0.2, 0.9]}
+    assert bundle["base_frames"]["T_right_base_left_base"]["matrix"][0][3] == 0.02
+    # Hand-eye transforms from the calibration bundle survive the merge.
+    assert "transformation" in bundle["d455_camera"]

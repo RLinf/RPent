@@ -40,6 +40,24 @@ class FakeRpcClient:
         return {"method": method, **payload}
 
 
+class StatesRpcClient(FakeRpcClient):
+    """Fake server that returns fresh ``states`` from primitive calls."""
+
+    def call(
+        self,
+        method: str,
+        args: tuple = (),
+        kwargs: dict | None = None,
+        *,
+        timeout_s: float | None = None,
+    ):
+        if method in ("env.move_delta", "env.rotate_delta", "env.set_gripper"):
+            return {"ok": True, "states": np.full(20, 0.25, dtype=np.float32)}
+        if method == "env.get_observation":
+            return {"main_images": np.zeros((8, 8, 3), dtype=np.uint8)}
+        return super().call(method, args, kwargs, timeout_s=timeout_s)
+
+
 def test_dual_franka_client_uses_explicit_env_methods():
     rpc = FakeRpcClient()
     client = DualFrankaEnvClient(rpc)
@@ -65,3 +83,19 @@ def test_dual_franka_client_uses_explicit_env_methods():
     assert rpc.calls[3][2]["arm"] == "right"
     assert rpc.calls[4][2] == {"arm": "left", "open": True}
     assert rpc.calls[5][2]["actions"].dtype == np.float32
+
+
+def test_dual_franka_client_refreshes_states_from_primitives():
+    """Primitives keep the client ``states`` cache fresh for ``get_observation``.
+
+    The env server serves live camera frames only; the proprio vector comes
+    from the client cache, which every primitive result must refresh.
+    """
+    client = DualFrankaEnvClient(StatesRpcClient())
+
+    client.set_gripper("left", open=True)
+    observation = client.get_observation()
+
+    np.testing.assert_allclose(
+        observation["states"], np.full(20, 0.25, dtype=np.float32)
+    )

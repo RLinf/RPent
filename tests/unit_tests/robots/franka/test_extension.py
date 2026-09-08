@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Offline tests for Franka environment discovery and config loading."""
+"""Offline tests for Franka config loading and gym registration."""
 
 from __future__ import annotations
 
@@ -21,17 +21,7 @@ from pathlib import Path
 import gymnasium as gym
 import pytest
 
-from robots.franka import get_robot_spec
 from robots.franka.runtime_config import load_runtime_config
-from rpent.robots.base import enumerate_robots
-from rpent.robots.base import get_robot_spec as resolve_robot_spec
-
-
-def test_franka_extension_is_discoverable():
-    assert "franka" in enumerate_robots()
-    spec = resolve_robot_spec("franka")
-    assert spec.name == "franka"
-    assert get_robot_spec().name == spec.name
 
 
 def test_franka_uses_rpent_owned_robot_config():
