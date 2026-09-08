@@ -12,25 +12,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Offline tests for dual-Franka config loading."""
+"""Offline tests for dual-Franka environment discovery and config loading."""
 
 from __future__ import annotations
 
 import pytest
 
 from robots.dual_franka import get_robot_spec
-from robots.dual_franka.runtime_config import (
-    get_robot_config_path,
-    load_runtime_config,
-)
+from robots.dual_franka.runtime_config import load_runtime_config
+from robots.franka.runtime_config import get_robot_config_path
+from rpent.robots.base import enumerate_robots
+from rpent.robots.base import get_robot_spec as resolve_robot_spec
+
+
+def test_dual_franka_extension_is_discoverable():
+    assert "dual_franka" in enumerate_robots()
+    spec = resolve_robot_spec("dual_franka")
+    assert spec.name == "dual_franka"
+    assert get_robot_spec().name == spec.name
 
 
 def test_dual_franka_uses_rpent_owned_robot_config():
     pytest.importorskip("rlinf.envs.realworld.franka.franka_env")
-    config_path = get_robot_config_path()
     runtime = load_runtime_config(None, task_description="test task")
     cfg = runtime.rlinf
 
-    assert config_path.is_file()
+    # Without --robot-config, loading falls back to the packaged config.
+    assert get_robot_config_path().is_file()
     assert cfg.env.eval.init_params.id == "DualFrankaTCPEnv-v1"
     assert cfg.env.eval.override_cfg.task_description == "test task"

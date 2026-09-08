@@ -42,6 +42,7 @@ DEFAULT_CALIBRATION_PATH = Path(
 ).expanduser()
 
 _calibration_path: Path | None = None
+_robot_config_path: Path | None = None
 
 
 def set_calibration_path(path: str | Path | None) -> None:
@@ -53,6 +54,21 @@ def set_calibration_path(path: str | Path | None) -> None:
 def get_calibration_path() -> Path:
     """Return the configured calibration bundle path, or the easy_handeye default."""
     return Path(_calibration_path or DEFAULT_CALIBRATION_PATH)
+
+
+def set_robot_config_path(path: str | Path | None) -> None:
+    """Record the ``--robot-config`` CLI value (``None`` when absent).
+
+    Called once at CLI parse time (robot spec ``parse_config``), before any
+    runtime or toolkit construction.
+    """
+    global _robot_config_path
+    _robot_config_path = Path(path).expanduser() if path else None
+
+
+def get_robot_config_path() -> Path:
+    """Return the ``--robot-config`` override, or the robot's packaged default."""
+    return Path(_robot_config_path or DEFAULT_CONFIG)
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +237,7 @@ def load_runtime_config(
     from rlinf.envs.realworld.franka.franka_env import FrankaRobotConfig
     from rlinf.scheduler.hardware.robots.franka import FrankaConfig
 
-    raw = load_mapping(path or DEFAULT_CONFIG)
+    raw = load_mapping(path or get_robot_config_path())
     robot = _require_mapping(raw.get("robot"), "robot")
     end_effector = _require_mapping(robot.get("end_effector"), "robot.end_effector")
     cameras = _require_mapping(raw.get("cameras"), "cameras")

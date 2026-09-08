@@ -24,7 +24,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.franka.prompt_bundle import system_prompt, user_prompt
-from robots.franka.runtime_config import DEFAULT_CALIBRATION_PATH
+from robots.franka.runtime_config import (
+    DEFAULT_CALIBRATION_PATH,
+    set_robot_config_path,
+)
 from robots.franka.tasks import FRANKA_TASKS, get_franka_task
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
@@ -132,6 +135,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
+    set_robot_config_path(args.robot_config)
     if args.task_id is None:
         raise ValueError("--task-id is required")
     task = get_franka_task(args.task_id)

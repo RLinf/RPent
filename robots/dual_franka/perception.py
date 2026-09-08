@@ -24,11 +24,13 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from robots.franka.perception import _resolve_step
-from robots.franka.runtime_config import get_calibration_path, load_mapping
+from robots.franka.runtime_config import (
+    get_calibration_path,
+    get_robot_config_path,
+    load_mapping,
+)
 from rpent.session import EnvState
 from rpent.tools.toolkit import readonly
-
-ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "example.yaml"
 
 
 class DualFrankaPerceptionError(ValueError):
@@ -235,26 +237,32 @@ def _back_project_camera_pixel(
 
 
 def _load_perception_config() -> dict[str, Any]:
-    """Load the RPent perception section from ``example.yaml``.
+    """Load the RPent perception section from the active robot config.
 
     Holds the machine config ``easy_handeye`` does not produce: the tabletop
     ``localization_validity`` bounds and the inter-base ``base_frames``.
     """
-    raw = load_mapping(ROBOT_CONFIG_PATH)
+    config_path = get_robot_config_path()
+    raw = load_mapping(config_path)
     perception = raw.get("perception")
     if not isinstance(perception, dict):
-        raise DualFrankaPerceptionError("example.yaml missing the 'perception' section")
+        raise DualFrankaPerceptionError(
+            f"{config_path} missing the 'perception' section"
+        )
     return perception
 
 
 def load_calibration_bundle(path: str | Path | None = None) -> dict[str, Any]:
-    """Load the dual-Franka perception calibration.
+    """Load the dual-Franka perception calibration as one bundle.
 
-    Merges the ``easy_handeye`` hand-eye transforms (``hand_eye_calibration.json``)
-    with the RPent perception config (localization validity + base frames) from
-    ``example.yaml``, keeping the historical consumer shape:
-    ``<camera>.transformation``, ``<camera>.localization_validity``, and
-    ``base_frames``.
+    Combines two sources: the ``easy_handeye`` hand-eye transforms from
+    ``hand_eye_calibration.json`` (``path``, else ``--calibration-path`` or
+    the easy_handeye default) and the ``perception`` section of the active
+    robot config (``--robot-config``). Each camera entry keeps the
+    easy_handeye fields verbatim (``source_name``, ``parameters``,
+    ``transformation``) and gains ``localization_validity`` when configured;
+    the top level also carries ``base_frames`` (``T_<target>_<source>``
+    inter-base transforms).
     """
     bundle_path = Path(path or get_calibration_path())
     data = json.loads(bundle_path.read_text(errors="replace"))
