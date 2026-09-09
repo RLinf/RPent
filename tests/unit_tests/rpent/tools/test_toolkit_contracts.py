@@ -45,8 +45,6 @@ class _RecordingEventSink:
 
 
 class _ContractToolkit(Toolkit):
-    _FRAME_ARTIFACTS = {"primary": "frame.png"}
-
     def __init__(
         self,
         output_dir: Path,
@@ -430,7 +428,6 @@ def test_stateful_dispatch_captures_state_and_emits_the_record(
     assert event.record.step_idx == 0
     assert event.record.command == {"action": "move", "distance": 3}
     assert event.env_state is toolkit.state
-    assert event.frame_artifacts == {"primary": "frame.png"}
 
 
 def test_handler_error_is_retained_when_state_capture_also_fails(
