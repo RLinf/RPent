@@ -8,13 +8,7 @@ LIBERO 数据飞轮
 ----
 
 环境准备和仿真资源下载请参考 :doc:`../installation`。在 RPent 仓库根目录安装
-LIBERO 及 Flywheel 导出依赖：
-
-.. code-block:: bash
-
-   pip install -e ".[libero,flywheel]"
-
-如果使用 LIBERO-PRO，则改用：
+LIBERO-PRO 及数据飞轮导出依赖：
 
 .. code-block:: bash
 

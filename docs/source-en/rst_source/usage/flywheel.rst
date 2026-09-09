@@ -9,13 +9,7 @@ Installation
 ------------
 
 Follow :doc:`../installation` for environment setup and simulator assets. From
-the RPent repository root, install LIBERO with Flywheel export support:
-
-.. code-block:: bash
-
-   pip install -e ".[libero,flywheel]"
-
-For LIBERO-PRO, use this command instead:
+the RPent repository root, install LIBERO-PRO with Flywheel export support:
 
 .. code-block:: bash
 
