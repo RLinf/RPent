@@ -30,6 +30,7 @@ from rpent.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from robots.libero.env_client import LiberoEnvClient
+    from rpent.robots.components.molmo_client import MolmoClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
 
@@ -44,10 +45,12 @@ class LiberoRuntime:
         env: LiberoEnvClient,
         model: Pi05VLAClient,
         sam3_client: Sam3Client,
+        molmo_client: MolmoClient | None = None,
     ):
         self.env = env
         self.model = model
         self._sam3_client = sam3_client
+        self.molmo_client = molmo_client
         self._last_obs = None
         self._last_obs_eef_pos = None
         self._last_obs_gripper = None
@@ -136,6 +139,11 @@ class LiberoToolkit(Toolkit[LiberoRuntime]):
             }
         data["agent_elapsed_s"] = elapsed_s
         return data, images
+
+    @property
+    def molmo_client(self) -> MolmoClient | None:
+        """Return the optional point grounder used by task-card replay."""
+        return self._robot.molmo_client
 
     def solved(self) -> bool:
         return self._robot.solved

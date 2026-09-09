@@ -38,10 +38,14 @@ class TaskSpec(TypedDict):
     output_slug: str
 
 
-class RuntimeComponentSpec(TypedDict):
+class RuntimeComponentSpecRequired(TypedDict):
     name: str
     label: str
     scope: Literal["shared", "unique"]
+
+
+class RuntimeComponentSpec(RuntimeComponentSpecRequired, total=False):
+    planners: tuple[str, ...]
 
 
 class DashboardSpec(TypedDict):

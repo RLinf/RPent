@@ -59,6 +59,13 @@ LIBERO_SUITE_NAMES = (
     "libero_10_lan",
 )
 
+TASK_CARD_SUITES = frozenset(
+    {
+        "libero_object_task",
+        "libero_object_swap",
+    }
+)
+
 LIBERO_DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",
@@ -75,6 +82,12 @@ LIBERO_DASHBOARD_SPEC: DashboardSpec = {
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
         {"name": "sam3", "label": "SAM3", "scope": "shared"},
+        {
+            "name": "molmo",
+            "label": "Molmo",
+            "scope": "shared",
+            "planners": ("task_card",),
+        },
     ),
     "primitives": (
         "move_to",
@@ -87,6 +100,13 @@ LIBERO_DASHBOARD_SPEC: DashboardSpec = {
         "move_pose",
     ),
 }
+
+
+def _replay_card(toolkit, cell_tag: str, note) -> dict:
+    """Replay a recorded card for one cell. Imported late: it loads numpy."""
+    from robots.libero.task_card import replay_card
+
+    return replay_card(toolkit, cell_tag, note)
 
 
 def get_robot_spec() -> RobotSpec:
@@ -105,6 +125,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=LIBERO_DASHBOARD_SPEC,
+        replay_card=_replay_card,
     )
 
 
@@ -194,6 +215,13 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "If unset, a local vla_server is spawned.",
     )
     parser.add_argument(
+        "--molmo-endpoint",
+        default=None,
+        help="[protocol://]host:port of an existing Molmo server "
+        "(protocol=http|socket, defaults to http). "
+        "Required by --planner task_card.",
+    )
+    parser.add_argument(
         "--sam3-endpoint",
         default=None,
         help="[protocol://]host:port of an existing SAM3 server "
@@ -219,6 +247,18 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--suite is required")
     if args.task is None:
         raise ValueError("--task is required")
+    planner = getattr(args, "planner", None)
+    if planner == "task_card":
+        if args.suite not in TASK_CARD_SUITES:
+            supported = ", ".join(sorted(TASK_CARD_SUITES))
+            raise ValueError(
+                f"--planner task_card does not support --suite {args.suite!r}; "
+                f"supported suites: {supported}"
+            )
+        if args.molmo_endpoint is None:
+            raise ValueError("--planner task_card requires --molmo-endpoint")
+    elif args.molmo_endpoint is not None:
+        raise ValueError("--molmo-endpoint requires --planner task_card")
 
     recipe_tag = f"{args.suite.replace('libero_', '')}_t{args.task}_s{args.seed}"
     explore = bool(getattr(args, "explore", False))
@@ -394,6 +434,19 @@ def _spawn_sam3_server(
     return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
+def _connect_molmo_server(
+    args: argparse.Namespace,
+) -> tuple[ProcessDaemon | None, RpcClient]:
+    """Connect to Molmo running in its dependency-isolated environment."""
+    if args.molmo_endpoint is None:
+        raise ValueError(
+            "--planner task_card requires --molmo-endpoint; Molmo uses a "
+            "separate environment because its transformers requirement "
+            "conflicts with LIBERO's policy environment"
+        )
+    return None, make_rpc_client(args.molmo_endpoint)
+
+
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
@@ -402,6 +455,7 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every LIBERO component, or only ``components`` when given."""
     from robots.libero.env_client import LiberoEnvClient
+    from rpent.robots.components.molmo_client import MolmoClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
 
@@ -409,6 +463,7 @@ def _init_runtime(
         "env": lambda: _spawn_env_server(args, output_dir),
         "vla": lambda: _spawn_vla_server(args, output_dir),
         "sam3": lambda: _spawn_sam3_server(args, output_dir),
+        "molmo": lambda: _connect_molmo_server(args),
     }
     connectors = {
         "env": lambda rpc: {
@@ -424,8 +479,11 @@ def _init_runtime(
         },
         "vla": lambda rpc: {"model": Pi05VLAClient(rpc, embodiment="libero")},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
+        "molmo": lambda rpc: {"molmo_client": MolmoClient(rpc)},
     }
-    selected = set(starters) if components is None else components
+    selected = set(starters) if components is None else set(components)
+    if getattr(args, "planner", None) != "task_card":
+        selected.discard("molmo")
     unknown = selected.difference(starters)
     if unknown:
         raise ValueError(f"unknown LIBERO runtime components: {sorted(unknown)}")
@@ -442,7 +500,7 @@ def _init_runtime(
             )
 
     runtime_kwargs: dict[str, Any] = {}
-    wait_order = ("env", "sam3", "vla")
+    wait_order = ("env", "sam3", "molmo", "vla")
     for component in (name for name in wait_order if name in pending):
         daemon, rpc = pending[component]
         component_kwargs = try_wait_server(

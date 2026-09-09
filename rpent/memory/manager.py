@@ -365,7 +365,12 @@ class MemoryManager:
                 ids[memory_id] = path
         return problems
 
-    def sync(self, *, remote_repo: str) -> Path:
+    def sync(
+        self,
+        *,
+        remote_repo: str,
+        allow_patterns: tuple[str, ...] | None = None,
+    ) -> Path:
         """Sync this memory corpus from its Hugging Face dataset."""
         robot_name = self._root.name
         repo_id = os.environ.get(
@@ -388,7 +393,7 @@ class MemoryManager:
                 repo_id=repo_id,
                 repo_type="dataset",
                 local_dir=str(self._root.parent),
-                allow_patterns=[f"{robot_name}/**"],
+                allow_patterns=list(allow_patterns or (f"{robot_name}/**",)),
             )
         except Exception as exc:
             if _has_local_memory(self._root):

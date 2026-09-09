@@ -61,7 +61,12 @@ def run_dashboard_session(
     dashboard_spec = robot_spec.dashboard
     if dashboard_spec is None:
         parser.error(f"robot {robot_spec.name!r} does not support Dashboard control")
-    runtime_components = dashboard_spec["runtime_components"]
+    runtime_components = tuple(
+        component
+        for component in dashboard_spec["runtime_components"]
+        if not component.get("planners") or args.planner in component["planners"]
+    )
+    dashboard_spec = {**dashboard_spec, "runtime_components": runtime_components}
     shared_components = {
         component["name"]
         for component in runtime_components
@@ -108,6 +113,7 @@ def run_dashboard_session(
     if (
         not getattr(args, "explore", False)
         and getattr(args, "memory_profile", "hf") == "hf"
+        and args.planner != "task_card"
     ):
         MemoryManager(get_memory_dir(robot_spec.name)).sync(
             remote_repo=robot_spec.memory_repo_id,

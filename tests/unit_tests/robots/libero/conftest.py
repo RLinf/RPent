@@ -110,11 +110,16 @@ class FakeSam:
 def make_toolkit(tmp_path):
     instances = []
 
-    def make(*, mode="evaluation", attempts=0):
+    def make(*, mode="evaluation", attempts=0, molmo_client=None):
         output = tmp_path / str(len(instances))
         env, model = FakeEnv(), FakeModel()
         toolkit = LiberoToolkit(
-            runtime_kwargs={"env": env, "model": model, "sam3_client": FakeSam()},
+            runtime_kwargs={
+                "env": env,
+                "model": model,
+                "sam3_client": FakeSam(),
+                "molmo_client": molmo_client,
+            },
             output_dir=output,
             state_output_dir=output / "sessions" / "session_001",
             memory=MemoryManager(output / "memory"),

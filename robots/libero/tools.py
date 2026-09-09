@@ -225,6 +225,8 @@ def pi0_pick(
     max_chunks: int = 24,
     lift_thresh: float = 0.05,
     gripper_closed_thresh: float = 0.06,
+    gripper_open_thresh: float = 0.0,
+    descent_thresh: float = 0.10,
     *,
     ctx: ToolContext[LiberoRuntime],
 ) -> ToolResult:
@@ -235,6 +237,8 @@ def pi0_pick(
         max_chunks: Action-chunk budget (default 24)
         lift_thresh: EEF post-descent ascent threshold for success, m (default 0.05)
         gripper_closed_thresh: Finger-separation closed threshold (default 0.06)
+        gripper_open_thresh: Minimum finger separation accepted as a held object (default 0.0)
+        descent_thresh: Required descent before lift detection, m (default 0.10)
     """
     runtime = ctx.robot
     start_z = float(runtime._last_obs_eef_pos[2])
@@ -261,12 +265,12 @@ def pi0_pick(
             post_min_peak_z = z  # reset after a new deeper min
         else:
             post_min_peak_z = max(post_min_peak_z, z)
-        if (start_z - min_z) >= 0.10:  # descended ≥ 10 cm — committed to grasp
+        if (start_z - min_z) >= descent_thresh:
             descent_done = True
         min_grip = min(min_grip, grip)
         last_grip = grip
         ascended = (post_min_peak_z - min_z) >= lift_thresh
-        closed = grip < gripper_closed_thresh
+        closed = gripper_open_thresh <= grip < gripper_closed_thresh
         if descent_done and ascended and closed:
             success = True
             break
@@ -296,6 +300,8 @@ def pi0_pick(
                 "descent_done": descent_done,
                 "lift_thresh": lift_thresh,
                 "gripper_closed_thresh": gripper_closed_thresh,
+                "gripper_open_thresh": gripper_open_thresh,
+                "descent_thresh": descent_thresh,
             },
         }
     )
