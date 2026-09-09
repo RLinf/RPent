@@ -15,7 +15,6 @@ Results checked on 2026-09-09; paper references use arXiv v4 (2026-09-02).
 to its native reasoning mode; ``Effort`` is its configured level. ``xhigh``
 and ``max`` are provider-specific settings, not equivalent compute budgets.
 ``Not reported`` means the source has no available result or setting.
-``Not yet included`` marks a result reserved for a later update.
 ``N/A`` means a planner setting does not apply. Source IDs beginning with
 **R** identify RPent evaluations; **P** identifies a versioned paper table.
 
@@ -54,11 +53,11 @@ comparison of planner models alone.
      - :ref:`Eval R1 <benchmark-source-r1>`
    * - PRO Long Swap
      - Codex
-     - GPT-5.5
+     - GPT-6 Astra
      - On
-     - ``xhigh``
-     - 55% (55/100)
-     - :ref:`Repo R2 <benchmark-source-r2>`
+     - ``low``
+     - 72% (72/100)
+     - :ref:`Eval R1 <benchmark-source-r1>`
    * - RoboCasa Target50
      - Codex
      - GPT-5.5
@@ -176,7 +175,7 @@ subsets, not the standard LIBERO-10 suite or the full LIBERO-PRO aggregate.
      - On
      - ``low``
      - 85% (85/100)
-     - Not yet included
+     - 72% (72/100)
      - :ref:`Eval R1 <benchmark-source-r1>`
    * - Claude Code
      - Opus-4.8
@@ -763,8 +762,8 @@ benchmark settings describe distinct parts of each evaluated system.
 `014a0fa <https://github.com/RLinf/RPent/commit/014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7>`_.
 Codex with GPT-6 Astra, native reasoning enabled, ``low`` effort. Task memory
 is constructed on seed 0 and frozen before evaluation on seeds 1–10 for each
-of 10 tasks. Long Task achieves environment success in 85 of 100 episodes
-(85%); Long Swap has no published result here. This evaluation uses its own
+of 10 tasks in each suite. Long Task achieves environment success in 85 of
+100 episodes (85%); Long Swap achieves 72 of 100 (72%). This evaluation uses its own
 local memory corpus, a 5000-second planner time limit, and a 10000-step
 environment horizon.
 

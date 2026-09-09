@@ -11,7 +11,7 @@
 
 **表格说明。** “模型”指规划模型；``Reasoning`` 表示其原生推理模式，``Effort`` 表示配置的推理强度。
 ``xhigh`` 和 ``max`` 属于不同提供方的设置，不代表相同的计算预算。
-“未报告”表示来源未提供相应结果或设置；“待收录”表示预留给后续更新的结果；``N/A`` 表示
+“未报告”表示来源未提供相应结果或设置；``N/A`` 表示
 该规划器设置不适用。以 **R** 开头的来源编号表示 RPent 评测，**P** 表示带版本的论文表格。
 
 规划模型身份和推理设置已经实验贡献者确认：历史 Codex 记录使用 GPT-5.5 与 ``xhigh``，
@@ -46,11 +46,11 @@ Claude Code 使用 Opus-4.8 与 ``max``，Codex 另有使用 GPT-6 Astra 与 ``l
      - :ref:`评测 R1 <benchmark-source-r1>`
    * - PRO Long Swap
      - Codex
-     - GPT-5.5
+     - GPT-6 Astra
      - 开启
-     - ``xhigh``
-     - 55% (55/100)
-     - :ref:`复现 R2 <benchmark-source-r2>`
+     - ``low``
+     - 72% (72/100)
+     - :ref:`评测 R1 <benchmark-source-r1>`
    * - RoboCasa Target50
      - Codex
      - GPT-5.5
@@ -167,7 +167,7 @@ Long Task 对应 ``libero_10_task``，Long Swap 对应 ``libero_10_swap``。
      - 开启
      - ``low``
      - 85% (85/100)
-     - 待收录
+     - 72% (72/100)
      - :ref:`评测 R1 <benchmark-source-r1>`
    * - Claude Code
      - Opus-4.8
@@ -735,8 +735,8 @@ RoboCasa 使用冻结的 RLDX-1；RoboTwin 使用后训练后冻结的 LingBot-V
 2026-09-09。运行时版本为
 `014a0fa <https://github.com/RLinf/RPent/commit/014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7>`_。
 使用 Codex 与 GPT-6 Astra，开启原生推理，推理强度为 ``low``。
-任务记忆在 seed 0 上构建并冻结，随后对 10 个任务分别使用 seed 1–10 评测。
-Long Task 的 100 个回合中有 85 个达到环境成功条件（85%）；本页没有 Long Swap 的已发布结果。
+任务记忆在 seed 0 上构建并冻结，随后对每个套件的 10 个任务分别使用 seed 1–10 评测。
+Long Task 的 100 个回合中有 85 个达到环境成功条件（85%）；Long Swap 的 100 个回合中有 72 个成功（72%）。
 该评测使用自己的本地记忆库，规划器时间上限为 5000 秒，环境步数上限为 10000 步。
 
 .. _benchmark-source-r2:
