@@ -566,7 +566,7 @@ def test_robocasa_cli_real_config_handoff_and_native_success(
         assert call["mode"] == "exploration"
         assert call["attempts_per_session"] == 1
         assert call["state_output_dir"] == tmp_path / "sessions" / f"session_{number:03d}"
-    assert "完整物理布局确定性仍需真实仿真验证" in prompts[0]["system_prompt"]
+    assert "does not prove identical physical layout" in prompts[0]["system_prompt"]
     if len(prompts) > 1:
         assert "完整物理布局确定性仍需真实仿真验证" in prompts[1]["user_message"]
     assert bool(recipes) is (solved_session is not None)

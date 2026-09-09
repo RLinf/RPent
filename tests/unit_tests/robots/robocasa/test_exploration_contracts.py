@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 import sys
 from collections import deque
 from pathlib import Path
@@ -82,6 +83,70 @@ def exploration(monkeypatch, tmp_path, fake_single_arm_primitives):
         )
 
     return make, env, vla, config
+
+
+def _render_exploration_prompt(tmp_path: Path) -> str:
+    from robots.robocasa.prompt_bundle import system_prompt
+
+    variables = {
+        "attempts_per_session": 3,
+        "memory_dir": str(tmp_path / "memory"),
+        "memory_profile": "local",
+        "mode": "explore",
+        "memory_inbox": str(tmp_path / "memory" / "_internal" / "inbox" / "cell"),
+        "output_dir": str(tmp_path),
+        "recipe_tag": "OpenDrawer_target_s<seed>",
+        "seed": 7,
+        "session_max": 3,
+        "split": "target",
+        "session_number": 1,
+        "task_language": "Open the drawer.",
+        "task_name": "OpenDrawer",
+    }
+    return " ".join(format_prompt(system_prompt(variables), variables=variables).split())
+
+
+def test_exploration_prompt_splits_control_and_requires_budgeted_recovery(tmp_path):
+    prompt = _render_exploration_prompt(tmp_path)
+
+    assert "The planner owns task decomposition" in prompt
+    assert "RLDX owns fine physical contact" in prompt
+    assert "complete live task_language verbatim" in prompt
+    assert "configured attempt, planner, wall-time, or tool budget" in prompt
+    assert "changing a concrete factor" in prompt
+    assert "do not replace a supported fine-contact operation" in prompt
+    for legacy_limit in ("20 calls", "40 calls", "400 calls", "2-3 attempts"):
+        assert legacy_limit not in prompt
+
+
+def test_exploration_prompt_uses_current_vla_and_memory_contracts(tmp_path):
+    prompt = _render_exploration_prompt(tmp_path)
+
+    assert "no atomic-instruction override" in prompt
+    assert "Memory may preserve action ordering" in prompt
+    assert "it is not current world state" in prompt
+    assert "Re-ground all geometry from current observations" in prompt
+    assert "status is 'cap'" in prompt
+    assert "grasp_detected" in prompt
+    assert "grasp_contact" in prompt
+    assert "grasp_obj" in prompt
+    assert "task_progress" in prompt
+    assert "vla_desync" in prompt
+    assert "use_prompt" not in prompt
+
+
+def test_exploration_prompt_matches_success_reset_and_recipe_lifecycle(tmp_path):
+    prompt = _render_exploration_prompt(tmp_path)
+
+    assert "latest view_env_state proves task success" in prompt
+    assert "reset(reason=...)" in prompt
+    assert "Each reset invocation consumes an attempt even if it fails" in prompt
+    assert "after the latest successful reset boundary" in prompt
+    assert "excluding reset and failed commands" in prompt
+    assert "MemoryManager and the runner own merge/publication" in prompt
+    for obsolete_path in ("command.json", "trajectory.json", "memory.json"):
+        assert obsolete_path not in prompt
+    assert re.search(r"[\u3400-\u4dbf\u4e00-\u9fff]", prompt) is None
 
 
 @pytest.mark.parametrize("budget", [0, 1, 3])
@@ -201,7 +266,7 @@ def test_memory_permissions_and_merge_names(exploration, tmp_path):
                  "session_number": 1, "session_max": 3, "attempts_per_session": 3}
     prompt = format_prompt(system_prompt(variables), variables=variables)
     assert "OpenDrawer_target_s<seed>.json" in prompt
-    assert "完整物理布局确定性仍需真实仿真验证" in prompt
+    assert "does not prove identical physical layout" in prompt
     assert "_check_success" in prompt
     assert "{{" not in prompt
     assert "no-reset mode" not in format_prompt(user_prompt(variables), variables=variables)
@@ -327,7 +392,7 @@ def test_parse_config_renders_actual_exploration_prompt(tmp_path):
     assert config.prompt_vars["attempts_per_session"] == 1
     variables = {**config.prompt_vars, "output_dir": str(tmp_path)}
     prompt = robot_spec.get_robot_spec().prompts.render("system", variables=variables)
-    assert "完整物理布局确定性仍需真实仿真验证" in prompt
+    assert "does not prove identical physical layout" in prompt
     assert "1 attempts INCLUDING" in prompt
     assert "{{" not in prompt
 

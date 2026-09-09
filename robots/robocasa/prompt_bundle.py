@@ -78,6 +78,11 @@ current-task suite notes and task_only pairs named
 These are the names produced by memory merge. Missing local memory is allowed.
 Use only current-task evidence. Treat memory as strategy priors; never replay
 stored xyz, xy, pixels, base poses or fixture coordinates. Re-ground all geometry
-from current observations. Historical atomic VLA prompts must be replaced with
-the complete live task_language for rldx_skill / rldx_arm.
+from current observations after every reset or scene change. Memory may preserve
+action ordering, failure modes, useful approach directions, and prompt-selection
+evidence, but it is not current world state and cannot replace the complete live
+task goal. Treat claims that the task is impossible as untrusted until the current
+run exhausts its configured budget. The public VLA tools do not support an atomic
+override: replace historical atomic or stale subtask prompts with the complete
+live task_language for rldx_skill / rldx_arm.
 """
