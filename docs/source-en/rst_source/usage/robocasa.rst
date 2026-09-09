@@ -14,6 +14,27 @@ for the wire/transport selection.
    ``robots/robocasa/eval/target50.json``. RPent uses ordinary single-task
    ``rpent --robot robocasa`` commands for its 340 cells.
 
+Runtime flow
+------------
+
+RoboCasa365 uses a PandaOmron mobile manipulator and the frozen RLDX-1 policy.
+The integration is planner-agnostic: API planners, Claude Code and Codex use
+the same RoboCasa toolkit. See :doc:`configure_planner` for credentials and
+backend configuration; users supply credentials outside the repository.
+
+.. code-block:: text
+
+   rpent CLI -> task-memory sync -> environment and VLA servers
+             -> planner toolkit -> final environment state.success
+
+Unless external endpoints are supplied, RPent starts an environment server
+and a VLA server for each run. The planner selects primitives using the live
+task language and observations; RLDX-1 executes manipulation skills. Only the
+environment's own ``_check_success()`` result, surfaced as ``state.success``,
+determines evaluation success. The public protocol uses ordinary single-cell
+commands, not an included batch launcher. See :doc:`../awesome_works/harnessvla`
+for the Harness VLA overview.
+
 Installation
 ------------
 
@@ -89,6 +110,25 @@ the latter without replacing different existing content. Re-run with
 ``--skip-existing`` to verify successful download inventories; a nonempty
 directory alone is not a complete installation. Keep official attribution
 files and finish interrupted downloads before starting experiments.
+
+Resource publication is atomic: interrupted copies do not leave half-written
+final files. To repair conflicting resources left by an earlier installer,
+rerun the same command with explicit overwrite permission:
+
+.. code-block:: bash
+
+   robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros --overwrite -y
+
+``--overwrite`` takes precedence over ``--skip-existing`` and replaces only
+resource files in the installation scope, not unrelated files or whole
+directories. Without it, different existing content is preserved. Atomic
+no-overwrite publication requires hard-link support on the destination
+filesystem. Temporary files left by a killed process do not block retries.
+
+New collections require space for the ZIP and one unpacked copy: staging is
+published without copying the payload again. Existing installations need
+additional space during replacement. ``--skip-existing`` avoids downloading
+and comparing completed collections; bundled static files are checked separately.
 
 **Navigation camera**
 
@@ -395,8 +435,11 @@ Troubleshooting
 ---------------
 
 Resource checks can run without planner credentials. First install
-``pytest`` and ``pytest-timeout``. The existing environment test covers all
-340 task/seed combinations; add ``-k OpenDrawer`` for an initial check:
+``pytest`` and ``pytest-timeout``. The environment suite has four representative
+cases: ``OpenDrawer``, ``NavigateKitchen`` and ``PickPlaceCounterToCabinet`` at
+seed 1, plus mobile-camera movement. It checks construction/reset, 12D action,
+operation cameras, navigation RGB-D/world map, success predicates and closing,
+not the full evaluation matrix. Add ``-k OpenDrawer`` for an initial check:
 
 .. code-block:: bash
 
@@ -417,6 +460,8 @@ After downloading all four resources, verify model loading and first inference:
 These checks do not run a planner or create benchmark results. Skipped tests
 are not passes. Offline variables apply only to the check; ordinary HF memory
 sync needs network access. Keep remote planner proxies unchanged.
+The lightweight protocol tests still validate all 50 tasks and the fixed
+340-cell denominator; full benchmark execution is a separate procedure.
 
 - For slow package downloads, use ``UV_HTTP_TIMEOUT=600`` and put caches and
   temporary files on a sufficiently large filesystem. Retry the pinned HF
@@ -440,7 +485,8 @@ sync needs network access. Keep remote planner proxies unchanged.
   RPent does not fall back to another task's memory.
   Markdown is optional; Atomic tasks have no published ``<Task>.md``.
 - Environment and VLA startup failures are recorded in
-  ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
+  ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``; also
+  inspect ``<output_dir>/run.log`` for the run-level error.
 - Only the exact ``127.0.0.1`` and ``localhost`` hostnames bypass HTTP proxies
   automatically. Other hostnames and IPs use the standard proxy environment;
   add the exact host to ``NO_PROXY`` and ``no_proxy`` only when it should be

@@ -12,6 +12,24 @@ RoboCasa
    公开的 Target50 协议固定在 ``robots/robocasa/eval/target50.json`` 中。
    340 个 cell 均使用普通的单任务 ``rpent --robot robocasa`` 命令。
 
+运行流程
+--------
+
+RoboCasa365 使用 PandaOmron 移动机械臂与冻结的 RLDX-1 策略。
+接入层与 planner 无关，API planner、Claude Code 和 Codex 使用相同的 RoboCasa
+工具接口。后端配置参见 :doc:`configure_planner`；凭据由用户在仓库外提供。
+
+.. code-block:: text
+
+   rpent CLI -> task-memory sync -> environment and VLA servers
+             -> planner toolkit -> final environment state.success
+
+未指定外部 endpoint 时，RPent 为每次运行启动环境服务器和 VLA 服务器。
+Planner 根据实时任务语言和观测选择 primitive，RLDX-1 执行操作技能。
+评测成功只取环境自身 ``_check_success()`` 暴露的 ``state.success``。
+公开协议使用普通单-cell 命令，不包含批量启动器；Harness VLA 的总体说明参见
+:doc:`../awesome_works/harnessvla`。
+
 安装
 ----
 
@@ -79,6 +97,22 @@ macros 配置：
 静态文件。修正后的安装器会补齐静态文件，不覆盖内容不同的已有文件。
 ``--skip-existing`` 会检查成功下载的文件清单，不再把非空目录当作完整安装。
 请保留官方 attribution 文件，并在实验开始前完成中断的下载。
+
+资源以原子方式发布，中断复制不会留下半写入的正式文件。若旧安装器已经留下
+内容冲突的资源，可在原命令中显式增加覆盖权限进行修复：
+
+.. code-block:: bash
+
+   robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros --overwrite -y
+
+``--overwrite`` 优先于 ``--skip-existing``，仅替换本次安装范围内的资源文件，
+不删除无关文件或整个目录；未指定时，内容不同的已有文件仍受保护。
+默认原子不覆盖发布要求目标文件系统支持硬链接。强制终止遗留的临时文件不会
+阻止重试。
+
+新资源集合主要需要 ZIP 与一份解压数据的空间，staging 发布时不再复制 payload；
+替换已有安装时还需为旧资源占用预留空间。``--skip-existing`` 会跳过已完成集合的
+下载和内容比较，随包静态文件单独检查。
 
 **移动相机**
 
@@ -363,7 +397,10 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
 --------
 
 资源自检无需 planner 凭据。安装 ``pytest`` 和 ``pytest-timeout`` 后，现有环境
-测试会覆盖全部 340 个 task/seed 组合；首次检查可增加 ``-k OpenDrawer``：
+测试只保留四项代表检查：``OpenDrawer``、``NavigateKitchen`` 和
+``PickPlaceCounterToCabinet`` 各 seed 1，加一项移动相机检查。它们验证构造/reset、
+12D action、操作相机、导航 RGB-D/world map、成功条件和关闭流程，不执行完整
+评测矩阵；首次检查可增加 ``-k OpenDrawer``：
 
 .. code-block:: bash
 
@@ -384,6 +421,7 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
 这些检查不会启动 planner 或生成 benchmark 成绩，默认 skip 不能当作通过。
 离线变量仅作用于该自检命令；普通 HF memory 同步仍需要网络。保持远程 planner
 的代理配置不变。
+轻量协议测试仍检查全部 50 个任务和固定的 340-cell 分母，全量评测单独执行。
 
 - 下载慢时可使用 ``UV_HTTP_TIMEOUT=600``，并将缓存和临时目录放在空间足够的
   文件系统上。重新执行固定 revision 的 HF 下载命令；不能只看 shard 文件大小
@@ -406,7 +444,7 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
   memory 作为替代。
   Markdown 为可选文件；Atomic 任务没有发布 ``<Task>.md``。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和
-  ``<output_dir>/vla_server.log``。
+  ``<output_dir>/vla_server.log``；运行级错误也可检查 ``<output_dir>/run.log``。
 - 只有准确的 ``127.0.0.1`` 与 ``localhost`` 主机名会自动绕过 HTTP 代理。其他
   主机名与 IP 均遵循标准代理环境；只有该服务应当直连时，才需要把准确主机名
   加入 ``NO_PROXY`` 与 ``no_proxy`` 配置。
