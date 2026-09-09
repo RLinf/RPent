@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Optional LIBERO data collection and export tools."""
+"""Optional episode collection and export with robot-supplied data rules."""

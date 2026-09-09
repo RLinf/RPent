@@ -109,12 +109,9 @@ class LiberoPrimitives:
         obs, info = self.env.reset()
         self.set_obs(obs)
         if self._flywheel_config is not None:
-            from rpent.flywheel.episode import EpisodeWriter
+            from robots.libero.flywheel import create_episode_writer
 
-            self._flywheel = EpisodeWriter(
-                **self._flywheel_config,
-                initial_observation=obs,
-            )
+            self._flywheel = create_episode_writer(self._flywheel_config, obs)
         return self._last_obs, info
 
     def begin_primitive(self, name: str) -> None:

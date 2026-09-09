@@ -20,6 +20,7 @@ import pytest
 
 from robots.libero import robot_spec
 from robots.libero import toolkit as libero_toolkit
+from robots.libero.flywheel import LIBERO_SPEC
 from robots.libero.tools import LiberoPrimitives
 from rpent.flywheel.episode import validate_episode
 
@@ -94,7 +95,7 @@ def test_collection_records_scripted_and_vla_actions(tmp_path):
     primitives.end_primitive()
 
     path = primitives.finalize_flywheel()
-    metadata = validate_episode(path)
+    metadata = validate_episode(path, spec=LIBERO_SPEC)
     assert metadata["step_count"] == 3
     assert metadata["training_step_count"] == 3
     assert env.chunk_return_all_frames is True

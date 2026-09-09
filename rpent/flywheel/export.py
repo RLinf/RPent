@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Export successful LIBERO episodes to the LeRobot format used by RLinf."""
+"""Export successful episodes to LeRobot using caller-supplied data rules."""
 
 from __future__ import annotations
 
 import json
 import os
 import re
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,72 +31,61 @@ from rpent.flywheel.episode import validate_episode
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
-def _features() -> dict[str, dict[str, Any]]:
+def _features(spec: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {
-        "image": {
-            "dtype": "image",
-            "shape": (256, 256, 3),
-            "names": ["height", "width", "channel"],
-        },
-        "wrist_image": {
-            "dtype": "image",
-            "shape": (256, 256, 3),
-            "names": ["height", "width", "channel"],
-        },
-        "state": {"dtype": "float32", "shape": (8,), "names": ["state"]},
-        "actions": {
-            "dtype": "float32",
-            "shape": (7,),
-            "names": ["actions"],
-        },
+        name: {
+            "dtype": "image"
+            if key in spec["image_fields"]
+            else spec["arrays"][key]["dtype"],
+            "shape": spec["arrays"][key]["shape"],
+            "names": ["height", "width", "channel"]
+            if key in spec["image_fields"]
+            else [name],
+        }
+        for name, key in spec["export_fields"].items()
     }
 
 
 def _successful_episodes(
-    data_root: Path, suite: str, task_id: int
+    paths: Iterable[Path], *, spec: dict[str, Any], expected_metadata: dict[str, Any]
 ) -> list[tuple[Path, dict[str, Any]]]:
-    task_root = data_root / "raw" / "libero" / suite / f"task_{task_id:02d}"
     episodes = []
-    for path in sorted(task_root.glob("seed_*/episode_*")):
+    for path in paths:
         if not path.is_dir() or path.name.endswith(".partial"):
             continue
-        metadata = validate_episode(path)
-        if metadata["suite"] != suite or metadata["task_id"] != task_id:
+        metadata = validate_episode(path, spec=spec)
+        if any(metadata[key] != value for key, value in expected_metadata.items()):
             raise ValueError(f"episode metadata does not match its directory: {path}")
         if metadata["is_success"]:
             episodes.append((path, metadata))
     if not episodes:
-        raise ValueError(f"no successful episodes found under {task_root}")
+        raise ValueError(f"no successful episodes found for {expected_metadata}")
     return episodes
 
 
 def export_lerobot(
-    data_root: Path | str,
+    episode_paths: Iterable[Path],
     *,
-    suite: str,
-    task_id: int,
+    spec: dict[str, Any],
+    expected_metadata: dict[str, Any],
+    repo_id_prefix: str,
+    output_root: Path | str,
     dataset_id: str | None = None,
-    output_root: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Export all finalized successful episodes for one LIBERO task."""
-    if not _NAME.fullmatch(suite):
-        raise ValueError(f"invalid LIBERO suite: {suite!r}")
+    """Validate selected episodes and export their successful training prefixes."""
     dataset_id = dataset_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     if not _NAME.fullmatch(dataset_id):
         raise ValueError(f"invalid dataset ID: {dataset_id!r}")
 
-    data_root = Path(data_root).expanduser().resolve()
-    episodes = _successful_episodes(data_root, suite, task_id)
+    episodes = _successful_episodes(
+        episode_paths, spec=spec, expected_metadata=expected_metadata
+    )
     languages = {metadata["task_language"] for _, metadata in episodes}
     if len(languages) != 1:
         raise ValueError("successful episodes have different task descriptions")
     language = languages.pop()
 
-    parent = (
-        Path(output_root).expanduser().resolve()
-        if output_root is not None
-        else data_root / "datasets" / "lerobot" / suite / f"task_{task_id:02d}"
-    )
+    parent = Path(output_root).expanduser().resolve()
     destination = parent / dataset_id
     partial = parent / f"{dataset_id}.partial"
     if destination.exists() or partial.exists():
@@ -107,13 +97,13 @@ def export_lerobot(
         raise RuntimeError("install RPent with the 'flywheel' extra") from exc
     parent.mkdir(parents=True, exist_ok=True)
 
-    repo_id = f"rpent/{suite}-task-{task_id:02d}-{dataset_id}"
+    repo_id = f"{repo_id_prefix}-{dataset_id}"
     dataset = LeRobotDataset.create(
         repo_id=repo_id,
         root=partial,
-        robot_type="panda",
-        fps=20,
-        features=_features(),
+        robot_type=spec["robot_type"],
+        fps=spec["fps"],
+        features=_features(spec),
         use_videos=False,
         image_writer_threads=2,
     )
@@ -125,10 +115,8 @@ def export_lerobot(
             for index in range(count):
                 dataset.add_frame(
                     {
-                        "image": data["main_images"][index],
-                        "wrist_image": data["wrist_images"][index],
-                        "state": data["states"][index],
-                        "actions": data["actions"][index],
+                        name: data[key][index]
+                        for name, key in spec["export_fields"].items()
                     },
                     task=language,
                 )
@@ -142,8 +130,7 @@ def export_lerobot(
     manifest = {
         "schema_version": 1,
         "repo_id": repo_id,
-        "suite": suite,
-        "task_id": task_id,
+        **expected_metadata,
         "task_language": language,
         "source_episode_ids": source_ids,
         "episode_count": len(source_ids),

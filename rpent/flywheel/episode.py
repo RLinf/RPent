@@ -12,13 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Small in-memory writer for one LIBERO episode."""
+"""Small in-memory episode writer using caller-supplied data rules."""
 
 from __future__ import annotations
 
 import json
 import os
-import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,26 +26,30 @@ from typing import Any
 import numpy as np
 
 SCHEMA_VERSION = 1
-_SUITE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
-def _observation(obs: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Copy the policy inputs before LIBERO can reuse their buffers."""
-    main = np.array(obs["main_images"], dtype=np.uint8, copy=True, order="C")
-    wrist = np.array(obs["wrist_images"], dtype=np.uint8, copy=True, order="C")
-    state = np.array(obs["states"], dtype=np.float32, copy=True, order="C")
-    if main.shape != (256, 256, 3) or wrist.shape != main.shape:
-        raise ValueError("LIBERO policy images must have shape (256, 256, 3)")
-    if state.shape != (8,):
-        raise ValueError("LIBERO policy state must have shape (8,)")
-    return main, wrist, state
+def _array(value: Any, field: dict[str, Any]) -> np.ndarray:
+    """Copy one policy input before the caller can reuse its buffer."""
+    array = np.array(value, dtype=field["dtype"], copy=True, order="C")
+    if array.shape != field["shape"]:
+        raise ValueError(f"expected array shape {field['shape']}; got {array.shape}")
+    return array
 
 
-def _action(value: Any) -> np.ndarray:
-    action = np.array(value, dtype=np.float32, copy=True, order="C")
-    if action.shape != (7,) or not np.isfinite(action).all():
-        raise ValueError("LIBERO action must be finite with shape (7,)")
-    return action
+def _observation(obs: dict[str, Any], spec: dict[str, Any]) -> dict[str, np.ndarray]:
+    return {
+        key: _array(obs[key], field)
+        for key, field in spec["arrays"].items()
+        if key != "actions"
+    }
+
+
+def _training_step_count(transitions: Any, spec: dict[str, Any]) -> int:
+    mask = np.asarray(spec["success_mask"](transitions))
+    if mask.dtype != np.bool_ or mask.shape != (len(transitions["actions"]),):
+        raise ValueError("success_mask must return one boolean per action")
+    steps = np.flatnonzero(mask)
+    return int(steps[0] + 1) if steps.size else 0
 
 
 class EpisodeWriter:
@@ -54,44 +57,27 @@ class EpisodeWriter:
 
     def __init__(
         self,
-        root: Path | str,
+        parent: Path | str,
         *,
-        suite: str,
-        task_id: int,
-        seed: int,
+        metadata: dict[str, Any],
+        spec: dict[str, Any],
         initial_observation: dict[str, Any],
     ) -> None:
-        if not _SUITE.fullmatch(suite):
-            raise ValueError(f"invalid LIBERO suite: {suite!r}")
-        if any(type(value) is not int or value < 0 for value in (task_id, seed)):
-            raise ValueError("task_id and seed must be non-negative integers")
-        language = initial_observation.get("task_descriptions")
-        if not isinstance(language, str) or not language:
-            raise ValueError("LIBERO observation has no task description")
-        first_observation = _observation(initial_observation)
+        self._spec = spec
+        first_observation = _observation(initial_observation, spec)
 
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
         self.episode_id = f"episode_{stamp}_{uuid.uuid4().hex[:8]}"
-        parent = (
-            Path(root).expanduser().resolve()
-            / "raw"
-            / "libero"
-            / suite
-            / f"task_{task_id:02d}"
-            / f"seed_{seed:03d}"
-        )
+        parent = Path(parent).expanduser().resolve()
         parent.mkdir(parents=True, exist_ok=True)
         self.path = parent / self.episode_id
         self._partial = self.path.with_name(f"{self.episode_id}.partial")
         self._partial.mkdir()
 
         self._metadata = {
+            **metadata,
             "schema_version": SCHEMA_VERSION,
             "episode_id": self.episode_id,
-            "suite": suite,
-            "task_id": task_id,
-            "seed": seed,
-            "task_language": language,
         }
         self._observations = [first_observation]
         self._actions: list[np.ndarray] = []
@@ -118,13 +104,12 @@ class EpisodeWriter:
         self._active_primitive = -1
 
     def add_proposal(self, instruction: str, actions: Any) -> int:
-        proposal = np.array(actions, dtype=np.float32, copy=True, order="C")
-        if (
-            proposal.ndim != 2
-            or proposal.shape[1] != 7
-            or not np.isfinite(proposal).all()
-        ):
-            raise ValueError("VLA proposal must be finite with shape (horizon, 7)")
+        field = self._spec["arrays"]["actions"]
+        proposal = np.array(actions, dtype=field["dtype"], copy=True, order="C")
+        if proposal.shape[1:] != field["shape"] or not np.isfinite(proposal).all():
+            raise ValueError(
+                "VLA proposal must be finite with shape (horizon, *action_shape)"
+            )
         vla_id = len(self._proposals)
         self._proposals.append(
             {
@@ -147,8 +132,11 @@ class EpisodeWriter:
         vla_id: int = -1,
         proposal_index: int = -1,
     ) -> None:
-        self._actions.append(_action(action))
-        self._observations.append(_observation(next_observation))
+        action = _array(action, self._spec["arrays"]["actions"])
+        if not np.isfinite(action).all():
+            raise ValueError("action must be finite")
+        self._actions.append(action)
+        self._observations.append(_observation(next_observation, self._spec))
         self._rewards.append(float(reward))
         self._terminated.append(bool(terminated))
         self._truncated.append(bool(truncated))
@@ -159,32 +147,33 @@ class EpisodeWriter:
     def finalize(self) -> Path:
         if self._closed:
             return self.path
-        main, wrist, state = map(np.stack, zip(*self._observations, strict=True))
+        field = self._spec["arrays"]["actions"]
         actions = (
-            np.stack(self._actions) if self._actions else np.empty((0, 7), np.float32)
+            np.stack(self._actions)
+            if self._actions
+            else np.empty((0, *field["shape"]), field["dtype"])
+        )
+        transitions = {
+            key: np.stack([obs[key] for obs in self._observations])
+            for key in self._observations[0]
+        }
+        transitions.update(
+            actions=actions,
+            rewards=np.asarray(self._rewards, np.float32),
+            terminated=np.asarray(self._terminated, np.bool_),
+            truncated=np.asarray(self._truncated, np.bool_),
+            action_source=(np.asarray(self._vla_ids, np.int32) >= 0).astype(np.uint8),
+            primitive_id=np.asarray(self._primitive_ids, np.int32),
+            vla_chunk_id=np.asarray(self._vla_ids, np.int32),
+            proposal_index=np.asarray(self._proposal_indices, np.int16),
         )
         with (self._partial / "transitions.npz").open("wb") as stream:
-            np.savez_compressed(
-                stream,
-                main_images=main,
-                wrist_images=wrist,
-                states=state,
-                actions=actions,
-                rewards=np.asarray(self._rewards, np.float32),
-                terminated=np.asarray(self._terminated, np.bool_),
-                truncated=np.asarray(self._truncated, np.bool_),
-                action_source=(np.asarray(self._vla_ids, np.int32) >= 0).astype(
-                    np.uint8
-                ),
-                primitive_id=np.asarray(self._primitive_ids, np.int32),
-                vla_chunk_id=np.asarray(self._vla_ids, np.int32),
-                proposal_index=np.asarray(self._proposal_indices, np.int16),
-            )
+            np.savez_compressed(stream, **transitions)
 
         proposal_actions = (
             np.stack([item["actions"] for item in self._proposals])
             if self._proposals
-            else np.empty((0, 0, 7), np.float32)
+            else np.empty((0, 0, *field["shape"]), field["dtype"])
         )
         with (self._partial / "proposals.npz").open("wb") as stream:
             np.savez_compressed(
@@ -201,33 +190,32 @@ class EpisodeWriter:
                 ),
             )
 
-        success_steps = np.flatnonzero(np.asarray(self._terminated, np.bool_))
-        success = bool(success_steps.size)
+        training_steps = _training_step_count(transitions, self._spec)
         metadata = {
             **self._metadata,
-            "is_success": success,
+            "is_success": bool(training_steps),
             "stop_reason": (
                 "env_terminated"
-                if success
+                if any(self._terminated)
                 else "env_truncated"
                 if any(self._truncated)
                 else "agent_stopped"
             ),
             "step_count": self.step_count,
-            "training_step_count": int(success_steps[0] + 1) if success else 0,
+            "training_step_count": training_steps,
             "primitive_names": self._primitive_names,
             "proposal_count": len(self._proposals),
         }
         (self._partial / "episode.json").write_text(
             json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-        validate_episode(self._partial)
+        validate_episode(self._partial, spec=self._spec)
         os.replace(self._partial, self.path)
         self._closed = True
         return self.path
 
 
-def validate_episode(path: Path | str) -> dict[str, Any]:
+def validate_episode(path: Path | str, *, spec: dict[str, Any]) -> dict[str, Any]:
     """Validate the alignment needed by the exporter and training loader."""
     root = Path(path)
     metadata = json.loads((root / "episode.json").read_text(encoding="utf-8"))
@@ -235,13 +223,15 @@ def validate_episode(path: Path | str) -> dict[str, Any]:
         raise ValueError(f"unsupported episode schema in {root}")
     with np.load(root / "transitions.npz", allow_pickle=False) as data:
         count = int(metadata["step_count"])
-        if data["actions"].shape != (count, 7):
-            raise ValueError(f"invalid action shape in {root}")
-        for key in ("main_images", "wrist_images"):
-            if data[key].shape != (count + 1, 256, 256, 3):
+        for key, field in spec["arrays"].items():
+            array = data[key]
+            length = count if key == "actions" else count + 1
+            if array.shape != (length, *field["shape"]):
                 raise ValueError(f"invalid {key} shape in {root}")
-        if data["states"].shape != (count + 1, 8):
-            raise ValueError(f"invalid state shape in {root}")
+            if array.dtype != np.dtype(field["dtype"]):
+                raise ValueError(f"invalid {key} dtype in {root}")
+            if np.issubdtype(array.dtype, np.floating) and not np.isfinite(array).all():
+                raise ValueError(f"non-finite {key} in {root}")
         for key in (
             "rewards",
             "terminated",
@@ -253,25 +243,20 @@ def validate_episode(path: Path | str) -> dict[str, Any]:
         ):
             if data[key].shape != (count,):
                 raise ValueError(f"invalid {key} shape in {root}")
-        terminated = data["terminated"]
-        expected = int(np.flatnonzero(terminated)[0] + 1) if terminated.any() else 0
+        expected = _training_step_count(data, spec)
         if (
-            metadata["is_success"] != bool(terminated.any())
+            metadata["is_success"] != bool(expected)
             or metadata["training_step_count"] != expected
         ):
             raise ValueError(f"invalid training boundary in {root}")
-        if (
-            not np.isfinite(data["actions"]).all()
-            or not np.isfinite(data["states"]).all()
-        ):
-            raise ValueError(f"non-finite training data in {root}")
     proposal_count = metadata["proposal_count"]
     with np.load(root / "proposals.npz", allow_pickle=False) as proposals:
         actions = proposals["actions"]
+        field = spec["arrays"]["actions"]
         if (
-            actions.ndim != 3
+            actions.ndim != len(field["shape"]) + 2
             or actions.shape[0] != proposal_count
-            or actions.shape[2] != 7
+            or actions.shape[2:] != field["shape"]
         ):
             raise ValueError(f"invalid proposal action shape in {root}")
         for key in ("created_step", "primitive_id", "instruction"):

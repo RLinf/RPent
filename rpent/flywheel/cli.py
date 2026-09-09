@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Command-line entry point for RPent Flywheel."""
+"""Command-line entry point for LIBERO Flywheel data."""
 
 from __future__ import annotations
 
@@ -47,19 +47,25 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+    import rpent.robots  # noqa: F401 - initialize the official robot source path
+    from robots.libero.flywheel import LIBERO_SPEC, export_options
+
     if args.command == "validate":
         from rpent.flywheel.episode import validate_episode
 
-        result = validate_episode(args.episode)
+        result = validate_episode(args.episode, spec=LIBERO_SPEC)
     else:
         from rpent.flywheel.export import export_lerobot
 
         result = export_lerobot(
-            args.data_root,
-            suite=args.suite,
-            task_id=args.task,
+            **export_options(
+                args.data_root,
+                suite=args.suite,
+                task_id=args.task,
+                output_root=args.output_root,
+            ),
             dataset_id=args.dataset_id,
-            output_root=args.output_root,
+            spec=LIBERO_SPEC,
         )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
