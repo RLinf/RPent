@@ -25,20 +25,8 @@ Covers both serve paths over socket / http:
 
 from __future__ import annotations
 
-import pytest
-
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
 from rpent.utils.rpc.rpc_facade import RpcFacade
-from tests.utils.rpc._rpc_test_helpers import (
-    TRANSPORTS,
-    _serve_in_thread,
-    _server_and_client,
-)
-
-
-@pytest.fixture(params=TRANSPORTS)
-def transport(request):
-    return request.param
 
 
 class OverrideDispatchFacade(RpcFacade):
@@ -72,19 +60,19 @@ class MTWoSessionFacade(MainThreadServeMixin, RpcFacade):
         return {"pong": value}
 
 
-def test_override_dispatch_over_transports(transport):
+def test_override_dispatch_over_transports(transport, server_and_client):
     facade = OverrideDispatchFacade()
-    with _server_and_client(facade, transport) as client:
+    with server_and_client(facade, transport) as client:
         assert client.call("ping", args=("hello",)) == {"pong": "hello"}
 
 
-def test_plain_facade_over_transports(transport):
+def test_plain_facade_over_transports(transport, server_and_client):
     facade = PlainFacade()
-    with _server_and_client(facade, transport) as client:
+    with server_and_client(facade, transport) as client:
         assert client.call("ping", args=(42,)) == {"pong": 42}
 
 
-def test_main_thread_wo_session_over_transports(transport):
+def test_main_thread_wo_session_over_transports(transport, serve_in_thread):
     facade = MTWoSessionFacade()
-    with _serve_in_thread(facade, transport, enable_sessions=False) as client:
+    with serve_in_thread(facade, transport, enable_sessions=False) as client:
         assert client.call("ping", args=(7,)) == {"pong": 7}
