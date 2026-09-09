@@ -174,6 +174,9 @@ task language 与最新 observation 始终优先，所有几何信息都必须�
 结果复现
 --------
 
+Codex 和 Claude Code 的模型配置及各自来源的 RoboTwin C2R 结果，
+统一收录在 :doc:`../benchmarks`。
+
 以下结果复现了 :doc:`Harness VLA <../awesome_works/harnessvla>` 在 RoboTwin C2R
 上的评测。实验使用 `reproduce/robotwin
 <https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_ 分支、``gpt-5.5`` 模型和

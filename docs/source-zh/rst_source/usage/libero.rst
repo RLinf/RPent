@@ -254,10 +254,13 @@ Dashboard 支持 ``api``、``claude_code`` 和 ``codex`` planner。
 结果复现
 --------
 
+不同模型的配置，以及 RPent 评测和 Harness VLA v4 的 LIBERO-PRO
+Task/Swap 结果，统一收录在 :doc:`../benchmarks`。
+
 以下是在两个 LIBERO-PRO 套件上复现
 :doc:`Harness VLA <../awesome_works/harnessvla>` 得到的结果。实验使用
 `reproduce/libero <https://github.com/RLinf/RPent/tree/reproduce/libero>`_
-分支和 ``gpt-5.5`` 模型：
+分支、``gpt-5.5`` 模型和 ``xhigh`` 推理强度：
 
 - ``libero_10_task``：70%（70/100）
 - ``libero_10_swap``：55%（55/100）

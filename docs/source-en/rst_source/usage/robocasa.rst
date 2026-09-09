@@ -337,7 +337,7 @@ following task-level aggregates:
    * - Split
      - Successful cells
      - Success rate
-     - Harness VLA reference
+     - Harness VLA v3 reference
    * - Atomic
      - 163/180
      - 90.56%
@@ -354,6 +354,10 @@ following task-level aggregates:
      - N/A
      - 57.00%
      - 55.40%
+
+The reference column retains the historical Harness VLA v3 values. See
+:doc:`../benchmarks` for the v4 Codex and Claude Code results alongside this
+reproduction, including all three splits and the task-weighted overall rate.
 
 The `complete per-task table
 <https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_
