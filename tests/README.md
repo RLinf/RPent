@@ -85,7 +85,7 @@ These are code and installation checks, not a full evaluation: repeated seeds
 and similar tasks are deliberately omitted. They do not invoke a planner or VLA
 model. The fast Target50 protocol tests still validate all 50 tasks and the
 340-cell manifest; benchmark reproduction remains a separate procedure described
-in the [RoboCasa README](../robots/robocasa/README.md#target50-reproduction).
+in the [RoboCasa usage documentation](../docs/source-en/rst_source/usage/robocasa.rst).
 
 ## Embodied GPU E2E tests
 
