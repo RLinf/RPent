@@ -28,16 +28,6 @@ from rpent.utils.rpc.client_utils import wait_for_ready
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
 from rpent.utils.rpc.rpc_client import RpcError
 from rpent.utils.rpc.rpc_facade import RpcFacade
-from tests.utils.rpc._rpc_test_helpers import (
-    TRANSPORTS,
-    _serve_in_thread,
-    _server_and_client,
-)
-
-
-@pytest.fixture(params=TRANSPORTS)
-def transport(request):
-    return request.param
 
 
 class SessionFacade(RpcFacade):
@@ -91,13 +81,13 @@ def _assert_lifecycle(client, facade):
         client.call("ping", args=("hi",))
 
 
-def test_session_lifecycle_over_transports(transport):
+def test_session_lifecycle_over_transports(transport, make_server_and_client):
     facade = SessionFacade()
-    with _server_and_client(facade, transport, enable_sessions=True) as client:
+    with make_server_and_client(facade, transport, enable_sessions=True) as client:
         _assert_lifecycle(client, facade)
 
 
-def test_main_thread_session_lifecycle_over_transports(transport):
+def test_main_thread_session_lifecycle_over_transports(transport, make_serve_in_thread):
     facade = MTWSessionFacade()
-    with _serve_in_thread(facade, transport, enable_sessions=True) as client:
+    with make_serve_in_thread(facade, transport, enable_sessions=True) as client:
         _assert_lifecycle(client, facade)
