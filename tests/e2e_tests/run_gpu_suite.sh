@@ -265,6 +265,13 @@ case "$target" in
     timeout --foreground --kill-after=2m "$install_timeout" uv pip install \
       --python "$venv_dir/bin/python" \
       --editable "${repo_root}[libero-pro,test]"
+    # Keep realpath(__file__) beside this venv's assets, preserving the Git revision.
+    liberopro_requirement=$(uv pip freeze --python "$venv_dir/bin/python" \
+      | awk '$1 == "rpent-liberopro" {print}')
+    timeout --foreground --kill-after=2m "$install_timeout" uv pip install \
+      --python "$venv_dir/bin/python" \
+      --link-mode copy --reinstall-package rpent-liberopro --no-deps \
+      "$liberopro_requirement"
     timeout --foreground --kill-after=2m "$install_timeout" \
       uv pip check --python "$venv_dir/bin/python"
     timeout --foreground --kill-after=2m "$install_timeout" \
