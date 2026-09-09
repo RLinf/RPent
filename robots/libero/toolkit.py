@@ -179,6 +179,11 @@ class LiberoToolkit(Toolkit):
             out.update(result)
         return out
 
+    @property
+    def primitives(self) -> "libero_tools.LiberoPrimitives":
+        """Return the action primitives this toolkit drives."""
+        return self._primitives
+
     def init_primitives(
         self,
         *,
