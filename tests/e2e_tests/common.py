@@ -89,6 +89,18 @@ def run_scripted_policy_chain(
         *robot_argv,
     ]
     env = {**os.environ, "OPENAI_API_KEY": OFFLINE_MODEL_NAME}
+    # Keep the loopback planner reachable when the runner uses an HTTP proxy.
+    no_proxy = ",".join(
+        value
+        for value in (
+            env.get("NO_PROXY"),
+            env.get("no_proxy"),
+            "127.0.0.1",
+            "localhost",
+        )
+        if value
+    )
+    env.update(NO_PROXY=no_proxy, no_proxy=no_proxy)
 
     repo_root = Path(__file__).resolve().parents[2]
     with OfflinePlannerServer(script) as planner_server:
