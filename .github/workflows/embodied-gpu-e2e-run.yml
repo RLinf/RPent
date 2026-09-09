@@ -37,21 +37,23 @@ jobs:
       UV_PYTHON_INSTALL_DIR: /workspace/dataset/.uv_python
       UV_TORCH_BACKEND: auto
 
-      # Runner provisioning TODO
+      # Runner resources under the shared /workspace/dataset mount.
+      # TODO entries still require provisioning before running that stack.
       #
       # LIBERO-PRO
-      LIBERO_PRO_ASSET_PATH: /workspace/dataset/LIBERO-PRO
-      #   PI05_CHECKPOINT_PATH:  # directory
-      #   SAM3_CHECKPOINT_PATH:  # checkpoint file
+      PI05_CHECKPOINT_PATH: /workspace/dataset/RLinf-Pi05-LIBERO-130-fullshot-SFT
+      LIBERO_PRO_ASSET_PATH: /workspace/dataset/LIBERO-PRO/liberopro/liberopro/assets
+      SAM3_CHECKPOINT_PATH: /workspace/dataset/rpent/sam3/sam3.pt
       #
       # RoboCasa
+      RLDX_MODEL_PATH: /workspace/dataset/RLDX-1-FT-RC365
       ROBOCASA_ASSETS_PATH: /workspace/dataset/robocasa365_assets
-      ROBOCASA_MACROS_PATH: /workspace/dataset/robocasa365/robocasa/macros_private.py
-      #   RLDX_MODEL_PATH:  # directory
+      # TODO: verify ROBOCASA_MACROS_PATH with the installed RoboCasa package.
+      # Candidate: /workspace/dataset/robocasa365/robocasa/macros_private.py
       #
       # RoboTwin
       ROBOTWIN_ASSETS_PATH: /workspace/dataset/RoboTwin
-      #   LINGBOT_MODEL_PATH:  # directory containing qwen_base/
+      LINGBOT_MODEL_PATH: /workspace/dataset/rpent/LingBot-VLA-RoboTwin-EEF-ckpt1500
     steps:
       - name: Checkout selected revision
         uses: actions/checkout@v7

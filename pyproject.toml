@@ -75,13 +75,13 @@ sam3 = [
 libero = [
     "rpent[rlinf,sam3]",
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
-    "rpent-libero>=0.2.0",
+    "rpent-libero @ git+https://github.com/RLinf/LIBERO.git@rpent",
     # MuJoCo 3.4+ changes LIBERO settling, misplacing objects and reducing task success; see https://github.com/RLinf/RLinf/issues/1460.
     "mujoco==3.3.0",
 ]
 libero-pro = [
     "rpent[libero]",
-    "rpent-liberopro>=0.2.0",
+    "rpent-liberopro @ git+https://github.com/RLinf/LIBERO-PRO.git@rpent",
 ]
 libero-plus = [
     # LIBERO-plus requires robosuite<1.5, so it cannot inherit the standard LIBERO extra.
@@ -103,7 +103,7 @@ franka = [
 robocasa = [
     "rpent[rlinf]",
     "rlinf-robocasa365",
-    "rlinf-rldx>=1.0.1.post10",
+    "rlinf-rldx @ git+https://github.com/RLinf/RLDX-1.git@rpent",
     "robosuite @ git+https://github.com/RLinf/robosuite.git@rpent",
 ]
 robotwin = [
