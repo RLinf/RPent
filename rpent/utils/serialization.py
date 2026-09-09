@@ -19,8 +19,6 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
-import numpy as np
-
 
 def to_numpy_tree(value: Any) -> Any:
     """Recursively convert tensors and nested values into pickle-safe data."""
@@ -34,6 +32,4 @@ def to_numpy_tree(value: Any) -> Any:
         return [to_numpy_tree(item) for item in value]
     if isinstance(value, tuple):
         return tuple(to_numpy_tree(item) for item in value)
-    if isinstance(value, np.generic):
-        return value.item()
     return value

@@ -69,15 +69,6 @@ def pick_free_port(host: str = "127.0.0.1") -> int:
         return int(s.getsockname()[1])
 
 
-def prepend_pythonpath(env: dict[str, str], path: str) -> None:
-    """Prepend ``path`` to ``env["PYTHONPATH"]``, keeping each entry once."""
-    entries = [path]
-    for entry in env.get("PYTHONPATH", "").split(os.pathsep):
-        if entry and entry not in entries:
-            entries.append(entry)
-    env["PYTHONPATH"] = os.pathsep.join(entries)
-
-
 class ProcessDaemon:
     """Wraps a subprocess server with ready-detection and lifecycle."""
 
@@ -94,7 +85,12 @@ class ProcessDaemon:
         self.cmd = cmd
         self.subprocess_env = os.environ.copy()
         self.subprocess_env.update(env_overrides or {})
-        prepend_pythonpath(self.subprocess_env, str(get_rlinf_repo_path()))
+        # Put the RLinf checkout first on the child's PYTHONPATH
+        rlinf_path = str(get_rlinf_repo_path())
+        pythonpath = self.subprocess_env.get("PYTHONPATH", "")
+        self.subprocess_env["PYTHONPATH"] = (
+            f"{rlinf_path}{os.pathsep}{pythonpath}" if pythonpath else rlinf_path
+        )
         self.log_path = log_path
         self.cwd = cwd
         self._proc: subprocess.Popen | None = None

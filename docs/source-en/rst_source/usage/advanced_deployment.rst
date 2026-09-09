@@ -15,18 +15,6 @@ Dashboard Sessions do not support ``--env-endpoint`` because every TaskRun
 uses a fresh environment service. ``--vla-endpoint`` and ``--sam3-endpoint``
 remain available in Dashboard mode.
 
-The environment and VLA services import ``rlinf``. When starting them
-manually against a development RLinf checkout instead of the installed
-package, point ``PYTHONPATH`` at the checkout first:
-
-.. code-block:: bash
-
-   export PYTHONPATH=/path/to/rlinf:$PYTHONPATH
-
-Servers spawned by RPent get this automatically: the checkout is resolved
-from ``RPENT_RLINF_ROOT`` (or ``RLINF_REPO_PATH``), falling back to the
-``rlinf`` directory next to the RPent checkout.
-
 LIBERO environment service
 --------------------------
 
@@ -96,3 +84,20 @@ that service, and each ``*_PORT`` with the free port you chose at startup.
 Any of the three endpoint flags can be omitted; when one is unset, RPent
 spawns that service locally on a free port. All three default to HTTP when
 the protocol is omitted, and all three accept ``socket://HOST:PORT``.
+
+Custom RLinf checkout
+---------------------
+
+The environment and VLA services import ``rlinf``. When starting them
+manually against a development RLinf checkout instead of the installed
+package, point ``PYTHONPATH`` at the checkout first:
+
+.. code-block:: bash
+
+   export PYTHONPATH=/path/to/rlinf:$PYTHONPATH
+
+Servers spawned by RPent get this automatically: the checkout is resolved
+from ``RPENT_RLINF_ROOT`` (or ``RLINF_REPO_PATH``), falling back to the
+``rlinf`` directory next to the RPent checkout. A resolved path that does
+not exist is harmless — Python ignores invalid ``PYTHONPATH`` entries —
+so the servers import the installed ``rlinf`` package.

@@ -13,17 +13,6 @@ Pi0.5 VLA 用 ``--vla-endpoint``，SAM3 用 ``--sam3-endpoint``。每个都取
 Dashboard Session 不支持 ``--env-endpoint``，因为每个 TaskRun 都需要使用新的
 环境服务；Dashboard 模式仍可使用 ``--vla-endpoint`` 和 ``--sam3-endpoint``。
 
-环境服务和 VLA 服务需要导入 ``rlinf``。手动启动时如果使用开发中的 RLinf
-源码而非已安装的包，请先把 ``PYTHONPATH`` 指向该源码目录：
-
-.. code-block:: bash
-
-   export PYTHONPATH=/path/to/rlinf:$PYTHONPATH
-
-由 RPent 自动拉起的 server 无需手动设置：RLinf 源码路径从
-``RPENT_RLINF_ROOT`` （或 ``RLINF_REPO_PATH`` ）解析，默认回退到 RPent
-仓库旁边的 ``rlinf`` 目录。
-
 LIBERO 环境服务
 ---------------
 
@@ -92,3 +81,18 @@ SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。
 某项未指定时，RPent 会在当前机器上启动对应服务并自动选择空闲端口。三个服务省略
 protocol 时都默认使用 HTTP，也都可以通过 ``socket://HOST:PORT`` 改用 socket
 RPC。
+
+自定义 RLinf 源码
+-----------------
+
+环境服务和 VLA 服务需要导入 ``rlinf``。手动启动时如果使用开发中的 RLinf
+源码而非已安装的包，请先把 ``PYTHONPATH`` 指向该源码目录：
+
+.. code-block:: bash
+
+   export PYTHONPATH=/path/to/rlinf:$PYTHONPATH
+
+由 RPent 自动拉起的 server 无需手动设置：RLinf 源码路径从
+``RPENT_RLINF_ROOT`` （或 ``RLINF_REPO_PATH`` ）解析，默认回退到 RPent
+仓库旁边的 ``rlinf`` 目录。解析出的路径不存在也无妨：Python 会忽略无效的
+``PYTHONPATH`` 条目，server 将导入已安装的 ``rlinf`` 包。
