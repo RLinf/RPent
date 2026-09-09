@@ -38,10 +38,10 @@ RPent 面向以下四类用户：
 
 ## 最新动态
 
+- [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。参见 [RoboCasa 安装与 Target50 指南](robots/robocasa/README.md)和 [完整中文文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
 - [2026/08] 🔥 新增非推理（non-reasoning）模式，平均执行时间降低约 40%。
 - [2026/08] 🔥 支持 LIBERO 探索模式。文档：[LIBERO 探索模式](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#memory)。
 - [2026/08] 🔥 支持 RoboTwin，使用 LingBot-VLA 处理双臂操作任务。文档：[RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html)。
-- [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。文档：[RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
 - [2026/07] 🔥 RPent 首篇论文 [Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents](https://arxiv.org/abs/2607.08448) 发布。
 
 ## 功能矩阵
@@ -112,6 +112,9 @@ pip install -e ".[robotwin]"    # RoboTwin
 `.[libero-pro]` 是默认推荐配置。其他环境见
 [安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
 
+RoboCasa 安装、任务 memory 与 Target50 协议参见
+[RoboCasa 指南](robots/robocasa/README.md)。
+
 下面的示例继续使用 LIBERO-PRO。
 
 **2. 下载 LIBERO-PRO 仿真资产。**
@@ -169,7 +172,7 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 
 ### 实时 Dashboard
 
-加上 `--dashboard` 后，会启动本地 Dashboard，并在终端输出访问地址。打开该地址并确认配置；服务就绪后，通过 `/rpent-task <suite> <task> <seed>` 启动任务。页面会实时显示智能体的推理过程、相机画面和动作时间线，任务结束后可以继续提交下一任务。使用 `--dashboard-language zh-cn` 可切换到中文界面。
+加上 `--dashboard` 后，会启动本地 Dashboard，并在终端输出访问地址。Session 配置全部来自命令行，页面打开后直接进入实时监控；服务就绪后，通过 `/rpent-task <suite> <task> <seed>` 启动任务。页面会实时显示智能体的推理过程、相机画面和动作时间线，任务结束后可以继续提交下一任务。使用 `--dashboard-language zh-cn` 可切换到中文界面。
 
 ```bash
 rpent --robot libero --dashboard --dashboard-language zh-cn \
@@ -179,6 +182,11 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
 完整的命令行参数列表见 [快速开始](https://rpent.readthedocs.io/zh-cn/latest/rst_source/quickstart.html#cli) 文档中的「关键 CLI 选项」表格。RoboCasa 与 RoboTwin 使用独立的入口和命令行参数，参见 [RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html) 与 [RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html) 文档。
 
 更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
+
+## 参与贡献
+
+欢迎社区贡献。开发环境、必需检查、测试规范和集成检查清单请参见
+[CONTRIBUTING_zh.md](CONTRIBUTING_zh.md)。
 
 ## 引用与致谢
 

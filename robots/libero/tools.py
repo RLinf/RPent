@@ -155,7 +155,7 @@ class LiberoPrimitives:
             self._last_obs["task_descriptions"] = instruction
             self._last_obs.setdefault("extra_view_images", None)
 
-            actions, _ = self.model.predict_action_batch(self._last_obs, mode="eval")
+            actions = self.model.predict(self._last_obs, options={"mode": "eval"})
             self._check_cancelled()
 
             vla_id = (
@@ -903,7 +903,7 @@ def write_recipe_from_states(
     if not solved:
         return ""
     command_events.sort(key=lambda event: event[0])
-    recipe_name = f"recipe_{recipe_tag}.jsonl"
+    recipe_name = f"{recipe_tag}_recipe.jsonl"
     recipe_path = Path(output_dir) / recipe_name
     recipe_path.parent.mkdir(parents=True, exist_ok=True)
     recipe_path.write_text(

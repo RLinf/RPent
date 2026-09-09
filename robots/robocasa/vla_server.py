@@ -21,15 +21,47 @@ import numpy as np
 
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.logging import get_logger
+from rpent.utils.rpc.rpc_facade import DEFAULT_SESSION_TIMEOUT_S
 
 logger = get_logger("vla_server")
+
+
+def _build_processor_image_transforms(processor):
+    from rldx.data.augmentations import build_image_transformations_albumentations
+
+    return build_image_transformations_albumentations(
+        image_max_area=processor.image_max_area,
+        image_resize_m=processor.image_resize_m,
+        random_crop_fraction=getattr(processor, "random_crop_fraction", None),
+        random_rotation_angle=getattr(processor, "random_rotation_angle", None),
+        color_jitter_params=getattr(processor, "color_jitter_params", None),
+    )
+
+
+def _normalize_legacy_processor_geometry(processor):
+    """Restore required image geometry omitted by older checkpoint metadata."""
+    image_max_area = getattr(processor, "image_max_area", None)
+    image_resize_m = getattr(processor, "image_resize_m", None)
+    if image_max_area is not None and image_resize_m is not None:
+        return False
+
+    processor.image_max_area = 65536 if image_max_area is None else image_max_area
+    processor.image_resize_m = 32 if image_resize_m is None else image_resize_m
+    (
+        processor.train_image_transform,
+        processor.eval_image_transform,
+    ) = _build_processor_image_transforms(processor)
+    return True
 
 
 class RoboCasaVLAFacade(BaseVLAFacade):
     """Loads RLDX model and exposes inference-only RPC methods."""
 
-    def __init__(self, model_path):
-        super().__init__()
+    def __init__(self, model_path, *, session_timeout_s=DEFAULT_SESSION_TIMEOUT_S):
+        super().__init__(
+            enable_sessions=True,
+            session_timeout_s=session_timeout_s,
+        )
         from rldx.data.embodiment_tags import EmbodimentTag
         from rldx.eval.rollout_policy import create_rldx_sim_policy
 
@@ -39,6 +71,11 @@ class RoboCasaVLAFacade(BaseVLAFacade):
             "",
             None,
         )
+        if _normalize_legacy_processor_geometry(self.policy.policy.processor):
+            logger.warning(
+                "RLDX checkpoint omitted required image geometry; using "
+                "image_max_area=65536 and image_resize_m=32"
+            )
         mod = self.policy.get_modality_config()
         self._vdi = np.asarray(mod["video"].delta_indices)
         self._hist_maxlen = int(self._vdi.max() - self._vdi.min()) + 2
@@ -55,24 +92,43 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         self._rpc["vla.reset_session"] = self.reset_session
         self._readonly_methods.add("vla.get_modality_config")
 
-    def get_modality_config(self):
+    def get_modality_config(self, *, session_id=None):
         return {
             "video_delta_indices": self._vdi.tolist(),
             "hist_maxlen": self._hist_maxlen,
         }
 
-    def predict(self, obs_dict, options):
+    def predict(self, obs_dict, options, *, session_id):
         # policy.get_action returns dict[str, np.ndarray] because RLDX's
         # PolicyRuntime._decode already .cpu().numpy()s torch internally, and
         # _NumpyEncoder (http_rpc) tags numpy arrays at JSON time. If you ever
         # bypass _decode (e.g. call the model forward directly), you must
         # .cpu().numpy() the result here — _NumpyEncoder raises on torch.Tensor.
+        # The caller's session id is injected by the RPC facade and is the
+        # single source of truth for RLDX memory/RTC isolation; reject any
+        # caller-supplied session_ids so it cannot shadow the server-side one.
+        options = dict(options or {})
+        if "session_ids" in options:
+            raise ValueError(
+                "predict options must not contain 'session_ids'; the server "
+                "injects the caller's private session id from the RPC facade"
+            )
+        options["session_ids"] = [session_id]
         actions, info = self.policy.get_action(obs_dict, options=options)
         return actions
 
-    def reset_session(self, session_id):
+    def reset_session(self, *, session_id):
+        """Reset RLDX internal state (memory/RTC) for this session.
+
+        Does NOT destroy the session — only resets the policy state. The
+        session stays live for subsequent calls. Mirror of predict's
+        session_ids injection.
+        """
         self.policy.reset({"session_ids": [session_id]})
         return {"ok": True}
+
+    def _on_session_drop(self, session_id):
+        self.policy.reset({"session_ids": [session_id]})
 
 
 def main():
@@ -97,6 +153,18 @@ def main():
         help="GPU device exposed through CUDA_VISIBLE_DEVICES.",
     )
     p.add_argument("--model-path", required=True, help="RLDX checkpoint path")
+    p.add_argument(
+        "--session-timeout-s",
+        type=float,
+        default=3600.0,
+        help="session idle-timeout in seconds (default: 3600)",
+    )
+    p.add_argument(
+        "--session-sweep-s",
+        type=float,
+        default=60.0,
+        help="period (s) to sweep idle-expired sessions; must be > 0 (default: 60)",
+    )
     args = p.parse_args()
 
     if args.cuda_device is not None:
@@ -112,12 +180,15 @@ def main():
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
 
-    facade = RoboCasaVLAFacade(args.model_path)
+    facade = RoboCasaVLAFacade(
+        args.model_path, session_timeout_s=args.session_timeout_s
+    )
     facade.serve(
         transport=args.transport,
         host=args.host,
         port=args.port,
         parent_watch=args.parent_watch,
+        session_sweep_s=args.session_sweep_s,
     )
 
 

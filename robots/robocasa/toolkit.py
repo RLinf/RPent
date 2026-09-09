@@ -38,11 +38,6 @@ logger = get_logger("robocasa_toolkit")
 class RoboCasaToolkit(Toolkit):
     """Toolkit for the RoboCasa robot."""
 
-    _FRAME_ARTIFACTS = {
-        "camera": "agentview.png",
-        "wrist": "wrist.png",
-    }
-
     def __init__(
         self,
         *,
@@ -162,6 +157,11 @@ class RoboCasaToolkit(Toolkit):
                 self._state.save("episode.mp4", frames, step=None, fps=20)
         except Exception as e:
             logger.warning("failed to save episode video: %s", e)
+
+    def solved(self) -> bool:
+        """Return the success value from the final recorded environment state."""
+        record = self._state.latest_record()
+        return bool(record is not None and record.extras.get("success", False))
 
     def write_recipe(self, recipe_tag: str) -> str:
         """Write the RoboCasa recipe JSONL from the dumped state trace."""

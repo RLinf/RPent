@@ -27,6 +27,15 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
    # 默认推荐：
    pip install -e ".[libero-pro]"  # LIBERO-PRO
 
+.. tip::
+
+   ``openai-codex-cli-bin`` 目前在清华 TUNA PyPI 镜像中不可用。
+   如果从默认 PyPI 安装较慢，可以使用阿里云 PyPI 镜像：
+
+   .. code-block:: bash
+
+      pip install -i https://mirrors.aliyun.com/pypi/simple openai-codex-cli-bin
+
 如需使用其他环境配置，可选择：
 
 .. code-block:: bash

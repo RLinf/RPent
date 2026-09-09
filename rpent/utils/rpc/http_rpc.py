@@ -26,6 +26,7 @@ from __future__ import annotations
 import base64
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
@@ -37,8 +38,15 @@ from rpent.utils.rpc.rpc_client import RpcClient, RpcError, check_response
 from rpent.utils.rpc.rpc_facade import make_error_response
 
 DEFAULT_TIMEOUT_S = 30.0
+_DIRECT_HOSTS = frozenset({"127.0.0.1", "localhost"})
 
 logger = get_logger("http_rpc")
+
+
+def _is_direct_url(url: str) -> bool:
+    """Return whether *url* uses a hostname that must bypass HTTP proxies."""
+    hostname = urllib.parse.urlsplit(url).hostname
+    return hostname is not None and hostname.lower() in _DIRECT_HOSTS
 
 
 def _from_json(obj: Any) -> Any:
@@ -66,11 +74,24 @@ class HttpRpcClient(RpcClient):
     ----------
     base_url : str
         Server address, e.g. ``"http://127.0.0.1:8080"``.
+
+        ``127.0.0.1`` and ``localhost`` bypass HTTP proxies. Other hostnames
+        use the process proxy configuration.
+    enable_sessions : bool
+        If True, the client is session-aware: it auto-generates a session id
+        and carries it on every call; :func:`wait_for_ready` registers it
+        with the server on connect. If False, the client sends no session_id
+        and is fully session-unaware.
     """
 
-    def __init__(self, base_url: str) -> None:
-        """Initialize with a base URL, e.g. ``"http://127.0.0.1:8080"``."""
+    def __init__(self, base_url: str, *, enable_sessions: bool = False) -> None:
+        super().__init__(enable_sessions=enable_sessions)
         self._base_url = base_url.rstrip("/")
+        self._opener = (
+            urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            if _is_direct_url(self._base_url)
+            else None
+        )
 
     def call(
         self,
@@ -85,6 +106,7 @@ class HttpRpcClient(RpcClient):
             "method": method,
             "args": list(args),
             "kwargs": kwargs or {},
+            "session_id": self._session_id,
         }
         body = json.dumps(payload, cls=_NumpyEncoder).encode("utf-8")
         url = f"{self._base_url}/call"
@@ -97,7 +119,8 @@ class HttpRpcClient(RpcClient):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=request_timeout) as resp:
+            open_request = self._opener.open if self._opener else urllib.request.urlopen
+            with open_request(req, timeout=request_timeout) as resp:
                 raw = resp.read()
         except urllib.error.HTTPError as exc:
             # HTTPError is an OSError subclass; catch first so we can parse
@@ -157,7 +180,13 @@ class _HttpRpcHandler(BaseHTTPRequestHandler):
             method = request["method"]
             args = tuple(_from_json(v) for v in request.get("args", []))
             kwargs = {k: _from_json(v) for k, v in request.get("kwargs", {}).items()}
-            result = self.server.dispatch(method, args, kwargs)  # type: ignore[attr-defined]
+            session_id = request.get("session_id")
+            if session_id is None:
+                result = self.server.dispatch(method, args, kwargs)
+            else:
+                result = self.server.dispatch(  # type: ignore[attr-defined]
+                    method, args, kwargs, session_id=session_id
+                )
             response: dict = {"ok": True, "result": result}
         except Exception as exc:
             response = make_error_response(exc)
@@ -187,7 +216,7 @@ class HttpRpcServer(ThreadingHTTPServer):
     def __init__(
         self,
         server_address: tuple[str, int],
-        dispatch: Callable[[str, tuple, dict], Any],
+        dispatch: Callable[..., Any],
     ) -> None:
         super().__init__(server_address, _HttpRpcHandler)
         self.dispatch = dispatch

@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -100,25 +101,48 @@ MODEL_SPEC = RoboTwinModelSpec(
 )
 
 
-ROBOTWIN_DASHBOARD_SPEC = {
+ROBOTWIN_DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",
-        "usage": "/rpent-task <task_name> <seed>",
+        "usage": "/rpent-task <task_name> <task_config> <seed>",
         "fields": (
             {"name": "task_name"},
+            {
+                "name": "task_config",
+                "choices": ROBOTWIN_TASK_CONFIGS,
+            },
             {"name": "seed", "kind": "integer", "minimum": 0},
         ),
-        "display": "{task_name} / seed {seed}",
-        "output_slug": "{task_name}_s{seed}",
+        "display": "{task_name} / {task_config} / seed {seed}",
+        "output_slug": "{task_name}_{task_config}_s{seed}",
     },
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
     ),
     "frame_channels": (
-        {"name": "camera", "label": "head camera"},
-        {"name": "left_wrist", "label": "left wrist"},
-        {"name": "right_wrist", "label": "right wrist"},
+        {
+            "name": "camera",
+            "label": "head camera",
+            "artifact": "head_rgb.png",
+        },
+        {
+            "name": "left_wrist",
+            "label": "left wrist",
+            "artifact": "left_wrist_rgb.png",
+        },
+        {
+            "name": "right_wrist",
+            "label": "right wrist",
+            "artifact": "right_wrist_rgb.png",
+        },
+    ),
+    "primitives": (
+        "lingbot_act",
+        "move_to",
+        "rotate_wrist",
+        "set_gripper",
+        "release",
     ),
 }
 
@@ -283,6 +307,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     recipe_tag = f"robotwin_{args.task_name}_s{args.seed}"
     task_config = getattr(args, "task_config", "demo_randomized")
     initial_seed = int(args.seed)
+    memory_dir = (
+        Path(args.memory_dir).expanduser().resolve()
+        if args.memory_dir
+        else get_memory_dir("robotwin")
+    )
     return RunConfig(
         recipe_tag=recipe_tag,
         output_dir=output_dir,
@@ -291,6 +320,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "seed": args.seed,
             "task_config": task_config,
             "instruction": "<native task_language from state_00>",
+            "memory_dir": str(memory_dir),
+            "reference_tag": f"{args.task_name}_s0",
         },
         task_desc={
             "env": "robotwin",

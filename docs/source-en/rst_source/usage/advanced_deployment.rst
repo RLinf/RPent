@@ -42,6 +42,7 @@ On the VLA host, set the checkpoint path and start the HTTP service:
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
    python -m rpent.robots.components.pi05_vla_server \
+     --embodiment libero \
      --cuda-device 0 \
      --transport http --host 0.0.0.0 --port VLA_PORT
 

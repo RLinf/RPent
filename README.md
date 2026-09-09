@@ -38,10 +38,11 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
+- [2026/09] 🔥 RPent supports Franka single-arm and dual-arm real-robot extensions. Doc: [Franka](https://rpent.readthedocs.io/en/latest/rst_source/usage/franka.html) · [Dual Franka](https://rpent.readthedocs.io/en/latest/rst_source/usage/dual_franka.html).
+- [2026/08] 🔥 RPent supports RoboCasa with RLDX-1 as manipulation model. See the [RoboCasa setup and Target50 guide](robots/robocasa/README.md) and [full documentation](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
 - [2026/08] 🔥 RPent supports the non-reasoning mode, which reduces average execution time by ~40%.
 - [2026/08] 🔥 RPent supports exploration mode for LIBERO. Doc: [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#exploration-and-local-memory-evaluation).
 - [2026/08] 🔥 RPent supports RoboTwin with LingBot-VLA for dual-arm manipulation tasks. Doc: [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html).
-- [2026/08] 🔥 RPent supports RoboCasa with RLDX-1 as manipulation model. Doc: [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
 - [2026/07] 🔥 Our first RPent publication, [Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents](https://arxiv.org/abs/2607.08448), is released.
 
 ## Feature Matrix
@@ -87,7 +88,8 @@ RPent is built for four kinds of users:
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li>Franka</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/franka.html">Franka</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/dual_franka.html">Dual Franka</a> ✅</li>
           <li>SO-101</li>
         </ul>
       </td>
@@ -109,6 +111,9 @@ pip install -e ".[robotwin]"    # RoboTwin
 ```
 
 `.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for other environments.
+
+For RoboCasa setup, task memory, and the Target50 protocol, see the
+[RoboCasa guide](robots/robocasa/README.md).
 
 The example below continues with LIBERO-PRO.
 
@@ -167,7 +172,7 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 
 ### Live Dashboard
 
-Add `--dashboard` to start a local Dashboard and print its URL in the terminal. Open the URL and confirm the configuration; once the services are ready, start a task with `/rpent-task <suite> <task> <seed>`. The page streams agent reasoning, camera views, and the action timeline, and you can submit another task after the current one finishes. Use `--dashboard-language zh-cn` for the Chinese UI.
+Add `--dashboard` to start a local Dashboard and print its URL in the terminal. Session settings come from the CLI, and the page opens directly in the live monitor. Once the services are ready, start a task with `/rpent-task <suite> <task> <seed>`. The page streams agent reasoning, camera views, and the action timeline, and you can submit another task after the current one finishes. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
 rpent --robot libero --dashboard --dashboard-language zh-cn \
@@ -177,6 +182,11 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
 For a complete list of CLI options, see the [Key CLI options](https://rpent.readthedocs.io/en/latest/rst_source/quickstart.html#key-cli-options) table in the Quick Start docs. RoboCasa and RoboTwin use their own entrypoints and CLI — see the [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html) and [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html) docs.
 
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development setup, required checks, testing policy, and integration checklists.
 
 ## Citation and Acknowledgement
 

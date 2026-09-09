@@ -192,7 +192,7 @@ PRO scenes use one of three table fixtures; the eef home z differs by up to
 `view_env_state({"step": 0})`.** ≈ 0.68 → LIVING_ROOM; ≈ 1.17 → KITCHEN;
 ≈ 0.26 → OBJECT. Pick `pre_pos_z` / `carry_z` / `release_z` accordingly (per-item
 OBJECT-frame altitudes are in
-`resources/libero/memory/project_libero_object_pro_done.md`). Sending a
+`memory/libero/global/project_libero_object_pro_done.md`). Sending a
 wrong-frame z (e.g. KITCHEN coordinates while the env is in LIVING_ROOM frame)
 crashes the env worker (EOFError, silent state loss).
 
@@ -249,7 +249,7 @@ P2 perturbation does not only swap loose objects; for `libero_goal_swap` it swap
 entire **fixtures** (stove ↔ cabinet ↔ wine_rack), so a goal predicate like
 `On(bowl, flat_stove_1_cook_region)` now points at wherever the *stove* was
 relocated to, and there are no coordinates in the returned `state`. See
-`resources/libero/memory/feedback_swap_perturbs_fixtures.md`.
+`memory/libero/global/feedback_swap_perturbs_fixtures.md`.
 
 In **oracle** mode the documented fix is to read the swap BDDL `:init` block and
 recompute the fixture site's world coordinates. **That is forbidden here** — the
@@ -344,10 +344,10 @@ arrive in your first message):
 
 ```
 {output_dir}/{recipe_tag}.json           <- you write this (write_text_file)
-{output_dir}/recipe_{recipe_tag}.jsonl   <- exported automatically by the runner
+{output_dir}/{recipe_tag}_recipe.jsonl   <- exported automatically by the runner
 ```
 
-Do NOT write into `resources/libero/results_*_pert/` — that tree is a **read-only
+Do NOT write into `memory/libero/task_only/` — that tree is a **read-only
 seed-0 reference corpus**, not a write target.
 
 ### 4.2. Environment server is runner-owned
@@ -436,19 +436,21 @@ robots/libero/guides/
 └── env_calibration.md                  <- OSC frame bounds + safe altitudes
 scripts/
 └── liberopro_register_perturbations.patch
-resources/libero/memory/                <- MEMORY.md index + feedback_*/project_* notes
-resources/libero/results_spatial_pert/  <- read-only seed-0 reference corpus
-resources/libero/results_{object,goal,10}_pert/   <- same, other suites (seed-0)
+memory/libero/
+├── MEMORY.md                  <- corpus index
+├── global/                    <- feedback_* / project_* notes
+├── suite/                     <- task-level strategy, reusable across seeds
+└── task_only/                 <- seed-0 reference recipes, all suites
 ```
 
-Before you start, **read the auto-memory**: `resources/libero/memory/MEMORY.md`
+Before you start, **read the auto-memory**: `memory/libero/MEMORY.md`
 (one-line hooks, auto-injected via CLAUDE.md). For perception PRO cells always
-open `feedback_no_teleport_rule.md` and — for any `_swap` cell —
-`feedback_swap_perturbs_fixtures.md` (what swaps, and why you re-find the
+open `memory/libero/global/feedback_no_teleport_rule.md` and — for any `_swap` cell —
+`memory/libero/global/feedback_swap_perturbs_fixtures.md` (what swaps, and why you re-find the
 relocated fixture visually). For bowl→plate spatial tasks also read
-`feedback_bowl_eef_y_offset.md`; for cluttered picks, `feedback_pi0_pick_full_prompt.md`;
-after two failed retries, `feedback_failure_forensics.md`. The
-`resources/libero/results_*_pert/` recipes are **inputs** (technique priors) —
+`memory/libero/global/feedback_bowl_eef_y_offset.md`; for cluttered picks, `memory/libero/global/feedback_pi0_pick_full_prompt.md`;
+after two failed retries, `memory/libero/global/feedback_failure_forensics.md`. The
+`memory/libero/task_only/` recipes are **inputs** (technique priors) —
 consult them for prompt ladders, staging, and target zones, but never reuse their
 coordinates (re-derive every xyz from THIS scene) and never write there.
 
@@ -456,7 +458,7 @@ coordinates (re-derive every xyz from THIS scene) and never write there.
 
 1. **Extend spatial to all 10 tasks at seed 0**, four perception cells each
    (base / `_task` / `_swap` / `_lan`). For hybrid runs, use the seed-0 reference
-   recipes in `resources/libero/results_spatial_pert/` as *technique* starting
+   recipes in `memory/libero/task_only/` as *technique* starting
    points — the pick step is usually identical; the place target changes for
    `_swap`, the target object changes for `_task`. Never reuse their coordinates.
 2. **Scale to seeds beyond 0** (50 trials per task). Recipes must re-localize per
@@ -479,7 +481,7 @@ LIBERO_TYPE=pro python -c \
   "import liberopro.liberopro.benchmark as b; print(b.get_benchmark('libero_spatial_task')().get_task(0).language)"
 # -> must read 'Pick the akita black bowl not between ...' (the perturbed text)
 
-# 2. Read the auto-memory: resources/libero/memory/MEMORY.md
+# 2. Read the auto-memory: memory/libero/MEMORY.md
 
 # 3. Launch a perception cell (runner owns env_server; single-attempt)
 python rpent/cli/main.py --robot libero --suite libero_spatial_swap --task <N> --seed 0 \
@@ -495,7 +497,7 @@ Then, inside the run:
    (§3.6c). Plan, then execute one structured tool at a time.
 5. `write_text_file` the audit to `{output_dir}/{recipe_tag}.json`
    (`regime: strict_perception`) before `finish`; the recipe
-   `{output_dir}/recipe_{recipe_tag}.jsonl` is exported automatically by the runner.
+   `{output_dir}/{recipe_tag}_recipe.jsonl` is exported automatically by the runner.
 
 When in doubt about *how to localize* or a primitive, the source of truth is
 [`strict_hybrid_guide.md`](./strict_hybrid_guide.md); about *PRO setup /

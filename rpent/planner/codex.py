@@ -58,6 +58,23 @@ logger = get_logger("codex")
 
 PROVIDER_ID = "rpent_proxy"
 PROVIDER_ENV_KEY = "RPENT_CODEX_PROVIDER_KEY"
+_LOOPBACK_NO_PROXY_HOSTS = ("127.0.0.1", "localhost")
+
+
+def _codex_environment() -> dict[str, str]:
+    """Build the Codex child environment with direct access to its local MCP."""
+    env = {**os.environ}
+    entries: list[str] = []
+    for key in ("NO_PROXY", "no_proxy"):
+        entries.extend(item.strip() for item in env.get(key, "").split(","))
+    entries = list(
+        dict.fromkeys(item for item in (*entries, *_LOOPBACK_NO_PROXY_HOSTS) if item)
+    )
+    bypass = ",".join(entries)
+    env["NO_PROXY"] = bypass
+    env["no_proxy"] = bypass
+    return env
+
 
 # ---------------------------------------------------------------------------
 # Public backend
@@ -436,7 +453,7 @@ class CodexPlanner:
     # -- config builder ----------------------------------------------------
 
     def _build_config(self, mcp_url: str) -> Any:
-        env = {**os.environ}
+        env = _codex_environment()
         if self._api_key:
             env[PROVIDER_ENV_KEY] = self._api_key
         kwargs: dict[str, Any] = {

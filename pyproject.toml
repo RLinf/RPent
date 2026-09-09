@@ -32,6 +32,7 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.27",
     "httpx>=0.27",
+    "jsonschema>=4.18",
     "claude-agent-sdk>=0.1.60",
     "openai-codex>=0.1.0b3",
     "mcp>=1.23.0,<2.0.0",
@@ -54,25 +55,29 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 "Bug Report" = "https://github.com/RLinf/RPent/issues"
 
 [project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-timeout",
+    "omegaconf",
+    "gymnasium",
+]
 rlinf = [
     "rpent-rlinf",
 ]
 sam3 = [
-    "sam3==0.1.4",
+    "sam3 @ git+https://github.com/RLinf/sam3.git@main",
+    "einops>=0.8.0",
+    "pycocotools",
     "torch",
     "torchvision",
     "pillow>=10",
 ]
 libero = [
-    "rpent[rlinf]",
-    "rpent[sam3]",
+    "rpent[rlinf,sam3]",
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
-    # OpenPI's tool.uv source is not propagated through package metadata.
-    "lerobot @ git+https://github.com/huggingface/lerobot.git@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5",
     "rpent-libero>=0.2.0",
     # MuJoCo 3.4+ changes LIBERO settling, misplacing objects and reducing task success; see https://github.com/RLinf/RLinf/issues/1460.
     "mujoco==3.3.0",
-    "h5py",
 ]
 libero-pro = [
     "rpent[libero]",
@@ -80,14 +85,20 @@ libero-pro = [
 ]
 libero-plus = [
     # LIBERO-plus requires robosuite<1.5, so it cannot inherit the standard LIBERO extra.
-    "rpent[rlinf]",
-    "rpent[sam3]",
+    "rpent[rlinf,sam3]",
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
-    # Keep this revision aligned with the source declared by OpenPI.
-    "lerobot @ git+https://github.com/huggingface/lerobot.git@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5",
     "rlinf-liberoplus",
     "mujoco==3.3.0",
     "h5py",
+]
+franka = [
+    "rlinf[franka] @ git+https://github.com/jx-qiu/RLinf.git@port/franka",
+    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
+    "franky-control @ https://github.com/Brunch-Life/franky/releases/download/wheels-libfranka-0.19.0/franky_control-1.1.3-cp310-cp310-manylinux_2_28_x86_64.whl ; python_version == '3.10' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "franky-control @ https://github.com/Brunch-Life/franky/releases/download/wheels-libfranka-0.19.0/franky_control-1.1.3-cp311-cp311-manylinux_2_28_x86_64.whl ; python_version == '3.11' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "franky-control @ https://github.com/Brunch-Life/franky/releases/download/wheels-libfranka-0.19.0/franky_control-1.1.3-cp312-cp312-manylinux_2_28_x86_64.whl ; python_version == '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "matplotlib>=3.8",
+    "pillow>=10",
 ]
 robocasa = [
     "rpent[rlinf]",
@@ -101,12 +112,53 @@ flywheel = [
 robotwin = [
     # TODO: replace fixed owner-controlled revisions with released versions.
     "rpent[rlinf]",
-    "rlinf-robotwin-runtime @ git+https://github.com/RoboTwin-Platform/RoboTwin.git@11d2d4ba1ba4819ebf63bb91ba0c5dfd4b0f81f2",
+    "rlinf-robotwin-runtime @ git+https://github.com/Sonorous281/RoboTwin.git@11d2d4ba1ba4819ebf63bb91ba0c5dfd4b0f81f2",
     "rlinf-lingbotvla @ git+https://github.com/RLinf/lingbot-vla.git@e158cce02f50dbb48b7f5bf76fdb34c1c1f97e12",
 ]
 
 [tool.uv]
-prerelease = "allow"
+prerelease = "if-necessary"
+
+# Each robot extra pulls a separately pinned VLA runtime whose Torch,
+# Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
+conflicts = [
+    [
+        { extra = "franka" },
+        { extra = "libero" },
+    ],
+    [
+        { extra = "franka" },
+        { extra = "libero-pro" },
+    ],
+    [
+        { extra = "franka" },
+        { extra = "libero-plus" },
+    ],
+    [
+        { extra = "franka" },
+        { extra = "robocasa" },
+    ],
+    [
+        { extra = "franka" },
+        { extra = "robotwin" },
+    ],
+    [
+        { extra = "libero" },
+        { extra = "robotwin" },
+    ],
+    [
+        { extra = "libero-pro" },
+        { extra = "robotwin" },
+    ],
+    [
+        { extra = "libero-plus" },
+        { extra = "robotwin" },
+    ],
+    [
+        { extra = "robocasa" },
+        { extra = "robotwin" },
+    ],
+]
 
 [tool.setuptools]
 include-package-data = true
@@ -118,6 +170,11 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
+
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+pythonpath = ["."]
+timeout = 60
 
 [tool.ruff]
 line-length = 88

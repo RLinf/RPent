@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "external": {
+    "source_name": "fr3_external_apriltag_eye_on_base.yaml",
+    "parameters": {
+      "eye_on_hand": false,
+      "freehand_robot_movement": true,
+      "move_group": "manipulator",
+      "move_group_namespace": "/",
+      "namespace": "/fr3_external_apriltag_eye_on_base/",
+      "robot_base_frame": "fr3_link0",
+      "robot_effector_frame": "fr3_EE",
+      "tracking_base_frame": "external_cam_color_optical_frame",
+      "tracking_marker_frame": "calibration_tag"
+    },
+    "transformation": {
+      "qw": 0.5716475324989893,
+      "qx": -0.648477335712707,
+      "qy": -0.3921449012002639,
+      "qz": 0.3145133067413849,
+      "x": 1.1891589594122716,
+      "y": -0.2661905602311186,
+      "z": 0.2016461487344114
+    }
+  },
+  "wrist": {
+    "source_name": "fr3_wrist_apriltag_ee_eye_on_hand.yaml",
+    "parameters": {
+      "eye_on_hand": true,
+      "freehand_robot_movement": true,
+      "move_group": "manipulator",
+      "move_group_namespace": "/",
+      "namespace": "/fr3_wrist_apriltag_ee_eye_on_hand/",
+      "robot_base_frame": "fr3_link0",
+      "robot_effector_frame": "fr3_EE",
+      "tracking_base_frame": "wrist_cam_color_optical_frame",
+      "tracking_marker_frame": "calibration_tag"
+    },
+    "transformation": {
+      "qw": 0.700798461779487,
+      "qx": 0.008827639050571932,
+      "qy": -0.016188432746246595,
+      "qz": -0.7131209738897865,
+      "x": 0.06531670324255999,
+      "y": 0.02759950864247399,
+      "z": -0.1809718238822886
+    }
+  }
+}

@@ -22,11 +22,11 @@ exploration, and protect every achieved subgoal."""
 READ_ORDER = """Before the first robot mutation:
 1. Read robots/robotwin/guides/GUIDE_RPENT.md completely.
 2. Inspect view_env_state(step=0) and its head image.
-3. Read resources/robotwin/recipe/{{task_name}}_s0.json and
-   resources/robotwin/recipe/recipe_{{task_name}}_s0.jsonl when present.
-4. Read resources/robotwin/memory/MEMORY.md and at most one to three relevant leaves.
+3. Read {{memory_dir}}/task_only/{{reference_tag}}.json and
+   {{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl when present.
+4. Read {{memory_dir}}/MEMORY.md and at most one to three relevant leaves.
 
-The current task_language and fresh observation override historical resources.
+The current task_language and fresh observation override historical memory.
 Use the semantic JSON as the phase plan and the JSONL as evidence for action
 type and VLA cadence, never as a coordinate replay."""
 
@@ -110,7 +110,7 @@ not use shell, Python, network clients, legacy command files, plan mode, user
 questions, or unrelated built-in tools. Never inspect task source, evaluator
 implementation, hidden rewards, object poses, raw expert trajectories, another
 attempt, or unapproved historical geometry. The curated files under
-resources/robotwin/memory and resources/robotwin/recipe are approved planning
+{{memory_dir}} are approved planning
 references and are not subject to this restriction. Call the selected registered
 tool in the same response instead of announcing a future action. The episode is
 non-interactive and must not be restarted."""

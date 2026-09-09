@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from robots.libero.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -58,7 +59,7 @@ LIBERO_SUITE_NAMES = (
     "libero_10_lan",
 )
 
-LIBERO_DASHBOARD_SPEC = {
+LIBERO_DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",
         "usage": "/rpent-task <suite> <task> <seed>",
@@ -79,13 +80,23 @@ LIBERO_DASHBOARD_SPEC = {
         {
             "name": "camera",
             "label": "fixed camera",
-            "legacy_path_key": "image_cam_path",
+            "artifact": "agentview.png",
         },
         {
             "name": "wrist",
             "label": "wrist camera",
-            "legacy_path_key": "image_wrist_path",
+            "artifact": "wrist.png",
         },
+    ),
+    "primitives": (
+        "move_to",
+        "pi0_pick",
+        "pi0_doubled",
+        "release",
+        "set_gripper",
+        "rotate_wrist",
+        "rotate_pitch",
+        "move_pose",
     ),
 }
 
@@ -141,9 +152,9 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """Register LIBERO CLI flags on the shared ``parser``.
 
     When ``use_dashboard`` is True, ``--suite`` / ``--task`` are made optional
-    because the dashboard launcher will fill them in before ``_parse_config``
-    validates. Under CLI-only, they are required — argparse errors out early
-    with the usual usage message.
+    because each TaskRun supplies them through the Dashboard task command.
+    Under CLI-only, they are required — argparse errors out early with the
+    usual usage message.
     """
     required = not use_dashboard
     parser.add_argument("--max-episode-steps", type=int, default=10000)
@@ -249,11 +260,17 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         else get_memory_dir("libero")
     )
     local_eval = not explore and memory_profile == "local"
-    if local_eval and not (memory_dir / "MEMORY.md").is_file():
-        raise ValueError(
-            f"local memory corpus not found at {memory_dir}; "
-            "run exploration first or use --memory-profile hf"
+    if local_eval:
+        has_local_memory = (memory_dir / "MEMORY.md").is_file() or any(
+            path.is_file()
+            for scope in ("global", "suite", "task_only")
+            for path in (memory_dir / scope).rglob("*")
         )
+        if not has_local_memory:
+            raise ValueError(
+                f"local memory corpus not found at {memory_dir}; "
+                "run exploration first or use --memory-profile hf"
+            )
     prompt_vars = {
         "suite": args.suite,
         "task": args.task,
@@ -264,7 +281,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "memory_dir": str(memory_dir),
         "reference_tag": f"{args.suite.replace('libero_', '')}_t{args.task}_s0",
         # Per-cell inbox: parallel explore runs must not append to a shared file.
-        "memory_inbox": str(memory_dir / "_inbox" / recipe_tag),
+        "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
         "session_number": 1,
         "session_max": max(1, args.explore_sessions) if explore else 1,
     }
@@ -355,6 +372,8 @@ def _spawn_vla_server(
                 / "components"
                 / "pi05_vla_server.py"
             ),
+            "--embodiment",
+            "libero",
             "--transport",
             "http",
             "--host",
@@ -426,7 +445,7 @@ def _init_runtime(
                 },
             )
         },
-        "vla": lambda rpc: {"model": Pi05VLAClient(rpc)},
+        "vla": lambda rpc: {"model": Pi05VLAClient(rpc, embodiment="libero")},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
     }
     selected = set(starters) if components is None else components

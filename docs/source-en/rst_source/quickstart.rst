@@ -61,7 +61,8 @@ Add ``--dashboard`` to start a local Dashboard and print its URL in the terminal
    rpent --robot libero --dashboard --dashboard-language zh-cn \
      --planner claude_code --model claude-opus-4-8
 
-Open the URL and confirm the configuration. Once the services are ready, enter
+Session configuration comes from the CLI and the URL opens directly in the
+live monitor. Once the services are ready, enter
 ``/rpent-task libero_object_swap 2 0`` in the page to start a task. The Dashboard
 streams agent reasoning, camera views, and the action timeline; submit another
 task after the current one finishes. Use ``--dashboard-language zh-cn`` for the
@@ -190,7 +191,7 @@ A successful run:
    by the elapsed time, token usage, and path to the run record.
 3. With the Dashboard enabled, also streams agent output, camera views,
    the action timeline, and clip replays to the Dashboard.
-4. By default, artifacts are saved under ``logs/<timestamp>_<suite>_t<task>_s<seed>/``. They include ``transcript_*.json`` (run record), ``states.json`` (the ``EnvState`` manifest), ``recipe_*.jsonl`` (action sequence), and ``episode.mp4`` (episode video). Each step artifact has a directory named after its logical artifact name; zero-padded step files live inside it, for example ``agentview_depth.npz/00.npz`` and ``agentview_depth.npz/01.npz``. Run-level artifacts remain at the output root.
+4. By default, artifacts are saved under ``logs/<timestamp>_<suite>_t<task>_s<seed>/``. They include ``transcript_*.json`` (run record), ``states.json`` (the ``EnvState`` manifest), ``*_recipe.jsonl`` (action sequence), and ``episode.mp4`` (episode video). Each step artifact has a directory named after its logical artifact name; zero-padded step files live inside it, for example ``agentview_depth.npz/00.npz`` and ``agentview_depth.npz/01.npz``. Run-level artifacts remain at the output root.
 
 Inspect the final state through the Dashboard or
 ``view_env_state(step=-1)``. Its top-level ``terminated`` value is the

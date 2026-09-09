@@ -127,9 +127,13 @@ these two functions:
 ``dashboard`` is optional. Leave it as ``None`` if the environment does not
 support Dashboard control. Otherwise, define the spec in the robot
 package: its ``task`` section describes the command, validated fields, display
-template, and output slug; ``runtime_components`` and ``frame_channels``
-describe the robot-specific rows and camera views rendered by the
-frontend. See ``robots/libero/robot_spec.py`` for the reference shape.
+template, and output slug; robot-specific Session settings remain normal CLI
+arguments; ``runtime_components`` describes service rows;
+``frame_channels`` maps camera names to canonical image artifacts;
+and ``primitives`` is the ordered allowlist of Toolkit actions displayed and
+executable as Dashboard controls. Keep task suggestions in the spec so
+importing the robot does not require simulator packages. See
+``robots/libero/robot_spec.py`` for the reference shape.
 
 That's the entire registration step — ``_resolve_robot(name)`` does an
 ``importlib.import_module(f"robots.{name}")``, so dropping the package under
@@ -425,6 +429,41 @@ events, readiness failures, and owned-daemon cleanup stay consistent across
 robots. The runners do not handle these environment details. See
 ``robots/libero/robot_spec.py`` and ``robots/robocasa/robot_spec.py`` for the
 reference pattern.
+
+Optional run-result finalizer
+-----------------------------
+
+``RobotSpec.finalize_run`` is a universal, robot-agnostic end-of-run hook.
+RoboCasa is its current consumer and uses it to record per-cell evaluation
+results for later statistics and aggregation. Any robot that publishes
+machine-readable evaluation artifacts may register the hook. The default is
+``None`` and leaves the runner unchanged. When the hook is present, the normal
+terminal runner captures ``toolkit.solved()`` before closing the toolkit, then
+passes a structured ``RunFinalizationContext`` to the hook after runtime
+cleanup. The hook owns the artifact schema and filename; RPent only defines the
+lifecycle boundary.
+
+Use ``write_json_atomic`` when the artifact is JSON so an interrupted write
+cannot leave a partial result:
+
+.. code-block:: python
+
+   from rpent.evaluation import RunFinalizationContext, write_json_atomic
+
+   def _finalize_run(context: RunFinalizationContext):
+       return write_json_atomic(
+           context.output_dir / "result.json",
+           {
+               "robot": context.robot_name,
+               "task": dict(context.task_desc),
+               "success": context.environment_success,
+           },
+       )
+
+Register the callback as ``RobotSpec(..., finalize_run=_finalize_run)``. This
+hook is currently limited to normal terminal runs; the Dashboard does not call
+it. Keep benchmark manifests, robot-specific runtime fields, and aggregation
+logic in the robot package rather than the shared CLI.
 
 Smoke test
 ----------

@@ -117,8 +117,12 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 
 ``dashboard`` 是可选项；环境不支持 Dashboard 控制时保持为 ``None``。支持时，
 在机器人包中定义该 spec：其中 ``task`` 描述命令、校验字段、展示模板和输出目录
-slug，``runtime_components`` 与 ``frame_channels`` 描述前端展示的环境专用服务行
-和相机视图。完整结构参考 ``robots/libero/robot_spec.py``。
+slug；机器人专用的 Session 设置继续使用普通命令行参数；
+``runtime_components`` 描述服务行；``frame_channels`` 将相机名称映射到
+标准图像 artifact；``primitives`` 按顺序列出 Dashboard 展示并允许直接执行的
+Toolkit 动作。
+任务候选项应直接保存在 spec 中，避免导入机器人包时依赖仿真器包。
+完整结构参考 ``robots/libero/robot_spec.py``。
 
 ``_resolve_robot(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
 动态加载机器人包。因此，只需将机器人包放在 ``robots/`` 下，无需维护中央注册列表。
@@ -214,7 +218,7 @@ socket）、提供 ``healthz`` 和 ``shutdown``、检测父进程退出并执行
 
 定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在机器人的
 ``robot_spec.py`` 中构造
-``PromptBundle(system=system_prompt, user=user_prompt)``（见上面的“入口”）。
+``PromptBundle(system=system_prompt, user=user_prompt)`` （见上面的“入口”）。
 每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节；
 ``PromptBundle.render`` 负责组装和填充。一套 prompt 供 API loop、Claude Code
 和 Codex 等 planner 共用。正文使用工具的裸名（如 ``move_to``），并说明 Claude
@@ -281,7 +285,7 @@ step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过
 
 **Toolkit 类** 继承 ``rpent.tools.toolkit.Toolkit``：
 
-- 在 ``super().__init__(...)`` 中传入 ``memory``（一个
+- 在 ``super().__init__(...)`` 中传入 ``memory`` （一个
   :class:`~rpent.memory.MemoryManager`）和 ``state``。``memory_access`` 和
   ``inbox_cell_tag`` 在构造 ``MemoryManager`` 时配置；eval 默认只读。
 - 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitives（LIBERO
@@ -390,6 +394,36 @@ endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
 ``try_wait_server`` 组合，使各环境的状态事件、就绪失败和 owned daemon 清理保持
 一致；runner 不处理这些环境细节。参考模式见 ``robots/libero/robot_spec.py`` 和
 ``robots/robocasa/robot_spec.py``。
+
+可选的运行结果 finalizer
+------------------------
+
+``RobotSpec.finalize_run`` 是面向所有机器人、与具体 benchmark 无关的通用运行结束
+钩子。RoboCasa 是当前使用方，用它记录单 cell 评测结果，供后续结果统计和聚合。
+任何需要发布机器可读评测产物的机器人都可以注册该钩子。其默认值为 ``None``，不会
+改变 runner 行为。配置该钩子后，普通终端 runner 会在关闭 toolkit 前读取
+``toolkit.solved()``，完成运行时清理后再把结构化的 ``RunFinalizationContext`` 传给
+钩子。产物 schema 与文件名由钩子负责，RPent 只定义生命周期边界。
+
+JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整结果：
+
+.. code-block:: python
+
+   from rpent.evaluation import RunFinalizationContext, write_json_atomic
+
+   def _finalize_run(context: RunFinalizationContext):
+       return write_json_atomic(
+           context.output_dir / "result.json",
+           {
+               "robot": context.robot_name,
+               "task": dict(context.task_desc),
+               "success": context.environment_success,
+           },
+       )
+
+通过 ``RobotSpec(..., finalize_run=_finalize_run)`` 注册回调。该钩子目前只用于普通
+终端运行，Dashboard 不会调用。benchmark manifest、机器人专用 runtime 字段和
+聚合逻辑应继续放在机器人目录中，而不是共享 CLI。
 
 冒烟测试
 --------

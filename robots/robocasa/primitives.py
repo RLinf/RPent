@@ -143,6 +143,8 @@ class RoboCasaPrimitives:
                 if self._check_cancelled is not None:
                     self._check_cancelled()
                 self.env.step(a)
+                if self._recording:
+                    self.record_frame()
             d = (self.env.eef_pos - p0) / (0.4 * 3)  # world dpos per unit action
             cols.append(d)
             # settle back is not needed (closed-loop re-reads); keep going
@@ -214,6 +216,8 @@ class RoboCasaPrimitives:
             if self._check_cancelled is not None:
                 self._check_cancelled()
             self.env.step(a)
+            if self._recording:
+                self.record_frame()
         return {"ok": True, "gripper_qpos": self.env.gripper_qpos.tolist()}
 
     def release(self, steps=10):
@@ -268,6 +272,8 @@ class RoboCasaPrimitives:
             if self._check_cancelled is not None:
                 self._check_cancelled()
             self.env.step(a)
+            if self._recording:
+                self.record_frame()
         bp1, _ = self._base_pose()
         return {
             "ok": True,
@@ -296,6 +302,8 @@ class RoboCasaPrimitives:
             if self._check_cancelled is not None:
                 self._check_cancelled()
             self.env.step(a)
+            if self._recording:
+                self.record_frame()
         p1, _ = self._base_pose()
         disp = (p1 - p0)[:2]
         if np.linalg.norm(disp) > 0.005:
@@ -343,6 +351,8 @@ class RoboCasaPrimitives:
             if self._check_cancelled is not None:
                 self._check_cancelled()
             self.env.step(a)
+            if self._recording:
+                self.record_frame()
         bp, _ = self._base_pose()
         self._pos_jac = None
         moved = float(np.linalg.norm(bp[:2] - start))
@@ -421,19 +431,40 @@ class RoboCasaPrimitives:
         settle_patience,
         settle_eps,
     ):
-        """Execute a VLA skill (RLDX). Resolves task_lang, computes force_reset with
-        _vla_desync, clears _vla_desync."""
-        if use_prompt:
-            task_lang = prompt
-        else:
-            task_lang = (
-                self.env.current_raw_obs.get("language") or self.env.get_task_language()
-            ) or prompt
+        """Execute RLDX with the environment's live, full task language."""
+        del use_prompt  # Accepted for compatibility with historical task recipes.
+        configured_max_chunks = os.environ.get("RLDX_MAX_CHUNKS")
+        if configured_max_chunks is not None:
+            max_chunks = int(configured_max_chunks)
+        configured_action_steps = os.environ.get("RLDX_ACTION_STEPS_PER_CHUNK")
+        if configured_action_steps is not None:
+            n_action_steps = int(configured_action_steps)
+        configured_settle_patience = os.environ.get("RLDX_SETTLE_PATIENCE")
+        if configured_settle_patience is not None:
+            settle_patience = int(configured_settle_patience)
+        for name, value in (
+            ("max_chunks", max_chunks),
+            ("n_action_steps", n_action_steps),
+            ("settle_patience", settle_patience),
+        ):
+            if value < 1:
+                return {"error": f"{name} must be positive; VLA was not executed"}
+        task_lang = (
+            self.env.current_raw_obs.get("language") or self.env.get_task_language()
+        )
+        if not task_lang:
+            return {
+                "error": "RoboCasa task language is unavailable; VLA was not executed",
+                "effective_prompt": "",
+                "prompt_overridden": False,
+            }
+
+        prompt_overridden = prompt != task_lang
         # Auto-reseed history if a non-VLA primitive ran since the last VLA call
         # (read _vla_desync BEFORE clearing it)
         fr = bool(force_reset) or self._vla_desync
         self._vla_desync = False
-        return self._rldx.run(
+        result = self._rldx.run(
             task_lang,
             max_chunks,
             n_action_steps,
@@ -444,6 +475,14 @@ class RoboCasaPrimitives:
             recording=self._recording,
             record_frame=self.record_frame,
         )
+        result["effective_prompt"] = task_lang
+        result["effective_max_chunks"] = max_chunks
+        result["effective_n_action_steps"] = n_action_steps
+        result["effective_settle_patience"] = settle_patience
+        result["prompt_overridden"] = prompt_overridden
+        if prompt_overridden:
+            result["requested_prompt"] = prompt
+        return result
 
     # ---- reset ----
     def reset(self):
@@ -469,7 +508,7 @@ class RoboCasaPrimitives:
     def rldx_skill(
         self,
         base_clip=None,
-        max_chunks=int(os.environ.get("RLDX_MAX_CHUNKS", 70)),
+        max_chunks=70,
         use_prompt=None,
         prompt="",
         force_reset=False,
@@ -492,7 +531,7 @@ class RoboCasaPrimitives:
     def rldx_arm(
         self,
         base_clip=0.1,
-        max_chunks=int(os.environ.get("RLDX_MAX_CHUNKS", 70)),
+        max_chunks=70,
         use_prompt=None,
         prompt="",
         force_reset=False,
