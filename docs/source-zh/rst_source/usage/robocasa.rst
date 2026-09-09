@@ -310,7 +310,7 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
    * - Split
      - 成功 cells
      - 成功率
-     - Harness VLA 参考值
+     - Harness VLA v3 参考值
    * - Atomic
      - 163/180
      - 90.56%
@@ -327,6 +327,9 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
      - 不适用
      - 57.00%
      - 55.40%
+
+参考列保留 Harness VLA v3 的历史数值。:doc:`../benchmarks` 并列展示本次复现
+与 v4 中 Codex、Claude Code 的结果，包含三个子集及任务均权总体成功率。
 
 `完整逐任务结果表
 <https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_

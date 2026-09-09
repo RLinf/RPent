@@ -191,6 +191,9 @@ task and failure mode.
 Reproducing results
 -------------------
 
+See :doc:`../benchmarks` for the Codex and Claude Code configurations and
+their separately sourced RoboTwin C2R results.
+
 The following result reproduces
 :doc:`Harness VLA <../awesome_works/harnessvla>` on RoboTwin C2R. On the
 `reproduce/robotwin

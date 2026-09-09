@@ -13,7 +13,7 @@ independent per-cell auditing.
 
 ## Split Summary
 
-| Split | Tasks | Reproduction | Success rate | Harness VLA reference | Difference |
+| Split | Tasks | Reproduction | Success rate | Harness VLA v3 reference | Difference |
 |---|---:|---:|---:|---:|---:|
 | Atomic | 18 | 163/180 | 90.56% | 165/180 (91.67%) | -1.11 pp |
 | Composite-Seen | 16 | 49/80 | 61.25% | 45/80 (56.25%) | +5.00 pp |
@@ -29,9 +29,10 @@ having five:
 (18 * 90.555556% + 16 * 61.25% + 16 * 15.00%) / 50 = 57.00%
 ```
 
-The reference values are the corresponding Harness VLA Codex counts reported
-for RoboCasa365. See the [Harness VLA paper](https://arxiv.org/abs/2607.08448)
-and the [RPent overview](../../../docs/source-en/rst_source/awesome_works/harnessvla.rst).
+The reference values retain the historical Harness VLA Codex counts associated
+with the [v3 RoboCasa365 result](https://arxiv.org/html/2607.08448v3#S3.T4).
+The [benchmark results page](../../../docs/source-en/rst_source/benchmarks.rst)
+lists the v4 Codex and Claude Code results separately from this reproduction.
 
 ## Per-Task Results
 
