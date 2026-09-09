@@ -219,7 +219,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="RLDX checkpoint path for locally spawned vla_server",
     )
     parser.add_argument(
-        "--vla-support-revision",
+        "--vla-backbone-revision",
         default=None,
         help="Hub revision for RLDX backbone config/tokenizer (local VLA only)",
     )
@@ -236,11 +236,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if not args.task_name:
         raise ValueError("--task-name is required")
     if getattr(args, "vla_endpoint", None) and getattr(
-        args, "vla_support_revision", None
+        args, "vla_backbone_revision", None
     ):
         raise ValueError(
-            "--vla-support-revision configures a local VLA worker; "
-            "set --support-revision on the external VLA server instead"
+            "--vla-backbone-revision configures a local VLA worker; "
+            "set --backbone-revision on the external VLA server instead"
         )
 
     memory_arg = getattr(args, "memory_dir", None)
@@ -349,8 +349,8 @@ def _spawn_vla_server(
                 "--model-path",
                 args.vla_model_path,
                 *(
-                    ["--support-revision", args.vla_support_revision]
-                    if getattr(args, "vla_support_revision", None) is not None
+                    ["--backbone-revision", args.vla_backbone_revision]
+                    if getattr(args, "vla_backbone_revision", None) is not None
                     else []
                 ),
                 "--transport",

@@ -61,7 +61,7 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         self,
         model_path,
         *,
-        support_revision=None,
+        backbone_revision=None,
         session_timeout_s=DEFAULT_SESSION_TIMEOUT_S,
     ):
         super().__init__(
@@ -72,8 +72,8 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         from rldx.eval.rollout_policy import create_rldx_sim_policy
 
         loading_kwargs = (
-            {"backbone_revision": support_revision}
-            if support_revision is not None
+            {"backbone_revision": backbone_revision}
+            if backbone_revision is not None
             else {}
         )
         self.policy = create_rldx_sim_policy(
@@ -93,7 +93,7 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         self._hist_maxlen = int(self._vdi.max() - self._vdi.min()) + 2
         print(
             f"[vla_server] policy loaded; video_delta_indices={self._vdi.tolist()} "
-            f"hist_maxlen={self._hist_maxlen} backbone_revision={support_revision}",
+            f"hist_maxlen={self._hist_maxlen} backbone_revision={backbone_revision}",
             flush=True,
         )
 
@@ -166,7 +166,7 @@ def main():
     )
     p.add_argument("--model-path", required=True, help="RLDX checkpoint path")
     p.add_argument(
-        "--support-revision",
+        "--backbone-revision",
         default=None,
         help="Hub revision for backbone config/tokenizer, not checkpoint weights",
     )
@@ -199,7 +199,7 @@ def main():
 
     facade = RoboCasaVLAFacade(
         args.model_path,
-        support_revision=args.support_revision,
+        backbone_revision=args.backbone_revision,
         session_timeout_s=args.session_timeout_s,
     )
     facade.serve(

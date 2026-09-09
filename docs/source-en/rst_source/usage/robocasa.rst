@@ -180,9 +180,9 @@ Download these into the same cache used when launching RPent:
 
 No additional base weights are required. Keep these cache variables in the
 launch shell; do not shadow them with an empty ``TRANSFORMERS_CACHE``.
-The formal command's ``--vla-support-revision`` pins the actual load without
+The formal command's ``--vla-backbone-revision`` pins the actual load without
 depending on a cached ``main`` ref. For an external VLA server configure
-``--support-revision`` on that server instead. Ordinary runs may omit the
+``--backbone-revision`` on that server instead. Ordinary runs may omit the
 option. Model and asset licenses apply separately from RPent's code license.
 
 **Task memory**
@@ -363,7 +363,7 @@ The first ``OpenDrawer`` Atomic cell is:
    rpent --robot robocasa \
          --task-name OpenDrawer --split target --seed 1 \
          --vla-model-path ./checkpoints/rldx-1-ft-rc365 --cuda-device 0 \
-         --vla-support-revision 4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7 \
+         --vla-backbone-revision 4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7 \
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \
