@@ -59,7 +59,6 @@ class FrankaToolkit(Toolkit):
         )
         self._register_tools()
         self._state.reset()
-        self._primitives.reset()
         record = self._tools_module.dump_state(
             self._primitives,
             self._state,
