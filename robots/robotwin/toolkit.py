@@ -27,6 +27,13 @@ from robots.robotwin.primitives import RoboTwinPrimitives
 from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
+from rpent.tools.exploration import (
+    ExplorationLifecycle,
+    ResetAfterSuccess,
+    ResetRefusal,
+    records_after_latest_successful_reset,
+    refusal_result,
+)
 from rpent.tools.toolkit import Toolkit, readonly
 from rpent.utils.logging import get_output_dir
 
@@ -105,11 +112,12 @@ class RoboTwinToolkit(Toolkit):
         state_output_dir: Path | str | None = None,
         recipe_output_dir: Path | str | None = None,
     ):
-        if mode not in {"evaluation", "exploration"}:
-            raise ValueError(f"unsupported RoboTwin toolkit mode: {mode!r}")
-        self._mode = mode
-        self._attempts_per_session = max(0, int(attempts_per_session))
-        self._session_attempt = 1
+        self._exploration = ExplorationLifecycle(
+            mode=mode,
+            attempts_per_session=attempts_per_session,
+            adapter_name="RoboTwin",
+            reset_after_success=ResetAfterSuccess.REFUSE,
+        )
         self._recipe_output_dir = Path(recipe_output_dir or get_output_dir())
         state = EnvState(state_output_dir or get_output_dir())
         super().__init__(
@@ -122,7 +130,7 @@ class RoboTwinToolkit(Toolkit):
             check_cancelled=self.raise_if_cancelled,
             **primitives_kwargs,
         )
-        if self._mode == "exploration":
+        if self._exploration.is_exploration:
             self._primitives.reset()
         self._primitives.start_recording()
         self._action_frame_cursor = self._primitives.recorded_frame_count()
@@ -173,7 +181,7 @@ class RoboTwinToolkit(Toolkit):
             self.add_tool(name, self._SPECS[name], partial(self._step, name))
         self.add_tool("finish", self._SPECS["finish"], self._finish)
 
-        if self._mode == "exploration":
+        if self._exploration.is_exploration:
             self.add_tool("reset", self._SPECS["reset"], self._reset_episode)
 
     def solved(self) -> bool:
@@ -181,48 +189,34 @@ class RoboTwinToolkit(Toolkit):
         return self._primitives.status().get("eval_success") is True
 
     def _reset_episode(self, reason: str) -> dict[str, Any]:
-        if self.solved():
-            return {
-                "error": "reset refused",
-                "reason": "Task already solved; call finish.",
-            }
-        budget = self._attempts_per_session
-        if budget and self._session_attempt >= budget:
-            return {
-                "error": "reset refused",
-                "reason": "Attempt budget spent; archive and finish for handoff.",
-            }
-        # Match LIBERO: a reset invocation consumes an attempt, even if it fails.
-        self._session_attempt += 1
-        result = self._primitives.reset()
+        refusal = self._exploration.request_reset(solved=self.solved())
+        if refusal is ResetRefusal.TASK_SOLVED:
+            return refusal_result("reset", "Task already solved; call finish.")
+        if refusal is ResetRefusal.ATTEMPT_BUDGET_SPENT:
+            return refusal_result(
+                "reset", "Attempt budget spent; archive and finish for handoff."
+            )
+        result = self._exploration.perform_reset(self._primitives.reset)
         self._latest_status = {}
-        return {
-            **result,
-            "attempt": self._session_attempt,
-            "reason": reason,
-            "notice": (
+        return self._exploration.build_reset_result(
+            result,
+            reason=reason,
+            notice=(
                 "Episode reinitialized with the configured exact seed. "
                 "Full physical layout determinism has not been verified. "
                 "Re-run perception before acting."
             ),
-        }
+        )
 
     @readonly
     def _finish(self, *, status: str, summary: str) -> dict[str, Any]:
-        budget = self._attempts_per_session
-        if (
-            self._mode == "exploration"
-            and budget
-            and not self.solved()
-            and self._session_attempt < budget
-        ):
-            return {
-                "error": "finish refused",
-                "reason": (
-                    f"This session has {budget - self._session_attempt} attempts left. "
-                    "Archive this attempt, reset, and try another approach."
-                ),
-            }
+        refusal = self._exploration.finish_refusal(solved=self.solved())
+        if refusal is not None:
+            return refusal_result(
+                "finish",
+                f"This session has {refusal.remaining} attempts left. Archive this "
+                "attempt, reset, and try another approach.",
+            )
         return self._primitives.finish(status=status, summary=summary)
 
     def _capture_full_observation(self) -> dict[str, Any]:
@@ -281,6 +275,7 @@ class RoboTwinToolkit(Toolkit):
                 "elapsed_s": elapsed_s,
             },
         )
+        self._exploration.observe_record(record)
         if self._dashboard_events.enabled:
             frames = self._primitives.frame_slice(frame_start)
             if frames:
@@ -308,19 +303,13 @@ class RoboTwinToolkit(Toolkit):
         """Export state-advancing RoboTwin primitives with no error and no
         explicit ``success=False`` from ``EnvState.records()``."""
         records = self._state.records()
-        if self._mode == "exploration":
+        if self._exploration.is_exploration:
             if not self.solved():
                 return ""
-            last_reset = max(
-                (
-                    r.step_idx
-                    for r in records
-                    if (r.command or {}).get("action") == "reset"
-                    and not (r.result or {}).get("error")
-                ),
-                default=-1,
+            records = records_after_latest_successful_reset(
+                records,
+                after_step=self._exploration.latest_successful_reset_step,
             )
-            records = [r for r in records if r.step_idx > last_reset]
             if not any(r.terminated for r in records):
                 return ""
         recipe = [
@@ -338,7 +327,7 @@ class RoboTwinToolkit(Toolkit):
         name = f"{recipe_tag}_recipe.jsonl"
         destination = (
             EnvState(self._recipe_output_dir)
-            if self._mode == "exploration"
+            if self._exploration.is_exploration
             else self._state
         )
         saved = destination.save(name, recipe, step=None)

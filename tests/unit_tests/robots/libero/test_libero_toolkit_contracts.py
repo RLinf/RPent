@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -26,6 +27,8 @@ from robots.libero import robot_spec, toolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
+from rpent.session import EnvState
+from rpent.tools.exploration import ExplorationLifecycle, ResetAfterSuccess
 from rpent.tools.toolkit import Toolkit, _is_readonly
 from rpent.utils import templates
 
@@ -182,6 +185,10 @@ def test_toolkit_modes_construct_with_fake_primitives(
         "finish", {"status": "failure", "summary": "first attempt"}
     )
     assert refused.result["error"] == "finish refused"
+    assert refused.result["reason"] == (
+        "This session has 2 of its 3 attempts left and the task is not solved. "
+        "Archive this attempt, call `reset`, and try another approach."
+    )
     assert refused.is_finish is False
 
     exploration.get_env_state = lambda *, command, result, elapsed_s: dict(result)
@@ -199,3 +206,74 @@ def test_toolkit_modes_construct_with_fake_primitives(
         "finish", {"status": "failure", "summary": "budget spent"}
     )
     assert allowed.is_finish is True
+
+    reset_calls = []
+    exploration._primitives.reset_episode = lambda reason: reset_calls.append(reason)
+    over_budget = exploration.execute_tool("reset", {"reason": "over budget"})
+    assert over_budget.result == {
+        "error": "reset refused",
+        "reason": (
+            "This session's attempt budget is spent (3 attempts). Archive the "
+            "attempt, update the handoff notes, and call `finish` so the next "
+            "session can continue."
+        ),
+    }
+    assert reset_calls == []
+
+
+def test_libero_allows_reset_after_cumulative_success_and_counts_failures() -> None:
+    robot = toolkit.LiberoToolkit.__new__(toolkit.LiberoToolkit)
+    robot._exploration = ExplorationLifecycle(
+        mode="exploration",
+        attempts_per_session=0,
+        adapter_name="LIBERO",
+        reset_after_success=ResetAfterSuccess.ALLOW,
+    )
+    robot._solved = True
+    robot._primitives = SimpleNamespace(
+        reset_episode=lambda reason: {"success": True, "reason": reason}
+    )
+
+    result = robot._reset_episode("post-success reset")
+
+    assert result["attempt"] == 2
+    assert robot.solved() is True
+
+    def fail(*, reason: str) -> dict[str, Any]:
+        del reason
+        raise RuntimeError("LIBERO reset failed")
+
+    robot._solved = False
+    robot._primitives.reset_episode = fail
+    with pytest.raises(RuntimeError, match="LIBERO reset failed"):
+        robot._reset_episode("retry")
+    assert robot._exploration.current_attempt == 3
+    assert robot._exploration.reset_failed
+
+
+def test_libero_recipe_excludes_pre_boundary_and_reset_commands(
+    tmp_path: Path,
+) -> None:
+    state = EnvState(tmp_path / "state")
+
+    def record(action: str, *, terminated: bool = False) -> None:
+        with state.record_step(
+            state={},
+            terminated=terminated,
+            command={"action": action},
+            result={},
+        ):
+            pass
+
+    record("move_to")
+    record("reset")
+    record("move_to", terminated=True)
+
+    name = toolkit.libero_tools.write_recipe_from_states(
+        state, "cell", output_dir=tmp_path
+    )
+
+    assert name == "cell_recipe.jsonl"
+    assert [
+        json.loads(line) for line in (tmp_path / name).read_text().splitlines()
+    ] == [{"action": "move_to"}]

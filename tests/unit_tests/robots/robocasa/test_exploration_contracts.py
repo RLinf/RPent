@@ -182,14 +182,16 @@ def test_failed_reset_consumes_attempt_and_blocks_actions(exploration):
     vla.reset_session = fail
     result = robot.execute_tool("reset", {"reason": "retry"})
     assert "RPC failed" in result.result["error"]
-    assert robot._session_attempt == 2
+    assert robot._exploration.current_attempt == 2
+    assert robot._exploration.reset_failed
     robot.execute_tool("move_to", {"win": True})
     assert env.actions == 0
     assert not robot.solved()
     assert robot.write_recipe("cell") == ""
     vla.reset_session = lambda: None
     robot.execute_tool("reset", {"reason": "recover"})
-    assert robot._session_attempt == 3
+    assert not robot._exploration.reset_failed
+    assert robot._exploration.current_attempt == 3
     assert env.seeds == [7, 7]
     robot.execute_tool("move_to", {"win": True})
     assert robot.solved()
@@ -211,7 +213,7 @@ def test_sessions_initialize_once_and_preserve_trace(exploration):
     assert primitive.reset_calls == second._primitives.reset_calls == 0
     assert len(first.state.records()) == 3
     assert len(second.state.records()) == 1
-    assert second._session_attempt == 1
+    assert second._exploration.current_attempt == 1
 
 
 def test_recipe_only_winning_attempt_at_run_root(exploration, tmp_path):
@@ -415,7 +417,7 @@ def test_environment_reset_failure_exhausts_budget(exploration):
     for attempt in (2, 3):
         result = robot.execute_tool("reset", {"reason": "retry"})
         assert "reconstruction failed" in result.result["error"]
-        assert robot._session_attempt == attempt
+        assert robot._exploration.current_attempt == attempt
     result = robot.execute_tool("finish", {"status": "failure", "summary": "handoff"})
     assert result.is_finish
     assert not robot.solved()

@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from rpent.session import EnvState, StepRecord
+from rpent.tools.exploration import records_after_latest_successful_reset
 from rpent.tools.toolkit import readonly
 
 if TYPE_CHECKING:
@@ -1090,7 +1091,10 @@ _PRIMITIVE_ACTIONS = frozenset(
 
 
 def write_recipe_from_states(
-    state: EnvState, recipe_tag: str, *, output_dir: Path | None = None,
+    state: EnvState,
+    recipe_tag: str,
+    *,
+    output_dir: Path | None = None,
     after_step: int = -1,
 ) -> str:
     """Export non-error RoboCasa primitive commands from the state trace as JSONL."""
@@ -1099,13 +1103,7 @@ def write_recipe_from_states(
     if output_dir is not None:
         if not records or not records[-1].extras.get("success", False):
             return ""
-        after_step = max(after_step, max(
-            (record.step_idx for record in records
-             if (record.command or {}).get("action") == "reset"
-             and not (record.result or {}).get("error")),
-            default=-1,
-        ))
-        records = [record for record in records if record.step_idx > after_step]
+        records = records_after_latest_successful_reset(records, after_step=after_step)
     for record in records:
         command = record.command
         if not isinstance(command, dict):

@@ -261,12 +261,12 @@ def explore_factory(monkeypatch, tmp_path):
 
     monkeypatch.setattr(toolkit.RoboTwinToolkit, "get_env_state", capture)
 
-    def make(budget=3, session=1):
+    def make(budget=3, session=1, mode="exploration"):
         return toolkit.RoboTwinToolkit(
             primitives_kwargs={"env": env, "seed": 7},
             dashboard_events=NullDashboardEventSink(),
             memory=MemoryManager(tmp_path / "memory"),
-            mode="exploration", attempts_per_session=budget,
+            mode=mode, attempts_per_session=budget,
             state_output_dir=tmp_path / "sessions" / f"session_{session:03d}",
             recipe_output_dir=tmp_path,
         )
@@ -318,7 +318,7 @@ def test_new_session_resets_episode_and_counts(explore_factory):
     assert not env.terminated and not env.truncated
     assert second._primitives.policy_actions == second._primitives.native_actions == 0
     assert env.last_info["episode_status"]["take_action_cnt"] == 0
-    assert second._session_attempt == 1
+    assert second._exploration.current_attempt == 1
     assert len(first._state.records()) == 2
     records = second._state.records()
     assert len(records) == 1
@@ -381,8 +381,7 @@ def test_evaluation_recipe_still_exports_without_native_success(explore_factory,
     import json
 
     make, env = explore_factory
-    robot = make()
-    robot._mode = "evaluation"
+    robot = make(mode="evaluation")
     robot.execute_tool("move_to", {"label": "existing evaluation behavior"})
     assert not robot.solved()
     path = Path(robot.write_recipe("eval"))
@@ -390,3 +389,30 @@ def test_evaluation_recipe_still_exports_without_native_success(explore_factory,
     assert json.loads(path.read_text()) == {
         "action": "move_to", "label": "existing evaluation behavior"
     }
+
+
+def test_robotwin_reset_exception_consumes_attempt(explore_factory) -> None:
+    make, env = explore_factory
+    robot = make()
+    seeds_before = list(env.seeds)
+
+    def fail() -> dict[str, Any]:
+        raise RuntimeError("native reset failed")
+
+    robot._primitives.reset = fail
+    result = robot.execute_tool("reset", {"reason": "retry"})
+
+    assert "native reset failed" in result.result["error"]
+    assert robot._exploration.current_attempt == 2
+    assert robot._exploration.reset_failed
+    assert env.seeds == seeds_before
+
+
+def test_robotwin_solved_tracks_current_native_status(explore_factory) -> None:
+    make, env = explore_factory
+    robot = make()
+
+    env.last_info["episode_status"]["eval_success"] = True
+    assert robot.solved() is True
+    env.last_info["episode_status"]["eval_success"] = False
+    assert robot.solved() is False
