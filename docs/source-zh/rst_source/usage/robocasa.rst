@@ -108,7 +108,7 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
 
 **任务 Memory**
 
-通过 ``--memory-profile hf``（默认值）启用自动同步。每次以该 profile 普通
+通过 ``--memory-profile hf`` （默认值）启用自动同步。每次以该 profile 普通
 运行前，RPent 都会通过统一 memory manager，从
 `RLinf/RPent-memory 数据集
 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/results>`_
