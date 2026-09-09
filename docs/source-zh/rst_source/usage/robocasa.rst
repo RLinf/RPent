@@ -160,9 +160,9 @@ FT checkpoint 虽包含权重，仍引用 ``RLWRLD/RLDX-1-VLM`` 的架构、proc
       --exclude "*.safetensors.index.json"
 
 无需额外下载基础模型权重。启动时保留上述缓存变量，不要通过
-``TRANSFORMERS_CACHE`` 指向空缓存。正式命令使用 ``--vla-support-revision``
+``TRANSFORMERS_CACHE`` 指向空缓存。正式命令使用 ``--vla-backbone-revision``
 固定实际加载版本，不依赖缓存中的 ``main`` 引用。连接外部 VLA worker 时，应在
-该服务上配置 ``--support-revision``；普通在线运行可以省略此参数。
+该服务上配置 ``--backbone-revision``；普通在线运行可以省略此参数。
 模型和 assets 的许可证独立于 RPent 代码许可证。
 
 **任务 Memory**
@@ -330,7 +330,7 @@ Target50 将其覆盖为 40。运行前固定 Target50 的 RLDX 执行参数：
    rpent --robot robocasa \
          --task-name OpenDrawer --split target --seed 1 \
          --vla-model-path ./checkpoints/rldx-1-ft-rc365 --cuda-device 0 \
-         --vla-support-revision 4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7 \
+         --vla-backbone-revision 4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7 \
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \

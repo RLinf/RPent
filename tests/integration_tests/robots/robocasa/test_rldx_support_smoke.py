@@ -53,7 +53,7 @@ def test_pinned_rldx_support_load_and_first_inference(monkeypatch):
         (Path(robot_spec.__file__).parent / "eval/target50.json").read_text()
     )
     revision = manifest["dependencies"]["rldx_support"]["revision"]
-    vla = RoboCasaVLAFacade(checkpoint, support_revision=revision)
+    vla = RoboCasaVLAFacade(checkpoint, backbone_revision=revision)
     server = HttpRpcServer(("127.0.0.1", 0), vla._dispatch)
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()

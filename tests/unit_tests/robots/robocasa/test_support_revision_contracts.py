@@ -34,15 +34,15 @@ def test_revision_is_only_passed_to_local_vla_worker(monkeypatch, tmp_path, revi
     args = SimpleNamespace(
         vla_endpoint=None,
         vla_model_path="checkpoint",
-        vla_support_revision=revision,
+        vla_backbone_revision=revision,
         cuda_device=0,
     )
     robot_spec._spawn_vla_server(args, tmp_path)
     command = captured["cmd"]
     if revision is None:
-        assert "--support-revision" not in command
+        assert "--backbone-revision" not in command
     else:
-        assert command[command.index("--support-revision") + 1] == revision
+        assert command[command.index("--backbone-revision") + 1] == revision
     assert "env_overrides" not in captured
 
 
@@ -50,11 +50,44 @@ def test_cli_default_and_external_endpoint_conflict():
     parser = argparse.ArgumentParser()
     robot_spec._add_cli_args(parser, False)
     args = parser.parse_args(["--task-name", "OpenDrawer"])
-    assert args.vla_support_revision is None
-    args.vla_support_revision = REVISION
-    args.vla_endpoint = "http://localhost:12345"
-    with pytest.raises(ValueError, match="external VLA server"):
+    assert args.vla_backbone_revision is None
+    args = parser.parse_args(
+        [
+            "--task-name",
+            "OpenDrawer",
+            "--vla-backbone-revision",
+            REVISION,
+            "--vla-endpoint",
+            "http://localhost:12345",
+        ]
+    )
+    assert args.vla_backbone_revision == REVISION
+    with pytest.raises(ValueError, match="set --backbone-revision on the external"):
         robot_spec._parse_config(args)
+
+
+@pytest.mark.parametrize("revision", [None, REVISION])
+def test_server_cli_forwards_backbone_revision(monkeypatch, revision):
+    captured = {}
+
+    class Facade:
+        def __init__(self, model_path, **kwargs):
+            captured["model_path"] = model_path
+            captured.update(kwargs)
+
+        def serve(self, **kwargs):
+            captured["serve"] = kwargs
+
+    command = ["vla_server.py", "--model-path", "checkpoint"]
+    if revision is not None:
+        command.extend(["--backbone-revision", revision])
+    monkeypatch.setattr(sys, "argv", command)
+    monkeypatch.setitem(sys.modules, "flash_attn", types.ModuleType("flash_attn"))
+    monkeypatch.setattr(vla_server, "RoboCasaVLAFacade", Facade)
+    vla_server.main()
+    assert captured["model_path"] == "checkpoint"
+    assert captured["backbone_revision"] == revision
+    assert captured["serve"]["transport"] == "http"
 
 
 @pytest.mark.parametrize("revision", [None, REVISION])
@@ -82,7 +115,7 @@ def test_facade_preserves_default_or_passes_exact_backbone_revision(
     rollout.create_rldx_sim_policy = factory
     monkeypatch.setitem(sys.modules, tags.__name__, tags)
     monkeypatch.setitem(sys.modules, rollout.__name__, rollout)
-    facade = vla_server.RoboCasaVLAFacade("checkpoint", support_revision=revision)
+    facade = vla_server.RoboCasaVLAFacade("checkpoint", backbone_revision=revision)
     assert calls == [
         (
             ("checkpoint", "general", "", None),
