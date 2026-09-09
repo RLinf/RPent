@@ -23,6 +23,7 @@ from contextlib import contextmanager
 
 import pytest
 
+from rpent.utils.daemon import pick_free_port
 from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
 from rpent.utils.rpc.socket_rpc import SocketRpcClient, SocketRpcServer
 
@@ -35,8 +36,11 @@ def transport(request):
 
 
 @pytest.fixture
-def server_and_client():
-    """Serve ``facade._dispatch`` on a real transport server; yield a client."""
+def make_server_and_client():
+    """Serve ``facade._dispatch`` on a real transport server; yield a client.
+
+    The plain (concurrent) dispatch path, equivalent to ``RpcFacade.serve``.
+    """
 
     @contextmanager
     def _ctx(facade, transport, *, enable_sessions=False):
@@ -64,12 +68,12 @@ def server_and_client():
 
 
 @pytest.fixture
-def serve_in_thread():
+def make_serve_in_thread():
     """Run ``facade.serve`` (main-thread dispatch) and yield a client."""
 
     @contextmanager
-    def _ctx(facade, transport, *, enable_sessions=False):
-        port = _free_port()
+    def _ctx(facade, transport, *, enable_sessions):
+        port = pick_free_port()
 
         def run():
             facade.serve(
@@ -107,9 +111,3 @@ def serve_in_thread():
             t.join(timeout=5.0)
 
     return _ctx
-
-
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]

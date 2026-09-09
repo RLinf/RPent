@@ -60,19 +60,19 @@ class MTWoSessionFacade(MainThreadServeMixin, RpcFacade):
         return {"pong": value}
 
 
-def test_override_dispatch_over_transports(transport, server_and_client):
+def test_override_dispatch_over_transports(transport, make_server_and_client):
     facade = OverrideDispatchFacade()
-    with server_and_client(facade, transport) as client:
+    with make_server_and_client(facade, transport) as client:
         assert client.call("ping", args=("hello",)) == {"pong": "hello"}
 
 
-def test_plain_facade_over_transports(transport, server_and_client):
+def test_plain_facade_over_transports(transport, make_server_and_client):
     facade = PlainFacade()
-    with server_and_client(facade, transport) as client:
+    with make_server_and_client(facade, transport) as client:
         assert client.call("ping", args=(42,)) == {"pong": 42}
 
 
-def test_main_thread_wo_session_over_transports(transport, serve_in_thread):
+def test_main_thread_wo_session_over_transports(transport, make_serve_in_thread):
     facade = MTWoSessionFacade()
-    with serve_in_thread(facade, transport, enable_sessions=False) as client:
+    with make_serve_in_thread(facade, transport, enable_sessions=False) as client:
         assert client.call("ping", args=(7,)) == {"pong": 7}

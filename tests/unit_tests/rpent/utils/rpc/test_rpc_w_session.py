@@ -81,13 +81,13 @@ def _assert_lifecycle(client, facade):
         client.call("ping", args=("hi",))
 
 
-def test_session_lifecycle_over_transports(transport, server_and_client):
+def test_session_lifecycle_over_transports(transport, make_server_and_client):
     facade = SessionFacade()
-    with server_and_client(facade, transport, enable_sessions=True) as client:
+    with make_server_and_client(facade, transport, enable_sessions=True) as client:
         _assert_lifecycle(client, facade)
 
 
-def test_main_thread_session_lifecycle_over_transports(transport, serve_in_thread):
+def test_main_thread_session_lifecycle_over_transports(transport, make_serve_in_thread):
     facade = MTWSessionFacade()
-    with serve_in_thread(facade, transport, enable_sessions=True) as client:
+    with make_serve_in_thread(facade, transport, enable_sessions=True) as client:
         _assert_lifecycle(client, facade)
