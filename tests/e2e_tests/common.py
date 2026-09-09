@@ -98,11 +98,11 @@ def run_scripted_policy_chain(
             env=env,
             check=False,
         )
-    planner_server.assert_complete()
     if completed.returncode != 0:
         raise RuntimeError(
             f"scripted {robot} session failed with exit code {completed.returncode}"
         )
+    planner_server.assert_complete()
 
     transcript_paths = list(output_dir.glob("transcript_*.json"))
     if len(transcript_paths) != 1:

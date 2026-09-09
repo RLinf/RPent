@@ -256,6 +256,9 @@ case "$target" in
     require_dir PI05_CHECKPOINT_PATH
     require_file SAM3_CHECKPOINT_PATH
     require_dir LIBERO_PRO_ASSET_PATH
+    # Keep package imports and child daemons off the runner's shared config.
+    export LIBERO_CONFIG_PATH="$(cd "$output_dir" && pwd)/libero-config"
+    mkdir -p "$LIBERO_CONFIG_PATH"
     venv_dir="$venv_root/libero-pro"
     timeout --foreground --kill-after=2m "$install_timeout" \
       uv venv "$venv_dir" --python 3.11

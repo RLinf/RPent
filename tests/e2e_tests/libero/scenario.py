@@ -144,7 +144,7 @@ def _predict_pi05(
     spec = get_robot_spec()
     with runtime_phase(spec, args, output_dir, {"vla"}) as runtime:
         model = runtime["model"]
-        actions, _ = model.predict_action_batch(observation)
+        actions = model.predict(observation, options={"mode": "eval"})
     return require_array(actions, "Pi0.5 chain actions", ndim=2, last_dim=7)
 
 
