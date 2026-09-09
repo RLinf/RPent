@@ -1,10 +1,3 @@
-## PR title
-
-<!--
-Use Conventional Commits: <type>(<optional-scope>): <description>
-Example: fix(toolkit): retain the original handler error
--->
-
 ## Description
 
 <!--
