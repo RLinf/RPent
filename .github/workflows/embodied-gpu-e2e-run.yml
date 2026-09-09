@@ -38,7 +38,6 @@ jobs:
       UV_TORCH_BACKEND: auto
 
       # Runner resources under the shared /workspace/dataset mount.
-      # TODO entries still require provisioning before running that stack.
       #
       # LIBERO-PRO
       PI05_CHECKPOINT_PATH: /workspace/dataset/RLinf-Pi05-LIBERO-130-fullshot-SFT
@@ -48,8 +47,6 @@ jobs:
       # RoboCasa
       RLDX_MODEL_PATH: /workspace/dataset/RLDX-1-FT-RC365
       ROBOCASA_ASSETS_PATH: /workspace/dataset/robocasa365_assets
-      # TODO: verify ROBOCASA_MACROS_PATH with the installed RoboCasa package.
-      # Candidate: /workspace/dataset/robocasa365/robocasa/macros_private.py
       #
       # RoboTwin
       ROBOTWIN_ASSETS_PATH: /workspace/dataset/RoboTwin

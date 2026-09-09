@@ -219,9 +219,6 @@ class RoboCasaScenario:
                 },
                 "resources": {
                     "rldx_model": self.args.vla_model_path,
-                    "robocasa_macros": str(
-                        Path(_required_env("ROBOCASA_MACROS_PATH")).resolve()
-                    ),
                     "robocasa_assets": str(
                         Path(_required_env("ROBOCASA_ASSETS_PATH")).resolve()
                     ),
