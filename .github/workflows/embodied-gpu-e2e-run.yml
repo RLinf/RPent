@@ -82,13 +82,18 @@ jobs:
             "$RUNNER_TEMP/rpent-gpu-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             "$RUNNER_TEMP/rpent-venvs-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 
-      - name: Upload reports
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: robot-${{ inputs.target }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/rpent-gpu-${{ github.run_id }}-${{ github.run_attempt }}
-          if-no-files-found: warn
+      - name: Print server logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          output_dir="$RUNNER_TEMP/rpent-gpu-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          if [[ -d "$output_dir" ]]; then
+            while IFS= read -r -d '' log_path; do
+              echo "::group::${log_path#"$output_dir"/}"
+              cat "$log_path"
+              echo "::endgroup::"
+            done < <(find "$output_dir" -type f -name '*server.log' -print0)
+          fi
 
       - name: Clean up
         if: always()
