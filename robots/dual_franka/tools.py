@@ -26,7 +26,6 @@ from robots.franka.tools import (
     Vec3,
     _json_data,
     _result,
-    finish,
     view_camera_meta,
     vla_grasp,
 )
@@ -266,7 +265,6 @@ def back_project_d455_pixel(
 
 
 DUAL_FRANKA_TOOLS = (
-    finish,
     view_env_state,
     view_camera_meta,
     back_project_base_pixel,

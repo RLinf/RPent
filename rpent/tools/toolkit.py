@@ -270,7 +270,7 @@ class Toolkit(Generic[RobotT]):
                         logger.exception(
                             "Dashboard failed to publish step %s", record.step_idx
                         )
-            if tool is self._tools["finish"] and not result.is_error:
+            if name == "finish" and not result.is_error:
                 self._finish_result = {
                     key: result.data[key] for key in ("status", "summary")
                 }

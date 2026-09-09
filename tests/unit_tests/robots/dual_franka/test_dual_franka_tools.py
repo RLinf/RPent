@@ -328,9 +328,7 @@ def test_toolkit_factory_validation_capture_and_cancellation(tmp_path, monkeypat
     assert len(env.moves) == 1
     toolkit.resume_calls()
     assert not toolkit.execute_tool("view_env_state", {}).is_error
-    assert not toolkit.execute_tool(
-        "finish", {"status": "success", "summary": "done"}
-    ).is_error
-    assert toolkit.finish_result == {"status": "success", "summary": "done"}
+    assert "finish" not in {tool.name for tool in toolkit.list_tools()}
+    assert toolkit.finish_result is None
     assert len(events) == 2
     toolkit.close()

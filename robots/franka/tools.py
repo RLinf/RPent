@@ -297,20 +297,7 @@ def back_project_correspondence(
     )
 
 
-@tool
-@readonly
-def finish(status: str, summary: str, *, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
-    """Declare the task complete or unrecoverable after checking the robot state.
-
-    Args:
-        status: Outcome, e.g. 'success', 'failure', or 'stuck'.
-        summary: Short summary of the run and the observed outcome.
-    """
-    return ToolResult(data={"status": status, "summary": summary})
-
-
 FRANKA_TOOLS = (
-    finish,
     view_env_state,
     view_camera_meta,
     view_perception_setup,
