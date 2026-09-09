@@ -19,6 +19,14 @@ from pathlib import Path
 
 import pytest
 
+from robots.dual_franka.runtime_config import DUAL_FRANKA_CONFIG
+from robots.franka.runtime_config import (
+    DEFAULT_CONFIG as FRANKA_CONFIG,
+)
+from robots.franka.runtime_config import (
+    get_robot_config_path,
+    set_robot_config_path,
+)
 from rpent.robots import get_robot_spec
 from rpent.utils.config import get_memory_dir
 
@@ -289,34 +297,24 @@ def test_robotwin_rejects_conflicting_cuda_routes() -> None:
         get_robot_spec("robotwin").parse_config(args)
 
 
-def test_robotwin_requires_assets_when_initializing_a_local_env(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("robot_name", "packaged_default"),
+    [
+        ("franka", FRANKA_CONFIG),
+        ("dual_franka", DUAL_FRANKA_CONFIG),
+    ],
+)
+def test_robot_config_flag_is_recorded_at_parse_time(
+    robot_name: str,
+    packaged_default: Path,
 ) -> None:
-    monkeypatch.delenv("ROBOTWIN_ASSETS_PATH", raising=False)
-    args = _parser("robotwin").parse_args(
-        [
-            "--task-name",
-            "block_hammer_beat",
-            "--seed",
-            "1",
-            "--vla-endpoint",
-            "ws://offline.invalid:2",
-        ]
-    )
-    spec = get_robot_spec("robotwin")
+    args = _parser(robot_name).parse_args(["--robot-config", "/offline/robot.yaml"])
+    try:
+        get_robot_spec(robot_name).parse_config(args)
+        assert get_robot_config_path() == Path("/offline/robot.yaml")
 
-    # Parsing remains a pure configuration step; optional runtime dependencies
-    # and local asset paths are checked only for the selected component.
-    spec.parse_config(args)
-    with pytest.raises(RuntimeError, match="--robotwin-assets-path is required"):
-        spec.init_runtime(args, tmp_path, _NullDashboardEvents(), {"env"})
-
-
-class _NullDashboardEvents:
-    @property
-    def enabled(self) -> bool:
-        return False
-
-    def emit(self, event: object) -> None:
-        del event
+        args = _parser(robot_name).parse_args([])
+        get_robot_spec(robot_name).parse_config(args)
+        assert get_robot_config_path() == packaged_default
+    finally:
+        set_robot_config_path(None)

@@ -1,14 +1,6 @@
-function formatValue(value) {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
+import { errorText, requestJSON } from "./http.js";
 
-function createTaskCommandSuggester() {
+export function createTaskCommandSuggester() {
   let command = "";
   let fields = [];
 
@@ -18,12 +10,15 @@ function createTaskCommandSuggester() {
       fields = [];
       return;
     }
-    fields = config.fields.map(field => ({
-      ...field,
-      suggestions: Array.isArray(field?.suggestions)
-        ? [...new Set(field.suggestions.filter(item => typeof item === "string"))]
-        : [],
-    }));
+    fields = config.fields.map(field => {
+      const suggestions = field?.suggestions ?? field?.choices;
+      return {
+        ...field,
+        suggestions: Array.isArray(suggestions)
+          ? [...new Set(suggestions.filter(item => typeof item === "string"))]
+          : [],
+      };
+    });
   }
 
   function suggestionContext(value, selectionStart, selectionEnd) {
@@ -32,14 +27,25 @@ function createTaskCommandSuggester() {
       || value.includes("\n")
       || selectionStart !== selectionEnd
       || selectionEnd !== value.length
-      || !value.startsWith(command)
     ) return null;
+
+    if (!/[\t ]/.test(value)) {
+      if (!command.startsWith(value)) return null;
+      return {
+        leading: "",
+        prefix: value,
+        suggestions: [command],
+      };
+    }
+
+    if (!value.startsWith(command)) return null;
 
     const suffix = value.slice(command.length);
     if (!/^[\t ]/.test(suffix)) return null;
     const body = suffix.trimStart();
     const endsInSpace = /[\t ]$/.test(value);
-    const tokens = body ? body.split(/[\t ]+/) : [];
+    const tokenBody = body.trimEnd();
+    const tokens = tokenBody ? tokenBody.split(/[\t ]+/) : [];
     const fieldIndex = endsInSpace ? tokens.length : Math.max(tokens.length - 1, 0);
     const field = fields[fieldIndex];
     const suggestions = field?.suggestions || [];
@@ -73,7 +79,7 @@ function createTaskCommandSuggester() {
   return { configure, select, suggest };
 }
 
-export function createInteractionController({ copy, select, onRefresh }) {
+export function createInteractionController({ copy, select }) {
   const taskCommandSuggester = createTaskCommandSuggester();
   const state = {
     snapshot: null,
@@ -88,66 +94,9 @@ export function createInteractionController({ copy, select, onRefresh }) {
     taskUsage: "",
   };
 
-  function errorText(error) {
-    if (error == null || error === "") return "";
-    if (typeof error === "string") return error;
-    if (typeof error === "object") {
-      if (typeof error.message === "string") return error.message;
-      if (typeof error.detail === "string") return error.detail;
-      if (typeof error.error === "string") return error.error;
-    }
-    return formatValue(error);
-  }
-
-  function controlFeedbackText(feedback) {
-    const text = errorText(feedback);
-    const taskSelectedPrefix = "Task selected: ";
-    if (text.startsWith(taskSelectedPrefix)) {
-      return copy.taskSelectedFeedback(text.slice(taskSelectedPrefix.length));
-    }
-    const taskRunStarting = /^TaskRun (\d+) starting(?:…|\.\.\.)$/.exec(text);
-    if (taskRunStarting) {
-      return copy.taskRunStartingFeedback(taskRunStarting[1]);
-    }
-    return text;
-  }
-
-  async function responseErrorText(response) {
-    let body = "";
-    try {
-      body = await response.text();
-    } catch {}
-    if (!body) return `${response.status} ${response.statusText}`.trim();
-    try {
-      const parsed = JSON.parse(body);
-      return errorText(parsed.detail ?? parsed.error ?? parsed.message ?? parsed);
-    } catch {
-      return body;
-    }
-  }
-
-  async function requestJSON(url, { method = "GET", body } = {}) {
-    const options = { method };
-    if (body !== undefined) {
-      options.headers = { "Content-Type": "application/json" };
-      options.body = JSON.stringify(body);
-    }
-    const response = await fetch(url, options);
-    if (!response.ok) throw new Error(await responseErrorText(response));
-    if (response.status === 204) return null;
-    const text = await response.text();
-    if (!text) return null;
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text;
-    }
-  }
-
   function taskTargetLabel(target) {
     if (!target) return "";
-    if (typeof target.label === "string") return target.label;
-    return formatValue(target.parameters || target);
+    return typeof target.label === "string" ? target.label : "";
   }
 
   function renderPendingMessages(messages) {
@@ -220,7 +169,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
   }
 
   function renderTaskSuggestions() {
-    const area = select("#suiteSuggestions");
+    const area = select("#taskSuggestions");
     const input = select("#chatInput");
     const suggestions = input.disabled
       ? []
@@ -242,7 +191,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     const candidates = suggestions.map(suggestion => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "suite-suggestion";
+      button.className = "task-suggestion";
       button.setAttribute("role", "option");
       button.textContent = suggestion;
       button.addEventListener("click", () => {
@@ -282,8 +231,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     const fatal = session.session_state === "fatal";
     const commandContext = mode === "command_only"
       || session.session_state !== "running";
-    const inputEnabled = !!interaction.session_id
-      && mode !== "disabled";
+    const inputEnabled = mode !== "disabled";
     composer.dataset.inputMode = mode;
     input.placeholder = commandContext
       ? copy.commandPlaceholder(state.taskUsage)
@@ -300,7 +248,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
     status.className = "composer-status";
     const backendError = errorText(interaction.last_error);
     const controlError = errorText(session.control_error);
-    const feedback = session.control_feedback.map(controlFeedbackText).filter(Boolean);
+    const feedback = session.control_feedback.map(errorText).filter(Boolean);
     if (state.requestError) {
       status.textContent = state.requestError;
       status.classList.add("is-error");
@@ -382,8 +330,8 @@ export function createInteractionController({ copy, select, onRefresh }) {
     select("#chatInput").value = "";
     select("#pendingArea").hidden = true;
     select("#pendingMessages").replaceChildren();
-    select("#suiteSuggestions").hidden = true;
-    select("#suiteSuggestions").replaceChildren();
+    select("#taskSuggestions").hidden = true;
+    select("#taskSuggestions").replaceChildren();
     select("#interactionStatus").textContent = "";
   }
 
@@ -422,7 +370,6 @@ export function createInteractionController({ copy, select, onRefresh }) {
     const text = draft.trim();
     if (
       !text
-      || !interaction?.session_id
       || interaction.input_mode === "disabled"
       || state.submissionInFlight
     ) return;
@@ -432,11 +379,10 @@ export function createInteractionController({ copy, select, onRefresh }) {
     render();
     try {
       await requestJSON(
-        `/api/sessions/${encodeURIComponent(interaction.session_id)}/messages`,
+        "/api/session/messages",
         { method: "POST", body: { text } },
       );
       if (input.value === draft) input.value = "";
-      onRefresh();
     } catch (error) {
       state.requestError = copy.submitFailed(
         errorText(error) || copy.unknownRequestError
@@ -450,7 +396,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
   async function withdrawMessage(messageId) {
     const interaction = state.snapshot?.interaction;
     if (
-      !interaction?.session_id
+      !interaction
       || !messageId
       || state.withdrawalsInFlight.has(messageId)
     ) return;
@@ -460,10 +406,9 @@ export function createInteractionController({ copy, select, onRefresh }) {
     render();
     try {
       await requestJSON(
-        `/api/sessions/${encodeURIComponent(interaction.session_id)}/messages/${encodeURIComponent(messageId)}`,
+        `/api/session/messages/${encodeURIComponent(messageId)}`,
         { method: "DELETE" },
       );
-      onRefresh();
     } catch (error) {
       state.requestError = copy.withdrawFailed(
         errorText(error) || copy.unknownRequestError
@@ -477,7 +422,7 @@ export function createInteractionController({ copy, select, onRefresh }) {
   async function requestInterrupt() {
     const interaction = state.snapshot?.interaction;
     if (
-      !interaction?.session_id
+      !interaction
       || interaction.planner_activity !== "busy"
       || interaction.interrupt_requested
       || state.interruptInFlight
@@ -488,12 +433,12 @@ export function createInteractionController({ copy, select, onRefresh }) {
     render();
     try {
       const result = await requestJSON(
-        `/api/sessions/${encodeURIComponent(interaction.session_id)}/interrupt`,
+        "/api/session/interrupt",
         { method: "POST" },
       );
       if (
         result?.interrupt_requested
-        && state.snapshot?.interaction.session_id === interaction.session_id
+        && state.snapshot?.interaction
       ) {
         applySnapshot({
           ...state.snapshot,
@@ -503,7 +448,6 @@ export function createInteractionController({ copy, select, onRefresh }) {
           },
         });
       }
-      onRefresh();
     } catch (error) {
       state.requestError = copy.interruptFailed(
         errorText(error) || copy.unknownRequestError

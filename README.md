@@ -38,6 +38,7 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
+- [2026/09] 🔥 RPent supports Franka single-arm and dual-arm real-robot extensions. Doc: [Franka](https://rpent.readthedocs.io/en/latest/rst_source/usage/franka.html) · [Dual Franka](https://rpent.readthedocs.io/en/latest/rst_source/usage/dual_franka.html).
 - [2026/08] 🔥 RPent supports RoboCasa with RLDX-1 as manipulation model. See the [RoboCasa setup and Target50 guide](docs/source-en/rst_source/usage/robocasa.rst) and [full documentation](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
 - [2026/08] 🔥 RPent supports the non-reasoning mode, which reduces average execution time by ~40%.
 - [2026/08] 🔥 RPent supports exploration mode for LIBERO. Doc: [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#exploration-and-local-memory-evaluation).
@@ -87,7 +88,8 @@ RPent is built for four kinds of users:
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li>Franka</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/franka.html">Franka</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/dual_franka.html">Dual Franka</a> ✅</li>
           <li>SO-101</li>
         </ul>
       </td>
@@ -170,7 +172,7 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 
 ### Live Dashboard
 
-Add `--dashboard` to start a local Dashboard and print its URL in the terminal. Open the URL and confirm the configuration; once the services are ready, start a task with `/rpent-task <suite> <task> <seed>`. The page streams agent reasoning, camera views, and the action timeline, and you can submit another task after the current one finishes. Use `--dashboard-language zh-cn` for the Chinese UI.
+Add `--dashboard` to start a local Dashboard and print its URL in the terminal. Session settings come from the CLI, and the page opens directly in the live monitor. Once the services are ready, start a task with `/rpent-task <suite> <task> <seed>`. The page streams agent reasoning, camera views, and the action timeline, and you can submit another task after the current one finishes. Use `--dashboard-language zh-cn` for the Chinese UI.
 
 ```bash
 rpent --robot libero --dashboard --dashboard-language zh-cn \

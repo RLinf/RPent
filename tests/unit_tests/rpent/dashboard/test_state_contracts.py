@@ -15,15 +15,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+from fastapi.testclient import TestClient
 
 from rpent.dashboard.events import (
     RunStartedEvent,
     RuntimeStatusEvent,
     StepRecordEvent,
-    ToolResultEvent,
     TranscriptEvent,
     UsageEvent,
 )
@@ -33,15 +34,19 @@ from rpent.dashboard.interaction import (
     InteractionUnavailableError,
     UnknownDashboardMessageError,
 )
+from rpent.dashboard.server import DashboardServer
+from rpent.dashboard.spec import DashboardSpec
 from rpent.dashboard.state import DashboardState
+from rpent.memory import MemoryManager
 from rpent.session import EnvState
+from rpent.tools import Toolkit, ToolResult, readonly, tool
 
-DASHBOARD_SPEC = {
+DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",
         "usage": "/rpent-task <mode> <seed>",
         "fields": (
-            {"name": "mode", "suggestions": ("pick", "place")},
+            {"name": "mode", "choices": ("pick", "place")},
             {"name": "seed", "kind": "integer", "minimum": 0},
         ),
         "display": "{mode} / seed {seed}",
@@ -51,12 +56,12 @@ DASHBOARD_SPEC = {
         {"name": "model", "label": "MODEL", "scope": "shared"},
         {"name": "env", "label": "ENV", "scope": "unique"},
     ),
+    "primitives": ("move_to",),
 }
 
 
 def _state(tmp_path: Path) -> DashboardState:
     return DashboardState(
-        run_id="offline-session",
         output_dir=tmp_path,
         dashboard_spec=DASHBOARD_SPEC,
     )
@@ -107,12 +112,7 @@ def test_dashboard_task_commands_validate_and_latest_unclaimed_request_wins(
     assert claimed.output_dir == tmp_path / "tasks" / "0001_place_s2"
     assert state.wait_for_task(timeout=0) is None
     snapshot = state.snapshot()
-    assert snapshot["current_task"] == {
-        "mode": "place",
-        "seed": 2,
-        "parameters": {"mode": "place", "seed": 2},
-        "label": "place / seed 2",
-    }
+    assert snapshot["current_task"] == {"label": "place / seed 2"}
     assert snapshot["pending_task"] is None
     assert snapshot["control_error"] is None
 
@@ -152,7 +152,7 @@ def test_dashboard_task_replacement_seals_input_and_resets_only_unique_runtime(
         "env": {"status": "pending", "error": None},
     }
     assert completed["session_state"] == "task_starting"
-    assert completed["pending_task"]["parameters"] == {"mode": "place", "seed": 3}
+    assert completed["pending_task"] == {"label": "place / seed 3"}
     second = state.wait_for_task(timeout=0)
     assert second is not None
     assert second.number == 2
@@ -223,7 +223,43 @@ def test_dashboard_interrupt_lifecycle_accepts_only_busy_active_tasks(
         state.complete_interrupt()
 
 
-def test_dashboard_events_project_runtime_usage_timeline_and_newest_frames(
+def test_dashboard_primitives_are_available_only_while_planner_is_idle(
+    tmp_path: Path,
+) -> None:
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    toolkit = MagicMock(spec=Toolkit)
+
+    @tool
+    def move_to(*, ctx) -> ToolResult:
+        """Move the robot."""
+        return ToolResult(data={"ok": True})
+
+    toolkit.list_tools.return_value = (move_to,)
+    tool_result = ToolResult(data={"ok": True})
+    toolkit.execute_tool.return_value = tool_result
+    state.bind_toolkit(toolkit)
+
+    assert state.snapshot()["primitives_available"] is False
+    with pytest.raises(InteractionUnavailableError, match="not available"):
+        state.primitive_specs()
+    with pytest.raises(InteractionUnavailableError, match="not available"):
+        state.execute_primitive("move_to", {})
+
+    state.set_planner_activity("idle", accepting_input=True)
+    assert state.snapshot()["primitives_available"] is True
+    assert state.primitive_specs() == [
+        {"name": "move_to", "input_schema": move_to.input_schema}
+    ]
+    assert state.execute_primitive("move_to", {}) is tool_result
+
+    state.set_planner_activity("busy")
+    assert state.snapshot()["primitives_available"] is False
+    with pytest.raises(InteractionUnavailableError, match="not available"):
+        state.execute_primitive("move_to", {})
+
+
+def test_dashboard_events_project_runtime_usage_timeline_and_frames(
     tmp_path: Path,
 ) -> None:
     state = _ready_state(tmp_path)
@@ -233,45 +269,39 @@ def test_dashboard_events_project_runtime_usage_timeline_and_newest_frames(
     state.emit(TranscriptEvent({"type": "assistant", "text": "working"}))
     state.begin_planner_session()
     state.emit(UsageEvent(inp=2, out=1, tool_calls=2))
-    state.emit(
-        ToolResultEvent(
-            "move_to",
-            {
-                "step": 2,
-                "_image_cam_bytes": b"new-camera",
-                "terminated": True,
-                "log": {
-                    "command": {"action": "move_to", "arm": "left"},
-                    "result": {
-                        "position": np.asarray([1.0, 2.0, 3.0]),
-                        "path": Path("artifact.json"),
-                    },
-                    "elapsed_s": 0.5,
-                },
-            },
-        )
-    )
-    state.emit(ToolResultEvent("render", {"step": 1, "_image_cam_bytes": b"old"}))
+    env_state = EnvState(tmp_path / "env")
+    with env_state.record_step(
+        state={"phase": 1},
+        terminated=True,
+        command={"action": "move_to", "arm": "left"},
+        result={
+            "position": np.asarray([1.0, 2.0, 3.0]),
+            "path": Path("artifact.json"),
+        },
+        elapsed_s=0.5,
+    ):
+        env_state.save("camera.png", np.zeros((2, 2, 3), dtype=np.uint8))
+    record = env_state.latest_record()
+    assert record is not None
+    state.emit(StepRecordEvent(record, env_state))
 
-    detail = state.run_detail()
+    detail = state.session_detail()
     assert detail["usage"] == {"in": 5, "out": 5, "tool_calls": 3}
     assert detail["runtime"]["model"] == {"status": "ready", "error": None}
     assert detail["timeline"] == [
         {
-            "step": 2,
+            "step": 0,
             "action": "move_to",
             "args": {"arm": "left"},
             "result": {"position": [1.0, 2.0, 3.0], "path": "artifact.json"},
             "elapsed_s": 0.5,
             "terminated": True,
             "truncated": False,
-            "action_video_path": None,
-            "action_video_artifact": None,
             "has_action_video": False,
         }
     ]
     assert state.events_since(0) == [{"type": "assistant", "text": "working"}]
-    assert state.frame("camera") == b"new-camera"
+    assert state.frame("camera") == env_state.load_bytes("camera.png")
     assert state.frame("unknown") is None
     with pytest.raises(ValueError, match="unknown runtime component"):
         state.emit(RuntimeStatusEvent("missing", "ready"))
@@ -292,16 +322,11 @@ def test_dashboard_step_events_offset_new_traces_and_resolve_action_video(
         result={"position": np.asarray([1, 2, 3])},
         elapsed_s=0.25,
     ):
-        first_env.save("agentview.png", np.zeros((2, 2, 3), dtype=np.uint8))
+        first_env.save("camera.png", np.zeros((2, 2, 3), dtype=np.uint8))
         first_env.save("action.mp4", b"first-video")
     first_record = first_env.latest_record()
     assert first_record is not None
-    state.emit(
-        StepRecordEvent(
-            first_record,
-            first_env,
-        )
-    )
+    state.emit(StepRecordEvent(first_record, first_env))
 
     second_env = EnvState(tmp_path / "second")
     with second_env.record_step(
@@ -311,99 +336,104 @@ def test_dashboard_step_events_offset_new_traces_and_resolve_action_video(
         result={"released": True},
         elapsed_s=0.5,
     ):
-        second_env.save("agentview.png", np.full((2, 2, 3), 255, dtype=np.uint8))
+        second_env.save("camera.png", np.ones((2, 2, 3), dtype=np.uint8))
     second_record = second_env.latest_record()
     assert second_record is not None
-    state.emit(
-        StepRecordEvent(
-            second_record,
-            second_env,
-        )
-    )
+    state.emit(StepRecordEvent(second_record, second_env))
 
-    detail = state.run_detail()
+    detail = state.session_detail()
     assert [item["step"] for item in detail["timeline"]] == [0, 1]
     assert detail["timeline"][0]["result"] == {"position": [1, 2, 3]}
     assert detail["timeline"][1]["terminated"] is True
-    assert state.frame("agentview") == second_env.load_bytes("agentview.png")
+    assert state.frame("camera") == second_env.load_bytes("camera.png")
     assert state.action_video_path(0) == first_env.artifact_path("action.mp4", step=0)
 
 
-def test_all_step_png_artifacts_use_their_stems_and_replace_old_frames(tmp_path):
-    state = _ready_state(tmp_path / "dashboard")
+def test_primitive_http_uses_native_validation_results_and_observation(tmp_path):
+    state = _ready_state(tmp_path)
     _claim_started_task(state)
-    env = EnvState(tmp_path / "observations")
-    assert state.snapshot()["frame_available"] == {}
-    image_names = [
-        "agentview.png",
-        "agentview_high.png",
-        "head_rgb.png",
-        "left_wrist_rgb.png",
-        "arm view.png",
-        "debug.PNG",
-    ]
-    with env.record_step(state={}):
-        for index, name in enumerate(image_names):
-            assert env.save(name, np.full((2, 2, 3), index, dtype=np.uint8)) == name
-        env.save("agentview_metadata.json", {"camera": "agentview"})
-        env.save("depth.npz", np.zeros((2, 2)))
-        env.save("preview.jpg", np.zeros((2, 2, 3), dtype=np.uint8))
-        env.save("missing.png", np.zeros((2, 2, 3), dtype=np.uint8))
-        env.artifact_path("missing.png").unlink()
-    state.emit(StepRecordEvent(env.latest_record(), env))
-    expected = {Path(name).stem: True for name in sorted(image_names)}
-    assert state.snapshot()["frame_available"] == expected
-    assert state.run_detail()["frame_available"] == expected
-    for name in image_names:
-        assert state.frame(Path(name).stem) == env.load_bytes(name)
-    assert state.frame("camera") is None
-    assert state.frame("preview") is None
-    with env.record_step(state={}):
-        env.save("right_wrist_rgb.png", np.ones((2, 2, 3), dtype=np.uint8))
-    state.emit(StepRecordEvent(env.latest_record(), env))
-    assert state.snapshot()["frame_available"] == {"right_wrist_rgb": True}
-    assert state.frame("agentview") is None
-    with env.record_step(state={}):
-        env.save("metadata.json", {})
-    state.emit(StepRecordEvent(env.latest_record(), env))
-    assert state.snapshot()["frame_available"] == {}
-    assert state.frame("right_wrist_rgb") is None
+    calls = []
 
+    @tool
+    def move_to(distance: int, *, ctx) -> ToolResult:
+        """Move a test robot."""
+        calls.append(distance)
+        if distance < 0:
+            return ToolResult(error="motion rejected")
+        return ToolResult(data={"distance": distance})
 
-def test_frame_endpoint_serves_artifact_name_without_configured_channels(tmp_path):
-    from fastapi.testclient import TestClient
+    @tool
+    @readonly
+    def finish(status: str, summary: str, *, ctx) -> ToolResult:
+        """Finish the test task."""
+        return ToolResult(data={"status": status, "summary": summary})
 
-    from rpent.dashboard.server import DashboardServer
+    class RobotToolkit(Toolkit):
+        def _capture_observation(self, *, command, result, elapsed_s):
+            with self.state.record_step(
+                state={"distance": calls[-1]},
+                command=command,
+                result=result.to_dict(),
+                elapsed_s=elapsed_s,
+            ):
+                self.state.save("overhead.png", np.zeros((2, 2, 3), dtype=np.uint8))
+            return {"distance": calls[-1]}, []
 
-    state = _ready_state(tmp_path / "dashboard")
-    _claim_started_task(state)
-    env = EnvState(tmp_path / "observations")
-    with env.record_step(state={}):
-        env.save("arm view.png", np.zeros((2, 2, 3), dtype=np.uint8))
-    state.emit(StepRecordEvent(env.latest_record(), env))
-    server = DashboardServer(dashboard_spec=DASHBOARD_SPEC)
-    server.register(state)
-    with TestClient(server._app) as client:
-        assert "frame_channels" not in client.get("/api/commands").json()
-        response = client.get(
-            "/api/run/frame", params={"run": state.run_id, "kind": "arm view"}
+    toolkit = RobotToolkit(
+        robot=None,
+        tools=(move_to, finish),
+        state=EnvState(tmp_path / "env"),
+        memory=MemoryManager(root=tmp_path / "memory"),
+        output_dir=tmp_path,
+        dashboard_events=state,
+    )
+    state.bind_toolkit(toolkit)
+    state.set_planner_activity("idle", accepting_input=True)
+    with TestClient(DashboardServer(state=state)._app) as client:
+        specs = client.get("/api/session/primitives").json()["primitives"]
+        assert specs == [{"name": "move_to", "input_schema": move_to.input_schema}]
+        for arguments in ({}, {"distance": "bad"}):
+            response = client.post(
+                "/api/session/primitive",
+                json={"name": "move_to", "arguments": arguments},
+            )
+            assert response.status_code == 422
+            assert "Invalid arguments for move_to" in response.json()["error"]
+        assert calls == []
+        response = client.post(
+            "/api/session/primitive", json={"name": "finish", "arguments": {}}
         )
-        assert response.status_code == 200
-        assert response.headers["content-type"] == "image/png"
-        assert response.content == env.load_bytes("arm view.png")
+        assert response.status_code == 403
+        # Coercion is the same native validation used by planner tool calls.
+        response = client.post(
+            "/api/session/primitive",
+            json={"name": "move_to", "arguments": {"distance": "2"}},
+        )
+        assert response.json() == {"ok": True}
+        assert calls == [2]
+        snapshot = client.get("/api/session/state").json()
+        assert snapshot["frame_available"] == {"overhead": True}
+        frame = client.get("/api/session/frame", params={"kind": "overhead"})
+        assert frame.headers["content-type"] == "image/png"
+        assert frame.content == toolkit.state.load_bytes("overhead.png")
         assert (
-            client.get(
-                "/api/run/frame", params={"run": state.run_id, "kind": "camera"}
-            ).status_code
+            client.get("/api/session/frame", params={"kind": "missing"}).status_code
             == 404
         )
+        response = client.post(
+            "/api/session/primitive",
+            json={"name": "move_to", "arguments": {"distance": -1}},
+        )
+        assert response.status_code == 422
+        assert response.json() == {"error": "motion rejected"}
+        state.set_planner_activity("busy")
         assert (
-            client.get(
-                "/api/run/frame", params={"run": "unknown", "kind": "arm view"}
+            client.post(
+                "/api/session/primitive",
+                json={"name": "move_to", "arguments": {"distance": 3}},
             ).status_code
-            == 404
+            == 409
         )
-        assert (
-            client.get("/api/run/frame", params={"run": state.run_id}).status_code
-            == 422
-        )
+        assert calls == [2, -1]
+    state.unbind_toolkit(toolkit)
+    toolkit.close()
