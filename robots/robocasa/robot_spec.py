@@ -29,7 +29,7 @@ from robots.robocasa.prompt_bundle import (
     user_prompt,
 )
 from rpent.dashboard.events import DashboardEventSink
-from rpent.robots.memory import ToolkitMemoryConfig, create_toolkit_memory
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -105,12 +105,10 @@ def get_toolkit(
     """Return the RoboCasa toolkit for the current session."""
     from robots.robocasa.toolkit import RoboCasaToolkit
 
-    memory = create_toolkit_memory(
-        ToolkitMemoryConfig(
-            root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
-            mode=mode,
-            cell_tag=config.recipe_tag,
-        )
+    memory = MemoryManager(
+        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
+        memory_access="inbox_write" if mode == "exploration" else "read_only",
+        inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
     )
     return RoboCasaToolkit(
         primitives_kwargs=primitives_kwargs,
@@ -196,7 +194,9 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             {
                 "mode": "explore",
                 "memory_profile": getattr(args, "memory_profile", None) or "local",
-                "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
+                "memory_inbox": str(
+                    memory_dir / "_internal" / "inbox" / recipe_tag
+                ),
                 "session_number": 1,
                 "session_max": getattr(args, "explore_sessions", 3),
                 "attempts_per_session": getattr(

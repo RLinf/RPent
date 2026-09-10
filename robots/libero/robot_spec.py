@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from robots.libero.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
-from rpent.robots.memory import ToolkitMemoryConfig, create_toolkit_memory
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -122,12 +122,11 @@ def get_toolkit(
     """Return the LIBERO toolkit for the current session."""
     from robots.libero.toolkit import LiberoToolkit
 
-    memory = create_toolkit_memory(
-        ToolkitMemoryConfig(
-            root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
-            mode=mode,
-            cell_tag=config.recipe_tag,
-        )
+    explore = mode == "exploration"
+    memory = MemoryManager(
+        root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
+        memory_access="inbox_write" if explore else "read_only",
+        inbox_cell_tag=config.recipe_tag if explore else None,
     )
     return LiberoToolkit(
         primitives_kwargs=primitives_kwargs,
