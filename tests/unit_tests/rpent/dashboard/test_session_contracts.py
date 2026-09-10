@@ -211,12 +211,21 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
         def __init__(self) -> None:
             self.warnings: list[str] = []
+            self.toolkit_lifecycle: list[str] = []
 
         def emit(self, event: Any) -> None:
             del event
 
         def begin_planner_session(self, **kwargs: Any) -> None:
             del kwargs
+
+        def bind_toolkit(self, toolkit: Any) -> None:
+            del toolkit
+            self.toolkit_lifecycle.append("bound")
+
+        def unbind_toolkit(self, toolkit: Any) -> None:
+            del toolkit
+            self.toolkit_lifecycle.append("unbound")
 
         def report_task_warning(self, warning: str) -> None:
             self.warnings.append(warning)
@@ -289,8 +298,11 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     assert len(toolkit_calls) == (solved_session or 3)
     assert toolkit_calls[0]["mode"] == "exploration"
     assert toolkit_calls[0]["attempts_per_session"] == 2
-    assert toolkit_calls[0]["state_output_dir"] == output_dir / "sessions" / "session_001"
+    assert (
+        toolkit_calls[0]["state_output_dir"] == output_dir / "sessions" / "session_001"
+    )
     assert error is None
+    assert state.toolkit_lifecycle == ["bound", "unbound"] * len(toolkit_calls)
     assert merge_calls == [
         {
             "cell_tag": "libero_s0",

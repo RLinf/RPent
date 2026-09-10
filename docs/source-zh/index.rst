@@ -77,10 +77,13 @@
    Agentic Planner <rst_source/usage/configure_planner>
    动作原语 <rst_source/usage/configure_primitives>
    LIBERO <rst_source/usage/libero>
+   LIBERO 数据飞轮 <rst_source/usage/flywheel>
    RoboCasa <rst_source/usage/robocasa>
    RoboTwin <rst_source/usage/robotwin>
    Franka <rst_source/usage/franka>
+   Dual Franka <rst_source/usage/dual_franka>
    SO-101 <rst_source/usage/so101>
+   任务卡模式 <rst_source/usage/task_card>
    高级部署 <rst_source/usage/advanced_deployment>
 
 .. toctree::

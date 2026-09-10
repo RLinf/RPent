@@ -85,10 +85,13 @@ Welcome to RPent
    Agentic Planner <rst_source/usage/configure_planner>
    Action Primitives <rst_source/usage/configure_primitives>
    LIBERO <rst_source/usage/libero>
+   LIBERO Data Flywheel <rst_source/usage/flywheel>
    RoboCasa <rst_source/usage/robocasa>
    RoboTwin <rst_source/usage/robotwin>
    Franka <rst_source/usage/franka>
+   Dual Franka <rst_source/usage/dual_franka>
    SO-101 <rst_source/usage/so101>
+   Task Cards <rst_source/usage/task_card>
    Advanced Deployment <rst_source/usage/advanced_deployment>
 
 .. toctree::

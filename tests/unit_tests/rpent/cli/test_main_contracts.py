@@ -185,7 +185,10 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
             ["--robot", "libero", "--dashboard", "--interactive"],
             "cannot be used together",
         ),
-        (["--robot", "robocasa", "--explore"], "deterministic reset is not yet supported"),
+        (
+            ["--robot", "robocasa", "--explore"],
+            "deterministic reset is not yet supported",
+        ),
         (
             ["--robot", "libero", "--explore", "--memory-profile", "hf"],
             "cannot be used with --memory-profile hf",
@@ -449,7 +452,9 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         raise AssertionError(f"CPU-only smoke test tried to sync memory: {args!r}")
 
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
-    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero", "robotwin", "robocasa"))
+    monkeypatch.setattr(
+        cli, "enumerate_robots", lambda: ("libero", "robotwin", "robocasa")
+    )
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
     monkeypatch.setattr(cli, "build_planner", build_planner)
     monkeypatch.setattr(cli, "get_toolkit", get_toolkit)
@@ -489,7 +494,10 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert toolkit.closed is True
     assert daemon.stopped is True
     assert calls["get_toolkit"][1]["primitives_kwargs"] == {"runtime": "simulated"}
-    assert calls["get_toolkit"][1]["state_output_dir"] == tmp_path / "sessions" / "session_001"
+    assert (
+        calls["get_toolkit"][1]["state_output_dir"]
+        == tmp_path / "sessions" / "session_001"
+    )
     assert calls["get_toolkit"][1]["mode"] == "exploration"
     assert calls["get_toolkit"][1]["attempts_per_session"] == 2
     assert calls["write_recipe"] == "libero_s0"
@@ -514,9 +522,12 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
 @pytest.mark.parametrize("solved_session", [1, 2, None])
 def test_robocasa_cli_real_config_handoff_and_native_success(
-    tmp_path, monkeypatch, solved_session,
+    tmp_path,
+    monkeypatch,
+    solved_session,
 ):
     from dataclasses import replace
+
     from robots.robocasa.robot_spec import get_robot_spec
     from rpent.planner.base import PlannerResult
 
@@ -544,7 +555,8 @@ def test_robocasa_cli_real_config_handoff_and_native_success(
             prompts.append(kwargs)
             return PlannerResult(
                 finish_result={"_finish": True, "status": "success"},
-                messages=[], stats={},
+                messages=[],
+                stats={},
             )
 
     def make_toolkit(*args, **kwargs):
@@ -555,20 +567,40 @@ def test_robocasa_cli_real_config_handoff_and_native_success(
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
     monkeypatch.setattr(cli, "get_toolkit", make_toolkit)
     monkeypatch.setattr(cli, "build_planner", lambda *args, **kwargs: FakePlanner())
-    monkeypatch.setattr(sys, "argv", [
-        "rpent", "--robot", "robocasa", "--task-name", "OpenDrawer",
-        "--explore", "--explore-sessions", "3", "--explore-attempts-per-session", "1",
-        "--memory-dir", str(tmp_path / "memory"), "--output-dir", str(tmp_path),
-    ])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "robocasa",
+            "--task-name",
+            "OpenDrawer",
+            "--explore",
+            "--explore-sessions",
+            "3",
+            "--explore-attempts-per-session",
+            "1",
+            "--memory-dir",
+            str(tmp_path / "memory"),
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
     assert cli.main() == 0
     assert len(calls) == (solved_session or 3)
     for number, call in enumerate(calls, 1):
         assert call["mode"] == "exploration"
         assert call["attempts_per_session"] == 1
-        assert call["state_output_dir"] == tmp_path / "sessions" / f"session_{number:03d}"
+        assert (
+            call["state_output_dir"] == tmp_path / "sessions" / f"session_{number:03d}"
+        )
     assert "does not prove identical physical layout" in prompts[0]["system_prompt"]
     if len(prompts) > 1:
-        assert "full physical layout determinism still requires verification" in prompts[1]["user_message"]
+        assert (
+            "full physical layout determinism still requires verification"
+            in prompts[1]["user_message"]
+        )
     assert bool(recipes) is (solved_session is not None)
     assert merges[0]["solved"] is (solved_session is not None)
     assert json.loads((tmp_path / "result.json").read_text())["success"] is (

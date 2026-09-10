@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from robots.libero.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -58,7 +59,14 @@ LIBERO_SUITE_NAMES = (
     "libero_10_lan",
 )
 
-LIBERO_DASHBOARD_SPEC = {
+TASK_CARD_SUITES = frozenset(
+    {
+        "libero_object_task",
+        "libero_object_swap",
+    }
+)
+
+LIBERO_DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",
         "usage": "/rpent-task <suite> <task> <seed>",
@@ -74,20 +82,43 @@ LIBERO_DASHBOARD_SPEC = {
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
         {"name": "sam3", "label": "SAM3", "scope": "shared"},
+        {
+            "name": "molmo",
+            "label": "Molmo",
+            "scope": "shared",
+            "planners": ("task_card",),
+        },
     ),
     "frame_channels": (
         {
             "name": "camera",
             "label": "fixed camera",
-            "legacy_path_key": "image_cam_path",
+            "artifact": "agentview.png",
         },
         {
             "name": "wrist",
             "label": "wrist camera",
-            "legacy_path_key": "image_wrist_path",
+            "artifact": "wrist.png",
         },
     ),
+    "primitives": (
+        "move_to",
+        "pi0_pick",
+        "pi0_doubled",
+        "release",
+        "set_gripper",
+        "rotate_wrist",
+        "rotate_pitch",
+        "move_pose",
+    ),
 }
+
+
+def _replay_card(toolkit, cell_tag: str, note) -> dict:
+    """Replay a recorded card for one cell. Imported late: it loads numpy."""
+    from robots.libero.task_card import replay_card
+
+    return replay_card(toolkit, cell_tag, note)
 
 
 def get_robot_spec() -> RobotSpec:
@@ -107,6 +138,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=LIBERO_DASHBOARD_SPEC,
+        replay_card=_replay_card,
     )
 
 
@@ -142,9 +174,9 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """Register LIBERO CLI flags on the shared ``parser``.
 
     When ``use_dashboard`` is True, ``--suite`` / ``--task`` are made optional
-    because the dashboard launcher will fill them in before ``_parse_config``
-    validates. Under CLI-only, they are required — argparse errors out early
-    with the usual usage message.
+    because each TaskRun supplies them through the Dashboard task command.
+    Under CLI-only, they are required — argparse errors out early with the
+    usual usage message.
     """
     required = not use_dashboard
     parser.add_argument("--max-episode-steps", type=int, default=10000)
@@ -162,6 +194,16 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--task", type=int, default=None, required=required)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--collect-flywheel-data",
+        action="store_true",
+        help="record this evaluation episode for Flywheel training",
+    )
+    parser.add_argument(
+        "--flywheel-root",
+        default=None,
+        help="Flywheel data root (default: <repo>/datacollection)",
+    )
     parser.add_argument(
         "--auto-merge-memory",
         action=argparse.BooleanOptionalAction,
@@ -195,6 +237,13 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "If unset, a local vla_server is spawned.",
     )
     parser.add_argument(
+        "--molmo-endpoint",
+        default=None,
+        help="[protocol://]host:port of an existing Molmo server "
+        "(protocol=http|socket, defaults to http). "
+        "Required by --planner task_card.",
+    )
+    parser.add_argument(
         "--sam3-endpoint",
         default=None,
         help="[protocol://]host:port of an existing SAM3 server "
@@ -220,6 +269,18 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--suite is required")
     if args.task is None:
         raise ValueError("--task is required")
+    planner = getattr(args, "planner", None)
+    if planner == "task_card":
+        if args.suite not in TASK_CARD_SUITES:
+            supported = ", ".join(sorted(TASK_CARD_SUITES))
+            raise ValueError(
+                f"--planner task_card does not support --suite {args.suite!r}; "
+                f"supported suites: {supported}"
+            )
+        if args.molmo_endpoint is None:
+            raise ValueError("--planner task_card requires --molmo-endpoint")
+    elif args.molmo_endpoint is not None:
+        raise ValueError("--molmo-endpoint requires --planner task_card")
 
     recipe_tag = f"{args.suite.replace('libero_', '')}_t{args.task}_s{args.seed}"
     explore = bool(getattr(args, "explore", False))
@@ -228,6 +289,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--explore cannot be used with --memory-profile hf")
     if explore and args.explore_sessions <= 0:
         raise ValueError("--explore-sessions must be greater than 0")
+    if explore and args.collect_flywheel_data:
+        raise ValueError("flywheel collection supports evaluation mode only")
     memory_profile = requested_profile or ("local" if explore else "hf")
     if memory_profile == "hf" and args.memory_dir is not None:
         raise ValueError("--memory-dir requires --memory-profile local or --explore")
@@ -395,6 +458,19 @@ def _spawn_sam3_server(
     return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
+def _connect_molmo_server(
+    args: argparse.Namespace,
+) -> tuple[ProcessDaemon | None, RpcClient]:
+    """Connect to Molmo running in its dependency-isolated environment."""
+    if args.molmo_endpoint is None:
+        raise ValueError(
+            "--planner task_card requires --molmo-endpoint; Molmo uses a "
+            "separate environment because its transformers requirement "
+            "conflicts with LIBERO's policy environment"
+        )
+    return None, make_rpc_client(args.molmo_endpoint)
+
+
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
@@ -403,6 +479,7 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every LIBERO component, or only ``components`` when given."""
     from robots.libero.env_client import LiberoEnvClient
+    from rpent.robots.components.molmo_client import MolmoClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
 
@@ -410,6 +487,7 @@ def _init_runtime(
         "env": lambda: _spawn_env_server(args, output_dir),
         "vla": lambda: _spawn_vla_server(args, output_dir),
         "sam3": lambda: _spawn_sam3_server(args, output_dir),
+        "molmo": lambda: _connect_molmo_server(args),
     }
     connectors = {
         "env": lambda rpc: {
@@ -425,8 +503,11 @@ def _init_runtime(
         },
         "vla": lambda rpc: {"model": Pi05VLAClient(rpc, embodiment="libero")},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
+        "molmo": lambda rpc: {"molmo_client": MolmoClient(rpc)},
     }
-    selected = set(starters) if components is None else components
+    selected = set(starters) if components is None else set(components)
+    if getattr(args, "planner", None) != "task_card":
+        selected.discard("molmo")
     unknown = selected.difference(starters)
     if unknown:
         raise ValueError(f"unknown LIBERO runtime components: {sorted(unknown)}")
@@ -443,7 +524,7 @@ def _init_runtime(
             )
 
     primitives_kwargs: dict[str, Any] = {}
-    wait_order = ("env", "sam3", "vla")
+    wait_order = ("env", "sam3", "molmo", "vla")
     for component in (name for name in wait_order if name in pending):
         daemon, rpc = pending[component]
         component_kwargs = try_wait_server(
@@ -456,5 +537,13 @@ def _init_runtime(
             post_fn=partial(connectors[component], rpc),
         )
         primitives_kwargs.update(component_kwargs)
+
+    if args.collect_flywheel_data and "env" in selected:
+        primitives_kwargs["flywheel_config"] = {
+            "root": args.flywheel_root or str(get_repo_root() / "datacollection"),
+            "suite": args.suite,
+            "task_id": args.task,
+            "seed": args.seed,
+        }
 
     return list(owned_daemons.values()), primitives_kwargs

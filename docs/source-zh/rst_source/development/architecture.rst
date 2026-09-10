@@ -159,8 +159,8 @@ Dashboard（可选）
 
 ``rpent/dashboard/`` 由 FastAPI 应用和静态前端组成。启用 ``--dashboard`` 后，
 ``rpent/cli/main.py`` 会将控制权交给 ``rpent/cli/dashboard.py``，由后者根据
-``--dashboard-host`` 和 ``--dashboard-port`` 启动 Dashboard，并在启动共享服务前
-确认配置，然后用共享 component 名称调用一次 ``robot_spec.init_runtime``。环境必须
+``--dashboard-host`` 和 ``--dashboard-port`` 启动 Dashboard。Session 配置全部来自
+命令行，然后用共享 component 名称调用一次 ``robot_spec.init_runtime``。环境必须
 提供 ``robot_spec.dashboard``，由它定义
 前端使用的任务命令与字段、runtime components 和 frame channels。Session
 controller 随后等待该环境定义的命令（LIBERO 使用 ``/rpent-task``）；每次取得一个
@@ -174,12 +174,14 @@ TaskRun 运行期间，Dashboard 页面提供：
 
 - planner 输出以及工具调用事件；
 - 实时固定相机和腕部相机画面；
+- 由环境配置列入白名单、可直接执行的原语控件；
 - 动作时间线和单步动作片段；
 - 运行结束后的完整回合录像（如果已生成）。
 
-页面可以提交普通 planner 消息、新任务命令和中断请求，但不会直接发出机器人
-动作。planner、toolkit 和机器人运行时通过 ``dashboard_events`` 事件接收器发布
-展示更新。
+页面支持提交 planner 消息、新任务命令和中断请求，也会展示环境在仪表盘配置
+（``DashboardSpec``）中列出的原语。执行原语前，参数会根据工具包（``Toolkit``）
+定义的输入结构进行校验。
+planner、toolkit 和机器人运行时通过 ``dashboard_events`` 事件接收器发布展示更新。
 服务端通过 SSE 推送运行状态摘要，前端再按需读取详细事件、时间线和图像。
 
 下一步

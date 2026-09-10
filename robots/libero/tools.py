@@ -24,6 +24,7 @@ from typing import Any
 import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
+from rpent.robots.components.molmo_client import MolmoClient
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
@@ -58,10 +59,14 @@ class LiberoPrimitives:
         model: Pi05VLAClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
+        molmo_client: MolmoClient | None = None,
+        flywheel_config: dict[str, Any] | None = None,
     ):
         self.env = env
         self.model = model
         self._sam3_client = sam3_client
+        #: Only a task-card replay reads this; other runs never start Molmo.
+        self.molmo_client = molmo_client
         self._check_cancelled = check_cancelled
         self._last_obs = None
         self._last_obs_eef_pos = None
@@ -71,6 +76,8 @@ class LiberoPrimitives:
         # Toggled via start_recording() / stop_recording().
         self._recording = False
         self._frames = []
+        self._flywheel_config = flywheel_config
+        self._flywheel = None
 
     def start_recording(self):
         self._recording = True
@@ -106,12 +113,29 @@ class LiberoPrimitives:
     def reset(self):
         obs, info = self.env.reset()
         self.set_obs(obs)
+        if self._flywheel_config is not None:
+            from robots.libero.flywheel import create_episode_writer
+
+            self._flywheel = create_episode_writer(self._flywheel_config, obs)
         return self._last_obs, info
+
+    def begin_primitive(self, name: str) -> None:
+        if self._flywheel is not None:
+            self._flywheel.begin_primitive(name)
+
+    def end_primitive(self) -> None:
+        if self._flywheel is not None:
+            self._flywheel.end_primitive()
+
+    def finalize_flywheel(self) -> Path | None:
+        return self._flywheel.finalize() if self._flywheel is not None else None
 
     def _step_env(self, action) -> None:
         """Execute one env action between cancellation checkpoints."""
         self._check_cancelled()
-        obs, _r, _t, _tr, _i = self.env.step(action)
+        obs, reward, terminated, truncated, _info = self.env.step(action)
+        if self._flywheel is not None:
+            self._flywheel.add_transition(action, obs, reward, terminated, truncated)
         self.set_obs(obs)
         if self._recording:
             self.record_frame(obs)
@@ -136,15 +160,32 @@ class LiberoPrimitives:
             actions = self.model.predict(self._last_obs, options={"mode": "eval"})
             self._check_cancelled()
 
-            if not self._recording:
+            vla_id = (
+                self._flywheel.add_proposal(instruction, actions)
+                if self._flywheel is not None
+                else -1
+            )
+
+            if not self._recording and self._flywheel is None:
                 chunk_obs, _r, _t, _tr, _i = self.env.chunk_step(actions)
                 obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
             else:
-                chunk_obs, _r, _t, _tr, _i = self.env.chunk_step(
+                chunk_obs, rewards, terminated, truncated, _info = self.env.chunk_step(
                     actions, return_all_frames=True
                 )
-                for obs in chunk_obs:
-                    self.record_frame(obs)
+                for index, obs in enumerate(chunk_obs):
+                    if self._recording:
+                        self.record_frame(obs)
+                    if self._flywheel is not None:
+                        self._flywheel.add_transition(
+                            actions[index],
+                            obs,
+                            rewards[index],
+                            terminated[index],
+                            truncated[index],
+                            vla_id=vla_id,
+                            proposal_index=index,
+                        )
                 obs = chunk_obs[-1]
             self.set_obs(obs)
             return self._last_obs
@@ -159,12 +200,15 @@ class LiberoPrimitives:
         max_chunks: int = 24,
         lift_thresh: float = 0.05,
         gripper_closed_thresh: float = 0.06,
+        gripper_open_thresh: float = 0.0,
+        descent_thresh: float = 0.10,
     ) -> dict:
         """Closed-loop Pi0.5 pick driven by ``prompt`` as the VLA instruction.
 
-        Success := eef lifted by >= ``lift_thresh`` AND gripper_opening
-        below ``gripper_closed_thresh``. Terminates early on libero
-        ``terminated`` (official success) or ``max_chunks``.
+        Success requires the EEF to descend by ``descent_thresh``, then rise by
+        ``lift_thresh``, with gripper opening in
+        [``gripper_open_thresh``, ``gripper_closed_thresh``). Terminates early
+        on LIBERO ``terminated`` (official success) or ``max_chunks``.
         """
         instr = prompt
         start_z = self._last_obs_eef_z
@@ -191,12 +235,12 @@ class LiberoPrimitives:
                 post_min_peak_z = z  # reset after a new deeper min
             else:
                 post_min_peak_z = max(post_min_peak_z, z)
-            if (start_z - min_z) >= 0.10:  # descended ≥ 10 cm — committed to grasp
+            if (start_z - min_z) >= descent_thresh:
                 descent_done = True
             min_grip = min(min_grip, grip)
             last_grip = grip
             ascended = (post_min_peak_z - min_z) >= lift_thresh
-            closed = grip < gripper_closed_thresh
+            closed = gripper_open_thresh <= grip < gripper_closed_thresh
             if descent_done and ascended and closed:
                 success = True
                 break
@@ -225,6 +269,8 @@ class LiberoPrimitives:
                 "descent_done": descent_done,
                 "lift_thresh": lift_thresh,
                 "gripper_closed_thresh": gripper_closed_thresh,
+                "gripper_open_thresh": gripper_open_thresh,
+                "descent_thresh": descent_thresh,
             },
         }
 
@@ -1241,6 +1287,14 @@ TOOLS_SPEC = [
                 "gripper_closed_thresh": {
                     "type": "number",
                     "description": "Finger-separation closed threshold (default 0.06)",
+                },
+                "gripper_open_thresh": {
+                    "type": "number",
+                    "description": "Minimum finger separation accepted as a held object (default 0.0)",
+                },
+                "descent_thresh": {
+                    "type": "number",
+                    "description": "Required descent before lift detection, m (default 0.10)",
                 },
             },
             "required": ["prompt"],

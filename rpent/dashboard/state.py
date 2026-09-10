@@ -24,13 +24,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
+from jsonschema.exceptions import SchemaError, ValidationError
+from jsonschema.validators import validator_for
 
 from rpent.dashboard.events import (
     DashboardEvent,
     RunStartedEvent,
     RuntimeStatusEvent,
     StepRecordEvent,
-    ToolResultEvent,
     TranscriptEvent,
     UsageEvent,
 )
@@ -42,9 +43,12 @@ from rpent.dashboard.interaction import (
     PlannerActivity,
     UnknownDashboardMessageError,
 )
+from rpent.dashboard.spec import DashboardSpec, TaskSpec
+from rpent.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from rpent.session import EnvState, StepRecord
+    from rpent.tools.toolkit import Toolkit, ToolResult
 
 RUNTIME_STATUSES = {"pending", "starting", "ready", "failed"}
 TERMINAL_RUN_STATES = {"succeeded", "failed", "cancelled"}
@@ -54,6 +58,50 @@ InputMode = Literal["command_only", "conversation", "disabled"]
 TaskRequest = dict[str, Any]
 _INTEGER = re.compile(r"-?[0-9]+")
 _UNSAFE_SLUG = re.compile(r"[^A-Za-z0-9_.-]+")
+
+logger = get_logger("dashboard_state")
+
+
+class PrimitiveArgumentError(ValueError):
+    """Dashboard primitive arguments do not satisfy the Toolkit schema."""
+
+
+class PrimitiveConfigError(RuntimeError):
+    """A Toolkit primitive has no usable Dashboard input schema."""
+
+
+def _primitive_validator(name: str, schema: Any) -> Any:
+    """Return the validator class for one well-formed primitive schema."""
+    if not isinstance(schema, dict):
+        raise PrimitiveConfigError(f"primitive {name!r} has no valid input schema")
+    validator_type = validator_for(schema)
+    try:
+        validator_type.check_schema(schema)
+    except SchemaError as exc:
+        raise PrimitiveConfigError(
+            f"primitive {name!r} has an invalid input schema"
+        ) from exc
+    return validator_type
+
+
+def _validate_primitive_arguments(
+    name: str,
+    arguments: dict[str, Any],
+    schema: Any,
+) -> None:
+    """Validate untrusted Dashboard arguments against one Toolkit schema."""
+    validator_type = _primitive_validator(name, schema)
+
+    try:
+        validator_type(schema).validate(arguments)
+    except ValidationError as exc:
+        location = "$" + "".join(
+            f"[{part}]" if isinstance(part, int) else f".{part}"
+            for part in exc.absolute_path
+        )
+        raise PrimitiveArgumentError(
+            f"invalid arguments for {name} at {location}: {exc.message}"
+        ) from exc
 
 
 def _to_json_safe(value: Any) -> Any:
@@ -71,7 +119,7 @@ def _to_json_safe(value: Any) -> Any:
     return value
 
 
-def _parse_task(task_spec: dict[str, Any], text: str) -> TaskRequest | None:
+def _parse_task(task_spec: TaskSpec, text: str) -> TaskRequest | None:
     tokens = text.split()
     command = task_spec["command"]
     if tokens[0].startswith("/rpent-") and tokens[0] != command:
@@ -86,8 +134,8 @@ def _parse_task(task_spec: dict[str, Any], text: str) -> TaskRequest | None:
     request: TaskRequest = {}
     for field, raw in zip(fields, tokens[1:], strict=True):
         name = field["name"]
-        suggestions = field.get("suggestions", ())
-        if suggestions and raw not in suggestions:
+        choices = field.get("choices", ())
+        if choices and raw not in choices:
             raise ValueError(f"unsupported {name}: {raw}")
         if field.get("kind") != "integer":
             request[name] = raw
@@ -102,7 +150,11 @@ def _parse_task(task_spec: dict[str, Any], text: str) -> TaskRequest | None:
     return request
 
 
-def _format_task(task_spec: dict[str, Any], key: str, request: TaskRequest) -> str:
+def _format_task(
+    task_spec: TaskSpec,
+    key: Literal["display", "output_slug"],
+    request: TaskRequest,
+) -> str:
     return task_spec[key].format(**request)
 
 
@@ -125,13 +177,11 @@ class DashboardState:
     def __init__(
         self,
         *,
-        run_id: str,
         output_dir: str | Path,
-        dashboard_spec: dict[str, Any],
+        dashboard_spec: DashboardSpec,
     ) -> None:
         root = Path(output_dir)
-        self.run_id = run_id
-        self.output_dir = root
+        self.dashboard_spec = dashboard_spec
         self.video_path = root / "episode.mp4"
         self._session_root = root
         self._task_spec = dashboard_spec["task"]
@@ -141,6 +191,7 @@ class DashboardState:
             component["name"] for component in self._runtime_components
         }
         self._frame_names = {channel["name"] for channel in self._frame_channels}
+        self._primitive_allowlist = dashboard_spec["primitives"]
 
         self._lock = threading.Lock()
         self._condition = threading.Condition(self._lock)
@@ -159,25 +210,120 @@ class DashboardState:
         self._frames: dict[str, bytes] = {}
         self._frame_idx = -1
         self.env_state: EnvState | None = None
-        self.frame_artifacts: dict[str, str] = {}
         self._state_step_offset = 0
-        self._action_video_sources: dict[int, tuple[EnvState, int, str]] = {}
+        self._action_video_paths: dict[int, Path] = {}
         self._accepting_input = False
         self._planner_activity: PlannerActivity = "starting"
         self._interrupt_requested = False
         self._interrupt_in_flight = False
         self._messages: list[DashboardMessage] = []
         self._messages_by_id: dict[str, DashboardMessage] = {}
+        self._next_pending_message_index = 0
         self._last_interaction_error: str | None = None
         self._interaction_version = 0
+        self._projection_version = 0
         self._session_state = "starting_shared_services"
         self._task_generation = 0
         self._pending_task: TaskRequest | None = None
         self._current_task: TaskRequest | None = None
-        self._task_replacement_requested = False
         self._control_feedback: list[str] = []
         self._control_error: str | None = None
         self._shutdown_requested = False
+        self._toolkit: Toolkit | None = None
+        self._active_primitive_calls: dict[int, int] = {}
+
+    def bind_toolkit(self, toolkit: Toolkit) -> None:
+        """Expose a TaskRun Toolkit through the Dashboard primitive API."""
+        with self._condition:
+            if self._toolkit is not None and self._toolkit is not toolkit:
+                raise RuntimeError("a Dashboard Toolkit is already bound")
+            self._toolkit = toolkit
+            self._projection_changed_locked()
+
+    def unbind_toolkit(self, toolkit: Toolkit) -> None:
+        """Stop new calls, cancel the active operation, and drain this Toolkit."""
+        toolkit_key = id(toolkit)
+        with self._condition:
+            if self._toolkit is toolkit:
+                self._toolkit = None
+                self._projection_changed_locked()
+        toolkit.cancel_active_and_wait()
+        with self._condition:
+            self._condition.wait_for(
+                lambda: self._active_primitive_calls.get(toolkit_key, 0) == 0,
+            )
+
+    def _primitives_available_locked(self) -> bool:
+        """Return whether manual primitives are safe at this planner boundary."""
+        return (
+            self._toolkit is not None
+            and self._session_state != "switch_pending"
+            and self._planner_activity == "idle"
+        )
+
+    def primitive_specs(self) -> list[dict[str, Any]]:
+        """Return Dashboard control schemas in robot allowlist order."""
+        with self._lock:
+            toolkit = self._toolkit
+            allowlist = self._primitive_allowlist
+            if not self._primitives_available_locked():
+                raise InteractionUnavailableError(
+                    "TaskRun primitives are not available"
+                )
+            assert toolkit is not None
+            by_name = {spec.get("name"): spec for spec in toolkit.get_tools_spec()}
+            primitives = []
+            for name in allowlist:
+                spec = by_name.get(name)
+                if spec is None:
+                    continue
+                schema = spec.get("input_schema")
+                try:
+                    _primitive_validator(name, schema)
+                except PrimitiveConfigError as exc:
+                    logger.warning("omitting Dashboard primitive: %s", exc)
+                    continue
+                primitives.append({"name": name, "input_schema": schema})
+            return primitives
+
+    def execute_primitive(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+    ) -> ToolResult:
+        """Execute one allowlisted primitive through the current Toolkit."""
+        with self._condition:
+            toolkit = self._toolkit
+            if not self._primitives_available_locked():
+                raise InteractionUnavailableError(
+                    "TaskRun primitives are not available"
+                )
+            assert toolkit is not None
+            if name not in self._primitive_allowlist:
+                raise ValueError(f"primitive is not allowed: {name}")
+            available = {spec.get("name"): spec for spec in toolkit.get_tools_spec()}
+            spec = available.get(name)
+            if spec is None:
+                raise ValueError(f"primitive is not available: {name}")
+            _validate_primitive_arguments(
+                name,
+                arguments,
+                spec.get("input_schema"),
+            )
+            toolkit_key = id(toolkit)
+            self._active_primitive_calls[toolkit_key] = (
+                self._active_primitive_calls.get(toolkit_key, 0) + 1
+            )
+        try:
+            return toolkit.execute_tool(name, arguments)
+        finally:
+            with self._condition:
+                remaining = self._active_primitive_calls[toolkit_key] - 1
+                if remaining:
+                    self._active_primitive_calls[toolkit_key] = remaining
+                else:
+                    del self._active_primitive_calls[toolkit_key]
+                self._condition.notify_all()
 
     @property
     def session_state(self) -> str:
@@ -187,7 +333,7 @@ class DashboardState:
     @property
     def task_replacement_requested(self) -> bool:
         with self._lock:
-            return self._task_replacement_requested
+            return self._session_state == "switch_pending"
 
     def shared_services_ready(self) -> None:
         """Open the command channel after shared services have started."""
@@ -207,7 +353,6 @@ class DashboardState:
             self._error = str(error)
             self._control_error = str(error)
             self._pending_task = None
-            self._task_replacement_requested = False
             self._seal_interaction_locked()
             self._interaction_changed_locked()
 
@@ -245,14 +390,11 @@ class DashboardState:
 
             self._pending_task = dict(request)
             self._control_error = None
-            self._control_feedback = [
-                f"Task selected: {_format_task(self._task_spec, 'display', request)}"
-            ]
+            self._control_feedback = []
 
             active = self._task_state in {"starting", "running"}
             if active:
                 self._session_state = "switch_pending"
-                self._task_replacement_requested = True
                 self._accepting_input = False
                 for message in self._messages:
                     if message.status == "pending":
@@ -287,7 +429,7 @@ class DashboardState:
                 / "tasks"
                 / f"{number:04d}_{self._task_output_slug(request)}"
             )
-            self._begin_task_locked(request, number=number, output_dir=output_dir)
+            self._begin_task_locked(request, output_dir=output_dir)
             return ClaimedTask(
                 number=number,
                 request=request,
@@ -297,7 +439,7 @@ class DashboardState:
     def complete_task_replacement(self, error: str | None = None) -> None:
         """Seal the old planner at the current scheduling boundary."""
         with self._condition:
-            if not self._task_replacement_requested:
+            if self._session_state != "switch_pending":
                 return
             if error is not None:
                 self._last_interaction_error = str(error)
@@ -321,10 +463,7 @@ class DashboardState:
             raise ValueError(f"invalid terminal run state: {state!r}")
         with self._condition:
             self._task_state = state
-            self._terminated = any(item.get("terminated") for item in self._timeline)
-            self._truncated = any(item.get("truncated") for item in self._timeline)
             self._error = None if error is None else str(error)
-            self._task_replacement_requested = False
             self._seal_interaction_locked()
             self._reset_unique_components_locked()
             self._session_state = (
@@ -338,15 +477,12 @@ class DashboardState:
         self,
         request: TaskRequest,
         *,
-        number: int,
         output_dir: Path,
     ) -> None:
         self._current_task = request
-        self.output_dir = output_dir
         self.video_path = output_dir / "episode.mp4"
         self._session_state = "task_starting"
         self._task_state = "starting"
-        self._task_replacement_requested = False
         self._terminated = False
         self._truncated = False
         self._error = None
@@ -358,18 +494,18 @@ class DashboardState:
         self._frames = {}
         self._frame_idx = -1
         self.env_state = None
-        self.frame_artifacts = {}
         self._state_step_offset = 0
-        self._action_video_sources = {}
+        self._action_video_paths = {}
         self._accepting_input = False
         self._planner_activity = "starting"
         self._interrupt_requested = False
         self._interrupt_in_flight = False
         self._messages = []
         self._messages_by_id = {}
+        self._next_pending_message_index = 0
         self._last_interaction_error = None
         self._control_error = None
-        self._control_feedback.append(f"TaskRun {number:04d} starting…")
+        self._control_feedback = []
         self._interaction_changed_locked()
 
     def _task_output_slug(self, request: TaskRequest) -> str:
@@ -427,7 +563,7 @@ class DashboardState:
         with self._condition:
             if self._task_state not in {"starting", "running"}:
                 raise InteractionUnavailableError("Dashboard TaskRun is not active")
-            if self._task_replacement_requested:
+            if self._session_state == "switch_pending":
                 raise InteractionUnavailableError(
                     "Dashboard TaskRun replacement is pending"
                 )
@@ -481,15 +617,16 @@ class DashboardState:
         with self._condition:
             if (
                 self._planner_activity == "ended"
-                or self._task_replacement_requested
+                or self._session_state == "switch_pending"
                 or self._interrupt_requested
             ):
                 return None
-            message = next(
-                (item for item in self._messages if item.status == "pending"),
-                None,
-            )
-            if message is None:
+            while self._next_pending_message_index < len(self._messages):
+                message = self._messages[self._next_pending_message_index]
+                self._next_pending_message_index += 1
+                if message.status == "pending":
+                    break
+            else:
                 return None
             message.status = "sending"
             message.error = None
@@ -593,11 +730,12 @@ class DashboardState:
     def emit(self, event: DashboardEvent) -> None:
         """Project one structured event into the existing frontend state."""
         if isinstance(event, TranscriptEvent):
-            with self._lock:
+            with self._condition:
                 self._events.append(event.payload)
+                self._projection_changed_locked()
             return
         if isinstance(event, UsageEvent):
-            with self._lock:
+            with self._condition:
                 self._usage = {
                     "in": self._planner_usage_base["in"] + int(event.inp),
                     "out": self._planner_usage_base["out"] + int(event.out),
@@ -605,19 +743,16 @@ class DashboardState:
                         self._planner_usage_base["tool_calls"] + int(event.tool_calls)
                     ),
                 }
+                self._projection_changed_locked()
             return
         if isinstance(event, RuntimeStatusEvent):
             self._apply_runtime_status(event)
-            return
-        if isinstance(event, ToolResultEvent):
-            self._apply_tool_result(event)
             return
         if isinstance(event, StepRecordEvent):
             with self._lock:
                 if event.env_state is not self.env_state:
                     self._state_step_offset = max(0, self._frame_idx + 1)
                     self.env_state = event.env_state
-                    self.frame_artifacts = dict(event.frame_artifacts)
                 step_offset = self._state_step_offset
             self.on_step(event.record, step_offset=step_offset)
             return
@@ -631,11 +766,12 @@ class DashboardState:
             raise ValueError(f"unknown runtime component: {event.component!r}")
         if event.status not in RUNTIME_STATUSES:
             raise ValueError(f"unknown runtime status: {event.status!r}")
-        with self._lock:
+        with self._condition:
             self._runtime[event.component] = {
                 "status": event.status,
                 "error": None if event.error is None else str(event.error),
             }
+            self._projection_changed_locked()
 
     def _runtime_snapshot(self) -> dict[str, dict[str, str | None]]:
         """Return a detached copy of runtime status for a locked caller."""
@@ -650,72 +786,6 @@ class DashboardState:
                 "error": None,
             }
 
-    def _apply_tool_result(self, event: ToolResultEvent) -> None:
-        name = event.name
-        result = event.result
-        if not isinstance(result, dict):
-            return
-        frames = {
-            "camera": result.get("_image_cam_bytes") or result.get("_image_bytes"),
-            "wrist": result.get("_image_wrist_bytes"),
-        }
-        self._update_frames(
-            step=result.get("step"),
-            frames={kind: data for kind, data in frames.items() if data},
-        )
-        log = result.get("log")
-        if not isinstance(log, dict):
-            return
-        command = log.get("command")
-        if not isinstance(command, dict) or command.get("action") != name:
-            return
-        try:
-            step = int(result["step"])
-        except Exception:
-            return
-        action = str(command.get("action", name))
-        terminated = bool(result.get("terminated"))
-        truncated = bool(result.get("truncated"))
-        action_video_path = self._action_video_from_result(
-            result,
-            step=step,
-            action=action,
-        )
-        action_video = str(action_video_path) if action_video_path is not None else None
-        action_video_artifact = result.get("action_video_artifact")
-        item = {
-            "step": step,
-            "action": action,
-            "args": {k: v for k, v in command.items() if k != "action"},
-            "result": _to_json_safe(log.get("result")),
-            "elapsed_s": log.get("elapsed_s"),
-            "terminated": terminated,
-            "truncated": truncated,
-            "action_video_path": action_video,
-            "action_video_artifact": action_video_artifact,
-            "has_action_video": bool(action_video_artifact or action_video_path),
-        }
-        with self._lock:
-            self._timeline.append(item)
-            self._terminated = self._terminated or terminated
-            self._truncated = self._truncated or truncated
-
-    def _action_video_from_result(
-        self,
-        result: dict[str, Any],
-        *,
-        step: int,
-        action: str,
-    ) -> Path | None:
-        raw_path = result.get("action_video_path")
-        if not raw_path:
-            raw_path = f"action_videos/step_{step:02d}_{action}.mp4"
-        try:
-            path = self._resolve_output_path(raw_path)
-        except TypeError:
-            return None
-        return path if path.exists() else None
-
     def on_step(self, record: StepRecord, *, step_offset: int = 0) -> None:
         """Project one recorded robot step into frames and timeline."""
         display_step = step_offset + record.step_idx
@@ -723,9 +793,9 @@ class DashboardState:
         command = record.command
         if not isinstance(command, dict) or not command.get("action"):
             return
-        action_video = next(
-            (name for name in sorted(record.artifacts) if name.endswith(".mp4")),
-            None,
+        action_video = min(
+            (name for name in record.artifacts if name.endswith(".mp4")),
+            default=None,
         )
         item = {
             "step": display_step,
@@ -735,19 +805,18 @@ class DashboardState:
             "elapsed_s": record.elapsed_s,
             "terminated": record.terminated,
             "truncated": record.truncated,
-            "action_video_artifact": action_video,
             "has_action_video": action_video is not None,
         }
-        with self._lock:
+        with self._condition:
             self._timeline.append(item)
             if action_video is not None and self.env_state is not None:
-                self._action_video_sources[display_step] = (
-                    self.env_state,
-                    record.step_idx,
+                self._action_video_paths[display_step] = self.env_state.artifact_path(
                     action_video,
+                    step=record.step_idx,
                 )
             self._terminated = self._terminated or record.terminated
             self._truncated = self._truncated or record.truncated
+            self._projection_changed_locked()
 
     def _update_step_frames(self, record: StepRecord, *, display_step: int) -> None:
         """Load dashboard frame bytes from the step's canonical artifacts."""
@@ -755,44 +824,16 @@ class DashboardState:
         if env_state is None:
             return
         frames: dict[str, bytes] = {}
-        for kind, artifact in self.frame_artifacts.items():
-            if kind not in self._frame_names or artifact not in record.artifacts:
+        for channel in self._frame_channels:
+            kind = channel["name"]
+            artifact = channel["artifact"]
+            if artifact not in record.artifacts:
                 continue
             try:
                 frames[kind] = env_state.load_bytes(artifact, step=record.step_idx)
             except FileNotFoundError:
                 continue
         self._update_frames(step=display_step, frames=frames)
-
-    def _resolve_output_path(self, value: Any) -> Path:
-        path = Path(value)
-        if path.is_absolute() or path.is_relative_to(self.output_dir):
-            return path
-        return self.output_dir / path
-
-    def _apply_frame_paths(self, result: dict[str, Any]) -> None:
-        projected = result.get("frames")
-        frame_paths = dict(projected) if isinstance(projected, dict) else {}
-        for channel in self._frame_channels:
-            name = channel["name"]
-            path_key = channel.get("legacy_path_key")
-            if name in frame_paths or path_key is None:
-                continue
-            if path_key in result:
-                frame_paths[name] = result[path_key]
-        if not frame_paths:
-            return
-        frames: dict[str, bytes] = {}
-        for kind, path in frame_paths.items():
-            if kind not in self._frame_names:
-                continue
-            if not path:
-                continue
-            try:
-                frames[kind] = self._resolve_output_path(path).read_bytes()
-            except (OSError, TypeError):
-                continue
-        self._update_frames(step=result.get("step"), frames=frames)
 
     def _update_frames(
         self,
@@ -804,17 +845,18 @@ class DashboardState:
             frame_idx = int(step)
         except (TypeError, ValueError):
             frame_idx = None
-        with self._lock:
+        with self._condition:
             if frame_idx is not None and frame_idx < self._frame_idx:
                 return
             self._frames = dict(frames)
             if frame_idx is not None:
                 self._frame_idx = frame_idx
+            self._projection_changed_locked()
 
     def _start(self) -> None:
         with self._condition:
             self._task_state = "running"
-            if not self._task_replacement_requested:
+            if self._session_state != "switch_pending":
                 self._session_state = "running"
             self._interaction_changed_locked()
 
@@ -855,11 +897,14 @@ class DashboardState:
 
     def _interaction_changed_locked(self) -> None:
         self._interaction_version += 1
+        self._projection_changed_locked()
+
+    def _projection_changed_locked(self) -> None:
+        self._projection_version += 1
         self._condition.notify_all()
 
     def _interaction_snapshot_locked(self) -> dict[str, Any]:
         return {
-            "session_id": self.run_id,
             "input_mode": self._input_mode_locked(),
             "planner_activity": self._planner_activity,
             "interrupt_requested": self._interrupt_requested,
@@ -870,22 +915,14 @@ class DashboardState:
     def _input_mode_locked(self) -> InputMode:
         if self._session_state in {"starting_shared_services", "fatal"}:
             return "disabled"
-        if (
-            self._session_state == "running"
-            and self._accepting_input
-            and not self._task_replacement_requested
-        ):
+        if self._session_state == "running" and self._accepting_input:
             return "conversation"
         return "command_only"
 
     def _command_snapshot(self, request: TaskRequest | None) -> dict[str, Any] | None:
         if request is None:
             return None
-        return {
-            **request,
-            "parameters": dict(request),
-            "label": _format_task(self._task_spec, "display", request),
-        }
+        return {"label": _format_task(self._task_spec, "display", request)}
 
     def _session_fields_locked(self) -> dict[str, Any]:
         return {
@@ -915,34 +952,9 @@ class DashboardState:
             return self._frames.get(kind)
 
     def action_video_path(self, step: int) -> Path | None:
-        env_state = self.env_state
         with self._lock:
-            source = self._action_video_sources.get(int(step))
-            artifact = None
-            raw_path = None
-            for item in self._timeline:
-                if int(item.get("step", -1)) != int(step):
-                    continue
-                artifact = item.get("action_video_artifact")
-                raw_path = item.get("action_video_path")
-                break
-        if source is not None:
-            source_state, source_step, source_artifact = source
-            try:
-                path = source_state.artifact_path(source_artifact, step=source_step)
-            except (LookupError, ValueError):
-                return None
-            return path if path.exists() else None
-        if artifact and env_state is not None:
-            try:
-                path = env_state.artifact_path(artifact, step=int(step))
-            except (LookupError, ValueError):
-                return None
-            return path if path.exists() else None
-        if raw_path:
-            video_path = Path(raw_path)
-            return video_path if video_path.exists() else None
-        return None
+            path = self._action_video_paths.get(int(step))
+        return path if path is not None and path.exists() else None
 
     def has_video(self) -> bool:
         with self._lock:
@@ -955,45 +967,54 @@ class DashboardState:
         }
         return self._frame_idx, available
 
+    def _snapshot_locked(self) -> dict[str, Any]:
+        frame_idx, frame_available = self._frame_snapshot()
+        return {
+            "state": self._visible_state_locked(),
+            "terminated": self._terminated,
+            "truncated": self._truncated,
+            "error": self._error,
+            "usage": dict(self._usage),
+            "runtime": self._runtime_snapshot(),
+            "has_video": (
+                self._task_state in TERMINAL_RUN_STATES and self.video_path.exists()
+            ),
+            "frame_idx": frame_idx,
+            "frame_available": frame_available,
+            "n_events": len(self._events),
+            "n_steps": len(self._timeline),
+            "primitives_available": self._primitives_available_locked(),
+            "interaction": self._interaction_snapshot_locked(),
+            **self._session_fields_locked(),
+        }
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
-            frame_idx, frame_available = self._frame_snapshot()
-            return {
-                "state": self._visible_state_locked(),
-                "terminated": self._terminated,
-                "truncated": self._truncated,
-                "error": self._error,
-                "usage": dict(self._usage),
-                "runtime": self._runtime_snapshot(),
-                "has_video": (
-                    self._task_state in TERMINAL_RUN_STATES and self.video_path.exists()
-                ),
-                "frame_idx": frame_idx,
-                "frame_available": frame_available,
-                "n_steps": len(self._timeline),
-                "interaction": self._interaction_snapshot_locked(),
-                **self._session_fields_locked(),
-            }
+            return self._snapshot_locked()
 
-    def run_info(self) -> dict[str, Any]:
-        return {"id": self.run_id}
+    def wait_for_snapshot(
+        self,
+        since: int,
+        timeout: float | None = None,
+    ) -> tuple[int, dict[str, Any] | None]:
+        """Wait for a visible projection change and return one fresh snapshot."""
+        with self._condition:
+            self._condition.wait_for(
+                lambda: self._projection_version != since,
+                timeout=timeout,
+            )
+            version = self._projection_version
+            if version == since:
+                return version, None
+            return version, self._snapshot_locked()
 
-    def run_detail(self) -> dict[str, Any]:
+    def session_detail(self, *, timeline_since: int = 0) -> dict[str, Any]:
+        """Return one snapshot plus the requested incremental timeline suffix."""
         with self._lock:
-            frame_idx, frame_available = self._frame_snapshot()
+            since = int(timeline_since)
+            if since < 0 or since > len(self._timeline):
+                since = 0
             return {
-                "state": self._visible_state_locked(),
-                "terminated": self._terminated,
-                "truncated": self._truncated,
-                "error": self._error,
-                "usage": dict(self._usage),
-                "runtime": self._runtime_snapshot(),
-                "timeline": list(self._timeline),
-                "has_video": (
-                    self._task_state in TERMINAL_RUN_STATES and self.video_path.exists()
-                ),
-                "frame_idx": frame_idx,
-                "frame_available": frame_available,
-                "interaction": self._interaction_snapshot_locked(),
-                **self._session_fields_locked(),
+                **self._snapshot_locked(),
+                "timeline": list(self._timeline[since:]),
             }

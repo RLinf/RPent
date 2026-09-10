@@ -59,7 +59,7 @@ LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
    rpent --robot libero --dashboard --dashboard-language zh-cn \
      --planner claude_code --model claude-opus-4-8
 
-打开该地址并确认配置；服务就绪后，在页面输入
+Session 配置全部来自命令行，打开地址后直接进入实时监控；服务就绪后，在页面输入
 ``/rpent-task libero_object_swap 2 0`` 启动任务。Dashboard 会实时显示智能体的
 推理过程、相机画面和动作时间线；任务结束后可以继续提交下一任务。使用
 ``--dashboard-language zh-cn`` 可切换到中文界面。

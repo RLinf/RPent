@@ -1,0 +1,22 @@
+# RPent example config for one physical Franka arm.
+robot:
+  ip: "172.16.0.2"
+  end_effector:
+    type: franka
+    connection: "/dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAIR00N-if00-port0"
+
+cameras:
+  devices:
+    wrist_1:
+      serial: "141722070657"
+      type: realsense
+      main: true
+    third_person:
+      serial: "311322304048"
+      type: realsense
+
+workspace:
+  target_ee_pose: [0.65875577, 0.04438992, 0.07458871, 2.94857731, -0.0676843, -0.18130717]
+  reset_ee_pose: [0.65875577, 0.04438992, 0.27458871, 2.94857731, -0.0676843, -0.18130717]
+  ee_pose_limit_min: [0.15875577, -0.45561008, 0.03458871, 2.93857731, -0.0776843, -1.76130717]
+  ee_pose_limit_max: [1.15875577, 0.54438992, 0.27458871, 2.95857731, -0.0576843, 1.39869283]

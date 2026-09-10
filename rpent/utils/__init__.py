@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utility helpers: config, logging, path resolution, templates."""
+"""Utility helpers: config, logging, path resolution, serialization, templates."""
 
 from rpent.utils.logging import get_logger, get_output_dir, init_output_dir
 from rpent.utils.rpc import RpcClient, RpcError, make_rpc_client, parse_endpoint
@@ -20,6 +20,7 @@ from rpent.utils.rpc.socket_rpc import (
     SocketRpcClient,
     SocketRpcServer,
 )
+from rpent.utils.serialization import to_numpy_tree
 from rpent.utils.templates import (
     default_variables,
     substitute,
@@ -39,4 +40,5 @@ __all__ = [
     "init_output_dir",
     "substitute",
     "substitute_text",
+    "to_numpy_tree",
 ]

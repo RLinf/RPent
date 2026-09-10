@@ -45,11 +45,6 @@ logger = get_logger("libero_toolkit")
 class LiberoToolkit(Toolkit):
     """Toolkit for the LIBERO robot."""
 
-    _FRAME_ARTIFACTS = {
-        "camera": "agentview.png",
-        "wrist": "wrist.png",
-    }
-
     def __init__(
         self,
         *,
@@ -102,6 +97,7 @@ class LiberoToolkit(Toolkit):
                 handler = getattr(self._primitives, name, None)
                 if handler is None:
                     continue  # spec without a backing primitive method
+                handler = partial(self._execute_primitive, name, handler)
             self.add_tool(name, spec, handler)
         if self._exploration.is_exploration:
             reset_spec = next(
@@ -112,6 +108,13 @@ class LiberoToolkit(Toolkit):
             self.add_tool(
                 "finish", finish_spec, partial(self._guarded_finish, finish_handler)
             )
+
+    def _execute_primitive(self, name: str, handler: Any, **kwargs: Any) -> Any:
+        self._primitives.begin_primitive(name)
+        try:
+            return handler(**kwargs)
+        finally:
+            self._primitives.end_primitive()
 
     @readonly
     def _guarded_finish(self, inner: Any, **kwargs: Any) -> dict[str, Any]:
@@ -188,6 +191,11 @@ class LiberoToolkit(Toolkit):
             out.update(result)
         return out
 
+    @property
+    def primitives(self) -> "libero_tools.LiberoPrimitives":
+        """Return the action primitives this toolkit drives."""
+        return self._primitives
+
     def init_primitives(
         self,
         *,
@@ -208,7 +216,14 @@ class LiberoToolkit(Toolkit):
         self._publish_step(record)
 
     def close(self) -> None:
-        """Flush the agent-side video buffer through ``EnvState``."""
+        """Finalize collected data and save the episode video independently."""
+        try:
+            episode = self._primitives.finalize_flywheel()
+            if episode is not None:
+                logger.info("flywheel episode finalized: %s", episode)
+        except Exception as e:
+            logger.warning("failed to finalize flywheel episode: %s", e)
+
         try:
             frames = self._primitives.stop_recording()
             if frames:

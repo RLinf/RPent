@@ -36,7 +36,8 @@ def system_prompt(
         "Goal": robocasa_prompt.GOAL,
         "Rules": robocasa_prompt.RULES,
         "Memory": (
-            LOCAL_MEMORY if (variables or {}).get("memory_profile") == "local"
+            LOCAL_MEMORY
+            if (variables or {}).get("memory_profile") == "local"
             else robocasa_prompt.MEMORY
         ),
         "Localization": robocasa_prompt.LOCALIZATION,
