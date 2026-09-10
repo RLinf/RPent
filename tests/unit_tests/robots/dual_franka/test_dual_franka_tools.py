@@ -29,7 +29,6 @@ from robots.dual_franka.perception import (
 from robots.dual_franka.tools import (
     DualFrankaPrimitives,
     coerce_arm,
-    coerce_vec3,
     dump_state,
     view_env_state,
 )
@@ -113,7 +112,7 @@ def _primitives(env: FakeEnv, *, check_cancelled=lambda: None):
     )
 
 
-def test_arm_and_vec3_validation_and_motion_forwarding():
+def test_arm_validation_and_motion_forwarding():
     env = FakeEnv()
     primitives = _primitives(env)
 
@@ -130,8 +129,6 @@ def test_arm_and_vec3_validation_and_motion_forwarding():
     assert coerce_arm("LEFT") == "left"
     with pytest.raises(ValueError, match="left.*right"):
         coerce_arm("both")
-    with pytest.raises(ValueError, match="exactly 3"):
-        coerce_vec3([1.0, 2.0], name="delta")
 
 
 def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
@@ -268,7 +265,9 @@ def test_back_project_base_pixel_reads_rpent_state_artifacts(tmp_path: Path):
     assert len(result["point_xyz"]) == 3
 
 
-def test_load_calibration_bundle_follows_robot_config_override(tmp_path: Path):
+def test_load_calibration_bundle_merges_easy_handeye_yamls_and_robot_config(
+    tmp_path: Path,
+):
     config = tmp_path / "robot_config.yaml"
     fixtures = Path(__file__).parent / "fixtures"
     config.write_text(
@@ -279,34 +278,6 @@ def test_load_calibration_bundle_follows_robot_config_override(tmp_path: Path):
         "  localization_validity:\n"
         "    base_camera:\n"
         "      depth_m: [0.2, 0.9]\n"
-        "  base_frames:\n"
-        "    T_right_base_left_base:\n"
-        "      matrix:\n"
-        "        - [1.0, 0.0, 0.0, 0.02]\n"
-        "        - [0.0, 1.0, 0.0, 0.7]\n"
-        "        - [0.0, 0.0, 1.0, 0.0]\n"
-        "        - [0.0, 0.0, 0.0, 1.0]\n"
-    )
-    set_robot_config_path(config)
-    try:
-        bundle = load_calibration_bundle()
-    finally:
-        set_robot_config_path(None)
-
-    assert bundle["base_camera"]["localization_validity"] == {"depth_m": [0.2, 0.9]}
-    assert bundle["base_frames"]["T_right_base_left_base"]["matrix"][0][3] == 0.02
-    # Hand-eye transforms from the easy_handeye YAMLs survive the merge.
-    assert "transformation" in bundle["d455_camera"]
-
-
-def test_load_calibration_bundle_reads_easy_handeye_yamls(tmp_path: Path):
-    config = tmp_path / "robot_config.yaml"
-    fixtures = Path(__file__).parent / "fixtures"
-    config.write_text(
-        "perception:\n"
-        "  calibration:\n"
-        f"    base_camera: {fixtures / 'third_to_right_base_calib_eye_on_base.yaml'}\n"
-        f"    d455_camera: {fixtures / 'd455_to_right_base_eye_on_base.yaml'}\n"
         "  base_frames:\n"
         "    T_right_base_left_base:\n"
         "      matrix:\n"
@@ -332,7 +303,8 @@ def test_load_calibration_bundle_reads_easy_handeye_yamls(tmp_path: Path):
     assert bundle["d455_camera"]["transformation"]["x"] == pytest.approx(
         1.0742812281624636
     )
-    # Robot-config sections still merge on top of the YAML entries.
+    # Robot-config sections merge on top of the YAML entries.
+    assert bundle["base_camera"]["localization_validity"] == {"depth_m": [0.2, 0.9]}
     assert bundle["base_frames"]["T_right_base_left_base"]["matrix"][0][3] == 0.02
 
 

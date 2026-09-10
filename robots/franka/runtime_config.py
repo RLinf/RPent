@@ -85,9 +85,6 @@ def get_perception_calibration_mapping() -> dict[str, str]:
     Maps RPent camera keys (``base_camera``/``d455_camera`` for dual Franka,
     ``external``/``wrist`` for single Franka) to easy_handeye YAML paths.
     Returns an empty mapping when the robot config has no such section.
-
-    Raises:
-        ValueError: when a mapping value is not a path-like string.
     """
     raw = load_mapping(get_robot_config_path())
     return _calibration_mapping_from(raw.get("perception"))

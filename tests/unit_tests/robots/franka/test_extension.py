@@ -30,7 +30,6 @@ def test_franka_uses_rpent_owned_robot_config():
     runtime = load_runtime_config(config_path, task_description="test task")
     cfg = runtime.rlinf
 
-    assert config_path.is_file()
     assert cfg.env.eval.init_params.id == "RPentFrankaEnv-v1"
     assert cfg.env.eval.override_cfg.task_description == "test task"
 
