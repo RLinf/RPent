@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import numpy as np
 import pytest
@@ -41,13 +43,30 @@ def toolkit(tmp_path, monkeypatch):
     instance.close()
 
 
-def test_read_text_file_and_list_dir_use_native_results(toolkit, tmp_path):
-    (tmp_path / "note.txt").write_text("tool reads", encoding="utf-8")
-    text_result = toolkit.execute_tool("read_text_file", {"path": "note.txt"})
-    directory_result = toolkit.execute_tool("list_dir", {})
+def test_read_text_file_and_list_dir_execute_in_parallel(
+    toolkit, tmp_path, monkeypatch
+):
+    (tmp_path / "note.txt").write_text("parallel reads", encoding="utf-8")
+    both_reading = Barrier(2)
+    authorize_read = toolkit.memory.authorize_read
+
+    def synchronize_reads(path):
+        resolved = authorize_read(path)
+        # Both handlers must enter before either can complete. A serial
+        # executor breaks the barrier and returns tool errors.
+        both_reading.wait(timeout=3)
+        return resolved
+
+    monkeypatch.setattr(toolkit.memory, "authorize_read", synchronize_reads)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        text = pool.submit(toolkit.execute_tool, "read_text_file", {"path": "note.txt"})
+        directory = pool.submit(toolkit.execute_tool, "list_dir", {})
+        text_result = text.result(timeout=5)
+        directory_result = directory.result(timeout=5)
+
     assert not text_result.is_error
     assert not directory_result.is_error
-    assert text_result.data["content"] == "tool reads"
+    assert text_result.data["content"] == "parallel reads"
     assert "note.txt" in directory_result.data["files"]
 
 

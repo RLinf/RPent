@@ -168,8 +168,8 @@ Dashboard（可选）
 ``--dashboard-host`` 和 ``--dashboard-port`` 启动 Dashboard。Session 配置全部来自
 命令行，然后用共享 component 名称调用一次 ``robot_spec.init_runtime``。环境必须
 提供 ``robot_spec.dashboard``，由它定义
-前端使用的任务命令与字段、runtime components 和允许执行的原语。相机标签通过
-``frame_channels`` 映射到每步记录的图片工件。Session
+前端使用的任务命令与字段、runtime components 和允许执行的原语。相机标签从
+每步记录的 PNG 工件中自动发现。Session
 controller 随后等待该环境定义的命令（LIBERO 使用 ``/rpent-task``）；每次取得一个
 TaskRun 后，Dashboard 会调用 ``parse_config``，再用 unique component 名称调用
 同一个 ``robot_spec.init_runtime``，合并两次返回的客户端参数，并为本次任务新建 toolkit

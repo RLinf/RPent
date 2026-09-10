@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -144,14 +143,11 @@ class LiberoToolkit(Toolkit[LiberoRuntime]):
             )
         except Exception:
             logger.exception("Dashboard failed to publish step %s", record.step_idx)
-        self._action_frame_cursor = 0
 
     def _capture_observation(
         self, *, command: dict[str, Any], result: ToolResult, elapsed_s: float
     ) -> tuple[dict[str, Any], list[bytes]]:
         """Save the full action log, then assemble the current observation response."""
-        frame_start = self._action_frame_cursor
-        self._action_frame_cursor = len(self._frames)
         logged_result = result.to_dict()
         record = dump_state(
             self._robot,
@@ -163,21 +159,6 @@ class LiberoToolkit(Toolkit[LiberoRuntime]):
             },
         )
         self._robot.solved |= record.terminated
-        if self._dashboard_events.enabled:
-            try:
-                frames = self._frames[frame_start:]
-                if frames:
-                    self._state.save(
-                        f"action_{command['action']}.mp4",
-                        frames,
-                        step=record.step_idx,
-                        fps=20,
-                    )
-            except Exception as exc:
-                logger.warning(
-                    "failed to save action clip for step %s: %s", record.step_idx, exc
-                )
-        record = self._state.get(record.step_idx)
         data, images = build_observation(self._state, record)
         if result.is_error:
             # Report the error once in this response; retain it in the saved log
@@ -197,25 +178,14 @@ class LiberoToolkit(Toolkit[LiberoRuntime]):
         return self._robot.solved
 
     def close(self) -> None:
-        """Finalize collected data and save the episode video independently."""
+        """Drain calls and save the video before finalizing collected data."""
+        super().close()
         try:
             episode = self._robot.finalize_flywheel()
             if episode is not None:
                 logger.info("flywheel episode finalized: %s", episode)
         except Exception as exc:
             logger.warning("failed to finalize flywheel episode: %s", exc)
-
-        try:
-            if self._frames:
-                self._state.save("episode.mp4", self._frames, step=None, fps=20)
-        except Exception as exc:
-            logger.warning("failed to save episode video: %s", exc)
-
-    def write_recipe(self, recipe_tag: str) -> str:
-        """Export the successful attempt from the recorded LIBERO trace."""
-        return write_recipe_from_states(
-            self._state, recipe_tag, output_dir=self._task_output_dir
-        )
 
 
 def dump_state(
@@ -423,87 +393,3 @@ def _world_from_depth(depth_metric: np.ndarray, camera_meta: dict) -> np.ndarray
         axis=-1,
     )
     return (camera_points @ extrinsic.T)[..., :3]
-
-
-def _is_primitive_action(name: object) -> bool:
-    return name in {
-        "reset",
-        "pi0_pick",
-        "pi0_doubled",
-        "move_to",
-        "rotate_wrist",
-        "rotate_pitch",
-        "move_pose",
-        "release",
-        "set_gripper",
-    }
-
-
-def write_recipe_from_states(
-    state: EnvState, recipe_tag: str, *, output_dir: Path | str
-) -> str:
-    """Find a command sequence that gets ``terminated=True``.
-
-    Export non-error LIBERO primitive commands and successful segment calls.
-    """
-    records = state.records()
-    last_reset = max(
-        (
-            record.step_idx
-            for record in records
-            if (
-                (record.command or {}).get("action") == "reset"
-                and not (isinstance(record.result, dict) and record.result.get("error"))
-            )
-        ),
-        default=-1,
-    )
-    command_events = []
-    for record in records:
-        if record.step_idx <= last_reset:
-            continue
-        command = record.command
-        result = record.result
-        if (
-            command is not None
-            and _is_primitive_action(command.get("action"))
-            and not (isinstance(result, dict) and result.get("error"))
-        ):
-            command_events.append(((record.step_idx, -1), command))
-
-        for name in sorted(record.artifacts):
-            if not (name.startswith("segment_") and name.endswith(".json")):
-                continue
-            segment = state.load(name, step=record.step_idx)
-            if segment.get("error"):
-                continue
-            if segment["mode"] == "text":
-                segment_command = {
-                    "action": "segment",
-                    "prompt": segment["prompt"],
-                    "camera": segment["camera"],
-                }
-            else:
-                segment_command = {
-                    "action": "segment",
-                    "point": segment["point"],
-                    "camera": segment["camera"],
-                }
-            event_order = (record.step_idx, int(segment["segment_index"]))
-            command_events.append((event_order, segment_command))
-
-    # Never publish a failed trajectory as a recipe. The environment trace is
-    # authoritative; an agent's self-reported finish status is not.
-    solved = any(
-        record.terminated for record in records if record.step_idx > last_reset
-    )
-    if not solved:
-        return ""
-    command_events.sort(key=lambda event: event[0])
-    recipe_name = f"{recipe_tag}_recipe.jsonl"
-    recipe_path = Path(output_dir) / recipe_name
-    recipe_path.parent.mkdir(parents=True, exist_ok=True)
-    recipe_path.write_text(
-        "".join(json.dumps(command) + "\n" for _, command in command_events)
-    )
-    return recipe_name

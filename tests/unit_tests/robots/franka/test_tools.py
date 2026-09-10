@@ -178,6 +178,11 @@ def test_toolkit_factory_validation_and_capture(tmp_path, monkeypatch):
     )
     assert read.images == result.images
     assert len(events) == 2
+    toolkit.cancel_active_and_wait()
+    assert toolkit.execute_tool("move_delta", {"delta_xyz": [0, 0, 0]}).is_error
+    assert len(env.moves) == 1
+    toolkit.resume_calls()
+    assert not toolkit.execute_tool("view_env_state", {}).is_error
     assert "finish" in {tool.name for tool in toolkit.list_tools()}
     assert toolkit.finish_result is None
     toolkit.close()

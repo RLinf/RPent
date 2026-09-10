@@ -295,9 +295,8 @@ VLA 客户端和本次会话的状态。工具函数通过 ``ctx.robot`` 访问�
 - 实现 ``_capture_observation(*, command, result, elapsed_s)``，调用上述
   状态保存与观测整理函数，返回观测数据和 PNG 图片。Toolkit 会在动作执行后
   自动调用它；原始执行结果可通过 ``result.to_dict()`` 保存到步骤日志中。
-- 实现 ``solved()``，根据环境状态判断任务是否成功。工具调用与取消由基类处理。
-  机器人 toolkit 在捕获观测时保存动作视频，重写 ``close()`` 保存回合录像，
-  并通过 ``write_recipe()`` 从记录的状态导出 recipe。
+- 实现 ``solved()``，根据环境状态判断任务是否成功。工具调用、取消和录像收尾
+  由基类处理；若需要额外的关闭逻辑，在重写 ``close()`` 时保留对基类的调用。
 
 ``runtime_kwargs`` 由 ``robot_spec.py:get_toolkit`` 转发给 toolkit，用于构造
 运行时对象。其中通常包含 ``{"env": MyEnvClient(...), "model": VLAClient(...)}``

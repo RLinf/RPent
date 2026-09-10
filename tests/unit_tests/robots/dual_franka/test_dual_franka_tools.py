@@ -660,3 +660,24 @@ def test_normal_return_contract(case, tmp_path):
             "operator_verdict": "success",
             **case["arguments"],
         }
+
+
+def test_toolkit_cancellation_pauses_until_resume(tmp_path):
+    env = FakeEnv()
+    toolkit = DualFrankaToolkit(
+        runtime_kwargs={"env": env, "model": None, "task_description": "default task"},
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        state_output_dir=tmp_path,
+    )
+    try:
+        toolkit.cancel_active_and_wait()
+        assert toolkit.execute_tool(
+            "move_delta", {"arm": "left", "delta_xyz": [0, 0, 0]}
+        ).is_error
+        assert env.moves == []
+        toolkit.resume_calls()
+        assert not toolkit.execute_tool("view_env_state", {}).is_error
+        assert "finish" in {item.name for item in toolkit.list_tools()}
+    finally:
+        toolkit.close()

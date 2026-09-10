@@ -84,10 +84,10 @@ it. The toolkit handles capture through ``_capture_observation``; handlers
 submit frames but do not save their own episode video or duplicate the state dump.
 
 For a tool that reads existing observations, place ``@readonly`` below
-``@tool`` to skip automatic capture. Calls still execute one at a time.
+``@tool`` to allow concurrent execution and skip automatic capture.
 ``write_text_file`` and ``finish`` have no readonly marker and run exclusively;
 the executor skips observation capture for common tools and ``finish``.
-See :doc:`interfaces` for execution and cancellation.
+See :doc:`interfaces` for cancellation and scheduling.
 
 .. _add-primitive-model-based:
 

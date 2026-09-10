@@ -155,4 +155,5 @@ def robotwin(tmp_path):
         env=env, model=model, toolkit=toolkit, output_dir=tmp_path / "run"
     )
     toolkit._frames.clear()
-    toolkit.close()
+    if toolkit._scheduler._state != "closed":
+        toolkit.close()

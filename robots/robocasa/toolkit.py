@@ -100,7 +100,6 @@ class RoboCasaToolkit(Toolkit[RoboCasaRuntime]):
             self._dashboard_events.emit(StepRecordEvent(record=record, env_state=state))
         except Exception:
             logger.exception("Dashboard failed to publish step %s", record.step_idx)
-        self._action_frame_cursor = 0
 
     def _capture_observation(
         self,
@@ -109,29 +108,12 @@ class RoboCasaToolkit(Toolkit[RoboCasaRuntime]):
         result: ToolResult,
         elapsed_s: float,
     ) -> tuple[dict[str, Any], list[bytes]]:
-        frame_start = self._action_frame_cursor
-        self._action_frame_cursor = len(self._frames)
         logged_result = result.to_dict()
         record = dump_state(
             self._robot,
             self._state,
             log={"command": command, "result": logged_result, "elapsed_s": elapsed_s},
         )
-        if self._dashboard_events.enabled:
-            try:
-                frames = self._frames[frame_start:]
-                if frames:
-                    self._state.save(
-                        f"action_{command['action']}.mp4",
-                        frames,
-                        step=record.step_idx,
-                        fps=20,
-                    )
-            except Exception as exc:
-                logger.warning(
-                    "failed to save action clip for step %s: %s", record.step_idx, exc
-                )
-        record = self._state.get(record.step_idx)
         data, images = build_observation(self._state, record)
         if result.is_error:
             data["log"]["result"] = {
@@ -144,18 +126,6 @@ class RoboCasaToolkit(Toolkit[RoboCasaRuntime]):
         """Read success from the final environment record, independent of finish."""
         record = self._state.latest_record()
         return bool(record is not None and record.extras.get("success", False))
-
-    def close(self) -> None:
-        """Save this robot's accumulated episode frames."""
-        try:
-            if self._frames:
-                self._state.save("episode.mp4", self._frames, step=None, fps=20)
-        except Exception as exc:
-            logger.warning("failed to save episode video: %s", exc)
-
-    def write_recipe(self, recipe_tag: str) -> str:
-        """Export non-error RoboCasa commands from the recorded trace."""
-        return write_recipe_from_states(self._state, recipe_tag)
 
 
 # Heavy npy artifacts pruned after the ``_keep_heavy`` window elapses (the
@@ -319,38 +289,3 @@ def build_observation(
             break
 
     return out, images
-
-
-_PRIMITIVE_ACTIONS = frozenset(
-    {
-        "move_to",
-        "move_delta",
-        "rotate_pitch",
-        "set_gripper",
-        "release",
-        "scripted_grasp",
-        "rldx_skill",
-        "rldx_arm",
-        "navigate_to",
-        "move_base",
-        "reset",
-    }
-)
-
-
-def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:
-    """Export non-error RoboCasa primitive commands from the state trace as JSONL."""
-    commands = []
-    for record in state.records():
-        command = record.command
-        if not isinstance(command, dict):
-            continue
-        if command.get("action") not in _PRIMITIVE_ACTIONS:
-            continue
-        result = record.result
-        if isinstance(result, dict) and result.get("error"):
-            continue
-        commands.append(command)
-    recipe_name = f"{recipe_tag}_recipe.jsonl"
-    state.save(recipe_name, commands, step=None)
-    return recipe_name
