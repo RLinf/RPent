@@ -1,0 +1,75 @@
+name: Embodied GPU E2E
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Robot stack to test
+        required: true
+        type: choice
+        options:
+          - libero-pro
+          - robocasa
+          - robotwin
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  manual:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/embodied-gpu-e2e-run.yml
+    with:
+      repository: ${{ github.repository }}
+      revision: ${{ github.sha }}
+      scope: manual-${{ github.sha }}
+      target: ${{ inputs.target }}
+
+  comment-request:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+      contains(fromJSON('["/ci-libero-pro", "/ci-robocasa", "/ci-robotwin"]'), github.event.comment.body)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      repository: ${{ steps.resolve.outputs.repository }}
+      revision: ${{ steps.resolve.outputs.revision }}
+      scope: ${{ steps.resolve.outputs.scope }}
+      target: ${{ steps.resolve.outputs.target }}
+    steps:
+      - name: Resolve pull request head
+        id: resolve
+        shell: bash
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t head < <(
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+              --jq '.head.repo.full_name, .head.sha'
+          )
+          [[ ${#head[@]} -eq 2 && -n "${head[0]}" && -n "${head[1]}" ]]
+
+          {
+            echo "repository=${head[0]}"
+            echo "revision=${head[1]}"
+            echo "scope=pr-$PR_NUMBER"
+            echo "target=${COMMENT_BODY#/ci-}"
+          } >> "$GITHUB_OUTPUT"
+
+  comment:
+    needs: comment-request
+    uses: ./.github/workflows/embodied-gpu-e2e-run.yml
+    with:
+      repository: ${{ needs.comment-request.outputs.repository }}
+      revision: ${{ needs.comment-request.outputs.revision }}
+      scope: ${{ needs.comment-request.outputs.scope }}
+      target: ${{ needs.comment-request.outputs.target }}

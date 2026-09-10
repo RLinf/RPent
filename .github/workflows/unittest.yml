@@ -31,5 +31,7 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       - name: Install test dependencies
         run: uv pip install --system -e ".[test]"
-      - name: Run unit tests
-        run: pytest tests/unit_tests -v
+      - name: Run unit tests with coverage
+        run: coverage run --source=rpent,robots -m pytest tests/unit_tests -v
+      - name: Generate coverage report
+        run: coverage report -m
