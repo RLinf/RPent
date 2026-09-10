@@ -51,7 +51,8 @@ def _is_direct_url(url: str) -> bool:
 
 def _from_json(obj: Any) -> Any:
     """Rehydrate ``{"__ndarray__": <b64>, "dtype": ..., "shape": [...]}``
-    back into ndarrays. Everything else is passed through unchanged.
+    back into ndarrays and ``{"__npscalar__": <value>, "dtype": ...}``
+    back into numpy scalars. Everything else is passed through unchanged.
     """
     if isinstance(obj, dict):
         if "__ndarray__" in obj and set(obj) <= {"__ndarray__", "dtype", "shape"}:
@@ -61,6 +62,8 @@ def _from_json(obj: Any) -> Any:
             # so callers can mutate the returned array like they would with
             # a pickle round-tripped one.
             return arr.reshape(obj.get("shape", (-1,))).copy()
+        if "__npscalar__" in obj and set(obj) <= {"__npscalar__", "dtype"}:
+            return np.dtype(obj["dtype"]).type(obj["__npscalar__"])
         return {k: _from_json(v) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_from_json(v) for v in obj]
@@ -143,7 +146,7 @@ class HttpRpcClient(RpcClient):
 
 
 class _NumpyEncoder(json.JSONEncoder):
-    """JSON encoder that tags numpy arrays and normalizes numpy scalars."""
+    """JSON encoder that tags numpy arrays and scalars for faithful decode."""
 
     def default(self, obj: Any) -> Any:
         if isinstance(obj, np.ndarray):
@@ -152,12 +155,11 @@ class _NumpyEncoder(json.JSONEncoder):
                 "dtype": str(obj.dtype),
                 "shape": list(obj.shape),
             }
-        if isinstance(obj, (np.integer,)):
-            return int(obj)
-        if isinstance(obj, (np.floating,)):
-            return float(obj)
-        if isinstance(obj, (np.bool_,)):
-            return bool(obj)
+        if isinstance(obj, np.generic):
+            item = obj.item()
+            # boolean, int, unsigned int, float
+            if obj.dtype.kind in "biuf" and isinstance(item, (bool, int, float)):
+                return {"__npscalar__": item, "dtype": str(obj.dtype)}
         return super().default(obj)
 
 
