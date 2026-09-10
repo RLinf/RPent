@@ -196,7 +196,13 @@ class RoboTwinToolkit(Toolkit):
             return refusal_result(
                 "reset", "Attempt budget spent; archive and finish for handoff."
             )
-        result = self._exploration.perform_reset(self._primitives.reset)
+        latest = self._state.latest_record()
+        result = self._exploration.perform_reset(
+            self._primitives.reset,
+            successful_boundary_after_step=(
+                latest.step_idx if latest is not None else -1
+            ),
+        )
         self._latest_status = {}
         return self._exploration.build_reset_result(
             result,
@@ -294,6 +300,8 @@ class RoboTwinToolkit(Toolkit):
             self._state.save("episode.mp4", frames, step=None, fps=20)
 
     def _step(self, name: str, **kwargs) -> dict[str, Any]:
+        if self._exploration.reset_failed:
+            return {"error": "Reset failed; reset successfully before further actions."}
         self.raise_if_cancelled()
         if name == "render":
             return {"success": True}

@@ -423,17 +423,55 @@ def test_robotwin_reset_exception_consumes_attempt(explore_factory) -> None:
     make, env = explore_factory
     robot = make()
     seeds_before = list(env.seeds)
+    action_calls = []
 
     def fail() -> dict[str, Any]:
         raise RuntimeError("native reset failed")
 
     robot._primitives.reset = fail
+    robot._primitives.move_to = lambda **kwargs: action_calls.append(kwargs)
     result = robot.execute_tool("reset", {"reason": "retry"})
 
     assert "native reset failed" in result.result["error"]
     assert robot._exploration.current_attempt == 2
     assert robot._exploration.reset_failed
     assert env.seeds == seeds_before
+    blocked = robot.execute_tool("move_to", {"label": "must not execute"})
+    assert blocked.result == {
+        "error": "Reset failed; reset successfully before further actions."
+    }
+    assert action_calls == []
+
+
+def test_successful_reset_boundary_survives_state_capture_failure(
+    explore_factory, tmp_path
+) -> None:
+    import json
+
+    make, env = explore_factory
+    robot = make()
+    robot.execute_tool("move_to", {"label": "failed attempt"})
+    pre_reset_step = robot._state.latest_record().step_idx
+    capture = robot.get_env_state
+
+    def fail_reset_capture(*, command, result, elapsed_s):
+        if command["action"] == "reset":
+            raise RuntimeError("post-reset capture failed")
+        return capture(command=command, result=result, elapsed_s=elapsed_s)
+
+    robot.get_env_state = fail_reset_capture
+    reset = robot.execute_tool("reset", {"reason": "retry"})
+
+    assert reset.result["state_capture_error"] == "post-reset capture failed"
+    assert robot._exploration.latest_successful_reset_step == pre_reset_step
+    env.last_info["episode_status"]["eval_success"] = True
+    robot.execute_tool("move_to", {"label": "winning attempt"})
+
+    path = Path(robot.write_recipe("capture_failure"))
+    assert path == tmp_path / "capture_failure_recipe.jsonl"
+    assert [json.loads(line) for line in path.read_text().splitlines()] == [
+        {"action": "move_to", "label": "winning attempt"}
+    ]
 
 
 def test_robotwin_solved_tracks_current_native_status(explore_factory) -> None:
