@@ -167,6 +167,7 @@ def get_toolkit(
     )
     return RoboCasaToolkit(
         runtime_kwargs=runtime_kwargs,
+        output_dir=config.output_dir,
         dashboard_events=dashboard_events,
         memory=memory,
     )
@@ -364,7 +365,7 @@ def _init_runtime(
     }
     connectors = {
         "env": lambda rpc: {
-            "env_client": RoboCasaEnvClient(
+            "env": RoboCasaEnvClient(
                 rpc,
                 expected_meta={
                     "task_name": args.task_name,
@@ -374,10 +375,9 @@ def _init_runtime(
                     "camera_w": 256,
                 },
             ),
-            "workdir": str(output_dir),
             "hi_res": args.hi_res or None,
         },
-        "vla": lambda rpc: {"vla_client": RoboCasaVLAClient(rpc)},
+        "vla": lambda rpc: {"model": RoboCasaVLAClient(rpc)},
     }
     timeouts = {"env": 120.0, "vla": 300.0}
     selected = set(starters) if components is None else components

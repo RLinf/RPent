@@ -30,7 +30,6 @@ from robots.franka.runtime_config import (
     load_mapping,
 )
 from rpent.session import EnvState
-from rpent.tools.toolkit import readonly
 
 
 class DualFrankaPerceptionError(ValueError):
@@ -51,7 +50,6 @@ _PROJECTION_CAMERAS = {
 }
 
 
-@readonly
 def back_project_base_pixel(
     *,
     row: int,
@@ -73,7 +71,6 @@ def back_project_base_pixel(
     )
 
 
-@readonly
 def back_project_d455_pixel(
     *,
     row: int,

@@ -27,54 +27,67 @@
      - ``move_to``、``rotate_wrist``、``release``、
        ``back_project``
 
-从 LLM 的视角看，两类原语采用相同的接口：一份工具定义、一个
-primitives 方法，以及调用完成后的状态快照。区别仅在于方法的具体实现。
+从 LLM 的视角看，两类原语采用相同的接口：一份工具定义、一个执行函数，
+以及调用完成后的状态快照。区别仅在于函数内部是调用模型，还是执行脚本化动作。
 
 添加一个脚本化原语
 ------------------
 
 添加脚本化原语通常需要以下两个步骤：
 
-1. **在 primitives 中添加方法。** 在当前机器人的 primitives
-   类（如 ``LiberoPrimitives``、``MyRobotPrimitives``）中添加
-   一个方法。该方法接收工具调用的参数，执行一次或多次
-   ``self._env.step(...)``，并返回一个简短的日志字典。
-
-     primitive 方法执行后默认会自动捕获并重新渲染状态
-     （``get_env_state``）：
+1. **编写工具函数。** 在 ``robots/<robot>/tools.py`` 中添加函数，用 ``@tool``
+   将它声明为工具。函数通过 ``ctx.robot`` 访问当前机器人的环境和模型客户端，
+   执行动作后返回 ``ToolResult``。例如，下面的 LIBERO 工具会保持当前位姿，
+   并在指定步数后停止：
 
    .. code-block:: python
 
-      def open_drawer(self, dx: float = 0.15) -> dict:
-          # 保持夹爪闭合，沿 -x 方向后拉 dx 米。
-          for _ in range(N):
-              self._env.step(build_open_drawer_chunk(dx))
-          return {"ok": True, "dx": dx}
+      from typing import Annotated
 
-   只读工具（``view_env_state``、``back_project``、``segment`` 等）
-     可以使用 :func:`~rpent.tools.toolkit.readonly` 标记，toolkit 会跳过
-     它们的状态捕获，提升性能。
+      from pydantic import Field
 
-2. **添加工具定义。** 在 ``robots/<robot>/tools.py`` 的 ``TOOLS_SPEC`` 中新增一项：
+      from rpent.tools import ToolContext, ToolResult, tool
 
-   .. code-block:: python
+      @tool
+      def hold_pose(
+          steps: Annotated[int, Field(ge=1, le=100)] = 10,
+          *,
+          ctx: ToolContext,
+      ) -> ToolResult:
+          """Hold the current pose with the gripper closed.
 
-      {
-          "name": "open_drawer",
-          "description": "Pull the currently-grasped drawer handle "
-                         "backwards by ``dx`` meters.",
-          "input_schema": {
-              "type": "object",
-              "properties": {"dx": {"type": "number"}},
-              "required": [],
-          },
-      }
+          Args:
+              steps: Number of environment steps.
+          """
+          runtime = ctx.robot
+          for _ in range(steps):
+              ctx.check_cancelled()
+              obs, _, terminated, truncated, _ = runtime.env.step(
+                  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+              )
+              runtime.executed_steps += 1
+              runtime.set_obs(obs)
+              ctx.record_frame(obs["main_images"])
+              if terminated or truncated:
+                  break
+          return ToolResult(data={"steps_requested": steps})
 
-两者就位后，toolkit 会自动注册该工具：它遍历 ``TOOLS_SPEC``，把每个定义
-绑定到对应的 primitive 方法（如 ``getattr(self._primitives, name)``）。
+   ``@tool`` 根据函数签名生成参数 schema，并从 Google 风格 docstring 中读取
+   工具说明。示例中的 ``Field`` 限定了模型可传入的步数；``ctx`` 则由 toolkit
+   提供，不需要模型填写。在机器人代码中，可以用 ``ToolContext[LiberoRuntime]``
+   进一步标明上下文中的机器人类型。
+
+   工具执行后，toolkit 会自动保存新的状态快照。对于 ``view_env_state``、
+   ``back_project`` 等读取已有观测的工具，可以在 ``@tool`` 下方添加
+   ``@readonly``，省去这次状态捕获；调用仍按顺序执行。公共工具和 ``finish``
+   不触发状态捕获；``write_text_file`` 和 ``finish`` 不设置 readonly，独占执行。
+
+2. **将工具加入 toolkit。** 把函数声明加入该机器人的工具集合，例如 LIBERO 的
+   ``LIBERO_TOOLS``。Toolkit 在构造时接收这组工具，并统一处理参数校验和调用。
 
 完成以上步骤后，``api``、``claude_code`` 和 ``codex`` 三种 planner
-都可以调用该工具，无需修改其他代码。
+都可以调用该工具，无需分别编写适配代码。执行和取消的约定参见
+:doc:`interfaces` 中的工具集说明。
 
 .. _add-primitive-model-based:
 
@@ -102,39 +115,21 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
    LIBERO 的实现可参考
    ``rpent.robots.components.pi05_vla_client.Pi05VLAClient``。
 
-3. **在 primitives 中添加方法。** 在当前机器人的 primitives
-   类中调用 model client，将其返回的动作块交给环境执行，并返回日志字典。
-   model client 的接口是
-   :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict`，
-   指令从 ``env_obs["task_descriptions"]`` 中读取；返回 ``[chunk, action_dim]``
-   的 numpy 动作块（已剥掉 batch 维）：
+3. **编写工具函数。** 在函数中通过 ``ctx.robot`` 调用 model client，将返回的
+   动作块交给环境执行，并用 ``ToolResult`` 返回执行结果。以 Pi0.5 为例，
+   指令从 ``env_obs["task_descriptions"]`` 中读取，模型返回
+   ``[chunk, action_dim]`` 的 NumPy 动作块（已去掉 batch 维）。具体实现可参考
+   ``robots/libero/tools.py`` 中的 ``pi0_pick``，以及
+   ``robots/robocasa/tools.py`` 中的 ``rldx_skill``。
 
-   .. code-block:: python
+4. **将工具加入 toolkit。** 和脚本化原语一样，使用 ``@tool`` 声明工具，
+   再将它加入机器人的工具集合。执行后的状态捕获仍由 toolkit 负责。
 
-      def mymodel_pick(self, target: str) -> dict:
-          env_obs = self._env.get_obs()
-          env_obs["task_descriptions"] = f"pick {target}"
-          chunk = self._model.predict(env_obs)
-          self._env.chunk_step(chunk)
-          return {"model": "mymodel", "target": target}
-
-4. **添加工具定义并在 toolkit 中注册。** 具体做法与脚本化原语相同。
-
-5. **在 ``robot_spec.py`` 中连接各组件。** 机器人的 ``get_toolkit`` 使用
-   ``runtime_kwargs`` 构造 toolkit：
-
-   .. code-block:: python
-
-      def get_toolkit(*, runtime_kwargs, dashboard_events):
-          from robots.myrobot.toolkit import MyRobotToolkit
-          return MyRobotToolkit(
-              runtime_kwargs=runtime_kwargs,
-              dashboard_events=dashboard_events,
-          )
-
-   机器人包中的 ``_init_runtime`` 则负责构造 ``runtime_kwargs``，例如
-   ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``，再由
-   toolkit 构造器将其转发给 primitives。
+5. **在 ``robot_spec.py`` 中连接各组件。** 机器人包中的 ``_init_runtime``
+   负责创建环境和模型客户端，并通过 ``runtime_kwargs`` 返回，例如
+   ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``。
+   ``get_toolkit`` 将这些客户端连同输出目录和 ``MemoryManager`` 传给 toolkit，
+   由后者构造本次会话的运行时对象。完整的工厂示例见 :doc:`add_robot`。
 
 在多次运行之间复用 vla_server
 -----------------------------
@@ -169,8 +164,8 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
   ``session_id`` 由 facade 从连接派生并注入 server 端 handler，客户端
   **不传**，也不应在 ``predict`` 的 ``options`` 里伪造 ``session_ids``。
 
-- **primitives 侧**：任务开始前调用 ``reset_session`` 清空上一回合残留
-  的策略状态，保证连续多次运行之间状态不串。
+- **工具侧**：在任务开始或环境重置时调用 ``reset_session``，清空上一回合残留
+  的策略状态，避免影响后续任务。
 
 单线程 serve（EGL 渲染后端）
 ----------------------------
@@ -209,12 +204,12 @@ mixin 覆盖的 ``serve`` 与 :class:`~rpent.utils.rpc.RpcFacade` 的
 
 - **工具名称应描述意图，而非底层动作序列。** 例如使用 ``pi0_pick``，
   而不是 ``execute_action_chunk_of_length_20``。
-- **每个工具执行结束后都要保存新的状态快照。** 下一轮需要读取动作执行后的
-  环境状态，因此原语不能在渲染完成前返回。
-- **工具只返回简短的字典。** 返回值会以文本形式提供给 LLM；图像、深度数据和
-  其他大型观测应通过 ``EnvState.save`` 保存；``EnvState`` 会把每个逻辑基础
-  文件名自动加入其持有的 ``StepRecord.artifacts`` 集合。图像通过
-  ``view_env_state`` 提供，几何数据通过环境工具访问，不返回原始路径。
+- **动作执行后要有新的状态快照。** Toolkit 会在工具函数执行完毕后捕获观测，
+  再将结果交给 planner，让下一轮推理能看到动作后的环境。只读工具可以复用已有观测。
+- **返回简短的执行结果。** 将动作摘要放在 ``ToolResult.data`` 中，供 planner
+  以文本形式读取。图像、深度等大型观测通过 ``EnvState.save`` 保存，文件名会
+  自动记入 ``StepRecord.artifacts``。需要向模型展示图片时，使用
+  ``ToolResult.images``；历史观测仍可通过 ``view_env_state`` 读取。
 - **安全限制由 ``env_server`` 强制执行。** LLM 可能使用任意参数调用工具，
   因此工作空间边界和安全限制不能只依赖 toolkit。
 
@@ -231,5 +226,5 @@ mixin 覆盖的 ``serve`` 与 :class:`~rpent.utils.rpc.RpcFacade` 的
   多个模型，由工具通过 ``predict`` 的 ``model`` kwarg 选择要调用的模型
   或输出 head。
 
-无论具体实现如何，框架的契约都保持不变：模型进程 → model client →
-primitives 方法 → 工具定义 → ``Toolkit.add_tool``。
+无论使用哪种模型，都可以沿用上述接入方式：由客户端连接模型服务，再把调用模型
+和执行动作的过程写成工具函数，交给 toolkit 调用。

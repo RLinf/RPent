@@ -48,7 +48,11 @@ from rpent.dashboard.events import (
 )
 from rpent.dashboard.interaction import DashboardInteractionPort
 from rpent.dashboard.planner_control import DashboardPlannerControl
-from rpent.planner.base import REASONING_EFFORTS, PlannerResult, strip_mcp_prefix
+from rpent.planner.base import (
+    REASONING_EFFORTS,
+    PlannerResult,
+    strip_mcp_prefix,
+)
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
@@ -147,6 +151,7 @@ class CodexPlanner:
             )
         output_path, raw_stream_path, last_message_path = self._output_paths()
         recorder = _Recorder(
+            toolkit=toolkit,
             max_turns=max_turns,
             dashboard_events=self._dashboard_events,
         )
@@ -323,6 +328,7 @@ class CodexPlanner:
                             daemon=True,
                         ).start()
 
+                    finish_interrupted = False
                     try:
                         for event in turn.stream():
                             _write_jsonl(raw_f, _message_to_json(event))
@@ -332,6 +338,21 @@ class CodexPlanner:
                                     out_f.write(rendered)
                                     out_f.flush()
                                 logger.info(rendered.strip())
+                            if (
+                                recorder.finish_result is not None
+                                and not finish_interrupted
+                                and _get(event, "method") != "turn/completed"
+                            ):
+                                finish_interrupted = True
+                                with contextlib.suppress(Exception):
+                                    turn.interrupt()
+                        _write_jsonl(
+                            raw_f,
+                            {
+                                "type": "toolkit_finish",
+                                "finish": recorder.finish_result,
+                            },
+                        )
                     finally:
                         if stop_steer is not None:
                             stop_steer.set()
@@ -356,7 +377,9 @@ class CodexPlanner:
         """Run a controllable sequence of turns on one Codex thread."""
         output_path, raw_stream_path, last_message_path = self._output_paths()
         recorder = _Recorder(
-            max_turns=max_turns, dashboard_events=self._dashboard_events
+            toolkit=toolkit,
+            max_turns=max_turns,
+            dashboard_events=self._dashboard_events,
         )
         chunks: list[str] = []
         error: str | None = None
@@ -428,6 +451,10 @@ class CodexPlanner:
                         logger.warning(cleanup_error)
                         error = error or cleanup_error
                     await session.close()
+                    _write_jsonl(
+                        raw_f,
+                        {"type": "toolkit_finish", "finish": recorder.finish_result},
+                    )
         finally:
             mcp_server.stop()
 
@@ -564,6 +591,7 @@ class _CodexDashboardSession:
 
     async def _consume_turn(self, turn: Any, done: asyncio.Event) -> None:
         limit_reached = False
+        finish_interrupted = False
         try:
             async for event in turn.stream():
                 self._emit_event(event)
@@ -588,6 +616,13 @@ class _CodexDashboardSession:
                     await turn.interrupt()
 
                 if method != "turn/completed":
+                    if (
+                        self._recorder.finish_result is not None
+                        and not finish_interrupted
+                    ):
+                        finish_interrupted = True
+                        with contextlib.suppress(Exception):
+                            await turn.interrupt()
                     continue
                 status = _status(_get(payload, "turn"))
                 self._turn = None
@@ -625,6 +660,7 @@ class _CodexDashboardSession:
 class _Recorder:
     """Pure adapter: consume Codex SDK events, emit text + accumulate stats."""
 
+    toolkit: Toolkit
     max_turns: int
     dashboard_events: DashboardEventSink
     turns: int = 0
@@ -638,8 +674,11 @@ class _Recorder:
         }
     )
     final_response: str | None = None
-    finish_result: dict[str, Any] | None = None
     error: str | None = None
+
+    @property
+    def finish_result(self) -> dict[str, str] | None:
+        return self.toolkit.finish_result
 
     def stats(self) -> dict[str, int]:
         return {"turns_used": self.turns, "tool_calls": self.tool_calls, **self.usage}
@@ -701,7 +740,6 @@ class _Recorder:
             self.tool_calls += 1
             if item_type in {"mcpToolCall", "dynamicToolCall"}:
                 name = strip_mcp_prefix(str(_get(item, "tool", item_type)))
-                self._maybe_capture_finish(name, item)
             elif item_type == "commandExecution":
                 name = str(_get(item, "command", item_type))
             else:
@@ -760,26 +798,6 @@ class _Recorder:
                 tool_calls=self.tool_calls,
             )
         )
-
-    def _maybe_capture_finish(self, name: str, item: Any) -> None:
-        if self.finish_result is not None:
-            return
-        if name.lower() != "finish":
-            return
-        status = _status(item)
-        if status and status != "completed":
-            return
-        if _get(item, "error") not in (None, ""):
-            return
-        data = _jsonable(item)
-        args = data.get("arguments") if isinstance(data, dict) else None
-        if isinstance(args, str):
-            try:
-                args = json.loads(args)
-            except Exception:
-                args = None
-        if isinstance(args, dict):
-            self.finish_result = {"_finish": True, **args}
 
 
 # ---------------------------------------------------------------------------

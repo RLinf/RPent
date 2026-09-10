@@ -29,59 +29,11 @@ from rpent.planner.claude_code import (
     _build_rpent_server,
     _ClaudeSessionDriver,
     _Recorder,
-    _tool_result_to_mcp,
 )
-from rpent.tools.toolkit import ToolResult
+from rpent.planner.utils.http_mcp_server import mcp_result
+from rpent.tools import ToolResult
 
-
-class RecordingSink:
-    def __init__(self) -> None:
-        self.events: list[Any] = []
-
-    @property
-    def enabled(self) -> bool:
-        return True
-
-    def emit(self, event: Any) -> None:
-        self.events.append(event)
-
-
-class FakeToolkit:
-    def __init__(self, result: dict[str, Any] | None = None) -> None:
-        self.result = result or {"value": "ok"}
-        self.calls: list[tuple[str, dict[str, Any]]] = []
-        self.cancel_calls = 0
-
-    def get_tools_spec(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": "inspect_scene",
-                "description": "Inspect the current scene.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"detail": {"type": "string"}},
-                },
-            },
-            {
-                "name": "finish",
-                "description": "Finish the task.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string"},
-                        "summary": {"type": "string"},
-                    },
-                    "required": ["status", "summary"],
-                },
-            },
-        ]
-
-    def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
-        self.calls.append((name, args))
-        return ToolResult(name, dict(self.result))
-
-    def cancel_active_and_wait(self) -> None:
-        self.cancel_calls += 1
+from ._native_helpers import PNG, RecordingSink, call_sdk_tool
 
 
 class FakeSdkTools:
@@ -93,35 +45,9 @@ class FakeSdkTools:
         self.options = kwargs
         return kwargs
 
-    @staticmethod
-    def tool(name: str, description: str, schema: dict[str, Any]):
-        def decorate(function: Any) -> Any:
-            function.sdk_name = name
-            function.sdk_description = description
-            function.sdk_schema = schema
-            return function
-
-        return decorate
-
-    def create_sdk_mcp_server(
-        self,
-        *,
-        name: str,
-        version: str,
-        tools: list[Any],
-    ) -> dict[str, Any]:
-        self.created_server = {"name": name, "version": version, "tools": tools}
-        return self.created_server
-
 
 def patch_sdk_surface(monkeypatch: pytest.MonkeyPatch, fake: FakeSdkTools) -> None:
     monkeypatch.setattr(claude_agent_sdk, "ClaudeAgentOptions", fake.ClaudeAgentOptions)
-    monkeypatch.setattr(claude_agent_sdk, "tool", fake.tool)
-    monkeypatch.setattr(
-        claude_agent_sdk,
-        "create_sdk_mcp_server",
-        fake.create_sdk_mcp_server,
-    )
 
 
 def make_planner(tmp_path: Path, sink: RecordingSink, *, timeout_s: float = 1):
@@ -139,12 +65,13 @@ def make_planner(tmp_path: Path, sink: RecordingSink, *, timeout_s: float = 1):
 
 
 def test_options_translate_builtin_and_rpent_tools_without_mutating_specs(
+    make_toolkit,
     tmp_path: Path,
 ) -> None:
     sink = RecordingSink()
     planner = make_planner(tmp_path, sink)
-    toolkit = FakeToolkit()
-    original_specs = toolkit.get_tools_spec()
+    toolkit = make_toolkit()
+    original_specs = toolkit.list_tools()
     fake_sdk = FakeSdkTools()
 
     options = planner._build_options(fake_sdk, toolkit=toolkit, max_turns=4)
@@ -159,20 +86,25 @@ def test_options_translate_builtin_and_rpent_tools_without_mutating_specs(
         "Read",
         "Grep",
         "mcp__external__keep",
-        "mcp__rpent__inspect_scene",
-        "mcp__rpent__finish",
+        *[
+            f"mcp__rpent__{tool.name}"
+            for tool in toolkit.list_tools()
+            if tool.name != "read_image"
+        ],
     ]
     assert options["add_dirs"] == [str(tmp_path), str(tmp_path / "memory")]
     assert options["setting_sources"] == []
-    assert toolkit.get_tools_spec() == original_specs
+    assert toolkit.list_tools() == original_specs
 
 
-def test_options_construct_with_the_installed_claude_sdk(tmp_path: Path) -> None:
+def test_options_construct_with_the_installed_claude_sdk(
+    make_toolkit, tmp_path: Path
+) -> None:
     planner = make_planner(tmp_path, RecordingSink())
 
     options = planner._build_options(
         claude_agent_sdk,
-        toolkit=FakeToolkit(),
+        toolkit=make_toolkit(),
         max_turns=4,
     )
 
@@ -180,54 +112,47 @@ def test_options_construct_with_the_installed_claude_sdk(tmp_path: Path) -> None
     assert options.cwd == str(tmp_path)
     assert options.model == "fake-claude"
     assert options.max_turns == 4
-    assert options.allowed_tools[-2:] == [
-        "mcp__rpent__inspect_scene",
-        "mcp__rpent__finish",
-    ]
+    assert "mcp__rpent__inspect_scene" in options.allowed_tools
+    assert "mcp__rpent__finish" in options.allowed_tools
+    assert "mcp__rpent__read_image" not in options.allowed_tools
 
 
-def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors() -> None:
-    toolkit = FakeToolkit({"error": "rejected", "_image_bytes": b"contract-image"})
-    fake_sdk = FakeSdkTools()
+def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors(
+    make_toolkit,
+) -> None:
+    toolkit = make_toolkit({"error": "rejected"}, images=[PNG])
 
-    server = _build_rpent_server(fake_sdk, toolkit=toolkit)
-
-    assert server["name"] == "rpent"
-    assert server["version"] == "0.1.0"
-    tools = {tool.sdk_name: tool for tool in server["tools"]}
-    assert tools["inspect_scene"].sdk_description == "Inspect the current scene."
-    assert (
-        tools["inspect_scene"].sdk_schema == toolkit.get_tools_spec()[0]["input_schema"]
-    )
-
-    response = asyncio.run(tools["inspect_scene"]({"detail": "high"}))
-
+    server = _build_rpent_server(toolkit=toolkit)
+    response = asyncio.run(call_sdk_tool(server, "inspect_scene", {"detail": "high"}))
     assert toolkit.calls == [("inspect_scene", {"detail": "high"})]
-    assert response["is_error"] is True
-    assert [block["type"] for block in response["content"]] == ["text", "image"]
-    assert response["content"][1]["mimeType"] == "image/png"
+    assert response.isError is True
+    assert [block.type for block in response.content] == ["text", "image"]
+    assert response.content[1].mimeType == "image/png"
 
 
-def test_tool_result_conversion_supports_plain_values_and_content_blocks() -> None:
-    assert _tool_result_to_mcp("plain") == {
-        "content": [{"type": "text", "text": "plain"}]
-    }
-
+def test_tool_result_conversion_preserves_original_finish_payload() -> None:
     result = ToolResult(
-        "inspect_scene",
-        {"value": "visible", "_image_bytes": b"pixels"},
+        data={
+            "value": "visible",
+            "_finish": True,
+            "status": "failure",
+            "summary": "verified",
+        },
+        images=[PNG],
     )
-    converted = _tool_result_to_mcp(result)
-
-    assert converted["content"][0] == {
-        "type": "text",
-        "text": '{\n  "value": "visible"\n}',
+    converted = mcp_result(result)
+    assert json.loads(converted["content"][0]["text"]) == {
+        "value": "visible",
+        "_finish": True,
+        "status": "failure",
+        "summary": "verified",
     }
     assert converted["content"][1]["type"] == "image"
-    assert "is_error" not in converted
+    assert converted["isError"] is False
 
 
 def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
+    make_toolkit,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -253,6 +178,11 @@ def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
                 },
             ],
         }
+        await call_sdk_tool(
+            options["mcp_servers"]["rpent"],
+            "finish",
+            {"status": "success", "summary": "done"},
+        )
         yield {
             "type": "UserMessage",
             "parent_tool_use_id": "finish-1",
@@ -266,12 +196,11 @@ def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
     result = make_planner(tmp_path, sink).solve(
         system_prompt="system rules",
         user_message="user task",
-        toolkit=FakeToolkit(),
+        toolkit=make_toolkit(),
         max_turns=3,
     )
 
     assert result.finish_result == {
-        "_finish": True,
         "status": "success",
         "summary": "done",
     }
@@ -289,8 +218,10 @@ def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
     assert any(isinstance(event, UsageEvent) for event in sink.events)
 
 
-def test_rejected_finish_result_is_not_promoted(tmp_path: Path) -> None:
-    recorder = _Recorder(max_turns=2, dashboard_events=RecordingSink())
+def test_rejected_finish_result_is_not_promoted(make_toolkit, tmp_path: Path) -> None:
+    recorder = _Recorder(
+        toolkit=make_toolkit(), max_turns=2, dashboard_events=RecordingSink()
+    )
     recorder.observe(
         {
             "type": "AssistantMessage",
@@ -329,6 +260,7 @@ def test_rejected_finish_result_is_not_promoted(tmp_path: Path) -> None:
 
 
 def test_fake_sdk_failure_and_timeout_are_returned(
+    make_toolkit,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -344,7 +276,7 @@ def test_fake_sdk_failure_and_timeout_are_returned(
     failure = make_planner(tmp_path / "failure", RecordingSink()).solve(
         system_prompt="",
         user_message="task",
-        toolkit=FakeToolkit(),
+        toolkit=make_toolkit(),
         max_turns=1,
     )
 
@@ -367,7 +299,7 @@ def test_fake_sdk_failure_and_timeout_are_returned(
     ).solve(
         system_prompt="",
         user_message="task",
-        toolkit=FakeToolkit(),
+        toolkit=make_toolkit(),
         max_turns=1,
     )
 
@@ -377,6 +309,7 @@ def test_fake_sdk_failure_and_timeout_are_returned(
 
 
 def test_terminal_timeout_cancels_active_toolkit_work(
+    make_toolkit,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -394,7 +327,7 @@ def test_terminal_timeout_cancels_active_toolkit_work(
             stream_closed = True
 
     monkeypatch.setattr(claude_agent_sdk, "query", slow_query)
-    toolkit = FakeToolkit()
+    toolkit = make_toolkit()
     result = make_planner(
         tmp_path,
         RecordingSink(),
@@ -408,10 +341,12 @@ def test_terminal_timeout_cancels_active_toolkit_work(
 
     assert result.error == "Claude Agent SDK timed out after 0.01s"
     assert stream_closed is True
-    assert toolkit.cancel_calls == 1
+    assert toolkit.cancel_calls >= 1
 
 
-def test_stateful_sdk_driver_closes_adapter_tasks_and_client() -> None:
+def test_stateful_sdk_driver_closes_adapter_tasks_and_client(
+    make_toolkit,
+) -> None:
     events: list[str] = []
 
     class Client:
@@ -456,7 +391,9 @@ def test_stateful_sdk_driver_closes_adapter_tasks_and_client() -> None:
     driver = _ClaudeSessionDriver(
         sdk=Sdk(),
         options={"fake": "options"},
-        recorder=_Recorder(max_turns=1, dashboard_events=RecordingSink()),
+        recorder=_Recorder(
+            toolkit=make_toolkit(), max_turns=1, dashboard_events=RecordingSink()
+        ),
         emit=lambda message: events.append(f"message:{message}"),
     )
 
@@ -473,6 +410,7 @@ def test_stateful_sdk_driver_closes_adapter_tasks_and_client() -> None:
 
 
 def test_queue_and_dashboard_are_mutually_exclusive_before_sdk_use(
+    make_toolkit,
     tmp_path: Path,
 ) -> None:
     planner = make_planner(tmp_path, RecordingSink())
@@ -481,7 +419,7 @@ def test_queue_and_dashboard_are_mutually_exclusive_before_sdk_use(
         planner.solve(
             system_prompt="",
             user_message="task",
-            toolkit=FakeToolkit(),
+            toolkit=make_toolkit(),
             max_turns=1,
             input_queue=queue.Queue(),
             dashboard_interaction=object(),

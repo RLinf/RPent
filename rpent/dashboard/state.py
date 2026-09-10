@@ -24,8 +24,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
-from jsonschema.exceptions import SchemaError, ValidationError
-from jsonschema.validators import validator_for
 
 from rpent.dashboard.events import (
     DashboardEvent,
@@ -60,48 +58,6 @@ _INTEGER = re.compile(r"-?[0-9]+")
 _UNSAFE_SLUG = re.compile(r"[^A-Za-z0-9_.-]+")
 
 logger = get_logger("dashboard_state")
-
-
-class PrimitiveArgumentError(ValueError):
-    """Dashboard primitive arguments do not satisfy the Toolkit schema."""
-
-
-class PrimitiveConfigError(RuntimeError):
-    """A Toolkit primitive has no usable Dashboard input schema."""
-
-
-def _primitive_validator(name: str, schema: Any) -> Any:
-    """Return the validator class for one well-formed primitive schema."""
-    if not isinstance(schema, dict):
-        raise PrimitiveConfigError(f"primitive {name!r} has no valid input schema")
-    validator_type = validator_for(schema)
-    try:
-        validator_type.check_schema(schema)
-    except SchemaError as exc:
-        raise PrimitiveConfigError(
-            f"primitive {name!r} has an invalid input schema"
-        ) from exc
-    return validator_type
-
-
-def _validate_primitive_arguments(
-    name: str,
-    arguments: dict[str, Any],
-    schema: Any,
-) -> None:
-    """Validate untrusted Dashboard arguments against one Toolkit schema."""
-    validator_type = _primitive_validator(name, schema)
-
-    try:
-        validator_type(schema).validate(arguments)
-    except ValidationError as exc:
-        location = "$" + "".join(
-            f"[{part}]" if isinstance(part, int) else f".{part}"
-            for part in exc.absolute_path
-        )
-        raise PrimitiveArgumentError(
-            f"invalid arguments for {name} at {location}: {exc.message}"
-        ) from exc
 
 
 def _to_json_safe(value: Any) -> Any:
@@ -269,20 +225,12 @@ class DashboardState:
                     "TaskRun primitives are not available"
                 )
             assert toolkit is not None
-            by_name = {spec.get("name"): spec for spec in toolkit.get_tools_spec()}
-            primitives = []
-            for name in allowlist:
-                spec = by_name.get(name)
-                if spec is None:
-                    continue
-                schema = spec.get("input_schema")
-                try:
-                    _primitive_validator(name, schema)
-                except PrimitiveConfigError as exc:
-                    logger.warning("omitting Dashboard primitive: %s", exc)
-                    continue
-                primitives.append({"name": name, "input_schema": schema})
-            return primitives
+            by_name = {tool.name: tool for tool in toolkit.list_tools()}
+            return [
+                {"name": name, "input_schema": by_name[name].input_schema}
+                for name in allowlist
+                if name in by_name
+            ]
 
     def execute_primitive(
         self,
@@ -299,15 +247,8 @@ class DashboardState:
             assert toolkit is not None
             if name not in self._primitive_allowlist:
                 raise ValueError(f"primitive is not allowed: {name}")
-            available = {spec.get("name"): spec for spec in toolkit.get_tools_spec()}
-            spec = available.get(name)
-            if spec is None:
+            if name not in {tool.name for tool in toolkit.list_tools()}:
                 raise ValueError(f"primitive is not available: {name}")
-            _validate_primitive_arguments(
-                name,
-                arguments,
-                spec.get("input_schema"),
-            )
             toolkit_key = id(toolkit)
             self._active_primitive_calls[toolkit_key] = (
                 self._active_primitive_calls.get(toolkit_key, 0) + 1

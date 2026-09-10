@@ -14,16 +14,51 @@
 
 """Robot-specific schema contracts for RoboTwin tools."""
 
+import pytest
+
 from robots.robotwin import tools
 
 
 def test_perception_schemas_use_the_same_view_coordinate_space() -> None:
-    by_name = {spec["name"]: spec for spec in tools.TOOLS_SPEC}
+    by_name = {t.name: t for t in tools.ROBOTWIN_TOOLS}
 
     for tool_name, coordinate_name in (
         ("sample_world_xyz", "pixels"),
         ("query_world_map", "bbox"),
     ):
-        schema = by_name[tool_name]["input_schema"]
+        schema = by_name[tool_name].input_schema
         assert schema["required"] == ["view", coordinate_name]
         assert schema["properties"]["view"]["type"] == "string"
+
+
+def test_lingbot_keeps_fixed_chunk_length():
+    use_length = tools.lingbot_act.input_schema["properties"]["use_length"]
+    assert use_length["const"] == use_length["default"] == 50
+
+
+@pytest.mark.parametrize(
+    "name,arguments",
+    [
+        ("lingbot_act", {"chunks": 0}),
+        ("lingbot_act", {"use_length": 10}),
+        ("move_to", {"arm": "both", "xyz": [1, 2, 3]}),
+        ("move_to", {"arm": "left", "xyz": [1, 2]}),
+        ("move_to", {"arm": "left", "xyz": [1, 2, 3], "quat": [1, 0, 0]}),
+        ("move_to", {"arm": "left", "xyz": [1, 2, 3], "substeps": -1}),
+        ("set_gripper", {"arm": "left", "val": 1.1}),
+        ("release", {"arm": "right", "steps": 0}),
+        ("sample_world_xyz", {"view": "head", "pixels": []}),
+        ("sample_world_xyz", {"view": "head", "pixels": [[0]]}),
+        ("sample_world_xyz", {"view": "head", "pixels": [[0, 0]], "neighborhood": 33}),
+        ("query_world_map", {"view": "head", "bbox": [0, 0, 1]}),
+        ("query_world_map", {"view": "head", "bbox": [0, 0, 1, 1], "max_points": 4097}),
+    ],
+)
+def test_invalid_arguments_are_rejected_before_execution_or_capture(
+    robotwin, name, arguments
+):
+    result = robotwin.toolkit.execute_tool(name, arguments)
+    assert result.is_error and result.error.startswith("Invalid arguments")
+    assert not robotwin.env.steps and not robotwin.env.chunks and not robotwin.env.plans
+    assert robotwin.toolkit.state.latest_step == 0
+    assert len(robotwin.env.renders) == 3

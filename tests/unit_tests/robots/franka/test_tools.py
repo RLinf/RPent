@@ -17,20 +17,25 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Event
+from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
+from robots.franka import toolkit as franka_toolkit
+from robots.franka import tools
 from robots.franka.perception import back_project
 from robots.franka.runtime_config import set_calibration_path
+from robots.franka.toolkit import FrankaRuntime, FrankaToolkit
 from robots.franka.tools import (
-    FrankaPrimitives,
-    coerce_vec3,
     dump_state,
     view_camera_meta,
     view_env_state,
 )
+from rpent.dashboard.events import StepRecordEvent
+from rpent.memory import MemoryManager
 from rpent.session import EnvState
+from rpent.tools import ToolContext
 
 
 class FakeEnv:
@@ -87,35 +92,35 @@ class FakeModel:
         return np.zeros((2, 7), dtype=np.float32)
 
 
-def _primitives(env: FakeEnv, *, model=None, check_cancelled=lambda: None):
-    return FrankaPrimitives(
-        env=env,
-        model=model,
-        task_description="default task",
-        check_cancelled=check_cancelled,
+def _context(env: FakeEnv, *, model=None, state=None):
+    return ToolContext(
+        robot=FrankaRuntime(env=env, model=model, task_description="default task"),
+        state=state,
+        memory=None,
+        output_dir=Path("."),
+        record_frame=lambda frame: None,
+        _cancel_event=Event(),
     )
 
 
 def test_vec3_validation_and_motion_forwarding():
     env = FakeEnv()
-    primitives = _primitives(env)
+    ctx = _context(env)
 
-    primitives.move_delta([0.01, 0.0, -0.02])
-    primitives.rotate_delta([0.0, 0.0, 0.1])
+    tools.move_delta.handler([0.01, 0.0, -0.02], ctx=ctx)
+    tools.rotate_delta.handler([0.0, 0.0, 0.1], ctx=ctx)
 
     np.testing.assert_allclose(env.moves[0], [0.01, 0.0, -0.02])
     np.testing.assert_allclose(env.rotations[0], [0.0, 0.0, 0.1])
-    with pytest.raises(ValueError, match="exactly 3"):
-        coerce_vec3([1.0, 2.0], name="delta")
 
 
 def test_dump_state_saves_canonical_rgbd_artifacts(tmp_path: Path):
     env = FakeEnv()
-    primitives = _primitives(env)
+    ctx = _context(env)
     state = EnvState(tmp_path)
 
     record = dump_state(
-        primitives,
+        ctx.robot,
         state,
         command={"action": "move_delta"},
         result={"ok": True},
@@ -129,19 +134,27 @@ def test_dump_state_saves_canonical_rgbd_artifacts(tmp_path: Path):
         "wrist.png",
         "wrist_depth.npy",
     }
-    output = view_env_state(state=state)
-    assert output["_image_wrist_bytes"]
-    assert output["_image_cam_bytes"]
-    assert view_camera_meta(state=state)["camera_meta"]["depth_unit"] == "m"
+    output = view_env_state.handler(ctx=_context(env, state=state))
+    assert output.images == [
+        state.load_bytes("wrist.png"),
+        state.load_bytes("camera.png"),
+    ]
+    assert output.data["images"] == ["wrist", "camera"]
+    assert (
+        view_camera_meta.handler(ctx=_context(env, state=state)).data["camera_meta"][
+            "depth_unit"
+        ]
+        == "m"
+    )
 
 
 def test_vla_grasp_runs_bounded_chunks():
     env = FakeEnv()
-    primitives = _primitives(env, model=FakeModel())
+    ctx = _context(env, model=FakeModel())
 
-    result = primitives.vla_grasp("pick up the cube", max_chunks=3)
+    result = tools.vla_grasp.handler("pick up the cube", max_chunks=3, ctx=ctx)
 
-    assert result["chunks_executed"] == 3
+    assert result.data["chunks_executed"] == 3
     assert len(env.chunks) == 3
     # Obs is fetched once, then threaded from each chunk_step result.
     assert env.observation_calls == 1
@@ -172,3 +185,44 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
     assert result["coordinate_frame"] == "franka_base"
     assert result["depth_m"] == 0.5
     assert len(result["point_base"]) == 3
+
+
+def test_toolkit_factory_validation_capture_and_cancellation(tmp_path, monkeypatch):
+    monkeypatch.setattr(franka_toolkit, "get_output_dir", lambda: tmp_path)
+    env = FakeEnv()
+    # RPC state contains NumPy arrays; native result text must still be JSON.
+    get_robot_state = env.get_robot_state
+    env.get_robot_state = lambda: {**get_robot_state(), "states": np.zeros(8)}
+    events = []
+    kwargs = {"env": env, "model": None, "task_description": "test task"}
+    toolkit = FrankaToolkit(
+        runtime_kwargs=kwargs,
+        dashboard_events=SimpleNamespace(enabled=True, emit=events.append),
+        memory=MemoryManager(root=tmp_path / "memory"),
+    )
+    assert kwargs == {"env": env, "model": None, "task_description": "test task"}
+    assert env.observation_calls == 1
+    assert len(events) == 1 and isinstance(events[0], StepRecordEvent)
+    assert all(
+        "ctx" not in tool.input_schema["properties"] for tool in toolkit.list_tools()
+    )
+    for delta in ([1, 2], [0, 0, float("inf")]):
+        result = toolkit.execute_tool("move_delta", {"delta_xyz": delta})
+        assert result.is_error
+    assert env.moves == []
+    result = toolkit.execute_tool("move_delta", {"delta_xyz": [0.01, 0, 0]})
+    assert not result.is_error
+    assert result.data["images"] == ["wrist", "camera"]
+    assert len(result.images) == 2
+    assert "states" in result.to_text()
+    assert len(events) == 2
+    assert events[-1].record.command["action"] == "move_delta"
+    read = toolkit.execute_tool("view_env_state", {})
+    assert read.data == result.data and read.images == result.images
+    assert len(events) == 2
+    toolkit.cancel_active_and_wait()
+    assert not toolkit.execute_tool("view_env_state", {}).is_error
+    assert "finish" not in {tool.name for tool in toolkit.list_tools()}
+    assert toolkit.finish_result is None
+    assert len(events) == 2
+    toolkit.close()

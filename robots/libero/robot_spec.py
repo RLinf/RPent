@@ -149,6 +149,7 @@ def get_toolkit(
     )
     return LiberoToolkit(
         runtime_kwargs=runtime_kwargs,
+        output_dir=config.output_dir,
         dashboard_events=dashboard_events,
         memory=memory,
         mode=mode,

@@ -1,0 +1,1209 @@
+{
+  "source_commits": {
+    "common": "949f61ecea1c571168ca6a29a59f6d3207f6f947",
+    "libero": "949f61ecea1c571168ca6a29a59f6d3207f6f947",
+    "robocasa": "014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7",
+    "robotwin": "014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7"
+  },
+  "schemas": {
+    "common": {
+      "read_text_file": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Absolute or repo-relative path"
+          },
+          "max_chars": {
+            "type": "integer",
+            "description": "Max chars (default 40000)"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "write_text_file": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ]
+      },
+      "list_dir": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Default: {{output_dir}}"
+          }
+        }
+      },
+      "read_image": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "step": {
+            "type": "integer",
+            "minimum": -1
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    "libero": {
+      "finish": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Outcome, e.g. 'success', 'failure', or 'stuck'."
+          },
+          "summary": {
+            "type": "string",
+            "description": "Short natural-language summary of the run."
+          }
+        },
+        "required": [
+          "status",
+          "summary"
+        ]
+      },
+      "reset": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Why this episode is unrecoverable and what will change."
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "view_env_state": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "integer",
+            "default": -1,
+            "description": "Step number; 0 = initial, -1 = latest."
+          }
+        }
+      },
+      "move_to": {
+        "type": "object",
+        "properties": {
+          "xyz": {
+            "type": "array",
+            "description": "World-frame target [x, y, z] in meters",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "gripper": {
+            "type": "number",
+            "description": "Gripper command: -1 open, +1 close (default -1)"
+          },
+          "tol": {
+            "type": "number",
+            "description": "Position tolerance, m (default 0.012)"
+          },
+          "step_clip": {
+            "type": "number",
+            "description": "Per-step Δxyz cap before action_scale, m (default 0.025)"
+          },
+          "max_steps": {
+            "type": "integer",
+            "description": "Step budget (default 80)"
+          },
+          "action_scale": {
+            "type": "number",
+            "description": "OSC action scale (default 0.05)"
+          },
+          "target_yaw": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Optional world-frame yaw target in radians"
+          },
+          "yaw_step_clip": {
+            "type": "number",
+            "description": "Per-step yaw clip, rad (default 0.10)"
+          }
+        },
+        "required": [
+          "xyz"
+        ]
+      },
+      "pi0_pick": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Pi0 prompt (e.g. 'pick up the akita black bowl')."
+          },
+          "max_chunks": {
+            "type": "integer",
+            "description": "Action-chunk budget (default 24)"
+          },
+          "lift_thresh": {
+            "type": "number",
+            "description": "EEF post-descent ascent threshold for success, m (default 0.05)"
+          },
+          "gripper_closed_thresh": {
+            "type": "number",
+            "description": "Finger-separation closed threshold (default 0.06)"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      },
+      "pi0_doubled": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Contact-skill prompt, e.g. 'turn on the stove'."
+          },
+          "max_chunks": {
+            "type": "integer",
+            "description": "Action-chunk budget (default 20)"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      },
+      "release": {
+        "type": "object",
+        "properties": {
+          "max_steps": {
+            "type": "integer",
+            "description": "Step budget (default 20)"
+          }
+        }
+      },
+      "set_gripper": {
+        "type": "object",
+        "properties": {
+          "gripper": {
+            "type": "number",
+            "description": "Gripper command: -1 open, +1 close (default -1)"
+          },
+          "steps": {
+            "type": "integer",
+            "description": "Number of env steps (default 5)"
+          }
+        }
+      },
+      "rotate_wrist": {
+        "type": "object",
+        "properties": {
+          "target_yaw": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Absolute world-frame yaw target, rad"
+          },
+          "delta_yaw": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Relative yaw delta, rad"
+          },
+          "gripper": {
+            "type": "number",
+            "description": "Gripper command held during rotation (default +1)"
+          },
+          "max_steps": {
+            "type": "integer",
+            "description": "Step budget (default 40)"
+          },
+          "tol": {
+            "type": "number",
+            "description": "Yaw tolerance, rad (default 0.02)"
+          },
+          "step_clip": {
+            "type": "number",
+            "description": "Per-step yaw clip, rad (default 0.10)"
+          }
+        }
+      },
+      "rotate_pitch": {
+        "type": "object",
+        "properties": {
+          "target_pitch": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Absolute world-frame pitch target, rad"
+          },
+          "delta_pitch": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Relative pitch delta, rad"
+          },
+          "gripper": {
+            "type": "number",
+            "description": "Gripper command held during rotation (default +1)"
+          },
+          "max_steps": {
+            "type": "integer",
+            "description": "Step budget (default 40)"
+          },
+          "tol": {
+            "type": "number",
+            "description": "Pitch tolerance, rad (default 0.02)"
+          },
+          "step_clip": {
+            "type": "number",
+            "description": "Per-step pitch clip, rad (default 0.10)"
+          }
+        }
+      },
+      "move_pose": {
+        "type": "object",
+        "properties": {
+          "xyz": {
+            "type": "array",
+            "description": "World-frame target [x, y, z] in meters",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "target_pitch": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Absolute pitch target, rad"
+          },
+          "target_yaw": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Absolute yaw target, rad"
+          },
+          "gripper": {
+            "type": "number",
+            "description": "Gripper command held during the move (default -1)"
+          },
+          "step_clip": {
+            "type": "number",
+            "description": "Per-step Δxyz cap, m (default 0.02)"
+          },
+          "pitch_step": {
+            "type": "number",
+            "description": "Per-step pitch clip, rad (default 0.08)"
+          },
+          "yaw_step": {
+            "type": "number",
+            "description": "Per-step yaw clip, rad (default 0.08)"
+          },
+          "tol": {
+            "type": "number",
+            "description": "Position tolerance, m (default 0.012)"
+          },
+          "ori_tol": {
+            "type": "number",
+            "description": "Orientation tolerance, rad (default 0.05)"
+          },
+          "action_scale": {
+            "type": "number",
+            "description": "OSC action scale (default 0.05)"
+          },
+          "max_steps": {
+            "type": "integer",
+            "description": "Step budget (default 150)"
+          }
+        },
+        "required": [
+          "xyz"
+        ]
+      },
+      "view_camera_meta": {
+        "type": "object",
+        "properties": {
+          "camera": {
+            "type": "string",
+            "enum": [
+              "agentview",
+              "wrist"
+            ],
+            "description": "Camera metadata to read (default agentview)."
+          },
+          "step": {
+            "type": "integer",
+            "default": -1,
+            "description": "Metadata step to use; -1 = latest."
+          }
+        }
+      },
+      "segment": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Object/text prompt to segment."
+          },
+          "camera": {
+            "type": "string",
+            "enum": [
+              "agentview",
+              "wrist"
+            ],
+            "description": "Artifact camera to use (default agentview)."
+          },
+          "step": {
+            "type": "integer",
+            "default": -1,
+            "description": "Step to segment; -1 = latest."
+          },
+          "point": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "description": "Optional single positive point as [row, col]. Mutually exclusive with prompt.",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "min_score": {
+            "type": "number",
+            "description": "Minimum accepted mask score (default 0.2)."
+          }
+        }
+      },
+      "back_project": {
+        "type": "object",
+        "properties": {
+          "row": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Pixel row (0=top) in the selected resolution image."
+          },
+          "col": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Pixel column (0=left) in the selected resolution image."
+          },
+          "step": {
+            "type": "integer",
+            "default": -1,
+            "description": "Depth/world-map step; 0 = initial, -1 = latest."
+          },
+          "camera": {
+            "type": "string",
+            "enum": [
+              "agentview",
+              "wrist"
+            ],
+            "description": "Camera to back-project from (default agentview)."
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "high",
+              "low"
+            ],
+            "description": "Coordinate system for row/col (default high). Use low only when row/col came from the embedded/standard 256 image."
+          },
+          "row_range": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer"
+            },
+            "description": "Region mode: [r0, r1] pixel row window. Requires col_range."
+          },
+          "col_range": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer"
+            },
+            "description": "Region mode: [c0, c1] pixel col window. Requires row_range."
+          },
+          "z_min": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Region mode: keep only pixels with world z >= z_min."
+          },
+          "z_max": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Region mode: keep only pixels with world z <= z_max."
+          }
+        }
+      }
+    },
+    "robocasa": {
+      "move_to": {
+        "type": "object",
+        "properties": {
+          "xyz": {
+            "type": "array",
+            "description": "World-frame target [x, y, z] in meters",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "gripper": {
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Gripper: +1 close, -1 open, or 'hold' to maintain current finger width (default 'hold')"
+          },
+          "step_clip": {
+            "type": "number",
+            "description": "Per-step dxyz cap, m (default 0.02)"
+          },
+          "max_steps": {
+            "type": "integer",
+            "description": "Step budget (default 200)"
+          },
+          "tol": {
+            "type": "number",
+            "description": "Position tolerance, m (default 0.012)"
+          }
+        },
+        "required": [
+          "xyz"
+        ]
+      },
+      "move_delta": {
+        "type": "object",
+        "properties": {
+          "dxyz": {
+            "type": "array",
+            "description": "Relative displacement [dx, dy, dz] in meters",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "gripper": {
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Gripper: +1 close, -1 open, or 'hold' (default 'hold')"
+          },
+          "step_clip": {
+            "type": "number",
+            "description": "Per-step dxyz cap, m (default 0.02)"
+          },
+          "max_steps": {
+            "type": "integer",
+            "description": "Step budget (default 80)"
+          }
+        },
+        "required": [
+          "dxyz"
+        ]
+      },
+      "rotate_pitch": {
+        "type": "object",
+        "properties": {
+          "target_pitch": {
+            "type": "number",
+            "description": "Absolute pitch target, radians (clamped +/-1.5; default 0.6)"
+          },
+          "gripper": {
+            "type": "number",
+            "description": "Gripper command held during rotation (default +1)"
+          },
+          "n": {
+            "type": "integer",
+            "description": "Number of env steps for the rotation (default 12)"
+          }
+        }
+      },
+      "set_gripper": {
+        "type": "object",
+        "properties": {
+          "gripper": {
+            "type": "number",
+            "description": "Gripper command: +1 close, -1 open (default +1)"
+          },
+          "steps": {
+            "type": "integer",
+            "description": "Number of env steps to hold (default 10)"
+          }
+        }
+      },
+      "release": {
+        "type": "object",
+        "properties": {
+          "steps": {
+            "type": "integer",
+            "description": "Number of env steps (default 10)"
+          }
+        }
+      },
+      "scripted_grasp": {
+        "type": "object",
+        "properties": {
+          "xyz": {
+            "type": "array",
+            "description": "World-frame grasp target [x, y, z] in meters",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "approach_z": {
+            "type": "number",
+            "description": "Z offset above target before descent, m (default 0.10)"
+          },
+          "grasp_z_offset": {
+            "type": "number",
+            "description": "Z offset at grasp point (default 0.0; negative = below target)"
+          },
+          "step_clip": {
+            "type": "number",
+            "description": "Per-step dxyz cap during descent, m (default 0.02)"
+          }
+        },
+        "required": [
+          "xyz"
+        ]
+      },
+      "rldx_skill": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Complete live task_language, copied verbatim"
+          },
+          "base_clip": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Base motion magnitude cap (default null = no clamp)"
+          },
+          "max_chunks": {
+            "type": "integer",
+            "description": "Action-chunk budget (default 70)"
+          },
+          "force_reset": {
+            "type": "boolean",
+            "description": "Force VLA frame history reset (default False)"
+          },
+          "n_action_steps": {
+            "type": "integer",
+            "description": "Actions per VLA chunk (default 8)"
+          },
+          "settle_patience": {
+            "type": "integer",
+            "description": "Settle step budget before declaring done (default 999; do NOT set small)"
+          },
+          "settle_eps": {
+            "type": "number",
+            "description": "Settle position tolerance, m (default 0.012)"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      },
+      "rldx_arm": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Complete live task_language, copied verbatim"
+          },
+          "base_clip": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Base motion magnitude cap (default 0.1 = small)"
+          },
+          "max_chunks": {
+            "type": "integer",
+            "description": "Action-chunk budget (default 70)"
+          },
+          "force_reset": {
+            "type": "boolean",
+            "description": "Force VLA frame history reset (default False)"
+          },
+          "n_action_steps": {
+            "type": "integer",
+            "description": "Actions per VLA chunk (default 8)"
+          },
+          "settle_patience": {
+            "type": "integer",
+            "description": "Settle step budget before declaring done (default 999; do NOT set small)"
+          },
+          "settle_eps": {
+            "type": "number",
+            "description": "Settle position tolerance, m (default 0.012)"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      },
+      "navigate_to": {
+        "type": "object",
+        "properties": {
+          "xy": {
+            "type": "array",
+            "description": "World-frame target [x, y] in meters (z ignored if provided)",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "tol": {
+            "type": "number",
+            "description": "Distance threshold to stop, m (default 0.20)"
+          },
+          "max_steps": {
+            "type": "integer",
+            "description": "Step budget (default 300)"
+          },
+          "gripper": {
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Gripper while driving: +1 close, -1 open, or 'hold' (default 'hold')"
+          }
+        },
+        "required": [
+          "xy"
+        ]
+      },
+      "move_base": {
+        "type": "object",
+        "properties": {
+          "forward": {
+            "type": "number",
+            "description": "Forward velocity, [-1, 1] (default 0)"
+          },
+          "lateral": {
+            "type": "number",
+            "description": "Lateral / strafe velocity, [-1, 1] (default 0)"
+          },
+          "turn": {
+            "type": "number",
+            "description": "Yaw rotation velocity, [-1, 1] (default 0)"
+          },
+          "steps": {
+            "type": "integer",
+            "description": "Number of env steps (default 10)"
+          },
+          "gripper": {
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Gripper while driving: +1 close, -1 open, or 'hold' (default 'hold')"
+          }
+        }
+      },
+      "reset": {
+        "type": "object",
+        "properties": {}
+      },
+      "view_env_state": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Step number; 0 = initial. Null = latest."
+          }
+        }
+      },
+      "view_camera_meta": {
+        "type": "object",
+        "properties": {
+          "camera": {
+            "type": "string",
+            "enum": [
+              "agentview",
+              "navview"
+            ],
+            "description": "Camera metadata to read (default agentview)."
+          },
+          "step": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Step number (default latest)."
+          }
+        }
+      },
+      "back_project": {
+        "type": "object",
+        "properties": {
+          "row": {
+            "type": "integer",
+            "description": "Pixel row (0=top) in the selected resolution image."
+          },
+          "col": {
+            "type": "integer",
+            "description": "Pixel column (0=left) in the selected resolution image."
+          },
+          "step": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Depth / world-map step to use (default latest). 0 for initial."
+          },
+          "camera": {
+            "type": "string",
+            "enum": [
+              "agentview",
+              "navview",
+              "wrist"
+            ],
+            "description": "Camera to back-project from (default agentview)."
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "high",
+              "low"
+            ],
+            "description": "Coordinate system for row/col (default high). Use 'low' when row/col came from the standard 256x256 embedded image."
+          }
+        },
+        "required": [
+          "row",
+          "col"
+        ]
+      },
+      "back_project_batch": {
+        "type": "object",
+        "properties": {
+          "pixels": {
+            "type": "array",
+            "description": "List of [row, col] pixel coordinates (max 50)",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "step": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Depth / world-map step to use (default latest)."
+          },
+          "camera": {
+            "type": "string",
+            "enum": [
+              "agentview",
+              "navview",
+              "wrist"
+            ],
+            "description": "Camera to back-project from (default agentview)."
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "high",
+              "low"
+            ],
+            "description": "Coordinate system for pixels (default low). Use 'low' for the standard 256x256 world map."
+          }
+        },
+        "required": [
+          "pixels"
+        ]
+      },
+      "query_world_map": {
+        "type": "object",
+        "properties": {
+          "z_min": {
+            "type": "number",
+            "description": "Minimum Z in meters (default 0.85 for counter height)."
+          },
+          "z_max": {
+            "type": "number",
+            "description": "Maximum Z in meters (default 0.95 for counter height)."
+          },
+          "x_range": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "description": "Optional X range [min, max] in meters; null = no filter.",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "y_range": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "description": "Optional Y range [min, max] in meters; null = no filter.",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "camera": {
+            "type": "string",
+            "enum": [
+              "agentview",
+              "navview",
+              "wrist"
+            ],
+            "description": "Camera world map to query (default agentview)."
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "high",
+              "low"
+            ],
+            "description": "World map resolution (default low)."
+          },
+          "min_cluster_size": {
+            "type": "integer",
+            "description": "Minimum pixels per cluster to report (default 10)."
+          }
+        }
+      },
+      "finish": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failure",
+              "stuck"
+            ],
+            "description": "Task outcome classification."
+          },
+          "summary": {
+            "type": "string",
+            "description": "1-3 sentence summary of what worked / what failed."
+          }
+        },
+        "required": [
+          "status",
+          "summary"
+        ]
+      }
+    },
+    "robotwin": {
+      "view_env_state": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "integer",
+            "default": -1,
+            "description": "Step number; 0 = initial, -1 = latest."
+          }
+        }
+      },
+      "render": {
+        "type": "object",
+        "properties": {}
+      },
+      "sample_world_xyz": {
+        "type": "object",
+        "properties": {
+          "view": {
+            "type": "string",
+            "description": "Artifact view and pixel coordinate space. It must match the RGB image used to choose pixels."
+          },
+          "pixels": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "step": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "neighborhood": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32,
+            "default": 1
+          }
+        },
+        "required": [
+          "view",
+          "pixels"
+        ]
+      },
+      "query_world_map": {
+        "type": "object",
+        "properties": {
+          "view": {
+            "type": "string",
+            "description": "Artifact view and bbox coordinate space. It must match the RGB image used to choose the bbox."
+          },
+          "bbox": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "step": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_points": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096,
+            "default": 256
+          }
+        },
+        "required": [
+          "view",
+          "bbox"
+        ]
+      },
+      "lingbot_act": {
+        "type": "object",
+        "properties": {
+          "chunks": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 4
+          },
+          "use_length": {
+            "type": "integer",
+            "const": 50,
+            "default": 50
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "move_to": {
+        "type": "object",
+        "properties": {
+          "arm": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
+            ]
+          },
+          "xyz": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "quat": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "number"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "gripper": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "substeps": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 25
+          }
+        },
+        "required": [
+          "arm",
+          "xyz"
+        ]
+      },
+      "rotate_wrist": {
+        "type": "object",
+        "properties": {
+          "arm": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
+            ]
+          },
+          "delta_yaw_deg": {
+            "type": "number"
+          },
+          "gripper": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "substeps": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 25
+          }
+        },
+        "required": [
+          "arm",
+          "delta_yaw_deg"
+        ]
+      },
+      "set_gripper": {
+        "type": "object",
+        "properties": {
+          "arm": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
+            ]
+          },
+          "val": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "steps": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 10
+          }
+        },
+        "required": [
+          "arm",
+          "val"
+        ]
+      },
+      "release": {
+        "type": "object",
+        "properties": {
+          "arm": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
+            ]
+          },
+          "val": {
+            "type": "number",
+            "default": 1.0
+          },
+          "steps": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 10
+          }
+        },
+        "required": [
+          "arm"
+        ]
+      },
+      "finish": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "summary"
+        ]
+      }
+    }
+  }
+}

@@ -17,29 +17,33 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Event
+from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
+from robots.dual_franka import tools
 from robots.dual_franka.perception import (
     back_project_base_pixel,
     load_calibration_bundle,
 )
 from robots.dual_franka.runtime_config import DUAL_FRANKA_CONFIG
+from robots.dual_franka.toolkit import DualFrankaToolkit
 from robots.dual_franka.tools import (
-    DualFrankaPrimitives,
-    coerce_arm,
-    coerce_vec3,
     dump_state,
     view_env_state,
 )
+from robots.franka import toolkit as franka_toolkit
 from robots.franka.runtime_config import (
     set_calibration_path,
     set_robot_config_path,
 )
+from robots.franka.toolkit import FrankaRuntime
 from robots.franka.tools import view_camera_meta
+from rpent.dashboard.events import StepRecordEvent
+from rpent.memory import MemoryManager
 from rpent.session import EnvState
-from rpent.tools.toolkit import ToolResult
+from rpent.tools import ToolContext
 
 
 class FakeEnv:
@@ -107,43 +111,39 @@ class FakeEnv:
         return {"terminated": False, "truncated": False, "observation": self._obs()}
 
 
-def _primitives(env: FakeEnv, *, check_cancelled=lambda: None):
-    return DualFrankaPrimitives(
-        env=env,
-        model=None,
-        task_description="default task",
-        check_cancelled=check_cancelled,
+def _context(env: FakeEnv, *, model=None, state=None):
+    return ToolContext(
+        robot=FrankaRuntime(env=env, model=model, task_description="default task"),
+        state=state,
+        memory=None,
+        output_dir=Path("."),
+        record_frame=lambda frame: None,
+        _cancel_event=Event(),
     )
 
 
 def test_arm_and_vec3_validation_and_motion_forwarding():
     env = FakeEnv()
-    primitives = _primitives(env)
+    ctx = _context(env)
 
-    primitives.move_delta("left", [0.01, 0.0, -0.02])
-    primitives.rotate_delta("right", [0.0, 0.0, 0.1])
-    primitives.open_gripper("left")
-    primitives.close_gripper("right")
+    tools.move_delta.handler("left", [0.01, 0.0, -0.02], ctx=ctx)
+    tools.rotate_delta.handler("right", [0.0, 0.0, 0.1], ctx=ctx)
+    tools.open_gripper.handler("left", ctx=ctx)
+    tools.close_gripper.handler("right", ctx=ctx)
 
     assert env.moves[0][0] == "left"
     np.testing.assert_allclose(env.moves[0][1], [0.01, 0.0, -0.02])
     assert env.rotations[0][0] == "right"
     assert env.grippers == [("left", True), ("right", False)]
 
-    assert coerce_arm("LEFT") == "left"
-    with pytest.raises(ValueError, match="left.*right"):
-        coerce_arm("both")
-    with pytest.raises(ValueError, match="exactly 3"):
-        coerce_vec3([1.0, 2.0], name="delta")
-
 
 def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
     env = FakeEnv()
-    primitives = _primitives(env)
+    ctx = _context(env)
     state = EnvState(tmp_path)
 
     record = dump_state(
-        primitives,
+        ctx.robot,
         state,
         command={"action": "move_delta"},
         result={"ok": True},
@@ -161,10 +161,11 @@ def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
         "d455_depth.npy",
         "camera_meta.json",
     }
-    output = view_env_state(state=state)
-    assert output["_image_bytes"]
-    assert output["_image_cam_bytes"]
-    assert output["_image_wrist_bytes"]
+    output = view_env_state.handler(ctx=_context(env, state=state))
+    assert output.images == [
+        state.load_bytes(f"{name}.png")
+        for name in ("left_wrist", "base", "right_wrist")
+    ]
     # Every VLA camera persists its raw frame as the single canonical version.
     np.testing.assert_array_equal(state.load("left_wrist.png"), 5)
     np.testing.assert_array_equal(state.load("base.png"), 7)
@@ -172,7 +173,9 @@ def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
     np.testing.assert_array_equal(state.load("left_wrist_depth.npy"), 8)
     np.testing.assert_array_equal(state.load("base_depth.npy"), 9)
     np.testing.assert_array_equal(state.load("right_wrist_depth.npy"), 11)
-    camera_meta = view_camera_meta(state=state)["camera_meta"]
+    camera_meta = view_camera_meta.handler(ctx=_context(env, state=state)).data[
+        "camera_meta"
+    ]
     assert camera_meta["observation_camera_map"]["main"] == "left_wrist_0_rgb"
 
 
@@ -192,7 +195,7 @@ def test_dump_state_falls_back_to_policy_view_when_raw_missing(tmp_path: Path):
 
     env.get_observation = base_raw_only
     state = EnvState(tmp_path)
-    dump_state(_primitives(env), state, command=None, result=None, elapsed_s=None)
+    dump_state(_context(env).robot, state, command=None, result=None, elapsed_s=None)
 
     # base keeps its raw frame; the wrists fall back to the policy views.
     np.testing.assert_array_equal(state.load("base.png"), 7)
@@ -204,20 +207,16 @@ def test_dump_state_falls_back_to_policy_view_when_raw_missing(tmp_path: Path):
 
 def test_view_env_state_emits_multimodal_image_blocks(tmp_path: Path):
     env = FakeEnv()
-    primitives = _primitives(env)
+    ctx = _context(env)
     state = EnvState(tmp_path)
 
-    dump_state(primitives, state, command=None, result=None, elapsed_s=None)
-    output = view_env_state(state=state)
+    dump_state(ctx.robot, state, command=None, result=None, elapsed_s=None)
+    output = view_env_state.handler(ctx=_context(env, state=state))
     # The text must name the views in the same order the image blocks are emitted.
-    assert output["images"] == ["left_wrist", "base", "right_wrist"]
+    assert output.data["images"] == ["left_wrist", "base", "right_wrist"]
 
-    result = ToolResult(name="view_env_state", result=output)
-    image_blocks = [b for b in result.content_blocks if b.get("type") == "image"]
-    assert len(image_blocks) == 3
-    text_block = next(b for b in result.content_blocks if b.get("type") == "text")
-    # Image bytes must be lifted out of the text block, not serialized into it.
-    assert "_image_" not in text_block["text"]
+    assert len(output.images) == 3
+    assert "_image_" not in output.to_text()
 
 
 def test_back_project_base_pixel_reads_rpent_state_artifacts(tmp_path: Path):
@@ -285,3 +284,46 @@ def test_load_calibration_bundle_follows_robot_config_override(tmp_path: Path):
     assert bundle["base_frames"]["T_right_base_left_base"]["matrix"][0][3] == 0.02
     # Hand-eye transforms from the calibration bundle survive the merge.
     assert "transformation" in bundle["d455_camera"]
+
+
+def test_toolkit_factory_validation_capture_and_cancellation(tmp_path, monkeypatch):
+    monkeypatch.setattr(franka_toolkit, "get_output_dir", lambda: tmp_path)
+    env = FakeEnv()
+    # RPC state contains NumPy arrays; native result text must still be JSON.
+    get_robot_state = env.get_robot_state
+    env.get_robot_state = lambda: {**get_robot_state(), "states": np.zeros(8)}
+    events = []
+    kwargs = {"env": env, "model": None, "task_description": "test task"}
+    toolkit = DualFrankaToolkit(
+        runtime_kwargs=kwargs,
+        dashboard_events=SimpleNamespace(enabled=True, emit=events.append),
+        memory=MemoryManager(root=tmp_path / "memory"),
+    )
+    assert kwargs == {"env": env, "model": None, "task_description": "test task"}
+    assert env.observation_calls == 1
+    assert len(events) == 1 and isinstance(events[0], StepRecordEvent)
+    assert all(
+        "ctx" not in tool.input_schema["properties"] for tool in toolkit.list_tools()
+    )
+    for delta in ([1, 2], [0, 0, float("inf")]):
+        result = toolkit.execute_tool("move_delta", {"arm": "left", "delta_xyz": delta})
+        assert result.is_error
+    assert env.moves == []
+    result = toolkit.execute_tool(
+        "move_delta", {"arm": "left", "delta_xyz": [0.01, 0, 0]}
+    )
+    assert not result.is_error
+    assert result.data["images"] == ["left_wrist", "base", "right_wrist"]
+    assert len(result.images) == 3
+    assert "states" in result.to_text()
+    assert len(events) == 2
+    assert events[-1].record.command["action"] == "move_delta"
+    read = toolkit.execute_tool("view_env_state", {})
+    assert read.data == result.data and read.images == result.images
+    assert len(events) == 2
+    toolkit.cancel_active_and_wait()
+    assert not toolkit.execute_tool("view_env_state", {}).is_error
+    assert "finish" not in {tool.name for tool in toolkit.list_tools()}
+    assert toolkit.finish_result is None
+    assert len(events) == 2
+    toolkit.close()

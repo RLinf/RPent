@@ -33,6 +33,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import base64
 import socket
 import threading
 from typing import Any
@@ -43,39 +44,14 @@ from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
+from rpent.planner.base import execute_tool
+from rpent.tools import Tool, ToolResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
 
 logger = get_logger("mcp_http")
 
 SERVER_NAME = "rpent"
-
-
-def _toolkit_to_mcp_content(
-    tr: Any,
-) -> tuple[list[types.TextContent | types.ImageContent], bool]:
-    """Translate a :class:`ToolResult` into MCP content blocks + isError."""
-    blocks = getattr(tr, "content_blocks", None)
-    if blocks is None:
-        return [types.TextContent(type="text", text=str(tr))], False
-
-    out: list[types.TextContent | types.ImageContent] = []
-    for block in blocks:
-        block_type = block.get("type")
-        if block_type == "text":
-            out.append(types.TextContent(type="text", text=block.get("text", "")))
-        elif block_type == "image":
-            src = block.get("source", {})
-            out.append(
-                types.ImageContent(
-                    type="image",
-                    data=src.get("data", ""),
-                    mimeType=src.get("media_type", "image/png"),
-                )
-            )
-    result_dict = getattr(tr, "result", None)
-    is_error = isinstance(result_dict, dict) and bool(result_dict.get("error"))
-    return out, is_error
 
 
 def _strip_mcp_prefix(name: str) -> str:
@@ -86,36 +62,66 @@ def _strip_mcp_prefix(name: str) -> str:
     return name
 
 
-def _build_asgi_app(toolkit: Toolkit) -> Any:
-    """Build a raw ASGI3 app wrapping an MCP ``Server`` + streamable HTTP."""
+def list_mcp_tools(toolkit: Toolkit) -> tuple[Tool, ...]:
+    """Codex and Claude use built-in image readers; read_image is API-only."""
+    return tuple(tool for tool in toolkit.list_tools() if tool.name != "read_image")
+
+
+def mcp_result(result: ToolResult) -> dict[str, Any]:
+    """Return MCP text/PNG blocks and the native error flag."""
+    return {
+        "content": [
+            {"type": "text", "text": result.to_text()},
+            *[
+                {
+                    "type": "image",
+                    "data": base64.b64encode(data).decode("ascii"),
+                    "mimeType": "image/png",
+                }
+                for data in result.images
+            ],
+        ],
+        "isError": result.is_error,
+    }
+
+
+def build_mcp_server(toolkit: Toolkit) -> Server:
+    """Build the MCP service shared by Claude and Codex with native validation."""
     mcp_app: Server = Server(SERVER_NAME, version="0.1.0")
     tool_execution_lock = asyncio.Lock()
+    exported_tools = list_mcp_tools(toolkit)
+    exported_names = {tool.name for tool in exported_tools}
 
     @mcp_app.list_tools()
     async def _list_tools() -> list[types.Tool]:
         tools: list[types.Tool] = []
-        for spec in toolkit.get_tools_spec():
+        for tool in exported_tools:
             tools.append(
                 types.Tool(
-                    name=str(spec["name"]),
-                    description=str(spec.get("description", "")),
-                    inputSchema=spec.get("input_schema", {"type": "object"}),
+                    name=tool.name,
+                    description=tool.description,
+                    inputSchema=tool.input_schema,
                 )
             )
         return tools
 
-    @mcp_app.call_tool()
+    @mcp_app.call_tool(validate_input=False)
     async def _call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         lookup = _strip_mcp_prefix(name)
-        async with tool_execution_lock:
-            tr = await asyncio.get_running_loop().run_in_executor(
-                None, toolkit.execute_tool, lookup, arguments or {}
-            )
-        content, is_error = _toolkit_to_mcp_content(tr)
-        return types.CallToolResult(content=content, isError=is_error)
+        if lookup not in exported_names:
+            result = ToolResult(error=f"Unknown tool: {lookup}")
+        else:
+            async with tool_execution_lock:
+                result = await execute_tool(toolkit, lookup, arguments or {})
+        return types.CallToolResult(**mcp_result(result))
 
+    return mcp_app
+
+
+def _build_asgi_app(toolkit: Toolkit) -> Any:
+    """Build a raw ASGI3 app wrapping the native MCP service."""
     session_manager = StreamableHTTPSessionManager(
-        app=mcp_app,
+        app=build_mcp_server(toolkit),
         stateless=True,
         json_response=True,
     )

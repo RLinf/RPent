@@ -46,7 +46,7 @@ LLM-in-the-loop 运行流程
 一次运行就是一段 LLM-in-the-loop 循环：
 
 1. LLM 分析任务、调一个工具 (如 ``pi0_pick``)。
-2. 工具的底层 primitives 向 ``vla_server`` 请求动作 (``predict``)。
+2. 工具函数通过模型客户端向 ``vla_server`` 请求动作（``predict``）。
 3. ``env_server`` 执行动作。
 4. 环境返回更新后的观测数据和相机画面。
 5. 执行结果会整理成由文本和图像组成的上下文，返回给 LLM 进行下一轮推理。
@@ -67,12 +67,15 @@ LLM-in-the-loop 运行流程
      context/        # 提示词工具和共享提示词片段。
      dashboard/      # FastAPI 监控页面和 SSE 事件流（可选）。
      robots/         # RobotSpec、PromptBundle 和按需加载机器人的逻辑。
-     tools/          # Toolkit 基类和共享 tool 辅助函数。
+     tools/          # 原生工具协议、执行器和公共工具。
+     session/        # EnvState、步骤记录和工件存储。
+     memory/         # Memory 同步、访问控制与探索结果合并。
      utils/          # 配置、日志、RPC 客户端/服务端和 VLA 客户端。
    robots/
      libero/         # LIBERO 的 env_client / env_server / vla_server /
                      # toolkit / prompt_bundle。参考实现。
      robocasa/       # RoboCasa 机器人 (RLDX-1 VLA，厨房任务)。
+     robotwin/       # RoboTwin 机器人 (LingBot-VLA，双臂任务)。
      (franka/)       # Franka 机器人——研发中。
      (so101/)        # SO-101 机器人——研发中。
    scripts/
@@ -131,28 +134,31 @@ planner 后端集中在 ``rpent/planner/``，
    # robots/myrobot/__init__.py
    def get_robot_spec() -> RobotSpec: ...  # 机器人标识、提示词模板与 Runner 钩子
    def get_toolkit(
-       *, runtime_kwargs, dashboard_events
+       *, runtime_kwargs, dashboard_events, config
    ): ...
 
 ``RobotSpec`` 汇集了机器人标识、prompt 模板、可选的 Dashboard 描述与三个 Runner
 钩子（``add_cli_args`` / ``parse_config`` / ``init_runtime``）。各字段要填什么见
 :doc:`interfaces`。
 
-加载器本身不维护机器人名称列表。当前 CLI 将 ``--robot`` 限定为 ``libero``
-和 ``robocasa``；接入新的机器人名称时，还需要同步更新 CLI 的可选值。完整步骤见
-:doc:`add_robot`。
+加载器从磁盘发现机器人包，CLI 通过 ``enumerate_robots()`` 得到 ``--robot``
+可选值。目前提供 LIBERO、RoboCasa 和 RoboTwin；完整接入步骤见 :doc:`add_robot`。
 
 Planner、Toolkit 与 RPC 传输层
 ------------------------------
 
-这三层各管一段、层层解耦。planner 只通过 ``get_tools_spec`` 拿到工具清单、
-用 ``execute_tool`` 逐个调用，并不关心工具背后是脚本还是 VLA；
-toolkit 把每次工具调用翻译成对 primitive 的调用，再由 primitives
-经 RPC 向 ``env_server`` / ``vla_server`` 发起 ``reset`` / ``step`` /
-``predict`` 请求；RPC 传输层（HTTP 或 socket）只负责把这些调用和 NumPy
-观测在进程间搬运，对上层透明。正因如此，换 planner 不影响工具，
-换传输协议也不影响 planner。三者的具体接口契约（``Planner.solve``、
-``Toolkit.add_tool``、``RpcFacade._dispatch``）集中在 :doc:`interfaces`。
+这三层分别负责工具调用中的不同环节。Planner 通过 ``list_tools()`` 获取工具
+定义，再用 ``execute_tool`` 执行调用，不需要关心工具背后是脚本还是 VLA。
+它只需将工具定义和返回的文本、图片转换成模型 SDK 所需的格式；Claude Code
+和 Codex 使用的 MCP 适配也在这一层完成。
+
+Toolkit 负责校验参数、安排工具执行，并在动作完成后保存新的观测。工具函数
+通过 ``ctx.robot`` 获取环境和模型客户端，向 ``env_server`` / ``vla_server``
+发起 ``reset``、``step`` 或 ``predict`` 请求。RPC 传输层（HTTP 或 socket）
+再将这些请求和 NumPy 观测传递到对应进程。
+
+这样的分工使更换 planner 不必修改工具，更换传输协议也不影响 planner。
+三者的具体接口约定见 :doc:`interfaces`。
 
 Dashboard（可选）
 -----------------
@@ -162,11 +168,12 @@ Dashboard（可选）
 ``--dashboard-host`` 和 ``--dashboard-port`` 启动 Dashboard。Session 配置全部来自
 命令行，然后用共享 component 名称调用一次 ``robot_spec.init_runtime``。环境必须
 提供 ``robot_spec.dashboard``，由它定义
-前端使用的任务命令与字段、runtime components 和 frame channels。Session
+前端使用的任务命令与字段、runtime components 和允许执行的原语。相机标签通过
+``frame_channels`` 映射到每步记录的图片工件。Session
 controller 随后等待该环境定义的命令（LIBERO 使用 ``/rpent-task``）；每次取得一个
 TaskRun 后，Dashboard 会调用 ``parse_config``，再用 unique component 名称调用
-同一个 ``robot_spec.init_runtime``，合并 shared 与 unique primitive 参数，并新建 toolkit
-和 planner conversation。两个子集都来自环境 Dashboard spec 中显式声明的
+同一个 ``robot_spec.init_runtime``，合并两次返回的客户端参数，并为本次任务新建 toolkit
+和 planner 会话。两个子集都来自环境 Dashboard spec 中显式声明的
 ``shared`` / ``unique`` scope。在 LIBERO 中，VLA 和 SAM3 会在 Dashboard 运行期间
 复用，每个 TaskRun 使用独立环境并按顺序执行。
 
@@ -179,8 +186,8 @@ TaskRun 运行期间，Dashboard 页面提供：
 - 运行结束后的完整回合录像（如果已生成）。
 
 页面支持提交 planner 消息、新任务命令和中断请求，也会展示环境在仪表盘配置
-（``DashboardSpec``）中列出的原语。执行原语前，参数会根据工具包（``Toolkit``）
-定义的输入结构进行校验。
+（``DashboardSpec``）中列出的原语。原语通过工具包（``Toolkit``）执行，并复用
+planner 工具调用所用的参数模型进行校验。
 planner、toolkit 和机器人运行时通过 ``dashboard_events`` 事件接收器发布展示更新。
 服务端通过 SSE 推送运行状态摘要，前端再按需读取详细事件、时间线和图像。
 

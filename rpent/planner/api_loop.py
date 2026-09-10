@@ -17,20 +17,17 @@
 The loop wraps the agent's :class:`~rpent.tools.toolkit.Toolkit` as
 pydantic-ai function tools and drives :class:`pydantic_ai.Agent` runs,
 streaming each turn so progress is logged in real time. Task completion is
-signalled by the robot-provided ``finish`` tool, whose result carries ``_finish``.
+signalled by the robot-provided ``finish`` tool, whose accepted result is stored on the toolkit.
 """
 
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
 import dataclasses
 import json
 import queue
 from collections import deque
-from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from pydantic_ai import Agent, BinaryContent, ModelSettings, Tool, ToolReturn
@@ -57,8 +54,11 @@ from rpent.dashboard.events import (
 )
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import DashboardPlannerControl
-from rpent.planner.base import REASONING_EFFORTS, PlannerResult
-from rpent.session import EnvState
+from rpent.planner.base import (
+    REASONING_EFFORTS,
+    PlannerResult,
+    execute_tool,
+)
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
 
@@ -138,7 +138,7 @@ class ApiAgentLoop:
         except asyncio.TimeoutError:
             toolkit.cancel_active_and_wait()
             return PlannerResult(
-                finish_result=None,
+                finish_result=toolkit.finish_result,
                 messages=[{"role": "user", "content": user_message}],
                 stats={},
                 error=f"API planner timed out after {self._timeout_s}s",
@@ -158,6 +158,7 @@ class ApiAgentLoop:
         interactive = input_queue is not None
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
         observer = _ApiRunObserver(
+            toolkit=toolkit,
             dashboard_events=self._dashboard_events,
             messages=messages,
             max_turns=max_turns,
@@ -315,6 +316,7 @@ class ApiAgentLoop:
             defer_message_ack=True,
         )
         observer = _ApiRunObserver(
+            toolkit=toolkit,
             dashboard_events=self._dashboard_events,
             messages=messages,
             max_turns=max_turns,
@@ -380,13 +382,16 @@ class ApiAgentLoop:
 class _ApiRunObserver:
     """Record model/tool events shared by terminal and Dashboard runs."""
 
+    toolkit: Toolkit
     dashboard_events: DashboardEventSink
     messages: list[dict[str, Any]]
     max_turns: int
     turns: int = 0
     tool_calls: int = 0
-    finish_result: dict[str, Any] | None = None
-    pending_finish: dict[str, Any] | None = None
+
+    @property
+    def finish_result(self) -> dict[str, str] | None:
+        return self.toolkit.finish_result
 
     def observe_response(
         self,
@@ -425,19 +430,17 @@ class _ApiRunObserver:
                     {"type": "tool_call", "tool": part.tool_name, "args": args}
                 )
             )
-            if part.tool_name == "finish":
-                self.pending_finish = {"_finish": True, **args}
         elif isinstance(event, FunctionToolResultEvent):
             completed = True
             message = _serialize_tool_result(event)
             self.messages.append(message)
             _log_tool_result(message)
             part = event.part
-            is_error = bool(getattr(part, "is_error", False))
-            if self.pending_finish is not None:
-                if not is_error and "finish refused" not in str(message):
-                    self.finish_result = self.pending_finish
-                self.pending_finish = None
+            metadata = getattr(part, "metadata", None) or {}
+            is_error = (
+                bool(metadata.get("is_error"))
+                or getattr(part, "outcome", "success") != "success"
+            )
             self.dashboard_events.emit(
                 TranscriptEvent(
                     {
@@ -523,6 +526,8 @@ class _ApiDashboardSession:
         for message_id in discarded_message_ids:
             self._control.message_discarded(message_id)
         if run_task is None or run_task.done():
+            if self._observer.finish_result is not None:
+                self._control.end()
             return interrupted
         run_task.cancel()
         try:
@@ -531,6 +536,8 @@ class _ApiDashboardSession:
         finally:
             if self._run_task is run_task:
                 self._run_task = None
+        if self._observer.finish_result is not None:
+            self._control.end()
         return interrupted
 
     async def close(self) -> None:
@@ -717,142 +724,52 @@ def _api_error_text(error: Exception, *, no_images: bool) -> str:
 
 
 def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
-    """Build the API-only image reader plus pydantic-ai toolkit wrappers."""
-    image_reader = _make_image_reader(toolkit.state, no_images=no_images)
-    # sequential=True serializes a turn's tool calls so the toolkit's
-    # single-operation lock never rejects an overlapping call.
-    tools: list[Tool] = [Tool(image_reader, name="read_image", sequential=True)]
-    for spec in toolkit.get_tools_spec():
-        name = spec["name"]
-        tools.append(
-            Tool.from_schema(
-                function=_make_tool_function(toolkit, name, no_images=no_images),
-                name=name,
-                description=spec.get("description", ""),
-                json_schema=spec.get("input_schema")
-                or {"type": "object", "properties": {}},
-                takes_ctx=False,
-                sequential=True,
-            )
+    """Expose the frozen native toolset, including the API-only image reader."""
+    # Preserve the API's original ordering, with its image reader first.
+    tools = sorted(toolkit.list_tools(), key=lambda tool: tool.name != "read_image")
+    return [
+        Tool.from_schema(
+            function=_make_tool_function(toolkit, tool.name, no_images=no_images),
+            name=tool.name,
+            description=(
+                "Acknowledge an image artifact without sending bytes to the model."
+                if no_images and tool.name == "read_image"
+                else tool.description
+            ),
+            json_schema=tool.input_schema,
+            takes_ctx=False,
+            sequential=True,
         )
-    return tools
-
-
-def _make_image_reader(
-    state: EnvState,
-    *,
-    no_images: bool,
-) -> Callable[[str, int], ToolReturn | dict[str, str] | str]:
-    if no_images:
-
-        def read_image_tool(name: str, step: int = -1) -> str:
-            return read_image_text_only(name, step, state=state)
-
-        read_image_tool.__name__ = "read_image"
-        read_image_tool.__doc__ = read_image_text_only.__doc__
-        return read_image_tool
-
-    def read_image_tool(name: str, step: int = -1) -> ToolReturn | dict[str, str]:
-        return read_image(name, step, state=state)
-
-    read_image_tool.__name__ = "read_image"
-    read_image_tool.__doc__ = read_image.__doc__
-    return read_image_tool
-
-
-def read_image(
-    name: str, step: int = -1, *, state: EnvState
-) -> ToolReturn | dict[str, str]:
-    """Read a step-scoped image artifact as visual input.
-
-    Artifact failures are returned as structured tool errors so a bad
-    model-supplied name or step does not abort the agent run.
-    """
-    try:
-        resolved_step, path = _resolve_image_artifact(state, name, step)
-        content = BinaryContent(
-            data=state.load_bytes(name, step=resolved_step),
-            media_type=_image_media_type(path),
-        )
-    except Exception as e:
-        return {"error": str(e)}
-    return ToolReturn(
-        return_value={"artifact": name, "step": resolved_step},
-        content=[content],
-    )
-
-
-def read_image_text_only(
-    name: str, step: int = -1, *, state: EnvState
-) -> str | dict[str, str]:
-    """Acknowledge an image artifact without sending bytes to the model."""
-    try:
-        resolved_step, _ = _resolve_image_artifact(state, name, step)
-    except Exception as e:
-        return {"error": str(e)}
-    return (
-        f"Image artifact {name!r} exists at step {resolved_step}, but image "
-        "input is disabled (--no-images, text-only model). Reason from textual "
-        "state instead: view_env_state, back_project, and numeric tool results."
-    )
-
-
-def _resolve_image_artifact(
-    state: EnvState,
-    name: str,
-    step: int,
-) -> tuple[int, Path]:
-    record = state.get(step)
-    path = state.artifact_path(name, step=record.step_idx)
-    if name not in record.artifacts or not path.is_file():
-        raise FileNotFoundError(
-            f"image artifact {name!r} is not available at step {step}"
-        )
-    if path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
-        raise ValueError(f"artifact {name!r} is not an image")
-    return record.step_idx, path
-
-
-def _image_media_type(path: Path) -> str:
-    return "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
+        for tool in tools
+    ]
 
 
 def _make_tool_function(toolkit: Toolkit, name: str, *, no_images: bool = False):
-    """Return a callable that dispatches one tool call to the toolkit."""
+    """Dispatch once through the native executor; business errors are results."""
 
-    def _call(**kwargs: Any) -> Any:
-        result = toolkit.execute_tool(name, kwargs)
-        text, images = _content_blocks_to_pydantic(result.content_blocks)
-        if images and not no_images:
-            return ToolReturn(return_value=text, content=images)
+    async def _call(**kwargs: Any) -> Any:
+        result = await execute_tool(toolkit, name, kwargs)
+        text = result.to_text()
+        images = (
+            []
+            if no_images
+            else [
+                BinaryContent(data=data, media_type="image/png")
+                for data in result.images
+            ]
+        )
+        if images or result.is_error:
+            # SDK metadata is for the event recorder only. Returning the native
+            # error text also retains failure observations without SDK retries.
+            return ToolReturn(
+                return_value=text,
+                content=images,
+                metadata={"is_error": result.is_error},
+            )
         return text
 
     _call.__name__ = name
     return _call
-
-
-def _content_blocks_to_pydantic(
-    blocks: list[dict[str, Any]],
-) -> tuple[str, list[BinaryContent]]:
-    """Split Anthropic-shaped content blocks into text and image content."""
-    text_parts: list[str] = []
-    images: list[BinaryContent] = []
-    for block in blocks:
-        block_type = block.get("type")
-        if block_type == "text":
-            text_parts.append(block.get("text", ""))
-        elif block_type == "image":
-            source = block.get("source") or {}
-            data = source.get("data")
-            if source.get("type") == "base64" and data:
-                images.append(
-                    BinaryContent(
-                        data=base64.b64decode(data),
-                        media_type=source.get("media_type", "image/png"),
-                    )
-                )
-    text = "\n\n".join(part for part in text_parts if part) or "{}"
-    return text, images
 
 
 def _serialize_response(response: ModelResponse) -> dict[str, Any]:

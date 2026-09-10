@@ -49,6 +49,7 @@ from rpent.planner.base import (
     add_mcp_prefix,
     strip_mcp_prefix,
 )
+from rpent.planner.utils.http_mcp_server import build_mcp_server, list_mcp_tools
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
@@ -145,6 +146,7 @@ class ClaudeCodePlanner:
             output_path.parent.mkdir(parents=True, exist_ok=True)
         raw_stream_path = output_path.with_suffix(output_path.suffix + ".stream.jsonl")
         recorder = _Recorder(
+            toolkit=toolkit,
             max_turns=max_turns,
             dashboard_events=self._dashboard_events,
         )
@@ -343,9 +345,7 @@ class ClaudeCodePlanner:
             part for part in self._allowed_tools.replace(",", " ").split() if part
         ]
         builtins = [name for name in allowed if "__" not in name]
-        allowed.extend(
-            add_mcp_prefix(str(spec["name"])) for spec in toolkit.get_tools_spec()
-        )
+        allowed.extend(add_mcp_prefix(tool.name) for tool in list_mcp_tools(toolkit))
 
         thinking = {"type": "disabled"} if self._reasoning_effort == "none" else None
         effort = None if self._reasoning_effort == "none" else self._reasoning_effort
@@ -359,7 +359,6 @@ class ClaudeCodePlanner:
             allowed_tools=list(dict.fromkeys(allowed)),
             mcp_servers={
                 "rpent": _build_rpent_server(
-                    sdk,
                     toolkit=toolkit,
                 ),
             },
@@ -569,13 +568,13 @@ class _Recorder:
     ``recorder.error``; transport-level errors are written beside the transcript.
     """
 
+    toolkit: Toolkit
     max_turns: int
     dashboard_events: DashboardEventSink
     turns: int = 0
     _seen_assistant_ids: set[str] = field(default_factory=set)
     tool_calls: int = 0
     tool_names: dict[str, str] = field(default_factory=dict)
-    pending_finish: dict[str, dict[str, Any]] = field(default_factory=dict)
     usage: dict[str, int] = field(
         default_factory=lambda: {
             "total_input_tokens": 0,
@@ -585,7 +584,6 @@ class _Recorder:
         }
     )
     total_cost_usd: float | None = None
-    finish_result: dict[str, Any] | None = None
     error: str | None = None
     #: Set by the interactive loop before a user-initiated ``interrupt`` so the
     #: next result (which the CLI may flag ``is_error``) is not mistaken for a
@@ -593,6 +591,10 @@ class _Recorder:
     suppress_next_result_error: bool = False
 
     # -- public ------------------------------------------------------------
+
+    @property
+    def finish_result(self) -> dict[str, str] | None:
+        return self.toolkit.finish_result
 
     def stats(self) -> dict[str, int | float | None]:
         return {
@@ -665,8 +667,6 @@ class _Recorder:
                 name = strip_mcp_prefix(str(_get(block, "name", "tool")))
                 self.tool_names[tool_id] = name
                 tool_input = _get(block, "input", {}) or {}
-                if name == "finish" and isinstance(tool_input, dict):
-                    self.pending_finish[tool_id] = dict(tool_input)
                 lines.append(f"[tool->] {name}: {_short_json(tool_input, limit=500)}\n")
                 self.dashboard_events.emit(
                     TranscriptEvent(
@@ -714,10 +714,6 @@ class _Recorder:
             summary["images"] = image_count
         if is_error:
             summary["is_error"] = bool(is_error)
-        # Promote the finish payload once the tool result lands successfully.
-        pending = self.pending_finish.pop(tool_use_id, None)
-        if pending is not None and not is_error and self.finish_result is None:
-            self.finish_result = {"_finish": True, **pending}
         self.dashboard_events.emit(
             TranscriptEvent(
                 {
@@ -788,63 +784,10 @@ class _Recorder:
 # ---------------------------------------------------------------------------
 
 
-def _build_rpent_server(sdk: Any, *, toolkit: Toolkit) -> Any:
-    sdk_tools = []
-    tool_execution_lock = asyncio.Lock()
-    for spec in toolkit.get_tools_spec():
-        name = str(spec["name"])
-        description = str(spec.get("description", ""))
-        input_schema = spec.get("input_schema", {"type": "object"})
-
-        async def run_tool(
-            args: dict[str, Any],
-            *,
-            tool_name: str = name,
-        ) -> dict[str, Any]:
-            async with tool_execution_lock:
-                result = await asyncio.to_thread(
-                    toolkit.execute_tool,
-                    tool_name,
-                    args or {},
-                )
-            return _tool_result_to_mcp(result)
-
-        run_tool.__name__ = f"rpent_{name}"
-        sdk_tools.append(sdk.tool(name, description, input_schema)(run_tool))
-
-    return sdk.create_sdk_mcp_server(name="rpent", version="0.1.0", tools=sdk_tools)
-
-
-def _tool_result_to_mcp(tr: Any) -> dict[str, Any]:
-    # The toolkit already formatted the result into Anthropic content blocks;
-    # translate those into the MCP content shape (text + image).
-    blocks = getattr(tr, "content_blocks", None)
-    if blocks is None:
-        return {"content": [{"type": "text", "text": str(tr)}]}
-
-    content: list[dict[str, Any]] = []
-    for block in blocks:
-        block_type = _get(block, "type")
-        if block_type == "text":
-            content.append({"type": "text", "text": _get(block, "text", "")})
-        elif block_type == "image":
-            src = _get(block, "source", {})
-            content.append(
-                {
-                    "type": "image",
-                    "data": _get(src, "data", ""),
-                    "mimeType": _get(src, "media_type", "image/png"),
-                }
-            )
-
-    response: dict[str, Any] = {"content": content}
-    # Surface toolkit-level failures as MCP errors. Without this every result
-    # looks successful to the SDK, and `_Recorder` promotes a `finish` call to
-    # the run's finish_result even when the handler rejected it.
-    result_dict = getattr(tr, "result", None)
-    if isinstance(result_dict, dict) and result_dict.get("error"):
-        response["is_error"] = True
-    return response
+def _build_rpent_server(*, toolkit: Toolkit) -> dict[str, Any]:
+    # A native MCP Server avoids the SDK helper's extra JSON Schema validator,
+    # which would reject values the Args Model intentionally converts.
+    return {"type": "sdk", "name": "rpent", "instance": build_mcp_server(toolkit)}
 
 
 # ---------------------------------------------------------------------------

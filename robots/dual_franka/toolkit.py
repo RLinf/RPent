@@ -12,43 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Dual-Franka toolkit integrated with RPent's centralized environment state."""
+"""Native dual-Franka toolkit with shared Franka session lifecycle."""
 
-from __future__ import annotations
-
-from functools import partial
-
-from robots.dual_franka import perception as dual_franka_perception
-from robots.dual_franka import tools as dual_franka_tools
-from robots.franka import tools as franka_tools
+from robots.dual_franka import tools
 from robots.franka.toolkit import FrankaToolkit
 
 
 class DualFrankaToolkit(FrankaToolkit):
-    """Common RPent tools plus safe dual-Franka planner primitives."""
+    """Common native tools plus dual-Franka motion and perception."""
 
-    _tools_module = dual_franka_tools
-    _primitives_cls = dual_franka_tools.DualFrankaPrimitives
-
-    def _register_tools(self) -> None:
-        state_handlers = {
-            "view_env_state": partial(
-                dual_franka_tools.view_env_state, state=self._state
-            ),
-            "view_camera_meta": partial(
-                franka_tools.view_camera_meta,
-                state=self._state,
-            ),
-            "back_project_base_pixel": partial(
-                dual_franka_perception.back_project_base_pixel,
-                state=self._state,
-            ),
-            "back_project_d455_pixel": partial(
-                dual_franka_perception.back_project_d455_pixel,
-                state=self._state,
-            ),
-        }
-        for spec in self._tools_module.TOOLS_SPEC:
-            name = spec["name"]
-            handler = state_handlers.get(name) or getattr(self._primitives, name)
-            self.add_tool(name, spec, handler)
+    _robot_tools = tools.DUAL_FRANKA_TOOLS
+    _dump_state = staticmethod(tools.dump_state)
+    _build_observation = staticmethod(tools.build_observation)
