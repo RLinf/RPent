@@ -157,7 +157,11 @@ def test_cancellation_stops_remaining_steps_and_uses_fresh_call_signal(
         assert entered.wait(5)
         # Request cancellation while the first step is in progress.
         stop = pool.submit(run.toolkit.cancel_active_and_wait)
-        assert run.toolkit._active_operation.cancel_event.wait(5)
+        # Wait for the scheduler to signal cancellation before releasing the step.
+        with run.toolkit._scheduler._condition:
+            assert run.toolkit._scheduler._condition.wait_for(
+                lambda: run.toolkit._scheduler._state == "paused", timeout=5
+            )
         resume.set()
         result = action.result(timeout=5)
         stop.result(timeout=5)
@@ -166,6 +170,7 @@ def test_cancellation_stops_remaining_steps_and_uses_fresh_call_signal(
     assert len(run.env.actions) == len(run.toolkit._frames) == 1
     assert result.data["task_progress"]["steps"] == 1
     run.env.on_step = lambda: None
+    run.toolkit.resume_calls()
     assert not run.toolkit.execute_tool("release", {"steps": 1}).is_error
     assert len(run.env.actions) == len(run.toolkit._frames) == 2
 

@@ -105,7 +105,8 @@ def test_capture_failure_never_mixes_action_frames(
             patch.setattr(env, "raw_obs", fail)
         failed = toolkit.execute_tool("set_gripper", {"steps": 2})
     assert failed.is_error and "State capture failed:" in failed.error
-    assert toolkit.write_recipe("failed") == ""
+    recipe = toolkit._task_output_dir / toolkit.write_recipe("failed")
+    assert recipe.read_text() == ""
     assert "step" not in failed.data
     if record_saved:
         assert saved == [("action_set_gripper.mp4", 1, [1, 1])]

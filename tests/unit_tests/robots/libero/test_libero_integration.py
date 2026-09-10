@@ -183,12 +183,15 @@ def test_close_handles_collection_and_video_independently(
         )
     toolkit._robot = SimpleNamespace(finalize_flywheel=finalize)
     toolkit._frames = frames
+    toolkit._scheduler = Mock()
     toolkit._state = SimpleNamespace(save=save)
     logger = Mock()
     monkeypatch.setattr(libero_toolkit, "logger", logger)
+    monkeypatch.setattr("rpent.tools.toolkit.logger", logger)
 
     toolkit.close()
 
+    toolkit._scheduler.cancel_and_wait.assert_called_once_with(close=True)
     finalize.assert_called_once_with()
     save.assert_called_once_with("episode.mp4", frames, step=None, fps=20)
     if failure == "finalize":

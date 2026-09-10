@@ -37,11 +37,11 @@ def finish(status: str, summary: str, *, ctx: ToolContext) -> ToolResult:
     return ToolResult(data={"_finish": True, "status": status, "summary": summary})
 
 
-def test_http_serialized_calls_keep_native_validation(tmp_path: Path) -> None:
+def test_http_shared_calls_overlap_and_keep_native_validation(tmp_path: Path) -> None:
     toolkit = Toolkit(
         state=EnvState(tmp_path),
         memory=MemoryManager(tmp_path / "memory"),
-        robot=threading.Barrier(1),
+        robot=threading.Barrier(2),
         output_dir=tmp_path,
         tools=(finish, read),
     )

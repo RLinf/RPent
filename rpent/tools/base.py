@@ -132,7 +132,7 @@ class ToolContext(Generic[RobotT]):
 class Tool(Generic[ParamsT]):
     """A handler and its generated parameter model, fixed before execution.
 
-    readonly skips automatic observation capture.
+    readonly allows shared execution and skips automatic observation capture.
     """
 
     name: str
@@ -183,7 +183,7 @@ def _parameter_model(
 def readonly(handler: Callable[ParamsT, ToolResult]) -> Callable[ParamsT, ToolResult]:
     """Skip automatic environment observation capture; file writes remain allowed.
 
-    Place this marker below @tool. Calls execute one at a time.
+    Place this marker below @tool. Readonly calls can execute concurrently.
     """
     setattr(handler, "_rpent_readonly", True)
     return handler
@@ -197,7 +197,8 @@ def tool(function: Callable[ParamsT, ToolResult], /) -> Tool[ParamsT]:
     Every handler declares a required keyword-only ctx, injected by the executor
     and excluded from the schema.
     Place @tool above @readonly. By default calls are exclusive; robot tools
-    other than finish capture observations afterward. @readonly disables capture.
+    other than finish capture observations afterward. @readonly allows shared
+    execution and disables capture.
     """
     # Resolve annotations in factories/tests as well as at module scope, without
     # retaining the caller's frame or namespace in the resulting Tool.

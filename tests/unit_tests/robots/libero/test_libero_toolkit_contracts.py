@@ -163,7 +163,8 @@ def test_cancellation_preserves_partial_execution_capture_and_resume(
         assert stepped.wait(3)
         cancellation = pool.submit(toolkit.cancel_active_and_wait)
         # Confirm cancellation was delivered before allowing another action boundary.
-        assert toolkit._active_operation.cancel_event.wait(3)
+        for call in list(toolkit._scheduler._active_calls):
+            assert call.cancel_event.wait(3)
         release_step.set()
         result = action.result(3)
         cancellation.result(3)
@@ -172,6 +173,7 @@ def test_cancellation_preserves_partial_execution_capture_and_resume(
     assert len(toolkit._frames) == completed
     assert toolkit.state.latest_record().result == {"error": result.error}
     assert result.data["step"] == 1
+    toolkit.resume_calls()
     env.after_step = lambda: None
     assert not toolkit.execute_tool("set_gripper", {"steps": 1}).is_error
     assert len(env.actions) == completed + 1

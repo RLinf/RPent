@@ -219,7 +219,7 @@ def test_tool_schema_and_dispatch_are_mapped_to_pydantic_ai(
         *[tool.name for tool in toolkit.list_tools() if tool.name != "read_image"],
     ]
     assert "read_image" in [tool.name for tool in tools]
-    assert all(tool.sequential for tool in tools)
+    assert all(not tool.sequential for tool in tools)
     finish = next(tool for tool in tools if tool.name == "finish")
     assert finish.function_schema.json_schema == next(
         tool.input_schema for tool in toolkit.list_tools() if tool.name == "finish"

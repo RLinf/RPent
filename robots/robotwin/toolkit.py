@@ -98,7 +98,6 @@ class RoboTwinToolkit(Toolkit[RoboTwinRuntime]):
             self._dashboard_events.emit(StepRecordEvent(record=record, env_state=state))
         except Exception:
             logger.exception("Dashboard failed to publish step %s", record.step_idx)
-        self._action_frame_cursor = 0
 
     def _capture_observation(
         self,
@@ -107,29 +106,12 @@ class RoboTwinToolkit(Toolkit[RoboTwinRuntime]):
         result: ToolResult,
         elapsed_s: float,
     ) -> tuple[dict[str, Any], list[bytes]]:
-        frame_start = self._action_frame_cursor
-        self._action_frame_cursor = len(self._frames)
         logged_result = result.to_dict()
         record = dump_state(
             self._robot,
             self._state,
             log={"command": command, "result": logged_result, "elapsed_s": elapsed_s},
         )
-        if self._dashboard_events.enabled:
-            try:
-                frames = self._frames[frame_start:]
-                if frames:
-                    self._state.save(
-                        f"action_{command['action']}.mp4",
-                        frames,
-                        step=record.step_idx,
-                        fps=20,
-                    )
-            except Exception as exc:
-                logger.warning(
-                    "failed to save action clip for step %s: %s", record.step_idx, exc
-                )
-        record = self._state.get(record.step_idx)
         data, images = build_observation(self._state, record)
         if result.is_error:
             data["log"]["result"] = {
@@ -145,35 +127,6 @@ class RoboTwinToolkit(Toolkit[RoboTwinRuntime]):
             record is not None
             and record.state["episode_status"].get("eval_success") is True
         )
-
-    def close(self) -> None:
-        """Save this robot's accumulated episode frames."""
-        try:
-            if self._frames:
-                self._state.save("episode.mp4", self._frames, step=None, fps=20)
-        except Exception as exc:
-            logger.warning("failed to save episode video: %s", exc)
-
-    def write_recipe(self, recipe_tag: str) -> str:
-        """Export state-advancing RoboTwin primitives with no error and no
-        explicit ``success=False`` from ``EnvState.records()``."""
-        recipe = [
-            record.command
-            for record in self._state.records()
-            if isinstance(record.command, dict)
-            and record.command.get("action") in _RECIPE_ACTIONS
-            and not (
-                isinstance(record.result, dict)
-                and (
-                    record.result.get("error") or record.result.get("success") is False
-                )
-            )
-        ]
-        name = f"{recipe_tag}_recipe.jsonl"
-        saved = self._state.save(name, recipe, step=None)
-        if saved is None:
-            raise RuntimeError(f"failed to save RoboTwin recipe artifact: {name}")
-        return str(self._state.artifact_path(name, step=None))
 
 
 def _world_from_depth(
@@ -310,6 +263,3 @@ def build_observation(
             except FileNotFoundError:
                 pass
     return data, images
-
-
-_RECIPE_ACTIONS = {"lingbot_act", "move_to", "rotate_wrist", "set_gripper", "release"}

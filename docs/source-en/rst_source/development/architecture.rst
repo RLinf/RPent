@@ -173,15 +173,15 @@ invokes them through ``execute_tool``. It adapts schemas and ``ToolResult``
 text / PNG images to its SDK; Claude Code and Codex use MCP adapters at this
 boundary. Robot handlers are independent of the planner transport.
 
-``Toolkit`` validates arguments, admits one call, injects ``ToolContext``, and
+``Toolkit`` validates arguments, schedules calls, injects ``ToolContext``, and
 captures post-action observations. Handlers use ``ctx.robot`` to access their
 session runtime and issue ``reset`` / ``step`` / ``predict`` requests through
 environment and model clients. HTTP or socket RPC carries those calls and
 NumPy observations between processes.
 
-The toolkit also owns cancellation, the frame buffer, and ``finish_result``.
-Robot-specific subclasses build observations, save videos and recipes, and
-report native success through ``solved()``. See :doc:`interfaces` for the contracts.
+The toolkit also owns cancellation, frame recording, recipe export, and
+``finish_result``. Robot-specific subclasses build observations and report
+native success through ``solved()``. See :doc:`interfaces` for the contracts.
 
 Dashboard (optional)
 --------------------
@@ -194,7 +194,7 @@ the CLI before it calls ``robot_spec.init_runtime`` once with the shared
 component names.
 The environment must provide ``robot_spec.dashboard``; it defines the task
 command and fields, runtime components, and allowed primitive controls.
-Camera tabs use the ``frame_channels`` mapping to recorded image artifacts. The Session controller waits for that robot-defined command
+Camera tabs are discovered from the PNG artifacts in each recorded step. The Session controller waits for that robot-defined command
 (``/rpent-task`` for LIBERO). For every claimed TaskRun, the Dashboard calls
 ``parse_config`` and the same ``robot_spec.init_runtime`` hook with the unique
 component names, merges the shared and unique

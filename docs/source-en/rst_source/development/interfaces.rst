@@ -85,7 +85,7 @@ Contract: read ``toolkit.list_tools()`` and adapt each ``Tool``'s ``name``,
 ``toolkit.execute_tool(name, arguments)`` and return ``PlannerResult`` when
 ``toolkit.finish_result`` is set or a run limit is reached. For asynchronous
 adapters, use ``rpent.planner.base.execute_tool`` to run the synchronous executor
-in a worker. The API and MCP adapters serialize tool calls.
+in a worker and retain it through cancellation.
 
 Native tools and Toolkit
 ------------------------
@@ -125,12 +125,12 @@ The base class adds ``read_text_file``, ``write_text_file``, ``list_dir``, and
 Memory file access goes through ``MemoryManager.authorize_read`` and
 ``authorize_write``.
 
-Execution and lifecycle
-~~~~~~~~~~~~~~~~~~~~~~~
+Scheduling and lifecycle
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-Each toolkit permits one active call. Overlapping direct calls return an error;
-API and MCP adapters serialize their calls. Place ``@readonly`` below ``@tool``
-to skip automatic observation capture.
+Tools run exclusively by default. Place ``@readonly`` below ``@tool`` to allow
+execution alongside other readonly tools and skip automatic observation capture.
+Pending exclusive calls take priority and keep their queue order.
 
 Non-readonly robot tools capture a new observation after execution. Common tools
 and ``finish`` are excluded from capture: ``write_text_file`` and ``finish`` run
@@ -145,19 +145,19 @@ Capture also runs after handler errors; the call remains active until capture
 and Dashboard publication finish.
 
 Long-running handlers call ``ctx.check_cancelled()`` at safe boundaries.
-``cancel_active_and_wait()`` signals the active call and waits for it to exit.
-Subsequent calls receive a fresh cancellation signal. Tools submit RGB frames
-with ``ctx.record_frame``; robot toolkits save per-action clips during capture
-and override ``close()`` to save their episode video.
+``cancel_active_and_wait()`` pauses admission, cancels pending and active calls,
+and waits for cleanup; ``resume_calls()`` reopens admission.
+``close()`` permanently closes admission, drains calls, and saves collected
+frames as ``episode.mp4``. Tools submit RGB frames with ``ctx.record_frame``;
+when Dashboard events are enabled, the executor also saves per-action clips.
 
 Each robot supplies its own ``finish`` tool. A successful call stores its
 ``status`` and ``summary`` in ``toolkit.finish_result``; it does not close
 admission. ``solved()`` reports environment success independently of the
-planner's requested finish status. Robot toolkits implement
-``write_recipe(recipe_tag)`` using their recorded state trace. LIBERO exports
-the successful attempt after the last reset; RoboCasa and RoboTwin retain
-their action filters. The runner decides whether the run qualifies for memory
-publication.
+planner's requested finish status. ``write_recipe(recipe_tag)`` exports
+successful robot calls, including perception and resets, in completion order;
+common file/image tools and ``finish`` are excluded. The runner decides whether
+the run qualifies for memory publication.
 
 Inter-process communication
 ---------------------------

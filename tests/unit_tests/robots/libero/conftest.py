@@ -135,4 +135,5 @@ def make_toolkit(tmp_path):
     for toolkit in instances:
         # Avoid video encoding in CPU contract tests; recording contents are asserted explicitly.
         toolkit._frames.clear()
-        toolkit.close()
+        if toolkit._scheduler._state != "closed":
+            toolkit.close()

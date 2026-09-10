@@ -133,18 +133,18 @@ Planner 先通过 ``toolkit.list_tools()`` 获取工具定义，将每个工具�
 应写入观测中的日志；动作错误仍会保留。即使工具函数出错，toolkit 也会尝试
 捕获观测，让 planner 了解当前环境。
 
-读取已有观测的工具可以在 ``@tool`` 下方添加 ``@readonly``，跳过自动捕获。
-每个 toolkit 同时只允许一个调用；重叠的直接调用会返回错误。API 和 MCP
-适配器按顺序执行工具调用。
+读取已有观测的工具可以在 ``@tool`` 下方添加 ``@readonly``，允许与其他
+readonly 工具并行，并跳过自动捕获。其余工具独占执行；等待中的独占调用
+优先执行，并保持登记顺序。
 
 公共工具和 ``finish`` 不触发观测捕获。``write_text_file`` 和 ``finish``
 不设置 readonly，因此独占执行但不新增观测。LIBERO 的 ``segment`` 也不设置
 readonly，独占执行，并在保存分割附件后自动捕获一次观测。
 
 长时间运行的工具应在安全的动作边界调用 ``ctx.check_cancelled()``。收到中断后，
-``cancel_active_and_wait()`` 向当前调用发送取消信号，并等待它退出。后续调用
-使用新的取消信号。工具通过 ``ctx.record_frame`` 提交录像帧；机器人 toolkit
-在捕获观测时保存动作片段，并重写 ``close()`` 保存回合录像。
+``cancel_active_and_wait()`` 会暂停新调用，并等待已有调用取消和清理；后续可以用
+``resume_calls()`` 恢复。运行结束时，``close()`` 关闭工具集并保存通过
+``ctx.record_frame`` 收集的录像帧。
 
 每个机器人提供自己的 ``finish`` 工具。调用成功后，toolkit 将其中的 ``status``
 和 ``summary`` 保存到 ``finish_result``，供 planner 结束循环；环境是否真正成功，

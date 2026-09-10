@@ -47,6 +47,7 @@ from rpent.planner.base import (
     REASONING_EFFORTS,
     PlannerResult,
     add_mcp_prefix,
+    cancel_and_wait,
     strip_mcp_prefix,
 )
 from rpent.planner.utils.http_mcp_server import build_mcp_server, list_mcp_tools
@@ -230,13 +231,14 @@ class ClaudeCodePlanner:
                         options,
                         recorder,
                         input_queue,
+                        toolkit=toolkit,
                         emit=_emit,
                         emit_user=_emit_user,
                     )
             except asyncio.TimeoutError:
                 error = f"Claude Agent SDK timed out after {self._timeout_s}s"
                 try:
-                    await asyncio.to_thread(toolkit.cancel_active_and_wait)
+                    await cancel_and_wait(toolkit.cancel_active_and_wait)
                 except Exception as cancel_error:
                     logger.warning(
                         "failed to cancel toolkit work after Claude timeout: %s",
@@ -256,6 +258,16 @@ class ClaudeCodePlanner:
                 out_f.flush()
                 _write_jsonl(raw_f, {"type": "error", "message": error})
                 logger.info(rendered.rstrip())
+
+            finally:
+                try:
+                    await cancel_and_wait(toolkit.cancel_active_and_wait)
+                except Exception as exc:
+                    logger.exception("Claude toolkit cleanup failed")
+                    error = error or f"Toolkit cleanup failed: {exc}"
+                _write_jsonl(
+                    raw_f, {"type": "toolkit_finish", "finish": toolkit.finish_result}
+                )
 
         elapsed = time.time() - started
         text = "".join(rendered_chunks) or output_path.read_text(errors="replace")
@@ -287,6 +299,7 @@ class ClaudeCodePlanner:
         recorder: "_Recorder",
         input_queue,
         *,
+        toolkit: Toolkit,
         emit,
         emit_user,
     ) -> None:
@@ -298,7 +311,9 @@ class ClaudeCodePlanner:
         sentinel (or ``/quit``) interrupts the run; the ``finish`` tool ends it
         normally. Because a human supervises, there is no wall-clock cap here.
         """
-        adapter = _TerminalSessionAdapter(input_queue=input_queue, emit_user=emit_user)
+        adapter = _TerminalSessionAdapter(
+            toolkit=toolkit, input_queue=input_queue, emit_user=emit_user
+        )
         driver = _ClaudeSessionDriver(
             sdk=sdk,
             options=options,
@@ -324,6 +339,7 @@ class ClaudeCodePlanner:
         adapter = _ClaudeDashboardAdapter(
             interaction=dashboard_interaction,
             cancel_active_and_wait=toolkit.cancel_active_and_wait,
+            resume_calls=toolkit.resume_calls,
             emit_user=emit_user,
             emit_initial_user=lambda: emit_user(
                 initial_user_text,
@@ -392,6 +408,10 @@ class _ClaudeSessionDriver:
         self._recorder = recorder
         self._emit = emit
         self._client: Any | None = None
+        self._pending_results = 0
+        self._turns_drained = asyncio.Event()
+        self._turns_drained.set()
+        self._interrupting = False
 
     async def run(self, prompt: str, adapter: Any) -> None:
         """Open one client, submit the first query, and run one input adapter."""
@@ -430,7 +450,15 @@ class _ClaudeSessionDriver:
         """Submit one user turn to the owned client."""
         if self._client is None:
             raise RuntimeError("Claude session is not connected")
-        await self._client.query(text)
+        self._pending_results += 1
+        self._turns_drained.clear()
+        try:
+            await self._client.query(text)
+        except BaseException:
+            self._pending_results -= 1
+            if not self._pending_results:
+                self._turns_drained.set()
+            raise
 
     async def submit(self, text: str) -> int:
         """Submit Dashboard input as a new Claude query."""
@@ -441,34 +469,54 @@ class _ClaudeSessionDriver:
         """Interrupt the owned client and suppress its expected error result."""
         if self._client is None:
             raise RuntimeError("Claude session is not connected")
+        interrupted = self._pending_results
+        if not interrupted:
+            return 0
+        self._interrupting = True
         self._recorder.suppress_next_result_error = True
         try:
             await self._client.interrupt()
+            # The SDK acknowledgement alone does not close old tool requests.
+            # The consumer signals before calling control hooks (which may be
+            # waiting for this interrupt to release the Dashboard lock).
+            await asyncio.wait_for(self._turns_drained.wait(), timeout=15)
         except BaseException:
-            # A failed interrupt must not hide a later unrelated SDK error.
             self._recorder.suppress_next_result_error = False
             raise
-        # Claude emits a ResultMessage for the interrupted query, so the
-        # matching completion is accounted for by the normal message path.
-        return 0
+        finally:
+            self._interrupting = False
+        return interrupted
 
     async def _consume(self, adapter: Any) -> None:
         if self._client is None:
             raise RuntimeError("Claude session is not connected")
         async for message in self._client.receive_messages():
             self._emit(message)
+            if _kind(message) == "ResultMessage":
+                self._pending_results = max(0, self._pending_results - 1)
+                if not self._pending_results:
+                    self._turns_drained.set()
             # A successful finish tool result owns the boundary: end the
             # session without giving queued Dashboard input a chance to flush.
             if self._recorder.finish_result is not None:
                 logger.info("FINISH called: %s", self._recorder.finish_result)
                 return
+            if self._interrupting:
+                continue
             await adapter.on_message(self, message)
 
 
 class _TerminalSessionAdapter:
     """Preserve the terminal TUI's interrupt-then-query steering policy."""
 
-    def __init__(self, *, input_queue: Any, emit_user) -> None:
+    def __init__(
+        self,
+        *,
+        toolkit: Toolkit,
+        input_queue: queue.Queue[str | None],
+        emit_user: Callable[[str], None],
+    ) -> None:
+        self._toolkit = toolkit
         self._input_queue = input_queue
         self._emit_user = emit_user
 
@@ -477,18 +525,14 @@ class _TerminalSessionAdapter:
 
     async def run(self, driver: _ClaudeSessionDriver) -> None:
         while True:
-            nxt = await asyncio.to_thread(next_user_line, self._input_queue)
-            if nxt is None:
-                with contextlib.suppress(Exception):
-                    await driver.interrupt()
+            user_text = await asyncio.to_thread(next_user_line, self._input_queue)
+            await cancel_and_wait(self._toolkit.cancel_active_and_wait)
+            await driver.interrupt()
+            if user_text is None or self._toolkit.finish_result is not None:
                 return
-            self._emit_user(nxt)
-            # Keep the current terminal semantics: every steering line
-            # interrupts the in-flight turn, then enters the same session.
-            with contextlib.suppress(Exception):
-                await driver.interrupt()
-            with contextlib.suppress(Exception):
-                await driver.query(nxt)
+            self._toolkit.resume_calls()
+            self._emit_user(user_text)
+            await driver.query(user_text)
 
     async def on_message(
         self,
@@ -510,12 +554,14 @@ class _ClaudeDashboardAdapter:
         *,
         interaction: DashboardInteractionPort,
         cancel_active_and_wait: Callable[[], None],
+        resume_calls: Callable[[], None],
         emit_user: Callable[[str], None],
         emit_initial_user: Callable[[], None],
     ) -> None:
         self._control = DashboardPlannerControl(
             interaction=interaction,
             cancel_active_and_wait=cancel_active_and_wait,
+            resume_calls=resume_calls,
             emit_user=emit_user,
             emit_initial_user=emit_initial_user,
         )

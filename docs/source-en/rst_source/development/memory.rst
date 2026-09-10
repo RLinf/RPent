@@ -85,7 +85,8 @@ exploration may write to its configured ``_internal/inbox/<cell>/``. Access to
 another robot's repository memory is denied. These checks govern memory
 access; they do not restrict all files to the output directory.
 
-Each robot toolkit implements ``write_recipe(recipe_tag)`` from its state
-trace. LIBERO exports the successful attempt after the last reset; RoboCasa
-and RoboTwin filter recorded actions using their existing recipe rules. The
-runner decides whether the audit and recipe qualify for publication to memory.
+``Toolkit.write_recipe(recipe_tag)`` exports successful robot action and
+perception calls in completion order, including resets across attempts in the
+same session. Common file/image tools and ``finish`` are excluded. A failed
+call is not exported. The runner decides whether the resulting audit and
+recipe qualify for publication to memory.

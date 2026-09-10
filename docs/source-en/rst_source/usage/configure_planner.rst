@@ -192,7 +192,7 @@ Any planner must:
 2. Read native tools from ``toolkit.list_tools()`` and adapt their ``name``,
    ``description``, and ``input_schema`` to the SDK. Execute calls through
    ``toolkit.execute_tool(name, arguments)``; asynchronous adapters use
-   ``rpent.planner.base.execute_tool`` to execute tools in a worker thread.
+   ``rpent.planner.base.execute_tool`` for cancellation-aware execution.
 3. Convert ``ToolResult.to_text()`` and the PNG bytes in ``ToolResult.images``
    to the SDK format, preserving ``ToolResult.is_error``.
 4. Check ``toolkit.finish_result`` and stop according to ``max_turns`` and

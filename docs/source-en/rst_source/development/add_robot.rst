@@ -324,9 +324,9 @@ for both action responses and ``view_env_state``.
   executor stores accepted results in ``toolkit.finish_result``.
 
 Tools submit environment-step RGB frames via ``ctx.record_frame(rgb)``.
-The base toolkit collects the frames and signals cancellation. Robot toolkits
-save Dashboard action clips during observation capture, override ``close()``
-to save the episode video, and implement ``write_recipe()`` from their trace.
+The base toolkit owns the frame buffer, Dashboard action clips, episode video,
+recipe export, and cancellation lifecycle. Use the inherited ``close()`` for
+recording cleanup; if a robot needs additional cleanup, preserve the base call.
 
 Conventions worth keeping
 -------------------------
@@ -334,8 +334,8 @@ Conventions worth keeping
 - ``output_dir`` is the runner-created working directory. Environment artifacts
   are managed by ``EnvState`` through logical names; transcripts share the same
   run directory.
-- ``@readonly`` below ``@tool`` skips automatic observation capture. Calls
-  execute one at a time. Call
+- ``@readonly`` below ``@tool`` enables shared execution and skips automatic
+  observation capture. Keep actions and ``finish`` exclusive and call
   ``ctx.check_cancelled()`` at safe boundaries in long loops.
 - Server-side values use transport-supported Python / NumPy types and remain
   torch-free.

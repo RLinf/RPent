@@ -28,4 +28,5 @@ def make_toolkit(tmp_path):
 
     yield make
     for toolkit in instances:
-        toolkit.close()
+        if toolkit._scheduler._state != "closed":
+            toolkit.close()
