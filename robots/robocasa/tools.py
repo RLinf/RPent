@@ -12,576 +12,571 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""RoboCasa tool schemas and handlers backed by the run's ``EnvState``.
-
-The state trace (``states.json`` manifest + per-step artifact files under
-``<step:02d>/``) is owned by :class:`rpent.session.EnvState`. Tool handlers
-that need to read it take a ``state: EnvState`` keyword argument (bound by the
-toolkit via :func:`functools.partial`); state-advancing primitive tools capture
-state automatically through :meth:`RoboCasaToolkit.get_env_state`.
-"""
+"""Native RoboCasa action and perception tools."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import os
+from functools import partial
+from typing import TYPE_CHECKING, Annotated, Literal
 
 import numpy as np
+from pydantic import Field
 
-from rpent.session import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
+from rpent.tools import ToolContext, ToolResult, readonly, tool
 
 if TYPE_CHECKING:
-    from robots.robocasa.primitives import RoboCasaPrimitives
+    from robots.robocasa.toolkit import RoboCasaRuntime
 
-# ---- TOOLS_SPEC: 15 Anthropic-shaped tool schemas ----
-
-TOOLS_SPEC = [
-    # ---- primitive tools (11): dispatched by the toolkit base to primitives.<name> ----
-    {
-        "name": "move_to",
-        "description": (
-            "Scripted EEF servo to a world-frame XYZ target via the OSC "
-            "controller. Holds pitch/yaw orientation (use rotate_pitch to "
-            "reorient). gripper='hold' (DEFAULT) maintains current finger width "
-            "— carry-safe without crushing small objects. Pass +1 to close, "
-            "-1 to open. NEVER command a single move_to with |dxyz| > 0.30 — "
-            "OSC flips IK; split long traversal into 2-3 mid waypoints at carry z."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "xyz": {
-                    "type": "array",
-                    "description": "World-frame target [x, y, z] in meters",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                },
-                "gripper": {
-                    "type": ["number", "string"],
-                    "description": (
-                        "Gripper: +1 close, -1 open, or 'hold' to maintain "
-                        "current finger width (default 'hold')"
-                    ),
-                },
-                "step_clip": {
-                    "type": "number",
-                    "description": "Per-step dxyz cap, m (default 0.02)",
-                },
-                "max_steps": {
-                    "type": "integer",
-                    "description": "Step budget (default 200)",
-                },
-                "tol": {
-                    "type": "number",
-                    "description": "Position tolerance, m (default 0.012)",
-                },
-            },
-            "required": ["xyz"],
-        },
-    },
-    {
-        "name": "move_delta",
-        "description": (
-            "Relative EEF displacement from the current position. Computes "
-            "target = current_eef + dxyz and delegates to move_to. "
-            "Use for small adjustments (micro-align for grasp, approach). "
-            "gripper='hold' (DEFAULT) maintains current finger width."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "dxyz": {
-                    "type": "array",
-                    "description": "Relative displacement [dx, dy, dz] in meters",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                },
-                "gripper": {
-                    "type": ["number", "string"],
-                    "description": (
-                        "Gripper: +1 close, -1 open, or 'hold' (default 'hold')"
-                    ),
-                },
-                "step_clip": {
-                    "type": "number",
-                    "description": "Per-step dxyz cap, m (default 0.02)",
-                },
-                "max_steps": {
-                    "type": "integer",
-                    "description": "Step budget (default 80)",
-                },
-            },
-            "required": ["dxyz"],
-        },
-    },
-    {
-        "name": "rotate_pitch",
-        "description": (
-            "Tilt the wrist forward (axis-angle about the control X-axis). "
-            "This pitches the gripper down/up. Holds xyz fixed. "
-            "Use before threading the gripper into a narrow opening whose "
-            "front face normal is along world +/-y."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "target_pitch": {
-                    "type": "number",
-                    "description": (
-                        "Absolute pitch target, radians (clamped +/-1.5; default 0.6)"
-                    ),
-                },
-                "gripper": {
-                    "type": "number",
-                    "description": "Gripper command held during rotation (default +1)",
-                },
-                "n": {
-                    "type": "integer",
-                    "description": "Number of env steps for the rotation (default 12)",
-                },
-            },
-        },
-    },
-    {
-        "name": "set_gripper",
-        "description": (
-            "Hold the current EEF pose and drive the gripper command for "
-            "`steps` env steps. Use to firm up a grip mid-carry or to "
-            "actively open/close the gripper."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "gripper": {
-                    "type": "number",
-                    "description": "Gripper command: +1 close, -1 open (default +1)",
-                },
-                "steps": {
-                    "type": "integer",
-                    "description": "Number of env steps to hold (default 10)",
-                },
-            },
-        },
-    },
-    {
-        "name": "release",
-        "description": (
-            "Open the gripper for `steps` env steps while holding EEF in "
-            "place. Delegates to set_gripper(-1.0, steps=steps). "
-            "Use to drop a grasped object."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "steps": {
-                    "type": "integer",
-                    "description": "Number of env steps (default 10)",
-                },
-            },
-        },
-    },
-    {
-        "name": "scripted_grasp",
-        "description": (
-            "Coarse scripted grasp sequence: open -> hover above target -> "
-            "descend -> close -> lift. A fallback when the VLA closed-loop "
-            "grasp is unavailable. For hard objects prefer rldx_arm. "
-            "approach_z and grasp_z_offset are RELATIVE offsets from the "
-            "target xyz."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "xyz": {
-                    "type": "array",
-                    "description": "World-frame grasp target [x, y, z] in meters",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                },
-                "approach_z": {
-                    "type": "number",
-                    "description": "Z offset above target before descent, m (default 0.10)",
-                },
-                "grasp_z_offset": {
-                    "type": "number",
-                    "description": "Z offset at grasp point (default 0.0; negative = below target)",
-                },
-                "step_clip": {
-                    "type": "number",
-                    "description": "Per-step dxyz cap during descent, m (default 0.02)",
-                },
-            },
-            "required": ["xyz"],
-        },
-    },
-    {
-        "name": "rldx_skill",
-        "description": (
-            "RLDX VLA closed-loop skill — FULL base motion allowed. The VLA "
-            "drives both arm and mobile base. Use for full-body tasks where "
-            "the base must reposition (e.g. navigating to a counter while "
-            "reaching). Pass the complete live task_language verbatim; the "
-            "runtime always uses that environment language for RLDX. Do NOT "
-            "interrupt consecutive VLA calls with manual "
-            "primitives — that breaks VLA frame history continuity "
-            "(sets vla_desync=True)."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "prompt": {
-                    "type": "string",
-                    "description": "Complete live task_language, copied verbatim",
-                },
-                "base_clip": {
-                    "type": ["number", "null"],
-                    "description": "Base motion magnitude cap (default null = no clamp)",
-                },
-                "max_chunks": {
-                    "type": "integer",
-                    "description": "Action-chunk budget (default 70)",
-                },
-                "force_reset": {
-                    "type": "boolean",
-                    "description": "Force VLA frame history reset (default False)",
-                },
-                "n_action_steps": {
-                    "type": "integer",
-                    "description": "Actions per VLA chunk (default 8)",
-                },
-                "settle_patience": {
-                    "type": "integer",
-                    "description": (
-                        "Settle step budget before declaring done "
-                        "(default 999; do NOT set small)"
-                    ),
-                },
-                "settle_eps": {
-                    "type": "number",
-                    "description": "Settle position tolerance, m (default 0.012)",
-                },
-            },
-            "required": ["prompt"],
-        },
-    },
-    {
-        "name": "rldx_arm",
-        "description": (
-            "RLDX VLA closed-loop skill — base CLAMPED to small motions "
-            "(base_clip=0.1 default). The VLA drives the arm for precise "
-            "micro-alignment (e.g. fine-tuning a grasp approach) but cannot "
-            "drive the base away. Pass the complete live task_language "
-            "verbatim; the runtime always uses that environment language for "
-            "RLDX. Do NOT interrupt consecutive VLA calls with manual primitives."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "prompt": {
-                    "type": "string",
-                    "description": "Complete live task_language, copied verbatim",
-                },
-                "base_clip": {
-                    "type": ["number", "null"],
-                    "description": "Base motion magnitude cap (default 0.1 = small)",
-                },
-                "max_chunks": {
-                    "type": "integer",
-                    "description": "Action-chunk budget (default 70)",
-                },
-                "force_reset": {
-                    "type": "boolean",
-                    "description": "Force VLA frame history reset (default False)",
-                },
-                "n_action_steps": {
-                    "type": "integer",
-                    "description": "Actions per VLA chunk (default 8)",
-                },
-                "settle_patience": {
-                    "type": "integer",
-                    "description": (
-                        "Settle step budget before declaring done "
-                        "(default 999; do NOT set small)"
-                    ),
-                },
-                "settle_eps": {
-                    "type": "number",
-                    "description": "Settle position tolerance, m (default 0.012)",
-                },
-            },
-            "required": ["prompt"],
-        },
-    },
-    {
-        "name": "navigate_to",
-        "description": (
-            "Drive the mobile base toward a WORLD (x, y) target. "
-            "Online-calibrates the base forward-heading, then turns to face "
-            "+ drives forward closed-loop. Holds the arm in place. "
-            "gripper='hold' (DEFAULT) maintains current finger width while "
-            "driving (carry-safe). Use tol = expected approach distance "
-            "+ object radius."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "xy": {
-                    "type": "array",
-                    "description": "World-frame target [x, y] in meters (z ignored if provided)",
-                    "items": {"type": "number"},
-                    "minItems": 2,
-                    "maxItems": 2,
-                },
-                "tol": {
-                    "type": "number",
-                    "description": "Distance threshold to stop, m (default 0.20)",
-                },
-                "max_steps": {
-                    "type": "integer",
-                    "description": "Step budget (default 300)",
-                },
-                "gripper": {
-                    "type": ["number", "string"],
-                    "description": (
-                        "Gripper while driving: +1 close, -1 open, "
-                        "or 'hold' (default 'hold')"
-                    ),
-                },
-            },
-            "required": ["xy"],
-        },
-    },
-    {
-        "name": "move_base",
-        "description": (
-            "Raw base velocity commands in the robot's LOCAL frame. "
-            "+forward = drive forward, +lateral = strafe right, "
-            "+turn = rotate CCW (yaw). All values clamped [-1, 1]. "
-            "Use move_base for fine base adjustments near a target; "
-            "use navigate_to for long-range navigation. "
-            "gripper='hold' (DEFAULT) maintains finger width while driving."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "forward": {
-                    "type": "number",
-                    "description": "Forward velocity, [-1, 1] (default 0)",
-                },
-                "lateral": {
-                    "type": "number",
-                    "description": "Lateral / strafe velocity, [-1, 1] (default 0)",
-                },
-                "turn": {
-                    "type": "number",
-                    "description": "Yaw rotation velocity, [-1, 1] (default 0)",
-                },
-                "steps": {
-                    "type": "integer",
-                    "description": "Number of env steps (default 10)",
-                },
-                "gripper": {
-                    "type": ["number", "string"],
-                    "description": (
-                        "Gripper while driving: +1 close, -1 open, "
-                        "or 'hold' (default 'hold')"
-                    ),
-                },
-            },
-        },
-    },
-    {
-        "name": "reset",
-        "description": (
-            "Restart the episode (new layout / object placement sampled). "
-            "Arm and base calibration are invalidated on reset. "
-            "DISABLED in no-reset / matched evaluation — the policy must "
-            "solve the scene in one shot. Only available in EXPLORE mode "
-            "when RLDX_ALLOW_RESET is enabled."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
-    # ---- perception tools (4) -- module-level @readonly handlers ----
-    {
-        "name": "view_env_state",
-        "description": (
-            "Read step NN from states.json + the matching state images "
-            "in the output dir. If step is null, returns the latest entry. "
-            "Each entry contains the env state, robocasa_terminated flag, "
-            "task_progress, vla_desync status, and log. Embeds available "
-            "PNGs as multimodal image content blocks. Use calibration-frame "
-            "agentview images for pixel back-projection; use navview for "
-            "base navigation and floor walkability; use wrist for close-range "
-            "details near the gripper."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "step": {
-                    "type": ["integer", "null"],
-                    "description": "Step number; 0 = initial. Null = latest.",
-                },
-            },
-        },
-    },
-    {
-        "name": "back_project_batch",
-        "description": (
-            "Back-project MULTIPLE pixels to world XYZ points in a single "
-            "call. Loads the world map once and queries all pixels — "
-            "replaces N separate back_project calls. "
-            "Returns each pixel's world_xyz plus a summary with "
-            "median_xyz across valid pixels.\n\n"
-            "USE THIS for robust object localization: sample 3-8 pixels "
-            "on the target object and read summary.median_xyz. "
-            "Maximum 50 pixels per call."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "pixels": {
-                    "type": "array",
-                    "description": "List of [row, col] pixel coordinates (max 50)",
-                    "items": {
-                        "type": "array",
-                        "items": {"type": "integer"},
-                        "minItems": 2,
-                        "maxItems": 2,
-                    },
-                    "minItems": 1,
-                    "maxItems": 50,
-                },
-                "step": {
-                    "type": ["integer", "null"],
-                    "description": "Depth / world-map step to use (default latest).",
-                },
-                "camera": {
-                    "type": "string",
-                    "enum": ["agentview", "navview", "wrist"],
-                    "description": "Camera to back-project from (default agentview).",
-                },
-                "resolution": {
-                    "type": "string",
-                    "enum": ["high", "low"],
-                    "description": (
-                        "Coordinate system for pixels (default low). "
-                        "Use 'low' for the standard 256x256 world map."
-                    ),
-                },
-            },
-            "required": ["pixels"],
-        },
-    },
-    {
-        "name": "query_world_map",
-        "description": (
-            "Query the world map by Z-range / XY region to find objects "
-            "at specific heights. Loads the world map once, filters pixels "
-            "by z_min <= z <= z_max, optionally restricts to x_range / "
-            "y_range, then clusters contiguous pixels into objects.\n\n"
-            "TYPICAL USES:\n"
-            "- z_min=0.85, z_max=0.95 -> countertop-height objects\n"
-            "- z_min=0.0, z_max=0.12, camera='navview' -> walkable floor\n"
-            "- z_min=0.85, z_max=0.95, x_range=[0,2], y_range=[-3,-1] -> "
-            "counter objects in a specific quadrant"
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "z_min": {
-                    "type": "number",
-                    "description": "Minimum Z in meters (default 0.85 for counter height).",
-                },
-                "z_max": {
-                    "type": "number",
-                    "description": "Maximum Z in meters (default 0.95 for counter height).",
-                },
-                "x_range": {
-                    "type": ["array", "null"],
-                    "description": "Optional X range [min, max] in meters; null = no filter.",
-                    "items": {"type": "number"},
-                    "minItems": 2,
-                    "maxItems": 2,
-                },
-                "y_range": {
-                    "type": ["array", "null"],
-                    "description": "Optional Y range [min, max] in meters; null = no filter.",
-                    "items": {"type": "number"},
-                    "minItems": 2,
-                    "maxItems": 2,
-                },
-                "camera": {
-                    "type": "string",
-                    "enum": ["agentview", "navview", "wrist"],
-                    "description": "Camera world map to query (default agentview).",
-                },
-                "resolution": {
-                    "type": "string",
-                    "enum": ["high", "low"],
-                    "description": "World map resolution (default low).",
-                },
-                "min_cluster_size": {
-                    "type": "integer",
-                    "description": "Minimum pixels per cluster to report (default 10).",
-                },
-            },
-        },
-    },
-    {
-        "name": "finish",
-        "description": (
-            "Declare the task finished. Call when robocasa_terminated "
-            "becomes True (success detected), or when genuinely stuck "
-            "after honest exploration. Provide a 1-3 sentence summary "
-            "of what worked and what failed."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "status": {
-                    "type": "string",
-                    "enum": ["success", "failure", "stuck"],
-                    "description": "Task outcome classification.",
-                },
-                "summary": {
-                    "type": "string",
-                    "description": "1-3 sentence summary of what worked / what failed.",
-                },
-            },
-            "required": ["status", "summary"],
-        },
-    },
-]
+OSC_ROT_SCALE = 0.5  # action 1.0 -> 0.5 rad
 
 
-# ---- state persistence (dump_state writes through the run's EnvState) ----
+def _step_env(ctx: ToolContext[RoboCasaRuntime], action: np.ndarray) -> None:
+    """Check cancellation and record each physical step, including calibration."""
+    ctx.check_cancelled()
+    ctx.robot.env.step(action)
+    image = ctx.robot.env.render_camera(
+        camera_name="agentview", height=256, width=256, depth=False
+    )
+    ctx.record_frame(np.asarray(image, dtype=np.uint8))
 
-# Heavy npy artifacts pruned after the ``_keep_heavy`` window elapses (the
-# agent localizes from the latest frame; old world/depth maps are dead weight
-# that once filled the 100GB root and deadlocked everything).
-_HEAVY_ARTIFACTS = (
-    "agentview_depth.npz",
-    "agentview_world.npz",
-    "wrist_depth.npz",
-    "wrist_world.npz",
-    "agentview_world_high.npz",
-    "navview_world.npz",
-)
 
-# Artifact base names exposed to the agent for each camera (high-res first).
-_CAMERA_IMAGE_ARTIFACTS = {
-    "agentview": ("agentview_high.png", "agentview.png"),
-    "navview": ("navview.png",),
-    "wrist": ("wrist_high.png", "wrist.png"),
-}
+def _calibrate_pos_jacobian(ctx: ToolContext[RoboCasaRuntime], gripper=-1.0):
+    """Probe 3 unit arm-xyz actions, measure world dpos -> 3x3 jacobian J s.t.
+    world_dpos ~= J @ action_xyz. move_to inverts J to map desired world delta."""
+    runtime = ctx.robot
+    cols = []
+    for axis in range(3):
+        p0 = runtime.env.eef_pos.copy()
+        a = np.zeros(12)
+        a[11] = -1.0
+        a[axis] = 0.4
+        a[6] = gripper
+        for _ in range(3):
+            _step_env(ctx, a)
+        d = (runtime.env.eef_pos - p0) / (0.4 * 3)  # world dpos per unit action
+        cols.append(d)
+        # settle back is not needed (closed-loop re-reads); keep going
+    runtime._pos_jac = np.stack(cols, axis=1)  # 3x3: world_dpos = J @ a_xyz
+    return runtime._pos_jac
 
-# Camera -> (low-res world map artifact, high-res world map artifact or None)
+
+def _base_pos(ctx: ToolContext[RoboCasaRuntime]) -> np.ndarray:
+    return np.asarray(
+        ctx.robot.env.current_raw_obs["robot0_base_pos"], dtype=np.float64
+    )
+
+
+def _calibrate_forward(ctx: ToolContext[RoboCasaRuntime], gripper=1.0):
+    """Drive forward briefly, measure the WORLD direction the base actually goes,
+    so navigate_to can steer regardless of the base->world frame offset."""
+    from scipy.spatial.transform import Rotation as R
+
+    runtime = ctx.robot
+    p0 = _base_pos(ctx)
+    y0 = float(
+        R.from_quat(
+            np.asarray(runtime.env.current_raw_obs["robot0_base_quat"])
+        ).as_euler("xyz")[2]
+    )
+    a = np.zeros(12)
+    a[11] = 1.0
+    a[6] = float(np.clip(gripper, -1, 1))
+    a[7] = 1.0
+    for _ in range(6):
+        _step_env(ctx, a)
+    p1 = _base_pos(ctx)
+    disp = (p1 - p0)[:2]
+    if np.linalg.norm(disp) > 0.005:
+        runtime._fwd_offset = np.arctan2(disp[1], disp[0]) - y0
+    else:
+        runtime._fwd_offset = 0.0
+    return runtime._fwd_offset
+
+
+def _resolve_grip(ctx: ToolContext[RoboCasaRuntime], gripper, target_q):
+    """Return the a[6] gripper command for a motion step.
+    gripper="hold" (DEFAULT for moves) -> SERVO the fingers back to `target_q`,
+    the width they had when the motion began. This is the carry-safe hold: the
+    gripper action is a CLOSE-VELOCITY command, so a sustained +1 keeps driving the
+    fingers shut and SQUEEZES a small object OUT (verified: bread qpos 0.0376 -> 0.0005
+    during a +1 carry). Servoing to the grasped width holds the object without crushing
+    it and without letting it drift open. A numeric gripper (+1 close / -1 open) is an
+    EXPLICIT override and passes through unchanged."""
+    runtime = ctx.robot
+    if isinstance(gripper, str):
+        cur = float(runtime.env.gripper_qpos[0])
+        return float(
+            np.clip(60.0 * (cur - target_q), -1.0, 1.0)
+        )  # +a[6] closes (qpos↓)
+    return float(np.clip(gripper, -1, 1))
+
+
+def _move_to(
+    ctx: ToolContext[RoboCasaRuntime],
+    xyz: list[float] | np.ndarray,
+    gripper: float | str = "hold",
+    step_clip: float = 0.02,
+    max_steps: int = 200,
+    tol: float = 0.012,
+) -> ToolResult:
+    runtime = ctx.robot
+    runtime._vla_desync = True
+    target = np.asarray(xyz, dtype=np.float64)
+    target_q = float(runtime.env.gripper_qpos[0])  # finger width to hold
+    if runtime._pos_jac is None:
+        _calibrate_pos_jacobian(ctx, gripper=_resolve_grip(ctx, gripper, target_q))
+    Jinv = np.linalg.pinv(runtime._pos_jac)
+    for i in range(max_steps):
+        cur = runtime.env.eef_pos
+        err = target - cur
+        dist = float(np.linalg.norm(err))
+        if dist < tol:
+            return ToolResult(
+                data={
+                    "ok": True,
+                    "steps": i,
+                    "final_dist": dist,
+                    "eef": cur.tolist(),
+                    "gripper_qpos": round(float(runtime.env.gripper_qpos[0]), 4),
+                }
+            )
+        step_world = err if dist <= step_clip else err / dist * step_clip
+        a_xyz = np.clip(Jinv @ step_world, -1, 1)
+        a = np.zeros(12)
+        a[11] = -1.0
+        a[0:3] = a_xyz
+        a[6] = _resolve_grip(ctx, gripper, target_q)
+        _step_env(ctx, a)
+
+    cur = runtime.env.eef_pos
+    return ToolResult(
+        data={
+            "ok": False,
+            "steps": max_steps,
+            "final_dist": float(np.linalg.norm(target - cur)),
+            "eef": cur.tolist(),
+            "gripper_qpos": round(float(runtime.env.gripper_qpos[0]), 4),
+        },
+        error="move_to did not reach the target within max_steps",
+    )
+
+
+@tool
+def move_to(
+    xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+    gripper: float | str = "hold",
+    step_clip: float = 0.02,
+    max_steps: int = 200,
+    tol: float = 0.012,
+    *,
+    ctx: ToolContext[RoboCasaRuntime],
+) -> ToolResult:
+    """Scripted EEF servo to a world-frame XYZ target via the OSC controller. Holds pitch/yaw orientation (use rotate_pitch to reorient). gripper='hold' (DEFAULT) maintains current finger width — carry-safe without crushing small objects. Pass +1 to close, -1 to open. NEVER command a single move_to with |dxyz| > 0.30 — OSC flips IK; split long traversal into 2-3 mid waypoints at carry z.
+
+    Args:
+        xyz: World-frame target [x, y, z] in meters
+        gripper: Gripper: +1 close, -1 open, or 'hold' to maintain current finger width (default 'hold')
+        step_clip: Per-step dxyz cap, m (default 0.02)
+        max_steps: Step budget (default 200)
+        tol: Position tolerance, m (default 0.012)
+    """
+    return _move_to(ctx, xyz, gripper, step_clip, max_steps, tol)
+
+
+@tool
+def move_delta(
+    dxyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+    gripper: float | str = "hold",
+    step_clip: float = 0.02,
+    max_steps: int = 80,
+    *,
+    ctx: ToolContext[RoboCasaRuntime],
+) -> ToolResult:
+    """Relative EEF displacement from the current position. Computes target = current_eef + dxyz and delegates to move_to. Use for small adjustments (micro-align for grasp, approach). gripper='hold' (DEFAULT) maintains current finger width.
+
+    Args:
+        dxyz: Relative displacement [dx, dy, dz] in meters
+        gripper: Gripper: +1 close, -1 open, or 'hold' (default 'hold')
+        step_clip: Per-step dxyz cap, m (default 0.02)
+        max_steps: Step budget (default 80)
+    """
+    runtime = ctx.robot
+    return _move_to(
+        ctx, runtime.env.eef_pos + np.asarray(dxyz), gripper, step_clip, max_steps
+    )
+
+
+@tool
+def rotate_pitch(
+    target_pitch: float = 0.6,
+    gripper: float = 1,
+    n: int = 12,
+    *,
+    ctx: ToolContext[RoboCasaRuntime],
+) -> ToolResult:
+    """Tilt the wrist forward (axis-angle about the control X-axis). This pitches the gripper down/up. Holds xyz fixed. Use before threading the gripper into a narrow opening whose front face normal is along world +/-y.
+
+    Args:
+        target_pitch: Absolute pitch target, radians (clamped +/-1.5; default 0.6)
+        gripper: Gripper command held during rotation (default +1)
+        n: Number of env steps for the rotation (default 12)
+    """
+    runtime = ctx.robot
+    runtime._vla_desync = True
+    per = float(np.clip(target_pitch, -1.5, 1.5)) / n
+    action = np.zeros(12)
+    action[11] = -1.0
+    action[3] = np.clip(per / OSC_ROT_SCALE, -1, 1)
+    action[6] = float(np.clip(gripper, -1, 1))
+    for _ in range(n):
+        _step_env(ctx, action)
+    return ToolResult(data={"ok": True, "eef": runtime.env.eef_pos.tolist()})
+
+
+def _set_gripper(
+    ctx: ToolContext[RoboCasaRuntime], gripper: float = 1, steps: int = 10
+) -> ToolResult:
+    runtime = ctx.robot
+    runtime._vla_desync = True
+    a = np.zeros(12)
+    a[11] = -1.0
+    a[6] = float(np.clip(gripper, -1, 1))
+    for _ in range(steps):
+        _step_env(ctx, a)
+    return ToolResult(
+        data={"ok": True, "gripper_qpos": runtime.env.gripper_qpos.tolist()}
+    )
+
+
+@tool
+def set_gripper(
+    gripper: float = 1, steps: int = 10, *, ctx: ToolContext[RoboCasaRuntime]
+) -> ToolResult:
+    """Hold the current EEF pose and drive the gripper command for `steps` env steps. Use to firm up a grip mid-carry or to actively open/close the gripper.
+
+    Args:
+        gripper: Gripper command: +1 close, -1 open (default +1)
+        steps: Number of env steps to hold (default 10)
+    """
+    return _set_gripper(ctx, gripper, steps)
+
+
+@tool
+def release(steps: int = 10, *, ctx: ToolContext[RoboCasaRuntime]) -> ToolResult:
+    """Open the gripper for `steps` env steps while holding EEF in place. Delegates to set_gripper(-1.0, steps=steps). Use to drop a grasped object.
+
+    Args:
+        steps: Number of env steps (default 10)
+    """
+    return _set_gripper(ctx, -1.0, steps=steps)
+
+
+@tool
+def scripted_grasp(
+    xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+    approach_z: float = 0.10,
+    grasp_z_offset: float = 0.0,
+    step_clip: float = 0.02,
+    *,
+    ctx: ToolContext[RoboCasaRuntime],
+) -> ToolResult:
+    """Coarse scripted grasp sequence: open -> hover above target -> descend -> close -> lift. A fallback when the VLA closed-loop grasp is unavailable. For hard objects prefer rldx_arm. approach_z and grasp_z_offset are RELATIVE offsets from the target xyz.
+
+    Args:
+        xyz: World-frame grasp target [x, y, z] in meters
+        approach_z: Z offset above target before descent, m (default 0.10)
+        grasp_z_offset: Z offset at grasp point (default 0.0; negative = below target)
+        step_clip: Per-step dxyz cap during descent, m (default 0.02)
+    """
+    runtime = ctx.robot
+    t = np.asarray(xyz, dtype=np.float64)
+    _set_gripper(ctx, -1.0, steps=4)
+    r = _move_to(ctx, t + [0, 0, approach_z], gripper=-1.0, step_clip=step_clip)
+    if r.is_error:
+        r.data["stage"] = "approach"
+        return r
+    r = _move_to(
+        ctx, t + [0, 0, grasp_z_offset], gripper=-1.0, step_clip=0.012, tol=0.01
+    )
+    if r.is_error:
+        r.data["stage"] = "descent"
+        return r
+    _set_gripper(ctx, +1.0, steps=14)
+    r = _move_to(ctx, t + [0, 0, approach_z + 0.05], gripper="hold", step_clip=0.015)
+    if r.is_error:
+        r.data["stage"] = "lift"
+        return r
+    return ToolResult(
+        data={
+            "ok": True,
+            "gripper_qpos": runtime.env.gripper_qpos.tolist(),
+            "eef": runtime.env.eef_pos.tolist(),
+        }
+    )
+
+
+@tool
+def move_base(
+    forward: float = 0,
+    lateral: float = 0,
+    turn: float = 0,
+    steps: int = 10,
+    gripper: float | str = "hold",
+    *,
+    ctx: ToolContext[RoboCasaRuntime],
+) -> ToolResult:
+    """Raw base velocity commands in the robot's LOCAL frame. +forward = drive forward, +lateral = strafe right, +turn = rotate CCW (yaw). All values clamped [-1, 1]. Use move_base for fine base adjustments near a target; use navigate_to for long-range navigation. gripper='hold' (DEFAULT) maintains finger width while driving.
+
+    Args:
+        forward: Forward velocity, [-1, 1] (default 0)
+        lateral: Lateral / strafe velocity, [-1, 1] (default 0)
+        turn: Yaw rotation velocity, [-1, 1] (default 0)
+        steps: Number of env steps (default 10)
+        gripper: Gripper while driving: +1 close, -1 open, or 'hold' (default 'hold')
+    """
+    runtime = ctx.robot
+    runtime._vla_desync = True
+    target_q = float(runtime.env.gripper_qpos[0])
+    a = np.zeros(12)
+    a[11] = 1.0
+    a[7:10] = [
+        np.clip(forward, -1, 1),
+        np.clip(lateral, -1, 1),
+        np.clip(turn, -1, 1),
+    ]
+    bp0 = _base_pos(ctx)
+    for _ in range(steps):
+        a[6] = _resolve_grip(ctx, gripper, target_q)
+        _step_env(ctx, a)
+    bp1 = _base_pos(ctx)
+    return ToolResult(
+        data={
+            "ok": True,
+            "base_moved": (bp1 - bp0).tolist(),
+            "base_pos": bp1.tolist(),
+        }
+    )
+
+
+@tool
+def navigate_to(
+    xy: Annotated[list[float], Field(min_length=2, max_length=2)],
+    tol: float = 0.20,
+    max_steps: int = 300,
+    gripper: float | str = "hold",
+    *,
+    ctx: ToolContext[RoboCasaRuntime],
+) -> ToolResult:
+    """Drive the mobile base toward a WORLD (x, y) target. Online-calibrates the base forward-heading, then turns to face + drives forward closed-loop. Holds the arm in place. gripper='hold' (DEFAULT) maintains current finger width while driving (carry-safe). Use tol = expected approach distance + object radius.
+
+    Args:
+        xy: World-frame target [x, y] in meters (z ignored if provided)
+        tol: Distance threshold to stop, m (default 0.20)
+        max_steps: Step budget (default 300)
+        gripper: Gripper while driving: +1 close, -1 open, or 'hold' (default 'hold')
+    """
+    from scipy.spatial.transform import Rotation as R
+
+    runtime = ctx.robot
+    runtime._vla_desync = True
+    target = np.asarray(xy[:2], dtype=np.float64)
+    target_q = float(runtime.env.gripper_qpos[0])
+    if runtime._fwd_offset is None:
+        _calibrate_forward(ctx, _resolve_grip(ctx, gripper, target_q))
+    start = _base_pos(ctx)[:2].copy()
+    for i in range(max_steps):
+        bp = _base_pos(ctx)
+        to = target - bp[:2]
+        dist = float(np.linalg.norm(to))
+        if dist < tol:
+            runtime._pos_jac = None  # base moved -> recalibrate arm
+            moved = float(np.linalg.norm(bp[:2] - start))
+            return ToolResult(
+                data={
+                    "ok": True,
+                    "steps": i,
+                    "final_dist": dist,
+                    "moved": moved,
+                    "start_pos": start.tolist(),
+                    "base_pos": bp.tolist(),
+                }
+            )
+        world_dir = np.arctan2(to[1], to[0])
+        yaw = float(
+            R.from_quat(
+                np.asarray(runtime.env.current_raw_obs["robot0_base_quat"])
+            ).as_euler("xyz")[2]
+        )
+        cur_forward = yaw + runtime._fwd_offset
+        dyaw = (world_dir - cur_forward + np.pi) % (2 * np.pi) - np.pi
+        a = np.zeros(12)
+        a[11] = 1.0
+        a[6] = _resolve_grip(ctx, gripper, target_q)
+        if abs(dyaw) > 0.30:  # turn to face the target
+            a[9] = float(np.sign(dyaw))
+        else:  # drive forward + small steer
+            a[7] = 1.0
+            a[9] = float(np.clip(dyaw * 1.5, -0.4, 0.4))
+        _step_env(ctx, a)
+    bp = _base_pos(ctx)
+    runtime._pos_jac = None
+    moved = float(np.linalg.norm(bp[:2] - start))
+    # stuck = ran out of steps having barely moved (rammed a fixture, no path-planning)
+    return ToolResult(
+        data={
+            "ok": False,
+            "steps": max_steps,
+            "final_dist": float(np.linalg.norm(target - bp[:2])),
+            "moved": moved,
+            "stuck": moved < 0.12,
+            "start_pos": start.tolist(),
+            "base_pos": bp.tolist(),
+        },
+        error="navigate_to did not reach the target within max_steps",
+    )
+
+
+@tool
+def reset(*, ctx: ToolContext[RoboCasaRuntime]) -> ToolResult:
+    """Restart the episode (new layout / object placement sampled). Arm and base calibration are invalidated on reset. DISABLED in no-reset / matched evaluation — the policy must solve the scene in one shot. Only available in EXPLORE mode when RLDX_ALLOW_RESET is enabled."""
+    runtime = ctx.robot
+    if not runtime._allow_reset:
+        return ToolResult(
+            error="reset is DISABLED in this run (no-reset/matched evaluation). Solve the scene in one shot; do not restart the episode."
+        )
+    ctx.check_cancelled()
+    runtime.reset()
+    return ToolResult(
+        data={"ok": True, "reset": True, "eef": runtime.env.eef_pos.tolist()}
+    )
+
+
+def _run_rldx_skill(
+    ctx: ToolContext[RoboCasaRuntime],
+    prompt: str,
+    base_clip: float | None,
+    max_chunks: int,
+    force_reset: bool,
+    n_action_steps: int,
+    settle_patience: int,
+    settle_eps: float,
+) -> ToolResult:
+    """Use the full live task and apply environment budget overrides."""
+    runtime = ctx.robot
+    max_chunks = int(os.environ.get("RLDX_MAX_CHUNKS", max_chunks))
+    n_action_steps = int(os.environ.get("RLDX_ACTION_STEPS_PER_CHUNK", n_action_steps))
+    settle_patience = int(os.environ.get("RLDX_SETTLE_PATIENCE", settle_patience))
+    for name, value in (
+        ("max_chunks", max_chunks),
+        ("n_action_steps", n_action_steps),
+        ("settle_patience", settle_patience),
+    ):
+        if value < 1:
+            return ToolResult(error=f"{name} must be positive; VLA was not executed")
+    task_lang = (
+        runtime.env.current_raw_obs.get("language") or runtime.env.get_task_language()
+    )
+    if not task_lang:
+        return ToolResult(
+            data={"effective_prompt": "", "prompt_overridden": False},
+            error="RoboCasa task language is unavailable; VLA was not executed",
+        )
+    ctx.check_cancelled()
+    reset_history = force_reset or runtime._vla_desync
+    runtime._vla_desync = False
+    result = runtime._rldx.run(
+        task_lang,
+        max_chunks,
+        n_action_steps,
+        base_clip=base_clip,
+        settle_patience=settle_patience,
+        settle_eps=settle_eps,
+        force_reset=reset_history,
+        step_env=partial(_step_env, ctx),
+        check_cancelled=ctx.check_cancelled,
+    )
+    result["effective_prompt"] = task_lang
+    result["effective_max_chunks"] = max_chunks
+    result["effective_n_action_steps"] = n_action_steps
+    result["effective_settle_patience"] = settle_patience
+    result["prompt_overridden"] = prompt != task_lang
+    if prompt != task_lang:
+        result["requested_prompt"] = prompt
+    return ToolResult(data=result)
+
+
+@tool
+def rldx_skill(
+    prompt: str,
+    base_clip: float | None = None,
+    max_chunks: int = 70,
+    force_reset: bool = False,
+    n_action_steps: int = 8,
+    settle_patience: int = 999,
+    settle_eps: float = 0.012,
+    *,
+    ctx: ToolContext[RoboCasaRuntime],
+) -> ToolResult:
+    """RLDX VLA closed-loop skill — FULL base motion allowed. The VLA drives both arm and mobile base. Use for full-body tasks where the base must reposition (e.g. navigating to a counter while reaching). Pass the complete live task_language verbatim; the runtime always uses that environment language for RLDX. Do NOT interrupt consecutive VLA calls with manual primitives — that breaks VLA frame history continuity (sets vla_desync=True).
+
+    Args:
+        prompt: Complete live task_language, copied verbatim
+        base_clip: Base motion magnitude cap (default null = no clamp)
+        max_chunks: Action-chunk budget (default 70)
+        force_reset: Force VLA frame history reset (default False)
+        n_action_steps: Actions per VLA chunk (default 8)
+        settle_patience: Settle step budget before declaring done (default 999; do NOT set small)
+        settle_eps: Settle position tolerance, m (default 0.012)
+    """
+    return _run_rldx_skill(
+        ctx,
+        prompt,
+        base_clip,
+        max_chunks,
+        force_reset,
+        n_action_steps,
+        settle_patience,
+        settle_eps,
+    )
+
+
+@tool
+def rldx_arm(
+    prompt: str,
+    base_clip: float | None = 0.1,
+    max_chunks: int = 70,
+    force_reset: bool = False,
+    n_action_steps: int = 8,
+    settle_patience: int = 999,
+    settle_eps: float = 0.012,
+    *,
+    ctx: ToolContext[RoboCasaRuntime],
+) -> ToolResult:
+    """RLDX VLA closed-loop skill — base CLAMPED to small motions (base_clip=0.1 default). The VLA drives the arm for precise micro-alignment (e.g. fine-tuning a grasp approach) but cannot drive the base away. Pass the complete live task_language verbatim; the runtime always uses that environment language for RLDX. Do NOT interrupt consecutive VLA calls with manual primitives.
+
+    Args:
+        prompt: Complete live task_language, copied verbatim
+        base_clip: Base motion magnitude cap (default 0.1 = small)
+        max_chunks: Action-chunk budget (default 70)
+        force_reset: Force VLA frame history reset (default False)
+        n_action_steps: Actions per VLA chunk (default 8)
+        settle_patience: Settle step budget before declaring done (default 999; do NOT set small)
+        settle_eps: Settle position tolerance, m (default 0.012)
+    """
+    return _run_rldx_skill(
+        ctx,
+        prompt,
+        base_clip,
+        max_chunks,
+        force_reset,
+        n_action_steps,
+        settle_patience,
+        settle_eps,
+    )
+
+
+# Camera -> (low-resolution world map, optional high-resolution world map).
 _CAMERA_WORLD_ARTIFACTS = {
     "agentview": ("agentview_world.npz", "agentview_world_high.npz"),
     "navview": ("navview_world.npz", None),
@@ -589,206 +584,74 @@ _CAMERA_WORLD_ARTIFACTS = {
 }
 
 
-def dump_state(
-    primitives: RoboCasaPrimitives,
-    env_state: EnvState,
-    log: dict | None = None,
-) -> StepRecord:
-    """Record one RoboCasa observation through its owned state record.
-
-    Appends a new :class:`StepRecord` (proprio + task + success + vla_desync)
-    via :meth:`EnvState.record_step`, saves the rendered RGB / depth / world
-    artifacts for that step, and prunes heavy npy artifacts that fell out of
-    the ``_keep_heavy`` window.
-    """
-    state_dict = primitives.current_state_dict()
-    log = log or {}
-    with env_state.record_step(
-        state=state_dict["state"],
-        terminated=state_dict["robocasa_terminated"],
-        truncated=False,
-        command=log.get("command"),
-        result=log.get("result"),
-        elapsed_s=log.get("elapsed_s"),
-        extras={
-            "task_language": state_dict["task_language"],
-            "success": state_dict["success"],
-            "task_progress": state_dict["task_progress"],
-            "vla_desync": primitives._vla_desync,
-        },
-    ) as step_idx:
-        _save_observation_artifacts(primitives, env_state, step_idx)
-        env_state.prune_artifacts(
-            _HEAVY_ARTIFACTS, step=step_idx, keep_last=primitives._keep_heavy
-        )
-    return env_state.get(step_idx)
-
-
-def _save_observation_artifacts(
-    primitives: RoboCasaPrimitives,
-    env_state: EnvState,
-    step_idx: int,
-) -> None:
-    """Render and save all per-step observation artifacts for ``step_idx``."""
-    env = primitives.env
-    hi_res = primitives.hi_res
-
-    # ---- agentview + wrist: rgb, depth, world map, camera meta ----
-    for cam, image_name, depth_name, world_name, meta_name in (
-        (
-            "agentview",
-            "agentview.png",
-            "agentview_depth.npz",
-            "agentview_world.npz",
-            "agentview_metadata.json",
-        ),
-        (
-            "wrist",
-            "wrist.png",
-            "wrist_depth.npz",
-            "wrist_world.npz",
-            "wrist_metadata.json",
-        ),
-    ):
-        rgb, depth = env.render_camera(cam, depth=True)
-        env_state.save(image_name, rgb, step=step_idx)
-        env_state.save(depth_name, depth.astype(np.float32), step=step_idx)
-        env_state.save(world_name, env.world_map(cam).astype(np.float32), step=step_idx)
-        if cam not in primitives._cam_meta_cache or cam == "wrist":
-            primitives._cam_meta_cache[cam] = env.get_camera_meta(cam)
-        env_state.save(meta_name, primitives._cam_meta_cache[cam], step=step_idx)
-
-    # ---- hi-res agentview (SAM grounding / fine localize) ----
-    if hi_res:
-        hrgb, _ = env.render_camera("agentview", hi_res, hi_res, depth=True)
-        env_state.save("agentview_high.png", hrgb, step=step_idx)
-        env_state.save(
-            "agentview_world_high.npz",
-            env.world_map("agentview", hi_res, hi_res).astype(np.float16),
-            step=step_idx,
-        )
-
-    # ---- navview: base-mounted forward-down floor camera (follows the base) ----
-    nrgb, _ = env.render_camera("navview", depth=True)
-    nworld = env.world_map("navview").astype(np.float32)
-    env_state.save("navview.png", nrgb, step=step_idx)
-    env_state.save("navview_world.npz", nworld, step=step_idx)
-    floor = (nworld[:, :, 2] < 0.12) & (nworld[:, :, 2] > -0.2)
-    overlay = nrgb.copy()
-    overlay[floor] = [0, 255, 0]
-    env_state.save("navview_floor.png", overlay, step=step_idx)
-
-
-# ---- tool handlers (@readonly perception tools take state: EnvState) ----
-
-
+@tool
 @readonly
-def view_env_state(step: int | None = None, *, state: EnvState) -> dict:
-    """Read one recorded state with embedded camera / navview / wrist images."""
+def view_env_state(
+    step: int | None = None, *, ctx: ToolContext[RoboCasaRuntime]
+) -> ToolResult:
+    """Read step NN from states.json + the matching state images in the output dir. If step is null, returns the latest entry. Each entry contains the env state, robocasa_terminated flag, task_progress, vla_desync status, and log. Embeds available PNGs as multimodal image content blocks. Use calibration-frame agentview images for pixel back-projection; use navview for base navigation and floor walkability; use wrist for close-range details near the gripper.
+
+    Args:
+        step: Step number; 0 = initial. Null = latest.
+    """
+    from robots.robocasa.toolkit import build_observation
+
     try:
-        record = state.get(step if step is not None else -1)
+        record = ctx.state.get(step if step is not None else -1)
     except Exception as exc:
-        return {"error": f"state step not available: {exc}"}
-
-    nn = record.step_idx
-    extras = record.extras
-    out: dict = {
-        "step": nn,
-        "task_progress": extras.get("task_progress", {}),
-        "task_language": extras.get("task_language", ""),
-        "state": record.state,
-        "robocasa_terminated": record.terminated,
-        "vla_desync": extras.get("vla_desync", False),
-        "success": extras.get("success", False),
-        "log": {
-            "command": record.command,
-            "result": record.result,
-            "elapsed_s": record.elapsed_s,
-        },
-        "images": [],
-    }
-
-    for kind, candidates in (
-        ("_image_cam_bytes", _CAMERA_IMAGE_ARTIFACTS["agentview"]),
-        ("_image_nav_bytes", _CAMERA_IMAGE_ARTIFACTS["navview"]),
-        ("_image_wrist_bytes", _CAMERA_IMAGE_ARTIFACTS["wrist"]),
-    ):
-        for name in candidates:
-            if name not in record.artifacts:
-                continue
-            try:
-                out[kind] = state.load_bytes(name, step=nn)
-            except FileNotFoundError:
-                continue
-            label = {
-                "_image_cam_bytes": ("calibration_frame", "agentview"),
-                "_image_nav_bytes": ("nav_view", "navview"),
-                "_image_wrist_bytes": ("calibration_frame", "wrist"),
-            }[kind]
-            out["images"].append(
-                {
-                    "role": label[0],
-                    "camera": label[1],
-                    "artifact": name,
-                }
-            )
-            break
-
-    return out
+        return ToolResult(error=f"state step not available: {exc}")
+    data, images = build_observation(ctx.state, record)
+    return ToolResult(data=data, images=images)
 
 
+@tool
 @readonly
 def back_project_batch(
-    pixels: list[list[int]],
+    pixels: Annotated[
+        list[Annotated[list[int], Field(min_length=2, max_length=2)]],
+        Field(min_length=1, max_length=50),
+    ],
     step: int | None = None,
-    camera: str = "agentview",
-    resolution: str = "low",
+    camera: Literal["agentview", "navview", "wrist"] = "agentview",
+    resolution: Literal["high", "low"] = "low",
     *,
-    state: EnvState,
-) -> dict:
-    """Back-project multiple pixels to world XYZ in a single call.
+    ctx: ToolContext[RoboCasaRuntime],
+) -> ToolResult:
+    """Back-project one or more pixels to world XYZ points in a single call. Loads the world map once and queries all pixels. Returns each pixel's world_xyz plus a summary with median_xyz across valid pixels.
 
-    Loads the precomputed world map once and queries all *pixels*, returning
-    each result individually plus a summary with the median of valid points.
+    USE THIS for robust object localization: sample 3-8 pixels on the target object and read summary.median_xyz. Maximum 50 pixels per call.
+
+    Args:
+        pixels: List of [row, col] pixel coordinates (max 50)
+        step: Depth / world-map step to use (default latest).
+        camera: Camera to back-project from (default agentview).
+        resolution: Coordinate system for pixels (default low). Use 'low' for the standard 256x256 world map.
     """
-    camera = camera or "agentview"
-    resolution = resolution or "low"
-    if camera not in _CAMERA_WORLD_ARTIFACTS:
-        return {"error": f"bad camera '{camera}' (use agentview, navview, or wrist)"}
+    state = ctx.state
     low_name, hi_name = _CAMERA_WORLD_ARTIFACTS[camera]
     source_artifact = hi_name if resolution == "high" else low_name
     if source_artifact is None:
-        return {"error": f"{camera} has no {resolution}-resolution world map"}
+        return ToolResult(error=f"{camera} has no {resolution}-resolution world map")
 
     try:
         record = state.get(step if step is not None else -1)
     except Exception as exc:
-        return {"error": f"state step not available: {exc}"}
+        return ToolResult(error=f"state step not available: {exc}")
     nn = record.step_idx
     if source_artifact not in record.artifacts:
-        return {
-            "error": f"{camera} {resolution}-resolution world map not recorded for step {nn}"
-        }
+        return ToolResult(
+            error=f"{camera} {resolution}-resolution world map not recorded for step {nn}"
+        )
 
     try:
         world_map = state.load(source_artifact, step=nn)
     except Exception as exc:
-        return {"error": f"{source_artifact} not found for step {nn}: {exc}"}
+        return ToolResult(error=f"{source_artifact} not found for step {nn}: {exc}")
 
     results = []
     valid_xyzs = []
     for pixel in pixels:
-        if not isinstance(pixel, (list, tuple)) or len(pixel) != 2:
-            results.append(
-                {
-                    "pixel": pixel,
-                    "world_xyz": None,
-                    "valid": False,
-                    "error": "pixel must be [row, col]",
-                }
-            )
-            continue
-        row, col = int(pixel[0]), int(pixel[1])
+        row, col = pixel
         h, w = world_map.shape[:2]
         if row < 0 or row >= h or col < 0 or col >= w:
             results.append(
@@ -837,50 +700,67 @@ def back_project_batch(
             round(float(median[2]), 4),
         ]
 
-    return {
-        "results": results,
-        "summary": summary,
-        "step": nn,
-        "camera": camera,
-        "resolution": resolution,
-    }
+    return ToolResult(
+        data={
+            "results": results,
+            "summary": summary,
+            "step": nn,
+            "camera": camera,
+            "resolution": resolution,
+        }
+    )
 
 
+@tool
 @readonly
 def query_world_map(
     z_min: float = 0.85,
     z_max: float = 0.95,
-    x_range: list[float] | None = None,
-    y_range: list[float] | None = None,
-    camera: str = "agentview",
-    resolution: str = "low",
+    x_range: Annotated[list[float], Field(min_length=2, max_length=2)] | None = None,
+    y_range: Annotated[list[float], Field(min_length=2, max_length=2)] | None = None,
+    camera: Literal["agentview", "navview", "wrist"] = "agentview",
+    resolution: Literal["high", "low"] = "low",
     min_cluster_size: int = 10,
     *,
-    state: EnvState,
-) -> dict:
-    """Query the world map by z-range and/or region to find objects."""
-    if camera not in _CAMERA_WORLD_ARTIFACTS:
-        return {"error": f"bad camera '{camera}' (use agentview, navview, or wrist)"}
+    ctx: ToolContext[RoboCasaRuntime],
+) -> ToolResult:
+    """Query the world map by Z-range / XY region to find objects at specific heights. Loads the world map once, filters pixels by z_min <= z <= z_max, optionally restricts to x_range / y_range, then clusters contiguous pixels into objects.
+
+    TYPICAL USES:
+    - z_min=0.85, z_max=0.95 -> countertop-height objects
+    - z_min=0.0, z_max=0.12, camera='navview' -> walkable floor
+    - z_min=0.85, z_max=0.95, x_range=[0,2], y_range=[-3,-1] -> counter objects in a specific quadrant
+
+    Args:
+        z_min: Minimum Z in meters (default 0.85 for counter height).
+        z_max: Maximum Z in meters (default 0.95 for counter height).
+        x_range: Optional X range [min, max] in meters; null = no filter.
+        y_range: Optional Y range [min, max] in meters; null = no filter.
+        camera: Camera world map to query (default agentview).
+        resolution: World map resolution (default low).
+        min_cluster_size: Minimum pixels per cluster to report (default 10).
+    """
+    state = ctx.state
     low_name, hi_name = _CAMERA_WORLD_ARTIFACTS[camera]
     source_artifact = hi_name if resolution == "high" else low_name
     if source_artifact is None:
-        return {"error": f"{camera} has no {resolution}-resolution world map"}
+        return ToolResult(error=f"{camera} has no {resolution}-resolution world map")
 
     try:
         record = state.get(-1)
     except Exception:
-        return {"error": "no state trace available"}
+        return ToolResult(error="no state trace available")
     nn = record.step_idx
     if source_artifact not in record.artifacts:
-        return {
-            "error": f"{camera} {resolution}-resolution world map not found for step {nn}"
-        }
+        return ToolResult(
+            error=f"{camera} {resolution}-resolution world map not found for step {nn}"
+        )
     try:
         world_map = state.load(source_artifact, step=nn)
     except Exception:
-        return {
-            "error": f"{camera} {resolution}-resolution world map not found for step {nn}"
-        }
+        return ToolResult(
+            error=f"{camera} {resolution}-resolution world map not found for step {nn}"
+        )
 
     z = world_map[:, :, 2]
     mask = (z >= z_min) & (z <= z_max) & np.isfinite(z)
@@ -894,10 +774,12 @@ def query_world_map(
     ys, xs = np.where(mask)
     total_pixels = len(ys)
     if total_pixels < min_cluster_size:
-        return {
-            "clusters": [],
-            "summary": {"total_clusters": 0, "total_pixels_matched": 0},
-        }
+        return ToolResult(
+            data={
+                "clusters": [],
+                "summary": {"total_clusters": 0, "total_pixels_matched": 0},
+            }
+        )
 
     h, w = world_map.shape[:2]
     grid_cells = max(8, min(32, h // 32))
@@ -947,53 +829,47 @@ def query_world_map(
         )
 
     clusters.sort(key=lambda c: -c["pixel_count"])
-    return {
-        "clusters": clusters[:20],
-        "summary": {
-            "total_clusters": len(clusters[:20]),
-            "total_pixels_matched": total_pixels,
-        },
-    }
+    return ToolResult(
+        data={
+            "clusters": clusters[:20],
+            "summary": {
+                "total_clusters": len(clusters[:20]),
+                "total_pixels_matched": total_pixels,
+            },
+        }
+    )
 
 
-@readonly
-def finish(status: str, summary: str) -> dict:
-    """Declare the task finished."""
-    return {"_finish": True, "status": status, "summary": summary}
+@tool
+def finish(
+    status: Literal["success", "failure", "stuck"],
+    summary: str,
+    *,
+    ctx: ToolContext[RoboCasaRuntime],
+) -> ToolResult:
+    """Declare the task finished. Call when robocasa_terminated becomes True (success detected), or when genuinely stuck after honest exploration. Provide a 1-3 sentence summary of what worked and what failed.
+
+    Args:
+        status: Task outcome classification.
+        summary: 1-3 sentence summary of what worked / what failed.
+    """
+    return ToolResult(data={"_finish": True, "status": status, "summary": summary})
 
 
-# ---- recipe export ----
-
-_PRIMITIVE_ACTIONS = frozenset(
-    {
-        "move_to",
-        "move_delta",
-        "rotate_pitch",
-        "set_gripper",
-        "release",
-        "scripted_grasp",
-        "rldx_skill",
-        "rldx_arm",
-        "navigate_to",
-        "move_base",
-        "reset",
-    }
+ROBOCASA_TOOLS = (
+    finish,
+    move_to,
+    move_delta,
+    rotate_pitch,
+    set_gripper,
+    release,
+    scripted_grasp,
+    move_base,
+    navigate_to,
+    rldx_skill,
+    rldx_arm,
+    reset,
+    view_env_state,
+    back_project_batch,
+    query_world_map,
 )
-
-
-def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:
-    """Export non-error RoboCasa primitive commands from the state trace as JSONL."""
-    commands = []
-    for record in state.records():
-        command = record.command
-        if not isinstance(command, dict):
-            continue
-        if command.get("action") not in _PRIMITIVE_ACTIONS:
-            continue
-        result = record.result
-        if isinstance(result, dict) and result.get("error"):
-            continue
-        commands.append(command)
-    recipe_name = f"{recipe_tag}_recipe.jsonl"
-    state.save(recipe_name, commands, step=None)
-    return recipe_name

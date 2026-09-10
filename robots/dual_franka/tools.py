@@ -12,169 +12,84 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Dual-Franka planner tools, primitives, and canonical state capture."""
+"""Native dual-Franka tools and canonical RGB-D state capture."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from robots.franka.tools import FrankaPrimitives, coerce_vec3
+from robots.dual_franka import perception
+from robots.franka.tools import (
+    Pixel,
+    Vec3,
+    _json_data,
+    _result,
+    view_camera_meta,
+    vla_grasp,
+)
 from rpent.session import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
+from rpent.tools import ToolContext, ToolResult, readonly, tool
 
-_ARM_PROPERTY = {
-    "type": "string",
-    "enum": ["left", "right"],
-    "description": "Which arm to command; the other arm is left uncommanded.",
-}
+if TYPE_CHECKING:
+    from robots.franka.toolkit import FrankaRuntime
 
-TOOLS_SPEC = [
-    {
-        "name": "view_env_state",
-        "description": "Read a dual-Franka state snapshot and its synchronized RGB images.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"step": {"type": "integer", "default": -1}},
-        },
-    },
-    {
-        "name": "view_camera_meta",
-        "description": "Read camera intrinsics, serials, and projection metadata for the dual-Franka rig.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"step": {"type": "integer", "default": -1}},
-        },
-    },
-    {
-        "name": "back_project_base_pixel",
-        "description": "Back-project one base-camera pixel into shared right-base coordinates.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "row": {"type": "integer", "minimum": 0},
-                "col": {"type": "integer", "minimum": 0},
-                "target_name": {"type": "string", "default": "target"},
-                "step": {"type": "integer"},
-                "window_radius": {"type": "integer", "minimum": 0, "default": 2},
-            },
-            "required": ["row", "col"],
-        },
-    },
-    {
-        "name": "back_project_d455_pixel",
-        "description": "Back-project one D455 pixel into shared right-base coordinates.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "row": {"type": "integer", "minimum": 0},
-                "col": {"type": "integer", "minimum": 0},
-                "target_name": {"type": "string", "default": "target"},
-                "step": {"type": "integer"},
-                "window_radius": {"type": "integer", "minimum": 0, "default": 2},
-            },
-            "required": ["row", "col"],
-        },
-    },
-    {
-        "name": "move_delta",
-        "description": "Move one Franka TCP by a bounded world-frame xyz delta in meters.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": _ARM_PROPERTY,
-                "delta_xyz": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                },
-            },
-            "required": ["arm", "delta_xyz"],
-        },
-    },
-    {
-        "name": "rotate_delta",
-        "description": "Rotate one Franka TCP by a bounded world-frame rpy delta in radians.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": _ARM_PROPERTY,
-                "delta_rpy": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                },
-            },
-            "required": ["arm", "delta_rpy"],
-        },
-    },
-    {
-        "name": "open_gripper",
-        "description": "Open one Franka gripper and wait for the command to settle.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"arm": _ARM_PROPERTY},
-            "required": ["arm"],
-        },
-    },
-    {
-        "name": "close_gripper",
-        "description": "Close one Franka gripper and wait for the command to settle.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"arm": _ARM_PROPERTY},
-            "required": ["arm"],
-        },
-    },
-    {
-        "name": "vla_grasp",
-        "description": "Run bounded real-world dual-arm VLA action chunks for a grasp attempt.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "prompt": {"type": "string"},
-                "max_chunks": {"type": "integer", "minimum": 1, "maximum": 20},
-            },
-            "required": ["prompt"],
-        },
-    },
-]
+Arm = Literal["left", "right"]
 
 
-def coerce_arm(value: Any) -> str:
-    """Return exactly ``'left'`` or ``'right'`` or raise a useful error."""
-    arm = str(value).strip().lower()
-    if arm not in {"left", "right"}:
-        raise ValueError("arm must be exactly 'left' or 'right'")
-    return arm
+@tool
+def move_delta(
+    arm: Arm, delta_xyz: Vec3, *, ctx: ToolContext[FrankaRuntime]
+) -> ToolResult:
+    """Move one Franka TCP by a bounded world-frame xyz delta in meters.
+
+    Args:
+        arm: Arm to command; the other arm is left uncommanded.
+        delta_xyz: World-frame x, y, z displacement in meters.
+    """
+    ctx.check_cancelled()
+    return _result(
+        ctx.robot.env.move_delta(arm, np.asarray(delta_xyz, dtype=np.float32))
+    )
 
 
-class DualFrankaPrimitives(FrankaPrimitives):
-    """Safe agent-facing operations over a remote dual-Franka environment."""
+@tool
+def rotate_delta(
+    arm: Arm, delta_rpy: Vec3, *, ctx: ToolContext[FrankaRuntime]
+) -> ToolResult:
+    """Rotate one Franka TCP by a bounded world-frame rpy delta in radians.
 
-    def move_delta(self, arm: str, delta_xyz: Sequence[float]) -> dict[str, Any]:
-        self._check_cancelled()
-        return self.env.move_delta(
-            coerce_arm(arm), coerce_vec3(delta_xyz, name="delta_xyz")
-        )
+    Args:
+        arm: Arm to command; the other arm is left uncommanded.
+        delta_rpy: World-frame roll, pitch, yaw displacement in radians.
+    """
+    ctx.check_cancelled()
+    return _result(
+        ctx.robot.env.rotate_delta(arm, np.asarray(delta_rpy, dtype=np.float32))
+    )
 
-    def rotate_delta(self, arm: str, delta_rpy: Sequence[float]) -> dict[str, Any]:
-        self._check_cancelled()
-        return self.env.rotate_delta(
-            coerce_arm(arm), coerce_vec3(delta_rpy, name="delta_rpy")
-        )
 
-    def open_gripper(self, arm: str) -> dict[str, Any]:
-        self._check_cancelled()
-        return self.env.set_gripper(coerce_arm(arm), open=True)
+@tool
+def open_gripper(arm: Arm, *, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
+    """Open one Franka gripper and wait for the command to settle.
 
-    def close_gripper(self, arm: str) -> dict[str, Any]:
-        self._check_cancelled()
-        return self.env.set_gripper(coerce_arm(arm), open=False)
+    Args:
+        arm: Arm to command; the other arm is left uncommanded.
+    """
+    ctx.check_cancelled()
+    return _result(ctx.robot.env.set_gripper(arm, open=True))
+
+
+@tool
+def close_gripper(arm: Arm, *, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
+    """Close one Franka gripper and wait for the command to settle.
+
+    Args:
+        arm: Arm to command; the other arm is left uncommanded.
+    """
+    ctx.check_cancelled()
+    return _result(ctx.robot.env.set_gripper(arm, open=False))
 
 
 # VLA policy-obs slots mapped to their EnvState stem and raw-frame key. The
@@ -205,7 +120,7 @@ def _policy_views(main: Any, extra: Any, *, channels: bool) -> list[Any]:
 
 
 def dump_state(
-    primitives: DualFrankaPrimitives,
+    runtime: FrankaRuntime,
     state: EnvState,
     *,
     command: dict[str, Any] | None,
@@ -219,9 +134,9 @@ def dump_state(
     helpers (crop parameters live in ``camera_meta.json``). The policy view is
     persisted only as a fallback when a camera's raw frame is unavailable.
     """
-    observation = primitives.env.get_observation()
-    robot_state = primitives.env.get_robot_state()
-    metadata = primitives.env.get_camera_meta()
+    observation = runtime.env.get_observation()
+    robot_state = runtime.env.get_robot_state()
+    metadata = runtime.env.get_camera_meta()
     raw_frames = observation.get("raw_camera_frames") or {}
     raw_depths = observation.get("raw_camera_depths") or {}
     policy_frames = _policy_views(
@@ -235,7 +150,7 @@ def dump_state(
         channels=False,
     )
     with state.record_step(
-        state=robot_state,
+        state=_json_data(robot_state),
         command=command,
         result=result,
         elapsed_s=elapsed_s,
@@ -262,19 +177,101 @@ def dump_state(
     return state.get(step)
 
 
+def build_observation(state: EnvState, record: StepRecord) -> ToolResult:
+    """Return recorded JSON and left wrist/base/right wrist PNGs in order."""
+    data = record.to_blob()
+    data["images"] = []
+    images = []
+    for name in ("left_wrist", "base", "right_wrist"):
+        if f"{name}.png" in record.artifacts:
+            data["images"].append(name)
+            images.append(state.load_bytes(f"{name}.png", step=record.step_idx))
+    return ToolResult(data=data, images=images)
+
+
+@tool
 @readonly
-def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
-    """Return one recorded dual-Franka state with image blocks for the planner."""
-    record = state.get(step)
-    output = record.to_blob()
-    output["images"] = []
-    for artifact, path_key, bytes_key in (
-        ("left_wrist.png", "image_left_wrist_path", "_image_bytes"),
-        ("base.png", "image_base_path", "_image_cam_bytes"),
-        ("right_wrist.png", "image_right_wrist_path", "_image_wrist_bytes"),
-    ):
-        if state.exists(artifact, step=record.step_idx):
-            output[path_key] = str(state.artifact_path(artifact, step=record.step_idx))
-            output[bytes_key] = state.load_bytes(artifact, step=record.step_idx)
-            output["images"].append(artifact.removesuffix(".png"))
-    return output
+def view_env_state(step: int = -1, *, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
+    """Read a dual-Franka state snapshot and its synchronized RGB images.
+
+    Args:
+        step: Recorded step index, or -1 for the latest state.
+    """
+    return build_observation(ctx.state, ctx.state.get(step))
+
+
+@tool
+@readonly
+def back_project_base_pixel(
+    row: Pixel,
+    col: Pixel,
+    target_name: str = "target",
+    step: int | None = None,
+    window_radius: Pixel = 2,
+    *,
+    ctx: ToolContext[FrankaRuntime],
+) -> ToolResult:
+    """Back-project one base-camera pixel into shared right-base coordinates.
+
+    Args:
+        row: Pixel row in the recorded base-camera image.
+        col: Pixel column in the recorded base-camera image.
+        target_name: Target label for the diagnostic image.
+        step: Recorded step index; omitted or -1 selects the latest state.
+        window_radius: Depth sampling radius around the selected pixel.
+    """
+    return _result(
+        perception.back_project_base_pixel(
+            row=row,
+            col=col,
+            target_name=target_name,
+            step=step,
+            window_radius=window_radius,
+            state=ctx.state,
+        )
+    )
+
+
+@tool
+@readonly
+def back_project_d455_pixel(
+    row: Pixel,
+    col: Pixel,
+    target_name: str = "target",
+    step: int | None = None,
+    window_radius: Pixel = 2,
+    *,
+    ctx: ToolContext[FrankaRuntime],
+) -> ToolResult:
+    """Back-project one D455 pixel into shared right-base coordinates.
+
+    Args:
+        row: Pixel row in the recorded D455 image.
+        col: Pixel column in the recorded D455 image.
+        target_name: Target label for the diagnostic image.
+        step: Recorded step index; omitted or -1 selects the latest state.
+        window_radius: Depth sampling radius around the selected pixel.
+    """
+    return _result(
+        perception.back_project_d455_pixel(
+            row=row,
+            col=col,
+            target_name=target_name,
+            step=step,
+            window_radius=window_radius,
+            state=ctx.state,
+        )
+    )
+
+
+DUAL_FRANKA_TOOLS = (
+    view_env_state,
+    view_camera_meta,
+    back_project_base_pixel,
+    back_project_d455_pixel,
+    move_delta,
+    rotate_delta,
+    open_gripper,
+    close_gripper,
+    vla_grasp,
+)

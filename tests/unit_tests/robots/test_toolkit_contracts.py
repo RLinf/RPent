@@ -14,18 +14,13 @@
 
 from __future__ import annotations
 
+from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from robots.libero import robot_spec as libero_robot_spec
-from robots.libero import toolkit as libero_toolkit
-from robots.robocasa import robot_spec as robocasa_robot_spec
-from robots.robocasa import toolkit as robocasa_toolkit
-from robots.robotwin import robot_spec as robotwin_robot_spec
-from robots.robotwin import toolkit as robotwin_toolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.robots import RunConfig
 
@@ -39,21 +34,17 @@ def _run_config(memory_dir: Path, *, recipe_tag: str = "cell-s0") -> RunConfig:
     )
 
 
-@pytest.mark.parametrize(
-    ("robot_spec", "toolkit_module", "toolkit_name", "configured_leaf"),
-    [
-        (robocasa_robot_spec, robocasa_toolkit, "RoboCasaToolkit", "memory"),
-        (robotwin_robot_spec, robotwin_toolkit, "RoboTwinToolkit", "memory"),
-    ],
-)
+@pytest.mark.parametrize("robot_name", ["robocasa", "robotwin"])
 def test_evaluation_toolkit_factories_use_configured_read_only_memory(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    robot_spec: Any,
-    toolkit_module: Any,
-    toolkit_name: str,
-    configured_leaf: str,
+    robot_name: str,
 ) -> None:
+    robot_spec = import_module(f"robots.{robot_name}.robot_spec")
+    toolkit_module = import_module(f"robots.{robot_name}.toolkit")
+    toolkit_name = {"robocasa": "RoboCasaToolkit", "robotwin": "RoboTwinToolkit"}[
+        robot_name
+    ]
     captured: dict[str, Any] = {}
 
     def fake_toolkit(**kwargs: Any) -> SimpleNamespace:
@@ -61,50 +52,37 @@ def test_evaluation_toolkit_factories_use_configured_read_only_memory(
         return SimpleNamespace(**kwargs)
 
     monkeypatch.setattr(toolkit_module, toolkit_name, fake_toolkit)
-    resources_dir = tmp_path / robot_spec.__name__
-    configured_dir = resources_dir / configured_leaf
-    memory_dir = resources_dir / "memory"
-
+    memory_dir = tmp_path / robot_name / "memory"
     toolkit = robot_spec.get_toolkit(
         runtime_kwargs={"env": "offline"},
         dashboard_events=NullDashboardEventSink(),
-        config=_run_config(configured_dir),
+        config=_run_config(memory_dir),
     )
 
     assert toolkit.memory.root == memory_dir.resolve()
-    write = toolkit.memory.get_common_tool_bindings()["write_text_file"][1]
     with pytest.raises(PermissionError, match="writing to memory is denied"):
-        write(str(memory_dir / "global" / "strategy.md"), "changed")
+        toolkit.memory.authorize_write(memory_dir / "global" / "strategy.md")
     assert captured["runtime_kwargs"] == {"env": "offline"}
+    assert captured["output_dir"] == memory_dir.parent / "run"
 
 
-@pytest.mark.parametrize(
-    ("robot_name", "robot_spec", "toolkit_module", "toolkit_name"),
-    [
-        ("libero", libero_robot_spec, libero_toolkit, "LiberoToolkit"),
-        ("robotwin", robotwin_robot_spec, robotwin_toolkit, "RoboTwinToolkit"),
-    ],
-)
+@pytest.mark.parametrize("robot_name", ["libero", "robocasa", "robotwin"])
 def test_toolkit_factories_fall_back_to_each_robot_memory_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     robot_name: str,
-    robot_spec: Any,
-    toolkit_module: Any,
-    toolkit_name: str,
 ) -> None:
+    robot_spec = import_module(f"robots.{robot_name}.robot_spec")
+    toolkit_module = import_module(f"robots.{robot_name}.toolkit")
+    toolkit_name = {
+        "libero": "LiberoToolkit",
+        "robocasa": "RoboCasaToolkit",
+        "robotwin": "RoboTwinToolkit",
+    }[robot_name]
     default_memory = tmp_path / robot_name / "memory"
+    monkeypatch.setattr(robot_spec, "get_memory_dir", lambda _: default_memory)
     monkeypatch.setattr(
-        robot_spec,
-        "get_memory_dir",
-        lambda requested_robot: (
-            default_memory if requested_robot == robot_name else None
-        ),
-    )
-    monkeypatch.setattr(
-        toolkit_module,
-        toolkit_name,
-        lambda **kwargs: SimpleNamespace(**kwargs),
+        toolkit_module, toolkit_name, lambda **kwargs: SimpleNamespace(**kwargs)
     )
     config = RunConfig(
         recipe_tag="cell-s0",
@@ -112,11 +90,9 @@ def test_toolkit_factories_fall_back_to_each_robot_memory_root(
         prompt_vars={},
         task_desc={},
     )
-
     toolkit = robot_spec.get_toolkit(
         runtime_kwargs={},
         dashboard_events=NullDashboardEventSink(),
         config=config,
     )
-
     assert toolkit.memory.root == default_memory.resolve()

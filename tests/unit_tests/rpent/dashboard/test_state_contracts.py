@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+from fastapi.testclient import TestClient
 
 from rpent.dashboard.events import (
     RunStartedEvent,
@@ -33,10 +34,12 @@ from rpent.dashboard.interaction import (
     InteractionUnavailableError,
     UnknownDashboardMessageError,
 )
+from rpent.dashboard.server import DashboardServer
 from rpent.dashboard.spec import DashboardSpec
 from rpent.dashboard.state import DashboardState
+from rpent.memory import MemoryManager
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, ToolResult
+from rpent.tools import Toolkit, ToolResult, readonly, tool
 
 DASHBOARD_SPEC: DashboardSpec = {
     "task": {
@@ -226,13 +229,14 @@ def test_dashboard_primitives_are_available_only_while_planner_is_idle(
     state = _ready_state(tmp_path)
     _claim_started_task(state)
     toolkit = MagicMock(spec=Toolkit)
-    toolkit.get_tools_spec.return_value = [
-        {
-            "name": "move_to",
-            "input_schema": {"type": "object", "additionalProperties": False},
-        }
-    ]
-    tool_result = ToolResult(name="move_to", result={"ok": True})
+
+    @tool
+    def move_to(*, ctx) -> ToolResult:
+        """Move the robot."""
+        return ToolResult(data={"ok": True})
+
+    toolkit.list_tools.return_value = (move_to,)
+    tool_result = ToolResult(data={"ok": True})
     toolkit.execute_tool.return_value = tool_result
     state.bind_toolkit(toolkit)
 
@@ -244,7 +248,9 @@ def test_dashboard_primitives_are_available_only_while_planner_is_idle(
 
     state.set_planner_activity("idle", accepting_input=True)
     assert state.snapshot()["primitives_available"] is True
-    assert state.primitive_specs() == toolkit.get_tools_spec.return_value
+    assert state.primitive_specs() == [
+        {"name": "move_to", "input_schema": move_to.input_schema}
+    ]
     assert state.execute_primitive("move_to", {}) is tool_result
 
     state.set_planner_activity("busy")
@@ -383,3 +389,93 @@ def test_dashboard_step_events_offset_new_traces_and_resolve_action_video(
     assert detail["timeline"][1]["terminated"] is True
     assert state.frame("camera") == second_env.load_bytes("camera.png")
     assert state.action_video_path(0) == first_env.artifact_path("action.mp4", step=0)
+
+
+def test_primitive_http_uses_native_validation_results_and_observation(tmp_path):
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    calls = []
+
+    @tool
+    def move_to(distance: int, *, ctx) -> ToolResult:
+        """Move a test robot."""
+        calls.append(distance)
+        if distance < 0:
+            return ToolResult(error="motion rejected")
+        return ToolResult(data={"distance": distance})
+
+    @tool
+    @readonly
+    def finish(status: str, summary: str, *, ctx) -> ToolResult:
+        """Finish the test task."""
+        return ToolResult(data={"status": status, "summary": summary})
+
+    class RobotToolkit(Toolkit):
+        def _capture_observation(self, *, command, result, elapsed_s):
+            with self.state.record_step(
+                state={"distance": calls[-1]},
+                command=command,
+                result=result.to_dict(),
+                elapsed_s=elapsed_s,
+            ):
+                self.state.save("overhead.png", np.zeros((2, 2, 3), dtype=np.uint8))
+            return {"distance": calls[-1]}, []
+
+    toolkit = RobotToolkit(
+        robot=None,
+        tools=(move_to, finish),
+        state=EnvState(tmp_path / "env"),
+        memory=MemoryManager(root=tmp_path / "memory"),
+        output_dir=tmp_path,
+        dashboard_events=state,
+    )
+    state.bind_toolkit(toolkit)
+    state.set_planner_activity("idle", accepting_input=True)
+    with TestClient(DashboardServer(state=state)._app) as client:
+        specs = client.get("/api/session/primitives").json()["primitives"]
+        assert specs == [{"name": "move_to", "input_schema": move_to.input_schema}]
+        for arguments in ({}, {"distance": "bad"}):
+            response = client.post(
+                "/api/session/primitive",
+                json={"name": "move_to", "arguments": arguments},
+            )
+            assert response.status_code == 422
+            assert "Invalid arguments for move_to" in response.json()["error"]
+        assert calls == []
+        response = client.post(
+            "/api/session/primitive", json={"name": "finish", "arguments": {}}
+        )
+        assert response.status_code == 403
+        # Coercion is the same native validation used by planner tool calls.
+        response = client.post(
+            "/api/session/primitive",
+            json={"name": "move_to", "arguments": {"distance": "2"}},
+        )
+        assert response.json() == {"ok": True}
+        assert calls == [2]
+        snapshot = client.get("/api/session/state").json()
+        assert snapshot["frame_available"] == {"overhead": True}
+        frame = client.get("/api/session/frame", params={"kind": "overhead"})
+        assert frame.headers["content-type"] == "image/png"
+        assert frame.content == toolkit.state.load_bytes("overhead.png")
+        assert (
+            client.get("/api/session/frame", params={"kind": "missing"}).status_code
+            == 404
+        )
+        response = client.post(
+            "/api/session/primitive",
+            json={"name": "move_to", "arguments": {"distance": -1}},
+        )
+        assert response.status_code == 422
+        assert response.json() == {"error": "motion rejected"}
+        state.set_planner_activity("busy")
+        assert (
+            client.post(
+                "/api/session/primitive",
+                json={"name": "move_to", "arguments": {"distance": 3}},
+            ).status_code
+            == 409
+        )
+        assert calls == [2, -1]
+    state.unbind_toolkit(toolkit)
+    toolkit.close()

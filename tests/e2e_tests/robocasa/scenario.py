@@ -93,7 +93,7 @@ def _validate_raw_observation(observation: Any) -> dict[str, Any]:
 def _capture_environment(output_dir: Path, args: Namespace) -> dict[str, Any]:
     spec = get_robot_spec()
     with runtime_phase(spec, args, output_dir / "env-capture", {"env"}) as runtime:
-        env = runtime["env_client"]
+        env = runtime["env"]
         raw_observation = env.reset()
         raw_check = _validate_raw_observation(raw_observation)
         cameras = {}
@@ -127,7 +127,7 @@ def _capture_environment(output_dir: Path, args: Namespace) -> dict[str, Any]:
 def _rldx_checks(output_dir: Path, args: Namespace) -> dict[str, Any]:
     spec = get_robot_spec()
     with runtime_phase(spec, args, output_dir / "rldx", {"vla"}) as runtime:
-        client = runtime["vla_client"]
+        client = runtime["model"]
         modality = client.get_modality_config()
         frame_count = len(modality["video_delta_indices"])
         image = synthetic_rgb()

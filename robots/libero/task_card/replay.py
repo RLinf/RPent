@@ -32,15 +32,18 @@ import json
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from robots.libero import tools as libero_tools
 from robots.libero.task_card.prompts import build as prompt_for
 from rpent.robots.components.molmo_client import MolmoClient
 from rpent.session import EnvState
 from rpent.utils.config import get_memory_dir
+
+if TYPE_CHECKING:
+    from robots.libero.toolkit import LiberoToolkit
+
 
 #: ``<family>_<suite>_t<task>_s<seed>``, the tag the CLI builds per cell.
 _CELL = re.compile(r"^(10|goal|object|spatial)_(task|swap)_t(\d+)_s(\d+)$")
@@ -74,7 +77,7 @@ TASK_CARD_PICK_THRESHOLDS = {
 
 
 def profile(
-    state: EnvState,
+    toolkit: LiberoToolkit,
     step: int,
     camera: str,
     col: float,
@@ -91,15 +94,17 @@ def profile(
     """
     points = []
     for offset in np.linspace(-spread, spread, samples):
-        found = libero_tools.back_project(
-            row=int(round(row + offset)),
-            col=int(round(col)),
-            step=step,
-            camera=camera,
-            resolution="high",
-            state=state,
+        found = toolkit.execute_tool(
+            "back_project",
+            {
+                "row": int(round(row + offset)),
+                "col": int(round(col)),
+                "step": step,
+                "camera": camera,
+                "resolution": "high",
+            },
         )
-        world = found.get("world_xyz") if isinstance(found, dict) else None
+        world = found.data.get("world_xyz") if not found.is_error else None
         if isinstance(world, list) and len(world) >= 3 and all(np.isfinite(world[:3])):
             points.append([float(v) for v in world[:3]])
     if not points:
@@ -122,20 +127,22 @@ def profile(
     }
 
 
-def locate(molmo: MolmoClient, state: EnvState, step: int, camera: str, query: str):
-    image = _image_bytes(state, step, camera)
+def locate(
+    molmo: MolmoClient, toolkit: LiberoToolkit, step: int, camera: str, query: str
+):
+    image = _image_bytes(toolkit.state, step, camera)
     if image is None:
         return None
     found = molmo.ground(image, query)
     if not found.found:
         return None
     col, row = found.point_xy
-    return profile(state, step, camera, col, row)
+    return profile(toolkit, step, camera, col, row)
 
 
-def held_body(molmo: MolmoClient, state: EnvState, step: int, query: str):
+def held_body(molmo: MolmoClient, toolkit: LiberoToolkit, step: int, query: str):
     """What is in the gripper, sampled on a grid because a line may miss it."""
-    image = _image_bytes(state, step, "wrist")
+    image = _image_bytes(toolkit.state, step, "wrist")
     if image is None:
         return None
     found = molmo.ground(image, query)
@@ -145,15 +152,17 @@ def held_body(molmo: MolmoClient, state: EnvState, step: int, query: str):
     points = []
     for dc in (-40, 0, 40):
         for dr in (-40, 0, 40):
-            got = libero_tools.back_project(
-                row=int(round(row + dr)),
-                col=int(round(col + dc)),
-                step=step,
-                camera="wrist",
-                resolution="high",
-                state=state,
+            got = toolkit.execute_tool(
+                "back_project",
+                {
+                    "row": int(round(row + dr)),
+                    "col": int(round(col + dc)),
+                    "step": step,
+                    "camera": "wrist",
+                    "resolution": "high",
+                },
             )
-            world = got.get("world_xyz") if isinstance(got, dict) else None
+            world = got.data.get("world_xyz") if not got.is_error else None
             if (
                 isinstance(world, list)
                 and len(world) >= 3
@@ -201,14 +210,14 @@ def pick_succeeded(raw) -> bool:
     return action_result(raw).get("success") is True
 
 
-def execute(toolkit: Any, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+def execute(
+    toolkit: LiberoToolkit, name: str, arguments: dict[str, Any]
+) -> dict[str, Any]:
     """Execute one toolkit action and turn its error result into an exception."""
-    result = toolkit.execute_tool(name, arguments).result
-    if not isinstance(result, dict):
-        raise RuntimeError(f"{name} returned an invalid result: {result!r}")
-    if error := result.get("error"):
-        raise RuntimeError(f"{name} failed: {error}")
-    return result
+    result = toolkit.execute_tool(name, arguments)
+    if result.is_error:
+        raise RuntimeError(f"{name} failed: {result.error}")
+    return result.data
 
 
 def cards(root: Path | None = None) -> Path:
@@ -244,7 +253,7 @@ def load(root: Path, card_name: str) -> dict:
 
 
 def replay(
-    toolkit: Any,
+    toolkit: LiberoToolkit,
     molmo: MolmoClient,
     card: dict,
     note: Callable[[str], None] = lambda _: None,
@@ -307,7 +316,7 @@ def replay(
             )
         else:
             got = locate(
-                molmo, state, opening, "agentview", prompt_for("survey", phrase)
+                molmo, toolkit, opening, "agentview", prompt_for("survey", phrase)
             )
             xy = got["xy"] if got else None
         if xy is None or max(abs(xy[0]), abs(xy[1])) > REACH:
@@ -353,7 +362,7 @@ def replay(
             )
         except Exception:
             continue
-        close = locate(molmo, state, look(), "wrist", prompt_for("refine", phrase))
+        close = locate(molmo, toolkit, look(), "wrist", prompt_for("refine", phrase))
         if close is None:
             continue
         gap = float(np.linalg.norm(close["xy"] - coarse))
@@ -437,7 +446,7 @@ def replay(
         elif name == "set_gripper":
             execute(toolkit, name, arguments)
             held_step = look()
-            body = held_body(molmo, state, held_step, prompt_for("held", held_phrase))
+            body = held_body(molmo, toolkit, held_step, prompt_for("held", held_phrase))
             eef = np.asarray(state.get(held_step).state["robot0_eef_pos"][:2])
             candidate = body["xy"] - eef if body is not None else None
             if candidate is not None and np.linalg.norm(candidate) <= MAX_HELD:
@@ -462,7 +471,7 @@ def replay(
 
 
 def replay_card(
-    toolkit: Any, cell_tag: str, note: Callable[[str], None] = lambda _: None
+    toolkit: LiberoToolkit, cell_tag: str, note: Callable[[str], None] = lambda _: None
 ) -> dict:
     """Replay the card for one cell, named the way the CLI names its cells.
 
@@ -484,7 +493,7 @@ def replay_card(
     if not (root / f"{card_name}_plan.json").is_file():
         raise FileNotFoundError(f"no task card for {family}/{key} under {CARDS}")
 
-    molmo = toolkit.primitives.molmo_client
+    molmo = toolkit.molmo_client
     if molmo is None:
         raise RuntimeError(
             "no grounder: task cards need a Molmo server named by --molmo-endpoint"

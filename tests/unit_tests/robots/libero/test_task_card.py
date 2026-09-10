@@ -14,12 +14,96 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
 
 from robots.libero.robot_spec import _parse_config
-from robots.libero.task_card.replay import cards, execute, load, pick_succeeded, replay
+from robots.libero.task_card.replay import (
+    cards,
+    execute,
+    load,
+    locate,
+    pick_succeeded,
+    replay,
+)
+from rpent.planner.task_card import TaskCardPlanner
+from rpent.robots.components.molmo_client import MolmoResult
+from rpent.tools import ToolResult
+
+
+def test_locate_uses_native_back_projection(make_toolkit):
+    grounded = []
+
+    def ground(image, query):
+        grounded.append((image, query))
+        return MolmoResult(found=True, point_xy=(4, 4))
+
+    molmo = SimpleNamespace(ground=ground)
+    toolkit, env, _ = make_toolkit(molmo_client=molmo)
+    opening = toolkit.state.latest_step
+
+    found = locate(toolkit.molmo_client, toolkit, opening, "agentview", "bowl")
+
+    assert found is not None
+    assert found["xy"] == pytest.approx([0.0, 0.0])
+    assert found["z_top"] == pytest.approx(1.0)
+    assert grounded[0][0].startswith(b"\x89PNG")
+    assert grounded[0][1] == "bowl"
+    assert toolkit.state.latest_step == opening
+    assert env.actions == []
+
+
+def test_task_card_planner_executes_native_toolkit(make_toolkit, tmp_path, monkeypatch):
+    (tmp_path / "object_task_t0_plan.json").write_text(
+        json.dumps({"plan": [{"action": "pi0_pick", "arguments": {"prompt": "bowl"}}]})
+    )
+    (tmp_path / "object_task_t0_anchors.json").write_text('{"anchors": []}')
+    monkeypatch.setattr("robots.libero.task_card.replay.CARDS", tmp_path)
+    toolkit, env, model = make_toolkit(molmo_client=SimpleNamespace())
+    env.after_step = lambda: setattr(env, "terminated", True)
+
+    result = TaskCardPlanner(recipe_tag="object_task_t0_s1", robot_name="libero").solve(
+        system_prompt="", user_message="", toolkit=toolkit, max_turns=1
+    )
+
+    assert result.error is None
+    assert result.finish_result["status"] == "success"
+    assert result.stats["total_input_tokens"] == 0
+    assert model.instructions == ["bowl"]
+    assert env.reset_calls == 1
+    assert toolkit.solved()
+
+
+@pytest.mark.parametrize(
+    ("gripper_open_thresh", "descent_thresh", "success"),
+    [(0.003, 0.0, True), (0.05, 0.0, False), (0.003, 0.10, False)],
+)
+def test_native_pick_applies_task_card_thresholds(
+    make_toolkit, monkeypatch, gripper_open_thresh, descent_thresh, success
+):
+    toolkit, env, _ = make_toolkit()
+
+    def lift(ctx, prompt):
+        env.pos[2] = 0.36
+        obs = env.obs()
+        obs["states"][-2:] = [0.02, -0.02]
+        ctx.robot.set_obs(obs)
+
+    monkeypatch.setattr("robots.libero.tools._vlm_chunk", lift)
+    result = toolkit.execute_tool(
+        "pi0_pick",
+        {
+            "prompt": "bowl",
+            "max_chunks": 1,
+            "gripper_open_thresh": gripper_open_thresh,
+            "descent_thresh": descent_thresh,
+        },
+    )
+
+    assert not result.is_error
+    assert result.data["log"]["result"]["success"] is success
 
 
 class _Toolkit:
@@ -30,7 +114,7 @@ class _Toolkit:
 
     def execute_tool(self, name: str, arguments: dict):
         self.calls.append((name, arguments))
-        return SimpleNamespace(result=self.result)
+        return ToolResult(data=self.result, error=self.result.get("error"))
 
     def solved(self) -> bool:
         return False
@@ -119,7 +203,7 @@ def test_pick_retry_reuses_relocated_move_arguments() -> None:
                 result = {"success": False}
             else:
                 result = {}
-            return SimpleNamespace(result=result)
+            return ToolResult(data=result)
 
     toolkit = RetryToolkit()
     replay(

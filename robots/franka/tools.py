@@ -12,210 +12,126 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Franka planner tools, primitives, and canonical state capture."""
+"""Native Franka tools and canonical RGB-D state capture."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import numpy as np
+from pydantic import Field, FiniteFloat
 
+from robots.franka import perception
 from rpent.session import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
+from rpent.tools import ToolContext, ToolResult, readonly, tool
 
-TOOLS_SPEC = [
-    {
-        "name": "view_env_state",
-        "description": "Read a Franka state snapshot and its synchronized RGB images.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"step": {"type": "integer", "default": -1}},
-        },
-    },
-    {
-        "name": "view_camera_meta",
-        "description": "Read camera intrinsics, crop, depth, and calibration metadata.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"step": {"type": "integer", "default": -1}},
-        },
-    },
-    {
-        "name": "view_perception_setup",
-        "description": "Read calibrated camera geometry and projection conventions.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"step": {"type": "integer", "default": -1}},
-        },
-    },
-    {
-        "name": "back_project",
-        "description": "Back-project one wrist or external-camera pixel into Franka base coordinates.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "row": {"type": "integer", "minimum": 0},
-                "col": {"type": "integer", "minimum": 0},
-                "step": {"type": "integer"},
-                "camera": {"type": "string", "enum": ["wrist", "third_person"]},
-                "debug": {"type": "boolean", "default": False},
-            },
-            "required": ["row", "col"],
-        },
-    },
-    {
-        "name": "back_project_correspondence",
-        "description": "Fuse matched wrist and external-camera pixels into a Franka base point.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "third_person_row": {"type": "integer", "minimum": 0},
-                "third_person_col": {"type": "integer", "minimum": 0},
-                "wrist_row": {"type": "integer", "minimum": 0},
-                "wrist_col": {"type": "integer", "minimum": 0},
-                "pixels": {"type": "array", "items": {"type": "object"}},
-                "step": {"type": "integer"},
-                "debug": {"type": "boolean", "default": False},
-            },
-        },
-    },
-    {
-        "name": "move_delta",
-        "description": "Move the Franka TCP by a bounded base-frame xyz delta in meters.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "delta_xyz": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                }
-            },
-            "required": ["delta_xyz"],
-        },
-    },
-    {
-        "name": "rotate_delta",
-        "description": "Rotate the Franka TCP by a bounded base-frame rpy delta in radians.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "delta_rpy": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                }
-            },
-            "required": ["delta_rpy"],
-        },
-    },
-    {
-        "name": "open_gripper",
-        "description": "Open the Franka gripper and wait for the command to settle.",
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "close_gripper",
-        "description": "Close the Franka gripper and wait for the command to settle.",
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "vla_grasp",
-        "description": "Run bounded real-world VLA action chunks for a local grasp attempt.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "prompt": {"type": "string"},
-                "max_chunks": {"type": "integer", "minimum": 1, "maximum": 20},
-            },
-            "required": ["prompt"],
-        },
-    },
-]
+if TYPE_CHECKING:
+    from robots.franka.toolkit import FrankaRuntime
+
+Vec3 = Annotated[list[FiniteFloat], Field(min_length=3, max_length=3)]
+Pixel = Annotated[int, Field(ge=0)]
 
 
-def coerce_vec3(value: Sequence[float], *, name: str) -> np.ndarray:
-    """Return a finite float32 three-vector or raise a useful error."""
-    array = np.asarray(value, dtype=np.float32)
-    if array.shape != (3,):
-        raise ValueError(f"{name} must contain exactly 3 values, got {array.shape}")
-    if not np.isfinite(array).all():
-        raise ValueError(f"{name} must contain only finite values")
-    return array
+def _json_data(value: Any) -> Any:
+    """Convert NumPy values received from the robot RPC into tool JSON."""
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {key: _json_data(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_data(item) for item in value]
+    return value
 
 
-class FrankaPrimitives:
-    """Safe agent-facing operations over a remote Franka environment."""
+def _result(data: dict[str, Any]) -> ToolResult:
+    data = _json_data(data)
+    error = data.pop("error", None)
+    return ToolResult(data=data, error=error)
 
-    def __init__(
-        self,
-        *,
-        env: Any,
-        model: Any | None,
-        task_description: str,
-        check_cancelled: Callable[[], None],
-    ) -> None:
-        self.env = env
-        self.model = model
-        self.task_description = task_description
-        self._check_cancelled = check_cancelled
 
-    def reset(self) -> dict[str, Any]:
-        return self.env.reset()
+@tool
+def move_delta(delta_xyz: Vec3, *, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
+    """Move the Franka TCP by a bounded base-frame xyz delta in meters.
 
-    def move_delta(self, delta_xyz: Sequence[float]) -> dict[str, Any]:
-        self._check_cancelled()
-        return self.env.move_delta(coerce_vec3(delta_xyz, name="delta_xyz"))
+    Args:
+        delta_xyz: Base-frame x, y, z displacement in meters.
+    """
+    ctx.check_cancelled()
+    return _result(ctx.robot.env.move_delta(np.asarray(delta_xyz, dtype=np.float32)))
 
-    def rotate_delta(self, delta_rpy: Sequence[float]) -> dict[str, Any]:
-        self._check_cancelled()
-        return self.env.rotate_delta(coerce_vec3(delta_rpy, name="delta_rpy"))
 
-    def open_gripper(self) -> dict[str, Any]:
-        self._check_cancelled()
-        return self.env.set_gripper(open=True)
+@tool
+def rotate_delta(delta_rpy: Vec3, *, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
+    """Rotate the Franka TCP by a bounded base-frame rpy delta in radians.
 
-    def close_gripper(self) -> dict[str, Any]:
-        self._check_cancelled()
-        return self.env.set_gripper(open=False)
+    Args:
+        delta_rpy: Base-frame roll, pitch, yaw displacement in radians.
+    """
+    ctx.check_cancelled()
+    return _result(ctx.robot.env.rotate_delta(np.asarray(delta_rpy, dtype=np.float32)))
 
-    def vla_grasp(self, prompt: str, max_chunks: int = 4) -> dict[str, Any]:
-        if self.model is None:
-            raise RuntimeError("vla_grasp requires --vla-endpoint")
-        if not prompt.strip():
-            raise ValueError("prompt must be non-empty")
-        if not 1 <= int(max_chunks) <= 20:
-            raise ValueError("max_chunks must be between 1 and 20")
 
-        chunk_results: list[dict[str, Any]] = []
-        observation: dict[str, Any] | None = None
-        for _ in range(int(max_chunks)):
-            self._check_cancelled()
-            if observation is None:
-                observation = dict(self.env.get_observation())
-            observation["task_descriptions"] = prompt or self.task_description
-            actions = self.model.predict(observation, options={"mode": "eval"})
-            result = self.env.chunk_step(actions)
-            chunk_results.append(result)
-            if result.get("terminated") or result.get("truncated"):
-                break
-            # Reuse the obs chunk_step already returned instead of re-fetching it.
-            next_obs = result.get("observation")
-            observation = dict(next_obs) if isinstance(next_obs, dict) else None
+@tool
+def open_gripper(*, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
+    """Open the Franka gripper and wait for the command to settle."""
+    ctx.check_cancelled()
+    return _result(ctx.robot.env.set_gripper(open=True))
 
-        return {
+
+@tool
+def close_gripper(*, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
+    """Close the Franka gripper and wait for the command to settle."""
+    ctx.check_cancelled()
+    return _result(ctx.robot.env.set_gripper(open=False))
+
+
+@tool
+def vla_grasp(
+    prompt: str,
+    max_chunks: Annotated[int, Field(ge=1, le=20)] = 4,
+    *,
+    ctx: ToolContext[FrankaRuntime],
+) -> ToolResult:
+    """Run bounded real-world VLA action chunks for a local grasp attempt.
+
+    Args:
+        prompt: Non-empty instruction for this grasp attempt.
+        max_chunks: Maximum number of VLA chunks to execute.
+    """
+    runtime = ctx.robot
+    if runtime.model is None:
+        return ToolResult(error="vla_grasp requires --vla-endpoint")
+    if not prompt.strip():
+        return ToolResult(error="prompt must be non-empty")
+    observation = None
+    for chunk in range(max_chunks):
+        ctx.check_cancelled()
+        if observation is None:
+            observation = dict(runtime.env.get_observation())
+        observation["task_descriptions"] = prompt
+        actions = runtime.model.predict(observation, options={"mode": "eval"})
+        result = runtime.env.chunk_step(actions)
+        if result.get("terminated") or result.get("truncated"):
+            break
+        next_obs = result.get("observation")
+        observation = dict(next_obs) if isinstance(next_obs, dict) else None
+    # RGB-D arrays are captured as artifacts after execution, not repeated in JSON.
+    return _result(
+        {
             "ok": True,
-            "chunks_executed": len(chunk_results),
-            "last_chunk": chunk_results[-1] if chunk_results else None,
-            "robot_state": self.env.get_robot_state(),
+            "chunks_executed": chunk + 1,
+            "last_chunk": {
+                key: value for key, value in result.items() if key != "observation"
+            },
+            "robot_state": runtime.env.get_robot_state(),
         }
+    )
 
 
 def dump_state(
-    primitives: FrankaPrimitives,
+    runtime: FrankaRuntime,
     state: EnvState,
     *,
     command: dict[str, Any] | None,
@@ -223,11 +139,11 @@ def dump_state(
     elapsed_s: float | None,
 ) -> StepRecord:
     """Capture robot state and synchronized camera artifacts in ``EnvState``."""
-    observation = primitives.env.get_observation()
-    robot_state = primitives.env.get_robot_state()
-    metadata = primitives.env.get_camera_meta()
+    observation = runtime.env.get_observation()
+    robot_state = runtime.env.get_robot_state()
+    metadata = runtime.env.get_camera_meta()
     with state.record_step(
-        state=robot_state,
+        state=_json_data(robot_state),
         command=command,
         result=result,
         elapsed_s=elapsed_s,
@@ -255,34 +171,141 @@ def dump_state(
     return state.get(step)
 
 
-@readonly
-def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
-    """Return one recorded Franka state with image blocks for the planner."""
-    record = state.get(step)
-    output = record.to_blob()
-    if state.exists("wrist.png", step=record.step_idx):
-        output["image_wrist_path"] = str(
-            state.artifact_path("wrist.png", step=record.step_idx)
-        )
-        output["_image_wrist_bytes"] = state.load_bytes(
-            "wrist.png", step=record.step_idx
-        )
-    if state.exists("camera.png", step=record.step_idx):
-        output["image_cam_path"] = str(
-            state.artifact_path("camera.png", step=record.step_idx)
-        )
-        output["_image_cam_bytes"] = state.load_bytes(
-            "camera.png", step=record.step_idx
-        )
-    return output
+def build_observation(state: EnvState, record: StepRecord) -> ToolResult:
+    """Return recorded JSON and wrist/external PNGs in their declared order."""
+    data = record.to_blob()
+    data["images"] = []
+    images = []
+    for name in ("wrist", "camera"):
+        if f"{name}.png" in record.artifacts:
+            data["images"].append(name)
+            images.append(state.load_bytes(f"{name}.png", step=record.step_idx))
+    return ToolResult(data=data, images=images)
 
 
+@tool
 @readonly
-def view_camera_meta(step: int = -1, *, state: EnvState) -> dict[str, Any]:
-    """Return camera metadata captured for one state step."""
-    if not state.exists("camera_meta.json", step=step):
-        return {"error": "camera metadata is unavailable", "step": step}
-    return {
-        "step": state.get(step).step_idx,
-        "camera_meta": state.load("camera_meta.json", step=step),
-    }
+def view_env_state(step: int = -1, *, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
+    """Read a Franka state snapshot and its synchronized RGB images.
+
+    Args:
+        step: Recorded step index, or -1 for the latest state.
+    """
+    return build_observation(ctx.state, ctx.state.get(step))
+
+
+@tool
+@readonly
+def view_camera_meta(step: int = -1, *, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
+    """Read camera intrinsics, crop, depth, and calibration metadata.
+
+    Args:
+        step: Recorded step index, or -1 for the latest state.
+    """
+    if not ctx.state.exists("camera_meta.json", step=step):
+        return ToolResult(data={"step": step}, error="camera metadata is unavailable")
+    return _result(
+        {
+            "step": ctx.state.get(step).step_idx,
+            "camera_meta": ctx.state.load("camera_meta.json", step=step),
+        }
+    )
+
+
+@tool
+@readonly
+def view_perception_setup(
+    step: int = -1, *, ctx: ToolContext[FrankaRuntime]
+) -> ToolResult:
+    """Read calibrated camera geometry and projection conventions.
+
+    Args:
+        step: Recorded step index, or -1 for the latest state.
+    """
+    return _result(perception.view_perception_setup(state=ctx.state, step=step))
+
+
+@tool
+@readonly
+def back_project(
+    row: Pixel,
+    col: Pixel,
+    step: int | None = None,
+    camera: Literal["wrist", "third_person"] = "wrist",
+    debug: bool = False,
+    *,
+    ctx: ToolContext[FrankaRuntime],
+) -> ToolResult:
+    """Back-project one wrist or external-camera pixel into Franka base coordinates.
+
+    Args:
+        row: Pixel row in the recorded camera image.
+        col: Pixel column in the recorded camera image.
+        step: Recorded step index; omitted or -1 selects the latest state.
+        camera: Camera containing the selected pixel.
+        debug: Include projection diagnostics.
+    """
+    return _result(
+        perception.back_project(
+            row=row,
+            col=col,
+            step=step,
+            camera=camera,
+            debug=debug,
+            state=ctx.state,
+        )
+    )
+
+
+@tool
+@readonly
+def back_project_correspondence(
+    third_person_row: Pixel | None = None,
+    third_person_col: Pixel | None = None,
+    wrist_row: Pixel | None = None,
+    wrist_col: Pixel | None = None,
+    pixels: list[dict[str, Any]] | None = None,
+    step: int | None = None,
+    debug: bool = False,
+    *,
+    ctx: ToolContext[FrankaRuntime],
+) -> ToolResult:
+    """Fuse matched wrist and external-camera pixels into a Franka base point.
+
+    Wrist pixels are required; matching external-camera pixels improve confidence.
+
+    Args:
+        third_person_row: Optional matched external-camera pixel row.
+        third_person_col: Optional matched external-camera pixel column.
+        wrist_row: Wrist-camera pixel row for a single correspondence.
+        wrist_col: Wrist-camera pixel column for a single correspondence.
+        pixels: Optional batch of pixel correspondences.
+        step: Recorded step index; omitted or -1 selects the latest state.
+        debug: Include projection diagnostics.
+    """
+    return _result(
+        perception.back_project_correspondence(
+            third_person_row=third_person_row,
+            third_person_col=third_person_col,
+            wrist_row=wrist_row,
+            wrist_col=wrist_col,
+            pixels=pixels,
+            step=step,
+            debug=debug,
+            state=ctx.state,
+        )
+    )
+
+
+FRANKA_TOOLS = (
+    view_env_state,
+    view_camera_meta,
+    view_perception_setup,
+    back_project,
+    back_project_correspondence,
+    move_delta,
+    rotate_delta,
+    open_gripper,
+    close_gripper,
+    vla_grasp,
+)

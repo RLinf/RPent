@@ -46,11 +46,7 @@ from rpent.dashboard.interaction import (
     InteractionUnavailableError,
     UnknownDashboardMessageError,
 )
-from rpent.dashboard.state import (
-    DashboardState,
-    PrimitiveArgumentError,
-    PrimitiveConfigError,
-)
+from rpent.dashboard.state import DashboardState
 from rpent.utils.daemon import pick_free_port
 from rpent.utils.logging import get_logger
 
@@ -215,16 +211,10 @@ class DashboardServer:
                 tool_result = self._state.execute_primitive(name, arguments)
             except InteractionUnavailableError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=409)
-            except PrimitiveArgumentError as exc:
-                return JSONResponse({"error": str(exc)}, status_code=422)
-            except PrimitiveConfigError as exc:
-                logger.error("Dashboard primitive configuration error: %s", exc)
-                return JSONResponse({"error": str(exc)}, status_code=500)
             except ValueError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=403)
-            result = tool_result.result
-            if isinstance(result, dict) and result.get("error") is not None:
-                error = " ".join(str(result["error"]).split())[:500]
+            if tool_result.is_error:
+                error = " ".join(tool_result.error.split())[:500]
                 return JSONResponse(
                     {"error": error or "primitive execution failed"},
                     status_code=422,

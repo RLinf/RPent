@@ -101,7 +101,7 @@ VLA 抓取 DEMO
 -------------
 
 RPent 提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露 ``vla_grasp``，
-并可在本地启动双臂 Franka VLA 服务。``PI05_CHECKPOINT_PATH`` 指向 
+并可在本地启动双臂 Franka VLA 服务。``PI05_CHECKPOINT_PATH`` 指向
 训练好的 Pi-05 checkpoint，``DUAL_FRANKA_REPO_ID`` 是用于查找对应归一化统计的数据集 ID：
 
 .. code-block:: bash

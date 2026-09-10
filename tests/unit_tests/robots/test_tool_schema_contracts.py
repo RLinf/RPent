@@ -14,20 +14,79 @@
 
 from __future__ import annotations
 
+import inspect
+import json
+from importlib import import_module
+from pathlib import Path
+
 import pytest
 
-from robots.libero import tools as libero_tools
-from robots.robocasa import tools as robocasa_tools
-from robots.robotwin import tools as robotwin_tools
+from rpent.tools.common_tools import COMMON_TOOLS
 
-ROBOT_SCHEMAS = {
-    "libero": libero_tools.TOOLS_SPEC,
-    "robocasa": robocasa_tools.TOOLS_SPEC,
-    "robotwin": robotwin_tools.TOOLS_SPEC,
-}
+ROBOT_NAMES = ("libero", "robocasa", "robotwin")
+
+
+@pytest.mark.parametrize("group", ("common", *ROBOT_NAMES))
+def test_input_schemas_match_before_native_migration(group: str) -> None:
+    # Extracted from historical TOOLS_SPEC declarations and the API image reader;
+    # expected schemas must not be regenerated from the native parameter models.
+    snapshot = json.loads(
+        (Path(__file__).parent / "fixtures/pre_native_tool_schemas.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    expected = snapshot["schemas"][group]
+    if group == "common":
+        # list_dir now resolves the directory from the invocation context.
+        expected["list_dir"]["properties"]["path"]["description"] = (
+            "Directory path. Defaults to the current task's output directory."
+        )
+        actual = {item.name: item.input_schema for item in COMMON_TOOLS}
+    else:
+        actual = {spec["name"]: spec["input_schema"] for spec in _schemas(group)}
+        if group == "libero":
+            # Task-card replay added these parameters after the historical snapshot.
+            expected["pi0_pick"]["properties"].update(
+                {
+                    "gripper_open_thresh": {
+                        "type": "number",
+                        "description": "Minimum finger separation accepted as a held object (default 0.0)",
+                    },
+                    "descent_thresh": {
+                        "type": "number",
+                        "description": "Required descent before lift detection, m (default 0.10)",
+                    },
+                }
+            )
+        elif group == "robocasa":
+            # The preparation PR removed these unimplemented perception tools.
+            del expected["view_camera_meta"]
+            del expected["back_project"]
+        elif group == "robotwin":
+            # The native finish declaration adds parameter documentation.
+            expected["finish"]["properties"]["status"]["description"] = (
+                "Requested task outcome."
+            )
+            expected["finish"]["properties"]["summary"]["description"] = (
+                "Summary of what worked and what failed."
+            )
+
+    assert actual.keys() == expected.keys()
+    for name, schema in actual.items():
+        assert schema == expected[name], f"{group}.{name} input schema changed"
+
+
+def _schemas(robot_name):
+    module = import_module(f"robots.{robot_name}.tools")
+    return [
+        {"name": t.name, "description": t.description, "input_schema": t.input_schema}
+        for t in getattr(module, f"{robot_name.upper()}_TOOLS")
+    ]
+
 
 EXPECTED_TOOL_NAMES = {
     "libero": {
+        "finish",
         "reset",
         "view_env_state",
         "move_to",
@@ -74,18 +133,18 @@ EXPECTED_TOOL_NAMES = {
 }
 
 
-@pytest.mark.parametrize("robot_name", sorted(ROBOT_SCHEMAS))
+@pytest.mark.parametrize("robot_name", ROBOT_NAMES)
 def test_robot_tool_names_are_an_explicit_unique_contract(robot_name: str) -> None:
-    specs = ROBOT_SCHEMAS[robot_name]
+    specs = _schemas(robot_name)
     names = [spec["name"] for spec in specs]
 
     assert set(names) == EXPECTED_TOOL_NAMES[robot_name]
     assert len(names) == len(set(names))
 
 
-@pytest.mark.parametrize("robot_name", sorted(ROBOT_SCHEMAS))
+@pytest.mark.parametrize("robot_name", ROBOT_NAMES)
 def test_robot_tool_schemas_have_valid_object_inputs(robot_name: str) -> None:
-    for spec in ROBOT_SCHEMAS[robot_name]:
+    for spec in _schemas(robot_name):
         assert set(spec) >= {"name", "description", "input_schema"}
         assert isinstance(spec["description"], str) and spec["description"].strip()
 
@@ -100,10 +159,25 @@ def test_robot_tool_schemas_have_valid_object_inputs(robot_name: str) -> None:
 
 def test_robot_action_schemas_keep_bounded_vector_shapes() -> None:
     schema_sets = [
-        {spec["name"]: spec for spec in libero_tools.TOOLS_SPEC}["move_to"],
-        {spec["name"]: spec for spec in robotwin_tools.TOOLS_SPEC}["move_to"],
+        {spec["name"]: spec for spec in _schemas("libero")}["move_to"],
+        {spec["name"]: spec for spec in _schemas("robotwin")}["move_to"],
     ]
     for spec in schema_sets:
         xyz = spec["input_schema"]["properties"]["xyz"]
         assert xyz["type"] == "array"
         assert xyz["minItems"] == xyz["maxItems"] == 3
+
+
+@pytest.mark.parametrize("robot_name", ROBOT_NAMES)
+def test_owned_tool_collections_satisfy_executor_invariants(robot_name):
+    module = import_module(f"robots.{robot_name}.tools")
+    tools = (*COMMON_TOOLS, *getattr(module, f"{robot_name.upper()}_TOOLS"))
+    names = [item.name for item in tools]
+    assert len(names) == len(set(names))
+    (finish,) = [item for item in tools if item.name == "finish"]
+    assert not finish.readonly
+    for item in tools:
+        parameter = inspect.signature(item.handler).parameters["ctx"]
+        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        assert parameter.default is inspect.Parameter.empty
+        assert "ctx" not in item.input_schema["properties"]

@@ -50,7 +50,7 @@ ROBOTWIN_TASK_CONFIGS = (
 )
 
 #: Env-side camera names exposed by the RoboTwin EnvServer, in fixed order.
-#: Shared across the env client, primitives, and toolkit.
+#: Shared across the env client, tools, and toolkit.
 ROBOTWIN_CAMERA_NAMES = (
     "head",
     "left_wrist",
@@ -207,6 +207,7 @@ def get_toolkit(
     )
     return RoboTwinToolkit(
         runtime_kwargs=runtime_kwargs,
+        output_dir=config.output_dir,
         dashboard_events=dashboard_events,
         memory=memory,
     )

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import threading
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -21,8 +22,10 @@ import pytest
 from robots.libero import robot_spec
 from robots.libero import toolkit as libero_toolkit
 from robots.libero.flywheel import LIBERO_SPEC
-from robots.libero.tools import LiberoPrimitives
+from robots.libero.toolkit import LiberoRuntime
+from robots.libero.tools import _step_env, _vlm_chunk
 from rpent.flywheel.episode import validate_episode
+from rpent.tools import ToolContext
 
 
 def _obs(value: int) -> dict:
@@ -65,14 +68,24 @@ class _Model:
         return np.ones((2, 7), np.float32)
 
 
-def _primitives(env, config=None, molmo_client=None):
-    return LiberoPrimitives(
+def _runtime(env, config=None, molmo_client=None):
+    return LiberoRuntime(
         env=env,
         model=_Model(),
         sam3_client=SimpleNamespace(),
-        check_cancelled=lambda: None,
         flywheel_config=config,
         molmo_client=molmo_client,
+    )
+
+
+def _context(runtime):
+    return ToolContext(
+        robot=runtime,
+        state=None,
+        memory=None,
+        output_dir=None,
+        record_frame=lambda frame: None,
+        _cancel_event=threading.Event(),
     )
 
 
@@ -80,7 +93,7 @@ def _primitives(env, config=None, molmo_client=None):
 def test_collection_records_scripted_and_vla_actions(tmp_path, with_molmo):
     env = _Env()
     molmo = SimpleNamespace() if with_molmo else None
-    primitives = _primitives(
+    runtime = _runtime(
         env,
         {
             "root": tmp_path,
@@ -90,16 +103,15 @@ def test_collection_records_scripted_and_vla_actions(tmp_path, with_molmo):
         },
         molmo_client=molmo,
     )
-    assert primitives.molmo_client is molmo
-    primitives.reset()
-    primitives.begin_primitive("move_to")
-    primitives._step_env(np.zeros(7))
-    primitives.end_primitive()
-    primitives.begin_primitive("pi0_pick")
-    primitives._vlm_chunk("pick up the bowl")
-    primitives.end_primitive()
+    assert runtime.molmo_client is molmo
+    runtime.reset()
+    ctx = _context(runtime)
+    runtime.execute_primitive("move_to", _step_env, ctx=ctx, action=np.zeros(7))
+    runtime.execute_primitive(
+        "pi0_pick", _vlm_chunk, ctx=ctx, instruction="pick up the bowl"
+    )
 
-    path = primitives.finalize_flywheel()
+    path = runtime.finalize_flywheel()
     metadata = validate_episode(path, spec=LIBERO_SPEC)
     assert metadata["step_count"] == 3
     assert metadata["training_step_count"] == 3
@@ -109,23 +121,21 @@ def test_collection_records_scripted_and_vla_actions(tmp_path, with_molmo):
         np.testing.assert_array_equal(data["primitive_id"], [0, 1, 1])
 
 
-def test_molmo_positional_argument_keeps_collection_disabled():
+def test_optional_molmo_keeps_collection_disabled():
     molmo = SimpleNamespace()
-    primitives = LiberoPrimitives(
-        _Env(), _Model(), SimpleNamespace(), lambda: None, molmo
-    )
-    primitives.reset()
-    assert primitives.molmo_client is molmo
-    assert primitives.finalize_flywheel() is None
+    runtime = LiberoRuntime(_Env(), _Model(), SimpleNamespace(), molmo)
+    runtime.reset()
+    assert runtime.molmo_client is molmo
+    assert runtime.finalize_flywheel() is None
 
 
-def test_collection_disabled_keeps_fast_chunk_path():
+def test_collection_disabled_keeps_native_frame_recording():
     env = _Env()
-    primitives = _primitives(env)
-    primitives.reset()
-    primitives._vlm_chunk("pick up the bowl")
-    assert env.chunk_return_all_frames is None
-    assert primitives.finalize_flywheel() is None
+    runtime = _runtime(env)
+    runtime.reset()
+    _vlm_chunk(_context(runtime), "pick up the bowl")
+    assert env.chunk_return_all_frames is True
+    assert runtime.finalize_flywheel() is None
 
 
 def test_dashboard_flywheel_config_belongs_to_unique_env(tmp_path, monkeypatch):
@@ -159,22 +169,20 @@ def test_dashboard_flywheel_config_belongs_to_unique_env(tmp_path, monkeypatch):
     }
 
 
-@pytest.mark.parametrize("failure", [None, "finalize", "stop", "save"])
+@pytest.mark.parametrize("failure", [None, "finalize", "save"])
 def test_close_handles_collection_and_video_independently(
     tmp_path, monkeypatch, failure
 ):
     toolkit = libero_toolkit.LiberoToolkit.__new__(libero_toolkit.LiberoToolkit)
     frames = [_obs(0)["main_images"]]
     finalize = Mock(return_value=tmp_path / "episode")
-    stop = Mock(return_value=frames)
     save = Mock()
     if failure is not None:
-        {"finalize": finalize, "stop": stop, "save": save}[
+        {"finalize": finalize, "save": save}[failure].side_effect = RuntimeError(
             failure
-        ].side_effect = RuntimeError(failure)
-    toolkit._primitives = SimpleNamespace(
-        finalize_flywheel=finalize, stop_recording=stop
-    )
+        )
+    toolkit._robot = SimpleNamespace(finalize_flywheel=finalize)
+    toolkit._frames = frames
     toolkit._state = SimpleNamespace(save=save)
     logger = Mock()
     monkeypatch.setattr(libero_toolkit, "logger", logger)
@@ -182,11 +190,7 @@ def test_close_handles_collection_and_video_independently(
     toolkit.close()
 
     finalize.assert_called_once_with()
-    stop.assert_called_once_with()
-    if failure == "stop":
-        save.assert_not_called()
-    else:
-        save.assert_called_once_with("episode.mp4", frames, step=None, fps=20)
+    save.assert_called_once_with("episode.mp4", frames, step=None, fps=20)
     if failure == "finalize":
         logger.info.assert_not_called()
     else:
@@ -194,3 +198,24 @@ def test_close_handles_collection_and_video_independently(
             "flywheel episode finalized: %s", tmp_path / "episode"
         )
     assert logger.warning.call_count == (failure is not None)
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_native_action_brackets_flywheel_recording(make_toolkit, monkeypatch, fails):
+    from robots.libero import flywheel
+
+    writer = Mock()
+    monkeypatch.setattr(flywheel, "create_episode_writer", lambda config, obs: writer)
+    toolkit, env, _ = make_toolkit(flywheel_config={"enabled": True})
+    if fails:
+        monkeypatch.setattr(env, "step", Mock(side_effect=RuntimeError("step failed")))
+
+    result = toolkit.execute_tool("release", {})
+
+    assert result.is_error is fails
+    writer.begin_primitive.assert_called_once_with("release")
+    writer.end_primitive.assert_called_once_with()
+    if fails:
+        writer.add_transition.assert_not_called()
+    else:
+        assert writer.add_transition.call_count > 0

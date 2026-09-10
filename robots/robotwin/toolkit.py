@@ -12,36 +12,168 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""RPent tools for the RLinf RoboTwin robot."""
+"""RoboTwin runtime, tool composition, and observation persistence."""
 
 from __future__ import annotations
 
-from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from robots.robotwin import tools
-from robots.robotwin.primitives import RoboTwinPrimitives
 from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES
-from rpent.dashboard.events import DashboardEventSink
-from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, readonly
-from rpent.utils.logging import get_output_dir
+from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
+from rpent.session import EnvState, StepRecord
+from rpent.tools import Toolkit, ToolResult
+from rpent.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from rpent.memory.manager import MemoryManager
+    from robots.robotwin.env_client import RoboTwinEnvClient
+    from robots.robotwin.vla_client import LingBotVLAClient
+    from rpent.memory import MemoryManager
 
-# State-advancing RoboTwin primitives eligible for the recipe. ``reset``,
-# ``render``, and read-only tools are intentionally excluded so the recipe
-# records only commands that actually move the robot.
-_RECIPE_ACTIONS = {
-    "lingbot_act",
-    "move_to",
-    "rotate_wrist",
-    "set_gripper",
-    "release",
-}
+logger = get_logger("robotwin_toolkit")
+
+
+class RoboTwinRuntime:
+    """Clients, fixed episode configuration, and cumulative action counts."""
+
+    def __init__(
+        self,
+        *,
+        env: RoboTwinEnvClient,
+        model: LingBotVLAClient,
+        seed: int,
+        seed_mode: str = "exact",
+    ) -> None:
+        if seed_mode != "exact":
+            raise ValueError("standard RoboTwin integration requires seed_mode='exact'")
+        self.env = env
+        self.model = model
+        self.seed = int(seed)
+        self.policy_actions = 0
+        self.native_actions = 0
+
+    def status(self) -> dict[str, Any]:
+        return {
+            **self.env.last_info["episode_status"],
+            "policy_actions": self.policy_actions,
+            "native_actions": self.native_actions,
+        }
+
+
+class RoboTwinToolkit(Toolkit[RoboTwinRuntime]):
+    """Native tools and observations for one RoboTwin planner session."""
+
+    def __init__(
+        self,
+        *,
+        runtime_kwargs: dict[str, Any],
+        output_dir: Path | str,
+        dashboard_events: DashboardEventSink,
+        memory: MemoryManager,
+    ) -> None:
+        runtime = RoboTwinRuntime(**runtime_kwargs)
+        state = EnvState(output_dir)
+        super().__init__(
+            state=state,
+            memory=memory,
+            robot=runtime,
+            output_dir=output_dir,
+            tools=tools.ROBOTWIN_TOOLS,
+            dashboard_events=dashboard_events,
+        )
+        # The env client is already reset to the requested seed during startup.
+        record = dump_state(
+            runtime,
+            state,
+            log={
+                "command": {"action": "reset"},
+                "result": {**runtime.env.last_reset_info, "success": True},
+                "elapsed_s": 0.0,
+            },
+        )
+        try:
+            self._dashboard_events.emit(StepRecordEvent(record=record, env_state=state))
+        except Exception:
+            logger.exception("Dashboard failed to publish step %s", record.step_idx)
+        self._action_frame_cursor = 0
+
+    def _capture_observation(
+        self,
+        *,
+        command: dict[str, Any],
+        result: ToolResult,
+        elapsed_s: float,
+    ) -> tuple[dict[str, Any], list[bytes]]:
+        frame_start = self._action_frame_cursor
+        self._action_frame_cursor = len(self._frames)
+        logged_result = result.to_dict()
+        record = dump_state(
+            self._robot,
+            self._state,
+            log={"command": command, "result": logged_result, "elapsed_s": elapsed_s},
+        )
+        if self._dashboard_events.enabled:
+            try:
+                frames = self._frames[frame_start:]
+                if frames:
+                    self._state.save(
+                        f"action_{command['action']}.mp4",
+                        frames,
+                        step=record.step_idx,
+                        fps=20,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "failed to save action clip for step %s: %s", record.step_idx, exc
+                )
+        record = self._state.get(record.step_idx)
+        data, images = build_observation(self._state, record)
+        if result.is_error:
+            data["log"]["result"] = {
+                key: value for key, value in logged_result.items() if key != "error"
+            }
+        data["agent_elapsed_s"] = elapsed_s
+        return data, images
+
+    def solved(self) -> bool:
+        """Use recorded native success, independently of the requested finish status."""
+        record = self._state.latest_record()
+        return bool(
+            record is not None
+            and record.state["episode_status"].get("eval_success") is True
+        )
+
+    def close(self) -> None:
+        """Save this robot's accumulated episode frames."""
+        try:
+            if self._frames:
+                self._state.save("episode.mp4", self._frames, step=None, fps=20)
+        except Exception as exc:
+            logger.warning("failed to save episode video: %s", exc)
+
+    def write_recipe(self, recipe_tag: str) -> str:
+        """Export state-advancing RoboTwin primitives with no error and no
+        explicit ``success=False`` from ``EnvState.records()``."""
+        recipe = [
+            record.command
+            for record in self._state.records()
+            if isinstance(record.command, dict)
+            and record.command.get("action") in _RECIPE_ACTIONS
+            and not (
+                isinstance(record.result, dict)
+                and (
+                    record.result.get("error") or record.result.get("success") is False
+                )
+            )
+        ]
+        name = f"{recipe_tag}_recipe.jsonl"
+        saved = self._state.save(name, recipe, step=None)
+        if saved is None:
+            raise RuntimeError(f"failed to save RoboTwin recipe artifact: {name}")
+        return str(self._state.artifact_path(name, step=None))
 
 
 def _world_from_depth(
@@ -83,178 +215,101 @@ def _world_from_depth(
     return world.astype(np.float32)
 
 
-class RoboTwinToolkit(Toolkit):
-    """Common RPent tools plus RoboTwin primitives."""
+def _artifact_name(view: str, field: str) -> str:
+    suffix = {
+        "rgb": ".png",
+        "depth": ".npy",
+        "world_xyz": ".npy",
+        "camera_meta": ".json",
+    }[field]
+    return f"{view}_{field}{suffix}"
 
-    _SPECS = {spec["name"]: spec for spec in tools.TOOLS_SPEC}
 
-    def __init__(
-        self,
-        *,
-        runtime_kwargs: dict[str, Any],
-        dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
-    ):
-        state = EnvState(get_output_dir())
-        super().__init__(
-            dashboard_events=dashboard_events,
-            state=state,
-            memory=memory,
-        )
-        self._latest_status: dict[str, Any] = {}
-        self._primitives = RoboTwinPrimitives(
-            check_cancelled=self.raise_if_cancelled,
-            **runtime_kwargs,
-        )
-        self._primitives.start_recording()
-        self._action_frame_cursor = self._primitives.recorded_frame_count()
-        reset_result = {
-            **self._primitives.env.last_reset_info,
-            "success": True,
+def dump_state(
+    runtime: RoboTwinRuntime,
+    env_state: EnvState,
+    log: dict[str, Any],
+) -> StepRecord:
+    """Persist synchronized RGB, metric depth, and world maps for all three views."""
+    env = runtime.env
+    views = {}
+    for camera in ROBOTWIN_CAMERA_NAMES:
+        rgb, depth = env.render_camera(camera, depth=True)
+        camera_meta = env.get_camera_meta(camera)
+        views[camera] = {
+            "rgb": np.asarray(rgb),
+            "depth": np.asarray(depth, dtype=np.float32),
+            "world_xyz": _world_from_depth(depth, camera_meta),
+            "camera_meta": camera_meta,
         }
-        self._register_robotwin_tools()
-        initial = self.get_env_state(
-            command={"action": "reset"},
-            result=reset_result,
-            elapsed_s=0.0,
-        )
-        record = self._state.latest_record()
-        if record is not None:
-            self._publish_step(record)
-        initial_state = initial.get("state")
-        if isinstance(initial_state, dict):
-            self._latest_status = initial_state.get(
-                "episode_status", self._latest_status
-            )
-
-    def _register_robotwin_tools(self) -> None:
-        self._tools.pop("finish", None)
-        self.add_tool(
-            "view_env_state",
-            self._SPECS["view_env_state"],
-            partial(tools.view_env_state, state=self._state),
-        )
-        self.add_tool(
-            "sample_world_xyz",
-            self._SPECS["sample_world_xyz"],
-            partial(tools.sample_world_xyz, self._state),
-        )
-        self.add_tool(
-            "query_world_map",
-            self._SPECS["query_world_map"],
-            partial(tools.query_world_map, self._state),
-        )
-        for name in (
-            "render",
-            "lingbot_act",
-            "move_to",
-            "rotate_wrist",
-            "set_gripper",
-            "release",
-        ):
-            self.add_tool(name, self._SPECS[name], partial(self._step, name))
-        self.add_tool("finish", self._SPECS["finish"], self._finish)
-
-    @readonly
-    def _finish(self, *, status: str, summary: str) -> dict[str, Any]:
-        return self._primitives.finish(status=status, summary=summary)
-
-    def _capture_full_observation(self) -> dict[str, Any]:
-        """Assemble the full observation (rgb + depth + camera_meta + world_xyz).
-
-        This is the dump/recording path consumed by ``tools.dump_observation``
-        and the ``sample_world_xyz`` agent tool. It deliberately fetches depth
-        and camera_meta so ``world_xyz`` can be back-projected and saved as an
-        artifact -- distinct from the rgb-only observation built for LingBot
-        inference in ``RoboTwinPrimitives._build_lingbot_observation``.
-        """
-        env = self._primitives.env
-        views: dict[str, dict[str, Any]] = {}
-        for camera_name in ROBOTWIN_CAMERA_NAMES:
-            rendered = env.render_camera(camera_name, depth=True)
-            if not isinstance(rendered, (list, tuple)) or len(rendered) != 2:
-                raise TypeError(
-                    "RoboTwin render_camera(depth=True) must return (rgb, depth)"
+    step_idx = 0 if env_state.latest_step is None else env_state.latest_step + 1
+    state = {
+        "step_idx": step_idx,
+        "task_name": env.server_meta["task_name"],
+        "task_language": env.get_task_language(),
+        "robot_state": env.last_info["robot_state"],
+        "episode_status": runtime.status(),
+        "artifacts": {
+            camera: {
+                field: str(
+                    env_state.artifact_path(
+                        _artifact_name(camera, field), step=step_idx
+                    )
                 )
-            rgb, depth = rendered
-            camera_meta = env.get_camera_meta(camera_name)
-            views[camera_name] = {
-                "rgb": np.asarray(rgb),
-                "depth": np.asarray(depth, dtype=np.float32),
-                "world_xyz": _world_from_depth(depth, camera_meta),
-                "camera_meta": camera_meta,
+                for field in view
             }
-        return {
-            "views": views,
-            "robot_state": env.last_info["robot_state"],
-            "task_name": env.server_meta["task_name"],
-            "task_language": env.get_task_language(),
-            "depth_unit": "metres",
-            "world_frame": "world",
-        }
+            for camera, view in views.items()
+        },
+        "view_specs": {
+            camera: {
+                "coordinate_space": camera,
+                "image_shape": list(view["rgb"].shape[:2]),
+                "pixel_order": "row_col",
+            }
+            for camera, view in views.items()
+        },
+    }
+    with env_state.record_step(
+        state=state,
+        terminated=env.terminated,
+        truncated=env.truncated,
+        command=log["command"],
+        result=log["result"],
+        elapsed_s=log["elapsed_s"],
+        extras={"task_language": state["task_language"]},
+    ) as recorded_step:
+        for camera, view in views.items():
+            for field, value in view.items():
+                env_state.save(_artifact_name(camera, field), value, step=recorded_step)
+    return env_state.get(step_idx)
 
-    def get_env_state(
-        self,
-        *,
-        command: dict[str, Any],
-        result: dict[str, Any],
-        elapsed_s: float,
-    ) -> dict[str, Any]:
-        frame_start = self._action_frame_cursor
-        self._action_frame_cursor = self._primitives.recorded_frame_count()
-        status = self._primitives.status()
-        self._latest_status = status
-        observation = self._capture_full_observation()
-        record = tools.dump_observation(
-            observation,
-            env_state=self._state,
-            status=status,
-            log={
-                "command": command,
-                "result": result,
-                "elapsed_s": elapsed_s,
-            },
-        )
-        if self._dashboard_events.enabled:
-            frames = self._primitives.frame_slice(frame_start)
-            if frames:
-                self._state.save(
-                    f"action_{command['action']}.mp4",
-                    frames,
-                    step=record.step_idx,
-                    fps=20,
-                )
-        return tools.view_env_state(record.step_idx, state=self._state)
 
-    def close(self) -> None:
-        """Flush the per-step frame buffer into ``episode.mp4`` (LIBERO parity)."""
-        frames = self._primitives.stop_recording()
-        if frames:
-            self._state.save("episode.mp4", frames, step=None, fps=20)
+def build_observation(
+    state: EnvState, record: StepRecord
+) -> tuple[dict[str, Any], list[bytes]]:
+    """Return recorded data and head, left wrist, and right wrist PNGs in order."""
+    data = {
+        "step": record.step_idx,
+        "terminated": record.terminated,
+        "truncated": record.truncated,
+        "state": record.state,
+        "artifacts": sorted(record.artifacts),
+        "task_language": record.extras["task_language"],
+        "log": {
+            "command": record.command,
+            "result": record.result,
+            "elapsed_s": record.elapsed_s,
+        },
+    }
+    images = []
+    for camera in ROBOTWIN_CAMERA_NAMES:
+        name = _artifact_name(camera, "rgb")
+        if name in record.artifacts:
+            try:
+                images.append(state.load_bytes(name, step=record.step_idx))
+            except FileNotFoundError:
+                pass
+    return data, images
 
-    def _step(self, name: str, **kwargs) -> dict[str, Any]:
-        self.raise_if_cancelled()
-        if name == "render":
-            return {"success": True}
-        return getattr(self._primitives, name)(**kwargs)
 
-    def write_recipe(self, recipe_tag: str) -> str:
-        """Export state-advancing RoboTwin primitives with no error and no
-        explicit ``success=False`` from ``EnvState.records()``."""
-        recipe = [
-            record.command
-            for record in self._state.records()
-            if isinstance(record.command, dict)
-            and record.command.get("action") in _RECIPE_ACTIONS
-            and not (
-                isinstance(record.result, dict)
-                and (
-                    record.result.get("error") or record.result.get("success") is False
-                )
-            )
-        ]
-        name = f"{recipe_tag}_recipe.jsonl"
-        saved = self._state.save(name, recipe, step=None)
-        if saved is None:
-            raise RuntimeError(f"failed to save RoboTwin recipe artifact: {name}")
-        return str(self._state.artifact_path(name, step=None))
+_RECIPE_ACTIONS = {"lingbot_act", "move_to", "rotate_wrist", "set_gripper", "release"}

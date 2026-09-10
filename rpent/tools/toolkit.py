@@ -12,31 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Base class for agent tools.
-
-``Toolkit`` is the agent-facing tool container. Subclasses can register tools
-during ``__init__`` via :meth:`Toolkit.add_tool`; the planner calls the tools through :meth:`Toolkit.get_tools_spec` and
-:meth:`Toolkit.execute_tool`.
-"""
+"""Native tool execution with one active invocation per toolkit."""
 
 from __future__ import annotations
 
-import base64
 import json
 import threading
 import time
-import traceback
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from functools import partial
-from typing import TYPE_CHECKING, Any, ClassVar
+from pathlib import Path
+from typing import Any, Generic
 
-from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
-from rpent.utils.templates import substitute
+import numpy as np
+from pydantic import ValidationError
 
-if TYPE_CHECKING:
-    from rpent.memory.manager import MemoryManager
-    from rpent.session import EnvState, StepRecord
+from rpent.dashboard.events import (
+    DashboardEventSink,
+    NullDashboardEventSink,
+    StepRecordEvent,
+)
+from rpent.memory import MemoryManager
+from rpent.session import EnvState
+from rpent.tools.base import (
+    RobotT,
+    Tool,
+    ToolContext,
+    ToolResult,
+)
+from rpent.tools.common_tools import COMMON_TOOLS
+from rpent.utils.logging import get_logger
+
+logger = get_logger("tools")
 
 
 @dataclass(slots=True)
@@ -45,308 +51,158 @@ class _ToolOperation:
     done_event: threading.Event = field(default_factory=threading.Event)
 
 
-class ToolCancelled(Exception):
-    """Raised when an environment reaches a safe cancellation boundary."""
+class Toolkit(Generic[RobotT]):
+    """A fixed tool collection and its execution resources for one planner session.
 
-
-def _truncate_utf8(text: str, max_bytes: int, *, marker: str = "") -> str:
-    """Truncate text to a valid UTF-8 byte budget, including its marker."""
-    encoded = text.encode("utf-8")
-    if len(encoded) <= max_bytes:
-        return text
-    if max_bytes <= 0:
-        return ""
-
-    marker_bytes = marker.encode("utf-8")
-    if len(marker_bytes) > max_bytes:
-        return marker_bytes[:max_bytes].decode("utf-8", errors="ignore")
-    body = encoded[: max_bytes - len(marker_bytes)].decode(
-        "utf-8",
-        errors="ignore",
-    )
-    return body + marker
-
-
-def readonly(func):
-    """Mark a tool handler as not advancing environment state.
-
-    Tool handlers capture a fresh observation (:meth:`Toolkit.get_env_state`)
-    by default. Apply this marker to observational and file/IO tools that do
-    not move the robot or otherwise change the environment.
-    """
-    func._readonly = True
-    return func
-
-
-def _is_readonly(handler: Callable[..., Any]) -> bool:
-    """Whether ``handler`` was marked with :func:`readonly`."""
-    target = handler
-    while isinstance(target, partial):
-        target = target.func
-    target = getattr(target, "__func__", target)
-    return bool(getattr(target, "_readonly", False))
-
-
-@dataclass
-class ToolResult:
-    """Result of executing one tool call.
-
-    Carries the raw result dict (for logging and finish-signal detection)
-    alongside the Anthropic-shaped content blocks the LLM consumes.
-    """
-
-    name: str
-    result: dict[str, Any]
-    call_id: str | None = None
-
-    content_blocks: list[dict[str, Any]] = field(
-        default_factory=list, init=False, repr=False
-    )
-    is_finish: bool = field(default=False, init=False)
-
-    #: Max bytes of the text block emitted in :attr:`content_blocks`.
-    MAX_TEXT_BYTES_IN_RESULT: ClassVar[int] = 60000
-
-    def __post_init__(self) -> None:
-        self.content_blocks = self._build_content_blocks()
-        self.is_finish = bool(
-            isinstance(self.result, dict) and self.result.get("_finish")
-        )
-
-    def _build_content_blocks(self) -> list[dict[str, Any]]:
-        """Build Anthropic-shaped content blocks (text + optional images).
-
-        Strips image byte payloads from the text block and emits them as
-        separate base64 image blocks so the LLM receives the state images as
-        multimodal content.
-        """
-        result = self.result
-        if not isinstance(result, dict):
-            return [
-                {
-                    "type": "text",
-                    "text": _truncate_utf8(
-                        str(result),
-                        self.MAX_TEXT_BYTES_IN_RESULT,
-                    ),
-                }
-            ]
-
-        result_for_text = dict(result)
-        image = result_for_text.pop("_image_bytes", None)
-        image_cam = result_for_text.pop("_image_cam_bytes", None)
-        image_nav = result_for_text.pop("_image_nav_bytes", None)
-        image_wrist = result_for_text.pop("_image_wrist_bytes", None)
-        text = json.dumps(result_for_text, indent=2, default=str)
-        text = _truncate_utf8(
-            text,
-            self.MAX_TEXT_BYTES_IN_RESULT,
-            marker="\n[truncated]",
-        )
-
-        blocks: list[dict[str, Any]] = [{"type": "text", "text": text}]
-
-        def _add_image_bytes(data_bytes: bytes) -> None:
-            data = base64.b64encode(data_bytes).decode("utf-8")
-            blocks.append(
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "image/png",
-                        "data": data,
-                    },
-                }
-            )
-
-        if image:
-            _add_image_bytes(image)
-        if image_cam:
-            _add_image_bytes(image_cam)
-        if image_nav:
-            _add_image_bytes(image_nav)
-        if image_wrist:
-            _add_image_bytes(image_wrist)
-        return blocks
-
-
-class Toolkit:
-    """Base toolkit: registers common tools and dispatches tool calls.
-
-    Subclasses extend ``__init__`` (calling ``super().__init__()`` first)
-    and register additional tools with :meth:`add_tool`. Robot-specific
-    subclasses receive their env/model/etc. as constructor arguments and
-    build the underlying env Primitives in ``__init__``; the toolkit
-    base class only contributes the common file/IO tools. Override
-    :meth:`close` to release robot-side primitives / servers at the end of the run.
+    Robot tools submit RGB frames through ctx.record_frame(). Robot toolkits
+    save their action clips, episode video, and replay recipes.
     """
 
     def __init__(
         self,
         *,
-        dashboard_events: DashboardEventSink,
-        state: Any = None,
-        memory: "MemoryManager",
+        state: EnvState,
+        memory: MemoryManager,
+        robot: RobotT,
+        output_dir: str | Path,
+        tools: tuple[Tool, ...],
+        dashboard_events: DashboardEventSink | None = None,
     ) -> None:
-        self._tools: dict[
-            str,
-            tuple[dict[str, Any], Callable[..., Any]],
-        ] = {}
-        self._dashboard_events = dashboard_events
         self._state = state
         self._memory = memory
+        self._robot = robot
+        self._task_output_dir = Path(output_dir).resolve()
+        self._dashboard_events = dashboard_events or NullDashboardEventSink()
+        self._tools: dict[str, Tool] = {
+            item.name: item for item in (*COMMON_TOOLS, *tools)
+        }
         self._operation_lock = threading.Lock()
         self._active_operation: _ToolOperation | None = None
-        self._register_common_tools()
-
-    # ------------------------------------------------------------------
-    # Registration
-    # ------------------------------------------------------------------
-
-    def add_tool(
-        self,
-        name: str,
-        spec: dict[str, Any],
-        handler: Callable[..., Any],
-    ) -> None:
-        """Register one tool under ``name`` with its schema and handler.
-
-        Args:
-            name: Tool name as the LLM sees it (e.g. ``"read_text_file"``).
-            spec: Anthropic-shaped tool schema dict (``name``,
-                ``description``, ``input_schema``).
-            handler: Callable invoked with the tool's input kwargs; returns
-                a result dict. Decorate read-only handlers with
-                :func:`readonly`; all other handlers capture state.
-        """
-        self._tools[name] = (spec, handler)
-
-    def _register_common_tools(self) -> None:
-        """Register the file/IO tools shared by every run."""
-        from rpent.tools import common
-
-        memory_bindings = self._memory.get_common_tool_bindings()
-        for spec in common.TOOLS_SPEC:
-            name = spec["name"]
-            binding = memory_bindings.get(name)
-            if binding is None:
-                binding = (spec, common.TOOL_HANDLERS[name])
-            tool_spec, handler = binding
-            self.add_tool(name, tool_spec, handler)
-
-    # ------------------------------------------------------------------
-    # Planner-facing API
-    # ------------------------------------------------------------------
-
-    @property
-    def memory(self) -> "MemoryManager":
-        """Return the toolkit's memory manager."""
-        return self._memory
+        self._finish_result: dict[str, str] | None = None
+        self._frames: list[np.ndarray] = []
 
     @property
     def state(self) -> EnvState:
-        """Return the run's artifact and step store."""
-        if self._state is None:
-            raise RuntimeError("toolkit has no environment state")
         return self._state
 
-    def get_tools_spec(self) -> list[dict[str, Any]]:
-        """Return the tool schemas the LLM sees."""
-        return substitute([spec for spec, _ in self._tools.values()])
+    @property
+    def memory(self) -> MemoryManager:
+        return self._memory
 
-    def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
-        """Dispatch a tool call to its registered handler."""
-        entry = self._tools.get(name)
-        if entry is None:
-            return ToolResult(name=name, result={"error": f"unknown tool: {name}"})
-        _, handler = entry
+    @property
+    def finish_result(self) -> dict[str, str] | None:
+        """Return the accepted finish result for the planner; admission is unchanged."""
+        result = self._finish_result
+        return dict(result) if result is not None else None
 
+    def list_tools(self) -> tuple[Tool, ...]:
+        return tuple(self._tools.values())
+
+    def record_frame(self, rgb: np.ndarray) -> None:
+        """Collect one environment-step image for action and episode videos."""
+        self._frames.append(np.ascontiguousarray(np.asarray(rgb)))
+
+    def execute_tool(self, name: str, arguments: dict) -> ToolResult:
+        """Validate and execute one call, then capture its observation."""
+        tool = self._tools.get(name)
+        if tool is None:
+            return ToolResult(error=f"Unknown tool: {name}")
+        try:
+            args = tool.args_schema.model_validate(arguments)
+        except ValidationError as exc:
+            errors = exc.errors(
+                include_url=False, include_context=False, include_input=False
+            )
+            details = json.dumps({"errors": errors})
+            return ToolResult(error=f"Invalid arguments for {name}.\n{details}")
         with self._operation_lock:
             if self._active_operation is not None:
-                return ToolResult(
-                    name=name,
-                    result={"error": "another tool operation is still active"},
-                )
+                return ToolResult(error="another tool operation is still active")
             operation = _ToolOperation()
             self._active_operation = operation
 
         try:
+            if operation.cancel_event.is_set():
+                return ToolResult(error="Tool call cancelled.")
+            ctx = ToolContext(
+                state=self._state,
+                memory=self._memory,
+                robot=self._robot,
+                output_dir=self._task_output_dir,
+                record_frame=self.record_frame,
+                _cancel_event=operation.cancel_event,
+            )
+            capture = (
+                not tool.readonly and tool not in COMMON_TOOLS and name != "finish"
+            )
             started = time.perf_counter()
-            failed = False
+            # Read fields directly so nested models reach the handler intact.
+            kwargs = {name: getattr(args, name) for name in type(args).model_fields}
             try:
-                result = handler(**input_dict)
-            except TypeError as e:
-                result = {
-                    "error": f"bad arguments for {name}: {e}",
-                    "got": input_dict,
-                }
-                failed = True
-            except ToolCancelled as e:
-                result = {
-                    "error": str(e),
-                    "code": "tool_cancelled",
-                    "interrupted": True,
-                }
-                failed = True
-            except Exception as e:
-                result = {"error": str(e), "traceback": traceback.format_exc()}
-                failed = True
-
-            if not _is_readonly(handler):
-                elapsed_s = round(time.perf_counter() - started, 2)
-                result_dict = result if isinstance(result, dict) else {"value": result}
-                command = {"action": name, **input_dict}
-                record: StepRecord | None = None
+                result = tool.handler(**kwargs, ctx=ctx)
+            except Exception as exc:
+                logger.exception("Tool %s failed", name)
+                result = ToolResult(error=str(exc)[:500])
+            if capture:
+                elapsed_s = time.perf_counter() - started
+                previous = self._state.latest_record()
                 try:
-                    captured = self.get_env_state(
-                        command=command,
-                        result=result_dict,
+                    observation_data, observation_images = self._capture_observation(
+                        command={"action": tool.name, **args.model_dump()},
+                        result=result,
                         elapsed_s=elapsed_s,
                     )
-                except Exception as e:
-                    captured = result_dict
-                    captured["state_capture_error"] = str(e)
-                    captured.setdefault(
-                        "error", f"failed to capture state after {name}: {e}"
-                    )
-                    captured.setdefault("traceback", traceback.format_exc())
-                else:
-                    record = self._state.latest_record()
-                result = captured
-                if failed:
-                    for key, value in result_dict.items():
-                        result.setdefault(key, value)
-                if record is not None:
-                    self._publish_step(record)
-
-            return ToolResult(name=name, result=result)
+                    # The observation replaces action data; retain the action's error.
+                    result.data = observation_data
+                    result.images = result.images + observation_images
+                except Exception as exc:
+                    logger.exception("State capture failed after %s", tool.name)
+                    error = f"State capture failed: {str(exc)[:500]}"
+                    if result.is_error:
+                        error = f"{result.error}\n{error}"
+                    result.error = error
+                record = self._state.latest_record()
+                if record is not None and record is not previous:
+                    try:
+                        self._dashboard_events.emit(
+                            StepRecordEvent(record=record, env_state=self._state)
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Dashboard failed to publish step %s", record.step_idx
+                        )
+            if name == "finish" and not result.is_error:
+                self._finish_result = {
+                    key: result.data[key] for key in ("status", "summary")
+                }
+            # Images are logged by their owning artifact paths, not their bytes.
+            logger.info(
+                "Tool %s result: %s",
+                name,
+                json.dumps(
+                    result.to_dict(),
+                    ensure_ascii=False,
+                    allow_nan=False,
+                ),
+            )
+            return result
         finally:
             with self._operation_lock:
                 self._active_operation = None
                 operation.done_event.set()
 
-    def _publish_step(self, record: StepRecord) -> None:
-        """Publish one recorded environment step to the dashboard sink."""
-        self._dashboard_events.emit(
-            StepRecordEvent(
-                record=record,
-                env_state=self._state,
-            )
-        )
+    def _capture_observation(
+        self, *, command: dict[str, Any], result: ToolResult, elapsed_s: float
+    ) -> tuple[dict[str, Any], list[bytes]]:
+        """Save a step with the action log and return its observation and images.
 
-    def get_env_state(
-        self,
-        *,
-        command: dict[str, Any],
-        result: dict[str, Any],
-        elapsed_s: float,
-    ) -> dict[str, Any]:
-        """Capture and return the observation produced by a stateful tool."""
-        raise NotImplementedError
-
-    # ------------------------------------------------------------------
-    # Server lifecycle hooks (overridden by robot toolkits)
-    # ------------------------------------------------------------------
+        Returned data replaces the action's data and must include the recorded
+        step and its artifact names. Include action details in that data where
+        needed (e.g. log.result). Robot toolkits save action video artifacts.
+        The executor appends the images and retains the action's error. Raise if
+        capture fails; an already saved step is still published to the Dashboard.
+        """
+        raise NotImplementedError("This toolkit does not capture robot observations.")
 
     def cancel_active_and_wait(self) -> None:
         """Request cancellation and wait for the active tool to return."""
@@ -357,23 +213,10 @@ class Toolkit:
             operation.cancel_event.set()
         operation.done_event.wait()
 
-    def raise_if_cancelled(self) -> None:
-        """Raise at an environment-defined safe cancellation boundary."""
-        with self._operation_lock:
-            operation = self._active_operation
-        if operation is not None and operation.cancel_event.is_set():
-            raise ToolCancelled("tool operation interrupted")
-
     def close(self) -> None:
-        """Release the robot-side primitives / servers at end of run. Default: no-op."""
+        """Release robot resources at the end of a run. Default: no-op."""
 
     def solved(self) -> bool:
-        """Whether the env has reported the task complete.
-
-        Ground truth for the session loop: an agent may call ``finish`` with
-        ``status="success"`` on a cell it did not actually finish, so the
-        handoff decision reads the environment, not the agent.
-        """
         raise NotImplementedError
 
     def write_recipe(self, recipe_tag: str) -> str | None:
