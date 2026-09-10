@@ -236,25 +236,34 @@ def explore_factory(monkeypatch, tmp_path):
         def reset(self):
             self.seeds.append(7)
             self.terminated = self.truncated = False
-            self.last_info = {"episode_status": {
-                "eval_success": False, "actual_seed": 7,
-                "take_action_cnt": 0, "step_lim": 100,
-            }}
+            self.last_info = {
+                "episode_status": {
+                    "eval_success": False,
+                    "actual_seed": 7,
+                    "take_action_cnt": 0,
+                    "step_lim": 100,
+                }
+            }
             self.last_reset_info = self.last_info
             return {}, self.last_info
 
     env = Env()
     monkeypatch.setattr(toolkit, "RoboTwinPrimitives", EpisodePrimitives)
     monkeypatch.setattr(toolkit, "get_output_dir", lambda: tmp_path)
-    monkeypatch.setattr(templates, "default_variables", lambda: {"output_dir": str(tmp_path)})
+    monkeypatch.setattr(
+        templates, "default_variables", lambda: {"output_dir": str(tmp_path)}
+    )
     monkeypatch.setattr(toolkit.RoboTwinToolkit, "_publish_step", lambda *a: None)
 
     def capture(self, *, command, result, elapsed_s):
         status = self._primitives.status()
         with self._state.record_step(
             state={"episode_status": dict(status)},
-            terminated=status["eval_success"], truncated=False,
-            command=command, result=result, elapsed_s=elapsed_s,
+            terminated=status["eval_success"],
+            truncated=False,
+            command=command,
+            result=result,
+            elapsed_s=elapsed_s,
         ):
             pass
         return dict(result)
@@ -266,7 +275,8 @@ def explore_factory(monkeypatch, tmp_path):
             primitives_kwargs={"env": env, "seed": 7},
             dashboard_events=NullDashboardEventSink(),
             memory=MemoryManager(tmp_path / "memory"),
-            mode=mode, attempts_per_session=budget,
+            mode=mode,
+            attempts_per_session=budget,
             state_output_dir=tmp_path / "sessions" / f"session_{session:03d}",
             recipe_output_dir=tmp_path,
         )
@@ -283,13 +293,17 @@ def test_exploration_budget_and_native_success(explore_factory, budget):
     assert "configured exact seed" in reset_description
     assert "layout determinism has not been verified" in reset_description
     assert robot.solved() is False  # successful reset is not task success
-    finish = lambda: robot.execute_tool("finish", {"status": "success", "summary": "claim"})
+
+    def finish():
+        return robot.execute_tool("finish", {"status": "success", "summary": "claim"})
+
     assert finish().is_finish is (budget in (0, 1))
     for attempt in range(2, (budget or 5) + 1):
         result = robot.execute_tool("reset", {"reason": "different strategy"})
         assert result.result["attempt"] == attempt
-        assert "Episode reinitialized with the configured exact seed" in (
-            result.result["notice"]
+        assert (
+            "Episode reinitialized with the configured exact seed"
+            in (result.result["notice"])
         )
         assert "layout determinism has not been verified" in result.result["notice"]
         assert not robot.solved()
@@ -337,10 +351,16 @@ def test_recipe_contains_only_successful_attempt(explore_factory, tmp_path):
     assert robot.write_recipe("cell") == ""
     robot.execute_tool("reset", {"reason": "retry"})
     robot.execute_tool("render", {})
-    robot.get_env_state(command={"action": "move_to", "label": "error"},
-                        result={"error": "failed"}, elapsed_s=0)
-    robot.get_env_state(command={"action": "release", "label": "unsuccessful"},
-                        result={"success": False}, elapsed_s=0)
+    robot.get_env_state(
+        command={"action": "move_to", "label": "error"},
+        result={"error": "failed"},
+        elapsed_s=0,
+    )
+    robot.get_env_state(
+        command={"action": "release", "label": "unsuccessful"},
+        result={"success": False},
+        elapsed_s=0,
+    )
     env.last_info["episode_status"]["eval_success"] = True
     robot.execute_tool("move_to", {"label": "winning attempt"})
     path = Path(robot.write_recipe("cell"))
@@ -348,7 +368,6 @@ def test_recipe_contains_only_successful_attempt(explore_factory, tmp_path):
     assert [json.loads(line) for line in path.read_text().splitlines()] == [
         {"action": "move_to", "label": "winning attempt"}
     ]
-
 
 
 def test_exact_seed_client_rejects_changed_actual_seed():
@@ -361,10 +380,16 @@ def test_exact_seed_client_rejects_changed_actual_seed():
             if method == "env.get_env_meta":
                 return {"seed": 7}
             assert method == "env.reset"
-            return {}, {"instruction": "task", "episode_status": {
-                "actual_seed": self.actual_seed, "eval_success": False,
-                "take_action_cnt": 0, "step_lim": 100,
-            }}
+            return {}, {
+                "requested_seed": 7,
+                "instruction": "task",
+                "episode_status": {
+                    "actual_seed": self.actual_seed,
+                    "eval_success": False,
+                    "take_action_cnt": 0,
+                    "step_lim": 100,
+                },
+            }
 
     rpc = Rpc()
     client = RoboTwinEnvClient(rpc, expected_meta={"seed": 7})
@@ -377,7 +402,9 @@ def test_exact_seed_client_rejects_changed_actual_seed():
         client.reset()
 
 
-def test_evaluation_recipe_still_exports_without_native_success(explore_factory, tmp_path):
+def test_evaluation_recipe_still_exports_without_native_success(
+    explore_factory, tmp_path
+):
     import json
 
     make, env = explore_factory
@@ -387,7 +414,8 @@ def test_evaluation_recipe_still_exports_without_native_success(explore_factory,
     path = Path(robot.write_recipe("eval"))
     assert path.parent == tmp_path / "sessions" / "session_001"
     assert json.loads(path.read_text()) == {
-        "action": "move_to", "label": "existing evaluation behavior"
+        "action": "move_to",
+        "label": "existing evaluation behavior",
     }
 
 

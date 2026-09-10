@@ -22,11 +22,15 @@ transport layer lives in :mod:`rpent.utils.rpc.socket_rpc`.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
 
-from rpent.robots.components.env_client_base import BaseEnvClient
+from rpent.robots.components.env_client_base import (
+    BaseEnvClient,
+    ExplorationResetOutcome,
+)
 from rpent.utils.rpc import RpcClient
 
 
@@ -54,11 +58,29 @@ class LiberoEnvClient(BaseEnvClient):
         self.terminated |= bool(np.asarray(term).any())
         self.truncated |= bool(np.asarray(trunc).any())
 
+    @staticmethod
+    def _decode_reset_result(result: Any) -> ExplorationResetOutcome:
+        if not isinstance(result, (list, tuple)) or len(result) != 2:
+            raise TypeError(
+                f"env.reset must return an (observation, info) pair, got {result!r}"
+            )
+        observation, info = result
+        if not isinstance(observation, dict):
+            raise TypeError(
+                f"LIBERO reset observation must be a mapping, got {observation!r}"
+            )
+        if not isinstance(info, Mapping):
+            raise TypeError(f"LIBERO reset info must be a mapping, got {info!r}")
+        return ExplorationResetOutcome(observation=observation, details=info)
+
     def reset(self) -> tuple[dict, Any]:
-        self.last_obs, info = super().reset()
-        self.terminated = False
-        self.truncated = False
-        return self.last_obs, info
+        result = self._client.call("env.reset", timeout_s=self._TIMEOUT_S["env.reset"])
+        outcome = self._decode_reset_result(result)
+        info = self._commit_reset_outcome(
+            outcome,
+            cache_updates={"terminated": False, "truncated": False},
+        )
+        return outcome.observation, info
 
     def step(self, action) -> tuple[dict, Any, np.ndarray, Any, Any]:
         assert not (self.terminated or self.truncated), (

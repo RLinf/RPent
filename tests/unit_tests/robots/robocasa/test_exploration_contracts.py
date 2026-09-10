@@ -1,3 +1,17 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """CPU-only exploration contracts; no simulator or policy is constructed."""
 
 import argparse
@@ -35,7 +49,10 @@ def exploration(monkeypatch, tmp_path, fake_single_arm_primitives):
             self.seeds.append(7)
             self.success = False
             self.actions = 0
-            return {"seed": 7, "notice": "按配置 seed 重新初始化，完整物理布局确定性仍需真实仿真验证"}
+            return {
+                "seed": 7,
+                "notice": "按配置 seed 重新初始化，完整物理布局确定性仍需真实仿真验证",
+            }
 
     env = Env()
     vla = SimpleNamespace(reset_session=lambda: None)
@@ -59,8 +76,11 @@ def exploration(monkeypatch, tmp_path, fake_single_arm_primitives):
     def dump(primitives, state, log):
         log = log or {}
         with state.record_step(
-            state={}, terminated=env.success, truncated=False,
-            extras={"success": env.success}, **log,
+            state={},
+            terminated=env.success,
+            truncated=False,
+            extras={"success": env.success},
+            **log,
         ) as idx:
             pass
         return state.get(idx)
@@ -68,17 +88,26 @@ def exploration(monkeypatch, tmp_path, fake_single_arm_primitives):
     monkeypatch.setattr("robots.robocasa.primitives.RoboCasaPrimitives", Primitives)
     monkeypatch.setattr(tools, "dump_state", dump)
     monkeypatch.setattr(toolkit, "get_output_dir", lambda: tmp_path)
-    monkeypatch.setattr(templates, "default_variables", lambda: {"output_dir": str(tmp_path)})
-    config = robot_spec._parse_config(argparse.Namespace(
-        task_name="OpenDrawer", split="target", seed=7,
-        output_dir=tmp_path, memory_dir=tmp_path / "memory",
-    ))
+    monkeypatch.setattr(
+        templates, "default_variables", lambda: {"output_dir": str(tmp_path)}
+    )
+    config = robot_spec._parse_config(
+        argparse.Namespace(
+            task_name="OpenDrawer",
+            split="target",
+            seed=7,
+            output_dir=tmp_path,
+            memory_dir=tmp_path / "memory",
+        )
+    )
 
     def make(budget=3, session=1, mode="exploration"):
         return robot_spec.get_toolkit(
             primitives_kwargs={"env_client": env, "vla_client": vla},
-            dashboard_events=NullDashboardEventSink(), config=config,
-            mode=mode, attempts_per_session=budget,
+            dashboard_events=NullDashboardEventSink(),
+            config=config,
+            mode=mode,
+            attempts_per_session=budget,
             state_output_dir=tmp_path / "sessions" / f"session_{session:03d}",
         )
 
@@ -103,7 +132,9 @@ def _render_exploration_prompt(tmp_path: Path) -> str:
         "task_language": "Open the drawer.",
         "task_name": "OpenDrawer",
     }
-    return " ".join(format_prompt(system_prompt(variables), variables=variables).split())
+    return " ".join(
+        format_prompt(system_prompt(variables), variables=variables).split()
+    )
 
 
 def test_exploration_prompt_splits_control_and_requires_budgeted_recovery(tmp_path):
@@ -153,14 +184,21 @@ def test_exploration_prompt_matches_success_reset_and_recipe_lifecycle(tmp_path)
 def test_attempt_budget_and_guarded_finish(exploration, budget):
     make, env, _, _ = exploration
     robot = make(budget)
-    finish = lambda: robot.execute_tool("finish", {"status": "success", "summary": "planner claim"})
+
+    def finish():
+        return robot.execute_tool(
+            "finish", {"status": "success", "summary": "planner claim"}
+        )
+
     assert not robot.solved()
     assert finish().is_finish is (budget in (0, 1))
     for attempt in range(2, (budget or 5) + 1):
         result = robot.execute_tool("reset", {"reason": "changed approach"})
         assert result.result["log"]["result"]["attempt"] == attempt
     assert finish().is_finish
-    assert not robot.solved()  # finish claims and successful tools are not native success
+    assert (
+        not robot.solved()
+    )  # finish claims and successful tools are not native success
     if budget:
         count = len(env.seeds)
         robot.execute_tool("reset", {"reason": "over budget"})
@@ -253,25 +291,39 @@ def test_memory_permissions_and_merge_names(exploration, tmp_path):
     inbox = root / "_internal" / "inbox" / config.recipe_tag
     write(path=str(inbox / "wip" / "notes.md"), content="observations")
     with pytest.raises(PermissionError):
-        write(path=str(root / "_internal" / "inbox" / "other" / "note.md"), content="no")
+        write(
+            path=str(root / "_internal" / "inbox" / "other" / "note.md"), content="no"
+        )
     with pytest.raises(PermissionError):
         write(path=str(root / "task_only" / "bad.json"), content="no")
     robot.execute_tool("move_to", {"win": True})
     robot.write_recipe(config.recipe_tag)
     (tmp_path / f"{config.recipe_tag}.json").write_text('{"success": true}')
-    robot.memory.merge_memory(cell_tag=config.recipe_tag, run_state_dir=tmp_path, solved=True)
+    robot.memory.merge_memory(
+        cell_tag=config.recipe_tag, run_state_dir=tmp_path, solved=True
+    )
     audit = root / "task_only" / f"{config.recipe_tag}.json"
     assert json.loads(read(path=str(audit))["content"])["success"]
     from robots.robocasa.prompt_bundle import system_prompt, user_prompt
-    variables = {**config.prompt_vars, "mode": "explore", "memory_profile": "local",
-                 "memory_inbox": str(inbox), "output_dir": str(tmp_path),
-                 "session_number": 1, "session_max": 3, "attempts_per_session": 3}
+
+    variables = {
+        **config.prompt_vars,
+        "mode": "explore",
+        "memory_profile": "local",
+        "memory_inbox": str(inbox),
+        "output_dir": str(tmp_path),
+        "session_number": 1,
+        "session_max": 3,
+        "attempts_per_session": 3,
+    }
     prompt = format_prompt(system_prompt(variables), variables=variables)
     assert "OpenDrawer_target_s<seed>.json" in prompt
     assert "does not prove identical physical layout" in prompt
     assert "_check_success" in prompt
     assert "{{" not in prompt
-    assert "no-reset mode" not in format_prompt(user_prompt(variables), variables=variables)
+    assert "no-reset mode" not in format_prompt(
+        user_prompt(variables), variables=variables
+    )
 
 
 def test_client_defers_only_exploration_initial_reset():
@@ -283,11 +335,17 @@ def test_client_defers_only_exploration_initial_reset():
         if method == "env.get_env_meta":
             return meta
         if method == "env.reset_exploration":
-            return {"observation": {"fresh": True}, "seed": 7,
-                    "reset_contract": "configured_seed_reinitialization"}
+            return {
+                "observation": {"fresh": True},
+                "seed": 7,
+                "reset_contract": "configured_seed_reinitialization",
+                "notice": "configured seed reinitialization",
+            }
         return {}
 
-    client = RoboCasaEnvClient(SimpleNamespace(call=call), expected_meta=meta, defer_reset=True)
+    client = RoboCasaEnvClient(
+        SimpleNamespace(call=call), expected_meta=meta, defer_reset=True
+    )
     assert calls == ["env.get_env_meta"]
     client.reset_exploration()
     assert client.last_obs == {"fresh": True}
@@ -333,8 +391,12 @@ def test_rldx_reset_is_private_and_failure_propagates():
     facade.policy = SimpleNamespace(reset=lambda options: calls.append(options))
     assert facade.reset_session(session_id="private-A") == {"ok": True}
     assert calls == [{"session_ids": ["private-A"]}]
-    skill = RLDXSkill(object(), vla_client=SimpleNamespace(
-        reset_session=lambda: facade.reset_session(session_id="private-A")))
+    skill = RLDXSkill(
+        object(),
+        vla_client=SimpleNamespace(
+            reset_session=lambda: facade.reset_session(session_id="private-A")
+        ),
+    )
     skill._hist = deque(["old frame"])
     skill._last_prompt = "old instruction"
     skill.reset_session()
@@ -354,8 +416,16 @@ def test_real_spec_accepts_exploration_flags():
     assert spec.supports_exploration
     parser = argparse.ArgumentParser()
     spec.add_cli_args(parser, False)
-    args = parser.parse_args(["--task-name", "OpenDrawer", "--explore-sessions", "3",
-                              "--explore-attempts-per-session", "0"])
+    args = parser.parse_args(
+        [
+            "--task-name",
+            "OpenDrawer",
+            "--explore-sessions",
+            "3",
+            "--explore-attempts-per-session",
+            "0",
+        ]
+    )
     assert args.explore_sessions == 3
     assert args.explore_attempts_per_session == 0
 
@@ -376,8 +446,13 @@ def test_real_primitives_skip_exploration_constructor_reset(tmp_path):
 
 def test_parse_config_renders_actual_exploration_prompt(tmp_path):
     args = argparse.Namespace(
-        task_name="OpenDrawer", split="target", seed=7, output_dir=tmp_path,
-        memory_dir=None, explore=True, explore_sessions=3,
+        task_name="OpenDrawer",
+        split="target",
+        seed=7,
+        output_dir=tmp_path,
+        memory_dir=None,
+        explore=True,
+        explore_sessions=3,
         explore_attempts_per_session=1,
     )
     config = robot_spec._parse_config(args)
@@ -401,6 +476,7 @@ def test_parse_config_renders_actual_exploration_prompt(tmp_path):
 
 def test_handoff_does_not_claim_physical_restoration(tmp_path):
     from rpent.cli.main import _handoff_message
+
     message = _handoff_message(tmp_path, 2, 3, robot_name="robocasa")
     assert "完整物理布局确定性仍需真实仿真验证" in message
     assert "restored a clean scene" not in message
@@ -425,6 +501,7 @@ def test_environment_reset_failure_exhausts_budget(exploration):
 
 def test_vla_client_rejects_negative_reset_acknowledgement():
     from robots.robocasa.vla_client import RoboCasaVLAClient
+
     client = RoboCasaVLAClient.__new__(RoboCasaVLAClient)
     calls = []
 

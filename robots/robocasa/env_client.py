@@ -16,11 +16,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from numbers import Integral
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from rpent.robots.components.env_client_base import BaseEnvClient
+from rpent.robots.components.env_client_base import (
+    BaseEnvClient,
+    ExplorationResetOutcome,
+)
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
@@ -37,6 +42,10 @@ CAM_ALIAS = {
     "navview": "mobilebase0_navview",  # base-mounted forward-down floor/nav camera
     "mobilebase0_navview": "mobilebase0_navview",
 }
+
+
+class RoboCasaResetContractError(RuntimeError):
+    """Raised when an exploration reset violates the configured contract."""
 
 
 class RoboCasaEnvClient(BaseEnvClient):
@@ -65,17 +74,54 @@ class RoboCasaEnvClient(BaseEnvClient):
         )
         return self.last_obs
 
+    def _decode_exploration_reset(self, result: Any) -> ExplorationResetOutcome:
+        if not isinstance(result, Mapping):
+            raise RoboCasaResetContractError(
+                "RoboCasa exploration reset contract error: response must be a "
+                f"mapping, got {result!r}"
+            )
+        required = ("observation", "seed", "reset_contract", "notice")
+        missing = [key for key in required if key not in result]
+        if missing:
+            raise RoboCasaResetContractError(
+                f"RoboCasa exploration reset contract error: missing fields {missing}"
+            )
+        observation = result["observation"]
+        if not isinstance(observation, dict):
+            raise RoboCasaResetContractError(
+                "RoboCasa exploration reset contract error: observation must be "
+                f"a mapping, got {observation!r}"
+            )
+        reset_contract = result["reset_contract"]
+        if reset_contract != "configured_seed_reinitialization":
+            raise RoboCasaResetContractError(
+                f"RoboCasa exploration reset contract mismatch: got {reset_contract!r}"
+            )
+        seed = result["seed"]
+        if isinstance(seed, bool) or not isinstance(seed, Integral):
+            raise RoboCasaResetContractError(
+                "RoboCasa exploration reset contract error: seed must be an "
+                f"integer, got {seed!r}"
+            )
+        if int(seed) != self._configured_seed:
+            raise RoboCasaResetContractError(
+                "RoboCasa exploration reset configured-seed mismatch: "
+                f"expected {self._configured_seed!r}, got {seed!r}"
+            )
+        if not isinstance(result["notice"], str):
+            raise RoboCasaResetContractError(
+                "RoboCasa exploration reset contract error: notice must be a string"
+            )
+        details = {key: value for key, value in result.items() if key != "observation"}
+        return ExplorationResetOutcome(observation=observation, details=details)
+
     def reset_exploration(self):
         """Rebuild from configuration; seed identity is not physical identity."""
         result = self._client.call(
             "env.reset_exploration", timeout_s=self._TIMEOUT_S["env.reset"]
         )
-        if result["reset_contract"] != "configured_seed_reinitialization" or (
-            result["seed"] != self._configured_seed
-        ):
-            raise RuntimeError("RoboCasa exploration reset contract mismatch")
-        self.last_obs = result["observation"]
-        return {key: value for key, value in result.items() if key != "observation"}
+        outcome = self._decode_exploration_reset(result)
+        return self._commit_reset_outcome(outcome)
 
     def step(self, flat_action):
         result = self._client.call(
