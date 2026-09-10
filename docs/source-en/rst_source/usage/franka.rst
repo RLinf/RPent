@@ -34,14 +34,11 @@ Calibration
 Hand-eye calibration is performed with ROS
 `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_. It produces one YAML
 per camera (eye-on-base for the external camera, eye-on-hand for the wrist
-camera) and saves them under ``~/.ros/easy_handeye/`` by default. Each YAML has
-a ``parameters`` section (frame names and ``eye_on_hand``) and a
-``transformation`` section (translation ``x/y/z`` plus quaternion
-``qx/qy/qz/qw``).
+camera) and saves them under ``~/.ros/easy_handeye/`` by default.
 
 RPent loads those YAMLs directly: list them under ``perception.calibration`` in
-the robot config, mapping each camera role to its easy_handeye YAML (the
-checked-in ``robots/franka/config/example.yaml`` already does this):
+the robot config, mapping each camera to its easy_handeye YAML (the checked-in
+``robots/franka/config/example.yaml`` already does this):
 
 .. code-block:: yaml
 
@@ -49,9 +46,6 @@ checked-in ``robots/franka/config/example.yaml`` already does this):
 	  calibration:
 		external: ~/.ros/easy_handeye/fr3_external_apriltag_eye_on_base.yaml
 		wrist: ~/.ros/easy_handeye/fr3_wrist_apriltag_ee_eye_on_hand.yaml
-
-RPent reads the hand-eye transforms directly from these YAMLs; there is no
-separate calibration bundle and no conversion step.
 
 Development configuration
 -------------------------

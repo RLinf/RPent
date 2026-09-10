@@ -30,12 +30,10 @@ RPent 可以通过 RLinf 的 ``RealWorldEnv`` worker 控制单台 Franka 机械�
 手眼标定使用 ROS 的 `easy_handeye
 <https://github.com/IFL-CAMP/easy_handeye>`_ 完成。它为每台相机生成一个 YAML
 （外部相机为 eye-on-base，腕部相机为 eye-on-hand），默认保存在
-``~/.ros/easy_handeye/`` 下。每个 YAML 包含 ``parameters`` 部分（frame 名称和
-``eye_on_hand``）以及 ``transformation`` 部分（平移 ``x/y/z`` 和四元数
-``qx/qy/qz/qw``）。
+``~/.ros/easy_handeye/`` 下。
 
 RPent 会直接加载这些 YAML：在 robot config 的 ``perception.calibration`` 下将
-每个相机角色映射到对应的 easy_handeye YAML 即可（仓库中的
+每个相机映射到对应的 easy_handeye YAML 即可（仓库中的
 ``robots/franka/config/example.yaml`` 已经包含该映射）：
 
 .. code-block:: yaml
@@ -44,9 +42,6 @@ RPent 会直接加载这些 YAML：在 robot config 的 ``perception.calibration
 	  calibration:
 		external: ~/.ros/easy_handeye/fr3_external_apriltag_eye_on_base.yaml
 		wrist: ~/.ros/easy_handeye/fr3_wrist_apriltag_ee_eye_on_hand.yaml
-
-RPent 会直接从这些 YAML 中读取手眼标定变换；不存在单独的标定 bundle，也不需要
-任何转换步骤。
 
 开发配置
 --------

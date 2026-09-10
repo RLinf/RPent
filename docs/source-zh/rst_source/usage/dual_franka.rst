@@ -32,27 +32,10 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 base frame 做标定（两次 eye-on-base 标定）：``base_camera`` （第三人称
 RealSense）和 ``d455_camera``。两台腕部相机（ ``left_wrist`` 和
 ``right_wrist`` ）只用于观测：它们为 VLA 提供 policy 视图、为 planner 提供近距
-离快照，RPent 不会通过它们做像素反投影，因此不需要手眼标定。easy_handeye 默认
-在 ``~/.ros/easy_handeye/`` 下为每台相机保存一个 YAML。每个 YAML 包含
-``parameters`` 部分（frame 名称和 ``eye_on_hand``）以及 ``transformation`` 部分
-（相机在右臂 base frame 下的平移 ``x/y/z`` 和四元数 ``qx/qy/qz/qw``）：
+离快照，RPent 不会通过它们做像素反投影，因此不需要手眼标定。
 
-.. code-block:: yaml
-
-	parameters:
-	  eye_on_hand: false
-	  robot_base_frame: right_base
-	  tracking_base_frame: third_camera_color_optical_frame
-	transformation:
-	  x: 0.218
-	  y: 0.341
-	  z: 0.789
-	  qx: -0.595
-	  qy: 0.598
-	  qz: -0.361
-	  qw: 0.397
-
-RPent 会直接加载这些 YAML：在 robot config 的 ``perception.calibration`` 下将每台
+easy_handeye 默认在 ``~/.ros/easy_handeye/`` 下为每台相机保存一个 YAML。RPent
+会直接加载这些 YAML：在 robot config 的 ``perception.calibration`` 下将每台
 相机映射到对应的 easy_handeye YAML 即可（仓库中的
 ``robots/dual_franka/config/example.yaml`` 已经包含该映射）：
 
@@ -62,9 +45,6 @@ RPent 会直接加载这些 YAML：在 robot config 的 ``perception.calibration
 	  calibration:
 		base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
 		d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
-
-RPent 会直接从这些 YAML 中读取手眼标定变换；不存在单独的标定 bundle，也不需要
-任何转换步骤。
 
 开发配置
 --------

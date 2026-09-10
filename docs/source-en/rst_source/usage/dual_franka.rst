@@ -38,27 +38,9 @@ calibrations): ``base_camera`` (the third-person RealSense) and ``d455_camera``.
 The two wrist cameras (``left_wrist`` and ``right_wrist``) are observation
 only — they feed the VLA policy views and the close-up planner snapshots, and
 RPent never back-projects pixels through them — so they need no hand-eye
-calibration. easy_handeye saves one YAML per camera under
-``~/.ros/easy_handeye/`` by default. Each YAML has a ``parameters`` section
-(frame names and ``eye_on_hand``) and a ``transformation`` section (translation
-``x/y/z`` plus quaternion ``qx/qy/qz/qw`` of the camera in the right-base
-frame):
+calibration.
 
-.. code-block:: yaml
-
-	parameters:
-	  eye_on_hand: false
-	  robot_base_frame: right_base
-	  tracking_base_frame: third_camera_color_optical_frame
-	transformation:
-	  x: 0.218
-	  y: 0.341
-	  z: 0.789
-	  qx: -0.595
-	  qy: 0.598
-	  qz: -0.361
-	  qw: 0.397
-
+Easy_handeye saves one YAML per camera under ``~/.ros/easy_handeye/`` by default.
 RPent loads those YAMLs directly: list them under ``perception.calibration`` in
 the robot config, mapping each camera to its easy_handeye YAML (the checked-in
 ``robots/dual_franka/config/example.yaml`` already does this):
@@ -69,9 +51,6 @@ the robot config, mapping each camera to its easy_handeye YAML (the checked-in
 	  calibration:
 		base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
 		d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
-
-RPent reads the hand-eye transforms directly from these YAMLs; there is no
-separate calibration bundle and no conversion step.
 
 Development configuration
 -------------------------
