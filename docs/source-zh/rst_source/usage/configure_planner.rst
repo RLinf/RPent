@@ -177,7 +177,7 @@ agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
 1. 接收已经渲染好的 ``system_prompt`` 和 ``user_message``。
 2. 从 ``toolkit.list_tools()`` 读取原生工具，并将其 ``name``、``description``
    和 ``input_schema`` 转为 SDK 格式。通过 ``toolkit.execute_tool(name, arguments)``
-   执行调用；异步适配器通过 ``rpent.planner.base.execute_tool`` 在线程中执行工具。
+   执行调用；异步适配器使用支持取消清理的 ``rpent.planner.base.execute_tool``。
 3. 将 ``ToolResult.to_text()`` 和 ``ToolResult.images`` 中的 PNG 字节转换为
    SDK 格式，并保留 ``ToolResult.is_error``。
 4. 检查 ``toolkit.finish_result``，按 ``max_turns`` 等限制终止循环；

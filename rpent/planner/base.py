@@ -19,6 +19,8 @@ from __future__ import annotations
 import asyncio
 import os
 import queue
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Protocol
 
@@ -48,9 +50,25 @@ def strip_mcp_prefix(name: str) -> str:
     return name.removeprefix(MCP_TOOL_PREFIX)
 
 
+async def cancel_and_wait(cancel: Callable[[], None]) -> None:
+    """Keep cancellation independent of a tool pool full of waiting calls."""
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="tool-control") as pool:
+        await asyncio.get_running_loop().run_in_executor(pool, cancel)
+
+
 async def execute_tool(toolkit: Toolkit, name: str, arguments: dict) -> ToolResult:
-    """Dispatch native tool execution off the event loop."""
-    return await asyncio.to_thread(toolkit.execute_tool, name, arguments)
+    """Retain the worker through cancellation, including queued executor jobs."""
+    worker = asyncio.create_task(
+        asyncio.to_thread(toolkit.execute_tool, name, arguments)
+    )
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        await cancel_and_wait(toolkit.cancel_active_and_wait)
+        # Jobs still in the executor queue must observe paused admission before
+        # the adapter can resume the next turn.
+        await asyncio.shield(worker)
+        raise
 
 
 class PlannerResult:

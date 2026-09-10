@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Native tool execution with one active invocation per toolkit."""
+"""Native tool execution, per-toolkit scheduling, and lifecycle hooks."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Generic
+from typing import Any, Generic, Literal
 
 import numpy as np
 from pydantic import ValidationError
@@ -45,17 +45,97 @@ from rpent.utils.logging import get_logger
 logger = get_logger("tools")
 
 
-@dataclass(slots=True)
-class _ToolOperation:
+@dataclass(eq=False)
+class _Call:
+    """Scheduling state for one call; arguments stay with the executor."""
+
+    tool: Tool
     cancel_event: threading.Event = field(default_factory=threading.Event)
-    done_event: threading.Event = field(default_factory=threading.Event)
+    done: bool = False
+
+
+class _Scheduler:
+    """Run readonly tools together and exclusive tools one at a time.
+
+    Exclusive calls take priority and keep their queue order. Calls stay active
+    through capture; the condition lock only protects scheduling state, never
+    tool execution.
+    """
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._pending: list[_Call] = []
+        self._active_calls: set[_Call] = set()
+        self._state: Literal["open", "paused", "closed"] = "open"
+
+    def acquire(self, tool: Tool) -> _Call:
+        with self._condition:
+            if self._state == "closed":
+                raise RuntimeError("Toolkit is closed.")
+            if self._state == "paused":
+                raise RuntimeError("Tool calls are paused.")
+            call = _Call(tool)
+            self._pending.append(call)
+            try:
+                while True:
+                    if call.cancel_event.is_set():
+                        raise RuntimeError("Tool call cancelled.")
+                    if self._can_start(call):
+                        self._pending.remove(call)
+                        self._active_calls.add(call)
+                        return call
+                    self._condition.wait()
+            except BaseException:
+                if call in self._pending:
+                    self._pending.remove(call)
+                call.done = True
+                self._condition.notify_all()
+                raise
+
+    def _can_start(self, call: _Call) -> bool:
+        first_exclusive = next(
+            (pending for pending in self._pending if not pending.tool.readonly), None
+        )
+
+        if not call.tool.readonly:
+            return not self._active_calls and call is first_exclusive
+
+        return first_exclusive is None and all(
+            active.tool.readonly for active in self._active_calls
+        )
+
+    def release(self, call: _Call) -> None:
+        with self._condition:
+            self._active_calls.remove(call)
+            call.done = True
+            self._condition.notify_all()
+
+    def cancel_and_wait(self, *, close: bool = False) -> None:
+        with self._condition:
+            if close:
+                self._state = "closed"
+            elif self._state != "closed":
+                self._state = "paused"
+            calls = [*self._pending, *self._active_calls]
+            self._pending.clear()
+            for call in calls:
+                call.cancel_event.set()
+            self._condition.notify_all()
+            self._condition.wait_for(lambda: all(call.done for call in calls))
+
+    def resume(self) -> None:
+        with self._condition:
+            if self._active_calls:
+                raise RuntimeError("Wait for call cleanup before resuming.")
+            if self._state == "paused":
+                self._state = "open"
 
 
 class Toolkit(Generic[RobotT]):
     """A fixed tool collection and its execution resources for one planner session.
 
-    Robot tools submit RGB frames through ctx.record_frame(). Robot toolkits
-    save their action clips, episode video, and replay recipes.
+    Robot tools submit RGB frames through ctx.record_frame(). This toolkit owns
+    the frame buffer and saves action clips and the episode video.
     """
 
     def __init__(
@@ -76,9 +156,9 @@ class Toolkit(Generic[RobotT]):
         self._tools: dict[str, Tool] = {
             item.name: item for item in (*COMMON_TOOLS, *tools)
         }
-        self._operation_lock = threading.Lock()
-        self._active_operation: _ToolOperation | None = None
+        self._scheduler = _Scheduler()
         self._finish_result: dict[str, str] | None = None
+        self._recipe_commands: list[dict[str, Any]] = []
         self._frames: list[np.ndarray] = []
 
     @property
@@ -103,7 +183,7 @@ class Toolkit(Generic[RobotT]):
         self._frames.append(np.ascontiguousarray(np.asarray(rgb)))
 
     def execute_tool(self, name: str, arguments: dict) -> ToolResult:
-        """Validate and execute one call, then capture its observation."""
+        """Validate, wait, execute, and capture before releasing the call."""
         tool = self._tools.get(name)
         if tool is None:
             return ToolResult(error=f"Unknown tool: {name}")
@@ -115,14 +195,13 @@ class Toolkit(Generic[RobotT]):
             )
             details = json.dumps({"errors": errors})
             return ToolResult(error=f"Invalid arguments for {name}.\n{details}")
-        with self._operation_lock:
-            if self._active_operation is not None:
-                return ToolResult(error="another tool operation is still active")
-            operation = _ToolOperation()
-            self._active_operation = operation
+        try:
+            call = self._scheduler.acquire(tool)
+        except RuntimeError as exc:
+            return ToolResult(error=str(exc)[:500])
 
         try:
-            if operation.cancel_event.is_set():
+            if call.cancel_event.is_set():
                 return ToolResult(error="Tool call cancelled.")
             ctx = ToolContext(
                 state=self._state,
@@ -130,11 +209,13 @@ class Toolkit(Generic[RobotT]):
                 robot=self._robot,
                 output_dir=self._task_output_dir,
                 record_frame=self.record_frame,
-                _cancel_event=operation.cancel_event,
+                _cancel_event=call.cancel_event,
             )
             capture = (
                 not tool.readonly and tool not in COMMON_TOOLS and name != "finish"
             )
+            if capture and self._dashboard_events.enabled:
+                frame_start = len(self._frames)
             started = time.perf_counter()
             # Read fields directly so nested models reach the handler intact.
             kwargs = {name: getattr(args, name) for name in type(args).model_fields}
@@ -146,6 +227,7 @@ class Toolkit(Generic[RobotT]):
             if capture:
                 elapsed_s = time.perf_counter() - started
                 previous = self._state.latest_record()
+                observation_data = None
                 try:
                     observation_data, observation_images = self._capture_observation(
                         command={"action": tool.name, **args.model_dump()},
@@ -163,6 +245,26 @@ class Toolkit(Generic[RobotT]):
                     result.error = error
                 record = self._state.latest_record()
                 if record is not None and record is not previous:
+                    if self._dashboard_events.enabled:
+                        try:
+                            frames = self._frames[frame_start:]
+                            if frames:
+                                self._state.save(
+                                    f"action_{tool.name}.mp4",
+                                    frames,
+                                    step=record.step_idx,
+                                    fps=20,
+                                )
+                                if observation_data is not None:
+                                    observation_data["artifacts"] = sorted(
+                                        record.artifacts
+                                    )
+                        except Exception as exc:
+                            logger.warning(
+                                "failed to save action clip for step %s: %s",
+                                record.step_idx,
+                                exc,
+                            )
                     try:
                         self._dashboard_events.emit(
                             StepRecordEvent(record=record, env_state=self._state)
@@ -175,6 +277,10 @@ class Toolkit(Generic[RobotT]):
                 self._finish_result = {
                     key: result.data[key] for key in ("status", "summary")
                 }
+            elif tool not in COMMON_TOOLS and not result.is_error:
+                self._recipe_commands.append(
+                    {"action": tool.name, **args.model_dump(mode="json")}
+                )
             # Images are logged by their owning artifact paths, not their bytes.
             logger.info(
                 "Tool %s result: %s",
@@ -187,9 +293,7 @@ class Toolkit(Generic[RobotT]):
             )
             return result
         finally:
-            with self._operation_lock:
-                self._active_operation = None
-                operation.done_event.set()
+            self._scheduler.release(call)
 
     def _capture_observation(
         self, *, command: dict[str, Any], result: ToolResult, elapsed_s: float
@@ -198,27 +302,43 @@ class Toolkit(Generic[RobotT]):
 
         Returned data replaces the action's data and must include the recorded
         step and its artifact names. Include action details in that data where
-        needed (e.g. log.result). Robot toolkits save action video artifacts.
+        needed (e.g. log.result). The executor adds action videos to the artifacts.
         The executor appends the images and retains the action's error. Raise if
         capture fails; an already saved step is still published to the Dashboard.
         """
         raise NotImplementedError("This toolkit does not capture robot observations.")
 
     def cancel_active_and_wait(self) -> None:
-        """Request cancellation and wait for the active tool to return."""
-        with self._operation_lock:
-            operation = self._active_operation
-            if operation is None:
-                return
-            operation.cancel_event.set()
-        operation.done_event.wait()
+        self._scheduler.cancel_and_wait()
+
+    def resume_calls(self) -> None:
+        self._scheduler.resume()
 
     def close(self) -> None:
-        """Release robot resources at the end of a run. Default: no-op."""
+        """Called once by the runner to drain calls and save the episode video."""
+        self._scheduler.cancel_and_wait(close=True)
+        frames = self._frames
+        self._frames = []
+        try:
+            if frames:
+                self._state.save("episode.mp4", frames, step=None, fps=20)
+        except Exception as exc:
+            logger.warning("failed to save episode video: %s", exc)
 
     def solved(self) -> bool:
         raise NotImplementedError
 
-    def write_recipe(self, recipe_tag: str) -> str | None:
-        """Write a replay recipe for this robot, if supported."""
-        return None
+    def write_recipe(self, recipe_tag: str) -> str:
+        """Export successful robot action and perception calls in completion order.
+
+        Keep the full session, including resets. File tools and finish are
+        excluded. The caller decides whether the task qualifies for publication.
+        """
+        name = f"{recipe_tag}_recipe.jsonl"
+        path = self._task_output_dir / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "".join(json.dumps(command) + "\n" for command in self._recipe_commands),
+            encoding="utf-8",
+        )
+        return name

@@ -79,14 +79,14 @@
 
    工具执行后，toolkit 会自动保存新的状态快照。对于 ``view_env_state``、
    ``back_project`` 等读取已有观测的工具，可以在 ``@tool`` 下方添加
-   ``@readonly``，省去这次状态捕获；调用仍按顺序执行。公共工具和 ``finish``
+   ``@readonly``，允许并行执行并省去这次状态捕获。公共工具和 ``finish``
    不触发状态捕获；``write_text_file`` 和 ``finish`` 不设置 readonly，独占执行。
 
 2. **将工具加入 toolkit。** 把函数声明加入该机器人的工具集合，例如 LIBERO 的
    ``LIBERO_TOOLS``。Toolkit 在构造时接收这组工具，并统一处理参数校验和调用。
 
 完成以上步骤后，``api``、``claude_code`` 和 ``codex`` 三种 planner
-都可以调用该工具，无需分别编写适配代码。执行和取消的约定参见
+都可以调用该工具，无需分别编写适配代码。需要支持并发或取消时，参见
 :doc:`interfaces` 中的工具集说明。
 
 .. _add-primitive-model-based:

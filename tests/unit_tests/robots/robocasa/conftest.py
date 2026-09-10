@@ -196,4 +196,5 @@ def make_toolkit(monkeypatch, tmp_path):
     yield make
     for run in runs:
         run.toolkit._frames.clear()
-        run.toolkit.close()
+        if run.toolkit._scheduler._state != "closed":
+            run.toolkit.close()

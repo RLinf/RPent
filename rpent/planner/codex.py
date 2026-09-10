@@ -51,6 +51,7 @@ from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import (
     REASONING_EFFORTS,
     PlannerResult,
+    cancel_and_wait,
     strip_mcp_prefix,
 )
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
@@ -220,7 +221,13 @@ class CodexPlanner:
                     _write_jsonl(raw_f, {"type": "error", "message": error})
                 logger.info(rendered.rstrip())
         finally:
-            mcp_server.stop()
+            try:
+                toolkit.cancel_active_and_wait()
+            except Exception as exc:
+                logger.exception("Codex toolkit cleanup failed")
+                error = error or f"Toolkit cleanup failed: {exc}"
+            finally:
+                mcp_server.stop()
 
         elapsed = time.time() - started
         text = state.get("text", "") or output_path.read_text(errors="replace")
@@ -300,6 +307,7 @@ class CodexPlanner:
                                 if stop_steer.is_set():
                                     return
                                 if nxt is None:
+                                    recorder.toolkit.cancel_active_and_wait()
                                     try:
                                         turn.interrupt()
                                     except Exception:
@@ -417,6 +425,7 @@ class CodexPlanner:
                 control = DashboardPlannerControl(
                     interaction=interaction,
                     cancel_active_and_wait=toolkit.cancel_active_and_wait,
+                    resume_calls=toolkit.resume_calls,
                     emit_user=emit_user,
                     emit_initial_user=lambda: emit_user(
                         initial_user_text, initial=True
@@ -456,7 +465,13 @@ class CodexPlanner:
                         {"type": "toolkit_finish", "finish": recorder.finish_result},
                     )
         finally:
-            mcp_server.stop()
+            try:
+                await cancel_and_wait(toolkit.cancel_active_and_wait)
+            except Exception as exc:
+                logger.exception("Codex toolkit cleanup failed")
+                error = error or f"Toolkit cleanup failed: {exc}"
+            finally:
+                await asyncio.to_thread(mcp_server.stop)
 
         if recorder.final_response is not None:
             last_message_path.write_text(recorder.final_response)
@@ -557,14 +572,7 @@ class _CodexDashboardSession:
         try:
             await asyncio.wait_for(done.wait(), timeout=15)
         except asyncio.TimeoutError:
-            if self._turn_task is not None:
-                self._turn_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._turn_task
-            self._turn = None
-            self._turn_done = None
-            self._turn_task = None
-            return 1
+            raise RuntimeError("Codex did not finish the interrupted turn") from None
         # ``_consume_turn`` reports the matching completed turn boundary.
         return 0
 

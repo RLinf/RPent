@@ -32,7 +32,6 @@ Usage::
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import socket
 import threading
@@ -88,7 +87,6 @@ def mcp_result(result: ToolResult) -> dict[str, Any]:
 def build_mcp_server(toolkit: Toolkit) -> Server:
     """Build the MCP service shared by Claude and Codex with native validation."""
     mcp_app: Server = Server(SERVER_NAME, version="0.1.0")
-    tool_execution_lock = asyncio.Lock()
     exported_tools = list_mcp_tools(toolkit)
     exported_names = {tool.name for tool in exported_tools}
 
@@ -111,8 +109,7 @@ def build_mcp_server(toolkit: Toolkit) -> Server:
         if lookup not in exported_names:
             result = ToolResult(error=f"Unknown tool: {lookup}")
         else:
-            async with tool_execution_lock:
-                result = await execute_tool(toolkit, lookup, arguments or {})
+            result = await execute_tool(toolkit, lookup, arguments or {})
         return types.CallToolResult(**mcp_result(result))
 
     return mcp_app

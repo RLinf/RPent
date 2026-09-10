@@ -57,6 +57,7 @@ from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import (
     REASONING_EFFORTS,
     PlannerResult,
+    cancel_and_wait,
     execute_tool,
 )
 from rpent.tools.toolkit import Toolkit
@@ -277,6 +278,14 @@ class ApiAgentLoop:
             last_error = _api_error_text(e, no_images=self._no_images)
             logger.error("agent run failed: %s", last_error)
 
+        finally:
+            try:
+                await cancel_and_wait(toolkit.cancel_active_and_wait)
+            except Exception as exc:
+                logger.exception("API toolkit cleanup failed")
+                last_error = last_error or f"Toolkit cleanup failed: {exc}"
+            messages.append({"role": "toolkit", "finish": toolkit.finish_result})
+
         return PlannerResult(
             finish_result=observer.finish_result,
             messages=messages,
@@ -311,6 +320,7 @@ class ApiAgentLoop:
         control = DashboardPlannerControl(
             interaction=interaction,
             cancel_active_and_wait=toolkit.cancel_active_and_wait,
+            resume_calls=toolkit.resume_calls,
             emit_user=emit_user,
             emit_initial_user=lambda: emit_user(user_message, initial=True),
             defer_message_ack=True,
@@ -738,7 +748,6 @@ def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
             ),
             json_schema=tool.input_schema,
             takes_ctx=False,
-            sequential=True,
         )
         for tool in tools
     ]

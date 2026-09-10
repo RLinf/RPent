@@ -15,36 +15,80 @@
 import json
 
 
-def test_recipe_exports_only_the_successful_attempt_after_reset(make_toolkit):
-    toolkit, env, _ = make_toolkit(mode="exploration", attempts=2)
-    assert not toolkit.execute_tool("set_gripper", {"steps": 1}).is_error
-    assert toolkit.write_recipe("unsolved") == ""
-    assert not toolkit.execute_tool("reset", {"reason": "try again"}).is_error
-    env.terminated = True
-    assert not toolkit.execute_tool("set_gripper", {"steps": 2}).is_error
-
+def export(toolkit):
     name = toolkit.write_recipe("cell")
     assert name == "cell_recipe.jsonl"
-    recipe = toolkit._task_output_dir / name
-    assert [json.loads(line) for line in recipe.read_text().splitlines()] == [
-        {"action": "set_gripper", "gripper": -1.0, "steps": 2}
+    return [
+        json.loads(line)
+        for line in (toolkit._task_output_dir / name).read_text().splitlines()
     ]
 
 
-def test_recipe_excludes_failed_actions_in_a_successful_attempt(
+def test_common_files_finish_validation_and_execution_errors_are_excluded(
     make_toolkit, monkeypatch
 ):
     toolkit, env, _ = make_toolkit()
+    path = str(toolkit._task_output_dir / "note.txt")
+    for name, arguments in [
+        ("write_text_file", {"path": path, "content": "note"}),
+        ("read_text_file", {"path": path}),
+        ("list_dir", {}),
+        ("read_image", {"name": "agentview_policy.png", "step": 0}),
+    ]:
+        assert not toolkit.execute_tool(name, arguments).is_error
+    for name, arguments in [
+        ("unknown", {}),
+        ("set_gripper", {"steps": "invalid"}),
+        ("segment", {}),
+    ]:
+        assert toolkit.execute_tool(name, arguments).is_error
 
     def fail(action):
-        raise RuntimeError("action failed")
+        raise RuntimeError()
 
     with monkeypatch.context() as patch:
         patch.setattr(env, "step", fail)
-        assert toolkit.execute_tool("set_gripper", {"steps": 1}).is_error
-    env.terminated = True
-    assert not toolkit.execute_tool("set_gripper", {"steps": 2}).is_error
-    recipe = toolkit._task_output_dir / toolkit.write_recipe("cell")
-    assert [json.loads(line)["steps"] for line in recipe.read_text().splitlines()] == [
-        2
+        failed = toolkit.execute_tool("set_gripper", {"steps": 1})
+    assert failed.is_error and failed.error == ""
+    assert not toolkit.execute_tool("set_gripper", {"steps": 1}).is_error
+    assert not toolkit.execute_tool(
+        "finish", {"status": "success", "summary": "done"}
+    ).is_error
+    assert [call["action"] for call in export(toolkit)] == ["set_gripper"]
+
+
+def test_reset_is_kept_with_both_attempts_and_refused_finish_is_excluded(make_toolkit):
+    toolkit, _, _ = make_toolkit(mode="exploration", attempts=2)
+    assert toolkit.execute_tool(
+        "finish", {"status": "stuck", "summary": "first"}
+    ).is_error
+    for name, arguments in [
+        ("segment", {"prompt": "bowl"}),
+        ("set_gripper", {"steps": 1}),
+        ("reset", {"reason": "try again"}),
+        ("view_env_state", {}),
+        ("segment", {"prompt": "lid"}),
+        ("set_gripper", {"steps": 1}),
+    ]:
+        result = toolkit.execute_tool(name, arguments)
+        assert not result.is_error, result.error
+    recipe = export(toolkit)
+    assert recipe[1] == {"action": "set_gripper", "gripper": -1.0, "steps": 1}
+    assert [call["action"] for call in recipe] == [
+        "segment",
+        "set_gripper",
+        "reset",
+        "view_env_state",
+        "segment",
+        "set_gripper",
     ]
+
+
+def test_recipe_does_not_infer_tool_errors_from_environment_success(make_toolkit):
+    toolkit, env, _ = make_toolkit()
+    result = toolkit.execute_tool(
+        "pi0_doubled", {"prompt": "touch bowl", "max_chunks": 1}
+    )
+    assert not result.is_error and result.data["log"]["result"]["success"] is False
+    assert not env.terminated
+    assert [call["action"] for call in export(toolkit)] == ["pi0_doubled"]
