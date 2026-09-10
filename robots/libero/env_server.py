@@ -24,11 +24,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from rpent.robots.components.env_facade_base import BaseEnvFacade
-from rpent.utils.config import (
-    get_repo_root,
-    get_rlinf_repo_path,
-)
 from rpent.utils.logging import get_logger
+from rpent.utils.serialization import to_numpy_tree
 
 # MuJoCo env vars must be set BEFORE importing anything that touches MuJoCo.
 os.environ.setdefault("MUJOCO_GL", "egl")
@@ -39,16 +36,12 @@ assert "mujoco" not in sys.modules, (
 
 logger = get_logger("env_server")
 
-RPENT_ROOT = get_repo_root()
-RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
-if str(RLINF_REPO_PATH) not in sys.path:
-    sys.path.insert(0, str(RLINF_REPO_PATH))
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
 # torch and LiberoEnv are only imported at call time (after --cuda-device
 # sets CUDA_VISIBLE_DEVICES in main()); LiberoEnv transitively imports torch.
 if TYPE_CHECKING:
-    import torch  # noqa: F401  (referenced at runtime in _to_numpy_tree)
+    import torch  # noqa: F401  (transitive dep of LiberoEnv; type-check only)
     from rlinf.envs.libero.libero_env import LiberoEnv
 
 
@@ -137,20 +130,6 @@ def make_env(
 # ---------------------------------------------------------------------------
 
 
-def _to_numpy_tree(x):
-    """Recursively convert torch tensors to CPU numpy arrays so the result
-    pickles cleanly across the agent/env_server wire."""
-    if hasattr(x, "detach") and hasattr(x, "cpu") and hasattr(x, "numpy"):
-        return x.detach().cpu().numpy()
-    if isinstance(x, dict):
-        return {k: _to_numpy_tree(v) for k, v in x.items()}
-    if isinstance(x, list):
-        return [_to_numpy_tree(v) for v in x]
-    if isinstance(x, tuple):
-        return tuple(_to_numpy_tree(v) for v in x)
-    return x
-
-
 class LiberoEnvFacade(BaseEnvFacade):
     """Implements :class:`robots.libero.env_client.LiberoEnvClient`
     over :class:`rlinf.envs.libero.libero_env.LiberoEnv`.
@@ -210,20 +189,20 @@ class LiberoEnvFacade(BaseEnvFacade):
 
     def reset(self):
         obs, info = self._env.reset()
-        obs = self._strip_obs(_to_numpy_tree(obs))
-        return obs, _to_numpy_tree(info)
+        obs = self._strip_obs(to_numpy_tree(obs))
+        return obs, to_numpy_tree(info)
 
     def step(self, action):
         obs, rew, term, trunc, info = self._env.step(self._expand_action(action))
-        obs = self._strip_obs(_to_numpy_tree(obs))
-        term = self._strip(_to_numpy_tree(term))
-        trunc = self._strip(_to_numpy_tree(trunc))
+        obs = self._strip_obs(to_numpy_tree(obs))
+        term = self._strip(to_numpy_tree(term))
+        trunc = self._strip(to_numpy_tree(trunc))
         return (
             obs,
-            self._strip(_to_numpy_tree(rew)),
+            self._strip(to_numpy_tree(rew)),
             term,
             trunc,
-            _to_numpy_tree(info),
+            to_numpy_tree(info),
         )
 
     def chunk_step(self, actions, *, return_all_frames: bool = False):
@@ -241,20 +220,20 @@ class LiberoEnvFacade(BaseEnvFacade):
         obs_list, rew, term, trunc, info = self._env.chunk_step(
             self._expand_chunk(actions)
         )
-        obs_list = [self._strip_obs(_to_numpy_tree(o)) for o in obs_list]
-        term = self._strip(_to_numpy_tree(term))
-        trunc = self._strip(_to_numpy_tree(trunc))
+        obs_list = [self._strip_obs(to_numpy_tree(o)) for o in obs_list]
+        term = self._strip(to_numpy_tree(term))
+        trunc = self._strip(to_numpy_tree(trunc))
         obs_field = obs_list if return_all_frames else obs_list[-1]
         return (
             obs_field,
-            self._strip(_to_numpy_tree(rew)),
+            self._strip(to_numpy_tree(rew)),
             term,
             trunc,
-            _to_numpy_tree(info),
+            to_numpy_tree(info),
         )
 
     def raw_obs(self) -> dict:
-        return _to_numpy_tree(self._env.current_raw_obs[self._env_idx])
+        return to_numpy_tree(self._env.current_raw_obs[self._env_idx])
 
     def get_env_meta(self) -> dict:
         """Return the meta info this server was launched with."""
@@ -274,7 +253,7 @@ class LiberoEnvFacade(BaseEnvFacade):
         width: int = 1024,
         depth: bool = False,
     ):
-        return _to_numpy_tree(
+        return to_numpy_tree(
             self._env.render_camera(
                 camera_name=camera_name,
                 height=height,
@@ -289,7 +268,7 @@ class LiberoEnvFacade(BaseEnvFacade):
         height: int = 256,
         width: int = 256,
     ) -> dict | None:
-        return _to_numpy_tree(
+        return to_numpy_tree(
             self._env.get_camera_meta(
                 camera_name=camera_name, height=height, width=width
             )
