@@ -166,17 +166,24 @@ def test_transport_round_trips_nested_numpy_payloads(transport: Transport) -> No
                 "metadata": {
                     "count": np.int64(6),
                     "valid": np.bool_(True),
+                    "score": np.float32(1.5),
                     "labels": ["left", "right"],
                 },
             },
         )
 
         np.testing.assert_array_equal(result["values"], original * 2.5)
-        assert result["metadata"] == {
-            "count": 6,
-            "valid": True,
-            "labels": ["left", "right"],
-        }
+        metadata = result["metadata"]
+        # Numpy scalars keep their exact dtype on both transports: the
+        # socket transport natively via pickle, the HTTP transport via
+        # the ``__npscalar__`` tag.
+        assert isinstance(metadata["count"], np.int64)
+        assert metadata["count"] == 6
+        assert isinstance(metadata["valid"], np.bool_)
+        assert metadata["valid"] == np.bool_(True)
+        assert isinstance(metadata["score"], np.float32)
+        assert metadata["score"] == np.float32(1.5)
+        assert metadata["labels"] == ["left", "right"]
         result["values"][0, 0] = -1
         assert original[0, 0] == 0
 

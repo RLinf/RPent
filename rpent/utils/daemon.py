@@ -23,7 +23,7 @@ import sys
 import threading
 from typing import Callable
 
-from rpent.utils.config import get_repo_root
+from rpent.utils.config import get_repo_root, get_rlinf_repo_path
 from rpent.utils.logging import get_logger
 
 logger = get_logger("daemon")
@@ -85,6 +85,12 @@ class ProcessDaemon:
         self.cmd = cmd
         self.subprocess_env = os.environ.copy()
         self.subprocess_env.update(env_overrides or {})
+        # Put the RLinf checkout first on the child's PYTHONPATH
+        rlinf_path = str(get_rlinf_repo_path())
+        pythonpath = self.subprocess_env.get("PYTHONPATH", "")
+        self.subprocess_env["PYTHONPATH"] = (
+            f"{rlinf_path}{os.pathsep}{pythonpath}" if pythonpath else rlinf_path
+        )
         self.log_path = log_path
         self.cwd = cwd
         self._proc: subprocess.Popen | None = None
