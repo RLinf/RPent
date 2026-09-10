@@ -32,16 +32,46 @@ Calibration
 -----------
 
 Hand-eye calibration is performed with ROS
-`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_. It produces one YAML
-per projection camera (``base_camera`` and ``d455_camera``) and saves them under
-``~/.ros/easy_handeye/`` by default.
+`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_. Calibrate both
+projection cameras against the right arm's base frame (two eye-on-base
+calibrations): ``base_camera`` (the third-person RealSense) and ``d455_camera``.
+The two wrist cameras (``left_wrist`` and ``right_wrist``) are observation
+only — they feed the VLA policy views and the close-up planner snapshots, and
+RPent never back-projects pixels through them — so they need no hand-eye
+calibration. easy_handeye saves one YAML per camera under
+``~/.ros/easy_handeye/`` by default. Each YAML has a ``parameters`` section
+(frame names and ``eye_on_hand``) and a ``transformation`` section (translation
+``x/y/z`` plus quaternion ``qx/qy/qz/qw`` of the camera in the right-base
+frame):
 
-RPent reads a JSON bundle (``hand_eye_calibration.json``) that carries each
-camera's ``source_name``, ``parameters``, and ``transformation``. Generate it by
-copying those fields out of each ``easy_handeye`` YAML.
+.. code-block:: yaml
 
-The bundle location is configurable with ``--calibration-path`` (default
-``~/.ros/easy_handeye/hand_eye_calibration.json``).
+	parameters:
+	  eye_on_hand: false
+	  robot_base_frame: right_base
+	  tracking_base_frame: third_camera_color_optical_frame
+	transformation:
+	  x: 0.218
+	  y: 0.341
+	  z: 0.789
+	  qx: -0.595
+	  qy: 0.598
+	  qz: -0.361
+	  qw: 0.397
+
+RPent loads those YAMLs directly: list them under ``perception.calibration`` in
+the robot config, mapping each camera to its easy_handeye YAML (the checked-in
+``robots/dual_franka/config/example.yaml`` already does this):
+
+.. code-block:: yaml
+
+	perception:
+	  calibration:
+		base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
+		d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
+
+RPent reads the hand-eye transforms directly from these YAMLs; there is no
+separate calibration bundle and no conversion step.
 
 Development configuration
 -------------------------
@@ -50,8 +80,8 @@ Review and edit the checked-in development defaults before enabling motion:
 
 * ``robots/dual_franka/config/example.yaml`` contains the machine identity (both
 	robot IPs, camera serials/types, gripper connections), workspace geometry
-	(target poses and safety limits), and perception localization bounds +
-	base-frame transform.
+	(target poses and safety limits), the easy_handeye YAML mapping (see
+	Calibration), and perception localization bounds + base-frame transform.
 
 RPent translates this robot-focused schema into the internal two-node RLinf
 cluster and environment objects. To use a different file, pass
@@ -97,8 +127,7 @@ Task ``0`` tests conservative single-arm analytic motion and gripper primitives:
 
 	uv run --extra franka rpent --robot dual_franka --task-id 0 \
 	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/dual_franka/config/example.yaml \
-	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
+	  --robot-config robots/dual_franka/config/example.yaml
 
 RPent starts ``robots/dual_franka/env_server.py`` with the current interpreter,
 loads the RPent robot config, generates the internal RLinf adapter config,
@@ -122,8 +151,7 @@ statistics:
 	uv run --extra franka rpent --robot dual_franka --task-id 1 \
 	  --cuda-device 0 \
 	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/dual_franka/config/example.yaml \
-	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
+	  --robot-config robots/dual_franka/config/example.yaml
 
 The checkpoint must contain:
 
@@ -184,8 +212,7 @@ To attach RPent to an already-running dual-Franka environment service:
 	uv run --extra franka rpent --robot dual_franka --task-id 0 \
 	  --env-endpoint http://ROBOT_HOST:PORT \
 	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/dual_franka/config/example.yaml \
-	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
+	  --robot-config robots/dual_franka/config/example.yaml
 
 Tools and artifacts
 -------------------

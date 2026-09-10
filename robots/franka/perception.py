@@ -16,14 +16,17 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from PIL import Image, ImageDraw
 
-from robots.franka.runtime_config import get_calibration_path
+from robots.franka.runtime_config import (
+    get_perception_calibration_mapping,
+    get_robot_config_path,
+    load_easy_handeye_yaml,
+)
 from rpent.session import EnvState
 from rpent.tools.toolkit import readonly
 
@@ -58,17 +61,35 @@ def load_camera_meta(
     return state.load("camera_meta.json", step=step_idx)
 
 
-def load_calibration_bundle(
-    path: str | Path | None = None,
-) -> dict[str, Any]:
-    """Load normalized hand-eye calibration from the project calibration bundle."""
-    bundle_path = Path(path or get_calibration_path()).expanduser().resolve()
-    bundle = _load_calibration_bundle_file(bundle_path)
-    external = _calibration_entry(bundle, "external")
-    wrist = _calibration_entry(bundle, "wrist")
+def load_calibration_bundle() -> dict[str, Any]:
+    """Load normalized hand-eye calibration for the Franka cameras.
+
+    Reads the ``perception.calibration`` easy_handeye YAML mapping from the
+    active robot config (``--robot-config``) and normalizes each camera entry.
+    """
+    sources = get_perception_calibration_mapping()
+    if not sources:
+        raise PerceptionError(
+            "no hand-eye calibration configured: list easy_handeye YAMLs "
+            "under perception.calibration in the robot config "
+            f"({get_robot_config_path()})"
+        )
+    data: dict[str, Any] = {}
+    paths: dict[str, Path] = {}
+    for key, source in sources.items():
+        source_path = Path(source).expanduser()
+        try:
+            data[key] = load_easy_handeye_yaml(source_path)
+        except ValueError as exc:
+            raise PerceptionError(
+                f"cannot load easy_handeye calibration for {key!r}: {exc}"
+            ) from exc
+        paths[key] = source_path
+    external = _calibration_entry(data, "external")
+    wrist = _calibration_entry(data, "wrist")
     return {
-        "external": _normalize_calibration(bundle_path, external),
-        "wrist": _normalize_calibration(bundle_path, wrist),
+        "external": _normalize_calibration(paths["external"], external),
+        "wrist": _normalize_calibration(paths["wrist"], wrist),
         "convention": (
             "The YAML transformation is interpreted as the camera pose in the "
             "YAML base-frame coordinate system. The resulting matrix maps "
@@ -749,40 +770,18 @@ def _tcp_pose(record_state: dict[str, Any]) -> list[float]:
     return [float(v) for v in pose]
 
 
-def _load_calibration_bundle_file(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        raise PerceptionError(
-            f"Franka calibration bundle not found: {path}. "
-            "Generate it from easy_handeye (see the Calibration docs) or pass "
-            "--calibration-path."
-        )
-    try:
-        data = json.loads(path.read_text(errors="replace"))
-    except json.JSONDecodeError as exc:
-        raise PerceptionError(
-            f"invalid Franka calibration bundle {path}: {exc}"
-        ) from exc
-    if not isinstance(data, dict):
-        raise PerceptionError(
-            f"Franka calibration bundle must be a JSON object: {path}"
-        )
-    return data
-
-
 def _calibration_entry(bundle: dict[str, Any], name: str) -> dict[str, Any]:
-    entry = bundle.get(name)
-    if not isinstance(entry, dict):
-        raise PerceptionError(f"Franka calibration bundle missing {name!r} entry")
-    return entry
+    if name not in bundle:
+        raise PerceptionError(
+            f"Franka calibration missing the {name!r} camera entry (expected "
+            "under perception.calibration in the robot config)"
+        )
+    return bundle[name]
 
 
 def _normalize_calibration(path: Path, data: dict[str, Any]) -> dict[str, Any]:
-    params = data.get("parameters") or {}
-    transform = data.get("transformation") or {}
-    required = {"x", "y", "z", "qx", "qy", "qz", "qw"}
-    missing = required - set(transform)
-    if missing:
-        raise PerceptionError(f"{path} missing transform fields: {sorted(missing)}")
+    params = data["parameters"]
+    transform = data["transformation"]
     matrix = np.eye(4, dtype=np.float64)
     matrix[:3, :3] = quat_wxyz_to_matrix(transform)
     matrix[:3, 3] = [

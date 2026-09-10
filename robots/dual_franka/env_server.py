@@ -314,14 +314,7 @@ def _create_worker_class():
             }
 
         def _open_perception_cameras(self) -> None:
-            cameras = self.controller["perception"].get("cameras")
-            if not isinstance(cameras, dict):
-                return
-            for alias, raw_config in cameras.items():
-                if not isinstance(raw_config, dict) or not bool(
-                    raw_config.get("enabled", True)
-                ):
-                    continue
+            for alias, raw_config in self.controller["perception"]["cameras"].items():
                 resolution = tuple(
                     int(value) for value in raw_config.get("resolution", [640, 480])
                 )

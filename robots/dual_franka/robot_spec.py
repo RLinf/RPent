@@ -27,10 +27,7 @@ from typing import TYPE_CHECKING, Any
 from robots.dual_franka.prompt_bundle import system_prompt, user_prompt
 from robots.dual_franka.runtime_config import DUAL_FRANKA_CONFIG
 from robots.dual_franka.tasks import DUAL_FRANKA_TASKS, get_dual_franka_task
-from robots.franka.runtime_config import (
-    DEFAULT_CALIBRATION_PATH,
-    set_robot_config_path,
-)
+from robots.franka.runtime_config import set_robot_config_path
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
@@ -143,12 +140,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="SFT dataset repo ID used to locate norm_stats.json",
     )
     parser.add_argument("--cuda-device", type=int, default=None)
-    parser.add_argument(
-        "--calibration-path",
-        default=str(DEFAULT_CALIBRATION_PATH),
-        help="Path to hand_eye_calibration.json (defaults to easy_handeye's "
-        "~/.ros/easy_handeye directory).",
-    )
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
@@ -344,7 +335,5 @@ def _init_runtime(
     if "vla" in selected and not needs_vla:
         dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
         primitives_kwargs["model"] = None
-
-    primitives_kwargs["calibration_path"] = args.calibration_path
 
     return list(owned_daemons.values()), primitives_kwargs

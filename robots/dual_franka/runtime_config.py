@@ -86,7 +86,6 @@ def _perception_cameras(cameras: dict[str, Any]) -> dict[str, Any]:
     for name, value in perception.items():
         camera = _require_mapping(value, f"cameras.perception.{name}")
         output[str(name)] = {
-            "enabled": True,
             "serial_number": str(camera["serial"]),
             "camera_type": str(camera.get("type", "realsense")),
             "enable_depth": True,

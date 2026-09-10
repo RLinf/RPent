@@ -34,14 +34,24 @@ Calibration
 Hand-eye calibration is performed with ROS
 `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_. It produces one YAML
 per camera (eye-on-base for the external camera, eye-on-hand for the wrist
-camera) and saves them under ``~/.ros/easy_handeye/`` by default.
+camera) and saves them under ``~/.ros/easy_handeye/`` by default. Each YAML has
+a ``parameters`` section (frame names and ``eye_on_hand``) and a
+``transformation`` section (translation ``x/y/z`` plus quaternion
+``qx/qy/qz/qw``).
 
-RPent reads a JSON bundle (``hand_eye_calibration.json``) that carries each
-camera's ``source_name``, ``parameters``, and ``transformation``. Generate it by
-copying those fields out of each ``easy_handeye`` YAML.
+RPent loads those YAMLs directly: list them under ``perception.calibration`` in
+the robot config, mapping each camera role to its easy_handeye YAML (the
+checked-in ``robots/franka/config/example.yaml`` already does this):
 
-The bundle location is configurable with ``--calibration-path`` (default
-``~/.ros/easy_handeye/hand_eye_calibration.json``).
+.. code-block:: yaml
+
+	perception:
+	  calibration:
+		external: ~/.ros/easy_handeye/fr3_external_apriltag_eye_on_base.yaml
+		wrist: ~/.ros/easy_handeye/fr3_wrist_apriltag_ee_eye_on_hand.yaml
+
+RPent reads the hand-eye transforms directly from these YAMLs; there is no
+separate calibration bundle and no conversion step.
 
 Development configuration
 -------------------------
@@ -50,8 +60,8 @@ The checked-in values are development defaults and must be reviewed before
 enabling motion:
 
 * ``robots/franka/config/example.yaml`` contains the machine identity (robot IP,
-	camera serials, gripper) and workspace geometry (target/reset poses and
-	safety limits).
+	camera serials, gripper), workspace geometry (target/reset poses and safety
+	limits), and the easy_handeye YAML mapping (see Calibration).
 
 RPent translates this robot-focused schema into the internal RLinf cluster and
 environment objects. To use a different file, pass
@@ -77,11 +87,10 @@ correctly. To run it, launch RPent with task ``0``:
 
 .. code-block:: bash
 
-	# replace --robot-config and --calibration-path with your own paths
+	# replace --robot-config with your own config
 	uv run --extra franka rpent --robot franka --task-id 0 \
-	  --planner claude_code --model claude-opus-4-8      \
-	  --robot-config robots/franka/config/example.yaml   \
-	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
+	  --planner claude_code --model claude-opus-4-8 \
+	  --robot-config robots/franka/config/example.yaml
 
 RPent starts ``robots/franka/env_server.py`` with the current interpreter,
 loads the RPent robot config, generates the internal RLinf adapter config,
@@ -101,8 +110,7 @@ statistics match the current Franka training configuration:
 	uv run --extra franka rpent --robot franka --task-id 1 \
 	  --vla-endpoint http://VLA_HOST:PORT \
 	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/franka/config/example.yaml \
-	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
+	  --robot-config robots/franka/config/example.yaml
 
 The VLA server must be deployed separately for now. Without
 ``--vla-endpoint``, analytic motion and gripper tools remain available, but

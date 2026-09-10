@@ -41,6 +41,9 @@ workspace:
     - [0.8, 0.4, 0.7, 3.1416, 3.1416, 3.1416]
 
 perception:
+  calibration:
+    base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
+    d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
   localization_validity:
     base_camera:
       depth_m: [0.15, 1.25]

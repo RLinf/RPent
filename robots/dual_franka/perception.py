@@ -16,8 +16,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -25,8 +23,10 @@ from PIL import Image, ImageDraw
 
 from robots.franka.perception import _resolve_step
 from robots.franka.runtime_config import (
-    get_calibration_path,
+    _calibration_mapping_from,
+    describe_calibration_source,
     get_robot_config_path,
+    load_easy_handeye_yaml,
     load_mapping,
 )
 from rpent.session import EnvState
@@ -148,7 +148,7 @@ def _back_project_camera_pixel(
     calibration = load_calibration_bundle()
     calibration_key = str(camera_config["calibration_key"])
     camera_calibration = calibration.get(calibration_key)
-    if not isinstance(camera_calibration, dict):
+    if camera_calibration is None:
         raise DualFrankaPerceptionError(
             f"calibration entry {calibration_key!r} is missing"
         )
@@ -252,28 +252,47 @@ def _load_perception_config() -> dict[str, Any]:
     return perception
 
 
-def load_calibration_bundle(path: str | Path | None = None) -> dict[str, Any]:
+def load_calibration_bundle() -> dict[str, Any]:
     """Load the dual-Franka perception calibration as one bundle.
 
-    Combines two sources: the ``easy_handeye`` hand-eye transforms from
-    ``hand_eye_calibration.json`` (``path``, else ``--calibration-path`` or
-    the easy_handeye default) and the ``perception`` section of the active
-    robot config (``--robot-config``).
+    Combines the ``easy_handeye`` hand-eye transforms from the robot config's
+    ``perception.calibration`` YAML mapping with the rest of that config's
+    ``perception`` section (``base_frames``, ``localization_validity``).
     """
-    bundle_path = Path(path or get_calibration_path())
-    data = json.loads(bundle_path.read_text(errors="replace"))
-    if not isinstance(data, dict):
-        raise DualFrankaPerceptionError(f"invalid calibration bundle: {bundle_path}")
     perception = _load_perception_config()
+    data = _load_calibration_from_config(perception)
     bundle = dict(data)
     bundle["base_frames"] = perception.get("base_frames") or {}
     for camera_key, validity in (perception.get("localization_validity") or {}).items():
-        if camera_key in bundle and isinstance(bundle[camera_key], dict):
+        if camera_key in bundle:
             bundle[camera_key] = {
                 **bundle[camera_key],
                 "localization_validity": validity,
             }
     return bundle
+
+
+def _load_calibration_from_config(perception: dict[str, Any]) -> dict[str, Any]:
+    """Load hand-eye transforms from the config's easy_handeye YAML mapping."""
+    try:
+        sources = _calibration_mapping_from(perception)
+    except ValueError as exc:
+        raise DualFrankaPerceptionError(str(exc)) from exc
+    if not sources:
+        raise DualFrankaPerceptionError(
+            "no hand-eye calibration configured: list easy_handeye YAMLs "
+            "under perception.calibration in the robot config "
+            f"({get_robot_config_path()})"
+        )
+    data: dict[str, Any] = {}
+    for camera_key, source in sources.items():
+        try:
+            data[camera_key] = load_easy_handeye_yaml(source)
+        except ValueError as exc:
+            raise DualFrankaPerceptionError(
+                f"cannot load easy_handeye calibration for {camera_key!r}: {exc}"
+            ) from exc
+    return data
 
 
 def transform_point_between_base_frames(
@@ -420,7 +439,7 @@ def _save_back_project_diagnostic(
         "image_path": str(image_path),
         "depth_path": str(projection.get("source_artifact")),
         "annotated_image": str(annotated_path),
-        "calibration_path": str(get_calibration_path()),
+        "calibration_source": describe_calibration_source(),
         "coordinate_convention": (
             f"point_camera_xyz is in the {camera_alias} color optical frame; "
             "point_xyz is in the shared right_base world frame."
