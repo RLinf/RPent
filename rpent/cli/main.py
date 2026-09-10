@@ -127,8 +127,10 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--planner",
         default="api",
-        choices=["api", "claude_code", "codex"],
-        help="LLM backend: api | claude_code | codex.",
+        choices=["api", "claude_code", "codex", "task_card"],
+        help="Planner backend: api | claude_code | codex are LLMs in the "
+        "loop; task_card replays a recorded plan with no LLM, re-localizing "
+        "each waypoint's anchor.",
     )
     ap.add_argument(
         "--model",
@@ -350,7 +352,11 @@ def main() -> int:
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
     memory_profile = getattr(args, "memory_profile", "hf")
-    if not getattr(args, "explore", False) and memory_profile == "hf":
+    if (
+        not getattr(args, "explore", False)
+        and memory_profile == "hf"
+        and args.planner != "task_card"
+    ):
         MemoryManager(get_memory_dir(robot_name)).sync(
             remote_repo=robot_spec.memory_repo_id,
         )

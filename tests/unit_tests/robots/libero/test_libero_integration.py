@@ -65,18 +65,21 @@ class _Model:
         return np.ones((2, 7), np.float32)
 
 
-def _primitives(env, config=None):
+def _primitives(env, config=None, molmo_client=None):
     return LiberoPrimitives(
         env=env,
         model=_Model(),
         sam3_client=SimpleNamespace(),
         check_cancelled=lambda: None,
         flywheel_config=config,
+        molmo_client=molmo_client,
     )
 
 
-def test_collection_records_scripted_and_vla_actions(tmp_path):
+@pytest.mark.parametrize("with_molmo", [False, True])
+def test_collection_records_scripted_and_vla_actions(tmp_path, with_molmo):
     env = _Env()
+    molmo = SimpleNamespace() if with_molmo else None
     primitives = _primitives(
         env,
         {
@@ -85,7 +88,9 @@ def test_collection_records_scripted_and_vla_actions(tmp_path):
             "task_id": 2,
             "seed": 3,
         },
+        molmo_client=molmo,
     )
+    assert primitives.molmo_client is molmo
     primitives.reset()
     primitives.begin_primitive("move_to")
     primitives._step_env(np.zeros(7))
@@ -102,6 +107,16 @@ def test_collection_records_scripted_and_vla_actions(tmp_path):
     with np.load(path / "transitions.npz", allow_pickle=False) as data:
         np.testing.assert_array_equal(data["action_source"], [0, 1, 1])
         np.testing.assert_array_equal(data["primitive_id"], [0, 1, 1])
+
+
+def test_molmo_positional_argument_keeps_collection_disabled():
+    molmo = SimpleNamespace()
+    primitives = LiberoPrimitives(
+        _Env(), _Model(), SimpleNamespace(), lambda: None, molmo
+    )
+    primitives.reset()
+    assert primitives.molmo_client is molmo
+    assert primitives.finalize_flywheel() is None
 
 
 def test_collection_disabled_keeps_fast_chunk_path():

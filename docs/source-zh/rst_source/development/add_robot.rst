@@ -32,6 +32,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 5. :ref:`注册环境参数并生成 RunConfig <add-robot-config>`。
 6. 实现 :ref:`runtime 钩子 <add-robot-runtime>`：同一个钩子既能为普通 CLI
    初始化完整 runtime，也能为 Dashboard 初始化指定的 component 子集。
+7. 补充 :ref:`环境、各组件和完整调用链的测试 <add-robot-testing>`。
 
 .. _add-robot-entry:
 
@@ -425,16 +426,62 @@ JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整�
 终端运行，Dashboard 不会调用。benchmark manifest、机器人专用 runtime 字段和
 聚合逻辑应继续放在机器人目录中，而不是共享 CLI。
 
-冒烟测试
---------
+.. _add-robot-testing:
 
-代码可以正常编译后，运行以下最小冒烟测试：
+6. 需要补充的测试
+-----------------
 
-.. code-block:: bash
+新增机器人时，应先分别测试它使用的每个 runtime 组件，再跑一次完整调用链。
+例如，使用 Env、Pi0.5 和 SAM3 的机器人，需要分别提供环境测试、Pi0.5 推理测试、
+SAM3 分割测试，以及完整调用链测试。每个组件都应实际调用一次并检查结果，
+仅能导入模块或通过服务健康检查还不够。
 
-   PI05_CHECKPOINT_PATH=<path> ANTHROPIC_API_KEY=<key> \
-     rpent --robot myrobot --suite <suite> --task <id> --seed 0 \
-     --output-dir /tmp/myrobot_smoke --planner api --model anthropic:claude-opus-4-8
+测试放在哪里
+~~~~~~~~~~~~
 
-预期结果是 agent 完成 prompt 中指定的任务并调用 ``finish``。运行结束后，
-可在 ``<output_dir>/transcript_*.json`` 中查看总结。
+以下 ``myrobot`` 替换为新机器人的包名：
+
+- ``tests/unit_tests/robots/myrobot/``：离线单元测试，覆盖配置解析、client
+  参数处理、工具分派，以及 runtime 启动和清理逻辑。用 fake 替代仿真器和模型，
+  保证可在 CPU 上运行。
+- ``tests/e2e_tests/myrobot/test_components.py``：为每个真实组件分别编写测试，
+  例如 ``test_environment_component``、``test_pi05_component`` 和
+  ``test_sam3_component``；只需覆盖该机器人实际使用的组件。
+- ``tests/e2e_tests/myrobot/test_policy_chain.py``：编写一个串起 planner、
+  toolkit、模型和环境的完整调用链测试。
+- Fixture 放在同目录的 ``conftest.py``，可复用的场景初始化和调用放在
+  ``scenario.py``。生命周期与断言辅助函数复用 ``tests/e2e_tests/common.py``，
+  目录组织可参考 ``tests/e2e_tests/libero/``。
+
+每个组件测什么
+~~~~~~~~~~~~~~
+
+- **Env：** 启动真实环境，用固定 task/seed 执行 reset 并获取观测，检查所需
+  相机图像和状态字段的 shape、dtype。至少执行一个合法动作，再检查下一帧观测、
+  终止信息和成功判定。
+- **VLA 或其他动作模型：** 加载真实 checkpoint，按该机器人的输入格式传入
+  观测和指令，执行一次推理。检查返回动作非空、数值有限，且维度符合环境要求。
+- **感知或其他服务：** 用已知输入实际调用每个服务，并验证输出。例如让 SAM3
+  分割图像中的已知物体，检查 mask 尺寸与图像一致且包含前景。
+
+通过受支持的 runtime 接口启动各组件，并检查测试结束后自己启动的 daemon
+全部退出。复用已有组件时可以复用其测试，但要说明已有覆盖位置，并补测新增的
+输入输出适配。
+
+完整调用链测什么
+~~~~~~~~~~~~~~~~
+
+组件测试通过后，复用 ``tests/e2e_tests/common.py`` 中的
+``run_scripted_policy_chain``，以固定 task/seed 和有限动作数运行公开 CLI。
+其中的本地 ``OfflinePlannerServer`` 会请求一个真实动作原语，再调用 ``finish``，
+无需外部 LLM API。环境和模型服务保持真实，不要 monkeypatch CLI 或 runtime
+内部实现。
+
+检查至少执行了一个环境动作、transcript 记录了 ``finish``、``states.json``
+包含无错误的动作记录、生成了预期观测工件，以及自己启动的 daemon 全部退出。
+这种有界接入测试不要求任务成功。
+
+离线测试使用 ``pytest tests/unit_tests/robots/myrobot -v`` 运行。安装机器人
+extra 并准备好所需 GPU、checkpoint 和资产后，使用
+``pytest tests/e2e_tests/myrobot -v`` 运行真实组件和调用链测试。干净环境下的
+GPU 套件运行方式见 ``tests/README.md`` 和 ``tests/e2e_tests/run_gpu_suite.sh``。
