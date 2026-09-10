@@ -3,836 +3,455 @@
 Benchmark Results
 =================
 
-Compare planner models, native reasoning settings, and success rates across
-RPent evaluations and Harness VLA paper references. Results are grouped by
-benchmark and evaluation setting; each source identifies a separate record.
-The overview shows the best result within each listed source group, not a
-claim of a current benchmark-wide SOTA.
+Compare RPent success rates across planner models for the same evaluation item.
+Each row is a suite, perturbation, or split, with the same model order in every
+results table. Evaluation settings and versioned sources are collected below.
 
-Results checked on 2026-09-09; paper references use arXiv v4 (2026-09-02).
+``Not reported`` means no result is available for that model and evaluation item;
+it is not a zero score. Results describe the listed configurations and coverage,
+without claiming a current benchmark-wide SOTA.
 
-**Reading the tables.** ``Model`` is the planner model. ``Reasoning`` refers
-to its native reasoning mode; ``Effort`` is its configured level. ``xhigh``
-and ``max`` are provider-specific settings, not equivalent compute budgets.
-``Not reported`` means the source has no available result or setting.
-``N/A`` means a planner setting does not apply. Source IDs beginning with
-**R** identify RPent evaluations; **P** identifies a versioned paper table.
+.. _overview:
 
-Planner identities and reasoning settings were confirmed by the experiment
-contributors: historical Codex records use GPT-5.5 with ``xhigh``, Claude Code
-uses Opus-4.8 with ``max``, and Codex also has a GPT-6 Astra record with ``low``.
-All three configurations enable native reasoning. The paper names the backends as Codex and CC
-(Claude Code); its model and effort labels here are contributor-supplied
-metadata.
+Model configurations
+--------------------
 
-Overview
---------
-
-These summaries select the highest reported rate for the same benchmark and
-setting within each source group. Different memory corpora, runtime revisions,
-and evaluation protocols can affect scores; differences are not a controlled
-comparison of planner models alone.
-
-.. list-table:: Best recorded RPent evaluations
+.. list-table:: RPent planner configurations
    :header-rows: 1
-   :widths: 20 11 16 11 9 23 10
-
-   * - Benchmark
-     - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Success rate
-     - Source
-   * - PRO Long Task
-     - Codex
-     - GPT-6 Astra
-     - On
-     - ``low``
-     - 85% (85/100)
-     - :ref:`Eval R1 <benchmark-source-r1>`
-   * - PRO Long Swap
-     - Codex
-     - GPT-6 Astra
-     - On
-     - ``low``
-     - 72% (72/100)
-     - :ref:`Eval R1 <benchmark-source-r1>`
-   * - RoboCasa Target50
-     - Codex
-     - GPT-5.5
-     - On
-     - ``xhigh``
-     - 57.00% (task-weighted)
-     - :ref:`Repo R3 <benchmark-source-r3>`
-   * - RoboTwin C2R
-     - Codex
-     - GPT-5.5
-     - On
-     - ``xhigh``
-     - 58.0% (145/250)
-     - :ref:`Repo R4 <benchmark-source-r4>`
-
-.. list-table:: Best recorded paper references
-   :header-rows: 1
-   :widths: 17 12 11 13 10 8 20 9
-
-   * - Benchmark
-     - Method
-     - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Success rate
-     - Source
-   * - Standard LIBERO
-     - AtomVLA
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 97.0%
-     - :ref:`v4 P2 <benchmark-source-p2>`
-   * - LIBERO-PRO overall
-     - Harness VLA
-     - Claude Code
-     - Opus-4.8
-     - On
-     - ``max``
-     - 82.4%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - PRO Long Task
-     - Harness VLA
-     - Claude Code
-     - Opus-4.8
-     - On
-     - ``max``
-     - 71.0%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - PRO Long Swap
-     - Harness VLA
-     - Claude Code
-     - Opus-4.8
-     - On
-     - ``max``
-     - 62.0%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - RoboCasa Target50
-     - Harness VLA
-     - Codex
-     - GPT-5.5
-     - On
-     - ``xhigh``
-     - 57.1% (task-weighted)
-     - :ref:`v4 P4 <benchmark-source-p4>`
-   * - RoboTwin C2R
-     - Harness VLA
-     - Claude Code
-     - Opus-4.8
-     - On
-     - ``max``
-     - 58.4%
-     - :ref:`v4 P6 <benchmark-source-p6>`
-
-Standard LIBERO and the eight-cell LIBERO-PRO aggregate have no separate
-RPent evaluation record here. Paper references and RPent evaluations remain
-distinct even when their model names or scores match.
-
-LIBERO-PRO Long
----------------
-
-Long Task is ``libero_10_task``; Long Swap is ``libero_10_swap``. Each
-reported suite contains 100 evaluation episodes. These are two LIBERO-PRO
-subsets, not the standard LIBERO-10 suite or the full LIBERO-PRO aggregate.
-
-.. list-table:: Long Task and Long Swap
-   :header-rows: 1
-   :widths: 13 18 12 10 19 18 10
+   :widths: 25 30 25 20
 
    * - Backend
      - Model
      - Reasoning
      - Effort
-     - Task
-     - Swap
-     - Source
    * - Codex
      - GPT-5.5
      - On
      - ``xhigh``
-     - 70% (70/100)
-     - 55% (55/100)
-     - :ref:`Repo R2 <benchmark-source-r2>`
-   * - Codex
-     - GPT-5.5
-     - On
-     - ``xhigh``
-     - 52.0%
-     - 49.0%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - Codex
-     - GPT-6 Astra
-     - On
-     - ``low``
-     - 85% (85/100)
-     - 72% (72/100)
-     - :ref:`Eval R1 <benchmark-source-r1>`
    * - Claude Code
      - Opus-4.8
      - On
      - ``max``
-     - 71.0%
-     - 62.0%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-
-R2 uses the LIBERO reproduction branch and its published memory. R1 uses a
-separately constructed, frozen local memory corpus. Both retain their own
-evaluation context; see the source notes.
-
-LIBERO-PRO across task families
--------------------------------
-
-The paper evaluates Spatial, Object, Goal, and Long under Task (instruction
-redirection) and Swap (position swaps). Each cell contains 10 tasks with
-10 evaluation seeds, or 100 episodes. Seed 0 is reserved for memory
-construction. These are the complete paper few-shot results.
-
-.. list-table:: Task perturbations
-   :header-rows: 1
-   :widths: 12 15 10 8 11 11 11 12 10
-
-   * - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Spatial
-     - Object
-     - Goal
-     - Long
-     - Source
    * - Codex
-     - GPT-5.5
+     - GPT-6 Astra
      - On
-     - ``xhigh``
+     - ``low``
+
+``Reasoning`` is the model's native reasoning mode; ``Effort`` is its configured
+level. ``xhigh`` and ``max`` are provider-specific settings, not equivalent compute
+budgets. Experiment contributors confirmed the model identities, backend mappings,
+and reasoning settings.
+
+.. _libero-pro-long:
+
+.. _libero-pro-across-task-families:
+
+LIBERO-PRO
+----------
+
+Task redirects instructions; Swap exchanges object positions. Overall covers
+all eight Task/Swap cells across Spatial, Object, Goal, and Long. Long-only results
+do not define this aggregate.
+
+.. list-table:: RPent success rates
+   :header-rows: 1
+   :widths: 31 23 23 23
+
+   * - Evaluation item
+     - GPT-5.5 / ``xhigh``
+     - Opus-4.8 / ``max``
+     - GPT-6 Astra / ``low``
+   * - Spatial Task
      - 81.0%
      - 94.0%
-     - 75.0%
-     - 52.0%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - Claude Code
-     - Opus-4.8
-     - On
-     - ``max``
+     - Not reported
+   * - Spatial Swap
+     - 69.0%
+     - 80.0%
+     - Not reported
+   * - Object Task
      - 94.0%
      - 88.0%
-     - 87.0%
-     - 71.0%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-
-.. list-table:: Swap perturbations
-   :header-rows: 1
-   :widths: 12 15 10 8 11 11 11 12 10
-
-   * - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Spatial
-     - Object
-     - Goal
-     - Long
-     - Source
-   * - Codex
-     - GPT-5.5
-     - On
-     - ``xhigh``
-     - 69.0%
+     - Not reported
+   * - Object Swap
      - 91.0%
-     - 66.0%
-     - 49.0%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - Claude Code
-     - Opus-4.8
-     - On
-     - ``max``
-     - 80.0%
      - 90.0%
+     - Not reported
+   * - Goal Task
+     - 75.0%
      - 87.0%
+     - Not reported
+   * - Goal Swap
+     - 66.0%
+     - 87.0%
+     - Not reported
+   * - Long Task
+     - 52.0%
+     - 71.0%
+     - 85% (85/100)
+   * - Long Swap
+     - 49.0%
      - 62.0%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-
-.. list-table:: Overall across all eight PRO cells
-   :header-rows: 1
-   :widths: 15 20 12 10 15 18 10
-
-   * - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Overall
-     - Evaluation episodes
-     - Source
-   * - Codex
-     - GPT-5.5
-     - On
-     - ``xhigh``
+     - 72% (72/100)
+   * - Overall
      - 72.1%
-     - 800
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - Claude Code
-     - Opus-4.8
-     - On
-     - ``max``
      - 82.4%
-     - 800
-     - :ref:`v4 P3 <benchmark-source-p3>`
-
-Overall covers all eight cells with equal evaluation sizes. It cannot be
-replaced by the mean of Long Task and Long Swap alone. RATS and Cap-X report
-only six non-Long cells; their coverage appears in the baseline references.
+     - Not reported
 
 Standard LIBERO
 ---------------
 
-Standard LIBERO evaluates the original Spatial, Object, Goal, and Long
-(LIBERO-10) suites without PRO perturbations. Each suite has 100 episodes;
-the overall record has 400. The paper reports Claude Code results only:
-Codex results for all four standard suites and their overall aggregate
-are not reported.
+Standard LIBERO uses the original Spatial, Object, Goal, and Long suites
+without PRO perturbations. Its Long suite is standard LIBERO-10, evaluated
+separately from PRO Long Task/Swap above.
 
-.. list-table:: Standard LIBERO paper results
+.. list-table:: RPent success rates
    :header-rows: 1
-   :widths: 12 14 10 8 10 10 10 10 16 10
+   :widths: 31 23 23 23
 
-   * - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Spatial
-     - Object
-     - Goal
-     - Long
-     - Overall
-     - Source
-   * - Claude Code
-     - Opus-4.8
-     - On
-     - ``max``
+   * - Evaluation item
+     - GPT-5.5 / ``xhigh``
+     - Opus-4.8 / ``max``
+     - GPT-6 Astra / ``low``
+   * - Spatial
+     - Not reported
      - 97.0%
+     - Not reported
+   * - Object
+     - Not reported
      - 100.0%
+     - Not reported
+   * - Goal
+     - Not reported
      - 94.0%
+     - Not reported
+   * - Long
+     - Not reported
      - 93.0%
+     - Not reported
+   * - Overall
+     - Not reported
      - 96.0% (384/400)
-     - :ref:`v4 P2 <benchmark-source-p2>`
+     - Not reported
 
 RoboCasa365 Target50
 --------------------
 
-Target50 has 18 Atomic-Seen tasks with 10 seeds per task, 16 Composite-Seen
-tasks with five seeds per task, and 16 Composite-Unseen tasks with five seeds
-per task: 180, 80, and 80 episodes. ``Seen`` and ``Unseen`` describe task-template
-coverage in pretraining. All 50 tasks remain in the aggregate.
+All three splits and Overall are shown. Overall weights each of the 50 tasks
+equally; the splits have different episode counts, so pooling all episodes
+would give a different metric.
 
-.. list-table:: RoboCasa split results
+.. list-table:: RPent success rates
    :header-rows: 1
-   :widths: 12 15 10 8 16 16 17 12 10
+   :widths: 31 23 23 23
 
-   * - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Atomic-Seen
-     - Composite-Seen
-     - Composite-Unseen
-     - Overall
-     - Source
-   * - Codex
-     - GPT-5.5
-     - On
-     - ``xhigh``
-     - 90.56% (163/180)
-     - 61.25% (49/80)
-     - 15.00% (12/80)
-     - 57.00%
-     - :ref:`Repo R3 <benchmark-source-r3>`
-   * - Codex
-     - GPT-5.5
-     - On
-     - ``xhigh``
+   * - Evaluation item
+     - GPT-5.5 / ``xhigh``
+     - Opus-4.8 / ``max``
+     - GPT-6 Astra / ``low``
+   * - Atomic-Seen
      - 92.0%
-     - 61.0%
-     - 13.8%
-     - 57.1%
-     - :ref:`v4 P4 <benchmark-source-p4>`
-   * - Claude Code
-     - Opus-4.8
-     - On
-     - ``max``
      - 79.4%
+     - Not reported
+   * - Composite-Seen
+     - 61.0%
      - 47.5%
+     - Not reported
+   * - Composite-Unseen
+     - 13.8%
      - 15.0%
+     - Not reported
+   * - Overall (task-weighted)
+     - 57.1%
      - 48.6%
-     - :ref:`v4 P4 <benchmark-source-p4>`
-
-**Aggregation.** Overall is task-weighted: each task contributes equally,
-although Atomic-Seen has twice as many seeds per task. For the RPent record:
-
-.. math::
-
-   \mathrm{Overall} = \frac{18(163/180) + 16(49/80) + 16(12/80)}{50}
-   \times 100\% = 57.00\%.
-
-The pooled episode fraction ``224/340`` is not this overall score. Paper
-percentages retain their published precision; exact success counts are not
-inferred from rounded percentages. R3 uses frozen same-task memory for
-43 tasks, with seven tasks evaluated without task memory. See
-:doc:`usage/robocasa` for the complete Target50 protocol.
+     - Not reported
 
 RoboTwin C2R
 ------------
 
-Clean-to-randomized evaluation covers 50 tasks with five official
-expert-verified randomized seeds per task, or 250 episodes. Task memory
-comes from a verified ``demo_clean`` instance and transfers to
-``demo_randomized`` without exploration in the randomized setting.
+C2R evaluates transfer from the clean setting to the randomized setting.
 
-.. list-table:: RoboTwin clean-to-randomized results
+.. list-table:: RPent success rates
    :header-rows: 1
-   :widths: 16 22 14 12 24 12
+   :widths: 31 23 23 23
 
-   * - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Success rate
-     - Source
-   * - Codex
-     - GPT-5.5
-     - On
-     - ``xhigh``
-     - 58.0% (145/250)
-     - :ref:`Repo R4 <benchmark-source-r4>`
-   * - Codex
-     - GPT-5.5
-     - On
-     - ``xhigh``
+   * - Evaluation item
+     - GPT-5.5 / ``xhigh``
+     - Opus-4.8 / ``max``
+     - GPT-6 Astra / ``low``
+   * - C2R
      - 58.0%
-     - :ref:`v4 P6 <benchmark-source-p6>`
-   * - Claude Code
-     - Opus-4.8
-     - On
-     - ``max``
      - 58.4%
-     - :ref:`v4 P6 <benchmark-source-p6>`
-
-R4 is the ``reproduce/robotwin`` branch result. The matching paper Codex
-percentage remains its own source record; it is not an additional independent
-evaluation count.
+     - Not reported
 
 LIBERO-PRO Goal: zero-shot
 --------------------------
 
 This ablation removes target-setting Task Specific Memory and Global Memory.
-Each perturbation has 10 tasks with 10 seeds each. These results are not
-pooled with the memory-backed PRO tables. Codex zero-shot Goal results
-are not reported.
+Its results are separate from the memory-backed PRO results above.
 
-.. list-table:: Goal zero-shot paper results
+.. list-table:: RPent success rates
    :header-rows: 1
-   :widths: 15 15 20 12 10 18 10
+   :widths: 31 23 23 23
 
-   * - Perturbation
-     - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Success rate
-     - Source
-   * - Task
-     - Claude Code
-     - Opus-4.8
-     - On
-     - ``max``
+   * - Evaluation item
+     - GPT-5.5 / ``xhigh``
+     - Opus-4.8 / ``max``
+     - GPT-6 Astra / ``low``
+   * - Goal Task
+     - Not reported
      - 79.0%
-     - :ref:`v4 P5 <benchmark-source-p5>`
-   * - Swap
-     - Claude Code
-     - Opus-4.8
-     - On
-     - ``max``
+     - Not reported
+   * - Goal Swap
+     - Not reported
      - 31.0%
-     - :ref:`v4 P5 <benchmark-source-p5>`
+     - Not reported
 
 Baseline references
 -------------------
 
-These are reference methods in the linked paper tables, not additional
-RPent planner evaluations. ``Model`` and the reasoning columns describe a
-separate planner: they are ``N/A`` for direct VLA methods and ``Not reported``
-for agent baselines whose planner configuration is not specified in these
-tables. A method name does not establish its native reasoning setting.
+These reference methods retain their reported evaluation coverage. They are
+not RPent planner configurations and are not pooled with the main results.
+Direct VLA methods have no separate planner Reasoning/Effort settings; the cited
+sources do not report the planner models or reasoning settings for Cap-X and RATS.
 
-.. list-table:: Standard LIBERO baselines
-   :header-rows: 1
-   :widths: 23 13 13 13 10 16 12
+.. dropdown:: Standard LIBERO
 
-   * - Method
-     - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Overall
-     - Source
-   * - OpenVLA
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 76.5%
-     - :ref:`v4 P2 <benchmark-source-p2>`
-   * - NORA
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 79.5%
-     - :ref:`v4 P2 <benchmark-source-p2>`
-   * - π0
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 94.2%
-     - :ref:`v4 P2 <benchmark-source-p2>`
-   * - π_RLinf
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 95.3%
-     - :ref:`v4 P2 <benchmark-source-p2>`
-   * - AtomVLA
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 97.0%
-     - :ref:`v4 P2 <benchmark-source-p2>`
+   .. list-table:: Reference methods
+      :header-rows: 1
+      :widths: 24 36 20 20
 
-All standard-LIBERO rows cover Spatial, Object, Goal, and Long. The paper's
-100-episode-per-suite count applies to π_RLinf and Harness VLA; it is not
-imposed on external baseline reports. AtomVLA's 97.0% overall exceeds the
-Harness VLA standard-LIBERO reference of 96.0%.
+      * - Method
+        - Coverage
+        - Success rate
+        - Source
+      * - OpenVLA
+        - Four standard suites
+        - 76.5%
+        - :ref:`Table 2 <benchmark-source-p2>`
+      * - NORA
+        - Four standard suites
+        - 79.5%
+        - :ref:`Table 2 <benchmark-source-p2>`
+      * - π0
+        - Four standard suites
+        - 94.2%
+        - :ref:`Table 2 <benchmark-source-p2>`
+      * - π_RLinf
+        - Four standard suites
+        - 95.3%
+        - :ref:`Table 2 <benchmark-source-p2>`
+      * - AtomVLA
+        - Four standard suites
+        - 97.0%
+        - :ref:`Table 2 <benchmark-source-p2>`
 
-.. list-table:: LIBERO-PRO baselines
-   :header-rows: 1
-   :widths: 17 12 12 12 10 15 12 10
+   External baseline sample counts follow their own reports; RPent's 100 episodes per
+   suite are not imposed on those records.
 
-   * - Method
-     - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Coverage
-     - Overall
-     - Source
-   * - OpenVLA
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - Eight cells
-     - 0.0%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - π0
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - Eight cells
-     - 0.3%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - π0.5
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - Eight cells
-     - 11.0%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - MolmoAct
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - Eight cells
-     - 1.5%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - NORA
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - Eight cells
-     - 0.0%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - X-VLA
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - Eight cells
-     - 3.8%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - AtomVLA
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - Eight cells
-     - 6.3%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - π_RLinf
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - Eight cells
-     - 50.0%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - Cap-X
-     - Not reported
-     - Not reported
-     - Not reported
-     - Not reported
-     - Six non-Long cells
-     - 18.2%
-     - :ref:`v4 P3 <benchmark-source-p3>`
-   * - RATS
-     - Not reported
-     - Not reported
-     - Not reported
-     - Not reported
-     - Six non-Long cells
-     - 43.8%
-     - :ref:`v4 P3 <benchmark-source-p3>`
+.. dropdown:: LIBERO-PRO
 
-Cap-X and RATS Overall averages Spatial, Object, and Goal under Task and
-Swap. Neither reports Long Task or Long Swap in this table. Their six-cell
-means must not be ranked as if they covered all eight PRO cells.
+   .. list-table:: Reference methods
+      :header-rows: 1
+      :widths: 24 36 20 20
 
-.. list-table:: RoboCasa365 baselines
-   :header-rows: 1
-   :widths: 23 13 13 13 10 16 12
+      * - Method
+        - Coverage
+        - Success rate
+        - Source
+      * - OpenVLA
+        - Eight Task/Swap cells
+        - 0.0%
+        - :ref:`Table 3 <benchmark-source-p3>`
+      * - π0
+        - Eight Task/Swap cells
+        - 0.3%
+        - :ref:`Table 3 <benchmark-source-p3>`
+      * - π0.5
+        - Eight Task/Swap cells
+        - 11.0%
+        - :ref:`Table 3 <benchmark-source-p3>`
+      * - MolmoAct
+        - Eight Task/Swap cells
+        - 1.5%
+        - :ref:`Table 3 <benchmark-source-p3>`
+      * - NORA
+        - Eight Task/Swap cells
+        - 0.0%
+        - :ref:`Table 3 <benchmark-source-p3>`
+      * - X-VLA
+        - Eight Task/Swap cells
+        - 3.8%
+        - :ref:`Table 3 <benchmark-source-p3>`
+      * - AtomVLA
+        - Eight Task/Swap cells
+        - 6.3%
+        - :ref:`Table 3 <benchmark-source-p3>`
+      * - π_RLinf
+        - Eight Task/Swap cells
+        - 50.0%
+        - :ref:`Table 3 <benchmark-source-p3>`
+      * - Cap-X
+        - Six non-Long cells
+        - 18.2%
+        - :ref:`Table 3 <benchmark-source-p3>`
+      * - RATS
+        - Six non-Long cells
+        - 43.8%
+        - :ref:`Table 3 <benchmark-source-p3>`
 
-   * - Method
-     - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Overall
-     - Source
-   * - RLDX-1
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 30.0%
-     - :ref:`v4 P4 <benchmark-source-p4>`
-   * - WorldDreamer
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 35.3%
-     - :ref:`v4 P4 <benchmark-source-p4>`
-   * - π0.5
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 16.9%
-     - :ref:`v4 P4 <benchmark-source-p4>`
-   * - π0
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 14.8%
-     - :ref:`v4 P4 <benchmark-source-p4>`
+   Cap-X and RATS cover only the six Spatial/Object/Goal Task/Swap cells. Their
+   overall rates are not ranked against eight-cell aggregates.
 
-RoboCasa overall figures follow the paper's reported aggregation over
-Atomic-Seen, Composite-Seen, and Composite-Unseen. RLDX-1 is the direct
-frozen-VLA baseline; the other rows are external paper references.
+.. dropdown:: RoboCasa365 Target50
 
-.. list-table:: RoboTwin C2R baselines
-   :header-rows: 1
-   :widths: 23 13 13 13 10 16 12
+   .. list-table:: Reference methods
+      :header-rows: 1
+      :widths: 24 36 20 20
 
-   * - Method
-     - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Overall
-     - Source
-   * - GR00T-N1.7
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 20.7%
-     - :ref:`v4 P6 <benchmark-source-p6>`
-   * - π0.5
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 47.9%
-     - :ref:`v4 P6 <benchmark-source-p6>`
-   * - StarVLA
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 10.6%
-     - :ref:`v4 P6 <benchmark-source-p6>`
-   * - LingBot-VLA
-     - N/A
-     - N/A
-     - N/A
-     - N/A
-     - 50.4%
-     - :ref:`v4 P6 <benchmark-source-p6>`
+      * - Method
+        - Coverage
+        - Success rate
+        - Source
+      * - RLDX-1
+        - All three splits, task-weighted
+        - 30.0%
+        - :ref:`Table 4 <benchmark-source-p4>`
+      * - WorldDreamer
+        - All three splits, task-weighted
+        - 35.3%
+        - :ref:`Table 4 <benchmark-source-p4>`
+      * - π0.5
+        - All three splits, task-weighted
+        - 16.9%
+        - :ref:`Table 4 <benchmark-source-p4>`
+      * - π0
+        - All three splits, task-weighted
+        - 14.8%
+        - :ref:`Table 4 <benchmark-source-p4>`
 
-LingBot-VLA is both the frozen contact-policy backend used by Harness VLA
-and a direct evaluation baseline. The other rows are external reports;
-Harness VLA's 250-episode count is not assigned to those rows.
+   RLDX-1 is the direct frozen-VLA baseline; the other methods are external reports.
+   Overall retains the aggregation reported by the source.
 
-.. list-table:: Goal zero-shot agent baseline
-   :header-rows: 1
-   :widths: 12 12 14 14 14 12 14 8
+.. dropdown:: RoboTwin C2R
 
-   * - Method
-     - Perturbation
-     - Backend
-     - Model
-     - Reasoning
-     - Effort
-     - Success rate
-     - Source
-   * - Cap-X
-     - Task
-     - Not reported
-     - Not reported
-     - Not reported
-     - Not reported
-     - 16.8%
-     - :ref:`v4 P5 <benchmark-source-p5>`
-   * - Cap-X
-     - Swap
-     - Not reported
-     - Not reported
-     - Not reported
-     - Not reported
-     - 25.6%
-     - :ref:`v4 P5 <benchmark-source-p5>`
+   .. list-table:: Reference methods
+      :header-rows: 1
+      :widths: 24 36 20 20
+
+      * - Method
+        - Coverage
+        - Success rate
+        - Source
+      * - GR00T-N1.7
+        - C2R
+        - 20.7%
+        - :ref:`Table 6 <benchmark-source-p6>`
+      * - π0.5
+        - C2R
+        - 47.9%
+        - :ref:`Table 6 <benchmark-source-p6>`
+      * - StarVLA
+        - C2R
+        - 10.6%
+        - :ref:`Table 6 <benchmark-source-p6>`
+      * - LingBot-VLA
+        - C2R
+        - 50.4%
+        - :ref:`Table 6 <benchmark-source-p6>`
+
+   LingBot-VLA is both RPent's frozen contact-policy backend and a direct evaluation
+   baseline. RPent's 250 episodes are not assigned to external reports.
+
+.. dropdown:: LIBERO-PRO Goal zero-shot
+
+   .. list-table:: Reference methods
+      :header-rows: 1
+      :widths: 24 36 20 20
+
+      * - Method
+        - Coverage
+        - Success rate
+        - Source
+      * - Cap-X
+        - Goal Task
+        - 16.8%
+        - :ref:`Table 5 <benchmark-source-p5>`
+      * - Cap-X
+        - Goal Swap
+        - 25.6%
+        - :ref:`Table 5 <benchmark-source-p5>`
+
+   These Goal Task/Swap values belong to the ablation without target-setting memory.
 
 Protocols and sources
 ---------------------
 
+Results checked on 2026-09-10. RPent's reported GPT-5.5 and Opus-4.8 results
+are aligned with Harness VLA paper v4 (2026-09-02); GPT-6 Astra adds a new
+model evaluation. The paper labels the backends Codex and CC (Claude Code);
+contributors supplied the exact model and reasoning settings.
+
 Task success follows the benchmark predicate: LIBERO ``terminated`` in the
 environment trace, RoboCasa ``state.success``, or RoboTwin
-``TASK_ENV.eval_success``. A planner
-``finish`` call or a primitive's local success signal is not itself the task
-label. Exploration episodes used to construct memory are excluded from
-evaluation scores.
+``TASK_ENV.eval_success``. A planner ``finish`` call or a primitive's local
+success signal is not itself the task label. Exploration episodes used to
+construct memory are excluded from evaluation scores.
 
 The LIBERO-family VLA backend is the frozen RLinf π0.5 full-shot LIBERO
 checkpoint; RoboCasa uses frozen RLDX-1; RoboTwin uses the frozen post-trained
-LingBot-VLA checkpoint. Planner models, VLA backends, memory sources, and
-benchmark settings describe distinct parts of each evaluated system.
+LingBot-VLA checkpoint. Planner models, VLA backends, memory corpora, and
+evaluation protocols describe different parts of each system; score differences
+are not a controlled experiment changing only the planner model.
+
+.. _benchmark-source-p2:
+
+**Standard LIBERO.** `Harness VLA, Table 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_.
+Four standard suites, 100 episodes per suite, and 400 episodes for Overall.
+
+.. _benchmark-source-r2:
+.. _benchmark-source-p3:
+
+**LIBERO-PRO.** `Harness VLA, Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_.
+Eight Task/Swap cells, each with 10 tasks and 10 evaluation seeds per task: 100
+episodes per cell and 800 for Overall. Seed 0 is used to construct memory. Long Task
+is ``libero_10_task``; Long Swap is ``libero_10_swap``.
+
+.. _benchmark-source-r3:
+.. _benchmark-source-p4:
+
+**RoboCasa365 Target50.** `Harness VLA, Table 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_.
+Atomic-Seen has 18 tasks with 10 seeds each; Composite-Seen and Composite-Unseen each
+have 16 tasks with five seeds each: 180, 80, and 80 episodes. Seen/Unseen describes
+task-template coverage in pretraining. Overall weights the 50 tasks equally.
+Percentages retain the source precision; exact success counts are not inferred from
+rounded percentages.
+
+.. _benchmark-source-p5:
+
+**LIBERO-PRO Goal zero-shot.** `Harness VLA, Table 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_.
+Goal Task and Goal Swap each have 10 tasks with 10 seeds per task, or 100 episodes.
+Target-setting Task Specific Memory and Global Memory are removed.
+
+.. _benchmark-source-r4:
+.. _benchmark-source-p6:
+
+**RoboTwin C2R.** `Harness VLA, Table 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_.
+50 tasks with five official expert-verified randomized seeds each, or 250 episodes.
+Task memory comes from a verified ``demo_clean`` instance and transfers to
+``demo_randomized`` without exploration in the randomized setting.
 
 .. _benchmark-source-r1:
 .. _benchmark-protocol-r1:
 
-**R1 — RPent LIBERO-PRO evaluation.** Campaign
-``libero_long_gpt6_astra_20260907``, started 2026-09-07; results checked
-2026-09-09. Runtime revision
+**GPT-6 Astra evaluation.** Campaign ``libero_long_gpt6_astra_20260907``
+started on 2026-09-07 using runtime revision
 `014a0fa <https://github.com/RLinf/RPent/commit/014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7>`_.
-Codex with GPT-6 Astra, native reasoning enabled, ``low`` effort. Task memory
-is constructed on seed 0 and frozen before evaluation on seeds 1–10 for each
-of 10 tasks in each suite. Long Task achieves environment success in 85 of
-100 episodes (85%); Long Swap achieves 72 of 100 (72%). This evaluation uses its own
-local memory corpus, a 5000-second planner time limit, and a 10000-step
-environment horizon.
+Long Task and Long Swap each contain 10 tasks. Task memory is independently
+constructed on seed 0 and frozen before evaluation on seeds 1–10 for each task.
+The evaluation uses a local memory corpus, a 5000-second planner time limit, and
+a 10000-step environment horizon; the tables report environment success rates.
 
-.. _benchmark-source-r2:
-
-**R2 — RPent LIBERO reproduction.** The
-`published result and command <https://github.com/RLinf/RPent/blob/371ac90ece4f95676b7ea5ca05473986f134d5a4/docs/source-en/rst_source/usage/libero.rst#L278-L303>`_
-record Long Task 70/100 and Long Swap 55/100 for ``reproduce/libero``.
-The contributor-confirmed configuration is Codex, GPT-5.5, native reasoning
-enabled, and ``xhigh`` effort. This record uses that branch's published memory
-and runtime; its exact historical seed list is not specified in the cited
-result.
-
-.. _benchmark-source-r3:
-
-**R3 — RPent RoboCasa Target50 reproduction.** The
-`task-level results <https://github.com/RLinf/RPent/blob/371ac90ece4f95676b7ea5ca05473986f134d5a4/robots/robocasa/eval/target50_codex_results.md>`_
-and
-`Target50 manifest <https://github.com/RLinf/RPent/blob/371ac90ece4f95676b7ea5ca05473986f134d5a4/robots/robocasa/eval/target50.json>`_
-record ``robocasa-harness-vla-v1``, its model configuration, fixed resources,
-and 340-cell matrix. Published data provide task-level success counts, not
-per-seed trajectories. The older 55.40% Harness VLA comparison in that record
-refers to the
-`v3 paper result <https://arxiv.org/html/2607.08448v3#S3.T4>`_.
-This page's paper comparison uses v4's 57.1%, while preserving the RPent
-score of 57.00%.
-
-.. _benchmark-source-r4:
-
-**R4 — RPent RoboTwin reproduction.** The
-`result and protocol <https://github.com/RLinf/RPent/blob/371ac90ece4f95676b7ea5ca05473986f134d5a4/docs/source-en/rst_source/usage/robotwin.rst#L191-L228>`_
-record 145/250 on ``reproduce/robotwin``, with Codex, GPT-5.5, and
-``xhigh`` effort. The
-`evaluation manifest <https://github.com/RLinf/RPent/blob/371ac90ece4f95676b7ea5ca05473986f134d5a4/robots/robotwin/eval/demo_randomized.json>`_
-provides each task's five verified seeds; the seed list differs across tasks.
-The reproduction-branch score does not establish full effect parity with
-``main``.
-
-.. _benchmark-source-p2:
-
-**P2 — Standard LIBERO.** Harness VLA,
-`arXiv v4, Table 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_
-(2026-09-02). Four standard suites; 100 Harness VLA episodes per suite.
-
-.. _benchmark-source-p3:
-
-**P3 — LIBERO-PRO.** Harness VLA,
-`arXiv v4, Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_
-(2026-09-02). Eight Task/Swap cells; 100 episodes per Harness VLA cell.
-
-.. _benchmark-source-p4:
-
-**P4 — RoboCasa365.** Harness VLA,
-`arXiv v4, Table 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_
-(2026-09-02). Atomic-Seen, Composite-Seen, Composite-Unseen, and reported overall.
-
-.. _benchmark-source-p5:
-
-**P5 — LIBERO-PRO Goal zero-shot.** Harness VLA,
-`arXiv v4, Table 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_
-(2026-09-02). Goal Task and Swap without target-setting memory.
-
-.. _benchmark-source-p6:
-
-**P6 — RoboTwin C2R.** Harness VLA,
-`arXiv v4, Table 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_
-(2026-09-02). Clean-to-randomized transfer; 250 Harness VLA episodes.
-
-When adding a result, keep the backend, exact planner model, native reasoning
-setting, effort, benchmark split, evaluation size, memory protocol, and
-versioned source together. Use ``Not reported`` for unavailable cells; add a
-separate source record when the protocol or implementation changes.
+When adding models or scores, preserve evaluation rows and model-column order,
+record the backend, model, reasoning settings, sample size, and protocol, and
+update the source notes. Keep unavailable cells marked ``Not reported``.

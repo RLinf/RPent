@@ -26,10 +26,11 @@ re-grounds the task, creates suitable local conditions for the VLA, checks the
 physical outcome, and reorganizes execution after a failure. The VLA weights
 remain frozen throughout.
 
-Harness VLA is RPent's first publication. In paper v4, the Claude Code planner
-reaches **82.4%** success on LIBERO-PRO and **58.4%** on RoboTwin C2R; the Codex
-planner reaches **57.1%** on RoboCasa365. The VLA remains frozen during deployment.
-See :doc:`../benchmarks` for model configurations, benchmark splits, and sources.
+Harness VLA is RPent's first publication. In RPent, Claude Code with Opus-4.8
+reaches **82.4%** success on LIBERO-PRO and **58.4%** on RoboTwin C2R; Codex
+with GPT-5.5 reaches **57.1%** on RoboCasa365. The VLA remains frozen during
+deployment. See :doc:`../benchmarks` for model configurations, benchmark splits,
+and evaluation details.
 
 .. figure:: https://github.com/RLinf/misc/raw/main/pic/harnessvla_scheme.png
    :alt: Overview of the Harness VLA framework
@@ -79,23 +80,19 @@ target bindings and spatial layouts.
 Results
 -------
 
-The :doc:`benchmark results page <../benchmarks>` collects the complete Codex
-and Claude Code split tables from `paper v4
-<https://arxiv.org/html/2607.08448v4#S3.SS3>`_, alongside separately identified
-RPent evaluations and baseline references. It covers standard LIBERO,
-LIBERO-PRO Task/Swap, RoboCasa365 Atomic/Seen/Unseen, RoboTwin C2R, and the
-zero-shot Goal ablation, with the model, reasoning configuration, sample size,
-and metric definition for each setting.
-
-The historical RoboCasa365 value of 55.4% belongs to `paper v3
-<https://arxiv.org/html/2607.08448v3#S3.T4>`_; the v4 Codex value is 57.1%.
-The separate RPent Target50 reproduction reports 57.00%.
+The :doc:`benchmark results page <../benchmarks>` compares RPent planner models
+side by side for each suite or split. It covers standard LIBERO, LIBERO-PRO
+Task/Swap, RoboCasa365 Atomic-Seen/Composite-Seen/Composite-Unseen, RoboTwin C2R,
+and the zero-shot Goal ablation, with model configurations and metric definitions.
+The reported GPT-5.5 and Opus-4.8 results are aligned with Harness VLA
+`paper v4 <https://arxiv.org/html/2607.08448v4#S3.SS3>`_; GPT-6 Astra is an
+additional model evaluation. External baseline methods are listed separately.
 
 Quick Start
 -----------
 
-For paper-result reproduction, use the environment-specific branch listed
-below. See each tutorial for the exact setup and commands.
+See the environment-specific tutorials and branches below for setup, commands,
+and historical reproduction records.
 
 * **LIBERO:** :doc:`Tutorial <../usage/libero>` —
   `reproduce/libero <https://github.com/RLinf/RPent/tree/reproduce/libero>`_

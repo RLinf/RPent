@@ -22,10 +22,10 @@ Planner 将其与一组规模较小且固定的 Analytic Primitives 组合。Pla
 为 VLA 创造合适的局部接管条件、检查实际执行结果，并在失败后重新组织后续操作；
 整个过程中，VLA 权重始终保持冻结。
 
-Harness VLA 是 RPent 的首篇论文。在论文 v4 中，Claude Code planner 在 LIBERO-PRO
-和 RoboTwin C2R 上分别取得 **82.4%** 和 **58.4%** 的成功率；Codex planner 在
+Harness VLA 是 RPent 的首篇论文。在 RPent 中，Claude Code 与 Opus-4.8 在 LIBERO-PRO
+和 RoboTwin C2R 上分别取得 **82.4%** 和 **58.4%** 的成功率；Codex 与 GPT-5.5 在
 RoboCasa365 上取得 **57.1%**。部署期间 VLA 保持冻结。模型配置、各基准分项和
-结果来源见 :doc:`../benchmarks`。
+评测说明见 :doc:`../benchmarks`。
 
 .. figure:: https://github.com/RLinf/misc/raw/main/pic/harnessvla_scheme.png
    :alt: Harness VLA 框架概览
@@ -66,20 +66,17 @@ Global Memory 中。部署时，Agentic Planner 将这些记忆与实时观测�
 实验结果
 --------
 
-:doc:`基准测试结果页 <../benchmarks>` 汇总 `论文 v4
-<https://arxiv.org/html/2607.08448v4#S3.SS3>`_ 中 Codex 和 Claude Code 的完整分项，
-并分别标注 RPent 评测与基线参考。页面覆盖标准 LIBERO、LIBERO-PRO Task/Swap、
-RoboCasa365 Atomic/Seen/Unseen、RoboTwin C2R 和 Goal 零样本消融，列出各设置的
-模型、推理配置、样本量与指标定义。
-
-RoboCasa365 的历史数值 55.4% 来自 `论文 v3
-<https://arxiv.org/html/2607.08448v3#S3.T4>`_；v4 的 Codex 数值为 57.1%。
-独立的 RPent Target50 复现结果为 57.00%。
+:doc:`基准测试结果页 <../benchmarks>` 按套件或划分横向对比 RPent 的不同规划模型。
+页面覆盖标准 LIBERO、LIBERO-PRO Task/Swap、RoboCasa365 的 Atomic-Seen、
+Composite-Seen、Composite-Unseen、RoboTwin C2R 和 Goal 零样本消融，并说明模型配置与指标定义。
+GPT-5.5 与 Opus-4.8 的已报告结果与 Harness VLA
+`论文 v4 <https://arxiv.org/html/2607.08448v4#S3.SS3>`_ 对齐；GPT-6 Astra 为新增模型评测结果。
+外部基线方法另列参考。
 
 快速开始
 --------
 
-复现论文结果时，请使用下列环境对应的分支；具体安装配置和运行命令见各环境教程。
+各环境的安装配置、运行命令与历史复现记录见下列教程及对应分支。
 
 * **LIBERO：** :doc:`教程 <../usage/libero>` —
   `reproduce/libero <https://github.com/RLinf/RPent/tree/reproduce/libero>`_
