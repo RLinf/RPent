@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from collections.abc import Callable
@@ -122,3 +123,93 @@ def test_daemon_force_kills_after_terminate_timeout(tmp_path: Path) -> None:
         _wait_until(lambda: daemon.poll() is not None)
     finally:
         daemon.stop(timeout=1.0)
+
+
+def test_daemon_prepends_checkout_already_on_pythonpath(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkout = tmp_path / "rlinf"
+    checkout.mkdir()
+    resolved = str(checkout.resolve())
+    monkeypatch.setenv("RPENT_RLINF_ROOT", str(checkout))
+    # The checkout is already inherited on the path: it is prepended again
+    # anyway — duplicate entries are harmless (Python ignores them).
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(("/other", resolved)))
+    daemon = ProcessDaemon("env-probe", [sys.executable, "-c", "pass"])
+    assert daemon.subprocess_env["PYTHONPATH"] == os.pathsep.join(
+        (resolved, "/other", resolved)
+    )
+
+
+def test_daemon_sets_pythonpath_when_parent_has_none(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkout = tmp_path / "rlinf"
+    checkout.mkdir()
+    monkeypatch.setenv("RPENT_RLINF_ROOT", str(checkout))
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    daemon = ProcessDaemon("env-probe", [sys.executable, "-c", "pass"])
+    assert daemon.subprocess_env["PYTHONPATH"] == str(checkout.resolve())
+
+
+def test_daemon_prepends_rlinf_checkout_to_pythonpath(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkout = tmp_path / "rlinf"
+    checkout.mkdir()
+    monkeypatch.setenv("RPENT_RLINF_ROOT", str(checkout))
+    monkeypatch.setenv("PYTHONPATH", "/other")
+    daemon = ProcessDaemon("env-probe", [sys.executable, "-c", "pass"])
+    assert daemon.subprocess_env["PYTHONPATH"] == os.pathsep.join(
+        (str(checkout.resolve()), "/other")
+    )
+
+
+def test_daemon_prepends_missing_checkout_harmlessly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    missing = tmp_path / "missing"
+    monkeypatch.setenv("RPENT_RLINF_ROOT", str(missing))
+    monkeypatch.setenv("PYTHONPATH", "/other")
+    daemon = ProcessDaemon("env-probe", [sys.executable, "-c", "pass"])
+    # Python ignores non-existent PYTHONPATH entries, so the child then
+    # imports the installed rlinf package; the path is prepended anyway.
+    assert daemon.subprocess_env["PYTHONPATH"] == os.pathsep.join(
+        (str(missing.resolve()), "/other")
+    )
+
+
+def test_spawned_daemon_inherits_rlinf_pythonpath(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkout = tmp_path / "rlinf"
+    checkout.mkdir()
+    monkeypatch.setenv("RPENT_RLINF_ROOT", str(checkout))
+    log_path = tmp_path / "pythonpath-probe.log"
+    daemon = ProcessDaemon(
+        "pythonpath-probe",
+        [
+            sys.executable,
+            "-c",
+            "import os; print('PYTHONPATH=' + os.environ.get('PYTHONPATH', ''))",
+        ],
+        log_path=str(log_path),
+        cwd=str(tmp_path),
+    )
+    daemon.start()
+
+    def _printed() -> bool:
+        return log_path.exists() and "PYTHONPATH=" in log_path.read_text()
+
+    try:
+        _wait_until(_printed)
+    finally:
+        daemon.stop(timeout=1.0)
+
+    value = log_path.read_text().strip().partition("PYTHONPATH=")[2]
+    assert value.split(os.pathsep)[0] == str(checkout.resolve())

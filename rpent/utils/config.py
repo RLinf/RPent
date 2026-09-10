@@ -55,9 +55,9 @@ def get_libero_type() -> str:
     return os.environ.get("LIBERO_TYPE", "pro")
 
 
-def get_rlinf_repo_path() -> Path | None:
-    """Return the configured RLinf checkout path, or *None*."""
+def get_rlinf_repo_path() -> Path:
+    """Return the RLinf path that RPC servers import."""
     env = os.environ.get("RPENT_RLINF_ROOT") or os.environ.get("RLINF_REPO_PATH")
     if env:
         return Path(env).expanduser().resolve()
-    return None
+    return (get_repo_root().parent / "rlinf").resolve()
