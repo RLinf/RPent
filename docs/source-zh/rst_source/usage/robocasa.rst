@@ -301,7 +301,7 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
 已发布的 Target50 结果
 -----------------------
 
-已发布 Codex 复现覆盖全部 340 cells，任务级汇总如下：
+历史 Codex 复现覆盖全部 340 cells，任务级汇总如下：
 
 .. list-table:: Codex Target50 复现结果
    :header-rows: 1
@@ -328,8 +328,8 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
      - 57.00%
      - 55.40%
 
-参考列保留 Harness VLA v3 的历史数值。:doc:`../benchmarks` 并列展示本次复现
-与 v4 中 Codex、Claude Code 的结果，包含三个子集及任务均权总体成功率。
+本表保留历史复现记录，参考列为 Harness VLA v3 的数值。
+三个划分及任务均权总体成功率的统一 RPent 模型对比见 :doc:`../benchmarks`。
 
 `完整逐任务结果表
 <https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_

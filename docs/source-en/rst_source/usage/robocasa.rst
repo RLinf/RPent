@@ -327,7 +327,7 @@ validate the fixed denominator and print the task-weighted score with:
 Published Target50 results
 --------------------------
 
-The published Codex reproduction contains all 340 cells and reports the
+The historical Codex reproduction contains all 340 cells and reports the
 following task-level aggregates:
 
 .. list-table:: Codex Target50 reproduction
@@ -355,9 +355,9 @@ following task-level aggregates:
      - 57.00%
      - 55.40%
 
-The reference column retains the historical Harness VLA v3 values. See
-:doc:`../benchmarks` for the v4 Codex and Claude Code results alongside this
-reproduction, including all three splits and the task-weighted overall rate.
+This table preserves the historical reproduction record; its reference column
+contains Harness VLA v3 values. See :doc:`../benchmarks` for the unified RPent
+model comparison across all three splits and the task-weighted overall rate.
 
 The `complete per-task table
 <https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_
