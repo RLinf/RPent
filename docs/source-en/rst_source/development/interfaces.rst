@@ -127,7 +127,9 @@ normal-CLI or Dashboard runtime hook:
 
 Common flags: ``--env-endpoint``, ``--vla-endpoint``. The default ``http`` sends
 JSON over ``POST /call``, encoding NumPy arrays as
-``{"__ndarray__": <base64>, "dtype": ..., "shape": ...}``; switch to ``socket``
+``{"__ndarray__": <base64>, "dtype": ..., "shape": ...}`` and NumPy scalars as
+``{"__npscalar__": <value>, "dtype": ...}`` so dtypes survive the round trip;
+switch to ``socket``
 for large or history-stacked nested-NumPy observations to move length-prefixed
 pickle frames and skip repeated JSON encoding. Pickle is unsafe on untrusted
 input, so only point ``socket`` at trusted endpoints.

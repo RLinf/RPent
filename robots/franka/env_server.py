@@ -17,8 +17,6 @@
 from __future__ import annotations
 
 import argparse
-import dataclasses
-import sys
 import time
 from collections.abc import Callable
 from typing import Any
@@ -27,33 +25,10 @@ import numpy as np
 
 from robots.franka.runtime_config import load_runtime_config
 from rpent.robots.components.env_facade_base import BaseEnvFacade
-from rpent.utils.config import get_repo_root, get_rlinf_repo_path
 from rpent.utils.logging import get_logger
+from rpent.utils.serialization import to_numpy_tree
 
 logger = get_logger("franka_env_server")
-
-# Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
-RPENT_ROOT = get_repo_root()
-RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
-if str(RLINF_REPO_PATH) not in sys.path:
-    sys.path.insert(0, str(RLINF_REPO_PATH))
-
-
-def _to_numpy_tree(value: Any) -> Any:
-    """Convert tensors and nested values into pickle-safe CPU/numpy data."""
-    if hasattr(value, "detach") and hasattr(value, "cpu"):
-        return value.detach().cpu().numpy()
-    if dataclasses.is_dataclass(value):
-        return _to_numpy_tree(dataclasses.asdict(value))
-    if isinstance(value, dict):
-        return {key: _to_numpy_tree(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_to_numpy_tree(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_to_numpy_tree(item) for item in value)
-    if isinstance(value, np.generic):
-        return value.item()
-    return value
 
 
 class FrankaEnvFacade(BaseEnvFacade):
@@ -151,14 +126,14 @@ def _create_worker_class():
             observation, info = self.env.reset()
             return {
                 "ok": True,
-                "info": _to_numpy_tree(info),
+                "info": to_numpy_tree(info),
                 "robot_state": self.get_robot_state(),
                 "states": self._strip_batch(observation.get("states")),
             }
 
         @staticmethod
         def _strip_batch(value: Any) -> Any:
-            array = _to_numpy_tree(value)
+            array = to_numpy_tree(value)
             if isinstance(array, np.ndarray) and array.ndim > 0 and array.shape[0] == 1:
                 return array[0]
             if isinstance(array, list) and len(array) == 1:
@@ -223,7 +198,7 @@ def _create_worker_class():
 
         def get_robot_state(self) -> dict[str, Any]:
             return {
-                "raw_base_state": _to_numpy_tree(self._raw_state()),
+                "raw_base_state": to_numpy_tree(self._raw_state()),
                 "action_dim": self.action_dim,
                 "action_scale": self.action_scale.tolist(),
                 "use_relative_frame": self.use_relative_frame,
@@ -234,7 +209,7 @@ def _create_worker_class():
                 metadata = self.env.env.call("get_camera_metadata")[0]
             except Exception as exc:
                 return {"error": str(exc), "error_type": type(exc).__name__}
-            metadata = _to_numpy_tree(metadata)
+            metadata = to_numpy_tree(metadata)
             main_key = self.cfg.env.eval.get("main_image_key")
             names = sorted(metadata.get("cameras", {}))
             extras = [name for name in names if name != main_key]
@@ -371,7 +346,7 @@ def _create_worker_class():
                     gripper=command,
                 )
                 time.sleep(self.controller["gripper_settle_s"])
-                state = _to_numpy_tree(self._raw_state())
+                state = to_numpy_tree(self._raw_state())
                 reached = bool(state.get("gripper_open")) == bool(open)
                 iterations += 1
                 if reached:
@@ -397,9 +372,9 @@ def _create_worker_class():
             for action in np.asarray(actions, dtype=np.float32):
                 observation, _reward, term, trunc, info = self.env.step(action[None, :])
                 observations.append(self._strip_observation(observation))
-                terminated = terminated or bool(np.asarray(_to_numpy_tree(term)).any())
-                truncated = truncated or bool(np.asarray(_to_numpy_tree(trunc)).any())
-                last_info = _to_numpy_tree(info)
+                terminated = terminated or bool(np.asarray(to_numpy_tree(term)).any())
+                truncated = truncated or bool(np.asarray(to_numpy_tree(trunc)).any())
+                last_info = to_numpy_tree(info)
                 if terminated or truncated:
                     break
             return {
