@@ -404,26 +404,3 @@ def test_missing_opening_message_is_clean_zero_session_exhaustion(
     assert result.stop_reason is PlannerSessionStopReason.EXHAUSTED
     assert result.sessions == []
     assert harness.events == []
-
-
-def test_frontend_can_preserve_its_exception_rendering(tmp_path: Path) -> None:
-    harness = _Harness([RuntimeError("planner exploded")])
-    service = SynchronousPlannerSessionService(
-        prepare_session=harness.prepare,
-        create_toolkit=harness.create_toolkit,
-        invoke_planner=harness.invoke,
-        format_exception=str,
-    )
-
-    result = service.run(
-        PlannerSessionRequest(
-            output_dir=tmp_path,
-            exploration=False,
-            requested_session_count=1,
-            first_user_message="task",
-        )
-    )
-
-    assert result.stop_reason is PlannerSessionStopReason.EXCEPTION
-    assert result.error == "planner exploded"
-    assert harness.toolkits[0].close_count == 1

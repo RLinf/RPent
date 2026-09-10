@@ -62,9 +62,6 @@ from rpent.orchestration import (
     PreparedPlannerSession,
     SynchronousPlannerSessionService,
 )
-from rpent.orchestration import (
-    continuation_handoff_message as _handoff_message,
-)
 from rpent.planner.base import REASONING_EFFORTS, PlannerResult, build_planner
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.utils.config import get_memory_dir
@@ -244,6 +241,38 @@ def _build_argparser() -> argparse.ArgumentParser:
     )
 
     return ap
+
+
+def _handoff_message(
+    output_dir, session_number: int, session_max: int, *, robot_name: str | None = None
+) -> str:
+    """Build the opening message for a continuation session."""
+    attempts_dir = Path(output_dir) / "attempts"
+    prior = (
+        sorted(p.name for p in attempts_dir.glob("attempt_*_failed.json"))
+        if attempts_dir.is_dir()
+        else []
+    )
+    episode_notice = (
+        "Episode reinitialized with the configured exact seed. actual_seed is "
+        "checked; full physical layout determinism has not been verified. "
+        "Re-run perception before acting."
+        if robot_name == "robotwin"
+        else "A fresh toolkit has already restored a clean scene; inspect it before acting."
+    )
+    if robot_name == "robocasa":
+        episode_notice = (
+            "按配置 seed 重新初始化，完整物理布局确定性仍需真实仿真验证。"
+            "Re-run perception before acting."
+        )
+    return (
+        f"You are agent {session_number} of up to {session_max} on this cell. "
+        f"{len(prior)} attempt(s) by earlier agents are archived in "
+        f"{attempts_dir}/ ({', '.join(prior) if prior else 'none yet'}), and their "
+        "working notes are in the memory inbox under wip/.\n\n"
+        "Read every archive and the working notes before acting. Do not repeat "
+        f"failed approaches. {episode_notice}"
+    )
 
 
 def _start_continuation_session(

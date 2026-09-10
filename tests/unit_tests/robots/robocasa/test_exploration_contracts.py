@@ -475,14 +475,9 @@ def test_parse_config_renders_actual_exploration_prompt(tmp_path):
 
 
 def test_handoff_does_not_claim_physical_restoration(tmp_path):
-    from rpent.orchestration import continuation_handoff_message
+    from rpent.cli.main import _handoff_message
 
-    message = continuation_handoff_message(
-        tmp_path,
-        2,
-        3,
-        robot_name="robocasa",
-    )
+    message = _handoff_message(tmp_path, 2, 3, robot_name="robocasa")
     assert "完整物理布局确定性仍需真实仿真验证" in message
     assert "restored a clean scene" not in message
 
