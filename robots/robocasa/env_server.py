@@ -171,7 +171,10 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         np.random.seed(self.seed)
         self.env = robosuite.make(**copy.deepcopy(self._env_kwargs))
         observation = self.env.reset()
-        notice = "按配置 seed 重新初始化，完整物理布局确定性仍需真实仿真验证"
+        notice = (
+            "Reinitialized using the configured seed; full physical layout "
+            "determinism still requires verification in the simulator"
+        )
         logger.warning(notice)
         return {
             "observation": observation,

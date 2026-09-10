@@ -254,7 +254,8 @@ def _handoff_message(
     )
     if robot_name == "robocasa":
         episode_notice = (
-            "按配置 seed 重新初始化，完整物理布局确定性仍需真实仿真验证。"
+            "Reinitialized using the configured seed; full physical layout "
+            "determinism still requires verification in the simulator. "
             "Re-run perception before acting."
         )
     return (

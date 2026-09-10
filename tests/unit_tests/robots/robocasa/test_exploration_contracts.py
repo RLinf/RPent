@@ -51,7 +51,10 @@ def exploration(monkeypatch, tmp_path, fake_single_arm_primitives):
             self.actions = 0
             return {
                 "seed": 7,
-                "notice": "按配置 seed 重新初始化，完整物理布局确定性仍需真实仿真验证",
+                "notice": (
+                    "Reinitialized using the configured seed; full physical layout "
+                    "determinism still requires verification in the simulator"
+                ),
             }
 
     env = Env()
@@ -478,7 +481,7 @@ def test_handoff_does_not_claim_physical_restoration(tmp_path):
     from rpent.cli.main import _handoff_message
 
     message = _handoff_message(tmp_path, 2, 3, robot_name="robocasa")
-    assert "完整物理布局确定性仍需真实仿真验证" in message
+    assert "full physical layout determinism still requires verification" in message
     assert "restored a clean scene" not in message
 
 

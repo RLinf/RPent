@@ -74,7 +74,10 @@ def _robocasa_result(**updates: Any) -> dict[str, Any]:
         "observation": {"fresh": True},
         "seed": 7,
         "reset_contract": "configured_seed_reinitialization",
-        "notice": ("按配置 seed 重新初始化，完整物理布局确定性仍需真实仿真验证"),
+        "notice": (
+            "Reinitialized using the configured seed; full physical layout "
+            "determinism still requires verification in the simulator"
+        ),
     }
     result.update(updates)
     return result
@@ -160,7 +163,7 @@ def test_robocasa_reset_preserves_notice_shape_and_raw_response() -> None:
     assert raw == original
     result["extra"]["nested"] = False
     assert raw["extra"]["nested"] is True
-    assert "物理布局" in result["notice"]
+    assert "physical layout" in result["notice"]
     assert rpc.calls == ["env.get_env_meta", "env.reset_exploration"]
 
 

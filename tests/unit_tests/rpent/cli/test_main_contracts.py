@@ -568,7 +568,7 @@ def test_robocasa_cli_real_config_handoff_and_native_success(
         assert call["state_output_dir"] == tmp_path / "sessions" / f"session_{number:03d}"
     assert "does not prove identical physical layout" in prompts[0]["system_prompt"]
     if len(prompts) > 1:
-        assert "完整物理布局确定性仍需真实仿真验证" in prompts[1]["user_message"]
+        assert "full physical layout determinism still requires verification" in prompts[1]["user_message"]
     assert bool(recipes) is (solved_session is not None)
     assert merges[0]["solved"] is (solved_session is not None)
     assert json.loads((tmp_path / "result.json").read_text())["success"] is (
