@@ -57,6 +57,13 @@ def system_prompt(
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
+    if (variables or {}).get("mode") == "explore":
+        return "\n\n".join(
+            (
+                "## Task cell\n\n" + user_parts.CELL,
+                "## Begin\n\n" + user_parts.BEGIN,
+            )
+        )
     return {
         "CELL": user_parts.CELL,
         "BEGIN": user_parts.BEGIN,
