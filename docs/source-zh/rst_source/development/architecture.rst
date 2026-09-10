@@ -107,8 +107,8 @@ Runner (``rpent/cli/main.py``)
 8. 调用 ``robot_spec.init_runtime(args, output_dir, dashboard_events, None)``。环境实现会
    启动或连接该环境所需的运行时服务，例如 ``env_server``、``vla_server``，
    以及可选的辅助服务（如 LIBERO 用于分割的 ``sam3_server``），并返回
-   ``(daemons, primitives_kwargs)``。
-9. 将 ``primitives_kwargs`` 和 ``dashboard_events`` 事件接收器传给机器人的
+   ``(daemons, runtime_kwargs)``。
+9. 将 ``runtime_kwargs`` 和 ``dashboard_events`` 事件接收器传给机器人的
    ``get_toolkit`` 工厂，构造 **toolkit**。一次性运行链路使用不执行任何
    操作的事件接收器。
 10. 执行工具调用循环。循环结束后保存
@@ -131,7 +131,7 @@ planner 后端集中在 ``rpent/planner/``，
    # robots/myrobot/__init__.py
    def get_robot_spec() -> RobotSpec: ...  # 机器人标识、提示词模板与 Runner 钩子
    def get_toolkit(
-       *, primitives_kwargs, dashboard_events
+       *, runtime_kwargs, dashboard_events
    ): ...
 
 ``RobotSpec`` 汇集了机器人标识、prompt 模板、可选的 Dashboard 描述与三个 Runner

@@ -115,7 +115,7 @@ def test_robot_prompts_render_from_public_spec(robot_name: str) -> None:
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
-def test_dashboard_metadata_has_consistent_fields_and_channels(
+def test_dashboard_metadata_has_consistent_fields_and_runtime_components(
     robot_name: str,
 ) -> None:
     dashboard = get_robot_spec(robot_name).dashboard
@@ -135,11 +135,6 @@ def test_dashboard_metadata_has_consistent_fields_and_channels(
         "unique",
         "shared",
     }
-
-    channels = dashboard["frame_channels"]
-    channel_names = tuple(channel["name"] for channel in channels)
-    assert len(channel_names) == len(set(channel_names))
-    assert all(channel["label"] for channel in channels)
 
 
 def test_run_config_and_robot_spec_are_frozen_contract_values() -> None:

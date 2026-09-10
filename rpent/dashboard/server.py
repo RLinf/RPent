@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import mimetypes
 import threading
 import time
 from pathlib import Path
@@ -58,16 +57,6 @@ from rpent.utils.logging import get_logger
 logger = get_logger("dashboard_server")
 
 
-def _infer_frame_media_type(artifact: str) -> str:
-    """Infer a Dashboard frame response type from its artifact filename."""
-    media_type, _ = mimetypes.guess_type(artifact)
-    if media_type is None or not media_type.startswith("image/"):
-        raise ValueError(
-            f"Dashboard frame artifact must have a recognized image suffix: {artifact!r}"
-        )
-    return media_type
-
-
 class DashboardServer:
     """Threaded FastAPI server exposing one Dashboard Session."""
 
@@ -85,11 +74,6 @@ class DashboardServer:
         self.port = int(port)
         self._state = state
         self._planner_config = {"planner": planner, "model": model}
-        dashboard_spec = state.dashboard_spec
-        self._frame_media_types = {
-            channel["name"]: _infer_frame_media_type(channel["artifact"])
-            for channel in dashboard_spec["frame_channels"]
-        }
         dashboard_dir = Path(__file__).parent
         self._language = "zh-cn" if language == "zh-cn" else "en"
         self._index_html = (dashboard_dir / "index.html").read_text(encoding="utf-8")
@@ -252,16 +236,11 @@ class DashboardServer:
             return JSONResponse({"events": self._state.events_since(since)})
 
         @app.get("/api/session/frame")
-        def api_frame(
-            kind: str = self._state.dashboard_spec["frame_channels"][0]["name"],
-        ) -> Response:
-            try:
-                frame = self._state.frame(kind)
-            except ValueError as exc:
-                return JSONResponse({"detail": str(exc)}, status_code=422)
+        def api_frame(kind: str) -> Response:
+            frame = self._state.frame(kind)
             if frame is None:
                 return Response(status_code=404)
-            return Response(frame, media_type=self._frame_media_types[kind])
+            return Response(frame, media_type="image/png")
 
         @app.get("/api/session/video")
         def api_video() -> Response:

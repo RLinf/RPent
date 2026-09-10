@@ -42,7 +42,7 @@ class LiberoToolkit(Toolkit):
     def __init__(
         self,
         *,
-        primitives_kwargs: dict[str, Any],
+        runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
         mode: str = "evaluation",
@@ -64,7 +64,7 @@ class LiberoToolkit(Toolkit):
         # Bound the resettable attempts owned by this planner session.
         self._attempts_per_session: int = max(0, int(attempts_per_session))
         self._session_attempt: int = 1
-        self.init_primitives(primitives_kwargs=primitives_kwargs)
+        self.init_primitives(runtime_kwargs=runtime_kwargs)
         self._register_libero_tools()
 
     # ------------------------------------------------------------------
@@ -195,14 +195,14 @@ class LiberoToolkit(Toolkit):
     def init_primitives(
         self,
         *,
-        primitives_kwargs: dict[str, Any],
+        runtime_kwargs: dict[str, Any],
     ) -> None:
         """Wipe stale run artifacts, build the LiberoPrimitives, dump step 0."""
         self._state.reset()
 
         primitives = libero_tools.LiberoPrimitives(
             check_cancelled=self.raise_if_cancelled,
-            **primitives_kwargs,
+            **runtime_kwargs,
         )
         primitives.reset()
         primitives.start_recording()

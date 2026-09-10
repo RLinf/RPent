@@ -93,13 +93,13 @@ these two functions:
 
    def get_toolkit(
        *,
-       primitives_kwargs,
+       runtime_kwargs,
        dashboard_events: DashboardEventSink,
        config: RunConfig,
    ):
        from robots.myrobot.toolkit import MyRobotToolkit
        return MyRobotToolkit(
-           primitives_kwargs=primitives_kwargs,
+           runtime_kwargs=runtime_kwargs,
            dashboard_events=dashboard_events,
            memory=MemoryManager(
                root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
@@ -122,7 +122,7 @@ these two functions:
    ):
        """Initialize all runtime components, or only the selected subset.
 
-       Returns (daemons, primitives_kwargs). See §5.
+       Returns (daemons, runtime_kwargs). See §5.
        """
        ...
 
@@ -131,9 +131,9 @@ support Dashboard control. Otherwise, define the spec in the robot
 package: its ``task`` section describes the command, validated fields, display
 template, and output slug; robot-specific Session settings remain normal CLI
 arguments; ``runtime_components`` describes service rows;
-``frame_channels`` maps camera names to canonical image artifacts;
 and ``primitives`` is the ordered allowlist of Toolkit actions displayed and
-executable as Dashboard controls. Keep task suggestions in the spec so
+executable as Dashboard controls. Camera tabs are discovered from the PNG
+artifacts in each recorded step. Keep task suggestions in the spec so
 importing the robot does not require simulator packages. See
 ``robots/libero/robot_spec.py`` for the reference shape.
 
@@ -323,7 +323,7 @@ filenames rather than maintaining a parallel observation index.
 - override ``close()`` to save remaining agent-side artifacts through
   ``EnvState`` (for example ``state.save("episode.mp4", frames, step=None)``).
 
-``primitives_kwargs`` (forwarded from ``robot_spec.py:get_toolkit``) is the dict
+``runtime_kwargs`` (forwarded from ``robot_spec.py:get_toolkit``) is the dict
 the toolkit passes verbatim to your primitives' ``__init__`` — typically
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``.
 
@@ -398,12 +398,12 @@ validates those fields and returns a
 5. Runtime initialization hook
 ------------------------------
 
-``init_runtime`` returns ``(owned_daemons, primitives_kwargs)``:
+``init_runtime`` returns ``(owned_daemons, runtime_kwargs)``:
 
 - ``owned_daemons: list[ProcessDaemon]`` contains only subprocesses started
   by this process. The active runner stops them during cleanup. A client for an
   external endpoint must not add that external service to this list.
-- ``primitives_kwargs: dict`` is passed to the toolkit constructor, which
+- ``runtime_kwargs: dict`` is passed to the toolkit constructor, which
   forwards it to the primitives' ``__init__``. A complete set commonly
   contains ``{"env": MyEnvClient(...), "model": VLAClient(...)}`` plus any
   supporting clients.
@@ -414,7 +414,7 @@ The Dashboard derives two subsets from ``dashboard.runtime_components``. Every
 component declares either ``scope: "shared"`` or ``scope: "unique"`` explicitly.
 The Dashboard initializes shared components once, then initializes unique
 components for every fresh environment instance. It calls this same hook for
-both subsets and merges the returned ``primitives_kwargs`` dictionaries. For
+both subsets and merges the returned ``runtime_kwargs`` dictionaries. For
 LIBERO, the subsets are ``{"vla", "sam3"}`` and ``{"env"}``.
 
 An implementation should reject unknown component names before starting

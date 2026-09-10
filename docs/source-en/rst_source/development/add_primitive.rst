@@ -136,19 +136,19 @@ primitive requires a few additional components:
 
 5. **Wire the components together in ``robot_spec.py``.** The
    robot's ``get_toolkit`` builds the toolkit with
-   ``primitives_kwargs``:
+   ``runtime_kwargs``:
 
    .. code-block:: python
 
-      def get_toolkit(*, primitives_kwargs, dashboard_events):
+      def get_toolkit(*, runtime_kwargs, dashboard_events):
           from robots.myrobot.toolkit import MyRobotToolkit
           return MyRobotToolkit(
-              primitives_kwargs=primitives_kwargs,
+              runtime_kwargs=runtime_kwargs,
               dashboard_events=dashboard_events,
           )
 
    The robot package's ``_init_runtime`` builds
-   ``primitives_kwargs``, for example
+   ``runtime_kwargs``, for example
    ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``.
    The toolkit constructor then forwards it to the primitives.
 

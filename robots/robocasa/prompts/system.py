@@ -63,7 +63,7 @@ heights. Typical: z_min=0.85, z_max=0.95 finds countertop objects.
 Use camera='navview' with z_min=0.0, z_max=0.12 to find walkable floor.
 
 CAMERA IMAGE ROLES:
-- calibration_frame agentview: USE THIS IMAGE for back_project pixel picking.
+- calibration_frame agentview: USE THIS IMAGE for back_project_batch pixel picking.
   The pixel coordinates map directly to the world map.
 - nav_view: Base-mounted forward-down camera. Floor pixels (z≈0) are walkable.
 - wrist: Eye-in-hand camera. MOVES with gripper. Good for close-range refinement.
@@ -101,9 +101,7 @@ AVAILABLE PRIMITIVES:
 
 PERCEPTION TOOLS:
 - view_env_state(step): Read state + images.
-- view_camera_meta(camera): Read camera calibration.
-- back_project(row, col): Single-pixel world coordinate lookup.
-- back_project_batch(pixels): Multi-pixel lookup with median summary.
+- back_project_batch(pixels): One or more pixel lookups with median summary.
 - query_world_map(z_min, z_max, ...): Find objects by height/region.
 - finish(status, summary): Signal task completion.
 """

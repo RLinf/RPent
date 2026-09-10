@@ -40,7 +40,7 @@ class FrankaToolkit(Toolkit):
     def __init__(
         self,
         *,
-        primitives_kwargs: dict[str, Any],
+        runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
     ) -> None:
@@ -50,12 +50,12 @@ class FrankaToolkit(Toolkit):
             state=state,
             memory=memory,
         )
-        calibration_path = primitives_kwargs.pop("calibration_path", None)
+        calibration_path = runtime_kwargs.pop("calibration_path", None)
         if calibration_path is not None:
             set_calibration_path(calibration_path)
         self._primitives = self._primitives_cls(
             check_cancelled=self.raise_if_cancelled,
-            **primitives_kwargs,
+            **runtime_kwargs,
         )
         self._register_tools()
         self._state.reset()

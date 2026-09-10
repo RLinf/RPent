@@ -15,7 +15,7 @@
    def get_robot_spec() -> RobotSpec: ...
    def get_toolkit(
        *,
-       primitives_kwargs,
+       runtime_kwargs,
        dashboard_events: DashboardEventSink,
        config: RunConfig,
    ): ...
@@ -43,10 +43,10 @@
        三项需由你正确填写（供 prompt 模板插值）。
    * - ``init_runtime``
      - 启动或连接全部 runtime components，或只处理指定名称的子集，并构造对应的
-       ``primitives_kwargs``。普通 CLI 传 ``None``；Dashboard 从 spec 得到显式声明
+       ``runtime_kwargs``。普通 CLI 传 ``None``；Dashboard 从 spec 得到显式声明
        的 shared 和 unique 子集后分别传入。``DashboardEventSink`` 用于上报运行时状态。
 
-``get_toolkit`` 一般只需把 ``primitives_kwargs`` 传给机器人子类；
+``get_toolkit`` 一般只需把 ``runtime_kwargs`` 传给机器人子类；
 ``dashboard_events`` 和 ``config`` 由当前 runner 传入。它需要构造一个
 :class:`~rpent.memory.MemoryManager`（root 取自
 ``config.prompt_vars["memory_dir"]``，未设置时回退到

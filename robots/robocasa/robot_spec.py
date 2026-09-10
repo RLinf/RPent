@@ -118,18 +118,6 @@ ROBOCASA_DASHBOARD_SPEC: DashboardSpec = {
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
     ),
-    "frame_channels": (
-        {
-            "name": "camera",
-            "label": "fixed camera",
-            "artifact": "agentview.png",
-        },
-        {
-            "name": "wrist",
-            "label": "wrist camera",
-            "artifact": "wrist.png",
-        },
-    ),
     "primitives": (
         "move_to",
         "move_delta",
@@ -167,7 +155,7 @@ def get_robot_spec() -> RobotSpec:
 
 def get_toolkit(
     *,
-    primitives_kwargs: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
 ):
@@ -178,7 +166,7 @@ def get_toolkit(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
     )
     return RoboCasaToolkit(
-        primitives_kwargs=primitives_kwargs,
+        runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
     )
@@ -408,7 +396,7 @@ def _init_runtime(
                 starter,
             )
 
-    primitives_kwargs: dict[str, Any] = {}
+    runtime_kwargs: dict[str, Any] = {}
     for component, (daemon, rpc) in pending.items():
         component_kwargs = try_wait_server(
             owned_daemons,
@@ -419,6 +407,6 @@ def _init_runtime(
             timeouts[component],
             post_fn=partial(connectors[component], rpc),
         )
-        primitives_kwargs.update(component_kwargs)
+        runtime_kwargs.update(component_kwargs)
 
-    return list(owned_daemons.values()), primitives_kwargs
+    return list(owned_daemons.values()), runtime_kwargs
