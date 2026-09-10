@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
-from rpent.memory import MemoryManager
+from rpent.robots.memory import ToolkitMemoryConfig, create_toolkit_memory
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import (
@@ -199,10 +199,12 @@ def get_toolkit(
     """Return the RoboTwin toolkit for the current session."""
     from robots.robotwin.toolkit import RoboTwinToolkit
 
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
-        memory_access="inbox_write" if mode == "exploration" else "read_only",
-        inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
+    memory = create_toolkit_memory(
+        ToolkitMemoryConfig(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
+            mode=mode,
+            cell_tag=config.recipe_tag,
+        )
     )
     return RoboTwinToolkit(
         primitives_kwargs=primitives_kwargs,
