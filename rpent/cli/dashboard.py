@@ -27,13 +27,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from rpent.cli.main import (
-    _handoff_message,
-    _serialize_messages,
-)
+from rpent.cli.main import _serialize_messages
 from rpent.dashboard.events import RunStartedEvent
 from rpent.memory import MemoryManager
-from rpent.planner.base import build_planner
+from rpent.orchestration import (
+    PlannerSessionContext,
+    PlannerSessionRequest,
+    PlannerSessionStopReason,
+    PlannerSessionToolkit,
+    PreparedPlannerSession,
+    SynchronousPlannerSessionService,
+    continuation_handoff_message,
+)
+from rpent.planner.base import PlannerResult, build_planner
 from rpent.robots import get_toolkit
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
@@ -44,6 +50,121 @@ if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
 
 logger = get_logger("agent")
+
+
+class _DashboardPlannerSessionAdapter:
+    """Bind Dashboard state and planner construction to the common service."""
+
+    def __init__(
+        self,
+        *,
+        args: argparse.Namespace,
+        task_args: argparse.Namespace,
+        robot_spec: RobotSpec,
+        state: DashboardState,
+        run_config: Any,
+        output_dir: Path,
+        primitives_kwargs: dict[str, Any],
+        prompt_vars: dict[str, Any],
+        recipe_tag: str,
+    ) -> None:
+        self._args = args
+        self._task_args = task_args
+        self._robot_spec = robot_spec
+        self._state = state
+        self._run_config = run_config
+        self._output_dir = output_dir
+        self._primitives_kwargs = primitives_kwargs
+        self._prompt_vars = prompt_vars
+        self._recipe_tag = recipe_tag
+
+    def prepare_session(
+        self,
+        context: PlannerSessionContext,
+        first_user_message: str,
+    ) -> PreparedPlannerSession:
+        session_message = first_user_message
+        if context.session_number > 1:
+            logger.info(
+                "=== handing off to agent %d/%d ===",
+                context.session_number,
+                context.session_count,
+            )
+            session_message = continuation_handoff_message(
+                self._output_dir,
+                context.session_number,
+                context.session_count,
+                robot_name=self._args.robot_name,
+            )
+        system_prompt = self._robot_spec.prompts.render(
+            "system",
+            variables={
+                **self._prompt_vars,
+                "session_number": context.session_number,
+                "session_max": context.session_count,
+            },
+        )
+        return PreparedPlannerSession(
+            context=context,
+            system_prompt=system_prompt,
+            user_message=session_message,
+        )
+
+    def create_toolkit(
+        self,
+        context: PlannerSessionContext,
+    ) -> PlannerSessionToolkit:
+        if context.exploration:
+            self._state.begin_planner_session(
+                video_path=context.state_output_dir / "episode.mp4",
+            )
+        if self._robot_spec.supports_exploration:
+            return get_toolkit(
+                self._args.robot_name,
+                primitives_kwargs=self._primitives_kwargs,
+                dashboard_events=self._state,
+                config=self._run_config,
+                mode="exploration" if self._task_args.explore else "evaluation",
+                attempts_per_session=getattr(
+                    self._task_args,
+                    "explore_attempts_per_session",
+                    0,
+                ),
+                state_output_dir=context.state_output_dir,
+            )
+        return get_toolkit(
+            self._args.robot_name,
+            primitives_kwargs=self._primitives_kwargs,
+            dashboard_events=self._state,
+            config=self._run_config,
+        )
+
+    def invoke_planner(
+        self,
+        prepared: PreparedPlannerSession,
+        toolkit: PlannerSessionToolkit,
+    ) -> PlannerResult:
+        planner = build_planner(
+            self._args.planner,
+            output_dir=self._output_dir,
+            recipe_tag=self._recipe_tag,
+            robot_name=self._args.robot_name,
+            base_url=self._args.base_url,
+            model=self._args.model,
+            max_tokens=self._args.max_tokens,
+            planner_timeout_s=self._args.planner_timeout_s,
+            reasoning_effort=self._args.reasoning_effort,
+            claude_code_max_budget_usd=self._args.claude_code_max_budget_usd,
+            dashboard_events=self._state,
+            no_images=self._args.no_images,
+        )
+        return planner.solve(
+            system_prompt=prepared.system_prompt,
+            user_message=prepared.user_message,
+            toolkit=toolkit,
+            max_turns=self._args.max_turns,
+            dashboard_interaction=self._state,
+        )
 
 
 def run_dashboard_session(
@@ -192,111 +313,69 @@ def _run_dashboard_task(
                 **shared_primitives_kwargs,
             }
             prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
-            session_message = robot_spec.prompts.render("user", variables=prompt_vars)
-            sessions = max(
-                1,
-                int(getattr(task_args, "explore_sessions", 1) or 1),
+            first_user_message = robot_spec.prompts.render(
+                "user",
+                variables=prompt_vars,
             )
-            if not getattr(task_args, "explore", False):
-                sessions = 1
             if not state.task_replacement_requested:
                 state.emit(RunStartedEvent())
-            for session_number in range(1, sessions + 1):
-                if state.task_replacement_requested:
-                    break
-                if session_number > 1:
-                    logger.info(
-                        "=== handing off to agent %d/%d ===",
-                        session_number,
-                        sessions,
-                    )
-                    session_message = _handoff_message(
-                        output_dir,
-                        session_number,
-                        sessions,
-                        robot_name=args.robot_name,
-                    )
-                system_prompt = robot_spec.prompts.render(
-                    "system",
-                    variables={
-                        **prompt_vars,
-                        "session_number": session_number,
-                        "session_max": sessions,
-                    },
+            adapter = _DashboardPlannerSessionAdapter(
+                args=args,
+                task_args=task_args,
+                robot_spec=robot_spec,
+                state=state,
+                run_config=run_config,
+                output_dir=output_dir,
+                primitives_kwargs=primitives_kwargs,
+                prompt_vars=prompt_vars,
+                recipe_tag=recipe_tag,
+            )
+            check_solved = args.robot_name == "libero" or (
+                task_args.explore and robot_spec.supports_exploration
+            )
+            session_service = SynchronousPlannerSessionService(
+                prepare_session=adapter.prepare_session,
+                create_toolkit=adapter.create_toolkit,
+                invoke_planner=adapter.invoke_planner,
+                probe_solved=(lambda toolkit: toolkit.solved())
+                if check_solved
+                else None,
+                export_recipe=(lambda toolkit: toolkit.write_recipe(recipe_tag))
+                if check_solved
+                else None,
+                cancellation_requested=lambda: state.task_replacement_requested,
+                on_intermediate_timeout=lambda context, error: logger.warning(
+                    "session %d/%d timed out; continuing with a fresh handoff",
+                    context.session_number,
+                    context.session_count,
+                ),
+                format_exception=str,
+            )
+            session_result = session_service.run(
+                PlannerSessionRequest(
+                    output_dir=output_dir,
+                    exploration=getattr(task_args, "explore", False),
+                    requested_session_count=getattr(
+                        task_args,
+                        "explore_sessions",
+                        1,
+                    ),
+                    first_user_message=first_user_message,
                 )
-                state_output_dir = output_dir
-                if getattr(task_args, "explore", False):
-                    state_output_dir = (
-                        output_dir / "sessions" / f"session_{session_number:03d}"
-                    )
-                    state.begin_planner_session(
-                        video_path=state_output_dir / "episode.mp4",
-                    )
-                if robot_spec.supports_exploration:
-                    toolkit = get_toolkit(
-                        args.robot_name,
-                        primitives_kwargs=primitives_kwargs,
-                        dashboard_events=state,
-                        config=run_config,
-                        mode="exploration" if task_args.explore else "evaluation",
-                        attempts_per_session=getattr(
-                            task_args, "explore_attempts_per_session", 0
-                        ),
-                        state_output_dir=state_output_dir,
-                    )
-                else:
-                    toolkit = get_toolkit(
-                        args.robot_name,
-                        primitives_kwargs=primitives_kwargs,
-                        dashboard_events=state,
-                        config=run_config,
-                    )
-                memory_manager = toolkit.memory
-                try:
-                    planner = build_planner(
-                        args.planner,
-                        output_dir=output_dir,
-                        recipe_tag=recipe_tag,
-                        robot_name=args.robot_name,
-                        base_url=args.base_url,
-                        model=args.model,
-                        max_tokens=args.max_tokens,
-                        planner_timeout_s=args.planner_timeout_s,
-                        reasoning_effort=args.reasoning_effort,
-                        claude_code_max_budget_usd=args.claude_code_max_budget_usd,
-                        dashboard_events=state,
-                        no_images=args.no_images,
-                    )
-                    result = planner.solve(
-                        system_prompt=system_prompt,
-                        user_message=session_message,
-                        toolkit=toolkit,
-                        max_turns=args.max_turns,
-                        dashboard_interaction=state,
-                    )
-                    finish_result = result.finish_result
-                    messages += result.messages
-                    stats = result.stats
-                    agent_error = result.error
-                    if args.robot_name == "libero" or (
-                        task_args.explore and robot_spec.supports_exploration
-                    ):
-                        solved = toolkit.solved()
-                        if solved:
-                            recipe_path = toolkit.write_recipe(recipe_tag)
-                finally:
-                    toolkit.close()
-                if solved or state.task_replacement_requested:
-                    break
-                if agent_error:
-                    if session_number < sessions and "timed out" in agent_error.lower():
-                        logger.warning(
-                            "session %d/%d timed out; continuing with a fresh handoff",
-                            session_number,
-                            sessions,
-                        )
-                        continue
-                    break
+            )
+            finish_result = session_result.finish_result
+            messages = session_result.messages
+            stats = session_result.stats
+            agent_error = session_result.error
+            solved = session_result.solved
+            recipe_path = session_result.recipe_path
+            memory_manager = session_result.memory_manager
+            if session_result.stop_reason is PlannerSessionStopReason.EXCEPTION:
+                logger.error(
+                    "EXCEPTION in Dashboard TaskRun %04d: %s",
+                    claimed.number,
+                    agent_error,
+                )
     except Exception as exc:
         logger.error("EXCEPTION in Dashboard TaskRun %04d: %s", claimed.number, exc)
         agent_error = str(exc)

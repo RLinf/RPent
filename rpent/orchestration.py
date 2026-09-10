@@ -157,6 +157,42 @@ def effective_session_count(exploration: bool, requested: int | None) -> int:
     return sessions if exploration else 1
 
 
+def continuation_handoff_message(
+    output_dir: str | Path,
+    session_number: int,
+    session_max: int,
+    *,
+    robot_name: str | None = None,
+) -> str:
+    """Build the opening message for a continuation planner session."""
+    attempts_dir = Path(output_dir) / "attempts"
+    prior = (
+        sorted(p.name for p in attempts_dir.glob("attempt_*_failed.json"))
+        if attempts_dir.is_dir()
+        else []
+    )
+    episode_notice = (
+        "Episode reinitialized with the configured exact seed. actual_seed is "
+        "checked; full physical layout determinism has not been verified. "
+        "Re-run perception before acting."
+        if robot_name == "robotwin"
+        else "A fresh toolkit has already restored a clean scene; inspect it before acting."
+    )
+    if robot_name == "robocasa":
+        episode_notice = (
+            "按配置 seed 重新初始化，完整物理布局确定性仍需真实仿真验证。"
+            "Re-run perception before acting."
+        )
+    return (
+        f"You are agent {session_number} of up to {session_max} on this cell. "
+        f"{len(prior)} attempt(s) by earlier agents are archived in "
+        f"{attempts_dir}/ ({', '.join(prior) if prior else 'none yet'}), and their "
+        "working notes are in the memory inbox under wip/.\n\n"
+        "Read every archive and the working notes before acting. Do not repeat "
+        f"failed approaches. {episode_notice}"
+    )
+
+
 def _is_timeout(error: str) -> bool:
     return "timed out" in error.lower()
 
@@ -184,6 +220,7 @@ class SynchronousPlannerSessionService:
         on_intermediate_timeout: (
             Callable[[PlannerSessionContext, str], None] | None
         ) = None,
+        format_exception: Callable[[Exception], str] | None = None,
     ) -> None:
         self._prepare_session = prepare_session
         self._create_toolkit = create_toolkit
@@ -193,6 +230,7 @@ class SynchronousPlannerSessionService:
         self._probe_environment_success = probe_environment_success
         self._cancellation_requested = cancellation_requested
         self._on_intermediate_timeout = on_intermediate_timeout
+        self._format_exception = format_exception
 
     def _cancelled(self) -> bool:
         return bool(
@@ -285,7 +323,11 @@ class SynchronousPlannerSessionService:
                     finally:
                         toolkit.close()
             except Exception as exc:
-                error = f"{type(exc).__name__}: {exc}"
+                error = (
+                    self._format_exception(exc)
+                    if self._format_exception is not None
+                    else f"{type(exc).__name__}: {exc}"
+                )
                 stop_reason = PlannerSessionStopReason.EXCEPTION
                 records.append(
                     PlannerSessionRecord(
@@ -365,5 +407,6 @@ __all__ = [
     "PreparePlannerSession",
     "PreparedPlannerSession",
     "SynchronousPlannerSessionService",
+    "continuation_handoff_message",
     "effective_session_count",
 ]
