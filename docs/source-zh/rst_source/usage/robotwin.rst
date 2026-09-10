@@ -40,9 +40,9 @@ RoboTwin 所需依赖：
 
 .. note::
 
-   ``.[robotwin]`` 目前会从 GitHub 的固定提交安装部分依赖，因此即使配置了
-   PyPI 镜像，安装时仍需能访问 GitHub。这些依赖在正式发布后将改用版本号
-   安装。
+   ``.[robotwin]`` 的 RoboTwin 与 LingBot 运行时已作为发布包安装到 PyPI；
+   cuRobo 仍从 GitHub 官方 tag 源码构建，因此即使配置了 PyPI 镜像，安装时
+   仍需能访问 GitHub。
 
 下载仿真资源
 ------------
