@@ -20,7 +20,7 @@ RPent 可以通过 RLinf 的 ``RealWorldEnv`` worker 控制单台 Franka 机械�
 
 .. code-block:: bash
 
-	uv sync --extra franka
+   uv sync --extra franka
 
 该命令会把自定义的 RLinf Franka 分支和 ``rlinf-openpi`` 安装到 ``.venv``。
 
@@ -38,10 +38,10 @@ RPent 会直接加载这些 YAML：在 robot config 的 ``perception.calibration
 
 .. code-block:: yaml
 
-	perception:
-	  calibration:
-		external: ~/.ros/easy_handeye/fr3_external_apriltag_eye_on_base.yaml
-		wrist: ~/.ros/easy_handeye/fr3_wrist_apriltag_ee_eye_on_hand.yaml
+   perception:
+     calibration:
+       external: ~/.ros/easy_handeye/fr3_external_apriltag_eye_on_base.yaml
+       wrist: ~/.ros/easy_handeye/fr3_wrist_apriltag_ee_eye_on_hand.yaml
 
 开发配置
 --------
@@ -62,9 +62,9 @@ Ray 在启动时会捕获环境变量，因此必须先设置 node rank 再启�
 
 .. code-block:: bash
 
-	export RLINF_NODE_RANK=0
-	ray stop --force
-	ray start --head
+   export RLINF_NODE_RANK=0
+   ray stop --force
+   ray start --head
 
 运行冒烟测试
 ------------
@@ -74,10 +74,10 @@ Ray 在启动时会捕获环境变量，因此必须先设置 node rank 再启�
 
 .. code-block:: bash
 
-	# replace --robot-config with your own config
-	uv run --extra franka rpent --robot franka --task-id 0 \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/franka/config/example.yaml
+   # replace --robot-config with your own config
+   uv run --extra franka rpent --robot franka --task-id 0 \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/franka/config/example.yaml
 
 RPent 会使用当前解释器启动 ``robots/franka/env_server.py``：加载 RPent robot
 config、生成内部的 RLinf adapter config、连接 Ray、等待
@@ -92,10 +92,10 @@ RPent 提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --robot franka --task-id 1 \
-	  --vla-endpoint http://VLA_HOST:PORT \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/franka/config/example.yaml
+   uv run --extra franka rpent --robot franka --task-id 1 \
+     --vla-endpoint http://VLA_HOST:PORT \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/franka/config/example.yaml
 
 目前 VLA 服务需要单独部署。若未设置 ``--vla-endpoint``，
 解析式运动和夹爪工具仍然可用，但 ``vla_grasp`` 会抛出运行时错误。

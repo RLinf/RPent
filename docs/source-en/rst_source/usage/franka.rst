@@ -23,7 +23,7 @@ From the RPent repository root:
 
 .. code-block:: bash
 
-	uv sync --extra franka
+   uv sync --extra franka
 
 This installs the custom RLinf Franka branch and ``rlinf-openpi`` into
 ``.venv``.
@@ -42,10 +42,10 @@ the robot config, mapping each camera to its easy_handeye YAML (the checked-in
 
 .. code-block:: yaml
 
-	perception:
-	  calibration:
-		external: ~/.ros/easy_handeye/fr3_external_apriltag_eye_on_base.yaml
-		wrist: ~/.ros/easy_handeye/fr3_wrist_apriltag_ee_eye_on_hand.yaml
+   perception:
+     calibration:
+       external: ~/.ros/easy_handeye/fr3_external_apriltag_eye_on_base.yaml
+       wrist: ~/.ros/easy_handeye/fr3_wrist_apriltag_ee_eye_on_hand.yaml
 
 Development configuration
 -------------------------
@@ -69,9 +69,9 @@ startup:
 
 .. code-block:: bash
 
-	export RLINF_NODE_RANK=0
-	ray stop --force
-	ray start --head
+   export RLINF_NODE_RANK=0
+   ray stop --force
+   ray start --head
 
 Run a smoke test
 ----------------
@@ -81,10 +81,10 @@ correctly. To run it, launch RPent with task ``0``:
 
 .. code-block:: bash
 
-	# replace --robot-config with your own config
-	uv run --extra franka rpent --robot franka --task-id 0 \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/franka/config/example.yaml
+   # replace --robot-config with your own config
+   uv run --extra franka rpent --robot franka --task-id 0 \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/franka/config/example.yaml
 
 RPent starts ``robots/franka/env_server.py`` with the current interpreter,
 loads the RPent robot config, generates the internal RLinf adapter config,
@@ -101,10 +101,10 @@ statistics match the current Franka training configuration:
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --robot franka --task-id 1 \
-	  --vla-endpoint http://VLA_HOST:PORT \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/franka/config/example.yaml
+   uv run --extra franka rpent --robot franka --task-id 1 \
+     --vla-endpoint http://VLA_HOST:PORT \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/franka/config/example.yaml
 
 The VLA server must be deployed separately for now. Without
 ``--vla-endpoint``, analytic motion and gripper tools remain available, but

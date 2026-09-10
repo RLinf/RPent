@@ -20,7 +20,7 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 
 .. code-block:: bash
 
-	uv sync --extra franka
+   uv sync --extra franka
 
 该命令将自定义 RLinf Franka 分支和 ``rlinf-openpi`` 安装到 ``.venv``。
 
@@ -41,10 +41,10 @@ easy_handeye 默认在 ``~/.ros/easy_handeye/`` 下为每台相机保存一个 Y
 
 .. code-block:: yaml
 
-	perception:
-	  calibration:
-		base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
-		d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
+   perception:
+     calibration:
+       base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
+       d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
 
 开发配置
 --------
@@ -76,17 +76,17 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 
 .. code-block:: bash
 
-	export RLINF_NODE_RANK=0
-	ray stop --force
-	ray start --head --port=6379 --node-ip-address=HEAD_IP
+   export RLINF_NODE_RANK=0
+   ray stop --force
+   ray start --head --port=6379 --node-ip-address=HEAD_IP
 
 节点 ``1``：
 
 .. code-block:: bash
 
-	export RLINF_NODE_RANK=1
-	ray stop --force
-	ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
+   export RLINF_NODE_RANK=1
+   ray stop --force
+   ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
 
 运行冒烟测试
 ------------
@@ -95,9 +95,9 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --robot dual_franka --task-id 0 \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/dual_franka/config/example.yaml
+   uv run --extra franka rpent --robot dual_franka --task-id 0 \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/dual_franka/config/example.yaml
 
 RPent 使用当前解释器启动 ``robots/dual_franka/env_server.py``，加载 RPent
 robot config 并生成内部 RLinf adapter config，然后连接 Ray，等待 ``healthz``，
@@ -112,20 +112,20 @@ RPent 提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露 `
 
 .. code-block:: bash
 
-	export PI05_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
-	export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
+   export PI05_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
+   export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
 
-	uv run --extra franka rpent --robot dual_franka --task-id 1 \
-	  --cuda-device 0 \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/dual_franka/config/example.yaml
+   uv run --extra franka rpent --robot dual_franka --task-id 1 \
+     --cuda-device 0 \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/dual_franka/config/example.yaml
 
 checkpoint 必须包含：
 
 .. code-block:: text
 
-	actor/model_state_dict/full_weights.pt
-	<DUAL_FRANKA_REPO_ID>/norm_stats.json
+   actor/model_state_dict/full_weights.pt
+   <DUAL_FRANKA_REPO_ID>/norm_stats.json
 
 **预训练 checkpoint**
 
@@ -137,11 +137,11 @@ ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint：
 
 .. code-block:: bash
 
-	modelscope download \
-	  --model Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000 \
-	  --local_dir /path/to/pi05-dualfranka-clean-desk
+   modelscope download \
+     --model Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000 \
+     --local_dir /path/to/pi05-dualfranka-clean-desk
 
-	export PI05_CHECKPOINT_PATH=/path/to/pi05-dualfranka-clean-desk
+   export PI05_CHECKPOINT_PATH=/path/to/pi05-dualfranka-clean-desk
 
 .. warning::
 
@@ -160,10 +160,10 @@ ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint：
 
 .. code-block:: bash
 
-	uv run --extra franka python -m robots.dual_franka.vla_server \
-	  --model-path /path/to/checkpoints/global_step_N \
-	  --repo-id org/dual-franka-tcp-rot6d \
-	  --cuda-device 0 --transport http --host 0.0.0.0 --port 6000
+   uv run --extra franka python -m robots.dual_franka.vla_server \
+     --model-path /path/to/checkpoints/global_step_N \
+     --repo-id org/dual-franka-tcp-rot6d \
+     --cuda-device 0 --transport http --host 0.0.0.0 --port 6000
 
 然后向 ``rpent`` 传入 ``--vla-endpoint http://VLA_HOST:6000``。外部 endpoint
 始终优先于本地自动启动。
@@ -175,10 +175,10 @@ ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint：
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --robot dual_franka --task-id 0 \
-	  --env-endpoint http://ROBOT_HOST:PORT \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/dual_franka/config/example.yaml
+   uv run --extra franka rpent --robot dual_franka --task-id 0 \
+     --env-endpoint http://ROBOT_HOST:PORT \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/dual_franka/config/example.yaml
 
 工具与状态产物
 --------------
