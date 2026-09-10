@@ -54,7 +54,15 @@ from rpent.dashboard.events import (
 )
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import REASONING_EFFORTS, build_planner
+from rpent.orchestration import (
+    PlannerSessionContext,
+    PlannerSessionRequest,
+    PlannerSessionStopReason,
+    PlannerSessionToolkit,
+    PreparedPlannerSession,
+    SynchronousPlannerSessionService,
+)
+from rpent.planner.base import REASONING_EFFORTS, PlannerResult, build_planner
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
@@ -436,97 +444,107 @@ def main() -> int:
         first_user_msg = await_first_prompt()
         if first_user_msg is None:
             logger.info("no task entered; ending session before start.")
-    # Exploration may hand off between independent planner contexts.
-    sessions = max(1, int(getattr(args, "explore_sessions", 1) or 1))
-    if not getattr(args, "explore", False):
-        sessions = 1
     recipe_path = ""
     solved = False
     environment_success: bool | None = None
     memory_manager: MemoryManager | None = None
+
+    def prepare_session(
+        context: PlannerSessionContext,
+        initial_user_message: str,
+    ) -> PreparedPlannerSession:
+        nonlocal planner, system_prompt
+        session_msg = initial_user_message
+        if context.session_number > 1:
+            planner, system_prompt, session_msg = _start_continuation_session(
+                args,
+                output_dir=output_dir,
+                recipe_tag=recipe_tag,
+                dashboard_events=dashboard_events,
+                prompt_bundle=prompt_bundle,
+                prompt_vars=prompt_vars,
+                session_number=context.session_number,
+                session_max=context.session_count,
+            )
+        return PreparedPlannerSession(
+            context=context,
+            system_prompt=system_prompt,
+            user_message=session_msg,
+        )
+
+    def create_toolkit(context: PlannerSessionContext) -> PlannerSessionToolkit:
+        if robot_spec.supports_exploration:
+            return get_toolkit(
+                robot_name,
+                primitives_kwargs=primitives_kwargs,
+                dashboard_events=dashboard_events,
+                config=run_config,
+                mode="exploration" if args.explore else "evaluation",
+                attempts_per_session=getattr(args, "explore_attempts_per_session", 0),
+                state_output_dir=context.state_output_dir,
+            )
+        return get_toolkit(
+            robot_name,
+            primitives_kwargs=primitives_kwargs,
+            dashboard_events=dashboard_events,
+            config=run_config,
+        )
+
+    def invoke_planner(
+        prepared: PreparedPlannerSession,
+        toolkit: PlannerSessionToolkit,
+    ) -> PlannerResult:
+        return planner.solve(
+            system_prompt=prepared.system_prompt,
+            user_message=prepared.user_message,
+            toolkit=toolkit,
+            max_turns=args.max_turns,
+            input_queue=input_queue,
+        )
+
+    check_solved = robot_name == "libero" or (
+        args.explore and robot_spec.supports_exploration
+    )
+    session_service = SynchronousPlannerSessionService(
+        prepare_session=prepare_session,
+        create_toolkit=create_toolkit,
+        invoke_planner=invoke_planner,
+        probe_solved=(lambda toolkit: toolkit.solved()) if check_solved else None,
+        export_recipe=(lambda toolkit: toolkit.write_recipe(recipe_tag))
+        if check_solved
+        else None,
+        probe_environment_success=(
+            (lambda toolkit: toolkit.solved())
+            if robot_spec.finalize_run is not None
+            else None
+        ),
+        on_intermediate_timeout=lambda context, error: logger.warning(
+            "session %d/%d timed out; continuing with a fresh handoff",
+            context.session_number,
+            context.session_count,
+        ),
+    )
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
-        session_msg = first_user_msg
-        for session_number in range(1, sessions + 1):
-            if session_msg is None:
-                break
-            if session_number > 1:
-                planner, system_prompt, session_msg = _start_continuation_session(
-                    args,
-                    output_dir=output_dir,
-                    recipe_tag=recipe_tag,
-                    dashboard_events=dashboard_events,
-                    prompt_bundle=prompt_bundle,
-                    prompt_vars=prompt_vars,
-                    session_number=session_number,
-                    session_max=sessions,
-                )
-            state_output_dir = output_dir
-            if getattr(args, "explore", False):
-                state_output_dir = (
-                    output_dir / "sessions" / f"session_{session_number:03d}"
-                )
-            if robot_spec.supports_exploration:
-                toolkit = get_toolkit(
-                    robot_name,
-                    primitives_kwargs=primitives_kwargs,
-                    dashboard_events=dashboard_events,
-                    config=run_config,
-                    mode="exploration" if args.explore else "evaluation",
-                    attempts_per_session=getattr(
-                        args, "explore_attempts_per_session", 0
-                    ),
-                    state_output_dir=state_output_dir,
-                )
-            else:
-                toolkit = get_toolkit(
-                    robot_name,
-                    primitives_kwargs=primitives_kwargs,
-                    dashboard_events=dashboard_events,
-                    config=run_config,
-                )
-            memory_manager = toolkit.memory
-            try:
-                result = planner.solve(
-                    system_prompt=system_prompt,
-                    user_message=session_msg,
-                    toolkit=toolkit,
-                    max_turns=args.max_turns,
-                    input_queue=input_queue,
-                )
-                finish_result = result.finish_result
-                messages += result.messages
-                stats = result.stats
-                agent_error = result.error
-                if robot_name == "libero" or (
-                    args.explore and robot_spec.supports_exploration
-                ):
-                    solved = toolkit.solved()
-                    if solved:
-                        recipe_path = toolkit.write_recipe(recipe_tag)
-            finally:
-                try:
-                    if robot_spec.finalize_run is not None:
-                        environment_success = bool(toolkit.solved())
-                        solved = environment_success
-                finally:
-                    toolkit.close()
-            if solved:
-                break
-            if agent_error:
-                if (
-                    getattr(args, "explore", False)
-                    and session_number < sessions
-                    and "timed out" in agent_error.lower()
-                ):
-                    logger.warning(
-                        "session %d/%d timed out; continuing with a fresh handoff",
-                        session_number,
-                        sessions,
-                    )
-                    continue
-                break
+        session_result = session_service.run(
+            PlannerSessionRequest(
+                output_dir=Path(output_dir),
+                exploration=getattr(args, "explore", False),
+                requested_session_count=getattr(args, "explore_sessions", 1),
+                first_user_message=first_user_msg,
+            )
+        )
+        finish_result = session_result.finish_result
+        messages = session_result.messages
+        stats = session_result.stats
+        agent_error = session_result.error
+        solved = session_result.solved
+        environment_success = session_result.environment_success
+        recipe_path = session_result.recipe_path
+        memory_manager = session_result.memory_manager
+        if session_result.stop_reason is PlannerSessionStopReason.EXCEPTION:
+            logger.error("EXCEPTION in agent loop: %s", agent_error)
     except Exception as exc:
         agent_error = f"{type(exc).__name__}: {exc}"
         logger.error("EXCEPTION in agent loop: %s", agent_error)
