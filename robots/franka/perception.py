@@ -30,11 +30,6 @@ from robots.franka.runtime_config import (
 from rpent.session import EnvState
 from rpent.tools.toolkit import readonly
 
-
-class PerceptionError(ValueError):
-    """Raised when a Franka perception artifact is missing or inconsistent."""
-
-
 _CAMERA_ARTIFACTS = {
     "main": ("wrist.png", "wrist_depth.npy"),
     "extra_0": ("camera.png", "camera_depth.npy"),
@@ -54,10 +49,10 @@ def load_camera_meta(
 ) -> dict[str, Any]:
     """Load RLinf camera metadata from the RPent environment state."""
     if state is None:
-        raise PerceptionError("state is required to load camera metadata")
+        raise ValueError("state is required to load camera metadata")
     step_idx, _ = _resolve_step(state, step)
     if not state.exists("camera_meta.json", step=step_idx):
-        raise PerceptionError("camera metadata not found in the recorded state")
+        raise ValueError("camera metadata not found in the recorded state")
     return state.load("camera_meta.json", step=step_idx)
 
 
@@ -69,7 +64,7 @@ def load_calibration_bundle() -> dict[str, Any]:
     """
     sources = get_perception_calibration_mapping()
     if not sources:
-        raise PerceptionError(
+        raise ValueError(
             "no hand-eye calibration configured: list easy_handeye YAMLs "
             "under perception.calibration in the robot config "
             f"({get_robot_config_path()})"
@@ -81,7 +76,7 @@ def load_calibration_bundle() -> dict[str, Any]:
         try:
             data[key] = load_easy_handeye_yaml(source_path)
         except ValueError as exc:
-            raise PerceptionError(
+            raise ValueError(
                 f"cannot load easy_handeye calibration for {key!r}: {exc}"
             ) from exc
         paths[key] = source_path
@@ -136,7 +131,7 @@ def back_project(
 ) -> dict[str, Any]:
     """Back-project one camera pixel into the Franka robot base frame."""
     if state is None:
-        raise PerceptionError("state is required")
+        raise ValueError("state is required")
     step_idx, record_state = _resolve_step(state, step)
     meta = load_camera_meta(state=state, step=step)
     calibration = load_calibration_bundle()
@@ -174,7 +169,7 @@ def back_project(
     if "point_base" not in projection:
         out = {
             "error": projection.get("error", "back-projection failed"),
-            "error_type": projection.get("error_type", "PerceptionError"),
+            "error_type": projection.get("error_type", "ValueError"),
             "camera": camera_alias,
             "pixel": [int(row), int(col)],
             "step": step_idx,
@@ -290,7 +285,7 @@ def back_project_correspondence(
     confidence score, and high/medium-confidence pairs are fused.
     """
     if state is None:
-        raise PerceptionError("state is required")
+        raise ValueError("state is required")
     step_idx, record_state = _resolve_step(state, step)
     meta = load_camera_meta(state=state, step=step)
     calibration = load_calibration_bundle()
@@ -348,7 +343,7 @@ def _normalize_camera_alias(camera: str) -> str:
         return "wrist"
     if value in {"third_person", "third-person", "external", "extra_0", "agentview"}:
         return "third_person"
-    raise PerceptionError("unsupported camera; use 'wrist' or 'third_person'")
+    raise ValueError("unsupported camera; use 'wrist' or 'third_person'")
 
 
 def _back_project_one_correspondence(
@@ -401,7 +396,7 @@ def _back_project_one_correspondence(
     if "point_base" not in wrist:
         return {
             "error": wrist.get("error", "wrist back-projection failed"),
-            "error_type": wrist.get("error_type", "PerceptionError"),
+            "error_type": wrist.get("error_type", "ValueError"),
             "source": "multi_view_rgbd",
             "step": step_idx,
             "pixel_correspondence": _pixel_correspondence(
@@ -518,7 +513,7 @@ def _project_view_to_base(
         camera_meta = _camera_meta_for_key(meta, camera_key, camera_name)
         k_matrix = np.asarray(camera_meta.get("intrinsic_K"), dtype=np.float64)
         if k_matrix.shape != (3, 3) or not np.isfinite(k_matrix).all():
-            raise PerceptionError(f"intrinsic_K missing for camera {camera_name}")
+            raise ValueError(f"intrinsic_K missing for camera {camera_name}")
         if k_inv_cache is not None and camera_key in k_inv_cache:
             k_inv = k_inv_cache[camera_key]
         else:
@@ -532,17 +527,15 @@ def _project_view_to_base(
             depth_cache=depth_cache,
         )
         if depth.ndim != 2:
-            raise PerceptionError(
-                f"expected 2D depth for {camera_key}, got {depth.shape}"
-            )
+            raise ValueError(f"expected 2D depth for {camera_key}, got {depth.shape}")
         h, w = depth.shape
         if row < 0 or row >= h or col < 0 or col >= w:
-            raise PerceptionError(
+            raise ValueError(
                 f"pixel ({row},{col}) out of bounds for {camera_key} depth {h}x{w}"
             )
         z = float(depth[int(row), int(col)])
         if not np.isfinite(z) or z <= 0.0 or z > 10.0:
-            raise PerceptionError(
+            raise ValueError(
                 f"invalid depth {z:.4f}m at {camera_key} pixel ({row},{col})"
             )
         pixel = np.array([float(col), float(row), 1.0], dtype=np.float64)
@@ -553,7 +546,7 @@ def _project_view_to_base(
         elif target_frame == "tcp":
             point_base_h = t_base_tcp @ point_target
         else:
-            raise PerceptionError(f"unknown target frame {target_frame!r}")
+            raise ValueError(f"unknown target frame {target_frame!r}")
         return {
             "camera_alias": camera_alias,
             "camera_key": camera_key,
@@ -579,7 +572,7 @@ def pose7_to_matrix(pose: list[float] | tuple[float, ...] | np.ndarray) -> np.nd
     """Convert [x, y, z, qx, qy, qz, qw] to a homogeneous transform."""
     arr = np.asarray(pose, dtype=np.float64)
     if arr.shape != (7,):
-        raise PerceptionError(f"expected tcp_pose shape (7,), got {arr.shape}")
+        raise ValueError(f"expected tcp_pose shape (7,), got {arr.shape}")
     t = np.eye(4, dtype=np.float64)
     t[:3, :3] = quat_xyzw_to_matrix(arr[3:])
     t[:3, 3] = arr[:3]
@@ -591,7 +584,7 @@ def quat_xyzw_to_matrix(quat: np.ndarray) -> np.ndarray:
     x, y, z, w = np.asarray(quat, dtype=np.float64)
     norm = float(np.linalg.norm([x, y, z, w]))
     if norm <= 0:
-        raise PerceptionError("zero-norm quaternion")
+        raise ValueError("zero-norm quaternion")
     x, y, z, w = x / norm, y / norm, z / norm, w / norm
     return np.array(
         [
@@ -628,7 +621,7 @@ def _normalize_pixel_requests(
 ) -> list[dict[str, int | None]]:
     if pixels is not None:
         if not isinstance(pixels, list) or not pixels:
-            raise PerceptionError("pixels must be a non-empty list")
+            raise ValueError("pixels must be a non-empty list")
         return [
             _normalize_pixel_request(item, index=idx) for idx, item in enumerate(pixels)
         ]
@@ -636,11 +629,11 @@ def _normalize_pixel_requests(
     values = {"wrist_row": wrist_row, "wrist_col": wrist_col}
     missing = [name for name, value in values.items() if value is None]
     if missing:
-        raise PerceptionError(
+        raise ValueError(
             "single-point call is missing required fields: " + ", ".join(missing)
         )
     if (third_person_row is None) != (third_person_col is None):
-        raise PerceptionError(
+        raise ValueError(
             "third_person_row and third_person_col must be provided together"
         )
     return [
@@ -661,7 +654,7 @@ def _normalize_pixel_request(
     item: dict[str, Any], *, index: int
 ) -> dict[str, int | None]:
     if not isinstance(item, dict):
-        raise PerceptionError(f"pixels[{index}] must be an object")
+        raise ValueError(f"pixels[{index}] must be an object")
     third = item.get("third_person")
     wrist = item.get("wrist")
     if third is None and (
@@ -690,11 +683,11 @@ def _normalize_pixel_request(
 
 def _coerce_pixel_pair(value: Any, *, name: str) -> tuple[int, int]:
     if not isinstance(value, list | tuple) or len(value) != 2:
-        raise PerceptionError(f"{name} must be [row, col]")
+        raise ValueError(f"{name} must be [row, col]")
     try:
         return int(value[0]), int(value[1])
     except (TypeError, ValueError) as exc:
-        raise PerceptionError(f"{name} must contain integer row/col values") from exc
+        raise ValueError(f"{name} must contain integer row/col values") from exc
 
 
 def _resolve_camera_alias(meta: dict[str, Any], alias: str) -> tuple[str, str | None]:
@@ -716,7 +709,7 @@ def _resolve_camera_alias(meta: dict[str, Any], alias: str) -> tuple[str, str | 
             wrist_names = [name for name in sorted(cameras) if "wrist" in name.lower()]
             camera_name = wrist_names[0] if wrist_names else None
         return camera_key, camera_name
-    raise PerceptionError(f"unsupported camera alias {alias!r}")
+    raise ValueError(f"unsupported camera alias {alias!r}")
 
 
 def _camera_meta_for_key(
@@ -729,7 +722,7 @@ def _camera_meta_for_key(
         return cameras[camera_name]
     if camera_key in cameras:
         return cameras[camera_key]
-    raise PerceptionError(
+    raise ValueError(
         f"camera metadata not found for key={camera_key!r}, name={camera_name!r}"
     )
 
@@ -742,7 +735,7 @@ def _depth_artifact_path(
     depth_name = _CAMERA_ARTIFACTS[camera_key][1]
     depth_path = state.artifact_path(depth_name, step=step_idx)
     if not depth_path.exists():
-        raise PerceptionError(f"depth artifact not found: {depth_path}")
+        raise ValueError(f"depth artifact not found: {depth_path}")
     return depth_path
 
 
@@ -766,13 +759,13 @@ def _tcp_pose(record_state: dict[str, Any]) -> list[float]:
     raw = (record_state or {}).get("raw_base_state") or {}
     pose = raw.get("tcp_pose")
     if pose is None:
-        raise PerceptionError("recorded state is missing raw_base_state.tcp_pose")
+        raise ValueError("recorded state is missing raw_base_state.tcp_pose")
     return [float(v) for v in pose]
 
 
 def _calibration_entry(bundle: dict[str, Any], name: str) -> dict[str, Any]:
     if name not in bundle:
-        raise PerceptionError(
+        raise ValueError(
             f"Franka calibration missing the {name!r} camera entry (expected "
             "under perception.calibration in the robot config)"
         )

@@ -22,7 +22,6 @@ import numpy as np
 import pytest
 
 from robots.dual_franka.perception import (
-    DualFrankaPerceptionError,
     back_project_base_pixel,
     load_calibration_bundle,
 )
@@ -315,7 +314,7 @@ def test_load_calibration_bundle_rejects_missing_easy_handeye_yaml(tmp_path: Pat
     )
     set_robot_config_path(config)
     try:
-        with pytest.raises(DualFrankaPerceptionError, match="base_camera"):
+        with pytest.raises(ValueError, match="base_camera"):
             load_calibration_bundle()
     finally:
         set_robot_config_path(None)
