@@ -931,6 +931,12 @@ def _codex_mcp_config_overrides(
                 (f"model_providers.{PROVIDER_ID}.env_key", PROVIDER_ENV_KEY),
             ]
         )
+    model_context_window = os.environ.get("CODEX_MODEL_CONTEXT_WINDOW", None)
+    if model_context_window is not None:
+        config.append(("model_context_window", int(model_context_window)))
+    auto_compact_token_limit = os.environ.get("CODEX_AUTO_COMPACT_TOKEN_LIMIT", None)
+    if auto_compact_token_limit is not None:
+        config.append(("model_auto_compact_token_limit", int(auto_compact_token_limit)))
     return [f"{key}={json.dumps(value)}" for key, value in config]
 
 

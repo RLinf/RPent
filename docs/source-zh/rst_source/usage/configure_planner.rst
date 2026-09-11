@@ -104,6 +104,25 @@ RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
   `Claude Agent SDK 文档
   <https://code.claude.com/docs/en/agent-sdk/overview>`_。
 
+通过 Claude Code 使用本地模型
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Claude Code 可以连接兼容 Anthropic Messages API 的本地模型服务。假设服务将
+Qwen3.6-27B 注册为 ``Qwen/Qwen3.6-27B``，可以这样配置：
+
+.. code-block:: bash
+
+   export ANTHROPIC_BASE_URL=http://127.0.0.1:8000
+   export ANTHROPIC_API_KEY=EMPTY
+
+   rpent --robot libero --planner claude_code \
+     --model Qwen/Qwen3.6-27B \
+     --suite libero_goal_task --task 1 --seed 0
+
+对于无法识别的本地模型名称，Claude Code 默认按 200,000 token 的上下文窗口
+管理会话。如果本地服务使用其他长度，请参考 `Claude Code 环境变量文档
+<https://code.claude.com/docs/en/env-vars>`_ 配置它的上下文和自动压缩参数。
+
 .. _planner-codex:
 
 ``codex`` planner
@@ -129,6 +148,49 @@ RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
   Responses API 兼容端点，请设置 ``CODEX_BASE_URL`` 和
   ``CODEX_API_KEY``；这里不读取 ``OPENAI_BASE_URL`` 或
   ``OPENAI_API_KEY``。
+
+通过 Codex 使用本地模型
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Codex 可以连接兼容 OpenAI Responses API 的本地模型服务。下面以通过 vLLM
+启动 Qwen3.6-27B 为例：
+
+.. code-block:: bash
+
+   vllm serve /path/to/Qwen3.6-27B \
+     --served-model-name Qwen/Qwen3.6-27B \
+     --max-model-len 262144 \
+     --reasoning-parser qwen3 \
+     --enable-auto-tool-choice \
+     --tool-call-parser qwen3_coder
+
+然后让 Codex 连接本地服务，并填写该服务实际开放的上下文限制：
+
+.. code-block:: bash
+
+   export CODEX_BASE_URL=http://127.0.0.1:8000
+   export CODEX_API_KEY=EMPTY
+   export CODEX_MODEL_CONTEXT_WINDOW=262144
+   export CODEX_AUTO_COMPACT_TOKEN_LIMIT=230000
+
+   rpent --robot libero --planner codex \
+     --model Qwen/Qwen3.6-27B \
+     --suite libero_goal_task --task 1 --seed 0
+
+vLLM 在兼容 OpenAI 的 ``/v1/models`` 响应中用 ``max_model_len`` 表示该上限，
+而 Codex 使用的模型目录格式要求 ``context_window`` 字段。因此，Codex 无法识别
+vLLM 返回的模型元数据时会使用备用配置。请将
+``CODEX_MODEL_CONTEXT_WINDOW`` 设置为当前 vLLM 服务的
+``--max-model-len``。这是服务实际接受的上限；为了适应可用显存，它可以低于
+checkpoint 配置中标注的最大长度。
+
+``CODEX_AUTO_COMPACT_TOKEN_LIMIT`` 用于设置 Codex 自动压缩会话历史的触发点。
+该值应小于 ``CODEX_MODEL_CONTEXT_WINDOW``，为下一次回复预留空间；当服务窗口为
+``262144`` token 时，``230000`` 是一个示例值。这两个变量都是可选的；如果未
+设置，Codex 将使用自身的默认值。
+
+RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。使用其他
+模型时，请按照对应的 vLLM 部署说明设置解析参数。
 
 .. _planner-check:
 
