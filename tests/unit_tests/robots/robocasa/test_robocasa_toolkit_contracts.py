@@ -44,8 +44,6 @@ EXPECTED_TOOLS = COMMON_TOOLS | {
     "move_base",
     "reset",
     "view_env_state",
-    "view_camera_meta",
-    "back_project",
     "back_project_batch",
     "query_world_map",
 }
@@ -86,7 +84,7 @@ def test_toolkit_falls_back_to_memory_root(
     )
 
     robot_toolkit = robot_spec.get_toolkit(
-        primitives_kwargs={},
+        runtime_kwargs={},
         dashboard_events=NullDashboardEventSink(),
         config=config,
     )
@@ -120,7 +118,7 @@ def test_toolkit_constructs_and_classifies_tools_with_a_fake(
     )
 
     robot_toolkit = toolkit.RoboCasaToolkit(
-        primitives_kwargs={"env_client": object(), "vla_client": object()},
+        runtime_kwargs={"env_client": object(), "vla_client": object()},
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "memory"),
     )
@@ -128,8 +126,6 @@ def test_toolkit_constructs_and_classifies_tools_with_a_fake(
     assert _tool_names(robot_toolkit) == EXPECTED_TOOLS
     assert _readonly_names(robot_toolkit) == COMMON_TOOLS | {
         "view_env_state",
-        "view_camera_meta",
-        "back_project",
         "back_project_batch",
         "query_world_map",
     }

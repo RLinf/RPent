@@ -132,7 +132,7 @@ def run_dashboard_session(
             robot_spec=robot_spec,
             state=state,
             claimed=claimed,
-            shared_primitives_kwargs=shared,
+            shared_runtime_kwargs=shared,
             unique_components=unique_components,
             session_root=session_root,
         ),
@@ -157,7 +157,7 @@ def _run_dashboard_task(
     robot_spec: RobotSpec,
     state: DashboardState,
     claimed: ClaimedTask,
-    shared_primitives_kwargs: dict[str, Any],
+    shared_runtime_kwargs: dict[str, Any],
     unique_components: set[str],
     session_root: Path,
 ) -> str | None:
@@ -180,16 +180,16 @@ def _run_dashboard_task(
     solved = False
     memory_manager = None
     try:
-        task_daemons, task_primitives_kwargs = robot_spec.init_runtime(
+        task_daemons, task_runtime_kwargs = robot_spec.init_runtime(
             task_args,
             output_dir,
             state,
             unique_components,
         )
         if not state.task_replacement_requested:
-            primitives_kwargs = {
-                **task_primitives_kwargs,
-                **shared_primitives_kwargs,
+            runtime_kwargs = {
+                **task_runtime_kwargs,
+                **shared_runtime_kwargs,
             }
             prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
             session_message = robot_spec.prompts.render("user", variables=prompt_vars)
@@ -234,7 +234,7 @@ def _run_dashboard_task(
                 if args.robot_name == "libero":
                     toolkit = get_toolkit(
                         args.robot_name,
-                        primitives_kwargs=primitives_kwargs,
+                        runtime_kwargs=runtime_kwargs,
                         dashboard_events=state,
                         config=run_config,
                         mode="exploration" if task_args.explore else "evaluation",
@@ -246,7 +246,7 @@ def _run_dashboard_task(
                 else:
                     toolkit = get_toolkit(
                         args.robot_name,
-                        primitives_kwargs=primitives_kwargs,
+                        runtime_kwargs=runtime_kwargs,
                         dashboard_events=state,
                         config=run_config,
                     )

@@ -47,6 +47,7 @@ class RLDXSkill:
         self._vdi = None  # video delta indices, e.g. [-6,-4,-2,0]
         self._hist = None  # deque of raw frame dicts
         self._unmap = None  # lazy: eval's PandaOmronKeyConverter.unmap_action
+        self._last_prompt = None
         # OPTIONAL per-sim-step video capture. OFF by default (env RLDX_VIDEO_DIR unset):
         # the VLA rollout is closed-loop over 100s of sim-steps but the primitives only dump
         # single frames at command boundaries, so the actual motion is never recorded.
@@ -247,7 +248,7 @@ class RLDXSkill:
         # the same instruction (e.g. multi-trial fullshot comparison): the eval resets the
         # policy session EVERY episode, so without this, stale RTC/memory from the prior
         # episode bleeds into the next and degrades it.
-        new_task = force_reset or (prompt != getattr(self, "_last_prompt", None))
+        new_task = force_reset or prompt != self._last_prompt
         self._last_prompt = prompt
         # Reseed the per-sim-step history with the current frame on a new instruction or
         # the first call ever; same-prompt retries KEEP the continuous history (matches

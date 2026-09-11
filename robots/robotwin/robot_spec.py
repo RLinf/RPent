@@ -120,23 +120,6 @@ ROBOTWIN_DASHBOARD_SPEC: DashboardSpec = {
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
     ),
-    "frame_channels": (
-        {
-            "name": "camera",
-            "label": "head camera",
-            "artifact": "head_rgb.png",
-        },
-        {
-            "name": "left_wrist",
-            "label": "left wrist",
-            "artifact": "left_wrist_rgb.png",
-        },
-        {
-            "name": "right_wrist",
-            "label": "right wrist",
-            "artifact": "right_wrist_rgb.png",
-        },
-    ),
     "primitives": (
         "lingbot_act",
         "move_to",
@@ -212,7 +195,7 @@ def get_robot_spec() -> RobotSpec:
 
 def get_toolkit(
     *,
-    primitives_kwargs: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
 ):
@@ -223,7 +206,7 @@ def get_toolkit(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
     )
     return RoboTwinToolkit(
-        primitives_kwargs=primitives_kwargs,
+        runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
     )
@@ -493,7 +476,7 @@ def _init_runtime(
             dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
             raise RuntimeError(f"[vla] spawn failed: {exc}") from exc
 
-    primitives_kwargs: dict[str, Any] = {}
+    runtime_kwargs: dict[str, Any] = {}
 
     if env_pending is not None:
         env_daemon, env_rpc = env_pending
@@ -506,7 +489,7 @@ def _init_runtime(
             900.0 if env_daemon is not None else 300.0,
             post_fn=lambda: _build_env_runtime_kwargs(args, env_rpc),
         )
-        primitives_kwargs.update(env_kwargs)
+        runtime_kwargs.update(env_kwargs)
 
     if vla_pending is not None:
         vla_daemon, endpoint = vla_pending
@@ -524,9 +507,9 @@ def _init_runtime(
             dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
             raise RuntimeError(f"[vla] wait / client connect failed: {exc}") from exc
         dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
-        primitives_kwargs.update(vla_kwargs)
+        runtime_kwargs.update(vla_kwargs)
 
-    return list(owned_daemons.values()), primitives_kwargs
+    return list(owned_daemons.values()), runtime_kwargs
 
 
 def _spawn_env_server(

@@ -281,7 +281,7 @@
     visibility: hidden; pointer-events: none;
   }
   .frame-media.visible { visibility: visible; pointer-events: auto; }
-  .frame-tabs { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; z-index: 2; }
+  .frame-tabs { position: absolute; top: 8px; right: 8px; display: flex; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 16px); gap: 6px; z-index: 2; }
   .frame-tabs button {
     background: rgba(255,253,248,.85); color: var(--muted); border: 1px solid var(--border);
     border-radius: 6px; padding: 5px 12px; font-size: 13px; cursor: pointer;

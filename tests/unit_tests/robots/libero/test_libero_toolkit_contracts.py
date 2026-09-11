@@ -87,12 +87,12 @@ def test_toolkit_factory_configures_memory_access_by_mode(
     config = _run_config(memory_dir)
 
     evaluation = robot_spec.get_toolkit(
-        primitives_kwargs={"env": "evaluation"},
+        runtime_kwargs={"env": "evaluation"},
         dashboard_events=NullDashboardEventSink(),
         config=config,
     )
     exploration = robot_spec.get_toolkit(
-        primitives_kwargs={"env": "exploration"},
+        runtime_kwargs={"env": "exploration"},
         dashboard_events=NullDashboardEventSink(),
         config=config,
         mode="exploration",
@@ -138,14 +138,14 @@ def test_toolkit_modes_construct_with_fake_primitives(
     )
 
     evaluation = toolkit.LiberoToolkit(
-        primitives_kwargs={"env_client": object()},
+        runtime_kwargs={"env_client": object()},
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "evaluation-memory"),
         mode="evaluation",
         state_output_dir=tmp_path / "evaluation",
     )
     exploration = toolkit.LiberoToolkit(
-        primitives_kwargs={"env_client": object()},
+        runtime_kwargs={"env_client": object()},
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(
             tmp_path / "exploration-memory",

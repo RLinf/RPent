@@ -15,7 +15,7 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
    def get_robot_spec() -> RobotSpec: ...
    def get_toolkit(
        *,
-       primitives_kwargs,
+       runtime_kwargs,
        dashboard_events: DashboardEventSink,
        config: RunConfig,
    ): ...
@@ -44,12 +44,12 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
        ``output_dir``, and ``prompt_vars`` for prompt templating.
    * - ``init_runtime``
      - Start or attach to all runtime components, or to the component names in
-       the optional selection, and build ``primitives_kwargs`` for them. The
+       the optional selection, and build ``runtime_kwargs`` for them. The
        normal CLI passes ``None``; the Dashboard passes explicit shared and
        unique subsets derived from its spec. A ``DashboardEventSink``
        reports status.
 
-``get_toolkit`` usually passes ``primitives_kwargs`` into your robot subclass;
+``get_toolkit`` usually passes ``runtime_kwargs`` into your robot subclass;
 ``dashboard_events`` and ``config`` are supplied by the active runner. It must
 construct a :class:`~rpent.memory.MemoryManager` (rooted at the configured
 ``config.prompt_vars["memory_dir"]``, falling back to

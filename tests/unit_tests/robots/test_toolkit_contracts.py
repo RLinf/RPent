@@ -66,7 +66,7 @@ def test_evaluation_toolkit_factories_use_configured_read_only_memory(
     memory_dir = resources_dir / "memory"
 
     toolkit = robot_spec.get_toolkit(
-        primitives_kwargs={"env": "offline"},
+        runtime_kwargs={"env": "offline"},
         dashboard_events=NullDashboardEventSink(),
         config=_run_config(configured_dir),
     )
@@ -75,7 +75,7 @@ def test_evaluation_toolkit_factories_use_configured_read_only_memory(
     write = toolkit.memory.get_common_tool_bindings()["write_text_file"][1]
     with pytest.raises(PermissionError, match="writing to memory is denied"):
         write(str(memory_dir / "global" / "strategy.md"), "changed")
-    assert captured["primitives_kwargs"] == {"env": "offline"}
+    assert captured["runtime_kwargs"] == {"env": "offline"}
 
 
 @pytest.mark.parametrize(
@@ -114,7 +114,7 @@ def test_toolkit_factories_fall_back_to_each_robot_memory_root(
     )
 
     toolkit = robot_spec.get_toolkit(
-        primitives_kwargs={},
+        runtime_kwargs={},
         dashboard_events=NullDashboardEventSink(),
         config=config,
     )
