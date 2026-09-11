@@ -208,7 +208,11 @@ def test_http_mcp_readiness_ignores_environment_proxy(
     assert url.startswith("http://127.0.0.1:")
 
 
-def test_config_overrides_normalize_provider_url() -> None:
+def test_config_overrides_normalize_provider_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEX_MODEL_CONTEXT_WINDOW", raising=False)
+    monkeypatch.delenv("CODEX_AUTO_COMPACT_TOKEN_LIMIT", raising=False)
     assert _codex_mcp_config_overrides(
         mcp_url="http://fake.invalid/mcp/",
         base_url=None,
@@ -226,6 +230,20 @@ def test_config_overrides_normalize_provider_url() -> None:
         f'model_providers.{PROVIDER_ID}.base_url="https://provider.invalid/root/v1"',
         f'model_providers.{PROVIDER_ID}.wire_api="responses"',
         f'model_providers.{PROVIDER_ID}.env_key="{PROVIDER_ENV_KEY}"',
+    ]
+
+
+def test_config_overrides_include_optional_context_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CODEX_MODEL_CONTEXT_WINDOW", "262144")
+    monkeypatch.setenv("CODEX_AUTO_COMPACT_TOKEN_LIMIT", "230000")
+
+    overrides = _codex_mcp_config_overrides(mcp_url=None, base_url=None)
+
+    assert overrides == [
+        "model_context_window=262144",
+        "model_auto_compact_token_limit=230000",
     ]
 
 
@@ -703,6 +721,8 @@ def test_probe_runs_read_only_and_denies_approvals(probe_codex: Any) -> None:
 def test_probe_config_attaches_no_mcp_server(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CODEX_BASE_URL", raising=False)
     monkeypatch.delenv("CODEX_API_KEY", raising=False)
+    monkeypatch.delenv("CODEX_MODEL_CONTEXT_WINDOW", raising=False)
+    monkeypatch.delenv("CODEX_AUTO_COMPACT_TOKEN_LIMIT", raising=False)
 
     overrides = _codex_mcp_config_overrides(mcp_url=None, base_url=None)
 
