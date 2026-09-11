@@ -17,25 +17,26 @@ decisions. Molmo is used only for visual localization: it points to a requested
 object or location in a camera image so RPent can recover its current
 coordinates.
 
-Performance and execution time
-------------------------------
+LIBERO-PRO performance and execution time
+-----------------------------------------
 
-On the 200 LIBERO Object evaluations (20 tasks and 10 seeds per task), Task
-Card solved 179 episodes (89.5%), compared with 186 (93.0%) for Codex without
-reasoning. Its mean execution time was 40.9 seconds per episode, compared with
-283.6 seconds for Codex.
+Across the complete 800-case LIBERO-PRO matrix (Spatial, Object, Goal, and Long;
+task/swap; 10 seeds per task), Task Card solved 581 episodes (72.63%). Codex
+without reasoning solved 500 (62.50%), while Codex with high reasoning solved
+628 (78.50%). The two tasks without a successful source trace and therefore no
+Task Card are conservatively counted as 0/10.
 
-.. image:: ../../_static/task_card_object_performance_time.png
-   :alt: Per-task performance and execution-time comparison between Task Card and Codex without reasoning on LIBERO Object
+.. image:: ../../_static/task_card_libero_pro_performance_time.png
+   :alt: Per-task success rate and execution-time comparison between Task Card and Codex on all LIBERO-PRO suites
    :width: 100%
    :align: center
 
 The timing excludes model and service startup. Codex time is the mean planner
-execution time over the 10 evaluated seeds for each task. The original
-10-seed Task Card timing logs are no longer available, so its timing bars use
-the tool-execution time from the recorded episode underlying each final card
-(one timing sample per task). The success rates use the complete 200-episode
-evaluation in both cases.
+execution time over available records for each task. Task Card timing uses the
+tool-execution time from the successful episode underlying each final card
+(one timing sample per card). Success rates use the complete 800-case matrix for
+every method. Both Codex baselines have planner duration records for all 800
+cases.
 
 How replay works
 ----------------
@@ -75,6 +76,36 @@ There is one card for each supported task.
 The task selects the card. The seed changes the environment layout, not the
 card used for the task.
 
+Generate a task card
+--------------------
+
+The generator creates one card from one simulator-verified successful episode.
+Its two required inputs are the episode audit JSON and the matching primitive
+recipe JSONL:
+
+.. code-block:: bash
+
+   python -m robots.libero.task_card.generate \
+     --audit results/goal_swap_t3_s7.json \
+     --recipe results/recipe_goal_swap_t3_s7.jsonl \
+     --destination memory/libero/task_card
+
+The audit must contain a non-empty ``task_language`` (or
+``perturbed_task_language``) and ``libero_terminated: true``. The audit and
+recipe filenames, plus the audit suite/task/seed fields when present, must
+identify the same episode.
+
+If ``segment_*.json`` readings were saved for the episode, pass their directory
+with ``--segments``. Otherwise the generator derives semantic Molmo anchors from
+the instruction and the recipe's ordered pick/release or articulation
+transactions. Nearby ``move_to`` and ``move_pose`` coordinates are stored as XY
+offsets from those anchors, in the format consumed by task-card replay.
+
+The relation parser supports all 80 LIBERO-PRO tasks: Spatial, Object, Goal, and
+Long (``10``), across both task and swap suites. Long instructions are preserved
+as ordered transactions, including dependent actions such as turning on the
+stove before placement or closing an appliance after insertion.
+
 To download only the task cards manually, run:
 
 .. code-block:: bash
@@ -93,8 +124,8 @@ Start Molmo first, then pass its endpoint to RPent:
      --suite libero_object_swap --task 3 --seed 0 \
      --molmo-endpoint http://127.0.0.1:20703
 
-Task-card replay currently supports the ``libero_object_task`` and
-``libero_object_swap`` suites. Other LIBERO suites do not yet have task cards.
+Task-card replay supports the task and swap suites for LIBERO-PRO Spatial,
+Object, Goal, and Long (``10``), for 80 task identities in total.
 
 The VLA and SAM3 services use the normal LIBERO runtime configuration. You can
 also connect to services that are already running with ``--vla-endpoint`` and

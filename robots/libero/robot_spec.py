@@ -61,8 +61,14 @@ LIBERO_SUITE_NAMES = (
 
 TASK_CARD_SUITES = frozenset(
     {
+        "libero_10_swap",
+        "libero_10_task",
+        "libero_goal_swap",
+        "libero_goal_task",
         "libero_object_task",
         "libero_object_swap",
+        "libero_spatial_swap",
+        "libero_spatial_task",
     }
 )
 
