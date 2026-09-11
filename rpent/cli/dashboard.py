@@ -105,6 +105,7 @@ def run_dashboard_session(
         state=state,
         planner=args.planner,
         model=args.model,
+        base_url=args.base_url,
     )
     dashboard_url = dashboard_server.start()
     print(f"Dashboard: {dashboard_url}", flush=True)

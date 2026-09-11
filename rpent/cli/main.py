@@ -55,6 +55,7 @@ from rpent.dashboard.events import (
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, build_planner
+from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
@@ -105,6 +106,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     known_robots_text = ", ".join(known_robots) if known_robots else "none"
     ap = argparse.ArgumentParser(
         description="RPent: Agentic Infrastructure for the Physical World",
+        epilog="To verify the LLM backend before starting a run, use "
+        "rpent-check-llm (e.g. rpent-check-llm --planner api "
+        "--model anthropic:claude-opus-4-8).",
         add_help=False,
     )
 
@@ -143,7 +147,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--base-url",
         default=None,
-        help="API base URL. Defaults to the selected backend's base URL env var.",
+        help=(
+            "API base URL, for the 'api' planner only. claude_code and codex take their endpoint from ANTHROPIC_BASE_URL / CODEX_BASE_URL instead; passing this flag with either is an error rather than a silent no-op."
+        ),
     )
     ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--max-tokens", type=int, default=8192)
@@ -325,6 +331,12 @@ def main() -> int:
     args.robot_name = early.robot_name
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
+    if args.base_url and args.planner in BASE_URL_ENV_BY_PLANNER:
+        parser.error(
+            "--base-url applies to the 'api' planner only; "
+            f"{args.planner} reads its endpoint from "
+            f"{BASE_URL_ENV_BY_PLANNER[args.planner]} instead"
+        )
     if args.explore and args.robot_name != "libero":
         parser.error("--explore is currently supported only for LIBERO")
     if args.explore and args.memory_profile == "hf":

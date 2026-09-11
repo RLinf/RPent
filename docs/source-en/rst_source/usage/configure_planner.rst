@@ -143,6 +143,40 @@ Notes:
   ``CODEX_API_KEY``. This backend does not read ``OPENAI_BASE_URL`` or
   ``OPENAI_API_KEY``.
 
+.. _planner-check:
+
+Verify your configuration
+-------------------------
+
+A full run boots the env server, the VLA server, and the memory corpus
+before it ever reaches the model, so a wrong API key can cost minutes of
+startup before it surfaces. ``rpent-check-llm`` sends the smallest real
+request the selected backend supports — no tools, no images, no robot
+runtime — and reports the outcome:
+
+.. code-block:: bash
+
+   rpent-check-llm --planner api --model anthropic:claude-opus-4-8
+   rpent-check-llm --planner claude_code
+   rpent-check-llm --planner codex --json
+
+It exits ``0`` on success and ``1`` on any failure, and classifies the
+failure as one of ``missing_config``, ``unsupported_provider``,
+``missing_api_key``, ``auth_failed``, ``network_error``,
+``provider_error``, or ``sdk_error``. Use ``--json`` for scripting and
+CI. ``--base-url`` overrides the backend's endpoint, and ``--timeout-s``
+overrides the diagnostic timeout (30 s for ``api``, 90 s for the two SDK
+backends; the ``1200`` s run default is never reused).
+
+The Dashboard exposes the same check: the launcher's **Test connection**
+button runs it against the planner and model currently selected in the
+form, so what you test is exactly what **Start Session** will use. Both
+front ends call one implementation in ``rpent.planner.check``.
+
+A passing check proves authentication and reachability only. It does not
+prove the model will accept image blocks (see ``--no-images``), your tool
+schemas, or your context length.
+
 .. _planner-custom:
 
 Add a custom planner

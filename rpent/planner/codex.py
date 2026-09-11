@@ -453,25 +453,12 @@ class CodexPlanner:
     # -- config builder ----------------------------------------------------
 
     def _build_config(self, mcp_url: str) -> Any:
-        env = _codex_environment()
-        if self._api_key:
-            env[PROVIDER_ENV_KEY] = self._api_key
-        kwargs: dict[str, Any] = {
-            "config_overrides": tuple(
-                _codex_mcp_config_overrides(
-                    mcp_url=mcp_url,
-                    base_url=self._base_url,
-                )
-            ),
-            "cwd": self._repo_root,
-            "env": env,
-            # use True to support (namespace tools,
-            # web_search, image_generation).
-            "experimental_api": True,
-        }
-        if codex_bin := os.environ.get("CODEX_BIN"):
-            kwargs["codex_bin"] = codex_bin
-        return openai_codex.CodexConfig(**kwargs)
+        return build_codex_config(
+            mcp_url=mcp_url,
+            base_url=self._base_url,
+            api_key=self._api_key,
+            cwd=self._repo_root,
+        )
 
 
 class _CodexDashboardSession:
@@ -787,14 +774,150 @@ class _Recorder:
 # ---------------------------------------------------------------------------
 
 
+def build_codex_config(
+    *,
+    mcp_url: str | None,
+    base_url: str | None,
+    api_key: str | None,
+    cwd: str,
+) -> Any:
+    """Build the Codex SDK config shared by the planner and the check.
+
+    Args:
+        mcp_url: URL of the in-process RPent MCP server, or ``None`` to attach
+            no MCP server at all (used by the connectivity probe).
+        base_url: Custom Responses-compatible endpoint, or ``None``.
+        api_key: Key exported to the child as ``RPENT_CODEX_PROVIDER_KEY``.
+        cwd: Working directory handed to the Codex child process.
+
+    Returns:
+        The ``openai_codex.CodexConfig`` to open a session with.
+    """
+    env = _codex_environment()
+    if api_key:
+        env[PROVIDER_ENV_KEY] = api_key
+    kwargs: dict[str, Any] = {
+        "config_overrides": tuple(
+            _codex_mcp_config_overrides(mcp_url=mcp_url, base_url=base_url)
+        ),
+        "cwd": cwd,
+        "env": env,
+        # use True to support (namespace tools,
+        # web_search, image_generation).
+        "experimental_api": True,
+    }
+    if codex_bin := os.environ.get("CODEX_BIN"):
+        kwargs["codex_bin"] = codex_bin
+    return openai_codex.CodexConfig(**kwargs)
+
+
+def run_probe_turn(
+    config: Any,
+    *,
+    prompt: str,
+    model: str | None,
+    timeout_s: int,
+) -> str:
+    """Run one tool-free Codex turn and return its final assistant text.
+
+    Used by the connectivity check. Unlike the planner, which consumes
+    ``turn.stream()`` so it can render a transcript and steer or interrupt
+    mid-turn, a probe only needs the final answer — so it uses the SDK's
+    ``TurnHandle.run()``, which blocks and returns a ``TurnResult``. Note that
+    a ``TurnHandle`` is not itself iterable: the only two ways to consume one
+    are ``.stream()`` and ``.run()``.
+
+    ``run()`` takes no timeout, so the budget is enforced the same way the
+    planner enforces its own: a worker thread joined with a deadline, then
+    :func:`_interrupt` to stop the turn and close the session.
+
+    Any exception the SDK raised is re-raised unchanged, so the caller can
+    classify it rather than seeing it wrapped.
+
+    Args:
+        config: Config from :func:`build_probe_config`.
+        prompt: The probe prompt to send.
+        model: Model id, or ``None`` to use the Codex-configured default.
+        timeout_s: Wall-clock cap for the turn.
+
+    Returns:
+        The turn's final response text, empty if the model produced none.
+
+    Raises:
+        TimeoutError: If the turn does not finish within ``timeout_s``.
+        RuntimeError: If the turn reported ``failed`` or produced no result.
+    """
+    options: dict[str, Any] = {
+        "approval_mode": openai_codex.ApprovalMode.deny_all,
+        "sandbox": openai_codex.Sandbox.read_only,
+    }
+    if model:
+        options["model"] = model
+
+    state: dict[str, Any] = {}
+
+    def _worker() -> None:
+        try:
+            with openai_codex.Codex(config=config) as codex:
+                state["codex"] = codex
+                thread = codex.thread_start(**options)
+                turn = thread.turn(prompt, **options)
+                state["turn"] = turn
+                state["result"] = turn.run()
+        except Exception as exc:  # surfaced to the caller below
+            state["error"] = exc
+
+    worker = threading.Thread(target=_worker, name="codex-probe", daemon=True)
+    worker.start()
+    worker.join(timeout=timeout_s)
+
+    if worker.is_alive():
+        _interrupt(state)
+        worker.join(timeout=15)
+        raise TimeoutError(f"the Codex SDK did not finish within {timeout_s}s.")
+
+    if (exc := state.get("error")) is not None:
+        raise exc
+
+    result = state.get("result")
+    if result is None:
+        raise RuntimeError("the Codex SDK returned no turn result")
+
+    status = str(_get(result, "status", "") or "")
+    if status == "failed":
+        error = _get(result, "error")
+        raise RuntimeError(f"Codex turn failed: {_get(error, 'message', error)}")
+    return str(_get(result, "final_response", "") or "")
+
+
+def build_probe_config(base_url: str | None = None) -> Any:
+    """Build a Codex config for the connectivity probe.
+
+    Identical to the planner's config except that no MCP server is attached,
+    so the probe starts no in-process HTTP server and exposes no tools.
+
+    Args:
+        base_url: Endpoint override; falls back to ``CODEX_BASE_URL``.
+
+    Returns:
+        The ``openai_codex.CodexConfig`` for a tool-free probe session.
+    """
+    return build_codex_config(
+        mcp_url=None,
+        base_url=base_url or os.environ.get("CODEX_BASE_URL", None),
+        api_key=os.environ.get("CODEX_API_KEY", None),
+        cwd=str(get_repo_root()),
+    )
+
+
 def _codex_mcp_config_overrides(
     *,
-    mcp_url: str,
+    mcp_url: str | None,
     base_url: str | None,
 ) -> list[str]:
-    config: list[tuple[str, Any]] = [
-        ("mcp_servers.rpent.url", mcp_url),
-    ]
+    config: list[tuple[str, Any]] = []
+    if mcp_url:
+        config.append(("mcp_servers.rpent.url", mcp_url))
     if base_url:
         normalized = base_url.rstrip("/")
         if not normalized.endswith("/v1"):
