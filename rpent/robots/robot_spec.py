@@ -72,3 +72,4 @@ class RobotSpec:
     replay_card: Callable[[Any, str, Callable[[str], None]], dict[str, Any]] | None = (
         None
     )
+    supports_exploration: bool = False

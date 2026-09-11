@@ -214,6 +214,7 @@ def _run_dashboard_task(
                         output_dir,
                         session_number,
                         sessions,
+                        robot_name=args.robot_name,
                     )
                 system_prompt = robot_spec.prompts.render(
                     "system",
@@ -231,7 +232,7 @@ def _run_dashboard_task(
                     state.begin_planner_session(
                         video_path=state_output_dir / "episode.mp4",
                     )
-                if args.robot_name == "libero":
+                if robot_spec.supports_exploration:
                     toolkit = get_toolkit(
                         args.robot_name,
                         primitives_kwargs=primitives_kwargs,
@@ -279,7 +280,9 @@ def _run_dashboard_task(
                     messages += result.messages
                     stats = result.stats
                     agent_error = result.error
-                    if args.robot_name == "libero":
+                    if args.robot_name == "libero" or (
+                        task_args.explore and robot_spec.supports_exploration
+                    ):
                         solved = toolkit.solved()
                         if solved:
                             recipe_path = toolkit.write_recipe(recipe_tag)

@@ -27,6 +27,12 @@ from typing import TYPE_CHECKING, Any
 from robots.libero import tools as libero_tools
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
+from rpent.tools.exploration import (
+    ExplorationLifecycle,
+    ResetAfterSuccess,
+    ResetRefusal,
+    refusal_result,
+)
 from rpent.tools.toolkit import Toolkit, readonly
 from rpent.utils.logging import get_logger, get_output_dir
 
@@ -49,8 +55,12 @@ class LiberoToolkit(Toolkit):
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
     ) -> None:
-        if mode not in {"evaluation", "exploration"}:
-            raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
+        self._exploration = ExplorationLifecycle(
+            mode=mode,
+            attempts_per_session=attempts_per_session,
+            adapter_name="LIBERO",
+            reset_after_success=ResetAfterSuccess.ALLOW,
+        )
         self._state_output_dir = Path(state_output_dir or get_output_dir())
         state = EnvState(self._state_output_dir)
         super().__init__(
@@ -58,12 +68,7 @@ class LiberoToolkit(Toolkit):
             state=state,
             memory=memory,
         )
-        self._mode = mode
         self._solved: bool = False
-        self._attempt: int = 1
-        # Bound the resettable attempts owned by this planner session.
-        self._attempts_per_session: int = max(0, int(attempts_per_session))
-        self._session_attempt: int = 1
         self.init_primitives(primitives_kwargs=primitives_kwargs)
         self._register_libero_tools()
 
@@ -84,7 +89,7 @@ class LiberoToolkit(Toolkit):
         }
         for spec in libero_tools.TOOLS_SPEC:
             name = spec["name"]
-            if name == "reset" and self._mode != "exploration":
+            if name == "reset" and not self._exploration.is_exploration:
                 continue
             if name in state_handlers:
                 handler = state_handlers[name]
@@ -94,7 +99,7 @@ class LiberoToolkit(Toolkit):
                     continue  # spec without a backing primitive method
                 handler = partial(self._execute_primitive, name, handler)
             self.add_tool(name, spec, handler)
-        if self._mode == "exploration":
+        if self._exploration.is_exploration:
             reset_spec = next(
                 spec for spec in libero_tools.TOOLS_SPEC if spec["name"] == "reset"
             )
@@ -114,40 +119,38 @@ class LiberoToolkit(Toolkit):
     @readonly
     def _guarded_finish(self, inner: Any, **kwargs: Any) -> dict[str, Any]:
         """Refuse to end an unsolved session while attempts remain."""
-        budget = self._attempts_per_session
-        if budget and not self.solved() and self._session_attempt < budget:
-            remaining = budget - self._session_attempt
-            return {
-                "error": "finish refused",
-                "reason": (
-                    f"This session has {remaining} of its {budget} attempts left "
-                    "and the task is not solved. Archive this attempt, call "
-                    "`reset`, and try another approach."
-                ),
-            }
+        refusal = self._exploration.finish_refusal(solved=self.solved())
+        if refusal is not None:
+            return refusal_result(
+                "finish",
+                f"This session has {refusal.remaining} of its {refusal.budget} "
+                "attempts left and the task is not solved. Archive this attempt, "
+                "call `reset`, and try another approach.",
+            )
         return inner(**kwargs)
 
     def _reset_episode(self, reason: str) -> dict[str, Any]:
         """Restart the episode while preserving the full exploration trace."""
-        budget = self._attempts_per_session
-        if budget and self._session_attempt >= budget:
-            return {
-                "error": "reset refused",
-                "reason": (
-                    f"This session's attempt budget is spent ({budget} attempts). "
-                    "Archive the attempt, update the handoff notes, and call "
-                    "`finish` so the next session can continue."
-                ),
-            }
-        self._attempt += 1
-        self._session_attempt += 1
-        result = self._primitives.reset_episode(reason=reason)
-        result["attempt"] = self._attempt
-        result["notice"] = (
-            f"Episode restarted; this is attempt {self._attempt}. The original "
-            "layout was restored. Re-run perception before acting."
+        refusal = self._exploration.request_reset(solved=self.solved())
+        if refusal is ResetRefusal.ATTEMPT_BUDGET_SPENT:
+            budget = self._exploration.attempts_per_session
+            return refusal_result(
+                "reset",
+                f"This session's attempt budget is spent ({budget} attempts). "
+                "Archive the attempt, update the handoff notes, and call `finish` "
+                "so the next session can continue.",
+            )
+        result = self._exploration.perform_reset(
+            lambda: self._primitives.reset_episode(reason=reason)
         )
-        return result
+        attempt = self._exploration.current_attempt
+        return self._exploration.build_reset_result(
+            result,
+            notice=(
+                f"Episode restarted; this is attempt {attempt}. The original "
+                "layout was restored. Re-run perception before acting."
+            ),
+        )
 
     def get_env_state(
         self,
@@ -163,6 +166,7 @@ class LiberoToolkit(Toolkit):
             self._state,
             log={"command": command, "result": result, "elapsed_s": elapsed_s},
         )
+        self._exploration.observe_record(record)
         self._solved |= record.terminated
         if self._dashboard_events.enabled:
             try:
@@ -236,5 +240,8 @@ class LiberoToolkit(Toolkit):
     def write_recipe(self, recipe_tag: str) -> str:
         """Write the LIBERO recipe JSONL from the dumped state trace."""
         return libero_tools.write_recipe_from_states(
-            self._state, recipe_tag, output_dir=get_output_dir()
+            self._state,
+            recipe_tag,
+            output_dir=get_output_dir(),
+            after_step=self._exploration.latest_successful_reset_step,
         )

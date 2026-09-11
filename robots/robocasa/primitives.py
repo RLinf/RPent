@@ -25,7 +25,15 @@ OSC_ROT_SCALE = 0.5  # action 1.0 -> 0.5 rad
 
 
 class RoboCasaPrimitives:
-    def __init__(self, env_client, workdir, hi_res, vla_client, check_cancelled=None):
+    def __init__(
+        self,
+        env_client,
+        workdir,
+        hi_res,
+        vla_client,
+        check_cancelled=None,
+        exploration=False,
+    ):
         self.env = env_client
         self.workdir = workdir
         self.hi_res = hi_res
@@ -43,13 +51,16 @@ class RoboCasaPrimitives:
         # restart). Gated by RLDX_ALLOW_RESET (default 0 = off); explore runs opt in.
         self._allow_reset = bool(int(os.environ.get("RLDX_ALLOW_RESET", "0")))
         os.makedirs(workdir, exist_ok=True)
-        self.env.reset()
+        if not exploration:
+            self.env.reset()
         self._pos_jac = None  # 3x3 action(arm xyz) -> world dpos
         self._fwd_offset = None  # world_forward_heading = base_yaw + offset
         self._cam_meta_cache = {}
         self._rldx = RLDXSkill(
             self.env, vla_client=vla_client, check_cancelled=check_cancelled
         )
+        if exploration and self._rldx._video_dir is not None:
+            self._rldx._video_dir = os.path.join(workdir, "rldx_video")
         # "mid-call" desync guard: True whenever a NON-VLA primitive (move/navigate/
         # manual grasp) or a reset has stepped the env since the last rldx_skill call.
         # The next rldx_skill then reseeds its per-sim-step frame history (else the VLA
@@ -485,6 +496,21 @@ class RoboCasaPrimitives:
         return result
 
     # ---- reset ----
+    def reset_exploration(self):
+        """Reset the private policy session and recreate the configured episode.
+
+        Keep accumulated video frames and archive numbering across attempts.
+        Any RPC failure propagates; the toolkit must not allow further actions
+        until a complete reset succeeds.
+        """
+        self._vla_desync = True
+        self._pos_jac = None
+        self._fwd_offset = None
+        self._cam_meta_cache.clear()
+        self._rldx.reset_session()
+        result = self.env.reset_exploration()
+        return {**result, "ok": True, "reset": True}
+
     def reset(self):
         # reset is ONLY for EXPLORE mode (reset-based multi-attempt recipe search).
         # In no-reset / matched-scene evaluation it is a give-up-and-restart and is

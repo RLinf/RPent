@@ -174,10 +174,14 @@ def test_dashboard_session_stops_shared_daemons_in_reverse_after_cleanup_error(
 
 
 @pytest.mark.parametrize("merge_fails", [False, True])
+@pytest.mark.parametrize("robot_name", ["libero", "robotwin", "robocasa"])
+@pytest.mark.parametrize("solved_session", [1, 2, None])
 def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
+    robot_name: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     merge_fails: bool,
+    solved_session: int | None,
 ) -> None:
     from rpent.cli import dashboard as dashboard_cli
 
@@ -194,7 +198,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         memory = FakeMemoryManager()
 
         def solved(self) -> bool:
-            return True
+            return len(toolkit_calls) == solved_session
 
         def write_recipe(self, recipe_tag: str) -> str:
             return str(tmp_path / f"{recipe_tag}_recipe.jsonl")
@@ -243,6 +247,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         task_desc={"robot": "libero"},
     )
     robot_spec = SimpleNamespace(
+        supports_exploration=True,
         parse_config=lambda args: run_config,
         init_runtime=lambda *args: ([], {}),
         prompts=PromptBundle(
@@ -252,10 +257,10 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
     args = SimpleNamespace(
         verbose=False,
-        robot_name="libero",
+        robot_name=robot_name,
         explore=True,
         auto_merge_memory=True,
-        explore_sessions=1,
+        explore_sessions=3,
         explore_attempts_per_session=2,
         planner="api",
         base_url=None,
@@ -269,9 +274,13 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
     claimed = ClaimedTask(number=1, request={}, output_dir=output_dir)
     state = FakeState()
-    monkeypatch.setattr(
-        dashboard_cli, "get_toolkit", lambda *args, **kwargs: FakeToolkit()
-    )
+    toolkit_calls = []
+
+    def make_toolkit(*args, **kwargs):
+        toolkit_calls.append(kwargs)
+        return FakeToolkit()
+
+    monkeypatch.setattr(dashboard_cli, "get_toolkit", make_toolkit)
     monkeypatch.setattr(
         dashboard_cli, "build_planner", lambda *args, **kwargs: FakePlanner()
     )
@@ -286,13 +295,19 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         session_root=tmp_path / "session",
     )
 
+    assert len(toolkit_calls) == (solved_session or 3)
+    assert toolkit_calls[0]["mode"] == "exploration"
+    assert toolkit_calls[0]["attempts_per_session"] == 2
+    assert (
+        toolkit_calls[0]["state_output_dir"] == output_dir / "sessions" / "session_001"
+    )
     assert error is None
-    assert state.toolkit_lifecycle == ["bound", "unbound"]
+    assert state.toolkit_lifecycle == ["bound", "unbound"] * len(toolkit_calls)
     assert merge_calls == [
         {
             "cell_tag": "libero_s0",
             "run_state_dir": output_dir,
-            "solved": True,
+            "solved": solved_session is not None,
         }
     ]
     if merge_fails:

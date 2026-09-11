@@ -16,6 +16,19 @@
 
 from __future__ import annotations
 
+import copy
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass(frozen=True)
+class ExplorationResetOutcome:
+    """Fully decoded reset result awaiting a client-cache commit."""
+
+    observation: Any
+    details: Mapping[str, Any]
+
 
 class BaseEnvClient:
     """Unified env client base class."""
@@ -49,6 +62,25 @@ class BaseEnvClient:
             timeout_s=self._TIMEOUT_S["env.reset"],
         )
         return self.last_obs
+
+    def _commit_reset_outcome(
+        self,
+        outcome: ExplorationResetOutcome,
+        *,
+        cache_updates: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Commit one validated reset and return independent presentation details.
+
+        All potentially failing copies are prepared before ``__dict__`` is updated,
+        keeping the previous client cache intact if decoding or copying fails.
+        """
+        returned_details = copy.deepcopy(dict(outcome.details))
+        pending_updates = copy.deepcopy(dict(cache_updates or {}))
+        if "last_obs" in pending_updates:
+            raise ValueError("reset cache updates must not override last_obs")
+        pending_updates["last_obs"] = outcome.observation
+        self.__dict__.update(pending_updates)
+        return returned_details
 
     def step(self, flat_action):
         """Execute one env action. Returns the gym 5-tuple

@@ -28,6 +28,7 @@ from rpent.robots.components.molmo_client import MolmoClient
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
+from rpent.tools.exploration import records_after_latest_successful_reset
 from rpent.tools.toolkit import readonly
 from rpent.utils.logging import get_logger
 
@@ -849,28 +850,17 @@ def _is_primitive_action(name: object) -> bool:
 
 
 def write_recipe_from_states(
-    state: EnvState, recipe_tag: str, *, output_dir: Path | str
+    state: EnvState, recipe_tag: str, *, output_dir: Path | str, after_step: int = -1
 ) -> str:
     """Find a command sequence that gets ``terminated=True``.
 
     Export non-error LIBERO primitive commands and successful segment calls.
     """
-    records = state.records()
-    last_reset = max(
-        (
-            record.step_idx
-            for record in records
-            if (
-                (record.command or {}).get("action") == "reset"
-                and not (isinstance(record.result, dict) and record.result.get("error"))
-            )
-        ),
-        default=-1,
+    records = records_after_latest_successful_reset(
+        state.records(), after_step=after_step
     )
     command_events = []
     for record in records:
-        if record.step_idx <= last_reset:
-            continue
         command = record.command
         result = record.result
         if (
@@ -903,9 +893,7 @@ def write_recipe_from_states(
 
     # Never publish a failed trajectory as a recipe. The environment trace is
     # authoritative; an agent's self-reported finish status is not.
-    solved = any(
-        record.terminated for record in records if record.step_idx > last_reset
-    )
+    solved = any(record.terminated for record in records)
     if not solved:
         return ""
     command_events.sort(key=lambda event: event[0])

@@ -54,7 +54,10 @@ class RoboCasaVLAClient(BaseVLAClient):
 
         The session stays live for subsequent calls.
         """
-        return self._client.call(
+        result = self._client.call(
             "vla.reset_session",
             timeout_s=self._TIMEOUT_S["default"],
         )
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            raise RuntimeError("RLDX private session reset was not acknowledged")
+        return result

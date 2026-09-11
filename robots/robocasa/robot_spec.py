@@ -153,6 +153,7 @@ def get_robot_spec() -> RobotSpec:
     """
     return RobotSpec(
         name="robocasa",
+        supports_exploration=True,
         prompts=PromptBundle(
             system=system_prompt,
             user=user_prompt,
@@ -170,22 +171,36 @@ def get_toolkit(
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
+    mode: str = "evaluation",
+    attempts_per_session: int = 0,
+    state_output_dir: Path | str | None = None,
 ):
     """Return the RoboCasa toolkit for the current session."""
     from robots.robocasa.toolkit import RoboCasaToolkit
 
     memory = MemoryManager(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
+        memory_access="inbox_write" if mode == "exploration" else "read_only",
+        inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
     )
     return RoboCasaToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
+        mode=mode,
+        attempts_per_session=attempts_per_session,
+        state_output_dir=state_output_dir,
+        recipe_output_dir=config.output_dir,
     )
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """Register RoboCasa CLI flags on the shared ``parser``."""
+    parser.add_argument(
+        "--auto-merge-memory", action=argparse.BooleanOptionalAction, default=True
+    )
+    parser.add_argument("--explore-attempts-per-session", type=int, default=5)
+    parser.add_argument("--explore-sessions", type=int, default=3)
     required = not use_dashboard
     parser.add_argument(
         "--task-name",
@@ -239,6 +254,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
     recipe_tag = f"{args.task_name}_{args.split}_s{args.seed}"
+    explore = getattr(args, "explore", False)
     prompt_vars = {
         "task_name": args.task_name,
         "split": args.split,
@@ -246,6 +262,22 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "recipe_tag": recipe_tag,
         "memory_dir": str(memory_dir),
     }
+    if explore:
+        prompt_vars.update(
+            {
+                "mode": "explore",
+                "memory_profile": getattr(args, "memory_profile", None) or "local",
+                "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
+                "session_number": 1,
+                "session_max": getattr(args, "explore_sessions", 3),
+                "attempts_per_session": getattr(
+                    args, "explore_attempts_per_session", 5
+                ),
+            }
+        )
+    elif getattr(args, "memory_profile", None) == "local":
+        # The prompt bundle needs only this selector for local evaluation.
+        prompt_vars["memory_profile"] = "local"
 
     output_dir = args.output_dir
     if output_dir is None:
@@ -378,6 +410,7 @@ def _init_runtime(
         "env": lambda rpc: {
             "env_client": RoboCasaEnvClient(
                 rpc,
+                defer_reset=getattr(args, "explore", False),
                 expected_meta={
                     "task_name": args.task_name,
                     "split": args.split,

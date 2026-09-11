@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from numbers import Integral
 from typing import Any
 
 import numpy as np
@@ -27,7 +28,10 @@ from robots.robotwin.robot_spec import (
     ROBOTWIN_STATUS_KEYS,
     RoboTwinActionType,
 )
-from rpent.robots.components.env_client_base import BaseEnvClient
+from rpent.robots.components.env_client_base import (
+    BaseEnvClient,
+    ExplorationResetOutcome,
+)
 from rpent.utils.rpc import RpcClient
 
 
@@ -40,6 +44,7 @@ class RoboTwinEnvClient(BaseEnvClient):
         self.terminated = False
         self.truncated = False
         self._expected_seed = int(expected_meta["seed"])
+        self._expected_instruction: str | None = None
         super().__init__(client, expected_meta=expected_meta)
         self.server_meta = dict(expected_meta)
         execution = self.server_meta.get("execution", {})
@@ -95,16 +100,41 @@ class RoboTwinEnvClient(BaseEnvClient):
                 f"RoboTwin reset observation must be a mapping, got {observation!r}"
             )
         status = self._require_episode_status(info)
-        if status["actual_seed"] != self._expected_seed:
+        requested_seed = info.get("requested_seed")
+        if isinstance(requested_seed, bool) or not isinstance(requested_seed, Integral):
+            raise TypeError(
+                f"reset requested_seed must be an integer: {requested_seed!r}"
+            )
+        if int(requested_seed) != self._expected_seed:
+            raise ValueError(f"reset requested seed mismatch: {info!r}")
+        actual_seed = status["actual_seed"]
+        if isinstance(actual_seed, bool) or not isinstance(actual_seed, Integral):
+            raise TypeError(f"reset actual_seed must be an integer: {actual_seed!r}")
+        if int(actual_seed) != self._expected_seed:
             raise ValueError(f"reset did not use the requested seed: {info!r}")
-        if not isinstance(info.get("instruction"), str):
+        instruction = info.get("instruction")
+        if not isinstance(instruction, str):
             raise TypeError("reset instruction must be a string")
-        self.last_obs = observation
-        self.last_reset_info = dict(info)
-        self.last_info = info
-        self.terminated = False
-        self.truncated = False
-        return observation, info
+        if (
+            self._expected_instruction is not None
+            and instruction != self._expected_instruction
+        ):
+            raise ValueError(
+                "RoboTwin reset instruction mismatch: "
+                f"expected {self._expected_instruction!r}, got {instruction!r}"
+            )
+        outcome = ExplorationResetOutcome(observation=observation, details=info)
+        returned_info = self._commit_reset_outcome(
+            outcome,
+            cache_updates={
+                "last_reset_info": dict(info),
+                "last_info": info,
+                "terminated": False,
+                "truncated": False,
+                "_expected_instruction": instruction,
+            },
+        )
+        return outcome.observation, returned_info
 
     def step(
         self,

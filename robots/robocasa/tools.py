@@ -23,11 +23,13 @@ state automatically through :meth:`RoboCasaToolkit.get_env_state`.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from rpent.session import EnvState, StepRecord
+from rpent.tools.exploration import records_after_latest_successful_reset
 from rpent.tools.toolkit import readonly
 
 if TYPE_CHECKING:
@@ -1088,19 +1090,35 @@ _PRIMITIVE_ACTIONS = frozenset(
 )
 
 
-def write_recipe_from_states(state: EnvState, recipe_tag: str) -> str:
+def write_recipe_from_states(
+    state: EnvState,
+    recipe_tag: str,
+    *,
+    output_dir: Path | None = None,
+    after_step: int = -1,
+) -> str:
     """Export non-error RoboCasa primitive commands from the state trace as JSONL."""
     commands = []
-    for record in state.records():
+    records = state.records()
+    if output_dir is not None:
+        if not records or not records[-1].extras.get("success", False):
+            return ""
+        records = records_after_latest_successful_reset(records, after_step=after_step)
+    for record in records:
         command = record.command
         if not isinstance(command, dict):
             continue
         if command.get("action") not in _PRIMITIVE_ACTIONS:
+            continue
+        if output_dir is not None and command.get("action") == "reset":
             continue
         result = record.result
         if isinstance(result, dict) and result.get("error"):
             continue
         commands.append(command)
     recipe_name = f"{recipe_tag}_recipe.jsonl"
-    state.save(recipe_name, commands, step=None)
+    destination = EnvState(output_dir) if output_dir is not None else state
+    saved = destination.save(recipe_name, commands, step=None)
+    if output_dir is not None and saved is None:
+        raise RuntimeError(f"failed to save RoboCasa recipe: {recipe_name}")
     return recipe_name

@@ -238,7 +238,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     return ap
 
 
-def _handoff_message(output_dir, session_number: int, session_max: int) -> str:
+def _handoff_message(
+    output_dir, session_number: int, session_max: int, *, robot_name: str | None = None
+) -> str:
     """Build the opening message for a continuation session."""
     attempts_dir = Path(output_dir) / "attempts"
     prior = (
@@ -246,14 +248,26 @@ def _handoff_message(output_dir, session_number: int, session_max: int) -> str:
         if attempts_dir.is_dir()
         else []
     )
+    episode_notice = (
+        "Episode reinitialized with the configured exact seed. actual_seed is "
+        "checked; full physical layout determinism has not been verified. "
+        "Re-run perception before acting."
+        if robot_name == "robotwin"
+        else "A fresh toolkit has already restored a clean scene; inspect it before acting."
+    )
+    if robot_name == "robocasa":
+        episode_notice = (
+            "Reinitialized using the configured seed; full physical layout "
+            "determinism still requires verification in the simulator. "
+            "Re-run perception before acting."
+        )
     return (
         f"You are agent {session_number} of up to {session_max} on this cell. "
         f"{len(prior)} attempt(s) by earlier agents are archived in "
         f"{attempts_dir}/ ({', '.join(prior) if prior else 'none yet'}), and their "
         "working notes are in the memory inbox under wip/.\n\n"
         "Read every archive and the working notes before acting. Do not repeat "
-        "failed approaches. A fresh toolkit has already restored a clean scene; "
-        "inspect it before acting."
+        f"failed approaches. {episode_notice}"
     )
 
 
@@ -292,7 +306,9 @@ def _start_continuation_session(
             "session_max": session_max,
         },
     )
-    session_message = _handoff_message(output_dir, session_number, session_max)
+    session_message = _handoff_message(
+        output_dir, session_number, session_max, robot_name=args.robot_name
+    )
     return planner, system_prompt, session_message
 
 
@@ -325,8 +341,11 @@ def main() -> int:
     args.robot_name = early.robot_name
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
-    if args.explore and args.robot_name != "libero":
-        parser.error("--explore is currently supported only for LIBERO")
+    if args.explore and not robot_spec.supports_exploration:
+        parser.error(
+            f"--explore is not supported for {args.robot_name}: "
+            "deterministic reset is not yet supported"
+        )
     if args.explore and args.memory_profile == "hf":
         parser.error("--explore cannot be used with --memory-profile hf")
     if args.explore and getattr(args, "explore_sessions", 1) <= 0:
@@ -456,7 +475,7 @@ def main() -> int:
                 state_output_dir = (
                     output_dir / "sessions" / f"session_{session_number:03d}"
                 )
-            if robot_name == "libero":
+            if robot_spec.supports_exploration:
                 toolkit = get_toolkit(
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
@@ -488,7 +507,9 @@ def main() -> int:
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
-                if robot_name == "libero":
+                if robot_name == "libero" or (
+                    args.explore and robot_spec.supports_exploration
+                ):
                     solved = toolkit.solved()
                     if solved:
                         recipe_path = toolkit.write_recipe(recipe_tag)

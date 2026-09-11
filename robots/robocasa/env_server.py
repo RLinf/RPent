@@ -15,6 +15,7 @@
 """RoboCasa env server — hosts the raw robosuite env in a subprocess, exposes basic calls via RPC."""
 
 import argparse
+import copy
 import inspect
 import os
 import re
@@ -117,6 +118,7 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
             seed=seed,
             **_split_kwargs(split),
         )
+        self._env_kwargs = copy.deepcopy(env_kwargs)
         self.env = robosuite.make(**env_kwargs)
         self._meta = {
             "task_name": self.task_name,
@@ -130,6 +132,7 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         """Register all RPC methods."""
         super()._register_rpc()
         self._rpc["env.check_success"] = self.check_success
+        self._rpc["env.reset_exploration"] = self.reset_exploration
         self._rpc["env.get_camera_transform"] = self.get_camera_transform
         self._rpc["env.grasp_contact"] = self.grasp_contact
         self._rpc["env.reassemble_env_action"] = self.reassemble_env_action
@@ -150,6 +153,36 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         return self._meta
 
     # ---- lifecycle ----
+    def reset_exploration(self):
+        """Reconstruct task/model/controller state instead of advancing env RNG.
+
+        No complete task-state snapshot API is available in this adapter. This
+        is explicitly a configuration/seed contract, not a physical identity
+        guarantee. A new instance also discards episode counters and caches.
+        """
+        import random
+
+        import robosuite
+
+        if self.env is not None:
+            previous, self.env = self.env, None
+            previous.close()
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+        self.env = robosuite.make(**copy.deepcopy(self._env_kwargs))
+        observation = self.env.reset()
+        notice = (
+            "Reinitialized using the configured seed; full physical layout "
+            "determinism still requires verification in the simulator"
+        )
+        logger.warning(notice)
+        return {
+            "observation": observation,
+            "seed": self.seed,
+            "reset_contract": "configured_seed_reinitialization",
+            "notice": notice,
+        }
+
     def reset(self):
         # RLDX_RESET_SEED=<episode_seed> -> reproduce the EXACT scene the fullshot eval
         # generated for that episode, seeded the SAME way as the eval's VideoRecordingWrapper
