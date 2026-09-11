@@ -29,6 +29,8 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
         "ROLE": system_parts.ROLE,
         "RUNTIME": system_parts.RUNTIME,
         "SAFETY RULES": Numbered(system_parts.RULES),
+        "CAMERA AND PROJECTION RULES": Numbered(system_parts.CAMERA_AND_PROJECTION),
+        "VLA SEGMENT GATES": Numbered(system_parts.VLA_GATES),
         "WORKFLOW": Numbered(system_parts.WORKFLOW),
     }
 

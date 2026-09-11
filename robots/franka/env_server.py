@@ -25,7 +25,11 @@ from typing import Any
 
 import numpy as np
 
-from robots.franka.runtime_config import load_runtime_config
+from robots.franka.runtime_config import (
+    DEFAULT_CALIBRATION_PATH,
+    load_runtime_config,
+    set_calibration_path,
+)
 from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.config import get_repo_root, get_rlinf_repo_path
 from rpent.utils.logging import get_logger
@@ -406,12 +410,21 @@ def main(
     *,
     create_worker_class: Callable[[], Any],
     load_runtime_config: Callable[..., Any],
+    facade_class: type[FrankaEnvFacade] = FrankaEnvFacade,
 ) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--transport", choices=["http", "socket"], default="http")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--robot-config", default=None)
+    parser.add_argument(
+        "--calibration-path",
+        default=str(DEFAULT_CALIBRATION_PATH),
+        help=(
+            "Path to hand_eye_calibration.json. Dual-Franka uses this inside "
+            "the env server to expose agent-facing TCP poses in right_base."
+        ),
+    )
     parser.add_argument("--task-description", required=True)
     parser.add_argument("--parent-watch", action="store_true")
     parser.add_argument(
@@ -421,6 +434,7 @@ def main(
     )
     args = parser.parse_args()
 
+    set_calibration_path(args.calibration_path)
     runtime = load_runtime_config(
         args.robot_config,
         task_description=args.task_description,
@@ -433,7 +447,7 @@ def main(
     worker = _launch_worker(
         runtime.rlinf, runtime.controller, create_worker_class=create_worker_class
     )
-    facade = FrankaEnvFacade(_RayBackend(worker))
+    facade = facade_class(_RayBackend(worker))
     try:
         facade.serve(
             transport=args.transport,

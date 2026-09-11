@@ -23,6 +23,7 @@ import numpy as np
 from robots.franka.env_client import FrankaEnvClient
 
 _MOTION_TIMEOUT_S = 120.0
+_RECOVERY_TIMEOUT_S = 240.0
 
 
 class DualFrankaEnvClient(FrankaEnvClient):
@@ -57,4 +58,16 @@ class DualFrankaEnvClient(FrankaEnvClient):
             "env.set_gripper",
             kwargs={"arm": str(arm), "open": bool(open)},
             timeout_s=_MOTION_TIMEOUT_S,
+        )
+
+    def recover_joint_posture(
+        self, *, reason: str = "", return_to_start: bool = True
+    ) -> dict[str, Any]:
+        return self._client.call(
+            "env.recover_joint_posture",
+            kwargs={
+                "reason": str(reason),
+                "return_to_start": bool(return_to_start),
+            },
+            timeout_s=_RECOVERY_TIMEOUT_S,
         )

@@ -21,7 +21,7 @@ import threading
 import numpy as np
 
 from robots.dual_franka.env_client import DualFrankaEnvClient
-from robots.franka.env_server import FrankaEnvFacade
+from robots.dual_franka.env_server import DualFrankaEnvFacade
 from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
 
 
@@ -53,9 +53,12 @@ class FakeBackend:
     def chunk_step(self, actions, *, return_all_frames=False):
         return {"actions": np.asarray(actions), "return_all_frames": return_all_frames}
 
+    def recover_joint_posture(self, *, reason="", return_to_start=True):
+        return {"ok": True, "reason": reason, "return_to_start": return_to_start}
+
 
 def test_dual_franka_client_and_facade_round_trip_numpy_over_http():
-    facade = FrankaEnvFacade(FakeBackend())
+    facade = DualFrankaEnvFacade(FakeBackend())
     server = HttpRpcServer(("127.0.0.1", 0), facade._dispatch)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -63,6 +66,7 @@ def test_dual_franka_client_and_facade_round_trip_numpy_over_http():
     try:
         client = DualFrankaEnvClient(HttpRpcClient(f"http://{host}:{port}"))
         result = client.move_delta("right", [0.01, 0.0, -0.02])
+        recovery = client.recover_joint_posture(reason="joint drift")
     finally:
         server.shutdown()
         server.server_close()
@@ -70,3 +74,8 @@ def test_dual_franka_client_and_facade_round_trip_numpy_over_http():
 
     assert result["arm"] == "right"
     np.testing.assert_allclose(result["delta_xyz"], [0.01, 0.0, -0.02])
+    assert recovery == {
+        "ok": True,
+        "reason": "joint drift",
+        "return_to_start": True,
+    }

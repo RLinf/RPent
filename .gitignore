@@ -5,6 +5,10 @@ __pycache__/
 # Local run outputs.
 logs/
 
+# Project-local Codex state for live robot runs. Do not commit auth, history,
+# memory, caches, or API-related local state.
+.codex-rpent-live/
+
 /checkpoints/
 
 # RLinf is consumed as an external checkout, not vendored here.

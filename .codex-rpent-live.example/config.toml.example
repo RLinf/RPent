@@ -1,0 +1,20 @@
+# Example user-level Codex config for RPent live robot sessions.
+#
+# Usage:
+#
+#   mkdir -p .codex-rpent-live
+#   cp .codex-rpent-live.example/config.toml.example .codex-rpent-live/config.toml
+#   export CODEX_HOME="$PWD/.codex-rpent-live"
+#
+# Do not put API keys, auth.json, history, logs, or cache files in git.
+# If a live run needs CODEX_API_KEY or CODEX_BASE_URL, export them in the shell
+# or place them only in your private .codex-rpent-live environment.
+
+model = "gpt-5.5"
+model_reasoning_effort = "medium"
+
+# Keep robot-control Codex sessions conservative by default. RPent's Codex
+# planner talks to RPent tools through an in-process MCP server; this file is
+# mainly for isolating Codex records/config from normal coding sessions.
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"

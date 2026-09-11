@@ -59,6 +59,7 @@ DUAL_FRANKA_DASHBOARD_SPEC = {
     "runtime_components": (
         {"name": "env", "label": "DUAL FRANKA", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
+        {"name": "sam3", "label": "SAM3", "scope": "shared"},
     ),
     "frame_channels": (
         {
@@ -75,6 +76,11 @@ DUAL_FRANKA_DASHBOARD_SPEC = {
             "name": "right_wrist",
             "label": "right wrist camera",
             "legacy_path_key": "image_right_wrist_path",
+        },
+        {
+            "name": "d455",
+            "label": "D455 camera",
+            "legacy_path_key": "image_d455_path",
         },
     ),
 }
@@ -120,6 +126,15 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument("--vla-endpoint", default=None)
+    parser.add_argument(
+        "--sam3-endpoint",
+        default=None,
+        help=(
+            "[protocol://]host:port of an existing SAM3 server "
+            "(protocol=http|socket, defaults to http). If unset, local SAM3 "
+            "auto-start is used only when SAM3_CHECKPOINT_PATH is set."
+        ),
+    )
     parser.add_argument("--robot-config", default=None)
     parser.add_argument(
         "--vla-model-path",
@@ -157,10 +172,17 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         prompt_vars={
             "task_name": task.name,
             "instruction": task.instruction,
+            "setup": getattr(task, "setup", ""),
             "success_criteria": task.success_criteria,
             "constraints": constraints,
         },
         task_desc={"task_id": args.task_id, "task_name": task.name},
+    )
+
+
+def _cuda_args(args: argparse.Namespace) -> list[str]:
+    return (
+        ["--cuda-device", str(args.cuda_device)] if args.cuda_device is not None else []
     )
 
 
@@ -183,6 +205,8 @@ def _env_server_command(
         str(port),
         "--task-description",
         task.instruction,
+        "--calibration-path",
+        args.calibration_path,
         "--parent-watch",
     ]
     if args.robot_config:
@@ -213,7 +237,7 @@ def _vla_server_command(
         "--parent-watch",
     ]
     if args.cuda_device is not None:
-        command.extend(["--cuda-device", str(args.cuda_device)])
+        command.extend(_cuda_args(args))
     return command
 
 
@@ -265,6 +289,39 @@ def _spawn_vla_server(
     return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
+def _spawn_sam3_server(
+    args: argparse.Namespace,
+    output_dir: Path,
+) -> tuple[ProcessDaemon | None, RpcClient]:
+    """Spawn (or attach to) the shared SAM3 segmentation service."""
+    if args.sam3_endpoint is not None:
+        return None, make_rpc_client(args.sam3_endpoint)
+    if not os.environ.get("SAM3_CHECKPOINT_PATH"):
+        raise ValueError(
+            "dual-Franka SAM3 auto-start requires SAM3_CHECKPOINT_PATH, "
+            "or pass --sam3-endpoint to attach to an existing SAM3 server"
+        )
+    host, port = "127.0.0.1", pick_free_port()
+    daemon = ProcessDaemon(
+        name="sam3_server",
+        cmd=[
+            sys.executable,
+            str(get_repo_root() / "rpent" / "robots" / "components" / "sam3_server.py"),
+            "--transport",
+            "http",
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--parent-watch",
+            *_cuda_args(args),
+        ],
+        log_path=str(output_dir / "sam3_server.log"),
+    )
+    daemon.start()
+    return daemon, HttpRpcClient(f"http://{host}:{port}")
+
+
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
@@ -275,12 +332,13 @@ def _init_runtime(
 
     Each server can be spawned or attached-to independently: pass an endpoint
     to attach, or leave it unset to spawn a local subprocess. A VLA is only
-    started for the ``vla_grasp`` task (or an explicit ``--vla-endpoint``).
+    started for VLA-backed dual-Franka tasks (or an explicit ``--vla-endpoint``).
     """
     from robots.dual_franka.env_client import DualFrankaEnvClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+    from rpent.robots.components.sam3_client import Sam3Client
 
-    available = {"env", "vla"}
+    available = {"env", "vla", "sam3"}
     selected = available if components is None else components
     unknown = selected.difference(available)
     if unknown:
@@ -288,13 +346,16 @@ def _init_runtime(
 
     needs_vla = args.vla_endpoint is not None
     if args.task_id is not None:
-        needs_vla = needs_vla or (
-            get_dual_franka_task(args.task_id).name == "vla_grasp"
-        )
+        task = get_dual_franka_task(args.task_id)
+        needs_vla = needs_vla or task.name.endswith("_vla")
+    needs_sam3 = args.sam3_endpoint is not None or bool(
+        os.environ.get("SAM3_CHECKPOINT_PATH")
+    )
 
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
         "vla": lambda: _spawn_vla_server(args, output_dir),
+        "sam3": lambda: _spawn_sam3_server(args, output_dir),
     }
     connectors = {
         "env": lambda rpc: {
@@ -302,6 +363,7 @@ def _init_runtime(
             "task_description": get_dual_franka_task(args.task_id).instruction,
         },
         "vla": lambda rpc: {"model": Pi05VLAClient(rpc, embodiment="dual_franka")},
+        "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
     }
 
     owned_daemons: dict[str, ProcessDaemon] = {}
@@ -311,12 +373,16 @@ def _init_runtime(
             continue
         if component == "vla" and not needs_vla:
             continue
+        if component == "sam3" and not needs_sam3:
+            continue
         pending[component] = try_spawn_server(
             owned_daemons, dashboard_events, component, starter
         )
 
     primitives_kwargs: dict[str, Any] = {}
-    for component, (daemon, rpc) in pending.items():
+    wait_order = ("env", "sam3", "vla")
+    for component in (name for name in wait_order if name in pending):
+        daemon, rpc = pending[component]
         component_kwargs = try_wait_server(
             owned_daemons,
             dashboard_events,
@@ -331,6 +397,9 @@ def _init_runtime(
     if "vla" in selected and not needs_vla:
         dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
         primitives_kwargs["model"] = None
+    if "sam3" in selected and not needs_sam3:
+        dashboard_events.emit(RuntimeStatusEvent("sam3", "ready"))
+        primitives_kwargs["sam3_client"] = None
 
     primitives_kwargs["calibration_path"] = args.calibration_path
 

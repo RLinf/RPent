@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 
 import pytest
 
@@ -26,6 +27,7 @@ import pytest
 _OVERRIDE_KEYS = {
     "max_num_steps",
     "task_description",
+    "joint_reset_qpos",
     "target_ee_pose",
     "ee_pose_limit_min",
     "ee_pose_limit_max",
@@ -68,3 +70,19 @@ def test_hardware_keys_are_valid_rlinf_fields():
     valid = {field.name for field in dataclasses.fields(DualFrankaConfig)}
     unknown = sorted(_HARDWARE_KEYS - valid)
     assert not unknown, f"hardware keys not in DualFrankaConfig: {unknown}"
+
+
+def test_controller_carries_calibration_path_for_ray_worker():
+    pytest.importorskip("rlinf.envs.realworld.franka.tasks.dual_franka_tcp_env")
+    pytest.importorskip("rlinf.scheduler.hardware.robots.dual_franka")
+    from robots.dual_franka.runtime_config import load_runtime_config
+    from robots.franka.runtime_config import set_calibration_path
+
+    path = Path("/tmp/rpent-test-hand-eye-calibration.json")
+    set_calibration_path(path)
+    try:
+        runtime = load_runtime_config(None, task_description="test task")
+    finally:
+        set_calibration_path(None)
+
+    assert runtime.controller["calibration_path"] == str(path)

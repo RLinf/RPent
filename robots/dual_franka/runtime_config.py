@@ -30,6 +30,7 @@ from robots.franka.runtime_config import (
     FrankaRuntimeConfig,
     _require_mapping,
     flatten_control,
+    get_calibration_path,
     load_mapping,
     strict_mapping,
 )
@@ -43,15 +44,32 @@ RIGHT_CONTROLLER_NODE = 1
 
 # Primitive-control knobs consumed by the RPent dual-Franka env server. RLinf
 # has no equivalent fields; ``max_step_*`` bound each interpolation step.
+#
+# PhysicalAgent alignment note: the live Frankas often need several 10 Hz
+# closed-loop corrections before the reported TCP reaches the requested target.
+# The high iteration guard and longer gripper settle time keep RPent from
+# declaring failure before the real robot has physically settled.  These are
+# deployment-tuned controller-side tolerances, not RPent-wide defaults.
 CONTROL = {
-    "move": {"timeout_s": 20.0, "tolerance_m": 0.005, "max_step_m": 0.02},
+    "move": {"timeout_s": 20.0, "tolerance_m": 0.006, "max_step_m": 0.02},
     "rotate": {"timeout_s": 20.0, "tolerance_rad": 0.04, "max_step_rad": 0.1},
-    "servo": {"iteration_multiplier": 4, "min_iterations": 8},
-    "gripper": {"settle_s": 0.4, "timeout_s": 10.0, "max_iterations": 4},
+    # RLinf paces Cartesian steps at 10 Hz.  Keep the iteration guard high
+    # enough that the timeouts, rather than this guard, normally terminate a
+    # slowly converging closed-loop move.  Larger moves also receive a budget
+    # proportional to the number of bounded interpolation segments.
+    "servo": {"iteration_multiplier": 50, "min_iterations": 200},
+    "gripper": {"settle_s": 1.5, "timeout_s": 10.0, "max_iterations": 4},
 }
 
-# Episode length used for both ``override_cfg.max_num_steps`` and
-# ``env.eval.max_episode_steps``; the planner may end an episode earlier.
+RECOVERY = {
+    "return_timeout_s": 20.0,
+    "return_tolerance_m": 0.006,
+    "return_tolerance_rad": 0.04,
+}
+
+# Raw env safety horizon. RPent owns task-level episode boundaries; RLinf
+# auto-reset must stay disabled during long, multi-skill physical tasks because
+# reset opens both grippers and moves both arms home.
 EPISODE_STEPS = 300
 
 DEFAULT_CONFIG = Path(__file__).with_name("config") / "example.yaml"
@@ -89,6 +107,57 @@ def _perception_cameras(cameras: dict[str, Any]) -> dict[str, Any]:
     return {"cameras": output}
 
 
+def _agent_observation(cameras: dict[str, Any]) -> dict[str, list[str]]:
+    """Load planner-facing camera display policy from robot config."""
+    # PhysicalAgent alignment note: the old clean-desk logs treated the fixed
+    # D455 view as the main semantic/localization view, while wrist/base images
+    # were mainly auxiliary checks.  Keep that as the default for this deployed
+    # config, but allow the YAML to register different inline/auxiliary views.
+    default = {
+        "inline_cameras": ["d455"],
+        "auxiliary_cameras": ["left_wrist", "base", "right_wrist"],
+    }
+    raw = cameras.get("agent_observation", default)
+    policy = _require_mapping(raw, "cameras.agent_observation")
+    out: dict[str, list[str]] = {}
+    for key in ("inline_cameras", "auxiliary_cameras"):
+        value = policy.get(key, default[key])
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise ValueError(f"cameras.agent_observation.{key} must be a list of strings")
+        out[key] = [str(item) for item in value]
+    return out
+
+
+def _projection_views(raw: dict[str, Any]) -> dict[str, Any]:
+    # PhysicalAgent alignment note: D455 is not part of RLinf's original
+    # three-camera dual-Franka observation contract, so RPent keeps an explicit
+    # projection registry for extra RGBD views that can localize pixels in the
+    # shared right_base frame.
+    perception = _require_mapping(raw.get("perception"), "perception")
+    views = _require_mapping(perception.get("projection_views"), "perception.projection_views")
+    return {str(alias): dict(_require_mapping(value, f"perception.projection_views.{alias}")) for alias, value in views.items()}
+
+
+def _joint_health_thresholds(raw: dict[str, Any]) -> dict[str, dict[str, float]]:
+    """Load per-arm joint-health thresholds from the user robot config."""
+    # PhysicalAgent alignment note: long multi-stage VLA runs can drift into
+    # awkward Franka joint postures even when TCP-space task progress still
+    # looks fine.  These thresholds reproduce the operator guard rails used
+    # during live debugging; they should be tuned per mounting/task, or replaced
+    # by native Franka green/yellow/red health signals when available.
+    joint_health = _require_mapping(raw.get("joint_health"), "joint_health")
+    thresholds = _require_mapping(
+        joint_health.get("thresholds"), "joint_health.thresholds"
+    )
+    out: dict[str, dict[str, float]] = {}
+    for arm in ("left", "right"):
+        values = _require_mapping(
+            thresholds.get(arm), f"joint_health.thresholds.{arm}"
+        )
+        out[arm] = {str(key): float(value) for key, value in values.items()}
+    return out
+
+
 def load_runtime_config(
     path: str | Path | None,
     *,
@@ -112,6 +181,7 @@ def load_runtime_config(
     cameras = _require_mapping(raw.get("cameras"), "cameras")
     observation = _require_mapping(cameras.get("observation"), "cameras.observation")
     workspace = _require_mapping(raw.get("workspace"), "workspace")
+    joint_health_thresholds = _joint_health_thresholds(raw)
 
     base_serials, base_type = _camera_slot(observation, "base")
     left_serials, left_type = _camera_slot(observation, "left_wrist")
@@ -143,6 +213,7 @@ def load_runtime_config(
         {
             "max_num_steps": EPISODE_STEPS,
             "task_description": task_description,
+            "joint_reset_qpos": list(workspace["joint_reset_qpos"]),
             "target_ee_pose": list(workspace["target_ee_pose"]),
             "ee_pose_limit_min": list(workspace["ee_pose_limit_min"]),
             "ee_pose_limit_max": list(workspace["ee_pose_limit_max"]),
@@ -169,10 +240,10 @@ def load_runtime_config(
                 "eval": {
                     "seed": 0,
                     "group_size": 1,
-                    "auto_reset": True,
+                    "auto_reset": False,
                     "ignore_terminations": False,
                     "use_fixed_reset_state_ids": False,
-                    "max_episode_steps": EPISODE_STEPS,
+                    "max_episode_steps": None,
                     "use_spacemouse": False,
                     "use_gello": False,
                     "use_gello_joint": False,
@@ -188,5 +259,12 @@ def load_runtime_config(
         }
     )
     controller = flatten_control(CONTROL)
+    controller["calibration_path"] = str(get_calibration_path())
     controller["perception"] = _perception_cameras(cameras)
+    controller["agent_observation"] = _agent_observation(cameras)
+    controller["projection_views"] = _projection_views(raw)
+    controller["recovery_return_timeout_s"] = RECOVERY["return_timeout_s"]
+    controller["recovery_return_tolerance_m"] = RECOVERY["return_tolerance_m"]
+    controller["recovery_return_tolerance_rad"] = RECOVERY["return_tolerance_rad"]
+    controller["joint_health_thresholds"] = joint_health_thresholds
     return FrankaRuntimeConfig(rlinf=rlinf, controller=controller)

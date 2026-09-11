@@ -14,6 +14,13 @@ robot:
 
 cameras:
   main: left_wrist_0_rgb
+  # Agent-facing view policy.  ``inline`` views are sent directly in planner
+  # tool results; ``auxiliary`` views are saved as artifacts and can be inspected
+  # explicitly.  Add extra registered views here without changing the tool
+  # schema.
+  agent_observation:
+    inline_cameras: [d455]
+    auxiliary_cameras: [left_wrist, base, right_wrist]
   observation:
     base:
       - serial: "141722070657"
@@ -30,17 +37,71 @@ cameras:
       type: realsense
 
 workspace:
+  # Strongly scene/hardware dependent. These are the current lab values copied
+  # from the deployed PhysicalAgent setup; tune them before reusing another
+  # table layout or arm mounting.
+  joint_reset_qpos:
+    - [-0.22, 0.09, 0.35, -1.62, 0.21, 2.2, -0.56]
+    - [-0.16, 0.23, -0.16, -1.48, -0.12, 2.41, 0.21]
   target_ee_pose:
     - [0.5, -0.2, 0.5, -3.14, 0.0, 0.0]
     - [0.5, 0.2, 0.5, -3.14, 0.0, 0.0]
   ee_pose_limit_min:
-    - [0.3, -0.4, 0.1, -3.1416, -3.1416, -3.1416]
-    - [0.3, -0.4, 0.1, -3.1416, -3.1416, -3.1416]
+    - [0.3, -0.8, 0.1, -3.1416, -3.1416, -3.1416]
+    - [0.3, -0.8, 0.1, -3.1416, -3.1416, -3.1416]
   ee_pose_limit_max:
-    - [0.8, 0.4, 0.7, 3.1416, 3.1416, 3.1416]
-    - [0.8, 0.4, 0.7, 3.1416, 3.1416, 3.1416]
+    - [0.8, 0.8, 0.7, 3.1416, 3.1416, 3.1416]
+    - [0.8, 0.8, 0.7, 3.1416, 3.1416, 3.1416]
+
+joint_health:
+  # These thresholds are operational guard rails, not RPent-wide constants.
+  # They should be tuned for the robot mounting, reset posture, loaded tool,
+  # workspace, and task. Franka's controller/FCI exposes hard joint limits and
+  # status; if a deployment can read the controller's native green/yellow/red
+  # health signal, prefer mapping that signal into this section rather than
+  # copying these lab-specific values blindly.
+  thresholds:
+    left:
+      warning_drift_l2: 2.1
+      critical_drift_l2: 2.8
+      warning_q1: 1.5
+      critical_q1: 1.9
+      warning_q3: -1.4
+      critical_q3: -1.9
+      warning_condition_number: 32.0
+      critical_condition_number: 45.0
+      warning_sigma_min: 0.06
+      critical_sigma_min: 0.04
+      warning_min_joint_margin: 0.7
+      critical_min_joint_margin: 0.45
+    right:
+      warning_drift_l2: 2.1
+      critical_drift_l2: 2.8
+      warning_q1: 1.5
+      critical_q1: 1.9
+      warning_q3: -1.4
+      critical_q3: -1.9
+      warning_condition_number: 30.0
+      critical_condition_number: 45.0
+      warning_sigma_min: 0.06
+      critical_sigma_min: 0.04
+      warning_min_joint_margin: 0.7
+      critical_min_joint_margin: 0.45
 
 perception:
+  # Views that support metric projection/segmentation.  The tool schema accepts
+  # a free-form camera string, then validates it against this registry and the
+  # current state's saved artifacts.  This mirrors dynamic-view simulator
+  # backends where views come from runtime state rather than a hard-coded enum.
+  projection_views:
+    base:
+      raw_key: base_0_rgb
+      calibration_key: base_camera
+      display_name: base RealSense
+    d455:
+      raw_key: d455_rgb
+      calibration_key: d455_camera
+      display_name: D455
   localization_validity:
     base_camera:
       depth_m: [0.15, 1.25]

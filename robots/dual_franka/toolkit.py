@@ -39,13 +39,14 @@ class DualFrankaToolkit(FrankaToolkit):
                 franka_tools.view_camera_meta,
                 state=self._state,
             ),
-            "back_project_base_pixel": partial(
-                dual_franka_perception.back_project_base_pixel,
+            "back_project": partial(
+                dual_franka_perception.back_project,
                 state=self._state,
             ),
-            "back_project_d455_pixel": partial(
-                dual_franka_perception.back_project_d455_pixel,
+            "segment": partial(
+                dual_franka_perception.segment,
                 state=self._state,
+                sam3_client=getattr(self._primitives, "_sam3_client", None),
             ),
         }
         for spec in self._tools_module.TOOLS_SPEC:
