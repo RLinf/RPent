@@ -38,6 +38,8 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       - name: Install documentation dependencies
         run: uv pip install --system -r docs/requirements.txt
+      - name: Check leaderboard data against result tables
+        run: python docs/tools/render_leaderboard.py --check-data
       - name: Build English documentation
         run: sphinx-build -W --keep-going docs/source-en docs/build/html-en
       - name: Build Chinese documentation

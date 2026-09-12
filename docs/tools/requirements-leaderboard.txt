@@ -1,0 +1,2 @@
+# Optional authoring dependency; Sphinx displays the checked-in static assets.
+matplotlib==3.11.1
