@@ -361,6 +361,28 @@ contains the success count and accuracy for every task. The published record is
 task-level aggregate data; it does not include per-seed traces, raw trajectories,
 or failure classifications and therefore is not a per-cell audit artifact.
 
+.. _environment-smoke-tests:
+
+Environment smoke tests
+-----------------------
+
+After installing RoboCasa and its assets, run the opt-in environment smoke suite
+to check simulator installation and interfaces. It requires no planner credentials
+or VLA checkpoint:
+
+.. code-block:: bash
+
+   uv pip install pytest pytest-timeout
+   RPENT_RUN_ROBOCASA_INTEGRATION=1 \
+      pytest tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py -v
+
+The four cases cover ``OpenDrawer``, ``NavigateKitchen``, and
+``PickPlaceCounterToCabinet`` at seed 1, plus mobile-camera movement. Task checks
+verify construction/reset, 12D actions, operation cameras, navigation RGB-D/world
+map, the success predicate, and clean close. The camera check verifies pose and
+image changes after eight base steps. These real-simulator tests require a working
+GPU/EGL setup and are separate from offline CPU CI; skipped tests are not passes.
+
 Troubleshooting
 ---------------
 
