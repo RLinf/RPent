@@ -20,7 +20,7 @@ RPent 可以通过 RLinf 的 ``RealWorldEnv`` worker 控制单台 Franka 机械�
 
 .. code-block:: bash
 
-	uv sync --extra franka
+   uv sync --extra franka
 
 该命令会把自定义的 RLinf Franka 分支和 ``rlinf-openpi`` 安装到 ``.venv``。
 
@@ -32,12 +32,16 @@ RPent 可以通过 RLinf 的 ``RealWorldEnv`` worker 控制单台 Franka 机械�
 （外部相机为 eye-on-base，腕部相机为 eye-on-hand），默认保存在
 ``~/.ros/easy_handeye/`` 下。
 
-RPent 会读取一个 JSON 文件（``hand_eye_calibration.json``），其中包含每台相机的
-``source_name``、``parameters`` 和 ``transformation``；这些字段需要从各
-``easy_handeye`` YAML 中复制而来。
+RPent 会直接加载这些 YAML：在 robot config 的 ``perception.calibration`` 下将
+每个相机映射到对应的 easy_handeye YAML 即可（仓库中的
+``robots/franka/config/example.yaml`` 已经包含该映射）：
 
-该文件的位置可通过 ``--calibration-path`` 配置，默认值为
-``~/.ros/easy_handeye/hand_eye_calibration.json``。
+.. code-block:: yaml
+
+   perception:
+     calibration:
+       external: ~/.ros/easy_handeye/fr3_external_apriltag_eye_on_base.yaml
+       wrist: ~/.ros/easy_handeye/fr3_wrist_apriltag_ee_eye_on_hand.yaml
 
 开发配置
 --------
@@ -45,7 +49,8 @@ RPent 会读取一个 JSON 文件（``hand_eye_calibration.json``），其中包
 仓库中给出的值是开发默认值，在启用机械臂运动前必须逐项核对：
 
 * ``robots/franka/config/example.yaml``，包含机器人身份（机器人 IP、相机序列号、
-  夹爪）和工作空间几何（目标/复位位姿、安全边界）。
+  夹爪）、工作空间几何（目标/复位位姿、安全边界）和 easy_handeye YAML 映射
+  （见上方标定说明）。
 
 RPent 会把这份机器人配置转换成内部的 RLinf cluster 和环境对象。如需改用
 其他文件，请传入 ``--robot-config /path/to/robot_config.yaml``。
@@ -57,9 +62,9 @@ Ray 在启动时会捕获环境变量，因此必须先设置 node rank 再启�
 
 .. code-block:: bash
 
-	export RLINF_NODE_RANK=0
-	ray stop --force
-	ray start --head
+   export RLINF_NODE_RANK=0
+   ray stop --force
+   ray start --head
 
 运行冒烟测试
 ------------
@@ -69,11 +74,10 @@ Ray 在启动时会捕获环境变量，因此必须先设置 node rank 再启�
 
 .. code-block:: bash
 
-	# replace --robot-config and --calibration-path with your own paths
-	uv run --extra franka rpent --robot franka --task-id 0 \
-	  --planner claude_code --model claude-opus-4-8      \
-	  --robot-config robots/franka/config/example.yaml   \
-	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
+   # replace --robot-config with your own config
+   uv run --extra franka rpent --robot franka --task-id 0 \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/franka/config/example.yaml
 
 RPent 会使用当前解释器启动 ``robots/franka/env_server.py``：加载 RPent robot
 config、生成内部的 RLinf adapter config、连接 Ray、等待
@@ -88,11 +92,10 @@ RPent 提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --robot franka --task-id 1 \
-	  --vla-endpoint http://VLA_HOST:PORT \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/franka/config/example.yaml \
-	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
+   uv run --extra franka rpent --robot franka --task-id 1 \
+     --vla-endpoint http://VLA_HOST:PORT \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/franka/config/example.yaml
 
 目前 VLA 服务需要单独部署。若未设置 ``--vla-endpoint``，
 解析式运动和夹爪工具仍然可用，但 ``vla_grasp`` 会抛出运行时错误。

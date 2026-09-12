@@ -21,8 +21,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from robots.franka.perception import back_project
-from robots.franka.runtime_config import set_calibration_path
+from robots.franka.perception import back_project, load_calibration_bundle
+from robots.franka.runtime_config import set_robot_config_path
 from robots.franka.tools import (
     FrankaPrimitives,
     coerce_vec3,
@@ -164,11 +164,45 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
             step=step,
         )
 
-    set_calibration_path(
-        Path(__file__).parent / "fixtures" / "hand_eye_calibration.json"
+    config = tmp_path / "robot_config.yaml"
+    fixtures = Path(__file__).parent / "fixtures"
+    config.write_text(
+        "perception:\n"
+        "  calibration:\n"
+        f"    external: {fixtures / 'fr3_external_apriltag_eye_on_base.yaml'}\n"
+        f"    wrist: {fixtures / 'fr3_wrist_apriltag_ee_eye_on_hand.yaml'}\n"
     )
-    result = back_project(row=2, col=2, camera="wrist", state=state)
+    set_robot_config_path(config)
+    try:
+        result = back_project(row=2, col=2, camera="wrist", state=state)
+    finally:
+        set_robot_config_path(None)
 
     assert result["coordinate_frame"] == "franka_base"
     assert result["depth_m"] == 0.5
     assert len(result["point_base"]) == 3
+
+
+def test_load_calibration_bundle_reads_easy_handeye_yamls(tmp_path: Path):
+    config = tmp_path / "robot_config.yaml"
+    fixtures = Path(__file__).parent / "fixtures"
+    config.write_text(
+        "perception:\n"
+        "  calibration:\n"
+        f"    external: {fixtures / 'fr3_external_apriltag_eye_on_base.yaml'}\n"
+        f"    wrist: {fixtures / 'fr3_wrist_apriltag_ee_eye_on_hand.yaml'}\n"
+    )
+    set_robot_config_path(config)
+    try:
+        bundle = load_calibration_bundle()
+    finally:
+        set_robot_config_path(None)
+
+    assert bundle["external"]["eye_on_hand"] is False
+    assert bundle["external"]["base_frame"] == "fr3_link0"
+    assert bundle["wrist"]["eye_on_hand"] is True
+    assert bundle["wrist"]["base_frame"] == "fr3_EE"
+    # The normalized matrix carries the easy_handeye wrist translation.
+    assert bundle["wrist"]["matrix"][:3, 3] == pytest.approx(
+        [0.06531670324255999, 0.02759950864247399, -0.1809718238822886]
+    )

@@ -20,7 +20,7 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 
 .. code-block:: bash
 
-	uv sync --extra franka
+   uv sync --extra franka
 
 该命令将自定义 RLinf Franka 分支和 ``rlinf-openpi`` 安装到 ``.venv``。
 
@@ -28,16 +28,23 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 ----------------------
 
 手眼标定使用 ROS `easy_handeye
-<https://github.com/IFL-CAMP/easy_handeye>`_ 完成。它为每台投影相机（
-``base_camera`` 和 ``d455_camera``）生成一个 YAML，默认保存在
-``~/.ros/easy_handeye/`` 下。
+<https://github.com/IFL-CAMP/easy_handeye>`_ 完成。两台投影相机都需要相对右臂的
+base frame 做标定（两次 eye-on-base 标定）：``base_camera`` （第三人称
+RealSense）和 ``d455_camera``。两台腕部相机（ ``left_wrist`` 和
+``right_wrist`` ）只用于观测：它们为 VLA 提供 policy 视图、为 planner 提供近距
+离快照，RPent 不会通过它们做像素反投影，因此不需要手眼标定。
 
-RPent 会读取一个 JSON 文件（``hand_eye_calibration.json``），其中包含每台相机的
-``source_name``、``parameters`` 和 ``transformation``。生成方式是从每个
-``easy_handeye`` YAML 中复制这些字段。
+easy_handeye 默认在 ``~/.ros/easy_handeye/`` 下为每台相机保存一个 YAML。RPent
+会直接加载这些 YAML：在 robot config 的 ``perception.calibration`` 下将每台
+相机映射到对应的 easy_handeye YAML 即可（仓库中的
+``robots/dual_franka/config/example.yaml`` 已经包含该映射）：
 
-该文件的位置可通过 ``--calibration-path`` 配置（默认
-``~/.ros/easy_handeye/hand_eye_calibration.json``）。
+.. code-block:: yaml
+
+   perception:
+     calibration:
+       base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
+       d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
 
 开发配置
 --------
@@ -45,8 +52,8 @@ RPent 会读取一个 JSON 文件（``hand_eye_calibration.json``），其中包
 启用机械臂运动前，请检查并修改仓库中的开发默认值：
 
 * ``robots/dual_franka/config/example.yaml`` 包含机器人身份（两台机器人 IP、相机
-  序列号/类型、夹爪连接）、工作空间几何（目标位姿、安全边界）和感知定位
-  边界 + base-frame 变换。
+	序列号/类型、夹爪连接）、工作空间几何（目标位姿、安全边界）、easy_handeye
+	YAML 映射（见上方标定说明）和感知定位边界 + base-frame 变换。
 
 RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境对象。如需使用
 其他文件，请传入 ``--robot-config /path/to/robot_config.yaml``。
@@ -69,17 +76,17 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 
 .. code-block:: bash
 
-	export RLINF_NODE_RANK=0
-	ray stop --force
-	ray start --head --port=6379 --node-ip-address=HEAD_IP
+   export RLINF_NODE_RANK=0
+   ray stop --force
+   ray start --head --port=6379 --node-ip-address=HEAD_IP
 
 节点 ``1``：
 
 .. code-block:: bash
 
-	export RLINF_NODE_RANK=1
-	ray stop --force
-	ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
+   export RLINF_NODE_RANK=1
+   ray stop --force
+   ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
 
 运行冒烟测试
 ------------
@@ -88,10 +95,9 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --robot dual_franka --task-id 0 \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/dual_franka/config/example.yaml \
-	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
+   uv run --extra franka rpent --robot dual_franka --task-id 0 \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/dual_franka/config/example.yaml
 
 RPent 使用当前解释器启动 ``robots/dual_franka/env_server.py``，加载 RPent
 robot config 并生成内部 RLinf adapter config，然后连接 Ray，等待 ``healthz``，
@@ -106,21 +112,20 @@ RPent 提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露 `
 
 .. code-block:: bash
 
-	export PI05_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
-	export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
+   export PI05_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
+   export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
 
-	uv run --extra franka rpent --robot dual_franka --task-id 1 \
-	  --cuda-device 0 \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/dual_franka/config/example.yaml \
-	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
+   uv run --extra franka rpent --robot dual_franka --task-id 1 \
+     --cuda-device 0 \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/dual_franka/config/example.yaml
 
 checkpoint 必须包含：
 
 .. code-block:: text
 
-	actor/model_state_dict/full_weights.pt
-	<DUAL_FRANKA_REPO_ID>/norm_stats.json
+   actor/model_state_dict/full_weights.pt
+   <DUAL_FRANKA_REPO_ID>/norm_stats.json
 
 **预训练 checkpoint**
 
@@ -132,11 +137,11 @@ ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint：
 
 .. code-block:: bash
 
-	modelscope download \
-	  --model Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000 \
-	  --local_dir /path/to/pi05-dualfranka-clean-desk
+   modelscope download \
+     --model Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000 \
+     --local_dir /path/to/pi05-dualfranka-clean-desk
 
-	export PI05_CHECKPOINT_PATH=/path/to/pi05-dualfranka-clean-desk
+   export PI05_CHECKPOINT_PATH=/path/to/pi05-dualfranka-clean-desk
 
 .. warning::
 
@@ -155,10 +160,10 @@ ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint：
 
 .. code-block:: bash
 
-	uv run --extra franka python -m robots.dual_franka.vla_server \
-	  --model-path /path/to/checkpoints/global_step_N \
-	  --repo-id org/dual-franka-tcp-rot6d \
-	  --cuda-device 0 --transport http --host 0.0.0.0 --port 6000
+   uv run --extra franka python -m robots.dual_franka.vla_server \
+     --model-path /path/to/checkpoints/global_step_N \
+     --repo-id org/dual-franka-tcp-rot6d \
+     --cuda-device 0 --transport http --host 0.0.0.0 --port 6000
 
 然后向 ``rpent`` 传入 ``--vla-endpoint http://VLA_HOST:6000``。外部 endpoint
 始终优先于本地自动启动。
@@ -170,11 +175,10 @@ ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint：
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --robot dual_franka --task-id 0 \
-	  --env-endpoint http://ROBOT_HOST:PORT \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/dual_franka/config/example.yaml \
-	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
+   uv run --extra franka rpent --robot dual_franka --task-id 0 \
+     --env-endpoint http://ROBOT_HOST:PORT \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/dual_franka/config/example.yaml
 
 工具与状态产物
 --------------

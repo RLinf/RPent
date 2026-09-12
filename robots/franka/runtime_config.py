@@ -31,29 +31,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
 from omegaconf import DictConfig, OmegaConf
 
 DEFAULT_CONFIG = Path(__file__).with_name("config") / "example.yaml"
 
-# easy_handeye's default save directory is ``~/.ros/easy_handeye``; RPent reads
-# its ``hand_eye_calibration.json`` bundle from there by default.
-DEFAULT_CALIBRATION_PATH = Path(
-    "~/.ros/easy_handeye/hand_eye_calibration.json"
-).expanduser()
-
-_calibration_path: Path | None = None
 _robot_config_path: Path | None = None
-
-
-def set_calibration_path(path: str | Path | None) -> None:
-    """Configure the hand-eye calibration bundle path (once, at runtime init)."""
-    global _calibration_path
-    _calibration_path = Path(path).expanduser() if path else None
-
-
-def get_calibration_path() -> Path:
-    """Return the configured calibration bundle path, or the easy_handeye default."""
-    return Path(_calibration_path or DEFAULT_CALIBRATION_PATH)
 
 
 def set_robot_config_path(path: str | Path | None) -> None:
@@ -69,6 +52,97 @@ def set_robot_config_path(path: str | Path | None) -> None:
 def get_robot_config_path() -> Path:
     """Return the ``--robot-config`` override, or the robot's packaged default."""
     return Path(_robot_config_path or DEFAULT_CONFIG)
+
+
+def _calibration_mapping_from(perception: Any) -> dict[str, str]:
+    """Return the validated ``perception.calibration`` source mapping.
+
+    Shared by the single- and dual-Franka loaders. Returns an empty mapping
+    when the section is absent.
+
+    Raises:
+        ValueError: when a mapping value is not a path-like string.
+    """
+    if not isinstance(perception, dict):
+        return {}
+    mapping = perception.get("calibration")
+    if not isinstance(mapping, dict):
+        return {}
+    invalid = sorted(
+        key for key, value in mapping.items() if not isinstance(value, (str, Path))
+    )
+    if invalid:
+        raise ValueError(
+            "perception.calibration values must be easy_handeye YAML paths; "
+            f"got non-path value(s) for {invalid}"
+        )
+    return {str(key): str(value) for key, value in mapping.items()}
+
+
+def get_perception_calibration_mapping() -> dict[str, str]:
+    """Return the robot-config ``perception.calibration`` YAML-source mapping.
+
+    Maps RPent camera keys (``base_camera``/``d455_camera`` for dual Franka,
+    ``external``/``wrist`` for single Franka) to easy_handeye YAML paths.
+    Returns an empty mapping when the robot config has no such section.
+    """
+    raw = load_mapping(get_robot_config_path())
+    return _calibration_mapping_from(raw.get("perception"))
+
+
+def load_easy_handeye_yaml(path: str | Path) -> dict[str, Any]:
+    """Load one easy_handeye calibration YAML as a bundle entry.
+
+    easy_handeye saves each calibration as ``~/.ros/easy_handeye/<name>.yaml``
+    with a ``parameters`` section (frame names, ``eye_on_hand``, ...) and a
+    ``transformation`` section (``x/y/z`` plus ``qx/qy/qz/qw``). The returned
+    entry carries the YAML's file name as ``source_name`` plus its verbatim
+    ``parameters`` and ``transformation`` sections.
+
+    Raises:
+        ValueError: when the file is missing or not an easy_handeye YAML.
+    """
+    yaml_path = Path(path).expanduser()
+    if not yaml_path.exists():
+        raise ValueError(f"easy_handeye calibration YAML not found: {yaml_path}")
+    try:
+        data = yaml.safe_load(yaml_path.read_text(errors="replace"))
+    except yaml.YAMLError as exc:
+        raise ValueError(
+            f"invalid easy_handeye calibration YAML {yaml_path}: {exc}"
+        ) from exc
+    if (
+        not isinstance(data, dict)
+        or not isinstance(data.get("parameters"), dict)
+        or not isinstance(data.get("transformation"), dict)
+    ):
+        raise ValueError(
+            f"{yaml_path} must be an easy_handeye calibration YAML (a mapping "
+            "with 'parameters' and 'transformation' sections)"
+        )
+    transformation = data["transformation"]
+    missing = {"x", "y", "z", "qx", "qy", "qz", "qw"} - set(transformation)
+    if missing:
+        raise ValueError(f"{yaml_path} missing transform fields: {sorted(missing)}")
+    return {
+        "source_name": yaml_path.name,
+        "parameters": data["parameters"],
+        "transformation": dict(transformation),
+    }
+
+
+def describe_calibration_source() -> str:
+    """Describe the robot-config easy_handeye YAML calibration mapping."""
+    mapping = get_perception_calibration_mapping()
+    if not mapping:
+        return (
+            "no perception.calibration easy_handeye YAML mapping configured in "
+            f"{get_robot_config_path()}"
+        )
+    listed = ", ".join(
+        f"{key}={Path(value).expanduser()}" for key, value in sorted(mapping.items())
+    )
+    return f"easy_handeye YAMLs (robot-config perception.calibration): {listed}"
 
 
 # ---------------------------------------------------------------------------

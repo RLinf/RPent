@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any
 
 from robots.franka import perception as franka_perception
 from robots.franka import tools as franka_tools
-from robots.franka.runtime_config import set_calibration_path
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit
@@ -50,9 +49,6 @@ class FrankaToolkit(Toolkit):
             state=state,
             memory=memory,
         )
-        calibration_path = primitives_kwargs.pop("calibration_path", None)
-        if calibration_path is not None:
-            set_calibration_path(calibration_path)
         self._primitives = self._primitives_cls(
             check_cancelled=self.raise_if_cancelled,
             **primitives_kwargs,

@@ -24,10 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.franka.prompt_bundle import system_prompt, user_prompt
-from robots.franka.runtime_config import (
-    DEFAULT_CALIBRATION_PATH,
-    set_robot_config_path,
-)
+from robots.franka.runtime_config import set_robot_config_path
 from robots.franka.tasks import FRANKA_TASKS, get_franka_task
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
@@ -126,12 +123,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument("--vla-endpoint", default=None)
     parser.add_argument("--robot-config", default=None)
-    parser.add_argument(
-        "--calibration-path",
-        default=str(DEFAULT_CALIBRATION_PATH),
-        help="Path to hand_eye_calibration.json (defaults to easy_handeye's "
-        "~/.ros/easy_handeye directory).",
-    )
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
@@ -277,7 +268,5 @@ def _init_runtime(
     if "vla" in selected and not needs_vla:
         dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
         primitives_kwargs["model"] = None
-
-    primitives_kwargs["calibration_path"] = args.calibration_path
 
     return list(owned_daemons.values()), primitives_kwargs

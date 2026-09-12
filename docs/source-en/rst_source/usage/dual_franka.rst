@@ -23,7 +23,7 @@ From the RPent repository root:
 
 .. code-block:: bash
 
-	uv sync --extra franka
+   uv sync --extra franka
 
 This installs the custom RLinf Franka branch and ``rlinf-openpi`` into
 ``.venv``.
@@ -32,16 +32,25 @@ Calibration
 -----------
 
 Hand-eye calibration is performed with ROS
-`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_. It produces one YAML
-per projection camera (``base_camera`` and ``d455_camera``) and saves them under
-``~/.ros/easy_handeye/`` by default.
+`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_. Calibrate both
+projection cameras against the right arm's base frame (two eye-on-base
+calibrations): ``base_camera`` (the third-person RealSense) and ``d455_camera``.
+The two wrist cameras (``left_wrist`` and ``right_wrist``) are observation
+only — they feed the VLA policy views and the close-up planner snapshots, and
+RPent never back-projects pixels through them — so they need no hand-eye
+calibration.
 
-RPent reads a JSON bundle (``hand_eye_calibration.json``) that carries each
-camera's ``source_name``, ``parameters``, and ``transformation``. Generate it by
-copying those fields out of each ``easy_handeye`` YAML.
+Easy_handeye saves one YAML per camera under ``~/.ros/easy_handeye/`` by default.
+RPent loads those YAMLs directly: list them under ``perception.calibration`` in
+the robot config, mapping each camera to its easy_handeye YAML (the checked-in
+``robots/dual_franka/config/example.yaml`` already does this):
 
-The bundle location is configurable with ``--calibration-path`` (default
-``~/.ros/easy_handeye/hand_eye_calibration.json``).
+.. code-block:: yaml
+
+   perception:
+     calibration:
+       base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
+       d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
 
 Development configuration
 -------------------------
@@ -50,8 +59,8 @@ Review and edit the checked-in development defaults before enabling motion:
 
 * ``robots/dual_franka/config/example.yaml`` contains the machine identity (both
 	robot IPs, camera serials/types, gripper connections), workspace geometry
-	(target poses and safety limits), and perception localization bounds +
-	base-frame transform.
+	(target poses and safety limits), the easy_handeye YAML mapping (see
+	Calibration), and perception localization bounds + base-frame transform.
 
 RPent translates this robot-focused schema into the internal two-node RLinf
 cluster and environment objects. To use a different file, pass
@@ -76,17 +85,17 @@ Node ``0``:
 
 .. code-block:: bash
 
-	export RLINF_NODE_RANK=0
-	ray stop --force
-	ray start --head --port=6379 --node-ip-address=HEAD_IP
+   export RLINF_NODE_RANK=0
+   ray stop --force
+   ray start --head --port=6379 --node-ip-address=HEAD_IP
 
 Node ``1``:
 
 .. code-block:: bash
 
-	export RLINF_NODE_RANK=1
-	ray stop --force
-	ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
+   export RLINF_NODE_RANK=1
+   ray stop --force
+   ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
 
 Run a smoke test
 ----------------
@@ -95,10 +104,9 @@ Task ``0`` tests conservative single-arm analytic motion and gripper primitives:
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --robot dual_franka --task-id 0 \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/dual_franka/config/example.yaml \
-	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
+   uv run --extra franka rpent --robot dual_franka --task-id 0 \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/dual_franka/config/example.yaml
 
 RPent starts ``robots/dual_franka/env_server.py`` with the current interpreter,
 loads the RPent robot config, generates the internal RLinf adapter config,
@@ -116,21 +124,20 @@ statistics:
 
 .. code-block:: bash
 
-	export PI05_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
-	export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
+   export PI05_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
+   export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
 
-	uv run --extra franka rpent --robot dual_franka --task-id 1 \
-	  --cuda-device 0 \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/dual_franka/config/example.yaml \
-	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
+   uv run --extra franka rpent --robot dual_franka --task-id 1 \
+     --cuda-device 0 \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/dual_franka/config/example.yaml
 
 The checkpoint must contain:
 
 .. code-block:: text
 
-	actor/model_state_dict/full_weights.pt
-	<DUAL_FRANKA_REPO_ID>/norm_stats.json
+   actor/model_state_dict/full_weights.pt
+   <DUAL_FRANKA_REPO_ID>/norm_stats.json
 
 **Pretrained checkpoint**
 
@@ -142,11 +149,11 @@ Download it, point ``PI05_CHECKPOINT_PATH`` at the downloaded directory, and set
 
 .. code-block:: bash
 
-	modelscope download \
-	  --model Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000 \
-	  --local_dir /path/to/pi05-dualfranka-clean-desk
+   modelscope download \
+     --model Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000 \
+     --local_dir /path/to/pi05-dualfranka-clean-desk
 
-	export PI05_CHECKPOINT_PATH=/path/to/pi05-dualfranka-clean-desk
+   export PI05_CHECKPOINT_PATH=/path/to/pi05-dualfranka-clean-desk
 
 .. warning::
 
@@ -166,10 +173,10 @@ To run the VLA service separately:
 
 .. code-block:: bash
 
-	uv run --extra franka python -m robots.dual_franka.vla_server \
-	  --model-path /path/to/checkpoints/global_step_N \
-	  --repo-id org/dual-franka-tcp-rot6d \
-	  --cuda-device 0 --transport http --host 0.0.0.0 --port 6000
+   uv run --extra franka python -m robots.dual_franka.vla_server \
+     --model-path /path/to/checkpoints/global_step_N \
+     --repo-id org/dual-franka-tcp-rot6d \
+     --cuda-device 0 --transport http --host 0.0.0.0 --port 6000
 
 Then pass ``--vla-endpoint http://VLA_HOST:6000`` to ``rpent``. An external
 endpoint always takes precedence over local auto-start.
@@ -181,11 +188,10 @@ To attach RPent to an already-running dual-Franka environment service:
 
 .. code-block:: bash
 
-	uv run --extra franka rpent --robot dual_franka --task-id 0 \
-	  --env-endpoint http://ROBOT_HOST:PORT \
-	  --planner claude_code --model claude-opus-4-8 \
-	  --robot-config robots/dual_franka/config/example.yaml \
-	  --calibration-path ~/.ros/easy_handeye/hand_eye_calibration.json
+   uv run --extra franka rpent --robot dual_franka --task-id 0 \
+     --env-endpoint http://ROBOT_HOST:PORT \
+     --planner claude_code --model claude-opus-4-8 \
+     --robot-config robots/dual_franka/config/example.yaml
 
 Tools and artifacts
 -------------------
