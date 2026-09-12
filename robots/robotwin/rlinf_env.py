@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 import numpy as np
+import torch
 from rlinf.envs.robotwin.robotwin_env import RoboTwinEnv
 
 from robots.robotwin.robot_spec import RoboTwinActionType
@@ -69,6 +70,30 @@ def _execution_should_stop(status: dict[str, Any]) -> bool:
 
 class RoboTwinAgentEnv(RoboTwinEnv):
     """RPent/agent runtime extension; preserves training RoboTwinEnv unchanged."""
+
+    def _init_reset_state_ids(self) -> None:
+        """Use requested seeds for the native vector env's language prewalk.
+
+        RoboTwin generates task language while constructing ``VectorEnv``, before
+        the facade performs its explicit reset.  Both stages must use the same seed.
+        """
+        initial_env_seeds = self.cfg.get("initial_env_seeds", None)
+        if initial_env_seeds is None:
+            super()._init_reset_state_ids()
+            return
+
+        seeds = [int(seed) for seed in initial_env_seeds]
+        if len(seeds) != self.num_envs:
+            raise ValueError(
+                "initial_env_seeds must contain one seed per RoboTwin environment: "
+                f"expected {self.num_envs}, got {len(seeds)}"
+            )
+
+        self.success_seeds = None
+        self._current_seed_index = 0
+        self._generator = torch.Generator()
+        self._generator.manual_seed(self.seed)
+        self.reset_state_ids = torch.as_tensor(seeds, dtype=torch.long)
 
     @staticmethod
     def _initialize_native_evaluator_state(task: Any) -> None:
