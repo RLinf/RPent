@@ -1,0 +1,105 @@
+name: Embodied GPU E2E run
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        required: true
+        type: string
+      revision:
+        required: true
+        type: string
+      scope:
+        required: true
+        type: string
+      target:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  gpu-suite:
+    runs-on: embodied
+    timeout-minutes: 180
+    concurrency:
+      group: robot-gpu-${{ inputs.scope }}-${{ inputs.target }}
+      cancel-in-progress: true
+    env:
+      CUDA_VISIBLE_DEVICES: "0"
+      MUJOCO_GL: egl
+      PYOPENGL_PLATFORM: egl
+
+      # Shared install policy used by RLinf's NVIDIA embodied runner.
+      UV_CACHE_DIR: /workspace/dataset/.uv_cache
+      UV_LINK_MODE: symlink
+      UV_PYTHON_INSTALL_DIR: /workspace/dataset/.uv_python
+      UV_TORCH_BACKEND: auto
+
+      # Runner resources under the shared /workspace/dataset mount.
+      #
+      # LIBERO-PRO
+      PI05_CHECKPOINT_PATH: /workspace/dataset/RLinf-Pi05-LIBERO-130-fullshot-SFT
+      LIBERO_PRO_ASSET_PATH: /workspace/dataset/LIBERO-PRO/liberopro/liberopro/assets
+      SAM3_CHECKPOINT_PATH: /workspace/dataset/rpent/sam3/sam3.pt
+      #
+      # RoboCasa
+      RLDX_MODEL_PATH: /workspace/dataset/RLDX-1-FT-RC365
+      ROBOCASA_ASSETS_PATH: /workspace/dataset/robocasa365_assets
+      #
+      # RoboTwin
+      ROBOTWIN_ASSETS_PATH: /workspace/dataset/RoboTwin
+      LINGBOT_MODEL_PATH: /workspace/dataset/rpent/LingBot-VLA-RoboTwin-EEF-ckpt1500
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: false
+
+      - name: Run selected GPU suite
+        timeout-minutes: 165
+        shell: bash
+        env:
+          RPENT_INSTALL_TIMEOUT: 45m
+          RPENT_TEST_TIMEOUT: 45m
+          RPENT_GPU_PYTEST_TIMEOUT_SECONDS: "1200"
+        run: |
+          uv cache dir
+          uv python dir
+          bash tests/e2e_tests/run_gpu_suite.sh \
+            "${{ inputs.target }}" \
+            "$RUNNER_TEMP/rpent-gpu-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            "$RUNNER_TEMP/rpent-venvs-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+
+      - name: Print server logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          output_dir="$RUNNER_TEMP/rpent-gpu-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          if [[ -d "$output_dir" ]]; then
+            while IFS= read -r -d '' log_path; do
+              echo "::group::${log_path#"$output_dir"/}"
+              cat "$log_path"
+              echo "::endgroup::"
+            done < <(find "$output_dir" -type f -name '*server.log' -print0)
+          fi
+
+      - name: Clean up
+        if: always()
+        shell: bash
+        run: |
+          for path in \
+            "$RUNNER_TEMP/rpent-gpu-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            "$RUNNER_TEMP/rpent-venvs-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"; do
+            if [[ -d "$path" ]]; then
+              find "$path" -depth -delete
+            fi
+          done

@@ -43,10 +43,10 @@ For networks closer to Chinese mirrors:
 
 .. note::
 
-   ``.[robotwin]`` currently installs several dependencies from fixed Git
-   commits, so the installation needs access to GitHub even when a PyPI mirror
-   is configured. These will be replaced by released package versions after
-   publication.
+   The RoboTwin and LingBot runtimes in ``.[robotwin]`` are installed from
+   released PyPI packages. cuRobo is still built from a GitHub official tag,
+   so the installation needs access to GitHub even when a PyPI mirror is
+   configured.
 
 Download assets
 ---------------

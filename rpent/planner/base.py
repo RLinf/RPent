@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 import queue
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.interaction import DashboardInteractionPort
@@ -28,6 +28,9 @@ from rpent.utils.config import (
     get_memory_dir,
     get_repo_root,
 )
+
+if TYPE_CHECKING:
+    from pydantic_ai.models import Model
 
 #: MCP namespace prefix for RPent tools (``mcp__<server>__<tool>``).
 #: Toolkits expose plain tool names; planners add/strip this prefix.
@@ -114,6 +117,54 @@ class Planner(Protocol):
 # ---------------------------------------------------------------------------
 
 
+def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
+    """Resolve the pydantic-ai model used by the ``api`` planner.
+
+    This is the single provider-resolution path: both :func:`build_planner`
+    and the connectivity check in :mod:`rpent.planner.check` call it, so a
+    passing check constructs the same model a real run will.
+
+    The API key is always read from the provider's own env vars (e.g.
+    ``ANTHROPIC_API_KEY``, ``OPENAI_API_KEY``). When ``base_url`` is given it
+    overrides the provider's base URL env var (e.g. ``ANTHROPIC_BASE_URL`` /
+    ``OPENAI_BASE_URL``).
+
+    Args:
+        model: Provider-prefixed model id, e.g. ``anthropic:claude-opus-4-8``.
+        base_url: Base URL overriding the provider's own env var.
+
+    Returns:
+        The resolved pydantic-ai ``Model``.
+
+    Raises:
+        ValueError: If ``model`` is empty.
+    """
+    if not model:
+        raise ValueError(
+            "the 'api' planner requires a model id; pass --model with a "
+            "provider prefix (e.g. 'anthropic:claude-opus-4-8', "
+            "'openai:gpt-5.5', 'openai-chat:glm-5.2')."
+        )
+
+    import inspect
+
+    from pydantic_ai.models import infer_model
+    from pydantic_ai.providers import infer_provider, infer_provider_class
+
+    def _provider_factory(provider_name: str):
+        """Build the provider for ``provider_name``."""
+        if not base_url:
+            return infer_provider(provider_name)
+        provider_cls = infer_provider_class(provider_name)
+        params = inspect.signature(provider_cls.__init__).parameters
+        kwargs = {}
+        if "base_url" in params:
+            kwargs["base_url"] = base_url
+        return provider_cls(**kwargs)
+
+    return infer_model(model, provider_factory=_provider_factory)
+
+
 def build_planner(
     planner_type: str,
     *,
@@ -134,38 +185,9 @@ def build_planner(
     # codex all import from this module (PlannerResult).
 
     if planner_type == "api":
-        if not model:
-            raise ValueError(
-                "the 'api' planner requires a model id; pass --model with a "
-                "provider prefix (e.g. 'anthropic:claude-opus-4-8', "
-                "'openai:gpt-5.5', 'openai-chat:glm-5.2')."
-            )
-
-        import inspect
-
-        from pydantic_ai.models import infer_model
-        from pydantic_ai.providers import infer_provider, infer_provider_class
-
         from rpent.planner.api_loop import ApiAgentLoop
 
-        def _provider_factory(provider_name: str):
-            """Build the provider for ``provider_name``.
-
-            The API key is always read from the provider's own env vars
-            (e.g. ``ANTHROPIC_API_KEY``, ``OPENAI_API_KEY``). When
-            ``base_url`` is given it overrides the provider's base URL env
-            var (e.g. ``ANTHROPIC_BASE_URL`` / ``OPENAI_BASE_URL``).
-            """
-            if not base_url:
-                return infer_provider(provider_name)
-            provider_cls = infer_provider_class(provider_name)
-            params = inspect.signature(provider_cls.__init__).parameters
-            kwargs = {}
-            if "base_url" in params:
-                kwargs["base_url"] = base_url
-            return provider_cls(**kwargs)
-
-        api_model = infer_model(model, provider_factory=_provider_factory)
+        api_model = build_api_model(model, base_url)
         api_timeout_s = planner_timeout_s
         if api_timeout_s is None:
             api_timeout_s = int(os.environ.get("CELL_TIMEOUT_S", "1200"))

@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -554,3 +555,219 @@ def test_interrupt_attempts_both_turn_and_codex_cleanup() -> None:
     _interrupt({"turn": Turn(), "codex": Codex()})
 
     assert events == ["turn-interrupt", "codex-close"]
+
+
+# ---------------------------------------------------------------------------
+# Connectivity probe: SDK turn-consumption contract
+# ---------------------------------------------------------------------------
+
+
+def test_turn_handle_is_not_iterable_and_exposes_run_and_stream() -> None:
+    """Pin the SDK contract the probe got wrong.
+
+    ``thread.turn(...)`` returns a ``TurnHandle``. It is NOT iterable: the only
+    two ways to consume one are ``.stream()`` (an event iterator, used by the
+    planner) and ``.run()`` (blocking, returns a ``TurnResult``, used by the
+    probe). Iterating the handle itself raises
+    ``TypeError: 'TurnHandle' object is not iterable``.
+    """
+    from openai_codex import TurnHandle
+
+    assert callable(TurnHandle.run)
+    assert callable(TurnHandle.stream)
+    assert not hasattr(TurnHandle, "__iter__")
+    assert not hasattr(TurnHandle, "__aiter__")
+
+
+def test_turn_result_carries_the_fields_the_probe_reads() -> None:
+    from openai_codex import TurnResult
+
+    annotations = TurnResult.__annotations__
+    for field in ("status", "error", "final_response"):
+        assert field in annotations, f"TurnResult lost {field!r}"
+
+
+class FakeProbeTurn:
+    """A turn handle shaped like the real one: run/stream, never iterable."""
+
+    def __init__(
+        self,
+        result: Any = None,
+        *,
+        blocks: threading.Event | None = None,
+        raises: Exception | None = None,
+    ) -> None:
+        self.result = result
+        self.blocks = blocks
+        self.raises = raises
+        self.interrupt_calls = 0
+
+    def run(self) -> Any:
+        if self.raises is not None:
+            raise self.raises
+        if self.blocks is not None:
+            self.blocks.wait(timeout=10)
+        return self.result
+
+    def stream(self):
+        raise AssertionError("the probe must use run(), not stream()")
+
+    def interrupt(self) -> None:
+        self.interrupt_calls += 1
+
+
+class FakeProbeCodex:
+    """Minimal Codex session double for the probe path."""
+
+    instances: list[FakeProbeCodex] = []
+    turn_factory: Any = None
+
+    def __init__(self, config: Any) -> None:
+        self.config = config
+        self.closed = False
+        self.thread_options: dict[str, Any] = {}
+        self.turn_prompts: list[tuple[str, dict[str, Any]]] = []
+        self.fake_turn = type(self).turn_factory()
+        FakeProbeCodex.instances.append(self)
+
+    def __enter__(self) -> FakeProbeCodex:
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self.closed = True
+
+    def close(self) -> None:
+        self.closed = True
+
+    def thread_start(self, **options: Any) -> FakeProbeCodex:
+        self.thread_options = options
+        return self
+
+    def turn(self, prompt: str, **options: Any) -> FakeProbeTurn:
+        self.turn_prompts.append((prompt, options))
+        return self.fake_turn
+
+
+@pytest.fixture
+def probe_codex(monkeypatch: pytest.MonkeyPatch):
+    """Install FakeProbeCodex and hand back its instance list."""
+    FakeProbeCodex.instances = []
+
+    def _install(turn_factory: Any) -> list[FakeProbeCodex]:
+        FakeProbeCodex.turn_factory = turn_factory
+        monkeypatch.setattr(codex_module.openai_codex, "Codex", FakeProbeCodex)
+        return FakeProbeCodex.instances
+
+    return _install
+
+
+def test_probe_consumes_the_turn_with_run_and_returns_final_response(
+    probe_codex: Any,
+) -> None:
+    result = SimpleNamespace(status="completed", error=None, final_response="ok")
+    instances = probe_codex(lambda: FakeProbeTurn(result))
+
+    reply = codex_module.run_probe_turn(
+        object(), prompt="ping", model="gpt-5.5", timeout_s=30
+    )
+
+    assert reply == "ok"
+    codex = instances[0]
+    assert codex.turn_prompts[0][0] == "ping"
+    assert codex.thread_options["model"] == "gpt-5.5"
+    assert codex.closed is True
+
+
+def test_probe_omits_model_when_none_so_the_sdk_default_applies(
+    probe_codex: Any,
+) -> None:
+    result = SimpleNamespace(status="completed", error=None, final_response="ok")
+    instances = probe_codex(lambda: FakeProbeTurn(result))
+
+    codex_module.run_probe_turn(object(), prompt="ping", model=None, timeout_s=30)
+
+    assert "model" not in instances[0].thread_options
+
+
+def test_probe_runs_read_only_and_denies_approvals(probe_codex: Any) -> None:
+    result = SimpleNamespace(status="completed", error=None, final_response="ok")
+    instances = probe_codex(lambda: FakeProbeTurn(result))
+
+    codex_module.run_probe_turn(object(), prompt="ping", model=None, timeout_s=30)
+
+    options = instances[0].thread_options
+    assert options["approval_mode"] is codex_module.openai_codex.ApprovalMode.deny_all
+    assert options["sandbox"] is codex_module.openai_codex.Sandbox.read_only
+
+
+def test_probe_config_attaches_no_mcp_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CODEX_BASE_URL", raising=False)
+    monkeypatch.delenv("CODEX_API_KEY", raising=False)
+
+    overrides = _codex_mcp_config_overrides(mcp_url=None, base_url=None)
+
+    assert overrides == []
+    assert not any("mcp_servers" in entry for entry in overrides)
+
+
+def test_probe_config_keeps_the_provider_override_without_mcp() -> None:
+    overrides = _codex_mcp_config_overrides(mcp_url=None, base_url="https://gw.example")
+
+    assert not any("mcp_servers" in entry for entry in overrides)
+    assert any("model_providers" in entry for entry in overrides)
+
+
+def test_probe_timeout_interrupts_the_turn_and_closes_the_session(
+    probe_codex: Any,
+) -> None:
+    release = threading.Event()
+    turns: list[FakeProbeTurn] = []
+
+    def factory() -> FakeProbeTurn:
+        turn = FakeProbeTurn(None, blocks=release)
+        turns.append(turn)
+        return turn
+
+    instances = probe_codex(factory)
+    try:
+        with pytest.raises(TimeoutError) as excinfo:
+            codex_module.run_probe_turn(
+                object(), prompt="ping", model=None, timeout_s=1
+            )
+        assert "1s" in str(excinfo.value)
+        assert turns[0].interrupt_calls == 1
+        assert instances[0].closed is True
+    finally:
+        release.set()
+
+
+def test_probe_raises_when_the_turn_status_is_failed(probe_codex: Any) -> None:
+    result = SimpleNamespace(
+        status="failed",
+        error=SimpleNamespace(message="model provider rejected the request"),
+        final_response=None,
+    )
+    probe_codex(lambda: FakeProbeTurn(result))
+
+    with pytest.raises(RuntimeError, match="model provider rejected"):
+        codex_module.run_probe_turn(object(), prompt="ping", model=None, timeout_s=30)
+
+
+def test_probe_propagates_sdk_exceptions_for_classification(probe_codex: Any) -> None:
+    probe_codex(lambda: FakeProbeTurn(raises=RuntimeError("401 Unauthorized")))
+
+    with pytest.raises(RuntimeError, match="401 Unauthorized"):
+        codex_module.run_probe_turn(object(), prompt="ping", model=None, timeout_s=30)
+
+
+def test_probe_returns_empty_string_when_the_model_said_nothing(
+    probe_codex: Any,
+) -> None:
+    result = SimpleNamespace(status="completed", error=None, final_response=None)
+    probe_codex(lambda: FakeProbeTurn(result))
+
+    reply = codex_module.run_probe_turn(
+        object(), prompt="ping", model=None, timeout_s=30
+    )
+
+    assert reply == ""

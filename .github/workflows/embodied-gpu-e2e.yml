@@ -1,0 +1,123 @@
+name: Embodied GPU E2E
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Robot stack to test
+        required: true
+        type: choice
+        options:
+          - libero-pro
+          - robocasa
+          - robotwin
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  manual:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/embodied-gpu-e2e-run.yml
+    with:
+      repository: ${{ github.repository }}
+      revision: ${{ github.sha }}
+      scope: manual-${{ github.sha }}
+      target: ${{ inputs.target }}
+
+  comment-request:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+      contains(fromJSON('["/ci-libero-pro", "/ci-robocasa", "/ci-robotwin"]'), github.event.comment.body)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    outputs:
+      repository: ${{ steps.resolve.outputs.repository }}
+      revision: ${{ steps.resolve.outputs.revision }}
+      scope: ${{ steps.resolve.outputs.scope }}
+      target: ${{ steps.resolve.outputs.target }}
+      comment_id: ${{ steps.reply.outputs.comment_id }}
+    steps:
+      - name: Resolve pull request head
+        id: resolve
+        shell: bash
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t head < <(
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+              --jq '.head.repo.full_name, .head.sha'
+          )
+          [[ ${#head[@]} -eq 2 && -n "${head[0]}" && -n "${head[1]}" ]]
+
+          {
+            echo "repository=${head[0]}"
+            echo "revision=${head[1]}"
+            echo "scope=pr-$PR_NUMBER"
+            echo "target=${COMMENT_BODY#/ci-}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Reply with run link
+        id: reply
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          TARGET: ${{ steps.resolve.outputs.target }}
+          REVISION: ${{ steps.resolve.outputs.revision }}
+        run: |
+          body_file=$(mktemp "$RUNNER_TEMP/rpent-ci-reply.XXXXXX")
+          trap 'rm -f "$body_file"' EXIT
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+          printf 'Accepted **%s GPU E2E** for commit `%s`.\n\n[View status and logs](%s)\n' \
+            "$TARGET" "$REVISION" "$run_url" > "$body_file"
+          comment_id=$(gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --field "body=@$body_file" --jq '.id')
+          echo "comment_id=$comment_id" >> "$GITHUB_OUTPUT"
+
+  comment:
+    needs: comment-request
+    uses: ./.github/workflows/embodied-gpu-e2e-run.yml
+    with:
+      repository: ${{ needs.comment-request.outputs.repository }}
+      revision: ${{ needs.comment-request.outputs.revision }}
+      scope: ${{ needs.comment-request.outputs.scope }}
+      target: ${{ needs.comment-request.outputs.target }}
+
+  comment-result:
+    needs: [comment-request, comment]
+    if: always() && needs.comment-request.outputs.comment_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Update reply with result
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_ID: ${{ needs.comment-request.outputs.comment_id }}
+          TARGET: ${{ needs.comment-request.outputs.target }}
+          REVISION: ${{ needs.comment-request.outputs.revision }}
+          RESULT: ${{ needs.comment.result }}
+        run: |
+          body_file=$(mktemp "$RUNNER_TEMP/rpent-ci-reply.XXXXXX")
+          trap 'rm -f "$body_file"' EXIT
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+          printf '**%s GPU E2E: %s** for commit `%s`.\n\n[View status and logs](%s)\n' \
+            "$TARGET" "$RESULT" "$REVISION" "$run_url" > "$body_file"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+            --field "body=@$body_file" --silent

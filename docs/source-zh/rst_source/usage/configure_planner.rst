@@ -130,6 +130,37 @@ RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
   ``CODEX_API_KEY``；这里不读取 ``OPENAI_BASE_URL`` 或
   ``OPENAI_API_KEY``。
 
+.. _planner-check:
+
+验证你的配置
+------------
+
+一次完整运行会先启动 env server、VLA server 并同步 memory 语料，之后才
+会真正调用模型；因此一个写错的 API key 往往要等数分钟启动之后才暴露。
+``rpent-check-llm`` 会向所选后端发出它支持的最小真实请求——不带工具、
+不带图像、不启动任何机器人运行时——并报告结果：
+
+.. code-block:: bash
+
+   rpent-check-llm --planner api --model anthropic:claude-opus-4-8
+   rpent-check-llm --planner claude_code
+   rpent-check-llm --planner codex --json
+
+成功时退出码为 ``0``，任何失败为 ``1``，并将失败归类为
+``missing_config``、``unsupported_provider``、``missing_api_key``、
+``auth_failed``、``network_error``、``provider_error``、``sdk_error``
+之一。脚本与 CI 建议使用 ``--json``。``--base-url`` 覆盖后端端点，
+``--timeout-s`` 覆盖诊断超时（``api`` 为 30 秒，两个 SDK 后端为 90 秒；
+运行时的 ``1200`` 秒默认值不会被复用）。
+
+Dashboard 提供同一项检查：启动页的 **测试连接** 按钮会针对表单中当前
+选定的 planner 与模型执行检查，因此你测试的配置与 **启动 Session** 将
+要使用的配置完全一致。两个前端调用的是 ``rpent.planner.check`` 中的同
+一份实现。
+
+检查通过只能证明认证与网络可达。它并不能证明模型会接受图像块
+（参见 ``--no-images``）、你的工具 schema，或你的上下文长度。
+
 .. _planner-custom:
 
 接入自定义 planner

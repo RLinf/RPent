@@ -246,6 +246,47 @@ def test_shared_cli_validation_stops_before_robot_runtime(
     assert parse_called is False
 
 
+@pytest.mark.parametrize(
+    ("planner", "env_var"),
+    [("claude_code", "ANTHROPIC_BASE_URL"), ("codex", "CODEX_BASE_URL")],
+)
+def test_run_cli_rejects_base_url_for_the_backends_that_ignore_it(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    planner: str,
+    env_var: str,
+) -> None:
+    """build_planner forwards base_url to the api model alone.
+
+    Accepting the flag for these two would drop it without a word, which is
+    how a run ends up talking to an endpoint the user thought they had
+    overridden.
+    """
+    cli = _cli_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--suite",
+            "libero_object",
+            "--task",
+            "0",
+            "--planner",
+            planner,
+            "--base-url",
+            "https://gateway.example",
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    assert env_var in capsys.readouterr().err
+
+
 def test_transcript_serialization_strips_nested_images_without_mutating_input() -> None:
     cli = _cli_module()
     messages = [
