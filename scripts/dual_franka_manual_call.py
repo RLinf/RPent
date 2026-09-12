@@ -78,6 +78,10 @@ def _manual_primitive_names() -> set[str]:
     return set(_tool_spec_map(include_manual=True))
 
 
+_VLA_PRIMITIVES = {"vla_right_grasp", "vla_handoff", "vla_left_place"}
+_SAM3_PRIMITIVES = {"segment"}
+
+
 def _example_value(schema: dict[str, Any], name: str) -> Any:
     if "default" in schema:
         return schema["default"]
@@ -313,29 +317,49 @@ def _call_readonly_tool(
     primitives: DualFrankaPrimitives,
     state: EnvState,
     sam3_client: Sam3Client | None,
+    dump_state_enabled: bool,
 ) -> dict[str, Any]:
     if primitive == "describe_dual_franka_setup":
         return primitives.describe_dual_franka_setup()
     if primitive == "view_env_state":
-        dump_state(
-            primitives,
-            state,
-            command={"action": "view_env_state", "params": params},
-            result=None,
-            elapsed_s=None,
-        )
-        return view_env_state(state=state, **params)
+        if dump_state_enabled:
+            dump_state(
+                primitives,
+                state,
+                command={"action": "view_env_state", "params": params},
+                result=None,
+                elapsed_s=None,
+            )
+            return view_env_state(state=state, **params)
+        return {
+            "step_idx": None,
+            "state": primitives.env.get_robot_state(),
+            "camera_meta": primitives.env.get_camera_meta() or {},
+            "images": [],
+            "artifact_images": [],
+            "note": (
+                "--no-dump-state skips observation/image capture; omit it to "
+                "record camera artifacts for view_env_state/back_project/segment."
+            ),
+        }
     if primitive == "view_camera_meta":
-        dump_state(
-            primitives,
-            state,
-            command={"action": "view_camera_meta", "params": params},
-            result=None,
-            elapsed_s=None,
-        )
-        return view_camera_meta(state=state, **params)
+        if dump_state_enabled:
+            dump_state(
+                primitives,
+                state,
+                command={"action": "view_camera_meta", "params": params},
+                result=None,
+                elapsed_s=None,
+            )
+            return view_camera_meta(state=state, **params)
+        return {"step": None, "camera_meta": primitives.env.get_camera_meta() or {}}
     if primitive == "back_project":
         if state.latest_step is None:
+            if not dump_state_enabled:
+                raise RuntimeError(
+                    "back_project requires a recorded RGBD snapshot; omit "
+                    "--no-dump-state so the manual tool can capture one first."
+                )
             dump_state(
                 primitives,
                 state,
@@ -346,6 +370,11 @@ def _call_readonly_tool(
         return dual_franka_perception.back_project(state=state, **params)
     if primitive == "segment":
         if state.latest_step is None:
+            if not dump_state_enabled:
+                raise RuntimeError(
+                    "segment requires a recorded RGBD snapshot; omit "
+                    "--no-dump-state so the manual tool can capture one first."
+                )
             dump_state(
                 primitives,
                 state,
@@ -412,15 +441,18 @@ def main() -> int:
         wait_for_ready(env_rpc, timeout_s=min(args.timeout_s, 60.0))
     env = ManualDualFrankaEnv(args.env_endpoint)
 
+    needs_vla = primitive in _VLA_PRIMITIVES
+    needs_sam3 = primitive in _SAM3_PRIMITIVES
+
     model = None
-    if args.vla_endpoint:
+    if args.vla_endpoint and needs_vla:
         vla_rpc = make_rpc_client(args.vla_endpoint)
         if not args.no_ready_check:
             wait_for_ready(vla_rpc, timeout_s=min(args.timeout_s, 60.0))
         model = Pi05VLAClient(vla_rpc, embodiment="dual_franka")
 
     sam3_client = None
-    if args.sam3_endpoint:
+    if args.sam3_endpoint and needs_sam3:
         sam3_rpc = make_rpc_client(args.sam3_endpoint)
         if not args.no_ready_check:
             wait_for_ready(sam3_rpc, timeout_s=min(args.timeout_s, 60.0))
@@ -451,6 +483,7 @@ def main() -> int:
                 primitives=primitives,
                 state=state,
                 sam3_client=sam3_client,
+                dump_state_enabled=not args.no_dump_state,
             )
         else:
             result = _call_mutating_primitive(
