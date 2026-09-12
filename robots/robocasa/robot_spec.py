@@ -219,6 +219,11 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="RLDX checkpoint path for locally spawned vla_server",
     )
     parser.add_argument(
+        "--vla-backbone-revision",
+        default=None,
+        help="Hub revision for RLDX backbone config/tokenizer (local VLA only)",
+    )
+    parser.add_argument(
         "--cuda-device",
         type=int,
         default=None,
@@ -230,6 +235,13 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     """Validate final ``args`` and derive per-run identifiers."""
     if not args.task_name:
         raise ValueError("--task-name is required")
+    if getattr(args, "vla_endpoint", None) and getattr(
+        args, "vla_backbone_revision", None
+    ):
+        raise ValueError(
+            "--vla-backbone-revision configures a local VLA worker; "
+            "set --backbone-revision on the external VLA server instead"
+        )
 
     memory_arg = getattr(args, "memory_dir", None)
     memory_dir = (
@@ -336,6 +348,11 @@ def _spawn_vla_server(
                 str(get_repo_root() / "robots" / "robocasa" / "vla_server.py"),
                 "--model-path",
                 args.vla_model_path,
+                *(
+                    ["--backbone-revision", args.vla_backbone_revision]
+                    if getattr(args, "vla_backbone_revision", None) is not None
+                    else []
+                ),
                 "--transport",
                 "http",
                 "--host",
