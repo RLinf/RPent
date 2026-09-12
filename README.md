@@ -27,6 +27,12 @@
   <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_framework.png" alt="RPent framework"/>
 </div>
 
+## Benchmark Results
+
+Compare RPent with reference methods on LIBERO, LIBERO-PRO, RoboCasa365 Target50, and RoboTwin C2R. Rankings apply to the methods and evaluation coverage shown; see [Benchmark Results](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html) for detailed results, configurations, and sources.
+
+[![RPent success-rate comparisons across six benchmark panels](docs/_static/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html)
+
 ## Who Should Consider Using RPent?
 
 RPent is built for four kinds of users:

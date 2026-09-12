@@ -3,13 +3,92 @@
 Benchmark Results
 =================
 
-Compare RPent success rates across planner models for the same evaluation item.
-Each row is a suite, perturbation, or split, with the same model order in every
-results table. Evaluation settings and versioned sources are collected below.
+Compare RPent success rates with selected reference methods across simulation benchmarks.
+
+.. _benchmark-leaderboard:
+
+Leaderboard
+-----------
+
+Each panel ranks results within one evaluation setting. Purple denotes RPent;
+gray denotes external reference methods.
+
+.. raw:: html
+
+   <div class="rpent-leaderboard-legend" aria-label="Chart legend">
+     <span><i class="rpent-legend-swatch rpent-legend-rpent" aria-hidden="true"></i>RPent configurations</span>
+     <span><i class="rpent-legend-swatch rpent-legend-reference" aria-hidden="true"></i>Selected external baselines</span>
+   </div>
+   <div class="rpent-leaderboard-grid">
+     <figure class="rpent-leaderboard-panel" data-benchmark="standard-libero">
+       <img class="rpent-chart-light" src="../_static/benchmarks/standard-libero-en-light.svg"
+            alt="Standard LIBERO Overall, success rates: AtomVLA 97.0%; RPent Opus-4.8 max 96.0%; π_RLinf 95.3%; π0 94.2%; OpenVLA 76.5%." />
+       <img class="rpent-chart-dark" src="../_static/benchmarks/standard-libero-en-dark.svg"
+            alt="Standard LIBERO Overall, success rates: AtomVLA 97.0%; RPent Opus-4.8 max 96.0%; π_RLinf 95.3%; π0 94.2%; OpenVLA 76.5%." />
+       <figcaption><a href="#benchmark-source-p2">Standard LIBERO Overall: results and evaluation details</a></figcaption>
+     </figure>
+     <figure class="rpent-leaderboard-panel" data-benchmark="libero-pro">
+       <img class="rpent-chart-light" src="../_static/benchmarks/libero-pro-en-light.svg"
+            alt="LIBERO-PRO Overall, success rates: RPent Opus-4.8 max 82.4%; RPent GPT-5.5 xhigh 72.1%; π_RLinf 50.0%; π0.5 11.0%; AtomVLA 6.3%." />
+       <img class="rpent-chart-dark" src="../_static/benchmarks/libero-pro-en-dark.svg"
+            alt="LIBERO-PRO Overall, success rates: RPent Opus-4.8 max 82.4%; RPent GPT-5.5 xhigh 72.1%; π_RLinf 50.0%; π0.5 11.0%; AtomVLA 6.3%." />
+       <figcaption><a href="#benchmark-source-p3">LIBERO-PRO Overall: results and evaluation details</a></figcaption>
+     </figure>
+     <figure class="rpent-leaderboard-panel" data-benchmark="robocasa">
+       <img class="rpent-chart-light" src="../_static/benchmarks/robocasa-en-light.svg"
+            alt="RoboCasa365 Target50 Overall, success rates: RPent GPT-5.5 xhigh 57.1%; RPent Opus-4.8 max 48.6%; WorldDreamer 35.3%; RLDX-1 30.0%; π0.5 16.9%." />
+       <img class="rpent-chart-dark" src="../_static/benchmarks/robocasa-en-dark.svg"
+            alt="RoboCasa365 Target50 Overall, success rates: RPent GPT-5.5 xhigh 57.1%; RPent Opus-4.8 max 48.6%; WorldDreamer 35.3%; RLDX-1 30.0%; π0.5 16.9%." />
+       <figcaption><a href="#benchmark-source-p4">RoboCasa365 Target50 Overall: results and evaluation details</a></figcaption>
+     </figure>
+     <figure class="rpent-leaderboard-panel" data-benchmark="robotwin">
+       <img class="rpent-chart-light" src="../_static/benchmarks/robotwin-en-light.svg"
+            alt="RoboTwin C2R, success rates: RPent Opus-4.8 max 58.4%; RPent GPT-5.5 xhigh 58.0%; LingBot-VLA 50.4%; π0.5 47.9%; GR00T-N1.7 20.7%." />
+       <img class="rpent-chart-dark" src="../_static/benchmarks/robotwin-en-dark.svg"
+            alt="RoboTwin C2R, success rates: RPent Opus-4.8 max 58.4%; RPent GPT-5.5 xhigh 58.0%; LingBot-VLA 50.4%; π0.5 47.9%; GR00T-N1.7 20.7%." />
+       <figcaption><a href="#benchmark-source-p6">RoboTwin C2R: results and evaluation details</a></figcaption>
+     </figure>
+     <figure class="rpent-leaderboard-panel" data-benchmark="long-task">
+       <img class="rpent-chart-light" src="../_static/benchmarks/long-task-en-light.svg"
+            alt="LIBERO-PRO Long Task, success rates: RPent GPT-6 Astra low 85%; RPent Opus-4.8 max 71%; RPent GPT-5.5 xhigh 52%." />
+       <img class="rpent-chart-dark" src="../_static/benchmarks/long-task-en-dark.svg"
+            alt="LIBERO-PRO Long Task, success rates: RPent GPT-6 Astra low 85%; RPent Opus-4.8 max 71%; RPent GPT-5.5 xhigh 52%." />
+       <figcaption><a href="#libero-pro-across-task-families">LIBERO-PRO Long Task: results and evaluation details</a></figcaption>
+     </figure>
+     <figure class="rpent-leaderboard-panel" data-benchmark="long-swap">
+       <img class="rpent-chart-light" src="../_static/benchmarks/long-swap-en-light.svg"
+            alt="LIBERO-PRO Long Swap, success rates: RPent GPT-6 Astra low 72%; RPent Opus-4.8 max 62%; RPent GPT-5.5 xhigh 49%." />
+       <img class="rpent-chart-dark" src="../_static/benchmarks/long-swap-en-dark.svg"
+            alt="LIBERO-PRO Long Swap, success rates: RPent GPT-6 Astra low 72%; RPent Opus-4.8 max 62%; RPent GPT-5.5 xhigh 49%." />
+       <figcaption><a href="#libero-pro-across-task-families">LIBERO-PRO Long Swap: results and evaluation details</a></figcaption>
+     </figure>
+   </div>
+
+Rankings apply to the coverage shown in each panel. Full results, model
+configurations, and protocols follow below.
+Unreported configurations have no bar. Long Task and Long Swap compare RPent
+planners and do not replace the full PRO Overall.
+
+.. _benchmark-demo:
+
+Demo
+----
+
+**RPent simulation demo: GPT-6 Astra versus GPT-5.6 xhigh, shown at 4× speed.**
+This is a separate demonstration from the GPT-5.5 evaluation records above.
+
+.. raw:: html
+
+   <video class="rpent-benchmark-video" controls playsinline preload="metadata"
+          poster="../_static/videos/demo-poster.jpg" width="2048" height="1024"
+          aria-label="RPent simulation demo: GPT-6 Astra versus GPT-5.6 xhigh, 4x speed">
+     <source src="../_static/videos/demo.mp4" type="video/mp4" />
+     <a href="../_static/videos/demo.mp4">Download the complete demo video</a>
+   </video>
+   <p class="rpent-demo-download"><a href="../_static/videos/demo.mp4" download>Download complete MP4 (about 24 seconds, 5.4 MiB)</a></p>
 
 ``Not reported`` means no result is available for that model and evaluation item;
-it is not a zero score. Results describe the listed configurations and coverage,
-without claiming a current benchmark-wide SOTA.
+it is not a zero score.
 
 .. _overview:
 
@@ -42,12 +121,53 @@ level. ``xhigh`` and ``max`` are provider-specific settings, not equivalent comp
 budgets. Experiment contributors confirmed the model identities, backend mappings,
 and reasoning settings.
 
+.. _libero-series:
+
+LIBERO series
+----------------
+
+Standard LIBERO
+~~~~~~~~~~~~~~~
+
+Standard LIBERO uses the original Spatial, Object, Goal, and Long suites
+without PRO perturbations. Its Long suite is standard LIBERO-10, evaluated
+separately from PRO Long Task/Swap below.
+
+.. list-table:: RPent success rates
+   :header-rows: 1
+   :widths: 31 23 23 23
+
+   * - Evaluation item
+     - GPT-5.5 / ``xhigh``
+     - Opus-4.8 / ``max``
+     - GPT-6 Astra / ``low``
+   * - Spatial
+     - Not reported
+     - 97.0%
+     - Not reported
+   * - Object
+     - Not reported
+     - 100.0%
+     - Not reported
+   * - Goal
+     - Not reported
+     - 94.0%
+     - Not reported
+   * - Long
+     - Not reported
+     - 93.0%
+     - Not reported
+   * - Overall
+     - Not reported
+     - 96.0% (384/400)
+     - Not reported
+
 .. _libero-pro-long:
 
 .. _libero-pro-across-task-families:
 
 LIBERO-PRO
-----------
+~~~~~~~~~~
 
 Task redirects instructions; Swap exchanges object positions. Overall covers
 all eight Task/Swap cells across Spatial, Object, Goal, and Long. Long-only results
@@ -98,12 +218,11 @@ do not define this aggregate.
      - 82.4%
      - Not reported
 
-Standard LIBERO
----------------
+LIBERO-PRO Goal: zero-shot
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Standard LIBERO uses the original Spatial, Object, Goal, and Long suites
-without PRO perturbations. Its Long suite is standard LIBERO-10, evaluated
-separately from PRO Long Task/Swap above.
+This ablation removes target-setting Task Specific Memory and Global Memory.
+Its results are separate from the memory-backed PRO results above.
 
 .. list-table:: RPent success rates
    :header-rows: 1
@@ -113,25 +232,13 @@ separately from PRO Long Task/Swap above.
      - GPT-5.5 / ``xhigh``
      - Opus-4.8 / ``max``
      - GPT-6 Astra / ``low``
-   * - Spatial
+   * - Goal Task
      - Not reported
-     - 97.0%
+     - 79.0%
      - Not reported
-   * - Object
+   * - Goal Swap
      - Not reported
-     - 100.0%
-     - Not reported
-   * - Goal
-     - Not reported
-     - 94.0%
-     - Not reported
-   * - Long
-     - Not reported
-     - 93.0%
-     - Not reported
-   * - Overall
-     - Not reported
-     - 96.0% (384/400)
+     - 31.0%
      - Not reported
 
 RoboCasa365 Target50
@@ -182,29 +289,6 @@ C2R evaluates transfer from the clean setting to the randomized setting.
    * - C2R
      - 58.0%
      - 58.4%
-     - Not reported
-
-LIBERO-PRO Goal: zero-shot
---------------------------
-
-This ablation removes target-setting Task Specific Memory and Global Memory.
-Its results are separate from the memory-backed PRO results above.
-
-.. list-table:: RPent success rates
-   :header-rows: 1
-   :widths: 31 23 23 23
-
-   * - Evaluation item
-     - GPT-5.5 / ``xhigh``
-     - Opus-4.8 / ``max``
-     - GPT-6 Astra / ``low``
-   * - Goal Task
-     - Not reported
-     - 79.0%
-     - Not reported
-   * - Goal Swap
-     - Not reported
-     - 31.0%
      - Not reported
 
 Baseline references

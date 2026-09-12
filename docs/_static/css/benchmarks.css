@@ -1,0 +1,80 @@
+.rpent-leaderboard-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin: 0.75rem 0 1.25rem;
+}
+
+.rpent-leaderboard-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rpent-legend-swatch {
+  display: inline-block;
+  width: 1.25rem;
+  height: 0.75rem;
+}
+
+.rpent-legend-rpent {
+  background: #7842b1;
+}
+
+.rpent-legend-reference {
+  background: #aeb7c6;
+}
+
+.rpent-leaderboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 1.5rem 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.rpent-leaderboard-panel {
+  min-width: 0;
+  margin: 0;
+}
+
+.rpent-leaderboard-panel img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.rpent-leaderboard-panel figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.rpent-leaderboard-panel .rpent-chart-dark {
+  display: none;
+}
+
+html[data-theme="dark"] .rpent-leaderboard-panel .rpent-chart-light {
+  display: none;
+}
+
+html[data-theme="dark"] .rpent-leaderboard-panel .rpent-chart-dark {
+  display: block;
+}
+
+/* Dark figures already provide their own contrast and should keep their palette. */
+html[data-theme="dark"] .rpent-leaderboard-panel img {
+  filter: none !important;
+}
+
+.rpent-benchmark-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 1;
+  background: #000;
+}
+
+.rpent-demo-download {
+  margin: 0.5rem 0 1.5rem;
+  font-size: 0.875rem;
+}
