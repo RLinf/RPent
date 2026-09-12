@@ -64,28 +64,27 @@ Run the complete suite with:
 pytest tests/unit_tests -v
 ```
 
-Real simulator checks live under `integration_tests` and are always opt-in;
-they are not part of the offline CI suite. For example, after installing the
-RoboCasa extra and assets, run its representative environment checks with:
+## RoboCasa environment smoke tests
+
+The opt-in RoboCasa smoke suite verifies simulator installation and environment
+interfaces without loading a planner or VLA checkpoint. Install the RoboCasa
+extra and assets, then run:
 
 ```bash
 RPENT_RUN_ROBOCASA_INTEGRATION=1 \
   pytest tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py -v
 ```
 
-The suite has four cases: `OpenDrawer`, `NavigateKitchen`, and
-`PickPlaceCounterToCabinet` at seed 1, plus a separate mobile-camera movement
-check. These cover articulated fixtures, navigation, and object placement using
-the shared environment interface. Each task checks construction/reset, the 12D
-action interface, operation cameras, navigation RGB-D/world map, the success
-predicate, and clean close. The camera regression checks pose and image changes
-after eight base steps.
+The four cases cover `OpenDrawer`, `NavigateKitchen`, and
+`PickPlaceCounterToCabinet` at seed 1, plus mobile-camera movement. Task checks
+verify construction/reset, 12D actions, operation cameras, navigation RGB-D/world
+map, the success predicate, and clean close. The camera check verifies pose and
+image changes after eight base steps.
 
-These are code and installation checks, not a full evaluation: repeated seeds
-and similar tasks are deliberately omitted. They do not invoke a planner or VLA
-model. The fast Target50 protocol tests still validate all 50 tasks and the
-340-cell manifest; benchmark reproduction remains a separate procedure described
-in the [RoboCasa usage documentation](../docs/source-en/rst_source/usage/robocasa.rst).
+See the RoboCasa usage guide in
+[English](../docs/source-en/rst_source/usage/robocasa.rst#environment-smoke-tests)
+or [Chinese](../docs/source-zh/rst_source/usage/robocasa.rst#environment-smoke-tests)
+for setup and test prerequisites.
 
 ## Embodied GPU E2E tests
 
