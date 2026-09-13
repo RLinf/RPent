@@ -75,6 +75,7 @@ def test_default_resources_sync_uses_robocasa_subtree(monkeypatch, tmp_path):
     assert calls == {
         "repo_id": "RLinf/RPent-memory",
         "repo_type": "dataset",
+        "revision": "551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b",
         "local_dir": str(tmp_path / "resources"),
         "allow_patterns": ["robocasa/**"],
     }

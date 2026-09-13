@@ -227,5 +227,5 @@ with one of that task's verified expert seeds. Before running, configure the
 RoboTwin assets and LingBot-VLA checkpoint as described earlier on this page.
 This reproduction branch pins RPent memory to revision
 ``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``. An episode counts as successful
-only when its latest ``TASK_ENV.eval_success`` value is true, not merely when
-the planner calls ``finish``.
+only if the final value of ``TASK_ENV.eval_success`` is ``true``; the planner's
+``finish`` call does not by itself indicate success.

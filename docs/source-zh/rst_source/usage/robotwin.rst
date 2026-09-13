@@ -206,5 +206,6 @@ task language 与最新 observation 始终优先，所有几何信息都必须�
 其中，``task`` 应替换为 ``demo_randomized.json`` 中的任务名，``seed`` 应替换为
 该任务对应的一个 verified expert seed。运行前请按前文配置 RoboTwin assets 和
 LingBot-VLA checkpoint；本分支已将 RPent memory 固定为 revision
-``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``。每个 episode 是否成功以最新的
-``TASK_ENV.eval_success`` 为准，不能仅根据规划器是否调用 ``finish`` 判断。
+``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``。每个 episode 仅在
+``TASK_ENV.eval_success`` 的最终值为 ``true`` 时计为成功；规划器调用 ``finish``
+本身不代表成功。
