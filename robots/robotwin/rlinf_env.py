@@ -298,6 +298,19 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         with sub_env.lock:
             return str(sub_env.task.get_instruction())
 
+    def set_task_language(self, instruction: str, env_id: int = 0) -> None:
+        """Bind an externally verified instruction to the current native scene."""
+        if not isinstance(instruction, str) or not instruction.strip():
+            raise ValueError("RoboTwin task instruction must be a non-empty string")
+        sub_env = self._sub_env(env_id)
+        with sub_env.lock:
+            # VectorEnv creates language metadata in a separate expert-prewalk
+            # scene. Keep every native instruction store aligned with the
+            # published language after the exact evaluation scene is reset.
+            sub_env.instruction = instruction
+            sub_env.args["instruction"] = instruction
+            sub_env.task.set_instruction(instruction)
+
     def _robot_state(self, sub_env: Any) -> dict[str, Any]:
         """Read the native robot state; the caller must hold ``sub_env.lock``."""
         robot = sub_env.task.robot
