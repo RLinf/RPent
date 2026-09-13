@@ -223,7 +223,7 @@ do not define this aggregate.
    * - Spatial Swap
      - 69.0%
      - 80.0%
-     - Not reported
+     - 98% (98/100)
    * - Object Task
      - 94.0%
      - 88.0%

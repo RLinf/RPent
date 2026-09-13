@@ -215,7 +215,7 @@ Task 为指令重定向，Swap 为位置交换。Overall 覆盖 Spatial、Object
    * - Spatial Swap
      - 69.0%
      - 80.0%
-     - 未报告
+     - 98% (98/100)
    * - Object Task
      - 94.0%
      - 88.0%
