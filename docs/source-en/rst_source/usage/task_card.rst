@@ -1,10 +1,13 @@
-Task Cards
-==========
+.. _task-cards:
+
+Task Cards (Low Latency Execution)
+==================================
 
 A **task card** stores the action sequence for a LIBERO task and marks the key
 objects or locations needed by those actions. During replay, RPent finds their
 current coordinates in the camera images, updates the action coordinates, and
-executes the recorded actions in order.
+executes the recorded actions in order. Replaying these actions avoids a new
+LLM planning call at each step, reducing execution latency.
 
 This keeps planning and perception separate:
 

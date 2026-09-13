@@ -27,6 +27,14 @@
   <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_framework.png" alt="RPent framework"/>
 </div>
 
+## 基准测试结果
+
+对比 RPent 与参考方法在 LIBERO、LIBERO-PRO、RoboCasa365 Target50 和 RoboTwin C2R 上的成功率。排名仅限图中方法及评测范围；完整结果、模型配置和来源见[基准测试结果](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)。
+
+[![RPent 六面板基准成功率对比](docs/_static/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)
+
+[打开交互式 Leaderboard](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html#benchmark-leaderboard)，按基准、任务套件和模型配置筛选，查看评测详情并下载当前结果的 CSV。
+
 ## 适用用户
 
 RPent 面向以下四类用户：

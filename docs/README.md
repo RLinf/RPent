@@ -81,3 +81,16 @@ the other language.
 - English: `source-en/rst_source/`
 - Chinese: `source-zh/rst_source/`
 - RST syntax reference: <https://www.sphinx-doc.org/en/master/usage/restructuredtext/basics.html>
+
+## Benchmark figures and demo
+
+The benchmark pages share chart, stylesheet, and video assets from `docs/_static/`.
+Both language configurations copy this directory into the built `_static/` tree;
+the complete demo MP4 is stored once in the repository. The poster is an unchanged
+frame from that video. The demo retains its GPT-6 Astra / GPT-5.6 xhigh labels and
+4× playback, separately from the GPT-5.5 evaluation records.
+
+See [the figure generation guide](tools/README.md) for reproducible leaderboard
+SVG/PNG exports and checks against the bilingual result tables. Sphinx uses the
+committed figures directly; plotting dependencies are only needed to regenerate
+them.

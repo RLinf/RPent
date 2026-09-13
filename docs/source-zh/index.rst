@@ -26,6 +26,14 @@
       介绍 RPent 的基本概念、五芒星与 ∞ 标志的含义，
       以及整体架构。
 
+   .. grid-item-card:: 基准测试结果
+      :link: rst_source/benchmarks
+      :link-type: doc
+      :text-align: center
+
+      对比不同 planner 模型、推理配置及各基准的成功率，
+      查看评测协议与结果来源。
+
    .. grid-item-card:: 安装
       :link: rst_source/installation
       :link-type: doc
@@ -64,11 +72,12 @@
    :hidden:
 
    概览 <rst_source/overview>
+   基准测试结果 <rst_source/benchmarks>
    安装 <rst_source/installation>
    快速开始 <rst_source/quickstart>
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
    :includehidden:
    :titlesonly:
    :hidden:
@@ -76,14 +85,9 @@
 
    Agentic Planner <rst_source/usage/configure_planner>
    动作原语 <rst_source/usage/configure_primitives>
-   LIBERO <rst_source/usage/libero>
-   LIBERO 数据飞轮 <rst_source/usage/flywheel>
-   RoboCasa <rst_source/usage/robocasa>
-   RoboTwin <rst_source/usage/robotwin>
-   Franka <rst_source/usage/franka>
-   Dual Franka <rst_source/usage/dual_franka>
-   SO-101 <rst_source/usage/so101>
-   任务卡模式 <rst_source/usage/task_card>
+   仿真 <rst_source/usage/simulation>
+   真机 <rst_source/usage/real_robots>
+   Task Cards (Low Latency Execution) <rst_source/usage/task_card>
    高级部署 <rst_source/usage/advanced_deployment>
 
 .. toctree::

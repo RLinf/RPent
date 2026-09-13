@@ -301,7 +301,7 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
 已发布的 Target50 结果
 -----------------------
 
-已发布 Codex 复现覆盖全部 340 cells，任务级汇总如下：
+历史 Codex 复现覆盖全部 340 cells，任务级汇总如下：
 
 .. list-table:: Codex Target50 复现结果
    :header-rows: 1
@@ -310,7 +310,7 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
    * - Split
      - 成功 cells
      - 成功率
-     - Harness VLA 参考值
+     - Harness VLA v3 参考值
    * - Atomic
      - 163/180
      - 90.56%
@@ -327,6 +327,9 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
      - 不适用
      - 57.00%
      - 55.40%
+
+本表保留历史复现记录，参考列为 Harness VLA v3 的数值。
+三个划分及任务均权总体成功率的统一 RPent 模型对比见 :doc:`../benchmarks`。
 
 `完整逐任务结果表
 <https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_

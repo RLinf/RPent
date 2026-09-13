@@ -1,0 +1,3 @@
+# Regenerate these documentation figures with docs/tools/render_leaderboard.py.
+docs/_static/benchmarks/*.svg linguist-generated=true
+docs/_static/benchmarks/*.png linguist-generated=true

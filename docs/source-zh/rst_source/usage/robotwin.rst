@@ -174,8 +174,10 @@ task language 与最新 observation 始终优先，所有几何信息都必须�
 结果复现
 --------
 
-以下结果复现了 :doc:`Harness VLA <../awesome_works/harnessvla>` 在 RoboTwin C2R
-上的评测。实验使用 `reproduce/robotwin
+RPent 在 RoboTwin C2R 上的统一模型对比，以及 Codex 和 Claude Code 的配置见
+:doc:`../benchmarks`。
+
+以下保留历史复现记录，实验使用 `reproduce/robotwin
 <https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_ 分支、``gpt-5.5`` 模型和
 ``xhigh`` 推理强度：
 

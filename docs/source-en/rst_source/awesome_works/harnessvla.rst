@@ -26,9 +26,11 @@ re-grounds the task, creates suitable local conditions for the VLA, checks the
 physical outcome, and reorganizes execution after a failure. The VLA weights
 remain frozen throughout.
 
-Harness VLA is RPent's first publication. Without updating the VLA or expanding
-the primitive library during deployment, it reaches **82.4%** success on
-LIBERO-PRO, **55.4%** on RoboCasa365, and **58.4%** on RoboTwin C2R.
+Harness VLA is RPent's first publication. In RPent, Claude Code with Opus-4.8
+reaches **82.4%** success on LIBERO-PRO and **58.4%** on RoboTwin C2R; Codex
+with GPT-5.5 reaches **57.1%** on RoboCasa365. The VLA remains frozen during
+deployment. See :doc:`../benchmarks` for model configurations, benchmark splits,
+and evaluation details.
 
 .. figure:: https://github.com/RLinf/misc/raw/main/pic/harnessvla_scheme.png
    :alt: Overview of the Harness VLA framework
@@ -78,45 +80,19 @@ target bindings and spatial layouts.
 Results
 -------
 
-Harness VLA is evaluated across standard and perturbed tabletop manipulation,
-household-kitchen long-horizon tasks, and clean-to-randomized bimanual
-manipulation. Representative success rates are summarized below.
-
-.. list-table:: Representative Harness VLA results
-   :header-rows: 1
-   :widths: 24 34 42
-
-   * - Benchmark
-     - Evaluation setting
-     - Reported success rate
-   * - LIBERO
-     - Standard task suites
-     - Harness VLA: **96.0%**; π\ :sub:`RLinf`: 95.3%
-   * - LIBERO-PRO
-     - Perturbed tabletop manipulation
-     - Harness VLA: **82.4%**; π\ :sub:`RLinf`: 50.0%; RATS: 43.8%; Cap-X: 18.2%
-   * - RoboCasa365
-     - Household-kitchen manipulation
-     - Harness VLA: **55.4%**; RLDX-1: 30.0%
-   * - RoboTwin C2R
-     - Clean-to-randomized bimanual manipulation
-     - Harness VLA: **58.4%**; LingBot-VLA: 50.4%
-
-Harness VLA reaches 96.0% success on standard LIBERO, comparable to the 95.3%
-of π\ :sub:`RLinf`. On the more challenging LIBERO-PRO benchmark, Harness VLA
-reaches 82.4%, outperforming π\ :sub:`RLinf` at 50.0%, RATS at 43.8%, and Cap-X
-at 18.2%. On RoboCasa365, Harness VLA raises the task-weighted overall success
-rate from 30.0% with RLDX-1 to 55.4%. On RoboTwin C2R, Harness VLA reaches
-58.4%, outperforming LingBot-VLA at 50.4%. These gains come from three
-complementary mechanisms: semantic re-grounding by the planner, sparse and
-targeted VLA retries after restaging, and Analytic Primitives that isolate
-non-contact execution.
+The :doc:`benchmark results page <../benchmarks>` compares RPent planner models
+side by side for each suite or split. It covers standard LIBERO, LIBERO-PRO
+Task/Swap, RoboCasa365 Atomic-Seen/Composite-Seen/Composite-Unseen, RoboTwin C2R,
+and the zero-shot Goal ablation, with model configurations and metric definitions.
+The reported GPT-5.5 and Opus-4.8 results are aligned with Harness VLA
+`paper v4 <https://arxiv.org/html/2607.08448v4#S3.SS3>`_; GPT-6 Astra is an
+additional model evaluation. External baseline methods are listed separately.
 
 Quick Start
 -----------
 
-For paper-result reproduction, use the environment-specific branch listed
-below. See each tutorial for the exact setup and commands.
+See the environment-specific tutorials and branches below for setup, commands,
+and historical reproduction records.
 
 * **LIBERO:** :doc:`Tutorial <../usage/libero>` —
   `reproduce/libero <https://github.com/RLinf/RPent/tree/reproduce/libero>`_
