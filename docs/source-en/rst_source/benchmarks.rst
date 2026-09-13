@@ -219,7 +219,7 @@ do not define this aggregate.
    * - Spatial Task
      - 81.0%
      - 94.0%
-     - Not reported
+     - 100% (100/100)
    * - Spatial Swap
      - 69.0%
      - 80.0%
@@ -540,7 +540,7 @@ sources do not report the planner models or reasoning settings for Cap-X and RAT
 Protocols and sources
 ---------------------
 
-Results checked on 2026-09-10. RPent's reported GPT-5.5 and Opus-4.8 results
+Results checked on 2026-09-13. RPent's reported GPT-5.5 and Opus-4.8 results
 are aligned with Harness VLA paper v4 (2026-09-02); GPT-6 Astra adds a new
 model evaluation. The paper labels the backends Codex and CC (Claude Code);
 contributors supplied the exact model and reasoning settings.
@@ -608,3 +608,20 @@ a 10000-step environment horizon; the tables report environment success rates.
 When adding models or scores, preserve evaluation rows and model-column order,
 record the backend, model, reasoning settings, sample size, and protocol, and
 update the source notes. Keep unavailable cells marked ``Not reported``.
+
+.. astra-supplementary-source-begin
+
+.. _benchmark-source-astra-pro:
+
+**GPT-6 Astra supplementary LIBERO-PRO evaluation.** Campaign
+``libero_pro_remaining_gpt6_astra_20260913`` uses runtime
+`014a0fa <https://github.com/RLinf/RPent/commit/014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7>`_. Spatial, Object, and Goal each cover Task and Swap;
+each reported item contains 10 tasks evaluated on seeds 1–10 (100 episodes).
+Memory is built independently on seed 0, merged, and frozen before evaluation.
+
+GPT-6 Astra's complete 800-episode Overall is reported only after all eight
+Task/Swap items are complete. The full eight-item scope consists of 200 Long
+and 600 supplementary episodes. Each reported batch uses its own memory frozen
+before evaluation; the batches do not share a single memory snapshot.
+
+.. astra-supplementary-source-end

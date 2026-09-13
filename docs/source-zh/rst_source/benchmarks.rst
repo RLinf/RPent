@@ -211,7 +211,7 @@ Task 为指令重定向，Swap 为位置交换。Overall 覆盖 Spatial、Object
    * - Spatial Task
      - 81.0%
      - 94.0%
-     - 未报告
+     - 100% (100/100)
    * - Spatial Swap
      - 69.0%
      - 80.0%
@@ -532,7 +532,7 @@ Cap-X 和 RATS 的具体规划模型与推理配置在这些来源中未报告�
 指标、协议与来源
 ------------------------
 
-结果核对日期为 2026-09-10。RPent 的 GPT-5.5 与 Opus-4.8 已报告成绩与
+结果核对日期为 2026-09-13。RPent 的 GPT-5.5 与 Opus-4.8 已报告成绩与
 Harness VLA 论文 v4（2026-09-02）对齐；GPT-6 Astra 为新增模型评测结果。
 论文使用 Codex 和 CC（Claude Code）标记后端，精确模型与推理设置由贡献者提供。
 
@@ -583,3 +583,19 @@ Long Task 与 Long Swap 各有 10 个任务；任务记忆在 seed 0 上独立�
 
 新增模型或成绩时，保持同一评测项的行与模型列顺序，记录后端、模型、推理设置、
 样本规模及协议；更新来源说明，并将没有结果的单元保持为“未报告”。
+
+.. astra-supplementary-source-begin
+
+.. _benchmark-source-astra-pro:
+
+**GPT-6 Astra 补充 LIBERO-PRO 评测。** 实验
+``libero_pro_remaining_gpt6_astra_20260913`` 使用运行版本
+`014a0fa <https://github.com/RLinf/RPent/commit/014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7>`_。Spatial、Object、Goal 分别评测 Task 和 Swap；
+每个已报告分项覆盖 10 个任务，各使用 seed 1–10，共 100 回合。
+各任务在 seed 0 独立构建记忆，经合并并冻结后开始评测。
+
+GPT-6 Astra 的完整 800 回合 Overall 仅在八个 Task/Swap 分项全部完成后报告。
+完整八项范围由 Long 200 回合与补充评测 600 回合组成；各已报告批次使用
+对应的预先冻结记忆库，这些批次并非使用同一份记忆快照。
+
+.. astra-supplementary-source-end
