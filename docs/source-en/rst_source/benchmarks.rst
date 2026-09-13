@@ -28,59 +28,67 @@ Leaderboard
 Each panel ranks results within one evaluation setting. Purple denotes RPent;
 gray denotes external reference methods.
 
+Filter benchmarks, task suites, and model configurations below. Hover over a bar
+or focus it with the keyboard for details; download the selected results as CSV.
+
 .. raw:: html
 
+   <div id="rpent-interactive-leaderboard" data-language="en"
+        data-results-url="../_static/benchmarks/results.json" data-asset-base="../_static/benchmarks/">
+   <noscript><p>Interactive filters require JavaScript. The static charts and full result tables remain available.</p></noscript>
    <div class="rpent-leaderboard-legend" aria-label="Chart legend">
      <span><i class="rpent-legend-swatch rpent-legend-rpent" aria-hidden="true"></i>RPent configurations</span>
      <span><i class="rpent-legend-swatch rpent-legend-reference" aria-hidden="true"></i>Selected external baselines</span>
    </div>
-   <div class="rpent-leaderboard-grid">
+   <div class="rpent-leaderboard-grid rpent-static-leaderboard">
      <figure class="rpent-leaderboard-panel" data-benchmark="standard-libero">
        <img class="rpent-chart-light" src="../_static/benchmarks/standard-libero-en-light.svg"
-            alt="Standard LIBERO Overall, success rates: AtomVLA 97.0%; RPent Opus-4.8 max 96.0%; π_RLinf 95.3%; π0 94.2%; OpenVLA 76.5%." />
+            alt="Standard LIBERO Overall success-rate comparison; full values appear in the result tables below." />
        <img class="rpent-chart-dark" src="../_static/benchmarks/standard-libero-en-dark.svg"
-            alt="Standard LIBERO Overall, success rates: AtomVLA 97.0%; RPent Opus-4.8 max 96.0%; π_RLinf 95.3%; π0 94.2%; OpenVLA 76.5%." />
+            alt="Standard LIBERO Overall success-rate comparison; full values appear in the result tables below." />
        <figcaption><a href="#benchmark-source-p2">Standard LIBERO Overall: results and evaluation details</a></figcaption>
      </figure>
      <figure class="rpent-leaderboard-panel" data-benchmark="libero-pro">
        <img class="rpent-chart-light" src="../_static/benchmarks/libero-pro-en-light.svg"
-            alt="LIBERO-PRO Overall, success rates: RPent Opus-4.8 max 82.4%; RPent GPT-5.5 xhigh 72.1%; π_RLinf 50.0%; π0.5 11.0%; AtomVLA 6.3%." />
+            alt="LIBERO-PRO Overall, all eight Task/Swap items: success-rate comparison; full values appear in the result tables below." />
        <img class="rpent-chart-dark" src="../_static/benchmarks/libero-pro-en-dark.svg"
-            alt="LIBERO-PRO Overall, success rates: RPent Opus-4.8 max 82.4%; RPent GPT-5.5 xhigh 72.1%; π_RLinf 50.0%; π0.5 11.0%; AtomVLA 6.3%." />
+            alt="LIBERO-PRO Overall, all eight Task/Swap items: success-rate comparison; full values appear in the result tables below." />
        <figcaption><a href="#benchmark-source-p3">LIBERO-PRO Overall: results and evaluation details</a></figcaption>
      </figure>
      <figure class="rpent-leaderboard-panel" data-benchmark="robocasa">
        <img class="rpent-chart-light" src="../_static/benchmarks/robocasa-en-light.svg"
-            alt="RoboCasa365 Target50 Overall, success rates: RPent GPT-5.5 xhigh 57.1%; RPent Opus-4.8 max 48.6%; WorldDreamer 35.3%; RLDX-1 30.0%; π0.5 16.9%." />
+            alt="RoboCasa365 Target50 task-weighted Overall success-rate comparison; full values appear in the result tables below." />
        <img class="rpent-chart-dark" src="../_static/benchmarks/robocasa-en-dark.svg"
-            alt="RoboCasa365 Target50 Overall, success rates: RPent GPT-5.5 xhigh 57.1%; RPent Opus-4.8 max 48.6%; WorldDreamer 35.3%; RLDX-1 30.0%; π0.5 16.9%." />
+            alt="RoboCasa365 Target50 task-weighted Overall success-rate comparison; full values appear in the result tables below." />
        <figcaption><a href="#benchmark-source-p4">RoboCasa365 Target50 Overall: results and evaluation details</a></figcaption>
      </figure>
      <figure class="rpent-leaderboard-panel" data-benchmark="robotwin">
        <img class="rpent-chart-light" src="../_static/benchmarks/robotwin-en-light.svg"
-            alt="RoboTwin C2R, success rates: RPent Opus-4.8 max 58.4%; RPent GPT-5.5 xhigh 58.0%; LingBot-VLA 50.4%; π0.5 47.9%; GR00T-N1.7 20.7%." />
+            alt="RoboTwin C2R success-rate comparison; full values appear in the result tables below." />
        <img class="rpent-chart-dark" src="../_static/benchmarks/robotwin-en-dark.svg"
-            alt="RoboTwin C2R, success rates: RPent Opus-4.8 max 58.4%; RPent GPT-5.5 xhigh 58.0%; LingBot-VLA 50.4%; π0.5 47.9%; GR00T-N1.7 20.7%." />
+            alt="RoboTwin C2R success-rate comparison; full values appear in the result tables below." />
        <figcaption><a href="#benchmark-source-p6">RoboTwin C2R: results and evaluation details</a></figcaption>
      </figure>
      <figure class="rpent-leaderboard-panel" data-benchmark="long-task">
        <img class="rpent-chart-light" src="../_static/benchmarks/long-task-en-light.svg"
-            alt="LIBERO-PRO Long Task, success rates: RPent GPT-6 Astra low 85%; RPent Opus-4.8 max 71%; RPent GPT-5.5 xhigh 52%." />
+            alt="LIBERO-PRO Long Task, RPent model success-rate comparison; full values appear in the result tables below." />
        <img class="rpent-chart-dark" src="../_static/benchmarks/long-task-en-dark.svg"
-            alt="LIBERO-PRO Long Task, success rates: RPent GPT-6 Astra low 85%; RPent Opus-4.8 max 71%; RPent GPT-5.5 xhigh 52%." />
+            alt="LIBERO-PRO Long Task, RPent model success-rate comparison; full values appear in the result tables below." />
        <figcaption><a href="#libero-pro-across-task-families">LIBERO-PRO Long Task: results and evaluation details</a></figcaption>
      </figure>
      <figure class="rpent-leaderboard-panel" data-benchmark="long-swap">
        <img class="rpent-chart-light" src="../_static/benchmarks/long-swap-en-light.svg"
-            alt="LIBERO-PRO Long Swap, success rates: RPent GPT-6 Astra low 72%; RPent Opus-4.8 max 62%; RPent GPT-5.5 xhigh 49%." />
+            alt="LIBERO-PRO Long Swap, RPent model success-rate comparison; full values appear in the result tables below." />
        <img class="rpent-chart-dark" src="../_static/benchmarks/long-swap-en-dark.svg"
-            alt="LIBERO-PRO Long Swap, success rates: RPent GPT-6 Astra low 72%; RPent Opus-4.8 max 62%; RPent GPT-5.5 xhigh 49%." />
+            alt="LIBERO-PRO Long Swap, RPent model success-rate comparison; full values appear in the result tables below." />
        <figcaption><a href="#libero-pro-across-task-families">LIBERO-PRO Long Swap: results and evaluation details</a></figcaption>
      </figure>
    </div>
+   </div>
 
 Rankings apply to the coverage shown in each panel. Every vertical axis starts
-at zero; its upper limit is the highest score rounded up to a multiple of 10%.
+at zero; its upper limit is the highest reported score for that setting rounded up
+to a multiple of 10%, and remains fixed when configurations are hidden.
 Compare the labeled percentages across panels. Full results,
 model configurations, and protocols follow below.
 Unreported configurations have no bar. Long Task and Long Swap compare RPent
@@ -112,6 +120,8 @@ it is not a zero score.
 Model configurations
 --------------------
 
+.. benchmark-data-begin: configurations
+
 .. list-table:: RPent planner configurations
    :header-rows: 1
    :widths: 25 30 25 20
@@ -133,6 +143,8 @@ Model configurations
      - On
      - ``low``
 
+.. benchmark-data-end: configurations
+
 ``Reasoning`` is the model's native reasoning mode; ``Effort`` is its configured
 level. ``xhigh`` and ``max`` are provider-specific settings, not equivalent compute
 budgets. Experiment contributors confirmed the model identities, backend mappings,
@@ -149,6 +161,8 @@ Standard LIBERO
 Standard LIBERO uses the original Spatial, Object, Goal, and Long suites
 without PRO perturbations. Its Long suite is standard LIBERO-10, evaluated
 separately from PRO Long Task/Swap below.
+
+.. benchmark-data-begin: standard-libero
 
 .. list-table:: RPent success rates
    :header-rows: 1
@@ -179,6 +193,8 @@ separately from PRO Long Task/Swap below.
      - 96.0% (384/400)
      - Not reported
 
+.. benchmark-data-end: standard-libero
+
 .. _libero-pro-long:
 
 .. _libero-pro-across-task-families:
@@ -189,6 +205,8 @@ LIBERO-PRO
 Task redirects instructions; Swap exchanges object positions. Overall covers
 all eight Task/Swap cells across Spatial, Object, Goal, and Long. Long-only results
 do not define this aggregate.
+
+.. benchmark-data-begin: libero-pro
 
 .. list-table:: RPent success rates
    :header-rows: 1
@@ -235,11 +253,15 @@ do not define this aggregate.
      - 82.4%
      - Not reported
 
+.. benchmark-data-end: libero-pro
+
 LIBERO-PRO Goal: zero-shot
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This ablation removes target-setting Task Specific Memory and Global Memory.
 Its results are separate from the memory-backed PRO results above.
+
+.. benchmark-data-begin: libero-pro-zero-shot
 
 .. list-table:: RPent success rates
    :header-rows: 1
@@ -258,12 +280,16 @@ Its results are separate from the memory-backed PRO results above.
      - 31.0%
      - Not reported
 
+.. benchmark-data-end: libero-pro-zero-shot
+
 RoboCasa365 Target50
 --------------------
 
 All three splits and Overall are shown. Overall weights each of the 50 tasks
 equally; the splits have different episode counts, so pooling all episodes
 would give a different metric.
+
+.. benchmark-data-begin: robocasa
 
 .. list-table:: RPent success rates
    :header-rows: 1
@@ -290,10 +316,14 @@ would give a different metric.
      - 48.6%
      - Not reported
 
+.. benchmark-data-end: robocasa
+
 RoboTwin C2R
 ------------
 
 C2R evaluates transfer from the clean setting to the randomized setting.
+
+.. benchmark-data-begin: robotwin
 
 .. list-table:: RPent success rates
    :header-rows: 1
@@ -308,6 +338,8 @@ C2R evaluates transfer from the clean setting to the randomized setting.
      - 58.4%
      - Not reported
 
+.. benchmark-data-end: robotwin
+
 Baseline references
 -------------------
 
@@ -317,6 +349,8 @@ Direct VLA methods have no separate planner Reasoning/Effort settings; the cited
 sources do not report the planner models or reasoning settings for Cap-X and RATS.
 
 .. dropdown:: Standard LIBERO
+
+   .. benchmark-data-begin: baseline-standard-libero
 
    .. list-table:: Reference methods
       :header-rows: 1
@@ -347,10 +381,14 @@ sources do not report the planner models or reasoning settings for Cap-X and RAT
         - 97.0%
         - :ref:`Table 2 <benchmark-source-p2>`
 
+   .. benchmark-data-end: baseline-standard-libero
+
    External baseline sample counts follow their own reports; RPent's 100 episodes per
    suite are not imposed on those records.
 
 .. dropdown:: LIBERO-PRO
+
+   .. benchmark-data-begin: baseline-libero-pro
 
    .. list-table:: Reference methods
       :header-rows: 1
@@ -401,10 +439,14 @@ sources do not report the planner models or reasoning settings for Cap-X and RAT
         - 43.8%
         - :ref:`Table 3 <benchmark-source-p3>`
 
+   .. benchmark-data-end: baseline-libero-pro
+
    Cap-X and RATS cover only the six Spatial/Object/Goal Task/Swap cells. Their
    overall rates are not ranked against eight-cell aggregates.
 
 .. dropdown:: RoboCasa365 Target50
+
+   .. benchmark-data-begin: baseline-robocasa
 
    .. list-table:: Reference methods
       :header-rows: 1
@@ -431,10 +473,14 @@ sources do not report the planner models or reasoning settings for Cap-X and RAT
         - 14.8%
         - :ref:`Table 4 <benchmark-source-p4>`
 
+   .. benchmark-data-end: baseline-robocasa
+
    RLDX-1 is the direct frozen-VLA baseline; the other methods are external reports.
    Overall retains the aggregation reported by the source.
 
 .. dropdown:: RoboTwin C2R
+
+   .. benchmark-data-begin: baseline-robotwin
 
    .. list-table:: Reference methods
       :header-rows: 1
@@ -461,10 +507,14 @@ sources do not report the planner models or reasoning settings for Cap-X and RAT
         - 50.4%
         - :ref:`Table 6 <benchmark-source-p6>`
 
+   .. benchmark-data-end: baseline-robotwin
+
    LingBot-VLA is both RPent's frozen contact-policy backend and a direct evaluation
    baseline. RPent's 250 episodes are not assigned to external reports.
 
 .. dropdown:: LIBERO-PRO Goal zero-shot
+
+   .. benchmark-data-begin: baseline-libero-pro-zero-shot
 
    .. list-table:: Reference methods
       :header-rows: 1
@@ -482,6 +532,8 @@ sources do not report the planner models or reasoning settings for Cap-X and RAT
         - Goal Swap
         - 25.6%
         - :ref:`Table 5 <benchmark-source-p5>`
+
+   .. benchmark-data-end: baseline-libero-pro-zero-shot
 
    These Goal Task/Swap values belong to the ablation without target-setting memory.
 

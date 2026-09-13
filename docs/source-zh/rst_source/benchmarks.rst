@@ -27,59 +27,67 @@ Leaderboard
 
 每个面板展示一个评测范围，按成功率排序；紫色表示 RPent，灰色表示外部参考方法。
 
+可按基准、任务套件和模型配置筛选。悬停或用键盘聚焦柱子可查看详情，
+也可下载当前筛选结果的 CSV。
+
 .. raw:: html
 
+   <div id="rpent-interactive-leaderboard" data-language="zh"
+        data-results-url="../_static/benchmarks/results.json" data-asset-base="../_static/benchmarks/">
+   <noscript><p>交互筛选需要 JavaScript，当前仍可查看静态图表与完整结果表。</p></noscript>
    <div class="rpent-leaderboard-legend" aria-label="图例">
      <span><i class="rpent-legend-swatch rpent-legend-rpent" aria-hidden="true"></i>RPent 模型配置</span>
      <span><i class="rpent-legend-swatch rpent-legend-reference" aria-hidden="true"></i>代表性外部方法</span>
    </div>
-   <div class="rpent-leaderboard-grid">
+   <div class="rpent-leaderboard-grid rpent-static-leaderboard">
      <figure class="rpent-leaderboard-panel" data-benchmark="standard-libero">
        <img class="rpent-chart-light" src="../_static/benchmarks/standard-libero-zh-light.svg"
-            alt="Standard LIBERO 总体，成功率：AtomVLA 97.0%; RPent Opus-4.8 max 96.0%; π_RLinf 95.3%; π0 94.2%; OpenVLA 76.5%." />
+            alt="Standard LIBERO 总体成功率对比，完整数值见下方结果表。" />
        <img class="rpent-chart-dark" src="../_static/benchmarks/standard-libero-zh-dark.svg"
-            alt="Standard LIBERO 总体，成功率：AtomVLA 97.0%; RPent Opus-4.8 max 96.0%; π_RLinf 95.3%; π0 94.2%; OpenVLA 76.5%." />
+            alt="Standard LIBERO 总体成功率对比，完整数值见下方结果表。" />
        <figcaption><a href="#benchmark-source-p2">Standard LIBERO 总体：结果与评测说明</a></figcaption>
      </figure>
      <figure class="rpent-leaderboard-panel" data-benchmark="libero-pro">
        <img class="rpent-chart-light" src="../_static/benchmarks/libero-pro-zh-light.svg"
-            alt="LIBERO-PRO 总体，成功率：RPent Opus-4.8 max 82.4%; RPent GPT-5.5 xhigh 72.1%; π_RLinf 50.0%; π0.5 11.0%; AtomVLA 6.3%." />
+            alt="LIBERO-PRO 总体成功率对比，覆盖八项 Task／Swap，完整数值见下方结果表。" />
        <img class="rpent-chart-dark" src="../_static/benchmarks/libero-pro-zh-dark.svg"
-            alt="LIBERO-PRO 总体，成功率：RPent Opus-4.8 max 82.4%; RPent GPT-5.5 xhigh 72.1%; π_RLinf 50.0%; π0.5 11.0%; AtomVLA 6.3%." />
+            alt="LIBERO-PRO 总体成功率对比，覆盖八项 Task／Swap，完整数值见下方结果表。" />
        <figcaption><a href="#benchmark-source-p3">LIBERO-PRO 总体：结果与评测说明</a></figcaption>
      </figure>
      <figure class="rpent-leaderboard-panel" data-benchmark="robocasa">
        <img class="rpent-chart-light" src="../_static/benchmarks/robocasa-zh-light.svg"
-            alt="RoboCasa365 Target50 总体，成功率：RPent GPT-5.5 xhigh 57.1%; RPent Opus-4.8 max 48.6%; WorldDreamer 35.3%; RLDX-1 30.0%; π0.5 16.9%." />
+            alt="RoboCasa365 Target50 任务均权总体成功率对比，完整数值见下方结果表。" />
        <img class="rpent-chart-dark" src="../_static/benchmarks/robocasa-zh-dark.svg"
-            alt="RoboCasa365 Target50 总体，成功率：RPent GPT-5.5 xhigh 57.1%; RPent Opus-4.8 max 48.6%; WorldDreamer 35.3%; RLDX-1 30.0%; π0.5 16.9%." />
+            alt="RoboCasa365 Target50 任务均权总体成功率对比，完整数值见下方结果表。" />
        <figcaption><a href="#benchmark-source-p4">RoboCasa365 Target50 总体：结果与评测说明</a></figcaption>
      </figure>
      <figure class="rpent-leaderboard-panel" data-benchmark="robotwin">
        <img class="rpent-chart-light" src="../_static/benchmarks/robotwin-zh-light.svg"
-            alt="RoboTwin C2R，成功率：RPent Opus-4.8 max 58.4%; RPent GPT-5.5 xhigh 58.0%; LingBot-VLA 50.4%; π0.5 47.9%; GR00T-N1.7 20.7%." />
+            alt="RoboTwin C2R 成功率对比，完整数值见下方结果表。" />
        <img class="rpent-chart-dark" src="../_static/benchmarks/robotwin-zh-dark.svg"
-            alt="RoboTwin C2R，成功率：RPent Opus-4.8 max 58.4%; RPent GPT-5.5 xhigh 58.0%; LingBot-VLA 50.4%; π0.5 47.9%; GR00T-N1.7 20.7%." />
+            alt="RoboTwin C2R 成功率对比，完整数值见下方结果表。" />
        <figcaption><a href="#benchmark-source-p6">RoboTwin C2R：结果与评测说明</a></figcaption>
      </figure>
      <figure class="rpent-leaderboard-panel" data-benchmark="long-task">
        <img class="rpent-chart-light" src="../_static/benchmarks/long-task-zh-light.svg"
-            alt="LIBERO-PRO Long Task，成功率：RPent GPT-6 Astra low 85%; RPent Opus-4.8 max 71%; RPent GPT-5.5 xhigh 52%." />
+            alt="LIBERO-PRO Long Task 的 RPent 模型成功率对比，完整数值见下方结果表。" />
        <img class="rpent-chart-dark" src="../_static/benchmarks/long-task-zh-dark.svg"
-            alt="LIBERO-PRO Long Task，成功率：RPent GPT-6 Astra low 85%; RPent Opus-4.8 max 71%; RPent GPT-5.5 xhigh 52%." />
+            alt="LIBERO-PRO Long Task 的 RPent 模型成功率对比，完整数值见下方结果表。" />
        <figcaption><a href="#libero-pro-across-task-families">LIBERO-PRO Long Task：结果与评测说明</a></figcaption>
      </figure>
      <figure class="rpent-leaderboard-panel" data-benchmark="long-swap">
        <img class="rpent-chart-light" src="../_static/benchmarks/long-swap-zh-light.svg"
-            alt="LIBERO-PRO Long Swap，成功率：RPent GPT-6 Astra low 72%; RPent Opus-4.8 max 62%; RPent GPT-5.5 xhigh 49%." />
+            alt="LIBERO-PRO Long Swap 的 RPent 模型成功率对比，完整数值见下方结果表。" />
        <img class="rpent-chart-dark" src="../_static/benchmarks/long-swap-zh-dark.svg"
-            alt="LIBERO-PRO Long Swap，成功率：RPent GPT-6 Astra low 72%; RPent Opus-4.8 max 62%; RPent GPT-5.5 xhigh 49%." />
+            alt="LIBERO-PRO Long Swap 的 RPent 模型成功率对比，完整数值见下方结果表。" />
        <figcaption><a href="#libero-pro-across-task-families">LIBERO-PRO Long Swap：结果与评测说明</a></figcaption>
      </figure>
    </div>
+   </div>
 
-图中排名仅适用于各面板列出的评测范围。各图纵轴从零开始，上限按最高成绩向上取整到
-10 个百分点的整数倍；跨面板比较时请以标注的百分比为准。完整成绩、模型配置及协议见下方。
+图中排名仅适用于各面板列出的评测范围。各图纵轴从零开始，上限按该设置已报告的最高成绩
+向上取整到 10 个百分点的整数倍，隐藏模型后保持不变；跨面板比较时请以标注的百分比为准。
+完整成绩、模型配置及协议见下方。
 未报告的配置不绘制柱子。Long Task 与 Long Swap 只比较 RPent 模型，不能替代完整 PRO Overall。
 
 .. _benchmark-demo:
@@ -107,6 +115,8 @@ Leaderboard
 模型配置
 ------------
 
+.. benchmark-data-begin: configurations
+
 .. list-table:: RPent 规划模型配置
    :header-rows: 1
    :widths: 25 30 25 20
@@ -128,6 +138,8 @@ Leaderboard
      - 开启
      - ``low``
 
+.. benchmark-data-end: configurations
+
 ``Reasoning`` 指模型的原生推理模式，``Effort`` 为实际配置的推理强度。
 ``xhigh`` 和 ``max`` 属于不同提供方的设置，不表示相同计算预算。
 模型身份、后端对应关系及推理设置已经实验贡献者确认。
@@ -142,6 +154,8 @@ Standard LIBERO
 
 标准 LIBERO 使用未施加 PRO 扰动的 Spatial、Object、Goal、Long 套件。
 这里的 Long 为标准 LIBERO-10，与下表的 PRO Long Task/Swap 分开评测。
+
+.. benchmark-data-begin: standard-libero
 
 .. list-table:: RPent 成功率
    :header-rows: 1
@@ -172,6 +186,8 @@ Standard LIBERO
      - 96.0% (384/400)
      - 未报告
 
+.. benchmark-data-end: standard-libero
+
 .. _libero-pro-long:
 
 .. _libero-pro-across-task-families:
@@ -181,6 +197,8 @@ LIBERO-PRO
 
 Task 为指令重定向，Swap 为位置交换。Overall 覆盖 Spatial、Object、Goal、Long 的全部
 八个 Task/Swap 单元；只完成 Long 的结果不构成该总体指标。
+
+.. benchmark-data-begin: libero-pro
 
 .. list-table:: RPent 成功率
    :header-rows: 1
@@ -227,6 +245,8 @@ Task 为指令重定向，Swap 为位置交换。Overall 覆盖 Spatial、Object
      - 82.4%
      - 未报告
 
+.. benchmark-data-end: libero-pro
+
 .. _libero-pro-goal:
 
 LIBERO-PRO Goal：零样本
@@ -234,6 +254,8 @@ LIBERO-PRO Goal：零样本
 
 此消融不使用目标设置的 Task Specific Memory 和 Global Memory，
 与上方使用记忆的 PRO 主结果分别统计。
+
+.. benchmark-data-begin: libero-pro-zero-shot
 
 .. list-table:: RPent 成功率
    :header-rows: 1
@@ -252,11 +274,15 @@ LIBERO-PRO Goal：零样本
      - 31.0%
      - 未报告
 
+.. benchmark-data-end: libero-pro-zero-shot
+
 RoboCasa365 Target50
 --------------------
 
 列出全部三个划分及 Overall。Overall 按 50 个任务均权；各划分的回合数不同，
 不能直接把所有成功回合合并求比率。
+
+.. benchmark-data-begin: robocasa
 
 .. list-table:: RPent 成功率
    :header-rows: 1
@@ -283,10 +309,14 @@ RoboCasa365 Target50
      - 48.6%
      - 未报告
 
+.. benchmark-data-end: robocasa
+
 RoboTwin C2R
 ------------
 
 C2R 表示从干净设置到随机设置的迁移评测。
+
+.. benchmark-data-begin: robotwin
 
 .. list-table:: RPent 成功率
    :header-rows: 1
@@ -301,6 +331,8 @@ C2R 表示从干净设置到随机设置的迁移评测。
      - 58.4%
      - 未报告
 
+.. benchmark-data-end: robotwin
+
 .. _id3:
 
 外部基线参考
@@ -311,6 +343,8 @@ C2R 表示从干净设置到随机设置的迁移评测。
 Cap-X 和 RATS 的具体规划模型与推理配置在这些来源中未报告。
 
 .. dropdown:: Standard LIBERO
+
+   .. benchmark-data-begin: baseline-standard-libero
 
    .. list-table:: 参考方法
       :header-rows: 1
@@ -341,9 +375,13 @@ Cap-X 和 RATS 的具体规划模型与推理配置在这些来源中未报告�
         - 97.0%
         - :ref:`表 2 <benchmark-source-p2>`
 
+   .. benchmark-data-end: baseline-standard-libero
+
    外部基线的样本量沿用各自来源，不统一套用 RPent 的每套件 100 回合。
 
 .. dropdown:: LIBERO-PRO
+
+   .. benchmark-data-begin: baseline-libero-pro
 
    .. list-table:: 参考方法
       :header-rows: 1
@@ -394,9 +432,13 @@ Cap-X 和 RATS 的具体规划模型与推理配置在这些来源中未报告�
         - 43.8%
         - :ref:`表 3 <benchmark-source-p3>`
 
+   .. benchmark-data-end: baseline-libero-pro
+
    Cap-X 和 RATS 仅涵盖 Spatial、Object、Goal 的 Task/Swap 六个单元，不与涵盖八个单元的 Overall 直接排名。
 
 .. dropdown:: RoboCasa365 Target50
+
+   .. benchmark-data-begin: baseline-robocasa
 
    .. list-table:: 参考方法
       :header-rows: 1
@@ -423,9 +465,13 @@ Cap-X 和 RATS 的具体规划模型与推理配置在这些来源中未报告�
         - 14.8%
         - :ref:`表 4 <benchmark-source-p4>`
 
+   .. benchmark-data-end: baseline-robocasa
+
    RLDX-1 是冻结 VLA 的直接评测基线；其余方法为外部报告。Overall 保留来源报告的聚合口径。
 
 .. dropdown:: RoboTwin C2R
+
+   .. benchmark-data-begin: baseline-robotwin
 
    .. list-table:: 参考方法
       :header-rows: 1
@@ -452,9 +498,13 @@ Cap-X 和 RATS 的具体规划模型与推理配置在这些来源中未报告�
         - 50.4%
         - :ref:`表 6 <benchmark-source-p6>`
 
+   .. benchmark-data-end: baseline-robotwin
+
    LingBot-VLA 既是 RPent 的冻结接触策略后端，也是直接评测基线；不把 RPent 的 250 回合样本量套用到外部报告。
 
 .. dropdown:: LIBERO-PRO Goal 零样本
+
+   .. benchmark-data-begin: baseline-libero-pro-zero-shot
 
    .. list-table:: 参考方法
       :header-rows: 1
@@ -472,6 +522,8 @@ Cap-X 和 RATS 的具体规划模型与推理配置在这些来源中未报告�
         - Goal Swap
         - 25.6%
         - :ref:`表 5 <benchmark-source-p5>`
+
+   .. benchmark-data-end: baseline-libero-pro-zero-shot
 
    这些 Goal Task/Swap 数值对应不使用目标设置记忆的消融。
 

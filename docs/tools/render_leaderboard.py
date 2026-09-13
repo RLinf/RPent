@@ -24,106 +24,71 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
+if __package__:
+    from .benchmark_data import generated_tables_check, load_data, validate_data
+else:
+    from benchmark_data import generated_tables_check, load_data, validate_data
+
 
 @dataclass(frozen=True)
 class Entry:
     model: str
     score: float
-    effort: str = ""
+    effort: str
+    record_id: str
+    rate: str
+    kind: str
 
 
 @dataclass(frozen=True)
 class Panel:
     slug: str
-    section: str
-    row: tuple[str, str]
+    title: dict[str, str]
     subtitle: tuple[str, str]
-    table: int
+    source_note: dict[str, str]
+    maximum: int
     entries: tuple[Entry, ...]
 
 
-PANELS = (
-    Panel(
-        "standard-libero",
-        "Standard LIBERO",
-        ("Overall", "总体"),
-        ("Overall · four standard suites", "总体 · 四个标准套件"),
-        2,
-        (
-            Entry("AtomVLA", 97.0),
-            Entry("Opus-4.8", 96.0, "max"),
-            Entry("π_RLinf", 95.3),
-            Entry("π0", 94.2),
-            Entry("OpenVLA", 76.5),
-        ),
-    ),
-    Panel(
-        "libero-pro",
-        "LIBERO-PRO",
-        ("Overall", "总体"),
-        ("Overall · all eight Task/Swap items", "总体 · 全部八个 Task/Swap 分项"),
-        3,
-        (
-            Entry("Opus-4.8", 82.4, "max"),
-            Entry("GPT-5.5", 72.1, "xhigh"),
-            Entry("π_RLinf", 50.0),
-            Entry("π0.5", 11.0),
-            Entry("AtomVLA", 6.3),
-        ),
-    ),
-    Panel(
-        "robocasa",
-        "RoboCasa365 Target50",
-        ("Overall (task-weighted)", "总体（任务均权）"),
-        ("Overall · 50 tasks, equally weighted", "总体 · 50 个任务均权"),
-        4,
-        (
-            Entry("GPT-5.5", 57.1, "xhigh"),
-            Entry("Opus-4.8", 48.6, "max"),
-            Entry("WorldDreamer", 35.3),
-            Entry("RLDX-1", 30.0),
-            Entry("π0.5", 16.9),
-        ),
-    ),
-    Panel(
-        "robotwin",
-        "RoboTwin C2R",
-        ("C2R", "C2R"),
-        ("Clean → randomized transfer", "从干净设置迁移至随机设置"),
-        6,
-        (
-            Entry("Opus-4.8", 58.4, "max"),
-            Entry("GPT-5.5", 58.0, "xhigh"),
-            Entry("LingBot-VLA", 50.4),
-            Entry("π0.5", 47.9),
-            Entry("GR00T-N1.7", 20.7),
-        ),
-    ),
-    Panel(
-        "long-task",
-        "LIBERO-PRO",
-        ("Long Task", "Long Task"),
-        ("RPent planners · 100 episodes each", "RPent 规划模型 · 每个配置 100 回合"),
-        3,
-        (
-            Entry("GPT-6 Astra", 85.0, "low"),
-            Entry("Opus-4.8", 71.0, "max"),
-            Entry("GPT-5.5", 52.0, "xhigh"),
-        ),
-    ),
-    Panel(
-        "long-swap",
-        "LIBERO-PRO",
-        ("Long Swap", "Long Swap"),
-        ("RPent planners · 100 episodes each", "RPent 规划模型 · 每个配置 100 回合"),
-        3,
-        (
-            Entry("GPT-6 Astra", 72.0, "low"),
-            Entry("Opus-4.8", 62.0, "max"),
-            Entry("GPT-5.5", 49.0, "xhigh"),
-        ),
-    ),
+DATA = load_data()
+CONFIGURATIONS = {item["id"]: item for item in DATA["configurations"]}
+RECORDS = {item["id"]: item for item in DATA["results"]}
+VIEWS = {item["id"]: item for item in DATA["views"]}
+
+
+def make_panel(view: dict, overview: bool = False) -> Panel:
+    record_ids = view.get("overview_record_ids") if overview else None
+    record_ids = record_ids if record_ids is not None else view["chart_record_ids"]
+    entries = []
+    for record_id in record_ids:
+        record = RECORDS[record_id]
+        if record["status"] != "reported":
+            continue
+        configuration = CONFIGURATIONS[record["configuration_id"]]
+        entries.append(
+            Entry(
+                configuration["model"],
+                float(record["rate"]),
+                configuration["effort"] or "",
+                record_id,
+                record["rate"],
+                configuration["kind"],
+            )
+        )
+    return Panel(
+        view["id"],
+        view["title"],
+        (view["subtitle"]["en"], view["subtitle"]["zh"]),
+        view["source_note"],
+        view["axis_max"],
+        tuple(sorted(entries, key=lambda item: -item.score)),
+    )
+
+
+PANELS = tuple(
+    make_panel(VIEWS[view_id], overview=True) for view_id in DATA["overview_views"]
 )
+ALL_PANELS = tuple(make_panel(view) for view in DATA["views"])
 
 COLORS = {
     "light": {
@@ -142,126 +107,33 @@ COLORS = {
 RPENT_COLOR = "#7842B1"
 EXTERNAL_COLOR = "#AEB7C6"
 DOCS = Path(__file__).resolve().parents[1]
-BASELINE_COVERAGE = {
-    "standard-libero": ("Four standard suites", "四个标准套件"),
-    "libero-pro": ("Eight Task/Swap cells", "八个 Task/Swap 单元"),
-    "robocasa": ("All three splits, task-weighted", "全部三个划分，任务均权"),
-    "robotwin": ("C2R", "C2R"),
-}
-
-
-def read_tables(path: Path) -> dict[tuple[str, str], list[list[str]]]:
-    """Read the simple list-table structures used in the benchmark source pages."""
-    lines = path.read_text(encoding="utf-8").splitlines()
-    tables = {}
-    context = ("section", "")
-    index = 0
-    while index < len(lines):
-        line = lines[index]
-        if index + 1 < len(lines) and re.fullmatch(r"[-=~]{3,}", lines[index + 1]):
-            context = ("section", line)
-        if line.startswith(".. dropdown:: "):
-            context = ("dropdown", line.removeprefix(".. dropdown:: "))
-        directive = re.match(r"^( *)\.\. list-table::", line)
-        if not directive:
-            index += 1
-            continue
-        indent = len(directive[1])
-        rows = []
-        index += 1
-        while index < len(lines):
-            line = lines[index]
-            if line.strip() and len(line) - len(line.lstrip()) <= indent:
-                break
-            if row := re.match(r"^ *\* - (.*)$", line):
-                rows.append([row[1]])
-            elif cell := re.match(r"^ *- (.*)$", line):
-                rows[-1].append(cell[1])
-            index += 1
-        if context in tables:
-            raise ValueError(f"Ambiguous list-table context {context!r} in {path}")
-        tables[context] = rows
-    return tables
-
-
-def score(cell: str) -> float:
-    match = re.match(r"^(\d+(?:\.\d+)?)%", cell)
-    if not match:
-        raise ValueError(f"Expected a reported success rate, found {cell!r}")
-    return float(match[1])
 
 
 def check_data() -> int:
-    """Verify plotted model settings, values, and sources against English and Chinese RST."""
-    count = 0
-    if sum(len(panel.entries) for panel in PANELS) != 26:
-        raise ValueError("The approved six panels must contain exactly 26 bars")
-    for language_index, language in enumerate(("en", "zh")):
-        path = DOCS / f"source-{language}/rst_source/benchmarks.rst"
-        source = path.read_text(encoding="utf-8")
-        tables = read_tables(path)
-        for panel in PANELS:
-            if list(panel.entries) != sorted(
-                panel.entries, key=lambda item: -item.score
-            ):
-                raise ValueError(
-                    f"{panel.slug}: bars must be sorted in descending order"
-                )
-            main = tables[("section", panel.section)]
-            row = next(row for row in main[1:] if row[0] == panel.row[language_index])
-            for entry in panel.entries:
-                if not 0 <= entry.score <= 100:
-                    raise ValueError(f"Invalid success rate: {entry}")
-                if entry.effort:
-                    column = main[0].index(f"{entry.model} / ``{entry.effort}``")
-                    actual = score(row[column])
-                else:
-                    references = tables[("dropdown", panel.section)]
-                    baseline = next(
-                        row for row in references[1:] if row[0] == entry.model
-                    )
-                    actual = score(baseline[2])
-                    if baseline[1] != BASELINE_COVERAGE[panel.slug][language_index]:
-                        raise ValueError(
-                            f"{language}/{panel.slug}/{entry.model}: evaluation coverage mismatch"
-                        )
-                    if f"benchmark-source-p{panel.table}" not in baseline[3]:
-                        raise ValueError(
-                            f"{language}/{panel.slug}/{entry.model}: wrong source"
-                        )
-                if actual != entry.score:
-                    raise ValueError(
-                        f"{language}/{panel.slug}/{entry.model}: chart {entry.score} != RST {actual}"
-                    )
-                count += 1
-            if f"https://arxiv.org/html/2607.08448v4#S3.T{panel.table}" not in source:
-                raise ValueError(f"{language}/{panel.slug}: missing pinned source URL")
-        configuration_section = (
-            "Model configurations" if language == "en" else "模型配置"
-        )
-        configurations = tables[("section", configuration_section)]
-        for model, backend, effort in (
-            ("GPT-5.5", "Codex", "xhigh"),
-            ("Opus-4.8", "Claude Code", "max"),
-            ("GPT-6 Astra", "Codex", "low"),
-        ):
-            row = next(row for row in configurations[1:] if row[1] == model)
-            reasoning = "On" if language == "en" else "开启"
-            if row != [backend, model, reasoning, f"``{effort}``"]:
-                raise ValueError(f"{language}/{model}: model configuration mismatch")
-    return count
+    """Validate the canonical records and every generated bilingual result table."""
+    validate_data(DATA)
+    generated_tables_check(DATA)
+    return sum(len(panel.entries) for panel in PANELS) * 2
 
 
 def panel_description(panel: Panel) -> str:
     series = "; ".join(
-        f"{'RPent / ' if entry.effort else ''}{entry.model} {entry.effort}: {entry.score}%"
+        f"{'RPent / ' if entry.kind == 'rpent' else ''}{entry.model} {entry.effort}: {entry.rate}%"
         for entry in panel.entries
     )
-    return f"{series}; Y-axis: 0–{axis_maximum(panel)}%"
+    details = {
+        "title": panel.title,
+        "subtitle": panel.subtitle,
+        "source_note": panel.source_note,
+        "record_ids": [entry.record_id for entry in panel.entries],
+    }
+    return f"{series}; Y-axis: 0–{axis_maximum(panel)}%\n" + json.dumps(
+        details, ensure_ascii=False, sort_keys=True
+    )
 
 
 def axis_maximum(panel: Panel) -> int:
-    return max(10, math.ceil(max(entry.score for entry in panel.entries) / 10) * 10)
+    return panel.maximum
 
 
 def axis_ticks(panel: Panel) -> list[int]:
@@ -289,14 +161,14 @@ def check_panel_geometry(tree: ET.ElementTree, panel: Panel, path: Path):
             raise ValueError(f"{path}: missing or incorrect {value}% axis label")
     bars = [
         group
-        for group in axes.findall(f"{namespace}g")
+        for group in axes.findall(f".//{namespace}g")
         if group.get("id", "").startswith(f"leaderboard-bar-{panel.slug}-")
     ]
     if len(bars) != len(panel.entries):
         raise ValueError(f"{path}: wrong number of bars in {panel.slug}")
     for index, entry in enumerate(panel.entries):
         bar = axes.find(
-            f"{namespace}g[@id='leaderboard-bar-{panel.slug}-{index}']/{namespace}path"
+            f".//{namespace}g[@id='leaderboard-bar-{panel.slug}-{index}']/{namespace}path"
         )
         if bar is None:
             raise ValueError(f"{path}: missing bar for {entry.model}")
@@ -317,7 +189,7 @@ def check_panel_geometry(tree: ET.ElementTree, panel: Panel, path: Path):
         height = float(clip.get("height"))
         baseline = float(clip.get("y")) + height
         actual_score = (max(y_coordinates) - min(y_coordinates)) / height * maximum
-        color = RPENT_COLOR if entry.effort else EXTERNAL_COLOR
+        color = RPENT_COLOR if entry.kind == "rpent" else EXTERNAL_COLOR
         if (
             not math.isclose(actual_score, entry.score, abs_tol=0.00001)
             or not math.isclose(max(y_coordinates), baseline, abs_tol=0.00001)
@@ -326,6 +198,42 @@ def check_panel_geometry(tree: ET.ElementTree, panel: Panel, path: Path):
             raise ValueError(
                 f"{path}: incorrect height, baseline, or color for {entry.model}"
             )
+        record = axes.find(f"{namespace}g[@data-record-id='{entry.record_id}']")
+        if (
+            record is None
+            or record.find(
+                f"{namespace}g[@id='leaderboard-bar-{panel.slug}-{index}']/{namespace}path"
+            )
+            is not bar
+        ):
+            raise ValueError(f"{path}: missing interactive record group")
+        center = (min(coordinates[::2]) + max(coordinates[::2])) / 2
+        if not math.isclose(
+            float(record.get("data-center-x", "nan")), center, abs_tol=0.00001
+        ):
+            raise ValueError(f"{path}: incorrect interactive bar position")
+        for component, expected in (
+            ("value", [f"{entry.rate}%"]),
+            ("model", model_label(entry).splitlines()),
+        ):
+            label = record.find(
+                f"{namespace}g[@id='leaderboard-{component}-{panel.slug}-{index}']"
+            )
+            actual = (
+                [
+                    child.text.strip()
+                    for child in label.iter()
+                    if child.tag is ET.Comment
+                ]
+                if label is not None
+                else []
+            )
+            if actual != expected:
+                raise ValueError(f"{path}: mismatched interactive {component} label")
+        if record.find(f".//{namespace}defs") is not None:
+            raise ValueError(
+                f"{path}: glyph definitions cannot depend on a visible bar"
+            )
 
 
 def check_assets(output: Path) -> int:
@@ -333,7 +241,7 @@ def check_assets(output: Path) -> int:
     count = 0
     for language in ("en", "zh"):
         for theme in COLORS:
-            for panel in PANELS:
+            for panel in ALL_PANELS:
                 path = output / f"{panel.slug}-{language}-{theme}.svg"
                 tree = ET.parse(
                     path,
@@ -443,24 +351,23 @@ def draw_panel(figure, panel: Panel, language: str, theme: str, rectangle):
     axes.set_xticks(
         range(len(panel.entries)), [model_label(entry) for entry in panel.entries]
     )
+    for index, tick in enumerate(axes.get_xticklabels()):
+        tick.set_gid(f"leaderboard-model-{panel.slug}-{index}")
     bars = axes.bar(
         range(len(panel.entries)),
         [entry.score for entry in panel.entries],
         # Keep physical bar widths equal in three-entry and five-entry panels.
         width=0.38 * (len(panel.entries) + 0.24) / 5.24,
         color=[
-            RPENT_COLOR if entry.effort else EXTERNAL_COLOR for entry in panel.entries
+            RPENT_COLOR if entry.kind == "rpent" else EXTERNAL_COLOR
+            for entry in panel.entries
         ],
         zorder=3,
     )
     for index, (bar, entry) in enumerate(zip(bars, panel.entries, strict=True)):
         bar.set_gid(f"leaderboard-bar-{panel.slug}-{index}")
-        label = (
-            f"{entry.score:.0f}%"
-            if panel.slug.startswith("long-")
-            else f"{entry.score:.1f}%"
-        )
-        axes.annotate(
+        label = f"{entry.rate}%"
+        annotation = axes.annotate(
             label,
             (bar.get_x() + bar.get_width() / 2, bar.get_height()),
             xytext=(0, 8),
@@ -472,7 +379,8 @@ def draw_panel(figure, panel: Panel, language: str, theme: str, rectangle):
             fontweight="bold",
             annotation_clip=False,
         )
-    title = f"PRO {panel.row[0]}" if panel.slug.startswith("long-") else panel.section
+        annotation.set_gid(f"leaderboard-value-{panel.slug}-{index}")
+    title = panel.title[language]
     for text, y, size, weight, color in (
         (title, 0.965, 26, "bold", colors["text"]),
         (
@@ -493,18 +401,7 @@ def draw_panel(figure, panel: Panel, language: str, theme: str, rectangle):
             ha="left",
             va="top",
         )
-    if panel.slug.startswith("long-"):
-        source = (
-            "Sources: Table 3; Astra evaluation"
-            if language == "en"
-            else "来源：表 3；Astra 评测"
-        )
-    else:
-        source = (
-            f"Source: Table {panel.table}"
-            if language == "en"
-            else f"来源：表 {panel.table}"
-        )
+    source = panel.source_note[language]
     figure.text(
         left + 0.105 * width,
         bottom + 0.025 * height,
@@ -555,7 +452,79 @@ def audit_text_layout(figure, name: str) -> dict:
     return report
 
 
-def save_figure(figure, output: Path, name: str, description: str):
+def add_interactive_groups(path: Path, panels: tuple[Panel, ...]):
+    """Keep bars and their outlined labels together for accessible SVG filtering."""
+    namespaces = {
+        "": "http://www.w3.org/2000/svg",
+        "xlink": "http://www.w3.org/1999/xlink",
+        "dc": "http://purl.org/dc/elements/1.1/",
+        "cc": "http://creativecommons.org/ns#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    }
+    for prefix, uri in namespaces.items():
+        ET.register_namespace(prefix, uri)
+    namespace = "{" + namespaces[""] + "}"
+    tree = ET.parse(
+        path, parser=ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+    )
+    root = tree.getroot()
+    parents = {child: parent for parent in root.iter() for child in parent}
+    definitions = root.find(f"{namespace}defs")
+    for nested in list(root.iter(f"{namespace}defs")):
+        if nested is definitions:
+            continue
+        for definition in list(nested):
+            definitions.append(definition)
+        parents[nested].remove(nested)
+    for panel in panels:
+        axis_id = f"leaderboard-axis-{panel.slug}-0-{axis_maximum(panel)}"
+        axes = root.find(f".//{namespace}g[@id='{axis_id}']")
+        for index, entry in enumerate(panel.entries):
+            bar = axes.find(f"{namespace}g[@id='leaderboard-bar-{panel.slug}-{index}']")
+            shape = bar.find(f"{namespace}path")
+            coordinates = [
+                float(value)
+                for value in re.findall(r"-?\d+(?:\.\d+)?", shape.get("d", ""))
+            ]
+            center = (min(coordinates[::2]) + max(coordinates[::2])) / 2
+            clip_id = re.fullmatch(r"url\(#(.+)\)", shape.get("clip-path", ""))[1]
+            bounds = root.find(
+                f".//{namespace}clipPath[@id='{clip_id}']/{namespace}rect"
+            )
+            for target in (axes, root) if len(panels) == 1 else (axes,):
+                target.set("data-axis-left", bounds.get("x"))
+                target.set("data-axis-width", bounds.get("width"))
+                target.set("data-axis-max", str(axis_maximum(panel)))
+            group = ET.Element(
+                f"{namespace}g",
+                {
+                    "class": "rpent-bar-record",
+                    "data-record-id": entry.record_id,
+                    "data-center-x": f"{center:.6f}",
+                },
+            )
+            position = list(axes).index(bar)
+            value = axes.find(
+                f"{namespace}g[@id='leaderboard-value-{panel.slug}-{index}']"
+            )
+            label = axes.find(
+                f".//{namespace}g[@id='leaderboard-model-{panel.slug}-{index}']"
+            )
+            for artist in (bar, value, label):
+                parents[artist].remove(artist)
+                group.append(artist)
+            axes.insert(position, group)
+    root.set("role", "group")
+    root.set("data-rpent-interactive", "1")
+    path.write_text(
+        ET.tostring(root, encoding="unicode", xml_declaration=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def save_figure(
+    figure, output: Path, name: str, description: str, panels: tuple[Panel, ...]
+):
     audit = audit_text_layout(figure, name)
     for extension in ("svg", "png"):
         metadata = {"Title": name, "Description": description}
@@ -566,6 +535,7 @@ def save_figure(figure, output: Path, name: str, description: str):
         path = output / f"{name}.{extension}"
         figure.savefig(path, metadata=metadata)
         if extension == "svg":
+            add_interactive_groups(path, panels)
             # Matplotlib leaves spaces at the ends of path-coordinate lines.
             lines = path.read_text(encoding="utf-8").splitlines()
             path.write_text(
@@ -582,13 +552,17 @@ def render(output: Path):
     audits = []
     for language in ("en", "zh"):
         for theme, colors in COLORS.items():
-            for panel in PANELS:
+            for panel in ALL_PANELS:
                 figure = plt.figure(figsize=(7, 5.4), facecolor=colors["background"])
                 draw_panel(figure, panel, language, theme, (0, 0, 1, 1))
                 description = panel_description(panel)
                 audits.append(
                     save_figure(
-                        figure, output, f"{panel.slug}-{language}-{theme}", description
+                        figure,
+                        output,
+                        f"{panel.slug}-{language}-{theme}",
+                        description,
+                        (panel,),
                     )
                 )
                 plt.close(figure)
@@ -657,7 +631,11 @@ def render(output: Path):
             )
             audits.append(
                 save_figure(
-                    figure, output, f"leaderboard-{language}-{theme}", description
+                    figure,
+                    output,
+                    f"leaderboard-{language}-{theme}",
+                    description,
+                    PANELS,
                 )
             )
             plt.close(figure)
@@ -691,7 +669,7 @@ def main():
     args = parser.parse_args()
     checked = check_data()
     print(
-        f"Validated {checked} chart scores against both RST pages (26 bars × 2 languages)."
+        f"Validated {checked} chart scores in the overview and all result records against both RST pages."
     )
     if not args.check_data:
         setup_matplotlib(args.times_font, args.times_bold_font, args.cjk_font)
@@ -705,7 +683,9 @@ def main():
                 + "\n",
                 encoding="utf-8",
             )
-        print(f"Rendered 56 SVG/PNG assets in {args.output_dir}")
+        print(
+            f"Rendered {(len(ALL_PANELS) + 1) * 8} SVG/PNG assets in {args.output_dir}"
+        )
     checked_assets = check_assets(args.output_dir)
     print(
         f"Validated {checked_assets} panel SVGs (including combined figures): scores, axes, bar geometry, and genuine font glyphs."

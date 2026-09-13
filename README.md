@@ -33,6 +33,8 @@ Compare RPent with reference methods on LIBERO, LIBERO-PRO, RoboCasa365 Target50
 
 [![RPent success-rate comparisons across six benchmark panels](docs/_static/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html)
 
+[Explore the interactive leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html#benchmark-leaderboard) to filter benchmarks, task suites, and model configurations, inspect evaluation details, and download the selected results as CSV.
+
 ## Who Should Consider Using RPent?
 
 RPent is built for four kinds of users:
