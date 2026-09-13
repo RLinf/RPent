@@ -1,9 +1,24 @@
+:html_theme.sidebar_secondary.remove:
+
 .. _benchmark-results:
 
 Benchmark Results
 =================
 
 Compare RPent success rates with selected reference methods across simulation benchmarks.
+
+.. raw:: html
+
+   <details class="rpent-page-toc"><summary>On this page</summary>
+
+.. contents::
+   :local:
+   :depth: 2
+   :backlinks: none
+
+.. raw:: html
+
+   </details>
 
 .. _benchmark-leaderboard:
 
@@ -64,8 +79,10 @@ gray denotes external reference methods.
      </figure>
    </div>
 
-Rankings apply to the coverage shown in each panel. Full results, model
-configurations, and protocols follow below.
+Rankings apply to the coverage shown in each panel. Every vertical axis starts
+at zero; its upper limit is the highest score rounded up to a multiple of 10%.
+Compare the labeled percentages across panels. Full results,
+model configurations, and protocols follow below.
 Unreported configurations have no bar. Long Task and Long Swap compare RPent
 planners and do not replace the full PRO Overall.
 

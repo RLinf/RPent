@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -251,20 +253,92 @@ def check_data() -> int:
 
 
 def panel_description(panel: Panel) -> str:
-    return "; ".join(
+    series = "; ".join(
         f"{'RPent / ' if entry.effort else ''}{entry.model} {entry.effort}: {entry.score}%"
         for entry in panel.entries
     )
+    return f"{series}; Y-axis: 0–{axis_maximum(panel)}%"
+
+
+def axis_maximum(panel: Panel) -> int:
+    return max(10, math.ceil(max(entry.score for entry in panel.entries) / 10) * 10)
+
+
+def axis_ticks(panel: Panel) -> list[int]:
+    maximum = axis_maximum(panel)
+    return sorted({*range(0, maximum + 1, 20), maximum})
+
+
+def check_panel_geometry(tree: ET.ElementTree, panel: Panel, path: Path):
+    """Check the rendered axis labels and bar heights without importing Matplotlib."""
+    namespace = "{http://www.w3.org/2000/svg}"
+    maximum = axis_maximum(panel)
+    axes = tree.find(
+        f".//{namespace}g[@id='leaderboard-axis-{panel.slug}-0-{maximum}']"
+    )
+    if axes is None:
+        raise ValueError(f"{path}: missing expected 0–{maximum}% axis")
+    for value in axis_ticks(panel):
+        tick = axes.find(
+            f".//{namespace}g[@id='leaderboard-tick-{panel.slug}-{value}']"
+        )
+        if tick is None or not any(
+            child.tag is ET.Comment and child.text.strip() == f"{value}%"
+            for child in tick.iter()
+        ):
+            raise ValueError(f"{path}: missing or incorrect {value}% axis label")
+    bars = [
+        group
+        for group in axes.findall(f"{namespace}g")
+        if group.get("id", "").startswith(f"leaderboard-bar-{panel.slug}-")
+    ]
+    if len(bars) != len(panel.entries):
+        raise ValueError(f"{path}: wrong number of bars in {panel.slug}")
+    for index, entry in enumerate(panel.entries):
+        bar = axes.find(
+            f"{namespace}g[@id='leaderboard-bar-{panel.slug}-{index}']/{namespace}path"
+        )
+        if bar is None:
+            raise ValueError(f"{path}: missing bar for {entry.model}")
+        clip_id = re.fullmatch(r"url\(#(.+)\)", bar.get("clip-path", ""))
+        clip = (
+            tree.find(f".//{namespace}clipPath[@id='{clip_id[1]}']/{namespace}rect")
+            if clip_id
+            else None
+        )
+        if clip is None:
+            raise ValueError(f"{path}: missing rendered axis bounds")
+        coordinates = [
+            float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", bar.get("d", ""))
+        ]
+        if len(coordinates) != 8:
+            raise ValueError(f"{path}: unexpected bar geometry for {entry.model}")
+        y_coordinates = coordinates[1::2]
+        height = float(clip.get("height"))
+        baseline = float(clip.get("y")) + height
+        actual_score = (max(y_coordinates) - min(y_coordinates)) / height * maximum
+        color = RPENT_COLOR if entry.effort else EXTERNAL_COLOR
+        if (
+            not math.isclose(actual_score, entry.score, abs_tol=0.00001)
+            or not math.isclose(max(y_coordinates), baseline, abs_tol=0.00001)
+            or f"fill: {color.lower()}" not in bar.get("style", "")
+        ):
+            raise ValueError(
+                f"{path}: incorrect height, baseline, or color for {entry.model}"
+            )
 
 
 def check_assets(output: Path) -> int:
-    """Reject SVG assets whose embedded scores have fallen out of sync with the tables."""
+    """Reject stale SVG data, axis scales, or actual bar geometry in all figures."""
     count = 0
-    for panel in PANELS:
-        for language in ("en", "zh"):
-            for theme in COLORS:
+    for language in ("en", "zh"):
+        for theme in COLORS:
+            for panel in PANELS:
                 path = output / f"{panel.slug}-{language}-{theme}.svg"
-                tree = ET.parse(path)
+                tree = ET.parse(
+                    path,
+                    parser=ET.XMLParser(target=ET.TreeBuilder(insert_comments=True)),
+                )
                 description = tree.find(
                     ".//{http://purl.org/dc/elements/1.1/}description"
                 )
@@ -272,29 +346,58 @@ def check_assets(output: Path) -> int:
                     raise ValueError(
                         f"Stale chart asset: {path}; regenerate the figures"
                     )
+                check_panel_geometry(tree, panel, path)
+                check_font_glyphs(tree, language, path)
                 count += 1
+            path = output / f"leaderboard-{language}-{theme}.svg"
+            tree = ET.parse(
+                path, parser=ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+            )
+            for panel in PANELS:
+                check_panel_geometry(tree, panel, path)
+            check_font_glyphs(tree, language, path)
+            count += 1
     return count
 
 
-def setup_matplotlib(cjk_font: Path | None):
+def check_font_glyphs(tree: ET.ElementTree, language: str, path: Path):
+    """Check the fonts actually embedded as SVG glyph paths, including mixed text."""
+    fonts = {
+        item.get("{http://www.w3.org/1999/xlink}href", "").lstrip("#").rsplit("-", 1)[0]
+        for item in tree.findall(".//{http://www.w3.org/2000/svg}use")
+    }
+    expected = {"TimesNewRomanPSMT", "TimesNewRomanPS-BoldMT"}
+    if language == "zh":
+        expected.add("KaiTi")
+    if fonts != expected:
+        raise ValueError(
+            f"{path}: unexpected embedded fonts {fonts}; expected {expected}"
+        )
+
+
+def setup_matplotlib(times_font: Path, times_bold_font: Path, cjk_font: Path):
     import matplotlib
-    from matplotlib import font_manager
+    from matplotlib import font_manager, ft2font
 
     matplotlib.use("Agg")
-    candidates = (
-        Path("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"),
-        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
-    )
-    font_path = cjk_font or next((path for path in candidates if path.is_file()), None)
-    if font_path is None or not font_path.is_file():
-        raise ValueError(
-            "Install fonts-wqy-zenhei or provide --cjk-font /path/to/font.ttc"
-        )
-    font_manager.fontManager.addfont(str(font_path))
-    family = font_manager.FontProperties(fname=str(font_path)).get_name()
+    for path, family, postscript in (
+        (times_font, "Times New Roman", "TimesNewRomanPSMT"),
+        (times_bold_font, "Times New Roman", "TimesNewRomanPS-BoldMT"),
+        (cjk_font, "KaiTi", "KaiTi"),
+    ):
+        if path is None or not path.is_file():
+            raise ValueError(
+                "Rendering requires --times-font, --times-bold-font, and --cjk-font"
+            )
+        face = ft2font.FT2Font(str(path))
+        if face.family_name != family or face.postscript_name != postscript:
+            raise ValueError(
+                f"{path}: expected genuine {family} / {postscript}, found {face.family_name} / {face.postscript_name}"
+            )
+        font_manager.fontManager.addfont(str(path))
     matplotlib.rcParams.update(
         {
-            "font.family": ["DejaVu Sans", family],
+            "font.family": ["Times New Roman", "KaiTi"],
             "svg.fonttype": "path",
             "svg.hashsalt": "rpent-benchmark-leaderboard-1",
             "axes.unicode_minus": False,
@@ -319,14 +422,19 @@ def draw_panel(figure, panel: Panel, language: str, theme: str, rectangle):
     colors = COLORS[theme]
     language_index = 0 if language == "en" else 1
     axes = figure.add_axes(
-        (left + 0.105 * width, bottom + 0.23 * height, 0.875 * width, 0.51 * height)
+        (left + 0.105 * width, bottom + 0.26 * height, 0.875 * width, 0.47 * height)
     )
     axes.set_facecolor(colors["background"])
-    axes.set_ylim(0, 100)
+    maximum = axis_maximum(panel)
+    axes.set_gid(f"leaderboard-axis-{panel.slug}-0-{maximum}")
+    axes.set_ylim(0, maximum)
     axes.set_xlim(-0.62, len(panel.entries) - 0.38)
-    axes.set_yticks(range(0, 101, 20), [f"{value}%" for value in range(0, 101, 20)])
-    axes.tick_params(axis="y", colors=colors["muted"], labelsize=16, length=0, pad=6)
-    axes.tick_params(axis="x", colors=colors["text"], labelsize=17, length=0, pad=13)
+    ticks = axis_ticks(panel)
+    axes.set_yticks(ticks, [f"{value}%" for value in ticks])
+    for tick, value in zip(axes.get_yticklabels(), ticks, strict=True):
+        tick.set_gid(f"leaderboard-tick-{panel.slug}-{value}")
+    axes.tick_params(axis="y", colors=colors["muted"], labelsize=18, length=0, pad=6)
+    axes.tick_params(axis="x", colors=colors["text"], labelsize=19, length=0, pad=13)
     axes.grid(axis="y", color=colors["grid"], linewidth=0.8)
     axes.set_axisbelow(True)
     for side in ("top", "left", "right"):
@@ -338,13 +446,15 @@ def draw_panel(figure, panel: Panel, language: str, theme: str, rectangle):
     bars = axes.bar(
         range(len(panel.entries)),
         [entry.score for entry in panel.entries],
-        width=0.57,
+        # Keep physical bar widths equal in three-entry and five-entry panels.
+        width=0.38 * (len(panel.entries) + 0.24) / 5.24,
         color=[
             RPENT_COLOR if entry.effort else EXTERNAL_COLOR for entry in panel.entries
         ],
         zorder=3,
     )
-    for bar, entry in zip(bars, panel.entries, strict=True):
+    for index, (bar, entry) in enumerate(zip(bars, panel.entries, strict=True)):
+        bar.set_gid(f"leaderboard-bar-{panel.slug}-{index}")
         label = (
             f"{entry.score:.0f}%"
             if panel.slug.startswith("long-")
@@ -358,14 +468,20 @@ def draw_panel(figure, panel: Panel, language: str, theme: str, rectangle):
             ha="center",
             va="bottom",
             color=colors["text"],
-            fontsize=20,
+            fontsize=23,
             fontweight="bold",
             annotation_clip=False,
         )
     title = f"PRO {panel.row[0]}" if panel.slug.startswith("long-") else panel.section
     for text, y, size, weight, color in (
-        (title, 0.965, 24, "bold", colors["text"]),
-        (panel.subtitle[language_index], 0.875, 16, "normal", colors["muted"]),
+        (title, 0.965, 26, "bold", colors["text"]),
+        (
+            panel.subtitle[language_index],
+            0.875,
+            19 if language == "en" else 21,
+            "normal",
+            colors["muted"],
+        ),
     ):
         figure.text(
             left + 0.035 * width,
@@ -391,15 +507,56 @@ def draw_panel(figure, panel: Panel, language: str, theme: str, rectangle):
         )
     figure.text(
         left + 0.105 * width,
-        bottom + 0.04 * height,
+        bottom + 0.025 * height,
         source,
-        fontsize=14,
+        fontsize=16 if language == "en" else 18,
         color=colors["muted"],
         va="bottom",
     )
 
 
+def audit_text_layout(figure, name: str) -> dict:
+    """Measure all visible text boxes and reject clipping or intersecting labels."""
+    from matplotlib.text import Text
+
+    figure.canvas.draw()
+    renderer = figure.canvas.get_renderer()
+    boxes = []
+    clipped = []
+    for artist in figure.findobj(Text):
+        if not artist.get_visible() or not artist.get_text().strip():
+            continue
+        bounds = artist.get_window_extent(renderer)
+        item = {"text": artist.get_text(), "bounds": list(bounds.extents)}
+        boxes.append(item)
+        if (
+            bounds.x0 < -0.5
+            or bounds.y0 < -0.5
+            or bounds.x1 > figure.bbox.width + 0.5
+            or bounds.y1 > figure.bbox.height + 0.5
+        ):
+            clipped.append(item)
+    overlaps = []
+    for index, first in enumerate(boxes):
+        x0, y0, x1, y1 = first["bounds"]
+        for second in boxes[index + 1 :]:
+            xx0, yy0, xx1, yy1 = second["bounds"]
+            if min(x1, xx1) - max(x0, xx0) > 0.5 and min(y1, yy1) - max(y0, yy0) > 0.5:
+                overlaps.append([first["text"], second["text"]])
+    report = {
+        "name": name,
+        "text_count": len(boxes),
+        "clipped": clipped,
+        "overlaps": overlaps,
+        "text_boxes": boxes,
+    }
+    if clipped or overlaps:
+        raise ValueError(f"{name}: text clipping {clipped} or overlap {overlaps}")
+    return report
+
+
 def save_figure(figure, output: Path, name: str, description: str):
+    audit = audit_text_layout(figure, name)
     for extension in ("svg", "png"):
         metadata = {"Title": name, "Description": description}
         if extension == "svg":
@@ -414,6 +571,7 @@ def save_figure(figure, output: Path, name: str, description: str):
             path.write_text(
                 "\n".join(line.rstrip() for line in lines) + "\n", encoding="utf-8"
             )
+    return audit
 
 
 def render(output: Path):
@@ -421,28 +579,31 @@ def render(output: Path):
     from matplotlib.patches import Patch
 
     output.mkdir(parents=True, exist_ok=True)
+    audits = []
     for language in ("en", "zh"):
         for theme, colors in COLORS.items():
             for panel in PANELS:
-                figure = plt.figure(figsize=(7, 4.8), facecolor=colors["background"])
+                figure = plt.figure(figsize=(7, 5.4), facecolor=colors["background"])
                 draw_panel(figure, panel, language, theme, (0, 0, 1, 1))
                 description = panel_description(panel)
-                save_figure(
-                    figure, output, f"{panel.slug}-{language}-{theme}", description
+                audits.append(
+                    save_figure(
+                        figure, output, f"{panel.slug}-{language}-{theme}", description
+                    )
                 )
                 plt.close(figure)
-            figure = plt.figure(figsize=(14.5, 16.3), facecolor=colors["background"])
+            figure = plt.figure(figsize=(21.8, 13.0), facecolor=colors["background"])
             title = (
                 "RPent · Benchmark Leaderboard"
                 if language == "en"
                 else "RPent · 基准测试 Leaderboard"
             )
             figure.text(
-                0.03,
-                0.975,
+                0.018,
+                0.97,
                 title,
                 color=colors["text"],
-                fontsize=32,
+                fontsize=36,
                 weight="bold",
                 va="top",
             )
@@ -454,29 +615,53 @@ def render(output: Path):
                 handles=[Patch(color=RPENT_COLOR), Patch(color=EXTERNAL_COLOR)],
                 labels=legend_labels,
                 loc="upper right",
-                bbox_to_anchor=(0.975, 0.935),
+                bbox_to_anchor=(0.982, 0.97),
+                borderaxespad=0,
                 ncols=2,
                 frameon=False,
                 labelcolor=colors["text"],
-                fontsize=17,
+                fontsize=19 if language == "en" else 21,
             )
             for index, panel in enumerate(PANELS):
-                row, column = divmod(index, 2)
+                row, column = divmod(index, 3)
                 draw_panel(
                     figure,
                     panel,
                     language,
                     theme,
-                    (0.008 + column * 0.497, 0.635 - row * 0.295, 7 / 14.5, 4.8 / 16.3),
+                    (
+                        (0.1 + column * 7.25) / 21.8,
+                        (6.25 - row * 5.6) / 13.0,
+                        7 / 21.8,
+                        5.4 / 13.0,
+                    ),
                 )
             note = (
-                "Success rate ↑ · Ranking is limited to the displayed methods and evaluation coverage."
+                "Success rate ↑ · Each axis starts at 0%; upper limits vary by panel. Rankings apply only to the displayed methods and coverage."
                 if language == "en"
-                else "成功率 ↑ · 排名仅限图中方法及对应评测范围。"
+                else "成功率 ↑ · 各图纵轴从 0% 起，上限随面板变化；排名仅限图中方法及对应评测范围。"
             )
-            figure.text(0.045, 0.021, note, fontsize=17, color=colors["muted"])
-            save_figure(figure, output, f"leaderboard-{language}-{theme}", note)
+            figure.text(
+                0.035,
+                0.022,
+                note,
+                fontsize=19 if language == "en" else 21,
+                color=colors["muted"],
+            )
+            description = (
+                note
+                + "\n"
+                + "\n".join(
+                    f"{panel.slug}: {panel_description(panel)}" for panel in PANELS
+                )
+            )
+            audits.append(
+                save_figure(
+                    figure, output, f"leaderboard-{language}-{theme}", description
+                )
+            )
             plt.close(figure)
+    return audits
 
 
 def main():
@@ -488,9 +673,20 @@ def main():
     )
     parser.add_argument("--output-dir", type=Path, default=DOCS / "_static/benchmarks")
     parser.add_argument(
+        "--times-font", type=Path, help="Genuine Times New Roman regular TTF"
+    )
+    parser.add_argument(
+        "--times-bold-font", type=Path, help="Genuine Times New Roman bold TTF"
+    )
+    parser.add_argument(
+        "--audit-report",
+        type=Path,
+        help="Write complete text-box layout checks outside the source tree",
+    )
+    parser.add_argument(
         "--cjk-font",
         type=Path,
-        help="Path to an installed WenQuanYi or Noto Sans CJK font",
+        help="Genuine KaiTi (楷体) simkai.ttf; substitutes are rejected",
     )
     args = parser.parse_args()
     checked = check_data()
@@ -498,11 +694,22 @@ def main():
         f"Validated {checked} chart scores against both RST pages (26 bars × 2 languages)."
     )
     if not args.check_data:
-        setup_matplotlib(args.cjk_font)
-        render(args.output_dir)
+        setup_matplotlib(args.times_font, args.times_bold_font, args.cjk_font)
+        audits = render(args.output_dir)
+        if args.audit_report:
+            args.audit_report.parent.mkdir(parents=True, exist_ok=True)
+            args.audit_report.write_text(
+                json.dumps(
+                    {"passed": True, "figures": audits}, ensure_ascii=False, indent=2
+                )
+                + "\n",
+                encoding="utf-8",
+            )
         print(f"Rendered 56 SVG/PNG assets in {args.output_dir}")
     checked_assets = check_assets(args.output_dir)
-    print(f"Validated {checked_assets} panel SVGs against the checked chart data.")
+    print(
+        f"Validated {checked_assets} panel SVGs (including combined figures): scores, axes, bar geometry, and genuine font glyphs."
+    )
 
 
 if __name__ == "__main__":

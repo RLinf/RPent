@@ -1,9 +1,24 @@
+:html_theme.sidebar_secondary.remove:
+
 .. _benchmark-results:
 
 基准测试结果
 ============
 
 本页汇总 RPent 在不同仿真基准上的成功率，并与已收录的代表性方法比较。
+
+.. raw:: html
+
+   <details class="rpent-page-toc"><summary>本页目录</summary>
+
+.. contents::
+   :local:
+   :depth: 2
+   :backlinks: none
+
+.. raw:: html
+
+   </details>
 
 .. _benchmark-leaderboard:
 
@@ -63,7 +78,8 @@ Leaderboard
      </figure>
    </div>
 
-图中排名仅适用于各面板列出的评测范围；完整成绩、模型配置及协议见下方。
+图中排名仅适用于各面板列出的评测范围。各图纵轴从零开始，上限按最高成绩向上取整到
+10 个百分点的整数倍；跨面板比较时请以标注的百分比为准。完整成绩、模型配置及协议见下方。
 未报告的配置不绘制柱子。Long Task 与 Long Swap 只比较 RPent 模型，不能替代完整 PRO Overall。
 
 .. _benchmark-demo:
