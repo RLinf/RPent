@@ -870,14 +870,16 @@
       ],
       "chart_record_ids": [
         "object-swap--gpt-5-5-xhigh",
-        "object-swap--opus-4-8-max"
+        "object-swap--opus-4-8-max",
+        "object-swap--gpt-6-astra-low"
       ],
       "source_ids": [
-        "paper-table-3"
+        "paper-table-3",
+        "astra-pro-remaining-20260913"
       ],
       "source_note": {
-        "en": "Table 3",
-        "zh": "表 3"
+        "en": "Table 3 · Astra evaluation",
+        "zh": "表 3 · Astra 评测"
       },
       "asset_slug": "object-swap",
       "axis_max": 100
@@ -1895,14 +1897,14 @@
       "id": "object-swap--gpt-6-astra-low",
       "view_id": "object-swap",
       "configuration_id": "gpt-6-astra-low",
-      "status": "not_reported",
-      "rate": null,
-      "successes": null,
-      "episodes": null,
+      "status": "reported",
+      "rate": "99",
+      "successes": 99,
+      "episodes": 100,
       "source_ids": [
-        "paper-table-3"
+        "astra-pro-remaining-20260913"
       ],
-      "protocol_id": "rpent-pro"
+      "protocol_id": "rpent-pro-astra-remaining"
     },
     {
       "id": "goal-task--gpt-5-5-xhigh",

@@ -231,7 +231,7 @@ do not define this aggregate.
    * - Object Swap
      - 91.0%
      - 90.0%
-     - Not reported
+     - 99% (99/100)
    * - Goal Task
      - 75.0%
      - 87.0%
