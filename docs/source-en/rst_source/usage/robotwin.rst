@@ -225,8 +225,7 @@ Reproduction command for one episode:
 Replace ``task`` with a task name from ``demo_randomized.json`` and ``seed``
 with one of that task's verified expert seeds. Before running, configure the
 RoboTwin assets and LingBot-VLA checkpoint as described earlier on this page.
-This reproduction branch pins the RPent memory dataset revision used for the
-evaluation.
-Success is determined by the latest
-``TASK_ENV.eval_success`` value at the end of the episode, not merely by whether
+This reproduction branch pins RPent memory to revision
+``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``. An episode counts as successful
+only when its latest ``TASK_ENV.eval_success`` value is true, not merely when
 the planner calls ``finish``.

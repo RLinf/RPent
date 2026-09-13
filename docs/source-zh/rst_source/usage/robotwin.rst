@@ -204,7 +204,7 @@ task language 与最新 observation 始终优先，所有几何信息都必须�
      --max-episode-steps 10000
 
 其中，``task`` 应替换为 ``demo_randomized.json`` 中的任务名，``seed`` 应替换为
-该任务对应的一个 verified expert seed。运行前还需按照本页前文配置 RoboTwin assets、
-LingBot-VLA checkpoint。本复现分支固定了本次评测使用的 RPent memory 数据集版本。
-任务是否成功以 episode 结束时最新的
+该任务对应的一个 verified expert seed。运行前请按前文配置 RoboTwin assets 和
+LingBot-VLA checkpoint；本分支已将 RPent memory 固定为 revision
+``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``。每个 episode 是否成功以最新的
 ``TASK_ENV.eval_success`` 为准，不能仅根据规划器是否调用 ``finish`` 判断。

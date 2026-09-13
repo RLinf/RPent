@@ -15,8 +15,8 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-import torch
 
+torch = pytest.importorskip("torch")
 rlinf_robotwin = pytest.importorskip("rlinf.envs.robotwin.robotwin_env")
 rpent_robotwin = pytest.importorskip("robots.robotwin.rlinf_env")
 rpent_env_server = pytest.importorskip("robots.robotwin.env_server")
