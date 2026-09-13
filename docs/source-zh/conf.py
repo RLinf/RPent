@@ -52,6 +52,7 @@ html_js_files = [
     "js/lang-switcher.js",
     "js/sidebar-nav.js",
     "js/theme-toggle.js",
+    ("js/benchmark-leaderboard.js", {"defer": "defer"}),
 ]
 html_sidebars = {
     "**": [

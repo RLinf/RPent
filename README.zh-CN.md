@@ -33,6 +33,8 @@
 
 [![RPent 六面板基准成功率对比](docs/_static/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)
 
+[打开交互式 Leaderboard](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html#benchmark-leaderboard)，按基准、任务套件和模型配置筛选，查看评测详情并下载当前结果的 CSV。
+
 ## 适用用户
 
 RPent 面向以下四类用户：

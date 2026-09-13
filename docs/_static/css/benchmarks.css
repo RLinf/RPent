@@ -7,6 +7,177 @@
   font-weight: 600;
 }
 
+#rpent-interactive-leaderboard [hidden],
+.rpent-leaderboard-tooltip[hidden] {
+  display: none !important;
+}
+
+.rpent-leaderboard-controls,
+.rpent-leaderboard-status,
+.rpent-leaderboard-tooltip {
+  font-family: "Times New Roman", KaiTi, STKaiti, serif;
+}
+
+html[lang^="zh"] .rpent-leaderboard-controls,
+html[lang^="zh"] .rpent-leaderboard-status,
+html[lang^="zh"] .rpent-leaderboard-tooltip {
+  font-size: 1.125rem;
+}
+
+.rpent-leaderboard-controls {
+  padding: 1rem;
+  border: 1px solid var(--pst-color-border);
+  border-radius: 0.5rem;
+  background: var(--pst-color-surface);
+  margin-bottom: 1rem;
+}
+
+.rpent-leaderboard-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 0.75rem 1rem;
+}
+
+.rpent-leaderboard-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.25rem;
+}
+
+.rpent-leaderboard-controls select,
+.rpent-leaderboard-controls button {
+  min-height: 2.75rem;
+  padding: 0.4rem 0.65rem;
+  color: var(--pst-color-text-base);
+  background: var(--pst-color-background);
+  border: 1px solid var(--pst-color-border);
+  border-radius: 0.25rem;
+  font: inherit;
+}
+
+.rpent-leaderboard-controls select {
+  width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.rpent-configuration-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin: 1rem 0;
+  padding: 0;
+  border: 0;
+}
+
+.rpent-configuration-filters legend {
+  float: none;
+  width: 100%;
+  margin: 0 0 0.35rem;
+  font-size: inherit;
+}
+
+.rpent-configuration-filters label,
+.rpent-external-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2rem;
+  cursor: pointer;
+}
+
+.rpent-leaderboard-controls input {
+  accent-color: #7842b1;
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+}
+
+.rpent-leaderboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rpent-external-filter {
+  margin-right: auto;
+}
+
+.rpent-leaderboard-controls button {
+  cursor: pointer;
+}
+
+.rpent-leaderboard-controls :focus-visible {
+  outline: 2px solid var(--pst-color-primary);
+  outline-offset: 3px;
+}
+
+.rpent-filter-hint,
+.rpent-leaderboard-status {
+  color: var(--pst-color-text-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.rpent-filter-hint {
+  margin: 0.75rem 0 0;
+}
+
+.rpent-leaderboard-tooltip {
+  position: fixed;
+  z-index: 1100;
+  max-width: min(23rem, calc(100vw - 1.5rem));
+  max-height: calc(100vh - 1.5rem);
+  overflow: auto;
+  padding: 0.75rem;
+  color: var(--pst-color-text-base);
+  background: var(--pst-color-background);
+  border: 1px solid var(--pst-color-primary);
+  border-radius: 0.35rem;
+  box-shadow: 0 0.25rem 1rem #0003;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.rpent-leaderboard-tooltip dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.25rem 0.65rem;
+  margin: 0;
+}
+
+.rpent-leaderboard-tooltip dt,
+.rpent-leaderboard-tooltip dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.rpent-interactive-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.rpent-bar-record {
+  cursor: help;
+}
+
+.rpent-bar-record:focus-visible {
+  outline: 2px solid var(--pst-color-primary);
+  outline-offset: 2px;
+}
+
+.rpent-unreported,
+.rpent-empty-results {
+  display: block;
+  margin: 0.4rem 0 0;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .rpent-leaderboard-legend {
   display: flex;
   flex-wrap: wrap;

@@ -1,0 +1,3068 @@
+{
+  "schema_version": 1,
+  "configurations": [
+    {
+      "id": "gpt-5-5-xhigh",
+      "kind": "rpent",
+      "backend": "Codex",
+      "model": "GPT-5.5",
+      "reasoning": true,
+      "effort": "xhigh"
+    },
+    {
+      "id": "opus-4-8-max",
+      "kind": "rpent",
+      "backend": "Claude Code",
+      "model": "Opus-4.8",
+      "reasoning": true,
+      "effort": "max"
+    },
+    {
+      "id": "gpt-6-astra-low",
+      "kind": "rpent",
+      "backend": "Codex",
+      "model": "GPT-6 Astra",
+      "reasoning": true,
+      "effort": "low"
+    },
+    {
+      "id": "openvla",
+      "kind": "external",
+      "backend": null,
+      "model": "OpenVLA",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "nora",
+      "kind": "external",
+      "backend": null,
+      "model": "NORA",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "pi0",
+      "kind": "external",
+      "backend": null,
+      "model": "π0",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "pi-rlinf",
+      "kind": "external",
+      "backend": null,
+      "model": "π_RLinf",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "atomvla",
+      "kind": "external",
+      "backend": null,
+      "model": "AtomVLA",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "pi0-5",
+      "kind": "external",
+      "backend": null,
+      "model": "π0.5",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "molmoact",
+      "kind": "external",
+      "backend": null,
+      "model": "MolmoAct",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "x-vla",
+      "kind": "external",
+      "backend": null,
+      "model": "X-VLA",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "cap-x",
+      "kind": "external",
+      "backend": null,
+      "model": "Cap-X",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_reported"
+    },
+    {
+      "id": "rats",
+      "kind": "external",
+      "backend": null,
+      "model": "RATS",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_reported"
+    },
+    {
+      "id": "rldx-1",
+      "kind": "external",
+      "backend": null,
+      "model": "RLDX-1",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "worlddreamer",
+      "kind": "external",
+      "backend": null,
+      "model": "WorldDreamer",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "gr00t-n1-7",
+      "kind": "external",
+      "backend": null,
+      "model": "GR00T-N1.7",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "starvla",
+      "kind": "external",
+      "backend": null,
+      "model": "StarVLA",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "lingbot-vla",
+      "kind": "external",
+      "backend": null,
+      "model": "LingBot-VLA",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "standard-libero",
+      "title": {
+        "en": "Standard LIBERO",
+        "zh": "Standard LIBERO"
+      },
+      "label": {
+        "en": "Standard LIBERO",
+        "zh": "Standard LIBERO"
+      }
+    },
+    {
+      "id": "libero-pro",
+      "title": {
+        "en": "LIBERO-PRO",
+        "zh": "LIBERO-PRO"
+      },
+      "label": {
+        "en": "LIBERO-PRO",
+        "zh": "LIBERO-PRO"
+      }
+    },
+    {
+      "id": "libero-pro-zero-shot",
+      "title": {
+        "en": "LIBERO-PRO Goal zero-shot",
+        "zh": "LIBERO-PRO Goal 零样本"
+      },
+      "label": {
+        "en": "LIBERO-PRO Goal zero-shot",
+        "zh": "LIBERO-PRO Goal 零样本"
+      }
+    },
+    {
+      "id": "robocasa",
+      "title": {
+        "en": "RoboCasa365 Target50",
+        "zh": "RoboCasa365 Target50"
+      },
+      "label": {
+        "en": "RoboCasa365 Target50",
+        "zh": "RoboCasa365 Target50"
+      }
+    },
+    {
+      "id": "robotwin",
+      "title": {
+        "en": "RoboTwin C2R",
+        "zh": "RoboTwin C2R"
+      },
+      "label": {
+        "en": "RoboTwin C2R",
+        "zh": "RoboTwin C2R"
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "paper-table-2",
+      "label": {
+        "en": "Table 2",
+        "zh": "表 2"
+      },
+      "url": "https://arxiv.org/html/2607.08448v4#S3.T2",
+      "anchor": "benchmark-source-p2",
+      "table_number": 2
+    },
+    {
+      "id": "paper-table-3",
+      "label": {
+        "en": "Table 3",
+        "zh": "表 3"
+      },
+      "url": "https://arxiv.org/html/2607.08448v4#S3.T3",
+      "anchor": "benchmark-source-p3",
+      "table_number": 3
+    },
+    {
+      "id": "paper-table-4",
+      "label": {
+        "en": "Table 4",
+        "zh": "表 4"
+      },
+      "url": "https://arxiv.org/html/2607.08448v4#S3.T4",
+      "anchor": "benchmark-source-p4",
+      "table_number": 4
+    },
+    {
+      "id": "paper-table-5",
+      "label": {
+        "en": "Table 5",
+        "zh": "表 5"
+      },
+      "url": "https://arxiv.org/html/2607.08448v4#S3.T5",
+      "anchor": "benchmark-source-p5",
+      "table_number": 5
+    },
+    {
+      "id": "paper-table-6",
+      "label": {
+        "en": "Table 6",
+        "zh": "表 6"
+      },
+      "url": "https://arxiv.org/html/2607.08448v4#S3.T6",
+      "anchor": "benchmark-source-p6",
+      "table_number": 6
+    },
+    {
+      "id": "astra-long-20260907",
+      "label": {
+        "en": "GPT-6 Astra Long evaluation",
+        "zh": "GPT-6 Astra Long 评测"
+      },
+      "url": "https://github.com/RLinf/RPent/commit/014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7",
+      "anchor": "benchmark-source-r1"
+    }
+  ],
+  "protocols": [
+    {
+      "id": "rpent-standard",
+      "label": {
+        "en": "Original LIBERO; four suites, 100 episodes each; frozen RLinf π0.5 policy.",
+        "zh": "原始 LIBERO；四套件，每套 100 回合；冻结 RLinf π0.5 策略。"
+      },
+      "description": {
+        "en": "Original LIBERO; four suites, 100 episodes each; frozen RLinf π0.5 policy.",
+        "zh": "原始 LIBERO；四套件，每套 100 回合；冻结 RLinf π0.5 策略。"
+      }
+    },
+    {
+      "id": "rpent-pro",
+      "label": {
+        "en": "LIBERO-PRO with target-setting memory; eight Task/Swap items, 100 episodes each.",
+        "zh": "使用目标设置记忆的 LIBERO-PRO；八个 Task/Swap 分项，每项 100 回合。"
+      },
+      "description": {
+        "en": "LIBERO-PRO with target-setting memory; eight Task/Swap items, 100 episodes each.",
+        "zh": "使用目标设置记忆的 LIBERO-PRO；八个 Task/Swap 分项，每项 100 回合。"
+      }
+    },
+    {
+      "id": "rpent-pro-astra-long",
+      "label": {
+        "en": "Long campaign 20260907, runtime 014a0fa; seed-0 memory frozen before evaluation on seeds 1–10; 5000-second planner limit and 10000 environment steps.",
+        "zh": "Long 实验 20260907，运行版本 014a0fa；seed 0 构建并冻结记忆，seed 1–10 评测；规划器时限 5000 秒，环境上限 10000 步。"
+      },
+      "description": {
+        "en": "Long campaign 20260907, runtime 014a0fa; seed-0 memory frozen before evaluation on seeds 1–10; 5000-second planner limit and 10000 environment steps.",
+        "zh": "Long 实验 20260907，运行版本 014a0fa；seed 0 构建并冻结记忆，seed 1–10 评测；规划器时限 5000 秒，环境上限 10000 步。"
+      }
+    },
+    {
+      "id": "rpent-zero-shot",
+      "label": {
+        "en": "Goal Task/Swap without target-setting Task Specific Memory and Global Memory; 100 episodes each.",
+        "zh": "Goal Task/Swap 不使用目标设置 Task Specific Memory 和 Global Memory；每项 100 回合。"
+      },
+      "description": {
+        "en": "Goal Task/Swap without target-setting Task Specific Memory and Global Memory; 100 episodes each.",
+        "zh": "Goal Task/Swap 不使用目标设置 Task Specific Memory 和 Global Memory；每项 100 回合。"
+      }
+    },
+    {
+      "id": "rpent-robocasa",
+      "label": {
+        "en": "Target50: 18 atomic tasks × 10 seeds, 16 seen and 16 unseen composite tasks × 5 seeds; Overall weights 50 tasks equally.",
+        "zh": "Target50：18 个原子任务各 10 seeds，16 个已见与 16 个未见复合任务各 5 seeds；总体为 50 个任务均权。"
+      },
+      "description": {
+        "en": "Target50: 18 atomic tasks × 10 seeds, 16 seen and 16 unseen composite tasks × 5 seeds; Overall weights 50 tasks equally.",
+        "zh": "Target50：18 个原子任务各 10 seeds，16 个已见与 16 个未见复合任务各 5 seeds；总体为 50 个任务均权。"
+      }
+    },
+    {
+      "id": "rpent-robotwin",
+      "label": {
+        "en": "50 tasks × 5 expert-verified randomized seeds; memory from demo_clean transfers to demo_randomized.",
+        "zh": "50 个任务各 5 个专家验证随机 seeds；记忆从 demo_clean 迁移至 demo_randomized。"
+      },
+      "description": {
+        "en": "50 tasks × 5 expert-verified randomized seeds; memory from demo_clean transfers to demo_randomized.",
+        "zh": "50 个任务各 5 个专家验证随机 seeds；记忆从 demo_clean 迁移至 demo_randomized。"
+      }
+    },
+    {
+      "id": "external-standard",
+      "label": {
+        "en": "Four standard suites; sample counts follow each external report.",
+        "zh": "四个标准套件；样本量沿用各外部报告。"
+      },
+      "description": {
+        "en": "Four standard suites; sample counts follow each external report.",
+        "zh": "四个标准套件；样本量沿用各外部报告。"
+      }
+    },
+    {
+      "id": "external-pro",
+      "label": {
+        "en": "Eight LIBERO-PRO Task/Swap items; sample counts follow each external report.",
+        "zh": "八个 LIBERO-PRO Task/Swap 分项；样本量沿用各外部报告。"
+      },
+      "description": {
+        "en": "Eight LIBERO-PRO Task/Swap items; sample counts follow each external report.",
+        "zh": "八个 LIBERO-PRO Task/Swap 分项；样本量沿用各外部报告。"
+      }
+    },
+    {
+      "id": "external-pro-six",
+      "label": {
+        "en": "Six Spatial/Object/Goal Task/Swap items only; excludes Long.",
+        "zh": "仅六个 Spatial/Object/Goal Task/Swap 分项，不含 Long。"
+      },
+      "description": {
+        "en": "Six Spatial/Object/Goal Task/Swap items only; excludes Long.",
+        "zh": "仅六个 Spatial/Object/Goal Task/Swap 分项，不含 Long。"
+      }
+    },
+    {
+      "id": "external-zero-shot",
+      "label": {
+        "en": "Goal ablation without target-setting memory; sample counts follow the external report.",
+        "zh": "无目标设置记忆的 Goal 消融；样本量沿用外部报告。"
+      },
+      "description": {
+        "en": "Goal ablation without target-setting memory; sample counts follow the external report.",
+        "zh": "无目标设置记忆的 Goal 消融；样本量沿用外部报告。"
+      }
+    },
+    {
+      "id": "external-robocasa",
+      "label": {
+        "en": "All Target50 splits, with task-weighted aggregation reported by the source.",
+        "zh": "Target50 全部划分，保留来源报告的任务均权聚合。"
+      },
+      "description": {
+        "en": "All Target50 splits, with task-weighted aggregation reported by the source.",
+        "zh": "Target50 全部划分，保留来源报告的任务均权聚合。"
+      }
+    },
+    {
+      "id": "external-robotwin",
+      "label": {
+        "en": "Clean-to-randomized transfer; sample counts follow each external report.",
+        "zh": "从干净设置到随机设置迁移；样本量沿用各外部报告。"
+      },
+      "description": {
+        "en": "Clean-to-randomized transfer; sample counts follow each external report.",
+        "zh": "从干净设置到随机设置迁移；样本量沿用各外部报告。"
+      }
+    }
+  ],
+  "views": [
+    {
+      "id": "standard-spatial",
+      "benchmark_id": "standard-libero",
+      "title": {
+        "en": "Standard LIBERO Spatial",
+        "zh": "Standard LIBERO Spatial"
+      },
+      "label": {
+        "en": "Spatial",
+        "zh": "Spatial"
+      },
+      "subtitle": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "scope": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "table_section": {
+        "en": "Standard LIBERO",
+        "zh": "Standard LIBERO"
+      },
+      "table_row": {
+        "en": "Spatial",
+        "zh": "Spatial"
+      },
+      "record_ids": [
+        "standard-spatial--gpt-5-5-xhigh",
+        "standard-spatial--opus-4-8-max",
+        "standard-spatial--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "standard-spatial--opus-4-8-max"
+      ],
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "source_note": {
+        "en": "Table 2",
+        "zh": "表 2"
+      },
+      "asset_slug": "standard-spatial",
+      "axis_max": 100
+    },
+    {
+      "id": "standard-object",
+      "benchmark_id": "standard-libero",
+      "title": {
+        "en": "Standard LIBERO Object",
+        "zh": "Standard LIBERO Object"
+      },
+      "label": {
+        "en": "Object",
+        "zh": "Object"
+      },
+      "subtitle": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "scope": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "table_section": {
+        "en": "Standard LIBERO",
+        "zh": "Standard LIBERO"
+      },
+      "table_row": {
+        "en": "Object",
+        "zh": "Object"
+      },
+      "record_ids": [
+        "standard-object--gpt-5-5-xhigh",
+        "standard-object--opus-4-8-max",
+        "standard-object--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "standard-object--opus-4-8-max"
+      ],
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "source_note": {
+        "en": "Table 2",
+        "zh": "表 2"
+      },
+      "asset_slug": "standard-object",
+      "axis_max": 100
+    },
+    {
+      "id": "standard-goal",
+      "benchmark_id": "standard-libero",
+      "title": {
+        "en": "Standard LIBERO Goal",
+        "zh": "Standard LIBERO Goal"
+      },
+      "label": {
+        "en": "Goal",
+        "zh": "Goal"
+      },
+      "subtitle": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "scope": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "table_section": {
+        "en": "Standard LIBERO",
+        "zh": "Standard LIBERO"
+      },
+      "table_row": {
+        "en": "Goal",
+        "zh": "Goal"
+      },
+      "record_ids": [
+        "standard-goal--gpt-5-5-xhigh",
+        "standard-goal--opus-4-8-max",
+        "standard-goal--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "standard-goal--opus-4-8-max"
+      ],
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "source_note": {
+        "en": "Table 2",
+        "zh": "表 2"
+      },
+      "asset_slug": "standard-goal",
+      "axis_max": 100
+    },
+    {
+      "id": "standard-long",
+      "benchmark_id": "standard-libero",
+      "title": {
+        "en": "Standard LIBERO Long",
+        "zh": "Standard LIBERO Long"
+      },
+      "label": {
+        "en": "Long",
+        "zh": "Long"
+      },
+      "subtitle": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "scope": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "table_section": {
+        "en": "Standard LIBERO",
+        "zh": "Standard LIBERO"
+      },
+      "table_row": {
+        "en": "Long",
+        "zh": "Long"
+      },
+      "record_ids": [
+        "standard-long--gpt-5-5-xhigh",
+        "standard-long--opus-4-8-max",
+        "standard-long--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "standard-long--opus-4-8-max"
+      ],
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "source_note": {
+        "en": "Table 2",
+        "zh": "表 2"
+      },
+      "asset_slug": "standard-long",
+      "axis_max": 100
+    },
+    {
+      "id": "standard-libero",
+      "benchmark_id": "standard-libero",
+      "title": {
+        "en": "Standard LIBERO",
+        "zh": "Standard LIBERO"
+      },
+      "label": {
+        "en": "Overall",
+        "zh": "总体"
+      },
+      "subtitle": {
+        "en": "Overall · four standard suites",
+        "zh": "总体 · 四个标准套件"
+      },
+      "scope": {
+        "en": "Overall · four standard suites",
+        "zh": "总体 · 四个标准套件"
+      },
+      "table_section": {
+        "en": "Standard LIBERO",
+        "zh": "Standard LIBERO"
+      },
+      "table_row": {
+        "en": "Overall",
+        "zh": "总体"
+      },
+      "record_ids": [
+        "standard-libero--gpt-5-5-xhigh",
+        "standard-libero--opus-4-8-max",
+        "standard-libero--gpt-6-astra-low",
+        "standard-libero--openvla",
+        "standard-libero--nora",
+        "standard-libero--pi0",
+        "standard-libero--pi-rlinf",
+        "standard-libero--atomvla"
+      ],
+      "chart_record_ids": [
+        "standard-libero--atomvla",
+        "standard-libero--opus-4-8-max",
+        "standard-libero--pi-rlinf",
+        "standard-libero--pi0",
+        "standard-libero--openvla"
+      ],
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "source_note": {
+        "en": "Table 2",
+        "zh": "表 2"
+      },
+      "asset_slug": "standard-libero",
+      "overview_record_ids": [
+        "standard-libero--atomvla",
+        "standard-libero--opus-4-8-max",
+        "standard-libero--pi-rlinf",
+        "standard-libero--pi0",
+        "standard-libero--openvla"
+      ],
+      "axis_max": 100,
+      "aggregate_of": [
+        "standard-spatial",
+        "standard-object",
+        "standard-goal",
+        "standard-long"
+      ]
+    },
+    {
+      "id": "spatial-task",
+      "benchmark_id": "libero-pro",
+      "title": {
+        "en": "PRO Spatial Task",
+        "zh": "PRO Spatial Task"
+      },
+      "label": {
+        "en": "Spatial Task",
+        "zh": "Spatial Task"
+      },
+      "subtitle": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "scope": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "table_section": {
+        "en": "LIBERO-PRO",
+        "zh": "LIBERO-PRO"
+      },
+      "table_row": {
+        "en": "Spatial Task",
+        "zh": "Spatial Task"
+      },
+      "record_ids": [
+        "spatial-task--gpt-5-5-xhigh",
+        "spatial-task--opus-4-8-max",
+        "spatial-task--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "spatial-task--gpt-5-5-xhigh",
+        "spatial-task--opus-4-8-max"
+      ],
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "source_note": {
+        "en": "Table 3",
+        "zh": "表 3"
+      },
+      "asset_slug": "spatial-task",
+      "axis_max": 100
+    },
+    {
+      "id": "spatial-swap",
+      "benchmark_id": "libero-pro",
+      "title": {
+        "en": "PRO Spatial Swap",
+        "zh": "PRO Spatial Swap"
+      },
+      "label": {
+        "en": "Spatial Swap",
+        "zh": "Spatial Swap"
+      },
+      "subtitle": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "scope": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "table_section": {
+        "en": "LIBERO-PRO",
+        "zh": "LIBERO-PRO"
+      },
+      "table_row": {
+        "en": "Spatial Swap",
+        "zh": "Spatial Swap"
+      },
+      "record_ids": [
+        "spatial-swap--gpt-5-5-xhigh",
+        "spatial-swap--opus-4-8-max",
+        "spatial-swap--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "spatial-swap--gpt-5-5-xhigh",
+        "spatial-swap--opus-4-8-max"
+      ],
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "source_note": {
+        "en": "Table 3",
+        "zh": "表 3"
+      },
+      "asset_slug": "spatial-swap",
+      "axis_max": 80
+    },
+    {
+      "id": "object-task",
+      "benchmark_id": "libero-pro",
+      "title": {
+        "en": "PRO Object Task",
+        "zh": "PRO Object Task"
+      },
+      "label": {
+        "en": "Object Task",
+        "zh": "Object Task"
+      },
+      "subtitle": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "scope": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "table_section": {
+        "en": "LIBERO-PRO",
+        "zh": "LIBERO-PRO"
+      },
+      "table_row": {
+        "en": "Object Task",
+        "zh": "Object Task"
+      },
+      "record_ids": [
+        "object-task--gpt-5-5-xhigh",
+        "object-task--opus-4-8-max",
+        "object-task--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "object-task--gpt-5-5-xhigh",
+        "object-task--opus-4-8-max"
+      ],
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "source_note": {
+        "en": "Table 3",
+        "zh": "表 3"
+      },
+      "asset_slug": "object-task",
+      "axis_max": 100
+    },
+    {
+      "id": "object-swap",
+      "benchmark_id": "libero-pro",
+      "title": {
+        "en": "PRO Object Swap",
+        "zh": "PRO Object Swap"
+      },
+      "label": {
+        "en": "Object Swap",
+        "zh": "Object Swap"
+      },
+      "subtitle": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "scope": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "table_section": {
+        "en": "LIBERO-PRO",
+        "zh": "LIBERO-PRO"
+      },
+      "table_row": {
+        "en": "Object Swap",
+        "zh": "Object Swap"
+      },
+      "record_ids": [
+        "object-swap--gpt-5-5-xhigh",
+        "object-swap--opus-4-8-max",
+        "object-swap--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "object-swap--gpt-5-5-xhigh",
+        "object-swap--opus-4-8-max"
+      ],
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "source_note": {
+        "en": "Table 3",
+        "zh": "表 3"
+      },
+      "asset_slug": "object-swap",
+      "axis_max": 100
+    },
+    {
+      "id": "goal-task",
+      "benchmark_id": "libero-pro",
+      "title": {
+        "en": "PRO Goal Task",
+        "zh": "PRO Goal Task"
+      },
+      "label": {
+        "en": "Goal Task",
+        "zh": "Goal Task"
+      },
+      "subtitle": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "scope": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "table_section": {
+        "en": "LIBERO-PRO",
+        "zh": "LIBERO-PRO"
+      },
+      "table_row": {
+        "en": "Goal Task",
+        "zh": "Goal Task"
+      },
+      "record_ids": [
+        "goal-task--gpt-5-5-xhigh",
+        "goal-task--opus-4-8-max",
+        "goal-task--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "goal-task--gpt-5-5-xhigh",
+        "goal-task--opus-4-8-max"
+      ],
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "source_note": {
+        "en": "Table 3",
+        "zh": "表 3"
+      },
+      "asset_slug": "goal-task",
+      "axis_max": 90
+    },
+    {
+      "id": "goal-swap",
+      "benchmark_id": "libero-pro",
+      "title": {
+        "en": "PRO Goal Swap",
+        "zh": "PRO Goal Swap"
+      },
+      "label": {
+        "en": "Goal Swap",
+        "zh": "Goal Swap"
+      },
+      "subtitle": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "scope": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "table_section": {
+        "en": "LIBERO-PRO",
+        "zh": "LIBERO-PRO"
+      },
+      "table_row": {
+        "en": "Goal Swap",
+        "zh": "Goal Swap"
+      },
+      "record_ids": [
+        "goal-swap--gpt-5-5-xhigh",
+        "goal-swap--opus-4-8-max",
+        "goal-swap--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "goal-swap--gpt-5-5-xhigh",
+        "goal-swap--opus-4-8-max"
+      ],
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "source_note": {
+        "en": "Table 3",
+        "zh": "表 3"
+      },
+      "asset_slug": "goal-swap",
+      "axis_max": 90
+    },
+    {
+      "id": "long-task",
+      "benchmark_id": "libero-pro",
+      "title": {
+        "en": "PRO Long Task",
+        "zh": "PRO Long Task"
+      },
+      "label": {
+        "en": "Long Task",
+        "zh": "Long Task"
+      },
+      "subtitle": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "scope": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "table_section": {
+        "en": "LIBERO-PRO",
+        "zh": "LIBERO-PRO"
+      },
+      "table_row": {
+        "en": "Long Task",
+        "zh": "Long Task"
+      },
+      "record_ids": [
+        "long-task--gpt-5-5-xhigh",
+        "long-task--opus-4-8-max",
+        "long-task--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "long-task--gpt-6-astra-low",
+        "long-task--opus-4-8-max",
+        "long-task--gpt-5-5-xhigh"
+      ],
+      "source_ids": [
+        "paper-table-3",
+        "astra-long-20260907"
+      ],
+      "source_note": {
+        "en": "Table 3 · Astra evaluation",
+        "zh": "表 3 · Astra 评测"
+      },
+      "asset_slug": "long-task",
+      "overview_record_ids": [
+        "long-task--gpt-6-astra-low",
+        "long-task--opus-4-8-max",
+        "long-task--gpt-5-5-xhigh"
+      ],
+      "axis_max": 90
+    },
+    {
+      "id": "long-swap",
+      "benchmark_id": "libero-pro",
+      "title": {
+        "en": "PRO Long Swap",
+        "zh": "PRO Long Swap"
+      },
+      "label": {
+        "en": "Long Swap",
+        "zh": "Long Swap"
+      },
+      "subtitle": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "scope": {
+        "en": "RPent planners · 100 episodes each",
+        "zh": "RPent 规划模型 · 每个配置 100 回合"
+      },
+      "table_section": {
+        "en": "LIBERO-PRO",
+        "zh": "LIBERO-PRO"
+      },
+      "table_row": {
+        "en": "Long Swap",
+        "zh": "Long Swap"
+      },
+      "record_ids": [
+        "long-swap--gpt-5-5-xhigh",
+        "long-swap--opus-4-8-max",
+        "long-swap--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "long-swap--gpt-6-astra-low",
+        "long-swap--opus-4-8-max",
+        "long-swap--gpt-5-5-xhigh"
+      ],
+      "source_ids": [
+        "paper-table-3",
+        "astra-long-20260907"
+      ],
+      "source_note": {
+        "en": "Table 3 · Astra evaluation",
+        "zh": "表 3 · Astra 评测"
+      },
+      "asset_slug": "long-swap",
+      "overview_record_ids": [
+        "long-swap--gpt-6-astra-low",
+        "long-swap--opus-4-8-max",
+        "long-swap--gpt-5-5-xhigh"
+      ],
+      "axis_max": 80
+    },
+    {
+      "id": "libero-pro",
+      "benchmark_id": "libero-pro",
+      "title": {
+        "en": "LIBERO-PRO",
+        "zh": "LIBERO-PRO"
+      },
+      "label": {
+        "en": "Overall",
+        "zh": "总体"
+      },
+      "subtitle": {
+        "en": "Overall · all eight Task/Swap items",
+        "zh": "总体 · 全部八个 Task/Swap 分项"
+      },
+      "scope": {
+        "en": "Overall · all eight Task/Swap items",
+        "zh": "总体 · 全部八个 Task/Swap 分项"
+      },
+      "table_section": {
+        "en": "LIBERO-PRO",
+        "zh": "LIBERO-PRO"
+      },
+      "table_row": {
+        "en": "Overall",
+        "zh": "总体"
+      },
+      "record_ids": [
+        "libero-pro--gpt-5-5-xhigh",
+        "libero-pro--opus-4-8-max",
+        "libero-pro--gpt-6-astra-low",
+        "libero-pro--openvla",
+        "libero-pro--pi0",
+        "libero-pro--pi0-5",
+        "libero-pro--molmoact",
+        "libero-pro--nora",
+        "libero-pro--x-vla",
+        "libero-pro--atomvla",
+        "libero-pro--pi-rlinf"
+      ],
+      "chart_record_ids": [
+        "libero-pro--opus-4-8-max",
+        "libero-pro--gpt-5-5-xhigh",
+        "libero-pro--pi-rlinf",
+        "libero-pro--pi0-5",
+        "libero-pro--atomvla"
+      ],
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "source_note": {
+        "en": "Table 3",
+        "zh": "表 3"
+      },
+      "asset_slug": "libero-pro",
+      "overview_record_ids": [
+        "libero-pro--opus-4-8-max",
+        "libero-pro--gpt-5-5-xhigh",
+        "libero-pro--pi-rlinf",
+        "libero-pro--pi0-5",
+        "libero-pro--atomvla"
+      ],
+      "axis_max": 90,
+      "aggregate_of": [
+        "spatial-task",
+        "spatial-swap",
+        "object-task",
+        "object-swap",
+        "goal-task",
+        "goal-swap",
+        "long-task",
+        "long-swap"
+      ]
+    },
+    {
+      "id": "zero-shot-goal-task",
+      "benchmark_id": "libero-pro-zero-shot",
+      "title": {
+        "en": "PRO Goal Task · zero-shot",
+        "zh": "PRO Goal Task · 零样本"
+      },
+      "label": {
+        "en": "Goal Task",
+        "zh": "Goal Task"
+      },
+      "subtitle": {
+        "en": "No target-setting memory",
+        "zh": "不使用目标设置记忆"
+      },
+      "scope": {
+        "en": "No target-setting memory",
+        "zh": "不使用目标设置记忆"
+      },
+      "table_section": {
+        "en": "LIBERO-PRO Goal: zero-shot",
+        "zh": "LIBERO-PRO Goal：零样本"
+      },
+      "table_row": {
+        "en": "Goal Task",
+        "zh": "Goal Task"
+      },
+      "record_ids": [
+        "zero-shot-goal-task--gpt-5-5-xhigh",
+        "zero-shot-goal-task--opus-4-8-max",
+        "zero-shot-goal-task--gpt-6-astra-low",
+        "zero-shot-goal-task--cap-x"
+      ],
+      "chart_record_ids": [
+        "zero-shot-goal-task--opus-4-8-max",
+        "zero-shot-goal-task--cap-x"
+      ],
+      "source_ids": [
+        "paper-table-5"
+      ],
+      "source_note": {
+        "en": "Table 5",
+        "zh": "表 5"
+      },
+      "asset_slug": "zero-shot-goal-task",
+      "axis_max": 80
+    },
+    {
+      "id": "zero-shot-goal-swap",
+      "benchmark_id": "libero-pro-zero-shot",
+      "title": {
+        "en": "PRO Goal Swap · zero-shot",
+        "zh": "PRO Goal Swap · 零样本"
+      },
+      "label": {
+        "en": "Goal Swap",
+        "zh": "Goal Swap"
+      },
+      "subtitle": {
+        "en": "No target-setting memory",
+        "zh": "不使用目标设置记忆"
+      },
+      "scope": {
+        "en": "No target-setting memory",
+        "zh": "不使用目标设置记忆"
+      },
+      "table_section": {
+        "en": "LIBERO-PRO Goal: zero-shot",
+        "zh": "LIBERO-PRO Goal：零样本"
+      },
+      "table_row": {
+        "en": "Goal Swap",
+        "zh": "Goal Swap"
+      },
+      "record_ids": [
+        "zero-shot-goal-swap--gpt-5-5-xhigh",
+        "zero-shot-goal-swap--opus-4-8-max",
+        "zero-shot-goal-swap--gpt-6-astra-low",
+        "zero-shot-goal-swap--cap-x"
+      ],
+      "chart_record_ids": [
+        "zero-shot-goal-swap--opus-4-8-max",
+        "zero-shot-goal-swap--cap-x"
+      ],
+      "source_ids": [
+        "paper-table-5"
+      ],
+      "source_note": {
+        "en": "Table 5",
+        "zh": "表 5"
+      },
+      "asset_slug": "zero-shot-goal-swap",
+      "axis_max": 40
+    },
+    {
+      "id": "robocasa-atomic-seen",
+      "benchmark_id": "robocasa",
+      "title": {
+        "en": "RoboCasa Atomic-Seen",
+        "zh": "RoboCasa Atomic-Seen"
+      },
+      "label": {
+        "en": "Atomic-Seen",
+        "zh": "Atomic-Seen"
+      },
+      "subtitle": {
+        "en": "18 tasks · 180 episodes",
+        "zh": "18 个任务 · 180 回合"
+      },
+      "scope": {
+        "en": "18 tasks · 180 episodes",
+        "zh": "18 个任务 · 180 回合"
+      },
+      "table_section": {
+        "en": "RoboCasa365 Target50",
+        "zh": "RoboCasa365 Target50"
+      },
+      "table_row": {
+        "en": "Atomic-Seen",
+        "zh": "Atomic-Seen"
+      },
+      "record_ids": [
+        "robocasa-atomic-seen--gpt-5-5-xhigh",
+        "robocasa-atomic-seen--opus-4-8-max",
+        "robocasa-atomic-seen--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "robocasa-atomic-seen--gpt-5-5-xhigh",
+        "robocasa-atomic-seen--opus-4-8-max"
+      ],
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "source_note": {
+        "en": "Table 4",
+        "zh": "表 4"
+      },
+      "asset_slug": "robocasa-atomic-seen",
+      "axis_max": 100
+    },
+    {
+      "id": "robocasa-composite-seen",
+      "benchmark_id": "robocasa",
+      "title": {
+        "en": "RoboCasa Composite-Seen",
+        "zh": "RoboCasa Composite-Seen"
+      },
+      "label": {
+        "en": "Composite-Seen",
+        "zh": "Composite-Seen"
+      },
+      "subtitle": {
+        "en": "16 tasks · 80 episodes",
+        "zh": "16 个任务 · 80 回合"
+      },
+      "scope": {
+        "en": "16 tasks · 80 episodes",
+        "zh": "16 个任务 · 80 回合"
+      },
+      "table_section": {
+        "en": "RoboCasa365 Target50",
+        "zh": "RoboCasa365 Target50"
+      },
+      "table_row": {
+        "en": "Composite-Seen",
+        "zh": "Composite-Seen"
+      },
+      "record_ids": [
+        "robocasa-composite-seen--gpt-5-5-xhigh",
+        "robocasa-composite-seen--opus-4-8-max",
+        "robocasa-composite-seen--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "robocasa-composite-seen--gpt-5-5-xhigh",
+        "robocasa-composite-seen--opus-4-8-max"
+      ],
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "source_note": {
+        "en": "Table 4",
+        "zh": "表 4"
+      },
+      "asset_slug": "robocasa-composite-seen",
+      "axis_max": 70
+    },
+    {
+      "id": "robocasa-composite-unseen",
+      "benchmark_id": "robocasa",
+      "title": {
+        "en": "RoboCasa Composite-Unseen",
+        "zh": "RoboCasa Composite-Unseen"
+      },
+      "label": {
+        "en": "Composite-Unseen",
+        "zh": "Composite-Unseen"
+      },
+      "subtitle": {
+        "en": "16 tasks · 80 episodes",
+        "zh": "16 个任务 · 80 回合"
+      },
+      "scope": {
+        "en": "16 tasks · 80 episodes",
+        "zh": "16 个任务 · 80 回合"
+      },
+      "table_section": {
+        "en": "RoboCasa365 Target50",
+        "zh": "RoboCasa365 Target50"
+      },
+      "table_row": {
+        "en": "Composite-Unseen",
+        "zh": "Composite-Unseen"
+      },
+      "record_ids": [
+        "robocasa-composite-unseen--gpt-5-5-xhigh",
+        "robocasa-composite-unseen--opus-4-8-max",
+        "robocasa-composite-unseen--gpt-6-astra-low"
+      ],
+      "chart_record_ids": [
+        "robocasa-composite-unseen--gpt-5-5-xhigh",
+        "robocasa-composite-unseen--opus-4-8-max"
+      ],
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "source_note": {
+        "en": "Table 4",
+        "zh": "表 4"
+      },
+      "asset_slug": "robocasa-composite-unseen",
+      "axis_max": 20
+    },
+    {
+      "id": "robocasa",
+      "benchmark_id": "robocasa",
+      "title": {
+        "en": "RoboCasa365 Target50",
+        "zh": "RoboCasa365 Target50"
+      },
+      "label": {
+        "en": "Overall (task-weighted)",
+        "zh": "总体（任务均权）"
+      },
+      "subtitle": {
+        "en": "Overall · 50 tasks, equally weighted",
+        "zh": "总体 · 50 个任务均权"
+      },
+      "scope": {
+        "en": "Overall · 50 tasks, equally weighted",
+        "zh": "总体 · 50 个任务均权"
+      },
+      "table_section": {
+        "en": "RoboCasa365 Target50",
+        "zh": "RoboCasa365 Target50"
+      },
+      "table_row": {
+        "en": "Overall (task-weighted)",
+        "zh": "总体（任务均权）"
+      },
+      "record_ids": [
+        "robocasa--gpt-5-5-xhigh",
+        "robocasa--opus-4-8-max",
+        "robocasa--gpt-6-astra-low",
+        "robocasa--rldx-1",
+        "robocasa--worlddreamer",
+        "robocasa--pi0-5",
+        "robocasa--pi0"
+      ],
+      "chart_record_ids": [
+        "robocasa--gpt-5-5-xhigh",
+        "robocasa--opus-4-8-max",
+        "robocasa--worlddreamer",
+        "robocasa--rldx-1",
+        "robocasa--pi0-5"
+      ],
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "source_note": {
+        "en": "Table 4",
+        "zh": "表 4"
+      },
+      "asset_slug": "robocasa",
+      "overview_record_ids": [
+        "robocasa--gpt-5-5-xhigh",
+        "robocasa--opus-4-8-max",
+        "robocasa--worlddreamer",
+        "robocasa--rldx-1",
+        "robocasa--pi0-5"
+      ],
+      "axis_max": 60
+    },
+    {
+      "id": "robotwin",
+      "benchmark_id": "robotwin",
+      "title": {
+        "en": "RoboTwin C2R",
+        "zh": "RoboTwin C2R"
+      },
+      "label": {
+        "en": "C2R",
+        "zh": "C2R"
+      },
+      "subtitle": {
+        "en": "Clean → randomized transfer",
+        "zh": "从干净设置迁移至随机设置"
+      },
+      "scope": {
+        "en": "Clean → randomized transfer",
+        "zh": "从干净设置迁移至随机设置"
+      },
+      "table_section": {
+        "en": "RoboTwin C2R",
+        "zh": "RoboTwin C2R"
+      },
+      "table_row": {
+        "en": "C2R",
+        "zh": "C2R"
+      },
+      "record_ids": [
+        "robotwin--gpt-5-5-xhigh",
+        "robotwin--opus-4-8-max",
+        "robotwin--gpt-6-astra-low",
+        "robotwin--gr00t-n1-7",
+        "robotwin--pi0-5",
+        "robotwin--starvla",
+        "robotwin--lingbot-vla"
+      ],
+      "chart_record_ids": [
+        "robotwin--opus-4-8-max",
+        "robotwin--gpt-5-5-xhigh",
+        "robotwin--lingbot-vla",
+        "robotwin--pi0-5",
+        "robotwin--gr00t-n1-7"
+      ],
+      "source_ids": [
+        "paper-table-6"
+      ],
+      "source_note": {
+        "en": "Table 6",
+        "zh": "表 6"
+      },
+      "asset_slug": "robotwin",
+      "overview_record_ids": [
+        "robotwin--opus-4-8-max",
+        "robotwin--gpt-5-5-xhigh",
+        "robotwin--lingbot-vla",
+        "robotwin--pi0-5",
+        "robotwin--gr00t-n1-7"
+      ],
+      "axis_max": 60
+    },
+    {
+      "id": "libero-pro-six-non-long",
+      "benchmark_id": "libero-pro",
+      "title": {
+        "en": "LIBERO-PRO · six non-Long items",
+        "zh": "LIBERO-PRO · 六个非 Long 分项"
+      },
+      "label": {
+        "en": "Six non-Long items",
+        "zh": "六个非 Long 分项"
+      },
+      "subtitle": {
+        "en": "Spatial/Object/Goal only · external reports",
+        "zh": "仅 Spatial/Object/Goal · 外部报告"
+      },
+      "scope": {
+        "en": "Spatial/Object/Goal only · external reports",
+        "zh": "仅 Spatial/Object/Goal · 外部报告"
+      },
+      "table_section": {
+        "en": "LIBERO-PRO",
+        "zh": "LIBERO-PRO"
+      },
+      "table_row": {
+        "en": "Six non-Long cells",
+        "zh": "六个非 Long 单元"
+      },
+      "record_ids": [
+        "libero-pro-six-non-long--cap-x",
+        "libero-pro-six-non-long--rats"
+      ],
+      "chart_record_ids": [
+        "libero-pro-six-non-long--cap-x",
+        "libero-pro-six-non-long--rats"
+      ],
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "source_note": {
+        "en": "Table 3",
+        "zh": "表 3"
+      },
+      "asset_slug": "libero-pro-six-non-long",
+      "axis_max": 50
+    }
+  ],
+  "results": [
+    {
+      "id": "standard-spatial--gpt-5-5-xhigh",
+      "view_id": "standard-spatial",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-spatial--opus-4-8-max",
+      "view_id": "standard-spatial",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "97.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-spatial--gpt-6-astra-low",
+      "view_id": "standard-spatial",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-object--gpt-5-5-xhigh",
+      "view_id": "standard-object",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-object--opus-4-8-max",
+      "view_id": "standard-object",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "100.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-object--gpt-6-astra-low",
+      "view_id": "standard-object",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-goal--gpt-5-5-xhigh",
+      "view_id": "standard-goal",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-goal--opus-4-8-max",
+      "view_id": "standard-goal",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "94.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-goal--gpt-6-astra-low",
+      "view_id": "standard-goal",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-long--gpt-5-5-xhigh",
+      "view_id": "standard-long",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-long--opus-4-8-max",
+      "view_id": "standard-long",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "93.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-long--gpt-6-astra-low",
+      "view_id": "standard-long",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-libero--gpt-5-5-xhigh",
+      "view_id": "standard-libero",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-libero--opus-4-8-max",
+      "view_id": "standard-libero",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "96.0",
+      "successes": 384,
+      "episodes": 400,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-libero--gpt-6-astra-low",
+      "view_id": "standard-libero",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "spatial-task--gpt-5-5-xhigh",
+      "view_id": "spatial-task",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "81.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "spatial-task--opus-4-8-max",
+      "view_id": "spatial-task",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "94.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "spatial-task--gpt-6-astra-low",
+      "view_id": "spatial-task",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "spatial-swap--gpt-5-5-xhigh",
+      "view_id": "spatial-swap",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "69.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "spatial-swap--opus-4-8-max",
+      "view_id": "spatial-swap",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "80.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "spatial-swap--gpt-6-astra-low",
+      "view_id": "spatial-swap",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "object-task--gpt-5-5-xhigh",
+      "view_id": "object-task",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "94.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "object-task--opus-4-8-max",
+      "view_id": "object-task",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "88.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "object-task--gpt-6-astra-low",
+      "view_id": "object-task",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "object-swap--gpt-5-5-xhigh",
+      "view_id": "object-swap",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "91.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "object-swap--opus-4-8-max",
+      "view_id": "object-swap",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "90.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "object-swap--gpt-6-astra-low",
+      "view_id": "object-swap",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "goal-task--gpt-5-5-xhigh",
+      "view_id": "goal-task",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "75.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "goal-task--opus-4-8-max",
+      "view_id": "goal-task",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "87.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "goal-task--gpt-6-astra-low",
+      "view_id": "goal-task",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "goal-swap--gpt-5-5-xhigh",
+      "view_id": "goal-swap",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "66.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "goal-swap--opus-4-8-max",
+      "view_id": "goal-swap",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "87.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "goal-swap--gpt-6-astra-low",
+      "view_id": "goal-swap",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "long-task--gpt-5-5-xhigh",
+      "view_id": "long-task",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "52.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "long-task--opus-4-8-max",
+      "view_id": "long-task",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "71.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "long-task--gpt-6-astra-low",
+      "view_id": "long-task",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "85",
+      "successes": 85,
+      "episodes": 100,
+      "source_ids": [
+        "astra-long-20260907"
+      ],
+      "protocol_id": "rpent-pro-astra-long"
+    },
+    {
+      "id": "long-swap--gpt-5-5-xhigh",
+      "view_id": "long-swap",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "49.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "long-swap--opus-4-8-max",
+      "view_id": "long-swap",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "62.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "long-swap--gpt-6-astra-low",
+      "view_id": "long-swap",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "72",
+      "successes": 72,
+      "episodes": 100,
+      "source_ids": [
+        "astra-long-20260907"
+      ],
+      "protocol_id": "rpent-pro-astra-long"
+    },
+    {
+      "id": "libero-pro--gpt-5-5-xhigh",
+      "view_id": "libero-pro",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "72.1",
+      "successes": null,
+      "episodes": 800,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "libero-pro--opus-4-8-max",
+      "view_id": "libero-pro",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "82.4",
+      "successes": null,
+      "episodes": 800,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "libero-pro--gpt-6-astra-low",
+      "view_id": "libero-pro",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "zero-shot-goal-task--gpt-5-5-xhigh",
+      "view_id": "zero-shot-goal-task",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-5"
+      ],
+      "protocol_id": "rpent-zero-shot"
+    },
+    {
+      "id": "zero-shot-goal-task--opus-4-8-max",
+      "view_id": "zero-shot-goal-task",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "79.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-5"
+      ],
+      "protocol_id": "rpent-zero-shot"
+    },
+    {
+      "id": "zero-shot-goal-task--gpt-6-astra-low",
+      "view_id": "zero-shot-goal-task",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-5"
+      ],
+      "protocol_id": "rpent-zero-shot"
+    },
+    {
+      "id": "zero-shot-goal-swap--gpt-5-5-xhigh",
+      "view_id": "zero-shot-goal-swap",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-5"
+      ],
+      "protocol_id": "rpent-zero-shot"
+    },
+    {
+      "id": "zero-shot-goal-swap--opus-4-8-max",
+      "view_id": "zero-shot-goal-swap",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "31.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-5"
+      ],
+      "protocol_id": "rpent-zero-shot"
+    },
+    {
+      "id": "zero-shot-goal-swap--gpt-6-astra-low",
+      "view_id": "zero-shot-goal-swap",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-5"
+      ],
+      "protocol_id": "rpent-zero-shot"
+    },
+    {
+      "id": "robocasa-atomic-seen--gpt-5-5-xhigh",
+      "view_id": "robocasa-atomic-seen",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "92.0",
+      "successes": null,
+      "episodes": 180,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-atomic-seen--opus-4-8-max",
+      "view_id": "robocasa-atomic-seen",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "79.4",
+      "successes": null,
+      "episodes": 180,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-atomic-seen--gpt-6-astra-low",
+      "view_id": "robocasa-atomic-seen",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-composite-seen--gpt-5-5-xhigh",
+      "view_id": "robocasa-composite-seen",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "61.0",
+      "successes": null,
+      "episodes": 80,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-composite-seen--opus-4-8-max",
+      "view_id": "robocasa-composite-seen",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "47.5",
+      "successes": null,
+      "episodes": 80,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-composite-seen--gpt-6-astra-low",
+      "view_id": "robocasa-composite-seen",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-composite-unseen--gpt-5-5-xhigh",
+      "view_id": "robocasa-composite-unseen",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "13.8",
+      "successes": null,
+      "episodes": 80,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-composite-unseen--opus-4-8-max",
+      "view_id": "robocasa-composite-unseen",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "15.0",
+      "successes": null,
+      "episodes": 80,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-composite-unseen--gpt-6-astra-low",
+      "view_id": "robocasa-composite-unseen",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa--gpt-5-5-xhigh",
+      "view_id": "robocasa",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "57.1",
+      "successes": null,
+      "episodes": 340,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa--opus-4-8-max",
+      "view_id": "robocasa",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "48.6",
+      "successes": null,
+      "episodes": 340,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa--gpt-6-astra-low",
+      "view_id": "robocasa",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robotwin--gpt-5-5-xhigh",
+      "view_id": "robotwin",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "58.0",
+      "successes": null,
+      "episodes": 250,
+      "source_ids": [
+        "paper-table-6"
+      ],
+      "protocol_id": "rpent-robotwin"
+    },
+    {
+      "id": "robotwin--opus-4-8-max",
+      "view_id": "robotwin",
+      "configuration_id": "opus-4-8-max",
+      "status": "reported",
+      "rate": "58.4",
+      "successes": null,
+      "episodes": 250,
+      "source_ids": [
+        "paper-table-6"
+      ],
+      "protocol_id": "rpent-robotwin"
+    },
+    {
+      "id": "robotwin--gpt-6-astra-low",
+      "view_id": "robotwin",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "not_reported",
+      "rate": null,
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-6"
+      ],
+      "protocol_id": "rpent-robotwin"
+    },
+    {
+      "id": "standard-libero--openvla",
+      "view_id": "standard-libero",
+      "configuration_id": "openvla",
+      "status": "reported",
+      "rate": "76.5",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard",
+      "coverage": {
+        "en": "Four standard suites",
+        "zh": "四个标准套件"
+      }
+    },
+    {
+      "id": "standard-libero--nora",
+      "view_id": "standard-libero",
+      "configuration_id": "nora",
+      "status": "reported",
+      "rate": "79.5",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard",
+      "coverage": {
+        "en": "Four standard suites",
+        "zh": "四个标准套件"
+      }
+    },
+    {
+      "id": "standard-libero--pi0",
+      "view_id": "standard-libero",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "94.2",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard",
+      "coverage": {
+        "en": "Four standard suites",
+        "zh": "四个标准套件"
+      }
+    },
+    {
+      "id": "standard-libero--pi-rlinf",
+      "view_id": "standard-libero",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "95.3",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard",
+      "coverage": {
+        "en": "Four standard suites",
+        "zh": "四个标准套件"
+      }
+    },
+    {
+      "id": "standard-libero--atomvla",
+      "view_id": "standard-libero",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "97.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard",
+      "coverage": {
+        "en": "Four standard suites",
+        "zh": "四个标准套件"
+      }
+    },
+    {
+      "id": "libero-pro--openvla",
+      "view_id": "libero-pro",
+      "configuration_id": "openvla",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro",
+      "coverage": {
+        "en": "Eight Task/Swap cells",
+        "zh": "八个 Task/Swap 单元"
+      }
+    },
+    {
+      "id": "libero-pro--pi0",
+      "view_id": "libero-pro",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "0.3",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro",
+      "coverage": {
+        "en": "Eight Task/Swap cells",
+        "zh": "八个 Task/Swap 单元"
+      }
+    },
+    {
+      "id": "libero-pro--pi0-5",
+      "view_id": "libero-pro",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "11.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro",
+      "coverage": {
+        "en": "Eight Task/Swap cells",
+        "zh": "八个 Task/Swap 单元"
+      }
+    },
+    {
+      "id": "libero-pro--molmoact",
+      "view_id": "libero-pro",
+      "configuration_id": "molmoact",
+      "status": "reported",
+      "rate": "1.5",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro",
+      "coverage": {
+        "en": "Eight Task/Swap cells",
+        "zh": "八个 Task/Swap 单元"
+      }
+    },
+    {
+      "id": "libero-pro--nora",
+      "view_id": "libero-pro",
+      "configuration_id": "nora",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro",
+      "coverage": {
+        "en": "Eight Task/Swap cells",
+        "zh": "八个 Task/Swap 单元"
+      }
+    },
+    {
+      "id": "libero-pro--x-vla",
+      "view_id": "libero-pro",
+      "configuration_id": "x-vla",
+      "status": "reported",
+      "rate": "3.8",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro",
+      "coverage": {
+        "en": "Eight Task/Swap cells",
+        "zh": "八个 Task/Swap 单元"
+      }
+    },
+    {
+      "id": "libero-pro--atomvla",
+      "view_id": "libero-pro",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "6.3",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro",
+      "coverage": {
+        "en": "Eight Task/Swap cells",
+        "zh": "八个 Task/Swap 单元"
+      }
+    },
+    {
+      "id": "libero-pro--pi-rlinf",
+      "view_id": "libero-pro",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "50.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro",
+      "coverage": {
+        "en": "Eight Task/Swap cells",
+        "zh": "八个 Task/Swap 单元"
+      }
+    },
+    {
+      "id": "libero-pro-six-non-long--cap-x",
+      "view_id": "libero-pro-six-non-long",
+      "configuration_id": "cap-x",
+      "status": "reported",
+      "rate": "18.2",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro-six",
+      "coverage": {
+        "en": "Six non-Long cells",
+        "zh": "六个非 Long 单元"
+      }
+    },
+    {
+      "id": "libero-pro-six-non-long--rats",
+      "view_id": "libero-pro-six-non-long",
+      "configuration_id": "rats",
+      "status": "reported",
+      "rate": "43.8",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro-six",
+      "coverage": {
+        "en": "Six non-Long cells",
+        "zh": "六个非 Long 单元"
+      }
+    },
+    {
+      "id": "robocasa--rldx-1",
+      "view_id": "robocasa",
+      "configuration_id": "rldx-1",
+      "status": "reported",
+      "rate": "30.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa",
+      "coverage": {
+        "en": "All three splits, task-weighted",
+        "zh": "全部三个划分，任务均权"
+      }
+    },
+    {
+      "id": "robocasa--worlddreamer",
+      "view_id": "robocasa",
+      "configuration_id": "worlddreamer",
+      "status": "reported",
+      "rate": "35.3",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa",
+      "coverage": {
+        "en": "All three splits, task-weighted",
+        "zh": "全部三个划分，任务均权"
+      }
+    },
+    {
+      "id": "robocasa--pi0-5",
+      "view_id": "robocasa",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "16.9",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa",
+      "coverage": {
+        "en": "All three splits, task-weighted",
+        "zh": "全部三个划分，任务均权"
+      }
+    },
+    {
+      "id": "robocasa--pi0",
+      "view_id": "robocasa",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "14.8",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa",
+      "coverage": {
+        "en": "All three splits, task-weighted",
+        "zh": "全部三个划分，任务均权"
+      }
+    },
+    {
+      "id": "robotwin--gr00t-n1-7",
+      "view_id": "robotwin",
+      "configuration_id": "gr00t-n1-7",
+      "status": "reported",
+      "rate": "20.7",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-6"
+      ],
+      "protocol_id": "external-robotwin",
+      "coverage": {
+        "en": "C2R",
+        "zh": "C2R"
+      }
+    },
+    {
+      "id": "robotwin--pi0-5",
+      "view_id": "robotwin",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "47.9",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-6"
+      ],
+      "protocol_id": "external-robotwin",
+      "coverage": {
+        "en": "C2R",
+        "zh": "C2R"
+      }
+    },
+    {
+      "id": "robotwin--starvla",
+      "view_id": "robotwin",
+      "configuration_id": "starvla",
+      "status": "reported",
+      "rate": "10.6",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-6"
+      ],
+      "protocol_id": "external-robotwin",
+      "coverage": {
+        "en": "C2R",
+        "zh": "C2R"
+      }
+    },
+    {
+      "id": "robotwin--lingbot-vla",
+      "view_id": "robotwin",
+      "configuration_id": "lingbot-vla",
+      "status": "reported",
+      "rate": "50.4",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-6"
+      ],
+      "protocol_id": "external-robotwin",
+      "coverage": {
+        "en": "C2R",
+        "zh": "C2R"
+      }
+    },
+    {
+      "id": "zero-shot-goal-task--cap-x",
+      "view_id": "zero-shot-goal-task",
+      "configuration_id": "cap-x",
+      "status": "reported",
+      "rate": "16.8",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-5"
+      ],
+      "protocol_id": "external-zero-shot",
+      "coverage": {
+        "en": "Goal Task",
+        "zh": "Goal Task"
+      }
+    },
+    {
+      "id": "zero-shot-goal-swap--cap-x",
+      "view_id": "zero-shot-goal-swap",
+      "configuration_id": "cap-x",
+      "status": "reported",
+      "rate": "25.6",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-5"
+      ],
+      "protocol_id": "external-zero-shot",
+      "coverage": {
+        "en": "Goal Swap",
+        "zh": "Goal Swap"
+      }
+    }
+  ],
+  "tables": [
+    {
+      "id": "configurations",
+      "kind": "configurations",
+      "title": {
+        "en": "RPent planner configurations",
+        "zh": "RPent 规划模型配置"
+      },
+      "headers": {
+        "en": [
+          "Backend",
+          "Model",
+          "Reasoning",
+          "Effort"
+        ],
+        "zh": [
+          "后端",
+          "模型",
+          "Reasoning",
+          "Effort"
+        ]
+      },
+      "widths": [
+        25,
+        30,
+        25,
+        20
+      ]
+    },
+    {
+      "id": "standard-libero",
+      "kind": "main",
+      "title": {
+        "en": "RPent success rates",
+        "zh": "RPent 成功率"
+      },
+      "headers": {
+        "en": "Evaluation item",
+        "zh": "评测项"
+      },
+      "view_ids": [
+        "standard-spatial",
+        "standard-object",
+        "standard-goal",
+        "standard-long",
+        "standard-libero"
+      ]
+    },
+    {
+      "id": "libero-pro",
+      "kind": "main",
+      "title": {
+        "en": "RPent success rates",
+        "zh": "RPent 成功率"
+      },
+      "headers": {
+        "en": "Evaluation item",
+        "zh": "评测项"
+      },
+      "view_ids": [
+        "spatial-task",
+        "spatial-swap",
+        "object-task",
+        "object-swap",
+        "goal-task",
+        "goal-swap",
+        "long-task",
+        "long-swap",
+        "libero-pro"
+      ]
+    },
+    {
+      "id": "libero-pro-zero-shot",
+      "kind": "main",
+      "title": {
+        "en": "RPent success rates",
+        "zh": "RPent 成功率"
+      },
+      "headers": {
+        "en": "Evaluation item",
+        "zh": "评测项"
+      },
+      "view_ids": [
+        "zero-shot-goal-task",
+        "zero-shot-goal-swap"
+      ]
+    },
+    {
+      "id": "robocasa",
+      "kind": "main",
+      "title": {
+        "en": "RPent success rates",
+        "zh": "RPent 成功率"
+      },
+      "headers": {
+        "en": "Evaluation item",
+        "zh": "评测项"
+      },
+      "view_ids": [
+        "robocasa-atomic-seen",
+        "robocasa-composite-seen",
+        "robocasa-composite-unseen",
+        "robocasa"
+      ]
+    },
+    {
+      "id": "robotwin",
+      "kind": "main",
+      "title": {
+        "en": "RPent success rates",
+        "zh": "RPent 成功率"
+      },
+      "headers": {
+        "en": "Evaluation item",
+        "zh": "评测项"
+      },
+      "view_ids": [
+        "robotwin"
+      ]
+    },
+    {
+      "id": "baseline-standard-libero",
+      "kind": "baseline",
+      "title": {
+        "en": "Reference methods",
+        "zh": "参考方法"
+      },
+      "headers": {
+        "en": [
+          "Method",
+          "Coverage",
+          "Success rate",
+          "Source"
+        ],
+        "zh": [
+          "方法",
+          "覆盖范围",
+          "成功率",
+          "来源"
+        ]
+      },
+      "widths": [
+        24,
+        36,
+        20,
+        20
+      ],
+      "record_ids": [
+        "standard-libero--openvla",
+        "standard-libero--nora",
+        "standard-libero--pi0",
+        "standard-libero--pi-rlinf",
+        "standard-libero--atomvla"
+      ]
+    },
+    {
+      "id": "baseline-libero-pro",
+      "kind": "baseline",
+      "title": {
+        "en": "Reference methods",
+        "zh": "参考方法"
+      },
+      "headers": {
+        "en": [
+          "Method",
+          "Coverage",
+          "Success rate",
+          "Source"
+        ],
+        "zh": [
+          "方法",
+          "覆盖范围",
+          "成功率",
+          "来源"
+        ]
+      },
+      "widths": [
+        24,
+        36,
+        20,
+        20
+      ],
+      "record_ids": [
+        "libero-pro--openvla",
+        "libero-pro--pi0",
+        "libero-pro--pi0-5",
+        "libero-pro--molmoact",
+        "libero-pro--nora",
+        "libero-pro--x-vla",
+        "libero-pro--atomvla",
+        "libero-pro--pi-rlinf",
+        "libero-pro-six-non-long--cap-x",
+        "libero-pro-six-non-long--rats"
+      ]
+    },
+    {
+      "id": "baseline-robocasa",
+      "kind": "baseline",
+      "title": {
+        "en": "Reference methods",
+        "zh": "参考方法"
+      },
+      "headers": {
+        "en": [
+          "Method",
+          "Coverage",
+          "Success rate",
+          "Source"
+        ],
+        "zh": [
+          "方法",
+          "覆盖范围",
+          "成功率",
+          "来源"
+        ]
+      },
+      "widths": [
+        24,
+        36,
+        20,
+        20
+      ],
+      "record_ids": [
+        "robocasa--rldx-1",
+        "robocasa--worlddreamer",
+        "robocasa--pi0-5",
+        "robocasa--pi0"
+      ]
+    },
+    {
+      "id": "baseline-robotwin",
+      "kind": "baseline",
+      "title": {
+        "en": "Reference methods",
+        "zh": "参考方法"
+      },
+      "headers": {
+        "en": [
+          "Method",
+          "Coverage",
+          "Success rate",
+          "Source"
+        ],
+        "zh": [
+          "方法",
+          "覆盖范围",
+          "成功率",
+          "来源"
+        ]
+      },
+      "widths": [
+        24,
+        36,
+        20,
+        20
+      ],
+      "record_ids": [
+        "robotwin--gr00t-n1-7",
+        "robotwin--pi0-5",
+        "robotwin--starvla",
+        "robotwin--lingbot-vla"
+      ]
+    },
+    {
+      "id": "baseline-libero-pro-zero-shot",
+      "kind": "baseline",
+      "title": {
+        "en": "Reference methods",
+        "zh": "参考方法"
+      },
+      "headers": {
+        "en": [
+          "Method",
+          "Coverage",
+          "Success rate",
+          "Source"
+        ],
+        "zh": [
+          "方法",
+          "覆盖范围",
+          "成功率",
+          "来源"
+        ]
+      },
+      "widths": [
+        24,
+        36,
+        20,
+        20
+      ],
+      "record_ids": [
+        "zero-shot-goal-task--cap-x",
+        "zero-shot-goal-swap--cap-x"
+      ]
+    }
+  ],
+  "overview_views": [
+    "standard-libero",
+    "libero-pro",
+    "robocasa",
+    "robotwin",
+    "long-task",
+    "long-swap"
+  ]
+}
