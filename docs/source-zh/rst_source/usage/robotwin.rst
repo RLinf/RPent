@@ -7,7 +7,7 @@ RoboTwin
 
 .. note::
 
-   当前代码尚未完成 RoboTwin 的完整效果对齐验证，完整验证结果将在后续放出。
+   已验证的 RoboTwin 250-episode 结果及完整评测配置见 `结果复现`_。
 
 安装
 ----
@@ -174,15 +174,19 @@ task language 与最新 observation 始终优先，所有几何信息都必须�
 结果复现
 --------
 
-以下结果复现了 Harness VLA 在 RoboTwin C2R 上的评测。实验使用 ``gpt-5.5`` 模型和
+以下结果是在 Harness VLA 的 RoboTwin C2R 上取得的。实验使用 ``gpt-5.5`` 模型和
 ``xhigh`` 推理强度：
 
-- ``demo_randomized``：58.0%（145/250）
+- ``demo_randomized``：62.4%（156/250）
+
+本次运行得到 156 条成功、58 条任务失败和 36 条 episode 超时。
 
 评测覆盖 RoboTwin 的 50 个任务，每个任务运行 5 个 episode，共计 250 个 episode。
 每个任务使用的 5 个 seed 来自 ``robots/robotwin/eval/demo_randomized.json`` 中的
 官方 verified expert seeds。由于不同任务的可解 seed 可能不同，请根据该文件为每个
 任务选择对应 seed，不要对所有任务统一使用一组固定 seed。
+对于表中列出的 task/seed 组合，RPent 会在精确场景 reset 后绑定表内对应的
+``task_language``；未列出的自定义 seed 仍使用 RoboTwin 原生环境生成的 language。
 
 单个 episode 的复现命令如下：
 
@@ -196,10 +200,10 @@ task language 与最新 observation 始终优先，所有几何信息都必须�
      --model gpt-5.5 \
      --reasoning-effort xhigh \
      --max-turns 100 \
-     --planner-timeout-s 3600 \
+     --planner-timeout-s 4800 \
      --max-episode-steps 10000
 
 其中，``task`` 应替换为 ``demo_randomized.json`` 中的任务名，``seed`` 应替换为
-该任务对应的一个 verified expert seed。运行前还需按照本页前文配置 RoboTwin assets、
-LingBot-VLA checkpoint。任务是否成功以 episode 结束时最新的
-``TASK_ENV.eval_success`` 为准，不能仅根据规划器是否调用 ``finish`` 判断。
+该任务对应的一个 verified expert seed。运行前请按前文配置 RoboTwin assets 和
+LingBot-VLA checkpoint。每个 episode 仅在 ``TASK_ENV.eval_success`` 的最终值为
+``true`` 时计为成功；规划器调用 ``finish`` 本身不代表成功。
