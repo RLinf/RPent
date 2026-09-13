@@ -1,8 +1,27 @@
+.rpent-page-toc {
+  margin: 1rem 0;
+}
+
+.rpent-page-toc > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
 .rpent-leaderboard-legend {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.5rem 1.5rem;
   margin: 0.75rem 0 1.25rem;
+}
+
+.rpent-leaderboard-legend,
+.rpent-leaderboard-panel figcaption {
+  font-family: "Times New Roman", KaiTi, STKaiti, serif;
+}
+
+html[lang="zh"] .rpent-leaderboard-legend {
+  font-size: 1.125rem;
 }
 
 .rpent-leaderboard-legend > span {
@@ -27,7 +46,7 @@
 
 .rpent-leaderboard-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr));
   gap: 1.5rem 1rem;
   margin-bottom: 1.5rem;
 }
@@ -47,6 +66,10 @@
   margin-top: 0.5rem;
   font-size: 0.875rem;
   text-align: center;
+}
+
+html[lang="zh"] .rpent-leaderboard-panel figcaption {
+  font-size: 1rem;
 }
 
 .rpent-leaderboard-panel .rpent-chart-dark {
