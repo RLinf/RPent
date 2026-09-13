@@ -227,7 +227,7 @@ do not define this aggregate.
    * - Object Task
      - 94.0%
      - 88.0%
-     - Not reported
+     - 100% (100/100)
    * - Object Swap
      - 91.0%
      - 90.0%
