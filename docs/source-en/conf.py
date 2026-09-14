@@ -45,13 +45,14 @@ html_baseurl = os.environ.get(
     "https://rpent.readthedocs.io/en/latest/",
 )
 sitemap_url_scheme = "{link}"
-html_static_path = ["_static"]
-html_css_files = ["css/custom.css"]
+html_static_path = ["_static", "../_static"]
+html_css_files = ["css/custom.css", "css/benchmarks.css"]
 html_js_files = [
     "js/version-switcher.js",
     "js/lang-switcher.js",
     "js/sidebar-nav.js",
     "js/theme-toggle.js",
+    ("js/benchmark-leaderboard.js", {"defer": "defer"}),
 ]
 html_sidebars = {
     "**": [
