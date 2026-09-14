@@ -73,6 +73,10 @@ GPT-5.5 与 Opus-4.8 的已报告结果与 Harness VLA
 `论文 v4 <https://arxiv.org/html/2607.08448v4#S3.SS3>`_ 对齐；GPT-6 Astra 为新增模型评测结果。
 外部基线方法另列参考。
 
+:doc:`GPT-6 Astra LIBERO-PRO 结果快照 <../results/libero_pro_astra>`
+包含六个完整套件及 619/800 个已核验回合。Goal Task、Goal Swap 与完整 Overall
+在各自覆盖范围完成前保持未报告。
+
 快速开始
 --------
 

@@ -88,6 +88,10 @@ The reported GPT-5.5 and Opus-4.8 results are aligned with Harness VLA
 `paper v4 <https://arxiv.org/html/2607.08448v4#S3.SS3>`_; GPT-6 Astra is an
 additional model evaluation. External baseline methods are listed separately.
 
+The :doc:`GPT-6 Astra LIBERO-PRO result snapshot <../results/libero_pro_astra>`
+contains six complete suites and 619/800 verified episodes. Goal Task, Goal Swap
+and the full Overall rate remain unreported until their coverage is complete.
+
 Quick Start
 -----------
 

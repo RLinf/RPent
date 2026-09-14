@@ -31,7 +31,9 @@
 
 Compare RPent with reference methods on LIBERO, LIBERO-PRO, RoboCasa365 Target50, and RoboTwin C2R. Rankings apply to the methods and evaluation coverage shown; see [Benchmark Results](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html) for detailed results, configurations, and sources.
 
-[![RPent success-rate comparisons across six benchmark panels](https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html)
+GPT-6 Astra LIBERO-PRO: six suites complete, 619/800 episodes verified. Goal and Overall rates remain unreported; see the [task/seed results](https://rpent.readthedocs.io/en/latest/rst_source/results/libero_pro_astra.html).
+
+[![RPent success-rate comparisons across six benchmark panels](https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html)
 
 
 ## Who Should Consider Using RPent?
