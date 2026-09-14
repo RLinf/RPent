@@ -333,6 +333,26 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
 给出每个任务的成功次数和准确率。当前发布内容是任务级聚合数据，不包含 seed 级
 trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
 
+.. _environment-smoke-tests:
+
+环境冒烟测试
+------------
+
+安装 RoboCasa 及其 assets 后，可显式启用环境冒烟测试，检查仿真器安装与接口。
+测试不需要 planner 凭据或 VLA checkpoint：
+
+.. code-block:: bash
+
+   uv pip install pytest pytest-timeout
+   RPENT_RUN_ROBOCASA_INTEGRATION=1 \
+      pytest tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py -v
+
+共四项测试：``OpenDrawer``、``NavigateKitchen``、``PickPlaceCounterToCabinet``
+各使用 seed 1，另加一项移动相机测试。任务测试检查构造/reset、12D action、
+操作相机、导航 RGB-D/world map、成功判定及关闭流程；相机测试检查底盘执行
+八步动作后的相机位姿与画面变化。这些真实仿真测试需要可用的 GPU/EGL 环境，
+与离线 CPU CI 分开运行；跳过不能计作通过。
+
 常见错误
 --------
 
