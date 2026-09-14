@@ -589,6 +589,14 @@ TOOLS_SPEC = [
         },
     },
     {
+        "name": "reset",
+        "description": (
+            "Restart the episode for a fresh exploration attempt. Available only "
+            "in explore mode. Re-run perception after every reset."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "finish",
         "description": (
             "Stop the run. A fresh native status query is authoritative; requesting "

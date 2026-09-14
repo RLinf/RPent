@@ -482,3 +482,25 @@ RoboCasa toolkit 提供的工具 *形式* 与 LIBERO 相同（一次原语调用
   (``rldx_skill`` / ``vla_client``) 从不直接看到 session id, 服务端
   把它注入到 ``predict`` / ``reset_session`` 中, 按客户端隔离
   RLDX memory/RTC 策略状态。
+
+
+RoboCasa 的 planner session 默认 wall-clock timeout 为 2 小时（7200 秒）；可用
+``--planner-timeout-s`` 显式覆盖。
+
+探索并生成 Memory
+-----------------
+
+RoboCasa 支持与 LIBERO 相同的多 attempt、多 planner session 探索协议。探索时
+``reset`` 会恢复新 episode；失败笔记先写入每个 cell 独立的 ``_internal/inbox/<cell_tag>``，成功后
+runner 只导出最后一次 reset 之后的获胜 recipe，并可自动合并分层 memory：
+
+.. code-block:: bash
+
+   rpent --robot robocasa --task-name OpenDrawer --split target --seed 0 \
+         --explore --explore-attempts-per-session 5 --explore-sessions 3 \
+         --memory-dir /path/to/robocasa-memory \
+         --vla-model-path /path/to/rldx --planner codex --reasoning-effort high
+
+使用 ``--no-auto-merge-memory`` 可保留 inbox 供人工审核。探索 prompt 来自
+``robots/robocasa/prompts/explore.py``，包含移动底盘、``task_progress``、RLDX
+连续性和失败 attempt 归档规则。

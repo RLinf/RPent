@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from robots.robotwin.prompts import explore as explore_parts
 from robots.robotwin.prompts import system as system_parts
 from robots.robotwin.prompts import user as user_parts
 from rpent.prompt.utils import PromptNode
@@ -26,6 +27,8 @@ from rpent.prompt.utils import PromptNode
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
+    if (variables or {}).get("mode", "eval") == "explore":
+        return explore_parts.system_prompt()
     return {
         "ROLE": system_parts.ROLE,
         "READ ORDER": system_parts.READ_ORDER,
@@ -43,10 +46,13 @@ def system_prompt(
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    return {
+    prompt = {
         "CELL": user_parts.CELL,
         "BEGIN": user_parts.BEGIN,
     }
+    if (variables or {}).get("mode", "eval") == "explore":
+        prompt["EXPLORE MODE"] = explore_parts.USER_MODE
+    return prompt
 
 
 __all__ = ["system_prompt", "user_prompt"]
