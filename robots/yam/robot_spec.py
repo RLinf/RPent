@@ -82,6 +82,7 @@ def get_robot_spec() -> RobotSpec:
         name="yam",
         dashboard=YAM_DASHBOARD_SPEC,
         supports_exploration=True,
+        is_real_robot=True,
         finalize_run=finalize_run,
         run_diagnostic=_run_diagnostic,
         prompts=PromptBundle(system=system_prompt, user=user_prompt),

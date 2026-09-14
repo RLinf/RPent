@@ -90,6 +90,7 @@ PROMPT_VARIABLES = {
         "task_id": 1,
         "task_name": "vla_grasp",
         "instruction": "Use bounded analytic motion",
+        "setup": "",
         "success_criteria": "object follows the chosen gripper",
         "constraints": "1. Move exactly one arm per call",
         "output_dir": Path("/output"),
@@ -119,7 +120,7 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
 def test_exploration_capability(robot_name: str) -> None:
     spec = get_robot_spec(robot_name)
-    assert spec.supports_exploration is (robot_name in {"libero", "yam"})
+    assert spec.supports_exploration is (robot_name in {"dual_franka", "libero", "yam"})
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)

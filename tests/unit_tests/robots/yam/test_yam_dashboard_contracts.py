@@ -35,6 +35,7 @@ def args_for(tmp_path, *extra):
 
 
 def test_defaults_and_explicit_overrides(tmp_path):
+    assert yam.get_robot_spec().is_real_robot
     args = args_for(tmp_path)
     common = main._build_argparser().parse_args([])
     assert (args.planner, args.model, args.reasoning_effort) == (
@@ -67,6 +68,40 @@ def test_defaults_and_explicit_overrides(tmp_path):
         override.reasoning_effort,
         override.explore_attempts_per_session,
     ) == ("other", "medium", 3)
+
+
+@pytest.mark.parametrize("endpoint", [False, True])
+def test_external_dashboard_checks_endpoint_without_operator_tty(
+    tmp_path, monkeypatch, capsys, endpoint
+):
+    import sys
+
+    argv = [
+        "rpent",
+        "--robot",
+        "yam",
+        "--dashboard",
+        "--planner",
+        "codex",
+        "--output-dir",
+        str(tmp_path),
+    ]
+    if endpoint:
+        argv += ["--env-endpoint", "socket://localhost:8110"]
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: False))
+
+    def reached_startup(*args, **kwargs):
+        raise RuntimeError("dashboard validation passed")
+
+    monkeypatch.setattr(dashboard, "init_output_dir", reached_startup)
+    if endpoint:
+        with pytest.raises(RuntimeError, match="dashboard validation passed"):
+            main.main()
+    else:
+        with pytest.raises(SystemExit):
+            main.main()
+        assert "--env-endpoint is required" in capsys.readouterr().err
 
 
 def test_dashboard_tasks_keep_language_separate(tmp_path):

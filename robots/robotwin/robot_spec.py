@@ -207,6 +207,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=ROBOTWIN_DASHBOARD_SPEC,
+        supports_exploration=False,
     )
 
 

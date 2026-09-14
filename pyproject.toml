@@ -39,6 +39,7 @@ dependencies = [
     "huggingface_hub>=0.24",
     "prompt-toolkit>=3.0.48",
     "numpy",
+    "scipy",
     "imageio>=2.0",
     "PyYAML>=6.0",
 ]

@@ -134,6 +134,9 @@ server. You do not need to start ``scripts/codex_proxy/`` first.
 
 Notes:
 
+- Set ``CODEX_SERVICE_TIER=fast`` to pass the fast service tier to the Codex
+  backend. This does not change ``--reasoning-effort``. When unset, RPent
+  does not override the service tier.
 - ``--model`` overrides ``CODEX_MODEL``. If neither is set, RPent uses
   the model configured as the Codex SDK default.
 - ``--planner-timeout-s`` limits the Codex run. Its default is
