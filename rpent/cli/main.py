@@ -258,15 +258,20 @@ def _handoff_message(
         if attempts_dir.is_dir()
         else []
     )
-    reset_note = (
-        "A fresh toolkit has already restored a clean scene; inspect it before acting."
-    )
-    if robot_name == "dual_franka":
+    spec = get_robot_spec(robot_name)
+    if getattr(spec, "is_real_robot", False):
         reset_note = (
             "This is a real-robot continuation: the physical scene is not "
-            "automatically reset by toolkit construction. If a clean restored "
-            "scene is required, call `request_scene_reset` and wait for the "
-            "operator confirmation before acting."
+            "automatically reset by toolkit construction. If a restored scene "
+            "is required, request operator-mediated scene restoration through "
+            "the exposed tools. Wait for the operator to secure held objects "
+            "and confirm the scene is safe before the robot resets its posture. "
+            "If no such tool is available, stop and ask the operator; do not "
+            "substitute a robot-only reset for scene restoration."
+        )
+    else:
+        reset_note = (
+            "A fresh toolkit has already restored a clean scene; inspect it before acting."
         )
     return (
         f"You are agent {session_number} of up to {session_max} on this cell. "
@@ -351,6 +356,14 @@ def main() -> int:
     args.robot_name = early.robot_name
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
+    if getattr(robot_spec, "requires_operator_terminal", False):
+        if args.dashboard or args.interactive:
+            parser.error(
+                "This robot requires exclusive terminal input for operator confirmation; "
+                "--dashboard and --interactive are not supported. Run in a plain terminal."
+            )
+        if sys.stdin is None or not sys.stdin.isatty():
+            parser.error("This robot requires a TTY for operator confirmation.")
     if args.base_url and args.planner in BASE_URL_ENV_BY_PLANNER:
         parser.error(
             "--base-url applies to the 'api' planner only; "
@@ -358,7 +371,13 @@ def main() -> int:
             f"{BASE_URL_ENV_BY_PLANNER[args.planner]} instead"
         )
     if args.explore and not getattr(robot_spec, "supports_exploration", False):
-        parser.error(f"--explore is not supported for robot {args.robot_name!r}")
+        detail = (
+            " Real-robot exploration requires operator-mediated scene restoration "
+            "and feedback support."
+            if getattr(robot_spec, "is_real_robot", False)
+            else ""
+        )
+        parser.error(f"--explore is not supported for robot {args.robot_name!r}.{detail}")
     if args.explore and args.memory_profile == "hf":
         parser.error("--explore cannot be used with --memory-profile hf")
     if args.explore and getattr(args, "explore_sessions", 1) <= 0:

@@ -110,6 +110,8 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=DUAL_FRANKA_DASHBOARD_SPEC,
+        is_real_robot=True,
+        requires_operator_terminal=True,
         supports_exploration=True,
     )
 
@@ -411,7 +413,11 @@ def _init_runtime(
     needs_vla = args.vla_endpoint is not None
     if args.task_id is not None:
         task = get_dual_franka_task(args.task_id)
-        needs_vla = needs_vla or task.name.endswith("_vla")
+        needs_vla = needs_vla or task.vla_instruction is not None
+    else:
+        needs_vla = needs_vla or any(
+            task.vla_instruction is not None for task in DUAL_FRANKA_TASKS.values()
+        )
     needs_sam3 = args.sam3_endpoint is not None or bool(
         os.environ.get("SAM3_CHECKPOINT_PATH")
     )
@@ -425,6 +431,7 @@ def _init_runtime(
         "env": lambda rpc: {
             "env": DualFrankaEnvClient(rpc),
             "task_description": get_dual_franka_task(args.task_id).instruction,
+            "vla_instruction": get_dual_franka_task(args.task_id).vla_instruction,
         },
         "vla": lambda rpc: {"model": Pi05VLAClient(rpc, embodiment="dual_franka")},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},

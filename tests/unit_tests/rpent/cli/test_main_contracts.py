@@ -328,6 +328,38 @@ def test_transcript_serialization_strips_nested_images_without_mutating_input() 
     assert "sensitive" not in repr(serialized)
 
 
+@pytest.mark.parametrize("real_robot", [True, False])
+def test_handoff_uses_robot_capability_not_name(tmp_path, monkeypatch, real_robot):
+    cli = _cli_module()
+    monkeypatch.setattr(
+        cli, "get_robot_spec", lambda name: SimpleNamespace(is_real_robot=real_robot)
+    )
+    message = cli._handoff_message(
+        tmp_path, 2, 3, robot_name="arbitrary_extension"
+    )
+    assert ("operator-mediated" in message) is real_robot
+    assert ("already restored a clean scene" in message) is not real_robot
+
+
+@pytest.mark.parametrize(
+    "options,tty", [(["--interactive"], True), (["--dashboard"], True), ([], False)]
+)
+def test_operator_terminal_requirement_fails_before_runtime(monkeypatch, capsys, options, tty):
+    cli = _cli_module()
+    spec = SimpleNamespace(
+        requires_operator_terminal=True,
+        add_cli_args=lambda parser, use_dashboard: None,
+    )
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("custom",))
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: tty))
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "custom", *options])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert "operator confirmation" in capsys.readouterr().err
+
+
 def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) -> None:
     cli = _cli_module()
     attempts = tmp_path / "attempts"

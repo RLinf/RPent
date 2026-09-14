@@ -119,6 +119,9 @@ def _create_worker_class():
             super().__init__()
             self.cfg = cfg
             self.controller = dict(controller_config)
+            from robots.franka.runtime_config import set_robot_config_path
+
+            set_robot_config_path(self.controller.get("robot_config_path"))
             self.env = RealWorldEnv(
                 cfg.env.eval,
                 num_envs=1,
@@ -141,7 +144,6 @@ def _create_worker_class():
                 )
             env_config = self.env.env.call("get_wrapper_attr", "config")[0]
             self.action_scale = np.asarray(env_config.action_scale, dtype=np.float32)
-            self.last_obs: dict[str, Any] | None = None
             self._perception_cameras: dict[str, Any] = {}
             self._perception_camera_last_frames: dict[str, np.ndarray] = {}
             self._perception_camera_meta: dict[str, dict[str, Any]] = {}
@@ -178,8 +180,7 @@ def _create_worker_class():
                 pass
 
         def reset(self) -> dict[str, Any]:
-            observation, info = self.env.reset()
-            self.last_obs = observation
+            _, info = self.env.reset()
             return {
                 "ok": True,
                 "info": to_numpy_tree(info),
@@ -187,14 +188,6 @@ def _create_worker_class():
             }
 
         # --------------------------------------------------------- observation
-
-        def _ensure_obs(self) -> dict[str, Any]:
-            if self.last_obs is None:
-                raise RuntimeError(
-                    "env.reset() has not been called; observation is unavailable. "
-                    "Call reset before reading observations."
-                )
-            return self.last_obs
 
         @staticmethod
         def _strip_batch(value: Any) -> Any:
@@ -206,7 +199,14 @@ def _create_worker_class():
             return array
 
         def get_observation(self) -> dict[str, Any]:
-            observation = self._ensure_obs()
+            # Reading the scene must never reset or move the physical robot.
+            self._refresh_robot_state()
+            raw_obs = self._raw_rlinf_env()._get_observation()
+            observation = self.env._wrap_obs(_batch_raw_obs(raw_obs))
+            return self._observation_payload(observation)
+
+        def _observation_payload(self, observation: dict[str, Any]) -> dict[str, Any]:
+            """Attach camera data to this acquisition, without a server cache."""
             output = {
                 key: self._strip_batch(value) for key, value in observation.items()
             }
@@ -264,11 +264,6 @@ def _create_worker_class():
                 return
             raw._left_state = raw._left_ctrl.get_state().wait()[0]
             raw._right_state = raw._right_ctrl.get_state().wait()[0]
-
-        def _refresh_wrapped_observation(self) -> None:
-            raw = self._raw_rlinf_env()
-            raw_obs = raw._get_observation()
-            self.last_obs = self.env._wrap_obs(_batch_raw_obs(raw_obs))
 
         @staticmethod
         def _wait_if_needed(value: Any) -> Any:
@@ -559,6 +554,7 @@ def _create_worker_class():
             }
 
         def get_robot_state(self) -> dict[str, Any]:
+            self._refresh_robot_state()
             left, right = self._arm_states()
             left_raw = to_numpy_tree(left)
             right_raw = to_numpy_tree(right)
@@ -718,6 +714,7 @@ def _create_worker_class():
             arm_idx = self._arm_index(arm)
             arm_name = ["left", "right"][arm_idx]
             requested = np.asarray(delta_xyz, dtype=np.float32)
+            self._refresh_robot_state()
             left, right = self._arm_poses()
             start_local = left if arm_idx == 0 else right
             start_world = self._pose_to_world(arm_name, start_local)
@@ -772,6 +769,7 @@ def _create_worker_class():
             arm_idx = self._arm_index(arm)
             arm_name = ["left", "right"][arm_idx]
             requested = np.asarray(delta_rpy, dtype=np.float32)
+            self._refresh_robot_state()
             left, right = self._arm_poses()
             start_local = left if arm_idx == 0 else right
             start_world = self._pose_to_world(arm_name, start_local)
@@ -811,6 +809,9 @@ def _create_worker_class():
             left, right = self._arm_poses()
             final_local = left if arm_idx == 0 else right
             final_world = self._pose_to_world(arm_name, final_local)
+            error = float(
+                (target_rot * Rotation.from_quat(final_world[3:]).inv()).magnitude()
+            )
             return {
                 "ok": error <= self.controller["rotate_tolerance_rad"],
                 "arm": arm_name,
@@ -829,6 +830,7 @@ def _create_worker_class():
 
         def set_gripper(self, arm: str, *, open: bool) -> dict[str, Any]:
             arm_idx = self._arm_index(arm)
+            self._refresh_robot_state()
             deadline = time.time() + self.controller["gripper_timeout_s"]
             command = 1.0 if open else -1.0
             iterations = 0
@@ -871,15 +873,13 @@ def _create_worker_class():
             #   4. optionally move/rotate both TCPs back near their pre-recovery
             #      world poses.
             # This is deliberately more specialized than RLinf's episode reset.
-            self._ensure_obs()
+            before_state = self.get_robot_state()
             start_left, start_right = self._arm_poses()
             start_raw = {"left": start_left, "right": start_right}
             start = {
                 "left": self._pose_to_world("left", start_left),
                 "right": self._pose_to_world("right", start_right),
             }
-            before_state = self.get_robot_state()
-
             def gripper_open_from_state(
                 state: dict[str, Any],
             ) -> dict[str, bool | None]:
@@ -1006,7 +1006,6 @@ def _create_worker_class():
                 reset_results = self._reset_both_joints_no_gripper(reset_qpos)
                 time.sleep(0.5)
                 self._refresh_robot_state()
-                self._refresh_wrapped_observation()
 
             after_reset_state = self.get_robot_state()
             direct_gripper_command_results["after_joint_reset"] = (
@@ -1034,6 +1033,17 @@ def _create_worker_class():
                     return_results[f"{arm}_rotate"] = self.rotate_delta(
                         arm,
                         delta_rot.as_euler("xyz").astype(np.float32),
+                    )
+                    # PhysicalAgent alignment note: on the real Franka
+                    # Cartesian controller, pure orientation correction can
+                    # still move the TCP by several centimetres.  Add one final
+                    # translation correction so joint-health recovery does not
+                    # pull a staged object away from the VLA target.
+                    current_raw = self._arm_poses()[self._arm_index(arm)]
+                    current = self._pose_to_world(arm, current_raw)
+                    return_results[f"{arm}_final_move"] = self.move_delta(
+                        arm,
+                        target[:3] - current[:3],
                     )
 
             direct_gripper_command_results["after_return_to_start"] = (
@@ -1068,10 +1078,31 @@ def _create_worker_class():
                     ),
                 }
 
-            return_ok = all(
+            translation_return_ok = all(
+                value["translation_m"] <= self.controller["move_tolerance_m"]
+                for value in pose_error.values()
+            )
+            non_rotation_return_ok = all(
                 bool(value.get("ok"))
-                for value in return_results.values()
-                if isinstance(value, dict)
+                for key, value in return_results.items()
+                if isinstance(value, dict) and not str(key).endswith("_rotate")
+            )
+            rotation_return_ok = all(
+                bool(value.get("ok"))
+                for key, value in return_results.items()
+                if isinstance(value, dict) and str(key).endswith("_rotate")
+            )
+            final_joint_health = final_state.get("joint_health")
+            final_joint_health_ok = (
+                True
+                if not isinstance(final_joint_health, dict)
+                else all(
+                    (final_joint_health.get(arm) or {}).get("status") == "ok"
+                    for arm in ("left", "right")
+                )
+            )
+            return_ok = (not return_to_start) or (
+                translation_return_ok and non_rotation_return_ok
             )
             gripper_restore_ok = all(
                 bool(value.get("ok"))
@@ -1087,7 +1118,8 @@ def _create_worker_class():
                 "ok": ((not return_to_start) or return_ok)
                 and direct_gripper_command_ok
                 and gripper_restore_ok
-                and gripper_preserved,
+                and gripper_preserved
+                and final_joint_health_ok,
                 "primitive": "recover_joint_posture",
                 "reason": str(reason or ""),
                 "return_to_start": bool(return_to_start),
@@ -1118,6 +1150,16 @@ def _create_worker_class():
                 ),
                 "gripper_restore_results": to_numpy_tree(gripper_restore_results),
                 "return_results": to_numpy_tree(return_results),
+                "return_evaluation": {
+                    "ok": return_ok,
+                    "translation_return_ok": translation_return_ok,
+                    "non_rotation_return_ok": non_rotation_return_ok,
+                    "rotation_return_ok": rotation_return_ok,
+                    "rotation_is_diagnostic_only": True,
+                    "final_joint_health_ok": final_joint_health_ok,
+                    "move_tolerance_m": self.controller["move_tolerance_m"],
+                    "rotate_tolerance_rad": self.controller["rotate_tolerance_rad"],
+                },
                 "final": {
                     "coordinate_frame": "right_base",
                     "joint_health": final_state.get("joint_health"),
@@ -1144,8 +1186,8 @@ def _create_worker_class():
                 observation, _reward, term, trunc, info = self.env.step(
                     action[None, :], auto_reset=False
                 )
-                self.last_obs = observation
-                observations.append(self.get_observation())
+                # step already acquired the action's observation and raw frames.
+                observations.append(self._observation_payload(observation))
                 terminated = terminated or bool(np.asarray(to_numpy_tree(term)).any())
                 truncated = truncated or bool(np.asarray(to_numpy_tree(trunc)).any())
                 last_info = to_numpy_tree(info)

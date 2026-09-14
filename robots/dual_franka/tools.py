@@ -22,15 +22,6 @@ from typing import Any
 
 import numpy as np
 
-# Live-deployment compatibility note:
-# the current dual-Franka VLA checkpoint was trained with a fixed clean-desk
-# instruction from the old PhysicalAgent deployment.  The planner-facing VLA
-# tools still accept a prompt so task logic can record intent, but policy
-# inference below intentionally overrides it with CLEAN_DESK_VLA_PROMPT to keep
-# the new RPent run aligned with the deployed checkpoint distribution.  This
-# should become a task/checkpoint profile field before upstreaming beyond this
-# lab setup.
-from robots.dual_franka.tasks import CLEAN_DESK_VLA_PROMPT
 from robots.franka.tools import FrankaPrimitives, coerce_vec3
 from rpent.session import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
@@ -378,6 +369,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
         task_description: str,
         check_cancelled: Callable[[], None],
         sam3_client: Any | None = None,
+        vla_instruction: str | None = None,
     ) -> None:
         super().__init__(
             env=env,
@@ -386,6 +378,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
             check_cancelled=check_cancelled,
         )
         self._sam3_client = sam3_client
+        self._vla_instruction = vla_instruction or task_description
 
     def move_delta(self, arm: str, delta_xyz: Sequence[float]) -> dict[str, Any]:
         self._check_cancelled()
@@ -438,7 +431,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
             "projection_views": meta.get("projection_views", {}),
             "agent_observation": observation_policy,
             "vla": {
-                "policy_instruction": CLEAN_DESK_VLA_PROMPT,
+                "policy_instruction": self._vla_instruction,
                 "num_action_chunks": 20,
                 "action_dim": 20,
                 "num_images_in_input": 3,
@@ -491,15 +484,13 @@ class DualFrankaPrimitives(FrankaPrimitives):
         requested_prompt = str(prompt).strip()
         if not requested_prompt:
             raise ValueError("prompt must be non-empty")
-        # PhysicalAgent alignment: the real clean-desk checkpoint expects the
-        # stable training instruction below.  We record the planner's requested
-        # segment prompt for logs/debugging, but do not feed arbitrary task
-        # wording into the policy during this deployment reproduction.
-        effective_prompt = CLEAN_DESK_VLA_PROMPT
+        # Task configuration owns policy conditioning; retain planner intent in logs.
+        effective_prompt = self._vla_instruction
         if not 1 <= int(max_chunks) <= 20:
             raise ValueError("max_chunks must be between 1 and 20")
 
         state = self.env.get_robot_state()
+        start_state = state
         previous_left_open = bool(state["left_arm"]["gripper_open"])
         previous_right_open = bool(state["right_arm"]["gripper_open"])
         event_z: float | None = None
@@ -515,11 +506,20 @@ class DualFrankaPrimitives(FrankaPrimitives):
         action_min: np.ndarray | None = None
         action_max: np.ndarray | None = None
         action_sum: np.ndarray | None = None
+        first_action: list[float] | None = None
+        first_policy_state: list[float] | None = None
+        first_policy_state_shape: list[int] | None = None
         started_at = time.perf_counter()
 
         for _ in range(int(max_chunks)):
             self._check_cancelled()
             observation = dict(self.env.get_observation())
+            if first_policy_state is None:
+                obs_states = np.asarray(observation.get("states"), dtype=np.float32)
+                first_policy_state_shape = list(obs_states.shape)
+                first_policy_state = np.round(obs_states.reshape(-1)[:20], 5).astype(
+                    float
+                ).tolist()
             observation["task_descriptions"] = effective_prompt
             actions = np.asarray(
                 self.model.predict(observation, options={"mode": "eval"}),
@@ -532,6 +532,8 @@ class DualFrankaPrimitives(FrankaPrimitives):
             if not np.isfinite(actions).all():
                 raise RuntimeError(f"{skill_name} received non-finite VLA actions")
             chunks_executed += 1
+            if first_action is None:
+                first_action = np.round(actions[0], 5).astype(float).tolist()
             if action_count == 0:
                 action_min = actions.min(axis=0)
                 action_max = actions.max(axis=0)
@@ -665,6 +667,9 @@ class DualFrankaPrimitives(FrankaPrimitives):
                     "mean": np.round(action_sum / action_count, 5)
                     .astype(float)
                     .tolist(),
+                    "first_action": first_action,
+                    "first_policy_state_shape": first_policy_state_shape,
+                    "first_policy_state": first_policy_state,
                 }
             )
 
@@ -683,6 +688,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
             "stop_rule": stop_rule,
             "action_summary": action_summary,
             "elapsed_s": time.perf_counter() - started_at,
+            "vla_start_robot_state": start_state,
             "robot_state": state,
         }
 

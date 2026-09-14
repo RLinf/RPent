@@ -182,6 +182,7 @@ def _primitives(env: FakeEnv, *, model=None, check_cancelled=lambda: None):
         env=env,
         model=model,
         task_description="default task",
+        vla_instruction=CLEAN_DESK_VLA_PROMPT,
         check_cancelled=check_cancelled,
     )
 
@@ -217,7 +218,18 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
     )
 
     assert "request_scene_reset" not in _tool_names(evaluation)
-    assert "request_operator_verdict" not in _tool_names(evaluation)
+    assert "request_operator_verdict" in _tool_names(evaluation)
+    refused_eval = evaluation.execute_tool(
+        "finish", {"status": "success", "summary": "not confirmed"}
+    )
+    assert refused_eval.result["error"] == "finish refused"
+    assert refused_eval.is_finish is False
+    evaluation._read_operator_line = lambda prompt: "success checked by operator"
+    evaluation.execute_tool("request_operator_verdict", {})
+    accepted_eval = evaluation.execute_tool(
+        "finish", {"status": "success", "summary": "confirmed"}
+    )
+    assert accepted_eval.is_finish is True
     assert "request_scene_reset" in _tool_names(exploration)
     assert "request_operator_verdict" in _tool_names(exploration)
 
@@ -549,3 +561,17 @@ def test_named_clean_desk_vla_uses_fixed_prompt_and_semantic_boundary():
     assert result["boundary"] == "grasp"
     assert result["boundary_reached"]
     assert len(env.chunks) == 3
+
+
+def test_named_vla_uses_task_configured_policy_instruction():
+    instruction = "custom checkpoint instruction"
+    primitives = DualFrankaPrimitives(
+        env=BoundaryEnv(),
+        model=FakeModel(expected_prompt=instruction),
+        task_description="planner task description",
+        vla_instruction=instruction,
+        check_cancelled=lambda: None,
+    )
+    result = primitives.vla_right_grasp(prompt="planner segment intent", max_chunks=2)
+    assert result["effective_policy_prompt"] == instruction
+    assert result["prompt_overridden"]

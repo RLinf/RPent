@@ -66,9 +66,9 @@ def set_robot_config_path(path: str | Path | None) -> None:
     _robot_config_path = Path(path).expanduser() if path else None
 
 
-def get_robot_config_path() -> Path:
+def get_robot_config_path(default: str | Path = DEFAULT_CONFIG) -> Path:
     """Return the ``--robot-config`` override, or the robot's packaged default."""
-    return Path(_robot_config_path or DEFAULT_CONFIG)
+    return Path(_robot_config_path or default)
 
 
 # ---------------------------------------------------------------------------

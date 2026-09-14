@@ -121,6 +121,8 @@ RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
 
 注意事项：
 
+- 设置 ``CODEX_SERVICE_TIER=fast`` 可向 Codex 后端传入 fast 服务档位，
+  不改变 ``--reasoning-effort``。未设置时 RPent 不覆盖服务档位。
 - ``--model`` 会覆盖 ``CODEX_MODEL``；两者都未设置时使用 Codex SDK
   配置的默认模型。
 - ``--planner-timeout-s`` 限制 Codex 运行时间。默认依次读取

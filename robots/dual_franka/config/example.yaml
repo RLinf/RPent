@@ -62,31 +62,31 @@ joint_health:
   # copying these lab-specific values blindly.
   thresholds:
     left:
-      warning_drift_l2: 2.1
-      critical_drift_l2: 2.8
-      warning_q1: 1.5
-      critical_q1: 1.9
-      warning_q3: -1.4
-      critical_q3: -1.9
-      warning_condition_number: 32.0
-      critical_condition_number: 45.0
-      warning_sigma_min: 0.06
-      critical_sigma_min: 0.04
-      warning_min_joint_margin: 0.7
-      critical_min_joint_margin: 0.45
+      warning_drift_l2: 2.4
+      critical_drift_l2: 3.1
+      warning_q1: 1.7
+      critical_q1: 2.1
+      warning_q3: -1.6
+      critical_q3: -2.1
+      warning_condition_number: 75.0
+      critical_condition_number: 100.0
+      warning_sigma_min: 0.03
+      critical_sigma_min: 0.02
+      warning_min_joint_margin: 0.45
+      critical_min_joint_margin: 0.25
     right:
-      warning_drift_l2: 2.1
-      critical_drift_l2: 2.8
-      warning_q1: 1.5
-      critical_q1: 1.9
-      warning_q3: -1.4
-      critical_q3: -1.9
-      warning_condition_number: 30.0
-      critical_condition_number: 45.0
-      warning_sigma_min: 0.06
-      critical_sigma_min: 0.04
-      warning_min_joint_margin: 0.7
-      critical_min_joint_margin: 0.45
+      warning_drift_l2: 2.4
+      critical_drift_l2: 3.1
+      warning_q1: 1.7
+      critical_q1: 2.1
+      warning_q3: -1.6
+      critical_q3: -2.1
+      warning_condition_number: 75.0
+      critical_condition_number: 100.0
+      warning_sigma_min: 0.03
+      critical_sigma_min: 0.02
+      warning_min_joint_margin: 0.45
+      critical_min_joint_margin: 0.25
 
 perception:
   # Views that support metric projection/segmentation.  The tool schema accepts

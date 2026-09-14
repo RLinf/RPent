@@ -34,19 +34,24 @@ from typing import Any
 
 import numpy as np
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from robots.dual_franka import perception as dual_franka_perception
+from robots.dual_franka.runtime_config import DEFAULT_CONFIG
+from robots.dual_franka.tasks import get_dual_franka_task
+from robots.dual_franka.toolkit import DualFrankaToolkit
 from robots.dual_franka.tools import (
     TOOLS_SPEC,
     DualFrankaPrimitives,
     dump_state,
     view_env_state,
 )
-from robots.franka.runtime_config import set_calibration_path
+from robots.franka.runtime_config import set_calibration_path, set_robot_config_path
 from robots.franka.tools import view_camera_meta
+from rpent.dashboard.events import NullDashboardEventSink
+from rpent.memory.manager import MemoryManager
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState
@@ -270,6 +275,13 @@ def _build_parser() -> argparse.ArgumentParser:
             "defaults to RPENT_CALIBRATION_PATH when set."
         ),
     )
+    parser.add_argument(
+        "--robot-config",
+        default=os.environ.get("RPENT_ROBOT_CONFIG", str(DEFAULT_CONFIG)),
+    )
+    parser.add_argument(
+        "--task-id", type=int, default=int(os.environ.get("RPENT_TASK_ID", "3"))
+    )
     parser.add_argument("--primitive", default=None)
     parser.add_argument(
         "--params",
@@ -427,6 +439,40 @@ def _call_mutating_primitive(
     raise KeyError(primitive)
 
 
+def _call_toolkit_tool(
+    primitive: str,
+    params: dict[str, Any],
+    *,
+    env: ManualDualFrankaEnv,
+    model: Pi05VLAClient | None,
+    sam3_client: Sam3Client | None,
+    output_dir: Path,
+    task: Any,
+) -> dict[str, Any]:
+    toolkit = DualFrankaToolkit(
+        primitives_kwargs={
+            "env": env,
+            "model": model,
+            "task_description": task.instruction,
+            "vla_instruction": task.vla_instruction,
+            "sam3_client": sam3_client,
+        },
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(
+            output_dir / "memory",
+            memory_access="inbox_write",
+            inbox_cell_tag=f"manual_{primitive}",
+        ),
+        mode="exploration",
+        attempts_per_session=2,
+        state_output_dir=output_dir,
+    )
+    try:
+        return toolkit.execute_tool(primitive, params).result
+    finally:
+        toolkit.close()
+
+
 def main() -> int:
     parser = _build_parser()
     args = parser.parse_args()
@@ -442,6 +488,8 @@ def main() -> int:
         print(json.dumps(_example_payload(args.example), indent=2))
         return 0
 
+    set_robot_config_path(args.robot_config)
+    task = get_dual_franka_task(args.task_id)
     payload = _load_payload(args)
     primitive = payload["primitive"]
     params = payload["params"]
@@ -478,7 +526,8 @@ def main() -> int:
     primitives = DualFrankaPrimitives(
         env=env,
         model=model,
-        task_description="manual dual-Franka primitive call",
+        task_description=task.instruction,
+        vla_instruction=task.vla_instruction,
         check_cancelled=lambda: None,
         sam3_client=sam3_client,
     )
@@ -491,6 +540,7 @@ def main() -> int:
         "back_project",
         "segment",
     }
+    used_toolkit_tool = False
     try:
         if primitive in readonly:
             result = _call_readonly_tool(
@@ -502,23 +552,42 @@ def main() -> int:
                 dump_state_enabled=not args.no_dump_state,
             )
         else:
-            result = _call_mutating_primitive(
-                primitive,
-                params,
-                env=env,
-                primitives=primitives,
-            )
+            if primitive in _registered_tool_names() and not hasattr(
+                primitives, primitive
+            ):
+                used_toolkit_tool = True
+                result = _call_toolkit_tool(
+                    primitive,
+                    params,
+                    env=env,
+                    model=model,
+                    sam3_client=sam3_client,
+                    output_dir=output_dir,
+                    task=task,
+                )
+            else:
+                result = _call_mutating_primitive(
+                    primitive,
+                    params,
+                    env=env,
+                    primitives=primitives,
+                )
     except KeyError:
         known = sorted(_manual_primitive_names())
         raise SystemExit(f"unknown primitive {primitive!r}; known={known}")
     elapsed_s = time.perf_counter() - started
 
-    if not args.no_dump_state and primitive not in {
-        "view_env_state",
-        "view_camera_meta",
-        "back_project",
-        "segment",
-    }:
+    if (
+        not args.no_dump_state
+        and not used_toolkit_tool
+        and primitive
+        not in {
+            "view_env_state",
+            "view_camera_meta",
+            "back_project",
+            "segment",
+        }
+    ):
         try:
             dump_state(
                 primitives,

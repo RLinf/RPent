@@ -28,6 +28,7 @@ class FrankaTask:
     success_criteria: str
     constraints: tuple[str, ...]
     setup: str = ""
+    vla_instruction: str | None = None
 
 
 FRANKA_TASKS = {

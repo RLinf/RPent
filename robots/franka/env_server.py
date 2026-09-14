@@ -245,7 +245,14 @@ def _create_worker_class():
             elif frame not in {"base", "eef"}:
                 raise ValueError("frame must be 'base' or 'eef'")
             action[: min(6, self.action_dim)] = twist[: min(6, self.action_dim)]
-            if gripper is not None and self.action_dim >= 7:
+            if self.action_dim >= 7:
+                if gripper is None:
+                    gripper_open = getattr(self._raw_state(), "gripper_open", None)
+                    if gripper_open is None:
+                        raise ValueError(
+                            "Cannot preserve gripper: open/closed state unavailable"
+                        )
+                    gripper = 1.0 if gripper_open else -1.0
                 action[-1] = float(gripper)
             result = self.env.step(action[None, :])
             return self._strip_batch(result[0].get("states"))
@@ -321,6 +328,9 @@ def _create_worker_class():
                 )
                 iterations += 1
             final = self._raw_tcp_pose()
+            error = float(
+                (target_rotation * Rotation.from_quat(final[3:]).inv()).magnitude()
+            )
             return {
                 "ok": error <= self.controller["rotate_tolerance_rad"],
                 "requested_delta_rpy_base": requested.tolist(),

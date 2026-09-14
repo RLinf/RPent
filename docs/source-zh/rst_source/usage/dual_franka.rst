@@ -20,7 +20,7 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 
 .. code-block:: bash
 
-	uv sync --extra franka
+	uv sync --extra franka --extra sam3
 
 该命令将自定义 RLinf Franka 分支和 ``rlinf-openpi`` 安装到 ``.venv``。
 
@@ -100,7 +100,7 @@ robot config 并生成内部 RLinf adapter config，然后连接 Ray，等待 ``
 VLA 抓取 DEMO
 -------------
 
-RPent 提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露 ``vla_grasp``，
+RPent 提供了一个使用 VLA 抓取物品的 DEMO。task-id ``1`` 会暴露 ``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place``，
 并可在本地启动双臂 Franka VLA 服务。``PI05_CHECKPOINT_PATH`` 指向 
 训练好的 Pi-05 checkpoint，``DUAL_FRANKA_REPO_ID`` 是用于查找对应归一化统计的数据集 ID：
 
@@ -181,7 +181,7 @@ ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint：
 
 双臂 Franka 扩展提供 ``view_env_state``、``view_camera_meta``、
 ``move_delta``、``rotate_delta``、``open_gripper``、``close_gripper`` 和
-``vla_grasp``。每次解析式运动只会作用于一条臂（``left`` 或 ``right``）。
+``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place``。每次解析式运动只会作用于一条臂（``left`` 或 ``right``）。
 所有会改变环境状态的工具都会在 RPent 统一的 ``EnvState`` 中保存每条臂的状态以及
 同步的 left-wrist、base 和 right-wrist 图像。
 
@@ -191,3 +191,48 @@ ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint：
 两条臂都必须有操作员留在急停按钮旁。先使用极小的单臂动作验证任务 ``0``，
 再尝试抓取。当相机与状态结果不一致、目标运动没有到位，或任何标定存在疑问时，
 应立即停止。
+
+手动技能测试
+------------
+
+当前任务运行中的人工评价/场景恢复使用独占终端输入。请在有 TTY 的普通终端
+运行 runner；暂不支持 ``--interactive`` 或 Dashboard。启动时会在连接硬件前
+拒绝这些组合。普通任务也会注册 ``request_operator_verdict``，收到人工评价后
+才允许 finish；``request_scene_reset`` 仍只在探索模式注册。
+
+部署脚本位于 ``robots/dual_franka/``。在仓库根目录运行：
+
+.. code-block:: bash
+
+   robots/dual_franka/run_manual_skill.sh --list-primitives
+   robots/dual_franka/run_manual_skill.sh --schema vla_right_grasp
+
+通过 ``--primitive NAME --params JSON`` 调用工具。``--task-id`` 为命名 VLA
+技能选择任务配置中的 ``vla_instruction``，规划器的阶段 prompt 单独记入日志。
+当前 clean-desk 任务继续使用 checkpoint 原来的训练指令。
+``--robot-config`` 和 ``--calibration-path`` 分别选择机器参数与标定文件。
+本地 SAM3 需要安装 ``sam3`` extra；远端服务可通过 ``--sam3-endpoint`` 接入。
+
+机器人 Codex 运行配置隔离
+-------------------------
+
+上述启动脚本使用独立的 ``RPENT_CODEX_HOME``（默认仓库内
+``.codex-rpent-live``），不继承编程终端的 ``CODEX_HOME``。
+本地记忆默认放在该目录的 ``memory`` 中，Codex 状态数据库也使用独立目录。
+按需在独立目录创建私人 ``config.toml``，不要覆盖已有私人配置。
+
+API 部署需显式设置 ``RPENT_CODEX_API_KEY`` 和可选的
+``RPENT_CODEX_BASE_URL``。脚本不再沿用普通 ``CODEX_API_KEY``、
+``CODEX_BASE_URL``、``OPENAI_API_KEY`` 或 ``OPENAI_BASE_URL``。
+不使用 API key 时，应在独立目录下单独登录；可配置文件保存凭据，
+不要提交真实配置、凭据或日志。已有私人配置若使用系统钥匙串，须另行检查账号共享。
+
+模型、推理强度、服务档位分别通过 ``RPENT_CODEX_MODEL``、
+``RPENT_REASONING_EFFORT``、``RPENT_CODEX_SERVICE_TIER`` 设置，
+默认保持 ``gpt-5.5``、``medium``、``fast``。
+这些规则只适用于上述部署脚本，不改变直接调用 RPent CLI 的通用环境变量接口。
+建议通过启动脚本运行；手动 source 会修改当前终端的环境变量。
+
+目录隔离不是权限沙盒，也不隔离共享工作区文件。
+当前 planner 显式使用不请求交互审批、完整文件访问的运行参数。
+仅修改私人配置不能覆盖 planner 显式传入的权限；连接检测仍使用只读沙盒。

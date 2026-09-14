@@ -268,6 +268,9 @@ def load_runtime_config(
         }
     )
     controller = flatten_control(CONTROL)
+    controller["robot_config_path"] = str(
+        Path(path or DEFAULT_CONFIG).expanduser().resolve()
+    )
     controller["calibration_path"] = str(get_calibration_path())
     controller["perception"] = _perception_cameras(cameras)
     controller["agent_observation"] = _agent_observation(cameras)

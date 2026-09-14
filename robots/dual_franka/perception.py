@@ -22,12 +22,20 @@ from typing import Any
 
 import numpy as np
 from PIL import Image, ImageDraw
-from scipy.spatial.transform import Rotation as Rotation
 
 from robots.franka.perception import _resolve_step
-from robots.franka.runtime_config import get_calibration_path, load_mapping
+from robots.franka.runtime_config import (
+    get_calibration_path,
+    get_robot_config_path,
+    load_mapping,
+)
 from rpent.session import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
+from rpent.utils.transforms import (
+    invert_transform,
+    transform_points,
+    transform_pose,
+)
 
 ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "example.yaml"
 
@@ -322,7 +330,7 @@ def _back_project_camera_pixel(
             f"calibration entry {calibration_key!r} is missing"
         )
     t_right_camera = _transform_to_matrix(camera_calibration["transformation"])
-    point_right = _transform_point(t_right_camera, point_camera)
+    point_right = transform_points(t_right_camera, point_camera)
     selection_valid, rejection_reasons, validity_contract = (
         _validate_localization_point(
             camera_calibration=camera_calibration,
@@ -392,15 +400,15 @@ def _back_project_camera_pixel(
 
 
 def _load_perception_config() -> dict[str, Any]:
-    """Load the RPent perception section from ``example.yaml``.
+    """Load the perception section from the selected robot configuration.
 
     Holds the machine config ``easy_handeye`` does not produce: the tabletop
     ``localization_validity`` bounds and the inter-base ``base_frames``.
     """
-    raw = load_mapping(ROBOT_CONFIG_PATH)
+    raw = load_mapping(get_robot_config_path(ROBOT_CONFIG_PATH))
     perception = raw.get("perception")
     if not isinstance(perception, dict):
-        raise DualFrankaPerceptionError("example.yaml missing the 'perception' section")
+        raise DualFrankaPerceptionError("Robot configuration missing the 'perception' section")
     return perception
 
 
@@ -488,7 +496,7 @@ def transform_point_between_base_frames(
         target=target,
         source=source,
     )
-    return _transform_point(t_target_source, point_arr)
+    return transform_points(t_target_source, point_arr)
 
 
 def transform_pose_between_base_frames(
@@ -512,17 +520,7 @@ def transform_pose_between_base_frames(
         target=target,
         source=source,
     )
-    t_source_tcp = np.eye(4, dtype=np.float64)
-    t_source_tcp[:3, 3] = pose_arr[:3]
-    quat = pose_arr[3:7] / np.linalg.norm(pose_arr[3:7])
-    t_source_tcp[:3, :3] = Rotation.from_quat(quat).as_matrix()
-    t_target_tcp = t_target_source @ t_source_tcp
-    return np.concatenate(
-        [
-            t_target_tcp[:3, 3],
-            Rotation.from_matrix(t_target_tcp[:3, :3]).as_quat(),
-        ]
-    )
+    return transform_pose(t_target_source, pose_arr)
 
 
 def _record_arm_state(record_state: dict[str, Any], arm: str) -> dict[str, Any]:
@@ -842,7 +840,7 @@ def _mask_to_camera_world(
             f"calibration entry {calibration_key!r} is missing"
         )
     t_right_camera = _transform_to_matrix(camera_calibration["transformation"])
-    points_right = _transform_points(t_right_camera, points_camera)
+    points_right = transform_points(t_right_camera, points_camera)
     valid_localization, validity_contract = _localization_validity_mask(
         camera_calibration=camera_calibration,
         depths=depths,
@@ -1095,21 +1093,8 @@ def _base_frame_transform(
         return _transform_to_matrix(frames[key])
     inverse_key = f"T_{source}_{target}"
     if isinstance(frames.get(inverse_key), dict):
-        return np.linalg.inv(_transform_to_matrix(frames[inverse_key]))
+        return invert_transform(_transform_to_matrix(frames[inverse_key]))
     raise DualFrankaPerceptionError(f"missing base-frame transform {key}")
-
-
-def _transform_point(transform: np.ndarray, point: np.ndarray) -> np.ndarray:
-    homo = np.ones(4, dtype=np.float64)
-    homo[:3] = point
-    return (transform @ homo)[:3]
-
-
-def _transform_points(transform: np.ndarray, points: np.ndarray) -> np.ndarray:
-    points = np.asarray(points, dtype=np.float64)
-    homo = np.ones((points.shape[0], 4), dtype=np.float64)
-    homo[:, :3] = points
-    return (transform @ homo.T).T[:, :3]
 
 
 def _tcp_xyz(pose: Any) -> np.ndarray | None:

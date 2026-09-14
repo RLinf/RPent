@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager
 
 
-_EXPLORATION_ONLY_TOOLS = {"request_scene_reset", "request_operator_verdict"}
+_EXPLORATION_ONLY_TOOLS = {"request_scene_reset"}
 
 
 class DualFrankaToolkit(FrankaToolkit):
@@ -93,15 +93,14 @@ class DualFrankaToolkit(FrankaToolkit):
                 continue
             handler = state_handlers.get(name) or getattr(self._primitives, name, None)
             if handler is None:
-                continue
+                raise ValueError(f"Registered tool {name!r} has no implementation")
             self.add_tool(name, spec, handler)
-        if self._mode == "exploration":
-            finish_spec, finish_handler = self._tools["finish"]
-            self.add_tool(
-                "finish",
-                finish_spec,
-                partial(self._guarded_finish, finish_handler),
-            )
+        finish_spec, finish_handler = self._tools["finish"]
+        self.add_tool(
+            "finish",
+            finish_spec,
+            partial(self._guarded_finish, finish_handler),
+        )
 
     def _read_operator_line(self, prompt: str) -> str | None:
         if sys.stdin is None or not sys.stdin.isatty():
@@ -227,18 +226,19 @@ class DualFrankaToolkit(FrankaToolkit):
 
     @readonly
     def _guarded_finish(self, inner: Any, **kwargs: Any) -> dict[str, Any]:
-        """Require real-robot operator feedback before finishing exploration."""
+        """Require real-robot operator feedback before finishing a task."""
         if self._operator_verdict is None:
             return {
                 "error": "finish refused",
                 "reason": (
-                    "Real-robot exploration requires request_operator_verdict "
+                    "Real-robot tasks require request_operator_verdict "
                     "before finish so the operator can judge the physical state."
                 ),
             }
         budget = self._attempts_per_session
         if (
-            budget
+            self._mode == "exploration"
+            and budget
             and self._operator_verdict != "success"
             and self._session_attempt < budget
         ):
