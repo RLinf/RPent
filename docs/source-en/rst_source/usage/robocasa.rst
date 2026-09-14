@@ -45,10 +45,19 @@ the complete RoboCasa365 stack with ``.[robocasa]``:
 
    uv venv --python 3.10
    source .venv/bin/activate
+
+First install a matching CUDA-enabled PyTorch and torchvision pair using the
+`PyTorch installation selector <https://pytorch.org/get-started/locally/>`_
+for your GPU, driver and Python version. Run the selected command in this
+environment (use ``uv pip`` in place of ``pip``). The RLDX dependency requires
+Torch >= 2.7 and torchvision >= 0.22; choose a mutually compatible pair, not
+two independent versions. Then install RPent:
+
+.. code-block:: bash
+
    uv pip install -e ".[robocasa]" \
       --constraint robots/robocasa/eval/target50-constraints.txt \
-      --override robots/robocasa/eval/target50-overrides.txt \
-      --torch-backend=cu126
+      --override robots/robocasa/eval/target50-overrides.txt
    uv pip check
 
 The RoboCasa-specific constraints file pins the compatibility-sensitive
@@ -66,36 +75,22 @@ The public source pins include the merged assets and backbone-revision fixes:
 
 The source commits identify these fixes even though their package version labels
 were not incremented. No unpublished package release is required.
-The command also lets uv select the official CUDA wheel without treating the
-PyTorch wheel index as a general package index.
-Passing that index through ``--index`` can make uv select stale, unrelated
-packages under its default first-index strategy. The ``cu126`` command above
-is the validated CUDA installation; use another supported Torch backend only
-when required by the host.
-
-For networks closer to Chinese mirrors:
-
-.. code-block:: bash
-
-   uv pip install -e ".[robocasa]" \
-      --constraint robots/robocasa/eval/target50-constraints.txt \
-      --override robots/robocasa/eval/target50-overrides.txt \
-      --default-index https://mirrors.aliyun.com/pypi/simple \
-      --torch-backend=cu126
+Neither the constraints nor the overrides pin Torch, torchvision or a CUDA
+backend. They retain a compatible installed pair; dependency conflicts must be
+resolved before running. The manifest's ``reference_accelerator`` records the
+previously used Torch 2.7.0 / torchvision 0.22.0 / CUDA 12.6 combination as
+provenance only, not an installation requirement. Record your actual versions
+with your results and run the component checks below; other combinations are
+not presumed to have identical numerical results. Package mirrors are optional
+user configuration, not part of the evaluation protocol.
 
 .. note::
 
-   flash-attn is optional; RLDX-1 falls back to PyTorch SDPA without it.
-   For a faster policy forward pass, install the prebuilt wheel — PyPI
-   ships only an sdist, so a plain ``pip install flash-attn`` compiles for
-   10-20 minutes:
-
-   .. code-block:: bash
-
-      uv pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
-
-   That wheel carries SM_80 and SM_90 kernels only; on Blackwell
-   (``sm_120``) build from source or stay on SDPA.
+   flash-attn is optional; RLDX-1 uses PyTorch SDPA when it is absent.
+   If installing it, follow the `FlashAttention installation guidance
+   <https://github.com/Dao-AILab/flash-attention#installation-and-features>`_
+   and select a build compatible with your Python, Torch, CUDA and GPU.
+   This guide does not prescribe a machine-specific wheel.
 
 **Post-install setup**
 
@@ -190,10 +185,12 @@ Download these into the same cache used when launching RPent:
 
 No additional base weights are required. Keep these cache variables in the
 launch shell; do not shadow them with an empty ``TRANSFORMERS_CACHE``.
-The formal command's ``--vla-backbone-revision`` pins the actual load without
-depending on a cached ``main`` ref. For an external VLA server configure
-``--backbone-revision`` on that server instead. Ordinary runs may omit the
-option. Model and asset licenses apply separately from RPent's code license.
+The RoboCasa VLA worker automatically uses this same support revision for
+both ordinary and Target50 runs, including separately started RPent VLA
+servers. There is no extra revision flag or manual cache-ref edit. The pin
+applies only to backbone metadata, not the weights selected by
+``--vla-model-path``. Model and asset licenses apply separately from RPent's
+code license.
 
 **Task memory**
 
@@ -373,7 +370,6 @@ The first ``OpenDrawer`` Atomic cell is:
    rpent --robot robocasa \
          --task-name OpenDrawer --split target --seed 1 \
          --vla-model-path ./checkpoints/rldx-1-ft-rc365 --cuda-device 0 \
-         --vla-backbone-revision 4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7 \
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \
@@ -467,15 +463,18 @@ Troubleshooting
 ---------------
 
 Run the :ref:`environment smoke tests <environment-smoke-tests>` first. After
-downloading all four resources, verify model loading and first inference:
+downloading all four resources, use the existing RoboCasa E2E component test
+to verify VLA worker startup, HTTP RPC and first inference. Install ``.[test]``
+if needed, select one available GPU and use a fresh output directory:
 
 .. code-block:: bash
 
-   RPENT_RUN_RLDX_INTEGRATION=1 \
-   RPENT_RLDX_CHECKPOINT=./checkpoints/rldx-1-ft-rc365 \
+   CUDA_VISIBLE_DEVICES=0 \
+   RLDX_MODEL_PATH="$PWD/checkpoints/rldx-1-ft-rc365" \
+   RPENT_E2E_OUTPUT_DIR="$PWD/e2e-robocasa" \
    HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 NO_ALBUMENTATIONS_UPDATE=1 \
    MUJOCO_GL=egl python -m pytest -q \
-      tests/integration_tests/robots/robocasa/test_rldx_support_smoke.py
+      tests/e2e_tests/robocasa/test_components.py::test_rldx_component --timeout=300
 
 These checks do not run a planner or create benchmark results. Skipped tests
 are not passes. Offline variables apply only to the check; ordinary HF memory
@@ -491,8 +490,8 @@ The lightweight protocol tests still validate all 50 tasks and the fixed
 - For an RLDX offline cache miss, check the support snapshot and cache variables
   above. ``NO_ALBUMENTATIONS_UPDATE=1`` disables only an import-time version
   check, not image processing. Keep the existing image-geometry fallback.
-- Test CUDA with a GPU operation and EGL render, not just the driver's version
-  display. The validated Torch/CUDA combination is listed above.
+- Test the selected Torch/CUDA build with a GPU operation and EGL render,
+  not just the driver's version display. Use a build compatible with the host.
 - For shared read-only installations, set ``NUMBA_CACHE_DIR`` to a writable
   per-user directory instead of making package code writable.
 

@@ -40,10 +40,17 @@ RLDX-1 要求 Python ``3.10``。请创建独立环境，并通过 ``.[robocasa]`
 
    uv venv --python 3.10
    source .venv/bin/activate
+
+先使用 `PyTorch 官方安装选择器 <https://pytorch.org/get-started/locally/>`_
+根据本机 GPU、驱动和 Python 版本选择匹配的 CUDA 版 PyTorch 与 torchvision。
+在此环境执行所选命令，可将 ``pip`` 换为 ``uv pip``。RLDX 依赖要求 Torch >= 2.7、
+torchvision >= 0.22；两者必须互相兼容，不能分别任意选版本。然后安装 RPent：
+
+.. code-block:: bash
+
    uv pip install -e ".[robocasa]" \
       --constraint robots/robocasa/eval/target50-constraints.txt \
-      --override robots/robocasa/eval/target50-overrides.txt \
-      --torch-backend=cu126
+      --override robots/robocasa/eval/target50-overrides.txt
    uv pip check
 
 RoboCasa 专用 constraints 文件固定经 Target50 复现验证的兼容性敏感包版本，
@@ -58,33 +65,19 @@ RoboCasa 专用 constraints 文件固定经 Target50 复现验证的兼容性敏
 - Robosuite：``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``。
 
 包版本标签尚未递增，因此以源码 commit 标识修复，不依赖尚未发布的新包版本。
-该命令让 uv 只为 Torch 选择官方 CUDA wheel，
-避免把 PyTorch wheel 源作为通用 ``--index`` 后，在默认 first-index 策略下误选
-其中的旧版无关依赖。上面的 ``cu126`` 是已验证的 CUDA 安装方式；仅当宿主机
-确有需要时才切换到其他受支持的 Torch backend。
-
-国内网络可使用 PyPI 镜像加速：\
-
-.. code-block:: bash
-
-   uv pip install -e ".[robocasa]" \
-      --constraint robots/robocasa/eval/target50-constraints.txt \
-      --override robots/robocasa/eval/target50-overrides.txt \
-      --default-index https://mirrors.aliyun.com/pypi/simple \
-      --torch-backend=cu126
+constraints 与 overrides 均不固定 Torch、torchvision 或 CUDA backend，安装时
+保留已安装且兼容的版本组合；依赖冲突必须先解决再运行。Manifest 的
+``reference_accelerator`` 仅记录此前使用的 Torch 2.7.0 / torchvision 0.22.0 /
+CUDA 12.6，属于来源记录而非安装要求。请随结果记录实际版本，并执行下方组件
+自检；不预先假定其他组合的数值结果完全相同。软件源镜像属于用户自行选择的
+网络配置，不是评测协议的一部分。
 
 .. note::
 
-   flash-attn 是可选的，缺少时 RLDX-1 会回退到 PyTorch SDPA。若要加快策略
-   前向，可安装预编译 wheel —— PyPI 上只有 sdist，直接
-   ``pip install flash-attn`` 会源码编译 10-20 分钟：
-
-   .. code-block:: bash
-
-      uv pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
-
-   该 wheel 只带 SM_80 与 SM_90 kernel；Blackwell (``sm_120``) 需从源码编译，
-   或继续使用 SDPA。
+   flash-attn 是可选的，未安装时 RLDX-1 使用 PyTorch SDPA。若要安装，请按
+   `FlashAttention 官方说明
+   <https://github.com/Dao-AILab/flash-attention#installation-and-features>`_
+   选择与本机 Python、Torch、CUDA 和 GPU 匹配的构建；本文不指定机器专用 wheel。
 
 **安装后处理**
 
@@ -169,9 +162,10 @@ FT checkpoint 虽包含权重，仍引用 ``RLWRLD/RLDX-1-VLM`` 的架构、proc
       --exclude "*.safetensors.index.json"
 
 无需额外下载基础模型权重。启动时保留上述缓存变量，不要通过
-``TRANSFORMERS_CACHE`` 指向空缓存。正式命令使用 ``--vla-backbone-revision``
-固定实际加载版本，不依赖缓存中的 ``main`` 引用。连接外部 VLA worker 时，应在
-该服务上配置 ``--backbone-revision``；普通在线运行可以省略此参数。
+``TRANSFORMERS_CACHE`` 指向空缓存。RoboCasa VLA worker 在普通运行和 Target50
+中均自动使用上述支持文件 revision，单独启动的 RPent VLA 服务也相同；无需额外
+revision 参数或手工修改缓存 ref。该固定值仅作用于 backbone 元数据，不改变
+``--vla-model-path`` 选择的微调权重。
 模型和 assets 的许可证独立于 RPent 代码许可证。
 
 **任务 Memory**
@@ -339,7 +333,6 @@ Target50 将其覆盖为 40。运行前固定 Target50 的 RLDX 执行参数：
    rpent --robot robocasa \
          --task-name OpenDrawer --split target --seed 1 \
          --vla-model-path ./checkpoints/rldx-1-ft-rc365 --cuda-device 0 \
-         --vla-backbone-revision 4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7 \
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \
@@ -426,15 +419,17 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
 --------
 
 先执行 :ref:`环境冒烟测试 <environment-smoke-tests>`。四类资源下载完成后，
-再检查模型加载和首次推理：
+使用现有 RoboCasa E2E 组件测试检查 VLA worker 启动、HTTP RPC 和首次推理。
+按需安装 ``.[test]``，选择一张可用 GPU，并使用新的输出目录：
 
 .. code-block:: bash
 
-   RPENT_RUN_RLDX_INTEGRATION=1 \
-   RPENT_RLDX_CHECKPOINT=./checkpoints/rldx-1-ft-rc365 \
+   CUDA_VISIBLE_DEVICES=0 \
+   RLDX_MODEL_PATH="$PWD/checkpoints/rldx-1-ft-rc365" \
+   RPENT_E2E_OUTPUT_DIR="$PWD/e2e-robocasa" \
    HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 NO_ALBUMENTATIONS_UPDATE=1 \
    MUJOCO_GL=egl python -m pytest -q \
-      tests/integration_tests/robots/robocasa/test_rldx_support_smoke.py
+      tests/e2e_tests/robocasa/test_components.py::test_rldx_component --timeout=300
 
 这些检查不会启动 planner 或生成 benchmark 成绩，默认 skip 不能当作通过。
 离线变量仅作用于该自检命令；普通 HF memory 同步仍需要网络。保持远程 planner
@@ -449,8 +444,8 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
 - RLDX 离线缓存缺失时检查上述支持文件和缓存变量。
   ``NO_ALBUMENTATIONS_UPDATE=1`` 只关闭导入时的更新检查，不改变图像处理；
   保持现有 image geometry fallback 参数。
-- CUDA 兼容性应通过 GPU 运算和 EGL render 验证，不能只看驱动显示版本；推荐
-  Torch/CUDA 组合见安装部分。
+- 通过 GPU 运算和 EGL render 验证所选 Torch/CUDA 构建，不能只看驱动显示
+  版本；应使用与本机兼容的构建。
 - 共享只读环境应将 ``NUMBA_CACHE_DIR`` 设置到当前用户可写目录，不要修改包的
   代码权限。
 

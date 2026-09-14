@@ -1,5 +1,6 @@
 # Compatibility-sensitive package versions validated for Target50 reproduction.
 # The companion override file freezes the simulator and RLDX Git revisions.
+# Select a compatible Torch/torchvision/CUDA build for the host separately.
 mujoco==3.3.1
 numpy==1.26.4
 pydantic==2.13.5
@@ -7,6 +8,4 @@ pydantic==2.13.5
 pydantic-ai-slim==2.1.0
 rlinf-rldx==1.0.1.post10
 rpent-robocasa365==1.0.1
-torch==2.7.0
-torchvision==0.22.0
 transformers==4.57.6

@@ -25,6 +25,9 @@ from rpent.utils.rpc.rpc_facade import DEFAULT_SESSION_TIMEOUT_S
 
 logger = get_logger("vla_server")
 
+# Match the support snapshot in the RoboCasa setup guide and Target50 manifest.
+RLDX_BACKBONE_REVISION = "4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7"
+
 
 def _build_processor_image_transforms(processor):
     from rldx.data.augmentations import build_image_transformations_albumentations
@@ -57,13 +60,7 @@ def _normalize_legacy_processor_geometry(processor):
 class RoboCasaVLAFacade(BaseVLAFacade):
     """Loads RLDX model and exposes inference-only RPC methods."""
 
-    def __init__(
-        self,
-        model_path,
-        *,
-        backbone_revision=None,
-        session_timeout_s=DEFAULT_SESSION_TIMEOUT_S,
-    ):
+    def __init__(self, model_path, *, session_timeout_s=DEFAULT_SESSION_TIMEOUT_S):
         super().__init__(
             enable_sessions=True,
             session_timeout_s=session_timeout_s,
@@ -71,17 +68,12 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         from rldx.data.embodiment_tags import EmbodimentTag
         from rldx.eval.rollout_policy import create_rldx_sim_policy
 
-        loading_kwargs = (
-            {"backbone_revision": backbone_revision}
-            if backbone_revision is not None
-            else {}
-        )
         self.policy = create_rldx_sim_policy(
             model_path,
             EmbodimentTag.GENERAL_EMBODIMENT,
             "",
             None,
-            **loading_kwargs,
+            backbone_revision=RLDX_BACKBONE_REVISION,
         )
         if _normalize_legacy_processor_geometry(self.policy.policy.processor):
             logger.warning(
@@ -93,7 +85,7 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         self._hist_maxlen = int(self._vdi.max() - self._vdi.min()) + 2
         print(
             f"[vla_server] policy loaded; video_delta_indices={self._vdi.tolist()} "
-            f"hist_maxlen={self._hist_maxlen} backbone_revision={backbone_revision}",
+            f"hist_maxlen={self._hist_maxlen} backbone_revision={RLDX_BACKBONE_REVISION}",
             flush=True,
         )
 
@@ -166,11 +158,6 @@ def main():
     )
     p.add_argument("--model-path", required=True, help="RLDX checkpoint path")
     p.add_argument(
-        "--backbone-revision",
-        default=None,
-        help="Hub revision for backbone config/tokenizer, not checkpoint weights",
-    )
-    p.add_argument(
         "--session-timeout-s",
         type=float,
         default=3600.0,
@@ -198,9 +185,7 @@ def main():
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
 
     facade = RoboCasaVLAFacade(
-        args.model_path,
-        backbone_revision=args.backbone_revision,
-        session_timeout_s=args.session_timeout_s,
+        args.model_path, session_timeout_s=args.session_timeout_s
     )
     facade.serve(
         transport=args.transport,

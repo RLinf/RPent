@@ -9,7 +9,12 @@
   "dependencies": {
     "runtime": {
       "python": "3.10",
-      "cuda": "12.6",
+      "reference_accelerator": {
+        "cuda": "12.6",
+        "torch": "2.7.0",
+        "torchvision": "0.22.0",
+        "enforced": false
+      },
       "constraints_file": "robots/robocasa/eval/target50-constraints.txt",
       "overrides_file": "robots/robocasa/eval/target50-overrides.txt",
       "packages": {
@@ -19,8 +24,6 @@
         "pydantic-ai-slim": "2.1.0",
         "rlinf-rldx": "1.0.1.post10",
         "rpent-robocasa365": "1.0.1",
-        "torch": "2.7.0",
-        "torchvision": "0.22.0",
         "transformers": "4.57.6"
       }
     },

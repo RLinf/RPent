@@ -73,7 +73,12 @@ def test_target50_manifest_identity_and_dependencies():
     dependencies = manifest["dependencies"]
     assert dependencies["runtime"] == {
         "python": "3.10",
-        "cuda": "12.6",
+        "reference_accelerator": {
+            "cuda": "12.6",
+            "torch": "2.7.0",
+            "torchvision": "0.22.0",
+            "enforced": False,
+        },
         "constraints_file": "robots/robocasa/eval/target50-constraints.txt",
         "overrides_file": "robots/robocasa/eval/target50-overrides.txt",
         "packages": {
@@ -83,8 +88,6 @@ def test_target50_manifest_identity_and_dependencies():
             "pydantic-ai-slim": "2.1.0",
             "rlinf-rldx": "1.0.1.post10",
             "rpent-robocasa365": "1.0.1",
-            "torch": "2.7.0",
-            "torchvision": "0.22.0",
             "transformers": "4.57.6",
         },
     }
@@ -111,6 +114,7 @@ def test_target50_constraints_match_manifest_packages():
     }
 
     assert constraints == {f"{name}=={version}" for name, version in packages.items()}
+    assert not {"torch", "torchvision"} & packages.keys()
 
 
 def test_target50_overrides_freeze_simulator_and_rldx_sources():
