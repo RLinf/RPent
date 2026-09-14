@@ -65,7 +65,7 @@ PI05_ROBOT_PLATFORMS: dict[str, str] = {
 }
 
 # RLinf model loaders an embodiment preset may select via ``model_backend``.
-PI05_MODEL_BACKENDS: tuple[str, ...] = ("openpi", "openpi_rlinf")
+PI05_MODEL_BACKENDS: tuple[str, ...] = ("openpi_rlinf", "openpi_pytorch")
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +119,8 @@ class Pi05VLAFacade(BaseVLAFacade):
     Wires ``vla.predict`` to :meth:`predict` (registered by the base class).
     Embodiment-specific behavior (model config, loader, obs decode) is driven
     by the ``embodiment`` name passed at construction. ``model_backend``
-    selects the RLinf loader — ``openpi`` (default) or ``openpi_rlinf`` for
-    the real-robot YAM joint policy — and overrides the preset default.
+    selects the RLinf loader — ``openpi_pytorch`` (default) or ``openpi_rlinf``
+    for the real-robot YAM joint policy.
 
     Session-isolation is not supported (``reset_session`` is not registered).
     """
@@ -130,7 +130,7 @@ class Pi05VLAFacade(BaseVLAFacade):
         *,
         model_path: str,
         embodiment: str,
-        model_backend: str | None = None,
+        model_backend: str = "openpi_pytorch",
         norm_stats_path: str | None = None,
     ):
         if embodiment not in PI05_EMBODIMENTS:
@@ -141,7 +141,7 @@ class Pi05VLAFacade(BaseVLAFacade):
         emb_cfg = PI05_EMBODIMENTS[embodiment]
         if model_backend not in PI05_MODEL_BACKENDS:
             raise ValueError(
-                f"unsupported pi05 model backend: {backend!r}; "
+                f"unsupported pi05 model backend: {model_backend!r}; "
                 f"supported={list(PI05_MODEL_BACKENDS)}"
             )
         self._embodiment = embodiment
@@ -225,8 +225,8 @@ def main() -> None:
     p.add_argument(
         "--model-backend",
         choices=list(PI05_MODEL_BACKENDS),
-        default=None,
-        help="RLinf model loader; overrides the embodiment preset default",
+        default="openpi_pytorch",
+        help="RLinf model loader (default: openpi_pytorch)",
     )
     p.add_argument(
         "--norm-stats-path",
