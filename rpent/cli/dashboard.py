@@ -53,7 +53,7 @@ def run_dashboard_session(
     parser: argparse.ArgumentParser,
 ) -> int:
     """Run one long-lived Dashboard Session with sequential fresh TaskRuns."""
-    if getattr(robot_spec, "requires_operator_terminal", False):
+    if robot_spec.is_real_robot:
         parser.error("This robot requires operator confirmation in a plain terminal.")
     from rpent.dashboard.server import DashboardServer
     from rpent.dashboard.session import DashboardSessionController
@@ -168,7 +168,7 @@ def _run_dashboard_task(
     task_args = copy.copy(args)
     for name, value in claimed.request.items():
         setattr(task_args, name, value)
-    if getattr(task_args, "explore", False) and not robot_spec.supports_exploration:
+    if task_args.explore and not robot_spec.supports_exploration:
         raise ValueError(f"--explore is not supported for robot {robot_spec.name!r}")
     task_args.output_dir = str(claimed.output_dir)
     run_config = robot_spec.parse_config(task_args)
@@ -285,12 +285,12 @@ def _run_dashboard_task(
                     messages += result.messages
                     stats = result.stats
                     agent_error = result.error
-                    solved_fn = getattr(toolkit, "solved", None)
-                    if robot_spec.supports_exploration and callable(solved_fn):
-                        solved = bool(solved_fn())
-                        write_recipe = getattr(toolkit, "write_recipe", None)
-                        if solved and callable(write_recipe):
-                            recipe_path = write_recipe(recipe_tag) or recipe_path
+                    if robot_spec.supports_exploration:
+                        solved = bool(toolkit.solved())
+                        if solved:
+                            recipe_path = (
+                                toolkit.write_recipe(recipe_tag) or recipe_path
+                            )
                 finally:
                     state.unbind_toolkit(toolkit)
                     toolkit.close()

@@ -115,6 +115,38 @@ def test_selected_perception_config(monkeypatch, tmp_path):
     assert perception._load_perception_config()["base_frames"]["marker"] == "custom"
 
 
+def test_joint_reset_waits_for_both_controller_results(worker_classes):
+    worker = worker_classes[1].__new__(worker_classes[1])
+    waited = []
+
+    def controller(arm):
+        def reset_joint(qpos):
+            def wait():
+                waited.append((arm, qpos))
+                return [None]
+
+            return SimpleNamespace(wait=wait)
+
+        return SimpleNamespace(reset_joint=reset_joint)
+
+    raw = SimpleNamespace(
+        _left_ctrl=controller("left"), _right_ctrl=controller("right")
+    )
+    worker._raw_rlinf_env = lambda: raw
+    assert worker._reset_both_joints_no_gripper([[1], [2]]) == {
+        "left": [None],
+        "right": [None],
+    }
+    assert sorted(waited) == [("left", [1]), ("right", [2])]
+
+
+def test_missing_gripper_state_is_not_silently_defaulted(worker_classes):
+    worker = worker_classes[1].__new__(worker_classes[1])
+    worker._arm_states = lambda: (SimpleNamespace(), SimpleNamespace())
+    with pytest.raises(AttributeError, match="gripper_open"):
+        worker._current_gripper_commands()
+
+
 def test_exploration_candidate_keeps_policy_instruction():
     for task_id in (1, 3, 4, 5):
         assert DUAL_FRANKA_TASKS[task_id].vla_instruction == CLEAN_DESK_VLA_PROMPT

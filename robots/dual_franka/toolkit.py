@@ -82,7 +82,7 @@ class DualFrankaToolkit(FrankaToolkit):
             "segment": partial(
                 dual_franka_perception.segment,
                 state=self._state,
-                sam3_client=getattr(self._primitives, "_sam3_client", None),
+                sam3_client=self._primitives._sam3_client,
             ),
             "request_scene_reset": self._request_scene_reset,
             "request_operator_verdict": self._request_operator_verdict,
@@ -91,9 +91,7 @@ class DualFrankaToolkit(FrankaToolkit):
             name = spec["name"]
             if name in _EXPLORATION_ONLY_TOOLS and self._mode != "exploration":
                 continue
-            handler = state_handlers.get(name) or getattr(self._primitives, name, None)
-            if handler is None:
-                raise ValueError(f"Registered tool {name!r} has no implementation")
+            handler = state_handlers.get(name) or getattr(self._primitives, name)
             self.add_tool(name, spec, handler)
         finish_spec, finish_handler = self._tools["finish"]
         self.add_tool(

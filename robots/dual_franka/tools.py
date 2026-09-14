@@ -411,12 +411,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
     @readonly
     def describe_dual_franka_setup(self) -> dict[str, Any]:
         """Return PhysicalAgent-compatible setup guidance without moving hardware."""
-        meta = getattr(self.env, "meta", None)
-        if not isinstance(meta, dict):
-            try:
-                meta = self.env.get_camera_meta() or {}
-            except Exception:
-                meta = {}
+        meta = self.env.meta
         observation_policy = _agent_observation_policy(meta)
         return {
             "ok": True,
@@ -517,9 +512,9 @@ class DualFrankaPrimitives(FrankaPrimitives):
             if first_policy_state is None:
                 obs_states = np.asarray(observation.get("states"), dtype=np.float32)
                 first_policy_state_shape = list(obs_states.shape)
-                first_policy_state = np.round(obs_states.reshape(-1)[:20], 5).astype(
-                    float
-                ).tolist()
+                first_policy_state = (
+                    np.round(obs_states.reshape(-1)[:20], 5).astype(float).tolist()
+                )
             observation["task_descriptions"] = effective_prompt
             actions = np.asarray(
                 self.model.predict(observation, options={"mode": "eval"}),

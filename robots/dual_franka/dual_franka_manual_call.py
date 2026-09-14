@@ -433,7 +433,7 @@ def _call_mutating_primitive(
         return primitives.close_gripper(**params)
     if primitive == "recover_joint_posture":
         return primitives.recover_joint_posture(**params)
-    if primitive in _registered_tool_names() and hasattr(primitives, primitive):
+    if primitive in _registered_tool_names():
         handler = getattr(primitives, primitive)
         return handler(**params)
     raise KeyError(primitive)

@@ -259,7 +259,7 @@ def _handoff_message(
         else []
     )
     spec = get_robot_spec(robot_name)
-    if getattr(spec, "is_real_robot", False):
+    if spec.is_real_robot:
         reset_note = (
             "This is a real-robot continuation: the physical scene is not "
             "automatically reset by toolkit construction. If a restored scene "
@@ -270,9 +270,7 @@ def _handoff_message(
             "substitute a robot-only reset for scene restoration."
         )
     else:
-        reset_note = (
-            "A fresh toolkit has already restored a clean scene; inspect it before acting."
-        )
+        reset_note = "A fresh toolkit has already restored a clean scene; inspect it before acting."
     return (
         f"You are agent {session_number} of up to {session_max} on this cell. "
         f"{len(prior)} attempt(s) by earlier agents are archived in "
@@ -356,7 +354,7 @@ def main() -> int:
     args.robot_name = early.robot_name
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
-    if getattr(robot_spec, "requires_operator_terminal", False):
+    if robot_spec.is_real_robot:
         if args.dashboard or args.interactive:
             parser.error(
                 "This robot requires exclusive terminal input for operator confirmation; "
@@ -370,14 +368,16 @@ def main() -> int:
             f"{args.planner} reads its endpoint from "
             f"{BASE_URL_ENV_BY_PLANNER[args.planner]} instead"
         )
-    if args.explore and not getattr(robot_spec, "supports_exploration", False):
+    if args.explore and not robot_spec.supports_exploration:
         detail = (
             " Real-robot exploration requires operator-mediated scene restoration "
             "and feedback support."
-            if getattr(robot_spec, "is_real_robot", False)
+            if robot_spec.is_real_robot
             else ""
         )
-        parser.error(f"--explore is not supported for robot {args.robot_name!r}.{detail}")
+        parser.error(
+            f"--explore is not supported for robot {args.robot_name!r}.{detail}"
+        )
     if args.explore and args.memory_profile == "hf":
         parser.error("--explore cannot be used with --memory-profile hf")
     if args.explore and getattr(args, "explore_sessions", 1) <= 0:
@@ -507,7 +507,7 @@ def main() -> int:
                 state_output_dir = (
                     output_dir / "sessions" / f"session_{session_number:03d}"
                 )
-            if getattr(robot_spec, "supports_exploration", False):
+            if robot_spec.supports_exploration:
                 toolkit = get_toolkit(
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
@@ -539,21 +539,14 @@ def main() -> int:
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
-                solved_fn = getattr(toolkit, "solved", None)
-                if getattr(robot_spec, "supports_exploration", False) and callable(
-                    solved_fn
-                ):
-                    solved = bool(solved_fn())
-                    write_recipe = getattr(toolkit, "write_recipe", None)
-                    if solved and callable(write_recipe):
-                        recipe_path = write_recipe(recipe_tag) or recipe_path
+                if robot_spec.supports_exploration:
+                    solved = bool(toolkit.solved())
+                    if solved:
+                        recipe_path = toolkit.write_recipe(recipe_tag) or recipe_path
             finally:
                 try:
                     if robot_spec.finalize_run is not None:
-                        solved_fn = getattr(toolkit, "solved", None)
-                        environment_success = (
-                            bool(solved_fn()) if callable(solved_fn) else None
-                        )
+                        environment_success = bool(toolkit.solved())
                         solved = bool(environment_success)
                 finally:
                     toolkit.close()

@@ -119,6 +119,7 @@ def _create_worker_class():
             super().__init__()
             self.cfg = cfg
             self.controller = dict(controller_config)
+            self._dual_franka_calibration_bundle: dict[str, Any] | None = None
             from robots.franka.runtime_config import set_robot_config_path
 
             set_robot_config_path(self.controller.get("robot_config_path"))
@@ -251,8 +252,7 @@ def _create_worker_class():
             # helpers deliberately reach into RLinf internals as a compatibility
             # bridge for the deployed dual-Franka setup; the cleaner long-term
             # shape is to upstream public RLinf methods for these operations.
-            env = self._raw_env
-            return env.unwrapped if hasattr(env, "unwrapped") else env
+            return self._raw_env.unwrapped
 
         def _refresh_robot_state(self) -> None:
             # See _raw_rlinf_env(): direct controller state refresh keeps RPent
@@ -260,17 +260,10 @@ def _create_worker_class():
             # after reset_joint/open_gripper/close_gripper calls made outside
             # the normal vector-env step path.
             raw = self._raw_rlinf_env()
-            if getattr(raw.config, "is_dummy", False):
+            if raw.config.is_dummy:
                 return
             raw._left_state = raw._left_ctrl.get_state().wait()[0]
             raw._right_state = raw._right_ctrl.get_state().wait()[0]
-
-        @staticmethod
-        def _wait_if_needed(value: Any) -> Any:
-            wait = getattr(value, "wait", None)
-            if callable(wait):
-                return wait()
-            return value
 
         def _reset_both_joints_no_gripper(self, reset_qpos: Any) -> dict[str, Any]:
             # RLinf's normal env reset may change gripper state and home both
@@ -283,7 +276,7 @@ def _create_worker_class():
 
             def run(arm: str, ctrl: Any, qpos: Any) -> None:
                 try:
-                    results[arm] = self._wait_if_needed(ctrl.reset_joint(qpos))
+                    results[arm] = ctrl.reset_joint(qpos).wait()
                 except BaseException as exc:
                     errors[arm] = exc
 
@@ -316,7 +309,7 @@ def _create_worker_class():
             )
 
         def _calibration_bundle(self) -> dict[str, Any]:
-            bundle = getattr(self, "_dual_franka_calibration_bundle", None)
+            bundle = self._dual_franka_calibration_bundle
             if bundle is None:
                 bundle = load_calibration_bundle(
                     self.controller.get("calibration_path")
@@ -360,12 +353,8 @@ def _create_worker_class():
         def _current_gripper_commands(self) -> tuple[float, float]:
             left_state, right_state = self._arm_states()
             return (
-                self._gripper_command_from_open(
-                    getattr(left_state, "gripper_open", None)
-                ),
-                self._gripper_command_from_open(
-                    getattr(right_state, "gripper_open", None)
-                ),
+                self._gripper_command_from_open(left_state.gripper_open),
+                self._gripper_command_from_open(right_state.gripper_open),
             )
 
         def _hold_action(
@@ -418,7 +407,7 @@ def _create_worker_class():
                 }
             q_arr = np.asarray(q, dtype=np.float32)
             raw = self._raw_rlinf_env()
-            reset_qpos = getattr(raw.config, "joint_reset_qpos", None)
+            reset_qpos = raw.config.joint_reset_qpos
             if isinstance(reset_qpos, (list, tuple)) and len(reset_qpos) >= 2:
                 reset_idx = 0 if arm == "left" else 1
                 nominal = np.asarray(reset_qpos[reset_idx], dtype=np.float32)
@@ -679,13 +668,10 @@ def _create_worker_class():
                 output["raw_frames"][raw_key] = rgb
                 depth = None
                 if frame.shape[-1] >= 4:
-                    depth_scale = float(getattr(camera, "depth_scale", 1.0))
+                    depth_scale = float(camera.depth_scale)
                     depth = frame[..., 3].astype(np.float32) * depth_scale
                     output["raw_depths"][raw_key] = depth
-                intrinsics_getter = getattr(camera, "get_color_intrinsics", None)
-                intrinsics = (
-                    intrinsics_getter() if callable(intrinsics_getter) else None
-                )
+                intrinsics = camera.get_color_intrinsics()
                 info = camera._camera_info
                 meta = {
                     "name": raw_key,
@@ -846,7 +832,7 @@ def _create_worker_class():
                 time.sleep(self.controller["gripper_settle_s"])
                 left_state, right_state = self._arm_states()
                 state = left_state if arm_idx == 0 else right_state
-                reached = bool(getattr(state, "gripper_open")) == bool(open)
+                reached = bool(state.gripper_open) == bool(open)
                 iterations += 1
                 if reached:
                     break
@@ -880,6 +866,7 @@ def _create_worker_class():
                 "left": self._pose_to_world("left", start_left),
                 "right": self._pose_to_world("right", start_right),
             }
+
             def gripper_open_from_state(
                 state: dict[str, Any],
             ) -> dict[str, bool | None]:
@@ -936,7 +923,7 @@ def _create_worker_class():
             raw = self._raw_rlinf_env()
 
             def command_grippers_directly(stage: str) -> dict[str, Any]:
-                if getattr(raw.config, "is_dummy", False):
+                if raw.config.is_dummy:
                     return {
                         "ok": True,
                         "stage": stage,
@@ -962,7 +949,7 @@ def _create_worker_class():
                         method = (
                             ctrl.open_gripper if target_open else ctrl.close_gripper
                         )
-                        results[arm] = self._wait_if_needed(method())
+                        results[arm] = method().wait()
                     except BaseException as exc:
                         errors[arm] = exc
 
@@ -991,7 +978,7 @@ def _create_worker_class():
                     "reclamp_closed_grippers": True,
                 }
 
-            reset_qpos = getattr(raw.config, "joint_reset_qpos", None)
+            reset_qpos = raw.config.joint_reset_qpos
             if not isinstance(reset_qpos, (list, tuple)) or len(reset_qpos) < 2:
                 raise RuntimeError(
                     "raw.config.joint_reset_qpos must contain left/right qpos"
@@ -1000,7 +987,7 @@ def _create_worker_class():
             direct_gripper_command_results: dict[str, Any] = {
                 "before_joint_reset": command_grippers_directly("before_joint_reset")
             }
-            if getattr(raw.config, "is_dummy", False):
+            if raw.config.is_dummy:
                 reset_results = {"left": "dummy", "right": "dummy"}
             else:
                 reset_results = self._reset_both_joints_no_gripper(reset_qpos)

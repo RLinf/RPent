@@ -80,6 +80,7 @@ def _capture_validated_args(
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
+            is_real_robot=False,
         )
 
     monkeypatch.setattr(
@@ -236,6 +237,7 @@ def test_shared_cli_validation_stops_before_robot_runtime(
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
+            is_real_robot=False,
         ),
     )
     monkeypatch.setattr(sys, "argv", ["rpent", *argv])
@@ -334,9 +336,7 @@ def test_handoff_uses_robot_capability_not_name(tmp_path, monkeypatch, real_robo
     monkeypatch.setattr(
         cli, "get_robot_spec", lambda name: SimpleNamespace(is_real_robot=real_robot)
     )
-    message = cli._handoff_message(
-        tmp_path, 2, 3, robot_name="arbitrary_extension"
-    )
+    message = cli._handoff_message(tmp_path, 2, 3, robot_name="arbitrary_extension")
     assert ("operator-mediated" in message) is real_robot
     assert ("already restored a clean scene" in message) is not real_robot
 
@@ -344,10 +344,12 @@ def test_handoff_uses_robot_capability_not_name(tmp_path, monkeypatch, real_robo
 @pytest.mark.parametrize(
     "options,tty", [(["--interactive"], True), (["--dashboard"], True), ([], False)]
 )
-def test_operator_terminal_requirement_fails_before_runtime(monkeypatch, capsys, options, tty):
+def test_real_robot_terminal_requirement_fails_before_runtime(
+    monkeypatch, capsys, options, tty
+):
     cli = _cli_module()
     spec = SimpleNamespace(
-        requires_operator_terminal=True,
+        is_real_robot=True,
         add_cli_args=lambda parser, use_dashboard: None,
     )
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)

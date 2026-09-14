@@ -247,7 +247,7 @@ def _create_worker_class():
             action[: min(6, self.action_dim)] = twist[: min(6, self.action_dim)]
             if self.action_dim >= 7:
                 if gripper is None:
-                    gripper_open = getattr(self._raw_state(), "gripper_open", None)
+                    gripper_open = self._raw_state().gripper_open
                     if gripper_open is None:
                         raise ValueError(
                             "Cannot preserve gripper: open/closed state unavailable"

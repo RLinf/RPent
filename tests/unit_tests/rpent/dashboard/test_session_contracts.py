@@ -249,6 +249,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     robot_spec = SimpleNamespace(
         name="custom_exploration_env",
         supports_exploration=True,
+        is_real_robot=False,
         parse_config=lambda args: run_config,
         init_runtime=lambda *args: ([], {}),
         prompts=PromptBundle(
