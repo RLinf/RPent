@@ -56,27 +56,33 @@ two independent versions. Then install RPent:
 .. code-block:: bash
 
    uv pip install -e ".[robocasa]" \
-      --constraint robots/robocasa/eval/target50-constraints.txt \
-      --override robots/robocasa/eval/target50-overrides.txt
+      --constraint robots/robocasa/eval/target50-constraints.txt
    uv pip check
 
 The RoboCasa-specific constraints file pins the compatibility-sensitive
 package versions validated for Target50 reproduction without narrowing
-RPent's shared LIBERO or RoboTwin dependencies. The companion override file
-resolves the formal environment to immutable RoboCasa, RLDX and Robosuite commits
-while the ordinary ``robocasa`` extra tracks their maintained ``rpent`` branches.
+RPent's shared LIBERO or RoboTwin dependencies. The ``robocasa`` extra tracks
+the maintained ``rpent`` branches of RoboCasa, RLDX and Robosuite; this ordinary
+installation does not freeze their source commits.
 RoboCasa is installed as ``rpent-robocasa365``; do not co-install the older
 ``rlinf-robocasa365`` distribution, which provides the same import package.
-The public source pins include the merged assets and backbone-revision fixes:
+For formal Target50 reproduction, install the source revisions recorded in
+``robots/robocasa/eval/target50.json`` after the setup above. They include the
+merged assets and backbone-revision fixes. This explicit source-only step
+preserves the dependencies already resolved above, including your Torch build:
 
-- RoboCasa: ``2692d8fc5fd86708a1b2028dcbce892ec418a9e7``.
-- RLDX: ``ebcfd13df5177e4b3e574bdf5a3b427c7c4a1e8a``.
-- Robosuite: ``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``.
+.. code-block:: bash
+
+   uv pip install --no-deps \
+      "rpent-robocasa365 @ git+https://github.com/RLinf/robocasa.git@2692d8fc5fd86708a1b2028dcbce892ec418a9e7" \
+      "rlinf-rldx @ git+https://github.com/RLinf/RLDX-1.git@ebcfd13df5177e4b3e574bdf5a3b427c7c4a1e8a" \
+      "robosuite @ git+https://github.com/RLinf/robosuite.git@97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
+   uv pip check
 
 The source commits identify these fixes even though their package version labels
 were not incremented. No unpublished package release is required.
-Neither the constraints nor the overrides pin Torch, torchvision or a CUDA
-backend. They retain a compatible installed pair; dependency conflicts must be
+The constraints do not pin Torch, torchvision or a CUDA backend. Installation
+retains a compatible installed pair; dependency conflicts must be
 resolved before running. The manifest's ``reference_accelerator`` records the
 previously used Torch 2.7.0 / torchvision 0.22.0 / CUDA 12.6 combination as
 provenance only, not an installation requirement. Record your actual versions
@@ -143,8 +149,8 @@ name is ``mobilebase0_navview``. Navigation RGB-D and world-map rendering
 validate the camera when they first request it, and report an error if it is
 missing. No manual ``site-packages`` XML patch is required.
 Target50 freezes the resolved Robosuite revision at
-``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``. The Target50 override in the
-installation command above selects that exact revision.
+``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``. The explicit Target50 source
+installation above selects that exact revision.
 
 **RLDX-1 checkpoint**
 

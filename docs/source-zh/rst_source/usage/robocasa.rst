@@ -49,23 +49,29 @@ torchvision >= 0.22；两者必须互相兼容，不能分别任意选版本。�
 .. code-block:: bash
 
    uv pip install -e ".[robocasa]" \
-      --constraint robots/robocasa/eval/target50-constraints.txt \
-      --override robots/robocasa/eval/target50-overrides.txt
+      --constraint robots/robocasa/eval/target50-constraints.txt
    uv pip check
 
 RoboCasa 专用 constraints 文件固定经 Target50 复现验证的兼容性敏感包版本，
-同时不会收窄 RPent 中 LIBERO 或 RoboTwin 的共享依赖。配套 override 文件让
-正式环境直接解析到不可变的 RoboCasa、RLDX 和 Robosuite commit，而普通
-``robocasa`` extra 仍跟随各仓库维护中的 ``rpent`` 分支。RoboCasa 发行包名为
+同时不会收窄 RPent 中 LIBERO 或 RoboTwin 的共享依赖。``robocasa`` extra 跟随
+RoboCasa、RLDX 和 Robosuite 仓库维护中的 ``rpent`` 分支；普通安装不会冻结这些
+依赖的源码 commit。RoboCasa 发行包名为
 ``rpent-robocasa365``；不要同时安装提供相同 import 包的旧 ``rlinf-robocasa365``。
-公开源码固定如下，包含已合并的 assets 和 backbone revision 修复：
+正式 Target50 复现时，在上述安装之后显式安装
+``robots/robocasa/eval/target50.json`` 记录的源码 revision，包含已合并的 assets
+和 backbone revision 修复。此步骤仅安装指定源码，保留此前解析的依赖及用户
+选择的 Torch 构建：
 
-- RoboCasa：``2692d8fc5fd86708a1b2028dcbce892ec418a9e7``。
-- RLDX：``ebcfd13df5177e4b3e574bdf5a3b427c7c4a1e8a``。
-- Robosuite：``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``。
+.. code-block:: bash
+
+   uv pip install --no-deps \
+      "rpent-robocasa365 @ git+https://github.com/RLinf/robocasa.git@2692d8fc5fd86708a1b2028dcbce892ec418a9e7" \
+      "rlinf-rldx @ git+https://github.com/RLinf/RLDX-1.git@ebcfd13df5177e4b3e574bdf5a3b427c7c4a1e8a" \
+      "robosuite @ git+https://github.com/RLinf/robosuite.git@97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
+   uv pip check
 
 包版本标签尚未递增，因此以源码 commit 标识修复，不依赖尚未发布的新包版本。
-constraints 与 overrides 均不固定 Torch、torchvision 或 CUDA backend，安装时
+constraints 不固定 Torch、torchvision 或 CUDA backend，安装时
 保留已安装且兼容的版本组合；依赖冲突必须先解决再运行。Manifest 的
 ``reference_accelerator`` 仅记录此前使用的 Torch 2.7.0 / torchvision 0.22.0 /
 CUDA 12.6，属于来源记录而非安装要求。请随结果记录实际版本，并执行下方组件
@@ -123,8 +129,8 @@ macros 配置：
 ``mobilebase0_navview``。导航 RGB-D 与 world map 渲染会在首次请求时验证该
 相机，并在缺失时明确报错。无需手工修改
 ``site-packages`` 中的 XML。Target50 将 Robosuite 固定为
-``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``；上面安装命令中的 Target50
-override 会直接选中这一 revision。
+``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``；上面显式安装 Target50 源码的
+命令会选中这一 revision。
 
 **RLDX-1 checkpoint**
 

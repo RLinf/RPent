@@ -16,7 +16,6 @@
         "enforced": false
       },
       "constraints_file": "robots/robocasa/eval/target50-constraints.txt",
-      "overrides_file": "robots/robocasa/eval/target50-overrides.txt",
       "packages": {
         "mujoco": "3.3.1",
         "numpy": "1.26.4",
