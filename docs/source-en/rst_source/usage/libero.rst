@@ -282,7 +282,7 @@ See :doc:`../benchmarks` for the unified RPent model comparison on LIBERO-PRO
 Task/Swap and the corresponding model configurations.
 
 The :doc:`GPT-6 Astra task/seed result tables <../results/libero_pro_astra>`
-record the current six complete suites and 619/800 verified episodes.
+record the current six complete suites and 600 verified episodes.
 Goal and Overall rates remain unreported while evaluation is incomplete.
 
 The following historical reproduction records use the `reproduce/libero

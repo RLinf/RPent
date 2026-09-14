@@ -12,11 +12,10 @@ Verified snapshot: **2026-09-14 14:00:55 UTC**.
 
 .. note::
 
-   This is a partial evaluation: **619/800 episodes completed**, with
-   **564 successes, 55 failures and 181 pending**. Six of eight suites are
-   complete. Goal Task, Goal Swap and the full Overall rate remain
-   **Not reported**. Pending episodes are not failures, and the success
-   rate of a completed subset is not the 800-episode Overall.
+   Only **six completed suites, 600 episodes** are published here:
+   **554 successes and 46 failures**. Goal Task, Goal Swap and the full
+   eight-suite Overall remain **Not reported** until completion. The partial
+   progress of unfinished suites is excluded; this subset is not the full Overall.
 
 Suite results
 -------------
@@ -31,11 +30,9 @@ Suite results
    "Spatial Swap", "100/100", "98", "2", "98.00%", "Complete"
    "Object Task", "100/100", "100", "0", "100.00%", "Complete"
    "Object Swap", "100/100", "99", "1", "99.00%", "Complete"
-   "Goal Task", "19/100", "10", "9", "Not reported", "Partial"
-   "Goal Swap", "0/100", "0", "0", "Not reported", "Not started"
    "Long Task", "100/100", "85", "15", "85.00%", "Complete"
    "Long Swap", "100/100", "72", "28", "72.00%", "Complete"
-   "Overall", "619/800", "564", "55", "Not reported", "181 pending"
+   "Six completed suites", "600/600", "554", "46", "Not full Overall", "Complete"
 
 Each suite has 10 tasks (IDs 0-9) evaluated on seeds 1-10, or 100 episodes.
 Seed 0 is used only for exploration and is excluded from these counts.
@@ -43,14 +40,14 @@ Seed 0 is used only for exploration and is excluded from these counts.
 Task and seed results
 ---------------------
 
-``S`` = success; ``F`` = failure; ``-`` = no scored result yet. A task rate
-is shown only after all ten evaluation seeds are complete. Task descriptions
+``S`` = success; ``F`` = failure. All ten evaluation seeds are complete for
+every task shown here. Task descriptions
 retain the original experiment's ``task_language`` and task ordering.
 
 Spatial Task
 ~~~~~~~~~~~~
 
-**100/100 complete; 100 successes, 0 failures, 0 pending.**
+**100/100 complete; 100 successes, 0 failures.**
 
 .. csv-table::
    :name: astra-seeds-spatial-task
@@ -88,7 +85,7 @@ Spatial Task
 Spatial Swap
 ~~~~~~~~~~~~
 
-**100/100 complete; 98 successes, 2 failures, 0 pending.**
+**100/100 complete; 98 successes, 2 failures.**
 
 .. csv-table::
    :name: astra-seeds-spatial-swap
@@ -126,7 +123,7 @@ Spatial Swap
 Object Task
 ~~~~~~~~~~~
 
-**100/100 complete; 100 successes, 0 failures, 0 pending.**
+**100/100 complete; 100 successes, 0 failures.**
 
 .. csv-table::
    :name: astra-seeds-object-task
@@ -164,7 +161,7 @@ Object Task
 Object Swap
 ~~~~~~~~~~~
 
-**100/100 complete; 99 successes, 1 failures, 0 pending.**
+**100/100 complete; 99 successes, 1 failures.**
 
 .. csv-table::
    :name: astra-seeds-object-swap
@@ -199,86 +196,10 @@ Object Swap
       "8", "Pick the chocolate pudding and place it in the basket"
       "9", "Pick the orange juice and place it in the basket"
 
-Goal Task
-~~~~~~~~~
-
-**19/100 complete; 10 successes, 9 failures, 81 pending.**
-
-.. csv-table::
-   :name: astra-seeds-goal-task
-   :header: "Task", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "Task result"
-   :class: table-sm
-
-   "0", "F", "F", "F", "S", "F", "F", "F", "F", "F", "F", "1/10 (10%)"
-   "1", "S", "S", "S", "S", "S", "S", "S", "S", "S", "``-``", "9/10 complete"
-   "2", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "3", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "4", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "5", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "6", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "7", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "8", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "9", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-
-.. dropdown:: Task definitions
-
-   .. csv-table::
-      :header: "Task", "task_language"
-      :widths: 10 90
-
-      "0", "open the bottom drawer of the cabinet"
-      "1", "Put the plate on the stove"
-      "2", "put the wine bottle in the bowl"
-      "3", "Open the top layer of the drawer and put the cream cheese inside"
-      "4", "Put the plate on the top of the drawer"
-      "5", "Push the cream cheese to the front of the stove"
-      "6", "put the wine bottle in the bowl"
-      "7", "Turn off the stove"
-      "8", "Put the wine bottle on the plate"
-      "9", "Put the cream cheese on the rack"
-
-Goal Swap
-~~~~~~~~~
-
-**0/100 complete; 0 successes, 0 failures, 100 pending.**
-
-.. csv-table::
-   :name: astra-seeds-goal-swap
-   :header: "Task", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "Task result"
-   :class: table-sm
-
-   "0", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "1", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "2", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "3", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "4", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "5", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "6", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "7", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "8", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-   "9", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "``-``", "0/10 complete"
-
-.. dropdown:: Task definitions
-
-   .. csv-table::
-      :header: "Task", "task_language"
-      :widths: 10 90
-
-      "0", "Open the middle layer of the drawer"
-      "1", "Put the bowl on the stove"
-      "2", "Put the wine bottle on the top of the drawer"
-      "3", "Open the top layer of the drawer and put the bowl inside"
-      "4", "Put the bowl on the top of the drawer"
-      "5", "Push the plate to the front of the stove"
-      "6", "Put the cream cheese on the bowl"
-      "7", "Turn on the stove"
-      "8", "Put the bowl on the plate"
-      "9", "Put the wine bottle on the rack"
-
 Long Task
 ~~~~~~~~~
 
-**100/100 complete; 85 successes, 15 failures, 0 pending.**
+**100/100 complete; 85 successes, 15 failures.**
 
 .. csv-table::
    :name: astra-seeds-long-task
@@ -316,7 +237,7 @@ Long Task
 Long Swap
 ~~~~~~~~~
 
-**100/100 complete; 72 successes, 28 failures, 0 pending.**
+**100/100 complete; 72 successes, 28 failures.**
 
 .. csv-table::
    :name: astra-seeds-long-swap
@@ -357,21 +278,21 @@ Protocol and provenance
 Success is the original environment's ``states.json`` signal
 ``terminated = true``, not the planner's final message. Each task/seed
 contributes at most one final scored result; existing valid failures are retained.
-The report preserves all 800 planned positions, including unscored positions.
+This publication preserves exactly the 600 positions in the six completed suites.
 
 Runtime revision: `014a0fa <https://github.com/RLinf/RPent/commit/014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7>`_.
 The evaluation uses a 5000-second planner timeout and a 10000-step environment
 horizon. Long belongs to campaign ``libero_long_gpt6_astra_20260907``;
-Spatial/Object/Goal belong to ``libero_pro_remaining_gpt6_astra_20260913``.
-Each campaign uses its own seed-0 memory frozen before evaluation; the eight
-suites do not share one memory snapshot. Their scores are not a controlled
+Spatial/Object belong to ``libero_pro_remaining_gpt6_astra_20260913``.
+Each campaign uses its own seed-0 memory frozen before evaluation; the six
+published suites do not share one memory snapshot. Their scores are not a controlled
 comparison changing only the planner model. These protocol details are
 experimental provenance, not new RPent defaults.
 
 The contributor-supplied report was cross-checked for suite totals and the
-619 scored task/seed positions before publication. Its SHA-256 is
+600 scored task/seed positions before publication. Its SHA-256 is
 ``e9880e58953af964edbcdd50d586b54c22a66f3a7fab54d919a4205be9436fdf``.
-The public `sanitized result snapshot <https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/astra-pro-20260914.json>`_
-contains the task/seed outcomes, pending positions, counts and protocol metadata;
+The public `sanitized result snapshot <https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/benchmarks/astra-pro-20260914.json>`_
+contains the 600 task/seed outcomes, counts and protocol metadata;
 it excludes server paths, credentials and raw traces. This page reports supplied
 experimental evidence, not a new policy evaluation performed while updating docs.

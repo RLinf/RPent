@@ -257,7 +257,7 @@ Dashboard 支持 ``api``、``claude_code`` 和 ``codex`` planner。
 RPent 在 LIBERO-PRO Task/Swap 上的统一模型对比及对应配置见 :doc:`../benchmarks`。
 
 :doc:`GPT-6 Astra 逐任务与 seed 结果表 <../results/libero_pro_astra>`
-记录当前六个完整套件及 619/800 个已核验回合。评测未完成前，Goal 与 Overall
+记录当前六个完整套件及 600 个已核验回合。评测未完成前，Goal 与 Overall
 成功率保持未报告。
 
 以下保留历史复现记录，实验使用

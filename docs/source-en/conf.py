@@ -46,12 +46,14 @@ html_baseurl = os.environ.get(
 )
 sitemap_url_scheme = "{link}"
 html_static_path = ["_static"]
-html_css_files = ["css/custom.css"]
+benchmark_assets = "https://cdn.jsdelivr.net/gh/RLinf/misc@e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/benchmarks"
+html_css_files = ["css/custom.css", f"{benchmark_assets}/leaderboard.css"]
 html_js_files = [
     "js/version-switcher.js",
     "js/lang-switcher.js",
     "js/sidebar-nav.js",
     "js/theme-toggle.js",
+    (f"{benchmark_assets}/leaderboard.js", {"defer": "defer"}),
 ]
 html_sidebars = {
     "**": [

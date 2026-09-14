@@ -89,7 +89,7 @@ The reported GPT-5.5 and Opus-4.8 results are aligned with Harness VLA
 additional model evaluation. External baseline methods are listed separately.
 
 The :doc:`GPT-6 Astra LIBERO-PRO result snapshot <../results/libero_pro_astra>`
-contains six complete suites and 619/800 verified episodes. Goal Task, Goal Swap
+contains six complete suites and 600 verified episodes. Goal Task, Goal Swap
 and the full Overall rate remain unreported until their coverage is complete.
 
 Quick Start

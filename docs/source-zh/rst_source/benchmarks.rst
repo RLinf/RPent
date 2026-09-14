@@ -7,637 +7,17 @@
 RPent 排行榜
 ============
 
-仿真基准上的已发布成功率。
-
-.. tab-set::
-
-   .. tab-item:: LIBERO
-      :class-content: sd-border-0 sd-px-0
-
-      **Standard LIBERO**
-
-      Spatial、Object、Goal、Long 四个标准套件的 Overall 成功率。
-
-      .. list-table::
-         :name: ranking-standard-libero
-         :header-rows: 1
-         :widths: 8 67 25
-         :class: table-sm
-
-         * - #
-           - 方法 / 规划模型
-           - 成功率
-         * - 1
-           - AtomVLA
-           - **97.0%**
-         * - 2
-           - **RPent / Opus-4.8** ``max``
-           - 96.0%
-         * - 3
-           - π_RLinf
-           - 95.3%
-         * - 4
-           - π0
-           - 94.2%
-         * - 5
-           - NORA
-           - 79.5%
-         * - 6
-           - OpenVLA
-           - 76.5%
-
-      未报告: GPT-5.5, GPT-6 Astra.
-
-      :ref:`协议与来源 <benchmark-source-p2>`
-
-      .. dropdown:: 参考图表
-
-         .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/standard-libero-zh-light.png
-            :alt: Standard LIBERO
-            :class: only-light
-            :width: 100%
-
-         .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/standard-libero-zh-dark.png
-            :alt: Standard LIBERO
-            :class: only-dark
-            :width: 100%
-
-         本设置中已收录的代表性方法；百分比保留来源精度。
-
-
-   .. tab-item:: LIBERO-PRO
-      :class-content: sd-border-0 sd-px-0
-
-      **GPT-6 Astra：已完成 6/8 套件、619/800 回合。**
-      :doc:`已核验结果与待完成范围 <results/libero_pro_astra>`
-
-      .. tab-set::
-
-         .. tab-item:: Overall
-            :class-content: sd-border-0 sd-px-0
-
-            **LIBERO-PRO Overall**
-
-            覆盖 Spatial / Object / Goal / Long 的全部八个 Task / Swap 设置。
-
-            .. list-table::
-               :name: ranking-libero-pro
-               :header-rows: 1
-               :widths: 8 67 25
-               :class: table-sm
-
-               * - #
-                 - 方法 / 规划模型
-                 - 成功率
-               * - 1
-                 - **RPent / Opus-4.8** ``max``
-                 - **82.4%**
-               * - 2
-                 - **RPent / GPT-5.5** ``xhigh``
-                 - 72.1%
-               * - 3
-                 - π_RLinf
-                 - 50.0%
-               * - 4
-                 - π0.5
-                 - 11.0%
-               * - 5
-                 - AtomVLA
-                 - 6.3%
-               * - 6
-                 - X-VLA
-                 - 3.8%
-               * - 7
-                 - MolmoAct
-                 - 1.5%
-               * - 8
-                 - π0
-                 - 0.3%
-               * - 9
-                 - OpenVLA
-                 - 0.0%
-               * - 9
-                 - NORA
-                 - 0.0%
-
-            GPT-6 Astra Overall：**未报告** （已完成 619/800 回合）。
-            Cap-X 和 RATS 只覆盖六个设置，不参与此八项 Overall 排名。
-
-            :ref:`协议与来源 <benchmark-source-astra-pro>` |
-            :doc:`Astra 逐任务与 seed 结果 <results/libero_pro_astra>`
-
-            .. dropdown:: 参考图表
-
-               .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/libero-pro-zh-light.png
-                  :alt: LIBERO-PRO
-                  :class: only-light
-                  :width: 100%
-
-               .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/libero-pro-zh-dark.png
-                  :alt: LIBERO-PRO
-                  :class: only-dark
-                  :width: 100%
-
-               仅展示已报告成绩；未完成的 Astra 套件不绘制成绩柱。
-
-
-         .. tab-item:: Spatial
-            :class-content: sd-border-0 sd-px-0
-
-            .. tab-set::
-
-               .. tab-item:: Task
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Spatial Task**
-
-                  RPent 规划模型；每个配置评测 100 回合。
-
-                  .. list-table::
-                     :name: ranking-spatial-task
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - 方法 / 规划模型
-                       - 成功率
-                     * - 1
-                       - **RPent / GPT-6 Astra** ``low``
-                       - **100%**
-                     * - 2
-                       - **RPent / Opus-4.8** ``max``
-                       - 94.0%
-                     * - 3
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 81.0%
-
-                  GPT-6 Astra：成功 100/100，套件已完成。单套件成绩不替代完整 PRO Overall。
-
-                  :ref:`协议与来源 <benchmark-source-astra-pro>` |
-                  :doc:`Astra 逐任务与 seed 结果 <results/libero_pro_astra>`
-
-                  .. dropdown:: 参考图表
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/spatial-task-zh-light.png
-                        :alt: PRO Spatial Task
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/spatial-task-zh-dark.png
-                        :alt: PRO Spatial Task
-                        :class: only-dark
-                        :width: 100%
-
-                     仅展示已报告成绩；未完成的 Astra 套件不绘制成绩柱。
-
-
-               .. tab-item:: Swap
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Spatial Swap**
-
-                  RPent 规划模型；每个配置评测 100 回合。
-
-                  .. list-table::
-                     :name: ranking-spatial-swap
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - 方法 / 规划模型
-                       - 成功率
-                     * - 1
-                       - **RPent / GPT-6 Astra** ``low``
-                       - **98%**
-                     * - 2
-                       - **RPent / Opus-4.8** ``max``
-                       - 80.0%
-                     * - 3
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 69.0%
-
-                  GPT-6 Astra：成功 98/100，套件已完成。单套件成绩不替代完整 PRO Overall。
-
-                  :ref:`协议与来源 <benchmark-source-astra-pro>` |
-                  :doc:`Astra 逐任务与 seed 结果 <results/libero_pro_astra>`
-
-                  .. dropdown:: 参考图表
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/spatial-swap-zh-light.png
-                        :alt: PRO Spatial Swap
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/spatial-swap-zh-dark.png
-                        :alt: PRO Spatial Swap
-                        :class: only-dark
-                        :width: 100%
-
-                     仅展示已报告成绩；未完成的 Astra 套件不绘制成绩柱。
-
-
-         .. tab-item:: Object
-            :class-content: sd-border-0 sd-px-0
-
-            .. tab-set::
-
-               .. tab-item:: Task
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Object Task**
-
-                  RPent 规划模型；每个配置评测 100 回合。
-
-                  .. list-table::
-                     :name: ranking-object-task
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - 方法 / 规划模型
-                       - 成功率
-                     * - 1
-                       - **RPent / GPT-6 Astra** ``low``
-                       - **100%**
-                     * - 2
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 94.0%
-                     * - 3
-                       - **RPent / Opus-4.8** ``max``
-                       - 88.0%
-
-                  GPT-6 Astra：成功 100/100，套件已完成。单套件成绩不替代完整 PRO Overall。
-
-                  :ref:`协议与来源 <benchmark-source-astra-pro>` |
-                  :doc:`Astra 逐任务与 seed 结果 <results/libero_pro_astra>`
-
-                  .. dropdown:: 参考图表
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/object-task-zh-light.png
-                        :alt: PRO Object Task
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/object-task-zh-dark.png
-                        :alt: PRO Object Task
-                        :class: only-dark
-                        :width: 100%
-
-                     仅展示已报告成绩；未完成的 Astra 套件不绘制成绩柱。
-
-
-               .. tab-item:: Swap
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Object Swap**
-
-                  RPent 规划模型；每个配置评测 100 回合。
-
-                  .. list-table::
-                     :name: ranking-object-swap
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - 方法 / 规划模型
-                       - 成功率
-                     * - 1
-                       - **RPent / GPT-6 Astra** ``low``
-                       - **99%**
-                     * - 2
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 91.0%
-                     * - 3
-                       - **RPent / Opus-4.8** ``max``
-                       - 90.0%
-
-                  GPT-6 Astra：成功 99/100，套件已完成。单套件成绩不替代完整 PRO Overall。
-
-                  :ref:`协议与来源 <benchmark-source-astra-pro>` |
-                  :doc:`Astra 逐任务与 seed 结果 <results/libero_pro_astra>`
-
-                  .. dropdown:: 参考图表
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/object-swap-zh-light.png
-                        :alt: PRO Object Swap
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/object-swap-zh-dark.png
-                        :alt: PRO Object Swap
-                        :class: only-dark
-                        :width: 100%
-
-                     仅展示已报告成绩；未完成的 Astra 套件不绘制成绩柱。
-
-
-         .. tab-item:: Goal
-            :class-content: sd-border-0 sd-px-0
-
-            .. tab-set::
-
-               .. tab-item:: Task
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Goal Task**
-
-                  RPent 规划模型；每个配置评测 100 回合。
-
-                  .. list-table::
-                     :name: ranking-goal-task
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - 方法 / 规划模型
-                       - 成功率
-                     * - 1
-                       - **RPent / Opus-4.8** ``max``
-                       - **87.0%**
-                     * - 2
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 75.0%
-
-                  GPT-6 Astra：**未报告**。已完成 19/100 回合，10 成功、9 失败，
-                  剩余 81 回合。未完成套件不参与排名。
-
-                  :ref:`协议与来源 <benchmark-source-astra-pro>` |
-                  :doc:`Astra 逐任务与 seed 结果 <results/libero_pro_astra>`
-
-                  .. dropdown:: 参考图表
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/goal-task-zh-light.png
-                        :alt: PRO Goal Task
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/goal-task-zh-dark.png
-                        :alt: PRO Goal Task
-                        :class: only-dark
-                        :width: 100%
-
-                     仅展示已报告成绩；未完成的 Astra 套件不绘制成绩柱。
-
-
-               .. tab-item:: Swap
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Goal Swap**
-
-                  RPent 规划模型；每个配置评测 100 回合。
-
-                  .. list-table::
-                     :name: ranking-goal-swap
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - 方法 / 规划模型
-                       - 成功率
-                     * - 1
-                       - **RPent / Opus-4.8** ``max``
-                       - **87.0%**
-                     * - 2
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 66.0%
-
-                  GPT-6 Astra：**未报告**。已完成 0/100 回合，0 成功、0 失败，
-                  剩余 100 回合。未完成套件不参与排名。
-
-                  :ref:`协议与来源 <benchmark-source-astra-pro>` |
-                  :doc:`Astra 逐任务与 seed 结果 <results/libero_pro_astra>`
-
-                  .. dropdown:: 参考图表
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/goal-swap-zh-light.png
-                        :alt: PRO Goal Swap
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/goal-swap-zh-dark.png
-                        :alt: PRO Goal Swap
-                        :class: only-dark
-                        :width: 100%
-
-                     仅展示已报告成绩；未完成的 Astra 套件不绘制成绩柱。
-
-
-         .. tab-item:: Long
-            :class-content: sd-border-0 sd-px-0
-
-            .. tab-set::
-
-               .. tab-item:: Task
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Long Task**
-
-                  RPent 规划模型；每个配置评测 100 回合。
-
-                  .. list-table::
-                     :name: ranking-long-task
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - 方法 / 规划模型
-                       - 成功率
-                     * - 1
-                       - **RPent / GPT-6 Astra** ``low``
-                       - **85%**
-                     * - 2
-                       - **RPent / Opus-4.8** ``max``
-                       - 71.0%
-                     * - 3
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 52.0%
-
-                  GPT-6 Astra：成功 85/100，套件已完成。单套件成绩不替代完整 PRO Overall。
-
-                  :ref:`协议与来源 <benchmark-source-astra-pro>` |
-                  :doc:`Astra 逐任务与 seed 结果 <results/libero_pro_astra>`
-
-                  .. dropdown:: 参考图表
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/long-task-zh-light.png
-                        :alt: PRO Long Task
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/long-task-zh-dark.png
-                        :alt: PRO Long Task
-                        :class: only-dark
-                        :width: 100%
-
-                     仅展示已报告成绩；未完成的 Astra 套件不绘制成绩柱。
-
-
-               .. tab-item:: Swap
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Long Swap**
-
-                  RPent 规划模型；每个配置评测 100 回合。
-
-                  .. list-table::
-                     :name: ranking-long-swap
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - 方法 / 规划模型
-                       - 成功率
-                     * - 1
-                       - **RPent / GPT-6 Astra** ``low``
-                       - **72%**
-                     * - 2
-                       - **RPent / Opus-4.8** ``max``
-                       - 62.0%
-                     * - 3
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 49.0%
-
-                  GPT-6 Astra：成功 72/100，套件已完成。单套件成绩不替代完整 PRO Overall。
-
-                  :ref:`协议与来源 <benchmark-source-astra-pro>` |
-                  :doc:`Astra 逐任务与 seed 结果 <results/libero_pro_astra>`
-
-                  .. dropdown:: 参考图表
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/long-swap-zh-light.png
-                        :alt: PRO Long Swap
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/long-swap-zh-dark.png
-                        :alt: PRO Long Swap
-                        :class: only-dark
-                        :width: 100%
-
-                     仅展示已报告成绩；未完成的 Astra 套件不绘制成绩柱。
-
-
-   .. tab-item:: RoboCasa
-      :class-content: sd-border-0 sd-px-0
-
-      **RoboCasa365 Target50**
-
-      50 个任务等权的 Overall 成功率；共 340 个评测回合。
-
-      .. list-table::
-         :name: ranking-robocasa
-         :header-rows: 1
-         :widths: 8 67 25
-         :class: table-sm
-
-         * - #
-           - 方法 / 规划模型
-           - 成功率
-         * - 1
-           - **RPent / GPT-5.5** ``xhigh``
-           - **57.1%**
-         * - 2
-           - **RPent / Opus-4.8** ``max``
-           - 48.6%
-         * - 3
-           - WorldDreamer
-           - 35.3%
-         * - 4
-           - RLDX-1
-           - 30.0%
-         * - 5
-           - π0.5
-           - 16.9%
-         * - 6
-           - π0
-           - 14.8%
-
-      未报告: GPT-6 Astra.
-
-      :ref:`协议与来源 <benchmark-source-p4>`
-
-      .. dropdown:: 参考图表
-
-         .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/robocasa-zh-light.png
-            :alt: RoboCasa365 Target50
-            :class: only-light
-            :width: 100%
-
-         .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/robocasa-zh-dark.png
-            :alt: RoboCasa365 Target50
-            :class: only-dark
-            :width: 100%
-
-         本设置中已收录的代表性方法；百分比保留来源精度。
-
-
-   .. tab-item:: RoboTwin
-      :class-content: sd-border-0 sd-px-0
-
-      **RoboTwin C2R**
-
-      Clean 到 randomized 的迁移；50 个任务，RPent 共评测 250 回合。
-
-      .. list-table::
-         :name: ranking-robotwin
-         :header-rows: 1
-         :widths: 8 67 25
-         :class: table-sm
-
-         * - #
-           - 方法 / 规划模型
-           - 成功率
-         * - 1
-           - **RPent / Opus-4.8** ``max``
-           - **58.4%**
-         * - 2
-           - **RPent / GPT-5.5** ``xhigh``
-           - 58.0%
-         * - 3
-           - LingBot-VLA
-           - 50.4%
-         * - 4
-           - π0.5
-           - 47.9%
-         * - 5
-           - GR00T-N1.7
-           - 20.7%
-         * - 6
-           - StarVLA
-           - 10.6%
-
-      未报告: GPT-6 Astra.
-
-      :ref:`协议与来源 <benchmark-source-p6>`
-
-      .. dropdown:: 参考图表
-
-         .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/robotwin-zh-light.png
-            :alt: RoboTwin C2R
-            :class: only-light
-            :width: 100%
-
-         .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/robotwin-zh-dark.png
-            :alt: RoboTwin C2R
-            :class: only-dark
-            :width: 100%
-
-         本设置中已收录的代表性方法；百分比保留来源精度。
-
-
-排名仅适用于各自评测范围；同分并列，未报告不记零分、不参与排名。
-外部方法保留各自协议和样本量。参考图表展示已选取的方法，不代表全部排名项。
-
-:ref:`模型配置 <id2>` | :ref:`完整结果 <libero-series>` |
-:ref:`演示视频 <benchmark-demo>`
+.. raw:: html
+
+   <div id="rpent-interactive-leaderboard" data-language="zh"
+        data-results-url="https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/benchmarks/results.json">
+     <div class="rpent-static-leaderboard">
+       <p>完整结果表位于下方。</p>
+     </div>
+   </div>
+
+**GPT-6 Astra：六个完整套件、600 回合。**
+:doc:`逐任务与 seed 结果 <results/libero_pro_astra>`；Goal 与完整 Overall 完成后再补充。
 
 .. _id2:
 
@@ -773,9 +153,8 @@ Task 为指令重定向，Swap 为位置交换。Overall 覆盖 Spatial、Object
 .. _libero-pro-goal:
 
 
-GPT-6 Astra 当前快照已完成 **619/800 回合** （564 成功、55 失败），
-仍有 181 回合待完成。六套成绩已完整；Goal Task、Goal Swap 与 Overall
-保持未报告。分套件、逐任务及逐 seed 统计见 :doc:`results/libero_pro_astra`。
+GPT-6 Astra 本轮只公布 **六个完整套件、600 回合** （554 成功、46 失败）。
+Goal Task、Goal Swap 与八项 Overall 保持未报告，完成后再补充。
 
 LIBERO-PRO Goal：零样本
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -857,187 +236,110 @@ C2R 表示从干净设置到随机设置的迁移评测。
 
 .. _id3:
 
-外部基线参考
-------------------
+论文完整结果表
+----------------------------
 
-以下附表保留来源中的其他方法，供查看相关评测覆盖范围。它们不作为 RPent 的规划模型列，
-也不与主表合并计分。直接执行动作的 VLA 方法没有单独规划器的 Reasoning/Effort 设置；
-Cap-X 和 RATS 的具体规划模型与推理配置在这些来源中未报告。
+以下补齐 Harness VLA v4 表 2–6 的全部成绩，保留来源精度与缺失值。
+RPent 对应论文的 Harness VLA；Codex 与 CC 分别对应 GPT-5.5 与 Opus-4.8。
+外部方法的样本数沿用原始报告，不从舍入后的百分比反推成功次数。
 
-.. dropdown:: Standard LIBERO
+Standard LIBERO
+~~~~~~~~~~~~~~~~
 
+:ref:`表 2 <benchmark-source-p2>`
 
-   .. list-table:: 参考方法
-      :header-rows: 1
-      :widths: 24 36 20 20
+.. csv-table::
+   :name: paper-table-2
+   :header: "方法", "Spatial", "Object", "Goal", "Long", "Overall"
+   :class: table-sm
 
-      * - 方法
-        - 覆盖范围
-        - 成功率
-        - 来源
-      * - OpenVLA
-        - 四个标准套件
-        - 76.5%
-        - :ref:`表 2 <benchmark-source-p2>`
-      * - NORA
-        - 四个标准套件
-        - 79.5%
-        - :ref:`表 2 <benchmark-source-p2>`
-      * - π0
-        - 四个标准套件
-        - 94.2%
-        - :ref:`表 2 <benchmark-source-p2>`
-      * - π_RLinf
-        - 四个标准套件
-        - 95.3%
-        - :ref:`表 2 <benchmark-source-p2>`
-      * - AtomVLA
-        - 四个标准套件
-        - 97.0%
-        - :ref:`表 2 <benchmark-source-p2>`
+   "OpenVLA", "84.7", "88.4", "79.2", "53.7", "76.5"
+   "NORA", "85.6", "89.4", "80.0", "63.0", "79.5"
+   "π0", "96.8", "98.8", "95.8", "85.2", "94.2"
+   "π_RLinf", "99.0", "96.0", "97.0", "89.0", "95.3"
+   "AtomVLA", "96.4", "99.6", "97.6", "94.4", "97.0"
+   "RPent / Opus-4.8", "97.0", "100.0", "94.0", "93.0", "96.0"
 
+LIBERO-PRO
+~~~~~~~~~~~~~~~~
 
-   外部基线的样本量沿用各自来源，不统一套用 RPent 的每套件 100 回合。
+:ref:`表 3 <benchmark-source-p3>`
 
-.. dropdown:: LIBERO-PRO
+.. csv-table::
+   :name: paper-table-3
+   :header: "方法", "Spatial Task", "Spatial Swap", "Object Task", "Object Swap", "Goal Task", "Goal Swap", "Long Task", "Long Swap", "Overall"
+   :class: table-sm
 
+   "OpenVLA", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0"
+   "π0", "0.0", "0.0", "0.0", "2.0", "0.0", "0.0", "0.0", "0.0", "0.3"
+   "π0.5", "1.0", "20.0", "1.0", "17.0", "2.0", "38.0", "1.0", "8.0", "11.0"
+   "MolmoAct", "0.0", "0.0", "0.0", "6.0", "0.0", "0.0", "6.0", "0.0", "1.5"
+   "NORA", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0"
+   "X-VLA", "0.0", "0.0", "8.0", "2.0", "9.0", "1.0", "10.0", "0.0", "3.8"
+   "AtomVLA", "1.0", "16.0", "0.0", "10.0", "11.0", "2.0", "9.0", "1.0", "6.3"
+   "Cap-X", "14.0", "12.0", "18.0", "22.0", "17.0", "26.0", "``-``", "``-``", "18.2 (6)"
+   "RATS", "31.0", "29.0", "63.0", "61.0", "36.0", "43.0", "``-``", "``-``", "43.8 (6)"
+   "π_RLinf", "42.0", "59.0", "71.0", "78.0", "45.0", "42.0", "49.0", "14.0", "50.0"
+   "RPent / GPT-5.5", "81.0", "69.0", "94.0", "91.0", "75.0", "66.0", "52.0", "49.0", "72.1"
+   "RPent / Opus-4.8", "94.0", "80.0", "88.0", "90.0", "87.0", "87.0", "71.0", "62.0", "82.4"
 
-   .. list-table:: 参考方法
-      :header-rows: 1
-      :widths: 24 36 20 20
+``(6)``：Cap-X 与 RATS 只报告 Spatial/Object/Goal 六项，其 Overall 不参与八项总体排名。
+``-`` 为未报告，不能作为 0。Astra 六套结果是另外提供的实验，不属于本论文表。
 
-      * - 方法
-        - 覆盖范围
-        - 成功率
-        - 来源
-      * - OpenVLA
-        - 八个 Task/Swap 单元
-        - 0.0%
-        - :ref:`表 3 <benchmark-source-p3>`
-      * - π0
-        - 八个 Task/Swap 单元
-        - 0.3%
-        - :ref:`表 3 <benchmark-source-p3>`
-      * - π0.5
-        - 八个 Task/Swap 单元
-        - 11.0%
-        - :ref:`表 3 <benchmark-source-p3>`
-      * - MolmoAct
-        - 八个 Task/Swap 单元
-        - 1.5%
-        - :ref:`表 3 <benchmark-source-p3>`
-      * - NORA
-        - 八个 Task/Swap 单元
-        - 0.0%
-        - :ref:`表 3 <benchmark-source-p3>`
-      * - X-VLA
-        - 八个 Task/Swap 单元
-        - 3.8%
-        - :ref:`表 3 <benchmark-source-p3>`
-      * - AtomVLA
-        - 八个 Task/Swap 单元
-        - 6.3%
-        - :ref:`表 3 <benchmark-source-p3>`
-      * - π_RLinf
-        - 八个 Task/Swap 单元
-        - 50.0%
-        - :ref:`表 3 <benchmark-source-p3>`
-      * - Cap-X
-        - 六个非 Long 单元
-        - 18.2%
-        - :ref:`表 3 <benchmark-source-p3>`
-      * - RATS
-        - 六个非 Long 单元
-        - 43.8%
-        - :ref:`表 3 <benchmark-source-p3>`
+RoboCasa365 Target50
+~~~~~~~~~~~~~~~~~~~~
 
+:ref:`表 4 <benchmark-source-p4>`
 
-   Cap-X 和 RATS 仅涵盖 Spatial、Object、Goal 的 Task/Swap 六个单元，不与涵盖八个单元的 Overall 直接排名。
+.. csv-table::
+   :name: paper-table-4
+   :header: "方法", "Atomic-Seen", "Composite-Seen", "Composite-Unseen", "Overall (task-weighted)"
+   :class: table-sm
 
-.. dropdown:: RoboCasa365 Target50
+   "RLDX-1", "60.0", "21.3", "5.0", "30.0"
+   "WorldDreamer", "66.3", "26.7", "9.0", "35.3"
+   "π0.5", "39.6", "7.1", "1.2", "16.9"
+   "π0", "34.6", "6.1", "1.1", "14.8"
+   "RPent / GPT-5.5", "92.0", "61.0", "13.8", "57.1"
+   "RPent / Opus-4.8", "79.4", "47.5", "15.0", "48.6"
 
+LIBERO-PRO Goal 零样本：逐任务
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   .. list-table:: 参考方法
-      :header-rows: 1
-      :widths: 24 36 20 20
+:ref:`表 5 <benchmark-source-p5>`
 
-      * - 方法
-        - 覆盖范围
-        - 成功率
-        - 来源
-      * - RLDX-1
-        - 全部三个划分，任务均权
-        - 30.0%
-        - :ref:`表 4 <benchmark-source-p4>`
-      * - WorldDreamer
-        - 全部三个划分，任务均权
-        - 35.3%
-        - :ref:`表 4 <benchmark-source-p4>`
-      * - π0.5
-        - 全部三个划分，任务均权
-        - 16.9%
-        - :ref:`表 4 <benchmark-source-p4>`
-      * - π0
-        - 全部三个划分，任务均权
-        - 14.8%
-        - :ref:`表 4 <benchmark-source-p4>`
+.. csv-table:: Task (T)
+   :name: paper-table-5-task
+   :header: "方法", "Task 0", "Task 1", "Task 2", "Task 3", "Task 4", "Task 5", "Task 6", "Task 7", "Task 8", "Task 9", "平均"
+   :class: table-sm
 
+   "Cap-X", "0.0", "0.0", "10.0", "38.0", "12.0", "4.0", "34.0", "12.0", "40.0", "18.0", "16.8"
+   "RPent / Opus-4.8", "10.0", "100.0", "90.0", "100.0", "20.0", "80.0", "90.0", "100.0", "100.0", "100.0", "79.0"
 
-   RLDX-1 是冻结 VLA 的直接评测基线；其余方法为外部报告。Overall 保留来源报告的聚合口径。
+.. csv-table:: Swap (S)
+   :name: paper-table-5-swap
+   :header: "方法", "Task 0", "Task 1", "Task 2", "Task 3", "Task 4", "Task 5", "Task 6", "Task 7", "Task 8", "Task 9", "平均"
+   :class: table-sm
 
-.. dropdown:: RoboTwin C2R
+   "Cap-X", "0.0", "4.0", "0.0", "36.0", "22.0", "60.0", "4.0", "2.0", "62.0", "66.0", "25.6"
+   "RPent / Opus-4.8", "0.0", "10.0", "0.0", "20.0", "90.0", "0.0", "10.0", "80.0", "100.0", "0.0", "31.0"
 
+RoboTwin C2R
+~~~~~~~~~~~~~~~~
 
-   .. list-table:: 参考方法
-      :header-rows: 1
-      :widths: 24 36 20 20
+:ref:`表 6 <benchmark-source-p6>`
 
-      * - 方法
-        - 覆盖范围
-        - 成功率
-        - 来源
-      * - GR00T-N1.7
-        - C2R
-        - 20.7%
-        - :ref:`表 6 <benchmark-source-p6>`
-      * - π0.5
-        - C2R
-        - 47.9%
-        - :ref:`表 6 <benchmark-source-p6>`
-      * - StarVLA
-        - C2R
-        - 10.6%
-        - :ref:`表 6 <benchmark-source-p6>`
-      * - LingBot-VLA
-        - C2R
-        - 50.4%
-        - :ref:`表 6 <benchmark-source-p6>`
+.. csv-table::
+   :name: paper-table-6
+   :header: "方法", "成功率 (%)"
+   :class: table-sm
 
-
-   LingBot-VLA 既是 RPent 的冻结接触策略后端，也是直接评测基线；不把 RPent 的 250 回合样本量套用到外部报告。
-
-.. dropdown:: LIBERO-PRO Goal 零样本
-
-
-   .. list-table:: 参考方法
-      :header-rows: 1
-      :widths: 24 36 20 20
-
-      * - 方法
-        - 覆盖范围
-        - 成功率
-        - 来源
-      * - Cap-X
-        - Goal Task
-        - 16.8%
-        - :ref:`表 5 <benchmark-source-p5>`
-      * - Cap-X
-        - Goal Swap
-        - 25.6%
-        - :ref:`表 5 <benchmark-source-p5>`
-
-
-   这些 Goal Task/Swap 数值对应不使用目标设置记忆的消融。
+   "GR00T-N1.7", "20.7"
+   "π0.5", "47.9"
+   "StarVLA", "10.6"
+   "LingBot-VLA", "50.4"
+   "RPent / GPT-5.5", "58.0"
+   "RPent / Opus-4.8", "58.4"
 
 .. _id4:
 
@@ -1110,11 +412,9 @@ GPT-6 Astra 的完整 800 回合 Overall 仅在八个 Task/Swap 分项全部完�
 完整八项范围由 Long 200 回合与补充评测 600 回合组成；各已报告批次使用
 对应的预先冻结记忆库，这些批次并非使用同一份记忆快照。
 
-**2026-09-14 14:00:55 UTC** 核验快照中，已完成 619 回合。
-Goal Task 已完成 19 回合（10 成功、9 失败），Goal Swap 暂无已完成回合。
-这些数字仅表示进度，不是完整套件或 Overall 成功率。
-:doc:`逐任务与 seed 结果表 <results/libero_pro_astra>` 保留全部 800 个计划位置，
-其中 181 个待完成；不包含服务器路径或原始运行日志。
+**2026-09-14 14:00:55 UTC** 核验报告中，本次只发布六个完整套件、600 回合。
+:doc:`逐任务与 seed 结果表 <results/libero_pro_astra>` 覆盖这 600 个已完成位置，
+共 554 成功、46 失败；不发布未完成套件的部分数据。
 
 .. astra-supplementary-source-end
 
@@ -1127,12 +427,12 @@ Goal Task 已完成 19 回合（10 成功、9 失败），Goal Swap 暂无已完
 **RPent 仿真演示：GPT-6 Astra 与 GPT-5.6 xhigh，4 倍速播放。**
 此视频为独立演示，与 GPT-5.5 统计记录分开说明。
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/demo/demo-poster.jpg
+.. image:: https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/demo/demo-poster.jpg
    :alt: RPent simulation demo
    :width: 100%
-   :target: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/demo/demo.mp4
+   :target: https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/demo/demo.mp4
 
-查看或下载`完整 MP4（约 24 秒，5.4 MiB） <https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/demo/demo.mp4>`_。
+查看或下载`完整 MP4（约 24 秒，5.4 MiB） <https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/demo/demo.mp4>`_。
 
 “未报告”表示没有对应成绩，不能视为零。
 
@@ -1141,9 +441,11 @@ Goal Task 已完成 19 回合（10 成功、9 失败），Goal Swap 暂无已完
 
 图片和演示媒体统一存放在 `RLinf/misc <https://github.com/RLinf/misc>`_ 的
 ``rpent/`` 目录。本页引用不可变媒体 commit
-``1f93c83cbbef749ce55af0399b1bd405e8e9c7a7``；配套的
-`结果快照 <https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/results.json>`_ 记录数据来源。
-构建文档不需要绘图工具或 benchmark 专用 JavaScript。
+``e858f627dbcc1b35440c3cb5ecaaefd016eb8680``；配套的
+`结果快照 <https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/benchmarks/results.json>`_ 记录数据来源。
+交互展示代码 ``leaderboard.js`` 与 ``leaderboard.css`` 也由 misc 维护；
+RPent 只接入固定版本的展示资源。图表直接读取同一 JSON 快照。
+JavaScript 或网络不可用时，原生结果表仍然可读。构建文档无需绘图工具。
 
 更新成绩时同步修改中英文表格，保留评测范围与来源精度，并将对应图片提交到 misc。
 确认图片与表格一致后再更新媒体 commit。不要从四舍五入的百分比推算成功次数，

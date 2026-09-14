@@ -7,646 +7,17 @@
 RPent Leaderboard
 =================
 
-Published success rates across simulation benchmarks.
-
-.. tab-set::
-
-   .. tab-item:: LIBERO
-      :class-content: sd-border-0 sd-px-0
-
-      **Standard LIBERO**
-
-      Overall success across Spatial, Object, Goal and Long.
-
-      .. list-table::
-         :name: ranking-standard-libero
-         :header-rows: 1
-         :widths: 8 67 25
-         :class: table-sm
-
-         * - #
-           - Method / planner
-           - Success
-         * - 1
-           - AtomVLA
-           - **97.0%**
-         * - 2
-           - **RPent / Opus-4.8** ``max``
-           - 96.0%
-         * - 3
-           - π_RLinf
-           - 95.3%
-         * - 4
-           - π0
-           - 94.2%
-         * - 5
-           - NORA
-           - 79.5%
-         * - 6
-           - OpenVLA
-           - 76.5%
-
-      Not reported: GPT-5.5, GPT-6 Astra.
-
-      :ref:`Protocol and source <benchmark-source-p2>`
-
-      .. dropdown:: Reference figure
-
-         .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/standard-libero-en-light.png
-            :alt: Standard LIBERO
-            :class: only-light
-            :width: 100%
-
-         .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/standard-libero-en-dark.png
-            :alt: Standard LIBERO
-            :class: only-dark
-            :width: 100%
-
-         Selected methods from this setting; percentages retain their source precision.
-
-
-   .. tab-item:: LIBERO-PRO
-      :class-content: sd-border-0 sd-px-0
-
-      **GPT-6 Astra: 6/8 suites complete, 619/800 episodes.**
-      :doc:`Verified results and pending coverage <results/libero_pro_astra>`
-
-      .. tab-set::
-
-         .. tab-item:: Overall
-            :class-content: sd-border-0 sd-px-0
-
-            **LIBERO-PRO Overall**
-
-            All eight Spatial / Object / Goal / Long Task and Swap settings.
-
-            .. list-table::
-               :name: ranking-libero-pro
-               :header-rows: 1
-               :widths: 8 67 25
-               :class: table-sm
-
-               * - #
-                 - Method / planner
-                 - Success
-               * - 1
-                 - **RPent / Opus-4.8** ``max``
-                 - **82.4%**
-               * - 2
-                 - **RPent / GPT-5.5** ``xhigh``
-                 - 72.1%
-               * - 3
-                 - π_RLinf
-                 - 50.0%
-               * - 4
-                 - π0.5
-                 - 11.0%
-               * - 5
-                 - AtomVLA
-                 - 6.3%
-               * - 6
-                 - X-VLA
-                 - 3.8%
-               * - 7
-                 - MolmoAct
-                 - 1.5%
-               * - 8
-                 - π0
-                 - 0.3%
-               * - 9
-                 - OpenVLA
-                 - 0.0%
-               * - 9
-                 - NORA
-                 - 0.0%
-
-            GPT-6 Astra Overall: **Not reported** (619/800 episodes complete).
-            Cap-X and RATS cover six settings and are not ranked in this eight-setting view.
-
-            :ref:`Protocol and sources <benchmark-source-astra-pro>` |
-            :doc:`Astra task/seed results <results/libero_pro_astra>`
-
-            .. dropdown:: Reference figure
-
-               .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/libero-pro-en-light.png
-                  :alt: LIBERO-PRO
-                  :class: only-light
-                  :width: 100%
-
-               .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/libero-pro-en-dark.png
-                  :alt: LIBERO-PRO
-                  :class: only-dark
-                  :width: 100%
-
-               Reported scores only; no bar is assigned to an incomplete Astra suite.
-
-
-         .. tab-item:: Spatial
-            :class-content: sd-border-0 sd-px-0
-
-            .. tab-set::
-
-               .. tab-item:: Task
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Spatial Task**
-
-                  RPent planners; 100 evaluation episodes per configuration.
-
-                  .. list-table::
-                     :name: ranking-spatial-task
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - Method / planner
-                       - Success
-                     * - 1
-                       - **RPent / GPT-6 Astra** ``low``
-                       - **100%**
-                     * - 2
-                       - **RPent / Opus-4.8** ``max``
-                       - 94.0%
-                     * - 3
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 81.0%
-
-                  GPT-6 Astra: 100/100 successes; suite complete. These suite scores
-                  do not replace the complete PRO Overall.
-
-                  :ref:`Protocol and sources <benchmark-source-astra-pro>` |
-                  :doc:`Astra task/seed results <results/libero_pro_astra>`
-
-                  .. dropdown:: Reference figure
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/spatial-task-en-light.png
-                        :alt: PRO Spatial Task
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/spatial-task-en-dark.png
-                        :alt: PRO Spatial Task
-                        :class: only-dark
-                        :width: 100%
-
-                     Reported scores only; no bar is assigned to an incomplete Astra suite.
-
-
-               .. tab-item:: Swap
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Spatial Swap**
-
-                  RPent planners; 100 evaluation episodes per configuration.
-
-                  .. list-table::
-                     :name: ranking-spatial-swap
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - Method / planner
-                       - Success
-                     * - 1
-                       - **RPent / GPT-6 Astra** ``low``
-                       - **98%**
-                     * - 2
-                       - **RPent / Opus-4.8** ``max``
-                       - 80.0%
-                     * - 3
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 69.0%
-
-                  GPT-6 Astra: 98/100 successes; suite complete. These suite scores
-                  do not replace the complete PRO Overall.
-
-                  :ref:`Protocol and sources <benchmark-source-astra-pro>` |
-                  :doc:`Astra task/seed results <results/libero_pro_astra>`
-
-                  .. dropdown:: Reference figure
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/spatial-swap-en-light.png
-                        :alt: PRO Spatial Swap
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/spatial-swap-en-dark.png
-                        :alt: PRO Spatial Swap
-                        :class: only-dark
-                        :width: 100%
-
-                     Reported scores only; no bar is assigned to an incomplete Astra suite.
-
-
-         .. tab-item:: Object
-            :class-content: sd-border-0 sd-px-0
-
-            .. tab-set::
-
-               .. tab-item:: Task
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Object Task**
-
-                  RPent planners; 100 evaluation episodes per configuration.
-
-                  .. list-table::
-                     :name: ranking-object-task
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - Method / planner
-                       - Success
-                     * - 1
-                       - **RPent / GPT-6 Astra** ``low``
-                       - **100%**
-                     * - 2
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 94.0%
-                     * - 3
-                       - **RPent / Opus-4.8** ``max``
-                       - 88.0%
-
-                  GPT-6 Astra: 100/100 successes; suite complete. These suite scores
-                  do not replace the complete PRO Overall.
-
-                  :ref:`Protocol and sources <benchmark-source-astra-pro>` |
-                  :doc:`Astra task/seed results <results/libero_pro_astra>`
-
-                  .. dropdown:: Reference figure
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/object-task-en-light.png
-                        :alt: PRO Object Task
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/object-task-en-dark.png
-                        :alt: PRO Object Task
-                        :class: only-dark
-                        :width: 100%
-
-                     Reported scores only; no bar is assigned to an incomplete Astra suite.
-
-
-               .. tab-item:: Swap
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Object Swap**
-
-                  RPent planners; 100 evaluation episodes per configuration.
-
-                  .. list-table::
-                     :name: ranking-object-swap
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - Method / planner
-                       - Success
-                     * - 1
-                       - **RPent / GPT-6 Astra** ``low``
-                       - **99%**
-                     * - 2
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 91.0%
-                     * - 3
-                       - **RPent / Opus-4.8** ``max``
-                       - 90.0%
-
-                  GPT-6 Astra: 99/100 successes; suite complete. These suite scores
-                  do not replace the complete PRO Overall.
-
-                  :ref:`Protocol and sources <benchmark-source-astra-pro>` |
-                  :doc:`Astra task/seed results <results/libero_pro_astra>`
-
-                  .. dropdown:: Reference figure
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/object-swap-en-light.png
-                        :alt: PRO Object Swap
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/object-swap-en-dark.png
-                        :alt: PRO Object Swap
-                        :class: only-dark
-                        :width: 100%
-
-                     Reported scores only; no bar is assigned to an incomplete Astra suite.
-
-
-         .. tab-item:: Goal
-            :class-content: sd-border-0 sd-px-0
-
-            .. tab-set::
-
-               .. tab-item:: Task
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Goal Task**
-
-                  RPent planners; 100 evaluation episodes per configuration.
-
-                  .. list-table::
-                     :name: ranking-goal-task
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - Method / planner
-                       - Success
-                     * - 1
-                       - **RPent / Opus-4.8** ``max``
-                       - **87.0%**
-                     * - 2
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 75.0%
-
-                  GPT-6 Astra: **Not reported**. 19/100 episodes complete,
-                  10 successes and 9 failures; 81 pending. Partial results are not ranked.
-
-                  :ref:`Protocol and sources <benchmark-source-astra-pro>` |
-                  :doc:`Astra task/seed results <results/libero_pro_astra>`
-
-                  .. dropdown:: Reference figure
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/goal-task-en-light.png
-                        :alt: PRO Goal Task
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/goal-task-en-dark.png
-                        :alt: PRO Goal Task
-                        :class: only-dark
-                        :width: 100%
-
-                     Reported scores only; no bar is assigned to an incomplete Astra suite.
-
-
-               .. tab-item:: Swap
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Goal Swap**
-
-                  RPent planners; 100 evaluation episodes per configuration.
-
-                  .. list-table::
-                     :name: ranking-goal-swap
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - Method / planner
-                       - Success
-                     * - 1
-                       - **RPent / Opus-4.8** ``max``
-                       - **87.0%**
-                     * - 2
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 66.0%
-
-                  GPT-6 Astra: **Not reported**. 0/100 episodes complete,
-                  0 successes and 0 failures; 100 pending. Partial results are not ranked.
-
-                  :ref:`Protocol and sources <benchmark-source-astra-pro>` |
-                  :doc:`Astra task/seed results <results/libero_pro_astra>`
-
-                  .. dropdown:: Reference figure
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/goal-swap-en-light.png
-                        :alt: PRO Goal Swap
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/goal-swap-en-dark.png
-                        :alt: PRO Goal Swap
-                        :class: only-dark
-                        :width: 100%
-
-                     Reported scores only; no bar is assigned to an incomplete Astra suite.
-
-
-         .. tab-item:: Long
-            :class-content: sd-border-0 sd-px-0
-
-            .. tab-set::
-
-               .. tab-item:: Task
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Long Task**
-
-                  RPent planners; 100 evaluation episodes per configuration.
-
-                  .. list-table::
-                     :name: ranking-long-task
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - Method / planner
-                       - Success
-                     * - 1
-                       - **RPent / GPT-6 Astra** ``low``
-                       - **85%**
-                     * - 2
-                       - **RPent / Opus-4.8** ``max``
-                       - 71.0%
-                     * - 3
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 52.0%
-
-                  GPT-6 Astra: 85/100 successes; suite complete. These suite scores
-                  do not replace the complete PRO Overall.
-
-                  :ref:`Protocol and sources <benchmark-source-astra-pro>` |
-                  :doc:`Astra task/seed results <results/libero_pro_astra>`
-
-                  .. dropdown:: Reference figure
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/long-task-en-light.png
-                        :alt: PRO Long Task
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/long-task-en-dark.png
-                        :alt: PRO Long Task
-                        :class: only-dark
-                        :width: 100%
-
-                     Reported scores only; no bar is assigned to an incomplete Astra suite.
-
-
-               .. tab-item:: Swap
-                  :class-content: sd-border-0 sd-px-0
-
-                  **Long Swap**
-
-                  RPent planners; 100 evaluation episodes per configuration.
-
-                  .. list-table::
-                     :name: ranking-long-swap
-                     :header-rows: 1
-                     :widths: 8 67 25
-                     :class: table-sm
-
-                     * - #
-                       - Method / planner
-                       - Success
-                     * - 1
-                       - **RPent / GPT-6 Astra** ``low``
-                       - **72%**
-                     * - 2
-                       - **RPent / Opus-4.8** ``max``
-                       - 62.0%
-                     * - 3
-                       - **RPent / GPT-5.5** ``xhigh``
-                       - 49.0%
-
-                  GPT-6 Astra: 72/100 successes; suite complete. These suite scores
-                  do not replace the complete PRO Overall.
-
-                  :ref:`Protocol and sources <benchmark-source-astra-pro>` |
-                  :doc:`Astra task/seed results <results/libero_pro_astra>`
-
-                  .. dropdown:: Reference figure
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/long-swap-en-light.png
-                        :alt: PRO Long Swap
-                        :class: only-light
-                        :width: 100%
-
-                     .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/long-swap-en-dark.png
-                        :alt: PRO Long Swap
-                        :class: only-dark
-                        :width: 100%
-
-                     Reported scores only; no bar is assigned to an incomplete Astra suite.
-
-
-   .. tab-item:: RoboCasa
-      :class-content: sd-border-0 sd-px-0
-
-      **RoboCasa365 Target50**
-
-      Overall success, equally weighted across 50 tasks; 340 evaluation episodes.
-
-      .. list-table::
-         :name: ranking-robocasa
-         :header-rows: 1
-         :widths: 8 67 25
-         :class: table-sm
-
-         * - #
-           - Method / planner
-           - Success
-         * - 1
-           - **RPent / GPT-5.5** ``xhigh``
-           - **57.1%**
-         * - 2
-           - **RPent / Opus-4.8** ``max``
-           - 48.6%
-         * - 3
-           - WorldDreamer
-           - 35.3%
-         * - 4
-           - RLDX-1
-           - 30.0%
-         * - 5
-           - π0.5
-           - 16.9%
-         * - 6
-           - π0
-           - 14.8%
-
-      Not reported: GPT-6 Astra.
-
-      :ref:`Protocol and source <benchmark-source-p4>`
-
-      .. dropdown:: Reference figure
-
-         .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/robocasa-en-light.png
-            :alt: RoboCasa365 Target50
-            :class: only-light
-            :width: 100%
-
-         .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/robocasa-en-dark.png
-            :alt: RoboCasa365 Target50
-            :class: only-dark
-            :width: 100%
-
-         Selected methods from this setting; percentages retain their source precision.
-
-
-   .. tab-item:: RoboTwin
-      :class-content: sd-border-0 sd-px-0
-
-      **RoboTwin C2R**
-
-      Clean-to-randomized transfer; 50 tasks, 250 RPent evaluation episodes.
-
-      .. list-table::
-         :name: ranking-robotwin
-         :header-rows: 1
-         :widths: 8 67 25
-         :class: table-sm
-
-         * - #
-           - Method / planner
-           - Success
-         * - 1
-           - **RPent / Opus-4.8** ``max``
-           - **58.4%**
-         * - 2
-           - **RPent / GPT-5.5** ``xhigh``
-           - 58.0%
-         * - 3
-           - LingBot-VLA
-           - 50.4%
-         * - 4
-           - π0.5
-           - 47.9%
-         * - 5
-           - GR00T-N1.7
-           - 20.7%
-         * - 6
-           - StarVLA
-           - 10.6%
-
-      Not reported: GPT-6 Astra.
-
-      :ref:`Protocol and source <benchmark-source-p6>`
-
-      .. dropdown:: Reference figure
-
-         .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/robotwin-en-light.png
-            :alt: RoboTwin C2R
-            :class: only-light
-            :width: 100%
-
-         .. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/robotwin-en-dark.png
-            :alt: RoboTwin C2R
-            :class: only-dark
-            :width: 100%
-
-         Selected methods from this setting; percentages retain their source precision.
-
-
-Rankings apply only within each setting. Ties share a rank; unreported results
-are excluded, not scored as zero. External methods retain their own protocols
-and sample sizes. Figures compare selected methods, not every ranked entry.
-
-:ref:`Model configurations <overview>` | :ref:`Full results <libero-series>` |
-:ref:`Demo <benchmark-demo>`
-
-.. _overview:
+.. raw:: html
+
+   <div id="rpent-interactive-leaderboard" data-language="en"
+        data-results-url="https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/benchmarks/results.json">
+     <div class="rpent-static-leaderboard">
+       <p>Full result tables are available below.</p>
+     </div>
+   </div>
+
+**GPT-6 Astra: six completed suites, 600 episodes.**
+:doc:`Task/seed results <results/libero_pro_astra>`; Goal and full Overall will be added after completion.
 
 Model configurations
 --------------------
@@ -781,10 +152,9 @@ do not define this aggregate.
 
 
 
-GPT-6 Astra's current snapshot contains **619/800 completed episodes**
-(564 successes, 55 failures), with 181 pending. Six suite scores are complete;
-Goal Task, Goal Swap and Overall remain unreported.
-See :doc:`results/libero_pro_astra` for suite, task and seed counts.
+GPT-6 Astra publishes **six completed suites, 600 episodes** (554 successes,
+46 failures). Goal Task, Goal Swap and eight-item Overall remain unreported;
+uncompleted suites will be added after completion.
 
 LIBERO-PRO Goal: zero-shot
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -865,192 +235,112 @@ C2R evaluates transfer from the clean setting to the randomized setting.
      - Not reported
 
 
-Baseline references
--------------------
+Complete paper result tables
+----------------------------
 
-These reference methods retain their reported evaluation coverage. They are
-not RPent planner configurations and are not pooled with the main results.
-Direct VLA methods have no separate planner Reasoning/Effort settings; the cited
-sources do not report the planner models or reasoning settings for Cap-X and RATS.
+The following tables retain every score in Harness VLA v4 Tables 2–6, including
+unreported entries and source precision. RPent corresponds to Harness VLA in the
+paper; Codex and CC correspond to GPT-5.5 and Opus-4.8. External trial counts
+follow their source reports; rounded percentages are not converted to counts.
 
-.. dropdown:: Standard LIBERO
+Standard LIBERO
+~~~~~~~~~~~~~~~~
 
+:ref:`Table 2 <benchmark-source-p2>`
 
-   .. list-table:: Reference methods
-      :header-rows: 1
-      :widths: 24 36 20 20
+.. csv-table::
+   :name: paper-table-2
+   :header: "Method", "Spatial", "Object", "Goal", "Long", "Overall"
+   :class: table-sm
 
-      * - Method
-        - Coverage
-        - Success rate
-        - Source
-      * - OpenVLA
-        - Four standard suites
-        - 76.5%
-        - :ref:`Table 2 <benchmark-source-p2>`
-      * - NORA
-        - Four standard suites
-        - 79.5%
-        - :ref:`Table 2 <benchmark-source-p2>`
-      * - π0
-        - Four standard suites
-        - 94.2%
-        - :ref:`Table 2 <benchmark-source-p2>`
-      * - π_RLinf
-        - Four standard suites
-        - 95.3%
-        - :ref:`Table 2 <benchmark-source-p2>`
-      * - AtomVLA
-        - Four standard suites
-        - 97.0%
-        - :ref:`Table 2 <benchmark-source-p2>`
+   "OpenVLA", "84.7", "88.4", "79.2", "53.7", "76.5"
+   "NORA", "85.6", "89.4", "80.0", "63.0", "79.5"
+   "π0", "96.8", "98.8", "95.8", "85.2", "94.2"
+   "π_RLinf", "99.0", "96.0", "97.0", "89.0", "95.3"
+   "AtomVLA", "96.4", "99.6", "97.6", "94.4", "97.0"
+   "RPent / Opus-4.8", "97.0", "100.0", "94.0", "93.0", "96.0"
 
+LIBERO-PRO
+~~~~~~~~~~~~~~~~
 
-   External baseline sample counts follow their own reports; RPent's 100 episodes per
-   suite are not imposed on those records.
+:ref:`Table 3 <benchmark-source-p3>`
 
-.. dropdown:: LIBERO-PRO
+.. csv-table::
+   :name: paper-table-3
+   :header: "Method", "Spatial Task", "Spatial Swap", "Object Task", "Object Swap", "Goal Task", "Goal Swap", "Long Task", "Long Swap", "Overall"
+   :class: table-sm
 
+   "OpenVLA", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0"
+   "π0", "0.0", "0.0", "0.0", "2.0", "0.0", "0.0", "0.0", "0.0", "0.3"
+   "π0.5", "1.0", "20.0", "1.0", "17.0", "2.0", "38.0", "1.0", "8.0", "11.0"
+   "MolmoAct", "0.0", "0.0", "0.0", "6.0", "0.0", "0.0", "6.0", "0.0", "1.5"
+   "NORA", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0"
+   "X-VLA", "0.0", "0.0", "8.0", "2.0", "9.0", "1.0", "10.0", "0.0", "3.8"
+   "AtomVLA", "1.0", "16.0", "0.0", "10.0", "11.0", "2.0", "9.0", "1.0", "6.3"
+   "Cap-X", "14.0", "12.0", "18.0", "22.0", "17.0", "26.0", "``-``", "``-``", "18.2 (6)"
+   "RATS", "31.0", "29.0", "63.0", "61.0", "36.0", "43.0", "``-``", "``-``", "43.8 (6)"
+   "π_RLinf", "42.0", "59.0", "71.0", "78.0", "45.0", "42.0", "49.0", "14.0", "50.0"
+   "RPent / GPT-5.5", "81.0", "69.0", "94.0", "91.0", "75.0", "66.0", "52.0", "49.0", "72.1"
+   "RPent / Opus-4.8", "94.0", "80.0", "88.0", "90.0", "87.0", "87.0", "71.0", "62.0", "82.4"
 
-   .. list-table:: Reference methods
-      :header-rows: 1
-      :widths: 24 36 20 20
+``(6)``: Cap-X and RATS report only the six Spatial/Object/Goal items; their
+Overall is not ranked against eight-item aggregates. ``-`` is unreported, not
+zero. Astra's six completed suites are a separate contribution, not paper results.
 
-      * - Method
-        - Coverage
-        - Success rate
-        - Source
-      * - OpenVLA
-        - Eight Task/Swap cells
-        - 0.0%
-        - :ref:`Table 3 <benchmark-source-p3>`
-      * - π0
-        - Eight Task/Swap cells
-        - 0.3%
-        - :ref:`Table 3 <benchmark-source-p3>`
-      * - π0.5
-        - Eight Task/Swap cells
-        - 11.0%
-        - :ref:`Table 3 <benchmark-source-p3>`
-      * - MolmoAct
-        - Eight Task/Swap cells
-        - 1.5%
-        - :ref:`Table 3 <benchmark-source-p3>`
-      * - NORA
-        - Eight Task/Swap cells
-        - 0.0%
-        - :ref:`Table 3 <benchmark-source-p3>`
-      * - X-VLA
-        - Eight Task/Swap cells
-        - 3.8%
-        - :ref:`Table 3 <benchmark-source-p3>`
-      * - AtomVLA
-        - Eight Task/Swap cells
-        - 6.3%
-        - :ref:`Table 3 <benchmark-source-p3>`
-      * - π_RLinf
-        - Eight Task/Swap cells
-        - 50.0%
-        - :ref:`Table 3 <benchmark-source-p3>`
-      * - Cap-X
-        - Six non-Long cells
-        - 18.2%
-        - :ref:`Table 3 <benchmark-source-p3>`
-      * - RATS
-        - Six non-Long cells
-        - 43.8%
-        - :ref:`Table 3 <benchmark-source-p3>`
+RoboCasa365 Target50
+~~~~~~~~~~~~~~~~~~~~
 
+:ref:`Table 4 <benchmark-source-p4>`
 
-   Cap-X and RATS cover only the six Spatial/Object/Goal Task/Swap cells. Their
-   overall rates are not ranked against eight-cell aggregates.
+.. csv-table::
+   :name: paper-table-4
+   :header: "Method", "Atomic-Seen", "Composite-Seen", "Composite-Unseen", "Overall (task-weighted)"
+   :class: table-sm
 
-.. dropdown:: RoboCasa365 Target50
+   "RLDX-1", "60.0", "21.3", "5.0", "30.0"
+   "WorldDreamer", "66.3", "26.7", "9.0", "35.3"
+   "π0.5", "39.6", "7.1", "1.2", "16.9"
+   "π0", "34.6", "6.1", "1.1", "14.8"
+   "RPent / GPT-5.5", "92.0", "61.0", "13.8", "57.1"
+   "RPent / Opus-4.8", "79.4", "47.5", "15.0", "48.6"
 
+LIBERO-PRO Goal zero-shot: per task
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   .. list-table:: Reference methods
-      :header-rows: 1
-      :widths: 24 36 20 20
+:ref:`Table 5 <benchmark-source-p5>`
 
-      * - Method
-        - Coverage
-        - Success rate
-        - Source
-      * - RLDX-1
-        - All three splits, task-weighted
-        - 30.0%
-        - :ref:`Table 4 <benchmark-source-p4>`
-      * - WorldDreamer
-        - All three splits, task-weighted
-        - 35.3%
-        - :ref:`Table 4 <benchmark-source-p4>`
-      * - π0.5
-        - All three splits, task-weighted
-        - 16.9%
-        - :ref:`Table 4 <benchmark-source-p4>`
-      * - π0
-        - All three splits, task-weighted
-        - 14.8%
-        - :ref:`Table 4 <benchmark-source-p4>`
+.. csv-table:: Task (T)
+   :name: paper-table-5-task
+   :header: "Method", "Task 0", "Task 1", "Task 2", "Task 3", "Task 4", "Task 5", "Task 6", "Task 7", "Task 8", "Task 9", "Average"
+   :class: table-sm
 
+   "Cap-X", "0.0", "0.0", "10.0", "38.0", "12.0", "4.0", "34.0", "12.0", "40.0", "18.0", "16.8"
+   "RPent / Opus-4.8", "10.0", "100.0", "90.0", "100.0", "20.0", "80.0", "90.0", "100.0", "100.0", "100.0", "79.0"
 
-   RLDX-1 is the direct frozen-VLA baseline; the other methods are external reports.
-   Overall retains the aggregation reported by the source.
+.. csv-table:: Swap (S)
+   :name: paper-table-5-swap
+   :header: "Method", "Task 0", "Task 1", "Task 2", "Task 3", "Task 4", "Task 5", "Task 6", "Task 7", "Task 8", "Task 9", "Average"
+   :class: table-sm
 
-.. dropdown:: RoboTwin C2R
+   "Cap-X", "0.0", "4.0", "0.0", "36.0", "22.0", "60.0", "4.0", "2.0", "62.0", "66.0", "25.6"
+   "RPent / Opus-4.8", "0.0", "10.0", "0.0", "20.0", "90.0", "0.0", "10.0", "80.0", "100.0", "0.0", "31.0"
 
+RoboTwin C2R
+~~~~~~~~~~~~~~~~
 
-   .. list-table:: Reference methods
-      :header-rows: 1
-      :widths: 24 36 20 20
+:ref:`Table 6 <benchmark-source-p6>`
 
-      * - Method
-        - Coverage
-        - Success rate
-        - Source
-      * - GR00T-N1.7
-        - C2R
-        - 20.7%
-        - :ref:`Table 6 <benchmark-source-p6>`
-      * - π0.5
-        - C2R
-        - 47.9%
-        - :ref:`Table 6 <benchmark-source-p6>`
-      * - StarVLA
-        - C2R
-        - 10.6%
-        - :ref:`Table 6 <benchmark-source-p6>`
-      * - LingBot-VLA
-        - C2R
-        - 50.4%
-        - :ref:`Table 6 <benchmark-source-p6>`
+.. csv-table::
+   :name: paper-table-6
+   :header: "Method", "Success rate (%)"
+   :class: table-sm
 
-
-   LingBot-VLA is both RPent's frozen contact-policy backend and a direct evaluation
-   baseline. RPent's 250 episodes are not assigned to external reports.
-
-.. dropdown:: LIBERO-PRO Goal zero-shot
-
-
-   .. list-table:: Reference methods
-      :header-rows: 1
-      :widths: 24 36 20 20
-
-      * - Method
-        - Coverage
-        - Success rate
-        - Source
-      * - Cap-X
-        - Goal Task
-        - 16.8%
-        - :ref:`Table 5 <benchmark-source-p5>`
-      * - Cap-X
-        - Goal Swap
-        - 25.6%
-        - :ref:`Table 5 <benchmark-source-p5>`
-
-
-   These Goal Task/Swap values belong to the ablation without target-setting memory.
+   "GR00T-N1.7", "20.7"
+   "π0.5", "47.9"
+   "StarVLA", "10.6"
+   "LingBot-VLA", "50.4"
+   "RPent / GPT-5.5", "58.0"
+   "RPent / Opus-4.8", "58.4"
 
 Protocols and sources
 ---------------------
@@ -1139,11 +429,10 @@ Task/Swap items are complete. The full eight-item scope consists of 200 Long
 and 600 supplementary episodes. Each reported batch uses its own memory frozen
 before evaluation; the batches do not share a single memory snapshot.
 
-The **2026-09-14 14:00:55 UTC** verified snapshot has 619 completed episodes.
-Goal Task has 19 completed episodes (10 successes, 9 failures); Goal Swap
-has none. These counts are progress, not final suite or Overall success rates.
-The sanitized :doc:`task/seed result tables <results/libero_pro_astra>` retain
-all 800 planned positions, including 181 pending positions.
+From the **2026-09-14 14:00:55 UTC** verified report, this publication includes
+only six completed suites, 600 episodes (554 successes, 46 failures).
+The :doc:`task/seed result tables <results/libero_pro_astra>` preserve those
+600 completed positions. Partial results from unfinished suites are not published.
 
 .. astra-supplementary-source-end
 
@@ -1156,12 +445,12 @@ Demo
 **RPent simulation demo: GPT-6 Astra versus GPT-5.6 xhigh, shown at 4x speed.**
 This is a separate demonstration from the GPT-5.5 evaluation records.
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/demo/demo-poster.jpg
+.. image:: https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/demo/demo-poster.jpg
    :alt: RPent simulation demo
    :width: 100%
-   :target: https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/demo/demo.mp4
+   :target: https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/demo/demo.mp4
 
-View or download the `complete MP4 (about 24 seconds, 5.4 MiB) <https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/demo/demo.mp4>`_.
+View or download the `complete MP4 (about 24 seconds, 5.4 MiB) <https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/demo/demo.mp4>`_.
 
 ``Not reported`` means no result is available; it is not a zero score.
 
@@ -1170,9 +459,12 @@ Maintaining these results
 
 Figures and demo media are maintained in `RLinf/misc <https://github.com/RLinf/misc>`_
 under ``rpent/``. These pages reference immutable media commit
-``1f93c83cbbef749ce55af0399b1bd405e8e9c7a7``; the accompanying
-`result snapshot <https://raw.githubusercontent.com/RLinf/misc/1f93c83cbbef749ce55af0399b1bd405e8e9c7a7/rpent/benchmarks/results.json>`_ records their provenance.
-No plotting tools or benchmark-specific JavaScript are required to build the docs.
+``e858f627dbcc1b35440c3cb5ecaaefd016eb8680``; the accompanying
+`result snapshot <https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/benchmarks/results.json>`_ records their provenance.
+The presentation code, ``leaderboard.js`` and ``leaderboard.css``, is also
+maintained in misc. RPent embeds only pinned presentation assets. Interactive
+charts read the same JSON snapshot. Native result tables remain available
+without JavaScript or network access; building the docs needs no plotting tools.
 
 When updating results, edit both language tables, retain evaluation scopes and
 source precision, and submit matching figures to misc. Update the media commit
