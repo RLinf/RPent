@@ -33,8 +33,6 @@
 
 [![RPent 六面板基准成功率对比](https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)
 
-[打开交互式 Leaderboard](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html#benchmark-leaderboard)，切换基准、按评测分项对模型排名、查看柱状图，并下载筛选结果的 CSV。
-
 
 ## 适用用户
 

@@ -12,98 +12,118 @@ Compare RPent success rates with selected reference methods across simulation be
 Leaderboard
 -----------
 
-Select a benchmark to compare models in a sortable leaderboard. Click a score
-heading to rank by that evaluation item, or switch to Charts for a visual
-comparison. Overview retains the six benchmark panels. Purple denotes RPent;
-gray denotes external reference methods.
+Each panel compares one evaluation setting. Purple denotes RPent; gray denotes
+selected external reference methods. Full values, configurations and sources
+are listed below.
 
-Filter model configurations, inspect a score or bar with the mouse or keyboard,
-and download the displayed records as CSV. Missing scores remain unranked;
-Overall uses the complete reported evaluation, never a partial average.
+.. grid:: 1 1 2 2
+   :gutter: 3
 
-.. raw:: html
+   .. grid-item::
 
-   <div id="rpent-interactive-leaderboard" data-language="en"
-        data-results-url="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/results.json" data-asset-base="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/">
-   <noscript><p>Interactive filters require JavaScript. The static charts and full result tables remain available.</p></noscript>
-   <div class="rpent-leaderboard-legend" aria-label="Chart legend">
-     <span><i class="rpent-legend-swatch rpent-legend-rpent" aria-hidden="true"></i>RPent configurations</span>
-     <span><i class="rpent-legend-swatch rpent-legend-reference" aria-hidden="true"></i>Selected external baselines</span>
-   </div>
-   <div class="rpent-leaderboard-grid rpent-static-leaderboard">
-     <figure class="rpent-leaderboard-panel" data-benchmark="standard-libero">
-       <img class="rpent-chart-light" src="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-en-light.png"
-            alt="Standard LIBERO Overall success-rate comparison; full values appear in the result tables below." />
-       <img class="rpent-chart-dark" src="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-en-dark.png"
-            alt="Standard LIBERO Overall success-rate comparison; full values appear in the result tables below." />
-       <figcaption><a href="#benchmark-source-p2">Standard LIBERO Overall: results and evaluation details</a></figcaption>
-     </figure>
-     <figure class="rpent-leaderboard-panel" data-benchmark="libero-pro">
-       <img class="rpent-chart-light" src="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-en-light.png"
-            alt="LIBERO-PRO Overall, all eight Task/Swap items: success-rate comparison; full values appear in the result tables below." />
-       <img class="rpent-chart-dark" src="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-en-dark.png"
-            alt="LIBERO-PRO Overall, all eight Task/Swap items: success-rate comparison; full values appear in the result tables below." />
-       <figcaption><a href="#benchmark-source-p3">LIBERO-PRO Overall: results and evaluation details</a></figcaption>
-     </figure>
-     <figure class="rpent-leaderboard-panel" data-benchmark="robocasa">
-       <img class="rpent-chart-light" src="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-en-light.png"
-            alt="RoboCasa365 Target50 task-weighted Overall success-rate comparison; full values appear in the result tables below." />
-       <img class="rpent-chart-dark" src="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-en-dark.png"
-            alt="RoboCasa365 Target50 task-weighted Overall success-rate comparison; full values appear in the result tables below." />
-       <figcaption><a href="#benchmark-source-p4">RoboCasa365 Target50 Overall: results and evaluation details</a></figcaption>
-     </figure>
-     <figure class="rpent-leaderboard-panel" data-benchmark="robotwin">
-       <img class="rpent-chart-light" src="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-en-light.png"
-            alt="RoboTwin C2R success-rate comparison; full values appear in the result tables below." />
-       <img class="rpent-chart-dark" src="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-en-dark.png"
-            alt="RoboTwin C2R success-rate comparison; full values appear in the result tables below." />
-       <figcaption><a href="#benchmark-source-p6">RoboTwin C2R: results and evaluation details</a></figcaption>
-     </figure>
-     <figure class="rpent-leaderboard-panel" data-benchmark="long-task">
-       <img class="rpent-chart-light" src="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-en-light.png"
-            alt="LIBERO-PRO Long Task, RPent model success-rate comparison; full values appear in the result tables below." />
-       <img class="rpent-chart-dark" src="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-en-dark.png"
-            alt="LIBERO-PRO Long Task, RPent model success-rate comparison; full values appear in the result tables below." />
-       <figcaption><a href="#libero-pro-across-task-families">LIBERO-PRO Long Task: results and evaluation details</a></figcaption>
-     </figure>
-     <figure class="rpent-leaderboard-panel" data-benchmark="long-swap">
-       <img class="rpent-chart-light" src="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-en-light.png"
-            alt="LIBERO-PRO Long Swap, RPent model success-rate comparison; full values appear in the result tables below." />
-       <img class="rpent-chart-dark" src="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-en-dark.png"
-            alt="LIBERO-PRO Long Swap, RPent model success-rate comparison; full values appear in the result tables below." />
-       <figcaption><a href="#libero-pro-across-task-families">LIBERO-PRO Long Swap: results and evaluation details</a></figcaption>
-     </figure>
-   </div>
-   </div>
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-en-light.png
+         :alt: Standard LIBERO Overall
+         :class: only-light
+         :width: 100%
 
-Rankings apply to the coverage shown in each panel. Every vertical axis starts
-at zero; its upper limit is the highest reported score for that setting rounded up
-to a multiple of 10%, and remains fixed when configurations are hidden.
-Compare the labeled percentages across panels. Full results,
-model configurations, and protocols follow below.
-Unreported configurations have no bar. Long Task and Long Swap compare RPent
-planners and do not replace the full PRO Overall.
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-en-dark.png
+         :alt: Standard LIBERO Overall
+         :class: only-dark
+         :width: 100%
+
+      :ref:`Standard LIBERO Overall <benchmark-source-p2>`
+
+   .. grid-item::
+
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-en-light.png
+         :alt: LIBERO-PRO Overall
+         :class: only-light
+         :width: 100%
+
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-en-dark.png
+         :alt: LIBERO-PRO Overall
+         :class: only-dark
+         :width: 100%
+
+      :ref:`LIBERO-PRO Overall <benchmark-source-p3>`
+
+   .. grid-item::
+
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-en-light.png
+         :alt: RoboCasa365 Target50 Overall
+         :class: only-light
+         :width: 100%
+
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-en-dark.png
+         :alt: RoboCasa365 Target50 Overall
+         :class: only-dark
+         :width: 100%
+
+      :ref:`RoboCasa365 Target50 Overall <benchmark-source-p4>`
+
+   .. grid-item::
+
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-en-light.png
+         :alt: RoboTwin C2R
+         :class: only-light
+         :width: 100%
+
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-en-dark.png
+         :alt: RoboTwin C2R
+         :class: only-dark
+         :width: 100%
+
+      :ref:`RoboTwin C2R <benchmark-source-p6>`
+
+   .. grid-item::
+
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-en-light.png
+         :alt: LIBERO-PRO Long Task
+         :class: only-light
+         :width: 100%
+
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-en-dark.png
+         :alt: LIBERO-PRO Long Task
+         :class: only-dark
+         :width: 100%
+
+      :ref:`LIBERO-PRO Long Task <libero-pro-across-task-families>`
+
+   .. grid-item::
+
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-en-light.png
+         :alt: LIBERO-PRO Long Swap
+         :class: only-light
+         :width: 100%
+
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-en-dark.png
+         :alt: LIBERO-PRO Long Swap
+         :class: only-dark
+         :width: 100%
+
+      :ref:`LIBERO-PRO Long Swap <libero-pro-across-task-families>`
+
+Rankings apply only to each panel's stated coverage. Vertical axes start at zero;
+upper limits are rounded up to the next 10 percentage points for each setting.
+Compare the labeled percentages across panels. Unreported configurations have no
+bar; Long Task and Long Swap do not replace the complete PRO Overall.
 
 .. _benchmark-demo:
 
 Demo
 ----
 
-**RPent simulation demo: GPT-6 Astra versus GPT-5.6 xhigh, shown at 4× speed.**
-This is a separate demonstration from the GPT-5.5 evaluation records above.
+**RPent simulation demo: GPT-6 Astra versus GPT-5.6 xhigh, shown at 4x speed.**
+This is a separate demonstration from the GPT-5.5 evaluation records.
 
-.. raw:: html
+.. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo-poster.jpg
+   :alt: RPent simulation demo
+   :width: 100%
+   :target: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4
 
-   <video class="rpent-benchmark-video" controls playsinline preload="metadata"
-          poster="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo-poster.jpg" width="2048" height="1024"
-          aria-label="RPent simulation demo: GPT-6 Astra versus GPT-5.6 xhigh, 4x speed">
-     <source src="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4" type="video/mp4" />
-     <a href="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4">Download the complete demo video</a>
-   </video>
-   <p class="rpent-demo-download"><a href="https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4" download>Download complete MP4 (about 24 seconds, 5.4 MiB)</a></p>
+View or download the `complete MP4 (about 24 seconds, 5.4 MiB) <https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4>`_.
 
-``Not reported`` means no result is available for that model and evaluation item;
-it is not a zero score.
+``Not reported`` means no result is available; it is not a zero score.
 
 .. _overview:
 
@@ -602,11 +622,10 @@ Figures and demo media are maintained in `RLinf/misc <https://github.com/RLinf/m
 under ``rpent/``. These pages reference immutable media commit
 ``3f4c2003590076982782b73bb4e191bdd6a52f39``; the accompanying
 `result snapshot <https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/results.json>`_ records their provenance.
-The optional interactive view reads the same pinned result snapshot and SVGs.
-The static overview and full tables remain available if JavaScript is unavailable.
+No plotting tools or benchmark-specific JavaScript are required to build the docs.
 
-When updating results, edit the result snapshot and both language tables, retain
-evaluation scopes and source precision, and submit matching figures to misc. Update the media commit
+When updating results, edit both language tables, retain evaluation scopes and
+source precision, and submit matching figures to misc. Update the media commit
 only after checking figure/table agreement. Do not infer success counts from
 rounded percentages or use missing results as zero. Preserve the model-column
 order, task-weighted RoboCasa aggregation and the distinction between full
