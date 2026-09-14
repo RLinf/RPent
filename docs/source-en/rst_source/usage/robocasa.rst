@@ -54,8 +54,18 @@ the complete RoboCasa365 stack with ``.[robocasa]``:
 The RoboCasa-specific constraints file pins the compatibility-sensitive
 package versions validated for Target50 reproduction without narrowing
 RPent's shared LIBERO or RoboTwin dependencies. The companion override file
-resolves the formal environment directly to the immutable Robosuite revision
-while the ordinary ``robocasa`` extra tracks its maintained ``rpent`` branch.
+resolves the formal environment to immutable RoboCasa, RLDX and Robosuite commits
+while the ordinary ``robocasa`` extra tracks their maintained ``rpent`` branches.
+RoboCasa is installed as ``rpent-robocasa365``; do not co-install the older
+``rlinf-robocasa365`` distribution, which provides the same import package.
+The public source pins include the merged assets and backbone-revision fixes:
+
+- RoboCasa: ``2692d8fc5fd86708a1b2028dcbce892ec418a9e7``.
+- RLDX: ``ebcfd13df5177e4b3e574bdf5a3b427c7c4a1e8a``.
+- Robosuite: ``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``.
+
+The source commits identify these fixes even though their package version labels
+were not incremented. No unpublished package release is required.
 The command also lets uv select the official CUDA wheel without treating the
 PyTorch wheel index as a general package index.
 Passing that index through ``--index`` can make uv select stale, unrelated
@@ -456,20 +466,8 @@ GPU/EGL setup and are separate from offline CPU CI; skipped tests are not passes
 Troubleshooting
 ---------------
 
-Resource checks can run without planner credentials. First install
-``pytest`` and ``pytest-timeout``. The environment suite has four representative
-cases: ``OpenDrawer``, ``NavigateKitchen`` and ``PickPlaceCounterToCabinet`` at
-seed 1, plus mobile-camera movement. It checks construction/reset, 12D action,
-operation cameras, navigation RGB-D/world map, success predicates and closing,
-not the full evaluation matrix. Add ``-k OpenDrawer`` for an initial check:
-
-.. code-block:: bash
-
-   uv pip install pytest pytest-timeout
-   RPENT_RUN_ROBOCASA_INTEGRATION=1 MUJOCO_GL=egl \
-      python -m pytest -q tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py
-
-After downloading all four resources, verify model loading and first inference:
+Run the :ref:`environment smoke tests <environment-smoke-tests>` first. After
+downloading all four resources, verify model loading and first inference:
 
 .. code-block:: bash
 

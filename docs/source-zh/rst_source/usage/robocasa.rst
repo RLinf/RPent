@@ -48,8 +48,17 @@ RLDX-1 要求 Python ``3.10``。请创建独立环境，并通过 ``.[robocasa]`
 
 RoboCasa 专用 constraints 文件固定经 Target50 复现验证的兼容性敏感包版本，
 同时不会收窄 RPent 中 LIBERO 或 RoboTwin 的共享依赖。配套 override 文件让
-正式环境直接解析到不可变的 Robosuite revision，而普通 ``robocasa`` extra
-仍跟随维护中的 ``rpent`` 分支。该命令让 uv 只为 Torch 选择官方 CUDA wheel，
+正式环境直接解析到不可变的 RoboCasa、RLDX 和 Robosuite commit，而普通
+``robocasa`` extra 仍跟随各仓库维护中的 ``rpent`` 分支。RoboCasa 发行包名为
+``rpent-robocasa365``；不要同时安装提供相同 import 包的旧 ``rlinf-robocasa365``。
+公开源码固定如下，包含已合并的 assets 和 backbone revision 修复：
+
+- RoboCasa：``2692d8fc5fd86708a1b2028dcbce892ec418a9e7``。
+- RLDX：``ebcfd13df5177e4b3e574bdf5a3b427c7c4a1e8a``。
+- Robosuite：``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``。
+
+包版本标签尚未递增，因此以源码 commit 标识修复，不依赖尚未发布的新包版本。
+该命令让 uv 只为 Torch 选择官方 CUDA wheel，
 避免把 PyTorch wheel 源作为通用 ``--index`` 后，在默认 first-index 策略下误选
 其中的旧版无关依赖。上面的 ``cu126`` 是已验证的 CUDA 安装方式；仅当宿主机
 确有需要时才切换到其他受支持的 Torch backend。
@@ -416,19 +425,8 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
 常见错误
 --------
 
-资源自检无需 planner 凭据。安装 ``pytest`` 和 ``pytest-timeout`` 后，现有环境
-测试只保留四项代表检查：``OpenDrawer``、``NavigateKitchen`` 和
-``PickPlaceCounterToCabinet`` 各 seed 1，加一项移动相机检查。它们验证构造/reset、
-12D action、操作相机、导航 RGB-D/world map、成功条件和关闭流程，不执行完整
-评测矩阵；首次检查可增加 ``-k OpenDrawer``：
-
-.. code-block:: bash
-
-   uv pip install pytest pytest-timeout
-   RPENT_RUN_ROBOCASA_INTEGRATION=1 MUJOCO_GL=egl \
-      python -m pytest -q tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py
-
-四类资源下载完成后，再检查模型加载和首次推理：
+先执行 :ref:`环境冒烟测试 <environment-smoke-tests>`。四类资源下载完成后，
+再检查模型加载和首次推理：
 
 .. code-block:: bash
 

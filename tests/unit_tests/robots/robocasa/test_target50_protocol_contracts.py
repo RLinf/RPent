@@ -82,7 +82,7 @@ def test_target50_manifest_identity_and_dependencies():
             "pydantic": "2.13.5",
             "pydantic-ai-slim": "2.1.0",
             "rlinf-rldx": "1.0.1.post10",
-            "rlinf-robocasa365": "1.0.1",
+            "rpent-robocasa365": "1.0.1",
             "torch": "2.7.0",
             "torchvision": "0.22.0",
             "transformers": "4.57.6",
@@ -113,17 +113,25 @@ def test_target50_constraints_match_manifest_packages():
     assert constraints == {f"{name}=={version}" for name, version in packages.items()}
 
 
-def test_target50_override_freezes_robosuite_source():
-    revision = _manifest()["dependencies"]["robosuite"]["commit"]
+def test_target50_overrides_freeze_simulator_and_rldx_sources():
+    dependencies = _manifest()["dependencies"]
     overrides = {
         line.strip()
         for line in OVERRIDES_PATH.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.startswith("#")
     }
 
-    assert overrides == {
-        f"robosuite @ git+https://github.com/RLinf/robosuite.git@{revision}"
+    sources = {
+        "robosuite": ("robosuite", "97cfbde4b68d8ec43dad20cf4747297866a6ca2e"),
+        "robocasa": ("rpent-robocasa365", "2692d8fc5fd86708a1b2028dcbce892ec418a9e7"),
+        "rldx": ("rlinf-rldx", "ebcfd13df5177e4b3e574bdf5a3b427c7c4a1e8a"),
     }
+    expected = set()
+    for name, (package, revision) in sources.items():
+        assert dependencies[name]["commit"] == revision
+        repository = dependencies[name]["repository"]
+        expected.add(f"{package} @ git+{repository}.git@{revision}")
+    assert overrides == expected
 
 
 def test_target50_matrix_is_exact_and_has_no_duplicate_cells():
