@@ -37,6 +37,55 @@ def test_single_arm_preserves_other_command_target(primitives, env, arm, offset,
 
 
 @pytest.mark.parametrize(
+    "arm,offset,other", [("left", 0, slice(7, 14)), ("right", 7, slice(0, 7))]
+)
+@pytest.mark.parametrize("tool", ["move_to", "rotate_wrist", "set_gripper", "release"])
+@pytest.mark.parametrize("compact", [True, False])
+def test_primitive_refreshes_after_operator_command(
+    primitives, env, monkeypatch, arm, offset, other, tool, compact
+):
+    # An operator command changes accepted targets after this client's last RGBD
+    # observation, as reset_pose did during the real diagnostic acceptance.
+    command = env._previous_command.copy()
+    command[:6] += 0.08
+    command[7:13] += 0.08
+    command[[6, 13]] = 0.8
+    env.control_step(command, expected_episode_id=env._episode_id)
+    env._runtime.commands.clear()
+    env._runtime.qpos[other] -= 0.01  # target must not be replaced by feedback
+    primitives.env.execution_capabilities["compact_control"] = compact
+    measured = env._runtime.qpos.copy()
+    planned = []
+
+    def plan(side, target):
+        planned.append(np.asarray(target))
+        path = np.repeat(measured[None, offset : offset + 6], 2, axis=0)
+        path[-1, 0] += 0.03
+        return {"status": "Success", "position": path}
+
+    monkeypatch.setattr(primitives.env, "plan_arm_path", plan)
+    if tool == "move_to":
+        result = primitives.move_to(
+            arm=arm, xyz=[measured[offset] + 0.03, 0, 0], substeps=2
+        )
+    elif tool == "rotate_wrist":
+        result = primitives.rotate_wrist(arm=arm, delta_yaw_deg=5, substeps=2)
+        assert planned[0][0] == pytest.approx(measured[offset])
+    else:
+        result = getattr(primitives, tool)(arm=arm, val=1.0, steps=2)
+        assert env._runtime.commands[0][offset + 6] == pytest.approx(0.9)
+    assert result["executed_steps"] == 2
+    for q in env._runtime.commands:
+        np.testing.assert_array_equal(q[other], command[other])
+        if tool in {"move_to", "rotate_wrist"}:
+            assert q[offset + 6] == command[offset + 6]
+        else:
+            np.testing.assert_array_equal(
+                q[offset : offset + 6], command[offset : offset + 6]
+            )
+
+
+@pytest.mark.parametrize(
     "fault",
     [
         "shape",

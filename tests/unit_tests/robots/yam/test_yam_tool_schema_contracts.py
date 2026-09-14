@@ -115,6 +115,11 @@ def test_world_z_rotation_and_forwarded_arguments(primitives, monkeypatch):
         0.5,
         0.5,
     ]
+    monkeypatch.setattr(
+        primitives.env,
+        "read_control_state",
+        lambda: (primitives.env.last_obs, primitives.env.last_info),
+    )
     seen = {}
     monkeypatch.setattr(
         primitives, "move_to", lambda **kwargs: seen.update(kwargs) or {"success": True}

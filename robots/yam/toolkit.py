@@ -21,6 +21,7 @@ from robots.yam import tools
 from robots.yam.contracts import MODEL_SPEC, YAM_CAMERA_NAMES
 from robots.yam.primitives import YamPrimitives
 from robots.yam.projection import world_from_depth as _world_from_depth_cv
+from robots.yam.tasks import classify_episode
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit, readonly
@@ -87,7 +88,11 @@ class YamToolkit(Toolkit):
         record = self._state.latest_record()
         if record is not None:
             self._publish_step(record)
-        self._session_attempt = int(bool(self._latest_status.get("ready_for_motion")))
+        # A stopped diagnostic episode may retain its consumed ready receipt.
+        # Only adopting a live, continuable episode spends the first attempt.
+        self._session_attempt = int(
+            classify_episode(self._latest_status)["can_continue"]
+        )
 
     def _register_yam_tools(self) -> None:
         self.add_tool("status", self._SPECS["status"], self.status)

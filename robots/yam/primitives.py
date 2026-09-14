@@ -80,6 +80,14 @@ class YamPrimitives:
         _, info = self.env.read_control_state()
         return classify_episode(info["episode_status"])
 
+    def _read_motion_state(self) -> tuple[dict, dict]:
+        # Operator reset_pose and another serial client can change command
+        # targets without updating our RGBD cache. Keep that synchronized image
+        # snapshot intact and fetch current control state for motion instead.
+        if self.env.execution_capabilities.get("compact_control") is True:
+            return self.env.read_control_state()
+        return self.env.observe()
+
     def reset(self) -> dict[str, Any]:
         _, info = self.env.reset()
         return {**info, "success": True}
@@ -228,12 +236,18 @@ class YamPrimitives:
         self._check_cancelled()
         if compact_control and len(updates) != 1:
             raise ValueError("compact control requires exactly one update")
-        observation = (
-            self.env.last_control_obs if compact_control else self.env.last_obs
-        )
-        current_info = (
-            self.env.last_control_info if compact_control else self.env.last_info
-        )
+        if compact_control:
+            # The servo has just read this feedback for the correction it is
+            # issuing. Preserve that sample and its accepted opposite-arm target.
+            observation = self.env.last_control_obs
+            current_info = self.env.last_control_info
+        else:
+            observation, current_info = self._read_motion_state()
+        if (
+            expected_episode_id is not None
+            and current_info["episode_status"]["episode_id"] != expected_episode_id
+        ):
+            raise RuntimeError("Episode changed before primitive execution")
         state = np.asarray(observation["state"]["joint_position"], dtype=np.float64)
         action = np.asarray(
             current_info.get("commanded_qpos", state), dtype=np.float64
@@ -291,14 +305,15 @@ class YamPrimitives:
         servo_config = JointServoConfig.from_config(
             self.env.execution_capabilities.get("joint_servo")
         )
-        robot_state = self.env.last_info["robot_state"]
+        _, motion_info = self._read_motion_state()
+        robot_state = motion_info["robot_state"]
         if quat is None:
             key = "left_eef_pose" if arm == "left" else "right_eef_pose"
             quat = np.asarray(robot_state[key], dtype=np.float64)[3:].tolist()
         target = np.asarray([*xyz, *quat], dtype=np.float64)
         if target.shape != (7,) or not np.isfinite(target).all():
             raise ValueError("target pose must be finite xyz + wxyz")
-        episode_id = self.env.last_info["episode_status"]["episode_id"]
+        episode_id = motion_info["episode_status"]["episode_id"]
         candidates = [target.copy()]
         if xyz_bounds is not None:
             bounds = np.asarray(xyz_bounds, dtype=np.float64)
@@ -472,7 +487,8 @@ class YamPrimitives:
         gripper: float | None = None,
         substeps: int = 25,
     ) -> dict[str, Any]:
-        state = self.env.last_info["robot_state"]
+        _, motion_info = self._read_motion_state()
+        state = motion_info["robot_state"]
         key = "left_eef_pose" if arm == "left" else "right_eef_pose"
         pose = np.asarray(state[key], dtype=np.float64)
         yaw = np.deg2rad(float(delta_yaw_deg))
@@ -499,16 +515,16 @@ class YamPrimitives:
             raise ValueError("arm must be 'left' or 'right'")
         if int(steps) < 1:
             raise ValueError("steps must be at least 1")
-        state = np.asarray(
-            self.env.last_obs["state"]["joint_position"], dtype=np.float64
-        )
+        observation, info = self._read_motion_state()
+        state = np.asarray(observation["state"]["joint_position"], dtype=np.float64)
         current = float(state[6 if arm == "left" else 13])
         target = float(val)
         if not np.isfinite(target) or not 0.0 <= target <= 1.0:
             raise ValueError("val must be finite and within [0,1]")
         values = np.linspace(current, target, int(steps) + 1)[1:].tolist()
         execution = self.apply_qpos_updates(
-            [{"arm": arm, "gripper": value} for value in values]
+            [{"arm": arm, "gripper": value} for value in values],
+            expected_episode_id=info["episode_status"]["episode_id"],
         )
         executed = int(execution.get("executed_actions", 0))
         now = np.asarray(self.env.last_obs["state"]["joint_position"], dtype=np.float64)

@@ -83,6 +83,24 @@ def test_pending_reset_and_finish_do_not_end_or_spend_attempt(
     assert clock.now - before == pytest.approx(20)
 
 
+@pytest.mark.parametrize("stopped", [False, True])
+def test_diagnostic_handoff_counts_only_a_continuable_episode(
+    toolkit_factory, ready_client, receipt, clock, stopped
+):
+    if stopped:
+        ready_client.request_stop()
+    toolkit = toolkit_factory()
+    assert toolkit._session_attempt == (0 if stopped else 1)
+    if stopped:
+        pending = toolkit.execute_tool("reset", {})
+        assert pending.result["status"] == "pending"
+        assert toolkit._session_attempt == 0
+        receipt("ready")
+        reset = toolkit.execute_tool("reset", {})
+        assert reset.result["log"]["result"]["attempt"] == 1
+        assert toolkit._session_attempt == 1
+
+
 @pytest.mark.parametrize(
     "event,finished,status",
     [
