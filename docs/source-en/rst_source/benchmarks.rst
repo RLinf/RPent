@@ -1,129 +1,350 @@
 :html_theme.sidebar_secondary.remove:
 
 .. _benchmark-results:
+.. _benchmark-leaderboard:
+.. _leaderboard:
 
-Benchmark Results
+RPent Leaderboard
 =================
 
-Compare RPent success rates with selected reference methods across simulation benchmarks.
+Published success rates across simulation benchmarks.
 
-.. _benchmark-leaderboard:
+.. tab-set::
 
-Leaderboard
------------
+   .. tab-item:: LIBERO
+      :class-content: sd-border-0 sd-px-0
 
-Each panel compares one evaluation setting. Purple denotes RPent; gray denotes
-selected external reference methods. Full values, configurations and sources
-are listed below.
+      **Standard LIBERO**
 
-.. grid:: 1 1 2 2
-   :gutter: 3
+      Overall success across Spatial, Object, Goal and Long.
 
-   .. grid-item::
+      .. list-table::
+         :name: ranking-standard-libero
+         :header-rows: 1
+         :widths: 8 67 25
+         :class: table-sm
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-en-light.png
-         :alt: Standard LIBERO Overall
-         :class: only-light
-         :width: 100%
+         * - #
+           - Method / planner
+           - Success
+         * - 1
+           - AtomVLA
+           - **97.0%**
+         * - 2
+           - **RPent / Opus-4.8** ``max``
+           - 96.0%
+         * - 3
+           - π_RLinf
+           - 95.3%
+         * - 4
+           - π0
+           - 94.2%
+         * - 5
+           - NORA
+           - 79.5%
+         * - 6
+           - OpenVLA
+           - 76.5%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-en-dark.png
-         :alt: Standard LIBERO Overall
-         :class: only-dark
-         :width: 100%
+      Not reported: GPT-5.5, GPT-6 Astra.
 
-      :ref:`Standard LIBERO Overall <benchmark-source-p2>`
+      :ref:`Protocol and source <benchmark-source-p2>`
 
-   .. grid-item::
+      .. dropdown:: Reference figure
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-en-light.png
-         :alt: LIBERO-PRO Overall
-         :class: only-light
-         :width: 100%
+         .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-en-light.png
+            :alt: Standard LIBERO
+            :class: only-light
+            :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-en-dark.png
-         :alt: LIBERO-PRO Overall
-         :class: only-dark
-         :width: 100%
+         .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-en-dark.png
+            :alt: Standard LIBERO
+            :class: only-dark
+            :width: 100%
 
-      :ref:`LIBERO-PRO Overall <benchmark-source-p3>`
+         Selected methods from this setting; percentages retain their source precision.
 
-   .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-en-light.png
-         :alt: RoboCasa365 Target50 Overall
-         :class: only-light
-         :width: 100%
+   .. tab-item:: LIBERO-PRO
+      :class-content: sd-border-0 sd-px-0
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-en-dark.png
-         :alt: RoboCasa365 Target50 Overall
-         :class: only-dark
-         :width: 100%
+      .. tab-set::
 
-      :ref:`RoboCasa365 Target50 Overall <benchmark-source-p4>`
+         .. tab-item:: Overall
+            :class-content: sd-border-0 sd-px-0
 
-   .. grid-item::
+            **LIBERO-PRO Overall**
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-en-light.png
-         :alt: RoboTwin C2R
-         :class: only-light
-         :width: 100%
+            All eight Spatial / Object / Goal / Long Task and Swap settings.
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-en-dark.png
-         :alt: RoboTwin C2R
-         :class: only-dark
-         :width: 100%
+            .. list-table::
+               :name: ranking-libero-pro
+               :header-rows: 1
+               :widths: 8 67 25
+               :class: table-sm
 
-      :ref:`RoboTwin C2R <benchmark-source-p6>`
+               * - #
+                 - Method / planner
+                 - Success
+               * - 1
+                 - **RPent / Opus-4.8** ``max``
+                 - **82.4%**
+               * - 2
+                 - **RPent / GPT-5.5** ``xhigh``
+                 - 72.1%
+               * - 3
+                 - π_RLinf
+                 - 50.0%
+               * - 4
+                 - π0.5
+                 - 11.0%
+               * - 5
+                 - AtomVLA
+                 - 6.3%
+               * - 6
+                 - X-VLA
+                 - 3.8%
+               * - 7
+                 - MolmoAct
+                 - 1.5%
+               * - 8
+                 - π0
+                 - 0.3%
+               * - 9
+                 - OpenVLA
+                 - 0.0%
+               * - 9
+                 - NORA
+                 - 0.0%
 
-   .. grid-item::
+            Not reported: GPT-6 Astra.
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-en-light.png
-         :alt: LIBERO-PRO Long Task
-         :class: only-light
-         :width: 100%
+            Cap-X and RATS cover only six settings and are not ranked here. Partial
+            GPT-6 Astra results do not define the eight-setting Overall.
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-en-dark.png
-         :alt: LIBERO-PRO Long Task
-         :class: only-dark
-         :width: 100%
+            :ref:`Protocol and source <benchmark-source-p3>`
 
-      :ref:`LIBERO-PRO Long Task <libero-pro-across-task-families>`
+            .. dropdown:: Reference figure
 
-   .. grid-item::
+               .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-en-light.png
+                  :alt: LIBERO-PRO Overall
+                  :class: only-light
+                  :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-en-light.png
-         :alt: LIBERO-PRO Long Swap
-         :class: only-light
-         :width: 100%
+               .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-en-dark.png
+                  :alt: LIBERO-PRO Overall
+                  :class: only-dark
+                  :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-en-dark.png
-         :alt: LIBERO-PRO Long Swap
-         :class: only-dark
-         :width: 100%
+               Selected methods from this setting; percentages retain their source precision.
 
-      :ref:`LIBERO-PRO Long Swap <libero-pro-across-task-families>`
 
-Rankings apply only to each panel's stated coverage. Vertical axes start at zero;
-upper limits are rounded up to the next 10 percentage points for each setting.
-Compare the labeled percentages across panels. Unreported configurations have no
-bar; Long Task and Long Swap do not replace the complete PRO Overall.
+         .. tab-item:: Long Task
+            :class-content: sd-border-0 sd-px-0
 
-.. _benchmark-demo:
+            **LIBERO-PRO Long Task**
 
-Demo
-----
+            RPent planners; 100 evaluation episodes per configuration.
 
-**RPent simulation demo: GPT-6 Astra versus GPT-5.6 xhigh, shown at 4x speed.**
-This is a separate demonstration from the GPT-5.5 evaluation records.
+            .. list-table::
+               :name: ranking-long-task
+               :header-rows: 1
+               :widths: 8 67 25
+               :class: table-sm
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo-poster.jpg
-   :alt: RPent simulation demo
-   :width: 100%
-   :target: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4
+               * - #
+                 - Method / planner
+                 - Success
+               * - 1
+                 - **RPent / GPT-6 Astra** ``low``
+                 - **85%**
+               * - 2
+                 - **RPent / Opus-4.8** ``max``
+                 - 71.0%
+               * - 3
+                 - **RPent / GPT-5.5** ``xhigh``
+                 - 52.0%
 
-View or download the `complete MP4 (about 24 seconds, 5.4 MiB) <https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4>`_.
+            Long-only scores do not replace the full PRO Overall. Configurations use
+            their separately documented evaluation protocols and frozen memory corpora.
 
-``Not reported`` means no result is available; it is not a zero score.
+            :ref:`Protocol and source <libero-pro-across-task-families>`
+
+            .. dropdown:: Reference figure
+
+               .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-en-light.png
+                  :alt: LIBERO-PRO Long Task
+                  :class: only-light
+                  :width: 100%
+
+               .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-en-dark.png
+                  :alt: LIBERO-PRO Long Task
+                  :class: only-dark
+                  :width: 100%
+
+               Selected methods from this setting; percentages retain their source precision.
+
+
+         .. tab-item:: Long Swap
+            :class-content: sd-border-0 sd-px-0
+
+            **LIBERO-PRO Long Swap**
+
+            RPent planners; 100 evaluation episodes per configuration.
+
+            .. list-table::
+               :name: ranking-long-swap
+               :header-rows: 1
+               :widths: 8 67 25
+               :class: table-sm
+
+               * - #
+                 - Method / planner
+                 - Success
+               * - 1
+                 - **RPent / GPT-6 Astra** ``low``
+                 - **72%**
+               * - 2
+                 - **RPent / Opus-4.8** ``max``
+                 - 62.0%
+               * - 3
+                 - **RPent / GPT-5.5** ``xhigh``
+                 - 49.0%
+
+            Long-only scores do not replace the full PRO Overall. Configurations use
+            their separately documented evaluation protocols and frozen memory corpora.
+
+            :ref:`Protocol and source <libero-pro-across-task-families>`
+
+            .. dropdown:: Reference figure
+
+               .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-en-light.png
+                  :alt: LIBERO-PRO Long Swap
+                  :class: only-light
+                  :width: 100%
+
+               .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-en-dark.png
+                  :alt: LIBERO-PRO Long Swap
+                  :class: only-dark
+                  :width: 100%
+
+               Selected methods from this setting; percentages retain their source precision.
+
+
+   .. tab-item:: RoboCasa
+      :class-content: sd-border-0 sd-px-0
+
+      **RoboCasa365 Target50**
+
+      Overall success, equally weighted across 50 tasks; 340 evaluation episodes.
+
+      .. list-table::
+         :name: ranking-robocasa
+         :header-rows: 1
+         :widths: 8 67 25
+         :class: table-sm
+
+         * - #
+           - Method / planner
+           - Success
+         * - 1
+           - **RPent / GPT-5.5** ``xhigh``
+           - **57.1%**
+         * - 2
+           - **RPent / Opus-4.8** ``max``
+           - 48.6%
+         * - 3
+           - WorldDreamer
+           - 35.3%
+         * - 4
+           - RLDX-1
+           - 30.0%
+         * - 5
+           - π0.5
+           - 16.9%
+         * - 6
+           - π0
+           - 14.8%
+
+      Not reported: GPT-6 Astra.
+
+      :ref:`Protocol and source <benchmark-source-p4>`
+
+      .. dropdown:: Reference figure
+
+         .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-en-light.png
+            :alt: RoboCasa365 Target50
+            :class: only-light
+            :width: 100%
+
+         .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-en-dark.png
+            :alt: RoboCasa365 Target50
+            :class: only-dark
+            :width: 100%
+
+         Selected methods from this setting; percentages retain their source precision.
+
+
+   .. tab-item:: RoboTwin
+      :class-content: sd-border-0 sd-px-0
+
+      **RoboTwin C2R**
+
+      Clean-to-randomized transfer; 50 tasks, 250 RPent evaluation episodes.
+
+      .. list-table::
+         :name: ranking-robotwin
+         :header-rows: 1
+         :widths: 8 67 25
+         :class: table-sm
+
+         * - #
+           - Method / planner
+           - Success
+         * - 1
+           - **RPent / Opus-4.8** ``max``
+           - **58.4%**
+         * - 2
+           - **RPent / GPT-5.5** ``xhigh``
+           - 58.0%
+         * - 3
+           - LingBot-VLA
+           - 50.4%
+         * - 4
+           - π0.5
+           - 47.9%
+         * - 5
+           - GR00T-N1.7
+           - 20.7%
+         * - 6
+           - StarVLA
+           - 10.6%
+
+      Not reported: GPT-6 Astra.
+
+      :ref:`Protocol and source <benchmark-source-p6>`
+
+      .. dropdown:: Reference figure
+
+         .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-en-light.png
+            :alt: RoboTwin C2R
+            :class: only-light
+            :width: 100%
+
+         .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-en-dark.png
+            :alt: RoboTwin C2R
+            :class: only-dark
+            :width: 100%
+
+         Selected methods from this setting; percentages retain their source precision.
+
+
+Rankings apply only within each setting. Ties share a rank; unreported results
+are excluded, not scored as zero. External methods retain their own protocols
+and sample sizes. Figures compare selected methods, not every ranked entry.
+
+:ref:`Model configurations <overview>` | :ref:`Full results <libero-series>` |
+:ref:`Demo <benchmark-demo>`
 
 .. _overview:
 
@@ -614,6 +835,23 @@ before evaluation; the batches do not share a single memory snapshot.
 
 .. astra-supplementary-source-end
 
+
+.. _benchmark-demo:
+
+Demo
+----
+
+**RPent simulation demo: GPT-6 Astra versus GPT-5.6 xhigh, shown at 4x speed.**
+This is a separate demonstration from the GPT-5.5 evaluation records.
+
+.. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo-poster.jpg
+   :alt: RPent simulation demo
+   :width: 100%
+   :target: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4
+
+View or download the `complete MP4 (about 24 seconds, 5.4 MiB) <https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4>`_.
+
+``Not reported`` means no result is available; it is not a zero score.
 
 Maintaining these results
 -------------------------

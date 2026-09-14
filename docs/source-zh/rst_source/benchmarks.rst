@@ -1,127 +1,349 @@
 :html_theme.sidebar_secondary.remove:
 
 .. _benchmark-results:
+.. _benchmark-leaderboard:
+.. _leaderboard:
 
-基准测试结果
+RPent 排行榜
 ============
 
-本页汇总 RPent 在不同仿真基准上的成功率，并与已收录的代表性方法比较。
+仿真基准上的已发布成功率。
 
-.. _benchmark-leaderboard:
+.. tab-set::
 
-Leaderboard
------------
+   .. tab-item:: LIBERO
+      :class-content: sd-border-0 sd-px-0
 
-每个面板比较一个评测范围；紫色表示 RPent，灰色表示已收录的外部参考方法。
-完整数值、模型配置和来源见下方。
+      **Standard LIBERO**
 
-.. grid:: 1 1 2 2
-   :gutter: 3
+      Spatial、Object、Goal、Long 四个标准套件的 Overall 成功率。
 
-   .. grid-item::
+      .. list-table::
+         :name: ranking-standard-libero
+         :header-rows: 1
+         :widths: 8 67 25
+         :class: table-sm
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-zh-light.png
-         :alt: Standard LIBERO Overall
-         :class: only-light
-         :width: 100%
+         * - #
+           - 方法 / 规划模型
+           - 成功率
+         * - 1
+           - AtomVLA
+           - **97.0%**
+         * - 2
+           - **RPent / Opus-4.8** ``max``
+           - 96.0%
+         * - 3
+           - π_RLinf
+           - 95.3%
+         * - 4
+           - π0
+           - 94.2%
+         * - 5
+           - NORA
+           - 79.5%
+         * - 6
+           - OpenVLA
+           - 76.5%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-zh-dark.png
-         :alt: Standard LIBERO Overall
-         :class: only-dark
-         :width: 100%
+      未报告: GPT-5.5, GPT-6 Astra.
 
-      :ref:`Standard LIBERO Overall <benchmark-source-p2>`
+      :ref:`协议与来源 <benchmark-source-p2>`
 
-   .. grid-item::
+      .. dropdown:: 参考图表
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-zh-light.png
-         :alt: LIBERO-PRO Overall
-         :class: only-light
-         :width: 100%
+         .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-zh-light.png
+            :alt: Standard LIBERO
+            :class: only-light
+            :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-zh-dark.png
-         :alt: LIBERO-PRO Overall
-         :class: only-dark
-         :width: 100%
+         .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-zh-dark.png
+            :alt: Standard LIBERO
+            :class: only-dark
+            :width: 100%
 
-      :ref:`LIBERO-PRO Overall <benchmark-source-p3>`
+         本设置中已收录的代表性方法；百分比保留来源精度。
 
-   .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-zh-light.png
-         :alt: RoboCasa365 Target50 Overall
-         :class: only-light
-         :width: 100%
+   .. tab-item:: LIBERO-PRO
+      :class-content: sd-border-0 sd-px-0
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-zh-dark.png
-         :alt: RoboCasa365 Target50 Overall
-         :class: only-dark
-         :width: 100%
+      .. tab-set::
 
-      :ref:`RoboCasa365 Target50 Overall <benchmark-source-p4>`
+         .. tab-item:: Overall
+            :class-content: sd-border-0 sd-px-0
 
-   .. grid-item::
+            **LIBERO-PRO Overall**
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-zh-light.png
-         :alt: RoboTwin C2R
-         :class: only-light
-         :width: 100%
+            覆盖 Spatial / Object / Goal / Long 的全部八个 Task / Swap 设置。
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-zh-dark.png
-         :alt: RoboTwin C2R
-         :class: only-dark
-         :width: 100%
+            .. list-table::
+               :name: ranking-libero-pro
+               :header-rows: 1
+               :widths: 8 67 25
+               :class: table-sm
 
-      :ref:`RoboTwin C2R <benchmark-source-p6>`
+               * - #
+                 - 方法 / 规划模型
+                 - 成功率
+               * - 1
+                 - **RPent / Opus-4.8** ``max``
+                 - **82.4%**
+               * - 2
+                 - **RPent / GPT-5.5** ``xhigh``
+                 - 72.1%
+               * - 3
+                 - π_RLinf
+                 - 50.0%
+               * - 4
+                 - π0.5
+                 - 11.0%
+               * - 5
+                 - AtomVLA
+                 - 6.3%
+               * - 6
+                 - X-VLA
+                 - 3.8%
+               * - 7
+                 - MolmoAct
+                 - 1.5%
+               * - 8
+                 - π0
+                 - 0.3%
+               * - 9
+                 - OpenVLA
+                 - 0.0%
+               * - 9
+                 - NORA
+                 - 0.0%
 
-   .. grid-item::
+            未报告: GPT-6 Astra.
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-zh-light.png
-         :alt: LIBERO-PRO Long Task
-         :class: only-light
-         :width: 100%
+            Cap-X 和 RATS 仅覆盖六个设置，不参与此排名。GPT-6 Astra 的部分结果不能
+            替代八个设置的完整 Overall。
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-zh-dark.png
-         :alt: LIBERO-PRO Long Task
-         :class: only-dark
-         :width: 100%
+            :ref:`协议与来源 <benchmark-source-p3>`
 
-      :ref:`LIBERO-PRO Long Task <libero-pro-across-task-families>`
+            .. dropdown:: 参考图表
 
-   .. grid-item::
+               .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-zh-light.png
+                  :alt: LIBERO-PRO Overall
+                  :class: only-light
+                  :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-zh-light.png
-         :alt: LIBERO-PRO Long Swap
-         :class: only-light
-         :width: 100%
+               .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-zh-dark.png
+                  :alt: LIBERO-PRO Overall
+                  :class: only-dark
+                  :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-zh-dark.png
-         :alt: LIBERO-PRO Long Swap
-         :class: only-dark
-         :width: 100%
+               本设置中已收录的代表性方法；百分比保留来源精度。
 
-      :ref:`LIBERO-PRO Long Swap <libero-pro-across-task-families>`
 
-排名仅适用于各面板列出的评测范围。纵轴从零开始，上限按该设置的最高成绩
-向上取整到 10 个百分点的整数倍。跨面板比较时请以标注的百分比为准。
-未报告的配置不绘制柱子；Long Task 与 Long Swap 不能替代完整 PRO Overall。
+         .. tab-item:: Long Task
+            :class-content: sd-border-0 sd-px-0
 
-.. _benchmark-demo:
+            **LIBERO-PRO Long Task**
 
-演示视频
---------
+            RPent 规划模型；每个配置评测 100 回合。
 
-**RPent 仿真演示：GPT-6 Astra 与 GPT-5.6 xhigh，4 倍速播放。**
-此视频为独立演示，与 GPT-5.5 统计记录分开说明。
+            .. list-table::
+               :name: ranking-long-task
+               :header-rows: 1
+               :widths: 8 67 25
+               :class: table-sm
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo-poster.jpg
-   :alt: RPent simulation demo
-   :width: 100%
-   :target: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4
+               * - #
+                 - 方法 / 规划模型
+                 - 成功率
+               * - 1
+                 - **RPent / GPT-6 Astra** ``low``
+                 - **85%**
+               * - 2
+                 - **RPent / Opus-4.8** ``max``
+                 - 71.0%
+               * - 3
+                 - **RPent / GPT-5.5** ``xhigh``
+                 - 52.0%
 
-查看或下载`完整 MP4（约 24 秒，5.4 MiB） <https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4>`_。
+            Long 单项不能替代完整 PRO Overall；不同配置的评测协议及冻结 memory
+            分别记录在下方来源说明中。
 
-“未报告”表示没有对应成绩，不能视为零。
+            :ref:`协议与来源 <libero-pro-across-task-families>`
+
+            .. dropdown:: 参考图表
+
+               .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-zh-light.png
+                  :alt: LIBERO-PRO Long Task
+                  :class: only-light
+                  :width: 100%
+
+               .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-zh-dark.png
+                  :alt: LIBERO-PRO Long Task
+                  :class: only-dark
+                  :width: 100%
+
+               本设置中已收录的代表性方法；百分比保留来源精度。
+
+
+         .. tab-item:: Long Swap
+            :class-content: sd-border-0 sd-px-0
+
+            **LIBERO-PRO Long Swap**
+
+            RPent 规划模型；每个配置评测 100 回合。
+
+            .. list-table::
+               :name: ranking-long-swap
+               :header-rows: 1
+               :widths: 8 67 25
+               :class: table-sm
+
+               * - #
+                 - 方法 / 规划模型
+                 - 成功率
+               * - 1
+                 - **RPent / GPT-6 Astra** ``low``
+                 - **72%**
+               * - 2
+                 - **RPent / Opus-4.8** ``max``
+                 - 62.0%
+               * - 3
+                 - **RPent / GPT-5.5** ``xhigh``
+                 - 49.0%
+
+            Long 单项不能替代完整 PRO Overall；不同配置的评测协议及冻结 memory
+            分别记录在下方来源说明中。
+
+            :ref:`协议与来源 <libero-pro-across-task-families>`
+
+            .. dropdown:: 参考图表
+
+               .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-zh-light.png
+                  :alt: LIBERO-PRO Long Swap
+                  :class: only-light
+                  :width: 100%
+
+               .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-zh-dark.png
+                  :alt: LIBERO-PRO Long Swap
+                  :class: only-dark
+                  :width: 100%
+
+               本设置中已收录的代表性方法；百分比保留来源精度。
+
+
+   .. tab-item:: RoboCasa
+      :class-content: sd-border-0 sd-px-0
+
+      **RoboCasa365 Target50**
+
+      50 个任务等权的 Overall 成功率；共 340 个评测回合。
+
+      .. list-table::
+         :name: ranking-robocasa
+         :header-rows: 1
+         :widths: 8 67 25
+         :class: table-sm
+
+         * - #
+           - 方法 / 规划模型
+           - 成功率
+         * - 1
+           - **RPent / GPT-5.5** ``xhigh``
+           - **57.1%**
+         * - 2
+           - **RPent / Opus-4.8** ``max``
+           - 48.6%
+         * - 3
+           - WorldDreamer
+           - 35.3%
+         * - 4
+           - RLDX-1
+           - 30.0%
+         * - 5
+           - π0.5
+           - 16.9%
+         * - 6
+           - π0
+           - 14.8%
+
+      未报告: GPT-6 Astra.
+
+      :ref:`协议与来源 <benchmark-source-p4>`
+
+      .. dropdown:: 参考图表
+
+         .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-zh-light.png
+            :alt: RoboCasa365 Target50
+            :class: only-light
+            :width: 100%
+
+         .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-zh-dark.png
+            :alt: RoboCasa365 Target50
+            :class: only-dark
+            :width: 100%
+
+         本设置中已收录的代表性方法；百分比保留来源精度。
+
+
+   .. tab-item:: RoboTwin
+      :class-content: sd-border-0 sd-px-0
+
+      **RoboTwin C2R**
+
+      Clean 到 randomized 的迁移；50 个任务，RPent 共评测 250 回合。
+
+      .. list-table::
+         :name: ranking-robotwin
+         :header-rows: 1
+         :widths: 8 67 25
+         :class: table-sm
+
+         * - #
+           - 方法 / 规划模型
+           - 成功率
+         * - 1
+           - **RPent / Opus-4.8** ``max``
+           - **58.4%**
+         * - 2
+           - **RPent / GPT-5.5** ``xhigh``
+           - 58.0%
+         * - 3
+           - LingBot-VLA
+           - 50.4%
+         * - 4
+           - π0.5
+           - 47.9%
+         * - 5
+           - GR00T-N1.7
+           - 20.7%
+         * - 6
+           - StarVLA
+           - 10.6%
+
+      未报告: GPT-6 Astra.
+
+      :ref:`协议与来源 <benchmark-source-p6>`
+
+      .. dropdown:: 参考图表
+
+         .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-zh-light.png
+            :alt: RoboTwin C2R
+            :class: only-light
+            :width: 100%
+
+         .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-zh-dark.png
+            :alt: RoboTwin C2R
+            :class: only-dark
+            :width: 100%
+
+         本设置中已收录的代表性方法；百分比保留来源精度。
+
+
+排名仅适用于各自评测范围；同分并列，未报告不记零分、不参与排名。
+外部方法保留各自协议和样本量。参考图表展示已选取的方法，不代表全部排名项。
+
+:ref:`模型配置 <id2>` | :ref:`完整结果 <libero-series>` |
+:ref:`演示视频 <benchmark-demo>`
 
 .. _id2:
 
@@ -591,6 +813,23 @@ GPT-6 Astra 的完整 800 回合 Overall 仅在八个 Task/Swap 分项全部完�
 
 .. astra-supplementary-source-end
 
+
+.. _benchmark-demo:
+
+演示视频
+--------
+
+**RPent 仿真演示：GPT-6 Astra 与 GPT-5.6 xhigh，4 倍速播放。**
+此视频为独立演示，与 GPT-5.5 统计记录分开说明。
+
+.. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo-poster.jpg
+   :alt: RPent simulation demo
+   :width: 100%
+   :target: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4
+
+查看或下载`完整 MP4（约 24 秒，5.4 MiB） <https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4>`_。
+
+“未报告”表示没有对应成绩，不能视为零。
 
 结果维护
 --------
