@@ -62,6 +62,7 @@ EXPECTED_TOOL_NAMES = {
         "finish",
     },
     "robotwin": {
+        "reset",
         "view_env_state",
         "render",
         "sample_world_xyz",

@@ -108,6 +108,28 @@ the complete option list.
    be initialized stably or did not pass the expert rollout were skipped.
    Other seeds can still be passed explicitly for custom runs.
 
+Exploration mode
+----------------
+
+Add ``--explore`` to let the planner retry a task across fresh episodes and
+write local memory. By default, one run uses three planner sessions with five
+attempts per session:
+
+.. code-block:: bash
+
+   rpent --robot robotwin \
+     --task-name beat_block_hammer \
+     --task-config demo_randomized \
+     --seed 100000 \
+     --planner codex \
+     --explore
+
+Use ``--explore-sessions`` and ``--explore-attempts-per-session`` to change
+the budgets. ``reset`` uses the environment's ordinary episode reset, so the
+planner re-runs perception after every reset. Exploration memory is written to
+the current local inbox and merged after the run unless
+``--no-auto-merge-memory`` is passed.
+
 View the result
 ---------------
 
