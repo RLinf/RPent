@@ -537,3 +537,27 @@ aspects:
   code (``rldx_skill`` / ``vla_client``) never sees the session id
   directly; the server injects it into ``predict`` / ``reset_session``
   to isolate per-client RLDX memory/RTC policy state.
+
+
+RoboCasa planner sessions default to a two-hour (7200-second) wall-clock
+timeout; pass ``--planner-timeout-s`` to override it explicitly.
+
+Exploration and memory generation
+---------------------------------
+
+RoboCasa supports the same multi-attempt, multi-planner-session exploration
+protocol as LIBERO. In explore mode, ``reset`` starts a fresh episode, failed
+attempt notes go to a per-cell ``_internal/inbox/<cell_tag>``, and the runner exports only the
+winning commands after the final reset before optionally merging layered
+memory:
+
+.. code-block:: bash
+
+   rpent --robot robocasa --task-name OpenDrawer --split target --seed 0 \
+         --explore --explore-attempts-per-session 5 --explore-sessions 3 \
+         --memory-dir /path/to/robocasa-memory \
+         --vla-model-path /path/to/rldx --planner codex --reasoning-effort high
+
+Pass ``--no-auto-merge-memory`` to retain the inbox for manual review. The
+exploration prompt is in ``robots/robocasa/prompts/explore.py`` and covers
+mobile-base use, ``task_progress``, RLDX continuity, and failed-attempt notes.
