@@ -7,7 +7,7 @@ import pytest
 from robots.yam.cameras import YamRgbdCameraRig, YamRgbdFrame
 from robots.yam.contracts import YAM_CAMERA_NAMES
 from robots.yam.env_server import YamEnvFacade
-from robots.yam.geometry import YamCalibration
+from robots.yam.geometry import YamCalibration, _link3_convex_parts
 
 
 def test_connect_observes_without_reset_or_motion(client, env):
@@ -164,6 +164,33 @@ def test_stop_is_idempotent_and_does_not_recapture_sag(ready_client, env):
     assert not env._runtime.commands
 
 
+def test_measured_guard_rejection_keeps_geometry_evidence(
+    ready_client, env, monkeypatch
+):
+    evidence = {
+        "ok": False,
+        "reason": "collision_guard",
+        "bodies": ["left_link3", "left_link5"],
+        "distance_m": 0.0078,
+        "distance_kind": "model_convex_surface",
+    }
+    original = env.geometry.check_qpos_transition
+    calls = 0
+
+    def check(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return evidence if calls == 2 else original(*args, **kwargs)
+
+    monkeypatch.setattr(env.geometry, "check_qpos_transition", check)
+    with pytest.raises(RuntimeError, match="measured trajectory rejected") as error:
+        ready_client.control_step(
+            env._runtime.qpos, expected_episode_id=env._episode_id
+        )
+    assert repr(evidence) in str(error.value)
+    assert env._stop_requested.is_set() and not env._runtime.commands
+
+
 def test_shutdown_waits_for_home_and_allows_retry(client, env, monkeypatch):
     env.config["park_on_close"] = {
         "enabled": True,
@@ -306,3 +333,60 @@ def test_move_to_never_drops_safety_waypoints(primitives, env, monkeypatch, subs
     np.testing.assert_array_equal(
         sent[:, 7:], np.repeat(start[None, 7:], len(sent), axis=0)
     )
+
+
+def _box_mesh(center, half):
+    vertices = (
+        np.array([[x, y, z] for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)]) * half
+        + center
+    )
+    faces = np.array(
+        [
+            [0, 1, 3],
+            [0, 3, 2],
+            [4, 6, 7],
+            [4, 7, 5],
+            [0, 4, 5],
+            [0, 5, 1],
+            [2, 3, 7],
+            [2, 7, 6],
+            [0, 2, 6],
+            [0, 6, 4],
+            [1, 5, 7],
+            [1, 7, 3],
+        ]
+    )
+    return vertices, faces
+
+
+@pytest.mark.parametrize(
+    "probe_x,clear", [(0.0, True), (0.036, True), (0.038, False), (0.1, False)]
+)
+def test_local_hulls_preserve_contact_and_clearance(probe_x, clear):
+    mj = pytest.importorskip("mujoco")
+    a, fa = _box_mesh(np.array([-0.1, 0, 0]), np.array([0.05, 0.02, 0.02]))
+    b, fb = _box_mesh(np.array([0.1, 0, 0]), np.array([0.05, 0.02, 0.02]))
+    vertices, faces = np.vstack([a, b]), np.vstack([fa, fb + len(a)])
+    parts = _link3_convex_parts(vertices, faces)
+    # Every complete source triangle is enclosed by at least one local hull,
+    # including triangles spanning a slab boundary. No geometry is removed.
+    sets = [set(map(tuple, part)) for part in parts]
+    assert all(
+        any(set(map(tuple, vertices[face])) <= s for s in sets) for face in faces
+    )
+    spec = mj.MjSpec()
+    for i, part in enumerate([vertices, *parts]):
+        spec.add_mesh(name=f"part{i}", uservert=part.reshape(-1))
+        spec.worldbody.add_geom(type=mj.mjtGeom.mjGEOM_MESH, meshname=f"part{i}")
+    spec.worldbody.add_geom(
+        type=mj.mjtGeom.mjGEOM_BOX, size=[0.005] * 3, pos=[probe_x, 0, 0]
+    )
+    model = spec.compile()
+    data = mj.MjData(model)
+    mj.mj_forward(model, data)
+    target = model.ngeom - 1
+    assert mj.mj_geomDistance(model, data, 0, target, 1, None) <= 0.008
+    refined = min(
+        mj.mj_geomDistance(model, data, i, target, 1, None) for i in range(1, target)
+    )
+    assert (refined > 0.008) == clear

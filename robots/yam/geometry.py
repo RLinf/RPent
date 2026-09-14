@@ -381,6 +381,25 @@ class _TableSurface:
         )
 
 
+def _link3_convex_parts(vertices: np.ndarray, faces: np.ndarray) -> list[np.ndarray]:
+    """Conservative local hulls without discarding or clipping any triangle.
+
+    Each slab includes whole triangles intersecting it. Their hull encloses
+    the original solid's slab intersection (including every boundary point).
+    Overlap across slabs is intentional; this is not mesh decimation.
+    """
+    axis = int(np.argmax(np.ptp(vertices, axis=0)))
+    bounds = np.linspace(vertices[:, axis].min(), vertices[:, axis].max(), 5)
+    coordinates = vertices[faces, axis]
+    lower, upper = coordinates.min(axis=1), coordinates.max(axis=1)
+    parts = []
+    for low, high in zip(bounds[:-1], bounds[1:]):
+        selected = faces[(lower <= high) & (upper >= low)]
+        if selected.size:
+            parts.append(vertices[np.unique(selected)])
+    return parts
+
+
 class _ModelCollisionGuard:
     """Check convex MuJoCo meshes from the same models used for FK/IK.
 
@@ -421,6 +440,33 @@ class _ModelCollisionGuard:
                 xml_path = str(Path(directory) / "arm.xml")
                 mujoco.mj_saveLastXML(xml_path, kin.model)
                 child = mujoco.MjSpec.from_file(xml_path)
+                if arm == "left":
+                    # Only refine the observed link3/link5 concavity. Other
+                    # pairs retain the original whole-link convex geometry.
+                    model = kin.model
+                    geom = int(model.body_geomadr[model.body("link3").id])
+                    mesh = int(model.geom_dataid[geom])
+                    start, count = model.mesh_vertadr[mesh], model.mesh_vertnum[mesh]
+                    vertices = model.mesh_vert[start : start + count]
+                    start, count = model.mesh_faceadr[mesh], model.mesh_facenum[mesh]
+                    faces = model.mesh_face[start : start + count]
+                    rotation = np.empty(9)
+                    mujoco.mju_quat2Mat(rotation, model.geom_quat[geom])
+                    vertices = (
+                        vertices @ rotation.reshape(3, 3).T + model.geom_pos[geom]
+                    )
+                    for index, part in enumerate(_link3_convex_parts(vertices, faces)):
+                        name = f"guard_link3_part{index}"
+                        child.add_mesh(name=name, uservert=part.reshape(-1))
+                        child.body("link3").add_geom(
+                            name=name,
+                            type=mujoco.mjtGeom.mjGEOM_MESH,
+                            meshname=name,
+                            density=0,
+                            contype=0,
+                            conaffinity=0,
+                            rgba=[0, 0, 0, 0],
+                        )
                 pose = matrix_to_xyz_wxyz(transform)
                 frame = spec.worldbody.add_frame(pos=pose[:3], quat=pose[3:])
                 spec.attach(child, prefix=f"{arm}_", frame=frame)
@@ -446,6 +492,11 @@ class _ModelCollisionGuard:
             )
         self.model = spec.compile()
         self.data = mujoco.MjData(self.model)
+        self._link3_parts = tuple(
+            i
+            for i in range(self.model.ngeom)
+            if self.model.geom(i).name.startswith("left_guard_link3_part")
+        )
         self._q_addresses = {
             arm: np.array(
                 [self.model.joint(f"{arm}_joint{i}").qposadr[0] for i in range(1, 9)]
@@ -464,6 +515,8 @@ class _ModelCollisionGuard:
         self._table_pairs = []
         for first in range(self.model.ngeom):
             for second in range(first + 1, self.model.ngeom):
+                if first in self._link3_parts or second in self._link3_parts:
+                    continue
                 a = int(self.model.geom_bodyid[first])
                 b = int(self.model.geom_bodyid[second])
                 if table_id in (first, second):
@@ -591,6 +644,7 @@ class _ModelCollisionGuard:
                 [values[:6], ranges[:, 0] + values[6] * (ranges[:, 1] - ranges[:, 0])]
             )
         self._mj.mj_kinematics(self.model, self.data)
+        closest_points = np.zeros(6)
         for first, second in self._pairs + self._table_pairs:
             table_pair = (first, second) in self._table_pairs
             margin = self.clearance_m + (
@@ -623,8 +677,26 @@ class _ModelCollisionGuard:
             ):
                 continue
             distance = self._mj.mj_geomDistance(
-                self.model, self.data, first, second, margin + 1e-6, None
+                self.model, self.data, first, second, margin + 1e-6, closest_points
             )
+            distance_kind = "model_convex_surface"
+            if (
+                not table_pair
+                and set(names) == {"left_link3", "left_link5"}
+                and distance <= margin
+            ):
+                link5 = first if names[0] == "left_link5" else second
+                candidates = []
+                for part in self._link3_parts:
+                    points = np.zeros(6)
+                    gap = self._mj.mj_geomDistance(
+                        self.model, self.data, part, link5, margin + 1e-6, points
+                    )
+                    candidates.append((gap, points))
+                distance, closest_points = min(candidates, key=lambda item: item[0])
+                if names[0] == "left_link5":
+                    closest_points = closest_points.reshape(2, 3)[::-1].reshape(6)
+                distance_kind = "model_convex_parts"
             # Operator retreat may leave one positive table clearance below
             # its normal margin. All other pairs retain their normal checks.
             if table_pair and table_escape is not None:
@@ -645,7 +717,11 @@ class _ModelCollisionGuard:
                         for i in (first, second)
                     ],
                     "distance_m": float(distance),
+                    "distance_kind": distance_kind,
+                    "closest_points_world": closest_points.reshape(2, 3).tolist(),
+                    "world_frame": "left_base",
                     "required_clearance_m": margin,
+                    "limitation": "model convex geometry distance, not motor-center distance or measured physical clearance; convex hulls fill mesh concavities and may underestimate the original mesh surface gap",
                 }
         return {
             "ok": True,

@@ -76,6 +76,18 @@ When enabled in the site configuration, the model guard checks sampled arm link
 self/two-arm collisions and the configured finite table. Held objects, wrist
 cameras, cables, fixtures, and contact forces remain outside that model. Start with one arm in a cleared
 workspace and keep the other arm in its operator-confirmed staging area.
+Guard `distance_m` is the closest distance between model convex surfaces, not
+the distance between motor centers or measured physical clearance. A body such
+as `link3` includes its full housing and link mesh. Convex hulls fill mesh
+concavities and can report less clearance than the original CAD surfaces.
+For `left_link3/link5`, a coarse rejection is refined with four overlapping
+local convex hulls of the original link3 triangles. No triangle is removed;
+the configured clearance still applies to every local hull. Other pairs keep
+the original whole-link check. `model_convex_parts` identifies this result.
+Use the reported bodies and `closest_points_world` to locate a disputed pair;
+compare the original model surfaces and current onsite views before attributing
+physical contact. An operator-confirmed clear pose does not clear the stop latch
+or authorize changing the guard thresholds.
 When a view reports `world_xyz_limitation`, inspect it before attempting pixel
 localization. Invalid depth or an unaligned wrist frame is not a usable target.
 Calibration files must match the current camera mounts and TCP model. A saved

@@ -813,7 +813,8 @@ class YamAgentEnv:
         )
         if not check["ok"]:
             raise RuntimeError(
-                f"YAM measured trajectory rejected: {check.get('reason')}"
+                f"YAM measured trajectory rejected: {check.get('reason')}; "
+                f"guard_details={check!r}"
             )
 
     def _read_qpos(self) -> np.ndarray:
