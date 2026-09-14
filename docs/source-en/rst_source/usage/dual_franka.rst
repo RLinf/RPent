@@ -223,7 +223,7 @@ Local SAM3 requires the ``sam3`` extra; a remote SAM3 service can be attached
 with ``--sam3-endpoint``.
 
 Robot Codex profile isolation
-----------------------------
+----------------------------------------
 
 Operator verdict and scene-restoration tools currently require exclusive terminal
 input. Run the runner in a plain TTY, without ``--interactive`` or Dashboard;
