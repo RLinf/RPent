@@ -66,6 +66,9 @@ class RobotSpec:
     dashboard: DashboardSpec | None = None
     memory_repo_id: str = "RLinf/RPent-memory"
     finalize_run: RunFinalizer | None = None
+    supports_exploration: bool = False
+    #: Optional operator diagnostic dispatch; None result means a normal task.
+    run_diagnostic: Callable[[argparse.Namespace], int | None] | None = None
     #: Replay this robot's recorded plan for one cell, in place of a planner.
     #: Takes the toolkit, the cell tag, and a note sink; returns at least
     #: ``{"done": bool}``. Left unset by robots that record no cards.

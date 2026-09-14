@@ -647,8 +647,17 @@ class _Recorder:
         if "requestApproval" in method:
             return f"[codex-approval] {method}\n"
         if method in {"error", "fatal"}:
-            self.error = _short_json(_jsonable(payload), limit=500)
-            return f"[codex-error] {self.error}\n"
+            detail = _short_json(_jsonable(payload), limit=500)
+            retrying = bool(_get(payload, "will_retry", False))
+            if not retrying:
+                self.error = detail
+            label = (
+                "Model connection retrying" if retrying else "Model connection failed"
+            )
+            self.dashboard_events.emit(
+                TranscriptEvent({"type": "text", "text": f"[{label}] {detail}"})
+            )
+            return f"[codex-error] {detail}\n"
         return ""
 
     # -- per-item handlers -------------------------------------------------
@@ -759,12 +768,28 @@ class _Recorder:
         if _get(item, "error") not in (None, ""):
             return
         data = _jsonable(item)
-        args = data.get("arguments") if isinstance(data, dict) else None
-        if isinstance(args, str):
-            try:
-                args = json.loads(args)
-            except Exception:
-                args = None
+        if not isinstance(data, dict):
+            return
+        result = data.get("result")
+        if isinstance(result, dict) and ("isError" in result or "content" in result):
+            if result.get("isError") is True:
+                return
+            content = result.get("content")
+            if isinstance(content, list):
+                for block in content:
+                    if not isinstance(block, dict) or block.get("type") != "text":
+                        continue
+                    payload = _json_object(block.get("text"))
+                    if isinstance(payload, dict) and payload.get("_finish") is True:
+                        self.finish_result = dict(payload)
+                        return
+            return
+        payload = _json_object(result)
+        if isinstance(result, dict) or payload is not None:
+            if payload is not None and payload.get("_finish") is True:
+                self.finish_result = dict(payload)
+            return
+        args = _json_object(data.get("arguments"))
         if isinstance(args, dict):
             self.finish_result = {"_finish": True, **args}
 
@@ -1025,6 +1050,18 @@ def _summarise_item(item: Any) -> dict[str, Any]:
             key for key in data if key not in {"content", "text", "output"}
         )
     return summary
+
+
+def _json_object(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _extract_text(value: Any) -> str:

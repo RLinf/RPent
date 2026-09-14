@@ -193,6 +193,9 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     class FakeToolkit:
         memory = FakeMemoryManager()
 
+        def cancel_active_and_wait(self) -> None:
+            pass
+
         def solved(self) -> bool:
             return True
 
@@ -243,6 +246,8 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         task_desc={"robot": "libero"},
     )
     robot_spec = SimpleNamespace(
+        supports_exploration=True,
+        finalize_run=None,
         parse_config=lambda args: run_config,
         init_runtime=lambda *args: ([], {}),
         prompts=PromptBundle(

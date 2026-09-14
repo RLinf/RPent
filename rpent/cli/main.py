@@ -258,8 +258,9 @@ def _handoff_message(output_dir, session_number: int, session_max: int) -> str:
         f"{attempts_dir}/ ({', '.join(prior) if prior else 'none yet'}), and their "
         "working notes are in the memory inbox under wip/.\n\n"
         "Read every archive and the working notes before acting. Do not repeat "
-        "failed approaches. A fresh toolkit has already restored a clean scene; "
-        "inspect it before acting."
+        "failed approaches. A new planner session does not prove that the scene "
+        "was reset. Inspect the current environment and follow the robot-specific "
+        "reset and operator-readiness requirements before acting."
     )
 
 
@@ -298,7 +299,14 @@ def _start_continuation_session(
             "session_max": session_max,
         },
     )
+    previous_session = (
+        Path(output_dir) / "sessions" / f"session_{session_number - 1:03d}"
+    )
     session_message = _handoff_message(output_dir, session_number, session_max)
+    session_message += (
+        f"\nRead the previous session's recorded steps in {previous_session}/ "
+        f"and working notes under {prompt_vars.get('memory_inbox', 'the memory inbox')}/wip/."
+    )
     return planner, system_prompt, session_message
 
 
@@ -329,6 +337,13 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    if robot_spec.run_diagnostic is not None:
+        try:
+            result = robot_spec.run_diagnostic(args)
+        except ValueError as error:
+            parser.error(str(error))
+        if result is not None:
+            return result
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
     if args.base_url and args.planner in BASE_URL_ENV_BY_PLANNER:
@@ -337,8 +352,8 @@ def main() -> int:
             f"{args.planner} reads its endpoint from "
             f"{BASE_URL_ENV_BY_PLANNER[args.planner]} instead"
         )
-    if args.explore and args.robot_name != "libero":
-        parser.error("--explore is currently supported only for LIBERO")
+    if args.explore and not robot_spec.supports_exploration:
+        parser.error(f"--explore is not supported by {robot_spec.name}")
     if args.explore and args.memory_profile == "hf":
         parser.error("--explore cannot be used with --memory-profile hf")
     if args.explore and getattr(args, "explore_sessions", 1) <= 0:
@@ -468,7 +483,7 @@ def main() -> int:
                 state_output_dir = (
                     output_dir / "sessions" / f"session_{session_number:03d}"
                 )
-            if robot_name == "libero":
+            if robot_spec.supports_exploration:
                 toolkit = get_toolkit(
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
@@ -500,7 +515,7 @@ def main() -> int:
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
-                if robot_name == "libero":
+                if robot_spec.supports_exploration:
                     solved = toolkit.solved()
                     if solved:
                         recipe_path = toolkit.write_recipe(recipe_tag)
@@ -545,6 +560,7 @@ def main() -> int:
         "model": args.model,
         "elapsed_s": round(elapsed, 1),
         "finish": finish_result,
+        "environment_success": environment_success,
         "stats": stats,
         "messages": _serialize_messages(messages),
     }
@@ -591,7 +607,9 @@ def main() -> int:
     if (
         getattr(args, "explore", False)
         and getattr(args, "auto_merge_memory", False)
-        and not agent_error
+        # An unsolved hardware failure still has useful inbox lessons. Keep
+        # the error exit status and never publish a solved recipe on this path.
+        and (not agent_error or not solved)
         and memory_manager is not None
     ):
         try:

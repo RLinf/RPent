@@ -54,8 +54,14 @@ class FrameChannelSpec(TypedDict):
     artifact: str
 
 
-class DashboardSpec(TypedDict):
+class DashboardSpecRequired(TypedDict):
     task: TaskSpec
     runtime_components: tuple[RuntimeComponentSpec, ...]
     frame_channels: tuple[FrameChannelSpec, ...]
     primitives: tuple[str, ...]
+
+
+class DashboardSpec(DashboardSpecRequired, total=False):
+    external_env: bool
+    # A message directs the operator elsewhere; None requests guarded continuation.
+    operator_commands: dict[str, str | None]

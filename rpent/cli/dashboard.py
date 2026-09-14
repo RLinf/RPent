@@ -32,6 +32,7 @@ from rpent.cli.main import (
     _serialize_messages,
 )
 from rpent.dashboard.events import RunStartedEvent
+from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import build_planner
 from rpent.robots import get_toolkit
@@ -78,10 +79,18 @@ def run_dashboard_session(
         if component["scope"] == "unique"
     }
 
-    if getattr(args, "env_endpoint", None) is not None:
+    if getattr(args, "env_endpoint", None) is not None and not dashboard_spec.get(
+        "external_env", False
+    ):
         parser.error(
             "Dashboard task control cannot use --env-endpoint because each "
             "TaskRun requires a fresh owned env_server"
+        )
+    if dashboard_spec.get("external_env", False) and not getattr(
+        args, "env_endpoint", None
+    ):
+        parser.error(
+            "--env-endpoint is required for this external-environment Dashboard"
         )
     if args.planner == "api" and not args.model:
         parser.error("--model is required when --planner=api")
@@ -180,6 +189,7 @@ def _run_dashboard_task(
     started = time.time()
     solved = False
     memory_manager = None
+    environment_success = None
     try:
         task_daemons, task_primitives_kwargs = robot_spec.init_runtime(
             task_args,
@@ -232,7 +242,7 @@ def _run_dashboard_task(
                     state.begin_planner_session(
                         video_path=state_output_dir / "episode.mp4",
                     )
-                if args.robot_name == "libero":
+                if robot_spec.supports_exploration:
                     toolkit = get_toolkit(
                         args.robot_name,
                         primitives_kwargs=primitives_kwargs,
@@ -280,13 +290,18 @@ def _run_dashboard_task(
                     messages += result.messages
                     stats = result.stats
                     agent_error = result.error
-                    if args.robot_name == "libero":
+                    if robot_spec.supports_exploration:
                         solved = toolkit.solved()
                         if solved:
                             recipe_path = toolkit.write_recipe(recipe_tag)
                 finally:
-                    state.unbind_toolkit(toolkit)
-                    toolkit.close()
+                    try:
+                        state.unbind_toolkit(toolkit)
+                        if robot_spec.finalize_run is not None:
+                            environment_success = bool(toolkit.solved())
+                            solved = environment_success
+                    finally:
+                        toolkit.close()
                 if solved or state.task_replacement_requested:
                     break
                 if agent_error:
@@ -298,6 +313,9 @@ def _run_dashboard_task(
                         )
                         continue
                     break
+    except KeyboardInterrupt:
+        state.request_shutdown()
+        agent_error = "Dashboard interrupted by operator."
     except Exception as exc:
         logger.error("EXCEPTION in Dashboard TaskRun %04d: %s", claimed.number, exc)
         agent_error = str(exc)
@@ -325,6 +343,7 @@ def _run_dashboard_task(
             "model": args.model,
             "elapsed_s": round(time.time() - started, 1),
             "finish": finish_result,
+            "environment_success": environment_success,
             "stats": stats,
             "messages": _serialize_messages(messages),
         }
@@ -340,8 +359,7 @@ def _run_dashboard_task(
     if (
         getattr(task_args, "explore", False)
         and getattr(task_args, "auto_merge_memory", False)
-        and not agent_error
-        and not state.task_replacement_requested
+        and (not agent_error or not solved)
         and memory_manager is not None
     ):
         try:
@@ -355,6 +373,32 @@ def _run_dashboard_task(
         except Exception as exc:
             warning = f"memory finalization failed: {type(exc).__name__}: {exc}"
             logger.warning("%s", warning)
-            state.report_task_warning(f"Task succeeded, but {warning}")
+            state.report_task_warning(warning)
 
+    if robot_spec.finalize_run is not None:
+        try:
+            robot_spec.finalize_run(
+                RunFinalizationContext(
+                    output_dir=Path(output_dir),
+                    robot_name=args.robot_name,
+                    task_desc=dict(run_config.task_desc),
+                    environment_success=environment_success,
+                    agent_error=agent_error,
+                    elapsed_s=time.time() - started,
+                    planner=args.planner,
+                    model=args.model,
+                    reasoning_effort=args.reasoning_effort,
+                    max_turns=args.max_turns,
+                    planner_timeout_s=args.planner_timeout_s,
+                    finish_result=dict(finish_result)
+                    if finish_result is not None
+                    else None,
+                    stats=dict(stats),
+                )
+            )
+        except Exception as exc:
+            agent_error = f"result finalization failed: {type(exc).__name__}: {exc}"
+    # A normally exited planner is not evidence of an environment success.
+    if not agent_error and robot_spec.supports_exploration and not solved:
+        return "Task ended without confirmed environment success."
     return agent_error

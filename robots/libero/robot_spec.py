@@ -129,6 +129,7 @@ def get_robot_spec() -> RobotSpec:
     """
     return RobotSpec(
         name="libero",
+        supports_exploration=True,
         prompts=PromptBundle(
             system=system_prompt,
             user=user_prompt,
