@@ -71,10 +71,14 @@ def test_pi05_views_and_execution_length(primitives, env, model, length):
     assert obs["task_descriptions"] == ["place the cube"]
 
 
-@pytest.mark.parametrize("length", [0, 31, True])
-def test_invalid_vla_length_never_predicts(primitives, env, model, length):
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"use_length": v} for v in (0, 31, True)]
+    + [{"chunks": v} for v in (0, 1.5, True)],
+)
+def test_invalid_vla_horizon_never_predicts(primitives, env, model, kwargs):
     with pytest.raises(ValueError):
-        primitives.pi05_act(use_length=length)
+        primitives.pi05_act(**kwargs)
     assert not model.calls and not env._runtime.commands
 
 

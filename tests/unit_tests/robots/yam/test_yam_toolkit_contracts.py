@@ -63,8 +63,9 @@ def test_continuation_bound_and_episode_isolation():
     assert t.exploration_continuation() is None
 
 
+@pytest.mark.parametrize("requested_status", ["success", "SUCCESS", " success "])
 def test_pending_reset_and_finish_do_not_end_or_spend_attempt(
-    toolkit_factory, receipt, clock
+    toolkit_factory, receipt, clock, requested_status
 ):
     toolkit = toolkit_factory()
     before = clock.now
@@ -76,7 +77,7 @@ def test_pending_reset_and_finish_do_not_end_or_spend_attempt(
     assert reset.result["log"]["result"]["attempt"] == 1
     before = clock.now
     pending = toolkit.execute_tool(
-        "finish", {"status": "success", "summary": "unverified claim"}
+        "finish", {"status": requested_status, "summary": "unverified claim"}
     )
     assert pending.result["status"] == "pending" and not pending.is_finish
     assert not toolkit.solved() and toolkit._session_attempt == 1

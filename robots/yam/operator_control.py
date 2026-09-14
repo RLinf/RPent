@@ -34,7 +34,9 @@ def write_receipt(path: str | Path, *, episode_id: str, event: str, note: str) -
         "release_left",
         "release_right",
     }:
-        raise ValueError("event must be ready, success, failure, or abort")
+        raise ValueError(
+            "event must be ready, success, failure, abort, release_left, or release_right"
+        )
     if not episode_id or not note.strip():
         raise ValueError("episode_id and operator note are required")
     receipt = {

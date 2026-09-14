@@ -164,6 +164,73 @@ def test_stop_is_idempotent_and_does_not_recapture_sag(ready_client, env):
     assert not env._runtime.commands
 
 
+@pytest.mark.parametrize("new_stop", [False, True])
+def test_stop_publication_cannot_cross_episode_reset(
+    ready_client, env, receipt, monkeypatch, new_stop
+):
+    import queue
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    entered, proceed = threading.Event(), threading.Event()
+    ordering = queue.Queue()
+    stop_thread = None
+    reset_thread = None
+    lock = env._stop_worker_lock
+    set_event = env._stop_requested.set
+
+    class ObservedLock:
+        def __enter__(self):
+            if threading.get_ident() == reset_thread:
+                ordering.put("reset waiting")
+            lock.acquire()
+
+        def __exit__(self, *args):
+            lock.release()
+
+    def pause_publication():
+        if threading.get_ident() == stop_thread and not entered.is_set():
+            entered.set()
+            assert proceed.wait(2)
+        set_event()
+
+    def stop():
+        nonlocal stop_thread
+        stop_thread = threading.get_ident()
+        env.request_stop()
+
+    def reset():
+        nonlocal reset_thread
+        reset_thread = threading.get_ident()
+        result = env.reset()
+        ordering.put("reset completed")
+        return result
+
+    monkeypatch.setattr(env, "_stop_worker_lock", ObservedLock())
+    monkeypatch.setattr(env._stop_requested, "set", pause_publication)
+    previous_episode = env._episode_id
+    receipt("ready")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        stopping = pool.submit(stop)
+        try:
+            assert entered.wait(2)
+            resetting = pool.submit(reset)
+            ordering.get(timeout=2)
+        finally:
+            proceed.set()
+        stopping.result(timeout=2)
+        resetting.result(timeout=2)
+    assert env._episode_id != previous_episode
+    if new_stop:
+        env.request_stop()
+    if env._stop_worker is not None:
+        env._stop_worker.join(timeout=2)
+    assert env._stop_requested.is_set() is new_stop
+    before = len(env._runtime.commands)
+    env.control_step(env._runtime.qpos, expected_episode_id=env._episode_id)
+    assert len(env._runtime.commands) - before == (0 if new_stop else 1)
+
+
 def test_measured_guard_rejection_keeps_geometry_evidence(
     ready_client, env, monkeypatch
 ):

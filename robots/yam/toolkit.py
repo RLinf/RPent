@@ -182,6 +182,7 @@ class YamToolkit(Toolkit):
             time.sleep(min(0.2, remaining))
 
     def _finish(self, *, status: str, summary: str) -> dict[str, Any]:
+        status = status.strip().lower()
         if status != "success":
             return {"_finish": True, "status": status, "summary": summary}
         if self.status().get("eval_success") is True:

@@ -150,13 +150,16 @@ class YamAgentEnv:
                     f"{self.operator_receipt_path!r}; call observe/status, write "
                     "event='ready' with operator_control.write_receipt, then reset"
                 )
-            reset_request_episode_id = self._episode_id
-            self._begin_episode(seed=seed)
-            ready = dict(ready)
-            ready["reset_request_episode_id"] = reset_request_episode_id
-            ready["ready_for_episode_id"] = self._episode_id
-            self._operator_ready_receipt = ready
-            self._stop_requested.clear()
+            # Publish the new episode and its cleared latch atomically with
+            # nonblocking stop requests; no hardware I/O holds this short lock.
+            with self._stop_worker_lock:
+                reset_request_episode_id = self._episode_id
+                self._begin_episode(seed=seed)
+                ready = dict(ready)
+                ready["reset_request_episode_id"] = reset_request_episode_id
+                ready["ready_for_episode_id"] = self._episode_id
+                self._operator_ready_receipt = ready
+                self._stop_requested.clear()
             qpos = self._read_qpos()
             self._previous_command = qpos.copy()
             obs, info = self._observe_locked()
@@ -373,12 +376,12 @@ class YamAgentEnv:
         the lock is busy, one deferred worker uses the same lock and runtime;
         it also covers a request arriving at the final chunk boundary.
         """
-        self._stop_generation = getattr(self, "_stop_generation", 0) + 1
-        episode_id = self._episode_id
-        self._stop_requested.set()
-        acquired = self._lock.acquire(blocking=False)
-        if not acquired:
-            with self._stop_worker_lock:
+        with self._stop_worker_lock:
+            self._stop_generation = getattr(self, "_stop_generation", 0) + 1
+            episode_id = self._episode_id
+            self._stop_requested.set()
+            acquired = self._lock.acquire(blocking=False)
+            if not acquired:
                 self._pending_stop_episode = episode_id
                 if self._stop_worker is None:
                     self._stop_worker = threading.Thread(
@@ -387,7 +390,7 @@ class YamAgentEnv:
                         daemon=True,
                     )
                     self._stop_worker.start()
-            return
+                return
         try:
             self._hold_stop_once_locked(episode_id)
         finally:

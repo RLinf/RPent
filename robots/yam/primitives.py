@@ -147,8 +147,8 @@ class YamPrimitives:
             raise RuntimeError(
                 "YAM VLA is not connected; pi05_act requires a trained --vla-endpoint"
             )
-        if int(chunks) < 1:
-            raise ValueError("chunks must be at least 1")
+        if isinstance(chunks, bool) or int(chunks) != chunks or int(chunks) < 1:
+            raise ValueError("chunks must be a positive integer")
         if (
             isinstance(use_length, bool)
             or int(use_length) != use_length
