@@ -408,7 +408,9 @@ def _load_perception_config() -> dict[str, Any]:
     raw = load_mapping(get_robot_config_path(ROBOT_CONFIG_PATH))
     perception = raw.get("perception")
     if not isinstance(perception, dict):
-        raise DualFrankaPerceptionError("Robot configuration missing the 'perception' section")
+        raise DualFrankaPerceptionError(
+            "Robot configuration missing the 'perception' section"
+        )
     return perception
 
 
