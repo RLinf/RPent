@@ -17,6 +17,11 @@
 Embodiment-specific settings (openpi config name, action dim, …) are
 selected by the ``--embodiment`` CLI flag and looked up in
 ``PI05_EMBODIMENTS``.
+
+The ``--model-backend`` flag picks the RLinf loader an embodiment uses
+(``openpi_pytorch``, the default, or ``openpi_rlinf``). Presets whose loader
+resolves normalisation statistics from a directory take ``--norm-stats-path``
+(or the ``PI05_NORM_STATS_PATH`` environment variable).
 """
 
 from __future__ import annotations
