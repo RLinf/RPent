@@ -31,7 +31,7 @@
 
 Compare RPent with reference methods on LIBERO, LIBERO-PRO, RoboCasa365 Target50, and RoboTwin C2R. Rankings apply to the methods and evaluation coverage shown; see [Benchmark Results](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html) for detailed results, configurations, and sources.
 
-[![RPent success-rate comparisons across six benchmark panels](https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html)
+[![RPent success-rate comparisons across six benchmark panels](https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html)
 
 
 ## Who Should Consider Using RPent?

@@ -20,12 +20,12 @@ Leaderboard
 
    .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/standard-libero-zh-light.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-zh-light.png
          :alt: Standard LIBERO Overall
          :class: only-light
          :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/standard-libero-zh-dark.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-zh-dark.png
          :alt: Standard LIBERO Overall
          :class: only-dark
          :width: 100%
@@ -34,12 +34,12 @@ Leaderboard
 
    .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/libero-pro-zh-light.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-zh-light.png
          :alt: LIBERO-PRO Overall
          :class: only-light
          :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/libero-pro-zh-dark.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-zh-dark.png
          :alt: LIBERO-PRO Overall
          :class: only-dark
          :width: 100%
@@ -48,12 +48,12 @@ Leaderboard
 
    .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/robocasa-zh-light.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-zh-light.png
          :alt: RoboCasa365 Target50 Overall
          :class: only-light
          :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/robocasa-zh-dark.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-zh-dark.png
          :alt: RoboCasa365 Target50 Overall
          :class: only-dark
          :width: 100%
@@ -62,12 +62,12 @@ Leaderboard
 
    .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/robotwin-zh-light.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-zh-light.png
          :alt: RoboTwin C2R
          :class: only-light
          :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/robotwin-zh-dark.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-zh-dark.png
          :alt: RoboTwin C2R
          :class: only-dark
          :width: 100%
@@ -76,12 +76,12 @@ Leaderboard
 
    .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/long-task-zh-light.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-zh-light.png
          :alt: LIBERO-PRO Long Task
          :class: only-light
          :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/long-task-zh-dark.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-zh-dark.png
          :alt: LIBERO-PRO Long Task
          :class: only-dark
          :width: 100%
@@ -90,12 +90,12 @@ Leaderboard
 
    .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/long-swap-zh-light.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-zh-light.png
          :alt: LIBERO-PRO Long Swap
          :class: only-light
          :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/long-swap-zh-dark.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-zh-dark.png
          :alt: LIBERO-PRO Long Swap
          :class: only-dark
          :width: 100%
@@ -114,12 +114,12 @@ Leaderboard
 **RPent 仿真演示：GPT-6 Astra 与 GPT-5.6 xhigh，4 倍速播放。**
 此视频为独立演示，与 GPT-5.5 统计记录分开说明。
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/demo/demo-poster.jpg
+.. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo-poster.jpg
    :alt: RPent simulation demo
    :width: 100%
-   :target: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/demo/demo.mp4
+   :target: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4
 
-查看或下载`完整 MP4（约 24 秒，5.4 MiB） <https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/demo/demo.mp4>`_。
+查看或下载`完整 MP4（约 24 秒，5.4 MiB） <https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4>`_。
 
 “未报告”表示没有对应成绩，不能视为零。
 
@@ -596,9 +596,9 @@ GPT-6 Astra 的完整 800 回合 Overall 仅在八个 Task/Swap 分项全部完�
 --------
 
 图片和演示媒体统一存放在 `RLinf/misc <https://github.com/RLinf/misc>`_ 的
-``pic/rpent/`` 目录。本页引用不可变媒体 commit
-``0595c23c2ae46920eef100b60762f910d031c44f``；配套的
-`结果快照 <https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/results.json>`_ 记录数据来源。
+``rpent/`` 目录。本页引用不可变媒体 commit
+``3f4c2003590076982782b73bb4e191bdd6a52f39``；配套的
+`结果快照 <https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/results.json>`_ 记录数据来源。
 构建文档不需要绘图工具或 benchmark 专用 JavaScript。
 
 更新成绩时同步修改中英文表格，保留评测范围与来源精度，并将对应图片提交到 misc。

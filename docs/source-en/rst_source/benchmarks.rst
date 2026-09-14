@@ -21,12 +21,12 @@ are listed below.
 
    .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/standard-libero-en-light.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-en-light.png
          :alt: Standard LIBERO Overall
          :class: only-light
          :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/standard-libero-en-dark.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/standard-libero-en-dark.png
          :alt: Standard LIBERO Overall
          :class: only-dark
          :width: 100%
@@ -35,12 +35,12 @@ are listed below.
 
    .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/libero-pro-en-light.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-en-light.png
          :alt: LIBERO-PRO Overall
          :class: only-light
          :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/libero-pro-en-dark.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/libero-pro-en-dark.png
          :alt: LIBERO-PRO Overall
          :class: only-dark
          :width: 100%
@@ -49,12 +49,12 @@ are listed below.
 
    .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/robocasa-en-light.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-en-light.png
          :alt: RoboCasa365 Target50 Overall
          :class: only-light
          :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/robocasa-en-dark.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robocasa-en-dark.png
          :alt: RoboCasa365 Target50 Overall
          :class: only-dark
          :width: 100%
@@ -63,12 +63,12 @@ are listed below.
 
    .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/robotwin-en-light.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-en-light.png
          :alt: RoboTwin C2R
          :class: only-light
          :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/robotwin-en-dark.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/robotwin-en-dark.png
          :alt: RoboTwin C2R
          :class: only-dark
          :width: 100%
@@ -77,12 +77,12 @@ are listed below.
 
    .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/long-task-en-light.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-en-light.png
          :alt: LIBERO-PRO Long Task
          :class: only-light
          :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/long-task-en-dark.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-task-en-dark.png
          :alt: LIBERO-PRO Long Task
          :class: only-dark
          :width: 100%
@@ -91,12 +91,12 @@ are listed below.
 
    .. grid-item::
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/long-swap-en-light.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-en-light.png
          :alt: LIBERO-PRO Long Swap
          :class: only-light
          :width: 100%
 
-      .. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/long-swap-en-dark.png
+      .. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/long-swap-en-dark.png
          :alt: LIBERO-PRO Long Swap
          :class: only-dark
          :width: 100%
@@ -116,12 +116,12 @@ Demo
 **RPent simulation demo: GPT-6 Astra versus GPT-5.6 xhigh, shown at 4x speed.**
 This is a separate demonstration from the GPT-5.5 evaluation records.
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/demo/demo-poster.jpg
+.. image:: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo-poster.jpg
    :alt: RPent simulation demo
    :width: 100%
-   :target: https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/demo/demo.mp4
+   :target: https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4
 
-View or download the `complete MP4 (about 24 seconds, 5.4 MiB) <https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/demo/demo.mp4>`_.
+View or download the `complete MP4 (about 24 seconds, 5.4 MiB) <https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/demo/demo.mp4>`_.
 
 ``Not reported`` means no result is available; it is not a zero score.
 
@@ -619,9 +619,9 @@ Maintaining these results
 -------------------------
 
 Figures and demo media are maintained in `RLinf/misc <https://github.com/RLinf/misc>`_
-under ``pic/rpent/``. These pages reference immutable media commit
-``0595c23c2ae46920eef100b60762f910d031c44f``; the accompanying
-`result snapshot <https://raw.githubusercontent.com/RLinf/misc/0595c23c2ae46920eef100b60762f910d031c44f/pic/rpent/benchmarks/results.json>`_ records their provenance.
+under ``rpent/``. These pages reference immutable media commit
+``3f4c2003590076982782b73bb4e191bdd6a52f39``; the accompanying
+`result snapshot <https://raw.githubusercontent.com/RLinf/misc/3f4c2003590076982782b73bb4e191bdd6a52f39/rpent/benchmarks/results.json>`_ records their provenance.
 No plotting tools or benchmark-specific JavaScript are required to build the docs.
 
 When updating results, edit both language tables, retain evaluation scopes and
