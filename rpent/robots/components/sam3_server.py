@@ -21,7 +21,7 @@ Run manually with::
         --transport http --host 127.0.0.1 --port 8114
 
 RPent normally starts this process automatically. The service exposes a
-``segment`` RPC method over either HTTP or socket transport.
+``sam3.segment`` RPC method over either HTTP or socket transport.
 """
 
 from __future__ import annotations
@@ -289,8 +289,16 @@ class Sam3Facade(RpcFacade):
             raise ValueError("provide exactly one of text_prompt or point")
         if has_text:
             text_prompt = text_prompt.strip()
-        if not 0.0 <= float(min_score) <= 1.0:
+        if has_point and (not isinstance(point, list) or len(point) != 2):
+            raise ValueError("point must be [row, col]")
+        try:
+            min_score = float(min_score)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"min_score must be a number, got {min_score!r}") from exc
+        if not 0.0 <= min_score <= 1.0:
             raise ValueError("min_score must be between 0 and 1")
+        if not isinstance(image_base64, str):
+            raise ValueError("image_base64 must be a string")
 
         image_bytes = base64.b64decode(image_base64, validate=True)
         if not image_bytes:
