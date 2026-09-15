@@ -23,7 +23,7 @@ From the RPent repository root:
 
 .. code-block:: bash
 
-	uv sync --extra franka
+	uv sync --extra franka --extra sam3
 
 This installs the custom RLinf Franka branch and ``rlinf-openpi`` into
 ``.venv``.
@@ -109,7 +109,7 @@ VLA grasp demo
 --------------
 
 RPent provides a demo that uses a VLA to grasp objects. Task ``1`` exposes
-``vla_grasp`` and can start the dual-Franka VLA server locally.
+``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place`` and can start the dual-Franka VLA server locally.
 ``PI05_CHECKPOINT_PATH`` points to the trained Pi-05 checkpoint, while
 ``DUAL_FRANKA_REPO_ID`` is the dataset ID used to locate matching normalization
 statistics:
@@ -191,7 +191,7 @@ Tools and artifacts
 -------------------
 
 The extension exposes ``view_env_state``, ``view_camera_meta``, ``move_delta``,
-``rotate_delta``, ``open_gripper``, ``close_gripper``, and ``vla_grasp``. Each
+``rotate_delta``, ``open_gripper``, ``close_gripper``, and ``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place``. Each
 analytic motion selects exactly one arm, ``left`` or ``right``. Mutating tools
 capture per-arm state and synchronized left-wrist, base, and right-wrist images
 in RPent's central ``EnvState``.
@@ -203,3 +203,54 @@ Keep operators at both emergency stops. Validate task ``0`` with very small
 single-arm motions before attempting a grasp. Stop when camera/state results
 disagree, when the requested motion is not reached, or when any calibration is
 uncertain.
+
+Manual skill testing
+--------------------
+
+The deployment scripts live in ``robots/dual_franka/``. From the repository root:
+
+.. code-block:: bash
+
+   robots/dual_franka/run_manual_skill.sh --list-primitives
+   robots/dual_franka/run_manual_skill.sh --schema vla_right_grasp
+
+Use ``--primitive NAME --params JSON`` to call a tool. ``--task-id`` selects
+the task's configured ``vla_instruction`` for named VLA skills; the planner's
+segment prompt is recorded separately. Existing clean-desk tasks retain their
+checkpoint's original training instruction. ``--robot-config`` and
+``--calibration-path`` select the machine configuration and calibration.
+Local SAM3 requires the ``sam3`` extra; a remote SAM3 service can be attached
+with ``--sam3-endpoint``.
+
+Robot Codex profile isolation
+----------------------------------------
+
+Operator verdict and scene-restoration tools currently require exclusive terminal
+input. Run the runner in a plain TTY, without ``--interactive`` or Dashboard;
+unsupported combinations are rejected before hardware connection. Evaluation
+also exposes ``request_operator_verdict`` and requires a verdict before finish.
+``request_scene_reset`` remains exploration-only.
+
+The deployment wrappers select ``RPENT_CODEX_HOME`` (default:
+``.codex-rpent-live`` inside the checkout), not the coding shell's
+``CODEX_HOME``. Memory defaults to its ``memory`` subdirectory and the Codex
+state database uses the dedicated directory too. Create a private ``config.toml``
+there if needed; do not overwrite existing private settings.
+
+For API deployments, explicitly set ``RPENT_CODEX_API_KEY`` and optionally
+``RPENT_CODEX_BASE_URL``. The wrappers clear inherited ``CODEX_API_KEY``,
+``CODEX_BASE_URL``, ``OPENAI_API_KEY`` and ``OPENAI_BASE_URL``. Otherwise,
+authenticate separately in the dedicated profile. File-based credential storage
+can be configured; check private configurations for shared OS keychain use.
+Never commit credentials, private configuration or session records.
+
+``RPENT_CODEX_MODEL``, ``RPENT_REASONING_EFFORT`` and
+``RPENT_CODEX_SERVICE_TIER`` default to ``gpt-5.5``, ``medium`` and ``fast``.
+These isolation rules apply to the deployment wrappers, not the generic RPent
+CLI. Prefer invoking a wrapper: sourcing its environment script directly changes
+the current shell's environment.
+
+Directory isolation is not a security sandbox or workspace-file isolation.
+The planner explicitly uses no interactive approvals and full filesystem access.
+Editing private configuration does not override the planner's
+explicit permissions. The connectivity probe remains read-only.

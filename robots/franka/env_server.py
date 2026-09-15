@@ -23,7 +23,11 @@ from typing import Any
 
 import numpy as np
 
-from robots.franka.runtime_config import load_runtime_config
+from robots.franka.runtime_config import (
+    DEFAULT_CALIBRATION_PATH,
+    load_runtime_config,
+    set_calibration_path,
+)
 from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
 from rpent.utils.serialization import to_numpy_tree
@@ -241,7 +245,14 @@ def _create_worker_class():
             elif frame not in {"base", "eef"}:
                 raise ValueError("frame must be 'base' or 'eef'")
             action[: min(6, self.action_dim)] = twist[: min(6, self.action_dim)]
-            if gripper is not None and self.action_dim >= 7:
+            if self.action_dim >= 7:
+                if gripper is None:
+                    gripper_open = self._raw_state().gripper_open
+                    if gripper_open is None:
+                        raise ValueError(
+                            "Cannot preserve gripper: open/closed state unavailable"
+                        )
+                    gripper = 1.0 if gripper_open else -1.0
                 action[-1] = float(gripper)
             result = self.env.step(action[None, :])
             return self._strip_batch(result[0].get("states"))
@@ -317,6 +328,9 @@ def _create_worker_class():
                 )
                 iterations += 1
             final = self._raw_tcp_pose()
+            error = float(
+                (target_rotation * Rotation.from_quat(final[3:]).inv()).magnitude()
+            )
             return {
                 "ok": error <= self.controller["rotate_tolerance_rad"],
                 "requested_delta_rpy_base": requested.tolist(),
@@ -411,12 +425,21 @@ def main(
     *,
     create_worker_class: Callable[[], Any],
     load_runtime_config: Callable[..., Any],
+    facade_class: type[FrankaEnvFacade] = FrankaEnvFacade,
 ) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--transport", choices=["http", "socket"], default="http")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--robot-config", default=None)
+    parser.add_argument(
+        "--calibration-path",
+        default=str(DEFAULT_CALIBRATION_PATH),
+        help=(
+            "Path to hand_eye_calibration.json. Dual-Franka uses this inside "
+            "the env server to expose agent-facing TCP poses in right_base."
+        ),
+    )
     parser.add_argument("--task-description", required=True)
     parser.add_argument("--parent-watch", action="store_true")
     parser.add_argument(
@@ -426,6 +449,7 @@ def main(
     )
     args = parser.parse_args()
 
+    set_calibration_path(args.calibration_path)
     runtime = load_runtime_config(
         args.robot_config,
         task_description=args.task_description,
@@ -438,7 +462,7 @@ def main(
     worker = _launch_worker(
         runtime.rlinf, runtime.controller, create_worker_class=create_worker_class
     )
-    facade = FrankaEnvFacade(_RayBackend(worker))
+    facade = facade_class(_RayBackend(worker))
     try:
         facade.serve(
             transport=args.transport,

@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   test:
+    name: Unit tests (${{ matrix.python-version }})
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -37,3 +38,22 @@ jobs:
         run: coverage run --source=rpent,robots -m pytest tests/unit_tests -v
       - name: Generate coverage report
         run: coverage report -m
+
+  # Single stable status check for branch rulesets: the matrix job above reports
+  # one check per Python version (test (3.10), ...), which a ruleset cannot match
+  # against a single required check.
+  unittest:
+    name: unittest
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all matrix legs to pass
+        run: |
+          result='${{ needs.test.result }}'
+          echo "matrix result: $result"
+          case "$result" in
+            success|skipped) exit 0 ;;
+            *) echo "::error::unit test matrix did not succeed ($result)"; exit 1 ;;
+          esac

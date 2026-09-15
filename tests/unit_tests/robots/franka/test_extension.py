@@ -19,13 +19,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import gymnasium as gym
-import pytest
 
 from robots.franka.runtime_config import load_runtime_config
 
 
-def test_franka_uses_rpent_owned_robot_config():
-    pytest.importorskip("rlinf.envs.realworld.franka.franka_env")
+def test_franka_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules):
     config_path = Path(__file__).parents[4] / "robots/franka/config/example.yaml"
     runtime = load_runtime_config(config_path, task_description="test task")
     cfg = runtime.rlinf
@@ -35,8 +33,7 @@ def test_franka_uses_rpent_owned_robot_config():
     assert cfg.env.eval.override_cfg.task_description == "test task"
 
 
-def test_rpent_franka_registration_exists():
-    pytest.importorskip("rlinf.envs.realworld.franka.franka_env")
+def test_rpent_franka_registration_exists(fake_rlinf_realworld_modules):
     from robots.franka.rpent_env import register_rpent_franka_env
 
     register_rpent_franka_env()
