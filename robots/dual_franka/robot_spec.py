@@ -27,7 +27,10 @@ from typing import TYPE_CHECKING, Any
 from robots.dual_franka.prompt_bundle import system_prompt, user_prompt
 from robots.dual_franka.runtime_config import DUAL_FRANKA_CONFIG
 from robots.dual_franka.tasks import DUAL_FRANKA_TASKS, get_dual_franka_task
-from robots.franka.runtime_config import set_robot_config_path
+from robots.franka.runtime_config import (
+    set_robot_config_path,
+    validate_calibration_sources,
+)
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
@@ -144,6 +147,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     set_robot_config_path(args.robot_config or DUAL_FRANKA_CONFIG)
+    validate_calibration_sources()
     if args.task_id is None:
         raise ValueError("--task-id is required")
     task = get_dual_franka_task(args.task_id)

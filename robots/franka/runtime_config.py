@@ -145,6 +145,23 @@ def describe_calibration_source() -> str:
     return f"easy_handeye YAMLs (robot-config perception.calibration): {listed}"
 
 
+def validate_calibration_sources() -> None:
+    """Fail fast when a configured easy_handeye YAML is missing on disk."""
+    mapping = get_perception_calibration_mapping()
+    missing = [
+        f"{key}: {Path(value).expanduser()}"
+        for key, value in sorted(mapping.items())
+        if not Path(value).expanduser().exists()
+    ]
+    if missing:
+        raise ValueError(
+            f"hand-eye calibration YAML(s) not found: {'; '.join(missing)}. "
+            "Run the easy_handeye calibration first (it saves YAMLs under "
+            "~/.ros/easy_handeye/ by default) or fix perception.calibration in "
+            f"{get_robot_config_path()}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Developer defaults
 # ---------------------------------------------------------------------------

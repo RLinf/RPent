@@ -22,7 +22,10 @@ import numpy as np
 import pytest
 
 from robots.franka.perception import back_project, load_calibration_bundle
-from robots.franka.runtime_config import set_robot_config_path
+from robots.franka.runtime_config import (
+    set_robot_config_path,
+    validate_calibration_sources,
+)
 from robots.franka.tools import (
     FrankaPrimitives,
     coerce_vec3,
@@ -206,3 +209,34 @@ def test_load_calibration_bundle_reads_easy_handeye_yamls(tmp_path: Path):
     assert bundle["wrist"]["matrix"][:3, 3] == pytest.approx(
         [0.06531670324255999, 0.02759950864247399, -0.1809718238822886]
     )
+
+
+def test_validate_calibration_sources_accepts_configured_yamls(tmp_path: Path):
+    config = tmp_path / "robot_config.yaml"
+    fixtures = Path(__file__).parent / "fixtures"
+    config.write_text(
+        "perception:\n"
+        "  calibration:\n"
+        f"    external: {fixtures / 'fr3_external_apriltag_eye_on_base.yaml'}\n"
+        f"    wrist: {fixtures / 'fr3_wrist_apriltag_ee_eye_on_hand.yaml'}\n"
+    )
+    set_robot_config_path(config)
+    try:
+        validate_calibration_sources()
+    finally:
+        set_robot_config_path(None)
+
+
+def test_validate_calibration_sources_rejects_missing_yaml(tmp_path: Path):
+    config = tmp_path / "robot_config.yaml"
+    config.write_text(
+        "perception:\n"
+        "  calibration:\n"
+        "    external: /nonexistent/fr3_external_apriltag_eye_on_base.yaml\n"
+    )
+    set_robot_config_path(config)
+    try:
+        with pytest.raises(ValueError, match="easy_handeye"):
+            validate_calibration_sources()
+    finally:
+        set_robot_config_path(None)

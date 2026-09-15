@@ -24,7 +24,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.franka.prompt_bundle import system_prompt, user_prompt
-from robots.franka.runtime_config import set_robot_config_path
+from robots.franka.runtime_config import (
+    set_robot_config_path,
+    validate_calibration_sources,
+)
 from robots.franka.tasks import FRANKA_TASKS, get_franka_task
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
@@ -127,6 +130,9 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     set_robot_config_path(args.robot_config)
+    # Fail fast before servers/planner start when easy_handeye YAMLs are
+    # missing (e.g. the calibration has not been run on this machine).
+    validate_calibration_sources()
     if args.task_id is None:
         raise ValueError("--task-id is required")
     task = get_franka_task(args.task_id)
