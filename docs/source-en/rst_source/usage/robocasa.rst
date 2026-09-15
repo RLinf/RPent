@@ -327,8 +327,10 @@ validate the fixed denominator and print the task-weighted score with:
 Published Target50 results
 --------------------------
 
-The published Codex reproduction contains all 340 cells and reports the
-following task-level aggregates:
+The Codex / GPT-5.6 / xhigh reproduction contains all 340 cells and reports
+the following task-level aggregates. The earlier 55.40% reference uses
+GPT-5.5 / xhigh. A separate GPT-6 Astra / low / reasoning evaluation reports
+59.20% task-weighted Overall; its unreported split scores are not inferred.
 
 .. list-table:: Codex Target50 reproduction
    :header-rows: 1
@@ -337,7 +339,7 @@ following task-level aggregates:
    * - Split
      - Successful cells
      - Success rate
-     - Harness VLA reference
+     - Harness VLA v3 reference
    * - Atomic
      - 163/180
      - 90.56%
@@ -354,6 +356,10 @@ following task-level aggregates:
      - N/A
      - 57.00%
      - 55.40%
+
+This table preserves the historical reproduction record; its reference column
+contains Harness VLA v3 values. See :doc:`../benchmarks` for the unified RPent
+model comparison across all three splits and the task-weighted overall rate.
 
 The `complete per-task table
 <https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_

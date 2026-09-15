@@ -27,6 +27,15 @@
   <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_framework.png" alt="RPent framework"/>
 </div>
 
+## Benchmark Results
+
+Compare RPent with reference methods on LIBERO, LIBERO-PRO, RoboCasa365 Target50, and RoboTwin C2R. Rankings apply to the methods and evaluation coverage shown; see [Benchmark Results](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html) for detailed results, configurations, and sources.
+
+Codex / GPT-6 Astra / low / reasoning: **92.63% Overall (741/800)** across all eight LIBERO-PRO suites. See the [80 task and 800 seed results](https://rpent.readthedocs.io/en/latest/rst_source/results/libero_pro_astra.html), including the separately frozen Long and Spatial/Object/Goal memory batches.
+
+[![RPent success-rate comparisons across six benchmark panels](https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html)
+
+
 ## Who Should Consider Using RPent?
 
 RPent is built for four kinds of users:

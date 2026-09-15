@@ -191,11 +191,12 @@ task and failure mode.
 Reproducing results
 -------------------
 
-The following result reproduces
-:doc:`Harness VLA <../awesome_works/harnessvla>` on RoboTwin C2R. On the
-`reproduce/robotwin
-<https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_ branch, use
-``gpt-5.5`` with ``xhigh`` reasoning effort to reproduce this result:
+See :doc:`../benchmarks` for the unified RPent model comparison on RoboTwin C2R
+and the Codex and Claude Code configurations.
+
+The following historical reproduction record uses the `reproduce/robotwin
+<https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_ branch with
+``gpt-5.5`` and ``xhigh`` reasoning effort:
 
 - ``demo_randomized``: 58.0% (145/250)
 
