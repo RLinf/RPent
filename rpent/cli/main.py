@@ -410,6 +410,14 @@ def main() -> int:
     ):
         MemoryManager(get_memory_dir(robot_name)).sync(
             remote_repo=robot_spec.memory_repo_id,
+            **(
+                {
+                    "revision": getattr(args, "memory_revision", None)
+                    or robot_spec.memory_revision
+                }
+                if getattr(args, "memory_revision", None) or robot_spec.memory_revision
+                else {}
+            ),
         )
     else:
         logger.info("memory: using local %s profile", memory_profile)

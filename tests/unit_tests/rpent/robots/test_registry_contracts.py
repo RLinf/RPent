@@ -103,10 +103,15 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
-def test_robot_prompts_render_from_public_spec(robot_name: str) -> None:
+def test_robot_prompts_render_from_public_spec(
+    robot_name: str, tmp_path, make_corpus
+) -> None:
     spec = get_robot_spec(robot_name)
 
-    system = spec.prompts.render("system", variables=PROMPT_VARIABLES[robot_name])
+    variables = dict(PROMPT_VARIABLES[robot_name])
+    if robot_name == "robocasa":
+        variables["memory_dir"] = str(make_corpus(tmp_path / "robocasa"))
+    system = spec.prompts.render("system", variables=variables)
     user = spec.prompts.render("user", variables=PROMPT_VARIABLES[robot_name])
 
     assert system.strip()

@@ -120,6 +120,14 @@ def run_dashboard_session(
     ):
         MemoryManager(get_memory_dir(robot_spec.name)).sync(
             remote_repo=robot_spec.memory_repo_id,
+            **(
+                {
+                    "revision": getattr(args, "memory_revision", None)
+                    or robot_spec.memory_revision
+                }
+                if getattr(args, "memory_revision", None) or robot_spec.memory_revision
+                else {}
+            ),
         )
 
     controller = DashboardSessionController(

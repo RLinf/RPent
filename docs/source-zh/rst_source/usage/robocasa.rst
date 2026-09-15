@@ -9,7 +9,7 @@ RoboCasa
 
 .. note::
 
-   公开的 Target50 协议固定在 ``robots/robocasa/eval/target50.json`` 中。
+   公开的 Target50 协议固定在 ``robots/robocasa/eval/target50_v2.json`` 中。
    340 个 cell 均使用普通的单任务 ``rpent --robot robocasa`` 命令。
 
 安装
@@ -106,63 +106,60 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
       --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
       --local-dir ./checkpoints/rldx-1-ft-rc365
 
-**任务 Memory**
+**任务 Memory 与 Global Memory**
 
-通过 ``--memory-profile hf`` （默认值）启用自动同步。每次以该 profile 普通
-运行前，RPent 都会通过统一 memory manager，从
-`RLinf/RPent-memory 数据集
-<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/results>`_
-自动同步 ``robocasa/**`` 到 ``memory/robocasa``，因此在线普通运行无需单独下载
-memory。当前任务只能读取 ``results/`` 下与该任务对应的 memory：
+通过 ``--memory-profile hf``（默认值）同步 ``RLinf/RPent-memory`` 的
+``robocasa/**`` 子树，默认使用 ``target50_v2.json`` 中固定的 revision。
+``--memory-revision`` 可显式覆盖版本；CLI 和 Dashboard 使用相同同步逻辑。
+HF 无法验证指定版本时，固定版本同步会明确报错。离线运行请使用
+``--memory-profile local --memory-dir <corpus>``；本地结果记录语料哈希，
+默认不记录 HF revision。
+
+新版严格采用 PR #130 交付包的 103 份记忆：43 份 seed-0 audit JSON、43 份
+recipe JSONL、16 份 Composite-Seen Markdown 和 1 份 Global Memory。
+只迁移路径和文件名，正文逐字节保留；``CORPUS.json`` 保存来源及文件 SHA-256。
+当前任务按顺序读取清单中存在的以下文件：
 
 .. code-block:: text
 
-   memory/robocasa/results/<Task>_s0.json
-   memory/robocasa/results/recipe_<Task>_s0.jsonl
-   memory/robocasa/results/<Task>.md  # 可选
+   memory/robocasa/task_only/<Task>_s0.json
+   memory/robocasa/task_only/<Task>_s0_recipe.jsonl
+   memory/robocasa/task_only/<Task>.md
+   memory/robocasa/global/GLOBAL_MEMORY.md
 
-最终发布的 corpus 包含 43 个 audit JSON、43 个 recipe JSONL 和 25 个任务
-Markdown，共 111 个文件且不含 global memory。JSON/JSONL pair 保存经过审核的
-seed-0 证据。可选 Markdown 保存同任务探索 memory，可能汇总多次尝试；全部
-16 个 Composite-Seen 和 9 个 Composite-Unseen 任务包含该文件。Prompt 要求
-planner 在开始动作前主动通过 ``read_text_file`` 读取当前任务所有存在的文件；
-RPent 不会把 Markdown 内容强制注入 prompt。
+默认 ``--memory-policy task-global`` 读取两层记忆；
+``--memory-policy task-only`` 使用同一新版语料关闭 global，作为消融对照。
+RPent 文件工具拒绝读取其他任务的记忆，并在关闭 global 时拒绝 global 读取。
+完成所选文件的完整读取后，才能执行动作或 ``finish``。这是文件工具边界，
+不是操作系统级隔离。
 
-RoboCasa 不要求 planner 使用 global memory，也不会退回读取其他任务的 memory。
-7 个 Composite-Unseen 任务完全没有 task memory，但仍计入评测：
-``HeatKebabSandwich``、``PanTransfer``、``PortionHotDogs``、
-``SeparateFreezerRack``、``WaffleReheat``、``WashFruitColander`` 和
-``WeighIngredients``；这些任务基于实时观测继续。Memory 仅是策略证据，历史
-坐标、位姿、像素和子任务 prompt 不能替代当前定位与完整实时任务语言。
+未提供的可选层会明确记录并跳过；JSON/JSONL 只提供一个时启动失败。
+``CORPUS.json`` 中声明的文件若缺失或哈希不符，会在机器人启动前报错。
+不在清单中的旧缓存文件不会被替代读取。7 个缺少任务记忆的 Unseen 任务仍
+使用实时观察及启用的 global；包内没有的 9 份旧 Unseen Markdown 不纳入新版。
 
-普通运行同步 Hugging Face ``main``；正式 Target50 使用固定 memory snapshot
-``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``：
+记忆仅作为策略先验，实时完整任务语言、RGB-D、任务进展和工具结果优先；
+global 规则仅在可见前提满足时适用。禁止回放旧坐标和 atomic prompt。
+有接触或进展时保持 VLA 连续调用；连续两次无接触且无可见进展后，重新定位并
+有限调整姿态。旧 ``vla_act`` 名称只描述策略阶段，执行使用当前 RLDX 工具。
 
-.. code-block:: bash
-
-   hf download RLinf/RPent-memory \
-      --repo-type dataset \
-      --revision 551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b \
-      --include "robocasa/**" \
-      --local-dir ./target50-memory
-
-随后选择 local profile，并传入固定的 RoboCasa memory 根目录：
+将交付包转换到一个空的本地目录：
 
 .. code-block:: bash
 
-   rpent --robot robocasa --task-name OpenDrawer --seed 1 \
-         --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
-         --planner claude_code --model claude-opus-4-8 \
-         --memory-profile local \
-         --memory-dir ./target50-memory/robocasa
+   python -m robots.robocasa.migrate_memory \
+      --source /path/to/package/changed_tree/robocasa-memory-hf-staging-20260829/robocasa/memory \
+      --output ./target50-memory/robocasa
+
+随后使用 ``--memory-profile local --memory-dir ./target50-memory/robocasa``。
 
 Harness VLA Target50 复现协议
 -----------------------------
 
-``robots/robocasa/eval/target50.json`` 是 Harness VLA 在 RoboCasa Target50
+``robots/robocasa/eval/target50_v2.json`` 是 Harness VLA 在 RoboCasa Target50
 上的规范复现清单。它固定 ``target`` 环境 split、依赖 revision、memory 边界、
 task/seed 矩阵、cell 时限、成功来源与重试规则；协议 ID 为
-``robocasa-harness-vla-v1``：
+``robocasa-harness-vla-v2``：
 
 .. list-table:: RoboCasa Target50 矩阵
    :header-rows: 1
@@ -298,10 +295,10 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
    子进程，日志分别写到 ``<output_dir>/env_server.log`` 和
    ``<output_dir>/vla_server.log``。
 
-已发布的 Target50 结果
+历史 task-only v1 结果
 -----------------------
 
-已发布 Codex 复现覆盖全部 340 cells，任务级汇总如下：
+历史 task-only v1 Codex 复现覆盖全部 340 cells，任务级汇总如下：
 
 .. list-table:: Codex Target50 复现结果
    :header-rows: 1
@@ -360,7 +357,7 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
   安装 ``.[robocasa]`` 以刷新 ``RLinf/robosuite`` 的 ``rpent`` 分支；不要手工
   修改已安装的 XML。
 - ``read_text_file`` 报告缺少当前任务结果时，请检查
-  ``memory/robocasa/results/`` 目录或所选本地目录。RPent 不会读取其他任务的
+  ``memory/robocasa/task_only/`` 目录或所选本地目录。RPent 不会读取其他任务的
   memory 作为替代。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和
   ``<output_dir>/vla_server.log``。
@@ -388,3 +385,32 @@ RoboCasa toolkit 提供的工具 *形式* 与 LIBERO 相同（一次原语调用
   (``rldx_skill`` / ``vla_client``) 从不直接看到 session id, 服务端
   把它注入到 ``predict`` / ``reset_session`` 中, 按客户端隔离
   RLDX memory/RTC 策略状态。
+
+历史 v1 结果与新版来源记录
+--------------------------
+
+已发布的 57.00% 属于历史 task-only v1。原清单保留在
+``robots/robocasa/eval/target50.json``；复现旧协议应使用 RPent commit
+``43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92`` 和 memory revision
+``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``。新版关闭 global 是 v2 消融，
+不等价于恢复旧协议。
+
+创建独立的冻结工作目录，再按其中 RoboCasa README 的说明获取 v1 memory
+快照并使用 local profile 运行。保留旧语料的 ``results/`` 目录布局。
+
+.. code-block:: bash
+
+   git worktree add --detach ../RPent-robocasa-v1 \
+      43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92
+
+新版结果 schema 为 1.1，``memory`` 记录模式、语料 SHA-256、HF revision
+（未显式指定版本的本地语料为 null）、所选文件与完成读取的文件。
+``memory.json`` 和 ``memory_reads.jsonl`` 保存选择及读取审计。
+校验器拒绝混合不同模式、语料、revision 或缺少完整读取的结果。
+
+.. code-block:: bash
+
+   python -m robots.robocasa.eval.validate_target50 ./runs --memory-policy task-global
+   python -m robots.robocasa.eval.validate_target50 ./ablation --memory-policy task-only
+   python -m robots.robocasa.eval.validate_target50 ./historical-v1 \
+      --manifest robots/robocasa/eval/target50.json

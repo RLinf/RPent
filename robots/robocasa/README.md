@@ -16,7 +16,7 @@ launcher.
 ## Runtime Flow
 
 ```text
-rpent CLI -> task-memory sync -> environment and VLA servers
+rpent CLI -> task/global memory sync -> environment and VLA servers
           -> planner toolkit -> RoboCasa state.success
 ```
 
@@ -77,49 +77,63 @@ hf download RLWRLD/RLDX-1-FT-RC365 \
 Pass that directory to `--vla-model-path`. The checkpoint is not distributed
 inside RPent.
 
-## Task Memory
+## Task and Global Memory
 
-Select automatic synchronization with `--memory-profile hf` (the default).
-Before every such ordinary run, RPent's shared memory manager synchronizes the
-`robocasa/**` subtree from the public
-[`RLinf/RPent-memory`](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/results)
-dataset. Files land under `memory/robocasa/results`, so an online ordinary
-run does not require a separate memory download command.
+`--memory-profile hf` (the default) synchronizes the `robocasa/**` subtree of
+[RLinf/RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory)
+at the immutable revision in `eval/target50_v2.json`. `--memory-revision` can
+explicitly select another revision. CLI and Dashboard use the same default.
+Pinned synchronization fails if HF cannot verify the requested revision.
+For offline runs, use `--memory-profile local --memory-dir <corpus>`; local
+results record the corpus hash and, by default, no HF revision.
 
-The published RoboCasa corpus contains 111 files: 43 audit JSON files, 43
-recipe JSONL files, and 25 task Markdown files. There is no global memory. For
-the current task, the planner may read only:
-
-```text
-memory/robocasa/results/<Task>_s0.json
-memory/robocasa/results/recipe_<Task>_s0.jsonl
-memory/robocasa/results/<Task>.md  # optional
-```
-
-The Markdown files cover all 16 Composite-Seen tasks and 9 Composite-Unseen
-tasks. Seven Composite-Unseen tasks have no published memory and still run from
-live observations:
+The reviewed PR #130 package supplies 103 memory files: 43 seed-0 audit JSONs,
+43 recipes, 16 Composite-Seen task Markdown files, and one Global Memory.
+Their contents are preserved byte-for-byte; `CORPUS.json` records provenance
+and each file's SHA-256. The current task reads these declared layers in order:
 
 ```text
-HeatKebabSandwich, PanTransfer, PortionHotDogs, SeparateFreezerRack,
-WaffleReheat, WashFruitColander, WeighIngredients
+memory/robocasa/task_only/<Task>_s0.json
+memory/robocasa/task_only/<Task>_s0_recipe.jsonl
+memory/robocasa/task_only/<Task>.md       # optional
+memory/robocasa/global/GLOBAL_MEMORY.md  # task-global policy only
 ```
 
-Memory is strategy evidence, not a trajectory to replay. The planner must not
-read another task's files or reuse historical coordinates, poses, pixels, or
-subtask prompts in place of the current task language and observations.
+`--memory-policy task-global` is the default. `--memory-policy task-only`
+uses the same revised corpus with global memory disabled, for an ablation.
+RPent file tools allow only the current task's selected files and the enabled
+global layer. All selected files must be read completely before motion or
+`finish`. This is a file-tool boundary, not an operating-system sandbox.
 
-Ordinary runs synchronize the dataset's current `main`. Formal Target50 runs
-instead use the immutable memory snapshot
-`551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b`:
+A half-present JSON/JSONL pair fails validation. If neither is declared, the
+task uses live observations and any enabled global layer. Undeclared optional
+layers are reported and skipped. Missing or modified files declared by
+`CORPUS.json` are corruption and fail before robot startup. Unlisted files,
+including old snapshot leftovers, are never substituted.
+
+Seven Composite-Unseen tasks have no task-specific memory: HeatKebabSandwich,
+PanTransfer, PortionHotDogs, SeparateFreezerRack, WaffleReheat,
+WashFruitColander, and WeighIngredients. They remain in the evaluation.
+The nine Unseen Markdown files absent from the reviewed package are excluded
+from this corpus; the historical v1 HF revision still contains them.
+
+All memory is a policy prior. Live task language, RGB-D, task progress and
+primitive results take precedence. Global rules require visible applicability.
+Never replay historical coordinates or atomic prompts. Contact/progress keeps
+VLA continuity; two consecutive no-contact calls without visible semantic
+progress trigger a newly grounded, bounded re-stage. Historical `vla_act`
+entries describe strategy phases; execution uses the current RLDX tools with
+the complete live task language.
+
+To convert the reviewed delivery package into a fresh local corpus:
 
 ```bash
-hf download RLinf/RPent-memory \
-  --repo-type dataset \
-  --revision 551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b \
-  --include "robocasa/**" \
-  --local-dir ./target50-memory
+python -m robots.robocasa.migrate_memory \
+  --source /path/to/package/changed_tree/robocasa-memory-hf-staging-20260829/robocasa/memory \
+  --output ./target50-memory/robocasa
 ```
+
+The destination must be empty. Checkpoints and simulator assets are reused.
 
 ## Run One Task
 
@@ -150,7 +164,7 @@ rpent --robot robocasa \
 ```
 
 To use a reviewed local corpus, point `--memory-dir` at its RoboCasa memory
-root (the directory that contains `results/`):
+root (the directory that contains `CORPUS.json`, `task_only/`, and `global/`):
 
 ```bash
 rpent --robot robocasa \
@@ -171,11 +185,15 @@ for all supported backends.
 
 ## Harness VLA Target50 Reproduction
 
-[`eval/target50.json`](eval/target50.json) is the canonical manifest for the
+[`eval/target50_v2.json`](eval/target50_v2.json) is the canonical manifest for the
 Harness VLA reproduction on RoboCasa Target50. It freezes task membership,
 seeds, time limits, dependency revisions, memory scope, the success source,
 and retry policy. Its protocol ID is
-`robocasa-harness-vla-v1`.
+`robocasa-harness-vla-v2`.
+
+The [two-task global memory validation report](eval/global_memory_validation_20260915.md)
+records the ten focused runs, memory-read audit, dependency versions and rerun
+commands. It is separate from the complete Target50 evaluation below.
 
 | Split | Tasks | Seeds per task | Cell timeout | Cells |
 |---|---:|---:|---:|---:|
@@ -249,7 +267,7 @@ timeout remains a failed cell; an infrastructure error is rejected for rerun.
 
 ## Published Results
 
-The published Codex reproduction reports `163/180` Atomic, `49/80`
+The historical task-only v1 Codex reproduction reports `163/180` Atomic, `49/80`
 Composite-Seen, and `12/80` Composite-Unseen successes, for a task-weighted
 RoboCasa365 score of `57.00%`. See the
 [complete per-task table](eval/target50_codex_results.md) for comparison with
@@ -280,3 +298,34 @@ the Harness VLA reference results and for the aggregation boundary.
 - [Chinese RoboCasa usage guide](../../docs/source-zh/rst_source/usage/robocasa.rst)
 - [Planner configuration](../../docs/source-en/rst_source/usage/configure_planner.rst)
 - [Harness VLA overview](../../docs/source-en/rst_source/awesome_works/harnessvla.rst)
+
+## Historical task-only v1 protocol
+
+`eval/target50.json` remains the immutable v1 manifest. Reproduce that protocol
+from RPent commit `43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92` with memory revision
+`551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b`. The published 57.00% result belongs
+to v1. Turning global off in the new code is a v2 ablation, not a v1 reproduction.
+
+Create a separate checkout for the frozen entry point:
+
+```bash
+git worktree add --detach ../RPent-robocasa-v1 \
+  43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92
+```
+
+Follow that checkout's RoboCasa README to fetch the pinned v1 memory snapshot
+and run with `--memory-profile local`. Keep its historical `results/` layout;
+the v2 corpus uses `task_only/` and `global/`.
+
+New `result.json` files use schema 1.1 and protocol `robocasa-harness-vla-v2`;
+`memory` records the policy, corpus SHA-256, HF revision (null for a local corpus
+without an explicitly supplied revision), selected files and completed reads.
+`memory.json` snapshots the selection and `memory_reads.jsonl` audits file reads.
+The validator rejects mixed policies, corpora, revisions, or incomplete reads.
+
+```bash
+python -m robots.robocasa.eval.validate_target50 ./runs --memory-policy task-global
+python -m robots.robocasa.eval.validate_target50 ./ablation --memory-policy task-only
+python -m robots.robocasa.eval.validate_target50 ./historical-v1 \
+  --manifest robots/robocasa/eval/target50.json
+```
