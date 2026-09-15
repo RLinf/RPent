@@ -17,6 +17,11 @@
 Embodiment-specific settings (openpi config name, action dim, …) are
 selected by the ``--embodiment`` CLI flag and looked up in
 ``PI05_EMBODIMENTS``.
+
+The ``--model-backend`` flag picks the RLinf loader an embodiment uses
+(``openpi_pytorch``, the default, or ``openpi_rlinf``). Presets whose loader
+resolves normalisation statistics from a directory take ``--norm-stats-path``
+(or the ``PI05_NORM_STATS_PATH`` environment variable).
 """
 
 from __future__ import annotations
@@ -64,6 +69,9 @@ PI05_ROBOT_PLATFORMS: dict[str, str] = {
     "libero": "LIBERO",
 }
 
+# RLinf model loaders an embodiment preset may select via ``model_backend``.
+PI05_MODEL_BACKENDS: tuple[str, ...] = ("openpi_rlinf", "openpi_pytorch")
+
 
 # ---------------------------------------------------------------------------
 # Config builder
@@ -71,7 +79,7 @@ PI05_ROBOT_PLATFORMS: dict[str, str] = {
 
 
 def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
-    """OmegaConf for ``rlinf.models.embodiment.openpi.get_model``.
+    """OmegaConf for the RLinf ``openpi`` / ``openpi_rlinf`` ``get_model``.
 
     Two-level merge ``emb_cfg`` into a default config template.  ``emb_cfg``
     mirrors the OmegaConf structure (top-level keys + ``openpi`` sub-dict),
@@ -114,36 +122,56 @@ class Pi05VLAFacade(BaseVLAFacade):
     """Pi0.5 VLA inference backed by an openpi model.
 
     Wires ``vla.predict`` to :meth:`predict` (registered by the base class).
-    Embodiment-specific behavior (model config, obs decode) is driven by
-    the ``embodiment`` name passed at construction.
+    Embodiment-specific behavior (model config, loader, obs decode) is driven
+    by the ``embodiment`` name passed at construction. ``model_backend``
+    selects the RLinf loader — ``openpi_pytorch`` (default) or ``openpi_rlinf``
+    for the real-robot YAM joint policy.
 
     Session-isolation is not supported (``reset_session`` is not registered).
     """
 
-    def __init__(self, *, model_path: str, embodiment: str):
+    def __init__(
+        self,
+        *,
+        model_path: str,
+        embodiment: str,
+        model_backend: str = "openpi_pytorch",
+        norm_stats_path: str | None = None,
+    ):
         if embodiment not in PI05_EMBODIMENTS:
             raise ValueError(
                 f"unknown pi05 server embodiment: {embodiment!r}; "
                 f"registered={list(PI05_EMBODIMENTS)}"
             )
         emb_cfg = PI05_EMBODIMENTS[embodiment]
+        if model_backend not in PI05_MODEL_BACKENDS:
+            raise ValueError(
+                f"unsupported pi05 model backend: {model_backend!r}; "
+                f"supported={list(PI05_MODEL_BACKENDS)}"
+            )
         self._embodiment = embodiment
         super().__init__()
 
-        from rlinf.models.embodiment.openpi import get_model as get_openpi_model
+        if model_backend == "openpi_rlinf":
+            from rlinf.models.embodiment.openpi_rlinf import get_model
+        else:
+            from rlinf.models.embodiment.openpi import get_model
 
         platform = PI05_ROBOT_PLATFORMS.get(embodiment)
         if platform is not None:
             os.environ.setdefault("ROBOT_PLATFORM", platform)
 
         cfg = build_model_cfg(model_path=model_path, emb_cfg=emb_cfg)
+        if norm_stats_path is not None:
+            cfg.openpi_data = {"norm_stats_path": norm_stats_path}
         t0 = time.time()
         logger.info(
-            "loading Pi0.5 (embodiment=%s, model_path=%s) ...",
+            "loading Pi0.5 (embodiment=%s, model_backend=%s, model_path=%s) ...",
             embodiment,
+            model_backend,
             cfg["model_path"],
         )
-        self._model = get_openpi_model(cfg, torch_dtype=None).cuda().eval()
+        self._model = get_model(cfg, torch_dtype=None).cuda().eval()
         logger.info("model ready in %.1fs", time.time() - t0)
 
     # ---- inference ----
@@ -199,6 +227,18 @@ def main() -> None:
         default=None,
         help="Pi0.5 checkpoint (defaults to PI05_CHECKPOINT_PATH env)",
     )
+    p.add_argument(
+        "--model-backend",
+        choices=list(PI05_MODEL_BACKENDS),
+        default="openpi_pytorch",
+        help="RLinf model loader (default: openpi_pytorch)",
+    )
+    p.add_argument(
+        "--norm-stats-path",
+        default=os.environ.get("PI05_NORM_STATS_PATH"),
+        help="norm_stats directory, for presets whose loader needs it "
+        "(defaults to PI05_NORM_STATS_PATH env)",
+    )
     args = p.parse_args()
 
     if args.cuda_device is not None:
@@ -219,7 +259,12 @@ def main() -> None:
             "path via --model-path or the environment."
         )
 
-    facade = Pi05VLAFacade(model_path=model_path, embodiment=args.embodiment)
+    facade = Pi05VLAFacade(
+        model_path=model_path,
+        embodiment=args.embodiment,
+        model_backend=args.model_backend,
+        norm_stats_path=args.norm_stats_path,
+    )
     facade.serve(
         transport=args.transport,
         host=args.host,
