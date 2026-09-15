@@ -25,6 +25,9 @@ from rpent.utils.rpc.rpc_facade import DEFAULT_SESSION_TIMEOUT_S
 
 logger = get_logger("vla_server")
 
+# Match the support snapshot in the RoboCasa setup guide and Target50 manifest.
+RLDX_BACKBONE_REVISION = "4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7"
+
 
 def _build_processor_image_transforms(processor):
     from rldx.data.augmentations import build_image_transformations_albumentations
@@ -70,6 +73,7 @@ class RoboCasaVLAFacade(BaseVLAFacade):
             EmbodimentTag.GENERAL_EMBODIMENT,
             "",
             None,
+            backbone_revision=RLDX_BACKBONE_REVISION,
         )
         if _normalize_legacy_processor_geometry(self.policy.policy.processor):
             logger.warning(
@@ -81,7 +85,7 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         self._hist_maxlen = int(self._vdi.max() - self._vdi.min()) + 2
         print(
             f"[vla_server] policy loaded; video_delta_indices={self._vdi.tolist()} "
-            f"hist_maxlen={self._hist_maxlen}",
+            f"hist_maxlen={self._hist_maxlen} backbone_revision={RLDX_BACKBONE_REVISION}",
             flush=True,
         )
 

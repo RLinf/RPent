@@ -115,7 +115,7 @@ franka = [
 ]
 robocasa = [
     "rpent[rlinf]",
-    "rlinf-robocasa365",
+    "rpent-robocasa365 @ git+https://github.com/RLinf/robocasa.git@rpent",
     "rlinf-rldx @ git+https://github.com/RLinf/RLDX-1.git@rpent",
     "robosuite @ git+https://github.com/RLinf/robosuite.git@rpent",
 ]
