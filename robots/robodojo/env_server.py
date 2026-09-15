@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import base64
 import os
+import random
 import sys
 import threading
 import time
@@ -60,12 +61,10 @@ def _random_reset(env) -> None:
     a fresh layout. The naive collect_env ``random_mode`` (saved_layouts=None)
     leaves the scene EMPTY — do not use it.
     """
-    import random as _random
-
     template = env.seed_manager.get_seed_scene_info(
-        _random.randrange(len(env.seed_manager.seed_info))
+        random.randrange(len(env.seed_manager.seed_info))
     )
-    fresh = [_random.randrange(0, 1_000_000_000) for _ in range(env.num_envs)]
+    fresh = [random.randrange(0, 1_000_000_000) for _ in range(env.num_envs)]
     env.traj_recorder.reset_all()
     env.env_seeds = fresh
     env.success = [True] * env.num_envs
@@ -94,7 +93,7 @@ def _random_reset(env) -> None:
     return None
 
 
-def _standard_reset(env, layout) -> None:
+def _standard_reset(env, layout: int) -> None:
     env.reset(seed=layout)
     if hasattr(env, "get_score"):
         try:
@@ -147,7 +146,6 @@ class _VideoRecorder:
             return
         try:
             import cv2
-            import numpy as np
 
             vision = obs.get("vision", {})
             for cam in ("cam_head", "cam_left_wrist", "cam_right_wrist"):
@@ -183,6 +181,13 @@ def _record_obs_frame(recorder, obs: dict) -> None:
 
 # ---------------------------------------------------------------------------
 # Safety monitor: rolling / off-table bottle alarm (env-internal, GT-based)
+#
+# TRAINING / EXPLORATION ONLY — must stay off in evaluation runs. Detection
+# reads the simulator's ground-truth bottle poses (layout_manager.get_instance_pose)
+# and the alarms reach the agent through every tool result, so the policy is
+# fed privileged state it cannot obtain from perception. Scores from a run that
+# consumed these alarms are not perception-isolated and are not comparable to
+# an eval without them.
 # ---------------------------------------------------------------------------
 
 _TABLE_X_RANGE = (-0.40, 0.50)
@@ -195,11 +200,6 @@ _ROLL_SPEED_MPS = 0.20
 _BIN_X_RANGE = (-0.90, -0.45)
 _BIN_Y_RANGE = (-0.25, 0.05)
 _BIN_Z_RANGE = (0.20, 0.70)
-
-_safety_lock = threading.Lock()
-_last_bottle_poses: dict[str, np.ndarray] = {}
-_last_safety_t: float = 0.0
-_safety_alarms: dict[str, dict] = {}
 
 
 def _bottle_labels(env) -> list[str]:
@@ -227,16 +227,26 @@ def _bottle_world_pos(env, label: str):
     return np.asarray(pos, dtype=np.float64), rot
 
 
-def _check_safety(env) -> dict:
-    """Detect rolling / off-table bottles after a motion step."""
-    import time as _time
+class _SafetyMonitor:
+    """Detect rolling / off-table bottles across steps (env-internal, GT-based).
 
-    global _last_bottle_poses, _last_safety_t, _safety_alarms
-    now = _time.time()
-    dt = now - _last_safety_t if _last_safety_t > 0 else 0.0
-    with _safety_lock:
+    TRAINING / EXPLORATION ONLY. The alarm is derived from the simulator's
+    ground-truth object poses, and it is surfaced to the agent on every tool
+    result — i.e. it hands the policy perception it did not earn. Any run
+    scored with these alarms on is therefore not an evaluation.
+    """
+
+    def __init__(self) -> None:
+        self.last_poses: dict[str, np.ndarray] = {}
+        self.last_t: float = 0.0
+        self.alarms: dict[str, dict] = {}
+
+    def check(self, env) -> dict:
+        """Detect rolling / off-table bottles after a motion step."""
+        now = time.time()
+        dt = now - self.last_t if self.last_t > 0 else 0.0
         for label in _bottle_labels(env):
-            pos, _rot = _bottle_world_pos(env, label, 0)
+            pos, _rot = _bottle_world_pos(env, label)
             if pos is None:
                 continue
             x, y, z = float(pos[0]), float(pos[1]), float(pos[2])
@@ -262,8 +272,8 @@ def _check_safety(env) -> dict:
                     "world_xyz": [round(x, 3), round(y, 3), round(z, 3)],
                     "note": "bottle is outside the table footprint / below table",
                 }
-            elif label in _last_bottle_poses:
-                prev = _last_bottle_poses[label]
+            elif label in self.last_poses:
+                prev = self.last_poses[label]
                 speed = float(np.linalg.norm(np.asarray(pos) - prev)) / max(dt, 1e-3)
                 if speed > _ROLL_SPEED_MPS:
                     alarm = {
@@ -273,24 +283,22 @@ def _check_safety(env) -> dict:
                         "note": "bottle moving fast; risk of falling off the table",
                     }
             if alarm is not None:
-                _safety_alarms[label] = alarm
-            elif label in _safety_alarms:
+                self.alarms[label] = alarm
+            elif label in self.alarms:
                 # clear rolling alarms once the bottle settles
                 if (
-                    _safety_alarms[label].get("state") == "rolling"
+                    self.alarms[label].get("state") == "rolling"
                     and speed < _ROLL_SPEED_MPS * 0.5
                 ):
-                    del _safety_alarms[label]
-            _last_bottle_poses[label] = np.asarray(pos, dtype=np.float64)
-        _last_safety_t = now
-    return dict(_safety_alarms)
+                    del self.alarms[label]
+            self.last_poses[label] = np.asarray(pos, dtype=np.float64)
+        self.last_t = now
+        return dict(self.alarms)
 
-
-def _safety_status() -> dict:
-    with _safety_lock:
+    def status(self) -> dict:
         return {
-            "alarms": dict(_safety_alarms),
-            "alarm_count": len(_safety_alarms),
+            "alarms": dict(self.alarms),
+            "alarm_count": len(self.alarms),
         }
 
 
@@ -321,20 +329,20 @@ def _obs_dict(env, recorder) -> dict[str, Any]:
     return obs
 
 
-def _status(env) -> dict[str, Any]:
+def _status(env, bottle_mon) -> dict[str, Any]:
     status = {
         "step": int(env.take_action_cnt[0]),
         "step_limit": int(env.step_lim),
         "success": bool(env.is_success(env_idx=0)),
     }
-    status["safety"] = _safety_status()
+    status["safety"] = bottle_mon.status()
     return status
 
 
-def _reward_details(env) -> dict[str, Any]:
+def _reward_details(env, bottle_mon) -> dict[str, Any]:
     """Per-predicate reward/score breakdown for the current episode state."""
     rm = env.reward_manager
-    details: dict[str, Any] = _status(env)
+    details: dict[str, Any] = _status(env, bottle_mon)
     try:
         reward = float(rm.get_reward(final_check=True)[0])
         score = float(rm.get_score()[0])
@@ -394,7 +402,6 @@ def _solve_ik_position(env, arm: str, xyz: list) -> dict:
     orientations and return the reachable solution with the smallest joint
     displacement from the current pose.
     """
-    import numpy as np
     from scipy.spatial.transform import Rotation as _R
 
     robot = _find_robot(env, arm)
@@ -425,9 +432,7 @@ def _solve_ik_position(env, arm: str, xyz: list) -> dict:
     for q in candidates:
         pose = [float(v) for v in xyz] + [float(v) for v in q]
         try:
-            res = env.robot_manager.solve_ik(
-                target_pose=pose, robot=robot
-            )
+            res = env.robot_manager.solve_ik(target_pose=pose, env_idx=0, robot=robot)
         except Exception:  # noqa: BLE001
             continue
         if res.get("status") != "Success":
@@ -482,7 +487,7 @@ def _control_info_from_action(env, action: dict, action_type: str) -> dict:
             obs_name = env.robot_manager.process_name(robot.arm_name)
             target_pose = action[key_name]
             ik_result = env.robot_manager.solve_ik(
-                target_pose=target_pose, robot=robot
+                target_pose=target_pose, env_idx=0, robot=robot
             )
             if ik_result["status"] == "Success":
                 control_info[obs_name] = {"position": ik_result["joint_value"]}
@@ -510,7 +515,7 @@ def _control_info_from_action(env, action: dict, action_type: str) -> dict:
     return control_info
 
 
-def _bump_step(env, 0: int) -> None:
+def _bump_step(env) -> None:
     """Mirror eval_env.take_action_batch step accounting."""
     if env.take_action_cnt[0] >= env.step_lim or env.end_flag[0]:
         return
@@ -530,11 +535,12 @@ def _infer_action_type(action: dict) -> str:
 class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
     """Isaac Sim RoboDojo backend exposing the unified env RPC."""
 
-    def __init__(self, env, app, recorder, args) -> None:
+    def __init__(self, env, app, recorder, *, meta: dict) -> None:
         self.env = env
         self.app = app
         self.recorder = recorder
-        self.args = args
+        self.meta = meta
+        self.bottle_mon = _SafetyMonitor()
         super().__init__()
 
     def _register_rpc(self) -> None:
@@ -566,21 +572,14 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
 
     # ---- unified facade contract ----
     def get_env_meta(self) -> dict[str, Any]:
-        return {
-            "task": self.args.task,
-            "layout": self.args.layout,
-            "env_cfg_type": self.args.env_cfg_type,
-            "device_id": self.args.device_id,
-            "num_envs": self.args.num_envs,
-            "max_episode_steps": self.args.max_episode_steps,
-            "random": self.args.random,
-        }
+        """Return the meta info this server was launched with."""
+        return dict(self.meta)
 
     def get_task_language(self) -> str:
         try:
             return str(self.env.gen_instruction(0)[0])
         except Exception:  # noqa: BLE001
-            return self.args.task
+            return self.meta["task"]
 
     def get_camera_meta(self) -> dict[str, Any]:
         obs = self.env.get_obs(env_idx=0)
@@ -594,10 +593,10 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         return vision
 
     def reset(self) -> dict[str, Any]:
-        if self.args.random:
+        if self.meta["random"]:
             _random_reset(self.env)
         else:
-            _standard_reset(self.env, self.args.layout)
+            _standard_reset(self.env, self.meta["layout"])
         return _obs_dict(self.env, self.recorder)
 
     def step(self, flat_action):
@@ -608,18 +607,18 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         ``BaseEnvClient.step`` contract used by the other robot backends.
         """
         action_type = _infer_action_type(flat_action)
-        control_info = _control_info_from_action(self.env, flat_action, action_type, 0)
-        _bump_step(self.env, 0)
+        control_info = _control_info_from_action(self.env, flat_action, action_type)
+        _bump_step(self.env)
         self.env.apply_target(control_info, 0)
-        alarms = _check_safety(0)
+        alarms = self.bottle_mon.check(self.env)
         if alarms:
             print(f"[robodojo-env] SAFETY ALARM: {alarms}", flush=True)
         obs = _obs_dict(self.env, self.recorder)
-        reward_details = _reward_details(self.env, 0)
+        reward_details = _reward_details(self.env, self.bottle_mon)
         reward = float(reward_details.get("reward", 0.0) or 0.0)
         done = bool(self.env.is_success(env_idx=0))
         info: dict[str, Any] = {
-            "status": _status(self.env, 0),
+            "status": _status(self.env, self.bottle_mon),
             "step_limit": int(self.env.step_lim),
             "safety": alarms,
         }
@@ -633,16 +632,16 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         return _obs_dict(self.env, self.recorder)
 
     def get_status(self) -> dict[str, Any]:
-        return _status(self.env, 0)
+        return _status(self.env, self.bottle_mon)
 
     def get_reward_details(self) -> dict[str, Any]:
-        return _reward_details(self.env, 0)
+        return _reward_details(self.env, self.bottle_mon)
 
     def solve_ik_position(self, arm: str, xyz: list) -> dict[str, Any]:
-        return _solve_ik_position(self.env, arm, xyz, 0)
+        return _solve_ik_position(self.env, arm, xyz)
 
     def get_safety_status(self) -> dict[str, Any]:
-        return _safety_status()
+        return self.bottle_mon.status()
 
     def is_success(self) -> bool:
         return bool(self.env.is_success(env_idx=0))
@@ -727,6 +726,7 @@ def main() -> None:
     os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
     app_launcher = AppLauncher(args)
+    app = app_launcher.app
 
     # Isaac-dependent imports must run after AppLauncher.
     from env.global_configs import BENCHMARK, ENV_CONFIG_PATH, ROOT_DIR  # noqa: E402
@@ -840,7 +840,7 @@ def main() -> None:
         env_cfg.sim.seed = [0 for _ in range(capped)]
         return env_cfg
 
-    env = create_collect_env(_build_env_cfg(), app_launcher.app)
+    env = create_collect_env(_build_env_cfg(), app)
     if args.random:
         _random_reset(env)
     else:
@@ -849,9 +849,17 @@ def main() -> None:
 
     facade = RoboDojoEnvFacade(
         env,
-        app_launcher.app,
+        app,
         recorder,
-        args,
+        meta={
+            "task": args.task,
+            "layout": args.layout,
+            "env_cfg_type": args.env_cfg_type,
+            "device_id": args.cuda_device,
+            "num_envs": args.num_envs,
+            "max_episode_steps": args.max_episode_steps,
+            "random": args.random,
+        },
     )
     facade.serve(
         transport=args.transport,
