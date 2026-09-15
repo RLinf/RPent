@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Interactive dual-Franka dirty/clean sorting runner with isolated Codex state.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/rpent_live_env.sh"
+
+cd "${RPENT_REPO_ROOT}"
+
+RUN_TAG="${RPENT_RUN_TAG:-dirty-clean-interactive}"
+OUT="${RPENT_OUTPUT_DIR:-${RPENT_REPO_ROOT}/logs/$(date +%Y%m%d-%H%M%S)-${RUN_TAG}}"
+mkdir -p "${OUT}"
+
+exec .venv/bin/python -m rpent.cli.main \
+  --robot dual_franka \
+  --task-id "${RPENT_TASK_ID:-3}" \
+  --planner "${RPENT_PLANNER:-codex}" \
+  --model "${RPENT_CODEX_MODEL:-gpt-5.5}" \
+  --reasoning-effort "${RPENT_REASONING_EFFORT:-medium}" \
+  --interactive \
+  --memory-profile local \
+  --memory-dir "${RPENT_LIVE_MEMORY_DIR}" \
+  --env-endpoint "${RPENT_ENV_ENDPOINT}" \
+  --vla-endpoint "${RPENT_VLA_ENDPOINT}" \
+  --sam3-endpoint "${RPENT_SAM3_ENDPOINT}" \
+  --robot-config "${RPENT_ROBOT_CONFIG}" \
+  --calibration-path "${RPENT_CALIBRATION_PATH}" \
+  --output-dir "${OUT}" \
+  "$@"
