@@ -38,7 +38,6 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
-- [2026/09] 🔥 RPent supports a data flywheel. Doc: [Data Flywheel](https://rpent.readthedocs.io/en/latest/rst_source/usage/flywheel.html).
 - [2026/09] 🔥 RPent supports Franka single-arm and dual-arm real-robot extensions. Doc: [Franka](https://rpent.readthedocs.io/en/latest/rst_source/usage/franka.html) · [Dual Franka](https://rpent.readthedocs.io/en/latest/rst_source/usage/dual_franka.html).
 - [2026/08] 🔥 RPent supports RoboCasa with RLDX-1 as manipulation model. See the [RoboCasa setup and Target50 guide](robots/robocasa/README.md) and [full documentation](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
 - [2026/08] 🔥 RPent supports the non-reasoning mode, which reduces average execution time by ~40%.
