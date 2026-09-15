@@ -24,8 +24,8 @@ installed -- hence the explicit ``PYTHONPATH``.
 
 Where SAM3 answers "which pixels are this phrase", Molmo answers "where would
 you put the gripper" -- an open-vocabulary point on a named object, for phrases
-no mask proposal names. The service exposes a ``ground`` RPC method over either
-HTTP or socket transport.
+no mask proposal names. The service exposes a ``molmo.ground`` RPC method over
+either HTTP or socket transport.
 """
 
 from __future__ import annotations
@@ -37,10 +37,10 @@ import logging
 import os
 import re
 import threading
+from dataclasses import dataclass
 from typing import Any
 
 from PIL import Image
-from pydantic import BaseModel, Field
 
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade
@@ -66,31 +66,27 @@ def _parse_point(answer: str) -> tuple[float, float] | None:
     return x, y
 
 
-class GroundRequest(BaseModel):
-    """Wire request naming one object to point at."""
-
-    image_base64: str
-    query: str = Field(min_length=1)
-
-
-class GroundResponse(BaseModel):
+@dataclass
+class MolmoResult:
     """Wire response carrying at most one pixel."""
 
     point_xy: list[float] | None = None
     answer: str | None = None
     image_size: list[int] | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        return {k: v for k, v in self.__dict__.items() if v is not None}
 
-class MolmoEngine:
-    """Serialize Molmo inference behind one lock."""
 
-    def __init__(self, model: Any, processor: Any) -> None:
-        self._model = model
-        self._processor = processor
-        self._lock = threading.Lock()
+class MolmoFacade(RpcFacade):
+    """RPC server wrapping the local Molmo visual-grounding model."""
 
-    @classmethod
-    def load(cls, checkpoint: str) -> "MolmoEngine":
+    def __init__(self, checkpoint: str) -> None:
+        super().__init__()
+        self._load(checkpoint)
+        self._register_rpc()
+
+    def _load(self, checkpoint: str) -> None:
         try:
             import torch
             from transformers import AutoModelForImageTextToText, AutoProcessor
@@ -115,11 +111,17 @@ class MolmoEngine:
             .to("cuda")
             .eval()
         )
-        return cls(model, processor)
+        self._torch = torch
+        self._model = model
+        self._processor = processor
+        self._lock = threading.Lock()
 
-    def ground(self, image_bytes: bytes, query: str) -> GroundResponse:
-        import torch
+    def _register_rpc(self) -> None:
+        self._rpc["molmo.ground"] = self.ground
+        self._readonly_methods.add("molmo.ground")
 
+    def _ground_bytes(self, image_bytes: bytes, query: str) -> MolmoResult:
+        """Run one grounding prompt against the loaded model."""
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = image.size
         prompt = (
@@ -143,7 +145,7 @@ class MolmoEngine:
             return_dict=True,
         )
         inputs = {key: value.to(self._model.device) for key, value in inputs.items()}
-        with self._lock, torch.inference_mode():
+        with self._lock, self._torch.inference_mode():
             generated = self._model.generate(
                 **inputs, max_new_tokens=48, do_sample=False
             )
@@ -158,29 +160,19 @@ class MolmoEngine:
                 x / 1000 * width,
                 y / 1000 * height,
             ]
-        return GroundResponse(point_xy=point, answer=answer, image_size=[width, height])
-
-
-class MolmoFacade(RpcFacade):
-    """Expose :class:`MolmoEngine` through the shared RPC transports."""
-
-    def __init__(self, engine: MolmoEngine) -> None:
-        super().__init__()
-        self._engine = engine
-
-    def _dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if method == "ground":
-            return self.ground(*args, **kwargs)
-        return super()._dispatch(method, args, kwargs)
+        return MolmoResult(point_xy=point, answer=answer, image_size=[width, height])
 
     def ground(self, image_base64: str, query: str) -> dict[str, Any]:
-        request = GroundRequest(image_base64=image_base64, query=query)
-        image_bytes = base64.b64decode(request.image_base64, validate=True)
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("ground requires a non-empty query")
+        query = query.strip()
+        if not isinstance(image_base64, str):
+            raise ValueError("image_base64 must be a string")
+
+        image_bytes = base64.b64decode(image_base64, validate=True)
         if not image_bytes:
             raise ValueError("image_base64 is empty")
-        return self._engine.ground(image_bytes, request.query).model_dump(
-            exclude_none=True
-        )
+        return self._ground_bytes(image_bytes, query).to_dict()
 
 
 def _build_argparser() -> argparse.ArgumentParser:
@@ -214,7 +206,7 @@ def main() -> None:
             "MOLMO_CHECKPOINT_PATH is not set; export the path to the Molmo "
             "weights before starting RPent"
         )
-    facade = MolmoFacade(MolmoEngine.load(checkpoint))
+    facade = MolmoFacade(checkpoint)
     facade.serve(
         transport=args.transport,
         host=args.host,

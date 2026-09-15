@@ -65,7 +65,7 @@ class MolmoClient:
             image_bytes = bytes(image)
 
         payload = self._client.call(
-            "ground",
+            "molmo.ground",
             kwargs={
                 "image_base64": base64.b64encode(image_bytes).decode("ascii"),
                 "query": query.strip(),
