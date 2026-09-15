@@ -29,19 +29,25 @@ Rules:
 - Both arms are available (`left` / `right`). The Pi_05 policy may choose
   either arm for a grasp; monitor both after `pi0_pick`."""
 
-TOOL_ACCESS = """Tool invocation (important):
-- The robot tools are exposed as an MCP HTTP server. Find its URL in this
-  session's startup log: a line like `I [mcp_http] HttpMcpServer ready at
-  http://127.0.0.1:<port>/mcp/`.
-- Call tools with JSON-RPC over HTTP: `initialize` (stateless=true),
-  `tools/list`, then `tools/call` with {"name": ..., "arguments": {...}}.
-  If `/tmp/mcp_call.py` and `/tmp/mcp_images.py` exist, adapt them (update
-  the URL port) instead of writing a new client.
-- Do NOT read the environment/rpent source code to understand the tools;
-  use `tools/list` for schemas and get on with the task.
-- You are a text-only model: camera images are NOT visible to you. Trust
-  `segment` (pixel boxes) + `back_project` (world xyz) + depth instead of
-  trying to "look" at saved images."""
+TOOL_ACCESS = """A server process (`env_server.py`) is already running with the
+RoboDojo Isaac Sim environment and the Pi_05 policy attached. The runner manages
+that server and exposes structured tools. Do not start, stop, restart, or
+otherwise manage `env_server.py`.
+
+- Do NOT issue file-based protocol commands.
+- Do NOT emit plain-text pseudo tool calls or JSON action commands.
+- Call the real structured tools exposed by the runtime.
+- Use bare tool names in this prompt: `view_env_state`, `back_project`,
+  `segment`, `move_to`, `set_gripper`, `pi0_pick`, `get_reward_details`,
+  `get_safety_status`, `stabilize`, `place_in_bin`, `read_text_file`,
+  `write_text_file`, `list_dir`, `finish`.
+- Under some runtimes these same tools may appear namespaced; call the actual
+  tool name shown in your tool list, preserving the same arguments and
+  semantics.
+- `view_env_state` returns the camera images inline, so use them when your
+  model accepts images: they are the authority for identity and coarse
+  geometry. Metric coordinates still come from `segment` (pixel boxes) +
+  `back_project` (world xyz) + depth, never from estimating them visually."""
 
 PERCEPTION = """Localization (no ground-truth coordinates):
 - Call `view_env_state` first and inspect the head camera image.
@@ -59,9 +65,10 @@ TOOLS = """Motion and manipulation:
   `success` heuristic is provisional; confirm holds from the wrist camera.
 - Gripper semantics: 1 = close/hold, -1 = open. Keep the gripper closed while
   carrying an object.
-- `get_status` reports the step counter and step limit; the environment
-  reports task success via `is_success` / `get_status` when the task predicate
-  fires (e.g. bottles in the dustbin and grippers open)."""
+- The environment reports task success when the task predicate fires (e.g.
+  bottles in the dustbin and grippers open); read it from the `step` /
+  `step_limit` / `success` fields of `get_reward_details` or
+  `get_safety_status`."""
 
 SAFETY = """Safety:
 - Every tool result carries a `safety` block. If it reports a bottle as

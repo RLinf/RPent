@@ -16,19 +16,35 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from rpent.tools.toolkit import readonly
+
+# (camera key in the obs dict, artifact base name). Mirrors the ``frame_channels``
+# declared in ``robot_spec.ROBODOJO_DASHBOARD_SPEC``.
+CAMERA_ARTIFACTS: tuple[tuple[str, str], ...] = (
+    ("cam_head", "cam_head.png"),
+    ("cam_left_wrist", "cam_left_wrist.png"),
+    ("cam_right_wrist", "cam_right_wrist.png"),
+)
 
 TOOLS_SPEC: list[dict] = [
     {
         "name": "view_env_state",
         "description": (
-            "Return the current RoboDojo observation: three RGB cameras "
-            "(cam_head, cam_left_wrist, cam_right_wrist), robot joint/ee "
-            "state, depth, camera calibration, and the task instruction."
+            "Read one recorded RoboDojo state: robot joint/ee state, camera "
+            "shapes and calibration, the task instruction, and the three "
+            "camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). "
+            "Step -1 selects the latest record."
         ),
         "input_schema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "step": {
+                    "type": "integer",
+                    "description": "Recorded step to read (-1 = latest)",
+                }
+            },
         },
     },
     {
@@ -218,16 +234,46 @@ TOOLS_SPEC: list[dict] = [
 
 
 @readonly
-def view_env_state(primitives, state) -> dict:
-    primitives._last_obs = primitives.env.get_obs()
-    obs = primitives._last_obs
-    return _summarize_obs(obs)
+def view_env_state(step: int = -1, *, state) -> dict:
+    """Read one recorded RoboDojo state plus its camera artifacts.
+
+    ``step`` selects the record (``-1`` = latest). The three camera RGB PNGs
+    saved with that record are embedded as ``_image_bytes`` / ``_image_cam_bytes``
+    / ``_image_wrist_bytes`` so the planner receives them as image blocks.
+    """
+    try:
+        record = state.get(step)
+    except Exception as error:
+        return {"error": f"state step not available: {error}"}
+    result: dict[str, Any] = {
+        "step": record.step_idx,
+        "terminated": record.terminated,
+        "truncated": record.truncated,
+        "state": record.state,
+        "artifacts": sorted(record.artifacts),
+        "task_language": record.extras.get("task_language"),
+    }
+    result["log"] = {
+        "command": record.command,
+        "result": record.result,
+        "elapsed_s": record.elapsed_s,
+    }
+    for slot, (camera, artifact) in zip(
+        ("_image_bytes", "_image_cam_bytes", "_image_wrist_bytes"),
+        CAMERA_ARTIFACTS,
+    ):
+        if artifact in record.artifacts:
+            try:
+                result[slot] = state.load_bytes(artifact, step=record.step_idx)
+            except FileNotFoundError:
+                pass
+    return result
 
 
 def _summarize_obs(obs: dict) -> dict:
     vision = obs.get("vision", {})
     state_data = obs.get("state", {})
-    out = {
+    return {
         "instruction": obs.get("instruction"),
         "cameras": {
             name: {
@@ -250,11 +296,6 @@ def _summarize_obs(obs: dict) -> dict:
             }
         ),
     }
-    # Attach the head camera image so the planner can "see".
-    head = vision.get("cam_head", {}).get("color")
-    if head is not None:
-        out["_image_bytes"] = _png_bytes(head)
-    return out
 
 
 def back_project(primitives, state, row, col, camera="cam_head") -> dict:
@@ -363,6 +404,7 @@ def move_to(
     reached = False
     last_error = None
     for step in range(max_steps):
+        primitives._check_cancelled()
         if dist_to_target <= tol:
             reached = True
             break
@@ -487,6 +529,7 @@ def pi0_pick(
     success = False
     terminated = False
     for c in range(max_chunks):
+        primitives._check_cancelled()
         obs = _refresh_obs(primitives)
         obs["instruction"] = prompt
         for a in arms:
@@ -629,16 +672,6 @@ def place_in_bin(
     }
 
 
-def _png_bytes(arr) -> bytes:
-    import io
-
-    import imageio.v2 as imageio
-
-    buf = io.BytesIO()
-    imageio.imwrite(buf, arr, format="png")
-    return buf.getvalue()
-
-
 def _jsonable(obj):
     import numpy as np
 
@@ -657,16 +690,28 @@ def _jsonable(obj):
     return obj
 
 
-def dump_state(primitives, state, *, log: dict | None = None) -> dict:
-    """Capture one state record after a stateful tool (M1: view snapshot)."""
-    obs = primitives._last_obs
-    summary = _summarize_obs(obs) if obs is not None else {"error": "no obs yet"}
-    state_payload = {k: v for k, v in summary.items() if k != "_image_bytes"}
+def dump_state(primitives, state, *, log: dict | None = None):
+    """Record one RoboDojo observation and save its camera artifacts.
+
+    Fetches a live observation, appends a :class:`StepRecord` through
+    :meth:`EnvState.record_step`, writes the three camera RGB PNGs for that
+    step, and returns the record.
+    """
+    obs = _refresh_obs(primitives)
+    status = primitives.env.get_status()
+    log = log or {}
     with state.record_step(
-        state={"instruction": (obs or {}).get("instruction"), **state_payload},
-        command=(log or {}).get("command"),
-        result=(log or {}).get("result"),
-        elapsed_s=(log or {}).get("elapsed_s"),
+        state=_summarize_obs(obs),
+        terminated=bool(status.get("success", False)),
+        truncated=int(status.get("step", 0)) >= int(status.get("step_limit", 0) or 0),
+        command=log.get("command"),
+        result=log.get("result"),
+        elapsed_s=log.get("elapsed_s"),
+        extras={"task_language": primitives.env.get_task_language()},
     ) as step_idx:
-        pass
-    return {**state_payload, "step_idx": step_idx}
+        vision = obs.get("vision", {})
+        for camera, artifact in CAMERA_ARTIFACTS:
+            color = (vision.get(camera) or {}).get("color")
+            if color is not None:
+                state.save(artifact, color, step=step_idx)
+    return state.get(step_idx)

@@ -20,23 +20,82 @@ import argparse
 import os
 import sys
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.robodojo.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.spec import DashboardSpec
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_repo_root
+from rpent.utils.config import get_memory_dir, get_repo_root
+from rpent.utils.daemon import ProcessDaemon, pick_free_port
+from rpent.utils.rpc import make_rpc_client
+from rpent.utils.rpc.http_rpc import HttpRpcClient
 
 if TYPE_CHECKING:
-    from rpent.utils.daemon import ProcessDaemon
+    from rpent.utils.rpc import RpcClient
 
 
 DEFAULT_WORKSPACE = "/home/admin/robodojo_pro6000_ws"
 DEFAULT_TASK = "put_bottles_into_dustbin"
 DEFAULT_ENV_CFG = "arx_x5"
+
+ROBODOJO_TASK_SUGGESTIONS = (
+    "put_bottles_into_dustbin",
+    "fill_pen_holder",
+    "stack_bowls_random",
+)
+
+ROBODOJO_DASHBOARD_SPEC: DashboardSpec = {
+    "task": {
+        "command": "/rpent-task",
+        "usage": "/rpent-task <task> <layout>",
+        "fields": (
+            {"name": "task", "suggestions": ROBODOJO_TASK_SUGGESTIONS},
+            {"name": "layout", "kind": "integer", "minimum": 0},
+        ),
+        "display": "{task} / layout {layout}",
+        "output_slug": "{task}_l{layout}",
+    },
+    "runtime_components": (
+        {"name": "env", "label": "ENV", "scope": "unique"},
+        {"name": "vla", "label": "VLA", "scope": "shared"},
+        {"name": "sam3", "label": "SAM3", "scope": "shared"},
+    ),
+    "frame_channels": (
+        {
+            "name": "head",
+            "label": "head camera",
+            "artifact": "cam_head.png",
+        },
+        {
+            "name": "wrist_left",
+            "label": "left wrist camera",
+            "artifact": "cam_left_wrist.png",
+        },
+        {
+            "name": "wrist_right",
+            "label": "right wrist camera",
+            "artifact": "cam_right_wrist.png",
+        },
+    ),
+    "primitives": (
+        "view_env_state",
+        "back_project",
+        "segment",
+        "move_to",
+        "set_gripper",
+        "pi0_pick",
+        "get_reward_details",
+        "get_safety_status",
+        "stabilize",
+        "place_in_bin",
+    ),
+}
 
 
 def _read_runtime_env(workspace: str) -> dict[str, str]:
@@ -58,14 +117,18 @@ def _read_runtime_env(workspace: str) -> dict[str, str]:
     return out
 
 
-def _subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
-    env = os.environ.copy()
+def _runtime_overrides(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Build ``ProcessDaemon`` env overrides from the RoboDojo workspace.
+
+    Merges ``config/runtime.env`` exports and puts the workspace source roots
+    (RoboDojo + XPolicyLab) on the child ``PYTHONPATH``.
+    """
     runtime = _read_runtime_env(os.environ.get("ROBODOJO_WORKSPACE", DEFAULT_WORKSPACE))
-    env.update(runtime)
+    overrides = dict(runtime)
     conda_bin = runtime.get("ROBODOJO_CONDA_ROOT", "")
     if conda_bin:
-        env["PATH"] = f"{conda_bin}/bin" + (
-            f":{env.get('PATH', '')}" if env.get("PATH") else ""
+        overrides["PATH"] = f"{conda_bin}/bin" + (
+            f":{os.environ['PATH']}" if os.environ.get("PATH") else ""
         )
     source_root = runtime.get(
         "ROBODOJO_SOURCE_ROOT", DEFAULT_WORKSPACE + "/src/RoboDojo"
@@ -74,17 +137,17 @@ def _subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
         "ROBODOJO_XPOLICYLAB_ROOT",
         DEFAULT_WORKSPACE + "/src/RoboDojo/XPolicyLab",
     )
-    env["PYTHONPATH"] = ":".join(
+    overrides["PYTHONPATH"] = ":".join(
         [
             str(get_repo_root()),
             source_root,
             xpolicy_root,
-            env.get("PYTHONPATH", ""),
+            os.environ.get("PYTHONPATH", ""),
         ]
     )
     if extra:
-        env.update(extra)
-    return env
+        overrides.update(extra)
+    return overrides
 
 
 def get_robot_spec() -> RobotSpec:
@@ -95,7 +158,7 @@ def get_robot_spec() -> RobotSpec:
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
-        dashboard=None,
+        dashboard=ROBODOJO_DASHBOARD_SPEC,
     )
 
 
@@ -103,13 +166,18 @@ def get_toolkit(
     *,
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
+    config: RunConfig,
 ):
     """Return the RoboDojo toolkit (common tools + RoboDojo primitives)."""
     from robots.robodojo.toolkit import RoboDojoToolkit
 
+    memory = MemoryManager(
+        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robodojo"),
+    )
     return RoboDojoToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
+        memory=memory,
     )
 
 
@@ -139,10 +207,10 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--max-episode-steps", type=int, default=700)
     parser.add_argument(
-        "--sim-device",
+        "--cuda-device",
         type=int,
         default=0,
-        help="GPU device for the Isaac Sim env server",
+        help="GPU device for the Isaac Sim env server and Pi_05 policy",
     )
     parser.add_argument(
         "--random",
@@ -178,6 +246,12 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     recipe_tag = f"{args.task}_l{args.layout}"
     if getattr(args, "random", False):
         recipe_tag = f"{args.task}_random"
+    memory_arg = getattr(args, "memory_dir", None)
+    memory_dir = (
+        Path(memory_arg).expanduser().resolve()
+        if memory_arg
+        else get_memory_dir("robodojo")
+    )
     output_dir = args.output_dir
     if output_dir is None:
         ts = datetime.now().strftime("%Y%m%d-%H:%M:%S")
@@ -194,6 +268,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "action_type": args.action_type,
             "recipe_tag": recipe_tag,
             "task_summary": summary,
+            "memory_dir": str(memory_dir),
         },
         task_desc={"task": args.task, "layout": args.layout},
     )
@@ -201,11 +276,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
 
 def _spawn_env_server(
     args: argparse.Namespace, output_dir: Path
-) -> tuple["ProcessDaemon | None", Any]:
+) -> tuple["ProcessDaemon | None", RpcClient]:
     """Spawn (or attach to) the RoboDojo Isaac Sim env_server."""
-    from rpent.utils.config import get_repo_root
-    from rpent.utils.daemon import ProcessDaemon, pick_free_port
-    from rpent.utils.rpc.http_rpc import HttpRpcClient
+    if args.env_endpoint is not None:
+        return None, make_rpc_client(args.env_endpoint)
 
     runtime = _read_runtime_env(os.environ.get("ROBODOJO_WORKSPACE", DEFAULT_WORKSPACE))
     sim_python = str(Path(runtime.get("ROBODOJO_SIM_ENV", "")) / "bin" / "python")
@@ -215,152 +289,128 @@ def _spawn_env_server(
             "is ROBODOJO_SIM_ENV configured?"
         )
 
-    if args.env_endpoint is None:
-        host, port = "127.0.0.1", pick_free_port()
-        daemon = ProcessDaemon(
-            name="robodojo_env_server",
-            cmd=[
-                sim_python,
-                "-u",
-                str(get_repo_root() / "robots" / "robodojo" / "env_server.py"),
-                "--task",
-                args.task,
-                "--layout",
-                str(args.layout),
-                "--env-cfg-type",
-                args.env_cfg_type,
-                "--device-id",
-                str(args.sim_device),
-                "--num-envs",
-                "1",
-                "--max-episode-steps",
-                str(args.max_episode_steps),
-                "--host",
-                host,
-                "--port",
-                str(port),
-                "--parent-pid",
-                str(os.getpid()),
-                "--video-dir",
-                str(Path(output_dir) / "videos"),
-                "--headless",
-                "--enable_cameras",
-                "--transport",
-                "http",
-                "--parent-watch",
-                "--kit_args",
-                "--enable isaacsim.replicator.behavior "
-                "--enable isaacsim.sensors.camera",
-            ]
-            + (["--random"] if getattr(args, "random", False) else []),
-            env=_subprocess_env({"CUDA_VISIBLE_DEVICES": str(args.sim_device)}),
-            log_path=str(Path(output_dir) / "robodojo_env_server.log"),
-        )
-        daemon.start()
-        rpc: Any = HttpRpcClient(f"http://{host}:{port}")
-    else:
-        from rpent.utils.rpc import parse_endpoint
-
-        _, host, port = parse_endpoint(args.env_endpoint)
-        rpc = HttpRpcClient(f"http://{host}:{port}")
-        daemon = None
-    return daemon, rpc
+    host, port = "127.0.0.1", pick_free_port()
+    daemon = ProcessDaemon(
+        name="robodojo_env_server",
+        cmd=[
+            sim_python,
+            "-u",
+            str(get_repo_root() / "robots" / "robodojo" / "env_server.py"),
+            "--task",
+            args.task,
+            "--layout",
+            str(args.layout),
+            "--env-cfg-type",
+            args.env_cfg_type,
+            "--cuda-device",
+            str(args.cuda_device),
+            "--num-envs",
+            "1",
+            "--max-episode-steps",
+            str(args.max_episode_steps),
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--parent-pid",
+            str(os.getpid()),
+            "--video-dir",
+            str(Path(output_dir) / "videos"),
+            "--headless",
+            "--enable_cameras",
+            "--transport",
+            "http",
+            "--parent-watch",
+            "--kit_args",
+            "--enable isaacsim.replicator.behavior --enable isaacsim.sensors.camera",
+        ]
+        + (["--random"] if getattr(args, "random", False) else []),
+        env_overrides=_runtime_overrides(
+            {"CUDA_VISIBLE_DEVICES": str(args.cuda_device)}
+        ),
+        log_path=str(Path(output_dir) / "robodojo_env_server.log"),
+    )
+    daemon.start()
+    return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
 def _spawn_sam3_server(
     args: argparse.Namespace, output_dir: Path
-) -> tuple["ProcessDaemon | None", Any]:
+) -> tuple["ProcessDaemon | None", RpcClient]:
     """Spawn (or attach to) the env-agnostic SAM3 server."""
-    from rpent.utils.config import get_repo_root
-    from rpent.utils.daemon import ProcessDaemon, pick_free_port
-    from rpent.utils.rpc import parse_endpoint
-    from rpent.utils.rpc.http_rpc import HttpRpcClient
+    if args.sam3_endpoint is not None:
+        return None, make_rpc_client(args.sam3_endpoint)
 
-    if args.sam3_endpoint is None:
-        host, port = "127.0.0.1", pick_free_port()
-        daemon = ProcessDaemon(
-            name="sam3_server",
-            cmd=[
-                sys.executable,
-                str(get_repo_root() / "robots" / "libero" / "sam3_server.py"),
-                "--transport",
-                "http",
-                "--host",
-                host,
-                "--port",
-                str(port),
-                "--parent-watch",
-                "--cuda-device",
-                str(args.sim_device),
-            ],
-            env=os.environ.copy(),
-            log_path=str(Path(output_dir) / "sam3_server.log"),
-        )
-        daemon.start()
-        rpc: Any = HttpRpcClient(f"http://{host}:{port}")
-    else:
-        _, host, port = parse_endpoint(args.sam3_endpoint)
-        rpc = HttpRpcClient(f"http://{host}:{port}")
-        daemon = None
-    return daemon, rpc
+    host, port = "127.0.0.1", pick_free_port()
+    daemon = ProcessDaemon(
+        name="sam3_server",
+        cmd=[
+            sys.executable,
+            str(get_repo_root() / "rpent" / "robots" / "components" / "sam3_server.py"),
+            "--transport",
+            "http",
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--parent-watch",
+            "--cuda-device",
+            str(args.cuda_device),
+        ],
+        log_path=str(Path(output_dir) / "sam3_server.log"),
+    )
+    daemon.start()
+    return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
 def _spawn_vla_server(
     args: argparse.Namespace, output_dir: Path
-) -> tuple["ProcessDaemon | None", Any]:
+) -> tuple["ProcessDaemon | None", RpcClient]:
     """Spawn (or attach to) the RoboDojo Pi_05 VLA server."""
-    from rpent.utils.config import get_repo_root
-    from rpent.utils.daemon import ProcessDaemon, pick_free_port
-    from rpent.utils.rpc import parse_endpoint
-    from rpent.utils.rpc.http_rpc import HttpRpcClient
+    if args.vla_endpoint is not None:
+        return None, make_rpc_client(args.vla_endpoint)
 
-    if args.vla_endpoint is None:
-        runtime = _read_runtime_env(
-            os.environ.get("ROBODOJO_WORKSPACE", DEFAULT_WORKSPACE)
-        )
-        pi05_python = str(Path(runtime.get("ROBODOJO_PI05_ENV", "")) / "bin" / "python")
-        if not Path(pi05_python).exists():
-            raise RuntimeError(f"RoboDojo Pi_05 env python not found: {pi05_python}")
-        policy_port = pick_free_port()
-        host, port = "127.0.0.1", pick_free_port()
-        daemon = ProcessDaemon(
-            name="robodojo_vla_server",
-            cmd=[
-                pi05_python,
-                "-u",
-                str(get_repo_root() / "robots" / "robodojo" / "vla_server.py"),
-                "--task",
-                args.task,
-                "--env-cfg-type",
-                args.env_cfg_type,
-                "--action-type",
-                args.action_type,
-                "--ckpt",
-                "RoboDojo-sim-arx_x5-joint-0",
-                "--policy-gpu",
-                str(args.sim_device),
-                "--policy-port",
-                str(policy_port),
-                "--host",
-                host,
-                "--port",
-                str(port),
-                "--parent-pid",
-                str(os.getpid()),
-                "--transport",
-                "http",
-                "--parent-watch",
-            ],
-            env=_subprocess_env({"CUDA_VISIBLE_DEVICES": str(args.sim_device)}),
-            log_path=str(Path(output_dir) / "robodojo_vla_server.log"),
-        )
-        daemon.start()
-        rpc: Any = HttpRpcClient(f"http://{host}:{port}")
-    else:
-        _, host, port = parse_endpoint(args.vla_endpoint)
-        rpc = HttpRpcClient(f"http://{host}:{port}")
-        daemon = None
-    return daemon, rpc
+    runtime = _read_runtime_env(os.environ.get("ROBODOJO_WORKSPACE", DEFAULT_WORKSPACE))
+    pi05_python = str(Path(runtime.get("ROBODOJO_PI05_ENV", "")) / "bin" / "python")
+    if not Path(pi05_python).exists():
+        raise RuntimeError(f"RoboDojo Pi_05 env python not found: {pi05_python}")
+    policy_port = pick_free_port()
+    host, port = "127.0.0.1", pick_free_port()
+    daemon = ProcessDaemon(
+        name="robodojo_vla_server",
+        cmd=[
+            pi05_python,
+            "-u",
+            str(get_repo_root() / "robots" / "robodojo" / "vla_server.py"),
+            "--task",
+            args.task,
+            "--env-cfg-type",
+            args.env_cfg_type,
+            "--action-type",
+            args.action_type,
+            "--ckpt",
+            "RoboDojo-sim-arx_x5-joint-0",
+            "--policy-gpu",
+            str(args.cuda_device),
+            "--policy-port",
+            str(policy_port),
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--parent-pid",
+            str(os.getpid()),
+            "--transport",
+            "http",
+            "--parent-watch",
+        ],
+        env_overrides=_runtime_overrides(
+            {"CUDA_VISIBLE_DEVICES": str(args.cuda_device)}
+        ),
+        log_path=str(Path(output_dir) / "robodojo_vla_server.log"),
+    )
+    daemon.start()
+    return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
 def _init_runtime(
@@ -368,87 +418,66 @@ def _init_runtime(
     output_dir: Path,
     dashboard_events: DashboardEventSink,
     components: set[str] | None,
-) -> tuple[list["ProcessDaemon"], dict[str, Any]]:
+) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every RoboDojo component, or only ``components`` when given."""
     from robots.robodojo.env_client import RoboDojoEnvClient
     from robots.robodojo.vla_client import RoboDojoVLAClient
-    from rpent.utils.sam3_client import Sam3Client
+    from rpent.robots.components.sam3_client import Sam3Client
 
-    available = {"env", "vla", "sam3"}
-    selected = set(components or available)
-    unknown = selected.difference(available)
+    starters = {
+        "env": lambda: _spawn_env_server(args, output_dir),
+        "vla": lambda: _spawn_vla_server(args, output_dir),
+        "sam3": lambda: _spawn_sam3_server(args, output_dir),
+    }
+    connectors = {
+        "env": lambda rpc: {
+            "env": RoboDojoEnvClient(
+                rpc,
+                expected_meta={
+                    "task": args.task,
+                    "layout": args.layout,
+                    "env_cfg_type": args.env_cfg_type,
+                    "device_id": args.cuda_device,
+                    "num_envs": 1,
+                    "max_episode_steps": args.max_episode_steps,
+                    "random": getattr(args, "random", False),
+                },
+            )
+        },
+        "vla": lambda rpc: {"vla_client": RoboDojoVLAClient(rpc)},
+        "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
+    }
+    timeouts = {"env": 900.0, "sam3": 300.0, "vla": 1800.0}
+    wait_order = ("env", "sam3", "vla")
+    selected = set(starters) if components is None else set(components)
+    unknown = selected.difference(starters)
     if unknown:
         raise ValueError(f"unknown RoboDojo runtime components: {sorted(unknown)}")
 
+    pending: dict[str, tuple[ProcessDaemon | None, RpcClient]] = {}
     owned_daemons: dict[str, ProcessDaemon] = {}
+    for component, starter in starters.items():
+        if component in selected:
+            pending[component] = try_spawn_server(
+                owned_daemons,
+                dashboard_events,
+                component,
+                starter,
+            )
+
     primitives_kwargs: dict[str, Any] = {}
-
-    if "env" in selected:
-        env_daemon, env_rpc = try_spawn_server(
+    for component in (name for name in wait_order if name in pending):
+        daemon, rpc = pending[component]
+        component_kwargs = try_wait_server(
             owned_daemons,
             dashboard_events,
-            "env",
-            lambda: _spawn_env_server(args, output_dir),
+            component,
+            rpc,
+            daemon,
+            timeouts[component],
+            post_fn=partial(connectors[component], rpc),
         )
-        env_kwargs = try_wait_server(
-            owned_daemons,
-            dashboard_events,
-            "env",
-            env_rpc,
-            env_daemon,
-            900.0 if env_daemon is not None else 300.0,
-            post_fn=lambda: {
-                "env": RoboDojoEnvClient(
-                    env_rpc,
-                    expected_meta={
-                        "task": args.task,
-                        "layout": args.layout,
-                        "env_cfg_type": args.env_cfg_type,
-                        "device_id": args.sim_device,
-                        "num_envs": 1,
-                        "max_episode_steps": args.max_episode_steps,
-                        "random": getattr(args, "random", False),
-                    },
-                )
-            },
-        )
-        primitives_kwargs.update(env_kwargs)
-
-    if "sam3" in selected:
-        sam3_daemon, sam3_rpc = try_spawn_server(
-            owned_daemons,
-            dashboard_events,
-            "sam3",
-            lambda: _spawn_sam3_server(args, output_dir),
-        )
-        sam3_kwargs = try_wait_server(
-            owned_daemons,
-            dashboard_events,
-            "sam3",
-            sam3_rpc,
-            sam3_daemon,
-            300.0 if sam3_daemon is not None else 60.0,
-            post_fn=lambda: {"sam3_client": Sam3Client(sam3_rpc)},
-        )
-        primitives_kwargs.update(sam3_kwargs)
-
-    if "vla" in selected:
-        vla_daemon, vla_rpc = try_spawn_server(
-            owned_daemons,
-            dashboard_events,
-            "vla",
-            lambda: _spawn_vla_server(args, output_dir),
-        )
-        vla_kwargs = try_wait_server(
-            owned_daemons,
-            dashboard_events,
-            "vla",
-            vla_rpc,
-            vla_daemon,
-            1800.0 if vla_daemon is not None else 300.0,
-            post_fn=lambda: {"vla_client": RoboDojoVLAClient(vla_rpc)},
-        )
-        primitives_kwargs.update(vla_kwargs)
+        primitives_kwargs.update(component_kwargs)
 
     primitives_kwargs["action_type"] = args.action_type
     primitives_kwargs["task"] = args.task

@@ -581,16 +581,44 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         except Exception:  # noqa: BLE001
             return self.meta["task"]
 
-    def get_camera_meta(self) -> dict[str, Any]:
-        obs = self.env.get_obs(env_idx=0)
-        vision = obs.get("vision") or {}
-        return {name: {"width": 640, "height": 480} for name in vision}
-
-    def render_camera(self, camera_name: str | None = None) -> dict[str, Any]:
-        vision = _obs_dict(self.env, self.recorder).get("vision") or {}
-        if camera_name is not None and camera_name not in vision:
+    def get_camera_meta(
+        self,
+        camera_name: str,
+        height: int | None = None,
+        width: int | None = None,
+    ) -> dict[str, Any]:
+        cam = (self.env.get_obs(env_idx=0).get("vision") or {}).get(camera_name)
+        if cam is None:
             raise ValueError(f"unknown camera: {camera_name!r}")
-        return vision
+        meta: dict[str, Any] = {
+            "camera_name": camera_name,
+            "intrinsic_matrix": _encode(cam.get("intrinsic_matrix")),
+            "extrinsic_matrix": _encode(cam.get("extrinsic_matrix")),
+        }
+        color = cam.get("color")
+        if color is not None:
+            shape = np.asarray(color).shape
+            meta["height"], meta["width"] = int(shape[0]), int(shape[1])
+        return meta
+
+    def render_camera(
+        self,
+        camera_name: str,
+        height: int | None = None,
+        width: int | None = None,
+        depth: bool = False,
+    ) -> Any:
+        del height, width  # Isaac Sim cameras render at a fixed resolution
+        cam = (self.env.get_obs(env_idx=0).get("vision") or {}).get(camera_name)
+        if cam is None:
+            raise ValueError(f"unknown camera: {camera_name!r}")
+        rgb = np.asarray(cam.get("color"))
+        if not depth:
+            return rgb
+        depth_map = cam.get("distance_to_image_plane")
+        if depth_map is None:
+            depth_map = cam.get("depth")
+        return rgb, (np.asarray(depth_map) if depth_map is not None else None)
 
     def reset(self) -> dict[str, Any]:
         if self.meta["random"]:

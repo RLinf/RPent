@@ -17,12 +17,15 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rpent.dashboard.events import DashboardEventSink
-from rpent.tools.state import EnvState
+from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_output_dir
+
+if TYPE_CHECKING:
+    from rpent.memory.manager import MemoryManager
 
 
 class RoboDojoToolkit(Toolkit):
@@ -33,9 +36,26 @@ class RoboDojoToolkit(Toolkit):
         *,
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
+        memory: MemoryManager,
     ) -> None:
         state = EnvState(get_output_dir())
-        super().__init__(dashboard_events=dashboard_events, state=state)
+        super().__init__(
+            dashboard_events=dashboard_events,
+            state=state,
+            memory=memory,
+        )
+        self.init_primitives(primitives_kwargs=primitives_kwargs)
+        self._register_robodojo_tools()
+
+    def init_primitives(self, *, primitives_kwargs: dict[str, Any]) -> None:
+        """Wipe stale run artifacts, build the primitives, dump step 0.
+
+        The env server resets the Isaac Sim scene once at boot, so the client
+        does not re-reset here; this only establishes the initial state record.
+        """
+        from robots.robodojo import tools as robodojo_tools
+
+        self._state.reset()
         self._primitives = RoboDojoPrimitives(
             env=primitives_kwargs["env"],
             sam3_client=primitives_kwargs.get("sam3_client"),
@@ -44,7 +64,18 @@ class RoboDojoToolkit(Toolkit):
             check_cancelled=self.raise_if_cancelled,
         )
         self._task_name = primitives_kwargs.get("task", "")
-        self._register_robodojo_tools()
+        self._publish_step(
+            robodojo_tools.dump_state(self._primitives, self._state, log=None)
+        )
+
+    def close(self) -> None:
+        """Flush the env server's episode videos before the daemon is stopped."""
+        self._primitives.env.close()
+
+    def solved(self) -> bool:
+        """Return the success value from the final recorded environment state."""
+        record = self._state.latest_record()
+        return bool(record is not None and record.terminated)
 
     def _register_robodojo_tools(self) -> None:
         from robots.robodojo import tools as robodojo_tools
@@ -52,7 +83,6 @@ class RoboDojoToolkit(Toolkit):
         state_handlers = {
             "view_env_state": partial(
                 robodojo_tools.view_env_state,
-                primitives=self._primitives,
                 state=self._state,
             ),
             "back_project": partial(
@@ -122,16 +152,12 @@ class RoboDojoToolkit(Toolkit):
     ) -> dict[str, Any]:
         from robots.robodojo import tools as robodojo_tools
 
-        dump = robodojo_tools.dump_state(
+        record = robodojo_tools.dump_state(
             self._primitives,
             self._state,
             log={"command": command, "result": result, "elapsed_s": elapsed_s},
         )
-        # Surface the tool's own result (e.g. move_to diagnostics) to the LLM;
-        # the stateful capture would otherwise replace it with the full dump.
-        clean = {k: v for k, v in (result or {}).items() if k != "_image_bytes"}
-        dump["last_result"] = robodojo_tools._jsonable(clean)
-        return dump
+        return robodojo_tools.view_env_state(record.step_idx, state=self._state)
 
 
 class RoboDojoPrimitives:
@@ -144,8 +170,3 @@ class RoboDojoPrimitives:
         self.action_type = action_type
         self._check_cancelled = check_cancelled
         self._last_obs = None
-
-    def view_env_state(self) -> dict[str, Any]:
-        self._check_cancelled()
-        self._last_obs = self.env.get_obs()
-        return self._last_obs
