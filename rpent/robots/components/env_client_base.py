@@ -28,7 +28,7 @@ class BaseEnvClient:
         "env.render_camera": 120.0,
     }
 
-    def __init__(self, client, *, expected_meta: dict):
+    def __init__(self, client, *, expected_meta: dict, reset_on_connect: bool = True):
         self._client = client
         server_meta = self._client.call(
             "env.get_env_meta",
@@ -39,7 +39,8 @@ class BaseEnvClient:
             "The env_server was launched with different args than this client "
             "expects — kill the stale env_server and relaunch."
         )
-        self.reset()
+        if reset_on_connect:
+            self.reset()
 
     def reset(self):
         """Reset the env and return the initial obs. Also updates the
