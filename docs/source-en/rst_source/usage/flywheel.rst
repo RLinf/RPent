@@ -7,12 +7,6 @@ The optional Flywheel records executed LIBERO evaluation trajectories without
 changing the planner or action primitives. It stores immutable raw episodes;
 conversion to a training format is a separate step.
 
-.. note::
-
-   The current workflow is limited to LIBERO evaluation trajectory collection,
-   dataset export, and supervised fine-tuning (SFT) in a separate RLinf
-   environment. These steps are run separately.
-
 Installation
 ------------
 
