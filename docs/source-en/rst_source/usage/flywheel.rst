@@ -11,8 +11,7 @@ conversion to a training format is a separate step.
 
    The current workflow is limited to LIBERO evaluation trajectory collection,
    dataset export, and supervised fine-tuning (SFT) in a separate RLinf
-   environment. These steps are run separately. This guide does not yet include
-   results demonstrating policy improvements from the workflow.
+   environment. These steps are run separately.
 
 Installation
 ------------
