@@ -322,6 +322,13 @@ def _start_continuation_session(
         session_max,
         robot_name=args.robot_name,
     )
+    previous_session = (
+        Path(output_dir) / "sessions" / f"session_{session_number - 1:03d}"
+    )
+    session_message += (
+        f"\nRead the previous session's recorded steps in {previous_session}/ "
+        f"and working notes under {prompt_vars.get('memory_inbox', 'the memory inbox')}/wip/."
+    )
     return planner, system_prompt, session_message
 
 
@@ -352,9 +359,18 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    if robot_spec.run_diagnostic is not None:
+        try:
+            result = robot_spec.run_diagnostic(args)
+        except ValueError as error:
+            parser.error(str(error))
+        if result is not None:
+            return result
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
-    if robot_spec.is_real_robot:
+    if robot_spec.is_real_robot and not (robot_spec.dashboard or {}).get(
+        "external_env", False
+    ):
         if args.dashboard or args.interactive:
             parser.error(
                 "This robot requires exclusive terminal input for operator confirmation; "
@@ -584,6 +600,7 @@ def main() -> int:
         "model": args.model,
         "elapsed_s": round(elapsed, 1),
         "finish": finish_result,
+        "environment_success": environment_success,
         "stats": stats,
         "messages": _serialize_messages(messages),
     }
@@ -630,7 +647,9 @@ def main() -> int:
     if (
         getattr(args, "explore", False)
         and getattr(args, "auto_merge_memory", False)
-        and not agent_error
+        # An unsolved hardware failure still has useful inbox lessons. Keep
+        # the error exit status and never publish a solved recipe on this path.
+        and (not agent_error or not solved)
         and memory_manager is not None
     ):
         try:

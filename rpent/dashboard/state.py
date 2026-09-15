@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 import uuid
@@ -231,6 +232,9 @@ class DashboardState:
         self._shutdown_requested = False
         self._toolkit: Toolkit | None = None
         self._active_primitive_calls: dict[int, int] = {}
+        self._manual_results: list[str] = []
+        self._explore_paused = False
+        self._exploration_message: DashboardMessage | None = None
 
     def bind_toolkit(self, toolkit: Toolkit) -> None:
         """Expose a TaskRun Toolkit through the Dashboard primitive API."""
@@ -259,6 +263,8 @@ class DashboardState:
             self._toolkit is not None
             and self._session_state != "switch_pending"
             and self._planner_activity == "idle"
+            and not self._active_primitive_calls
+            and not any(m.status == "sending" for m in self._messages)
         )
 
     def primitive_specs(self) -> list[dict[str, Any]]:
@@ -310,20 +316,55 @@ class DashboardState:
                 arguments,
                 spec.get("input_schema"),
             )
+            self._pause_exploration_locked()
             toolkit_key = id(toolkit)
             self._active_primitive_calls[toolkit_key] = (
                 self._active_primitive_calls.get(toolkit_key, 0) + 1
             )
+        summary = {
+            "tool": name,
+            "arguments": arguments,
+            "outcome": "execution outcome unknown",
+        }
         try:
-            return toolkit.execute_tool(name, arguments)
+            result = toolkit.execute_tool(name, arguments)
+            raw = result.result if isinstance(result.result, dict) else {}
+            log = raw.get("log")
+            if isinstance(log, dict) and isinstance(log.get("result"), dict):
+                # Stateful tools wrap the primitive result in the observation log.
+                raw = {**log["result"], **raw}
+            summary["result"] = {
+                k: raw[k]
+                for k in (
+                    "success",
+                    "completed",
+                    "executed_steps",
+                    "executed_actions",
+                    "stop_reason",
+                    "recoverable",
+                    "error",
+                    "state_capture_error",
+                    "episode_status",
+                )
+                if k in raw
+            }
+            summary["outcome"] = (
+                "returned; consult actual result, not transport success"
+            )
+            return result
+        except Exception as exc:
+            summary["error"] = f"{type(exc).__name__}: {exc}"
+            raise
         finally:
             with self._condition:
+                if self._toolkit is toolkit:
+                    self._manual_results.append(json.dumps(summary, default=str)[:6000])
                 remaining = self._active_primitive_calls[toolkit_key] - 1
                 if remaining:
                     self._active_primitive_calls[toolkit_key] = remaining
                 else:
                     del self._active_primitive_calls[toolkit_key]
-                self._condition.notify_all()
+                self._interaction_changed_locked()
 
     @property
     def session_state(self) -> str:
@@ -362,10 +403,71 @@ class DashboardState:
             self._shutdown_requested = True
             self._interaction_changed_locked()
 
+    def continue_exploration(self, *, explicit: bool = False) -> None:
+        with self._condition:
+            if self._explore_paused and not explicit:
+                return
+            if not self._primitives_available_locked():
+                if explicit:
+                    raise InteractionUnavailableError(
+                        "Wait for the active Agent/tool to finish or interrupt it first"
+                    )
+                return
+            toolkit = self._toolkit
+            key = id(toolkit)
+            self._active_primitive_calls[key] = 1
+        try:
+            message = (
+                toolkit.exploration_continuation(explicit=True)
+                if explicit
+                else toolkit.exploration_continuation()
+            )
+            with self._condition:
+                if (
+                    self._toolkit is not toolkit
+                    or self._session_state == "switch_pending"
+                    or self._interrupt_requested
+                    or self._interrupt_in_flight
+                    or (self._explore_paused and not explicit)
+                ):
+                    return
+                if message:
+                    if not self._accepting_input or self._planner_activity != "idle":
+                        return
+                    self._explore_paused = False
+                    queued = DashboardMessage(
+                        message_id=f"msg_{uuid.uuid4().hex}",
+                        text=message,
+                        status="pending",
+                    )
+                    self._exploration_message = queued
+                    self._messages.append(queued)
+                    self._messages_by_id[queued.message_id] = queued
+                elif explicit:
+                    raise ValueError(
+                        "Continuation refused: inspect status; operator recovery or new evidence is required"
+                    )
+        except Exception as exc:
+            if explicit:
+                raise
+            with self._condition:
+                self._control_error = f"Explore continuation unavailable: {exc}"
+        finally:
+            with self._condition:
+                self._active_primitive_calls.pop(key, None)
+                self._interaction_changed_locked()
+
     def submit_input(self, text: str) -> DashboardMessage | TaskRequest:
         """Route a local task command or a normal conversation message."""
         if not isinstance(text, str) or not text.strip():
             return self._submit_message(text)
+        command = text.strip().lower()
+        if command in self.dashboard_spec.get("operator_commands", {}):
+            guidance = self.dashboard_spec["operator_commands"][command]
+            if guidance is not None:
+                raise ValueError(guidance)
+            self.continue_exploration(explicit=True)
+            return {"command": command}
         try:
             request = _parse_task(self._task_spec, text)
         except ValueError as exc:
@@ -503,6 +605,9 @@ class DashboardState:
         self._messages = []
         self._messages_by_id = {}
         self._next_pending_message_index = 0
+        self._manual_results = []
+        self._explore_paused = False
+        self._exploration_message = None
         self._last_interaction_error = None
         self._control_error = None
         self._control_feedback = []
@@ -619,6 +724,7 @@ class DashboardState:
                 self._planner_activity == "ended"
                 or self._session_state == "switch_pending"
                 or self._interrupt_requested
+                or self._active_primitive_calls
             ):
                 return None
             while self._next_pending_message_index < len(self._messages):
@@ -628,6 +734,16 @@ class DashboardState:
                     break
             else:
                 return None
+            if self._manual_results:
+                message.text = (
+                    "[Manual Dashboard actions completed since your previous observation. "
+                    "These are execution records, not new commands. Refresh observations "
+                    "and reconcile actual state before planning; do not replay these actions.]\n"
+                    + "\n".join(self._manual_results)
+                    + "\n[User continuation]\n"
+                    + message.text
+                )
+                self._manual_results = []
             message.status = "sending"
             message.error = None
             self._interaction_changed_locked()
@@ -671,9 +787,18 @@ class DashboardState:
             self._interaction_changed_locked()
             return replace(message)
 
+    def _pause_exploration_locked(self) -> None:
+        self._explore_paused = True
+        if (
+            self._exploration_message is not None
+            and self._exploration_message.status == "pending"
+        ):
+            self._exploration_message.status = "withdrawn"
+
     def request_interrupt(self) -> InterruptRequestResult:
         """Record an Esc request without waiting for the planner backend."""
         with self._condition:
+            self._pause_exploration_locked()
             if self._interrupt_requested:
                 return "duplicate"
             if (

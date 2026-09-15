@@ -122,6 +122,12 @@ robocasa = [
 flywheel = [
     "lerobot>=0.3.3,<0.4",
 ]
+yam = [
+    # The station's RLinf YAM fork and i2rt SDK are installed separately.
+    "mujoco>=3.2,<4",
+    "pyrealsense2>=2.55,<3",
+    "imageio-ffmpeg",
+]
 robotwin = [
     "rpent[rlinf]",
     "rlinf-robotwin-runtime==0.1.1",
@@ -169,11 +175,12 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rpent*"]
+include = ["rpent*", "robots", "robots.yam*"]
 exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
+"robots.yam" = ["config.example.json", "guides/*.md"]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]

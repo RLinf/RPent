@@ -196,6 +196,9 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     class FakeToolkit:
         memory = FakeMemoryManager()
 
+        def cancel_active_and_wait(self) -> None:
+            pass
+
         def solved(self) -> bool:
             solved_calls.append(True)
             return len(solved_calls) == sessions
@@ -248,6 +251,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
     robot_spec = SimpleNamespace(
         name="custom_exploration_env",
+        finalize_run=None,
         supports_exploration=True,
         is_real_robot=False,
         parse_config=lambda args: run_config,

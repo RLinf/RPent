@@ -77,6 +77,8 @@ def _capture_validated_args(
     def get_robot_spec(name: str):
         captured["robot_name"] = name
         return SimpleNamespace(
+            name=name,
+            run_diagnostic=None,
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
@@ -234,6 +236,7 @@ def test_shared_cli_validation_stops_before_robot_runtime(
         "get_robot_spec",
         lambda name: SimpleNamespace(
             name=name,
+            run_diagnostic=None,
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
@@ -350,6 +353,8 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
     cli = _cli_module()
     spec = SimpleNamespace(
         is_real_robot=True,
+        run_diagnostic=None,
+        dashboard=None,
         add_cli_args=lambda parser, use_dashboard: None,
     )
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
@@ -386,9 +391,14 @@ def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) 
     assert "memory inbox under wip/" in message
 
 
+@pytest.mark.parametrize(
+    "solved,close_error", [(True, False), (False, False), (False, True), (True, True)]
+)
 def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    solved: bool,
+    close_error: bool,
 ) -> None:
     cli = _cli_module()
     from rpent.planner.base import PlannerResult
@@ -396,6 +406,10 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     from rpent.tools.toolkit import ToolResult
 
     calls: dict[str, Any] = {}
+    finish_args = {
+        "status": "success" if solved else "failure",
+        "summary": "simulated task complete" if solved else "simulated CAN failure",
+    }
 
     class FakeMemoryManager:
         def merge_memory(self, **kwargs: Any) -> dict[str, int]:
@@ -427,9 +441,11 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
         def close(self) -> None:
             self.closed = True
+            if close_error:
+                raise RuntimeError("could not deliver stop to failed CAN chain")
 
         def solved(self) -> bool:
-            return True
+            return solved
 
         def write_recipe(self, recipe_tag: str) -> str:
             calls["write_recipe"] = recipe_tag
@@ -455,7 +471,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             }
             finish = toolkit.execute_tool(
                 "finish",
-                {"status": "success", "summary": "simulated task complete"},
+                finish_args,
             )
             return PlannerResult(
                 finish_result=finish.result,
@@ -539,7 +555,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         ],
     )
 
-    assert cli.main() == 0
+    assert cli.main() == int(close_error)
 
     assert calls["solve"] == {
         "system_prompt": "simulated system prompt\n",
@@ -548,27 +564,30 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         "input_queue": None,
         "dashboard_interaction": None,
     }
-    assert toolkit.calls == [
-        ("finish", {"status": "success", "summary": "simulated task complete"})
-    ]
+    assert toolkit.calls == [("finish", finish_args)]
     assert toolkit.closed is True
     assert daemon.stopped is True
     assert calls["get_toolkit"][1]["primitives_kwargs"] == {"runtime": "simulated"}
     assert calls["get_toolkit"][1]["mode"] == "exploration"
     assert calls["get_toolkit"][1]["attempts_per_session"] == 2
-    assert calls["write_recipe"] == "libero_s0"
-    assert calls["merge_memory"] == {
-        "cell_tag": "libero_s0",
-        "run_state_dir": tmp_path,
-        "solved": True,
-    }
+    if solved:
+        assert calls["write_recipe"] == "libero_s0"
+    else:
+        assert "write_recipe" not in calls
+    if close_error and solved:
+        assert "merge_memory" not in calls
+    else:
+        assert calls["merge_memory"] == {
+            "cell_tag": "libero_s0",
+            "run_state_dir": tmp_path,
+            "solved": solved,
+        }
 
     transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
     assert transcript["robot"] == "libero"
     assert transcript["finish"] == {
         "_finish": True,
-        "status": "success",
-        "summary": "simulated task complete",
+        **finish_args,
     }
     assert transcript["stats"]["tool_calls"] == 1
     assert transcript["messages"] == [

@@ -1,0 +1,139 @@
+{
+  "task_name": "pick_place",
+  "task_language": "Pick up the block and place it in the target container.",
+  "seed": 0,
+  "max_episode_steps": 1000,
+  "max_joint_delta_per_step": 0.05,
+  "feedback_timeout_s": 0.25,
+  "camera_frame_timeout_s": 1.0,
+  "camera_warmup_frames": 15,
+  "joint_limit_min": [
+    [
+      -2.61799,
+      0.0,
+      0.0,
+      -1.69297,
+      -1.5708,
+      -2.0944
+    ],
+    [
+      -2.61799,
+      0.0,
+      0.0,
+      -1.69297,
+      -1.5708,
+      -2.0944
+    ]
+  ],
+  "joint_limit_max": [
+    [
+      3.14159,
+      3.66519,
+      3.14159,
+      1.5708,
+      1.5708,
+      2.0944
+    ],
+    [
+      3.14159,
+      3.66519,
+      3.14159,
+      1.5708,
+      1.5708,
+      2.0944
+    ]
+  ],
+  "table_z": null,
+  "table_clearance_m": 0.03,
+  "path_joint_delta": 0.02,
+  "devices": {
+    "left_follower": {
+      "channel": "can_left",
+      "arm_type": "yam",
+      "gripper_type": "flexible_4310",
+      "ee_mass": null,
+      "gripper_limits": null,
+      "gravity_comp_factor": [
+        1.0,
+        1.1,
+        1.1,
+        1.2,
+        1.0,
+        1.0
+      ],
+      "grav_comp_kd": null,
+      "coulomb_friction": null,
+      "use_coulomb_friction": true,
+      "enable_auto_recovery": false
+    },
+    "right_follower": {
+      "channel": "can_right",
+      "arm_type": "yam",
+      "gripper_type": "flexible_4310",
+      "ee_mass": null,
+      "gripper_limits": null,
+      "gravity_comp_factor": [
+        1.0,
+        1.1,
+        1.1,
+        1.2,
+        1.0,
+        1.0
+      ],
+      "grav_comp_kd": null,
+      "coulomb_friction": null,
+      "use_coulomb_friction": true,
+      "enable_auto_recovery": false
+    }
+  },
+  "cameras": [
+    {
+      "name": "top",
+      "serial": "REPLACE_TOP_SERIAL",
+      "resolution": [
+        640,
+        480
+      ],
+      "fps": 30
+    },
+    {
+      "name": "left",
+      "serial": "REPLACE_LEFT_WRIST_SERIAL",
+      "resolution": [
+        640,
+        480
+      ],
+      "fps": 30
+    },
+    {
+      "name": "right",
+      "serial": "REPLACE_RIGHT_WRIST_SERIAL",
+      "resolution": [
+        640,
+        480
+      ],
+      "fps": 30
+    }
+  ],
+  "operator_receipt_path": "/tmp/rpent_yam_operator_receipt.json",
+  "extrinsics_path": null,
+  "qpos_static_tolerance_rad": 0.001,
+  "reset": {
+    "enabled": false,
+    "left_qpos": null,
+    "right_qpos": null,
+    "duration_s": 8.0,
+    "max_joint_delta": 0.02,
+    "tolerance": 0.04,
+    "timeout_s": 60.0
+  },
+  "park_on_close": {
+    "enabled": false,
+    "left_qpos": null,
+    "right_qpos": null,
+    "duration_s": 8.0,
+    "max_joint_delta": 0.02,
+    "tolerance": 0.04,
+    "timeout_s": 60.0
+  }
+}

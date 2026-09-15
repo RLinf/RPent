@@ -65,7 +65,7 @@ class RobotSpec:
     ]
     dashboard: DashboardSpec | None = None
     #: Physical scene restoration requires operator involvement, not simulator reset.
-    #: Real-robot runs require an exclusive operator terminal.
+    #: Operator input requires an exclusive terminal unless an external ENV owns it.
     is_real_robot: bool = False
     #: Whether the robot implements the exploration-time toolkit contract.
     #: The CLI uses this instead of hard-coding robot names so real-robot
@@ -73,6 +73,8 @@ class RobotSpec:
     supports_exploration: bool = False
     memory_repo_id: str = "RLinf/RPent-memory"
     finalize_run: RunFinalizer | None = None
+    #: Optional operator diagnostic dispatch; None result means a normal task.
+    run_diagnostic: Callable[[argparse.Namespace], int | None] | None = None
     #: Replay this robot's recorded plan for one cell, in place of a planner.
     #: Takes the toolkit, the cell tag, and a note sink; returns at least
     #: ``{"done": bool}``. Left unset by robots that record no cards.

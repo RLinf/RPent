@@ -72,6 +72,11 @@ class DashboardPlannerControl:
                 "busy" if self._outstanding_completions else "idle"
             )
             await self._flush(driver)
+            if not self._outstanding_completions:
+                continuation = getattr(self._interaction, "continue_exploration", None)
+                if continuation is not None:
+                    await asyncio.to_thread(continuation)
+                    await self._flush(driver)
 
     async def tool_completed(self, driver: Any) -> None:
         """Flush input queued while the backend was running a tool."""
