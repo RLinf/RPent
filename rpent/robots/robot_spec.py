@@ -64,6 +64,13 @@ class RobotSpec:
         tuple[list["ProcessDaemon"], dict[str, Any]],
     ]
     dashboard: DashboardSpec | None = None
+    #: Physical scene restoration requires operator involvement, not simulator reset.
+    #: Real-robot runs require an exclusive operator terminal.
+    is_real_robot: bool = False
+    #: Whether the robot implements the exploration-time toolkit contract.
+    #: The CLI uses this instead of hard-coding robot names so real-robot
+    #: extensions can opt into exploration with their own reset semantics.
+    supports_exploration: bool = False
     memory_repo_id: str = "RLinf/RPent-memory"
     finalize_run: RunFinalizer | None = None
     #: Replay this robot's recorded plan for one cell, in place of a planner.

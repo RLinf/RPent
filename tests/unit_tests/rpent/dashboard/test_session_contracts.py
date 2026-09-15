@@ -174,14 +174,17 @@ def test_dashboard_session_stops_shared_daemons_in_reverse_after_cleanup_error(
 
 
 @pytest.mark.parametrize("merge_fails", [False, True])
+@pytest.mark.parametrize("sessions", [1, 2])
 def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     merge_fails: bool,
+    sessions: int,
 ) -> None:
     from rpent.cli import dashboard as dashboard_cli
 
     merge_calls: list[dict[str, Any]] = []
+    solved_calls = []
 
     class FakeMemoryManager:
         def merge_memory(self, **kwargs: Any) -> dict[str, int]:
@@ -194,7 +197,8 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         memory = FakeMemoryManager()
 
         def solved(self) -> bool:
-            return True
+            solved_calls.append(True)
+            return len(solved_calls) == sessions
 
         def write_recipe(self, recipe_tag: str) -> str:
             return str(tmp_path / f"{recipe_tag}_recipe.jsonl")
@@ -243,6 +247,9 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         task_desc={"robot": "libero"},
     )
     robot_spec = SimpleNamespace(
+        name="custom_exploration_env",
+        supports_exploration=True,
+        is_real_robot=False,
         parse_config=lambda args: run_config,
         init_runtime=lambda *args: ([], {}),
         prompts=PromptBundle(
@@ -252,10 +259,10 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
     args = SimpleNamespace(
         verbose=False,
-        robot_name="libero",
+        robot_name="custom_exploration_env",
         explore=True,
         auto_merge_memory=True,
-        explore_sessions=1,
+        explore_sessions=sessions,
         explore_attempts_per_session=2,
         planner="api",
         base_url=None,
@@ -269,6 +276,9 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
     claimed = ClaimedTask(number=1, request={}, output_dir=output_dir)
     state = FakeState()
+    from rpent.cli import main as main_cli
+
+    monkeypatch.setattr(main_cli, "get_robot_spec", lambda name: robot_spec)
     monkeypatch.setattr(
         dashboard_cli, "get_toolkit", lambda *args, **kwargs: FakeToolkit()
     )
@@ -287,7 +297,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
 
     assert error is None
-    assert state.toolkit_lifecycle == ["bound", "unbound"]
+    assert state.toolkit_lifecycle == ["bound", "unbound"] * sessions
     assert merge_calls == [
         {
             "cell_tag": "libero_s0",
