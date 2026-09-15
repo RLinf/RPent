@@ -74,8 +74,9 @@ GPT-5.5 与 Opus-4.8 的已报告结果与 Harness VLA
 外部基线方法另列参考。
 
 :doc:`GPT-6 Astra LIBERO-PRO 结果快照 <../results/libero_pro_astra>`
-包含六个完整套件及 600 个已核验回合。Goal Task、Goal Swap 与完整 Overall
-在各自覆盖范围完成前保持未报告。
+包含全部八个完整套件及 800 个已核验回合：741 成功、59 失败，Overall 92.63%
+（Codex / GPT-6 Astra / low / reasoning）。Long 与 Spatial/Object/Goal
+使用各自独立冻结的 memory 批次。
 
 快速开始
 --------

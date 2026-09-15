@@ -4,454 +4,549 @@
 .. _benchmark-leaderboard:
 .. _leaderboard:
 
-RPent 排行榜
-============
+RPent Leaderboard
+==========================================================================================
 
 .. raw:: html
 
    <div id="rpent-interactive-leaderboard" data-language="zh"
-        data-results-url="https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/benchmarks/results.json">
+        data-results-url="https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/results.json">
      <div class="rpent-static-leaderboard">
-       <p>完整结果表位于下方。</p>
+       <p>完整结果表格见下文。</p>
      </div>
    </div>
 
-**GPT-6 Astra：六个完整套件、600 回合。**
-:doc:`逐任务与 seed 结果 <results/libero_pro_astra>`；Goal 与完整 Overall 完成后再补充。
+**Codex / GPT-6 Astra / low / reasoning：Overall 92.63%（741/800）。**
+:doc:`完整 80 任务与 800 个 seed 结果 <results/libero_pro_astra>`。
 
-.. _id2:
+论文 v4、仓库复现与新增实验分别保留模型配置和来源，不视为仅替换模型的受控对比。缺失结果不等于零。各评测范围分别展示，表格按成功率降序排列。
 
-模型配置
-------------
-
-
-.. list-table:: RPent 规划模型配置
-   :header-rows: 1
-   :widths: 25 30 25 20
-
-   * - 后端
-     - 模型
-     - Reasoning
-     - Effort
-   * - Codex
-     - GPT-5.5
-     - 开启
-     - ``xhigh``
-   * - Claude Code
-     - Opus-4.8
-     - 开启
-     - ``max``
-   * - Codex
-     - GPT-6 Astra
-     - 开启
-     - ``low``
-
-
-``Reasoning`` 指模型的原生推理模式，``Effort`` 为实际配置的推理强度。
-``xhigh`` 和 ``max`` 属于不同提供方的设置，不表示相同计算预算。
-模型身份、后端对应关系及推理设置已经实验贡献者确认。
+``xhigh``、``max``、``low`` 是提供方的 effort 设置，不表示相等算力预算。全部 GPT-6 Astra 条目均使用 low 并开启 reasoning；GPT-5.6 无推理对照单独保留。
 
 .. _libero-series:
 
-LIBERO 系列
-----------------
+LIBERO series
+------------------------------------------------------------------------------------------
 
-Standard LIBERO
-~~~~~~~~~~~~~~~
+LIBERO · 标准操作评测
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-标准 LIBERO 使用未施加 PRO 扰动的 Spatial、Object、Goal、Long 套件。
-这里的 Long 为标准 LIBERO-10，与下表的 PRO Long Task/Swap 分开评测。
+原始、无扰动 LIBERO。外部方法保留原论文的精度和评测范围。
 
+.. csv-table:: 总体
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
 
-.. list-table:: RPent 成功率
-   :header-rows: 1
-   :widths: 31 23 23 23
+   "AtomVLA", "97.0%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Claude Code / Opus-4.8 / max / reasoning", "96.0%", "384/400", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "π_RLinf", "95.3%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "π0", "94.2%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "NORA", "79.5%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "OpenVLA", "76.5%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "未报告", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Codex / GPT-6 Astra / low / reasoning", "未报告", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
 
-   * - 评测项
-     - GPT-5.5 / ``xhigh``
-     - Opus-4.8 / ``max``
-     - GPT-6 Astra / ``low``
-   * - Spatial
-     - 未报告
-     - 97.0%
-     - 未报告
-   * - Object
-     - 未报告
-     - 100.0%
-     - 未报告
-   * - Goal
-     - 未报告
-     - 94.0%
-     - 未报告
-   * - Long
-     - 未报告
-     - 93.0%
-     - 未报告
-   * - 总体
-     - 未报告
-     - 96.0% (384/400)
-     - 未报告
+.. csv-table:: Spatial
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
 
+   "π_RLinf", "99.0%", "已评测：100", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Claude Code / Opus-4.8 / max / reasoning", "97.0%", "已评测：100", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "π0", "96.8%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "AtomVLA", "96.4%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "NORA", "85.6%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "OpenVLA", "84.7%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "未报告", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Codex / GPT-6 Astra / low / reasoning", "未报告", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+
+.. csv-table:: Object
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Claude Code / Opus-4.8 / max / reasoning", "100.0%", "已评测：100", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "AtomVLA", "99.6%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "π0", "98.8%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "π_RLinf", "96.0%", "已评测：100", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "NORA", "89.4%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "OpenVLA", "88.4%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "未报告", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Codex / GPT-6 Astra / low / reasoning", "未报告", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+
+.. csv-table:: Goal
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "AtomVLA", "97.6%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "π_RLinf", "97.0%", "已评测：100", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "π0", "95.8%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Claude Code / Opus-4.8 / max / reasoning", "94.0%", "已评测：100", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "NORA", "80.0%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "OpenVLA", "79.2%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "未报告", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Codex / GPT-6 Astra / low / reasoning", "未报告", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+
+.. csv-table:: Long
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "AtomVLA", "94.4%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Claude Code / Opus-4.8 / max / reasoning", "93.0%", "已评测：100", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "π_RLinf", "89.0%", "已评测：100", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "π0", "85.2%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "NORA", "63.0%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "OpenVLA", "53.7%", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "未报告", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
+   "Codex / GPT-6 Astra / low / reasoning", "未报告", "—", "`表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_"
 
 .. _libero-pro-long:
-
 .. _libero-pro-across-task-families:
 
-LIBERO-PRO
-~~~~~~~~~~
+LIBERO-PRO · 指令与布局扰动
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Task 为指令重定向，Swap 为位置交换。Overall 覆盖 Spatial、Object、Goal、Long 的全部
-八个 Task/Swap 单元；只完成 Long 的结果不构成该总体指标。
+八套件 Overall 包含全部 Task/Swap 分项。新增模型分别探索与测试。Cap-X、RATS 保留已报告分项，不推算缺失的 Long 成绩或八套件 Overall。
 
-
-.. list-table:: RPent 成功率
-   :header-rows: 1
-   :widths: 31 23 23 23
-
-   * - 评测项
-     - GPT-5.5 / ``xhigh``
-     - Opus-4.8 / ``max``
-     - GPT-6 Astra / ``low``
-   * - Spatial Task
-     - 81.0%
-     - 94.0%
-     - 100% (100/100)
-   * - Spatial Swap
-     - 69.0%
-     - 80.0%
-     - 98% (98/100)
-   * - Object Task
-     - 94.0%
-     - 88.0%
-     - 100% (100/100)
-   * - Object Swap
-     - 91.0%
-     - 90.0%
-     - 99% (99/100)
-   * - Goal Task
-     - 75.0%
-     - 87.0%
-     - 未报告
-   * - Goal Swap
-     - 66.0%
-     - 87.0%
-     - 未报告
-   * - Long Task
-     - 52.0%
-     - 71.0%
-     - 85% (85/100)
-   * - Long Swap
-     - 49.0%
-     - 62.0%
-     - 72% (72/100)
-   * - 总体
-     - 72.1%
-     - 82.4%
-     - 未报告
-
-
-.. _libero-pro-goal:
-
-
-GPT-6 Astra 本轮只公布 **六个完整套件、600 回合** （554 成功、46 失败）。
-Goal Task、Goal Swap 与八项 Overall 保持未报告，完成后再补充。
-
-LIBERO-PRO Goal：零样本
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-此消融不使用目标设置的 Task Specific Memory 和 Global Memory，
-与上方使用记忆的 PRO 主结果分别统计。
-
-
-.. list-table:: RPent 成功率
-   :header-rows: 1
-   :widths: 31 23 23 23
-
-   * - 评测项
-     - GPT-5.5 / ``xhigh``
-     - Opus-4.8 / ``max``
-     - GPT-6 Astra / ``low``
-   * - Goal Task
-     - 未报告
-     - 79.0%
-     - 未报告
-   * - Goal Swap
-     - 未报告
-     - 31.0%
-     - 未报告
-
-
-RoboCasa365 Target50
---------------------
-
-列出全部三个划分及 Overall。Overall 按 50 个任务均权；各划分的回合数不同，
-不能直接把所有成功回合合并求比率。
-
-
-.. list-table:: RPent 成功率
-   :header-rows: 1
-   :widths: 31 23 23 23
-
-   * - 评测项
-     - GPT-5.5 / ``xhigh``
-     - Opus-4.8 / ``max``
-     - GPT-6 Astra / ``low``
-   * - Atomic-Seen
-     - 92.0%
-     - 79.4%
-     - 未报告
-   * - Composite-Seen
-     - 61.0%
-     - 47.5%
-     - 未报告
-   * - Composite-Unseen
-     - 13.8%
-     - 15.0%
-     - 未报告
-   * - 总体（任务均权）
-     - 57.1%
-     - 48.6%
-     - 未报告
-
-
-RoboTwin C2R
-------------
-
-C2R 表示从干净设置到随机设置的迁移评测。
-
-
-.. list-table:: RPent 成功率
-   :header-rows: 1
-   :widths: 31 23 23 23
-
-   * - 评测项
-     - GPT-5.5 / ``xhigh``
-     - Opus-4.8 / ``max``
-     - GPT-6 Astra / ``low``
-   * - C2R
-     - 58.0%
-     - 58.4%
-     - 未报告
-
-
-.. _id3:
-
-论文完整结果表
-----------------------------
-
-以下补齐 Harness VLA v4 表 2–6 的全部成绩，保留来源精度与缺失值。
-RPent 对应论文的 Harness VLA；Codex 与 CC 分别对应 GPT-5.5 与 Opus-4.8。
-外部方法的样本数沿用原始报告，不从舍入后的百分比反推成功次数。
-
-Standard LIBERO
-~~~~~~~~~~~~~~~~
-
-:ref:`表 2 <benchmark-source-p2>`
-
-.. csv-table::
-   :name: paper-table-2
-   :header: "方法", "Spatial", "Object", "Goal", "Long", "Overall"
+.. csv-table:: 总体
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "OpenVLA", "84.7", "88.4", "79.2", "53.7", "76.5"
-   "NORA", "85.6", "89.4", "80.0", "63.0", "79.5"
-   "π0", "96.8", "98.8", "95.8", "85.2", "94.2"
-   "π_RLinf", "99.0", "96.0", "97.0", "89.0", "95.3"
-   "AtomVLA", "96.4", "99.6", "97.6", "94.4", "97.0"
-   "RPent / Opus-4.8", "97.0", "100.0", "94.0", "93.0", "96.0"
+   "Codex / GPT-6 Astra / low / reasoning", "92.63%", "741/800", "`GPT-6 Astra Long 评测 <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; `GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的配置与 RoboTwin 成绩"
+   "Claude Code / Opus 4.7", "82.50%", "已评测：800", "新增实验 · 2026-09-15"
+   "Claude Code / Opus-4.8 / max / reasoning", "82.4%", "已评测：800", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Codex / GPT-5.6 / xhigh / reasoning", "78.50%", "已评测：800", "新增实验 · 2026-09-15; 用户确认的配置与 RoboTwin 成绩"
+   "Task card / Molmo", "72.63%", "已评测：800", "新增实验 · 2026-09-15"
+   "Codex / GPT-5.5 / xhigh / reasoning", "72.1%", "已评测：800", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Codex / GPT-5.6 / 无推理", "62.50%", "已评测：800", "新增实验 · 2026-09-15"
+   "π_RLinf", "50.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0.5", "11.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "AtomVLA", "6.3%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "X-VLA", "3.8%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "MolmoAct", "1.5%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0", "0.3%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "NORA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "OpenVLA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Qwen", "未报告", "—", "新增实验 · 2026-09-15"
 
-LIBERO-PRO
-~~~~~~~~~~~~~~~~
-
-:ref:`表 3 <benchmark-source-p3>`
-
-.. csv-table::
-   :name: paper-table-3
-   :header: "方法", "Spatial Task", "Spatial Swap", "Object Task", "Object Swap", "Goal Task", "Goal Swap", "Long Task", "Long Swap", "Overall"
+.. csv-table:: Spatial Task
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "OpenVLA", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0"
-   "π0", "0.0", "0.0", "0.0", "2.0", "0.0", "0.0", "0.0", "0.0", "0.3"
-   "π0.5", "1.0", "20.0", "1.0", "17.0", "2.0", "38.0", "1.0", "8.0", "11.0"
-   "MolmoAct", "0.0", "0.0", "0.0", "6.0", "0.0", "0.0", "6.0", "0.0", "1.5"
-   "NORA", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0"
-   "X-VLA", "0.0", "0.0", "8.0", "2.0", "9.0", "1.0", "10.0", "0.0", "3.8"
-   "AtomVLA", "1.0", "16.0", "0.0", "10.0", "11.0", "2.0", "9.0", "1.0", "6.3"
-   "Cap-X", "14.0", "12.0", "18.0", "22.0", "17.0", "26.0", "``-``", "``-``", "18.2 (6)"
-   "RATS", "31.0", "29.0", "63.0", "61.0", "36.0", "43.0", "``-``", "``-``", "43.8 (6)"
-   "π_RLinf", "42.0", "59.0", "71.0", "78.0", "45.0", "42.0", "49.0", "14.0", "50.0"
-   "RPent / GPT-5.5", "81.0", "69.0", "94.0", "91.0", "75.0", "66.0", "52.0", "49.0", "72.1"
-   "RPent / Opus-4.8", "94.0", "80.0", "88.0", "90.0", "87.0", "87.0", "71.0", "62.0", "82.4"
+   "Codex / GPT-6 Astra / low / reasoning", "100%", "100/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的配置与 RoboTwin 成绩"
+   "Claude Code / Opus-4.8 / max / reasoning", "94.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "81.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π_RLinf", "42.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "RATS", "31.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Cap-X", "14.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "AtomVLA", "1.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0.5", "1.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "MolmoAct", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "NORA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "OpenVLA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "X-VLA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
 
-``(6)``：Cap-X 与 RATS 只报告 Spatial/Object/Goal 六项，其 Overall 不参与八项总体排名。
-``-`` 为未报告，不能作为 0。Astra 六套结果是另外提供的实验，不属于本论文表。
-
-RoboCasa365 Target50
-~~~~~~~~~~~~~~~~~~~~
-
-:ref:`表 4 <benchmark-source-p4>`
-
-.. csv-table::
-   :name: paper-table-4
-   :header: "方法", "Atomic-Seen", "Composite-Seen", "Composite-Unseen", "Overall (task-weighted)"
+.. csv-table:: Spatial Swap
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "RLDX-1", "60.0", "21.3", "5.0", "30.0"
-   "WorldDreamer", "66.3", "26.7", "9.0", "35.3"
-   "π0.5", "39.6", "7.1", "1.2", "16.9"
-   "π0", "34.6", "6.1", "1.1", "14.8"
-   "RPent / GPT-5.5", "92.0", "61.0", "13.8", "57.1"
-   "RPent / Opus-4.8", "79.4", "47.5", "15.0", "48.6"
+   "Codex / GPT-6 Astra / low / reasoning", "98%", "98/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的配置与 RoboTwin 成绩"
+   "Claude Code / Opus-4.8 / max / reasoning", "80.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "69.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π_RLinf", "59.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "RATS", "29.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0.5", "20.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "AtomVLA", "16.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Cap-X", "12.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "MolmoAct", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "NORA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "OpenVLA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "X-VLA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
 
-LIBERO-PRO Goal 零样本：逐任务
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-:ref:`表 5 <benchmark-source-p5>`
-
-.. csv-table:: Task (T)
-   :name: paper-table-5-task
-   :header: "方法", "Task 0", "Task 1", "Task 2", "Task 3", "Task 4", "Task 5", "Task 6", "Task 7", "Task 8", "Task 9", "平均"
+.. csv-table:: Object Task
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "Cap-X", "0.0", "0.0", "10.0", "38.0", "12.0", "4.0", "34.0", "12.0", "40.0", "18.0", "16.8"
-   "RPent / Opus-4.8", "10.0", "100.0", "90.0", "100.0", "20.0", "80.0", "90.0", "100.0", "100.0", "100.0", "79.0"
+   "Codex / GPT-6 Astra / low / reasoning", "100%", "100/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的配置与 RoboTwin 成绩"
+   "Codex / GPT-5.5 / xhigh / reasoning", "94.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Claude Code / Opus-4.8 / max / reasoning", "88.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π_RLinf", "71.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "RATS", "63.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Cap-X", "18.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "X-VLA", "8.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0.5", "1.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "AtomVLA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "MolmoAct", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "NORA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "OpenVLA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
 
-.. csv-table:: Swap (S)
-   :name: paper-table-5-swap
-   :header: "方法", "Task 0", "Task 1", "Task 2", "Task 3", "Task 4", "Task 5", "Task 6", "Task 7", "Task 8", "Task 9", "平均"
+.. csv-table:: Object Swap
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "Cap-X", "0.0", "4.0", "0.0", "36.0", "22.0", "60.0", "4.0", "2.0", "62.0", "66.0", "25.6"
-   "RPent / Opus-4.8", "0.0", "10.0", "0.0", "20.0", "90.0", "0.0", "10.0", "80.0", "100.0", "0.0", "31.0"
+   "Codex / GPT-6 Astra / low / reasoning", "99%", "99/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的配置与 RoboTwin 成绩"
+   "Codex / GPT-5.5 / xhigh / reasoning", "91.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Claude Code / Opus-4.8 / max / reasoning", "90.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π_RLinf", "78.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "RATS", "61.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Cap-X", "22.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0.5", "17.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "AtomVLA", "10.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "MolmoAct", "6.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0", "2.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "X-VLA", "2.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "NORA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "OpenVLA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
 
-RoboTwin C2R
-~~~~~~~~~~~~~~~~
-
-:ref:`表 6 <benchmark-source-p6>`
-
-.. csv-table::
-   :name: paper-table-6
-   :header: "方法", "成功率 (%)"
+.. csv-table:: Goal Task
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "GR00T-N1.7", "20.7"
-   "π0.5", "47.9"
-   "StarVLA", "10.6"
-   "LingBot-VLA", "50.4"
-   "RPent / GPT-5.5", "58.0"
-   "RPent / Opus-4.8", "58.4"
+   "Codex / GPT-6 Astra / low / reasoning", "88%", "88/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的配置与 RoboTwin 成绩"
+   "Claude Code / Opus-4.8 / max / reasoning", "87.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "75.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π_RLinf", "45.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "RATS", "36.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Cap-X", "17.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "AtomVLA", "11.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "X-VLA", "9.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0.5", "2.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "MolmoAct", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "NORA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "OpenVLA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
 
-.. _id4:
+.. csv-table:: Goal Swap
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
 
-指标、协议与来源
-------------------------
+   "Codex / GPT-6 Astra / low / reasoning", "99%", "99/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的配置与 RoboTwin 成绩"
+   "Claude Code / Opus-4.8 / max / reasoning", "87.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "66.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "RATS", "43.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π_RLinf", "42.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0.5", "38.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Cap-X", "26.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "AtomVLA", "2.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "X-VLA", "1.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "MolmoAct", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "NORA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "OpenVLA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
 
-结果快照更新于 2026-09-14。RPent 的 GPT-5.5 与 Opus-4.8 已报告成绩与
-Harness VLA 论文 v4（2026-09-02）对齐；GPT-6 Astra 为新增模型评测结果。
-论文使用 Codex 和 CC（Claude Code）标记后端，精确模型与推理设置由贡献者提供。
+.. csv-table:: Long Task
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
 
-任务成功依据基准判定条件：LIBERO 环境轨迹中的 ``terminated``、RoboCasa 的
-``state.success``，或 RoboTwin 的 ``TASK_ENV.eval_success``。规划器调用 ``finish`` 或原语
-返回局部成功，本身不构成任务成功标签。用于构建记忆的探索回合不计入评测成绩。
+   "Codex / GPT-6 Astra / low / reasoning", "85%", "85/100", "`GPT-6 Astra Long 评测 <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的配置与 RoboTwin 成绩"
+   "Claude Code / Opus-4.8 / max / reasoning", "71.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "52.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π_RLinf", "49.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "X-VLA", "10.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "AtomVLA", "9.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "MolmoAct", "6.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0.5", "1.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "NORA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "OpenVLA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Cap-X", "未报告", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "RATS", "未报告", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
 
-LIBERO 系列使用冻结的 RLinf π0.5 full-shot LIBERO 检查点；RoboCasa 使用冻结的
-RLDX-1；RoboTwin 使用后训练后冻结的 LingBot-VLA 检查点。规划模型、VLA 后端、
-记忆库与评测协议分别描述系统的不同组成部分，成绩差异不等同于只改变规划模型的受控实验。
+.. csv-table:: Long Swap
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Codex / GPT-6 Astra / low / reasoning", "72%", "72/100", "`GPT-6 Astra Long 评测 <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的配置与 RoboTwin 成绩"
+   "Claude Code / Opus-4.8 / max / reasoning", "62.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "49.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π_RLinf", "14.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0.5", "8.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "AtomVLA", "1.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "MolmoAct", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "NORA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "OpenVLA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "π0", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "X-VLA", "0.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "Cap-X", "未报告", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+   "RATS", "未报告", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
+
+LIBERO-PRO · Goal · 零样本
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+不使用目标设置的 Task Specific Memory 或 Global Memory。此消融与有记忆的八套件评测分开展示，下方包含表 5 的逐任务成绩。
+
+.. csv-table:: Goal Task
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Claude Code / Opus-4.8 / max / reasoning", "79.0%", "已评测：100", "`表 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_"
+   "Cap-X", "16.8%", "—", "`表 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "未报告", "—", "`表 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_"
+   "Codex / GPT-6 Astra / low / reasoning", "未报告", "—", "`表 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_"
+
+.. csv-table:: Goal Swap
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Claude Code / Opus-4.8 / max / reasoning", "31.0%", "已评测：100", "`表 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_"
+   "Cap-X", "25.6%", "—", "`表 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "未报告", "—", "`表 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_"
+   "Codex / GPT-6 Astra / low / reasoning", "未报告", "—", "`表 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_"
+
+.. csv-table:: LIBERO-PRO Goal Task · 零样本，表 5
+   :header: "方法", "任务 0", "任务 1", "任务 2", "任务 3", "任务 4", "任务 5", "任务 6", "任务 7", "任务 8", "任务 9", "均值"
+   :class: table-sm
+
+   "Opus-4.8", "10.0%", "100.0%", "90.0%", "100.0%", "20.0%", "80.0%", "90.0%", "100.0%", "100.0%", "100.0%", "79.0%"
+   "Cap-X", "0.0%", "0.0%", "10.0%", "38.0%", "12.0%", "4.0%", "34.0%", "12.0%", "40.0%", "18.0%", "16.8%"
+
+.. csv-table:: LIBERO-PRO Goal Swap · 零样本，表 5
+   :header: "方法", "任务 0", "任务 1", "任务 2", "任务 3", "任务 4", "任务 5", "任务 6", "任务 7", "任务 8", "任务 9", "均值"
+   :class: table-sm
+
+   "Opus-4.8", "0.0%", "10.0%", "0.0%", "20.0%", "90.0%", "0.0%", "10.0%", "80.0%", "100.0%", "0.0%", "31.0%"
+   "Cap-X", "0.0%", "4.0%", "0.0%", "36.0%", "22.0%", "60.0%", "4.0%", "2.0%", "62.0%", "66.0%", "25.6%"
+
+RoboCasa365 · Target50
+------------------------------------------------------------------------------------------
+
+RPent Overall 对 50 个任务等权，不是按回合汇总。GPT-6 Astra 已完成 340 回合，仅提供 Overall。外部基线按表 4 引用，不声称采用相同 Target50 范围。仓库复现仍在下方独立保留。
+
+.. csv-table:: 总体（原报告口径）
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Codex / GPT-6 Astra / low / reasoning", "59.20%", "已评测：340", "新增实验 · 2026-09-15; 用户确认的配置与 RoboTwin 成绩"
+   "Codex / GPT-5.5 / xhigh / reasoning", "57.1%", "已评测：340", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "Claude Code / Opus-4.8 / max / reasoning", "48.6%", "已评测：340", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "WorldDreamer", "35.3%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "RLDX-1", "30.0%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "π0.5", "16.9%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "π0", "14.8%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "Codex / GPT-5.6 / 无推理", "未报告", "—", "新增实验 · 2026-09-15"
+
+.. csv-table:: Atomic-Seen
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Codex / GPT-5.5 / xhigh / reasoning", "92.0%", "已评测：180", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "Claude Code / Opus-4.8 / max / reasoning", "79.4%", "已评测：180", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "WorldDreamer", "66.3%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "RLDX-1", "60.0%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "π0.5", "39.6%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "π0", "34.6%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "Codex / GPT-6 Astra / low / reasoning", "未报告", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+
+.. csv-table:: Composite-Seen
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Codex / GPT-5.5 / xhigh / reasoning", "61.0%", "已评测：80", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "Claude Code / Opus-4.8 / max / reasoning", "47.5%", "已评测：80", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "WorldDreamer", "26.7%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "RLDX-1", "21.3%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "π0.5", "7.1%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "π0", "6.1%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "Codex / GPT-6 Astra / low / reasoning", "未报告", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+
+.. csv-table:: Composite-Unseen
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Claude Code / Opus-4.8 / max / reasoning", "15.0%", "已评测：80", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "13.8%", "已评测：80", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "WorldDreamer", "9.0%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "RLDX-1", "5.0%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "π0.5", "1.2%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "π0", "1.1%", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+   "Codex / GPT-6 Astra / low / reasoning", "未报告", "—", "`表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
+
+RoboTwin · Clean → Randomized
+------------------------------------------------------------------------------------------
+
+RPent：50 个双臂任务，各 5 个随机 seeds。干净设置记忆直接迁移，不在随机设置中探索。外部方法保留其来源口径。
+
+.. csv-table:: C2R
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Codex / GPT-6 Astra / low / reasoning", "72.00%", "已评测：250", "用户确认的配置与 RoboTwin 成绩"
+   "Codex / GPT-5.6 / xhigh / reasoning", "61.20%", "已评测：250", "用户确认的配置与 RoboTwin 成绩"
+   "Claude Code / Opus-4.8 / max / reasoning", "58.4%", "已评测：250", "`表 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning", "58.0%", "145/250", "`表 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_; `RPent · RoboTwin 复现 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robotwin.rst>`_"
+   "LingBot-VLA", "50.4%", "—", "`表 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_"
+   "π0.5", "47.9%", "—", "`表 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_"
+   "GR00T-N1.7", "20.7%", "—", "`表 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_"
+   "StarVLA", "10.6%", "—", "`表 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_"
+
+Task Card · Object · 仓库评测
+------------------------------------------------------------------------------------------
+
+仅 Object Task 与 Swap，此 200 回合报告不同于 Task card / Molmo 八套件 72.63%。
+
+.. csv-table:: Object · Task + Swap
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Codex / 无推理", "93.0%", "186/200", "`RPent · Task Card 评测 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/task_card.rst>`_"
+   "Task card", "89.5%", "179/200", "`RPent · Task Card 评测 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/task_card.rst>`_"
+
+RoboCasa365 · 仓库复现
+------------------------------------------------------------------------------------------
+
+GPT-5.6 xhigh 开启推理：Atomic 163/180、Seen 49/80、Unseen 12/80，任务等权 Overall 57.00%。早期 GPT-5.5 xhigh 开启推理为 55.40%，与论文 v4 的 57.1% 分开。GPT-6 Astra low 开启推理为 59.20%，与主榜为同一实验。下方 50 任务汇总仅属于 57.00% 这次实验。
+
+.. csv-table:: 总体
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Codex / GPT-6 Astra / low / reasoning", "59.20%", "已评测：340", "新增实验 · 2026-09-15; 用户确认的配置与 RoboTwin 成绩"
+   "Codex / GPT-5.6 / xhigh / reasoning · 仓库复现", "57.00%", "已评测：340", "`RPent · Target50 复现 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/robots/robocasa/eval/target50_codex_results.md>`_; 用户确认的配置与 RoboTwin 成绩"
+   "Codex / GPT-5.5 / xhigh / reasoning · 早期参考", "55.40%", "已评测：340", "`RPent · 早期参考列 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robocasa.rst>`_; 用户确认的配置与 RoboTwin 成绩"
+
+.. csv-table:: Atomic
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Codex / GPT-5.5 / xhigh / reasoning · 早期参考", "91.67%", "165/180", "`RPent · 早期参考列 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robocasa.rst>`_; 用户确认的配置与 RoboTwin 成绩"
+   "Codex / GPT-5.6 / xhigh / reasoning · 仓库复现", "90.56%", "163/180", "`RPent · Target50 复现 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/robots/robocasa/eval/target50_codex_results.md>`_; 用户确认的配置与 RoboTwin 成绩"
+
+.. csv-table:: Composite-Seen
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Codex / GPT-5.6 / xhigh / reasoning · 仓库复现", "61.25%", "49/80", "`RPent · Target50 复现 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/robots/robocasa/eval/target50_codex_results.md>`_; 用户确认的配置与 RoboTwin 成绩"
+   "Codex / GPT-5.5 / xhigh / reasoning · 早期参考", "56.25%", "45/80", "`RPent · 早期参考列 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robocasa.rst>`_; 用户确认的配置与 RoboTwin 成绩"
+
+.. csv-table:: Composite-Unseen
+   :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
+   :class: table-sm
+
+   "Codex / GPT-5.6 / xhigh / reasoning · 仓库复现", "15.00%", "12/80", "`RPent · Target50 复现 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/robots/robocasa/eval/target50_codex_results.md>`_; 用户确认的配置与 RoboTwin 成绩"
+   "Codex / GPT-5.5 / xhigh / reasoning · 早期参考", "13.75%", "11/80", "`RPent · 早期参考列 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robocasa.rst>`_; 用户确认的配置与 RoboTwin 成绩"
+
+论文分析
+------------------------------------------------------------------------------------------
+
+调用次数、完成归因与 primitive 占比用于分析机制，不参与成功率排名。保留已发表原图，不估读曲线点值。Zhang 等，Harness VLA v4，CC BY 4.0。
+
+.. image:: https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/assets/invocations-libero.png
+   :alt: Harness VLA invocations-libero.png
+   :width: 100%
+
+.. image:: https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/assets/invocations-robocasa.png
+   :alt: Harness VLA invocations-robocasa.png
+   :width: 100%
+
+.. image:: https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/assets/invocations-robotwin.png
+   :alt: Harness VLA invocations-robotwin.png
+   :width: 100%
+
+.. image:: https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/assets/completion-attribution.png
+   :alt: Harness VLA completion-attribution.png
+   :width: 100%
+
+.. csv-table:: Primitive 使用统计 · 表 18
+   :header: "Primitive", "LIBERO", "RoboTwin C2R", "RoboCasa365"
+   :class: table-sm
+
+   "MOVE_TO", "6263 (61.8%)", "685 (40.9%)", "3004 (38.7%)"
+   "VLA_ACT", "1598 (15.8%)", "794 (47.4%)", "2746 (35.3%)"
+   "SET_GRIPPER", "1137 (11.2%)", "71 (4.2%)", "371 (4.8%)"
+   "RELEASE", "831 (8.2%)", "124 (7.4%)", "76 (1.0%)"
+   "MOVE_POSE", "203 (2.0%)", "—", "—"
+   "ROTATE_PITCH", "58 (0.6%)", "—", "66 (0.8%)"
+   "ROTATE_WRIST", "44 (0.4%)", "1 (0.1%)", "—"
+   "MOVE_BASE", "—", "—", "808 (10.4%)"
+   "NAVIGATE_TO", "—", "—", "701 (9.0%)"
+   "合计", "10134 (100.0%)", "1675 (100.0%)", "7772 (100.0%)"
+
+.. csv-table:: Primitive 分类 · 表 19
+   :header: "类别", "LIBERO", "RoboTwin C2R", "RoboCasa365"
+   :class: table-sm
+
+   "Analytic", "8536 (84.2%)", "881 (52.6%)", "5026 (64.7%)"
+   "VLA", "1598 (15.8%)", "794 (47.4%)", "2746 (35.3%)"
+
+协议与来源
+------------------------------------------------------------------------------------------
+
+任务成功以环境为准：LIBERO ``terminated``、RoboCasa ``state.success`` 或 RoboTwin ``TASK_ENV.eval_success``。Planner finish 不作为任务成功来源，探索回合不计入评测。冻结的 VLA 后端分别为 RLinf π0.5（LIBERO）、RLDX-1（RoboCasa）与后训练 LingBot-VLA（RoboTwin）。
 
 .. _benchmark-source-p2:
-
-**Standard LIBERO。** `Harness VLA，表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_。
-四个标准套件，每个套件 100 回合，Overall 共 400 回合。
-
 .. _benchmark-source-r2:
 .. _benchmark-source-p3:
-
-**LIBERO-PRO。** `Harness VLA，表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_。
-八个 Task/Swap 单元，每个单元 10 个任务、每个任务 10 个评测 seed，共 100 回合；Overall 共 800 回合。seed 0 用于构建记忆。Long Task 对应 ``libero_10_task``，Long Swap 对应 ``libero_10_swap``。
-
 .. _benchmark-source-r3:
 .. _benchmark-source-p4:
-
-**RoboCasa365 Target50。** `Harness VLA，表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_。
-Atomic-Seen 有 18 个任务、每任务 10 个 seed；Composite-Seen 和 Composite-Unseen 各有 16 个任务、每任务 5 个 seed，分别为 180、80、80 回合。Seen/Unseen 表示预训练中的任务模板覆盖情况。Overall 对 50 个任务等权平均。百分比保留来源精度，不从四舍五入后的比例反推成功次数。
-
 .. _benchmark-source-p5:
-
-**LIBERO-PRO Goal 零样本。** `Harness VLA，表 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_。
-Goal Task 和 Goal Swap 各有 10 个任务、每任务 10 个 seed，共 100 回合；不使用目标设置的 Task Specific Memory 和 Global Memory。
-
 .. _benchmark-source-r4:
 .. _benchmark-source-p6:
-
-**RoboTwin C2R。** `Harness VLA，表 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_。
-50 个任务，每个任务 5 个经专家验证的官方随机 seed，共 250 回合。任务记忆来自已验证的 ``demo_clean`` 实例，并迁移到 ``demo_randomized``，不在随机设置中探索。
-
 .. _benchmark-source-r1:
 .. _benchmark-protocol-r1:
-
-**GPT-6 Astra 评测。** 实验 ``libero_long_gpt6_astra_20260907`` 于 2026-09-07 开始，
-使用运行时版本 `014a0fa <https://github.com/RLinf/RPent/commit/014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7>`_。
-Long Task 与 Long Swap 各有 10 个任务；任务记忆在 seed 0 上独立构建并冻结，
-随后对每个任务使用 seed 1–10 评测。使用本地记忆库，规划器时间上限为 5000 秒，
-环境步数上限为 10000 步；表中记录环境成功率。
-
-新增模型或成绩时，保持同一评测项的行与模型列顺序，记录后端、模型、推理设置、
-样本规模及协议；更新来源说明，并将没有结果的单元保持为“未报告”。
-
-.. astra-supplementary-source-begin
-
 .. _benchmark-source-astra-pro:
 
-**GPT-6 Astra 补充 LIBERO-PRO 评测。** 实验
-``libero_pro_remaining_gpt6_astra_20260913`` 使用运行版本
-`014a0fa <https://github.com/RLinf/RPent/commit/014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7>`_。Spatial、Object、Goal 分别评测 Task 和 Swap；
-每个已报告分项覆盖 10 个任务，各使用 seed 1–10，共 100 回合。
-各任务在 seed 0 独立构建记忆，经合并并冻结后开始评测。
+* `表 2 <https://arxiv.org/html/2607.08448v4#S3.T2>`_
+* `表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_
+* `表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_
+* `表 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_
+* `表 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_
+* `GPT-6 Astra Long 评测 <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_
+* `GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_
+* 新增实验 · 2026-09-15 — 用户提供的结果图片，统计口径已明确确认：LIBERO-PRO 各模型完整八套件探索与测试；RoboCasa 全量 340 回合、50 任务等权 Overall。未提供逐回合结果及部分模型参数。
+* `RPent · Task Card 评测 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/task_card.rst>`_ — Object Task 与 Swap，20 个任务各 10 seeds。原文提供汇总成功数，未指定本次评测的模型版本；与新增八套件 Molmo 结果分开。
+* `RPent · RoboTwin 复现 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robotwin.rst>`_ — 仓库同样报告 Codex / GPT-5.5 xhigh 的 58.0%，并明确提供 145/250。该条成绩同时附上两个公开来源，不声称已核对逐回合一致性。
+* `RPent · Target50 复现 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/robots/robocasa/eval/target50_codex_results.md>`_ — 已公开的 50 任务汇总记录，不是逐回合轨迹。与论文 v4 实验分别保留。
+* `RPent · 早期参考列 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robocasa.rst>`_ — 仓库文档保留的早期参考计数，与论文 v4 和仓库复现分别标注。
+* `论文 · 图 4 <https://arxiv.org/html/2607.08448v4#S3.F4>`_
+* `论文 · 图 6 <https://arxiv.org/html/2607.08448v4#S3.F6>`_
+* `论文 · 表 18 <https://arxiv.org/html/2607.08448v4#A6.T18>`_
+* `论文 · 表 19 <https://arxiv.org/html/2607.08448v4#A6.T19>`_
+* 用户确认的配置与 RoboTwin 成绩 — GPT-5.6 推理实验使用 xhigh，GPT-6 Astra 使用 low 并开启 reasoning；62.50% 无推理对照保持不变。RoboTwin C2R 新成绩为 61.20% 与 72.00%，各 250 回合；未提供精确成功次数和逐任务结果。RoboCasa 复现实验模型标签由用户确认。
 
-GPT-6 Astra 的完整 800 回合 Overall 仅在八个 Task/Swap 分项全部完成后报告。
-完整八项范围由 Long 200 回合与补充评测 600 回合组成；各已报告批次使用
-对应的预先冻结记忆库，这些批次并非使用同一份记忆快照。
+* 原始 LIBERO；四套件，每套 100 回合；冻结 RLinf π0.5 策略。
+* 使用目标设置记忆的 LIBERO-PRO；八个 Task/Swap 分项，每项 100 回合。
+* Long 评测；seed-0 记忆冻结后测试 seed 1–10。运行版本 014a0fa，与 Spatial/Object/Goal 评测属于不同批次。
+* Goal Task/Swap 不使用目标设置 Task Specific Memory 和 Global Memory；每项 100 回合。
+* Target50：18 个原子任务各 10 seeds，16 个已见与 16 个未见复合任务各 5 seeds；总体为 50 个任务均权。
+* 50 个任务各 5 个专家验证随机 seeds；记忆从 demo_clean 迁移至 demo_randomized。
+* 四个标准套件；样本量沿用各外部报告。
+* 八个 LIBERO-PRO Task/Swap 分项；样本量沿用各外部报告。
+* 仅六个 Spatial/Object/Goal Task/Swap 分项，不含 Long。
+* 无目标设置记忆的 Goal 消融；样本量沿用外部报告。
+* 表 4 报告的基线数值。RLDX-1 为论文协议下直接评测的冻结策略，其他基线取自先前论文；未确认这些外部报告具有相同任务范围及聚合方式。
+* 从干净设置到随机设置迁移；样本量沿用各外部报告。
+* Spatial/Object/Goal Task 与 Swap；每项 10 个任务，各使用 seed 1–10。Seed 0 任务记忆经合并冻结后开始评测。
+* 800 回合：Long 200 回合，Spatial/Object/Goal 600 回合。各批次使用对应的预先冻结记忆库；八个分项均为 100 回合。
+* 完整 LIBERO-PRO 八套件，各模型独立完成探索与全量测试。不从 Overall 反推成功次数或子套件成绩。
+* Target50 全量 340 回合，Overall 对 50 个任务等权。GPT-6 Astra 使用 low effort 并开启 reasoning；未提供 split 成绩及成功次数。
+* Object Task + Object Swap；20 任务、200 回合。Task Card 179/200；Codex 无推理 186/200。不是八套件 Overall。
+* Target50 仓库复现：18 个 Atomic 任务各 10 seeds，16 个 Seen 与 16 个 Unseen 任务各 5 seeds。Overall 按任务等权。
+* 仓库中的早期参考列，不是 v4 论文实验。保留原有 split 计数和任务等权 Overall。
+* RoboTwin C2R：50 任务各 5 seeds，每配置 250 回合。GPT-5.6 xhigh 开启推理，GPT-6 Astra low 开启推理，不从百分比反推成功次数。
 
-**2026-09-14 14:00:55 UTC** 核验报告中，本次只发布六个完整套件、600 回合。
-:doc:`逐任务与 seed 结果表 <results/libero_pro_astra>` 覆盖这 600 个已完成位置，
-共 554 成功、46 失败；不发布未完成套件的部分数据。
-
-.. astra-supplementary-source-end
-
+2026-09-15 核验的 Astra 快照包含完整八套件：741 成功、59 失败，共 800 回合。Long 与 Spatial/Object/Goal 分别使用各自冻结的 memory 批次，不声称共用一个快照。旧 600 回合快照留档，不作为第二次实验重复排名。
 
 .. _benchmark-demo:
 
-演示视频
---------
+演示
+------------------------------------------------------------------------------------------
 
-**RPent 仿真演示：GPT-6 Astra 与 GPT-5.6 xhigh，4 倍速播放。**
-此视频为独立演示，与 GPT-5.5 统计记录分开说明。
+**RPent 仿真演示：GPT-6 Astra low 开启推理，对比 GPT-5.6 xhigh，4 倍速。** 独立演示，不属于 GPT-5.5 评测。
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/demo/demo-poster.jpg
+.. image:: https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/demo/demo-poster.jpg
    :alt: RPent simulation demo
    :width: 100%
-   :target: https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/demo/demo.mp4
+   :target: https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/demo/demo.mp4
 
-查看或下载`完整 MP4（约 24 秒，5.4 MiB） <https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/demo/demo.mp4>`_。
+查看或下载 `完整 MP4（约 24 秒，5.4 MiB） <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/demo/demo.mp4>`_ 。
 
-“未报告”表示没有对应成绩，不能视为零。
+维护结果
+------------------------------------------------------------------------------------------
 
-结果维护
---------
+展示代码、图片、数据和演示媒体位于 `RLinf/misc <https://github.com/RLinf/misc>`_，固定 commit ``f9ffc9e22a4f4f37079e82a2b78b920b279a3103``。无 JavaScript 或远端资源时，原生表格仍可阅读。交互组件使用同一份 JSON 和隔离样式；RPent 文档构建不需要绘图代码。
 
-图片和演示媒体统一存放在 `RLinf/misc <https://github.com/RLinf/misc>`_ 的
-``rpent/`` 目录。本页引用不可变媒体 commit
-``e858f627dbcc1b35440c3cb5ecaaefd016eb8680``；配套的
-`结果快照 <https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/benchmarks/results.json>`_ 记录数据来源。
-交互展示代码 ``leaderboard.js`` 与 ``leaderboard.css`` 也由 misc 维护；
-RPent 只接入固定版本的展示资源。图表直接读取同一 JSON 快照。
-JavaScript 或网络不可用时，原生结果表仍然可读。构建文档无需绘图工具。
-
-更新成绩时同步修改中英文表格，保留评测范围与来源精度，并将对应图片提交到 misc。
-确认图片与表格一致后再更新媒体 commit。不要从四舍五入的百分比推算成功次数，
-也不要把缺失结果当作零。保持模型列顺序、RoboCasa 任务加权口径，以及完整
-LIBERO-PRO 与六项或零样本比较的区别。维护说明集中在本文档页面，不再增加
-代码目录中的独立 README。
+更新时应使用核验后的数据同步中英文表格，保留模型与协议边界及缺失值，验证图表一致后再更新不可变资源版本。不从取整百分比推断未报告的成功次数。
 
 .. toctree::
    :hidden:

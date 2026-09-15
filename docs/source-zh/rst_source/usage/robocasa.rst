@@ -301,7 +301,9 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
 已发布的 Target50 结果
 -----------------------
 
-历史 Codex 复现覆盖全部 340 cells，任务级汇总如下：
+Codex / GPT-5.6 / xhigh 复现覆盖全部 340 cells，任务级汇总如下。
+早期 55.40% 参考值对应 GPT-5.5 / xhigh。另一次 GPT-6 Astra / low / reasoning
+评测的任务等权 Overall 为 59.20%，不推断未提供的 split 成绩。
 
 .. list-table:: Codex Target50 复现结果
    :header-rows: 1

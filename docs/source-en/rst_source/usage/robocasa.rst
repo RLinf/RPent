@@ -327,8 +327,10 @@ validate the fixed denominator and print the task-weighted score with:
 Published Target50 results
 --------------------------
 
-The historical Codex reproduction contains all 340 cells and reports the
-following task-level aggregates:
+The Codex / GPT-5.6 / xhigh reproduction contains all 340 cells and reports
+the following task-level aggregates. The earlier 55.40% reference uses
+GPT-5.5 / xhigh. A separate GPT-6 Astra / low / reasoning evaluation reports
+59.20% task-weighted Overall; its unreported split scores are not inferred.
 
 .. list-table:: Codex Target50 reproduction
    :header-rows: 1

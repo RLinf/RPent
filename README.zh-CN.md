@@ -31,9 +31,9 @@
 
 对比 RPent 与参考方法在 LIBERO、LIBERO-PRO、RoboCasa365 Target50 和 RoboTwin C2R 上的成功率。排名仅限图中方法及评测范围；完整结果、模型配置和来源见[基准测试结果](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)。
 
-GPT-6 Astra LIBERO-PRO 已完成六套，核验 600 回合。Goal 与 Overall 成功率仍未报告，详见[逐任务与 seed 结果](https://rpent.readthedocs.io/zh-cn/latest/rst_source/results/libero_pro_astra.html)。
+Codex / GPT-6 Astra / low / reasoning 已完成全部八套 LIBERO-PRO，**Overall 92.63%（741/800）**。详见 [80 个任务及 800 个 seed 结果](https://rpent.readthedocs.io/zh-cn/latest/rst_source/results/libero_pro_astra.html)，其中 Long 与 Spatial/Object/Goal 分别使用各自冻结的 memory 批次。
 
-[![RPent 六面板基准成功率对比](https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)
+[![RPent 六面板基准成功率对比](https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)
 
 
 ## 适用用户

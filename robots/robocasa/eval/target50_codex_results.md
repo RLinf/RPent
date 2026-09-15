@@ -1,10 +1,11 @@
 # Codex Target50 Results
 
 This page reports the task-level aggregate results for the 340-cell RoboCasa
-Target50 evaluation defined by [`target50.json`](target50.json). The reference
-planner profile is Codex SDK with `gpt-5.5`, `xhigh` reasoning effort, and
-`max_turns=100`. Success is determined only by the environment's
-`state.success` value.
+Target50 evaluation defined by [`target50.json`](target50.json). The contributor
+confirmed that this 57.00% reproduction uses Codex SDK with `gpt-5.6` and `xhigh`
+reasoning. The earlier 55.40% reference uses `gpt-5.5` with `xhigh`; the manifest's
+reference profile remains unchanged. Success is determined only by the
+environment's `state.success` value.
 
 The published record contains aggregate success counts for each task. It does
 not include per-seed traces, raw trajectories, failure classifications, or

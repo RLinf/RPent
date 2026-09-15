@@ -3,290 +3,191 @@
 .. _libero-pro-astra-results:
 
 LIBERO-PRO: GPT-6 Astra
-=======================
+==========================================================================================
 
 :doc:`返回排行榜 <../benchmarks>`
 
-**Codex / GPT-6 Astra / Reasoning 开启 / effort low。**
-核验快照：**2026-09-14 14:00:55 UTC**。
+**Codex / GPT-6 Astra / low / reasoning.**
 
-.. note::
-
-   本页只公布 **六个完整套件、600 回合**：**554 成功、46 失败**。
-   Goal Task、Goal Swap 与八套完整 Overall 在完成前保持 **未报告**。
-   不展示未完成套件的部分进度；这六套的统计不替代完整 Overall。
+2026-09-15 09:32:29 UTC 核验：**741 成功、59 失败，800 回合；Overall 92.63%（741/800）。**
 
 套件结果
---------
+------------------------------------------------------------------------------------------
+
+.. _astra-suite-progress:
 
 .. csv-table::
-   :name: astra-suite-progress
-   :header: "套件", "已完成", "成功", "失败", "成功率", "状态"
-   :widths: 25 15 10 10 15 25
+   :header: "套件", "成功 / 评测回合", "失败", "成功率"
    :class: table-sm
 
-   "Spatial Task", "100/100", "100", "0", "100.00%", "已完成"
-   "Spatial Swap", "100/100", "98", "2", "98.00%", "已完成"
-   "Object Task", "100/100", "100", "0", "100.00%", "已完成"
-   "Object Swap", "100/100", "99", "1", "99.00%", "已完成"
-   "Long Task", "100/100", "85", "15", "85.00%", "已完成"
-   "Long Swap", "100/100", "72", "28", "72.00%", "已完成"
-   "六个完整套件", "600/600", "554", "46", "不替代 Overall", "全部完成"
+   "Object Task", "100/100", "0", "100.00%"
+   "Spatial Task", "100/100", "0", "100.00%"
+   "Goal Swap", "99/100", "1", "99.00%"
+   "Object Swap", "99/100", "1", "99.00%"
+   "Spatial Swap", "98/100", "2", "98.00%"
+   "Goal Task", "88/100", "12", "88.00%"
+   "Long Task", "85/100", "15", "85.00%"
+   "Long Swap", "72/100", "28", "72.00%"
+   "Overall", "741/800", "59", "92.63%"
 
-每套有 10 个任务（ID 0-9），评测 seed 为 1-10，共 100 回合。
-Seed 0 仅用于探索，不计入评测分母。
+每套件 10 个任务（ID 0–9），各评测 seed 1–10；seed 0 仅用于探索。S 为成功，F 为失败。800 个位置各计分一次，有效失败保留。任务按成功率降序排列，原始任务 ID 与 seed 列含义不变。
 
-逐任务与 seed 结果
-------------------
-
-``S`` 表示成功，``F`` 表示失败。本页每个任务的
-十个评测 seed 均已完成。任务说明保留原实验的
-``task_language`` 及任务排序。
-
-Spatial Task
-~~~~~~~~~~~~
-
-**已完成 100/100；100 成功、0 失败、0 待完成。**
+GPT-6 Astra · low · reasoning · Object Task · 100/100
+----------------------------------------------------------------------------------------------------------
 
 .. csv-table::
-   :name: astra-seeds-spatial-task
-   :header: "任务", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "任务结果"
+   :header: "ID", "任务", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "成功率"
    :class: table-sm
 
-   "0", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "1", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "2", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "3", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "4", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "5", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "6", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "7", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "8", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "9", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
+   "0", "Pick the cream cheese and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "1", "Pick the alphabet soup and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "2", "Pick the tomato sauce and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "3", "Pick the ketchup and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "4", "Pick the milk and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "5", "Pick the bbq sauce and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "6", "Pick the orange juice and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "7", "Pick the butter and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "8", "Pick the salad dressing and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "9", "Pick the chocolate pudding and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
 
-.. dropdown:: 任务说明
-
-   .. csv-table::
-      :header: "任务", "task_language"
-      :widths: 10 90
-
-      "0", "Pick the akita black bowl not between the plate and the ramekin and place it on the plate"
-      "1", "Pick the akita black bowl next to the cookie box and place it on the plate"
-      "2", "Pick the akita black bowl next to the plate and place it on the plate"
-      "3", "Pick the akita black bowl on the top of the cabinet and place it on the plate"
-      "4", "Pick the akita black bowl on the top of the wooden cabinet and place it on the plate"
-      "5", "Pick the akita black bowl on the cookie box and place it on the plate"
-      "6", "Pick the akita black bowl on the stove and place it on the plate"
-      "7", "Pick the akita black bowl on the top of the cabinet and place it on the plate"
-      "8", "Pick the akita black bowl next to the ramekin and place it on the plate"
-      "9", "Pick the akita black bowl on the stove and place it on the plate"
-
-Spatial Swap
-~~~~~~~~~~~~
-
-**已完成 100/100；98 成功、2 失败、0 待完成。**
+GPT-6 Astra · low · reasoning · Spatial Task · 100/100
+------------------------------------------------------------------------------------------------------------
 
 .. csv-table::
-   :name: astra-seeds-spatial-swap
-   :header: "任务", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "任务结果"
+   :header: "ID", "任务", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "成功率"
    :class: table-sm
 
-   "0", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "1", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "2", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "3", "S", "F", "F", "S", "S", "S", "S", "S", "S", "S", "8/10 (80%)"
-   "4", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "5", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "6", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "7", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "8", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "9", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
+   "0", "Pick the akita black bowl not between the plate and the ramekin and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "1", "Pick the akita black bowl next to the cookie box and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "2", "Pick the akita black bowl next to the plate and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "3", "Pick the akita black bowl on the top of the cabinet and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "4", "Pick the akita black bowl on the top of the wooden cabinet and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "5", "Pick the akita black bowl on the cookie box and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "6", "Pick the akita black bowl on the stove and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "7", "Pick the akita black bowl on the top of the cabinet and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "8", "Pick the akita black bowl next to the ramekin and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "9", "Pick the akita black bowl on the stove and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
 
-.. dropdown:: 任务说明
-
-   .. csv-table::
-      :header: "任务", "task_language"
-      :widths: 10 90
-
-      "0", "Pick the akita black bowl between the plate and the ramekin and place it on the plate"
-      "1", "Pick the akita black bowl next to the ramekin and place it on the plate"
-      "2", "Pick the akita black bowl from table center and place it on the plate"
-      "3", "Pick the akita black bowl on the cookies box and place it on the plate"
-      "4", "Pick the akita black bowl in the top layer of the wooden cabinet and place it on the plate"
-      "5", "Pick the akita black bowl on the ramekin and place it on the plate"
-      "6", "Pick the akita black bowl next to the cookies box and place it on the plate"
-      "7", "Pick the akita black bowl on the stove and place it on the plate"
-      "8", "Pick the akita black bowl next to the plate and place it on the plate"
-      "9", "Pick the akita black bowl on the wooden cabinet and place it on the plate"
-
-Object Task
-~~~~~~~~~~~
-
-**已完成 100/100；100 成功、0 失败、0 待完成。**
+GPT-6 Astra · low · reasoning · Goal Swap · 99/100
+----------------------------------------------------------------------------------------------------
 
 .. csv-table::
-   :name: astra-seeds-object-task
-   :header: "任务", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "任务结果"
+   :header: "ID", "任务", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "成功率"
    :class: table-sm
 
-   "0", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "1", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "2", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "3", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "4", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "5", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "6", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "7", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "8", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "9", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
+   "0", "Open the middle layer of the drawer", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "1", "Put the bowl on the stove", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "2", "Put the wine bottle on the top of the drawer", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "4", "Put the bowl on the top of the drawer", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "5", "Push the plate to the front of the stove", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "6", "Put the cream cheese on the bowl", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "7", "Turn on the stove", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "8", "Put the bowl on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "9", "Put the wine bottle on the rack", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "3", "Open the top layer of the drawer and put the bowl inside", "F", "S", "S", "S", "S", "S", "S", "S", "S", "S", "90%"
 
-.. dropdown:: 任务说明
-
-   .. csv-table::
-      :header: "任务", "task_language"
-      :widths: 10 90
-
-      "0", "Pick the cream cheese and place it in the basket"
-      "1", "Pick the alphabet soup and place it in the basket"
-      "2", "Pick the tomato sauce and place it in the basket"
-      "3", "Pick the ketchup and place it in the basket"
-      "4", "Pick the milk and place it in the basket"
-      "5", "Pick the bbq sauce and place it in the basket"
-      "6", "Pick the orange juice and place it in the basket"
-      "7", "Pick the butter and place it in the basket"
-      "8", "Pick the salad dressing and place it in the basket"
-      "9", "Pick the chocolate pudding and place it in the basket"
-
-Object Swap
-~~~~~~~~~~~
-
-**已完成 100/100；99 成功、1 失败、0 待完成。**
+GPT-6 Astra · low · reasoning · Object Swap · 99/100
+--------------------------------------------------------------------------------------------------------
 
 .. csv-table::
-   :name: astra-seeds-object-swap
-   :header: "任务", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "任务结果"
+   :header: "ID", "任务", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "成功率"
    :class: table-sm
 
-   "0", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "1", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "2", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "3", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "4", "S", "S", "S", "S", "S", "S", "S", "S", "F", "S", "9/10 (90%)"
-   "5", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "6", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "7", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "8", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "9", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
+   "0", "Pick the alphabet soup and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "1", "Pick the cream cheese and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "2", "Pick the salad dressing and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "3", "Pick the bbq sauce and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "5", "Pick the tomato sauce and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "6", "Pick the butter and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "7", "Pick the milk and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "8", "Pick the chocolate pudding and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "9", "Pick the orange juice and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "4", "Pick the ketchup and place it in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "F", "S", "90%"
 
-.. dropdown:: 任务说明
-
-   .. csv-table::
-      :header: "任务", "task_language"
-      :widths: 10 90
-
-      "0", "Pick the alphabet soup and place it in the basket"
-      "1", "Pick the cream cheese and place it in the basket"
-      "2", "Pick the salad dressing and place it in the basket"
-      "3", "Pick the bbq sauce and place it in the basket"
-      "4", "Pick the ketchup and place it in the basket"
-      "5", "Pick the tomato sauce and place it in the basket"
-      "6", "Pick the butter and place it in the basket"
-      "7", "Pick the milk and place it in the basket"
-      "8", "Pick the chocolate pudding and place it in the basket"
-      "9", "Pick the orange juice and place it in the basket"
-
-Long Task
-~~~~~~~~~
-
-**已完成 100/100；85 成功、15 失败、0 待完成。**
+GPT-6 Astra · low · reasoning · Spatial Swap · 98/100
+----------------------------------------------------------------------------------------------------------
 
 .. csv-table::
-   :name: astra-seeds-long-task
-   :header: "任务", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "任务结果"
+   :header: "ID", "任务", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "成功率"
    :class: table-sm
 
-   "0", "S", "F", "S", "S", "S", "S", "S", "S", "F", "S", "8/10 (80%)"
-   "1", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "2", "S", "S", "F", "S", "S", "S", "S", "S", "S", "S", "9/10 (90%)"
-   "3", "F", "S", "F", "F", "S", "F", "S", "S", "S", "F", "5/10 (50%)"
-   "4", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "5", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "6", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "7", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "8", "F", "F", "S", "S", "S", "S", "S", "S", "S", "S", "8/10 (80%)"
-   "9", "S", "F", "S", "S", "F", "F", "S", "S", "F", "F", "5/10 (50%)"
+   "0", "Pick the akita black bowl between the plate and the ramekin and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "1", "Pick the akita black bowl next to the ramekin and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "2", "Pick the akita black bowl from table center and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "4", "Pick the akita black bowl in the top layer of the wooden cabinet and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "5", "Pick the akita black bowl on the ramekin and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "6", "Pick the akita black bowl next to the cookies box and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "7", "Pick the akita black bowl on the stove and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "8", "Pick the akita black bowl next to the plate and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "9", "Pick the akita black bowl on the wooden cabinet and place it on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "3", "Pick the akita black bowl on the cookies box and place it on the plate", "S", "F", "F", "S", "S", "S", "S", "S", "S", "S", "80%"
 
-.. dropdown:: 任务说明
-
-   .. csv-table::
-      :header: "任务", "task_language"
-      :widths: 10 90
-
-      "0", "put both the cream cheese and the tomato sauce in the basket"
-      "1", "put both the alphabet soup and the butter in the basket"
-      "2", "turn on the stove and put the pan on it"
-      "3", "put the bottle in the bottom drawer of the cabinet and close it"
-      "4", "put the yellow and white mug on the left plate and put the white mug on the right plate"
-      "5", "pick up the cup and place it in the back compartment of the caddy"
-      "6", "put the red mug on the plate and put the chocolate pudding to the right of the plate"
-      "7", "put both the ketchup and the cream cheese box in the basket"
-      "8", "put the left moka pot on the stove"
-      "9", "put the white mug in the microwave and close it"
-
-Long Swap
-~~~~~~~~~
-
-**已完成 100/100；72 成功、28 失败、0 待完成。**
+GPT-6 Astra · low · reasoning · Goal Task · 88/100
+----------------------------------------------------------------------------------------------------
 
 .. csv-table::
-   :name: astra-seeds-long-swap
-   :header: "任务", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "任务结果"
+   :header: "ID", "任务", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "成功率"
    :class: table-sm
 
-   "0", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "1", "F", "S", "S", "S", "S", "F", "S", "S", "F", "S", "7/10 (70%)"
-   "2", "S", "S", "S", "S", "S", "S", "S", "F", "S", "S", "9/10 (90%)"
-   "3", "F", "S", "S", "S", "S", "S", "F", "S", "S", "S", "8/10 (80%)"
-   "4", "S", "S", "S", "S", "S", "S", "S", "F", "S", "S", "9/10 (90%)"
-   "5", "S", "F", "S", "S", "S", "S", "S", "S", "S", "F", "8/10 (80%)"
-   "6", "F", "S", "F", "S", "F", "S", "S", "F", "F", "F", "4/10 (40%)"
-   "7", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "10/10 (100%)"
-   "8", "S", "S", "F", "S", "F", "S", "S", "F", "S", "F", "6/10 (60%)"
-   "9", "F", "F", "S", "F", "F", "F", "F", "F", "F", "F", "1/10 (10%)"
+   "1", "Put the plate on the stove", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "3", "Open the top layer of the drawer and put the cream cheese inside", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "5", "Push the cream cheese to the front of the stove", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "6", "put the wine bottle in the bowl", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "7", "Turn off the stove", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "8", "Put the wine bottle on the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "9", "Put the cream cheese on the rack", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "4", "Put the plate on the top of the drawer", "S", "S", "S", "S", "S", "F", "S", "S", "S", "S", "90%"
+   "2", "put the wine bottle in the bowl", "F", "S", "S", "S", "S", "F", "S", "S", "S", "S", "80%"
+   "0", "open the bottom drawer of the cabinet", "F", "F", "F", "S", "F", "F", "F", "F", "F", "F", "10%"
 
-.. dropdown:: 任务说明
+GPT-6 Astra · low · reasoning · Long Task · 85/100
+----------------------------------------------------------------------------------------------------
 
-   .. csv-table::
-      :header: "任务", "task_language"
-      :widths: 10 90
+.. csv-table::
+   :header: "ID", "任务", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "成功率"
+   :class: table-sm
 
-      "0", "put both the alphabet soup and the tomato sauce in the basket"
-      "1", "put both the cream cheese box and the butter in the basket"
-      "2", "turn on the stove and put the moka pot on it"
-      "3", "put the black bowl in the bottom drawer of the cabinet and close it"
-      "4", "put the white mug on the left plate and put the yellow and white mug on the right plate"
-      "5", "pick up the book and place it in the back compartment of the caddy"
-      "6", "put the white mug on the plate and put the chocolate pudding to the right of the plate"
-      "7", "put both the alphabet soup and the cream cheese box in the basket"
-      "8", "put both moka pots on the stove"
-      "9", "put the yellow and white mug in the microwave and close it"
+   "1", "put both the alphabet soup and the butter in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "4", "put the yellow and white mug on the left plate and put the white mug on the right plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "5", "pick up the cup and place it in the back compartment of the caddy", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "6", "put the red mug on the plate and put the chocolate pudding to the right of the plate", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "7", "put both the ketchup and the cream cheese box in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "2", "turn on the stove and put the pan on it", "S", "S", "F", "S", "S", "S", "S", "S", "S", "S", "90%"
+   "0", "put both the cream cheese and the tomato sauce in the basket", "S", "F", "S", "S", "S", "S", "S", "S", "F", "S", "80%"
+   "8", "put the left moka pot on the stove", "F", "F", "S", "S", "S", "S", "S", "S", "S", "S", "80%"
+   "3", "put the bottle in the bottom drawer of the cabinet and close it", "F", "S", "F", "F", "S", "F", "S", "S", "S", "F", "50%"
+   "9", "put the white mug in the microwave and close it", "S", "F", "S", "S", "F", "F", "S", "S", "F", "F", "50%"
+
+GPT-6 Astra · low · reasoning · Long Swap · 72/100
+----------------------------------------------------------------------------------------------------
+
+.. csv-table::
+   :header: "ID", "任务", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "成功率"
+   :class: table-sm
+
+   "0", "put both the alphabet soup and the tomato sauce in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "7", "put both the alphabet soup and the cream cheese box in the basket", "S", "S", "S", "S", "S", "S", "S", "S", "S", "S", "100%"
+   "2", "turn on the stove and put the moka pot on it", "S", "S", "S", "S", "S", "S", "S", "F", "S", "S", "90%"
+   "4", "put the white mug on the left plate and put the yellow and white mug on the right plate", "S", "S", "S", "S", "S", "S", "S", "F", "S", "S", "90%"
+   "3", "put the black bowl in the bottom drawer of the cabinet and close it", "F", "S", "S", "S", "S", "S", "F", "S", "S", "S", "80%"
+   "5", "pick up the book and place it in the back compartment of the caddy", "S", "F", "S", "S", "S", "S", "S", "S", "S", "F", "80%"
+   "1", "put both the cream cheese box and the butter in the basket", "F", "S", "S", "S", "S", "F", "S", "S", "F", "S", "70%"
+   "8", "put both moka pots on the stove", "S", "S", "F", "S", "F", "S", "S", "F", "S", "F", "60%"
+   "6", "put the white mug on the plate and put the chocolate pudding to the right of the plate", "F", "S", "F", "S", "F", "S", "S", "F", "F", "F", "40%"
+   "9", "put the yellow and white mug in the microwave and close it", "F", "F", "S", "F", "F", "F", "F", "F", "F", "F", "10%"
 
 协议与来源
-----------
+------------------------------------------------------------------------------------------
 
-成功只认原始环境 ``states.json`` 中的 ``terminated = true``，不以 planner
-最终文本判断。每个 task/seed 最多保留一个最终计分结果，已有有效失败保持不变。
-本次公开结果只包含六个完整套件的 600 个位置。
+成功只认原始环境轨迹的 ``terminated = true``，不是 planner 消息。运行版本为 ``014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7``，planner 时限 5000 秒，环境上限 10000 步。这些是实验记录，不是新增运行时默认值。
 
-运行版本：`014a0fa <https://github.com/RLinf/RPent/commit/014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7>`_。
-评测使用 5000 秒 planner timeout 与 10000 步环境上限。
-Long 来自 ``libero_long_gpt6_astra_20260907``；Spatial/Object 来自
-``libero_pro_remaining_gpt6_astra_20260913``。各批次使用各自评测前冻结的
-seed-0 memory，六套并非共用同一份 memory 快照。这些结果不是只改变 planner
-模型的受控对照实验；上述参数是实验来源记录，不是新的 RPent 默认值。
+Long 属于 ``libero_long_gpt6_astra_20260907``；Spatial/Object/Goal 属于 ``libero_pro_remaining_gpt6_astra_20260913``。两批分别使用评测前冻结的 seed-0 memory，不是同一个快照。
 
-发布前已将贡献者提供的报告与套件合计、600 个已计分 task/seed 位置交叉核对。
-原报告 SHA-256 为 ``e9880e58953af964edbcdd50d586b54c22a66f3a7fab54d919a4205be9436fdf``。
-公开的`清理后结果快照 <https://raw.githubusercontent.com/RLinf/misc/e858f627dbcc1b35440c3cb5ecaaefd016eb8680/rpent/benchmarks/astra-pro-20260914.json>`_
-包含 600 个逐 task/seed 结果、统计及协议元数据，不包含服务器路径、
-凭据或原始轨迹。本页整理已有实验证据，不代表文档更新期间重新执行了策略评测。
+800 个唯一回合与任务说明均已对照贡献者报告和核验 JSON 检查，此前 600 个结果不变。百分比来自精确计数；741/800 按四舍五入显示为 92.63%，不是从一位小数汇总反推。
+
+Report SHA-256: ``627d6d8a95fb1e10357961694867cd0bf0a2aa9011c96c8a33504b904cb96c80``.
+
+Verified JSON SHA-256: ``60b675da35557900f921befd84db306514723ebe5a9db73af2c72ae38bc46578``.
+
+`公开脱敏快照 <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_.
+包含任务说明、seed 成败、计数与公开协议元数据，不含服务器路径、凭据或原始轨迹。本轮发布未重跑实验。

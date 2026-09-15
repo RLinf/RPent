@@ -282,8 +282,8 @@ See :doc:`../benchmarks` for the unified RPent model comparison on LIBERO-PRO
 Task/Swap and the corresponding model configurations.
 
 The :doc:`GPT-6 Astra task/seed result tables <../results/libero_pro_astra>`
-record the current six complete suites and 600 verified episodes.
-Goal and Overall rates remain unreported while evaluation is incomplete.
+record all eight complete suites and 800 verified episodes: 741 successes,
+59 failures, and 92.63% Overall, with Codex / GPT-6 Astra / low / reasoning.
 
 The following historical reproduction records use the `reproduce/libero
 <https://github.com/RLinf/RPent/tree/reproduce/libero>`_ branch with
