@@ -44,7 +44,7 @@ class DualFrankaToolkit(FrankaToolkit):
     def __init__(
         self,
         *,
-        primitives_kwargs: dict[str, Any],
+        runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
         mode: str = "evaluation",
@@ -60,7 +60,7 @@ class DualFrankaToolkit(FrankaToolkit):
         self._operator_verdict: str | None = None
         self._operator_notes: str = ""
         super().__init__(
-            primitives_kwargs=primitives_kwargs,
+            runtime_kwargs=runtime_kwargs,
             dashboard_events=dashboard_events,
             memory=memory,
             state_output_dir=state_output_dir,

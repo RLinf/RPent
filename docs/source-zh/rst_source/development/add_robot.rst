@@ -83,13 +83,13 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
 
    def get_toolkit(
        *,
-       primitives_kwargs,
+       runtime_kwargs,
        dashboard_events: DashboardEventSink,
        config: RunConfig,
    ):
        from robots.myrobot.toolkit import MyRobotToolkit
        return MyRobotToolkit(
-           primitives_kwargs=primitives_kwargs,
+           runtime_kwargs=runtime_kwargs,
            dashboard_events=dashboard_events,
            memory=MemoryManager(
                root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
@@ -112,16 +112,15 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 
    ):
        """初始化全部 runtime components，或只初始化指定子集。
 
-       返回 (daemons, primitives_kwargs)。见第 5 节。
+       返回 (daemons, runtime_kwargs)。见第 5 节。
        """
        ...
 
 ``dashboard`` 是可选项；环境不支持 Dashboard 控制时保持为 ``None``。支持时，
 在机器人包中定义该 spec：其中 ``task`` 描述命令、校验字段、展示模板和输出目录
 slug；机器人专用的 Session 设置继续使用普通命令行参数；
-``runtime_components`` 描述服务行；``frame_channels`` 将相机名称映射到
-标准图像 artifact；``primitives`` 按顺序列出 Dashboard 展示并允许直接执行的
-Toolkit 动作。
+``runtime_components`` 描述服务行；``primitives`` 按顺序列出 Dashboard
+展示并允许直接执行的 Toolkit 动作。相机标签从每步记录的 PNG 工件中自动发现。
 任务候选项应直接保存在 spec 中，避免导入机器人包时依赖仿真器包。
 完整结构参考 ``robots/libero/robot_spec.py``。
 
@@ -299,7 +298,7 @@ step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过
 - 重写 ``close()``，通过 ``EnvState`` 保存 agent 侧剩余工件（例如
   ``state.save("episode.mp4", frames, step=None)``）。
 
-``primitives_kwargs`` 由 ``robot_spec.py:get_toolkit`` 转发给 toolkit，再原样传入
+``runtime_kwargs`` 由 ``robot_spec.py:get_toolkit`` 转发给 toolkit，再原样传入
 primitives 的 ``__init__``。其中通常包含
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``。
 
@@ -369,12 +368,12 @@ main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参�
 5. Runtime 初始化钩子
 ---------------------
 
-``init_runtime`` 返回 ``(owned_daemons, primitives_kwargs)``：
+``init_runtime`` 返回 ``(owned_daemons, runtime_kwargs)``：
 
 - ``owned_daemons: list[ProcessDaemon]`` 只包含当前进程实际启动的子进程，
   当前 runner 会在清理阶段停止它们。连接外部 endpoint 时，不能把外部服务加入
   该列表。
-- ``primitives_kwargs: dict`` 会传给 toolkit 构造器，再由后者传入 primitives
+- ``runtime_kwargs: dict`` 会传给 toolkit 构造器，再由后者传入 primitives
   的 ``__init__``。完整参数通常包含
   ``{"env": MyEnvClient(...), "model": VLAClient(...)}``，以及其他辅助 client。
 
@@ -382,7 +381,7 @@ main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参�
 CLI 会传入这个值。Dashboard 根据 ``dashboard.runtime_components`` 得到两个子集，
 每个 component 都必须显式声明 ``scope: "shared"`` 或 ``scope: "unique"``。Dashboard
 先初始化一次 shared components，再为每个新的环境实例初始化 unique
-components。两次都调用同一个钩子，最后合并返回的 ``primitives_kwargs``。在
+components。两次都调用同一个钩子，最后合并返回的 ``runtime_kwargs``。在
 LIBERO 中，这两个子集分别是 ``{"vla", "sam3"}`` 和 ``{"env"}``。
 
 实现应在启动任何服务前拒绝未知 component 名称。如果多个选中的本地服务初始化

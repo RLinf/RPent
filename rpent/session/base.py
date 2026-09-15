@@ -292,6 +292,26 @@ class EnvState:
             return False
         return self._artifact_file(name, resolved_step).exists()
 
+    def prune_artifacts(
+        self, names: tuple[str, ...], *, step: int, keep_last: int
+    ) -> None:
+        """Remove named files for the step leaving the retention window.
+
+        Call for each new step. Step records retain the names of the artifacts
+        originally captured, including files that have since been pruned.
+        """
+        old = step - keep_last
+        if old < 0:
+            return
+        for name in names:
+            path = self._artifact_file(name, old)
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning(
+                    "failed to prune artifact %s at step %d: %s", name, old, exc
+                )
+
     # -- step records ----------------------------------------------------
 
     @contextmanager

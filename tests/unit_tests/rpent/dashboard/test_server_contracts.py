@@ -41,9 +41,6 @@ DASHBOARD_SPEC: DashboardSpec = {
         "output_slug": "s{seed}",
     },
     "runtime_components": (),
-    "frame_channels": (
-        {"name": "camera", "label": "fixed camera", "artifact": "frame.png"},
-    ),
     "primitives": (),
 }
 

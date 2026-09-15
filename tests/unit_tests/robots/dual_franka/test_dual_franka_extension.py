@@ -35,8 +35,6 @@ def test_dual_franka_extension_is_discoverable():
     assert get_robot_spec().name == spec.name
     runtime_components = {item["name"] for item in spec.dashboard["runtime_components"]}
     assert "sam3" in runtime_components
-    frame_channels = {item["name"] for item in spec.dashboard["frame_channels"]}
-    assert "d455" in frame_channels
 
 
 def test_franka_extensions_declare_real_robot():
