@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,32 @@ from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
 
 logger = get_logger("robotwin_env_server")
+
+
+@lru_cache(maxsize=None)
+def _evaluation_language(task_config: str, task_name: str, seed: int) -> str | None:
+    """Return the published language for an exact standard evaluation episode."""
+    table_path = Path(__file__).resolve().parent / "eval" / f"{task_config}.json"
+    if not table_path.is_file():
+        return None
+    table = json.loads(table_path.read_text())
+    matches = [
+        entry["task_language"]
+        for entry in table.get("tasks", {}).get(task_name, [])
+        if int(entry["seed"]) == int(seed)
+    ]
+    if len(matches) > 1:
+        raise RuntimeError(
+            f"duplicate RoboTwin language entries for {task_name} seed {seed}"
+        )
+    if not matches:
+        return None
+    language = matches[0]
+    if not isinstance(language, str) or not language.strip():
+        raise RuntimeError(
+            f"invalid RoboTwin language entry for {task_name} seed {seed}"
+        )
+    return language.strip()
 
 
 def _teardown_env(env: Any) -> None:
@@ -148,9 +175,18 @@ class RoboTwinEnvFacade(BaseEnvFacade):
                 "RoboTwin exact seed mismatch: "
                 f"requested {seed}, initialized {episode_status['actual_seed']}"
             )
+        instruction_source = "native"
+        task_name = self._metadata.get("task_name")
+        task_config = self._metadata.get("task_config")
+        if isinstance(task_name, str) and isinstance(task_config, str):
+            published = _evaluation_language(task_config, task_name, seed)
+            if published is not None:
+                self._env.set_task_language(published, env_id=0)
+                instruction_source = "evaluation_seed_table"
         instruction = self._env.get_task_language(0)
         info["requested_seed"] = seed
         info["instruction"] = instruction
+        info["instruction_source"] = instruction_source
         return self._strip_single_env_observation(observation), info
 
     def step(
