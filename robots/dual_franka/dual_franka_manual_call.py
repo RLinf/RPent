@@ -48,7 +48,7 @@ from robots.dual_franka.tools import (
     dump_state,
     view_env_state,
 )
-from robots.franka.runtime_config import set_calibration_path, set_robot_config_path
+from robots.franka.runtime_config import set_robot_config_path
 from robots.franka.tools import view_camera_meta
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
@@ -268,14 +268,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--vla-endpoint", default=None)
     parser.add_argument("--sam3-endpoint", default=None)
     parser.add_argument(
-        "--calibration-path",
-        default=os.environ.get("RPENT_CALIBRATION_PATH"),
-        help=(
-            "Hand-eye calibration JSON used by manual perception tools; "
-            "defaults to RPENT_CALIBRATION_PATH when set."
-        ),
-    )
-    parser.add_argument(
         "--robot-config",
         default=os.environ.get("RPENT_ROBOT_CONFIG", str(DEFAULT_CONFIG)),
     )
@@ -493,8 +485,6 @@ def main() -> int:
     payload = _load_payload(args)
     primitive = payload["primitive"]
     params = payload["params"]
-    if args.calibration_path:
-        set_calibration_path(args.calibration_path)
     output_dir = (
         Path(args.output_dir) if args.output_dir else _default_output_dir(primitive)
     )

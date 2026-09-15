@@ -309,14 +309,26 @@ def test_robotwin_rejects_conflicting_cuda_routes() -> None:
 def test_robot_config_flag_is_recorded_at_parse_time(
     robot_name: str,
     packaged_default: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    args = _parser(robot_name).parse_args(["--robot-config", "/offline/robot.yaml"])
+    # Isolate `~` so the packaged default's easy_handeye YAML paths are
+    # deterministically missing and the fail-fast check kicks in.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    calib = tmp_path / "calib.yaml"
+    calib.write_text("parameters: {}\ntransformation: {}\n")
+    custom = tmp_path / "robot.yaml"
+    custom.write_text(f"perception:\n  calibration:\n    external: {calib}\n")
+    args = _parser(robot_name).parse_args(["--robot-config", str(custom)])
     try:
         get_robot_spec(robot_name).parse_config(args)
-        assert get_robot_config_path() == Path("/offline/robot.yaml")
+        assert get_robot_config_path() == custom
 
+        # The packaged defaults reference on-robot easy_handeye YAMLs: parse
+        # fails fast, but only after the default config path is recorded.
         args = _parser(robot_name).parse_args([])
-        get_robot_spec(robot_name).parse_config(args)
+        with pytest.raises(ValueError, match="easy_handeye"):
+            get_robot_spec(robot_name).parse_config(args)
         assert get_robot_config_path() == packaged_default
     finally:
         set_robot_config_path(None)

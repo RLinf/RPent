@@ -120,9 +120,13 @@ def _create_worker_class():
             self.cfg = cfg
             self.controller = dict(controller_config)
             self._dual_franka_calibration_bundle: dict[str, Any] | None = None
-            from robots.franka.runtime_config import set_robot_config_path
+            from robots.franka.runtime_config import (
+                set_robot_config_path,
+                validate_calibration_sources,
+            )
 
             set_robot_config_path(self.controller.get("robot_config_path"))
+            validate_calibration_sources()
             self.env = RealWorldEnv(
                 cfg.env.eval,
                 num_envs=1,
@@ -311,9 +315,10 @@ def _create_worker_class():
         def _calibration_bundle(self) -> dict[str, Any]:
             bundle = self._dual_franka_calibration_bundle
             if bundle is None:
-                bundle = load_calibration_bundle(
-                    self.controller.get("calibration_path")
-                )
+                # Calibration YAML paths live inside the robot config pointed
+                # to by ``controller["robot_config_path"]`` (set above), so no
+                # separate calibration path is threaded through the controller.
+                bundle = load_calibration_bundle()
                 self._dual_franka_calibration_bundle = bundle
             return bundle
 
@@ -611,14 +616,7 @@ def _create_worker_class():
             }
 
         def _open_perception_cameras(self) -> None:
-            cameras = self.controller["perception"].get("cameras")
-            if not isinstance(cameras, dict):
-                return
-            for alias, raw_config in cameras.items():
-                if not isinstance(raw_config, dict) or not bool(
-                    raw_config.get("enabled", True)
-                ):
-                    continue
+            for alias, raw_config in self.controller["perception"]["cameras"].items():
                 resolution = tuple(
                     int(value) for value in raw_config.get("resolution", [640, 480])
                 )

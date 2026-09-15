@@ -89,6 +89,9 @@ joint_health:
       critical_min_joint_margin: 0.25
 
 perception:
+  calibration:
+    base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
+    d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
   # Views that support metric projection/segmentation.  The tool schema accepts
   # a free-form camera string, then validates it against this registry and the
   # current state's saved artifacts.  This mirrors dynamic-view simulator
