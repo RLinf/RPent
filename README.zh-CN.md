@@ -38,6 +38,7 @@ RPent 面向以下四类用户：
 
 ## 最新动态
 
+- [2026/09] 🔥 RPent 已支持数据飞轮。文档：[数据飞轮](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/flywheel.html)。
 - [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。参见 [RoboCasa 安装与 Target50 指南](robots/robocasa/README.md)和 [完整中文文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
 - [2026/08] 🔥 新增非推理（non-reasoning）模式，平均执行时间降低约 40%。
 - [2026/08] 🔥 支持 LIBERO 探索模式。文档：[LIBERO 探索模式](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#memory)。

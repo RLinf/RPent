@@ -1,5 +1,7 @@
-LIBERO Data Flywheel
-====================
+.. _libero-data-flywheel:
+
+Data Flywheel
+=============
 
 The optional Flywheel records executed LIBERO evaluation trajectories without
 changing the planner or action primitives. It stores immutable raw episodes;
