@@ -325,6 +325,12 @@ def _start_continuation_session(
     return planner, system_prompt, session_message
 
 
+def _apply_robot_defaults(args: argparse.Namespace) -> None:
+    """Apply defaults that differ from the shared planner defaults."""
+    if args.robot_name == "robocasa" and args.planner_timeout_s is None:
+        args.planner_timeout_s = 7200
+
+
 def main() -> int:
     parser = _build_argparser()
     # Two-phase argparse: first grab --robot / --env / --dashboard so we know
@@ -352,6 +358,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    _apply_robot_defaults(args)
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
     if robot_spec.is_real_robot:

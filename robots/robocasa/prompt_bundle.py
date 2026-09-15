@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from robots.robocasa import prompts as robocasa_prompt
+from robots.robocasa.prompts import explore as explore_prompt
 from rpent.prompt import common as base_prompt
 from rpent.prompt.utils import PromptNode
 
@@ -27,6 +28,8 @@ def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> dict[str, PromptNode]:
     """Return the system prompt tree."""
+    if (variables or {}).get("mode", "eval") == "explore":
+        return explore_prompt.system_prompt()
     return {
         "Intro": robocasa_prompt.PREAMBLE,
         "Goal": robocasa_prompt.GOAL,
@@ -48,6 +51,11 @@ def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> dict[str, PromptNode]:
     """Return the first user message tree."""
+    mode = (
+        explore_prompt.USER_MODE
+        if (variables or {}).get("mode", "eval") == "explore"
+        else robocasa_prompt.USER_MODE
+    )
     return {
         "Task": """
         - task:    {{task_name}} / {{split}}
@@ -56,5 +64,5 @@ def user_prompt(
         - output:  {{output_dir}}/
           - audit filename:  {{recipe_tag}}.json
         """,
-        "Mode": robocasa_prompt.USER_MODE,
+        "Mode": mode,
     }
