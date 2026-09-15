@@ -244,7 +244,13 @@ def _build_argparser() -> argparse.ArgumentParser:
     return ap
 
 
-def _handoff_message(output_dir, session_number: int, session_max: int) -> str:
+def _handoff_message(
+    output_dir,
+    session_number: int,
+    session_max: int,
+    *,
+    robot_name: str,
+) -> str:
     """Build the opening message for a continuation session."""
     attempts_dir = Path(output_dir) / "attempts"
     prior = (
@@ -252,14 +258,26 @@ def _handoff_message(output_dir, session_number: int, session_max: int) -> str:
         if attempts_dir.is_dir()
         else []
     )
+    spec = get_robot_spec(robot_name)
+    if spec.is_real_robot:
+        reset_note = (
+            "This is a real-robot continuation: the physical scene is not "
+            "automatically reset by toolkit construction. If a restored scene "
+            "is required, request operator-mediated scene restoration through "
+            "the exposed tools. Wait for the operator to secure held objects "
+            "and confirm the scene is safe before the robot resets its posture. "
+            "If no such tool is available, stop and ask the operator; do not "
+            "substitute a robot-only reset for scene restoration."
+        )
+    else:
+        reset_note = "A fresh toolkit has already restored a clean scene; inspect it before acting."
     return (
         f"You are agent {session_number} of up to {session_max} on this cell. "
         f"{len(prior)} attempt(s) by earlier agents are archived in "
         f"{attempts_dir}/ ({', '.join(prior) if prior else 'none yet'}), and their "
         "working notes are in the memory inbox under wip/.\n\n"
         "Read every archive and the working notes before acting. Do not repeat "
-        "failed approaches. A fresh toolkit has already restored a clean scene; "
-        "inspect it before acting."
+        f"failed approaches. {reset_note}"
     )
 
 
@@ -298,7 +316,12 @@ def _start_continuation_session(
             "session_max": session_max,
         },
     )
-    session_message = _handoff_message(output_dir, session_number, session_max)
+    session_message = _handoff_message(
+        output_dir,
+        session_number,
+        session_max,
+        robot_name=args.robot_name,
+    )
     return planner, system_prompt, session_message
 
 
@@ -331,14 +354,30 @@ def main() -> int:
     args.robot_name = early.robot_name
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
+    if robot_spec.is_real_robot:
+        if args.dashboard or args.interactive:
+            parser.error(
+                "This robot requires exclusive terminal input for operator confirmation; "
+                "--dashboard and --interactive are not supported. Run in a plain terminal."
+            )
+        if sys.stdin is None or not sys.stdin.isatty():
+            parser.error("This robot requires a TTY for operator confirmation.")
     if args.base_url and args.planner in BASE_URL_ENV_BY_PLANNER:
         parser.error(
             "--base-url applies to the 'api' planner only; "
             f"{args.planner} reads its endpoint from "
             f"{BASE_URL_ENV_BY_PLANNER[args.planner]} instead"
         )
-    if args.explore and args.robot_name != "libero":
-        parser.error("--explore is currently supported only for LIBERO")
+    if args.explore and not robot_spec.supports_exploration:
+        detail = (
+            " Real-robot exploration requires operator-mediated scene restoration "
+            "and feedback support."
+            if robot_spec.is_real_robot
+            else ""
+        )
+        parser.error(
+            f"--explore is not supported for robot {args.robot_name!r}.{detail}"
+        )
     if args.explore and args.memory_profile == "hf":
         parser.error("--explore cannot be used with --memory-profile hf")
     if args.explore and getattr(args, "explore_sessions", 1) <= 0:
@@ -468,7 +507,7 @@ def main() -> int:
                 state_output_dir = (
                     output_dir / "sessions" / f"session_{session_number:03d}"
                 )
-            if robot_name == "libero":
+            if robot_spec.supports_exploration:
                 toolkit = get_toolkit(
                     robot_name,
                     primitives_kwargs=primitives_kwargs,
@@ -500,15 +539,15 @@ def main() -> int:
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
-                if robot_name == "libero":
-                    solved = toolkit.solved()
+                if robot_spec.supports_exploration:
+                    solved = bool(toolkit.solved())
                     if solved:
-                        recipe_path = toolkit.write_recipe(recipe_tag)
+                        recipe_path = toolkit.write_recipe(recipe_tag) or recipe_path
             finally:
                 try:
                     if robot_spec.finalize_run is not None:
                         environment_success = bool(toolkit.solved())
-                        solved = environment_success
+                        solved = bool(environment_success)
                 finally:
                     toolkit.close()
             if solved:

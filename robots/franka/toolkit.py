@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.franka import perception as franka_perception
@@ -43,8 +44,9 @@ class FrankaToolkit(Toolkit):
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
+        state_output_dir: Path | str | None = None,
     ) -> None:
-        state = EnvState(get_output_dir())
+        state = EnvState(Path(state_output_dir or get_output_dir()))
         super().__init__(
             dashboard_events=dashboard_events,
             state=state,

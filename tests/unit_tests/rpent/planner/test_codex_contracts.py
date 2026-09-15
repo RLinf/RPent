@@ -324,6 +324,31 @@ def test_build_config_scopes_loopback_no_proxy_to_codex_child(
     assert os.environ["no_proxy"] == ".corp.invalid"
 
 
+def test_planner_forwards_configured_service_tier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_backend(monkeypatch)
+    monkeypatch.setenv("CODEX_SERVICE_TIER", "fast")
+    FakeCodex.events = [
+        {
+            "method": "turn/completed",
+            "payload": {"turn": {"status": "completed", "duration_ms": 10}},
+        },
+    ]
+
+    make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="system rules",
+        user_message="user task",
+        toolkit=FakeToolkit(),
+        max_turns=1,
+    )
+
+    fake_codex = FakeCodex.instances[0]
+    assert fake_codex.thread_options["service_tier"] == "fast"
+    assert fake_codex.thread.turn_prompts[0][1]["service_tier"] == "fast"
+
+
 def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -716,6 +741,20 @@ def test_probe_runs_read_only_and_denies_approvals(probe_codex: Any) -> None:
     options = instances[0].thread_options
     assert options["approval_mode"] is codex_module.openai_codex.ApprovalMode.deny_all
     assert options["sandbox"] is codex_module.openai_codex.Sandbox.read_only
+
+
+def test_probe_forwards_configured_service_tier(
+    probe_codex: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CODEX_SERVICE_TIER", "fast")
+    result = SimpleNamespace(status="completed", error=None, final_response="ok")
+    instances = probe_codex(lambda: FakeProbeTurn(result))
+
+    codex_module.run_probe_turn(object(), prompt="ping", model=None, timeout_s=30)
+
+    assert instances[0].thread_options["service_tier"] == "fast"
+    assert instances[0].turn_prompts[0][1]["service_tier"] == "fast"
 
 
 def test_probe_config_attaches_no_mcp_server(monkeypatch: pytest.MonkeyPatch) -> None:

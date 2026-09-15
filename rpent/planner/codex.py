@@ -105,6 +105,7 @@ class CodexPlanner:
         self._model = model or os.environ.get("CODEX_MODEL", None)
         self._base_url = os.environ.get("CODEX_BASE_URL", None)
         self._api_key = os.environ.get("CODEX_API_KEY", None)
+        self._service_tier = os.environ.get("CODEX_SERVICE_TIER", None)
         self._dashboard_events = dashboard_events
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
@@ -114,6 +115,8 @@ class CodexPlanner:
             "model": self._model,
             "sandbox": openai_codex.Sandbox.full_access,
         }
+        if self._service_tier:
+            self._thread_options["service_tier"] = self._service_tier
         self._turn_options = {
             **self._thread_options,
             "effort": getattr(ReasoningEffort, reasoning_effort),
@@ -853,6 +856,8 @@ def run_probe_turn(
     }
     if model:
         options["model"] = model
+    if service_tier := os.environ.get("CODEX_SERVICE_TIER", None):
+        options["service_tier"] = service_tier
 
     state: dict[str, Any] = {}
 

@@ -53,6 +53,8 @@ def run_dashboard_session(
     parser: argparse.ArgumentParser,
 ) -> int:
     """Run one long-lived Dashboard Session with sequential fresh TaskRuns."""
+    if robot_spec.is_real_robot:
+        parser.error("This robot requires operator confirmation in a plain terminal.")
     from rpent.dashboard.server import DashboardServer
     from rpent.dashboard.session import DashboardSessionController
     from rpent.dashboard.state import DashboardState
@@ -166,6 +168,8 @@ def _run_dashboard_task(
     task_args = copy.copy(args)
     for name, value in claimed.request.items():
         setattr(task_args, name, value)
+    if task_args.explore and not robot_spec.supports_exploration:
+        raise ValueError(f"--explore is not supported for robot {robot_spec.name!r}")
     task_args.output_dir = str(claimed.output_dir)
     run_config = robot_spec.parse_config(task_args)
     output_dir = init_output_dir(run_config.output_dir, verbose=args.verbose)
@@ -215,6 +219,7 @@ def _run_dashboard_task(
                         output_dir,
                         session_number,
                         sessions,
+                        robot_name=args.robot_name,
                     )
                 system_prompt = robot_spec.prompts.render(
                     "system",
@@ -232,7 +237,7 @@ def _run_dashboard_task(
                     state.begin_planner_session(
                         video_path=state_output_dir / "episode.mp4",
                     )
-                if args.robot_name == "libero":
+                if robot_spec.supports_exploration:
                     toolkit = get_toolkit(
                         args.robot_name,
                         primitives_kwargs=primitives_kwargs,
@@ -280,10 +285,12 @@ def _run_dashboard_task(
                     messages += result.messages
                     stats = result.stats
                     agent_error = result.error
-                    if args.robot_name == "libero":
-                        solved = toolkit.solved()
+                    if robot_spec.supports_exploration:
+                        solved = bool(toolkit.solved())
                         if solved:
-                            recipe_path = toolkit.write_recipe(recipe_tag)
+                            recipe_path = (
+                                toolkit.write_recipe(recipe_tag) or recipe_path
+                            )
                 finally:
                     state.unbind_toolkit(toolkit)
                     toolkit.close()

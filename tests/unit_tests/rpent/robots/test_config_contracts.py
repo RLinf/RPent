@@ -19,7 +19,9 @@ from pathlib import Path
 
 import pytest
 
-from robots.dual_franka.runtime_config import DUAL_FRANKA_CONFIG
+from robots.dual_franka.runtime_config import (
+    DEFAULT_CONFIG as DUAL_FRANKA_DEFAULT_CONFIG,
+)
 from robots.franka.runtime_config import (
     DEFAULT_CONFIG as FRANKA_CONFIG,
 )
@@ -301,7 +303,7 @@ def test_robotwin_rejects_conflicting_cuda_routes() -> None:
     ("robot_name", "packaged_default"),
     [
         ("franka", FRANKA_CONFIG),
-        ("dual_franka", DUAL_FRANKA_CONFIG),
+        ("dual_franka", DUAL_FRANKA_DEFAULT_CONFIG),
     ],
 )
 def test_robot_config_flag_is_recorded_at_parse_time(

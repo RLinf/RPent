@@ -137,6 +137,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=LIBERO_DASHBOARD_SPEC,
+        supports_exploration=True,
         replay_card=_replay_card,
     )
 
