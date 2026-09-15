@@ -24,13 +24,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.robocasa.eval.result import finalize_cell_result
+from robots.robocasa.memory import (
+    DEFAULT_MEMORY_REVISION,
+    MEMORY_POLICIES,
+    RoboCasaMemoryManager,
+    memory_from_variables,
+)
 from robots.robocasa.prompt_bundle import (
     system_prompt,
     user_prompt,
 )
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
-from rpent.memory import MemoryManager
+from rpent.evaluation import write_json_atomic
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -162,6 +168,7 @@ def get_robot_spec() -> RobotSpec:
         init_runtime=_init_runtime,
         dashboard=ROBOCASA_DASHBOARD_SPEC,
         supports_exploration=False,
+        memory_revision=DEFAULT_MEMORY_REVISION,
         finalize_run=finalize_cell_result,
     )
 
@@ -175,9 +182,15 @@ def get_toolkit(
     """Return the RoboCasa toolkit for the current session."""
     from robots.robocasa.toolkit import RoboCasaToolkit
 
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
+    selection = memory_from_variables(
+        {
+            "memory_dir": str(get_memory_dir("robocasa")),
+            "task_name": config.task_desc["task_name"],
+            **config.prompt_vars,
+        }
     )
+    write_json_atomic(config.output_dir / "memory.json", selection.metadata())
+    memory = RoboCasaMemoryManager(selection, output_dir=config.output_dir)
     return RoboCasaToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
@@ -188,6 +201,17 @@ def get_toolkit(
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """Register RoboCasa CLI flags on the shared ``parser``."""
     required = not use_dashboard
+    parser.add_argument(
+        "--memory-policy",
+        choices=MEMORY_POLICIES,
+        default="task-global",
+        help="RoboCasa memory layers: task-global (default) or task-only ablation",
+    )
+    parser.add_argument(
+        "--memory-revision",
+        default=None,
+        help="Override the pinned HF memory revision; local profiles record only an explicitly supplied revision",
+    )
     parser.add_argument(
         "--task-name",
         default=None,
@@ -246,6 +270,13 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "seed": args.seed,
         "recipe_tag": recipe_tag,
         "memory_dir": str(memory_dir),
+        "memory_policy": getattr(args, "memory_policy", "task-global"),
+        "memory_revision": getattr(args, "memory_revision", None)
+        or (
+            DEFAULT_MEMORY_REVISION
+            if (getattr(args, "memory_profile", "hf") or "hf") == "hf"
+            else None
+        ),
     }
 
     output_dir = args.output_dir

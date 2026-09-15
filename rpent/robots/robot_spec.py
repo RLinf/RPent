@@ -72,6 +72,7 @@ class RobotSpec:
     #: extensions can opt into exploration with their own reset semantics.
     supports_exploration: bool = False
     memory_repo_id: str = "RLinf/RPent-memory"
+    memory_revision: str | None = None
     finalize_run: RunFinalizer | None = None
     #: Replay this robot's recorded plan for one cell, in place of a planner.
     #: Takes the toolkit, the cell tag, and a note sink; returns at least

@@ -70,8 +70,11 @@ def _readonly_names(robot_toolkit: Toolkit) -> set[str]:
 def test_toolkit_falls_back_to_memory_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    make_corpus,
 ) -> None:
     memory_dir = tmp_path / "robocasa"
+    make_corpus(memory_dir)
+    (tmp_path / "run").mkdir()
     monkeypatch.setattr(robot_spec, "get_memory_dir", lambda _: memory_dir)
     monkeypatch.setattr(
         toolkit,
@@ -82,7 +85,7 @@ def test_toolkit_falls_back_to_memory_root(
         recipe_tag="cell-s0",
         output_dir=tmp_path / "run",
         prompt_vars={},
-        task_desc={},
+        task_desc={"task_name": "OpenDrawer"},
     )
 
     robot_toolkit = robot_spec.get_toolkit(

@@ -220,6 +220,8 @@ def test_robocasa_config_defaults_and_valid_override(tmp_path: Path) -> None:
         "seed": 11,
         "recipe_tag": "PnPCounterToCab_pretrain_s11",
         "memory_dir": str(get_memory_dir("robocasa")),
+        "memory_policy": "task-global",
+        "memory_revision": get_robot_spec("robocasa").memory_revision,
     }
     assert config.task_desc == {
         "task_name": "PnPCounterToCab",

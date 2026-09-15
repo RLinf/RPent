@@ -53,6 +53,7 @@ def test_evaluation_toolkit_factories_use_configured_read_only_memory(
     toolkit_module: Any,
     toolkit_name: str,
     configured_leaf: str,
+    make_corpus,
 ) -> None:
     captured: dict[str, Any] = {}
 
@@ -64,11 +65,16 @@ def test_evaluation_toolkit_factories_use_configured_read_only_memory(
     resources_dir = tmp_path / robot_spec.__name__
     configured_dir = resources_dir / configured_leaf
     memory_dir = resources_dir / "memory"
+    config = _run_config(configured_dir)
+    if robot_spec is robocasa_robot_spec:
+        make_corpus(memory_dir)
+        config.output_dir.mkdir(parents=True)
+        config.task_desc["task_name"] = "OpenDrawer"
 
     toolkit = robot_spec.get_toolkit(
         primitives_kwargs={"env": "offline"},
         dashboard_events=NullDashboardEventSink(),
-        config=_run_config(configured_dir),
+        config=config,
     )
 
     assert toolkit.memory.root == memory_dir.resolve()

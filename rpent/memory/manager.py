@@ -373,6 +373,7 @@ class MemoryManager:
         *,
         remote_repo: str,
         allow_patterns: tuple[str, ...] | None = None,
+        revision: str | None = None,
     ) -> Path:
         """Sync this memory corpus from its Hugging Face dataset."""
         robot_name = self._root.name
@@ -397,6 +398,7 @@ class MemoryManager:
                 repo_type="dataset",
                 local_dir=str(self._root.parent),
                 allow_patterns=list(allow_patterns or (f"{robot_name}/**",)),
+                **({"revision": revision} if revision is not None else {}),
             )
         except Exception as exc:
             if _has_local_memory(self._root):
