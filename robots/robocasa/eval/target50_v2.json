@@ -35,7 +35,7 @@
     "task_memory": {
       "repository": "RLinf/RPent-memory",
       "repository_type": "dataset",
-      "revision": "local-validation-pending-publication",
+      "revision": "d1a086d857e7fa53576d46c3851afa8e239b1b64",
       "include_pattern": "robocasa/**",
       "corpus_sha256": "a7349a5b0e9fa6e92cb890983e10655dd9d7dfb53f129788d889efd80baa256b"
     }

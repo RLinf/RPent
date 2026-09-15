@@ -191,6 +191,10 @@ seeds, time limits, dependency revisions, memory scope, the success source,
 and retry policy. Its protocol ID is
 `robocasa-harness-vla-v2`.
 
+The [two-task global memory validation report](eval/global_memory_validation_20260915.md)
+records the ten focused runs, memory-read audit, dependency versions and rerun
+commands. It is separate from the complete Target50 evaluation below.
+
 | Split | Tasks | Seeds per task | Cell timeout | Cells |
 |---|---:|---:|---:|---:|
 | Atomic | 18 | 1-10 | 1800 s | 180 |

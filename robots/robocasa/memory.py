@@ -31,8 +31,8 @@ from rpent.utils.logging import get_logger
 
 logger = get_logger("robocasa_memory")
 MEMORY_POLICIES = ("task-global", "task-only")
-# Replaced with the immutable, verified HF data PR commit before publication.
-DEFAULT_MEMORY_REVISION = "local-validation-pending-publication"
+# Immutable, verified snapshot of the reviewed task and global memory corpus.
+DEFAULT_MEMORY_REVISION = "d1a086d857e7fa53576d46c3851afa8e239b1b64"
 GLOBAL_FILE = "global/GLOBAL_MEMORY.md"
 _TASK_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]*\Z")
 _TASK_FILE = re.compile(
