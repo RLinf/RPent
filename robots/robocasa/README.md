@@ -16,7 +16,7 @@ launcher.
 ## Runtime Flow
 
 ```text
-rpent CLI -> task-memory sync -> environment and VLA servers
+rpent CLI -> task/global memory sync -> environment and VLA servers
           -> planner toolkit -> RoboCasa state.success
 ```
 
@@ -83,6 +83,9 @@ inside RPent.
 [RLinf/RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory)
 at the immutable revision in `eval/target50_v2.json`. `--memory-revision` can
 explicitly select another revision. CLI and Dashboard use the same default.
+Pinned synchronization fails if HF cannot verify the requested revision.
+For offline runs, use `--memory-profile local --memory-dir <corpus>`; local
+results record the corpus hash and, by default, no HF revision.
 
 The reviewed PR #130 package supplies 103 memory files: 43 seed-0 audit JSONs,
 43 recipes, 16 Composite-Seen task Markdown files, and one Global Memory.
@@ -182,7 +185,7 @@ for all supported backends.
 
 ## Harness VLA Target50 Reproduction
 
-[`eval/target50_v2.json`](eval/target50.json) is the canonical manifest for the
+[`eval/target50_v2.json`](eval/target50_v2.json) is the canonical manifest for the
 Harness VLA reproduction on RoboCasa Target50. It freezes task membership,
 seeds, time limits, dependency revisions, memory scope, the success source,
 and retry policy. Its protocol ID is
@@ -260,7 +263,7 @@ timeout remains a failed cell; an infrastructure error is rejected for rerun.
 
 ## Published Results
 
-The published Codex reproduction reports `163/180` Atomic, `49/80`
+The historical task-only v1 Codex reproduction reports `163/180` Atomic, `49/80`
 Composite-Seen, and `12/80` Composite-Unseen successes, for a task-weighted
 RoboCasa365 score of `57.00%`. See the
 [complete per-task table](eval/target50_codex_results.md) for comparison with
@@ -298,6 +301,17 @@ the Harness VLA reference results and for the aggregation boundary.
 from RPent commit `43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92` with memory revision
 `551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b`. The published 57.00% result belongs
 to v1. Turning global off in the new code is a v2 ablation, not a v1 reproduction.
+
+Create a separate checkout for the frozen entry point:
+
+```bash
+git worktree add --detach ../RPent-robocasa-v1 \
+  43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92
+```
+
+Follow that checkout's RoboCasa README to fetch the pinned v1 memory snapshot
+and run with `--memory-profile local`. Keep its historical `results/` layout;
+the v2 corpus uses `task_only/` and `global/`.
 
 New `result.json` files use schema 1.1 and protocol `robocasa-harness-vla-v2`;
 `memory` records the policy, corpus SHA-256, HF revision (null for a local corpus

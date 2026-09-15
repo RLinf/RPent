@@ -122,6 +122,9 @@ The default ``--memory-profile hf`` synchronizes ``robocasa/**`` from
 ``RLinf/RPent-memory`` at the immutable revision in ``target50_v2.json``.
 ``--memory-revision`` overrides that revision explicitly. CLI and Dashboard
 use the same synchronization policy.
+Pinned synchronization fails if HF cannot verify the requested revision.
+For offline runs, use ``--memory-profile local --memory-dir <corpus>``;
+local results record the corpus hash and, by default, no HF revision.
 
 The reviewed PR #130 package supplies 103 memory files: 43 seed-0 audit JSONs,
 43 recipes, 16 Composite-Seen Markdown files and one Global Memory. Bodies are
@@ -317,10 +320,10 @@ validate the fixed denominator and print the task-weighted score with:
    and VLA daemons in-process and writes their logs to
    ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
 
-Published Target50 results
---------------------------
+Historical task-only v1 results
+-------------------------------
 
-The published Codex reproduction contains all 340 cells and reports the
+The historical task-only v1 Codex reproduction contains all 340 cells and reports the
 following task-level aggregates:
 
 .. list-table:: Codex Target50 reproduction
@@ -426,6 +429,15 @@ manifest remains ``robots/robocasa/eval/target50.json``. Reproduce v1 using
 RPent commit ``43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92`` and memory revision
 ``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``. Disabling global in the new code
 is a v2 ablation and does not restore the old protocol.
+
+Create an isolated frozen checkout, then follow its RoboCasa README for the
+v1 memory snapshot and local-profile commands. Preserve the v1 ``results/``
+directory layout.
+
+.. code-block:: bash
+
+   git worktree add --detach ../RPent-robocasa-v1 \
+      43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92
 
 New results use schema 1.1. ``memory`` records policy, corpus SHA-256, HF revision
 (null for local memory without an explicit revision), selected files and reads.

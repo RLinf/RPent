@@ -326,6 +326,7 @@ class CodexPlanner:
                             daemon=True,
                         ).start()
 
+                    limit_reached = False
                     try:
                         for event in turn.stream():
                             _write_jsonl(raw_f, _message_to_json(event))
@@ -335,6 +336,14 @@ class CodexPlanner:
                                     out_f.write(rendered)
                                     out_f.flush()
                                 logger.info(rendered.strip())
+                            if (
+                                str(_get(event, "method", "")) != "turn/completed"
+                                and not limit_reached
+                                and recorder.finish_result is None
+                                and recorder.turns >= recorder.max_turns
+                            ):
+                                limit_reached = True
+                                turn.interrupt()
                     finally:
                         if stop_steer is not None:
                             stop_steer.set()

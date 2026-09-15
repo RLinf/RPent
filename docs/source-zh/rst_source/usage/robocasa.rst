@@ -106,11 +106,14 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
       --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
       --local-dir ./checkpoints/rldx-1-ft-rc365
 
-**任务 Memory**
+**任务 Memory 与 Global Memory**
 
 通过 ``--memory-profile hf``（默认值）同步 ``RLinf/RPent-memory`` 的
 ``robocasa/**`` 子树，默认使用 ``target50_v2.json`` 中固定的 revision。
 ``--memory-revision`` 可显式覆盖版本；CLI 和 Dashboard 使用相同同步逻辑。
+HF 无法验证指定版本时，固定版本同步会明确报错。离线运行请使用
+``--memory-profile local --memory-dir <corpus>``；本地结果记录语料哈希，
+默认不记录 HF revision。
 
 新版严格采用 PR #130 交付包的 103 份记忆：43 份 seed-0 audit JSON、43 份
 recipe JSONL、16 份 Composite-Seen Markdown 和 1 份 Global Memory。
@@ -292,10 +295,10 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
    子进程，日志分别写到 ``<output_dir>/env_server.log`` 和
    ``<output_dir>/vla_server.log``。
 
-已发布的 Target50 结果
+历史 task-only v1 结果
 -----------------------
 
-已发布 Codex 复现覆盖全部 340 cells，任务级汇总如下：
+历史 task-only v1 Codex 复现覆盖全部 340 cells，任务级汇总如下：
 
 .. list-table:: Codex Target50 复现结果
    :header-rows: 1
@@ -391,6 +394,14 @@ RoboCasa toolkit 提供的工具 *形式* 与 LIBERO 相同（一次原语调用
 ``43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92`` 和 memory revision
 ``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``。新版关闭 global 是 v2 消融，
 不等价于恢复旧协议。
+
+创建独立的冻结工作目录，再按其中 RoboCasa README 的说明获取 v1 memory
+快照并使用 local profile 运行。保留旧语料的 ``results/`` 目录布局。
+
+.. code-block:: bash
+
+   git worktree add --detach ../RPent-robocasa-v1 \
+      43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92
 
 新版结果 schema 为 1.1，``memory`` 记录模式、语料 SHA-256、HF revision
 （未显式指定版本的本地语料为 null）、所选文件与完成读取的文件。

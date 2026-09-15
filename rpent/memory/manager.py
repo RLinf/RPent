@@ -383,6 +383,11 @@ class MemoryManager:
         )
 
         if os.environ.get("HF_HUB_OFFLINE") == "1":
+            if revision is not None:
+                raise RuntimeError(
+                    "Cannot verify an HF memory revision in offline mode; "
+                    "use --memory-profile local for an intentionally local corpus"
+                )
             if not _has_local_memory(self._root):
                 logger.warning(
                     "HF_HUB_OFFLINE=1 but no local memory was found under %s",
@@ -401,6 +406,11 @@ class MemoryManager:
                 **({"revision": revision} if revision is not None else {}),
             )
         except Exception as exc:
+            if revision is not None:
+                raise RuntimeError(
+                    f"Could not sync pinned memory {repo_id}@{revision}; "
+                    "refusing to label an unverified local cache as that revision"
+                ) from exc
             if _has_local_memory(self._root):
                 logger.warning(
                     "could not sync '%s' from '%s': %s; "

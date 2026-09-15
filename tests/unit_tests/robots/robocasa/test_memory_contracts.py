@@ -275,3 +275,66 @@ def test_memory_policy_and_revision_config(tmp_path):
     config = _parse_config(args)
     assert config.prompt_vars["memory_policy"] == "task-only"
     assert config.prompt_vars["memory_revision"] is None
+
+
+@pytest.mark.parametrize("dashboard", [False, True])
+@pytest.mark.parametrize("policy", ["task-global", "task-only"])
+@pytest.mark.parametrize("revision", [None, "b" * 40])
+def test_cli_and_dashboard_sync_the_same_memory_revision(
+    tmp_path, monkeypatch, dashboard, policy, revision
+):
+    from robots.robocasa.memory import DEFAULT_MEMORY_REVISION
+    from rpent.cli import main as cli
+
+    class SyncCaptured(Exception):
+        pass
+
+    captured = {}
+
+    def capture_sync(self, **kwargs):
+        captured.update(kwargs)
+        raise SyncCaptured
+
+    monkeypatch.setenv("RPENT_REPO_ROOT", str(tmp_path))
+    monkeypatch.setattr(MemoryManager, "sync", capture_sync)
+    monkeypatch.setattr(
+        "rpent.dashboard.server.DashboardServer.start",
+        lambda self: "http://127.0.0.1:0",
+    )
+    argv = [
+        "rpent",
+        "--robot",
+        "robocasa",
+        "--task-name",
+        "OpenDrawer",
+        "--planner",
+        "codex",
+        "--memory-policy",
+        policy,
+        "--output-dir",
+        str(tmp_path / "run"),
+    ]
+    if dashboard:
+        argv.append("--dashboard")
+    if revision:
+        argv.extend(["--memory-revision", revision])
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SyncCaptured):
+        cli.main()
+    assert captured == {
+        "remote_repo": "RLinf/RPent-memory",
+        "revision": revision or DEFAULT_MEMORY_REVISION,
+    }
+
+
+@pytest.mark.parametrize("profile", [None, "hf", "local"])
+@pytest.mark.parametrize("revision", [None, "b" * 40])
+def test_revision_provenance_matches_profile_and_override(tmp_path, profile, revision):
+    from robots.robocasa.memory import DEFAULT_MEMORY_REVISION
+
+    args = _args(tmp_path, memory_dir=None)
+    args.memory_profile = profile
+    args.memory_revision = revision
+    assert _parse_config(args).prompt_vars["memory_revision"] == (
+        revision or (None if profile == "local" else DEFAULT_MEMORY_REVISION)
+    )

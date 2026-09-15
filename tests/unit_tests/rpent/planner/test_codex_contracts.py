@@ -427,6 +427,77 @@ def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
     assert any(isinstance(event, UsageEvent) for event in sink.events)
 
 
+@pytest.mark.parametrize("max_turns", [1, 2])
+def test_noninteractive_planner_enforces_turn_limit_without_reporting_failure(
+    tmp_path, monkeypatch, max_turns
+):
+    install_fake_backend(monkeypatch)
+
+    def stream(self):
+        for index in range(5):
+            if self.interrupt_calls:
+                break
+            yield {
+                "method": "item/completed",
+                "payload": {
+                    "item": {"type": "agentMessage", "text": f"Working {index}"}
+                },
+            }
+        yield {
+            "method": "thread/tokenUsage/updated",
+            "payload": {"token_usage": {"total": {"input_tokens": 10}}},
+        }
+        yield {
+            "method": "turn/completed",
+            "payload": {"turn": {"status": "interrupted"}},
+        }
+
+    monkeypatch.setattr(FakeTurn, "stream", stream)
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="system",
+        user_message="task",
+        toolkit=FakeToolkit(),
+        max_turns=max_turns,
+    )
+    assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 1
+    assert result.stats["turns_used"] == max_turns
+    assert result.stats["total_input_tokens"] == 10
+    assert result.error is None
+    assert FakeMcpServer.instances[0].stopped
+
+
+def test_turn_limit_does_not_interrupt_an_already_finished_task(tmp_path, monkeypatch):
+    install_fake_backend(monkeypatch)
+    FakeCodex.events = [
+        {
+            "method": "item/completed",
+            "payload": {
+                "item": {
+                    "type": "mcpToolCall",
+                    "tool": "mcp__rpent__finish",
+                    "status": "completed",
+                    "arguments": {"status": "stuck", "summary": "done"},
+                    "result": "accepted",
+                }
+            },
+        },
+        {
+            "method": "item/completed",
+            "payload": {"item": {"type": "agentMessage", "text": "Finished"}},
+        },
+        {
+            "method": "turn/completed",
+            "payload": {"turn": {"status": "completed"}},
+        },
+    ]
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="system", user_message="task", toolkit=FakeToolkit(), max_turns=1
+    )
+    assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 0
+    assert result.finish_result["status"] == "stuck"
+    assert result.error is None
+
+
 def test_rejected_finish_item_is_not_promoted() -> None:
     from rpent.planner.codex import _Recorder
 
