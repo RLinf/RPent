@@ -64,18 +64,27 @@ Run the complete suite with:
 pytest tests/unit_tests -v
 ```
 
-Real simulator checks live under `integration_tests` and are always opt-in;
-they are not part of the offline CI suite. For example, after installing the
-RoboCasa extra and assets, run its 340-cell Target50 environment contract with:
+## RoboCasa environment smoke tests
+
+The opt-in RoboCasa smoke suite verifies simulator installation and environment
+interfaces without loading a planner or VLA checkpoint. Install the RoboCasa
+extra and assets, then run:
 
 ```bash
 RPENT_RUN_ROBOCASA_INTEGRATION=1 \
   pytest tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py -v
 ```
 
-This opt-in test constructs and resets every manifest task/seed cell, verifies
-the 12D action interface, operation cameras, navigation RGB-D/world map,
-success predicate, and clean close. It does not invoke a planner or VLA model.
+The four cases cover `OpenDrawer`, `NavigateKitchen`, and
+`PickPlaceCounterToCabinet` at seed 1, plus mobile-camera movement. Task checks
+verify construction/reset, 12D actions, operation cameras, navigation RGB-D/world
+map, the success predicate, and clean close. The camera check verifies pose and
+image changes after eight base steps.
+
+See the RoboCasa usage guide in
+[English](../docs/source-en/rst_source/usage/robocasa.rst#environment-smoke-tests)
+or [Chinese](../docs/source-zh/rst_source/usage/robocasa.rst#environment-smoke-tests)
+for setup and test prerequisites.
 
 ## Embodied GPU E2E tests
 

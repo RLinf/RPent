@@ -39,6 +39,7 @@ dependencies = [
     "huggingface_hub>=0.24",
     "prompt-toolkit>=3.0.48",
     "numpy",
+    "scipy",
     "imageio>=2.0",
     "PyYAML>=6.0",
 ]
@@ -46,6 +47,7 @@ dependencies = [
 [project.scripts]
 rpent = "rpent.cli.main:main"
 rpent-memory = "rpent.cli.memory:main"
+rpent-check-llm = "rpent.cli.check_llm:main"
 rpent-flywheel = "rpent.flywheel.cli:main"
 
 [project.urls]

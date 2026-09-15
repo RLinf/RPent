@@ -79,6 +79,8 @@ def _capture_validated_args(
         return SimpleNamespace(
             add_cli_args=add_cli_args,
             parse_config=parse_config,
+            supports_exploration=name == "libero",
+            is_real_robot=False,
         )
 
     monkeypatch.setattr(
@@ -184,7 +186,7 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
             ["--robot", "libero", "--dashboard", "--interactive"],
             "cannot be used together",
         ),
-        (["--robot", "robocasa", "--explore"], "supported only for LIBERO"),
+        (["--robot", "robocasa", "--explore"], "not supported for robot"),
         (
             ["--robot", "libero", "--explore", "--memory-profile", "hf"],
             "cannot be used with --memory-profile hf",
@@ -234,6 +236,8 @@ def test_shared_cli_validation_stops_before_robot_runtime(
             name=name,
             add_cli_args=add_cli_args,
             parse_config=parse_config,
+            supports_exploration=name == "libero",
+            is_real_robot=False,
         ),
     )
     monkeypatch.setattr(sys, "argv", ["rpent", *argv])
@@ -244,6 +248,47 @@ def test_shared_cli_validation_stops_before_robot_runtime(
     assert exc_info.value.code == 2
     assert message in capsys.readouterr().err
     assert parse_called is False
+
+
+@pytest.mark.parametrize(
+    ("planner", "env_var"),
+    [("claude_code", "ANTHROPIC_BASE_URL"), ("codex", "CODEX_BASE_URL")],
+)
+def test_run_cli_rejects_base_url_for_the_backends_that_ignore_it(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    planner: str,
+    env_var: str,
+) -> None:
+    """build_planner forwards base_url to the api model alone.
+
+    Accepting the flag for these two would drop it without a word, which is
+    how a run ends up talking to an endpoint the user thought they had
+    overridden.
+    """
+    cli = _cli_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--suite",
+            "libero_object",
+            "--task",
+            "0",
+            "--planner",
+            planner,
+            "--base-url",
+            "https://gateway.example",
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    assert env_var in capsys.readouterr().err
 
 
 def test_transcript_serialization_strips_nested_images_without_mutating_input() -> None:
@@ -285,6 +330,38 @@ def test_transcript_serialization_strips_nested_images_without_mutating_input() 
     assert "sensitive" not in repr(serialized)
 
 
+@pytest.mark.parametrize("real_robot", [True, False])
+def test_handoff_uses_robot_capability_not_name(tmp_path, monkeypatch, real_robot):
+    cli = _cli_module()
+    monkeypatch.setattr(
+        cli, "get_robot_spec", lambda name: SimpleNamespace(is_real_robot=real_robot)
+    )
+    message = cli._handoff_message(tmp_path, 2, 3, robot_name="arbitrary_extension")
+    assert ("operator-mediated" in message) is real_robot
+    assert ("already restored a clean scene" in message) is not real_robot
+
+
+@pytest.mark.parametrize(
+    "options,tty", [(["--interactive"], True), (["--dashboard"], True), ([], False)]
+)
+def test_real_robot_terminal_requirement_fails_before_runtime(
+    monkeypatch, capsys, options, tty
+):
+    cli = _cli_module()
+    spec = SimpleNamespace(
+        is_real_robot=True,
+        add_cli_args=lambda parser, use_dashboard: None,
+    )
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("custom",))
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: tty))
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "custom", *options])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert "operator confirmation" in capsys.readouterr().err
+
+
 def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) -> None:
     cli = _cli_module()
     attempts = tmp_path / "attempts"
@@ -293,7 +370,12 @@ def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) 
     (attempts / "attempt_02_failed.json").write_text("{}")
     (attempts / "unrelated.json").write_text("{}")
 
-    message = cli._handoff_message(tmp_path, session_number=2, session_max=4)
+    message = cli._handoff_message(
+        tmp_path,
+        session_number=2,
+        session_max=4,
+        robot_name="libero",
+    )
 
     assert "agent 2 of up to 4" in message
     assert "2 attempt(s)" in message
@@ -417,6 +499,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         add_cli_args=add_cli_args,
         parse_config=parse_config,
         init_runtime=init_runtime,
+        supports_exploration=True,
     )
 
     def build_planner(*args: Any, **kwargs: Any) -> ScriptedPlanner:

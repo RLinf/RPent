@@ -67,8 +67,10 @@ class FrankaEnvClient(BaseEnvClient):
         observation = self._client.call(
             "env.get_observation", timeout_s=self._TIMEOUT_S["default"]
         )
-        if self._last_states is not None:
+        if "states" not in observation and self._last_states is not None:
             observation["states"] = self._last_states
+        self._remember_states(observation.get("states"))
+        self.last_obs = observation
         return observation
 
     def get_camera_meta(self) -> dict[str, Any] | None:
