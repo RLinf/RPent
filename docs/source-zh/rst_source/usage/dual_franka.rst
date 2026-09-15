@@ -1,6 +1,8 @@
 Dual Franka
 ===========
 
+支持人工确认的双臂视觉任务卡生成与回放，参见 :doc:`franka_task_card`。
+
 RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统。
 
 安装

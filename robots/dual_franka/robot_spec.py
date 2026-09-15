@@ -103,6 +103,8 @@ DUAL_FRANKA_DASHBOARD_SPEC: DashboardSpec = {
 
 def get_robot_spec() -> RobotSpec:
     """Return the dual-Franka identity, prompts, runtime hooks, and dashboard spec."""
+    from robots.franka.task_card import replay_card
+
     return RobotSpec(
         name="dual_franka",
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
@@ -112,6 +114,7 @@ def get_robot_spec() -> RobotSpec:
         dashboard=DUAL_FRANKA_DASHBOARD_SPEC,
         is_real_robot=True,
         supports_exploration=True,
+        replay_card=replay_card,
     )
 
 
@@ -144,6 +147,9 @@ def get_toolkit(
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
+    from robots.franka.task_card.replay import add_cli_args
+
+    add_cli_args(parser)
     parser.add_argument(
         "--task-id",
         type=int,
@@ -203,6 +209,9 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     set_robot_config_path(args.robot_config or DEFAULT_CONFIG)
+    from robots.franka.task_card.replay import prepare
+
+    args._task_card_options = prepare(args, "dual_franka")
     if args.task_id is None:
         raise ValueError("--task-id is required")
     task = get_dual_franka_task(args.task_id)
@@ -398,10 +407,12 @@ def _init_runtime(
     started for VLA-backed dual-Franka tasks (or an explicit ``--vla-endpoint``).
     """
     from robots.dual_franka.env_client import DualFrankaEnvClient
+    from robots.franka.task_card.replay import authorize_runtime
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
 
     available = {"env", "vla", "sam3"}
+    authorize_runtime(args)
     selected = available if components is None else components
     unknown = selected.difference(available)
     if unknown:
@@ -470,5 +481,6 @@ def _init_runtime(
         primitives_kwargs["sam3_client"] = None
 
     primitives_kwargs["calibration_path"] = args.calibration_path
+    primitives_kwargs["task_card_options"] = getattr(args, "_task_card_options", None)
 
     return list(owned_daemons.values()), primitives_kwargs

@@ -1,6 +1,8 @@
 Franka
 ======
 
+For supervised visual card generation and replay, see :doc:`franka_task_card`.
+
 RPent can control one physical Franka arm through an RLinf ``RealWorldEnv``
 worker.
 

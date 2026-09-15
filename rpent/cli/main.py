@@ -539,7 +539,14 @@ def main() -> int:
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
-                if robot_spec.supports_exploration:
+                if args.planner == "task_card" and robot_name in {
+                    "franka",
+                    "dual_franka",
+                }:
+                    solved = bool(toolkit.solved())
+                    if solved:
+                        recipe_path = "task_card_recipe.jsonl"
+                elif robot_spec.supports_exploration:
                     solved = bool(toolkit.solved())
                     if solved:
                         recipe_path = toolkit.write_recipe(recipe_tag) or recipe_path

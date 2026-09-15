@@ -259,4 +259,6 @@ class DualFrankaToolkit(FrankaToolkit):
 
     def solved(self) -> bool:
         """Return whether the real-robot operator accepted task success."""
+        if self.task_card_options is not None:
+            return self._task_card_solved
         return self._operator_verdict == "success"

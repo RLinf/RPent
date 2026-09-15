@@ -1,6 +1,8 @@
 Dual Franka
 ===========
 
+For supervised visual card generation and replay, see :doc:`franka_task_card`.
+
 RPent can control a two-node dual-Franka setup through an RLinf
 ``RealWorldEnv`` worker.
 

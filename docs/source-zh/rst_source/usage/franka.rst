@@ -1,6 +1,8 @@
 Franka
 ======
 
+支持人工确认的视觉任务卡生成与回放，参见 :doc:`franka_task_card`。
+
 RPent 可以通过 RLinf 的 ``RealWorldEnv`` worker 控制单台 Franka 机械臂。
 
 安装

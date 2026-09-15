@@ -47,6 +47,9 @@ class FrankaToolkit(Toolkit):
         state_output_dir: Path | str | None = None,
     ) -> None:
         state = EnvState(Path(state_output_dir or get_output_dir()))
+        primitives_kwargs = dict(primitives_kwargs)
+        self.task_card_options = primitives_kwargs.pop("task_card_options", None)
+        self._task_card_solved = False
         super().__init__(
             dashboard_events=dashboard_events,
             state=state,
@@ -94,6 +97,21 @@ class FrankaToolkit(Toolkit):
             name = spec["name"]
             handler = state_handlers.get(name) or getattr(self._primitives, name)
             self.add_tool(name, spec, handler)
+
+    def solved(self) -> bool:
+        """Task-card success is set only by an explicit operator verdict."""
+        return self._task_card_solved
+
+    def refresh_task_card_state(self) -> None:
+        """Capture live cameras/TCP without issuing a hardware reset or motion."""
+        record = self._tools_module.dump_state(
+            self._primitives,
+            self._state,
+            command={"action": "task_card_observe"},
+            result={"ok": True},
+            elapsed_s=0.0,
+        )
+        self._publish_step(record)
 
     def get_env_state(
         self,

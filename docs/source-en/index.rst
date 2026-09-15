@@ -90,6 +90,7 @@ Welcome to RPent
    RoboTwin <rst_source/usage/robotwin>
    Franka <rst_source/usage/franka>
    Dual Franka <rst_source/usage/dual_franka>
+   Franka Task Cards <rst_source/usage/franka_task_card>
    SO-101 <rst_source/usage/so101>
    Task Cards <rst_source/usage/task_card>
    Advanced Deployment <rst_source/usage/advanced_deployment>
