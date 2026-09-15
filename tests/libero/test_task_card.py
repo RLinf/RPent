@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from robots.libero.robot_spec import _parse_config
+from robots.libero.robot_spec import TASK_CARD_SUITES, _parse_config
 from robots.libero.task_card.replay import cards, execute, load, pick_succeeded, replay
 
 
@@ -197,16 +197,12 @@ def test_replay_propagates_toolkit_exceptions() -> None:
         )
 
 
-def test_task_card_rejects_unsupported_suite() -> None:
-    args = SimpleNamespace(
-        suite="libero_goal_swap",
-        task=0,
-        planner="task_card",
-        molmo_endpoint="http://127.0.0.1:8115",
-    )
-
-    with pytest.raises(ValueError, match="supported suites: libero_object_swap"):
-        _parse_config(args)
+def test_task_card_supports_all_libero_pro_task_and_swap_suites() -> None:
+    assert TASK_CARD_SUITES == {
+        f"libero_{family}_{regime}"
+        for family in ("spatial", "object", "goal", "10")
+        for regime in ("task", "swap")
+    }
 
 
 def test_non_task_card_planner_rejects_molmo_endpoint() -> None:

@@ -14,22 +14,24 @@
 因此，``--planner task_card`` 不会调用 LLM 重新规划动作。Molmo 在这里只负责视觉
 定位：它在相机画面中指出指定的物体或位置，RPent 再将该像素转换成当前场景坐标。
 
-性能与执行时间
---------------
+全系列 LIBERO-PRO 性能与执行时间
+-------------------------------------
 
-在 LIBERO Object 的 200 次评测（20 个任务，每个任务 10 个 seed）中，Task Card
-成功完成 179 次（89.5%），不使用 reasoning 的 Codex 成功完成 186 次（93.0%）。
-Task Card 的平均执行时间为每个 episode 40.9 秒，Codex 为 283.6 秒。
+在完整的 800-case LIBERO-PRO 矩阵（Spatial、Object、Goal 和 Long；
+task/swap；每个任务 10 个 seed）上，Task Card 成功 581 次（72.63%）。
+不使用 reasoning 的 Codex 成功 500 次（62.50%），high reasoning Codex
+成功 628 次（78.50%）。两个没有成功源轨迹、因而没有 Task Card 的任务
+按 0/10 保守计入。
 
-.. image:: ../../_static/task_card_object_performance_time.png
-   :alt: Task Card 与不使用 reasoning 的 Codex 在 LIBERO Object 上的逐任务性能和执行时间对比
+.. image:: ../../_static/task_card_libero_pro_performance_time.png
+   :alt: Task Card 与 Codex 在 LIBERO-PRO 全系列上的逐任务成功率和执行时间对比
    :width: 100%
    :align: center
 
-时间统计不包含模型及服务启动时间。Codex 时间是每个任务 10 个评测 seed 的 planner
-执行时间均值。Task Card 原始 10-seed 耗时日志已经不可用，因此图中的 Task Card
-耗时采用每张最终任务卡对应录制 episode 的工具执行时间（每个任务一个耗时样本）。
-两种方法的成功率均来自完整的 200-episode 评测。
+时间统计不包含模型及服务启动时间。Codex 时间是每个任务可用 planner 耗时记录的
+均值。Task Card 耗时采用每张最终任务卡对应成功 episode 的
+工具执行时间（每张卡一个耗时样本）。所有方法的成功率都使用完整 800-case 矩阵。
+两组 Codex baseline 均有完整的 800/800 planner 耗时记录。
 
 重放流程
 --------
@@ -62,6 +64,32 @@ RPent 将实时锚点位置与任务卡保存的偏移组合成新的路点，�
 
 任务决定使用哪张卡；seed 只改变环境布局，不改变该任务使用的任务卡。
 
+生成任务卡
+----------
+
+生成器从一条经模拟器确认成功的 episode 生成一张卡。必需输入只有
+episode audit JSON 和与之匹配的 primitive recipe JSONL：
+
+.. code-block:: bash
+
+   python -m robots.libero.task_card.generate \
+     --audit results/goal_swap_t3_s7.json \
+     --recipe results/recipe_goal_swap_t3_s7.jsonl \
+     --destination memory/libero/task_card
+
+audit 必须包含非空的 ``task_language``（或 ``perturbed_task_language``）以及
+``libero_terminated: true``。audit 和 recipe 的文件名，以及 audit 中存在的
+suite/task/seed 字段，必须指向同一个 episode。
+
+如果 episode 保存了 ``segment_*.json`` 读数，可通过 ``--segments`` 指定目录；
+否则生成器会根据任务指令以及 recipe 中有序的抓取/释放或关节交互 transaction，
+生成供 Molmo 使用的语义锚点。附近的 ``move_to`` 和 ``move_pose`` 坐标会被保存成
+相对锚点的 XY offset，供 task-card replay 直接使用。
+
+关系解析覆盖 LIBERO-PRO 全部 80 个任务：Spatial、Object、Goal、Long（``10``）
+各自的 task 和 swap suite。Long 的 transaction 顺序会被保留，例如先打开炉灶再
+放置物体，或者先把物体放进设备再关闭设备。
+
 如果只想手动下载任务卡，可以运行：
 
 .. code-block:: bash
@@ -80,8 +108,8 @@ RPent 将实时锚点位置与任务卡保存的偏移组合成新的路点，�
      --suite libero_object_swap --task 3 --seed 0 \
      --molmo-endpoint http://127.0.0.1:20703
 
-任务卡重放目前支持 ``libero_object_task`` 和 ``libero_object_swap``。其他
-LIBERO suite 暂时还没有对应的任务卡。
+任务卡重放支持 LIBERO-PRO Spatial、Object、Goal、Long（``10``）的 task 和
+swap suite，共 80 个 task identity。
 
 VLA 和 SAM3 沿用普通 LIBERO 运行方式。也可以通过 ``--vla-endpoint`` 和
 ``--sam3-endpoint`` 连接已经启动的服务。
