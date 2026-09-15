@@ -21,8 +21,8 @@ import copy
 import gymnasium as gym
 import numpy as np
 from gymnasium.envs.registration import register
-from rlinf.envs.realworld.common.wrappers import apply_single_arm_wrappers
-from rlinf.envs.realworld.franka.franka_env import FrankaEnv
+from rlinf.envs.real.franka.base import FrankaEnv
+from rlinf.envs.real.wrappers import build_stack
 
 
 class RPentFrankaEnv(FrankaEnv):
@@ -31,9 +31,9 @@ class RPentFrankaEnv(FrankaEnv):
     def go_to_rest(self, joint_reset: bool = False) -> None:
         """Lift away from the workspace before moving to the reset pose."""
         self._end_effector_action(np.array([-1.0]))
-        self._franka_state = self._controller.get_state().wait()[0]
+        self._franka_state = self._read_robot()
         self._move_action(self._franka_state.tcp_pose)
-        self._franka_state = self._controller.get_state().wait()[0]
+        self._franka_state = self._read_robot()
 
         reset_pose = copy.deepcopy(self._franka_state.tcp_pose)
         reset_pose[2] += 0.10
@@ -44,7 +44,7 @@ class RPentFrankaEnv(FrankaEnv):
 def create_rpent_franka_env(
     override_cfg: dict,
     worker_info: object,
-    hardware_info: object,
+    robot_info: object,
     env_idx: int,
     env_cfg: dict,
 ) -> gym.Env:
@@ -52,10 +52,10 @@ def create_rpent_franka_env(
     env = RPentFrankaEnv(
         override_cfg=override_cfg,
         worker_info=worker_info,
-        hardware_info=hardware_info,
+        robot_info=robot_info,
         env_idx=env_idx,
     )
-    return apply_single_arm_wrappers(env, env_cfg)
+    return build_stack(env, env_cfg)
 
 
 def register_rpent_franka_env() -> None:

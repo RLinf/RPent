@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-rlinf_robotwin = pytest.importorskip("rlinf.envs.robotwin.robotwin_env")
+rlinf_robotwin = pytest.importorskip("rlinf.envs.sim.robotwin.robotwin_env")
 rpent_robotwin = pytest.importorskip("robots.robotwin.rlinf_env")
 RoboTwinEnv = rlinf_robotwin.RoboTwinEnv
 RoboTwinAgentEnv = rpent_robotwin.RoboTwinAgentEnv

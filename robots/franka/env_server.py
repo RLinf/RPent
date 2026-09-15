@@ -84,7 +84,7 @@ class _RayBackend:
 
 def _create_worker_class():
     """Build the Worker subclass only inside the RLinf server environment."""
-    from rlinf.envs.realworld.realworld_env import RealWorldEnv
+    from rlinf.envs.real.env import RealWorldEnv
     from rlinf.scheduler import Worker
     from scipy.spatial.transform import Rotation as Rotation
 
@@ -236,7 +236,7 @@ def _create_worker_class():
             twist[:3] = delta_xyz / max(float(self.action_scale[0]), 1e-6)
             twist[3:6] = delta_rpy / max(float(self.action_scale[1]), 1e-6)
             if frame == "base" and self.use_relative_frame:
-                from rlinf.envs.realworld.franka.utils import construct_adjoint_matrix
+                from rlinf.envs.real.utils.pose import construct_adjoint_matrix
 
                 twist = (
                     np.linalg.inv(construct_adjoint_matrix(self._raw_tcp_pose()))
