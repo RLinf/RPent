@@ -52,6 +52,9 @@ the robot config, mapping each camera to its easy_handeye YAML (the checked-in
        base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
        d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
 
+Paths may be absolute, ``~``-prefixed, or relative; relative paths resolve
+against the working directory RPent is launched from.
+
 Development configuration
 -------------------------
 

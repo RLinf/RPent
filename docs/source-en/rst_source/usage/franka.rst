@@ -47,6 +47,9 @@ the robot config, mapping each camera to its easy_handeye YAML (the checked-in
        external: ~/.ros/easy_handeye/fr3_external_apriltag_eye_on_base.yaml
        wrist: ~/.ros/easy_handeye/fr3_wrist_apriltag_ee_eye_on_hand.yaml
 
+Paths may be absolute, ``~``-prefixed, or relative; relative paths resolve
+against the working directory RPent is launched from.
+
 Development configuration
 -------------------------
 

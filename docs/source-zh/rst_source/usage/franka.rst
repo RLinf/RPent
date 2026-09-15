@@ -43,6 +43,9 @@ RPent 会直接加载这些 YAML：在 robot config 的 ``perception.calibration
        external: ~/.ros/easy_handeye/fr3_external_apriltag_eye_on_base.yaml
        wrist: ~/.ros/easy_handeye/fr3_wrist_apriltag_ee_eye_on_hand.yaml
 
+路径可以是绝对路径、以 ``~`` 开头的路径或相对路径；相对路径会相对启动
+RPent 时的工作目录解析。
+
 开发配置
 --------
 

@@ -46,6 +46,9 @@ easy_handeye 默认在 ``~/.ros/easy_handeye/`` 下为每台相机保存一个 Y
        base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
        d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
 
+路径可以是绝对路径、以 ``~`` 开头的路径或相对路径；相对路径会相对启动
+RPent 时的工作目录解析。
+
 开发配置
 --------
 
