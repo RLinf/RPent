@@ -33,7 +33,7 @@ Compare RPent with reference methods on LIBERO, LIBERO-PRO, RoboCasa365 Target50
 
 Codex / GPT-6 Astra / low / reasoning: **92.63% Overall (741/800)** across all eight LIBERO-PRO suites. See the [suite results](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html), including the separately frozen Long and Spatial/Object/Goal memory batches.
 
-[![RPent success-rate comparisons across four benchmarks](https://raw.githubusercontent.com/RLinf/misc/10140de07db9c6a0a8c0e1683dc27351e0e319e2/rpent/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html)
+[![RPent success-rate comparisons across four benchmarks](https://raw.githubusercontent.com/RLinf/misc/b69d555969600e853d8071eb19112502583b1e06/rpent/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/benchmarks.html)
 
 
 ## Who Should Consider Using RPent?
