@@ -163,6 +163,7 @@ def _create_worker_class():
                 "per_arm_dim": self.per_arm_dim,
                 "action_scale": self.action_scale.tolist(),
                 "arms": ["left", "right"],
+                "explicit_reset_only": True,
                 "perception_cameras": sorted(self._perception_cameras),
                 "agent_observation": self.controller.get("agent_observation", {}),
                 "projection_views": self.controller.get("projection_views", {}),

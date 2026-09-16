@@ -194,9 +194,7 @@ def fake_rlinf_realworld_modules(monkeypatch: pytest.MonkeyPatch) -> None:
             "rlinf.envs.real.wrappers",
             build_stack=lambda env, _env_cfg: env,
         ),
-        "rlinf.envs.real.franka": _fake_module(
-            "rlinf.envs.real.franka", __path__=[]
-        ),
+        "rlinf.envs.real.franka": _fake_module("rlinf.envs.real.franka", __path__=[]),
         "rlinf.envs.real.franka.base": _fake_module(
             "rlinf.envs.real.franka.base",
             FrankaEnv=FakeFrankaEnv,
@@ -209,9 +207,7 @@ def fake_rlinf_realworld_modules(monkeypatch: pytest.MonkeyPatch) -> None:
             ),
         ),
         "rlinf.robotics": _fake_module("rlinf.robotics", __path__=[]),
-        "rlinf.robotics.robots": _fake_module(
-            "rlinf.robotics.robots", __path__=[]
-        ),
+        "rlinf.robotics.robots": _fake_module("rlinf.robotics.robots", __path__=[]),
         "rlinf.robotics.robots.franka": _fake_module(
             "rlinf.robotics.robots.franka",
             FrankaConfig=dataclass_for("FrankaConfig", franka_hardware_fields),
