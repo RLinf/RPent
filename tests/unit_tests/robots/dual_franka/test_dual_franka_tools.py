@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from robots.dual_franka import get_robot_spec
 from robots.dual_franka.perception import back_project, segment
 from robots.dual_franka.tasks import CLEAN_DESK_VLA_PROMPT
 from robots.dual_franka.toolkit import DualFrankaToolkit
@@ -33,7 +34,8 @@ from robots.dual_franka.tools import (
 )
 from robots.franka.runtime_config import set_calibration_path
 from robots.franka.tools import view_camera_meta
-from rpent.dashboard.events import NullDashboardEventSink
+from rpent.dashboard.events import NullDashboardEventSink, StepRecordEvent
+from rpent.dashboard.state import DashboardState
 from rpent.memory import MemoryManager
 from rpent.session import EnvState
 from rpent.tools.toolkit import ToolResult
@@ -198,14 +200,14 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
         "task_description": "default task",
     }
     evaluation = DualFrankaToolkit(
-        primitives_kwargs=dict(base_kwargs),
+        runtime_kwargs=dict(base_kwargs),
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "eval-memory"),
         mode="evaluation",
         state_output_dir=tmp_path / "eval-state",
     )
     exploration = DualFrankaToolkit(
-        primitives_kwargs=dict(base_kwargs),
+        runtime_kwargs=dict(base_kwargs),
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(
             tmp_path / "explore-memory",
@@ -256,7 +258,7 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
 def test_scene_reset_waits_for_operator_then_resets_robot(tmp_path: Path):
     env = FakeEnv()
     exploration = DualFrankaToolkit(
-        primitives_kwargs={
+        runtime_kwargs={
             "env": env,
             "model": None,
             "task_description": "default task",
@@ -344,6 +346,21 @@ def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
     np.testing.assert_array_equal(state.load("base_depth.npy"), 9)
     camera_meta = view_camera_meta(state=state)["camera_meta"]
     assert camera_meta["observation_camera_map"]["main"] == "left_wrist_0_rgb"
+
+
+def test_dashboard_discovers_dual_franka_camera_artifacts(tmp_path: Path):
+    state = EnvState(tmp_path / "state")
+    record = dump_state(
+        _primitives(FakeEnv()), state, command=None, result=None, elapsed_s=None
+    )
+    dashboard = DashboardState(
+        output_dir=tmp_path, dashboard_spec=get_robot_spec().dashboard
+    )
+    dashboard.emit(StepRecordEvent(record, state))
+
+    for camera in ("base", "d455", "left_wrist", "right_wrist"):
+        assert dashboard.frame(camera) == state.load_bytes(f"{camera}.png")
+    assert dashboard.frame("d455_depth") is None
 
 
 def test_view_env_state_emits_multimodal_image_blocks(tmp_path: Path):

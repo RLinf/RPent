@@ -49,6 +49,14 @@ Welcome to RPent
       Configure an LLM API key and the VLA checkpoint, then run one LIBERO
       task end-to-end.
 
+   .. grid-item-card:: Benchmark Results
+      :link: rst_source/benchmarks
+      :link-type: doc
+      :text-align: center
+
+      Compare planner models, reasoning settings, and success rates
+      across benchmarks, with evaluation protocols and sources.
+
    .. grid-item-card:: Usage Tutorial
       :link: rst_source/usage/configure_planner
       :link-type: doc
@@ -74,6 +82,7 @@ Welcome to RPent
    Overview <rst_source/overview>
    Installation <rst_source/installation>
    Quick Start <rst_source/quickstart>
+   Benchmark Results <rst_source/benchmarks>
 
 .. toctree::
    :maxdepth: 2

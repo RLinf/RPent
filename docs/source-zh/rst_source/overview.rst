@@ -19,6 +19,25 @@ RPent 建立在三条核心设计原则之上: **服务化、标准化、可组�
 智能体基础设施 (agentic infrastructure for the physical world) —— 在这里,
 智能不只是被部署, 而是被持续构建、扩展与演进。
 
+基准测试结果
+------------
+
+对比 LIBERO、LIBERO-PRO、RoboCasa365 Target50 和 RoboTwin C2R 上的成功率。
+排名仅限图中方法及评测范围；完整结果、模型配置和来源见 :doc:`benchmarks`。
+
+.. image:: https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/leaderboard-zh-light.png
+   :alt: RPent benchmark results
+   :class: only-light
+   :width: 100%
+   :target: benchmarks.html
+
+.. image:: https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/leaderboard-zh-dark.png
+   :alt: RPent benchmark results
+   :class: only-dark
+   :width: 100%
+   :target: benchmarks.html
+
+
 功能矩阵
 --------
 
