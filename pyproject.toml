@@ -130,7 +130,7 @@ robotwin = [
 ]
 
 [tool.uv]
-prerelease = "if-necessary"
+prerelease = "allow"
 
 # Each robot extra pulls a separately pinned VLA runtime whose Torch,
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.

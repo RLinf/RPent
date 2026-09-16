@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -112,6 +113,7 @@ def get_robot_spec() -> RobotSpec:
         dashboard=DUAL_FRANKA_DASHBOARD_SPEC,
         is_real_robot=True,
         supports_exploration=True,
+        supports_human_interactive_exploration=True,
     )
 
 
@@ -123,6 +125,7 @@ def get_toolkit(
     mode: str = "evaluation",
     attempts_per_session: int = 0,
     state_output_dir: Path | str | None = None,
+    operator_input: Callable[[str, Callable[[], None]], str | None] | None = None,
 ):
     """Return the dual-Franka toolkit."""
     from robots.dual_franka.toolkit import DualFrankaToolkit
@@ -140,6 +143,7 @@ def get_toolkit(
         mode=mode,
         attempts_per_session=attempts_per_session,
         state_output_dir=state_output_dir,
+        operator_input=operator_input,
     )
 
 
@@ -224,6 +228,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         recipe_tag=f"dual_franka_t{args.task_id}",
         output_dir=output_dir,
         prompt_vars={
+            "task_id": args.task_id,
             "task_name": task.name,
             "instruction": task.instruction,
             "setup": task.setup,
@@ -286,7 +291,9 @@ def _vla_server_command(
     command = [
         sys.executable,
         "-m",
-        "robots.dual_franka.vla_server",
+        "rpent.robots.components.pi05_vla_server",
+        "--embodiment",
+        "dual_franka",
         "--transport",
         "http",
         "--host",
@@ -426,7 +433,9 @@ def _init_runtime(
     }
     connectors = {
         "env": lambda rpc: {
-            "env": DualFrankaEnvClient(rpc),
+            "env": DualFrankaEnvClient(
+                rpc, reset_on_connect=not getattr(args, "explore", False)
+            ),
             "task_description": get_dual_franka_task(args.task_id).instruction,
             "vla_instruction": get_dual_franka_task(args.task_id).vla_instruction,
         },

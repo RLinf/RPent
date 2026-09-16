@@ -80,6 +80,7 @@ def _capture_validated_args(
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
+            supports_human_interactive_exploration=False,
             is_real_robot=False,
         )
 
@@ -237,6 +238,7 @@ def test_shared_cli_validation_stops_before_robot_runtime(
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
+            supports_human_interactive_exploration=False,
             is_real_robot=False,
         ),
     )
