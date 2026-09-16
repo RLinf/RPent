@@ -20,7 +20,7 @@ runner。完整的参考实现见 ``robots/libero/``。
 接入步骤概览
 ------------
 
-RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统设计 <architecture>`。
+RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 <architecture>`。
 本页不再重复设计原理，只说明接入新机器人需要实现的扩展点。建议按以下顺序完成：
 
 1. 在 :ref:`入口 <add-robot-entry>` 中注册 ``RobotSpec`` 和 toolkit 工厂。

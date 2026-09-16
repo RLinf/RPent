@@ -84,7 +84,7 @@ class Sam3Client:
             body["point"] = [int(point[0]), int(point[1])]
 
         payload = self._client.call(
-            "segment",
+            "sam3.segment",
             kwargs=body,
             timeout_s=self._timeout_s,
         )

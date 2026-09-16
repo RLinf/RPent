@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -152,15 +153,23 @@ def test_http_mcp_server_serializes_concurrent_tool_calls(tmp_path: Path) -> Non
 
 async def _fire_concurrent(url: str) -> int:
     rejected = 0
-    async with streamable_http_client(url) as (read, write, _get_session_id):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            results = await asyncio.gather(
-                *(session.call_tool(name, args) for name, args in CONCURRENT_CALLS)
-            )
-            for result in results:
-                if "another tool operation is still active" in json.dumps(
-                    result.content, default=str
-                ):
-                    rejected += 1
+    # trust_env=False keeps the SDK client on loopback even when the host
+    # advertises an HTTP proxy (e.g. macOS system settings), matching the
+    # production readiness probe in http_mcp_server._wait_for_ready.
+    async with httpx.AsyncClient(trust_env=False) as http_client:
+        async with streamable_http_client(url, http_client=http_client) as (
+            read,
+            write,
+            _get_session_id,
+        ):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                results = await asyncio.gather(
+                    *(session.call_tool(name, args) for name, args in CONCURRENT_CALLS)
+                )
+                for result in results:
+                    if "another tool operation is still active" in json.dumps(
+                        result.content, default=str
+                    ):
+                        rejected += 1
     return rejected
