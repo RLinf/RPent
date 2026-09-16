@@ -100,6 +100,45 @@ Minimal command
 
 To switch planners, see :doc:`configure_planner`.
 
+.. _libero-parallel-eval:
+
+Parallel evaluation
+-------------------
+
+The VLA (Pi0.5) and SAM3 servers are independent of the env_server. Point
+``--vla-endpoint`` / ``--sam3-endpoint`` at already-running shared servers and
+omit ``--env-endpoint`` so that each ``rpent`` process spawns its own
+env_server; a single VLA and a single SAM3 then serve many concurrent
+evaluations of the same task.
+
+Start the shared VLA and SAM3 servers and wait for the log line
+``RPC server listening on ...``:
+
+.. code-block:: bash
+
+   export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+
+   python rpent/robots/components/pi05_vla_server.py \
+     --embodiment libero --transport http --host 127.0.0.1 --port 8220 &
+   python rpent/robots/components/sam3_server.py \
+     --transport http --host 127.0.0.1 --port 8114 &
+
+Reusing those endpoints, run ``libero_object_swap`` task 2 seed 0 ten times in
+parallel, each writing to its own directory:
+
+.. code-block:: bash
+
+   for i in $(seq 1 10); do
+     rpent --robot libero --libero-type pro \
+       --suite libero_object_swap --task 2 --seed 0 \
+       --planner claude_code --model claude-opus-4-8 \
+       --vla-endpoint http://127.0.0.1:8220 \
+       --sam3-endpoint http://127.0.0.1:8114 \
+       --output-dir logs/parallel_object_swap_t2_s0/run_$i &
+   done
+   wait
+
 .. _libero-exploration:
 
 Exploration and local-memory evaluation

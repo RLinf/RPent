@@ -97,6 +97,43 @@ LIBERO-PRO 核心套件一览
 
 如需切换 planner，请参阅 :doc:`configure_planner`。
 
+.. _libero-parallel-eval:
+
+并行评测
+--------
+
+VLA（Pi0.5）和 SAM3 服务与 env_server 相互独立。通过 ``--vla-endpoint`` /
+``--sam3-endpoint`` 复用已启动的共享服务，并省略 ``--env-endpoint`` 使每个
+``rpent`` 进程各自拉起独立的 env_server，即可用一份 VLA 和一份 SAM3 对同一任务
+并行运行多次评测。
+
+启动共享的 VLA 与 SAM3 服务，等待日志输出 ``RPC server listening on ...``：
+
+.. code-block:: bash
+
+   export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+
+   python rpent/robots/components/pi05_vla_server.py \
+     --embodiment libero --transport http --host 127.0.0.1 --port 8220 &
+   python rpent/robots/components/sam3_server.py \
+     --transport http --host 127.0.0.1 --port 8114 &
+
+复用上述 endpoint，对 ``libero_object_swap`` task 2 seed 0 并行评测 10 次，
+每次写入独立目录：
+
+.. code-block:: bash
+
+   for i in $(seq 1 10); do
+     rpent --robot libero --libero-type pro \
+       --suite libero_object_swap --task 2 --seed 0 \
+       --planner claude_code --model claude-opus-4-8 \
+       --vla-endpoint http://127.0.0.1:8220 \
+       --sam3-endpoint http://127.0.0.1:8114 \
+       --output-dir logs/parallel_object_swap_t2_s0/run_$i &
+   done
+   wait
+
 .. _libero-exploration:
 
 探索模式与本地 Memory 评测
