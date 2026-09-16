@@ -126,6 +126,11 @@ def test_dual_franka_exploration_prompt_is_opt_in():
     eval_vars = {"mode": "eval"}
     explore_vars = {
         "mode": "explore",
+        "task_id": 4,
+        "session_number": 1,
+        "session_max": 1,
+        "recipe_tag": "dual_franka_t4",
+        "memory_dir": "/tmp/memory",
         "task_name": "offline",
         "instruction": "test instruction",
         "setup": "test setup",
