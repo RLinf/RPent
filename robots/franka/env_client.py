@@ -37,13 +37,14 @@ class FrankaEnvClient(BaseEnvClient):
         "env.chunk_step": 300.0,
     }
 
-    def __init__(self, client: RpcClient) -> None:
+    def __init__(self, client: RpcClient, *, reset_on_connect: bool = True) -> None:
         self._client = client
         self._last_states: np.ndarray | None = None
         self.meta = self._client.call(
             "env.get_env_meta", timeout_s=self._TIMEOUT_S["default"]
         )
-        self.reset()
+        if reset_on_connect:
+            self.reset()
 
     def reset(self) -> dict[str, Any]:
         result = self._client.call("env.reset", timeout_s=self._TIMEOUT_S["env.reset"])
@@ -67,8 +68,10 @@ class FrankaEnvClient(BaseEnvClient):
         observation = self._client.call(
             "env.get_observation", timeout_s=self._TIMEOUT_S["default"]
         )
-        if self._last_states is not None:
+        if "states" not in observation and self._last_states is not None:
             observation["states"] = self._last_states
+        self._remember_states(observation.get("states"))
+        self.last_obs = observation
         return observation
 
     def get_camera_meta(self) -> dict[str, Any] | None:

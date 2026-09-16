@@ -55,6 +55,7 @@ from rpent.dashboard.events import (
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, build_planner
+from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
@@ -105,6 +106,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     known_robots_text = ", ".join(known_robots) if known_robots else "none"
     ap = argparse.ArgumentParser(
         description="RPent: Agentic Infrastructure for the Physical World",
+        epilog="To verify the LLM backend before starting a run, use "
+        "rpent-check-llm (e.g. rpent-check-llm --planner api "
+        "--model anthropic:claude-opus-4-8).",
         add_help=False,
     )
 
@@ -143,7 +147,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--base-url",
         default=None,
-        help="API base URL. Defaults to the selected backend's base URL env var.",
+        help=(
+            "API base URL, for the 'api' planner only. claude_code and codex take their endpoint from ANTHROPIC_BASE_URL / CODEX_BASE_URL instead; passing this flag with either is an error rather than a silent no-op."
+        ),
     )
     ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--max-tokens", type=int, default=8192)
@@ -238,7 +244,13 @@ def _build_argparser() -> argparse.ArgumentParser:
     return ap
 
 
-def _handoff_message(output_dir, session_number: int, session_max: int) -> str:
+def _handoff_message(
+    output_dir,
+    session_number: int,
+    session_max: int,
+    *,
+    robot_name: str,
+) -> str:
     """Build the opening message for a continuation session."""
     attempts_dir = Path(output_dir) / "attempts"
     prior = (
@@ -246,14 +258,26 @@ def _handoff_message(output_dir, session_number: int, session_max: int) -> str:
         if attempts_dir.is_dir()
         else []
     )
+    spec = get_robot_spec(robot_name)
+    if spec.is_real_robot:
+        reset_note = (
+            "This is a real-robot continuation: the physical scene is not "
+            "automatically reset by toolkit construction. If a restored scene "
+            "is required, request operator-mediated scene restoration through "
+            "the exposed tools. Wait for the operator to secure held objects "
+            "and confirm the scene is safe before the robot resets its posture. "
+            "If no such tool is available, stop and ask the operator; do not "
+            "substitute a robot-only reset for scene restoration."
+        )
+    else:
+        reset_note = "A fresh toolkit has already restored a clean scene; inspect it before acting."
     return (
         f"You are agent {session_number} of up to {session_max} on this cell. "
         f"{len(prior)} attempt(s) by earlier agents are archived in "
         f"{attempts_dir}/ ({', '.join(prior) if prior else 'none yet'}), and their "
         "working notes are in the memory inbox under wip/.\n\n"
         "Read every archive and the working notes before acting. Do not repeat "
-        "failed approaches. A fresh toolkit has already restored a clean scene; "
-        "inspect it before acting."
+        f"failed approaches. {reset_note}"
     )
 
 
@@ -292,7 +316,16 @@ def _start_continuation_session(
             "session_max": session_max,
         },
     )
-    session_message = _handoff_message(output_dir, session_number, session_max)
+    session_message = _handoff_message(
+        output_dir,
+        session_number,
+        session_max,
+        robot_name=args.robot_name,
+    )
+    if prompt_vars.get("initial_user_message"):
+        session_message += "\n\nOriginal operator task instruction:\n" + str(
+            prompt_vars["initial_user_message"]
+        )
     return planner, system_prompt, session_message
 
 
@@ -323,10 +356,46 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    human_interactive_exploration = (
+        args.explore and robot_spec.supports_human_interactive_exploration
+    )
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
-    if args.explore and args.robot_name != "libero":
-        parser.error("--explore is currently supported only for LIBERO")
+    if robot_spec.is_real_robot and not human_interactive_exploration:
+        if args.dashboard or args.interactive:
+            parser.error(
+                "This robot requires exclusive terminal input for operator confirmation; "
+                "--dashboard and --interactive are not supported. Run in a plain terminal."
+            )
+        if sys.stdin is None or not sys.stdin.isatty():
+            parser.error("This robot requires a TTY for operator confirmation.")
+    if args.base_url and args.planner in BASE_URL_ENV_BY_PLANNER:
+        parser.error(
+            "--base-url applies to the 'api' planner only; "
+            f"{args.planner} reads its endpoint from "
+            f"{BASE_URL_ENV_BY_PLANNER[args.planner]} instead"
+        )
+    if args.explore and not robot_spec.supports_exploration:
+        detail = (
+            " Real-robot exploration requires operator-mediated scene restoration "
+            "and feedback support."
+            if robot_spec.is_real_robot
+            else ""
+        )
+        parser.error(
+            f"--explore is not supported for robot {args.robot_name!r}.{detail}"
+        )
+    if args.explore and getattr(args, "explore_attempts_per_session", 0) < 0:
+        parser.error("--explore-attempts-per-session must be nonnegative")
+    if human_interactive_exploration:
+        if args.dashboard:
+            parser.error(
+                "Human-interactive exploration currently requires the CLI operator terminal; Dashboard feedback is not implemented"
+            )
+        if sys.stdin is None or not sys.stdin.isatty():
+            parser.error(
+                "Human-interactive exploration requires a TTY for operator reset/verdict feedback"
+            )
     if args.explore and args.memory_profile == "hf":
         parser.error("--explore cannot be used with --memory-profile hf")
     if args.explore and getattr(args, "explore_sessions", 1) <= 0:
@@ -390,13 +459,30 @@ def main() -> int:
         variables=prompt_vars,
     )
 
+    operator_input = None
+    if human_interactive_exploration:
+        from rpent.tools.human_in_the_loop import HumanInTheLoopInput
+
+        operator_input = HumanInTheLoopInput(interactive=args.interactive)
     input_queue: "queue.Queue[str | None] | None" = None
     await_first_prompt: "Callable[[], str | None] | None" = None
     if args.interactive:
         input_queue = queue.Queue()
         # Pre-fill the first prompt with the rendered default task (editable
         # preset);
-        start_interactive_reader(input_queue, first_prompt_default=user_msg)
+        start_interactive_reader(
+            input_queue,
+            first_prompt_default=user_msg,
+            **(
+                {
+                    "line_handler": operator_input.route_line,
+                    "extra_help": operator_input.help_text,
+                    "on_close": operator_input.close,
+                }
+                if operator_input is not None
+                else {}
+            ),
+        )
         logger.info(
             "interactive mode on: the built-in task is pre-filled — "
             "edit it and press Enter, submit it as-is, or clear it to "
@@ -425,6 +511,8 @@ def main() -> int:
         first_user_msg = await_first_prompt()
         if first_user_msg is None:
             logger.info("no task entered; ending session before start.")
+    if human_interactive_exploration:
+        prompt_vars = {**prompt_vars, "initial_user_message": first_user_msg}
     # Exploration may hand off between independent planner contexts.
     sessions = max(1, int(getattr(args, "explore_sessions", 1) or 1))
     if not getattr(args, "explore", False):
@@ -433,6 +521,7 @@ def main() -> int:
     solved = False
     environment_success: bool | None = None
     memory_manager: MemoryManager | None = None
+    direct_operator_success = False
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
@@ -456,7 +545,7 @@ def main() -> int:
                 state_output_dir = (
                     output_dir / "sessions" / f"session_{session_number:03d}"
                 )
-            if robot_name == "libero":
+            if getattr(robot_spec, "supports_exploration", False):
                 toolkit = get_toolkit(
                     robot_name,
                     runtime_kwargs=runtime_kwargs,
@@ -467,6 +556,11 @@ def main() -> int:
                         args, "explore_attempts_per_session", 0
                     ),
                     state_output_dir=state_output_dir,
+                    **(
+                        {"operator_input": operator_input}
+                        if operator_input is not None
+                        else {}
+                    ),
                 )
             else:
                 toolkit = get_toolkit(
@@ -476,6 +570,20 @@ def main() -> int:
                     config=run_config,
                 )
             memory_manager = toolkit.memory
+            if operator_input is not None and args.interactive:
+
+                def accept_verdict(verdict: str, active_toolkit=toolkit) -> bool:
+                    if not active_toolkit.request_direct_verdict(verdict):
+                        return False
+                    logger.info(
+                        "/%s accepted: stopping actions, then recording the result and exiting.",
+                        verdict,
+                    )
+                    # EOF is a planner control signal, never a model message.
+                    input_queue.put(None)
+                    return True
+
+                operator_input.bind_verdict(accept_verdict)
             try:
                 result = planner.solve(
                     system_prompt=system_prompt,
@@ -488,18 +596,39 @@ def main() -> int:
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
-                if robot_name == "libero":
-                    solved = toolkit.solved()
-                    if solved:
-                        recipe_path = toolkit.write_recipe(recipe_tag)
+                if getattr(toolkit, "direct_verdict_requested", False):
+                    finish_result = toolkit.finalize_direct_verdict()
+                    direct_operator_success = finish_result["status"] == "success"
+                    if agent_error:
+                        logger.info(
+                            "Planner stopped after operator verdict: %s", agent_error
+                        )
+                        stats["planner_error_at_operator_verdict"] = agent_error
+                solved_fn = getattr(toolkit, "solved", None)
+                if getattr(robot_spec, "supports_exploration", False) and callable(
+                    solved_fn
+                ):
+                    solved = bool(solved_fn())
+                    write_recipe = getattr(toolkit, "write_recipe", None)
+                    if solved and callable(write_recipe):
+                        recipe_path = write_recipe(recipe_tag) or recipe_path
             finally:
+                if operator_input is not None and args.interactive:
+                    operator_input.bind_verdict(None)
                 try:
                     if robot_spec.finalize_run is not None:
-                        environment_success = bool(toolkit.solved())
-                        solved = environment_success
+                        solved_fn = getattr(toolkit, "solved", None)
+                        environment_success = (
+                            bool(solved_fn()) if callable(solved_fn) else None
+                        )
+                        solved = bool(environment_success)
                 finally:
                     toolkit.close()
-            if solved:
+            if (
+                solved
+                or (finish_result or {}).get("operator_aborted")
+                or (finish_result or {}).get("operator_finished")
+            ):
                 break
             if agent_error:
                 if (
@@ -518,6 +647,8 @@ def main() -> int:
         agent_error = f"{type(exc).__name__}: {exc}"
         logger.error("EXCEPTION in agent loop: %s", agent_error)
     finally:
+        if operator_input is not None:
+            operator_input.close()
         if recipe_path:
             logger.info("recipe: %s", recipe_path)
         else:
@@ -578,9 +709,10 @@ def main() -> int:
     # Publish exploration artifacts into the corpus after the session loop.
     if (
         getattr(args, "explore", False)
-        and getattr(args, "auto_merge_memory", False)
+        and (getattr(args, "auto_merge_memory", False) or direct_operator_success)
         and not agent_error
         and memory_manager is not None
+        and (not human_interactive_exploration or solved)
     ):
         try:
             merge_result = memory_manager.merge_memory(

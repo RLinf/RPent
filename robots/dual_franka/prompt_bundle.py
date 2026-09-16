@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from robots.dual_franka.prompts import explore as explore_parts
 from robots.dual_franka.prompts import system as system_parts
 from robots.dual_franka.prompts import user as user_parts
 from rpent.prompt.utils import Numbered, PromptNode
@@ -25,18 +26,31 @@ from rpent.prompt.utils import Numbered, PromptNode
 
 def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the dual-Franka system prompt."""
-    return {
+    if (variables or {}).get("mode") == "explore":
+        return explore_parts.system_prompt()
+    node: dict[str, object] = {
         "ROLE": system_parts.ROLE,
         "RUNTIME": system_parts.RUNTIME,
         "SAFETY RULES": Numbered(system_parts.RULES),
+        "CAMERA AND PROJECTION RULES": Numbered(system_parts.CAMERA_AND_PROJECTION),
+        "VLA SEGMENT GATES": Numbered(system_parts.VLA_GATES),
         "WORKFLOW": Numbered(system_parts.WORKFLOW),
     }
+    return node
 
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the task-specific initial user prompt."""
-    return {
+    node: dict[str, object] = {
         "TASK": user_parts.TASK,
         "TASK CONSTRAINTS": user_parts.CONSTRAINTS,
-        "BEGIN": user_parts.BEGIN,
+        "BEGIN": explore_parts.BEGIN
+        if (variables or {}).get("mode") == "explore"
+        else user_parts.BEGIN,
     }
+    if (variables or {}).get("mode") == "explore":
+        node["EXPLORATION OUTPUT"] = (
+            "Use {{memory_inbox}} for reviewable exploration notes and "
+            "{{output_dir}}/attempts/ for failed-attempt archives."
+        )
+    return node

@@ -16,10 +16,13 @@
 
 TASK = """- task_name: {{task_name}}
 - instruction: {{instruction}}
+- initial_setup: {{setup}}
 - success_criteria: {{success_criteria}}"""
 
 CONSTRAINTS = """{{constraints}}"""
 
-BEGIN = """Call view_env_state with step 0, inspect the left-wrist, base, and
-right-wrist views together with both arms' TCP state, then execute the task
-conservatively one arm at a time."""
+BEGIN = """Call describe_dual_franka_setup before acting. Then call
+view_env_state with step 0, inspect the configured inline visual evidence
+together with both arms' TCP/gripper/joint-health state, and execute the task
+conservatively with the exposed bounded tools. Auxiliary camera views are
+artifact views for targeted follow-up inspection only."""

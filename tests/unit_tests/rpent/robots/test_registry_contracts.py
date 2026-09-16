@@ -75,6 +75,7 @@ PROMPT_VARIABLES = {
         "task_id": 1,
         "task_name": "vla_grasp",
         "instruction": "Use bounded analytic motion",
+        "setup": "",
         "success_criteria": "object follows the chosen gripper",
         "constraints": "1. Move exactly one arm per call",
         "output_dir": Path("/output"),

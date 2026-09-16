@@ -1,22 +1,9 @@
 {
-  "source_commit": "8cad76c65ebf40f716e65eb5e8b9c50697d247d0",
+  "source_commit": "bd9040aa99b8fc75433b424905d832fecbef270f",
   "schemas": {
-    "finish": {
+    "describe_dual_franka_setup": {
       "type": "object",
-      "properties": {
-        "status": {
-          "type": "string",
-          "description": "Outcome, e.g. 'success', 'failure', or 'stuck'."
-        },
-        "summary": {
-          "type": "string",
-          "description": "Short natural-language summary of the run."
-        }
-      },
-      "required": [
-        "status",
-        "summary"
-      ]
+      "properties": {}
     },
     "view_env_state": {
       "type": "object",
@@ -36,9 +23,14 @@
         }
       }
     },
-    "back_project_base_pixel": {
+    "back_project": {
       "type": "object",
       "properties": {
+        "camera": {
+          "type": "string",
+          "default": "d455",
+          "description": "Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts."
+        },
         "row": {
           "type": "integer",
           "minimum": 0
@@ -65,16 +57,27 @@
         "col"
       ]
     },
-    "back_project_d455_pixel": {
+    "segment": {
       "type": "object",
       "properties": {
-        "row": {
-          "type": "integer",
-          "minimum": 0
+        "camera": {
+          "type": "string",
+          "default": "d455",
+          "description": "Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts."
         },
-        "col": {
-          "type": "integer",
-          "minimum": 0
+        "prompt": {
+          "type": "string",
+          "default": "",
+          "description": "Text prompt for SAM3. Prefer short object/relation phrases; for the clean-desk box use 'white interior of the black cardboard box' or 'cardboard box'. Avoid over-specific surface words such as 'floor' when grounding is weak. Provide exactly one of prompt or point."
+        },
+        "point": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "Positive SAM3 point in camera image coordinates [row, col]. Provide exactly one of prompt or point."
         },
         "target_name": {
           "type": "string",
@@ -83,16 +86,18 @@
         "step": {
           "type": "integer"
         },
-        "window_radius": {
+        "min_score": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.2
+        },
+        "min_valid_depth_pixels": {
           "type": "integer",
-          "minimum": 0,
-          "default": 2
+          "minimum": 1,
+          "default": 25
         }
-      },
-      "required": [
-        "row",
-        "col"
-      ]
+      }
     },
     "move_delta": {
       "type": "object",
@@ -176,20 +181,114 @@
         "arm"
       ]
     },
-    "vla_grasp": {
+    "recover_joint_posture": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "default": ""
+        },
+        "return_to_start": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "request_scene_reset": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "Why the scene needs to be restored."
+        },
+        "expected_scene_state": {
+          "type": "string",
+          "default": "",
+          "description": "Short instruction for the operator describing the desired restored layout."
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    },
+    "request_operator_verdict": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "default": "Does the current real-robot scene satisfy the task?"
+        }
+      }
+    },
+    "vla_right_grasp": {
       "type": "object",
       "properties": {
         "prompt": {
-          "type": "string"
+          "type": "string",
+          "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."
         },
         "max_chunks": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 20
+          "maximum": 20,
+          "default": 20
         }
       },
       "required": [
         "prompt"
+      ]
+    },
+    "vla_handoff": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."
+        },
+        "max_chunks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 20
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    },
+    "vla_left_place": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."
+        },
+        "max_chunks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 20
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    },
+    "finish": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Outcome, e.g. 'success', 'failure', or 'stuck'."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Short natural-language summary of the run."
+        }
+      },
+      "required": [
+        "status",
+        "summary"
       ]
     }
   },
@@ -198,8 +297,13 @@
       "name": "view_env_state",
       "arguments": {},
       "fields": [
+        "agent_observation",
+        "artifact_images",
         "artifacts",
+        "available_camera_views",
         "image_base_path",
+        "image_block_order",
+        "image_d455_path",
         "image_left_wrist_path",
         "image_right_wrist_path",
         "images",
@@ -208,7 +312,7 @@
         "terminated",
         "truncated"
       ],
-      "image_count": 3
+      "image_count": 1
     },
     {
       "name": "view_camera_meta",
@@ -231,10 +335,15 @@
       },
       "fields": [
         "agent_elapsed_s",
+        "agent_observation",
+        "artifact_images",
         "artifacts",
+        "available_camera_views",
         "command",
         "elapsed_s",
         "image_base_path",
+        "image_block_order",
+        "image_d455_path",
         "image_left_wrist_path",
         "image_right_wrist_path",
         "images",
@@ -244,11 +353,11 @@
         "terminated",
         "truncated"
       ],
+      "image_count": 1,
       "result_fields": [
         "arm",
         "ok"
-      ],
-      "image_count": 3
+      ]
     },
     {
       "name": "rotate_delta",
@@ -262,10 +371,15 @@
       },
       "fields": [
         "agent_elapsed_s",
+        "agent_observation",
+        "artifact_images",
         "artifacts",
+        "available_camera_views",
         "command",
         "elapsed_s",
         "image_base_path",
+        "image_block_order",
+        "image_d455_path",
         "image_left_wrist_path",
         "image_right_wrist_path",
         "images",
@@ -275,11 +389,11 @@
         "terminated",
         "truncated"
       ],
+      "image_count": 1,
       "result_fields": [
         "arm",
         "ok"
-      ],
-      "image_count": 3
+      ]
     },
     {
       "name": "open_gripper",
@@ -288,10 +402,15 @@
       },
       "fields": [
         "agent_elapsed_s",
+        "agent_observation",
+        "artifact_images",
         "artifacts",
+        "available_camera_views",
         "command",
         "elapsed_s",
         "image_base_path",
+        "image_block_order",
+        "image_d455_path",
         "image_left_wrist_path",
         "image_right_wrist_path",
         "images",
@@ -301,12 +420,12 @@
         "terminated",
         "truncated"
       ],
+      "image_count": 1,
       "result_fields": [
         "arm",
         "ok",
         "open"
-      ],
-      "image_count": 3
+      ]
     },
     {
       "name": "close_gripper",
@@ -315,10 +434,15 @@
       },
       "fields": [
         "agent_elapsed_s",
+        "agent_observation",
+        "artifact_images",
         "artifacts",
+        "available_camera_views",
         "command",
         "elapsed_s",
         "image_base_path",
+        "image_block_order",
+        "image_d455_path",
         "image_left_wrist_path",
         "image_right_wrist_path",
         "images",
@@ -328,25 +452,29 @@
         "terminated",
         "truncated"
       ],
+      "image_count": 1,
       "result_fields": [
         "arm",
         "ok",
         "open"
-      ],
-      "image_count": 3
+      ]
     },
     {
-      "name": "vla_grasp",
+      "name": "recover_joint_posture",
       "arguments": {
-        "prompt": "pick up the cube",
-        "max_chunks": 1
+        "reason": "joint drift"
       },
       "fields": [
         "agent_elapsed_s",
+        "agent_observation",
+        "artifact_images",
         "artifacts",
+        "available_camera_views",
         "command",
         "elapsed_s",
         "image_base_path",
+        "image_block_order",
+        "image_d455_path",
         "image_left_wrist_path",
         "image_right_wrist_path",
         "images",
@@ -356,18 +484,12 @@
         "terminated",
         "truncated"
       ],
+      "image_count": 1,
       "result_fields": [
-        "chunks_executed",
-        "last_chunk",
         "ok",
-        "robot_state"
-      ],
-      "last_chunk_fields": [
-        "observation",
-        "terminated",
-        "truncated"
-      ],
-      "image_count": 3
+        "reason",
+        "return_to_start"
+      ]
     },
     {
       "name": "finish",
@@ -377,72 +499,9 @@
       },
       "fields": [
         "_finish",
+        "operator_verdict",
         "status",
         "summary"
-      ],
-      "image_count": 0
-    },
-    {
-      "name": "back_project_base_pixel",
-      "arguments": {
-        "row": 2,
-        "col": 2
-      },
-      "fields": [
-        "camera",
-        "camera_extrinsic_frame",
-        "coordinate_contract",
-        "coordinate_frame",
-        "delta_left_tcp_to_point_xyz",
-        "delta_right_tcp_to_point_xyz",
-        "depth_m",
-        "depth_window_radius",
-        "diagnostic_artifacts",
-        "left_tcp_xyz",
-        "ok",
-        "pixel",
-        "point_camera_xyz",
-        "point_xyz",
-        "right_tcp_xyz",
-        "selection_contract",
-        "selection_valid",
-        "source_artifact",
-        "step",
-        "target_name",
-        "valid_depth_pixels_in_window",
-        "validity_contract"
-      ],
-      "image_count": 0
-    },
-    {
-      "name": "back_project_d455_pixel",
-      "arguments": {
-        "row": 2,
-        "col": 2
-      },
-      "fields": [
-        "camera",
-        "camera_extrinsic_frame",
-        "coordinate_contract",
-        "coordinate_frame",
-        "delta_left_tcp_to_point_xyz",
-        "delta_right_tcp_to_point_xyz",
-        "depth_m",
-        "depth_window_radius",
-        "diagnostic_artifacts",
-        "left_tcp_xyz",
-        "ok",
-        "pixel",
-        "point_camera_xyz",
-        "point_xyz",
-        "right_tcp_xyz",
-        "selection_contract",
-        "selection_valid",
-        "source_artifact",
-        "step",
-        "target_name",
-        "valid_depth_pixels_in_window",
-        "validity_contract"
       ],
       "image_count": 0
     }

@@ -49,6 +49,14 @@ Welcome to RPent
       Configure an LLM API key and the VLA checkpoint, then run one LIBERO
       task end-to-end.
 
+   .. grid-item-card:: Benchmark Results
+      :link: rst_source/benchmarks
+      :link-type: doc
+      :text-align: center
+
+      Compare planner models, reasoning settings, and success rates
+      across benchmarks, with evaluation protocols and sources.
+
    .. grid-item-card:: Usage Tutorial
       :link: rst_source/usage/configure_planner
       :link-type: doc
@@ -74,9 +82,10 @@ Welcome to RPent
    Overview <rst_source/overview>
    Installation <rst_source/installation>
    Quick Start <rst_source/quickstart>
+   Benchmark Results <rst_source/benchmarks>
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
    :includehidden:
    :titlesonly:
    :hidden:
@@ -84,14 +93,10 @@ Welcome to RPent
 
    Agentic Planner <rst_source/usage/configure_planner>
    Action Primitives <rst_source/usage/configure_primitives>
-   LIBERO <rst_source/usage/libero>
-   LIBERO Data Flywheel <rst_source/usage/flywheel>
-   RoboCasa <rst_source/usage/robocasa>
-   RoboTwin <rst_source/usage/robotwin>
-   Franka <rst_source/usage/franka>
-   Dual Franka <rst_source/usage/dual_franka>
-   SO-101 <rst_source/usage/so101>
+   Data Flywheel <rst_source/usage/flywheel>
    Task Cards <rst_source/usage/task_card>
+   Simulation <rst_source/usage/simulation>
+   Real Robots <rst_source/usage/real_robots>
    Advanced Deployment <rst_source/usage/advanced_deployment>
 
 .. toctree::
@@ -101,11 +106,11 @@ Welcome to RPent
    :hidden:
    :caption: Development Tutorial
 
-   System Internals <rst_source/development/architecture>
+   System Description <rst_source/development/architecture>
    Core Interfaces <rst_source/development/interfaces>
+   Memory Management <rst_source/development/memory>
    Add a New Robot <rst_source/development/add_robot>
    Add an Action Primitive <rst_source/development/add_primitive>
-   Memory Management <rst_source/development/memory>
 
 .. toctree::
    :maxdepth: 2

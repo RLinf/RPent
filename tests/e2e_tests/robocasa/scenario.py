@@ -149,13 +149,7 @@ def _rldx_checks(output_dir: Path, args: Namespace) -> dict[str, Any]:
             "video.robot0_eye_in_hand": video.copy(),
             "annotation.human.task_description": ["Open the drawer"],
         }
-        actions = client.predict(
-            observation,
-            {
-                "reset_memory": [True],
-                "session_ids": ["rpent_gpu_ci_robocasa"],
-            },
-        )
+        actions = client.predict(observation, {"reset_memory": [True]})
 
     if not isinstance(actions, dict):
         raise RuntimeError("RLDX actions must be a mapping")
@@ -219,9 +213,6 @@ class RoboCasaScenario:
                 },
                 "resources": {
                     "rldx_model": self.args.vla_model_path,
-                    "robocasa_macros": str(
-                        Path(_required_env("ROBOCASA_MACROS_PATH")).resolve()
-                    ),
                     "robocasa_assets": str(
                         Path(_required_env("ROBOCASA_ASSETS_PATH")).resolve()
                     ),

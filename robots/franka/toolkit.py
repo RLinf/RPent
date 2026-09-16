@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.franka import tools as franka_tools
@@ -44,6 +45,7 @@ class FrankaRuntime:
 class FrankaToolkit(Toolkit[FrankaRuntime]):
     """Common native tools plus single-Franka motion and perception."""
 
+    _runtime_type = FrankaRuntime
     _robot_tools = franka_tools.FRANKA_TOOLS
 
     def __init__(
@@ -52,17 +54,19 @@ class FrankaToolkit(Toolkit[FrankaRuntime]):
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
+        state_output_dir: Path | str | None = None,
     ) -> None:
         runtime_kwargs = dict(runtime_kwargs)
         calibration_path = runtime_kwargs.pop("calibration_path", None)
         if calibration_path is not None:
             set_calibration_path(calibration_path)
-        state = EnvState(get_output_dir())
+        output_dir = Path(state_output_dir or get_output_dir())
+        state = EnvState(output_dir)
         super().__init__(
             state=state,
             memory=memory,
-            robot=FrankaRuntime(**runtime_kwargs),
-            output_dir=get_output_dir(),
+            robot=self._runtime_type(**runtime_kwargs),
+            output_dir=output_dir,
             tools=self._robot_tools,
             dashboard_events=dashboard_events,
         )

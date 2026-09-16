@@ -1,7 +1,8 @@
 # Test suite structure
 
 RPent keeps its fast, offline unit tests under `unit_tests` and its
-checkpoint-backed embodied GPU tests under `e2e_tests`. Unit tests mirror the
+checkpoint-backed embodied GPU tests and explicit real-robot diagnostics under
+`e2e_tests`. Unit tests mirror the
 production module they exercise. GPU E2E tests are grouped by robot stack and
 exercise the real simulator and model runtime.
 
@@ -13,6 +14,7 @@ tests/
 ├── e2e_tests/
 │   ├── common.py         # shared assertions and runtime lifecycle helpers
 │   ├── run_gpu_suite.sh  # clean-environment entry point for one robot stack
+│   ├── dual_franka/     # opt-in real-robot VLA diagnostic console
 │   ├── libero/
 │   ├── robocasa/
 │   └── robotwin/
@@ -64,18 +66,27 @@ Run the complete suite with:
 pytest tests/unit_tests -v
 ```
 
-Real simulator checks live under `integration_tests` and are always opt-in;
-they are not part of the offline CI suite. For example, after installing the
-RoboCasa extra and assets, run its 340-cell Target50 environment contract with:
+## RoboCasa environment smoke tests
+
+The opt-in RoboCasa smoke suite verifies simulator installation and environment
+interfaces without loading a planner or VLA checkpoint. Install the RoboCasa
+extra and assets, then run:
 
 ```bash
 RPENT_RUN_ROBOCASA_INTEGRATION=1 \
   pytest tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py -v
 ```
 
-This opt-in test constructs and resets every manifest task/seed cell, verifies
-the 12D action interface, operation cameras, navigation RGB-D/world map,
-success predicate, and clean close. It does not invoke a planner or VLA model.
+The four cases cover `OpenDrawer`, `NavigateKitchen`, and
+`PickPlaceCounterToCabinet` at seed 1, plus mobile-camera movement. Task checks
+verify construction/reset, 12D actions, operation cameras, navigation RGB-D/world
+map, the success predicate, and clean close. The camera check verifies pose and
+image changes after eight base steps.
+
+See the RoboCasa usage guide in
+[English](../docs/source-en/rst_source/usage/robocasa.rst#environment-smoke-tests)
+or [Chinese](../docs/source-zh/rst_source/usage/robocasa.rst#environment-smoke-tests)
+for setup and test prerequisites.
 
 ## Embodied GPU E2E tests
 
@@ -92,3 +103,26 @@ bash tests/e2e_tests/run_gpu_suite.sh \
   /path/to/new-output-dir \
   /path/to/new-venv-root
 ```
+
+## Dual-Franka VLA diagnostic console
+
+Run the real-robot diagnostic explicitly from a source checkout after installing
+its robot dependencies and configuring the checkpoint, dataset normalization
+statistics, cameras, calibration, and reachable robot environment:
+
+```bash
+python -m tests.e2e_tests.dual_franka.dual_franka_vla --task-id 1 \
+  --robot-config /path/to/robot.yaml --calibration-path /path/to/calibration.json \
+  --vla-model-path /path/to/checkpoint --vla-repo-id org/dataset
+```
+
+This console is not collected by pytest or included in the automated GPU suite.
+Initialization may reset the robot. Only `step` and `run N` execute predictions;
+`infer` records a prediction without execution. Action validation expects 20
+steps per chunk; use `--expected-action-steps` for a different checkpoint chunk
+length. The console starts only env and VLA components, with no SAM3 dependency.
+Offline regression tests remain in `unit_tests/robots/dual_franka/`.
+
+See the deployment prerequisites in the
+[English](../docs/source-en/rst_source/usage/dual_franka.rst) or
+[Chinese](../docs/source-zh/rst_source/usage/dual_franka.rst) guide.
