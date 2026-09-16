@@ -33,13 +33,13 @@ Compare success rates on LIBERO, LIBERO-PRO, RoboCasa365 Target50, and RoboTwin
 C2R. Rankings apply to the methods and evaluation coverage shown; see
 :doc:`benchmarks` for detailed results, configurations, and sources.
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/7551b6b0a0228e9c9fd2b70ef994b0c40f1b1412/rpent/benchmarks/leaderboard-en-light.png
+.. image:: https://raw.githubusercontent.com/RLinf/misc/29a9d96588fbd9fa01cb4e035658eba028384fb6/rpent/benchmarks/leaderboard-en-light.png
    :alt: RPent benchmark results
    :class: only-light
    :width: 100%
    :target: benchmarks.html
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/7551b6b0a0228e9c9fd2b70ef994b0c40f1b1412/rpent/benchmarks/leaderboard-en-dark.png
+.. image:: https://raw.githubusercontent.com/RLinf/misc/29a9d96588fbd9fa01cb4e035658eba028384fb6/rpent/benchmarks/leaderboard-en-dark.png
    :alt: RPent benchmark results
    :class: only-dark
    :width: 100%
