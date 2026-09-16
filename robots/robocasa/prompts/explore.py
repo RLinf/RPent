@@ -8,7 +8,7 @@ structured tools and layered-memory contract.
 
 from __future__ import annotations
 
-from robots.robocasa.prompts import system as base
+from robots.robocasa.prompts import evaluate as base
 from rpent.prompt.utils import BulletList, PromptNode
 
 ROLE = """
