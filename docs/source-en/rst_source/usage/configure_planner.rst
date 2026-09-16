@@ -93,6 +93,10 @@ The ``claude_code`` planner
 RPent creates an in-process MCP server through the SDK and registers
 the toolkit's tools under the ``mcp__rpent__<name>`` namespace.
 
+RPent disables filesystem settings sources for Claude planner sessions, so
+project ``CLAUDE.md`` instructions and development skills are not loaded
+automatically. The working directory remains the repository root.
+
 .. code-block:: bash
 
    rpent --robot libero --planner claude_code \
@@ -146,6 +150,11 @@ The ``codex`` planner
 RPent starts a local Streamable HTTP MCP server on a background thread
 in the current process, and Codex calls the same toolkit through that
 server. You do not need to start ``scripts/codex_proxy/`` first.
+
+RPent excludes repository ``AGENTS.md`` instructions and development skills
+in ``.agents/skills/`` from the Codex planner's automatic context loading.
+The working directory remains the repository root; robot guides and memory
+remain available through the existing tools.
 
 .. code-block:: bash
 
