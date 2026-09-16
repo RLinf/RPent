@@ -1,0 +1,395 @@
+{
+  "source_commit": "8cad76c65ebf40f716e65eb5e8b9c50697d247d0",
+  "schemas": {
+    "finish": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Outcome, e.g. 'success', 'failure', or 'stuck'."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Short natural-language summary of the run."
+        }
+      },
+      "required": [
+        "status",
+        "summary"
+      ]
+    },
+    "view_env_state": {
+      "type": "object",
+      "properties": {
+        "step": {
+          "type": "integer",
+          "default": -1
+        }
+      }
+    },
+    "view_camera_meta": {
+      "type": "object",
+      "properties": {
+        "step": {
+          "type": "integer",
+          "default": -1
+        }
+      }
+    },
+    "view_perception_setup": {
+      "type": "object",
+      "properties": {
+        "step": {
+          "type": "integer",
+          "default": -1
+        }
+      }
+    },
+    "back_project": {
+      "type": "object",
+      "properties": {
+        "row": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "col": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "step": {
+          "type": "integer"
+        },
+        "camera": {
+          "type": "string",
+          "enum": [
+            "wrist",
+            "third_person"
+          ]
+        },
+        "debug": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "row",
+        "col"
+      ]
+    },
+    "back_project_correspondence": {
+      "type": "object",
+      "properties": {
+        "third_person_row": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "third_person_col": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wrist_row": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wrist_col": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pixels": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "step": {
+          "type": "integer"
+        },
+        "debug": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "move_delta": {
+      "type": "object",
+      "properties": {
+        "delta_xyz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "delta_xyz"
+      ]
+    },
+    "rotate_delta": {
+      "type": "object",
+      "properties": {
+        "delta_rpy": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "delta_rpy"
+      ]
+    },
+    "open_gripper": {
+      "type": "object",
+      "properties": {}
+    },
+    "close_gripper": {
+      "type": "object",
+      "properties": {}
+    },
+    "vla_grasp": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "max_chunks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "view_env_state",
+      "arguments": {},
+      "fields": [
+        "artifacts",
+        "image_cam_path",
+        "image_wrist_path",
+        "state",
+        "step_idx",
+        "terminated",
+        "truncated"
+      ],
+      "image_count": 2
+    },
+    {
+      "name": "view_camera_meta",
+      "arguments": {},
+      "fields": [
+        "camera_meta",
+        "step"
+      ],
+      "image_count": 0
+    },
+    {
+      "name": "move_delta",
+      "arguments": {
+        "delta_xyz": [
+          0.01,
+          0,
+          0
+        ]
+      },
+      "fields": [
+        "agent_elapsed_s",
+        "artifacts",
+        "command",
+        "elapsed_s",
+        "image_cam_path",
+        "image_wrist_path",
+        "result",
+        "state",
+        "step_idx",
+        "terminated",
+        "truncated"
+      ],
+      "result_fields": [
+        "ok"
+      ],
+      "image_count": 2
+    },
+    {
+      "name": "rotate_delta",
+      "arguments": {
+        "delta_rpy": [
+          0,
+          0,
+          0.1
+        ]
+      },
+      "fields": [
+        "agent_elapsed_s",
+        "artifacts",
+        "command",
+        "elapsed_s",
+        "image_cam_path",
+        "image_wrist_path",
+        "result",
+        "state",
+        "step_idx",
+        "terminated",
+        "truncated"
+      ],
+      "result_fields": [
+        "ok"
+      ],
+      "image_count": 2
+    },
+    {
+      "name": "open_gripper",
+      "arguments": {},
+      "fields": [
+        "agent_elapsed_s",
+        "artifacts",
+        "command",
+        "elapsed_s",
+        "image_cam_path",
+        "image_wrist_path",
+        "result",
+        "state",
+        "step_idx",
+        "terminated",
+        "truncated"
+      ],
+      "result_fields": [
+        "ok",
+        "open"
+      ],
+      "image_count": 2
+    },
+    {
+      "name": "close_gripper",
+      "arguments": {},
+      "fields": [
+        "agent_elapsed_s",
+        "artifacts",
+        "command",
+        "elapsed_s",
+        "image_cam_path",
+        "image_wrist_path",
+        "result",
+        "state",
+        "step_idx",
+        "terminated",
+        "truncated"
+      ],
+      "result_fields": [
+        "ok",
+        "open"
+      ],
+      "image_count": 2
+    },
+    {
+      "name": "vla_grasp",
+      "arguments": {
+        "prompt": "pick up the cube",
+        "max_chunks": 1
+      },
+      "fields": [
+        "agent_elapsed_s",
+        "artifacts",
+        "command",
+        "elapsed_s",
+        "image_cam_path",
+        "image_wrist_path",
+        "result",
+        "state",
+        "step_idx",
+        "terminated",
+        "truncated"
+      ],
+      "result_fields": [
+        "chunks_executed",
+        "last_chunk",
+        "ok",
+        "robot_state"
+      ],
+      "last_chunk_fields": [
+        "observation",
+        "terminated",
+        "truncated"
+      ],
+      "image_count": 2
+    },
+    {
+      "name": "finish",
+      "arguments": {
+        "status": "success",
+        "summary": "offline baseline"
+      },
+      "fields": [
+        "_finish",
+        "status",
+        "summary"
+      ],
+      "image_count": 0
+    },
+    {
+      "name": "view_perception_setup",
+      "arguments": {},
+      "fields": [
+        "calibration",
+        "camera_meta",
+        "convention",
+        "current_policy"
+      ],
+      "image_count": 0
+    },
+    {
+      "name": "back_project",
+      "arguments": {
+        "row": 2,
+        "col": 2,
+        "debug": true
+      },
+      "fields": [
+        "camera",
+        "camera_key",
+        "camera_name",
+        "coordinate_frame",
+        "debug",
+        "depth_m",
+        "pixel",
+        "point_base",
+        "selected_pixel_overlay",
+        "source",
+        "source_artifact",
+        "step",
+        "world_xyz"
+      ],
+      "image_count": 0
+    },
+    {
+      "name": "back_project_correspondence",
+      "arguments": {
+        "wrist_row": 2,
+        "wrist_col": 2,
+        "third_person_row": 2,
+        "third_person_col": 2
+      },
+      "fields": [
+        "base_point_delta_m",
+        "confidence",
+        "pixel_correspondence",
+        "point_base",
+        "point_base_third_person",
+        "point_base_wrist",
+        "source",
+        "step",
+        "tcp_pose_source",
+        "warnings"
+      ],
+      "image_count": 0
+    }
+  ]
+}

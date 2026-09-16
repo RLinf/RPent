@@ -16,18 +16,22 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from dataclasses import replace
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import numpy as np
+from pydantic import BeforeValidator, Field, FiniteFloat
 
 from robots.dual_franka import perception
 from robots.franka.tools import (
-    Pixel,
-    Vec3,
-    _json_data,
     _result,
-    view_camera_meta,
-    vla_grasp,
+    finish,
+)
+from robots.franka.tools import (
+    view_camera_meta as franka_view_camera_meta,
+)
+from robots.franka.tools import (
+    vla_grasp as franka_vla_grasp,
 )
 from rpent.session import EnvState, StepRecord
 from rpent.tools import ToolContext, ToolResult, readonly, tool
@@ -35,18 +39,36 @@ from rpent.tools import ToolContext, ToolResult, readonly, tool
 if TYPE_CHECKING:
     from robots.franka.toolkit import FrankaRuntime
 
-Arm = Literal["left", "right"]
+
+def _normalize_arm(value: str) -> str:
+    """Normalize string input before Literal validation; reject other types."""
+    if not isinstance(value, str):
+        raise ValueError("arm must be exactly 'left' or 'right'")
+    return value.strip().lower()
+
+
+Arm = Annotated[Literal["left", "right"], BeforeValidator(_normalize_arm)]
+view_camera_meta = replace(
+    franka_view_camera_meta,
+    description="Read camera intrinsics, serials, and projection metadata for the dual-Franka rig.",
+)
+vla_grasp = replace(
+    franka_vla_grasp,
+    description="Run bounded real-world dual-arm VLA action chunks for a grasp attempt.",
+)
 
 
 @tool
 def move_delta(
-    arm: Arm, delta_xyz: Vec3, *, ctx: ToolContext[FrankaRuntime]
+    arm: Arm,
+    delta_xyz: Annotated[list[FiniteFloat], Field(min_length=3, max_length=3)],
+    *,
+    ctx: ToolContext[FrankaRuntime],
 ) -> ToolResult:
     """Move one Franka TCP by a bounded world-frame xyz delta in meters.
 
     Args:
-        arm: Arm to command; the other arm is left uncommanded.
-        delta_xyz: World-frame x, y, z displacement in meters.
+        arm: Which arm to command; the other arm is left uncommanded.
     """
     ctx.check_cancelled()
     return _result(
@@ -56,13 +78,15 @@ def move_delta(
 
 @tool
 def rotate_delta(
-    arm: Arm, delta_rpy: Vec3, *, ctx: ToolContext[FrankaRuntime]
+    arm: Arm,
+    delta_rpy: Annotated[list[FiniteFloat], Field(min_length=3, max_length=3)],
+    *,
+    ctx: ToolContext[FrankaRuntime],
 ) -> ToolResult:
     """Rotate one Franka TCP by a bounded world-frame rpy delta in radians.
 
     Args:
-        arm: Arm to command; the other arm is left uncommanded.
-        delta_rpy: World-frame roll, pitch, yaw displacement in radians.
+        arm: Which arm to command; the other arm is left uncommanded.
     """
     ctx.check_cancelled()
     return _result(
@@ -75,7 +99,7 @@ def open_gripper(arm: Arm, *, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
     """Open one Franka gripper and wait for the command to settle.
 
     Args:
-        arm: Arm to command; the other arm is left uncommanded.
+        arm: Which arm to command; the other arm is left uncommanded.
     """
     ctx.check_cancelled()
     return _result(ctx.robot.env.set_gripper(arm, open=True))
@@ -86,7 +110,7 @@ def close_gripper(arm: Arm, *, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
     """Close one Franka gripper and wait for the command to settle.
 
     Args:
-        arm: Arm to command; the other arm is left uncommanded.
+        arm: Which arm to command; the other arm is left uncommanded.
     """
     ctx.check_cancelled()
     return _result(ctx.robot.env.set_gripper(arm, open=False))
@@ -150,7 +174,7 @@ def dump_state(
         channels=False,
     )
     with state.record_step(
-        state=_json_data(robot_state),
+        state=robot_state,
         command=command,
         result=result,
         elapsed_s=elapsed_s,
@@ -183,8 +207,11 @@ def build_observation(state: EnvState, record: StepRecord) -> ToolResult:
     data["images"] = []
     images = []
     for name in ("left_wrist", "base", "right_wrist"):
-        if f"{name}.png" in record.artifacts:
+        if state.exists(f"{name}.png", step=record.step_idx):
             data["images"].append(name)
+            data[f"image_{name}_path"] = str(
+                state.artifact_path(f"{name}.png", step=record.step_idx)
+            )
             images.append(state.load_bytes(f"{name}.png", step=record.step_idx))
     return ToolResult(data=data, images=images)
 
@@ -192,34 +219,22 @@ def build_observation(state: EnvState, record: StepRecord) -> ToolResult:
 @tool
 @readonly
 def view_env_state(step: int = -1, *, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
-    """Read a dual-Franka state snapshot and its synchronized RGB images.
-
-    Args:
-        step: Recorded step index, or -1 for the latest state.
-    """
+    """Read a dual-Franka state snapshot and its synchronized RGB images."""
     return build_observation(ctx.state, ctx.state.get(step))
 
 
 @tool
 @readonly
 def back_project_base_pixel(
-    row: Pixel,
-    col: Pixel,
+    row: Annotated[int, Field(ge=0)],
+    col: Annotated[int, Field(ge=0)],
     target_name: str = "target",
     step: int | None = None,
-    window_radius: Pixel = 2,
+    window_radius: Annotated[int, Field(ge=0)] = 2,
     *,
     ctx: ToolContext[FrankaRuntime],
 ) -> ToolResult:
-    """Back-project one base-camera pixel into shared right-base coordinates.
-
-    Args:
-        row: Pixel row in the recorded base-camera image.
-        col: Pixel column in the recorded base-camera image.
-        target_name: Target label for the diagnostic image.
-        step: Recorded step index; omitted or -1 selects the latest state.
-        window_radius: Depth sampling radius around the selected pixel.
-    """
+    """Back-project one base-camera pixel into shared right-base coordinates."""
     return _result(
         perception.back_project_base_pixel(
             row=row,
@@ -235,23 +250,15 @@ def back_project_base_pixel(
 @tool
 @readonly
 def back_project_d455_pixel(
-    row: Pixel,
-    col: Pixel,
+    row: Annotated[int, Field(ge=0)],
+    col: Annotated[int, Field(ge=0)],
     target_name: str = "target",
     step: int | None = None,
-    window_radius: Pixel = 2,
+    window_radius: Annotated[int, Field(ge=0)] = 2,
     *,
     ctx: ToolContext[FrankaRuntime],
 ) -> ToolResult:
-    """Back-project one D455 pixel into shared right-base coordinates.
-
-    Args:
-        row: Pixel row in the recorded D455 image.
-        col: Pixel column in the recorded D455 image.
-        target_name: Target label for the diagnostic image.
-        step: Recorded step index; omitted or -1 selects the latest state.
-        window_radius: Depth sampling radius around the selected pixel.
-    """
+    """Back-project one D455 pixel into shared right-base coordinates."""
     return _result(
         perception.back_project_d455_pixel(
             row=row,
@@ -265,6 +272,7 @@ def back_project_d455_pixel(
 
 
 DUAL_FRANKA_TOOLS = (
+    finish,
     view_env_state,
     view_camera_meta,
     back_project_base_pixel,

@@ -14,13 +14,33 @@
 
 """Native dual-Franka toolkit with shared Franka session lifecycle."""
 
+from typing import Any
+
 from robots.dual_franka import tools
 from robots.franka.toolkit import FrankaToolkit
+from rpent.session import StepRecord
+from rpent.tools import ToolResult
 
 
 class DualFrankaToolkit(FrankaToolkit):
     """Common native tools plus dual-Franka motion and perception."""
 
     _robot_tools = tools.DUAL_FRANKA_TOOLS
-    _dump_state = staticmethod(tools.dump_state)
-    _build_observation = staticmethod(tools.build_observation)
+
+    def _dump_state(
+        self,
+        *,
+        command: dict[str, Any] | None,
+        result: dict[str, Any] | None,
+        elapsed_s: float | None,
+    ) -> StepRecord:
+        return tools.dump_state(
+            self._robot,
+            self.state,
+            command=command,
+            result=result,
+            elapsed_s=elapsed_s,
+        )
+
+    def _build_observation(self, record: StepRecord) -> ToolResult:
+        return tools.build_observation(self.state, record)

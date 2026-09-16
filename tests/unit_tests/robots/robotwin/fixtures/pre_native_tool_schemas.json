@@ -1,0 +1,252 @@
+{
+  "source_commit": "014a0fa97f69c991ee5e0f62f14e1d6f89c3dcd7",
+  "schemas": {
+    "view_env_state": {
+      "type": "object",
+      "properties": {
+        "step": {
+          "type": "integer",
+          "default": -1,
+          "description": "Step number; 0 = initial, -1 = latest."
+        }
+      }
+    },
+    "render": {
+      "type": "object",
+      "properties": {}
+    },
+    "sample_world_xyz": {
+      "type": "object",
+      "properties": {
+        "view": {
+          "type": "string",
+          "description": "Artifact view and pixel coordinate space. It must match the RGB image used to choose pixels."
+        },
+        "pixels": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "step": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "neighborhood": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32,
+          "default": 1
+        }
+      },
+      "required": [
+        "view",
+        "pixels"
+      ]
+    },
+    "query_world_map": {
+      "type": "object",
+      "properties": {
+        "view": {
+          "type": "string",
+          "description": "Artifact view and bbox coordinate space. It must match the RGB image used to choose the bbox."
+        },
+        "bbox": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "step": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_points": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096,
+          "default": 256
+        }
+      },
+      "required": [
+        "view",
+        "bbox"
+      ]
+    },
+    "lingbot_act": {
+      "type": "object",
+      "properties": {
+        "chunks": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 4
+        },
+        "use_length": {
+          "type": "integer",
+          "const": 50,
+          "default": 50
+        },
+        "prompt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "move_to": {
+      "type": "object",
+      "properties": {
+        "arm": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ]
+        },
+        "xyz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "quat": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "gripper": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "substeps": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 25
+        }
+      },
+      "required": [
+        "arm",
+        "xyz"
+      ]
+    },
+    "rotate_wrist": {
+      "type": "object",
+      "properties": {
+        "arm": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ]
+        },
+        "delta_yaw_deg": {
+          "type": "number"
+        },
+        "gripper": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "substeps": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 25
+        }
+      },
+      "required": [
+        "arm",
+        "delta_yaw_deg"
+      ]
+    },
+    "set_gripper": {
+      "type": "object",
+      "properties": {
+        "arm": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ]
+        },
+        "val": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "steps": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10
+        }
+      },
+      "required": [
+        "arm",
+        "val"
+      ]
+    },
+    "release": {
+      "type": "object",
+      "properties": {
+        "arm": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ]
+        },
+        "val": {
+          "type": "number",
+          "default": 1.0
+        },
+        "steps": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10
+        }
+      },
+      "required": [
+        "arm"
+      ]
+    },
+    "finish": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "summary"
+      ]
+    }
+  }
+}

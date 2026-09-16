@@ -128,6 +128,11 @@ Planner 先通过 ``toolkit.list_tools()`` 获取工具定义，将每个工具�
 其中 ``read_image`` 供 API planner 使用；Claude Code 和 Codex 使用各自内置的
 图片读取工具。工具函数的完整示例见 :doc:`add_primitive`。
 
+``FrankaToolkit`` 和 ``DualFrankaToolkit`` 保留机器人工具的主要参数、正常返回字段、
+图片顺序和路径字段，以及 ``finish``。测试对比历史参数和正常返回字段，允许 schema
+的默认值声明、描述和 null 类型等细节不同。文件工具、错误处理
+和校验后的参数日志沿用公共 native 执行器。arm 的归一化声明在 Pydantic 参数类型中。
+
 默认情况下，工具独占执行，完成后由机器人子类的 ``_capture_observation``
 保存状态并返回新的观测。观测会替换动作返回的数据，因此需要保留的执行详情
 应写入观测中的日志；动作错误仍会保留。即使工具函数出错，toolkit 也会尝试

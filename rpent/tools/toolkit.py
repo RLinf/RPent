@@ -183,6 +183,7 @@ class Toolkit(Generic[RobotT]):
                     result.to_dict(),
                     ensure_ascii=False,
                     allow_nan=False,
+                    default=str,
                 ),
             )
             return result

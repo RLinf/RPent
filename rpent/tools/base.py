@@ -101,7 +101,9 @@ class ToolResult:
     def to_text(self) -> str:
         """Encode the original tool payload without truncating internal state."""
         # ASCII output makes character counts equal to UTF-8 byte counts.
-        text = json.dumps(self.to_dict(), indent=2, allow_nan=False, ensure_ascii=True)
+        text = json.dumps(
+            self.to_dict(), indent=2, allow_nan=False, ensure_ascii=True, default=str
+        )
         if len(text) <= MAX_TOOL_TEXT_BYTES:
             return text
         suffix = "\n[truncated]"

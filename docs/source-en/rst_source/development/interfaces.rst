@@ -125,6 +125,16 @@ The base class adds ``read_text_file``, ``write_text_file``, ``list_dir``, and
 Memory file access goes through ``MemoryManager.authorize_read`` and
 ``authorize_write``.
 
+Franka compatibility
+~~~~~~~~~~~~~~~~~~~~
+
+``FrankaToolkit`` and ``DualFrankaToolkit`` preserve main robot tool parameters,
+normal result fields, image order and path fields, and ``finish``. Focused tests
+compare parameters and normal return fields with a historical baseline; schema
+default annotations, descriptions and nullability may differ. File tools, error handling, and validated
+argument logs follow the shared native executor. Arm normalization is declared
+in the Pydantic parameter type.
+
 Execution and lifecycle
 ~~~~~~~~~~~~~~~~~~~~~~~
 

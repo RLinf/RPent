@@ -16,11 +16,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from robots.dual_franka import tools
 from robots.dual_franka.perception import (
@@ -33,6 +35,7 @@ from robots.dual_franka.tools import (
     dump_state,
     view_env_state,
 )
+from robots.franka import runtime_config
 from robots.franka import toolkit as franka_toolkit
 from robots.franka.runtime_config import (
     set_calibration_path,
@@ -40,75 +43,12 @@ from robots.franka.runtime_config import (
 )
 from robots.franka.toolkit import FrankaRuntime
 from robots.franka.tools import view_camera_meta
-from rpent.dashboard.events import StepRecordEvent
+from rpent.dashboard.events import NullDashboardEventSink, StepRecordEvent
 from rpent.memory import MemoryManager
 from rpent.session import EnvState
 from rpent.tools import ToolContext
-
-
-class FakeEnv:
-    def __init__(self) -> None:
-        self.moves: list[tuple[str, np.ndarray]] = []
-        self.rotations: list[tuple[str, np.ndarray]] = []
-        self.grippers: list[tuple[str, bool]] = []
-        self.chunks: list[np.ndarray] = []
-        self.observation_calls = 0
-
-    def reset(self):
-        return {"ok": True}
-
-    def move_delta(self, arm, value):
-        self.moves.append((arm, np.asarray(value)))
-        return {"ok": True, "arm": arm}
-
-    def rotate_delta(self, arm, value):
-        self.rotations.append((arm, np.asarray(value)))
-        return {"ok": True, "arm": arm}
-
-    def set_gripper(self, arm, *, open: bool):
-        self.grippers.append((arm, open))
-        return {"ok": True, "arm": arm, "open": open}
-
-    def _obs(self):
-        return {
-            "main_images": np.zeros((8, 8, 3), dtype=np.uint8),
-            "extra_view_images": np.ones((2, 8, 8, 3), dtype=np.uint8),
-            "main_depths": np.ones((8, 8), dtype=np.float32),
-            "extra_view_depths": np.ones((2, 8, 8), dtype=np.float32) * 2,
-            "d455_images": np.ones((8, 8, 3), dtype=np.uint8) * 3,
-            "d455_depths": np.ones((8, 8), dtype=np.float32) * 4,
-            "raw_camera_frames": {
-                "left_wrist_0_rgb": np.full((10, 12, 3), 5, dtype=np.uint8),
-                "base_0_rgb": np.full((10, 12, 3), 7, dtype=np.uint8),
-                "right_wrist_0_rgb": np.full((10, 12, 3), 6, dtype=np.uint8),
-            },
-            "raw_camera_depths": {
-                "left_wrist_0_rgb": np.full((10, 12), 8, dtype=np.float32),
-                "base_0_rgb": np.full((10, 12), 9, dtype=np.float32),
-                "right_wrist_0_rgb": np.full((10, 12), 11, dtype=np.float32),
-            },
-            "states": np.zeros(20, dtype=np.float32),
-        }
-
-    def get_observation(self):
-        self.observation_calls += 1
-        return self._obs()
-
-    def get_robot_state(self):
-        return {
-            "left_arm": {"tcp_pose": [0.5, -0.2, 0.5, 0.0, 0.0, 0.0, 1.0]},
-            "right_arm": {"tcp_pose": [0.5, 0.2, 0.5, 0.0, 0.0, 0.0, 1.0]},
-        }
-
-    def get_camera_meta(self):
-        return {
-            "cameras": {"left_wrist_0_rgb": {"serial": "left", "type": "zed"}},
-            "observation_camera_map": {"main": "left_wrist_0_rgb"},
-        }
-
-    def chunk_step(self, actions):
-        self.chunks.append(np.asarray(actions))
-        return {"terminated": False, "truncated": False, "observation": self._obs()}
+from tests.unit_tests.robots.dual_franka._fakes import FakeEnv
+from tests.unit_tests.robots.franka._fakes import FakeModel
 
 
 def _context(env: FakeEnv, *, model=None, state=None):
@@ -309,6 +249,8 @@ def test_toolkit_factory_validation_capture_and_cancellation(tmp_path, monkeypat
         result = toolkit.execute_tool("move_delta", {"arm": "left", "delta_xyz": delta})
         assert result.is_error
     assert env.moves == []
+    assert env.observation_calls == 1
+    assert len(events) == 1
     result = toolkit.execute_tool(
         "move_delta", {"arm": "left", "delta_xyz": [0.01, 0, 0]}
     )
@@ -319,11 +261,93 @@ def test_toolkit_factory_validation_capture_and_cancellation(tmp_path, monkeypat
     assert len(events) == 2
     assert events[-1].record.command["action"] == "move_delta"
     read = toolkit.execute_tool("view_env_state", {})
-    assert read.data == result.data and read.images == result.images
+    np.testing.assert_equal(
+        read.data,
+        {key: value for key, value in result.data.items() if key != "agent_elapsed_s"},
+    )
+    assert read.images == result.images
     assert len(events) == 2
     toolkit.cancel_active_and_wait()
     assert not toolkit.execute_tool("view_env_state", {}).is_error
-    assert "finish" not in {tool.name for tool in toolkit.list_tools()}
+    assert "finish" in {tool.name for tool in toolkit.list_tools()}
     assert toolkit.finish_result is None
     assert len(events) == 2
     toolkit.close()
+
+
+# Historical PR #172 schemas and return fields; do not regenerate from native tools.
+_CONTRACT = json.loads(
+    (Path(__file__).parent / "fixtures/pre_native_tool_contracts.json").read_text()
+)
+
+
+def _schema_contract(value):
+    """Compare main parameters, allowing descriptions, defaults and nullability to differ."""
+    if isinstance(value, dict):
+        result = {
+            key: _schema_contract(item)
+            for key, item in value.items()
+            if key not in {"default", "description"}
+            and not (key == "additionalProperties" and item is True)
+        }
+        if isinstance(result.get("type"), list):
+            types = [kind for kind in result["type"] if kind != "null"]
+            result["type"] = types[0] if len(types) == 1 else types
+        return result
+    if isinstance(value, list):
+        return [_schema_contract(item) for item in value]
+    return value
+
+
+def test_main_parameter_contract():
+    actual = {item.name: item.input_schema for item in tools.DUAL_FRANKA_TOOLS}
+    assert len(actual) == len(tools.DUAL_FRANKA_TOOLS)
+    assert _schema_contract(actual) == _schema_contract(_CONTRACT["schemas"])
+
+
+def _prepare_contract_perception(state):
+    metadata = {
+        name: {"color_intrinsics": {"fx": 100, "fy": 100, "ppx": 2, "ppy": 2}}
+        for name in ("base_0_rgb", "d455_rgb")
+    }
+    step = state.get().step_idx
+    state.save("camera_meta.json", metadata, step=step)
+    for name in ("base", "d455"):
+        state.save(
+            f"{name}_depth.npy", np.full((4, 4), 0.5, dtype=np.float32), step=step
+        )
+
+
+@pytest.mark.parametrize("case", _CONTRACT["cases"], ids=lambda case: case["name"])
+def test_normal_return_contract(case, tmp_path, monkeypatch):
+    monkeypatch.setattr(franka_toolkit, "get_output_dir", lambda: tmp_path)
+    toolkit = DualFrankaToolkit(
+        runtime_kwargs={
+            "env": FakeEnv(),
+            "model": FakeModel(),
+            "task_description": "default task",
+        },
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    name = case["name"]
+    if name.startswith("back_project") or name == "view_perception_setup":
+        _prepare_contract_perception(toolkit.state)
+        monkeypatch.setattr(
+            runtime_config,
+            "_calibration_path",
+            Path(__file__).parent / "fixtures/hand_eye_calibration.json",
+        )
+        monkeypatch.setattr(runtime_config, "_robot_config_path", DUAL_FRANKA_CONFIG)
+    result = toolkit.execute_tool(name, case["arguments"])
+    assert not result.is_error
+    data = result.to_dict()
+    assert sorted(data) == case["fields"]
+    assert len(result.images) == case["image_count"]
+    if "result_fields" in case:
+        assert sorted(data["result"]) == case["result_fields"]
+    if "last_chunk_fields" in case:
+        assert sorted(data["result"]["last_chunk"]) == case["last_chunk_fields"]
+    if name == "finish":
+        assert data == {"_finish": True, **case["arguments"]}
+        assert toolkit.finish_result == case["arguments"]

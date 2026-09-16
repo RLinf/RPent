@@ -30,12 +30,13 @@ ROBOT_NAMES = ("libero", "robocasa", "robotwin")
 def test_input_schemas_match_before_native_migration(group: str) -> None:
     # Extracted from historical TOOLS_SPEC declarations and the API image reader;
     # expected schemas must not be regenerated from the native parameter models.
-    snapshot = json.loads(
-        (Path(__file__).parent / "fixtures/pre_native_tool_schemas.json").read_text(
-            encoding="utf-8"
-        )
+    root = Path(__file__).parent
+    path = (
+        root / "fixtures/common_tool_schemas.json"
+        if group == "common"
+        else root / group / "fixtures/pre_native_tool_schemas.json"
     )
-    expected = snapshot["schemas"][group]
+    expected = json.loads(path.read_text(encoding="utf-8"))["schemas"]
     if group == "common":
         # list_dir now resolves the directory from the invocation context.
         expected["list_dir"]["properties"]["path"]["description"] = (

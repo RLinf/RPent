@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from robots.franka import tools as franka_tools
 from robots.franka.runtime_config import set_calibration_path
 from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
-from rpent.session import EnvState
+from rpent.session import EnvState, StepRecord
 from rpent.tools import Toolkit, ToolResult
 from rpent.utils.logging import get_output_dir
 
@@ -45,8 +45,6 @@ class FrankaToolkit(Toolkit[FrankaRuntime]):
     """Common native tools plus single-Franka motion and perception."""
 
     _robot_tools = franka_tools.FRANKA_TOOLS
-    _dump_state = staticmethod(franka_tools.dump_state)
-    _build_observation = staticmethod(franka_tools.build_observation)
 
     def __init__(
         self,
@@ -71,8 +69,6 @@ class FrankaToolkit(Toolkit[FrankaRuntime]):
         # The env client already resets the robot when it connects.
         state.reset()
         record = self._dump_state(
-            self._robot,
-            state,
             command=None,
             result=None,
             elapsed_s=None,
@@ -87,11 +83,28 @@ class FrankaToolkit(Toolkit[FrankaRuntime]):
         elapsed_s: float,
     ) -> tuple[dict[str, Any], list[bytes]]:
         record = self._dump_state(
-            self._robot,
-            self.state,
             command=command,
             result=result.to_dict(),
             elapsed_s=elapsed_s,
         )
-        observation = self._build_observation(self.state, record)
+        observation = self._build_observation(record)
+        observation.data["agent_elapsed_s"] = elapsed_s
         return observation.data, observation.images
+
+    def _dump_state(
+        self,
+        *,
+        command: dict[str, Any] | None,
+        result: dict[str, Any] | None,
+        elapsed_s: float | None,
+    ) -> StepRecord:
+        return franka_tools.dump_state(
+            self._robot,
+            self.state,
+            command=command,
+            result=result,
+            elapsed_s=elapsed_s,
+        )
+
+    def _build_observation(self, record: StepRecord) -> ToolResult:
+        return franka_tools.build_observation(self.state, record)
