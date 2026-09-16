@@ -330,7 +330,10 @@ Published Target50 results
 The Codex / GPT-5.6 / xhigh reproduction contains all 340 cells and reports
 the following task-level aggregates. The earlier 55.40% reference uses
 GPT-5.5 / xhigh. A separate GPT-6 Astra / low / reasoning evaluation reports
-59.20% task-weighted Overall; its unreported split scores are not inferred.
+59.20% task-weighted Overall over all 340 cells. Its published report does not
+provide separate Atomic, Composite-Seen or Composite-Unseen success rates, so
+these entries remain unreported in the leaderboard. They cannot be calculated
+from Overall alone; missing split values do not mean the evaluation is incomplete.
 
 .. list-table:: Codex Target50 reproduction
    :header-rows: 1

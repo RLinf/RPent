@@ -9,8 +9,12 @@ RPent Leaderboard
 
 .. raw:: html
 
+   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/RLinf/misc@439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/docs.css">
+   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/table-sort.js"></script>
+   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/leaderboard.js"></script>
+   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/embed.js"></script>
    <div id="rpent-interactive-leaderboard" data-language="en"
-        data-results-url="https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/results.json">
+        data-results-url="https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/results.json">
      <div class="rpent-static-leaderboard">
        <p>Full result tables are available below.</p>
      </div>
@@ -110,10 +114,10 @@ Eight-suite Overall uses all Task/Swap items. New model reports use model-specif
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "92.63%", "741/800", "`GPT-6 Astra Long evaluation <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; `GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-6 Astra / low / reasoning", "92.63%", "741/800", "`GPT-6 Astra Long evaluation <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; `GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed model settings"
    "Claude Code / Opus 4.7", "82.50%", "Evaluated: 800", "New evaluation · 15 Sep 2026"
    "Claude Code / Opus-4.8 / max / reasoning", "82.4%", "Evaluated: 800", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
-   "Codex / GPT-5.6 / xhigh / reasoning", "78.50%", "Evaluated: 800", "New evaluation · 15 Sep 2026; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-5.6 / xhigh / reasoning", "78.50%", "Evaluated: 800", "New evaluation · 15 Sep 2026; Contributor-confirmed model settings"
    "Task card / Molmo", "72.63%", "Evaluated: 800", "New evaluation · 15 Sep 2026"
    "Codex / GPT-5.5 / xhigh / reasoning", "72.1%", "Evaluated: 800", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.6 / no reasoning", "62.50%", "Evaluated: 800", "New evaluation · 15 Sep 2026"
@@ -131,7 +135,7 @@ Eight-suite Overall uses all Task/Swap items. New model reports use model-specif
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "100%", "100/100", "`GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-6 Astra / low / reasoning", "100%", "100/100", "`GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed model settings"
    "Claude Code / Opus-4.8 / max / reasoning", "94.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.5 / xhigh / reasoning", "81.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "42.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -149,7 +153,7 @@ Eight-suite Overall uses all Task/Swap items. New model reports use model-specif
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "98%", "98/100", "`GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-6 Astra / low / reasoning", "98%", "98/100", "`GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed model settings"
    "Claude Code / Opus-4.8 / max / reasoning", "80.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.5 / xhigh / reasoning", "69.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "59.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -167,7 +171,7 @@ Eight-suite Overall uses all Task/Swap items. New model reports use model-specif
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "100%", "100/100", "`GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-6 Astra / low / reasoning", "100%", "100/100", "`GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed model settings"
    "Codex / GPT-5.5 / xhigh / reasoning", "94.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Claude Code / Opus-4.8 / max / reasoning", "88.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "71.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -185,7 +189,7 @@ Eight-suite Overall uses all Task/Swap items. New model reports use model-specif
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "99%", "99/100", "`GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-6 Astra / low / reasoning", "99%", "99/100", "`GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed model settings"
    "Codex / GPT-5.5 / xhigh / reasoning", "91.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Claude Code / Opus-4.8 / max / reasoning", "90.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "78.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -203,7 +207,7 @@ Eight-suite Overall uses all Task/Swap items. New model reports use model-specif
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "88%", "88/100", "`GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-6 Astra / low / reasoning", "88%", "88/100", "`GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed model settings"
    "Claude Code / Opus-4.8 / max / reasoning", "87.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.5 / xhigh / reasoning", "75.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "45.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -221,7 +225,7 @@ Eight-suite Overall uses all Task/Swap items. New model reports use model-specif
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "99%", "99/100", "`GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-6 Astra / low / reasoning", "99%", "99/100", "`GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed model settings"
    "Claude Code / Opus-4.8 / max / reasoning", "87.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.5 / xhigh / reasoning", "66.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "RATS", "43.0%", "—", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -239,7 +243,7 @@ Eight-suite Overall uses all Task/Swap items. New model reports use model-specif
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "85%", "85/100", "`GPT-6 Astra Long evaluation <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-6 Astra / low / reasoning", "85%", "85/100", "`GPT-6 Astra Long evaluation <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed model settings"
    "Claude Code / Opus-4.8 / max / reasoning", "71.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.5 / xhigh / reasoning", "52.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "49.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -257,7 +261,7 @@ Eight-suite Overall uses all Task/Swap items. New model reports use model-specif
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "72%", "72/100", "`GPT-6 Astra Long evaluation <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-6 Astra / low / reasoning", "72%", "72/100", "`GPT-6 Astra Long evaluation <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; Contributor-confirmed model settings"
    "Claude Code / Opus-4.8 / max / reasoning", "62.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.5 / xhigh / reasoning", "49.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "14.0%", "Evaluated: 100", "`Table 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -317,7 +321,7 @@ RPent Overall weights 50 tasks equally, not episodes. GPT-6 Astra: all 340 episo
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "59.20%", "Evaluated: 340", "New evaluation · 15 Sep 2026; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-6 Astra / low / reasoning", "59.20%", "Evaluated: 340", "New evaluation · 15 Sep 2026; Contributor-confirmed model settings"
    "Codex / GPT-5.5 / xhigh / reasoning", "57.1%", "Evaluated: 340", "`Table 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
    "Claude Code / Opus-4.8 / max / reasoning", "48.6%", "Evaluated: 340", "`Table 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
    "WorldDreamer", "35.3%", "—", "`Table 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_"
@@ -371,10 +375,11 @@ RoboTwin · Clean → Randomized
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "72.00%", "Evaluated: 250", "Contributor-confirmed settings and RoboTwin results"
-   "Codex / GPT-5.6 / xhigh / reasoning", "61.20%", "Evaluated: 250", "Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-6 Astra / low / reasoning", "72.00%", "Evaluated: 250", "Contributor · RoboTwin C2R results; Contributor-confirmed model settings"
+   "Codex / GPT-5.5 / xhigh / reasoning · Repository · 15 Sep 2026", "62.4%", "156/250", "`RPent · RoboTwin reproduction, 15 Sep 2026 <https://github.com/RLinf/RPent/blob/849143bf740a562367345cec0de9ef4657dafd73/docs/source-en/rst_source/usage/robotwin.rst>`_"
+   "Codex / GPT-5.6 / xhigh / reasoning", "61.20%", "Evaluated: 250", "Contributor · RoboTwin C2R results; Contributor-confirmed model settings"
    "Claude Code / Opus-4.8 / max / reasoning", "58.4%", "Evaluated: 250", "`Table 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_"
-   "Codex / GPT-5.5 / xhigh / reasoning", "58.0%", "145/250", "`Table 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_; `RPent · RoboTwin reproduction <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robotwin.rst>`_"
+   "Codex / GPT-5.5 / xhigh / reasoning · Paper / earlier repository", "58.0%", "145/250", "`Table 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_; `RPent · RoboTwin reproduction <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robotwin.rst>`_"
    "LingBot-VLA", "50.4%", "—", "`Table 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_"
    "π0.5", "47.9%", "—", "`Table 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_"
    "GR00T-N1.7", "20.7%", "—", "`Table 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_"
@@ -401,51 +406,63 @@ GPT-5.6 xhigh with reasoning: 163/180 Atomic, 49/80 Seen, 12/80 Unseen; task-wei
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "59.20%", "Evaluated: 340", "New evaluation · 15 Sep 2026; Contributor-confirmed settings and RoboTwin results"
-   "Codex / GPT-5.6 / xhigh / reasoning · Repository reproduction", "57.00%", "Evaluated: 340", "`RPent · Target50 reproduction <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/robots/robocasa/eval/target50_codex_results.md>`_; Contributor-confirmed settings and RoboTwin results"
-   "Codex / GPT-5.5 / xhigh / reasoning · Earlier reference", "55.40%", "Evaluated: 340", "`RPent · earlier reference column <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robocasa.rst>`_; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-6 Astra / low / reasoning", "59.20%", "Evaluated: 340", "New evaluation · 15 Sep 2026; Contributor-confirmed model settings"
+   "Codex / GPT-5.6 / xhigh / reasoning · Repository reproduction", "57.00%", "Evaluated: 340", "`RPent · Target50 reproduction <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/robots/robocasa/eval/target50_codex_results.md>`_; Contributor-confirmed model settings"
+   "Codex / GPT-5.5 / xhigh / reasoning · Earlier reference", "55.40%", "Evaluated: 340", "`RPent · earlier reference column <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robocasa.rst>`_; Contributor-confirmed model settings"
 
 .. csv-table:: Atomic
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-5.5 / xhigh / reasoning · Earlier reference", "91.67%", "165/180", "`RPent · earlier reference column <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robocasa.rst>`_; Contributor-confirmed settings and RoboTwin results"
-   "Codex / GPT-5.6 / xhigh / reasoning · Repository reproduction", "90.56%", "163/180", "`RPent · Target50 reproduction <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/robots/robocasa/eval/target50_codex_results.md>`_; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-5.5 / xhigh / reasoning · Earlier reference", "91.67%", "165/180", "`RPent · earlier reference column <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robocasa.rst>`_; Contributor-confirmed model settings"
+   "Codex / GPT-5.6 / xhigh / reasoning · Repository reproduction", "90.56%", "163/180", "`RPent · Target50 reproduction <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/robots/robocasa/eval/target50_codex_results.md>`_; Contributor-confirmed model settings"
 
 .. csv-table:: Composite-Seen
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-5.6 / xhigh / reasoning · Repository reproduction", "61.25%", "49/80", "`RPent · Target50 reproduction <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/robots/robocasa/eval/target50_codex_results.md>`_; Contributor-confirmed settings and RoboTwin results"
-   "Codex / GPT-5.5 / xhigh / reasoning · Earlier reference", "56.25%", "45/80", "`RPent · earlier reference column <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robocasa.rst>`_; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-5.6 / xhigh / reasoning · Repository reproduction", "61.25%", "49/80", "`RPent · Target50 reproduction <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/robots/robocasa/eval/target50_codex_results.md>`_; Contributor-confirmed model settings"
+   "Codex / GPT-5.5 / xhigh / reasoning · Earlier reference", "56.25%", "45/80", "`RPent · earlier reference column <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robocasa.rst>`_; Contributor-confirmed model settings"
 
 .. csv-table:: Composite-Unseen
    :header: "Method / model / setting", "Success rate", "Successful / evaluated", "Source"
    :class: table-sm
 
-   "Codex / GPT-5.6 / xhigh / reasoning · Repository reproduction", "15.00%", "12/80", "`RPent · Target50 reproduction <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/robots/robocasa/eval/target50_codex_results.md>`_; Contributor-confirmed settings and RoboTwin results"
-   "Codex / GPT-5.5 / xhigh / reasoning · Earlier reference", "13.75%", "11/80", "`RPent · earlier reference column <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robocasa.rst>`_; Contributor-confirmed settings and RoboTwin results"
+   "Codex / GPT-5.6 / xhigh / reasoning · Repository reproduction", "15.00%", "12/80", "`RPent · Target50 reproduction <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/robots/robocasa/eval/target50_codex_results.md>`_; Contributor-confirmed model settings"
+   "Codex / GPT-5.5 / xhigh / reasoning · Earlier reference", "13.75%", "11/80", "`RPent · earlier reference column <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robocasa.rst>`_; Contributor-confirmed model settings"
 
 Paper analyses
 ------------------------------------------------------------------------------------------
 
 Invocation counts, completion attribution and primitive shares describe mechanisms; they are not success-rate rankings. Published figures are retained without estimating curve point values. Zhang et al., Harness VLA v4, CC BY 4.0.
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/assets/invocations-libero.png
+.. image:: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/invocations-libero.png
    :alt: Harness VLA invocations-libero.png
-   :width: 100%
+   :width: 520px
+   :align: center
+   :class: rpent-paper-figure
+   :target: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/invocations-libero.png
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/assets/invocations-robocasa.png
+.. image:: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/invocations-robocasa.png
    :alt: Harness VLA invocations-robocasa.png
-   :width: 100%
+   :width: 520px
+   :align: center
+   :class: rpent-paper-figure
+   :target: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/invocations-robocasa.png
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/assets/invocations-robotwin.png
+.. image:: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/invocations-robotwin.png
    :alt: Harness VLA invocations-robotwin.png
-   :width: 100%
+   :width: 520px
+   :align: center
+   :class: rpent-paper-figure
+   :target: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/invocations-robotwin.png
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/assets/completion-attribution.png
+.. image:: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/completion-attribution.png
    :alt: Harness VLA completion-attribution.png
-   :width: 100%
+   :width: 520px
+   :align: center
+   :class: rpent-paper-figure
+   :target: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/completion-attribution.png
 
 .. csv-table:: Primitive usage · Table 18
    :header: "Primitive", "LIBERO", "RoboTwin C2R", "RoboCasa365"
@@ -491,8 +508,8 @@ Task success follows the environment: LIBERO ``terminated``, RoboCasa ``state.su
 * `Table 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_
 * `Table 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_
 * `Table 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_
-* `GPT-6 Astra Long evaluation <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_
-* `GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/benchmarks/astra-pro-20260915.json>`_
+* `GPT-6 Astra Long evaluation <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_
+* `GPT-6 Astra supplementary evaluation <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_
 * New evaluation · 15 Sep 2026 — Contributor-provided result image; scopes explicitly confirmed by the contributor. LIBERO-PRO: full eight-suite exploration and evaluation per model. RoboCasa: all 340 episodes, 50-task-weighted Overall. Individual outcomes and unreported model settings are not supplied.
 * `RPent · Task Card evaluation <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/task_card.rst>`_ — Object Task and Swap, 20 tasks × 10 seeds. Aggregate counts are explicit; model versions are not specified for this evaluation. Distinct from the new eight-suite Molmo report.
 * `RPent · RoboTwin reproduction <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robotwin.rst>`_ — The repository also reports Codex / GPT-5.5 xhigh at 58.0%, with explicit counts 145/250. Both published sources are attached to this result; no per-cell identity is asserted.
@@ -502,7 +519,9 @@ Task success follows the environment: LIBERO ``terminated``, RoboCasa ``state.su
 * `Paper · Figure 6 <https://arxiv.org/html/2607.08448v4#S3.F6>`_
 * `Paper · Table 18 <https://arxiv.org/html/2607.08448v4#A6.T18>`_
 * `Paper · Table 19 <https://arxiv.org/html/2607.08448v4#A6.T19>`_
-* Contributor-confirmed settings and RoboTwin results — GPT-5.6 reasoning evaluations use xhigh; GPT-6 Astra uses low with reasoning. The 62.50% no-reasoning control remains unchanged. RoboTwin C2R reports 61.20% and 72.00%, each over 250 episodes; exact success counts and task outcomes are not supplied. RoboCasa reproduction model labels were confirmed by the contributor.
+* Contributor-confirmed model settings — Configuration evidence only: GPT-5.6 reasoning uses xhigh; GPT-6 Astra uses low with reasoning. The 62.50% no-reasoning control is unchanged. RoboCasa reproduction model labels were confirmed by the contributor. Result evidence is cited separately.
+* Contributor · RoboTwin C2R results — RoboTwin C2R: GPT-5.6 xhigh 61.20% and GPT-6 Astra low 72.00%, both with reasoning, 250 episodes each. Exact success counts and task outcomes were not supplied.
+* `RPent · RoboTwin reproduction, 15 Sep 2026 <https://github.com/RLinf/RPent/blob/849143bf740a562367345cec0de9ef4657dafd73/docs/source-en/rst_source/usage/robotwin.rst>`_ — Main #179 reports GPT-5.5 xhigh: 156 successes, 58 task failures and 36 episode timeouts over 250 episodes (62.4%). Listed task/seed pairs bind the evaluation table task language. This batch is distinct from the paper and earlier 58.0% result.
 
 * Original LIBERO; four suites, 100 episodes each; frozen RLinf π0.5 policy.
 * LIBERO-PRO with target-setting memory; eight Task/Swap items, 100 episodes each.
@@ -524,6 +543,7 @@ Task success follows the environment: LIBERO ``terminated``, RoboCasa ``state.su
 * Target50 repository reproduction: 18 Atomic tasks × 10 seeds; 16 Seen and 16 Unseen tasks × 5 seeds. Overall is task-weighted.
 * Earlier reference column from the repository, not the v4 paper experiment. Split counts and task-weighted Overall are retained verbatim.
 * RoboTwin C2R: 50 tasks × 5 seeds, 250 episodes per configuration. GPT-5.6 xhigh with reasoning and GPT-6 Astra low with reasoning. No success counts are inferred from percentages.
+* 50 tasks, five verified expert seeds per task, 250 episodes. Evaluation-table task language is bound after scene reset; only final TASK_ENV.eval_success determines success. 4800-second planner limit and 10000 environment steps. Source: RPent #179.
 
 The 2026-09-15 verified Astra snapshot contains all eight suites: 741 successes, 59 failures, 800 episodes. Long uses one frozen memory batch and Spatial/Object/Goal another; no common memory snapshot is implied. The earlier 600-episode snapshot remains archived, not a second ranked experiment.
 
@@ -534,17 +554,19 @@ Demo
 
 **RPent simulation demo: GPT-6 Astra low with reasoning versus GPT-5.6 xhigh, at 4x speed.** A separate demonstration, not the GPT-5.5 evaluation.
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/demo/demo-poster.jpg
-   :alt: RPent simulation demo
-   :width: 100%
-   :target: https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/demo/demo.mp4
+.. raw:: html
 
-View or download the `complete MP4 (about 24 seconds, 5.4 MiB) <https://raw.githubusercontent.com/RLinf/misc/f9ffc9e22a4f4f37079e82a2b78b920b279a3103/rpent/demo/demo.mp4>`_.
+   <video class="rpent-demo-video" controls playsinline preload="metadata" poster="https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/demo/demo-poster.jpg">
+     <source src="https://cdn.jsdelivr.net/gh/RLinf/misc@439819eaaae679079e14f58f78afd2c53863714f/rpent/demo/demo.mp4" type="video/mp4">
+     <a href="https://cdn.jsdelivr.net/gh/RLinf/misc@439819eaaae679079e14f58f78afd2c53863714f/rpent/demo/demo.mp4">Download the demo video</a>
+   </video>
+
+View or download the `complete MP4 (about 24 seconds, 5.4 MiB) <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/demo/demo.mp4>`_.
 
 Maintaining these results
 ------------------------------------------------------------------------------------------
 
-Presentation code, figures, data and demo media live in `RLinf/misc <https://github.com/RLinf/misc>`_, pinned to commit ``f9ffc9e22a4f4f37079e82a2b78b920b279a3103``. Native tables remain readable without JavaScript or remote resources. The interactive mount uses the same JSON records and an isolated stylesheet; no plotting code is required to build RPent documentation.
+Presentation code, figures, data and demo media live in `RLinf/misc <https://github.com/RLinf/misc>`_, pinned to commit ``439819eaaae679079e14f58f78afd2c53863714f``. Native tables remain readable without JavaScript or remote resources. The interactive mount uses the same JSON records and an isolated stylesheet; no plotting code is required to build RPent documentation.
 
 Update both language tables from the verified data, preserve model and protocol boundaries, retain missing values, and verify figure/table agreement before changing the immutable resource revision. Do not infer unreported counts from rounded rates.
 

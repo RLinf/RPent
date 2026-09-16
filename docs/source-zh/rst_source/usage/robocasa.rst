@@ -303,7 +303,9 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
 
 Codex / GPT-5.6 / xhigh 复现覆盖全部 340 cells，任务级汇总如下。
 早期 55.40% 参考值对应 GPT-5.5 / xhigh。另一次 GPT-6 Astra / low / reasoning
-评测的任务等权 Overall 为 59.20%，不推断未提供的 split 成绩。
+评测已完成全部 340 cells，任务等权 Overall 为 59.20%。该报告未提供 Atomic、
+Composite-Seen 和 Composite-Unseen 的独立成功率，因此榜单中这些分项保留为
+未报告。仅凭 Overall 无法计算分项，缺少分项数值不表示实验未完成。
 
 .. list-table:: Codex Target50 复现结果
    :header-rows: 1
