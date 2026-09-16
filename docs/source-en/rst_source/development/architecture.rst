@@ -1,5 +1,7 @@
-System Internals
-================
+.. _system-internals:
+
+System Description
+==================
 
 This page is the implementation-level view of RPent. It walks through
 what the three processes in the core control path actually own, how

@@ -232,6 +232,7 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
         "finish", {"status": "success", "summary": "confirmed"}
     )
     assert accepted_eval.is_finish is True
+    assert evaluation.solved()
     assert "request_scene_reset" in _tool_names(exploration)
     assert "request_operator_verdict" in _tool_names(exploration)
 
@@ -239,10 +240,13 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
         "finish",
         {"status": "success", "summary": "agent thinks done"},
     )
-    assert refused.result["error"] == "finish refused"
+    assert refused.result["error"].startswith("finish refused")
     assert refused.is_finish is False
 
-    exploration._operator_verdict = "success"
+    exploration._read_operator_line = lambda prompt: "done"
+    exploration.execute_tool("request_scene_reset", {"reason": "prepare"})
+    exploration._read_operator_line = lambda prompt: "success"
+    exploration.execute_tool("request_operator_verdict", {})
     accepted = exploration.execute_tool(
         "finish",
         {"status": "success", "summary": "operator accepted"},
@@ -281,8 +285,9 @@ def test_scene_reset_waits_for_operator_then_resets_robot(tmp_path: Path):
 
     assert env.resets == 1
     assert result["result"]["robot_reset"] == {"ok": True}
-    assert result["result"]["attempt"] == 2
-    assert "robot reset its own posture" in result["result"]["notice"]
+    assert exploration._attempt == 1
+    assert result["result"]["scene_reset_confirmed"] is True
+    assert "robot posture reset" in result["result"]["notice"]
 
 
 def test_arm_and_vec3_validation_and_motion_forwarding():
