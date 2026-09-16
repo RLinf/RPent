@@ -1,5 +1,3 @@
-.. _task-cards:
-
 Task Cards
 ==========
 

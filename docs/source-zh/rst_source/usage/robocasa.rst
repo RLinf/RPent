@@ -363,11 +363,7 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
 已发布的 Target50 结果
 -----------------------
 
-Codex / GPT-5.6 / xhigh 复现覆盖全部 340 cells，任务级汇总如下。
-早期 55.40% 参考值对应 GPT-5.5 / xhigh。另一次 GPT-6 Astra / low / reasoning
-评测已完成全部 340 cells，任务等权 Overall 为 59.20%。该报告未提供 Atomic、
-Composite-Seen 和 Composite-Unseen 的独立成功率，因此榜单中这些分项保留为
-未报告。仅凭 Overall 无法计算分项，缺少分项数值不表示实验未完成。
+已发布 Codex 复现覆盖全部 340 cells，任务级汇总如下：
 
 .. list-table:: Codex Target50 复现结果
    :header-rows: 1
@@ -376,7 +372,7 @@ Composite-Seen 和 Composite-Unseen 的独立成功率，因此榜单中这些�
    * - Split
      - 成功 cells
      - 成功率
-     - Harness VLA v3 参考值
+     - Harness VLA 参考值
    * - Atomic
      - 163/180
      - 90.56%
@@ -393,9 +389,6 @@ Composite-Seen 和 Composite-Unseen 的独立成功率，因此榜单中这些�
      - 不适用
      - 57.00%
      - 55.40%
-
-本表保留历史复现记录，参考列为 Harness VLA v3 的数值。
-三个划分及任务均权总体成功率的统一 RPent 模型对比见 :doc:`../benchmarks`。
 
 `完整逐任务结果表
 <https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_
