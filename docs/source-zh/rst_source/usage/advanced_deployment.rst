@@ -96,3 +96,46 @@ RPC。
 ``RPENT_RLINF_ROOT`` （或 ``RLINF_REPO_PATH`` ）解析，默认回退到 RPent
 仓库旁边的 ``rlinf`` 目录。解析出的路径不存在也无妨：Python 会忽略无效的
 ``PYTHONPATH`` 条目，server 将导入已安装的 ``rlinf`` 包。
+
+.. _libero-parallel-eval:
+
+并行评测
+--------
+
+VLA（Pi0.5）和 SAM3 服务与 env_server 相互独立。通过 ``--vla-endpoint`` /
+``--sam3-endpoint`` 复用已启动的共享服务，并省略 ``--env-endpoint`` 使每个
+``rpent`` 进程各自拉起独立的 env_server，即可用一份 VLA 和一份 SAM3 对同一任务
+并行运行多次评测。
+
+启动共享的 VLA 与 SAM3 服务，等待日志输出 ``RPC server listening on ...``：
+
+.. code-block:: bash
+
+   export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+
+   python rpent/robots/components/pi05_vla_server.py \
+     --embodiment libero --transport http --host 127.0.0.1 --port 8220 &
+   python rpent/robots/components/sam3_server.py \
+     --transport http --host 127.0.0.1 --port 8114 &
+
+.. note::
+
+   使用 ``&`` 会把服务绑定到当前 shell，一旦 shell 退出（例如 SSH 断开）这些
+   服务就会被杀掉。如需让服务持续运行，可以使用 ``nohup``，或在 ``tmux`` /
+   ``screen`` 会话中启动。
+
+复用上述 endpoint，对 ``libero_object_swap`` task 2 seed 0 并行评测 10 次，
+每次写入独立目录：
+
+.. code-block:: bash
+
+   for i in $(seq 1 10); do
+     rpent --robot libero --libero-type pro \
+       --suite libero_object_swap --task 2 --seed 0 \
+       --planner claude_code --model claude-opus-4-8 \
+       --vla-endpoint http://127.0.0.1:8220 \
+       --sam3-endpoint http://127.0.0.1:8114 \
+       --output-dir logs/parallel_object_swap_t2_s0/run_$i &
+   done
+   wait
