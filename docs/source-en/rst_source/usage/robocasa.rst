@@ -62,25 +62,21 @@ two independent versions. Then install RPent:
 The RoboCasa-specific constraints file pins the compatibility-sensitive
 package versions validated for Target50 reproduction without narrowing
 RPent's shared LIBERO or RoboTwin dependencies. The ``robocasa`` extra tracks
-the maintained ``rpent`` branches of RoboCasa, RLDX and Robosuite; this ordinary
-installation does not freeze their source commits.
-RoboCasa is installed as ``rpent-robocasa365``; do not co-install the older
-``rlinf-robocasa365`` distribution, which provides the same import package.
-For formal Target50 reproduction, install the source revisions recorded in
-``robots/robocasa/eval/target50.json`` after the setup above. They include the
-merged assets and backbone-revision fixes. This explicit source-only step
-preserves the dependencies already resolved above, including your Torch build:
+the maintained ``rpent`` branches of RoboCasa, RLDX and Robosuite for both
+ordinary runs and Target50. The manifest records these branches, not frozen
+source commits. RoboCasa's ``rpent`` branch declares the distribution name
+``rpent-robocasa365``; do not co-install
+the ``rlinf-robocasa365`` distribution, which provides the same import package.
+No second source-install step is required. Branches can advance, so record
+the resolved Git commits and installed versions with each evaluation:
 
 .. code-block:: bash
 
-   uv pip install --no-deps \
-      "rpent-robocasa365 @ git+https://github.com/RLinf/robocasa.git@2692d8fc5fd86708a1b2028dcbce892ec418a9e7" \
-      "rlinf-rldx @ git+https://github.com/RLinf/RLDX-1.git@ebcfd13df5177e4b3e574bdf5a3b427c7c4a1e8a" \
-      "robosuite @ git+https://github.com/RLinf/robosuite.git@97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
-   uv pip check
+   uv pip freeze > installed-requirements.txt
 
-The source commits identify these fixes even though their package version labels
-were not incremented. No unpublished package release is required.
+Keep this environment record with the experiment artifacts. Installing the
+same branch later is not a guarantee of identical source code. The checkpoint,
+backbone support resources and task-memory snapshots remain fixed below.
 The constraints do not pin Torch, torchvision or a CUDA backend. Installation
 retains a compatible installed pair; dependency conflicts must be
 resolved before running. The manifest's ``reference_accelerator`` records the
@@ -148,9 +144,8 @@ which provides the Omron base's fixed ``navview`` camera. Its composed MuJoCo
 name is ``mobilebase0_navview``. Navigation RGB-D and world-map rendering
 validate the camera when they first request it, and report an error if it is
 missing. No manual ``site-packages`` XML patch is required.
-Target50 freezes the resolved Robosuite revision at
-``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``. The explicit Target50 source
-installation above selects that exact revision.
+Target50 uses this same maintained branch; record the resolved revision with
+the environment information above.
 
 **RLDX-1 checkpoint**
 
@@ -260,9 +255,10 @@ Harness VLA Target50 reproduction protocol
 
 ``robots/robocasa/eval/target50.json`` is the canonical manifest for reproducing
 Harness VLA on RoboCasa Target50. It freezes the ``target`` environment split,
-dependency revisions, memory scope, task and seed matrix, cell time limits,
+HF resource revisions, memory scope, task and seed matrix, cell time limits,
 success source, and retry policy. Its protocol ID is
-``robocasa-harness-vla-v1``:
+``robocasa-harness-vla-v1``. Source dependencies follow the recorded ``rpent``
+branches and must be recorded at their resolved revisions for each run:
 
 .. list-table:: RoboCasa Target50 matrix
    :header-rows: 1

@@ -89,9 +89,7 @@ def test_target50_manifest_identity_and_dependencies():
             "transformers": "4.57.6",
         },
     }
-    assert dependencies["robosuite"]["commit"] == (
-        "97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
-    )
+    assert dependencies["robosuite"]["branch"] == "rpent"
     assert dependencies["rldx_checkpoint"]["revision"] == (
         "587e9ecdcc5e7184fcc17f58713908edff5af041"
     )
@@ -115,17 +113,20 @@ def test_target50_constraints_match_manifest_packages():
     assert not {"torch", "torchvision"} & packages.keys()
 
 
-def test_target50_source_revisions_match_documented_install_commands():
+def test_target50_source_branches_match_extra_and_documentation():
     dependencies = _manifest()["dependencies"]
     sources = {
-        "robosuite": ("robosuite", "97cfbde4b68d8ec43dad20cf4747297866a6ca2e"),
-        "robocasa": ("rpent-robocasa365", "2692d8fc5fd86708a1b2028dcbce892ec418a9e7"),
-        "rldx": ("rlinf-rldx", "ebcfd13df5177e4b3e574bdf5a3b427c7c4a1e8a"),
+        "robosuite": "robosuite",
+        "robocasa": "rpent-robocasa365",
+        "rldx": "rlinf-rldx",
     }
-    for name, (package, revision) in sources.items():
-        assert dependencies[name]["commit"] == revision
+    project = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    for name, package in sources.items():
+        assert dependencies[name]["branch"] == "rpent"
+        assert "commit" not in dependencies[name]
         repository = dependencies[name]["repository"]
-        requirement = f"{package} @ git+{repository}.git@{revision}"
+        requirement = f"{package} @ git+{repository}.git@rpent"
+        assert requirement in project
         for language in ("en", "zh"):
             guide = (
                 REPO_ROOT
@@ -135,7 +136,11 @@ def test_target50_source_revisions_match_documented_install_commands():
                 / "usage"
                 / "robocasa.rst"
             ).read_text(encoding="utf-8")
-            assert requirement in guide
+            assert '".[robocasa]"' in guide
+            assert "``rpent``" in guide
+            assert "uv pip check" in guide
+            assert "uv pip freeze" in guide
+            assert "--no-deps" not in guide
             assert "--override" not in guide
 
 

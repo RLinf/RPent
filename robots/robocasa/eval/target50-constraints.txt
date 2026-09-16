@@ -1,5 +1,5 @@
 # Compatibility-sensitive package versions validated for Target50 reproduction.
-# Source revisions are recorded in target50.json and the RoboCasa usage guide.
+# Source dependencies follow the rpent branches recorded in target50.json.
 # Select a compatible Torch/torchvision/CUDA build for the host separately.
 mujoco==3.3.1
 numpy==1.26.4

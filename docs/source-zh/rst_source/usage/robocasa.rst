@@ -54,23 +54,18 @@ torchvision >= 0.22；两者必须互相兼容，不能分别任意选版本。�
 
 RoboCasa 专用 constraints 文件固定经 Target50 复现验证的兼容性敏感包版本，
 同时不会收窄 RPent 中 LIBERO 或 RoboTwin 的共享依赖。``robocasa`` extra 跟随
-RoboCasa、RLDX 和 Robosuite 仓库维护中的 ``rpent`` 分支；普通安装不会冻结这些
-依赖的源码 commit。RoboCasa 发行包名为
-``rpent-robocasa365``；不要同时安装提供相同 import 包的旧 ``rlinf-robocasa365``。
-正式 Target50 复现时，在上述安装之后显式安装
-``robots/robocasa/eval/target50.json`` 记录的源码 revision，包含已合并的 assets
-和 backbone revision 修复。此步骤仅安装指定源码，保留此前解析的依赖及用户
-选择的 Torch 构建：
+RoboCasa、RLDX 和 Robosuite 仓库维护中的 ``rpent`` 分支，普通运行与 Target50
+使用同一安装方式。Manifest 记录分支，不冻结源码 commit。RoboCasa 的
+``rpent`` 分支声明的发行包名为 ``rpent-robocasa365``；不要同时安装提供相同
+import 包的 ``rlinf-robocasa365``。无需再次安装固定 SHA 的源码。
+分支可能更新，因此每次评测都应记录实际解析的 Git commit 和安装版本：
 
 .. code-block:: bash
 
-   uv pip install --no-deps \
-      "rpent-robocasa365 @ git+https://github.com/RLinf/robocasa.git@2692d8fc5fd86708a1b2028dcbce892ec418a9e7" \
-      "rlinf-rldx @ git+https://github.com/RLinf/RLDX-1.git@ebcfd13df5177e4b3e574bdf5a3b427c7c4a1e8a" \
-      "robosuite @ git+https://github.com/RLinf/robosuite.git@97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
-   uv pip check
+   uv pip freeze > installed-requirements.txt
 
-包版本标签尚未递增，因此以源码 commit 标识修复，不依赖尚未发布的新包版本。
+将此环境记录与实验产物一起保存；稍后再次安装同一分支并不保证源码相同。
+下文的 checkpoint、backbone 支持文件和 task memory 仍使用固定 HF snapshot。
 constraints 不固定 Torch、torchvision 或 CUDA backend，安装时
 保留已安装且兼容的版本组合；依赖冲突必须先解决再运行。Manifest 的
 ``reference_accelerator`` 仅记录此前使用的 Torch 2.7.0 / torchvision 0.22.0 /
@@ -128,9 +123,8 @@ macros 配置：
 包含 Omron 底盘固定的 ``navview`` 相机，其组合后的 MuJoCo 相机名为
 ``mobilebase0_navview``。导航 RGB-D 与 world map 渲染会在首次请求时验证该
 相机，并在缺失时明确报错。无需手工修改
-``site-packages`` 中的 XML。Target50 将 Robosuite 固定为
-``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``；上面显式安装 Target50 源码的
-命令会选中这一 revision。
+``site-packages`` 中的 XML。Target50 同样使用此维护分支；请按上文随环境
+信息记录实际解析的 revision。
 
 **RLDX-1 checkpoint**
 
@@ -228,7 +222,7 @@ Harness VLA Target50 复现协议
 -----------------------------
 
 ``robots/robocasa/eval/target50.json`` 是 Harness VLA 在 RoboCasa Target50
-上的规范复现清单。它固定 ``target`` 环境 split、依赖 revision、memory 边界、
+上的规范复现清单。它固定 ``target`` 环境 split、HF 资源 revision、memory 边界、
 task/seed 矩阵、cell 时限、成功来源与重试规则；协议 ID 为
 ``robocasa-harness-vla-v1``：
 
