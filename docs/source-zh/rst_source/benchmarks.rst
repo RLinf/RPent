@@ -9,12 +9,12 @@ RPent Leaderboard
 
 .. raw:: html
 
-   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/RLinf/misc@439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/docs.css">
-   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/table-sort.js"></script>
-   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/leaderboard.js"></script>
-   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/embed.js"></script>
+   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/RLinf/misc@c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/docs.css">
+   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/table-sort.js"></script>
+   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/leaderboard.js"></script>
+   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/embed.js"></script>
    <div id="rpent-interactive-leaderboard" data-language="zh"
-        data-results-url="https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/results.json">
+        data-results-url="https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/results.json">
      <div class="rpent-static-leaderboard">
        <p>完整结果表格见下文。</p>
      </div>
@@ -114,7 +114,7 @@ LIBERO-PRO · 指令与布局扰动
    :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "92.63%", "741/800", "`GPT-6 Astra Long 评测 <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; `GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
+   "Codex / GPT-6 Astra / low / reasoning", "92.63%", "741/800", "`GPT-6 Astra Long 评测 <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/astra-pro-20260915.json>`_; `GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
    "Claude Code / Opus 4.7", "82.50%", "已评测：800", "新增实验 · 2026-09-15"
    "Claude Code / Opus-4.8 / max / reasoning", "82.4%", "已评测：800", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.6 / xhigh / reasoning", "78.50%", "已评测：800", "新增实验 · 2026-09-15; 用户确认的模型配置"
@@ -135,7 +135,7 @@ LIBERO-PRO · 指令与布局扰动
    :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "100%", "100/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
+   "Codex / GPT-6 Astra / low / reasoning", "100%", "100/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
    "Claude Code / Opus-4.8 / max / reasoning", "94.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.5 / xhigh / reasoning", "81.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "42.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -153,7 +153,7 @@ LIBERO-PRO · 指令与布局扰动
    :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "98%", "98/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
+   "Codex / GPT-6 Astra / low / reasoning", "98%", "98/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
    "Claude Code / Opus-4.8 / max / reasoning", "80.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.5 / xhigh / reasoning", "69.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "59.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -171,7 +171,7 @@ LIBERO-PRO · 指令与布局扰动
    :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "100%", "100/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
+   "Codex / GPT-6 Astra / low / reasoning", "100%", "100/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
    "Codex / GPT-5.5 / xhigh / reasoning", "94.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Claude Code / Opus-4.8 / max / reasoning", "88.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "71.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -189,7 +189,7 @@ LIBERO-PRO · 指令与布局扰动
    :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "99%", "99/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
+   "Codex / GPT-6 Astra / low / reasoning", "99%", "99/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
    "Codex / GPT-5.5 / xhigh / reasoning", "91.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Claude Code / Opus-4.8 / max / reasoning", "90.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "78.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -207,7 +207,7 @@ LIBERO-PRO · 指令与布局扰动
    :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "88%", "88/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
+   "Codex / GPT-6 Astra / low / reasoning", "88%", "88/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
    "Claude Code / Opus-4.8 / max / reasoning", "87.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.5 / xhigh / reasoning", "75.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "45.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -225,7 +225,7 @@ LIBERO-PRO · 指令与布局扰动
    :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "99%", "99/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
+   "Codex / GPT-6 Astra / low / reasoning", "99%", "99/100", "`GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
    "Claude Code / Opus-4.8 / max / reasoning", "87.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.5 / xhigh / reasoning", "66.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "RATS", "43.0%", "—", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -243,7 +243,7 @@ LIBERO-PRO · 指令与布局扰动
    :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "85%", "85/100", "`GPT-6 Astra Long 评测 <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
+   "Codex / GPT-6 Astra / low / reasoning", "85%", "85/100", "`GPT-6 Astra Long 评测 <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
    "Claude Code / Opus-4.8 / max / reasoning", "71.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.5 / xhigh / reasoning", "52.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "49.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -261,7 +261,7 @@ LIBERO-PRO · 指令与布局扰动
    :header: "方法 / 模型 / 配置", "成功率", "成功 / 评测回合", "来源"
    :class: table-sm
 
-   "Codex / GPT-6 Astra / low / reasoning", "72%", "72/100", "`GPT-6 Astra Long 评测 <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
+   "Codex / GPT-6 Astra / low / reasoning", "72%", "72/100", "`GPT-6 Astra Long 评测 <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/astra-pro-20260915.json>`_; 用户确认的模型配置"
    "Claude Code / Opus-4.8 / max / reasoning", "62.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "Codex / GPT-5.5 / xhigh / reasoning", "49.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
    "π_RLinf", "14.0%", "已评测：100", "`表 3 <https://arxiv.org/html/2607.08448v4#S3.T3>`_"
@@ -436,33 +436,38 @@ GPT-5.6 xhigh 开启推理：Atomic 163/180、Seen 49/80、Unseen 12/80，任务
 
 调用次数、完成归因与 primitive 占比用于分析机制，不参与成功率排名。保留已发表原图，不估读曲线点值。Zhang 等，Harness VLA v4，CC BY 4.0。
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/invocations-libero.png
-   :alt: Harness VLA invocations-libero.png
-   :width: 520px
-   :align: center
-   :class: rpent-paper-figure
-   :target: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/invocations-libero.png
+.. container:: rpent-paper-figures
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/invocations-robocasa.png
-   :alt: Harness VLA invocations-robocasa.png
-   :width: 520px
-   :align: center
-   :class: rpent-paper-figure
-   :target: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/invocations-robocasa.png
+   .. figure:: https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/assets/invocations-libero.png
+      :alt: LIBERO-PRO cumulative success by VLA invocation count
+      :width: 520px
+      :class: rpent-paper-figure
+      :target: https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/assets/invocations-libero.png
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/invocations-robotwin.png
-   :alt: Harness VLA invocations-robotwin.png
-   :width: 520px
-   :align: center
-   :class: rpent-paper-figure
-   :target: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/invocations-robotwin.png
+      LIBERO-PRO
 
-.. image:: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/completion-attribution.png
+   .. figure:: https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/assets/invocations-robocasa.png
+      :alt: RoboCasa365 cumulative success by VLA invocation count
+      :width: 520px
+      :class: rpent-paper-figure
+      :target: https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/assets/invocations-robocasa.png
+
+      RoboCasa365
+
+   .. figure:: https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/assets/invocations-robotwin.png
+      :alt: RoboTwin C2R cumulative success by VLA invocation count
+      :width: 520px
+      :class: rpent-paper-figure
+      :target: https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/assets/invocations-robotwin.png
+
+      RoboTwin C2R
+
+.. image:: https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/assets/completion-attribution.png
    :alt: Harness VLA completion-attribution.png
    :width: 520px
    :align: center
    :class: rpent-paper-figure
-   :target: https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/assets/completion-attribution.png
+   :target: https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/assets/completion-attribution.png
 
 .. csv-table:: Primitive 使用统计 · 表 18
    :header: "Primitive", "LIBERO", "RoboTwin C2R", "RoboCasa365"
@@ -508,8 +513,8 @@ GPT-5.6 xhigh 开启推理：Atomic 163/180、Seen 49/80、Unseen 12/80，任务
 * `表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_
 * `表 5 <https://arxiv.org/html/2607.08448v4#S3.T5>`_
 * `表 6 <https://arxiv.org/html/2607.08448v4#S3.T6>`_
-* `GPT-6 Astra Long 评测 <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_
-* `GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_
+* `GPT-6 Astra Long 评测 <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/astra-pro-20260915.json>`_
+* `GPT-6 Astra 补充评测 <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/astra-pro-20260915.json>`_
 * 新增实验 · 2026-09-15 — 用户提供的结果图片，统计口径已明确确认：LIBERO-PRO 各模型完整八套件探索与测试；RoboCasa 全量 340 回合、50 任务等权 Overall。未提供逐回合结果及部分模型参数。
 * `RPent · Task Card 评测 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/task_card.rst>`_ — Object Task 与 Swap，20 个任务各 10 seeds。原文提供汇总成功数，未指定本次评测的模型版本；与新增八套件 Molmo 结果分开。
 * `RPent · RoboTwin 复现 <https://github.com/RLinf/RPent/blob/43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92/docs/source-en/rst_source/usage/robotwin.rst>`_ — 仓库同样报告 Codex / GPT-5.5 xhigh 的 58.0%，并明确提供 145/250。该条成绩同时附上两个公开来源，不声称已核对逐回合一致性。
@@ -556,17 +561,17 @@ GPT-5.6 xhigh 开启推理：Atomic 163/180、Seen 49/80、Unseen 12/80，任务
 
 .. raw:: html
 
-   <video class="rpent-demo-video" controls playsinline preload="metadata" poster="https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/demo/demo-poster.jpg">
-     <source src="https://cdn.jsdelivr.net/gh/RLinf/misc@439819eaaae679079e14f58f78afd2c53863714f/rpent/demo/demo.mp4" type="video/mp4">
-     <a href="https://cdn.jsdelivr.net/gh/RLinf/misc@439819eaaae679079e14f58f78afd2c53863714f/rpent/demo/demo.mp4">下载演示视频</a>
+   <video class="rpent-demo-video" controls playsinline preload="metadata" poster="https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/demo/demo-poster.jpg">
+     <source src="https://cdn.jsdelivr.net/gh/RLinf/misc@c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/demo/demo.mp4" type="video/mp4">
+     <a href="https://cdn.jsdelivr.net/gh/RLinf/misc@c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/demo/demo.mp4">下载演示视频</a>
    </video>
 
-查看或下载 `完整 MP4（约 24 秒，5.4 MiB） <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/demo/demo.mp4>`_ 。
+查看或下载 `完整 MP4（约 24 秒，5.4 MiB） <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/demo/demo.mp4>`_ 。
 
 维护结果
 ------------------------------------------------------------------------------------------
 
-展示代码、图片、数据和演示媒体位于 `RLinf/misc <https://github.com/RLinf/misc>`_，固定 commit ``439819eaaae679079e14f58f78afd2c53863714f``。无 JavaScript 或远端资源时，原生表格仍可阅读。交互组件使用同一份 JSON 和隔离样式；RPent 文档构建不需要绘图代码。
+展示代码、图片、数据和演示媒体位于 `RLinf/misc <https://github.com/RLinf/misc>`_，固定 commit ``c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1``。无 JavaScript 或远端资源时，原生表格仍可阅读。交互组件使用同一份 JSON 和隔离样式；RPent 文档构建不需要绘图代码。
 
 更新时应使用核验后的数据同步中英文表格，保留模型与协议边界及缺失值，验证图表一致后再更新不可变资源版本。不从取整百分比推断未报告的成功次数。
 

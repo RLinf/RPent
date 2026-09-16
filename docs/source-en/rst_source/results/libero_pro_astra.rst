@@ -7,7 +7,7 @@ LIBERO-PRO: GPT-6 Astra
 
 .. raw:: html
 
-   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/RLinf/misc@439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/docs.css">
+   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/RLinf/misc@c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/docs.css">
 
 :doc:`Back to the leaderboard <../benchmarks>`
 
@@ -193,5 +193,5 @@ Report SHA-256: ``627d6d8a95fb1e10357961694867cd0bf0a2aa9011c96c8a33504b904cb96c
 
 Verified JSON SHA-256: ``60b675da35557900f921befd84db306514723ebe5a9db73af2c72ae38bc46578``.
 
-`Sanitized public snapshot <https://raw.githubusercontent.com/RLinf/misc/439819eaaae679079e14f58f78afd2c53863714f/rpent/benchmarks/astra-pro-20260915.json>`_.
+`Sanitized public snapshot <https://raw.githubusercontent.com/RLinf/misc/c980b2da0b4b4fa425b9d0a4a283ff3ee23661c1/rpent/benchmarks/astra-pro-20260915.json>`_.
 It contains task instructions, seed outcomes, counts and public protocol metadata, without server paths, credentials or raw traces. No experiments were rerun for this publication.
