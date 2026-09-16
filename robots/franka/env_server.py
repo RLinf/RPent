@@ -159,6 +159,10 @@ def _create_worker_class():
                     output[key] = value[0]
             return output
 
+        def _raw_rlinf_env(self) -> Any:
+            """Return RPent's unwrapped RLinf environment compatibility layer."""
+            return self.env.env.envs[0].unwrapped
+
         def get_observation(self) -> dict[str, Any]:
             # Live camera read only; proprio state is supplied by the client cache.
             try:
@@ -173,8 +177,7 @@ def _create_worker_class():
             Frames pass through the observation wrappers unchanged, so re-reading
             them without a robot step yields the same format as a stepped obs.
             """
-            getter = self.env.env.call("get_wrapper_attr", "_get_camera_observation")[0]
-            frames, depths = getter()
+            frames, depths = self._raw_rlinf_env().get_live_camera_observation()
             main_key = self.cfg.env.eval.get("main_image_key")
             output: dict[str, Any] = {"main_images": np.asarray(frames[main_key])}
             extras = [
@@ -210,7 +213,7 @@ def _create_worker_class():
 
         def get_camera_meta(self) -> dict[str, Any] | None:
             try:
-                metadata = self.env.env.call("get_camera_metadata")[0]
+                metadata = self._raw_rlinf_env().get_camera_metadata()
             except Exception as exc:
                 return {"error": str(exc), "error_type": type(exc).__name__}
             metadata = to_numpy_tree(metadata)

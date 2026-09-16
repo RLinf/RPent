@@ -176,6 +176,34 @@ def test_runtime_starts_vla_for_dashboard_and_exploration(
     assert started == ["vla"]
 
 
+def test_single_live_camera_bridge_uses_public_rpent_method(worker_classes):
+    worker = worker_classes[0].__new__(worker_classes[0])
+    frame = np.zeros((4, 5, 3), dtype=np.uint8)
+    depth = np.ones((4, 5), dtype=np.float32)
+    requested = []
+
+    class VectorEnv:
+        envs = [SimpleNamespace(unwrapped=SimpleNamespace())]
+
+    def get_live_camera_observation():
+        requested.append("snapshot")
+        return {"wrist_1": frame}, {"wrist_1": depth}
+
+    VectorEnv.envs[
+        0
+    ].unwrapped.get_live_camera_observation = get_live_camera_observation
+    worker.env = SimpleNamespace(env=VectorEnv())
+    worker.cfg = SimpleNamespace(
+        env=SimpleNamespace(eval={"main_image_key": "wrist_1"})
+    )
+
+    observation = worker._read_live_frames()
+
+    assert requested == ["snapshot"]
+    np.testing.assert_array_equal(observation["main_images"], frame)
+    np.testing.assert_array_equal(observation["main_depths"], depth)
+
+
 def test_observation_refreshes_without_reset(worker_classes):
     worker = worker_classes[1].__new__(worker_classes[1])
     events = []
