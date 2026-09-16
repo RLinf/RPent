@@ -41,6 +41,14 @@
 
       配置 LLM API key 和 checkpoint，端到端运行一个 LIBERO 任务。
 
+   .. grid-item-card:: 基准测试结果
+      :link: rst_source/benchmarks
+      :link-type: doc
+      :text-align: center
+
+      对比不同 planner 模型、推理配置及各基准的成功率，
+      查看评测协议与结果来源。
+
    .. grid-item-card:: 使用教程
       :link: rst_source/usage/configure_planner
       :link-type: doc
@@ -66,6 +74,7 @@
    概览 <rst_source/overview>
    安装 <rst_source/installation>
    快速开始 <rst_source/quickstart>
+   基准测试结果 <rst_source/benchmarks>
 
 .. toctree::
    :maxdepth: 2
