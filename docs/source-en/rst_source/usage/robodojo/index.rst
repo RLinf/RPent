@@ -1,5 +1,5 @@
-RoboDojo
-========
+Adding a Robot Backend
+======================
 
 .. toctree::
    :maxdepth: 1
@@ -7,12 +7,17 @@ RoboDojo
 
    installation
 
-RoboDojo is a pluggable simulation backend for RPent (``rpent --robot robodojo``)
-that brings Isaac Sim / IsaacLab (dual ARX-X5 arms, Pi_05 policy) into the
-RPent LLM-in-the-loop runner, alongside the existing LIBERO / RoboCasa /
-RoboTwin backends. The planner (LLM), toolkit protocol, SAM3 perception, and
-memory layers are reused unchanged; only the "body" (simulator/robot) is
-swapped.
+Use RoboDojo as a worked example of adding a backend under ``robots/<name>/``.
+It connects Isaac Sim / IsaacLab, dual ARX-X5 arms and an XPolicyLab Pi_05
+policy to RPent's shared planner, perception, tool and memory infrastructure.
+The integration is experimental: offline contracts do not establish simulator
+compatibility or task success. For installation and a runnable CLI example,
+see :doc:`installation`.
+
+Start with :doc:`../../development/add_robot` and
+:doc:`../../development/add_primitive` for the shared interfaces. Compare
+:doc:`../libero`, :doc:`../robocasa` and :doc:`../robotwin` for simulation,
+or :doc:`../dual_franka` for hardware provisioning and safety requirements.
 
 Key modules
 -----------
@@ -34,25 +39,80 @@ Key modules
   runtime orchestration).
 * ``robots/robodojo/tasks.py`` — task inventory from the configured source checkout.
 
-Quick start
------------
+1. Register the backend and own its runtime
+------------------------------------------------------------
 
-.. code-block:: bash
+Export ``get_robot_spec`` and ``get_toolkit`` from ``robots/<name>/__init__.py``.
+Discovery in ``rpent/robots/base.py`` imports the package lazily; no central
+registry entry is needed. Users select it with ``rpent --robot <name>``.
 
-   cd <rpent checkout>
-   export PATH="$PWD/.venv/bin:$PATH" \
-     SAM3_CHECKPOINT_PATH=$PWD/checkpoints/sam3/sam3.pt \
-     HF_HUB_DISABLE_XET=1 CELL_TIMEOUT_S=3600
-   rpent --robot robodojo --task put_bottles_into_dustbin --layout 1 \
-     --source-root /path/to/RoboDojo \
-     --sim-python /path/to/sim-env/bin/python \
-     --pi05-python /path/to/pi05-env/bin/python \
-     --cuda-device 0 --planner codex --model deepseek-v4-flash --max-turns 30
+Implement ``RobotSpec`` in ``robot_spec.py``: provide the name and prompts,
+register CLI arguments with ``add_cli_args``, build ``RunConfig`` in
+``parse_config``, and launch requested components in ``init_runtime``.
+Pass runtime values to the toolkit through ``primitives_kwargs``. Use shared
+``try_spawn_server``, ``try_wait_server`` and ``ProcessDaemon`` helpers; return
+owned processes for cleanup, but do not stop borrowed endpoints. Implement
+``run_flash(toolkit, cell_tag, note)`` only when frozen replay is supported.
 
-Output (reward-details audit, three-camera mp4s, transcript) is written to
-``logs/<timestamp>_robodojo_<task>_l<layout>/``.
+Keep simulator and model imports at their use sites. Accept source roots,
+Python executables and endpoints explicitly through CLI/configuration; do not
+read a developer's workspace file or hard-code a local path. RoboDojo's
+``--source-root``, ``--sim-python`` and ``--pi05-python`` illustrate this split.
 
-See :doc:`installation` for source, asset, and runtime configuration.
+2. Define the environment contract
+----------------------------------
+
+Build ``env_client.py`` on ``BaseEnvClient`` and ``env_server.py`` on
+``BaseEnvFacade``. Reuse RPC routing, metadata validation and process lifecycle.
+Specify observation keys, action units, reset ownership and return shapes in
+tests against both callers. ``BaseEnvClient`` caches step observations but does
+not normalize tuple arity: its general documentation describes a five-item
+step result, whereas RoboDojo's consumers use ``(obs, reward, done, info)``.
+RoboDojo reset returns an observation dictionary; ``chunk_step`` raises
+``NotImplementedError``, and its primitives issue individual steps. Do not
+copy these backend-specific shapes into a different consumer unchanged.
+
+For renderers requiring the main thread, follow RoboDojo's
+``MainThreadServeMixin`` before ``BaseEnvFacade`` in the inheritance order.
+Initialize Isaac before simulator imports and dispatch simulator work to the
+main thread rather than running it in RPC worker threads. Test reset-on-connect
+and mode metadata explicitly; eval must not silently attach to a dev service.
+
+3. Assemble tools, prompts and tasks
+------------------------------------------------------------
+
+Keep registration and state/artifact handling in ``toolkit.py`` and primitives
+in ``tools.py``. Use shared ``perception_tools.py`` and the SAM3 client for
+recorded-state access, segmentation and calibrated depth projection. Check
+camera conventions: RoboDojo uses negative optical Z, which is not universal.
+Keep motion, gripper control and dual-arm monitoring in the owning backend.
+
+Mark non-mutating tools with ``@readonly`` so tool execution does not append
+an automatic post-action state capture. Reading cached observations or running
+segmentation is not a robot action; RoboDojo marks ``view_env_state``,
+``back_project`` and ``segment`` accordingly. This marker does not mean that
+the returned information is safe for evaluation; classify outputs separately.
+
+Provide ``prompts`` and ``prompt_bundle`` for the shared prompt builder.
+Tools are injected by the planner and called by name: do not instruct agents
+to discover MCP URLs or send JSON-RPC requests. Keep task-specific placement
+or scoring guidance in task context, not the generic system prompt.
+Implement task discovery in ``tasks.py``; RoboDojo reads
+``<source_root>/task/RoboDojo/config/*.yml`` excluding ``_task.yml``.
+A discovered task is not a validated benchmark result.
+
+4. Reuse the policy service
+------------------------------------------------------------
+
+Use ``BaseVLAClient`` and the shared launcher
+``python -m rpent.robots.components.pi05_vla_server`` with
+``--policy-backend rlinf`` or ``--policy-backend xpolicylab``.
+The former loads the RLinf policy in process; the latter adapts an external
+XPolicyLab WebSocket service through ``BaseVLAFacade``. Configure the launcher
+in ``robot_spec.py`` rather than adding a robot-local server. Backend selection
+does not convert checkpoints or observations: RoboDojo requires its 14-DoF
+joint actions and three-camera inputs. Preserve ``pi0_pick`` dual-arm monitoring
+when adapting the thin client.
 
 Tools and information access
 ----------------------------
@@ -144,3 +204,45 @@ Flash ``done`` and its planner completion status mean the frozen sequence
 completed, not that the official task predicate passed. Official scoring must
 remain outside the replay context. GPU, real policy and simulator validation
 are required before claiming benchmark compatibility or success.
+
+Capability scope and limitations
+------------------------------------------------------------
+
+RoboDojo provides dual-arm motion and gripper primitives, three-camera RGB-D,
+SAM3 perception, XPolicyLab Pi_05 and frozen Flash replay. Task names come from
+the configured checkout; examples include ``put_bottles_into_dustbin``,
+``fill_pen_holder`` and ``stack_bowls_random``, not a validated success suite.
+``place_in_bin`` is registered only for ``put_bottles_into_dustbin``.
+Handover is not implemented. Low-Z tabletop and lateral scripted IK motions
+have reachability limits: inspect ``reached`` and ``dist_to_target`` rather
+than assuming the commanded pose was achieved. See :doc:`../flash` for the
+shared evaluation-only planner; replay executes actions, it is not a
+read-only robot operation.
+
+Backend implementation checklist
+--------------------------------
+
+1. Create the package exports and ``RobotSpec``; verify discovery and CLI help
+   without simulator/model dependencies. Use
+   ``tests/unit_tests/robots/test_robodojo_runtime_contracts.py`` as an example.
+2. Test reset, step shapes, unsupported chunk stepping, metadata and owned
+   process cleanup with fake clients/facades in the runtime contracts above.
+3. Register tool schemas, mark read-only calls and classify information access.
+   Cover defaults and filtered groups in
+   ``tests/unit_tests/robots/test_tool_schema_contracts.py``; shared perception
+   cases live in
+   ``tests/unit_tests/rpent/robots/components/test_perception_tools_contracts.py``.
+4. Add task context and prompt bundles; test that unrelated tasks receive no
+   task-specific instructions. Test policy backend selection using
+   ``tests/unit_tests/rpent/robots/components/test_pi05_vla_server_contracts.py``.
+5. If implementing Flash, test frozen-plan validation, anchor offsets, bounded
+   retries and privilege isolation with fake state/toolkits, following
+   ``tests/unit_tests/robots/robodojo/test_flash_contracts.py``. Filtering tool
+   names alone is insufficient: audit observations, automatic logs and memory.
+6. Add paired pages under ``docs/source-en/rst_source/usage/`` and
+   ``docs/source-zh/rst_source/usage/``, navigation and feature-matrix entries in
+   both READMEs and overview pages. Run ``pre-commit run --all-files``,
+   ``pytest tests/unit_tests -q`` and strict builds via
+   ``make -C docs html LANG=en SPHINXOPTS='-W --keep-going -E'`` and ``LANG=zh``.
+   Follow ``CONTRIBUTING.md`` and ``tests/README.md`` for dependencies and
+   runtime validation; report GPU, real-policy and simulator checks separately.

@@ -64,8 +64,12 @@ RPent 建立在三条核心设计原则之上: **服务化、标准化、可组�
      - - :doc:`LIBERO-PRO <usage/libero>` ✅
        - :doc:`RoboCasa <usage/robocasa>` ✅
        - :doc:`RoboTwin <usage/robotwin>` ✅
+       - :doc:`RoboDojo <usage/robodojo/index>` （实验性）
      - - Franka
        - SO-101
+
+RoboDojo 提供双臂控制、三相机 RGB-D、Pi_05 与 Flash 重放。支持任务发现不代表
+任务成功；尚未实现 handover，低 Z 脚本 IK 存在可达性限制。任务范围见接入指南。
 
 接下来
 ------
