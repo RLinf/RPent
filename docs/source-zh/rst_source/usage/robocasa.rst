@@ -401,7 +401,7 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
    ``<output_dir>/vla_server.log``。
 
 历史 task-only 结果
-------------------
+----------------------
 
 已发布的 v1 task-only Codex 评测覆盖 340 个 cell，任务加权成功率为 57.00%。
 这是历史汇总数据，不代表当前 task-global 模式的成绩。
