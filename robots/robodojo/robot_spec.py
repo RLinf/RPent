@@ -134,6 +134,7 @@ def get_toolkit(
     primitives_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
+    allowed_tool_groups: frozenset[str] | None = None,
 ):
     """Return the RoboDojo toolkit (common tools + RoboDojo primitives)."""
     from robots.robodojo.toolkit import RoboDojoToolkit
@@ -145,6 +146,7 @@ def get_toolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
+        allowed_tool_groups=allowed_tool_groups,
     )
 
 

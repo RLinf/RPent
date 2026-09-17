@@ -25,6 +25,7 @@ import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
 from rpent.robots.components.molmo_client import MolmoClient
+from rpent.robots.components.perception_tools import view_recorded_state
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
@@ -1655,38 +1656,15 @@ TOOLS_SPEC = [
 
 @readonly
 def view_env_state(step: int = -1, *, state: EnvState) -> dict:
-    try:
-        record = state.get(step)
-    except Exception as exc:
-        return {"error": f"state step not available: {exc}"}
-
-    nn = record.step_idx
-    extras = record.extras
-    out: dict = {
-        "step": nn,
-        "terminated": record.terminated,
-        "truncated": record.truncated,
-        "state": record.state,
-        "artifacts": sorted(record.artifacts),
-    }
-    out["task_language"] = extras.get("task_language")
-    out["log"] = {
-        "command": record.command,
-        "result": record.result,
-        "elapsed_s": record.elapsed_s,
-    }
-    for slot, names in (
-        ("_image_bytes", ("agentview_policy.png",)),
-        ("_image_cam_bytes", ("agentview_high.png", "agentview.png")),
-        ("_image_wrist_bytes", ("wrist_high.png", "wrist.png")),
-    ):
-        name = next((name for name in names if name in record.artifacts), None)
-        if name:
-            try:
-                out[slot] = state.load_bytes(name, step=nn)
-            except FileNotFoundError:
-                pass
-    return out
+    return view_recorded_state(
+        step,
+        state=state,
+        image_artifacts={
+            "_image_bytes": ("agentview_policy.png",),
+            "_image_cam_bytes": ("agentview_high.png", "agentview.png"),
+            "_image_wrist_bytes": ("wrist_high.png", "wrist.png"),
+        },
+    )
 
 
 def _select_segment_artifacts(

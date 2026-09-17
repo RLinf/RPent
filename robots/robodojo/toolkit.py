@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""RoboDojo toolkit: common tools + RoboDojo state-viewing tools (M1)."""
+"""RoboDojo toolkit: shared perception and backend-specific control tools."""
 
 from __future__ import annotations
 
@@ -29,7 +29,12 @@ if TYPE_CHECKING:
 
 
 class RoboDojoToolkit(Toolkit):
-    """Toolkit for the RoboDojo (Isaac Sim) environment."""
+    """Toolkit for the RoboDojo (Isaac Sim) environment.
+
+    ``allowed_tool_groups`` optionally filters robot tool registration, not
+    common file tools or automatic state capture. None preserves all tools;
+    this hook alone is not an evaluation information boundary.
+    """
 
     def __init__(
         self,
@@ -37,7 +42,15 @@ class RoboDojoToolkit(Toolkit):
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
+        allowed_tool_groups: frozenset[str] | None = None,
     ) -> None:
+        from robots.robodojo.tools import TOOL_GROUPS
+
+        if allowed_tool_groups is not None:
+            unknown = allowed_tool_groups - TOOL_GROUPS.keys()
+            if unknown:
+                raise ValueError(f"Unknown RoboDojo tool groups: {sorted(unknown)}")
+        self._allowed_tool_groups = allowed_tool_groups
         state = EnvState(get_output_dir())
         super().__init__(
             dashboard_events=dashboard_events,
@@ -136,6 +149,11 @@ class RoboDojoToolkit(Toolkit):
             )
         for spec in robodojo_tools.TOOLS_SPEC:
             name = spec["name"]
+            if self._allowed_tool_groups is not None and not any(
+                name in robodojo_tools.TOOL_GROUPS[group]
+                for group in self._allowed_tool_groups
+            ):
+                continue
             handler = state_handlers.get(name)
             if handler is None:
                 handler = getattr(self._primitives, name, None)

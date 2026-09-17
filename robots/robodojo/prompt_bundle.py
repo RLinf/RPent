@@ -41,11 +41,13 @@ def system_prompt(
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    del variables
-    return {
+    sections = {
         "TASK": user_parts.TASK,
         "BEGIN": user_parts.BEGIN,
     }
+    if (variables or {}).get("task") == "put_bottles_into_dustbin":
+        sections["TASK CONTEXT"] = user_parts.PUT_BOTTLES_CONTEXT
+    return sections
 
 
 __all__ = ["system_prompt", "user_prompt"]

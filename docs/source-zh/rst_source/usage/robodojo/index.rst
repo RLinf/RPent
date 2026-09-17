@@ -49,3 +49,21 @@ SAM3 感知与 memory 层完全复用，只替换"身体"（仿真器/机器人�
 ``logs/<timestamp>_robodojo_<task>_l<layout>/``。
 
 源码、资产与运行时配置请见 :doc:`installation`。
+
+工具与信息访问
+--------------
+
+planner 直接提供工具，按工具列表中的名称调用即可。垃圾桶放置与瓶子评分指导仅在
+``put_bottles_into_dustbin`` 的任务上下文中提供，不放入通用 system prompt。
+状态记录读取和标定深度反投影使用共享感知函数；控制与双臂监控保留在后端。
+
+``robots.robodojo.tools.TOOL_GROUPS`` 将工具的直接输出分为 ``general``
+（深度、分割与运动）、``privileged``（``get_reward_details`` 和
+``get_safety_status``）与 ``mixed``（``view_env_state``、``set_gripper``、
+``place_in_bin``）。安全告警暴露物体真值世界坐标，reward 明细暴露逐物体成功谓词；
+混合输出包含成功标志、状态或历史结果，可能携带特权信息。
+
+Python toolkit 工厂接受 ``allowed_tool_groups``，例如传入
+``frozenset({"general"})`` 只注册 general 组的机器人工具。默认 ``None``
+保留已有工具集合。该挂钩同时过滤工具 schema 和处理函数，但不处理动作后的自动状态、
+原始观测字段、日志、memory 或通用文件工具，因此不是评估隔离模式。
