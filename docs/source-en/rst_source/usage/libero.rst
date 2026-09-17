@@ -278,10 +278,10 @@ See :doc:`../development/add_primitive` for the full walkthrough.
 Reproducing results
 -------------------
 
-See :doc:`../benchmarks` for the unified RPent model comparison on LIBERO-PRO
+See :doc:`../leaderboard` for the unified RPent model comparison on LIBERO-PRO
 Task/Swap and the corresponding model configurations.
 
-The :doc:`GPT-6 Astra suite results <../benchmarks>`
+The :doc:`GPT-6 Astra suite results <../leaderboard>`
 cover all eight complete suites and 800 verified episodes: 741 successes,
 59 failures, and 92.63% Overall, with Codex / GPT-6 Astra / low / reasoning.
 
