@@ -1,7 +1,13 @@
 RoboDojo
 ========
 
-RoboDojo is a pluggable simulation backend for RPent (``rpent --env robodojo``)
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   installation
+
+RoboDojo is a pluggable simulation backend for RPent (``rpent --robot robodojo``)
 that brings Isaac Sim / IsaacLab (dual ARX-X5 arms, Pi_05 policy) into the
 RPent LLM-in-the-loop runner, alongside the existing LIBERO / RoboCasa /
 RoboTwin backends. The planner (LLM), toolkit protocol, SAM3 perception, and
@@ -25,7 +31,7 @@ Key modules
   ``get_reward_details``, etc.
 * ``robots/robodojo/robot_spec.py`` — ``RobotSpec`` factory (CLI, run config,
   runtime orchestration).
-* ``robots/robodojo/tasks.py`` — dynamic mapping of all 54 RoboDojo tasks.
+* ``robots/robodojo/tasks.py`` — task inventory from the configured source checkout.
 
 Quick start
 -----------
@@ -36,12 +42,13 @@ Quick start
    export PATH="$PWD/.venv/bin:$PATH" \
      SAM3_CHECKPOINT_PATH=$PWD/checkpoints/sam3/sam3.pt \
      HF_HUB_DISABLE_XET=1 CELL_TIMEOUT_S=3600
-   rpent --env robodojo --task put_bottles_into_dustbin --layout 1 \
-     --sim-device 0 --planner codex --model deepseek-v4-flash --max-turns 30
+   rpent --robot robodojo --task put_bottles_into_dustbin --layout 1 \
+     --source-root /path/to/RoboDojo \
+     --sim-python /path/to/sim-env/bin/python \
+     --pi05-python /path/to/pi05-env/bin/python \
+     --cuda-device 0 --planner codex --model deepseek-v4-flash --max-turns 30
 
 Output (reward-details audit, three-camera mp4s, transcript) is written to
 ``logs/<timestamp>_robodojo_<task>_l<layout>/``.
 
-See :doc:`installation` for a from-scratch setup, :doc:`ab_protocol` for the
-bare-policy vs harness A/B protocol, and :doc:`integration_log` for the full
-integration record.
+See :doc:`installation` for source, asset, and runtime configuration.

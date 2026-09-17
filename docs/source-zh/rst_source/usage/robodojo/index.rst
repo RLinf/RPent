@@ -1,7 +1,13 @@
 RoboDojo
 ========
 
-RoboDojo 是 RPent 的一个可插拔仿真后端（``rpent --env robodojo``），把
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   installation
+
+RoboDojo 是 RPent 的一个可插拔仿真后端（``rpent --robot robodojo``），把
 Isaac Sim / IsaacLab 上的双臂 ARX-X5 与 Pi_05 策略接入 RPent 的
 LLM-in-the-loop runner，与 LIBERO 等后端并存。Planner（LLM）、工具协议、
 SAM3 感知与 memory 层完全复用，只替换"身体"（仿真器/机器人）。
@@ -21,7 +27,7 @@ SAM3 感知与 memory 层完全复用，只替换"身体"（仿真器/机器人�
   place_in_bin / get_reward_details 等原语。
 * ``robots/robodojo/robot_spec.py`` —— RobotSpec 工厂（CLI、RunConfig、
   运行时编排）。
-* ``robots/robodojo/tasks.py`` —— 54 个 RoboDojo 任务的动态映射。
+* ``robots/robodojo/tasks.py`` —— 从指定源码目录读取任务列表。
 
 快速开始
 --------
@@ -32,11 +38,13 @@ SAM3 感知与 memory 层完全复用，只替换"身体"（仿真器/机器人�
    export PATH="$PWD/.venv/bin:$PATH" \
      SAM3_CHECKPOINT_PATH=$PWD/checkpoints/sam3/sam3.pt \
      HF_HUB_DISABLE_XET=1 CELL_TIMEOUT_S=3600
-   rpent --env robodojo --task put_bottles_into_dustbin --layout 1 \
-     --sim-device 0 --planner codex --model deepseek-v4-flash --max-turns 30
+   rpent --robot robodojo --task put_bottles_into_dustbin --layout 1 \
+     --source-root /path/to/RoboDojo \
+     --sim-python /path/to/sim-env/bin/python \
+     --pi05-python /path/to/pi05-env/bin/python \
+     --cuda-device 0 --planner codex --model deepseek-v4-flash --max-turns 30
 
 运行输出（含 reward_details 审计、三相机 mp4、transcript）写到
 ``logs/<timestamp>_robodojo_<task>_l<layout>/``。
 
-从零搭建完整环境请见 :doc:`installation`；裸策略 vs Harness 的对照口径见
-:doc:`ab_protocol`；集成过程记录见 :doc:`integration_log`。
+源码、资产与运行时配置请见 :doc:`installation`。
