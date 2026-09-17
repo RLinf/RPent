@@ -102,31 +102,13 @@ RPC。
 并行评测
 --------
 
-VLA（Pi0.5）和 SAM3 服务与 env_server 相互独立。通过 ``--vla-endpoint`` /
-``--sam3-endpoint`` 复用已启动的共享服务，并省略 ``--env-endpoint`` 使每个
-``rpent`` 进程各自拉起独立的 env_server，即可用一份 VLA 和一份 SAM3 对同一任务
-并行运行多次评测。
-
-启动共享的 VLA 与 SAM3 服务，等待日志输出 ``RPC server listening on ...``：
-
-.. code-block:: bash
-
-   export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
-   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
-
-   python rpent/robots/components/pi05_vla_server.py \
-     --embodiment libero --transport http --host 127.0.0.1 --port 8220 &
-   python rpent/robots/components/sam3_server.py \
-     --transport http --host 127.0.0.1 --port 8114 &
-
-.. note::
-
-   使用 ``&`` 会把服务绑定到当前 shell，一旦 shell 退出（例如 SSH 断开）这些
-   服务就会被杀掉。如需让服务持续运行，可以使用 ``nohup``，或在 ``tmux`` /
-   ``screen`` 会话中启动。
-
-复用上述 endpoint，对 ``libero_object_swap`` task 2 seed 0 并行评测 10 次，
-每次写入独立目录：
+要对同一任务并行运行多次评测，先按照上文的说明各启动一个 Pi0.5 VLA 服务和
+SAM3 服务。等待两个服务输出 ``RPC server listening on ...`` 后，为每个并发的
+``rpent`` 进程传入相同的 endpoint：``http://VLA_HOST:VLA_PORT`` 和
+``http://SAM3_HOST:SAM3_PORT``，其中各占位符替换为对应服务的主机地址和端口；
+如果服务与 RPent 在同一台机器上，host 可以使用 ``127.0.0.1``。这样所有进程会共同
+访问同一组 VLA 和 SAM3 服务。省略 ``--env-endpoint``，则每个进程会单独启动自己的
+env_server，评测环境彼此独立；VLA 和 SAM3 模型只需加载一次，无需为每次评测重复启动。
 
 .. code-block:: bash
 
@@ -134,8 +116,13 @@ VLA（Pi0.5）和 SAM3 服务与 env_server 相互独立。通过 ``--vla-endpoi
      rpent --robot libero --libero-type pro \
        --suite libero_object_swap --task 2 --seed 0 \
        --planner claude_code --model claude-opus-4-8 \
-       --vla-endpoint http://127.0.0.1:8220 \
-       --sam3-endpoint http://127.0.0.1:8114 \
+       --vla-endpoint http://VLA_HOST:VLA_PORT \
+       --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
        --output-dir logs/parallel_object_swap_t2_s0/run_$i &
    done
    wait
+
+.. note::
+
+   通过 SSH 运行长时间评测时，请在 ``nohup`` 或 ``tmux`` / ``screen`` 会话中启动共享服务；
+   直接使用 ``&`` 时，SSH shell 退出可能会结束服务。

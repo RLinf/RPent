@@ -107,34 +107,16 @@ so the servers import the installed ``rlinf`` package.
 Parallel evaluation
 -------------------
 
-The VLA (Pi0.5) and SAM3 servers are independent of the env_server. Point
-``--vla-endpoint`` / ``--sam3-endpoint`` at already-running shared servers and
-omit ``--env-endpoint`` so that each ``rpent`` process spawns its own
-env_server; a single VLA and a single SAM3 then serve many concurrent
-evaluations of the same task.
-
-Start the shared VLA and SAM3 servers and wait for the log line
-``RPC server listening on ...``:
-
-.. code-block:: bash
-
-   export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
-   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
-
-   python rpent/robots/components/pi05_vla_server.py \
-     --embodiment libero --transport http --host 127.0.0.1 --port 8220 &
-   python rpent/robots/components/sam3_server.py \
-     --transport http --host 127.0.0.1 --port 8114 &
-
-.. note::
-
-   Backgrounding the servers with ``&`` ties them to the current shell, so
-   they are killed when it exits (for example when an SSH session drops). If
-   you want them to keep running, use ``nohup`` or start them inside a
-   ``tmux`` / ``screen`` session.
-
-Reusing those endpoints, run ``libero_object_swap`` task 2 seed 0 ten times in
-parallel, each writing to its own directory:
+To run the same task concurrently, first start one Pi0.5 VLA service and one
+SAM3 service as described above. After both services report the log line
+``RPC server listening on ...``, pass the same endpoints — ``http://VLA_HOST:VLA_PORT`` and
+``http://SAM3_HOST:SAM3_PORT`` — to every concurrent ``rpent`` process, replacing
+the placeholders with the host addresses and ports of the corresponding services.
+When the services and RPent run on the same machine, the hosts can be
+``127.0.0.1``. All processes then use the same VLA and SAM3 services. Leave
+``--env-endpoint`` unset: each process starts its own env_server and keeps its
+evaluation environment independent. The VLA and SAM3 models are loaded once, so
+their services do not need to be started again for each run.
 
 .. code-block:: bash
 
@@ -142,8 +124,14 @@ parallel, each writing to its own directory:
      rpent --robot libero --libero-type pro \
        --suite libero_object_swap --task 2 --seed 0 \
        --planner claude_code --model claude-opus-4-8 \
-       --vla-endpoint http://127.0.0.1:8220 \
-       --sam3-endpoint http://127.0.0.1:8114 \
+       --vla-endpoint http://VLA_HOST:VLA_PORT \
+       --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
        --output-dir logs/parallel_object_swap_t2_s0/run_$i &
    done
    wait
+
+.. note::
+
+   For long-running evaluations over SSH, start the shared services with
+   ``nohup`` or in a ``tmux`` / ``screen`` session; a bare ``&`` may stop them
+   when the SSH shell exits.
