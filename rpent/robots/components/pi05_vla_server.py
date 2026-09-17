@@ -21,7 +21,8 @@ selected by the ``--embodiment`` CLI flag and looked up in
 The ``--model-backend`` flag picks the RLinf loader an embodiment uses
 (``openpi_pytorch``, the default, or ``openpi_rlinf``). Presets whose loader
 resolves normalisation statistics from a directory take ``--norm-stats-path``
-(or the ``PI05_NORM_STATS_PATH`` environment variable).
+(or the ``PI05_NORM_STATS_PATH`` environment variable). Use ``--repo-id``
+to select dataset normalization statistics within a checkpoint.
 """
 
 from __future__ import annotations
@@ -48,6 +49,23 @@ logger = get_logger("vla_server")
 # NOTE: an embodiment added here must also be registered in the client's
 # ``_ENCODE_OBS`` (obs encoding); the two registries are kept in sync manually.
 PI05_EMBODIMENTS: dict[str, dict] = {
+    "dual_franka": {
+        "num_action_chunks": 20,
+        "action_dim": 20,
+        "use_proprio": True,
+        "num_steps": 5,
+        "add_value_head": False,
+        "openpi": {
+            "config_name": "pi05_dualfranka_tcp_rot6d",
+            "num_images_in_input": 3,
+            "action_chunk": 20,
+            "num_steps": 5,
+            "train_expert_only": False,
+            "action_env_dim": 20,
+            "add_value_head": False,
+            "detach_critic_input": True,
+        },
+    },
     "libero": {
         "num_action_chunks": 5,
         "action_dim": 7,
@@ -137,6 +155,7 @@ class Pi05VLAFacade(BaseVLAFacade):
         embodiment: str,
         model_backend: str = "openpi_pytorch",
         norm_stats_path: str | None = None,
+        repo_id: str | None = None,
     ):
         if embodiment not in PI05_EMBODIMENTS:
             raise ValueError(
@@ -149,6 +168,8 @@ class Pi05VLAFacade(BaseVLAFacade):
                 f"unsupported pi05 model backend: {model_backend!r}; "
                 f"supported={list(PI05_MODEL_BACKENDS)}"
             )
+        if embodiment == "dual_franka" and not (repo_id or norm_stats_path):
+            raise ValueError("dual_franka requires repo_id or norm_stats_path")
         self._embodiment = embodiment
         super().__init__()
 
@@ -162,8 +183,12 @@ class Pi05VLAFacade(BaseVLAFacade):
             os.environ.setdefault("ROBOT_PLATFORM", platform)
 
         cfg = build_model_cfg(model_path=model_path, emb_cfg=emb_cfg)
-        if norm_stats_path is not None:
-            cfg.openpi_data = {"norm_stats_path": norm_stats_path}
+        if repo_id is not None or norm_stats_path is not None:
+            cfg.openpi_data = {}
+            if repo_id is not None:
+                cfg.openpi_data.repo_id = repo_id
+            if norm_stats_path is not None:
+                cfg.openpi_data.norm_stats_path = norm_stats_path
         t0 = time.time()
         logger.info(
             "loading Pi0.5 (embodiment=%s, model_backend=%s, model_path=%s) ...",
@@ -239,6 +264,11 @@ def main() -> None:
         help="norm_stats directory, for presets whose loader needs it "
         "(defaults to PI05_NORM_STATS_PATH env)",
     )
+    p.add_argument(
+        "--repo-id",
+        default=None,
+        help="SFT dataset repo ID used to locate checkpoint normalization statistics",
+    )
     args = p.parse_args()
 
     if args.cuda_device is not None:
@@ -264,6 +294,7 @@ def main() -> None:
         embodiment=args.embodiment,
         model_backend=args.model_backend,
         norm_stats_path=args.norm_stats_path,
+        repo_id=args.repo_id,
     )
     facade.serve(
         transport=args.transport,

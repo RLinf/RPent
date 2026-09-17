@@ -84,6 +84,9 @@ SDK。
 RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
 ``mcp__rpent__<name>`` 命名空间。
 
+RPent 为 Claude 规划会话关闭文件系统配置来源，因此不会自动加载项目的
+``CLAUDE.md`` 和开发 skills。工作目录仍为仓库根目录。
+
 .. code-block:: bash
 
    rpent --robot libero --planner claude_code \
@@ -131,6 +134,10 @@ Qwen3.6-27B 注册为 ``Qwen/Qwen3.6-27B``，可以这样配置：
 ``--planner codex`` 使用 OpenAI Codex Python SDK。每次运行时，RPent
 会在当前进程的后台线程中启动本地 Streamable HTTP MCP 服务，Codex 通过
 该服务调用同一个 toolkit；无需预先启动 ``scripts/codex_proxy/``。
+
+Codex 规划会话不会自动加载仓库的 ``AGENTS.md`` 和 ``.agents/skills/``
+中的开发 skills。工作目录仍为仓库根目录，机器人指南和 memory 仍可通过
+已有工具读取。
 
 .. code-block:: bash
 

@@ -61,8 +61,14 @@ LIBERO_SUITE_NAMES = (
 
 TASK_CARD_SUITES = frozenset(
     {
+        "libero_10_swap",
+        "libero_10_task",
+        "libero_goal_swap",
+        "libero_goal_task",
         "libero_object_task",
         "libero_object_swap",
+        "libero_spatial_swap",
+        "libero_spatial_task",
     }
 )
 
@@ -87,18 +93,6 @@ LIBERO_DASHBOARD_SPEC: DashboardSpec = {
             "label": "Molmo",
             "scope": "shared",
             "planners": ("task_card",),
-        },
-    ),
-    "frame_channels": (
-        {
-            "name": "camera",
-            "label": "fixed camera",
-            "artifact": "agentview.png",
-        },
-        {
-            "name": "wrist",
-            "label": "wrist camera",
-            "artifact": "wrist.png",
         },
     ),
     "primitives": (
@@ -144,7 +138,7 @@ def get_robot_spec() -> RobotSpec:
 
 def get_toolkit(
     *,
-    primitives_kwargs: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
     mode: str = "evaluation",
@@ -161,7 +155,7 @@ def get_toolkit(
         inbox_cell_tag=config.recipe_tag if explore else None,
     )
     return LiberoToolkit(
-        primitives_kwargs=primitives_kwargs,
+        runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
         mode=mode,
@@ -523,7 +517,7 @@ def _init_runtime(
                 starter,
             )
 
-    primitives_kwargs: dict[str, Any] = {}
+    runtime_kwargs: dict[str, Any] = {}
     wait_order = ("env", "sam3", "molmo", "vla")
     for component in (name for name in wait_order if name in pending):
         daemon, rpc = pending[component]
@@ -536,14 +530,14 @@ def _init_runtime(
             300.0,
             post_fn=partial(connectors[component], rpc),
         )
-        primitives_kwargs.update(component_kwargs)
+        runtime_kwargs.update(component_kwargs)
 
     if args.collect_flywheel_data and "env" in selected:
-        primitives_kwargs["flywheel_config"] = {
+        runtime_kwargs["flywheel_config"] = {
             "root": args.flywheel_root or str(get_repo_root() / "datacollection"),
             "suite": args.suite,
             "task_id": args.task,
             "seed": args.seed,
         }
 
-    return list(owned_daemons.values()), primitives_kwargs
+    return list(owned_daemons.values()), runtime_kwargs

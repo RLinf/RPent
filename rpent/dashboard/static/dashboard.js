@@ -222,7 +222,6 @@ const COPY = {
 const copy = COPY[LANGUAGE];
 const RUNTIME_STATES = ["pending", "starting", "ready", "failed"];
 let runtimeComponents = [];
-let frameChannels = [];
 let taskCommandUsage = "";
 
 function applyStaticCopy() {
@@ -240,22 +239,18 @@ function applyStaticCopy() {
   }
 }
 
-function frameChannelLabel(kind) {
-  return frameChannels.find(channel => channel.name === kind)?.label || kind;
-}
-
 function defaultFrameKind() {
-  return frameChannels[0].name;
+  return Object.keys(mediaState.frameAvailable)[0] || null;
 }
 
 function renderFrameTabs() {
   const container = $(".frame-tabs");
-  const buttons = frameChannels.map(channel => {
+  const buttons = Object.keys(mediaState.frameAvailable).map(name => {
     const button = document.createElement("button");
-    button.dataset.kind = channel.name;
-    button.textContent = frameChannelLabel(channel.name);
-    button.classList.toggle("active", channel.name === mediaState.kind);
-    button.addEventListener("click", () => setFrameKind(channel.name));
+    button.dataset.kind = name;
+    button.textContent = name;
+    button.classList.toggle("active", name === mediaState.kind);
+    button.addEventListener("click", () => setFrameKind(name));
     return button;
   });
   container.replaceChildren(...buttons);
@@ -263,12 +258,29 @@ function renderFrameTabs() {
 
 function configureDashboardSpec(spec) {
   runtimeComponents = spec.runtime_components;
-  frameChannels = spec.frame_channels;
   taskCommandUsage = spec.task.usage;
-  const initialFrameKind = defaultFrameKind();
-  mediaState.kind = initialFrameKind;
-  mediaState.lastRealtimeKind = initialFrameKind;
-  renderFrameTabs();
+}
+
+function updateFrameAvailability(available) {
+  const previousNames = Object.keys(mediaState.frameAvailable);
+  const names = Object.keys(available);
+  mediaState.frameAvailable = available;
+  if (!isRealtimeKind(mediaState.lastRealtimeKind)) {
+    mediaState.lastRealtimeKind = defaultFrameKind();
+  }
+  if (mediaState.kind !== "video" && mediaState.kind !== "actionVideo"
+      && !isRealtimeKind(mediaState.kind)) {
+    mediaState.kind = mediaState.lastRealtimeKind;
+    mediaState.frameIndex = -1;
+    if (mediaState.kind === null) {
+      resetMediaBuffers();
+      $("#frameCap").textContent = copy.waitingFrame;
+    }
+  }
+  if (names.length !== previousNames.length
+      || names.some((name, index) => name !== previousNames[index])) {
+    renderFrameTabs();
+  }
 }
 
 function renderPlannerConfig(config) {
@@ -310,8 +322,7 @@ const timelineState = {
 const mediaState = {
   kind: null,
   frameIndex: -1,
-  frameAvailable: null,
-  unavailableKind: null,
+  frameAvailable: {},
   actionVideo: null,
   episodeVideoAvailable: false,
   lastRealtimeKind: null,
@@ -613,7 +624,7 @@ function _pumpSwap() {
 }
 
 function _runSwap(
-  { kind, url, cap, errorCap, onReady, onError },
+  { kind, url, cap, errorCap, onReady },
   gen,
   done,
 ) {
@@ -633,7 +644,6 @@ function _runSwap(
       }
       mediaState.activeImage = null;
       if (errorCap != null) $("#frameCap").textContent = errorCap;
-      if (onError) onError(target);
       done();
       return;
     }
@@ -719,13 +729,12 @@ function resetMediaBuffers() {
 
 function resetMediaForRun() {
   cancelActionReturn();
-  mediaState.kind = defaultFrameKind();
+  mediaState.kind = null;
   mediaState.frameIndex = -1;
-  mediaState.frameAvailable = null;
-  mediaState.unavailableKind = null;
+  mediaState.frameAvailable = {};
   mediaState.actionVideo = null;
   mediaState.episodeVideoAvailable = false;
-  mediaState.lastRealtimeKind = defaultFrameKind();
+  mediaState.lastRealtimeKind = null;
   resetMediaBuffers();
 }
 
@@ -759,7 +768,7 @@ function resetRenderedTaskProjection() {
   $("#taskMeta").textContent = copy.awaitingTask(taskCommandUsage);
   $("#frameCap").textContent = copy.waitingFrame;
   setResult(false, null);
-  selectFrameTab(defaultFrameKind());
+  renderFrameTabs();
 }
 
 function syncTaskGeneration(snapshot) {
@@ -807,7 +816,7 @@ const interactionController = createInteractionController({
 });
 
 function isRealtimeKind(kind) {
-  return frameChannels.some(channel => channel.name === kind);
+  return Object.hasOwn(mediaState.frameAvailable, kind);
 }
 
 function setBadge(state, error = null) {
@@ -911,7 +920,6 @@ function renderTimeline(
   }
   timelineState.initialized = true;
 }
-
 
 function makeToolEl(ev) {
   const div = document.createElement("div");
@@ -1080,15 +1088,8 @@ function playEpisodeVideo() {
   refreshFrame(undefined, { source: "user" });
 }
 
-function showFrameUnavailable(kind, idx) {
-  if (mediaState.unavailableKind === kind && idx === mediaState.frameIndex) return;
-  mediaState.frameIndex = idx ?? mediaState.frameIndex;
-  mediaState.unavailableKind = kind;
-  resetMediaBuffers();
-  $("#frameCap").textContent = copy.frameUnavailable(frameChannelLabel(kind));
-}
-
 function refreshFrame(idx, opts = {}) {
+  if (mediaState.kind === null) return;
   const source = opts.source || "auto";
 
   if (mediaState.kind === "actionVideo") {
@@ -1137,28 +1138,20 @@ function refreshFrame(idx, opts = {}) {
     return;
   }
 
-  if (mediaState.frameAvailable?.[mediaState.kind] === false) {
-    showFrameUnavailable(mediaState.kind, idx);
-    return;
-  }
-
-  // Realtime camera / wrist frame — PNG mutates server-side, so
+  // Realtime artifact frame — PNG mutates server-side, so
   // ``t=Date.now()`` keeps the URL unique per tick and defeats caching.
   if (idx != null && idx === mediaState.frameIndex) return;
   mediaState.frameIndex = idx ?? mediaState.frameIndex;
-  mediaState.unavailableKind = null;
-  const url = `/api/session/frame?kind=${mediaState.kind}&t=${Date.now()}`;
+  const url = `/api/session/frame?kind=${encodeURIComponent(mediaState.kind)}&t=${Date.now()}`;
   swapMedia({
     kind: "img",
     url,
     cap: copy.frameCaption(
-      frameChannelLabel(mediaState.kind),
+      mediaState.kind,
       mediaState.frameIndex,
     ),
-    errorCap: copy.frameUnavailable(frameChannelLabel(mediaState.kind)),
+    errorCap: copy.frameUnavailable(mediaState.kind),
     source,
-    onReady: () => { mediaState.unavailableKind = null; },
-    onError: () => { mediaState.unavailableKind = mediaState.kind; },
   });
 }
 
@@ -1170,7 +1163,7 @@ function applySessionSnapshot(snapshot) {
   renderRuntimeStatus(snapshot.runtime);
   syncPrimitiveAvailability(snapshot);
   interactionController.applySnapshot(snapshot);
-  mediaState.frameAvailable = snapshot.frame_available || null;
+  updateFrameAvailability(snapshot.frame_available);
   if (snapshot.usage) $("#usageMeta").textContent = copy.usage(snapshot.usage);
   refreshTranscriptIfChanged(snapshot);
   return generationState;
