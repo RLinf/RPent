@@ -160,14 +160,22 @@ def build_observation(state: EnvState, record: StepRecord) -> ToolResult:
 
 @tool
 @readonly
-def view_env_state(step: int = -1, *, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
+def view_env_state(
+    step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
+    *,
+    ctx: ToolContext[FrankaRuntime],
+) -> ToolResult:
     """Read a Franka state snapshot and its synchronized RGB images."""
     return build_observation(ctx.state, ctx.state.get(step))
 
 
 @tool
 @readonly
-def view_camera_meta(step: int = -1, *, ctx: ToolContext[FrankaRuntime]) -> ToolResult:
+def view_camera_meta(
+    step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
+    *,
+    ctx: ToolContext[FrankaRuntime],
+) -> ToolResult:
     """Read camera intrinsics, crop, depth, and calibration metadata."""
     if not ctx.state.exists("camera_meta.json", step=step):
         return ToolResult(data={"step": step}, error="camera metadata is unavailable")
@@ -182,7 +190,9 @@ def view_camera_meta(step: int = -1, *, ctx: ToolContext[FrankaRuntime]) -> Tool
 @tool
 @readonly
 def view_perception_setup(
-    step: int = -1, *, ctx: ToolContext[FrankaRuntime]
+    step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
+    *,
+    ctx: ToolContext[FrankaRuntime],
 ) -> ToolResult:
     """Read calibrated camera geometry and projection conventions."""
     return _result(perception.view_perception_setup(state=ctx.state, step=step))
@@ -195,7 +205,7 @@ def back_project(
     col: Annotated[int, Field(ge=0)],
     step: int | None = None,
     camera: Literal["wrist", "third_person"] = "wrist",
-    debug: bool = False,
+    debug: Annotated[bool, Field(json_schema_extra={"default": False})] = False,
     *,
     ctx: ToolContext[FrankaRuntime],
 ) -> ToolResult:
@@ -221,7 +231,7 @@ def back_project_correspondence(
     wrist_col: Annotated[int, Field(ge=0)] | None = None,
     pixels: list[dict[str, Any]] | None = None,
     step: int | None = None,
-    debug: bool = False,
+    debug: Annotated[bool, Field(json_schema_extra={"default": False})] = False,
     *,
     ctx: ToolContext[FrankaRuntime],
 ) -> ToolResult:

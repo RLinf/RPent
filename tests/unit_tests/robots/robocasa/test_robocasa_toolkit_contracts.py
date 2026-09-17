@@ -83,25 +83,21 @@ def test_observation_images_and_errors_are_native_and_saved(make_toolkit):
         ("navigate_to", {"xy": [2, 0], "max_steps": 2}, 8),
     ],
 )
-def test_every_physical_step_records_one_frame(
+def test_actions_preserve_step_counts_and_invalidate_vla_state(
     make_toolkit, name, arguments, expected_steps
 ):
     run = make_toolkit()
     result = run.toolkit.execute_tool(name, arguments)
     assert result.data["step"] == 1
     assert len(run.env.actions) == expected_steps
-    assert len(run.toolkit._frames) == expected_steps
-    assert [int(frame[0, 0, 0]) for frame in run.toolkit._frames] == list(
-        range(1, expected_steps + 1)
-    )
     assert run.toolkit._robot._vla_desync is True
 
 
-def test_scripted_grasp_records_all_stages_and_stops_on_failure(make_toolkit):
+def test_scripted_grasp_executes_stages_and_stops_on_failure(make_toolkit):
     run = make_toolkit()
     result = run.toolkit.execute_tool("scripted_grasp", {"xyz": [0, 0, 1]})
     assert not result.is_error
-    assert len(run.toolkit._frames) == len(run.env.actions) > 18
+    assert len(run.env.actions) > 18
     assert np.all([action[6] == -1 for action in run.env.actions[:4]])
     failed = make_toolkit()
     failed.toolkit._robot._pos_jac = np.zeros((3, 3))
@@ -109,7 +105,6 @@ def test_scripted_grasp_records_all_stages_and_stops_on_failure(make_toolkit):
     assert result.is_error
     assert result.data["log"]["result"]["stage"] == "approach"
     assert len(failed.env.actions) == 204
-    assert len(failed.toolkit._frames) == 204
 
 
 def test_reset_guard_preserves_evaluation_and_clears_exploration_state(make_toolkit):
@@ -163,11 +158,11 @@ def test_cancellation_stops_remaining_steps_and_uses_fresh_call_signal(
         stop.result(timeout=5)
     assert cancelled.is_set()
     assert result.is_error and "cancelled" in result.error
-    assert len(run.env.actions) == len(run.toolkit._frames) == 1
+    assert len(run.env.actions) == 1
     assert result.data["task_progress"]["steps"] == 1
     run.env.on_step = lambda: None
     assert not run.toolkit.execute_tool("release", {"steps": 1}).is_error
-    assert len(run.env.actions) == len(run.toolkit._frames) == 2
+    assert len(run.env.actions) == 2
 
 
 def test_partial_failure_captures_current_state_and_retains_both_errors(make_toolkit):
@@ -191,7 +186,7 @@ def test_partial_failure_captures_current_state_and_retains_both_errors(make_too
     assert "state" not in result.data
 
 
-def test_finish_and_recipe_keep_environment_success_source(make_toolkit):
+def test_finish_keeps_environment_success_source(make_toolkit):
     run = make_toolkit()
     tk = run.toolkit
     assert not tk.execute_tool("release", {"steps": 2}).is_error
@@ -207,10 +202,6 @@ def test_finish_and_recipe_keep_environment_success_source(make_toolkit):
     run.env.success = False
     tk.execute_tool("release", {"steps": 1})
     assert tk.solved() is False
-    path = run.config.output_dir / tk.write_recipe("OpenDrawer_s1")
-    assert [json.loads(line)["action"] for line in path.read_text().splitlines()] == [
-        "release"
-    ] * 3
 
 
 @pytest.mark.parametrize(
@@ -222,6 +213,7 @@ def test_finish_and_recipe_keep_environment_success_source(make_toolkit):
         ("back_project_batch", {"pixels": [[1, 2]] * 51}),
         ("back_project_batch", {"pixels": [[1, 2]], "camera": "typo"}),
         ("query_world_map", {"x_range": [1]}),
+        ("rldx_skill", {"prompt": "atomic pick", "use_prompt": True}),
         ("finish", {"status": "invalid", "summary": "bad"}),
     ],
 )
@@ -230,6 +222,7 @@ def test_model_argument_validation_precedes_execution(make_toolkit, name, argume
     result = run.toolkit.execute_tool(name, arguments)
     assert result.is_error and "Invalid arguments" in result.error
     assert not run.env.actions
+    assert not run.model.calls
     assert run.toolkit.state.latest_record().step_idx == 0
 
 

@@ -175,6 +175,8 @@ def test_operator_abort_allows_finish_even_with_budget_and_never_succeeds(setup)
     call(t, "request_scene_reset", reason="initial")
     result = call(t, "finish", status="success", summary="stop")
     assert result["_finish"] and result["operator_aborted"]
+    assert t.finish_result["operator_aborted"] is True
+    assert "_finish" not in t.finish_result
     assert result["status"] == "failure" and not t.solved() and env.resets == 0
 
 
@@ -274,7 +276,10 @@ Winning technique and failure evidence.
     assert (t.memory.root / "task_only/dual_franka_t0_recipe.jsonl").exists()
 
 
-def test_cli_two_sessions_operator_feedback_and_memory_pipeline(tmp_path, monkeypatch):
+@pytest.mark.parametrize("first_verdict", ["failure dropped", "abort"])
+def test_cli_operator_feedback_controls_sessions_and_memory(
+    tmp_path, monkeypatch, first_verdict
+):
     import sys
     from dataclasses import replace
     from types import SimpleNamespace
@@ -284,7 +289,7 @@ def test_cli_two_sessions_operator_feedback_and_memory_pipeline(tmp_path, monkey
     env = FakeEnv()
     runtimes = []
     planners = []
-    replies = iter(["done", "failure dropped", "done", "success lifted"])
+    replies = iter(["done", first_verdict, "done", "success lifted"])
 
     class Operator:
         def __init__(self, **kwargs):
@@ -340,7 +345,7 @@ Observed success in session 2.
             )
             assert finish["_finish"]
             return SimpleNamespace(
-                finish_result=finish, messages=[], stats={}, error=None
+                finish_result=toolkit.finish_result, messages=[], stats={}, error=None
             )
 
     def init_runtime(*args):
@@ -377,7 +382,19 @@ Observed success in session 2.
         ],
     )
     assert cli.main() == 0
-    assert len(planners) == 2 and len(runtimes) == 1 and env.resets == 2
+    session_count = 1 if first_verdict == "abort" else 2
+    assert len(planners) == session_count
+    assert len(runtimes) == 1 and env.resets == session_count
+    if first_verdict == "abort":
+        transcript = json.loads(
+            (tmp_path / "run/transcript_dual_franka_t0.json").read_text()
+        )
+        assert transcript["finish"]["operator_aborted"] is True
+        assert transcript["finish"]["status"] == "failure"
+        assert "_finish" not in transcript["finish"]
+        assert not (tmp_path / "run/sessions/session_002").exists()
+        assert not (tmp_path / "memory/global/cli.md").exists()
+        return
     traces = [
         json.loads((tmp_path / f"run/sessions/session_{i:03d}/states.json").read_text())
         for i in (1, 2)

@@ -201,6 +201,7 @@ def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
     )
 
     assert result.finish_result == {
+        "value": "ok",
         "status": "success",
         "summary": "done",
     }
@@ -219,9 +220,9 @@ def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
 
 
 def test_rejected_finish_result_is_not_promoted(make_toolkit, tmp_path: Path) -> None:
-    recorder = _Recorder(
-        toolkit=make_toolkit(), max_turns=2, dashboard_events=RecordingSink()
-    )
+    toolkit = make_toolkit({"error": "finish refused"})
+    arguments = {"status": "success", "summary": "too early"}
+    recorder = _Recorder(toolkit=toolkit, max_turns=2, dashboard_events=RecordingSink())
     recorder.observe(
         {
             "type": "AssistantMessage",
@@ -232,11 +233,18 @@ def test_rejected_finish_result_is_not_promoted(make_toolkit, tmp_path: Path) ->
                     "type": "ToolUseBlock",
                     "id": "finish-1",
                     "name": "mcp__rpent__finish",
-                    "input": {"status": "success", "summary": "too early"},
+                    "input": arguments,
                 }
             ],
         }
     )
+
+    response = asyncio.run(
+        call_sdk_tool(_build_rpent_server(toolkit=toolkit), "finish", arguments)
+    )
+    assert response.isError
+    assert toolkit.calls == [("finish", arguments)]
+    assert toolkit.finish_result is None
 
     rendered = recorder.observe(
         {
@@ -246,8 +254,8 @@ def test_rejected_finish_result_is_not_promoted(make_toolkit, tmp_path: Path) ->
                 {
                     "type": "ToolResultBlock",
                     "tool_use_id": "finish-1",
-                    "content": "finish refused",
-                    "is_error": True,
+                    "content": response.content[0].text,
+                    "is_error": response.isError,
                 }
             ],
         }

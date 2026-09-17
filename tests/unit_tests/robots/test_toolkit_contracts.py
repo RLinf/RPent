@@ -80,7 +80,12 @@ def test_toolkit_factories_fall_back_to_each_robot_memory_root(
         "robotwin": "RoboTwinToolkit",
     }[robot_name]
     default_memory = tmp_path / robot_name / "memory"
-    monkeypatch.setattr(robot_spec, "get_memory_dir", lambda _: default_memory)
+
+    def get_memory_dir(requested_robot):
+        assert requested_robot == robot_name
+        return default_memory
+
+    monkeypatch.setattr(robot_spec, "get_memory_dir", get_memory_dir)
     monkeypatch.setattr(
         toolkit_module, toolkit_name, lambda **kwargs: SimpleNamespace(**kwargs)
     )

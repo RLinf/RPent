@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import pytest
 from pydantic import Field
@@ -29,6 +29,7 @@ from rpent.tools import (
     readonly,
     tool,
 )
+from rpent.tools.base import MAX_TOOL_TEXT_BYTES
 
 if TYPE_CHECKING:
     from robots.libero.toolkit import LiberoRuntime
@@ -57,6 +58,7 @@ def test_signature_and_docstring_define_schema_and_validation() -> None:
     assert not move.readonly
     assert move.input_schema == {
         "type": "object",
+        "additionalProperties": False,
         "properties": {
             "xyz": {
                 "type": "array",
@@ -106,6 +108,27 @@ def test_export_preserves_nullable_constraints_and_explicit_defaults() -> None:
         "anyOf": [{"const": "auto", "type": "string"}, {"type": "null"}]
     }
     assert exported.args_schema.model_validate({}).step == -1
+
+
+def test_dictionary_schema_preserves_value_constraints() -> None:
+    @tool
+    def exported(
+        free: dict[str, Any], typed: dict[str, int], *, ctx: ToolContext
+    ) -> ToolResult:
+        """Accept free-form data and an integer mapping."""
+        return ToolResult()
+
+    properties = exported.input_schema["properties"]
+    assert properties["free"] == {"type": "object"}
+    assert properties["typed"] == {
+        "type": "object",
+        "additionalProperties": {"type": "integer"},
+    }
+    validated = exported.args_schema.model_validate(
+        {"free": {"anything": [None, "value"]}, "typed": {"count": 3}}
+    )
+    assert validated.free == {"anything": [None, "value"]}
+    assert validated.typed == {"count": 3}
 
 
 @pytest.mark.parametrize(
@@ -166,3 +189,21 @@ def test_business_error_key_does_not_mark_tool_failure():
     result = ToolResult(data={"error": {"count": 0}})
     assert not result.is_error
     assert json.loads(result.to_text()) == result.data
+
+
+@pytest.mark.parametrize(
+    ("summary", "truncated"),
+    [("任务未完成", False), ("x" * 60000, True), ("任务未完成" * 12000, True)],
+)
+def test_text_size_limit_preserves_original_result(summary, truncated):
+    data = {"status": "failure", "summary": summary}
+    result = ToolResult(data=dict(data))
+
+    text = result.to_text()
+
+    assert len(text.encode("utf-8")) <= MAX_TOOL_TEXT_BYTES
+    if truncated:
+        assert text.endswith("[truncated]")
+    else:
+        assert json.loads(text) == data
+    assert result.data == data

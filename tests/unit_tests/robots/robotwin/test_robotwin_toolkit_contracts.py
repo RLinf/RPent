@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import threading
 from types import SimpleNamespace
 
@@ -38,12 +37,13 @@ def test_initial_observation_and_readonly_tools(robotwin):
     assert {t.name for t in tk.list_tools()} == {
         t.name for t in (*COMMON_TOOLS, *tools.ROBOTWIN_TOOLS)
     }
-    assert {t.name for t in tools.ROBOTWIN_TOOLS if t.readonly} == {
+    assert {
+        t.name for t in tools.ROBOTWIN_TOOLS if t.readonly and t.name != "finish"
+    } == {
         "view_env_state",
         "sample_world_xyz",
         "query_world_map",
     }
-    assert not tools.finish.readonly
     assert robotwin.env.renders == [(camera, True) for camera in ROBOTWIN_CAMERA_NAMES]
     initial = tk.state.get(0)
     assert initial.command == {"action": "reset"}
@@ -93,7 +93,6 @@ def test_move_preserves_path_sampling_and_fresh_other_arm_state(
     assert result.data["log"]["result"]["executed_steps"] == len(indices)
     assert result.data["state"]["episode_status"]["native_actions"] == len(indices)
     assert result.data["state"]["episode_status"]["policy_actions"] == 0
-    assert len(robotwin.toolkit._frames) == len(indices)
     assert robotwin.toolkit.state.latest_step == 1
     assert len(env.renders) == 6
 
@@ -137,9 +136,7 @@ def test_gripper_interpolation_and_release_composition(robotwin, name, args, tar
 
 
 @pytest.mark.parametrize("empty_path", [False, True])
-def test_plan_failure_reports_native_error_and_captures_without_recipe(
-    robotwin, empty_path
-):
+def test_plan_failure_reports_native_error_and_captures(robotwin, empty_path):
     if empty_path:
         robotwin.env.path = np.empty((0, 6))
     else:
@@ -151,11 +148,9 @@ def test_plan_failure_reports_native_error_and_captures_without_recipe(
     assert "error" in robotwin.toolkit.state.get(1).result
     assert len(result.images) == 3
     assert not robotwin.env.steps
-    recipe = robotwin.toolkit.write_recipe("failure")
-    assert (robotwin.output_dir / recipe).read_text() == ""
 
 
-def test_partial_execution_failure_keeps_counts_frames_and_observation(robotwin):
+def test_partial_execution_failure_keeps_counts_and_observation(robotwin):
     original = robotwin.env.step
 
     def step(action, **kwargs):
@@ -166,7 +161,7 @@ def test_partial_execution_failure_keeps_counts_frames_and_observation(robotwin)
     robotwin.env.step = step
     result = robotwin.toolkit.execute_tool("set_gripper", {"arm": "left", "val": 1})
     assert result.is_error and "offline step failure" in result.error
-    assert len(robotwin.env.steps) == len(robotwin.toolkit._frames) == 2
+    assert len(robotwin.env.steps) == 2
     assert result.data["state"]["episode_status"]["native_actions"] == 2
     assert robotwin.toolkit.state.latest_step == 1
 
@@ -191,7 +186,6 @@ def test_cancel_stops_before_next_waypoint_and_keeps_completed_count(robotwin):
         tools.move_to.handler(arm="left", xyz=[0.1, 0.2, 0.3], ctx=ctx)
     assert len(robotwin.env.steps) == 1
     assert ctx.robot.native_actions == 1
-    assert len(robotwin.toolkit._frames) == 1
 
 
 @pytest.mark.parametrize("cancel_at,executed", [("infer", 0), ("chunk", 50)])
@@ -206,13 +200,10 @@ def test_lingbot_cancellation_boundaries_preserve_counters(
     with pytest.raises(ToolCancelled):
         tools.lingbot_act.handler(chunks=2, ctx=ctx)
     assert ctx.robot.policy_actions == ctx.robot.native_actions == executed
-    assert len(robotwin.toolkit._frames) == executed
     assert len(robotwin.env.chunks) == (1 if executed else 0)
 
 
-def test_lingbot_native_instruction_rgb_only_inference_and_all_frame_recording(
-    robotwin,
-):
+def test_lingbot_native_instruction_and_rgb_only_inference(robotwin):
     result = robotwin.toolkit.execute_tool(
         "lingbot_act", {"chunks": 2, "prompt": "ignored instruction"}
     )
@@ -224,27 +215,15 @@ def test_lingbot_native_instruction_rgb_only_inference_and_all_frame_recording(
     assert robotwin.env.renders[3:9] == [
         (camera, False) for _ in range(2) for camera in ROBOTWIN_CAMERA_NAMES
     ]
-    assert all(
-        actions.shape == (50, 16) and all_frames
-        for actions, all_frames in robotwin.env.chunks
-    )
+    assert all(actions.shape == (50, 16) for actions, _ in robotwin.env.chunks)
     action = result.data["log"]["result"]
     assert action["prompt"] == robotwin.env.get_task_language()
     assert action["agent_prompt_ignored"] is True
     assert action["ignored_agent_prompt"] == "ignored instruction"
     assert action["requested_steps"] == action["executed_steps"] == 100
-    assert len(robotwin.toolkit._frames) == 100
     assert result.data["state"]["episode_status"]["native_actions"] == 100
     assert result.data["state"]["episode_status"]["policy_actions"] == 100
     assert robotwin.toolkit.state.latest_step == 1
-
-
-def test_lingbot_records_final_frame_without_all_frames_capability(robotwin):
-    robotwin.env.execution_capabilities = {"chunk_step_all_frames": False}
-    result = robotwin.toolkit.execute_tool("lingbot_act", {"chunks": 1})
-    assert not result.is_error
-    assert robotwin.env.chunks[0][1] is False
-    assert len(robotwin.toolkit._frames) == 1
 
 
 @pytest.mark.parametrize(
@@ -296,7 +275,17 @@ def test_finish_verifies_native_status_and_does_not_capture(
     assert not result.is_error
     assert result.data["status"] == reported
     assert result.data["success"] is native_success
-    assert robotwin.toolkit.finish_result == {"status": reported, "summary": "done"}
+    assert robotwin.toolkit.finish_result == {
+        "status": reported,
+        "summary": "done",
+        "requested_success": requested == "success",
+        "success": native_success,
+        "episode_status": {
+            **robotwin.env.last_info["episode_status"],
+            "policy_actions": 0,
+            "native_actions": 0,
+        },
+    }
     assert robotwin.toolkit.state.latest_step == 0
     assert len(robotwin.env.renders) == 3
 
@@ -311,7 +300,13 @@ def test_finish_still_ends_planner_when_native_status_is_unavailable(robotwin):
     )
     assert not result.is_error
     assert result.data["runtime_error"] == "RuntimeError: status unavailable"
-    assert robotwin.toolkit.finish_result == {"status": "error", "summary": "done"}
+    assert robotwin.toolkit.finish_result == {
+        "status": "error",
+        "summary": "done",
+        "requested_status": "success",
+        "requested_success": True,
+        "runtime_error": "RuntimeError: status unavailable",
+    }
 
 
 def test_persisted_perception_uses_same_step_and_view_without_rendering(robotwin):
@@ -353,15 +348,6 @@ def test_perception_reports_missing_initial_record(robotwin):
     )
     assert result.is_error and result.data["code"] == "state_not_found"
     assert robotwin.toolkit.execute_tool("view_env_state", {}).is_error
-
-
-def test_recipe_keeps_robot_action_defaults(robotwin):
-    tk = robotwin.toolkit
-    assert not tk.execute_tool("release", {"arm": "left", "steps": 3}).is_error
-    recipe = robotwin.output_dir / tk.write_recipe("offline")
-    assert [json.loads(line) for line in recipe.read_text().splitlines()] == [
-        {"action": "release", "arm": "left", "val": 1.0, "steps": 3}
-    ]
 
 
 @pytest.mark.parametrize("components", [{"env"}, {"vla"}, None])

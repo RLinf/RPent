@@ -117,19 +117,12 @@ def test_already_reached_and_zero_budget_report_zero_actions(make_toolkit, name,
         ("release", {"max_steps": 4}, "steps_used"),
     ],
 )
-def test_early_termination_counts_and_records_only_sent_actions(
-    make_toolkit, name, args, field
-):
+def test_early_termination_counts_only_sent_actions(make_toolkit, name, args, field):
     toolkit, env, _ = make_toolkit()
     env.after_step = lambda: setattr(env, "terminated", True)
     result = toolkit.execute_tool(name, args)
     assert not result.is_error
-    assert (
-        result.data["log"]["result"][field]
-        == len(env.actions)
-        == len(toolkit._frames)
-        == 1
-    )
+    assert result.data["log"]["result"][field] == len(env.actions) == 1
     assert toolkit.solved()
     assert result.data["terminated"]
 
@@ -169,7 +162,6 @@ def test_cancellation_preserves_partial_execution_capture_and_resume(
         cancellation.result(3)
     assert result.is_error and result.error == "Tool call cancelled."
     assert len(env.actions) == toolkit._robot.executed_steps == completed
-    assert len(toolkit._frames) == completed
     assert toolkit.state.latest_record().result == {"error": result.error}
     assert result.data["step"] == 1
     env.after_step = lambda: None
@@ -195,7 +187,7 @@ def test_action_failures_keep_completed_steps_and_capture(
     assert result.data["log"]["result"] == {}
     assert toolkit._robot.executed_steps == completed
     assert toolkit.state.latest_record().result == {"error": result.error}
-    assert len(env.actions) == len(toolkit._frames) == completed
+    assert len(env.actions) == completed
     assert result.data["step"] == 1
     assert len(result.images) == 3
 
@@ -249,28 +241,33 @@ def test_validation_precedes_execution_and_uses_model_defaults(make_toolkit):
     )
     assert toolkit.execute_tool("reset", {}).error.startswith("Invalid arguments for ")
     assert len(toolkit.state.records()) == 1
-    result = toolkit.execute_tool(
+    rejected = toolkit.execute_tool(
         "set_gripper", {"steps": "2", "ctx": "ignored", "extra": 1}
     )
+    assert rejected.is_error
+    assert env.actions == []
+    assert len(toolkit.state.records()) == 1
+    result = toolkit.execute_tool("set_gripper", {"steps": "2"})
     assert not result.is_error
     assert result.data["log"]["result"]["steps"] == 2
     assert len(env.actions) == 2
 
 
-def test_segment_is_exclusive_and_captures_after_saving_artifacts(make_toolkit):
+def test_segment_saves_artifacts_without_capturing_an_observation(make_toolkit):
     toolkit, env, _ = make_toolkit()
     definition = next(t for t in toolkit.list_tools() if t.name == "segment")
-    assert not definition.readonly
+    assert definition.readonly
     for index in [0, 1]:
         result = toolkit.execute_tool("segment", {"prompt": "bowl", "step": 0})
         assert not result.is_error
-        data = result.data["log"]["result"]
+        data = result.data
         assert data["step"] == 0
+        assert data["world_xyz"] == pytest.approx([-0.125, -0.125, 1.0])
         assert data["segment_artifact"] == f"segment_{index:02d}.json"
         assert toolkit.state.load(data["segment_artifact"], step=0)["prompt"] == "bowl"
-        assert result.data["step"] == index + 1
+        assert len(result.images) == 1
         assert result.images[0].startswith(b"\x89PNG\r\n\x1a\n")
-    assert len(toolkit.state.records()) == 3
+    assert len(toolkit.state.records()) == 1
     assert env.actions == []
     assert not toolkit.execute_tool("back_project", {"row": 4, "col": 4}).is_error
     assert not toolkit.execute_tool("view_camera_meta", {}).is_error
@@ -298,12 +295,12 @@ def test_segment_errors_appear_once_and_keep_diagnostics(
         monkeypatch.setattr(toolkit.state, "save", fail_segment_save)
 
     result = toolkit.execute_tool("segment", {"prompt": "bowl"})
-    data = result.data["log"]["result"]
+    data = result.data
     assert not ({"code", "segmentation_error", "world_error"} & data.keys())
     assert data["found"] is False
     assert data["world_xyz"] is None
     assert result.to_text().count(reason) == 1
-    assert len(toolkit.state.records()) == 2
+    assert len(toolkit.state.records()) == 1
     assert env.actions == []
     if save_fails:
         assert result.is_error
@@ -318,9 +315,7 @@ def test_segment_errors_appear_once_and_keep_diagnostics(
 
 
 @pytest.mark.parametrize("name", ["pi0_pick", "pi0_doubled"])
-def test_vla_prompt_chunks_recording_and_unsolved_result_are_preserved(
-    make_toolkit, name
-):
+def test_vla_prompt_chunks_and_unsolved_result_are_preserved(make_toolkit, name):
     toolkit, env, model = make_toolkit()
     result = toolkit.execute_tool(name, {"prompt": "touch bowl", "max_chunks": 2})
     assert not result.is_error
@@ -328,9 +323,7 @@ def test_vla_prompt_chunks_recording_and_unsolved_result_are_preserved(
     assert result.data["log"]["result"]["chunks_used"] == 2
     assert model.instructions == ["touch bowl", "touch bowl"]
     assert toolkit._robot._last_obs["task_descriptions"] == "original task"
-    assert (
-        len(env.actions) == toolkit._robot.executed_steps == len(toolkit._frames) == 6
-    )
+    assert len(env.actions) == toolkit._robot.executed_steps == 6
 
 
 def test_factory_binds_memory_permissions_and_task_root(monkeypatch, tmp_path):

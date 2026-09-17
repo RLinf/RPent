@@ -96,7 +96,9 @@ and ``readonly`` from ``rpent.tools``.
 - ``@tool`` turns a function into a ``Tool``. Its name and Google-style
   docstring describe the tool; typed parameters and Pydantic ``Field``
   constraints generate both the validation model (``args_schema``) and
-  the published JSON schema (``input_schema``).
+  the published JSON schema (``input_schema``). Unknown top-level arguments,
+  including a caller-supplied ``ctx``, are rejected before execution;
+  the schema advertises ``additionalProperties: false``.
 - Every handler takes a required keyword-only ``ctx: ToolContext[RobotRuntime]``.
   The executor injects it and excludes it from the model-facing schema.
   It provides ``state``, ``memory``, ``robot``, ``output_dir``,
@@ -105,6 +107,10 @@ and ``readonly`` from ``rpent.tools``.
   ``to_dict()`` combines data and any error; ``to_text()`` serializes that
   payload, truncating only the model-facing text to 60,000 bytes. PNG bytes
   remain separate in ``images``; ``is_error`` indicates an error.
+  After a successful ``finish`` call, ``Toolkit.finish_result`` retains the full
+  data payload except the internal ``_finish`` marker. Planners use this accepted
+  result, including robot-specific fields such as ``operator_aborted`` and
+  ``operator_notes``.
 
 Construct the robot subclass with a fixed tuple of native tools:
 
@@ -130,10 +136,13 @@ Franka compatibility
 
 ``FrankaToolkit`` and ``DualFrankaToolkit`` preserve main robot tool parameters,
 normal result fields, image order and path fields, and ``finish``. Focused tests
-compare parameters and normal return fields with a historical baseline; schema
-default annotations, descriptions and nullability may differ. File tools, error handling, and validated
-argument logs follow the shared native executor. Arm normalization is declared
-in the Pydantic parameter type.
+compare full input schemas, tool descriptions and normal return fields with a
+historical baseline, retaining the published defaults and parameter descriptions.
+Schema differences are explicitly listed optional inputs that now also accept
+``null`` and the shared rejection of unknown top-level arguments. File tools,
+error handling, and validated argument logs follow
+the shared native executor. Arm normalization is declared in the Pydantic
+parameter type.
 
 Execution and lifecycle
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -144,8 +153,9 @@ to skip automatic observation capture.
 
 Non-readonly robot tools capture a new observation after execution. Common tools
 and ``finish`` are excluded from capture: ``write_text_file`` and ``finish`` run
-exclusively without adding an observation. LIBERO ``segment`` runs exclusively
-and captures an observation after saving its segmentation artifacts.
+exclusively without adding an observation. LIBERO ``segment`` uses ``@readonly``:
+it saves segmentation artifacts on the source step and returns the segmentation
+result directly, without capturing a new observation.
 
 Override ``_capture_observation(*, command, result, elapsed_s)`` to save a
 ``StepRecord`` and return ``(observation_data, png_images)``. The executor

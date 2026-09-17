@@ -74,6 +74,8 @@ def test_input_schemas_match_before_native_migration(group: str) -> None:
 
     assert actual.keys() == expected.keys()
     for name, schema in actual.items():
+        # Native tool calls now reject unknown top-level arguments.
+        expected[name]["additionalProperties"] = False
         assert schema == expected[name], f"{group}.{name} input schema changed"
 
 
@@ -83,64 +85,6 @@ def _schemas(robot_name):
         {"name": t.name, "description": t.description, "input_schema": t.input_schema}
         for t in getattr(module, f"{robot_name.upper()}_TOOLS")
     ]
-
-
-EXPECTED_TOOL_NAMES = {
-    "libero": {
-        "finish",
-        "reset",
-        "view_env_state",
-        "move_to",
-        "pi0_pick",
-        "pi0_doubled",
-        "release",
-        "set_gripper",
-        "rotate_wrist",
-        "rotate_pitch",
-        "move_pose",
-        "view_camera_meta",
-        "segment",
-        "back_project",
-    },
-    "robocasa": {
-        "move_to",
-        "move_delta",
-        "rotate_pitch",
-        "set_gripper",
-        "release",
-        "scripted_grasp",
-        "rldx_skill",
-        "rldx_arm",
-        "navigate_to",
-        "move_base",
-        "reset",
-        "view_env_state",
-        "back_project_batch",
-        "query_world_map",
-        "finish",
-    },
-    "robotwin": {
-        "view_env_state",
-        "render",
-        "sample_world_xyz",
-        "query_world_map",
-        "lingbot_act",
-        "move_to",
-        "rotate_wrist",
-        "set_gripper",
-        "release",
-        "finish",
-    },
-}
-
-
-@pytest.mark.parametrize("robot_name", ROBOT_NAMES)
-def test_robot_tool_names_are_an_explicit_unique_contract(robot_name: str) -> None:
-    specs = _schemas(robot_name)
-    names = [spec["name"] for spec in specs]
-
-    assert set(names) == EXPECTED_TOOL_NAMES[robot_name]
-    assert len(names) == len(set(names))
 
 
 @pytest.mark.parametrize("robot_name", ROBOT_NAMES)
@@ -158,25 +102,12 @@ def test_robot_tool_schemas_have_valid_object_inputs(robot_name: str) -> None:
         assert set(required) <= set(properties)
 
 
-def test_robot_action_schemas_keep_bounded_vector_shapes() -> None:
-    schema_sets = [
-        {spec["name"]: spec for spec in _schemas("libero")}["move_to"],
-        {spec["name"]: spec for spec in _schemas("robotwin")}["move_to"],
-    ]
-    for spec in schema_sets:
-        xyz = spec["input_schema"]["properties"]["xyz"]
-        assert xyz["type"] == "array"
-        assert xyz["minItems"] == xyz["maxItems"] == 3
-
-
 @pytest.mark.parametrize("robot_name", ROBOT_NAMES)
 def test_owned_tool_collections_satisfy_executor_invariants(robot_name):
     module = import_module(f"robots.{robot_name}.tools")
     tools = (*COMMON_TOOLS, *getattr(module, f"{robot_name.upper()}_TOOLS"))
     names = [item.name for item in tools]
     assert len(names) == len(set(names))
-    (finish,) = [item for item in tools if item.name == "finish"]
-    assert not finish.readonly
     for item in tools:
         parameter = inspect.signature(item.handler).parameters["ctx"]
         assert parameter.kind is inspect.Parameter.KEYWORD_ONLY

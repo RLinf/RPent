@@ -129,9 +129,16 @@ Planner 先通过 ``toolkit.list_tools()`` 获取工具定义，将每个工具�
 图片读取工具。工具函数的完整示例见 :doc:`add_primitive`。
 
 ``FrankaToolkit`` 和 ``DualFrankaToolkit`` 保留机器人工具的主要参数、正常返回字段、
-图片顺序和路径字段，以及 ``finish``。测试对比历史参数和正常返回字段，允许 schema
-的默认值声明、描述和 null 类型等细节不同。文件工具、错误处理
-和校验后的参数日志沿用公共 native 执行器。arm 的归一化声明在 Pydantic 参数类型中。
+图片顺序和路径字段，以及 ``finish``。测试完整对比历史输入 schema、工具说明和
+正常返回字段，保留公开的默认值和参数说明。schema 仅允许明确列出的可选参数
+额外接受 ``null``，并统一增加 ``additionalProperties: false``，在执行前拒绝
+未知的顶层参数（包括调用者传入的 ``ctx``）。文件工具、错误处理和校验后的参数
+日志沿用公共 native 执行器。
+arm 的归一化声明在 Pydantic 参数类型中。
+
+``finish`` 成功后，``Toolkit.finish_result`` 保留完整的业务数据，仅去掉内部的
+``_finish`` 标记。Planner 读取该结果，包括 ``operator_aborted``、``operator_notes``
+等机器人特有字段，供会话控制与运行记录使用。
 
 默认情况下，工具独占执行，完成后由机器人子类的 ``_capture_observation``
 保存状态并返回新的观测。观测会替换动作返回的数据，因此需要保留的执行详情
@@ -143,8 +150,8 @@ Planner 先通过 ``toolkit.list_tools()`` 获取工具定义，将每个工具�
 适配器按顺序执行工具调用。
 
 公共工具和 ``finish`` 不触发观测捕获。``write_text_file`` 和 ``finish``
-不设置 readonly，因此独占执行但不新增观测。LIBERO 的 ``segment`` 也不设置
-readonly，独占执行，并在保存分割附件后自动捕获一次观测。
+不设置 readonly，因此独占执行但不新增观测。LIBERO 的 ``segment`` 使用
+``@readonly``，将分割附件保存到源 step 并直接返回分割结果，不新增观测。
 
 长时间运行的工具应在安全的动作边界调用 ``ctx.check_cancelled()``。收到中断后，
 ``cancel_active_and_wait()`` 向当前调用发送取消信号，并等待它退出。后续调用

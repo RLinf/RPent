@@ -92,6 +92,7 @@ def test_successful_finish_waits_for_its_tool_result(
     assert seen_instructions == ["Use tools carefully."]
     assert toolkit.calls == [("finish", {"status": "success", "summary": "done"})]
     assert result.finish_result == {
+        "value": "ok",
         "status": "success",
         "summary": "done",
     }

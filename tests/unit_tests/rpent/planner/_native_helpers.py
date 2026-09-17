@@ -53,7 +53,7 @@ class FakeToolkit(Toolkit):
         result: dict[str, Any] | None = None,
         *,
         images: list[bytes] | None = None,
-        accepted: dict[str, str] | None = None,
+        accepted: dict[str, Any] | None = None,
     ):
         self.result = result if result is not None else {"value": "ok"}
         self.images = images or []

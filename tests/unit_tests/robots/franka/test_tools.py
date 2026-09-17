@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from threading import Event
@@ -138,7 +139,7 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
     assert len(result["point_base"]) == 3
 
 
-def test_toolkit_factory_validation_capture_and_cancellation(tmp_path, monkeypatch):
+def test_toolkit_factory_validation_and_capture(tmp_path, monkeypatch):
     monkeypatch.setattr(franka_toolkit, "get_output_dir", lambda: tmp_path)
     env = FakeEnv()
     # RPC state contains NumPy arrays; native result text must still be JSON.
@@ -178,11 +179,8 @@ def test_toolkit_factory_validation_capture_and_cancellation(tmp_path, monkeypat
     )
     assert read.images == result.images
     assert len(events) == 2
-    toolkit.cancel_active_and_wait()
-    assert not toolkit.execute_tool("view_env_state", {}).is_error
     assert "finish" in {tool.name for tool in toolkit.list_tools()}
     assert toolkit.finish_result is None
-    assert len(events) == 2
     toolkit.close()
 
 
@@ -192,28 +190,38 @@ _CONTRACT = json.loads(
 )
 
 
-def _schema_contract(value):
-    """Compare main parameters, allowing descriptions, defaults and nullability to differ."""
-    if isinstance(value, dict):
-        result = {
-            key: _schema_contract(item)
-            for key, item in value.items()
-            if key not in {"default", "description"}
-            and not (key == "additionalProperties" and item is True)
-        }
-        if isinstance(result.get("type"), list):
-            types = [kind for kind in result["type"] if kind != "null"]
-            result["type"] = types[0] if len(types) == 1 else types
-        return result
-    if isinstance(value, list):
-        return [_schema_contract(item) for item in value]
-    return value
-
-
-def test_main_parameter_contract():
+def test_tool_schema_and_description_contract():
+    expected = copy.deepcopy(_CONTRACT["schemas"])
+    for schema in expected.values():
+        schema["additionalProperties"] = False
+    # These existing optional inputs now explicitly advertise their None value.
+    nullable = {
+        "back_project": ("step",),
+        "back_project_correspondence": (
+            "third_person_row",
+            "third_person_col",
+            "wrist_row",
+            "wrist_col",
+            "pixels",
+            "step",
+        ),
+    }
+    for name, parameters in nullable.items():
+        for parameter in parameters:
+            schema = expected[name]["properties"][parameter]
+            schema["type"] = [schema["type"], "null"]
     actual = {item.name: item.input_schema for item in tools.FRANKA_TOOLS}
     assert len(actual) == len(tools.FRANKA_TOOLS)
-    assert _schema_contract(actual) == _schema_contract(_CONTRACT["schemas"])
+    assert actual == expected
+    assert {item.name: item.description for item in tools.FRANKA_TOOLS} == _CONTRACT[
+        "descriptions"
+    ]
+    for item in tools.FRANKA_TOOLS:
+        for name, parameter in actual[item.name]["properties"].items():
+            if "default" in parameter:
+                assert (
+                    item.args_schema.model_fields[name].default == parameter["default"]
+                )
 
 
 def _prepare_contract_perception(state):

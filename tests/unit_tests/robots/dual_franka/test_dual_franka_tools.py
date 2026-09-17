@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from threading import Event
@@ -626,28 +627,28 @@ _CONTRACT = json.loads(
 )
 
 
-def _schema_contract(value):
-    """Compare main parameters, allowing descriptions, defaults and nullability to differ."""
-    if isinstance(value, dict):
-        result = {
-            key: _schema_contract(item)
-            for key, item in value.items()
-            if key not in {"default", "description"}
-            and not (key == "additionalProperties" and item is True)
-        }
-        if isinstance(result.get("type"), list):
-            types = [kind for kind in result["type"] if kind != "null"]
-            result["type"] = types[0] if len(types) == 1 else types
-        return result
-    if isinstance(value, list):
-        return [_schema_contract(item) for item in value]
-    return value
-
-
-def test_main_parameter_contract():
+def test_tool_schema_and_description_contract():
+    expected = copy.deepcopy(_CONTRACT["schemas"])
+    for schema in expected.values():
+        schema["additionalProperties"] = False
+    # These existing optional inputs now explicitly advertise their None value.
+    nullable = {"back_project": ("step",), "segment": ("point", "step")}
+    for name, parameters in nullable.items():
+        for parameter in parameters:
+            schema = expected[name]["properties"][parameter]
+            schema["type"] = [schema["type"], "null"]
     actual = {item.name: item.input_schema for item in tools.DUAL_FRANKA_TOOLS}
     assert len(actual) == len(tools.DUAL_FRANKA_TOOLS)
-    assert _schema_contract(actual) == _schema_contract(_CONTRACT["schemas"])
+    assert actual == expected
+    assert {
+        item.name: item.description for item in tools.DUAL_FRANKA_TOOLS
+    } == _CONTRACT["descriptions"]
+    for item in tools.DUAL_FRANKA_TOOLS:
+        for name, parameter in actual[item.name]["properties"].items():
+            if "default" in parameter:
+                assert (
+                    item.args_schema.model_fields[name].default == parameter["default"]
+                )
 
 
 @pytest.mark.parametrize("case", _CONTRACT["cases"], ids=lambda case: case["name"])
@@ -678,4 +679,7 @@ def test_normal_return_contract(case, tmp_path):
             "operator_verdict": "success",
             **case["arguments"],
         }
-        assert toolkit.finish_result == case["arguments"]
+        assert toolkit.finish_result == {
+            "operator_verdict": "success",
+            **case["arguments"],
+        }

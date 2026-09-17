@@ -391,5 +391,18 @@
       ],
       "image_count": 0
     }
-  ]
+  ],
+  "descriptions": {
+    "finish": "Call when the task is complete or unrecoverable. Halts the agent loop. Save any artifacts (recipe, audit) BEFORE calling finish.",
+    "view_env_state": "Read a Franka state snapshot and its synchronized RGB images.",
+    "view_camera_meta": "Read camera intrinsics, crop, depth, and calibration metadata.",
+    "view_perception_setup": "Read calibrated camera geometry and projection conventions.",
+    "back_project": "Back-project one wrist or external-camera pixel into Franka base coordinates.",
+    "back_project_correspondence": "Fuse matched wrist and external-camera pixels into a Franka base point.",
+    "move_delta": "Move the Franka TCP by a bounded base-frame xyz delta in meters.",
+    "rotate_delta": "Rotate the Franka TCP by a bounded base-frame rpy delta in radians.",
+    "open_gripper": "Open the Franka gripper and wait for the command to settle.",
+    "close_gripper": "Close the Franka gripper and wait for the command to settle.",
+    "vla_grasp": "Run bounded real-world VLA action chunks for a local grasp attempt."
+  }
 }

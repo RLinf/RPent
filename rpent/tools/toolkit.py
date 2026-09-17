@@ -78,7 +78,7 @@ class Toolkit(Generic[RobotT]):
         }
         self._operation_lock = threading.Lock()
         self._active_operation: _ToolOperation | None = None
-        self._finish_result: dict[str, str] | None = None
+        self._finish_result: dict[str, Any] | None = None
         self._frames: list[np.ndarray] = []
 
     @property
@@ -90,8 +90,8 @@ class Toolkit(Generic[RobotT]):
         return self._memory
 
     @property
-    def finish_result(self) -> dict[str, str] | None:
-        """Return the accepted finish result for the planner; admission is unchanged."""
+    def finish_result(self) -> dict[str, Any] | None:
+        """Return the accepted finish payload, including robot-specific metadata."""
         result = self._finish_result
         return dict(result) if result is not None else None
 
@@ -173,7 +173,7 @@ class Toolkit(Generic[RobotT]):
                         )
             if name == "finish" and not result.is_error:
                 self._finish_result = {
-                    key: result.data[key] for key in ("status", "summary")
+                    key: value for key, value in result.data.items() if key != "_finish"
                 }
             # Images are logged by their owning artifact paths, not their bytes.
             logger.info(

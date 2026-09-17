@@ -99,7 +99,8 @@ def test_default_directory_is_bound_to_each_task_not_observation_or_global_outpu
     try:
         monkeypatch.chdir(other_dir)
         supplied = {"ctx": {"output_dir": str(other_dir)}, "output_dir": str(other_dir)}
-        assert toolkit.execute_tool("list_dir", supplied).data["path"] == str(tmp_path)
+        assert toolkit.execute_tool("list_dir", supplied).is_error
+        assert toolkit.execute_tool("list_dir", {}).data["path"] == str(tmp_path)
         assert other.execute_tool("list_dir", {}).data["path"] == str(other_dir)
     finally:
         other.close()

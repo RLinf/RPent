@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import queue
@@ -35,11 +36,12 @@ from rpent.planner.codex import (
 )
 from rpent.planner.utils.http_mcp_server import (
     HttpMcpServer,
+    build_mcp_server,
     mcp_result,
 )
 from rpent.tools import ToolResult
 
-from ._native_helpers import PNG, FakeToolkit, RecordingSink
+from ._native_helpers import PNG, FakeToolkit, RecordingSink, call_sdk_tool
 
 
 class FakeMcpServer:
@@ -376,6 +378,7 @@ def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
     assert fake_codex.closed is True
     assert fake_codex.thread.turn_prompts[0][0] == "system rules\n\nuser task"
     assert result.finish_result == {
+        "value": "ok",
         "status": "success",
         "summary": "done",
     }
@@ -398,22 +401,30 @@ def test_rejected_finish_item_is_not_promoted(
 ) -> None:
     from rpent.planner.codex import _Recorder
 
-    recorder = _Recorder(
-        toolkit=make_toolkit(), max_turns=2, dashboard_events=RecordingSink()
+    toolkit = make_toolkit({"error": "finish refused"})
+    arguments = {"status": "success", "summary": "too early"}
+    recorder = _Recorder(toolkit=toolkit, max_turns=2, dashboard_events=RecordingSink())
+    response = asyncio.run(
+        call_sdk_tool({"instance": build_mcp_server(toolkit)}, "finish", arguments)
     )
+    assert response.isError
+    assert toolkit.calls == [("finish", arguments)]
+    assert toolkit.finish_result is None
 
-    rendered = recorder.observe({
-        "method": "item/completed",
-        "payload": {
-            "item": {
-                "type": "mcpToolCall",
-                "tool": "mcp__rpent__finish",
-                "status": "failed",
-                "arguments": {"status": "success", "summary": "too early"},
-                "error": "finish refused",
-            }
-        },
-    })
+    rendered = recorder.observe(
+        {
+            "method": "item/completed",
+            "payload": {
+                "item": {
+                    "type": "mcpToolCall",
+                    "tool": "mcp__rpent__finish",
+                    "status": "completed",
+                    "arguments": arguments,
+                    "result": response.model_dump(by_alias=True),
+                }
+            },
+        }
+    )
 
     assert recorder.finish_result is None
     assert recorder.tool_calls == 1

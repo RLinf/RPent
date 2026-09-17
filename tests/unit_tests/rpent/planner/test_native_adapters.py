@@ -30,16 +30,8 @@ from rpent.planner.claude_code import (
 )
 from rpent.planner.claude_code import _Recorder as ClaudeRecorder
 from rpent.planner.codex import _Recorder as CodexRecorder
-from rpent.tools import ToolContext, ToolResult, tool
-from rpent.tools.base import MAX_TOOL_TEXT_BYTES
 
 from ._native_helpers import call_sdk_tool
-
-
-@tool
-def finish(status: str, summary: str, *, ctx: ToolContext) -> ToolResult:
-    """Accept the requested outcome for this test toolkit."""
-    return ToolResult(data={"_finish": True, "status": status, "summary": summary})
 
 
 def test_read_image_is_available_to_api_and_not_callable_through_mcp(make_toolkit):
@@ -65,15 +57,20 @@ def test_read_image_is_available_to_api_and_not_callable_through_mcp(make_toolki
 @pytest.mark.parametrize(
     "recorder_type", [ClaudeRecorder, CodexRecorder, _ApiRunObserver]
 )
-@pytest.mark.parametrize(
-    "summary", ["environment verification failed", "任务未完成" * 12000]
-)
 def test_recorders_read_verified_finish_without_a_matching_provider_event(
     make_toolkit,
     recorder_type,
-    summary,
 ):
-    toolkit = make_toolkit(accepted={"status": "failure", "summary": summary})
+    accepted = {
+        "status": "failure",
+        "summary": "environment verification failed",
+        "operator_aborted": True,
+        "operator_finished": True,
+        "operator_verdict": "abort",
+        "operator_notes": "Stop the run.",
+        "attempt": 2,
+    }
+    toolkit = make_toolkit({}, accepted=accepted)
     recorder = recorder_type(
         toolkit=toolkit,
         max_turns=3,
@@ -81,19 +78,16 @@ def test_recorders_read_verified_finish_without_a_matching_provider_event(
         **({"messages": []} if recorder_type is _ApiRunObserver else {}),
     )
     assert recorder.finish_result is None
-    try:
-        result = toolkit.execute_tool(
-            "finish", {"status": "success", "summary": "model claims success"}
-        )
-        assert not result.is_error
-        text = result.to_text()
-        assert len(text.encode("utf-8")) <= MAX_TOOL_TEXT_BYTES
-        if len(summary) > 10000:
-            assert text.endswith("[truncated]")
-        assert recorder.finish_result == {"status": "failure", "summary": summary}
-        assert recorder.finish_result == toolkit.finish_result
-    finally:
-        toolkit.close()
+    result = toolkit.execute_tool(
+        "finish", {"status": "success", "summary": "model claims success"}
+    )
+    assert not result.is_error
+    assert result.data == {"_finish": True, **accepted}
+    assert recorder.finish_result == accepted
+    assert recorder.finish_result == toolkit.finish_result
+    returned = recorder.finish_result
+    returned["operator_aborted"] = False
+    assert toolkit.finish_result["operator_aborted"] is True
 
 
 def test_api_finish_accepted_during_interrupt_seals_dashboard():

@@ -133,6 +133,6 @@ def make_toolkit(tmp_path):
 
     yield make
     for toolkit in instances:
-        # Avoid video encoding in CPU contract tests; recording contents are asserted explicitly.
+        # Avoid video encoding in CPU contract tests.
         toolkit._frames.clear()
         toolkit.close()

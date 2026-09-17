@@ -715,6 +715,7 @@ def view_camera_meta(
 
 
 @tool
+@readonly
 def segment(
     prompt: str = "",
     camera: Literal["agentview", "wrist"] = "agentview",

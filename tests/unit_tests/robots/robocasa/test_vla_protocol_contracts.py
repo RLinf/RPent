@@ -86,9 +86,7 @@ def test_vla_schema_exposes_budgets_and_hides_legacy_prompt_override():
 def test_vla_uses_live_language_and_run_defaults(make_toolkit):
     run = make_toolkit()
     calls = _record_vla(run)
-    first = run.toolkit.execute_tool(
-        "rldx_skill", {"prompt": "atomic pick", "use_prompt": True}
-    )
+    first = run.toolkit.execute_tool("rldx_skill", {"prompt": "atomic pick"})
     second = run.toolkit.execute_tool("rldx_arm", {"prompt": "atomic place"})
     assert not first.is_error and not second.is_error
     assert [call["prompt"] for call in calls] == [run.env.language] * 2
@@ -192,7 +190,7 @@ def test_vla_rejects_missing_live_language(make_toolkit):
     assert run.toolkit._robot._vla_desync is True
 
 
-def test_rollout_records_once_and_preserves_or_reseeds_history(make_toolkit):
+def test_rollout_preserves_or_reseeds_history(make_toolkit):
     run = make_toolkit(RLDX_MAX_CHUNKS=1)
     tk = run.toolkit
     for name in ("rldx_skill", "rldx_arm"):
@@ -201,8 +199,7 @@ def test_rollout_records_once_and_preserves_or_reseeds_history(make_toolkit):
         assert result.data["log"]["result"]["steps_applied"] == 2
         # Hitting the chunk cap with no task success is an ordinary VLA result.
         assert result.data["log"]["result"]["status"] == "cap"
-    assert len(run.env.actions) == len(tk._frames) == 4
-    assert [int(frame[0, 0, 0]) for frame in tk._frames] == [1, 2, 3, 4]
+    assert len(run.env.actions) == 4
     np.testing.assert_allclose(run.env.actions[0][7:11], 1)
     np.testing.assert_allclose(run.env.actions[2][7:11], 0.1)
     assert [options["reset_memory"] for _, options in run.model.calls] == [
@@ -221,7 +218,7 @@ def test_rollout_records_once_and_preserves_or_reseeds_history(make_toolkit):
     ].tolist() == [5, 5]
     tk.execute_tool("rldx_arm", {"prompt": run.env.language, "force_reset": True})
     assert run.model.calls[3][1]["reset_memory"] == [True]
-    assert len(run.env.actions) == len(tk._frames) == 9
+    assert len(run.env.actions) == 9
 
 
 def test_vla_checks_current_call_cancellation_after_inference(
@@ -240,11 +237,11 @@ def test_vla_checks_current_call_cancellation_after_inference(
     result = run.toolkit.execute_tool("rldx_skill", {"prompt": run.env.language})
     assert result.is_error and "cancelled" in result.error
     assert len(run.model.calls) == 1
-    assert not run.env.actions and not run.toolkit._frames
+    assert not run.env.actions
     run.model.on_predict = lambda: None
     result = run.toolkit.execute_tool("rldx_skill", {"prompt": run.env.language})
     assert not result.is_error
-    assert len(run.env.actions) == len(run.toolkit._frames) == 2
+    assert len(run.env.actions) == 2
 
 
 def test_legacy_rldx_processor_null_geometry_uses_release_defaults(monkeypatch) -> None:

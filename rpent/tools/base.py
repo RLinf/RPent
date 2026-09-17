@@ -36,7 +36,7 @@ from typing import (
 
 import numpy as np
 from docstring_parser import DocstringStyle, parse
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
 from pydantic.json_schema import GenerateJsonSchema
 from pydantic_core import core_schema
 
@@ -67,6 +67,13 @@ class _ToolJsonSchema(GenerateJsonSchema):
 
     def default_schema(self, schema: core_schema.WithDefaultSchema) -> dict[str, Any]:
         return self.generate_inner(schema["schema"])
+
+    def dict_schema(self, schema: core_schema.DictSchema) -> dict[str, Any]:
+        result = super().dict_schema(schema)
+        # JSON Schema allows arbitrary properties when this keyword is absent.
+        if result.get("additionalProperties") is True:
+            result.pop("additionalProperties")
+        return result
 
     def nullable_schema(self, schema: core_schema.NullableSchema) -> dict[str, Any]:
         inner = self.generate_inner(schema["schema"])
@@ -178,6 +185,7 @@ def _parameter_model(
     return create_model(
         f"{handler.__name__}Parameters",
         __module__=handler.__module__,
+        __config__=ConfigDict(extra="forbid"),
         **fields,
     )
 

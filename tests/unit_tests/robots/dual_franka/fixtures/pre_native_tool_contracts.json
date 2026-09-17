@@ -505,5 +505,23 @@
       ],
       "image_count": 0
     }
-  ]
+  ],
+  "descriptions": {
+    "describe_dual_franka_setup": "Read the dual-Franka runtime conventions, camera aliases, VLA policy conditioning text, semantic stop rules, and available primitive names before acting. This is read-only.",
+    "view_env_state": "Read a dual-Franka state snapshot. The D455 image is returned inline; left_wrist, base, and right_wrist are returned as artifact paths for targeted read_image inspection.",
+    "view_camera_meta": "Read camera intrinsics, serials, and projection metadata for the dual-Franka rig.",
+    "back_project": "Back-project one pixel from a registered RGBD camera view into shared right-base coordinates. Use a camera listed by view_env_state/view_camera_meta; default is the configured primary metric localization camera.",
+    "segment": "Use SAM3 on a registered RGB image with either a text prompt or one positive [row, col] point, return a mask overlay for verification, and estimate the mask median point in shared right-base coordinates.",
+    "move_delta": "Move one Franka TCP by a bounded world-frame xyz delta in meters.",
+    "rotate_delta": "Rotate one Franka TCP by a bounded world-frame rpy delta in radians.",
+    "open_gripper": "Open one Franka gripper and wait for the command to settle.",
+    "close_gripper": "Close one Franka gripper and wait for the command to settle.",
+    "recover_joint_posture": "Reset both arms to their healthy configured joint posture while preserving each gripper's open/closed state. Closed grippers are re-commanded before/after the joint reset so held objects stay clamped, then both TCPs return near their prior poses.",
+    "request_scene_reset": "Exploration-only real-robot reset gate. Ask the human operator to remove/secure held objects and restore the tabletop scene for another attempt, wait for terminal confirmation, then reset the robot posture. This does not automatically restore physical objects like a simulator.",
+    "request_operator_verdict": "Exploration-only human feedback gate. Ask the operator to mark the current physical task state as success, failure, or continue before the planner finishes or starts another attempt.",
+    "vla_right_grasp": "Run the learned right-grasp VLA segment. The active task prompt decides which object is currently allowed; this tool only defines the capability boundary: right gripper closes and the right TCP lifts.",
+    "vla_handoff": "Run the learned bimanual handoff VLA segment. The capability boundary is right-gripper release followed by the configured settle delay; do not rule-base pre-position either arm for it.",
+    "vla_left_place": "Run the learned left-placement VLA segment. The active task decides the destination; this tool only defines the capability boundary: left gripper opens and the left TCP lifts.",
+    "finish": "Call when the task is complete or unrecoverable. Halts the agent loop. Save any artifacts (recipe, audit) BEFORE calling finish."
+  }
 }

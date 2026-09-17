@@ -124,6 +124,18 @@ def test_unknown_tool_does_not_execute_or_capture(toolkit):
     assert toolkit._robot.received == []
 
 
+@pytest.mark.parametrize("field", ["valu", "ctx"])
+def test_unknown_arguments_are_rejected_before_execution(toolkit, field):
+    result = toolkit.execute_tool("action", {field: 3})
+    assert result.is_error
+    details = json.loads(result.error.split("\n", 1)[1])
+    assert details["errors"][0]["type"] == "extra_forbidden"
+    assert details["errors"][0]["loc"] == [field]
+    assert toolkit._robot.received == []
+    assert toolkit.state.latest_record() is None
+    assert toolkit._dashboard_events.events == []
+
+
 @pytest.mark.parametrize(
     "error_type", [ToolCancelled, PermissionError, TypeError, ValueError]
 )
@@ -208,9 +220,9 @@ def test_base_exception_propagates_and_releases_admission(toolkit):
     assert not toolkit.execute_tool("inspect_state", {}).is_error
 
 
-def test_context_is_fresh_and_cannot_be_replaced_by_external_arguments(toolkit):
+def test_context_is_fresh_for_each_call(toolkit):
     for _ in range(2):
-        toolkit.execute_tool("action", {"ctx": "untrusted", "value": "3"})
+        toolkit.execute_tool("action", {"value": "3"})
     first, second = [ctx for value, ctx in toolkit._robot.received]
     assert first is not second
     assert first._cancel_event is not second._cancel_event

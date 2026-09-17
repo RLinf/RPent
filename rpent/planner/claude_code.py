@@ -593,7 +593,7 @@ class _Recorder:
     # -- public ------------------------------------------------------------
 
     @property
-    def finish_result(self) -> dict[str, str] | None:
+    def finish_result(self) -> dict[str, Any] | None:
         return self.toolkit.finish_result
 
     def stats(self) -> dict[str, int | float | None]:

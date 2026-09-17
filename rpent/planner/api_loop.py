@@ -390,7 +390,7 @@ class _ApiRunObserver:
     tool_calls: int = 0
 
     @property
-    def finish_result(self) -> dict[str, str] | None:
+    def finish_result(self) -> dict[str, Any] | None:
         return self.toolkit.finish_result
 
     def observe_response(

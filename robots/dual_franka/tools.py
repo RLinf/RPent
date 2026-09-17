@@ -341,7 +341,7 @@ def _run_named_vla_skill(
 @tool
 @readonly
 def describe_dual_franka_setup(*, ctx: ToolContext[DualFrankaRuntime]) -> ToolResult:
-    """Return PhysicalAgent-compatible setup guidance without moving hardware."""
+    """Read the dual-Franka runtime conventions, camera aliases, VLA policy conditioning text, semantic stop rules, and available primitive names before acting. This is read-only."""
     meta = ctx.robot.env.meta
     observation_policy = _agent_observation_policy(meta)
     data = {
@@ -413,11 +413,17 @@ def describe_dual_franka_setup(*, ctx: ToolContext[DualFrankaRuntime]) -> ToolRe
 @tool
 def vla_right_grasp(
     prompt: str,
-    max_chunks: Annotated[int, Field(ge=1, le=20)] = 20,
+    max_chunks: Annotated[
+        int, Field(ge=1, le=20, json_schema_extra={"default": 20})
+    ] = 20,
     *,
     ctx: ToolContext[DualFrankaRuntime],
 ) -> ToolResult:
-    """Run the learned right-grasp VLA segment. The active task prompt decides which object is currently allowed; this tool only defines the capability boundary: right gripper closes and the right TCP lifts."""
+    """Run the learned right-grasp VLA segment. The active task prompt decides which object is currently allowed; this tool only defines the capability boundary: right gripper closes and the right TCP lifts.
+
+    Args:
+        prompt: Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference.
+    """
     return _result(
         _run_named_vla_skill(
             ctx,
@@ -432,11 +438,17 @@ def vla_right_grasp(
 @tool
 def vla_handoff(
     prompt: str,
-    max_chunks: Annotated[int, Field(ge=1, le=20)] = 20,
+    max_chunks: Annotated[
+        int, Field(ge=1, le=20, json_schema_extra={"default": 20})
+    ] = 20,
     *,
     ctx: ToolContext[DualFrankaRuntime],
 ) -> ToolResult:
-    """Run the learned bimanual handoff VLA segment. The capability boundary is right-gripper release followed by the configured settle delay; do not rule-base pre-position either arm for it."""
+    """Run the learned bimanual handoff VLA segment. The capability boundary is right-gripper release followed by the configured settle delay; do not rule-base pre-position either arm for it.
+
+    Args:
+        prompt: Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference.
+    """
     return _result(
         _run_named_vla_skill(
             ctx,
@@ -451,11 +463,17 @@ def vla_handoff(
 @tool
 def vla_left_place(
     prompt: str,
-    max_chunks: Annotated[int, Field(ge=1, le=20)] = 20,
+    max_chunks: Annotated[
+        int, Field(ge=1, le=20, json_schema_extra={"default": 20})
+    ] = 20,
     *,
     ctx: ToolContext[DualFrankaRuntime],
 ) -> ToolResult:
-    """Run the learned left-placement VLA segment. The active task decides the destination; this tool only defines the capability boundary: left gripper opens and the left TCP lifts."""
+    """Run the learned left-placement VLA segment. The active task decides the destination; this tool only defines the capability boundary: left gripper opens and the left TCP lifts.
+
+    Args:
+        prompt: Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference.
+    """
     return _result(
         _run_named_vla_skill(
             ctx,
@@ -469,12 +487,12 @@ def vla_left_place(
 
 @tool
 def recover_joint_posture(
-    reason: str = "",
-    return_to_start: bool = True,
+    reason: Annotated[str, Field(json_schema_extra={"default": ""})] = "",
+    return_to_start: Annotated[bool, Field(json_schema_extra={"default": True})] = True,
     *,
     ctx: ToolContext[DualFrankaRuntime],
 ) -> ToolResult:
-    """Recover configured joint posture while preserving grippers and optionally returning TCPs."""
+    """Reset both arms to their healthy configured joint posture while preserving each gripper's open/closed state. Closed grippers are re-commanded before/after the joint reset so held objects stay clamped, then both TCPs return near their prior poses."""
     ctx.check_cancelled()
     return _result(
         ctx.robot.env.recover_joint_posture(
@@ -497,14 +515,20 @@ def _perception_result(data: dict[str, Any]) -> ToolResult:
 def back_project(
     row: Annotated[int, Field(ge=0)],
     col: Annotated[int, Field(ge=0)],
-    camera: str = "d455",
-    target_name: str = "target",
+    camera: Annotated[str, Field(json_schema_extra={"default": "d455"})] = "d455",
+    target_name: Annotated[
+        str, Field(json_schema_extra={"default": "target"})
+    ] = "target",
     step: int | None = None,
-    window_radius: Annotated[int, Field(ge=0)] = 2,
+    window_radius: Annotated[int, Field(ge=0, json_schema_extra={"default": 2})] = 2,
     *,
     ctx: ToolContext[DualFrankaRuntime],
 ) -> ToolResult:
-    """Back-project a registered RGBD camera pixel into shared right-base coordinates."""
+    """Back-project one pixel from a registered RGBD camera view into shared right-base coordinates. Use a camera listed by view_env_state/view_camera_meta; default is the configured primary metric localization camera.
+
+    Args:
+        camera: Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts.
+    """
     return _perception_result(
         perception.back_project(
             row=row,
@@ -521,17 +545,29 @@ def back_project(
 @tool
 @readonly
 def segment(
-    camera: str = "d455",
-    prompt: str = "",
+    camera: Annotated[str, Field(json_schema_extra={"default": "d455"})] = "d455",
+    prompt: Annotated[str, Field(json_schema_extra={"default": ""})] = "",
     point: Annotated[list[int], Field(min_length=2, max_length=2)] | None = None,
-    target_name: str = "target",
+    target_name: Annotated[
+        str, Field(json_schema_extra={"default": "target"})
+    ] = "target",
     step: int | None = None,
-    min_score: Annotated[float, Field(ge=0, le=1)] = 0.2,
-    min_valid_depth_pixels: Annotated[int, Field(ge=1)] = 25,
+    min_score: Annotated[
+        float, Field(ge=0, le=1, json_schema_extra={"default": 0.2})
+    ] = 0.2,
+    min_valid_depth_pixels: Annotated[
+        int, Field(ge=1, json_schema_extra={"default": 25})
+    ] = 25,
     *,
     ctx: ToolContext[DualFrankaRuntime],
 ) -> ToolResult:
-    """Segment a registered RGBD camera with SAM3 and localize in shared right-base coordinates."""
+    """Use SAM3 on a registered RGB image with either a text prompt or one positive [row, col] point, return a mask overlay for verification, and estimate the mask median point in shared right-base coordinates.
+
+    Args:
+        camera: Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts.
+        prompt: Text prompt for SAM3. Prefer short object/relation phrases; for the clean-desk box use 'white interior of the black cardboard box' or 'cardboard box'. Avoid over-specific surface words such as 'floor' when grounding is weak. Provide exactly one of prompt or point.
+        point: Positive SAM3 point in camera image coordinates [row, col]. Provide exactly one of prompt or point.
+    """
     return _perception_result(
         perception.segment(
             camera=camera,
@@ -549,9 +585,17 @@ def segment(
 
 @tool
 def request_scene_reset(
-    reason: str, expected_scene_state: str = "", *, ctx: ToolContext[DualFrankaRuntime]
+    reason: str,
+    expected_scene_state: Annotated[str, Field(json_schema_extra={"default": ""})] = "",
+    *,
+    ctx: ToolContext[DualFrankaRuntime],
 ) -> ToolResult:
-    """Ask the operator to restore the scene, then reset robot posture after confirmation."""
+    """Exploration-only real-robot reset gate. Ask the human operator to remove/secure held objects and restore the tabletop scene for another attempt, wait for terminal confirmation, then reset the robot posture. This does not automatically restore physical objects like a simulator.
+
+    Args:
+        reason: Why the scene needs to be restored.
+        expected_scene_state: Short instruction for the operator describing the desired restored layout.
+    """
     ctx.check_cancelled()
     return _result(ctx.robot.session._request_scene_reset(reason, expected_scene_state))
 
@@ -559,11 +603,18 @@ def request_scene_reset(
 @tool
 @readonly
 def request_operator_verdict(
-    question: str = "Does the current real-robot scene satisfy the task?",
+    question: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "default": "Does the current real-robot scene satisfy the task?"
+            }
+        ),
+    ] = "Does the current real-robot scene satisfy the task?",
     *,
     ctx: ToolContext[DualFrankaRuntime],
 ) -> ToolResult:
-    """Ask the operator to judge the current physical scene before finishing."""
+    """Exploration-only human feedback gate. Ask the operator to mark the current physical task state as success, failure, or continue before the planner finishes or starts another attempt."""
     session = ctx.robot.session
     handler = (
         session._request_operator_verdict
@@ -578,7 +629,12 @@ def request_operator_verdict(
 def finish(
     status: str, summary: str, *, ctx: ToolContext[DualFrankaRuntime]
 ) -> ToolResult:
-    """Finish after operator feedback; agent status cannot override the operator verdict."""
+    """Call when the task is complete or unrecoverable. Halts the agent loop. Save any artifacts (recipe, audit) BEFORE calling finish.
+
+    Args:
+        status: Outcome, e.g. 'success', 'failure', or 'stuck'.
+        summary: Short natural-language summary of the run.
+    """
     session = ctx.robot.session
     handler = (
         session._guarded_finish
@@ -720,9 +776,11 @@ def build_observation(state: EnvState, record: StepRecord) -> ToolResult:
 @tool
 @readonly
 def view_env_state(
-    step: int = -1, *, ctx: ToolContext[DualFrankaRuntime]
+    step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
+    *,
+    ctx: ToolContext[DualFrankaRuntime],
 ) -> ToolResult:
-    """Read the saved dual-Franka state with configured inline and artifact camera views."""
+    """Read a dual-Franka state snapshot. The D455 image is returned inline; left_wrist, base, and right_wrist are returned as artifact paths for targeted read_image inspection."""
     return build_observation(ctx.state, ctx.state.get(step))
 
 

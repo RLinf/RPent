@@ -67,7 +67,7 @@ def test_http_serialized_calls_keep_native_validation(tmp_path: Path) -> None:
                     == read.input_schema
                 )
                 results = await asyncio.gather(
-                    session.call_tool("read", {"number": "1", "ctx": "ignored"}),
+                    session.call_tool("read", {"number": "1"}),
                     session.call_tool("read", {"number": 2}),
                 )
                 assert all(not result.isError for result in results)
@@ -82,6 +82,9 @@ def test_http_serialized_calls_keep_native_validation(tmp_path: Path) -> None:
                 assert failure["error"].startswith("Invalid arguments for read.")
                 assert "number" in failure["error"]
                 assert "valid integer" in failure["error"]
+                unknown = await session.call_tool("read", {"numbr": 1})
+                assert unknown.isError
+                assert "extra_forbidden" in unknown.content[0].text
                 results = await asyncio.gather(
                     *[session.call_tool("list_dir", {}) for _ in range(4)]
                 )

@@ -76,6 +76,35 @@ def test_task_card_planner_executes_native_toolkit(make_toolkit, tmp_path, monke
     assert toolkit.solved()
 
 
+def test_replay_relocates_segment_anchor_with_native_toolkit(make_toolkit):
+    toolkit, env, _ = make_toolkit()
+    env.after_step = lambda: setattr(env, "terminated", True)
+
+    result = replay(
+        toolkit,
+        molmo=SimpleNamespace(),
+        card={
+            "plan": [
+                {
+                    "action": "move_to",
+                    "arguments": {"xyz": [0.0, 0.0, 0.7]},
+                    "anchor": "bowl",
+                    "anchor_distance": 0.0,
+                    "offset": [0.01, -0.02],
+                }
+            ],
+            "reference": {"bowl": [0.0, 0.0]},
+            "locator_of": {"bowl": "segment"},
+        },
+    )
+
+    assert result == {"done": True, "anchors": 1, "plan": 1}
+    assert len(env.actions) == 1
+    command = toolkit.state.latest_record().command
+    assert command["action"] == "move_to"
+    assert command["xyz"] == pytest.approx([-0.115, -0.145, 0.7])
+
+
 @pytest.mark.parametrize(
     ("gripper_open_thresh", "descent_thresh", "success"),
     [(0.003, 0.0, True), (0.05, 0.0, False), (0.003, 0.10, False)],
