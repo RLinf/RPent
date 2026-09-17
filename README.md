@@ -94,6 +94,7 @@ RPent is built for four kinds of users:
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html">LIBERO-PRO</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html">RoboTwin</a> ✅</li>
+          <li>RoboDojo</li>
         </ul>
       </td>
       <td>
@@ -101,6 +102,7 @@ RPent is built for four kinds of users:
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/franka.html">Franka</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/dual_franka.html">Dual Franka</a> ✅</li>
           <li>SO-101</li>
+          <li>YAM</li>
         </ul>
       </td>
     </tr>
