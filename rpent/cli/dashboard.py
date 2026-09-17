@@ -116,10 +116,14 @@ def run_dashboard_session(
     if (
         not getattr(args, "explore", False)
         and getattr(args, "memory_profile", "hf") == "hf"
-        and args.planner != "task_card"
     ):
         MemoryManager(get_memory_dir(robot_spec.name)).sync(
             remote_repo=robot_spec.memory_repo_id,
+            **(
+                {"allow_patterns": (f"{robot_spec.name}/flash/**",)}
+                if args.planner == "flash"
+                else {}
+            ),
         )
 
     controller = DashboardSessionController(

@@ -59,7 +59,7 @@ LIBERO_SUITE_NAMES = (
     "libero_10_lan",
 )
 
-TASK_CARD_SUITES = frozenset(
+FLASH_SUITES = frozenset(
     {
         "libero_10_swap",
         "libero_10_task",
@@ -92,7 +92,7 @@ LIBERO_DASHBOARD_SPEC: DashboardSpec = {
             "name": "molmo",
             "label": "Molmo",
             "scope": "shared",
-            "planners": ("task_card",),
+            "planners": ("flash",),
         },
     ),
     "primitives": (
@@ -108,11 +108,11 @@ LIBERO_DASHBOARD_SPEC: DashboardSpec = {
 }
 
 
-def _replay_card(toolkit, cell_tag: str, note) -> dict:
-    """Replay a recorded card for one cell. Imported late: it loads numpy."""
-    from robots.libero.task_card import replay_card
+def _run_flash(toolkit, cell_tag: str, note) -> dict:
+    """Run a recorded Flash plan for one cell. Imported late: it loads numpy."""
+    from robots.libero.flash import run_flash
 
-    return replay_card(toolkit, cell_tag, note)
+    return run_flash(toolkit, cell_tag, note)
 
 
 def get_robot_spec() -> RobotSpec:
@@ -132,7 +132,7 @@ def get_robot_spec() -> RobotSpec:
         init_runtime=_init_runtime,
         dashboard=LIBERO_DASHBOARD_SPEC,
         supports_exploration=True,
-        replay_card=_replay_card,
+        run_flash=_run_flash,
     )
 
 
@@ -235,7 +235,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         default=None,
         help="[protocol://]host:port of an existing Molmo server "
         "(protocol=http|socket, defaults to http). "
-        "Required by --planner task_card.",
+        "Required by --planner flash.",
     )
     parser.add_argument(
         "--sam3-endpoint",
@@ -264,17 +264,19 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if args.task is None:
         raise ValueError("--task is required")
     planner = getattr(args, "planner", None)
-    if planner == "task_card":
-        if args.suite not in TASK_CARD_SUITES:
-            supported = ", ".join(sorted(TASK_CARD_SUITES))
+    if planner == "flash":
+        if getattr(args, "explore", False):
+            raise ValueError("Flash Mode is evaluation-only; remove --explore")
+        if args.suite not in FLASH_SUITES:
+            supported = ", ".join(sorted(FLASH_SUITES))
             raise ValueError(
-                f"--planner task_card does not support --suite {args.suite!r}; "
+                f"--planner flash does not support --suite {args.suite!r}; "
                 f"supported suites: {supported}"
             )
         if args.molmo_endpoint is None:
-            raise ValueError("--planner task_card requires --molmo-endpoint")
+            raise ValueError("--planner flash requires --molmo-endpoint")
     elif args.molmo_endpoint is not None:
-        raise ValueError("--molmo-endpoint requires --planner task_card")
+        raise ValueError("--molmo-endpoint requires --planner flash")
 
     recipe_tag = f"{args.suite.replace('libero_', '')}_t{args.task}_s{args.seed}"
     explore = bool(getattr(args, "explore", False))
@@ -296,11 +298,23 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
     local_eval = not explore and memory_profile == "local"
     if local_eval:
-        has_local_memory = (memory_dir / "MEMORY.md").is_file() or any(
-            path.is_file()
-            for scope in ("global", "suite", "task_only")
-            for path in (memory_dir / scope).rglob("*")
-        )
+        if planner == "flash":
+            plan_name = recipe_tag.rsplit("_s", 1)[0]
+            has_local_memory = all(
+                (memory_dir / "flash" / f"{plan_name}_{suffix}.json").is_file()
+                for suffix in ("plan", "anchors")
+            )
+            if not has_local_memory:
+                raise ValueError(
+                    f"no complete Flash plan for {plan_name} under {memory_dir / 'flash'}; "
+                    "both plan and anchors files are required"
+                )
+        else:
+            has_local_memory = (memory_dir / "MEMORY.md").is_file() or any(
+                path.is_file()
+                for scope in ("global", "suite", "task_only")
+                for path in (memory_dir / scope).rglob("*")
+            )
         if not has_local_memory:
             raise ValueError(
                 f"local memory corpus not found at {memory_dir}; "
@@ -458,7 +472,7 @@ def _connect_molmo_server(
     """Connect to Molmo running in its dependency-isolated environment."""
     if args.molmo_endpoint is None:
         raise ValueError(
-            "--planner task_card requires --molmo-endpoint; Molmo uses a "
+            "--planner flash requires --molmo-endpoint; Molmo uses a "
             "separate environment because its transformers requirement "
             "conflicts with LIBERO's policy environment"
         )
@@ -500,7 +514,7 @@ def _init_runtime(
         "molmo": lambda rpc: {"molmo_client": MolmoClient(rpc)},
     }
     selected = set(starters) if components is None else set(components)
-    if getattr(args, "planner", None) != "task_card":
+    if getattr(args, "planner", None) != "flash":
         selected.discard("molmo")
     unknown = selected.difference(starters)
     if unknown:

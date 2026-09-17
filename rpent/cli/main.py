@@ -131,9 +131,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--planner",
         default="api",
-        choices=["api", "claude_code", "codex", "task_card"],
+        choices=["api", "claude_code", "codex", "flash"],
         help="Planner backend: api | claude_code | codex are LLMs in the "
-        "loop; task_card replays a recorded plan with no LLM, re-localizing "
+        "loop; flash is evaluation-only and replays a plan from memory, re-localizing "
         "each waypoint's anchor.",
     )
     ap.add_argument(
@@ -375,6 +375,11 @@ def main() -> int:
             f"{args.planner} reads its endpoint from "
             f"{BASE_URL_ENV_BY_PLANNER[args.planner]} instead"
         )
+    if args.planner == "flash":
+        if args.explore:
+            parser.error("Flash Mode is evaluation-only; remove --explore")
+        if robot_spec.run_flash is None:
+            parser.error(f"Flash Mode is not supported for robot {args.robot_name!r}")
     if args.explore and not robot_spec.supports_exploration:
         detail = (
             " Real-robot exploration requires operator-mediated scene restoration "
@@ -421,13 +426,14 @@ def main() -> int:
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
     memory_profile = getattr(args, "memory_profile", "hf")
-    if (
-        not getattr(args, "explore", False)
-        and memory_profile == "hf"
-        and args.planner != "task_card"
-    ):
+    if not getattr(args, "explore", False) and memory_profile == "hf":
         MemoryManager(get_memory_dir(robot_name)).sync(
             remote_repo=robot_spec.memory_repo_id,
+            **(
+                {"allow_patterns": (f"{robot_name}/flash/**",)}
+                if args.planner == "flash"
+                else {}
+            ),
         )
     else:
         logger.info("memory: using local %s profile", memory_profile)

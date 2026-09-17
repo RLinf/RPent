@@ -287,7 +287,9 @@ function renderPlannerConfig(config) {
   const planner = config.planner || copy.notSet;
   const model = config.model || copy.defaultModel;
   const element = $("#plannerMeta");
-  element.textContent = `${copy.planner} ${planner} · ${copy.model} ${model}`;
+  element.textContent = planner === "flash"
+    ? "Flash Mode"
+    : `${copy.planner} ${planner} · ${copy.model} ${model}`;
   element.title = element.textContent;
 }
 

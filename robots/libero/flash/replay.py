@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""One LIBERO task card: what it holds, and how it is replayed.
+"""One LIBERO Flash plan: what it holds, and how it is replayed.
 
-The card supplies the actions; perception supplies the coordinates. Each anchor
+The program supplies the actions; perception supplies the coordinates. Each anchor
 is re-read through the interface it was first read through -- a `segment` anchor
 is re-segmented, because its offsets are relative to a mask centroid, and a wide
 container seen at an angle has that centroid some way from where a pointing
@@ -37,16 +37,13 @@ from typing import Any
 import numpy as np
 
 from robots.libero import tools as libero_tools
-from robots.libero.task_card.prompts import build as prompt_for
+from robots.libero.flash.prompts import build as prompt_for
 from rpent.robots.components.molmo_client import MolmoClient
 from rpent.session import EnvState
-from rpent.utils.config import get_memory_dir
 
 #: ``<family>_<suite>_t<task>_s<seed>``, the tag the CLI builds per cell.
 _CELL = re.compile(r"^(10|goal|object|spatial)_(task|swap)_t(\d+)_s(\d+)$")
 
-#: The card corpus distributed with the LIBERO memory dataset.
-CARDS = get_memory_dir("libero") / "task_card"
 
 #: A close reading further than this from the coarse one has found something
 #: else, so the coarse one stands.
@@ -63,9 +60,9 @@ PARALLAX = {"x": (0.0231, 0.0610), "y": (-0.0029, 0.2056)}
 #: How many times a pick that did not take hold is retried by replaying its
 #: approach. No reset is involved; the episode continues.
 PICK_ATTEMPTS = 3
-#: Preserve the task-card replay's established grasp acceptance thresholds,
+#: Preserve the Flash Mode replay's established grasp acceptance thresholds,
 #: while leaving ``pi0_pick`` as the single owner of the success decision.
-TASK_CARD_PICK_THRESHOLDS = {
+FLASH_PICK_THRESHOLDS = {
     "lift_thresh": 0.04,
     "gripper_closed_thresh": 0.07,
     "gripper_open_thresh": 0.003,
@@ -211,31 +208,21 @@ def execute(toolkit: Any, name: str, arguments: dict[str, Any]) -> dict[str, Any
     return result
 
 
-def cards(root: Path | None = None) -> Path:
-    """Return the local task-card corpus, downloading only task-card files."""
-    root = root or CARDS
-    if not any(root.glob("*_plan.json")):
-        from rpent.memory import MemoryManager
-        from rpent.robots.base import get_robot_spec
-
-        robot_spec = get_robot_spec("libero")
-        MemoryManager(get_memory_dir("libero")).sync(
-            remote_repo=robot_spec.memory_repo_id,
-            allow_patterns=("libero/task_card/**",),
-        )
+def plans(root: Path) -> Path:
+    """Require Flash plans in the selected memory; synchronization belongs to the CLI."""
     if not any(root.glob("*_plan.json")):
         raise FileNotFoundError(
-            f"no task cards found under {root}; download "
-            "'libero/task_card/**' from the RLinf/RPent-memory "
+            f"no Flash plans found under {root}; download "
+            "'libero/flash/**' from the RLinf/RPent-memory "
             "Hugging Face dataset into memory/"
         )
     return root
 
 
-def load(root: Path, card_name: str) -> dict:
-    """Read one card: its plan, and the anchors its coordinates were written against."""
-    plan = json.loads((root / f"{card_name}_plan.json").read_text())["plan"]
-    anchors = json.loads((root / f"{card_name}_anchors.json").read_text())["anchors"]
+def load(root: Path, plan_name: str) -> dict:
+    """Read one program: its plan, and the anchors its coordinates were written against."""
+    plan = json.loads((root / f"{plan_name}_plan.json").read_text())["plan"]
+    anchors = json.loads((root / f"{plan_name}_anchors.json").read_text())["anchors"]
     return {
         "plan": plan,
         "reference": {a["phrase"]: np.array(a["median_xy"]) for a in anchors},
@@ -246,18 +233,18 @@ def load(root: Path, card_name: str) -> dict:
 def replay(
     toolkit: Any,
     molmo: MolmoClient,
-    card: dict,
+    program: dict,
     note: Callable[[str], None] = lambda _: None,
 ) -> dict:
-    """Run one card against the scene the toolkit is holding open.
+    """Run one program against the scene the toolkit is holding open.
 
     The episode is single-attempt: a pick that does not take hold is retried in
     place by replaying its approach, and its carry is skipped if it still does
     not, but the environment is never reset back to a clean state.
     """
-    plan = card["plan"]
-    reference = card["reference"]
-    locator_of = card["locator_of"]
+    plan = program["plan"]
+    reference = program["reference"]
+    locator_of = program["locator_of"]
 
     state = toolkit.state
 
@@ -269,7 +256,7 @@ def replay(
         """
         step = state.latest_step
         if step is None:
-            raise RuntimeError("task-card replay requires an initialized environment")
+            raise RuntimeError("Flash Mode replay requires an initialized environment")
         return step
 
     def finished() -> bool:
@@ -418,7 +405,7 @@ def replay(
                 0
             ].strip()
             if name == "pi0_pick":
-                arguments.update(TASK_CARD_PICK_THRESHOLDS)
+                arguments.update(FLASH_PICK_THRESHOLDS)
             raw = execute(toolkit, name, arguments)
             look()
             if name == "pi0_pick" and not pick_succeeded(raw):
@@ -461,13 +448,13 @@ def replay(
     return {"done": finished(), "anchors": len(live), "plan": len(plan)}
 
 
-def replay_card(
+def run_flash(
     toolkit: Any, cell_tag: str, note: Callable[[str], None] = lambda _: None
 ) -> dict:
-    """Replay the card for one cell, named the way the CLI names its cells.
+    """Replay the program for one cell, named the way the CLI names its cells.
 
-    The ``RobotSpec`` hook behind ``--planner task_card``: everything LIBERO
-    knows about its own cards -- how a tag maps to a card, and where its
+    The ``RobotSpec`` hook behind ``--planner flash``: everything LIBERO
+    knows about its own plans -- how a tag maps to a program, and where its
     grounder is -- stays here, so the planner needs to know none of it.
     """
     match = _CELL.match(cell_tag)
@@ -479,18 +466,24 @@ def replay_card(
     # The seed selects the layout to solve, not the plan used to solve it.
     family, suite, task, _ = match.groups()
     key = f"{suite}_t{task}"
-    root = cards()
-    card_name = f"{family}_{key}"
-    if not (root / f"{card_name}_plan.json").is_file():
-        raise FileNotFoundError(f"no task card for {family}/{key} under {CARDS}")
+    root = plans(toolkit.memory.root / "flash")
+    plan_name = f"{family}_{key}"
+    if not all(
+        (root / f"{plan_name}_{suffix}.json").is_file()
+        for suffix in ("plan", "anchors")
+    ):
+        raise FileNotFoundError(
+            f"no complete Flash plan for {family}/{key} under {root}; "
+            "both plan and anchors files are required"
+        )
 
     molmo = toolkit.primitives.molmo_client
     if molmo is None:
         raise RuntimeError(
-            "no grounder: task cards need a Molmo server named by --molmo-endpoint"
+            "no grounder: Flash plans need a Molmo server named by --molmo-endpoint"
         )
-    note(f"replaying the {family}/{key} card")
+    note(f"replaying the {family}/{key} program")
     return {
-        **replay(toolkit, molmo, load(root, card_name), note),
-        "card": f"{family}/{key}",
+        **replay(toolkit, molmo, load(root, plan_name), note),
+        "program": f"{family}/{key}",
     }
