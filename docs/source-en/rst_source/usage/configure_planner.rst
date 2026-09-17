@@ -172,6 +172,11 @@ Notes:
   the model configured as the Codex SDK default.
 - ``--planner-timeout-s`` limits the Codex run. Its default is
   ``CODEX_TIMEOUT_S``, then ``CELL_TIMEOUT_S``, then ``1200`` seconds.
+- ``--max-turns`` limits completed model responses, counted from the SDK's
+  cumulative usage updates. Reasoning/tool-only responses count too; multiple
+  text or tool items in one response count once. Duplicate usage updates do
+  not count again. CLI and Dashboard use the same budget and request an
+  interrupt when it is reached; a recorded ``finish`` is preserved.
 - By default, the Codex SDK reuses existing Codex authentication. For
   a custom Responses-compatible endpoint, set ``CODEX_BASE_URL`` and
   ``CODEX_API_KEY``. This backend does not read ``OPENAI_BASE_URL`` or

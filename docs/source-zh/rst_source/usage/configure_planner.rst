@@ -153,6 +153,10 @@ Codex 规划会话不会自动加载仓库的 ``AGENTS.md`` 和 ``.agents/skills
   配置的默认模型。
 - ``--planner-timeout-s`` 限制 Codex 运行时间。默认依次读取
   ``CODEX_TIMEOUT_S``、``CELL_TIMEOUT_S``，均未设置时为 ``1200`` 秒。
+- ``--max-turns`` 根据 SDK 的累计 usage 更新限制已完成的模型响应次数。
+  只有推理和工具调用的响应也计入预算；同一次响应中的多个文本或工具条目
+  只计一次，重复 usage 通知不重复计数。CLI 和 Dashboard 使用相同预算，
+  达到上限时请求中断，并保留已经记录的 ``finish``。
 - 默认情况下，Codex SDK 会复用已有的 Codex 认证。若要接入自定义的
   Responses API 兼容端点，请设置 ``CODEX_BASE_URL`` 和
   ``CODEX_API_KEY``；这里不读取 ``OPENAI_BASE_URL`` 或
