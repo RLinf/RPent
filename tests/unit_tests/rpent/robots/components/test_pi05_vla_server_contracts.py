@@ -16,6 +16,77 @@ import numpy as np
 import pytest
 
 
+def test_xpolicylab_cli_without_rlinf_dependencies(monkeypatch):
+    import importlib.util
+    import sys
+    from types import SimpleNamespace
+
+    from rpent.robots.components import xpolicylab_vla_server as ws
+
+    monkeypatch.setitem(sys.modules, "omegaconf", None)
+    monkeypatch.setitem(sys.modules, "rlinf", None)
+    monkeypatch.setitem(sys.modules, "torch", None)
+    spec = importlib.util.find_spec("rpent.robots.components.pi05_vla_server")
+    server = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(server)
+    calls = []
+    monkeypatch.setattr(
+        ws,
+        "_connect_policy",
+        lambda url, args: SimpleNamespace(close=lambda: calls.append("close")),
+    )
+    monkeypatch.setattr(
+        ws.XPolicyLabVLAFacade,
+        "serve",
+        lambda self, **kwargs: (calls.append(kwargs), self.close()),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "server",
+            "--policy-backend",
+            "xpolicylab",
+            "--task",
+            "pick",
+            "--policy-server-url",
+            "ws://policy",
+            "--port",
+            "6000",
+        ],
+    )
+    server.main()
+    assert calls == [
+        {"transport": "http", "host": "127.0.0.1", "port": 6000, "parent_watch": False},
+        "close",
+    ]
+
+
+def test_rlinf_missing_omegaconf_reports_policy_environment(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from rpent.robots.components.pi05_vla_server import create_backend
+
+    monkeypatch.setitem(sys.modules, "omegaconf", None)
+    monkeypatch.setitem(sys.modules, "rlinf", None)
+    with pytest.raises(
+        RuntimeError,
+        match="RLinf policy backend requires omegaconf.*Python environment",
+    ) as error:
+        create_backend(
+            SimpleNamespace(
+                policy_backend="rlinf",
+                model_path="/checkpoint",
+                embodiment="libero",
+                model_backend="openpi_pytorch",
+                norm_stats_path=None,
+                repo_id=None,
+            )
+        )
+    assert isinstance(error.value.__cause__, ImportError)
+
+
 def test_dual_vla_prediction_follows_shared_component_rpc_contract(monkeypatch):
     import sys
     from types import ModuleType

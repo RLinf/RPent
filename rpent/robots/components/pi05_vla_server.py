@@ -38,7 +38,6 @@ import time
 from typing import Any
 
 import numpy as np
-from omegaconf import OmegaConf
 
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.config import get_pi05_checkpoint_path
@@ -109,6 +108,14 @@ def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
     the model config.  ``model_path`` is set at runtime, not from the
     embodiment preset.
     """
+    try:
+        from omegaconf import OmegaConf
+    except ImportError as exc:
+        raise RuntimeError(
+            "The RLinf policy backend requires omegaconf to build model configuration; "
+            "install omegaconf in the policy server's Python environment."
+        ) from exc
+
     cfg = {
         "model_type": "openpi",
         "model_path": model_path,
@@ -177,6 +184,7 @@ class Pi05VLAFacade(BaseVLAFacade):
         self._embodiment = embodiment
         super().__init__()
 
+        cfg = build_model_cfg(model_path=model_path, emb_cfg=emb_cfg)
         if model_backend == "openpi_rlinf":
             from rlinf.models.embodiment.openpi_rlinf import get_model
         else:
@@ -186,7 +194,6 @@ class Pi05VLAFacade(BaseVLAFacade):
         if platform is not None:
             os.environ.setdefault("ROBOT_PLATFORM", platform)
 
-        cfg = build_model_cfg(model_path=model_path, emb_cfg=emb_cfg)
         if repo_id is not None or norm_stats_path is not None:
             cfg.openpi_data = {}
             if repo_id is not None:
