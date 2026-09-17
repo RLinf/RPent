@@ -67,28 +67,6 @@ DUAL_FRANKA_DASHBOARD_SPEC: DashboardSpec = {
         {"name": "vla", "label": "VLA", "scope": "shared"},
         {"name": "sam3", "label": "SAM3", "scope": "shared"},
     ),
-    "frame_channels": (
-        {
-            "name": "left_wrist",
-            "label": "left wrist camera",
-            "artifact": "left_wrist.png",
-        },
-        {
-            "name": "base",
-            "label": "base camera",
-            "artifact": "base.png",
-        },
-        {
-            "name": "right_wrist",
-            "label": "right wrist camera",
-            "artifact": "right_wrist.png",
-        },
-        {
-            "name": "d455",
-            "label": "D455 camera",
-            "legacy_path_key": "image_d455_path",
-        },
-    ),
     "primitives": (
         "move_delta",
         "rotate_delta",
@@ -119,7 +97,7 @@ def get_robot_spec() -> RobotSpec:
 
 def get_toolkit(
     *,
-    primitives_kwargs: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
     mode: str = "evaluation",
@@ -137,7 +115,7 @@ def get_toolkit(
         inbox_cell_tag=config.recipe_tag if explore else None,
     )
     return DualFrankaToolkit(
-        primitives_kwargs=primitives_kwargs,
+        runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
         mode=mode,
@@ -456,7 +434,7 @@ def _init_runtime(
             owned_daemons, dashboard_events, component, starter
         )
 
-    primitives_kwargs: dict[str, Any] = {}
+    runtime_kwargs: dict[str, Any] = {}
     wait_order = ("env", "sam3", "vla")
     for component in (name for name in wait_order if name in pending):
         daemon, rpc = pending[component]
@@ -469,15 +447,15 @@ def _init_runtime(
             300.0,
             post_fn=partial(connectors[component], rpc),
         )
-        primitives_kwargs.update(component_kwargs)
+        runtime_kwargs.update(component_kwargs)
 
     if "vla" in selected and not needs_vla:
         dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
-        primitives_kwargs["model"] = None
+        runtime_kwargs["model"] = None
     if "sam3" in selected and not needs_sam3:
         dashboard_events.emit(RuntimeStatusEvent("sam3", "ready"))
-        primitives_kwargs["sam3_client"] = None
+        runtime_kwargs["sam3_client"] = None
 
-    primitives_kwargs["calibration_path"] = args.calibration_path
+    runtime_kwargs["calibration_path"] = args.calibration_path
 
-    return list(owned_daemons.values()), primitives_kwargs
+    return list(owned_daemons.values()), runtime_kwargs

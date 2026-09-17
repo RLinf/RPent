@@ -33,7 +33,7 @@ from rpent.tools.toolkit import readonly
 if TYPE_CHECKING:
     from robots.robocasa.primitives import RoboCasaPrimitives
 
-# ---- TOOLS_SPEC: 17 Anthropic-shaped tool schemas ----
+# ---- TOOLS_SPEC: 15 Anthropic-shaped tool schemas ----
 
 TOOLS_SPEC = [
     # ---- primitive tools (11): dispatched by the toolkit base to primitives.<name> ----
@@ -407,7 +407,7 @@ TOOLS_SPEC = [
             "properties": {},
         },
     },
-    # ---- perception tools (6) -- module-level @readonly handlers ----
+    # ---- perception tools (4) -- module-level @readonly handlers ----
     {
         "name": "view_env_state",
         "description": (
@@ -428,74 +428,6 @@ TOOLS_SPEC = [
                     "description": "Step number; 0 = initial. Null = latest.",
                 },
             },
-        },
-    },
-    {
-        "name": "view_camera_meta",
-        "description": (
-            "Read camera calibration metadata from the output dir. "
-            "camera='agentview' reads the static camera_meta file. "
-            "camera='navview' reads the navview camera metadata. "
-            "Needed for computing 3D geometry from pixel coordinates."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "camera": {
-                    "type": "string",
-                    "enum": ["agentview", "navview"],
-                    "description": "Camera metadata to read (default agentview).",
-                },
-                "step": {
-                    "type": ["integer", "null"],
-                    "description": "Step number (default latest).",
-                },
-            },
-        },
-    },
-    {
-        "name": "back_project",
-        "description": (
-            "Back-project a single pixel (row, col) to a world XYZ point "
-            "using the selected camera's precomputed world map. Row 0 = top "
-            "of image, col 0 = left. Returns world_xyz in meters.\n\n"
-            "Use for a quick single-pixel check. For robust localization, "
-            "prefer back_project_batch which samples multiple pixels and "
-            "returns a median. camera='agentview' for global layout; "
-            "camera='navview' for base navigation (floor pixels); "
-            "camera='wrist' for close-range precision."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "row": {
-                    "type": "integer",
-                    "description": "Pixel row (0=top) in the selected resolution image.",
-                },
-                "col": {
-                    "type": "integer",
-                    "description": "Pixel column (0=left) in the selected resolution image.",
-                },
-                "step": {
-                    "type": ["integer", "null"],
-                    "description": "Depth / world-map step to use (default latest). 0 for initial.",
-                },
-                "camera": {
-                    "type": "string",
-                    "enum": ["agentview", "navview", "wrist"],
-                    "description": "Camera to back-project from (default agentview).",
-                },
-                "resolution": {
-                    "type": "string",
-                    "enum": ["high", "low"],
-                    "description": (
-                        "Coordinate system for row/col (default high). "
-                        "Use 'low' when row/col came from the standard "
-                        "256x256 embedded image."
-                    ),
-                },
-            },
-            "required": ["row", "col"],
         },
     },
     {
@@ -686,7 +618,9 @@ def dump_state(
         },
     ) as step_idx:
         _save_observation_artifacts(primitives, env_state, step_idx)
-        _prune_heavy_artifacts(primitives, env_state, step_idx)
+        env_state.prune_artifacts(
+            _HEAVY_ARTIFACTS, step=step_idx, keep_last=primitives._keep_heavy
+        )
     return env_state.get(step_idx)
 
 
@@ -745,22 +679,6 @@ def _save_observation_artifacts(
     env_state.save("navview_floor.png", overlay, step=step_idx)
 
 
-def _prune_heavy_artifacts(
-    primitives: RoboCasaPrimitives,
-    env_state: EnvState,
-    step_idx: int,
-) -> None:
-    """Delete heavy npy artifacts for the step that fell out of the window."""
-    old = step_idx - primitives._keep_heavy
-    if old < 0:
-        return
-    for name in _HEAVY_ARTIFACTS:
-        try:
-            env_state.artifact_path(name, step=old).unlink(missing_ok=True)
-        except Exception:
-            pass
-
-
 # ---- tool handlers (@readonly perception tools take state: EnvState) ----
 
 
@@ -817,31 +735,6 @@ def view_env_state(step: int | None = None, *, state: EnvState) -> dict:
             break
 
     return out
-
-
-@readonly
-def view_camera_meta(
-    camera: str = "agentview",
-    step: int | None = None,
-    *,
-    state: EnvState,
-) -> dict:
-    """Read camera calibration metadata. Skeleton — returns error."""
-    return {"error": "not implemented"}
-
-
-@readonly
-def back_project(
-    row: int,
-    col: int,
-    step: int | None = None,
-    camera: str = "agentview",
-    resolution: str = "high",
-    *,
-    state: EnvState,
-) -> dict:
-    """Back-project a single pixel to world XYZ. Skeleton — returns error."""
-    return {"error": "not implemented"}
 
 
 @readonly

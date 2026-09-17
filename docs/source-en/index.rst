@@ -74,6 +74,7 @@ Welcome to RPent
    Overview <rst_source/overview>
    Installation <rst_source/installation>
    Quick Start <rst_source/quickstart>
+   Benchmark Results <rst_source/benchmarks>
 
 .. toctree::
    :maxdepth: 2
@@ -85,7 +86,7 @@ Welcome to RPent
    Agentic Planner <rst_source/usage/configure_planner>
    Action Primitives <rst_source/usage/configure_primitives>
    Data Flywheel <rst_source/usage/flywheel>
-   Task Cards <rst_source/usage/task_card>
+   Flash Mode <rst_source/usage/flash>
    Simulation <rst_source/usage/simulation>
    Real Robots <rst_source/usage/real_robots>
    Advanced Deployment <rst_source/usage/advanced_deployment>

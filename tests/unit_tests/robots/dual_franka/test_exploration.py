@@ -74,7 +74,7 @@ def setup(tmp_path, monkeypatch):
     env = FakeEnv()
     replies = []
     toolkit = DualFrankaToolkit(
-        primitives_kwargs={"env": env, "model": None, "task_description": "test"},
+        runtime_kwargs={"env": env, "model": None, "task_description": "test"},
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(
             tmp_path / "memory",
@@ -213,7 +213,7 @@ def test_explore_prompt_and_factory_use_local_layered_memory(tmp_path):
     )
     assert "{{" not in prompt and "libero_terminated" not in prompt
     t = robot_spec.get_toolkit(
-        primitives_kwargs={"env": FakeEnv(), "model": None, "task_description": "test"},
+        runtime_kwargs={"env": FakeEnv(), "model": None, "task_description": "test"},
         dashboard_events=NullDashboardEventSink(),
         config=config,
         mode="exploration",

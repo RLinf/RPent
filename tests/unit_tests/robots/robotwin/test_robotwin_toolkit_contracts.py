@@ -172,7 +172,7 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
     )
 
     robot_toolkit = toolkit.RoboTwinToolkit(
-        primitives_kwargs={"env": object(), "model": object(), "seed": 7},
+        runtime_kwargs={"env": object(), "model": object(), "seed": 7},
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "memory"),
     )

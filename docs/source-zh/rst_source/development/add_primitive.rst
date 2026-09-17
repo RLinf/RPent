@@ -121,18 +121,18 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 4. **添加工具定义并在 toolkit 中注册。** 具体做法与脚本化原语相同。
 
 5. **在 ``robot_spec.py`` 中连接各组件。** 机器人的 ``get_toolkit`` 使用
-   ``primitives_kwargs`` 构造 toolkit：
+   ``runtime_kwargs`` 构造 toolkit：
 
    .. code-block:: python
 
-      def get_toolkit(*, primitives_kwargs, dashboard_events):
+      def get_toolkit(*, runtime_kwargs, dashboard_events):
           from robots.myrobot.toolkit import MyRobotToolkit
           return MyRobotToolkit(
-              primitives_kwargs=primitives_kwargs,
+              runtime_kwargs=runtime_kwargs,
               dashboard_events=dashboard_events,
           )
 
-   机器人包中的 ``_init_runtime`` 则负责构造 ``primitives_kwargs``，例如
+   机器人包中的 ``_init_runtime`` 则负责构造 ``runtime_kwargs``，例如
    ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``，再由
    toolkit 构造器将其转发给 primitives。
 

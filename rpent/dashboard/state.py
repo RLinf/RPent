@@ -186,11 +186,9 @@ class DashboardState:
         self._session_root = root
         self._task_spec = dashboard_spec["task"]
         self._runtime_components = dashboard_spec["runtime_components"]
-        self._frame_channels = dashboard_spec["frame_channels"]
         self._runtime_names = {
             component["name"] for component in self._runtime_components
         }
-        self._frame_names = {channel["name"] for channel in self._frame_channels}
         self._primitive_allowlist = dashboard_spec["primitives"]
 
         self._lock = threading.Lock()
@@ -824,13 +822,12 @@ class DashboardState:
         if env_state is None:
             return
         frames: dict[str, bytes] = {}
-        for channel in self._frame_channels:
-            kind = channel["name"]
-            artifact = channel["artifact"]
-            if artifact not in record.artifacts:
+        for artifact in sorted(record.artifacts):
+            name = Path(artifact)
+            if name.suffix.lower() != ".png":
                 continue
             try:
-                frames[kind] = env_state.load_bytes(artifact, step=record.step_idx)
+                frames[name.stem] = env_state.load_bytes(artifact, step=record.step_idx)
             except FileNotFoundError:
                 continue
         self._update_frames(step=display_step, frames=frames)
@@ -946,8 +943,6 @@ class DashboardState:
             return list(self._events[since:])
 
     def frame(self, kind: str) -> bytes | None:
-        if kind not in self._frame_names:
-            raise ValueError(f"unknown frame kind: {kind!r}")
         with self._lock:
             return self._frames.get(kind)
 
@@ -961,11 +956,7 @@ class DashboardState:
             return self._task_state in TERMINAL_RUN_STATES and self.video_path.exists()
 
     def _frame_snapshot(self) -> tuple[int, dict[str, bool]]:
-        available = {
-            channel["name"]: channel["name"] in self._frames
-            for channel in self._frame_channels
-        }
-        return self._frame_idx, available
+        return self._frame_idx, dict.fromkeys(self._frames, True)
 
     def _snapshot_locked(self) -> dict[str, Any]:
         frame_idx, frame_available = self._frame_snapshot()
