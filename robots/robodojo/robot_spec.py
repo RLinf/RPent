@@ -126,7 +126,14 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=ROBODOJO_DASHBOARD_SPEC,
+        run_flash=_run_flash,
     )
+
+
+def _run_flash(toolkit, cell_tag: str, note) -> dict:
+    from robots.robodojo.flash.replay import run_flash
+
+    return run_flash(toolkit, cell_tag, note)
 
 
 def get_toolkit(
@@ -142,11 +149,16 @@ def get_toolkit(
     memory = MemoryManager(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("robodojo"),
     )
+    if config.prompt_vars.get("mode") == "eval-fair":
+        from robots.robodojo.flash.replay import load_plan
+
+        load_plan(memory.root, config.prompt_vars["task"])
     return RoboDojoToolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
         allowed_tool_groups=allowed_tool_groups,
+        eval_fair=config.prompt_vars.get("mode") == "eval-fair",
     )
 
 
@@ -224,7 +236,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     err = robodojo_tasks.validate_task(args.task, source_root)
     if err:
         raise ValueError(err)
-    summary = robodojo_tasks.task_summary(args.task, source_root)
+    eval_fair = getattr(args, "planner", None) == "flash"
+    summary = {} if eval_fair else robodojo_tasks.task_summary(args.task, source_root)
     recipe_tag = f"{args.task}_l{args.layout}"
     if getattr(args, "random", False):
         recipe_tag = f"{args.task}_random"
@@ -251,8 +264,13 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "recipe_tag": recipe_tag,
             "task_summary": summary,
             "memory_dir": str(memory_dir),
+            "mode": "eval-fair" if eval_fair else "dev",
         },
-        task_desc={"task": args.task, "layout": args.layout},
+        task_desc={
+            "task": args.task,
+            "layout": args.layout,
+            **({"mode": "eval-fair"} if eval_fair else {}),
+        },
     )
 
 
@@ -304,6 +322,7 @@ def _spawn_env_server(
             "--kit_args",
             "--enable isaacsim.replicator.behavior --enable isaacsim.sensors.camera",
         ]
+        + (["--mode", "eval-fair"] if getattr(args, "planner", None) == "flash" else [])
         + (["--random"] if getattr(args, "random", False) else []),
         env_overrides=_runtime_overrides(args),
         log_path=str(Path(output_dir) / "robodojo_env_server.log"),
@@ -426,6 +445,11 @@ def _init_runtime(
                     "num_envs": 1,
                     "max_episode_steps": args.max_episode_steps,
                     "random": getattr(args, "random", False),
+                    **(
+                        {"mode": "eval-fair"}
+                        if getattr(args, "planner", None) == "flash"
+                        else {}
+                    ),
                 },
             )
         },

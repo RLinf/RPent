@@ -540,6 +540,7 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         self.app = app
         self.recorder = recorder
         self.meta = meta
+        self.eval_fair = meta.get("mode", "dev") == "eval-fair"
         self.bottle_mon = _SafetyMonitor()
         super().__init__()
 
@@ -569,6 +570,22 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 "env.solve_ik_position",
             ]
         )
+        if self.eval_fair:
+            for method in (
+                "env.get_reward_details",
+                "env.get_safety_status",
+                "env.is_success",
+                "env.reset",
+            ):
+                self._rpc.pop(method, None)
+
+    def _observation(self) -> dict:
+        obs = _obs_dict(self.env, self.recorder)
+        if self.eval_fair:
+            from robots.robodojo.access import public_observation
+
+            return public_observation(obs)
+        return obs
 
     # ---- unified facade contract ----
     def get_env_meta(self) -> dict[str, Any]:
@@ -621,6 +638,8 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         return rgb, (np.asarray(depth_map) if depth_map is not None else None)
 
     def reset(self) -> dict[str, Any]:
+        if self.eval_fair:
+            raise RuntimeError("eval-fair does not allow episode reset")
         if self.meta["random"]:
             _random_reset(self.env)
         else:
@@ -635,9 +654,18 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         ``BaseEnvClient.step`` contract used by the other robot backends.
         """
         action_type = _infer_action_type(flat_action)
+        if self.eval_fair and int(self.env.take_action_cnt[0]) >= int(
+            self.env.step_lim
+        ):
+            raise RuntimeError("Episode step budget exhausted")
         control_info = _control_info_from_action(self.env, flat_action, action_type)
-        _bump_step(self.env)
+        if self.eval_fair:
+            self.env.take_action_cnt[0] += 1
+        else:
+            _bump_step(self.env)
         self.env.apply_target(control_info, 0)
+        if self.eval_fair:
+            return self._observation(), 0.0, False, {"status": self.get_status()}
         alarms = self.bottle_mon.check(self.env)
         if alarms:
             print(f"[robodojo-env] SAFETY ALARM: {alarms}", flush=True)
@@ -657,9 +685,14 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
 
     # ---- RoboDojo-specific RPC ----
     def get_obs(self) -> dict[str, Any]:
-        return _obs_dict(self.env, self.recorder)
+        return self._observation()
 
     def get_status(self) -> dict[str, Any]:
+        if self.eval_fair:
+            return {
+                "step": int(self.env.take_action_cnt[0]),
+                "step_limit": int(self.env.step_lim),
+            }
         return _status(self.env, self.bottle_mon)
 
     def get_reward_details(self) -> dict[str, Any]:
@@ -716,6 +749,7 @@ def main() -> None:
     )
     parser.add_argument("--transport", choices=["http", "socket"], default="http")
     parser.add_argument("--parent-watch", action="store_true")
+    parser.add_argument("--mode", choices=["dev", "eval-fair"], default="dev")
 
     from isaaclab.app import AppLauncher  # noqa: E402
 
@@ -887,6 +921,7 @@ def main() -> None:
             "num_envs": args.num_envs,
             "max_episode_steps": args.max_episode_steps,
             "random": args.random,
+            **({"mode": "eval-fair"} if args.mode == "eval-fair" else {}),
         },
     )
     facade.serve(

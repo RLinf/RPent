@@ -32,7 +32,12 @@ class RoboDojoEnvClient(BaseEnvClient):
     """
 
     def __init__(self, client, *, expected_meta: dict[str, Any]):
-        super().__init__(client, expected_meta=expected_meta)
+        self.eval_fair = expected_meta.get("mode") == "eval-fair"
+        super().__init__(
+            client,
+            expected_meta=expected_meta,
+            reset_on_connect=expected_meta.get("mode") != "eval-fair",
+        )
 
     def get_obs(self) -> dict[str, Any]:
         return self._client.call("env.get_obs")

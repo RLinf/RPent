@@ -26,7 +26,10 @@ from rpent.prompt.utils import PromptNode
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    del variables
+    if (variables or {}).get("mode") == "eval-fair":
+        return {
+            "EXECUTION": "Replay the frozen plan using live RGB-D and robot proprioception. No language model participates."
+        }
     return {
         "ROLE AND RULES": system_parts.ROLE_AND_RULES,
         "TOOL ACCESS": system_parts.TOOL_ACCESS,
@@ -45,6 +48,8 @@ def user_prompt(
         "TASK": user_parts.TASK,
         "BEGIN": user_parts.BEGIN,
     }
+    if (variables or {}).get("mode") == "eval-fair":
+        return {"TASK": "{{task}} / layout {{layout}}"}
     if (variables or {}).get("task") == "put_bottles_into_dustbin":
         sections["TASK CONTEXT"] = user_parts.PUT_BOTTLES_CONTEXT
     return sections

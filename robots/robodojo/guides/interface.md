@@ -78,3 +78,20 @@ stored logs, files/memory, and environment observation state still require
 output filtering and an explicit policy. Observation `state` is currently
 passed through without a field allowlist, so any upstream object poses would
 also be exposed. Do not claim perception isolation from registration alone.
+
+## Frozen Replay Mode
+
+`--planner flash` now applies an additional boundary beyond the registration
+hook: an eval-fair env service filters observations with `access.public_observation`,
+omits task verdicts, returns zero reward, and removes reset/diagnostic RPCs.
+The toolkit requires a mode-validated env client, removes common file tools,
+and records no development trace. Dev defaults are unchanged.
+
+`flash/generate.py` exports `flash_trace.json` to a strict version-1 plan;
+`flash/replay.py` reads only `memory.root/flash/<task>_plan.json`. Queries are
+symbolic, moves contain relative offsets, and action order is frozen.
+SAM3 box-center depth supplies head grounding and optional consistent wrist
+refinement. Grasp retries are bounded and require both the original pick
+heuristic and wrist/EEF proximity. See the paired usage guides for supported
+actions, recording prerequisites, limits, and commands. Plan completion is not
+an official success verdict; scoring must remain outside the replay context.

@@ -32,8 +32,9 @@ class RoboDojoToolkit(Toolkit):
     """Toolkit for the RoboDojo (Isaac Sim) environment.
 
     ``allowed_tool_groups`` optionally filters robot tool registration, not
-    common file tools or automatic state capture. None preserves all tools;
-    this hook alone is not an evaluation information boundary.
+    common file tools or automatic state capture. None preserves all tools in
+    dev. ``eval_fair`` additionally requires a mode-validated environment,
+    removes file/privileged tools, and disables development trace recording.
     """
 
     def __init__(
@@ -43,6 +44,7 @@ class RoboDojoToolkit(Toolkit):
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
         allowed_tool_groups: frozenset[str] | None = None,
+        eval_fair: bool = False,
     ) -> None:
         from robots.robodojo.tools import TOOL_GROUPS
 
@@ -50,6 +52,16 @@ class RoboDojoToolkit(Toolkit):
             unknown = allowed_tool_groups - TOOL_GROUPS.keys()
             if unknown:
                 raise ValueError(f"Unknown RoboDojo tool groups: {sorted(unknown)}")
+        self.eval_fair = eval_fair
+        if eval_fair and not getattr(primitives_kwargs.get("env"), "eval_fair", False):
+            raise ValueError("eval-fair requires a mode-validated environment client")
+        self._flash_trace = []
+        if eval_fair:
+            allowed_tool_groups = frozenset({"general", "mixed"}) & (
+                allowed_tool_groups
+                if allowed_tool_groups is not None
+                else frozenset({"general", "mixed"})
+            )
         self._allowed_tool_groups = allowed_tool_groups
         state = EnvState(get_output_dir())
         super().__init__(
@@ -59,6 +71,52 @@ class RoboDojoToolkit(Toolkit):
         )
         self.init_primitives(primitives_kwargs=primitives_kwargs)
         self._register_robodojo_tools()
+        if eval_fair:
+            allowed = {
+                "view_env_state",
+                "segment",
+                "back_project",
+                "move_to",
+                "set_gripper",
+                "pi0_pick",
+            }
+            self._tools = {
+                name: entry for name, entry in self._tools.items() if name in allowed
+            }
+
+    def execute_tool(self, name, input_dict):
+        result = super().execute_tool(name, input_dict)
+        if not self.eval_fair and name in {
+            "segment",
+            "back_project",
+            "move_to",
+            "set_gripper",
+            "pi0_pick",
+            "place_in_bin",
+            "stabilize",
+        }:
+            import copy
+
+            raw = result.result
+            if isinstance(raw, dict):
+                raw = raw.get("log", {}).get("result", raw)
+                self._flash_trace.append(
+                    copy.deepcopy(
+                        {"action": name, "arguments": input_dict, "result": raw}
+                    )
+                )
+                self._state.save("flash_trace.json", self._flash_trace, step=None)
+        return result
+
+    def flash_observation(self) -> dict:
+        """Refresh the public observation used by live Flash grounding."""
+        from robots.robodojo.access import public_observation
+
+        if not self.eval_fair:
+            raise RuntimeError("Flash requires eval-fair toolkit")
+        obs = public_observation(self._primitives.env.get_obs())
+        self._primitives._last_obs = obs
+        return obs
 
     def init_primitives(self, *, primitives_kwargs: dict[str, Any]) -> None:
         """Wipe stale run artifacts, build the primitives, dump step 0.
@@ -68,6 +126,7 @@ class RoboDojoToolkit(Toolkit):
         """
         from robots.robodojo import tools as robodojo_tools
 
+        self._flash_trace = []
         self._state.reset()
         self._primitives = RoboDojoPrimitives(
             env=primitives_kwargs["env"],
@@ -87,6 +146,8 @@ class RoboDojoToolkit(Toolkit):
 
     def solved(self) -> bool:
         """Return the success value from the final recorded environment state."""
+        if self.eval_fair:
+            return False  # Plan completion is not an official task verdict.
         record = self._state.latest_record()
         return bool(record is not None and record.terminated)
 
