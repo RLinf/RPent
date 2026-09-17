@@ -21,7 +21,8 @@ SDK。
    * - ``api``
      - 基于 `Pydantic AI <https://pydantic.dev/docs/ai/>`_ 实现的工具调用循环，
        不绑定特定模型提供商。当前支持 Anthropic Messages API、OpenAI Responses
-       API 和 OpenAI 兼容的 Chat Completions API，内置 prompt 缓存和历史图片剪枝。
+       API 和 OpenAI 兼容的 Chat Completions API，使用 Anthropic prompt 缓存
+       和 Harness 滑动窗口历史裁剪。
      - 需要精细控制模型调用、支持更多模型提供商，或降低单轮调用成本。
    * - ``claude_code``
      - `Claude Agent SDK
@@ -44,7 +45,7 @@ SDK。
 ``api`` planner（直接调用模型 API）
 -------------------------------------
 
-``--planner api`` 是默认选项。它使用 Pydantic AI 实现工具调用循环，并要求
+``--planner api`` 是默认选项。它使用 Pydantic AI 原生工具调用运行时，并要求
 ``--model`` 带有模型提供商前缀。当前项目安装的依赖包含 Anthropic 和 OpenAI
 集成，因此可以直接使用 Anthropic Messages API、OpenAI Responses API，
 以及 OpenAI 兼容的 Chat Completions API。
@@ -71,9 +72,15 @@ SDK。
 ``api`` planner 的相关调节参数：
 
 - ``--max-tokens`` —— 单次 LLM 回复的 token 上限（默认 ``8192``）。
-- ``--max-turns`` —— 工具调用轮数上限（默认 ``100``）。
+- ``--max-turns`` —— 整段对话的模型请求次数上限，包含重试和后续输入
+  （默认 ``100``）。
 - ``--no-images`` —— 不向模型发送图片字节；纯文本模型必须加此参数。此时
   智能体只依赖文本状态推理，任务表现可能不够理想。
+
+``--interactive`` 要求真实终端（TTY），使用 Pydantic AI 原生 CLI：先运行
+预设任务，再在每轮运行完成后接收输入；使用 ``/exit`` 退出。需要在执行中
+输入指导时，改用 ``--dashboard``。代码调用使用 ``interactive=True``，
+不再使用 ``input_queue``。
 
 .. _planner-claude-code:
 

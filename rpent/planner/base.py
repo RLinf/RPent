@@ -118,7 +118,7 @@ class Planner(Protocol):
 
 
 def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
-    """Resolve the pydantic-ai model used by the ``api`` planner.
+    """Resolve the pydantic-ai model used by the API planner.
 
     This is the single provider-resolution path: both :func:`build_planner`
     and the connectivity check in :mod:`rpent.planner.check` call it, so a
@@ -179,6 +179,7 @@ def build_planner(
     claude_code_max_budget_usd: float | None = None,
     dashboard_events: DashboardEventSink,
     no_images: bool = False,
+    interactive: bool = False,
 ):
     """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
@@ -198,6 +199,7 @@ def build_planner(
             dashboard_events=dashboard_events,
             no_images=no_images,
             timeout_s=api_timeout_s,
+            interactive=interactive,
         )
     if planner_type == "claude_code":
         from rpent.planner.claude_code import ClaudeCodePlanner

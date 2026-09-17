@@ -34,8 +34,8 @@ to add a new primitive.
 
 **A swappable planner.** The planner is the LLM agent runtime that drives the
 tool-calling loop. One ``--planner`` flag switches it while the tools and
-prompts stay put. Three are built in: ``api`` is RPent's own tool-calling loop
-(built on pydantic-ai, the default, provider-agnostic across model APIs);
+prompts stay put. Three are built in: ``api`` uses the native Pydantic AI loop
+with Harness sliding-window history trimming (the default, provider-agnostic);
 ``claude_code`` reuses the Claude Agent SDK runtime; ``codex`` reuses the Codex
 SDK runtime. Because all three face the exact same tools, they can be compared
 head-to-head on the same physical benchmark. See

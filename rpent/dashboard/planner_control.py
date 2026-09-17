@@ -34,12 +34,14 @@ class DashboardPlannerControl:
         emit_user: Callable[[str], None],
         emit_initial_user: Callable[[], None],
         defer_message_ack: bool = False,
+        submit_while_busy: bool = False,
     ) -> None:
         self._interaction = interaction
         self._cancel_active_and_wait = cancel_active_and_wait
         self._emit_user = emit_user
         self._emit_initial_user = emit_initial_user
         self._defer_message_ack = defer_message_ack
+        self._submit_while_busy = submit_while_busy
         self._lock = asyncio.Lock()
         self._outstanding_completions = 0
 
@@ -127,7 +129,7 @@ class DashboardPlannerControl:
                     )
                     await self._flush(driver)
                 return
-            if self._interaction.planner_activity == "idle":
+            if self._interaction.planner_activity == "idle" or self._submit_while_busy:
                 await self._flush(driver)
 
     async def _flush(self, driver: Any) -> None:
