@@ -136,8 +136,8 @@ GRIPPER RULES:
 
 MEMORY = """
 Before the first action, use read_text_file to read every existing file below:
-- {{memory_dir}}/task_only/{{reference_tag}}.json
-- {{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl
+- {{memory_dir}}/results/{{task_name}}_s0.json
+- {{memory_dir}}/results/recipe_{{task_name}}_s0.jsonl
 - {{memory_dir}}/results/{{task_name}}.md
 The JSON/JSONL pair is reviewed seed-0 evidence. The optional Markdown file is
 task-specific exploration memory and may summarize multiple attempts. Treat all

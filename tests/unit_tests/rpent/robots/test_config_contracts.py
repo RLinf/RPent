@@ -219,6 +219,9 @@ def test_robocasa_config_defaults_and_valid_override(tmp_path: Path) -> None:
         "split": "pretrain",
         "seed": 11,
         "recipe_tag": "PnPCounterToCab_pretrain_s11",
+        "mode": "eval",
+        "memory_profile": "hf",
+        "reference_tag": "PnPCounterToCab_s0",
         "memory_dir": str(get_memory_dir("robocasa")),
     }
     assert config.task_desc == {
@@ -252,14 +255,60 @@ def test_robotwin_external_runtime_config_needs_no_local_assets(tmp_path: Path) 
 
     config = get_robot_spec("robotwin").parse_config(args)
 
-    assert config.recipe_tag == "robotwin_block_hammer_beat_s13"
+    assert config.recipe_tag == "robotwin_block_hammer_beat_demo_clean_s13"
     assert config.output_dir == tmp_path
+    assert config.prompt_vars["mode"] == "eval"
+    assert config.prompt_vars["memory_profile"] == "hf"
+    assert config.prompt_vars["reference_tag"] == "block_hammer_beat_s0"
     assert config.prompt_vars["instruction"].startswith("<native")
     assert config.task_desc["seed_mode"] == "exact"
     assert config.task_desc["env_cuda_device"] == "2"
     assert config.task_desc["vla_cuda_device"] == "3"
     assert args.env_endpoint == "http://offline.invalid:1"
     assert args.vla_endpoint == "ws://offline.invalid:2"
+
+
+def test_robotwin_exploration_uses_config_qualified_local_reference(
+    tmp_path: Path,
+) -> None:
+    memory_dir = tmp_path / "robotwin-memory"
+    args = _parser("robotwin").parse_args(
+        [
+            "--task-name",
+            "block_hammer_beat",
+            "--seed",
+            "13",
+            "--task-config",
+            "demo_clean",
+            "--env-endpoint",
+            "http://offline.invalid:1",
+            "--vla-endpoint",
+            "ws://offline.invalid:2",
+            "--output-dir",
+            str(tmp_path / "run"),
+            "--explore",
+            "--memory-profile",
+            "local",
+            "--memory-dir",
+            str(memory_dir),
+        ]
+    )
+
+    config = get_robot_spec("robotwin").parse_config(args)
+
+    assert config.recipe_tag == "robotwin_block_hammer_beat_demo_clean_s13"
+    assert config.prompt_vars["mode"] == "explore"
+    assert config.prompt_vars["memory_profile"] == "local"
+    assert (
+        config.prompt_vars["reference_tag"]
+        == "robotwin_block_hammer_beat_demo_clean_s0"
+    )
+    assert config.prompt_vars["memory_inbox"] == str(
+        memory_dir.resolve()
+        / "_internal"
+        / "inbox"
+        / "robotwin_block_hammer_beat_demo_clean_s13"
+    )
 
 
 def test_robotwin_cli_defaults_can_come_from_environment(

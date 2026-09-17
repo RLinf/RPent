@@ -254,21 +254,28 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
     recipe_tag = f"{args.task_name}_{args.split}_s{args.seed}"
+    explore = bool(getattr(args, "explore", False))
+    memory_profile = getattr(args, "memory_profile", None) or (
+        "local" if explore else "hf"
+    )
+    reference_tag = (
+        f"{args.task_name}_{args.split}_s0"
+        if memory_profile == "local"
+        else f"{args.task_name}_s0"
+    )
     prompt_vars = {
         "task_name": args.task_name,
         "split": args.split,
         "seed": args.seed,
         "recipe_tag": recipe_tag,
-        "reference_tag": f"{args.task_name}_{args.split}_s0",
+        "mode": "explore" if explore else "eval",
+        "memory_profile": memory_profile,
+        "reference_tag": reference_tag,
         "memory_dir": str(memory_dir),
     }
-
-    explore = bool(getattr(args, "explore", False))
     if explore:
         prompt_vars.update(
             {
-                "mode": "explore",
-                "memory_profile": "local",
                 "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
                 "session_number": 1,
                 "session_max": max(1, args.explore_sessions),

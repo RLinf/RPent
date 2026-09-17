@@ -20,6 +20,7 @@ from collections.abc import Mapping
 
 from robots.robocasa.prompts import evaluate as evaluate_parts
 from robots.robocasa.prompts import explore as explore_parts
+from robots.robocasa.prompts import local_eval as local_eval_parts
 from rpent.prompt import common as base_prompt
 from rpent.prompt.utils import PromptNode
 
@@ -30,11 +31,16 @@ def system_prompt(
     """Return the system prompt tree."""
     if (variables or {}).get("mode", "eval") == "explore":
         return explore_parts.system_prompt()
+    memory = (
+        local_eval_parts.MEMORY
+        if (variables or {}).get("memory_profile", "hf") == "local"
+        else evaluate_parts.MEMORY
+    )
     return {
         "Intro": evaluate_parts.PREAMBLE,
         "Goal": evaluate_parts.GOAL,
         "Rules": evaluate_parts.RULES,
-        "Memory": evaluate_parts.MEMORY,
+        "Memory": memory,
         "Localization": evaluate_parts.LOCALIZATION,
         "Navigation": evaluate_parts.NAVIGATION,
         "Primitives": evaluate_parts.PRIMITIVES,
