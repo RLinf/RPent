@@ -14,14 +14,14 @@
 """Planner that replays a recorded plan instead of asking an LLM.
 
 The other backends put a model in the loop and let it decide what to do next.
-This one replays a **task card** recorded from an earlier run: the actions,
+This one replays a **Flash plan** recorded from an earlier run: the actions,
 their order, the prompts given to the policy and the gripper commands are all
 fixed before the episode starts. Only perception is live, and it is what makes
-the card transferable -- every waypoint is re-expressed against a fresh reading
+the program transferable -- every waypoint is re-expressed against a fresh reading
 of the object it was written relative to.
 
-What a card holds, and how it is replayed, is the robot's business: this asks
-the robot's :attr:`~rpent.robots.robot_spec.RobotSpec.replay_card` hook to run
+What a program holds, and how it is replayed, is the robot's business: this asks
+the robot's :attr:`~rpent.robots.robot_spec.RobotSpec.run_flash` hook to run
 the cell and reports what came back.
 """
 
@@ -34,11 +34,11 @@ from rpent.robots.base import get_robot_spec
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
 
-logger = get_logger("task_card")
+logger = get_logger("flash")
 
 
-class TaskCardPlanner:
-    """Replay one recorded card against the toolkit the runtime handed over."""
+class FlashPlanner:
+    """Replay one recorded program against the toolkit the runtime handed over."""
 
     def __init__(
         self,
@@ -46,7 +46,7 @@ class TaskCardPlanner:
         recipe_tag: str,
         robot_name: str,
     ) -> None:
-        """Note which cell this replays; the robot resolves it to a card."""
+        """Note which cell this replays; the robot resolves it to a program."""
         self._recipe_tag = recipe_tag
         self._robot_name = robot_name
 
@@ -60,22 +60,22 @@ class TaskCardPlanner:
         input_queue=None,
         dashboard_interaction=None,
     ) -> PlannerResult:
-        """Replay the card for this cell. The prompts and turn budget are unused.
+        """Replay the program for this cell. The prompts and turn budget are unused.
 
-        A card decides the actions before the episode begins, so there is no
+        A program decides the actions before the episode begins, so there is no
         conversation to hold and no turn to spend. The arguments are accepted to
         satisfy the planner protocol.
         """
-        replay_card = get_robot_spec(self._robot_name).replay_card
-        if replay_card is None:
+        run_flash = get_robot_spec(self._robot_name).run_flash
+        if run_flash is None:
             return PlannerResult(
-                error=f"the {self._robot_name} robot records no task cards, "
-                "so --planner task_card has nothing to replay"
+                error=f"the {self._robot_name} robot records no Flash plans, "
+                "so --planner flash has nothing to replay"
             )
 
         started = time.time()
         try:
-            outcome = replay_card(toolkit, self._recipe_tag, logger.info)
+            outcome = run_flash(toolkit, self._recipe_tag, logger.info)
         except Exception as exc:
             return PlannerResult(error=f"{type(exc).__name__}: {exc}")
         elapsed = time.time() - started
@@ -85,7 +85,7 @@ class TaskCardPlanner:
             finish_result={
                 "status": "success" if solved else "failure",
                 "summary": (
-                    f"replayed the {outcome.get('card', self._recipe_tag)} card: "
+                    f"replayed the {outcome.get('program', self._recipe_tag)} program: "
                     f"{outcome.get('plan')} actions, "
                     f"{outcome.get('anchors')} anchors re-localized"
                 ),

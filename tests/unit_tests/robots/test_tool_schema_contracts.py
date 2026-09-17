@@ -57,8 +57,6 @@ EXPECTED_TOOL_NAMES = {
         "move_base",
         "reset",
         "view_env_state",
-        "view_camera_meta",
-        "back_project",
         "back_project_batch",
         "query_world_map",
         "finish",

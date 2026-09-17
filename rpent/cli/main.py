@@ -131,9 +131,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--planner",
         default="api",
-        choices=["api", "claude_code", "codex", "task_card"],
+        choices=["api", "claude_code", "codex", "flash"],
         help="Planner backend: api | claude_code | codex are LLMs in the "
-        "loop; task_card replays a recorded plan with no LLM, re-localizing "
+        "loop; flash is evaluation-only and replays a plan from memory, re-localizing "
         "each waypoint's anchor.",
     )
     ap.add_argument(
@@ -322,6 +322,10 @@ def _start_continuation_session(
         session_max,
         robot_name=args.robot_name,
     )
+    if prompt_vars.get("initial_user_message"):
+        session_message += "\n\nOriginal operator task instruction:\n" + str(
+            prompt_vars["initial_user_message"]
+        )
     return planner, system_prompt, session_message
 
 
@@ -352,9 +356,12 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    human_interactive_exploration = (
+        args.explore and robot_spec.supports_human_interactive_exploration
+    )
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
-    if robot_spec.is_real_robot:
+    if robot_spec.is_real_robot and not human_interactive_exploration:
         if args.dashboard or args.interactive:
             parser.error(
                 "This robot requires exclusive terminal input for operator confirmation; "
@@ -368,6 +375,11 @@ def main() -> int:
             f"{args.planner} reads its endpoint from "
             f"{BASE_URL_ENV_BY_PLANNER[args.planner]} instead"
         )
+    if args.planner == "flash":
+        if args.explore:
+            parser.error("Flash Mode is evaluation-only; remove --explore")
+        if robot_spec.run_flash is None:
+            parser.error(f"Flash Mode is not supported for robot {args.robot_name!r}")
     if args.explore and not robot_spec.supports_exploration:
         detail = (
             " Real-robot exploration requires operator-mediated scene restoration "
@@ -378,6 +390,17 @@ def main() -> int:
         parser.error(
             f"--explore is not supported for robot {args.robot_name!r}.{detail}"
         )
+    if args.explore and getattr(args, "explore_attempts_per_session", 0) < 0:
+        parser.error("--explore-attempts-per-session must be nonnegative")
+    if human_interactive_exploration:
+        if args.dashboard:
+            parser.error(
+                "Human-interactive exploration currently requires the CLI operator terminal; Dashboard feedback is not implemented"
+            )
+        if sys.stdin is None or not sys.stdin.isatty():
+            parser.error(
+                "Human-interactive exploration requires a TTY for operator reset/verdict feedback"
+            )
     if args.explore and args.memory_profile == "hf":
         parser.error("--explore cannot be used with --memory-profile hf")
     if args.explore and getattr(args, "explore_sessions", 1) <= 0:
@@ -403,13 +426,14 @@ def main() -> int:
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
     memory_profile = getattr(args, "memory_profile", "hf")
-    if (
-        not getattr(args, "explore", False)
-        and memory_profile == "hf"
-        and args.planner != "task_card"
-    ):
+    if not getattr(args, "explore", False) and memory_profile == "hf":
         MemoryManager(get_memory_dir(robot_name)).sync(
             remote_repo=robot_spec.memory_repo_id,
+            **(
+                {"allow_patterns": (f"{robot_name}/flash/**",)}
+                if args.planner == "flash"
+                else {}
+            ),
         )
     else:
         logger.info("memory: using local %s profile", memory_profile)
@@ -441,13 +465,30 @@ def main() -> int:
         variables=prompt_vars,
     )
 
+    operator_input = None
+    if human_interactive_exploration:
+        from rpent.tools.human_in_the_loop import HumanInTheLoopInput
+
+        operator_input = HumanInTheLoopInput(interactive=args.interactive)
     input_queue: "queue.Queue[str | None] | None" = None
     await_first_prompt: "Callable[[], str | None] | None" = None
     if args.interactive:
         input_queue = queue.Queue()
         # Pre-fill the first prompt with the rendered default task (editable
         # preset);
-        start_interactive_reader(input_queue, first_prompt_default=user_msg)
+        start_interactive_reader(
+            input_queue,
+            first_prompt_default=user_msg,
+            **(
+                {
+                    "line_handler": operator_input.route_line,
+                    "extra_help": operator_input.help_text,
+                    "on_close": operator_input.close,
+                }
+                if operator_input is not None
+                else {}
+            ),
+        )
         logger.info(
             "interactive mode on: the built-in task is pre-filled — "
             "edit it and press Enter, submit it as-is, or clear it to "
@@ -459,7 +500,7 @@ def main() -> int:
         await_first_prompt = start_first_prompt_resolver(input_queue)
 
     # --- initialise robot runtime --------------------------------------------
-    daemons, primitives_kwargs = robot_spec.init_runtime(
+    daemons, runtime_kwargs = robot_spec.init_runtime(
         args,
         output_dir,
         dashboard_events,
@@ -476,6 +517,8 @@ def main() -> int:
         first_user_msg = await_first_prompt()
         if first_user_msg is None:
             logger.info("no task entered; ending session before start.")
+    if human_interactive_exploration:
+        prompt_vars = {**prompt_vars, "initial_user_message": first_user_msg}
     # Exploration may hand off between independent planner contexts.
     sessions = max(1, int(getattr(args, "explore_sessions", 1) or 1))
     if not getattr(args, "explore", False):
@@ -484,6 +527,7 @@ def main() -> int:
     solved = False
     environment_success: bool | None = None
     memory_manager: MemoryManager | None = None
+    direct_operator_success = False
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
@@ -507,10 +551,10 @@ def main() -> int:
                 state_output_dir = (
                     output_dir / "sessions" / f"session_{session_number:03d}"
                 )
-            if robot_spec.supports_exploration:
+            if getattr(robot_spec, "supports_exploration", False):
                 toolkit = get_toolkit(
                     robot_name,
-                    primitives_kwargs=primitives_kwargs,
+                    runtime_kwargs=runtime_kwargs,
                     dashboard_events=dashboard_events,
                     config=run_config,
                     mode="exploration" if args.explore else "evaluation",
@@ -518,15 +562,34 @@ def main() -> int:
                         args, "explore_attempts_per_session", 0
                     ),
                     state_output_dir=state_output_dir,
+                    **(
+                        {"operator_input": operator_input}
+                        if operator_input is not None
+                        else {}
+                    ),
                 )
             else:
                 toolkit = get_toolkit(
                     robot_name,
-                    primitives_kwargs=primitives_kwargs,
+                    runtime_kwargs=runtime_kwargs,
                     dashboard_events=dashboard_events,
                     config=run_config,
                 )
             memory_manager = toolkit.memory
+            if operator_input is not None and args.interactive:
+
+                def accept_verdict(verdict: str, active_toolkit=toolkit) -> bool:
+                    if not active_toolkit.request_direct_verdict(verdict):
+                        return False
+                    logger.info(
+                        "/%s accepted: stopping actions, then recording the result and exiting.",
+                        verdict,
+                    )
+                    # EOF is a planner control signal, never a model message.
+                    input_queue.put(None)
+                    return True
+
+                operator_input.bind_verdict(accept_verdict)
             try:
                 result = planner.solve(
                     system_prompt=system_prompt,
@@ -539,18 +602,39 @@ def main() -> int:
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
-                if robot_spec.supports_exploration:
-                    solved = bool(toolkit.solved())
-                    if solved:
-                        recipe_path = toolkit.write_recipe(recipe_tag) or recipe_path
+                if getattr(toolkit, "direct_verdict_requested", False):
+                    finish_result = toolkit.finalize_direct_verdict()
+                    direct_operator_success = finish_result["status"] == "success"
+                    if agent_error:
+                        logger.info(
+                            "Planner stopped after operator verdict: %s", agent_error
+                        )
+                        stats["planner_error_at_operator_verdict"] = agent_error
+                solved_fn = getattr(toolkit, "solved", None)
+                if getattr(robot_spec, "supports_exploration", False) and callable(
+                    solved_fn
+                ):
+                    solved = bool(solved_fn())
+                    write_recipe = getattr(toolkit, "write_recipe", None)
+                    if solved and callable(write_recipe):
+                        recipe_path = write_recipe(recipe_tag) or recipe_path
             finally:
+                if operator_input is not None and args.interactive:
+                    operator_input.bind_verdict(None)
                 try:
                     if robot_spec.finalize_run is not None:
-                        environment_success = bool(toolkit.solved())
+                        solved_fn = getattr(toolkit, "solved", None)
+                        environment_success = (
+                            bool(solved_fn()) if callable(solved_fn) else None
+                        )
                         solved = bool(environment_success)
                 finally:
                     toolkit.close()
-            if solved:
+            if (
+                solved
+                or (finish_result or {}).get("operator_aborted")
+                or (finish_result or {}).get("operator_finished")
+            ):
                 break
             if agent_error:
                 if (
@@ -569,6 +653,8 @@ def main() -> int:
         agent_error = f"{type(exc).__name__}: {exc}"
         logger.error("EXCEPTION in agent loop: %s", agent_error)
     finally:
+        if operator_input is not None:
+            operator_input.close()
         if recipe_path:
             logger.info("recipe: %s", recipe_path)
         else:
@@ -629,9 +715,10 @@ def main() -> int:
     # Publish exploration artifacts into the corpus after the session loop.
     if (
         getattr(args, "explore", False)
-        and getattr(args, "auto_merge_memory", False)
+        and (getattr(args, "auto_merge_memory", False) or direct_operator_success)
         and not agent_error
         and memory_manager is not None
+        and (not human_interactive_exploration or solved)
     ):
         try:
             merge_result = memory_manager.merge_memory(
