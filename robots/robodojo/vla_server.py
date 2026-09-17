@@ -98,10 +98,9 @@ def _wait_for_port(host: str, port: int, timeout_s: float = 900) -> None:
 
 def _spawn_policy_server() -> str:
     """Launch the Pi_05 policy server via the workspace launcher."""
-    pi05_root = os.environ.get(
-        "ROBODOJO_PI05_POLICY_ROOT",
-        "/home/admin/robodojo_pro6000_ws/src/RoboDojo/XPolicyLab/policy/Pi_05",
-    )
+    pi05_root = os.environ.get("ROBODOJO_PI05_POLICY_ROOT")
+    if not pi05_root:
+        raise RuntimeError("Set ROBODOJO_PI05_POLICY_ROOT to XPolicyLab/policy/Pi_05")
     launcher = os.path.join(pi05_root, "setup_eval_policy_server.sh")
     if not os.path.exists(launcher):
         raise RuntimeError(f"policy launcher not found: {launcher}")

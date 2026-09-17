@@ -298,6 +298,7 @@ def _summarize_obs(obs: dict) -> dict:
     }
 
 
+@readonly
 def back_project(primitives, state, row, col, camera="cam_head") -> dict:
     """Pixel -> world xyz via depth + camera calibration."""
     import numpy as np
@@ -341,6 +342,7 @@ def back_project(primitives, state, row, col, camera="cam_head") -> dict:
     }
 
 
+@readonly
 def segment(primitives, state, text_prompt, camera="cam_head", min_score=0.2) -> dict:
     """Segment an object by text prompt using SAM 3.0."""
     if primitives._last_obs is None:

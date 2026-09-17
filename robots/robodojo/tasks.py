@@ -16,44 +16,38 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-DEFAULT_WORKSPACE = "/home/admin/robodojo_pro6000_ws"
+
+def task_config_dir(source_root: str | Path) -> Path:
+    return Path(source_root).expanduser() / "task" / "RoboDojo" / "config"
 
 
-def robodojo_source_root() -> Path:
-    env = os.environ.get("ROBODOJO_SOURCE_ROOT")
-    if env:
-        return Path(env)
-    return Path(DEFAULT_WORKSPACE) / "src" / "RoboDojo"
+def is_available(source_root: str | Path | None = None) -> bool:
+    return source_root is not None and task_config_dir(source_root).is_dir()
 
 
-def task_config_dir() -> Path:
-    return robodojo_source_root() / "task" / "RoboDojo" / "config"
-
-
-def is_available() -> bool:
-    return task_config_dir().is_dir()
-
-
-def list_tasks() -> list[str]:
+def list_tasks(source_root: str | Path | None = None) -> list[str]:
     """All RoboDojo task names (config ymls, excluding ``_task.yml``)."""
-    cfg_dir = task_config_dir()
+    if source_root is None:
+        return []
+    cfg_dir = task_config_dir(source_root)
     if not cfg_dir.is_dir():
         return []
     return sorted(p.stem for p in cfg_dir.glob("*.yml") if p.stem != "_task")
 
 
-def task_config_path(task_name: str) -> Path:
-    return task_config_dir() / f"{task_name}.yml"
+def task_config_path(task_name: str, source_root: str | Path) -> Path:
+    return task_config_dir(source_root) / f"{task_name}.yml"
 
 
-def task_summary(task_name: str) -> dict:
+def task_summary(task_name: str, source_root: str | Path | None = None) -> dict:
     """Lightweight static summary of a task config (objects per category)."""
     import yaml
 
-    path = task_config_path(task_name)
+    if source_root is None:
+        return {"task": task_name}
+    path = task_config_path(task_name, source_root)
     if not path.exists():
         return {"task": task_name, "error": f"config not found: {path}"}
     data = yaml.safe_load(path.read_text(errors="replace")) or {}
@@ -69,12 +63,12 @@ def task_summary(task_name: str) -> dict:
     return summary
 
 
-def validate_task(task_name: str) -> str | None:
+def validate_task(task_name: str, source_root: str | Path | None = None) -> str | None:
     """Return an error string if the task is unknown, else None."""
-    if not is_available():
+    if not is_available(source_root):
         return None  # workspace not configured here; defer validation
-    if task_name not in list_tasks():
+    if task_name not in list_tasks(source_root):
         return f"unknown RoboDojo task {task_name!r}; known tasks: " + ", ".join(
-            list_tasks()
+            list_tasks(source_root)
         )
     return None

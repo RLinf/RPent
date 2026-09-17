@@ -40,7 +40,6 @@ if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
 
 
-DEFAULT_WORKSPACE = "/home/admin/robodojo_pro6000_ws"
 DEFAULT_TASK = "put_bottles_into_dustbin"
 DEFAULT_ENV_CFG = "arx_x5"
 
@@ -98,56 +97,24 @@ ROBODOJO_DASHBOARD_SPEC: DashboardSpec = {
 }
 
 
-def _read_runtime_env(workspace: str) -> dict[str, str]:
-    """Parse ``config/runtime.env`` exports into an env dict (no shell)."""
-    path = Path(workspace) / "config" / "runtime.env"
-    out: dict[str, str] = {}
-    if not path.exists():
-        return out
-    for line in path.read_text(errors="replace").splitlines():
-        line = line.strip()
-        if not line.startswith("export "):
-            continue
-        line = line[len("export ") :]
-        if "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        value = value.strip().strip('"').strip("'")
-        out[key.strip()] = value
-    return out
-
-
-def _runtime_overrides(extra: dict[str, str] | None = None) -> dict[str, str]:
-    """Build ``ProcessDaemon`` env overrides from the RoboDojo workspace.
-
-    Merges ``config/runtime.env`` exports and puts the workspace source roots
-    (RoboDojo + XPolicyLab) on the child ``PYTHONPATH``.
-    """
-    runtime = _read_runtime_env(os.environ.get("ROBODOJO_WORKSPACE", DEFAULT_WORKSPACE))
-    overrides = dict(runtime)
-    conda_bin = runtime.get("ROBODOJO_CONDA_ROOT", "")
-    if conda_bin:
-        overrides["PATH"] = f"{conda_bin}/bin" + (
-            f":{os.environ['PATH']}" if os.environ.get("PATH") else ""
-        )
-    source_root = runtime.get(
-        "ROBODOJO_SOURCE_ROOT", DEFAULT_WORKSPACE + "/src/RoboDojo"
+def _runtime_overrides(args: argparse.Namespace) -> dict[str, str]:
+    """Build child imports from explicitly configured source directories."""
+    if not args.source_root:
+        raise ValueError("--source-root is required when spawning RoboDojo services")
+    source = Path(args.source_root).expanduser().resolve()
+    xpolicy = (
+        Path(args.xpolicylab_root).expanduser().resolve()
+        if args.xpolicylab_root
+        else source / "XPolicyLab"
     )
-    xpolicy_root = runtime.get(
-        "ROBODOJO_XPOLICYLAB_ROOT",
-        DEFAULT_WORKSPACE + "/src/RoboDojo/XPolicyLab",
-    )
-    overrides["PYTHONPATH"] = ":".join(
-        [
-            str(get_repo_root()),
-            source_root,
-            xpolicy_root,
-            os.environ.get("PYTHONPATH", ""),
-        ]
-    )
-    if extra:
-        overrides.update(extra)
-    return overrides
+    return {
+        "PYTHONPATH": os.pathsep.join(
+            [str(get_repo_root()), str(source), str(xpolicy)]
+            + ([os.environ["PYTHONPATH"]] if os.environ.get("PYTHONPATH") else [])
+        ),
+        "ROBODOJO_PI05_POLICY_ROOT": str(xpolicy / "policy" / "Pi_05"),
+        "CUDA_VISIBLE_DEVICES": str(args.cuda_device),
+    }
 
 
 def get_robot_spec() -> RobotSpec:
@@ -184,10 +151,24 @@ def get_toolkit(
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     required = not use_dashboard
     parser.add_argument(
-        "--workspace",
+        "--source-root",
         default=None,
-        help="RoboDojo workspace root "
-        "(default: env or /home/admin/robodojo_pro6000_ws)",
+        help="RoboDojo source checkout (required for locally spawned services)",
+    )
+    parser.add_argument(
+        "--xpolicylab-root",
+        default=None,
+        help="XPolicyLab checkout (default: SOURCE_ROOT/XPolicyLab)",
+    )
+    parser.add_argument(
+        "--sim-python",
+        default=sys.executable,
+        help="Python executable with Isaac Sim and RoboDojo installed",
+    )
+    parser.add_argument(
+        "--pi05-python",
+        default=sys.executable,
+        help="Python executable with Pi_05 dependencies installed",
     )
     parser.add_argument(
         "--task",
@@ -235,14 +216,13 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
-    if getattr(args, "workspace", None):
-        os.environ.setdefault("ROBODOJO_WORKSPACE", args.workspace)
     from robots.robodojo import tasks as robodojo_tasks
 
-    err = robodojo_tasks.validate_task(args.task)
+    source_root = getattr(args, "source_root", None)
+    err = robodojo_tasks.validate_task(args.task, source_root)
     if err:
         raise ValueError(err)
-    summary = robodojo_tasks.task_summary(args.task)
+    summary = robodojo_tasks.task_summary(args.task, source_root)
     recipe_tag = f"{args.task}_l{args.layout}"
     if getattr(args, "random", False):
         recipe_tag = f"{args.task}_random"
@@ -281,12 +261,10 @@ def _spawn_env_server(
     if args.env_endpoint is not None:
         return None, make_rpc_client(args.env_endpoint)
 
-    runtime = _read_runtime_env(os.environ.get("ROBODOJO_WORKSPACE", DEFAULT_WORKSPACE))
-    sim_python = str(Path(runtime.get("ROBODOJO_SIM_ENV", "")) / "bin" / "python")
+    sim_python = str(Path(args.sim_python).expanduser())
     if not Path(sim_python).exists():
         raise RuntimeError(
-            f"RoboDojo sim env python not found: {sim_python}; "
-            "is ROBODOJO_SIM_ENV configured?"
+            f"RoboDojo sim env python not found: {sim_python}; configure --sim-python"
         )
 
     host, port = "127.0.0.1", pick_free_port()
@@ -325,9 +303,7 @@ def _spawn_env_server(
             "--enable isaacsim.replicator.behavior --enable isaacsim.sensors.camera",
         ]
         + (["--random"] if getattr(args, "random", False) else []),
-        env_overrides=_runtime_overrides(
-            {"CUDA_VISIBLE_DEVICES": str(args.cuda_device)}
-        ),
+        env_overrides=_runtime_overrides(args),
         log_path=str(Path(output_dir) / "robodojo_env_server.log"),
     )
     daemon.start()
@@ -370,8 +346,7 @@ def _spawn_vla_server(
     if args.vla_endpoint is not None:
         return None, make_rpc_client(args.vla_endpoint)
 
-    runtime = _read_runtime_env(os.environ.get("ROBODOJO_WORKSPACE", DEFAULT_WORKSPACE))
-    pi05_python = str(Path(runtime.get("ROBODOJO_PI05_ENV", "")) / "bin" / "python")
+    pi05_python = str(Path(args.pi05_python).expanduser())
     if not Path(pi05_python).exists():
         raise RuntimeError(f"RoboDojo Pi_05 env python not found: {pi05_python}")
     policy_port = pick_free_port()
@@ -404,9 +379,7 @@ def _spawn_vla_server(
             "http",
             "--parent-watch",
         ],
-        env_overrides=_runtime_overrides(
-            {"CUDA_VISIBLE_DEVICES": str(args.cuda_device)}
-        ),
+        env_overrides=_runtime_overrides(args),
         log_path=str(Path(output_dir) / "robodojo_vla_server.log"),
     )
     daemon.start()
