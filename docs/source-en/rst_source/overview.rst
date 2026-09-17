@@ -26,6 +26,26 @@ Together, these principles allow RPent to move beyond traditional robot control 
 and establish an agentic infrastructure for the physical world, where intelligence 
 is not only deployed, but continuously built, expanded, and evolved.
 
+Benchmark Results
+-----------------
+
+Compare success rates on LIBERO, LIBERO-PRO, RoboCasa365 Target50, and RoboTwin
+C2R. Rankings apply to the methods and evaluation coverage shown; see
+:doc:`benchmarks` for detailed results, configurations, and sources.
+
+.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@c3b9b5d4ffa360a8324c5b7aa510e1ed0876aa43/rpent/benchmarks/leaderboard-en-light.png
+   :alt: RPent benchmark results
+   :class: only-light
+   :width: 100%
+   :target: benchmarks.html
+
+.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@c3b9b5d4ffa360a8324c5b7aa510e1ed0876aa43/rpent/benchmarks/leaderboard-en-dark.png
+   :alt: RPent benchmark results
+   :class: only-dark
+   :width: 100%
+   :target: benchmarks.html
+
+
 Feature Matrix
 --------------
 

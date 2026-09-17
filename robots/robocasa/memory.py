@@ -12,11 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Verified RoboCasa task and global memory, shared by prompts and file tools."""
+"""RoboCasa task and global memory, shared by prompts and file tools."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from collections.abc import Mapping
@@ -24,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from rpent.evaluation import write_json_atomic
 from rpent.memory import MemoryManager
 from rpent.tools.toolkit import readonly
 from rpent.utils.config import get_repo_root
@@ -31,19 +31,8 @@ from rpent.utils.logging import get_logger
 
 logger = get_logger("robocasa_memory")
 MEMORY_POLICIES = ("task-global", "task-only")
-# Immutable, verified snapshot of the reviewed task and global memory corpus.
-DEFAULT_MEMORY_REVISION = "d1a086d857e7fa53576d46c3851afa8e239b1b64"
 GLOBAL_FILE = "global/GLOBAL_MEMORY.md"
 _TASK_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]*\Z")
-_TASK_FILE = re.compile(
-    r"task_only/[A-Za-z][A-Za-z0-9]*(?:_s0\.json|_s0_recipe\.jsonl|\.md)\Z"
-)
-
-
-def corpus_digest(files: Mapping[str, str]) -> str:
-    """Hash the canonical file-to-SHA256 mapping, independent of provenance text."""
-    encoded = json.dumps(dict(files), sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def task_files(task_name: str) -> tuple[str, str, str]:
@@ -59,14 +48,13 @@ def task_files(task_name: str) -> tuple[str, str, str]:
 
 @dataclass(frozen=True)
 class TaskMemory:
-    """One validated corpus and the subset available to the current task."""
+    """The files available to one task for the duration of a run."""
 
     root: Path
     policy: str
-    hashes: dict[str, str]
+    contents: dict[str, str]
     selected: tuple[str, ...]
     missing: tuple[str, ...]
-    hf_revision: str | None
 
     @classmethod
     def load(
@@ -75,64 +63,39 @@ class TaskMemory:
         task_name: str,
         *,
         policy: str = "task-global",
-        hf_revision: str | None = None,
     ) -> TaskMemory:
-        """Validate every declared file and select only this task's memory.
-
-        Unlisted files are ignored, including stale files from an older HF
-        snapshot. A listed but missing/modified file is a corrupt snapshot.
-        """
+        """Select conventional task/global paths without a dataset manifest."""
         if policy not in MEMORY_POLICIES:
             raise ValueError(f"unsupported RoboCasa memory policy: {policy}")
         root = Path(root).expanduser().resolve()
         wanted = task_files(task_name)
-        manifest_path = root / "CORPUS.json"
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise ValueError(
-                f"cannot read RoboCasa corpus manifest: {manifest_path}"
-            ) from exc
-        if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
-            raise ValueError("unsupported RoboCasa CORPUS.json schema")
-        hashes = manifest.get("files")
-        if not isinstance(hashes, dict):
-            raise ValueError("CORPUS.json files must map relative paths to SHA-256")
-        for name, digest in hashes.items():
-            if not isinstance(name, str) or not (
-                name == GLOBAL_FILE or _TASK_FILE.fullmatch(name)
-            ):
-                raise ValueError(f"invalid RoboCasa corpus path: {name!r}")
-            if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
-                raise ValueError(f"invalid SHA-256 for {name}")
-            cls._verify_file(root, name, digest)
-        if (wanted[0] in hashes) != (wanted[1] in hashes):
+        if not root.is_dir():
+            raise ValueError(f"RoboCasa memory directory not found: {root}")
+        if (root / wanted[0]).exists() != (root / wanted[1]).exists():
             raise ValueError(f"incomplete seed-0 JSON/JSONL pair for {task_name}")
         candidates = wanted + ((GLOBAL_FILE,) if policy == "task-global" else ())
-        selected = tuple(name for name in candidates if name in hashes)
-        missing = tuple(name for name in candidates if name not in hashes)
+        contents = {}
+        for name in candidates:
+            path = root / name
+            if not path.resolve().is_relative_to(root):
+                raise ValueError(f"memory file escapes memory root: {name}")
+            if path.exists() or path.is_symlink():
+                try:
+                    contents[name] = path.read_text(encoding="utf-8")
+                except (OSError, UnicodeError) as exc:
+                    raise ValueError(f"cannot read memory file: {name}") from exc
+        if policy == "task-global" and GLOBAL_FILE not in contents:
+            raise ValueError(f"task-global requires {root / GLOBAL_FILE}")
+        selected = tuple(contents)
+        missing = tuple(name for name in candidates if name not in contents)
         for name in missing:
             logger.warning("memory layer not provided: %s", name)
-        return cls(root, policy, hashes, selected, missing, hf_revision)
-
-    @staticmethod
-    def _verify_file(root: Path, name: str, digest: str) -> None:
-        path = root / name
-        if not path.resolve().is_relative_to(root):
-            raise ValueError(f"memory file escapes corpus root: {name}")
-        try:
-            actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        except OSError as exc:
-            raise ValueError(f"declared memory file is missing: {name}") from exc
-        if actual != digest:
-            raise ValueError(f"memory SHA-256 mismatch: {name}")
+        return cls(root, policy, contents, selected, missing)
 
     def metadata(self) -> dict[str, Any]:
-        """Return public provenance for the run, without credentials."""
+        """Record the selected layers without pinning a data version."""
         return {
             "policy": self.policy,
-            "corpus_sha256": corpus_digest(self.hashes),
-            "hf_revision": self.hf_revision,
             "selected_files": list(self.selected),
             "missing_layers": list(self.missing),
         }
@@ -144,7 +107,6 @@ def memory_from_variables(variables: Mapping[str, object]) -> TaskMemory:
         str(variables["memory_dir"]),
         str(variables["task_name"]),
         policy=str(variables.get("memory_policy", "task-global")),
-        hf_revision=variables.get("memory_revision") or None,
     )
 
 
@@ -160,6 +122,12 @@ class RoboCasaMemoryManager(MemoryManager):
         self.selection = memory
         self._read_files: set[str] = set()
         self._output_dir = output_dir
+        if output_dir is not None:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            # A reused output directory starts a new audit, including when
+            # switching between task-global and task-only.
+            (output_dir / "memory_reads.jsonl").write_text("", encoding="utf-8")
+            write_json_atomic(output_dir / "memory.json", memory.metadata())
 
     @property
     def unread_files(self) -> tuple[str, ...]:
@@ -195,23 +163,20 @@ class RoboCasaMemoryManager(MemoryManager):
                     raise PermissionError(
                         f"memory is outside current task/policy: {path}"
                     )
-                self.selection._verify_file(
-                    self.root, relative, self.selection.hashes[relative]
-                )
+                if (self.root / relative).read_text(
+                    encoding="utf-8"
+                ) != self.selection.contents[relative]:
+                    raise ValueError(f"memory changed during this run: {relative}")
             result = shared_read(path=path, max_chars=max_chars)
             if relative is not None and isinstance(result.get("content"), str):
                 content = result["content"]
-                complete = (
-                    hashlib.sha256(content.encode()).hexdigest()
-                    == self.selection.hashes[relative]
-                )
+                complete = content == self.selection.contents[relative]
                 if complete:
                     self._read_files.add(relative)
                 if self._output_dir is not None:
                     event = {
                         "path": relative,
                         "complete": complete,
-                        "sha256": hashlib.sha256(content.encode()).hexdigest(),
                     }
                     with (self._output_dir / "memory_reads.jsonl").open("a") as handle:
                         handle.write(json.dumps(event) + "\n")

@@ -140,37 +140,37 @@ def validate_results(
 
                 if is_v2:
                     memory = result.get("memory", {})
-                    dependency = manifest["dependencies"]["task_memory"]
                     if memory.get("policy") != expected_memory_policy:
                         errors.append(
                             f"{relative}: memory policy does not match the evaluation"
                         )
-                    if memory.get("corpus_sha256") != dependency["corpus_sha256"]:
-                        errors.append(
-                            f"{relative}: memory corpus does not match the manifest"
-                        )
-                    if memory.get("hf_revision") not in {None, dependency["revision"]}:
-                        errors.append(
-                            f"{relative}: HF memory revision does not match the manifest"
-                        )
-                    expected_files = []
-                    policy = manifest["memory_policy"]
-                    if task_name not in policy["tasks_without_memory"]:
-                        expected_files.extend(
-                            (
-                                f"task_only/{task_name}_s0.json",
-                                f"task_only/{task_name}_s0_recipe.jsonl",
-                            )
-                        )
-                    if task_name in policy["task_markdown_tasks"]:
-                        expected_files.append(f"task_only/{task_name}.md")
+                    candidates = [
+                        f"task_only/{task_name}_s0.json",
+                        f"task_only/{task_name}_s0_recipe.jsonl",
+                        f"task_only/{task_name}.md",
+                    ]
                     if expected_memory_policy == "task-global":
-                        expected_files.append("global/GLOBAL_MEMORY.md")
-                    if memory.get("selected_files") != expected_files:
-                        errors.append(
-                            f"{relative}: selected memory files do not match the manifest"
+                        candidates.append("global/GLOBAL_MEMORY.md")
+                    selected = memory.get("selected_files", [])
+                    missing = memory.get("missing_layers", [])
+                    if (
+                        not isinstance(selected, list)
+                        or not isinstance(missing, list)
+                        or selected != [name for name in candidates if name in selected]
+                        or missing
+                        != [name for name in candidates if name not in selected]
+                        or ((candidates[0] in selected) != (candidates[1] in selected))
+                        or (
+                            expected_memory_policy == "task-global"
+                            and "global/GLOBAL_MEMORY.md" not in selected
                         )
-                    if memory.get("read_files") != sorted(expected_files):
+                    ):
+                        errors.append(
+                            f"{relative}: selected memory files violate the task/policy boundary"
+                        )
+                    if not isinstance(selected, list) or memory.get(
+                        "read_files"
+                    ) != sorted(selected, key=str):
                         errors.append(
                             f"{relative}: required memory was not read completely"
                         )

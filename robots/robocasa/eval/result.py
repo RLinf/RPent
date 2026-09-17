@@ -74,9 +74,15 @@ def build_cell_result(
     )
     reason = _termination_reason(agent_error, success)
     memory = memory or {}
-    memory_complete = bool(memory.get("corpus_sha256")) and set(
-        memory.get("read_files", [])
-    ) == set(memory.get("selected_files", []))
+    selected = memory.get("selected_files")
+    reads = memory.get("read_files")
+    memory_complete = (
+        memory.get("policy") in {"task-global", "task-only"}
+        and isinstance(selected, list)
+        and isinstance(reads, list)
+        and all(isinstance(name, str) for name in [*selected, *reads])
+        and set(reads) == set(selected)
+    )
     if not memory_complete:
         reason = "infrastructure_error"
     max_chunks = int(os.environ.get("RLDX_MAX_CHUNKS", "70"))
@@ -113,17 +119,27 @@ def build_cell_result(
 def finalize_cell_result(context: RunFinalizationContext) -> Path:
     """Adapt shared run state to the RoboCasa Target50 result schema."""
     task = context.task_desc
-    memory_path = context.output_dir / "memory.json"
-    memory = json.loads(memory_path.read_text()) if memory_path.is_file() else {}
-    reads_path = context.output_dir / "memory_reads.jsonl"
-    reads = (
-        [json.loads(line) for line in reads_path.read_text().splitlines()]
-        if reads_path.is_file()
-        else []
-    )
-    memory["read_files"] = sorted(
-        {event["path"] for event in reads if event.get("complete")}
-    )
+    try:
+        memory = json.loads((context.output_dir / "memory.json").read_text())
+        reads = [
+            json.loads(line)
+            for line in (context.output_dir / "memory_reads.jsonl")
+            .read_text()
+            .splitlines()
+        ]
+        if not isinstance(memory, dict) or any(
+            not isinstance(event, dict)
+            or not isinstance(event.get("path"), str)
+            or not isinstance(event.get("complete"), bool)
+            for event in reads
+        ):
+            raise ValueError("invalid memory read audit")
+        memory["read_files"] = sorted(
+            {event["path"] for event in reads if event["complete"]}
+        )
+    except (OSError, ValueError):
+        # Missing or corrupt evidence cannot inherit an earlier valid result.
+        memory = {}
     record = build_cell_result(
         task_name=str(task["task_name"]),
         environment_split=str(task["split"]),

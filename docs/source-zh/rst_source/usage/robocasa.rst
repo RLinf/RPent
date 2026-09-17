@@ -9,8 +9,27 @@ RoboCasa
 
 .. note::
 
-   公开的 Target50 协议固定在 ``robots/robocasa/eval/target50_v2.json`` 中。
+   当前 task/global 协议为 ``robots/robocasa/eval/target50_v2.json``，
+   ``target50.json`` 保留旧 v1 协议。
    340 个 cell 均使用普通的单任务 ``rpent --robot robocasa`` 命令。
+
+运行流程
+--------
+
+RoboCasa365 使用 PandaOmron 移动机械臂与冻结的 RLDX-1 策略。
+接入层与 planner 无关，API planner、Claude Code 和 Codex 使用相同的 RoboCasa
+工具接口。后端配置参见 :doc:`configure_planner`；凭据由用户在仓库外提供。
+
+.. code-block:: text
+
+   rpent CLI -> task-memory sync -> environment and VLA servers
+             -> planner toolkit -> final environment state.success
+
+未指定外部 endpoint 时，RPent 为每次运行启动环境服务器和 VLA 服务器。
+Planner 根据实时任务语言和观测选择 primitive，RLDX-1 执行操作技能。
+评测成功只取环境自身 ``_check_success()`` 暴露的 ``state.success``。
+公开协议使用普通单-cell 命令，不包含批量启动器；Harness VLA 的总体说明参见
+:doc:`../awesome_works/harnessvla`。
 
 安装
 ----
@@ -22,42 +41,46 @@ RLDX-1 要求 Python ``3.10``。请创建独立环境，并通过 ``.[robocasa]`
 
    uv venv --python 3.10
    source .venv/bin/activate
-   uv pip install -e ".[robocasa]" \
-      --constraint robots/robocasa/eval/target50-constraints.txt \
-      --override robots/robocasa/eval/target50-overrides.txt \
-      --torch-backend=cu126
-   uv pip check
 
-RoboCasa 专用 constraints 文件固定经 Target50 复现验证的兼容性敏感包版本，
-同时不会收窄 RPent 中 LIBERO 或 RoboTwin 的共享依赖。配套 override 文件让
-正式环境直接解析到不可变的 Robosuite revision，而普通 ``robocasa`` extra
-仍跟随维护中的 ``rpent`` 分支。该命令让 uv 只为 Torch 选择官方 CUDA wheel，
-避免把 PyTorch wheel 源作为通用 ``--index`` 后，在默认 first-index 策略下误选
-其中的旧版无关依赖。上面的 ``cu126`` 是已验证的 CUDA 安装方式；仅当宿主机
-确有需要时才切换到其他受支持的 Torch backend。
-
-国内网络可使用 PyPI 镜像加速：\
+先使用 `PyTorch 官方安装选择器 <https://pytorch.org/get-started/locally/>`_
+根据本机 GPU、驱动和 Python 版本选择匹配的 CUDA 版 PyTorch 与 torchvision。
+在此环境执行所选命令，可将 ``pip`` 换为 ``uv pip``。RLDX 依赖要求 Torch >= 2.7、
+torchvision >= 0.22；两者必须互相兼容，不能分别任意选版本。然后安装 RPent：
 
 .. code-block:: bash
 
    uv pip install -e ".[robocasa]" \
-      --constraint robots/robocasa/eval/target50-constraints.txt \
-      --override robots/robocasa/eval/target50-overrides.txt \
-      --default-index https://mirrors.aliyun.com/pypi/simple \
-      --torch-backend=cu126
+      --constraint robots/robocasa/eval/target50-constraints.txt
+   uv pip check
+
+RoboCasa 专用 constraints 文件固定经 Target50 复现验证的兼容性敏感包版本，
+同时不会收窄 RPent 中 LIBERO 或 RoboTwin 的共享依赖。``robocasa`` extra 跟随
+RoboCasa、RLDX 和 Robosuite 仓库维护中的 ``rpent`` 分支，普通运行与 Target50
+使用同一安装方式。Manifest 记录分支，不冻结源码 commit。RoboCasa 的
+``rpent`` 分支声明的发行包名为 ``rpent-robocasa365``；不要同时安装提供相同
+import 包的 ``rlinf-robocasa365``。无需再次安装固定 SHA 的源码。
+分支可能更新，因此每次评测都应记录实际解析的 Git commit 和安装版本：
+
+.. code-block:: bash
+
+   uv pip freeze > installed-requirements.txt
+
+将此环境记录与实验产物一起保存；稍后再次安装同一分支并不保证源码相同。
+下文的 checkpoint 和 backbone 支持文件仍使用固定 HF snapshot；
+task/global memory 跟随所选分支。
+constraints 不固定 Torch、torchvision 或 CUDA backend，安装时
+保留已安装且兼容的版本组合；依赖冲突必须先解决再运行。Manifest 的
+``reference_accelerator`` 仅记录此前使用的 Torch 2.7.0 / torchvision 0.22.0 /
+CUDA 12.6，属于来源记录而非安装要求。请随结果记录实际版本，并执行下方组件
+自检；不预先假定其他组合的数值结果完全相同。软件源镜像属于用户自行选择的
+网络配置，不是评测协议的一部分。
 
 .. note::
 
-   flash-attn 是可选的，缺少时 RLDX-1 会回退到 PyTorch SDPA。若要加快策略
-   前向，可安装预编译 wheel —— PyPI 上只有 sdist，直接
-   ``pip install flash-attn`` 会源码编译 10-20 分钟：
-
-   .. code-block:: bash
-
-      uv pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
-
-   该 wheel 只带 SM_80 与 SM_90 kernel；Blackwell (``sm_120``) 需从源码编译，
-   或继续使用 SDPA。
+   flash-attn 是可选的，未安装时 RLDX-1 使用 PyTorch SDPA。若要安装，请按
+   `FlashAttention 官方说明
+   <https://github.com/Dao-AILab/flash-attention#installation-and-features>`_
+   选择与本机 Python、Torch、CUDA 和 GPU 匹配的构建；本文不指定机器专用 wheel。
 
 **安装后处理**
 
@@ -75,7 +98,26 @@ macros 配置：
 
    export ROBOCASA_ASSETS_PATH=~/.robocasa/assets
 
-加 ``--skip-existing`` 重跑会跳过已下载的目录。
+外置根目录需要同时包含六类下载资源，以及发行包内的 scene、arena 和 fixture
+静态文件。修正后的安装器会补齐静态文件，不覆盖内容不同的已有文件。
+``--skip-existing`` 会检查成功下载的文件清单，不再把非空目录当作完整安装。
+请保留官方 attribution 文件，并在实验开始前完成中断的下载。
+
+资源以原子方式发布，中断复制不会留下半写入的正式文件。若旧安装器已经留下
+内容冲突的资源，可在原命令中显式增加覆盖权限进行修复：
+
+.. code-block:: bash
+
+   robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros --overwrite -y
+
+``--overwrite`` 优先于 ``--skip-existing``，仅替换本次安装范围内的资源文件，
+不删除无关文件或整个目录；未指定时，内容不同的已有文件仍受保护。
+默认原子不覆盖发布要求目标文件系统支持硬链接。强制终止遗留的临时文件不会
+阻止重试。
+
+新资源集合主要需要 ZIP 与一份解压数据的空间，staging 发布时不再复制 payload；
+替换已有安装时还需为旧资源占用预留空间。``--skip-existing`` 会跳过已完成集合的
+下载和内容比较，随包静态文件单独检查。
 
 **移动相机**
 
@@ -83,9 +125,8 @@ macros 配置：
 包含 Omron 底盘固定的 ``navview`` 相机，其组合后的 MuJoCo 相机名为
 ``mobilebase0_navview``。导航 RGB-D 与 world map 渲染会在首次请求时验证该
 相机，并在缺失时明确报错。无需手工修改
-``site-packages`` 中的 XML。Target50 将 Robosuite 固定为
-``97cfbde4b68d8ec43dad20cf4747297866a6ca2e``；上面安装命令中的 Target50
-override 会直接选中这一 revision。
+``site-packages`` 中的 XML。Target50 同样使用此维护分支；请按上文随环境
+信息记录实际解析的 revision。
 
 **RLDX-1 checkpoint**
 
@@ -106,60 +147,121 @@ checkpoint 路径（RoboCasa365 微调版）。从 HuggingFace 下载:
       --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
       --local-dir ./checkpoints/rldx-1-ft-rc365
 
-**任务 Memory 与 Global Memory**
+**RLDX-1 backbone 支持文件**
 
-通过 ``--memory-profile hf``（默认值）同步 ``RLinf/RPent-memory`` 的
-``robocasa/**`` 子树，默认使用 ``target50_v2.json`` 中固定的 revision。
-``--memory-revision`` 可显式覆盖版本；CLI 和 Dashboard 使用相同同步逻辑。
-HF 无法验证指定版本时，固定版本同步会明确报错。离线运行请使用
-``--memory-profile local --memory-dir <corpus>``；本地结果记录语料哈希，
-默认不记录 HF revision。
-
-新版严格采用 PR #130 交付包的 103 份记忆：43 份 seed-0 audit JSON、43 份
-recipe JSONL、16 份 Composite-Seen Markdown 和 1 份 Global Memory。
-只迁移路径和文件名，正文逐字节保留；``CORPUS.json`` 保存来源及文件 SHA-256。
-当前任务按顺序读取清单中存在的以下文件：
-
-.. code-block:: text
-
-   memory/robocasa/task_only/<Task>_s0.json
-   memory/robocasa/task_only/<Task>_s0_recipe.jsonl
-   memory/robocasa/task_only/<Task>.md
-   memory/robocasa/global/GLOBAL_MEMORY.md
-
-默认 ``--memory-policy task-global`` 读取两层记忆；
-``--memory-policy task-only`` 使用同一新版语料关闭 global，作为消融对照。
-RPent 文件工具拒绝读取其他任务的记忆，并在关闭 global 时拒绝 global 读取。
-完成所选文件的完整读取后，才能执行动作或 ``finish``。这是文件工具边界，
-不是操作系统级隔离。
-
-未提供的可选层会明确记录并跳过；JSON/JSONL 只提供一个时启动失败。
-``CORPUS.json`` 中声明的文件若缺失或哈希不符，会在机器人启动前报错。
-不在清单中的旧缓存文件不会被替代读取。7 个缺少任务记忆的 Unseen 任务仍
-使用实时观察及启用的 global；包内没有的 9 份旧 Unseen Markdown 不纳入新版。
-
-记忆仅作为策略先验，实时完整任务语言、RGB-D、任务进展和工具结果优先；
-global 规则仅在可见前提满足时适用。禁止回放旧坐标和 atomic prompt。
-有接触或进展时保持 VLA 连续调用；连续两次无接触且无可见进展后，重新定位并
-有限调整姿态。旧 ``vla_act`` 名称只描述策略阶段，执行使用当前 RLDX 工具。
-
-将交付包转换到一个空的本地目录：
+FT checkpoint 虽包含权重，仍引用 ``RLWRLD/RLDX-1-VLM`` 的架构、processor
+和 tokenizer。Target50 将此第四类资源固定到
+``4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7``，共 15 个非权重文件，约
+16.4 MB（包括模型文档和图片）。下载到启动 RPent 时使用的同一缓存：
 
 .. code-block:: bash
 
-   python -m robots.robocasa.migrate_memory \
-      --source /path/to/package/changed_tree/robocasa-memory-hf-staging-20260829/robocasa/memory \
-      --output ./target50-memory/robocasa
+   export HF_HOME="$PWD/.cache/huggingface"
+   export HF_HUB_CACHE="$HF_HOME/hub"
+   hf download RLWRLD/RLDX-1-VLM \
+      --revision 4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7 \
+      --include "*.json" "*.txt" "*.jinja" "*.md" "*.png" ".gitattributes" \
+      --exclude "*.safetensors.index.json"
 
-随后使用 ``--memory-profile local --memory-dir ./target50-memory/robocasa``。
+无需额外下载基础模型权重。启动时保留上述缓存变量，不要通过
+``TRANSFORMERS_CACHE`` 指向空缓存。RoboCasa VLA worker 在普通运行和 Target50
+中均自动使用上述支持文件 revision，单独启动的 RPent VLA 服务也相同；无需额外
+revision 参数或手工修改缓存 ref。该固定值仅作用于 backbone 元数据，不改变
+``--vla-model-path`` 选择的微调权重。
+模型和 assets 的许可证独立于 RPent 代码许可证。
+
+**任务与 Global Memory**
+
+``--memory-profile hf``（默认值）下，CLI 与 Dashboard 均从
+`RLinf/RPent-memory 数据集
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa>`_
+当前的 ``main`` 分支同步 ``robocasa/**``，不锁定数据 commit。目录结构为：
+
+.. code-block:: text
+
+   memory/robocasa/
+   ├── task_only/
+   │   ├── <Task>_s0.json
+   │   ├── <Task>_s0_recipe.jsonl
+   │   └── <Task>.md              # 可选
+   └── global/
+       └── GLOBAL_MEMORY.md
+
+默认 ``--memory-policy task-global`` 选择当前任务已有的 JSON、recipe、
+Markdown，以及 ``global/GLOBAL_MEMORY.md``。首次机器人动作前，planner 必须
+通过 RPent 的 ``read_text_file`` 工具完整读取全部选中文件。提示词与文件工具
+使用相同的文件选择；RPent 文件工具拒绝读取其他任务的 memory。这是工具层限制，
+不是操作系统级隔离。
+
+用 ``--memory-policy task-only`` 进行对照时，任务文件不变，提示词和文件工具
+同时关闭 global。JSON/JSONL 均缺失时，任务继续使用实时观测和启用的 global；
+只有其中一个存在则报错。缺少可选 Markdown 会记录日志。task-global 模式要求
+global 文件存在。文件按任务名和目录直接发现，无需额外索引。
+
+实时 ``task_language``、RGB-D、任务进展和工具返回优先于 memory。
+只有可见前提成立时才应用 global 策略。有接触、持有物体、fixture 进展或计数器
+上升时保持 VLA 连续调用；连续两次无接触且无可见进展后，重新定位并有限调整姿态。
+每次 VLA 调用都使用完整、逐字的实时任务语言。历史 ``vla_act`` 仅描述策略，
+执行使用当前工具，不回放历史坐标。仍然不允许 reset。
+
+使用本地 memory 时，下载到新目录后选择 local profile。使用新目录也可避免旧
+下载目录残留已从远端删除的文件：
+
+.. code-block:: bash
+
+   hf download RLinf/RPent-memory --repo-type dataset \
+      --include 'robocasa/**' --local-dir ./target50-memory
+
+   rpent --robot robocasa \
+         --task-name OpenDrawer --split target --seed 1 \
+         --vla-model-path /path/to/rldx \
+         --planner codex --model gpt-5.5 --reasoning-effort xhigh \
+         --memory-profile local --memory-dir ./target50-memory/robocasa \
+         --memory-policy task-global
+
+使用维护中的复现 memory 分支时，在下载命令中加上
+``--revision reproduce/memory``。它选择可更新的分支，不锁定数据版本。
+切换分支请使用新目录。两个分支的 RoboCasa 均采用上述 task/global 结构；
+后续更新对应的任务或 global 文件即可，无需修改代码。
+
+自定义 memory 来源
+~~~~~~~~~~~~~~~~~~
+
+使用相同 ``robocasa/`` 结构的其他 HF 数据集时，启动 RPent 前设置
+``RPENT_MEMORY_HF_REPO=<owner>/<dataset>``，并使用
+``--memory-profile hf``。这里接受数据集仓库 ID，不是浏览器页面 URL。
+
+使用自定义子目录或维护分支时，下载对应子树到新目录后选择 local profile：
+
+.. code-block:: bash
+
+   hf download <owner>/<dataset> --repo-type dataset \
+      --include '<subpath>/**' --local-dir ./custom-memory
+
+   # 在 RPent 运行命令中加上：
+   # --memory-profile local --memory-dir ./custom-memory/<subpath>
+
+所选目录应包含 ``task_only/``，task-global 模式还要求
+``global/GLOBAL_MEMORY.md``。选择分支时，在 HF 下载命令中加上
+``--revision <branch>``。无需交付包或迁移脚本。
 
 Harness VLA Target50 复现协议
 -----------------------------
 
-``robots/robocasa/eval/target50_v2.json`` 是 Harness VLA 在 RoboCasa Target50
-上的规范复现清单。它固定 ``target`` 环境 split、依赖 revision、memory 边界、
-task/seed 矩阵、cell 时限、成功来源与重试规则；协议 ID 为
-``robocasa-harness-vla-v2``：
+当前 ``robots/robocasa/eval/target50_v2.json`` 协议
+（``robocasa-harness-vla-v2``）使用 task/global memory，不锁定数据版本。
+它保留 target 的 task/seed 矩阵、cell 时限、no-reset 规则、环境成功判据和
+40/999/8 的 RLDX 参数。协议 ID 标识结果格式和评测规则，供校验器区分 v1 与 v2，
+不是 memory 数据版本选择参数。
+
+结果记录 memory 模式、选中及缺失的文件、完整读取记录。
+校验器拒绝混合模式、读取不完整或跨任务读取的结果。同一组对照实验期间应保持
+memory 内容一致，下载文件和验证证据保存在本地。
+
+旧 ``target50.json`` v1 清单及已发布的 task-only 成绩继续保留。
+新版 task-only 使用 v2，属于新对照，不代表复现旧语料基线。
+校验旧结果时传入 ``--manifest robots/robocasa/eval/target50.json``。
+源码依赖跟随清单记录的 ``rpent`` 分支。
 
 .. list-table:: RoboCasa Target50 矩阵
    :header-rows: 1
@@ -288,6 +390,9 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
 
    python -m robots.robocasa.eval.validate_target50 ./runs/target50
 
+单独进行 task-only 对照时，运行命令和校验器均传入
+``--memory-policy task-only``，并使用独立结果目录。
+
 .. note::
 
    使用 ``--env-endpoint`` / ``--vla-endpoint`` 指向已运行的服务器
@@ -295,40 +400,14 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
    子进程，日志分别写到 ``<output_dir>/env_server.log`` 和
    ``<output_dir>/vla_server.log``。
 
-历史 task-only v1 结果
------------------------
+历史 task-only 结果
+------------------
 
-历史 task-only v1 Codex 复现覆盖全部 340 cells，任务级汇总如下：
-
-.. list-table:: Codex Target50 复现结果
-   :header-rows: 1
-   :widths: 30 20 20 30
-
-   * - Split
-     - 成功 cells
-     - 成功率
-     - Harness VLA 参考值
-   * - Atomic
-     - 163/180
-     - 90.56%
-     - 165/180 (91.67%)
-   * - Composite-Seen
-     - 49/80
-     - 61.25%
-     - 45/80 (56.25%)
-   * - Composite-Unseen
-     - 12/80
-     - 15.00%
-     - 11/80 (13.75%)
-   * - 总体（任务加权）
-     - 不适用
-     - 57.00%
-     - 55.40%
-
-`完整逐任务结果表
-<https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_
-给出每个任务的成功次数和准确率。当前发布内容是任务级聚合数据，不包含 seed 级
-trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
+已发布的 v1 task-only Codex 评测覆盖 340 个 cell，任务加权成功率为 57.00%。
+这是历史汇总数据，不代表当前 task-global 模式的成绩。
+`完整历史表格
+<https://github.com/RLinf/RPent/blob/57088f6df30b227f2229ead985aa75403c0ce291/robots/robocasa/eval/target50_codex_results.md>`_
+链接到对应代码 commit；该记录不包含逐 seed 轨迹或失败分类。
 
 .. _environment-smoke-tests:
 
@@ -353,14 +432,46 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
 常见错误
 --------
 
+先执行 :ref:`环境冒烟测试 <environment-smoke-tests>`。四类资源下载完成后，
+使用现有 RoboCasa E2E 组件测试检查 VLA worker 启动、HTTP RPC 和首次推理。
+按需安装 ``.[test]``，选择一张可用 GPU，并使用新的输出目录：
+
+.. code-block:: bash
+
+   CUDA_VISIBLE_DEVICES=0 \
+   RLDX_MODEL_PATH="$PWD/checkpoints/rldx-1-ft-rc365" \
+   RPENT_E2E_OUTPUT_DIR="$PWD/e2e-robocasa" \
+   HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 NO_ALBUMENTATIONS_UPDATE=1 \
+   MUJOCO_GL=egl python -m pytest -q \
+      tests/e2e_tests/robocasa/test_components.py::test_rldx_component --timeout=300
+
+这些检查不会启动 planner 或生成 benchmark 成绩，默认 skip 不能当作通过。
+离线变量仅作用于该自检命令；普通 HF memory 同步仍需要网络。保持远程 planner
+的代理配置不变。
+轻量协议测试仍检查全部 50 个任务和固定的 340-cell 分母，全量评测单独执行。
+
+- 下载慢时可使用 ``UV_HTTP_TIMEOUT=600``，并将缓存和临时目录放在空间足够的
+  文件系统上。重新执行固定 revision 的 HF 下载命令；不能只看 shard 文件大小
+  判断完整性，不要禁用 TLS 校验。
+- 只读 assets 报错需要安装修正后的 RoboCasa 依赖，不要开放资源目录写权限；
+  转换后的 XML 应写入临时目录。
+- RLDX 离线缓存缺失时检查上述支持文件和缓存变量。
+  ``NO_ALBUMENTATIONS_UPDATE=1`` 只关闭导入时的更新检查，不改变图像处理；
+  保持现有 image geometry fallback 参数。
+- 通过 GPU 运算和 EGL render 验证所选 Torch/CUDA 构建，不能只看驱动显示
+  版本；应使用与本机兼容的构建。
+- 共享只读环境应将 ``NUMBA_CACHE_DIR`` 设置到当前用户可写目录，不要修改包的
+  代码权限。
+
 - 导航 RGB-D 或 world map 渲染报告缺少 ``mobilebase0_navview`` 时，应重新
   安装 ``.[robocasa]`` 以刷新 ``RLinf/robosuite`` 的 ``rpent`` 分支；不要手工
   修改已安装的 XML。
 - ``read_text_file`` 报告缺少当前任务结果时，请检查
   ``memory/robocasa/task_only/`` 目录或所选本地目录。RPent 不会读取其他任务的
   memory 作为替代。
+  Markdown 为可选文件；Atomic 任务没有发布 ``<Task>.md``。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和
-  ``<output_dir>/vla_server.log``。
+  ``<output_dir>/vla_server.log``；运行级错误也可检查 ``<output_dir>/run.log``。
 - 只有准确的 ``127.0.0.1`` 与 ``localhost`` 主机名会自动绕过 HTTP 代理。其他
   主机名与 IP 均遵循标准代理环境；只有该服务应当直连时，才需要把准确主机名
   加入 ``NO_PROXY`` 与 ``no_proxy`` 配置。
@@ -385,32 +496,3 @@ RoboCasa toolkit 提供的工具 *形式* 与 LIBERO 相同（一次原语调用
   (``rldx_skill`` / ``vla_client``) 从不直接看到 session id, 服务端
   把它注入到 ``predict`` / ``reset_session`` 中, 按客户端隔离
   RLDX memory/RTC 策略状态。
-
-历史 v1 结果与新版来源记录
---------------------------
-
-已发布的 57.00% 属于历史 task-only v1。原清单保留在
-``robots/robocasa/eval/target50.json``；复现旧协议应使用 RPent commit
-``43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92`` 和 memory revision
-``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``。新版关闭 global 是 v2 消融，
-不等价于恢复旧协议。
-
-创建独立的冻结工作目录，再按其中 RoboCasa README 的说明获取 v1 memory
-快照并使用 local profile 运行。保留旧语料的 ``results/`` 目录布局。
-
-.. code-block:: bash
-
-   git worktree add --detach ../RPent-robocasa-v1 \
-      43f32aa08cba07bd4d49a4bfa5eba4ef633e9b92
-
-新版结果 schema 为 1.1，``memory`` 记录模式、语料 SHA-256、HF revision
-（未显式指定版本的本地语料为 null）、所选文件与完成读取的文件。
-``memory.json`` 和 ``memory_reads.jsonl`` 保存选择及读取审计。
-校验器拒绝混合不同模式、语料、revision 或缺少完整读取的结果。
-
-.. code-block:: bash
-
-   python -m robots.robocasa.eval.validate_target50 ./runs --memory-policy task-global
-   python -m robots.robocasa.eval.validate_target50 ./ablation --memory-policy task-only
-   python -m robots.robocasa.eval.validate_target50 ./historical-v1 \
-      --manifest robots/robocasa/eval/target50.json

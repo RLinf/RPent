@@ -289,6 +289,33 @@ def test_build_config_constructs_with_the_installed_codex_sdk(
     assert config.experimental_api is True
     assert config.env[PROVIDER_ENV_KEY] == "contract-key"
     assert f'model_provider="{PROVIDER_ID}"' in config.config_overrides
+    assert "project_doc_max_bytes=0" in config.config_overrides
+    assert not any(
+        entry.startswith("skills.config=") for entry in config.config_overrides
+    )
+
+
+def test_build_config_disables_symlinked_project_skills(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEX_BIN", raising=False)
+    skill = tmp_path / "shared" / "review-代码" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: review-pr\ndescription: Review a PR.\n---\n")
+    linked_skill = tmp_path / ".agents" / "skills" / "review-pr"
+    linked_skill.parent.mkdir(parents=True)
+    linked_skill.symlink_to(skill.parent, target_is_directory=True)
+    planner = make_planner(tmp_path, RecordingSink())
+
+    config = planner._build_config("http://fake.invalid/mcp/")
+
+    assert config.cwd == str(tmp_path)
+    assert "project_doc_max_bytes=0" in config.config_overrides
+    assert (
+        "skills.config=["
+        f"{{ path = {json.dumps(str(skill.resolve()), ensure_ascii=False)}, enabled = false }}]"
+    ) in config.config_overrides
 
 
 def test_build_config_scopes_loopback_no_proxy_to_codex_child(
@@ -425,77 +452,6 @@ def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
     assert (tmp_path / "codex.out.last").read_text() == "working"
     assert any(isinstance(event, TranscriptEvent) for event in sink.events)
     assert any(isinstance(event, UsageEvent) for event in sink.events)
-
-
-@pytest.mark.parametrize("max_turns", [1, 2])
-def test_noninteractive_planner_enforces_turn_limit_without_reporting_failure(
-    tmp_path, monkeypatch, max_turns
-):
-    install_fake_backend(monkeypatch)
-
-    def stream(self):
-        for index in range(5):
-            if self.interrupt_calls:
-                break
-            yield {
-                "method": "item/completed",
-                "payload": {
-                    "item": {"type": "agentMessage", "text": f"Working {index}"}
-                },
-            }
-        yield {
-            "method": "thread/tokenUsage/updated",
-            "payload": {"token_usage": {"total": {"input_tokens": 10}}},
-        }
-        yield {
-            "method": "turn/completed",
-            "payload": {"turn": {"status": "interrupted"}},
-        }
-
-    monkeypatch.setattr(FakeTurn, "stream", stream)
-    result = make_planner(tmp_path, RecordingSink()).solve(
-        system_prompt="system",
-        user_message="task",
-        toolkit=FakeToolkit(),
-        max_turns=max_turns,
-    )
-    assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 1
-    assert result.stats["turns_used"] == max_turns
-    assert result.stats["total_input_tokens"] == 10
-    assert result.error is None
-    assert FakeMcpServer.instances[0].stopped
-
-
-def test_turn_limit_does_not_interrupt_an_already_finished_task(tmp_path, monkeypatch):
-    install_fake_backend(monkeypatch)
-    FakeCodex.events = [
-        {
-            "method": "item/completed",
-            "payload": {
-                "item": {
-                    "type": "mcpToolCall",
-                    "tool": "mcp__rpent__finish",
-                    "status": "completed",
-                    "arguments": {"status": "stuck", "summary": "done"},
-                    "result": "accepted",
-                }
-            },
-        },
-        {
-            "method": "item/completed",
-            "payload": {"item": {"type": "agentMessage", "text": "Finished"}},
-        },
-        {
-            "method": "turn/completed",
-            "payload": {"turn": {"status": "completed"}},
-        },
-    ]
-    result = make_planner(tmp_path, RecordingSink()).solve(
-        system_prompt="system", user_message="task", toolkit=FakeToolkit(), max_turns=1
-    )
-    assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 0
-    assert result.finish_result["status"] == "stuck"
-    assert result.error is None
 
 
 def test_rejected_finish_item_is_not_promoted() -> None:

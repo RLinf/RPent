@@ -69,7 +69,7 @@ class RoboCasaToolkit(Toolkit):
     def __init__(
         self,
         *,
-        primitives_kwargs: dict[str, Any],
+        runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
     ) -> None:
@@ -80,7 +80,7 @@ class RoboCasaToolkit(Toolkit):
             state=state,
             memory=memory,
         )
-        self.init_primitives(primitives_kwargs=primitives_kwargs)
+        self.init_primitives(runtime_kwargs=runtime_kwargs)
         self._register_robocasa_tools()
 
     # ---- registration: one explicit add_tool per RoboCasa tool ----
@@ -88,10 +88,6 @@ class RoboCasaToolkit(Toolkit):
         # Stateless perception tools: bind a state= kwarg via partial.
         state_handlers = {
             "view_env_state": partial(robocasa_tools.view_env_state, state=self._state),
-            "view_camera_meta": partial(
-                robocasa_tools.view_camera_meta, state=self._state
-            ),
-            "back_project": partial(robocasa_tools.back_project, state=self._state),
             "back_project_batch": partial(
                 robocasa_tools.back_project_batch, state=self._state
             ),
@@ -151,7 +147,7 @@ class RoboCasaToolkit(Toolkit):
     def init_primitives(
         self,
         *,
-        primitives_kwargs: dict[str, Any],
+        runtime_kwargs: dict[str, Any],
     ) -> None:
         """Wipe stale run artifacts, build the primitives, dump step 0."""
         self._state.reset()
@@ -160,7 +156,7 @@ class RoboCasaToolkit(Toolkit):
 
         primitives = RoboCasaPrimitives(
             check_cancelled=self.raise_if_cancelled,
-            **primitives_kwargs,
+            **runtime_kwargs,
         )
         primitives.reset()
         primitives.start_recording()

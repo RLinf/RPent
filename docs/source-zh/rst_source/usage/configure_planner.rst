@@ -35,11 +35,11 @@ SDK。
        Streamable HTTP MCP 服务，把 toolkit 接入 Codex。
      - 想使用 Codex 原生提供的 agent 能力，或者已有可用的 OpenAI
        或 Codex 配额。
-   * - ``task_card``
-     - 完全不用 LLM。重放一次早先运行录下的 **任务卡**，并对每个路点
+   * - ``flash``
+     - **Flash Mode**，仅用于评测。重放 memory 中保存的成功执行计划，并对每个路点
        的锚点重新定位，使方案能跟随移动过的物体。参见
-       :doc:`task_card`。
-     - 想在新布局上低成本地重跑一个已知可行的方案，且不产生模型开销。
+       :doc:`flash`。
+     - 想在新布局上低成本地重跑一个已知可行的方案，无需 LLM 在线规划；仍需要感知和 VLA 服务。
 
 ``api`` planner（直接调用模型 API）
 -------------------------------------
@@ -83,6 +83,9 @@ SDK。
 ``--planner claude_code`` 将工具调用循环交给 Claude Agent SDK。
 RPent 通过 SDK 创建进程内 MCP 服务，并把 toolkit 的工具注册到
 ``mcp__rpent__<name>`` 命名空间。
+
+RPent 为 Claude 规划会话关闭文件系统配置来源，因此不会自动加载项目的
+``CLAUDE.md`` 和开发 skills。工作目录仍为仓库根目录。
 
 .. code-block:: bash
 
@@ -131,6 +134,10 @@ Qwen3.6-27B 注册为 ``Qwen/Qwen3.6-27B``，可以这样配置：
 ``--planner codex`` 使用 OpenAI Codex Python SDK。每次运行时，RPent
 会在当前进程的后台线程中启动本地 Streamable HTTP MCP 服务，Codex 通过
 该服务调用同一个 toolkit；无需预先启动 ``scripts/codex_proxy/``。
+
+Codex 规划会话不会自动加载仓库的 ``AGENTS.md`` 和 ``.agents/skills/``
+中的开发 skills。工作目录仍为仓库根目录，机器人指南和 memory 仍可通过
+已有工具读取。
 
 .. code-block:: bash
 

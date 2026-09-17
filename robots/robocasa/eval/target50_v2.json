@@ -9,35 +9,60 @@
   "dependencies": {
     "runtime": {
       "python": "3.10",
-      "cuda": "12.6",
+      "reference_accelerator": {
+        "cuda": "12.6",
+        "torch": "2.7.0",
+        "torchvision": "0.22.0",
+        "enforced": false
+      },
       "constraints_file": "robots/robocasa/eval/target50-constraints.txt",
-      "overrides_file": "robots/robocasa/eval/target50-overrides.txt",
       "packages": {
         "mujoco": "3.3.1",
         "numpy": "1.26.4",
         "pydantic": "2.13.5",
         "pydantic-ai-slim": "2.1.0",
         "rlinf-rldx": "1.0.1.post10",
-        "rlinf-robocasa365": "1.0.1",
-        "torch": "2.7.0",
-        "torchvision": "0.22.0",
+        "rpent-robocasa365": "1.0.1",
         "transformers": "4.57.6"
       }
     },
+    "robocasa": {
+      "repository": "https://github.com/RLinf/robocasa",
+      "branch": "rpent"
+    },
+    "rldx": {
+      "repository": "https://github.com/RLinf/RLDX-1",
+      "branch": "rpent"
+    },
     "robosuite": {
       "repository": "https://github.com/RLinf/robosuite",
-      "commit": "97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
+      "branch": "rpent"
     },
     "rldx_checkpoint": {
       "repository": "RLWRLD/RLDX-1-FT-RC365",
       "revision": "587e9ecdcc5e7184fcc17f58713908edff5af041"
     },
+    "rldx_support": {
+      "repository": "RLWRLD/RLDX-1-VLM",
+      "revision": "4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7",
+      "include_patterns": [
+        "*.json",
+        "*.txt",
+        "*.jinja",
+        "*.md",
+        "*.png",
+        ".gitattributes"
+      ],
+      "exclude_patterns": [
+        "*.safetensors.index.json"
+      ],
+      "file_count": 15,
+      "download_weights": false
+    },
     "task_memory": {
       "repository": "RLinf/RPent-memory",
       "repository_type": "dataset",
-      "revision": "d1a086d857e7fa53576d46c3851afa8e239b1b64",
-      "include_pattern": "robocasa/**",
-      "corpus_sha256": "a7349a5b0e9fa6e92cb890983e10655dd9d7dfb53f129788d889efd80baa256b"
+      "include_pattern": "robocasa/**"
     }
   },
   "planner_reference": {
@@ -67,37 +92,9 @@
     ],
     "use_global_memory": true,
     "use_cross_task_memory": false,
-    "tasks_with_memory": 43,
-    "tasks_without_memory": [
-      "HeatKebabSandwich",
-      "PanTransfer",
-      "PortionHotDogs",
-      "SeparateFreezerRack",
-      "WaffleReheat",
-      "WashFruitColander",
-      "WeighIngredients"
-    ],
     "task_directory": "robocasa/task_only",
     "global_file": "robocasa/global/GLOBAL_MEMORY.md",
-    "default": "task-global",
-    "task_markdown_tasks": [
-      "ScrubCuttingBoard",
-      "StackBowlsCabinet",
-      "WashLettuce",
-      "RinseSinkBasin",
-      "PreSoakPan",
-      "StirVegetables",
-      "LoadDishwasher",
-      "SteamInMicrowave",
-      "SetUpCuttingStation",
-      "GetToastedBread",
-      "DeliverStraw",
-      "KettleBoiling",
-      "PrepareCoffee",
-      "StoreLeftoversInBowl",
-      "SearingMeat",
-      "PackIdenticalLunches"
-    ]
+    "default": "task-global"
   },
   "retry_policy": {
     "retry_infrastructure_failure_without_valid_environment_result": true,

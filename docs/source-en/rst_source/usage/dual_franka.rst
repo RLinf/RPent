@@ -159,14 +159,15 @@ Download it, point ``PI05_CHECKPOINT_PATH`` at the downloaded directory, and set
 	(collect GELLO demos, convert to tcp_rot6d, run SFT, then deploy).
 
 When ``--vla-endpoint`` is absent, RPent starts
-``robots/dual_franka/vla_server.py`` and loads
+``rpent/robots/components/pi05_vla_server.py`` and loads
 ``pi05_dualfranka_tcp_rot6d`` once.
 
 To run the VLA service separately:
 
 .. code-block:: bash
 
-	uv run --extra franka python -m robots.dual_franka.vla_server \
+	uv run --extra franka python -m rpent.robots.components.pi05_vla_server \
+	  --embodiment dual_franka \
 	  --model-path /path/to/checkpoints/global_step_N \
 	  --repo-id org/dual-franka-tcp-rot6d \
 	  --cuda-device 0 --transport http --host 0.0.0.0 --port 6000
@@ -225,9 +226,9 @@ with ``--sam3-endpoint``.
 Robot Codex profile isolation
 ----------------------------------------
 
-Operator verdict and scene-restoration tools currently require exclusive terminal
-input. Run the runner in a plain TTY, without ``--interactive`` or Dashboard;
-unsupported combinations are rejected before hardware connection. Evaluation
+Evaluation requires a plain TTY without ``--interactive`` or Dashboard.
+Exploration supports ``--explore --interactive`` through the operator input broker;
+Dashboard feedback remains unsupported. Evaluation
 also exposes ``request_operator_verdict`` and requires a verdict before finish.
 ``request_scene_reset`` remains exploration-only.
 
@@ -254,3 +255,125 @@ Directory isolation is not a security sandbox or workspace-file isolation.
 The planner explicitly uses no interactive approvals and full filesystem access.
 Editing private configuration does not override the planner's
 explicit permissions. The connectivity probe remains read-only.
+
+Attended exploration
+--------------------
+
+``dual_franka --explore`` waits for operator scene confirmation before robot
+reset and records human verdicts with observation evidence. It reuses
+RPent's exploration sessions and layered memory while retaining the existing
+real-robot RGB/depth/state logs. This does not enable single-arm ``franka``
+exploration.
+
+Robots opt into human-interactive exploration through
+``RobotSpec.supports_human_interactive_exploration``. The five operator commands
+appear in interactive help only when this capability is active in exploration mode.
+
+.. code-block:: bash
+
+   rpent --robot dual_franka --task-id 0 --explore --interactive \
+     --robot-config /path/to/robot.yaml \
+     --calibration-path /path/to/hand_eye_calibration.json \
+     --memory-dir /path/to/memory/dual_franka \
+     --explore-attempts-per-session 3 --explore-sessions 2 \
+     --output-dir /path/to/new-run
+
+Configure the planner and task-1 VLA as described above. The client skips its
+usual reset-on-connect during exploration; underlying hardware initialization
+still follows RLinf's own lifecycle. Every session must call
+``request_scene_reset`` before motion. The operator restores the physical scene
+and replies ``done``; only a successful robot reset with camera/state capture
+starts an attempt. Reset failures keep motion blocked.
+
+``request_operator_verdict`` records a fresh observation and asks for
+``success``, ``failure``, ``continue`` or ``abort``, with optional notes.
+``solved()`` uses the current operator verdict. Motion and ``continue`` clear
+previous verdicts. Abort/EOF permits ending without spending the remaining
+attempt budget.
+
+With ``--interactive``, reply using ``/operator <request-id> <answer>`` as shown
+in the terminal; other lines remain planner steering. Without it, answer the
+terminal prompt directly. A TTY is required. Dashboard operator feedback is not
+implemented, so Dashboard exploration is rejected before runtime startup.
+
+Each ``sessions/session_<NNN>/`` retains the existing artifacts plus per-step
+``exploration.json`` and session-level ``operator_events.json``. Failed attempts
+remain in the trace. Memory reads use ``suite`` and ``global``; working notes go
+into the task inbox's ``wip/``. After success, draft suite/global lessons in the
+inbox; the runner exports the winning attempt's command sequence and adds
+operator evidence to its task audit. Recorded coordinates are not automatically
+replayed. ``--auto-merge-memory`` is opt-in and invokes the existing memory
+merge/index workflow only on successful, error-free exploration runs, including
+the ``task_only`` audit/recipe pair.
+
+Prompts are selected by ``robots/dual_franka/prompt_bundle.py``. Evaluation uses
+``prompts/system.py`` and ``prompts/user.py``; exploration uses
+``prompts/explore.py``. ``tasks.py`` owns task instructions, success criteria and
+constraints; ``robot_spec.py`` supplies the rendering variables. Continuation
+system prompts retain the task context. The original LIBERO exploration prompt
+lives in ``robots/libero/prompts/explore.py``; its simulator reset/termination
+assumptions are not inherited by the real robot.
+
+External ``--env-endpoint`` servers must also be updated and advertise
+``explicit_reset_only=True``; older servers are rejected before client reset.
+Offline tests use fake hardware. Physical reset convergence, camera freshness
+and task judgment still require validation on the deployed robot.
+
+Direct interactive verdicts
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+With ``dual_franka --explore --interactive``, submit ``/success`` or ``/failure``
+on its own to finish exploration through program control. Bare ``success`` and
+``failure`` remain ordinary planner messages. Success requires a confirmed attempt;
+failure can also end the run before the initial reset. The first terminal verdict wins.
+The command never reaches the planner as chat. New tool calls are refused and
+active work is cancelled at its next supported boundary; an outstanding robot
+RPC or inference must return before finalization. A fresh observation backs the
+operator verdict. With ``/success``, the successful recipe/audit pair is published through the
+existing memory merger to ``task_only`` before exit, even without
+``--auto-merge-memory``. With ``/failure``, failure evidence stays in the run directory
+and no successful memory is published. Observation or persistence errors are reported as failures.
+Scene reset accepts ``/done`` or ``/operator <request-id> done``. Restart the running
+CLI after updating to enable this behavior.
+
+Other operator commands
+~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``/done`` confirms only the currently pending scene-reset request.
+* ``/continue`` answers only the currently pending verdict request and resumes
+  the attempt without marking it successful or ending the session.
+* ``/abort`` cancels exploration at the supported boundary and exits, retaining
+  an abort record without publishing success memory. It does not require a working camera.
+
+Shortcuts without a matching pending request are refused, never buffered for a
+future request. All five bare words without ``/`` remain ordinary agent messages.
+The request-ID form ``/operator <request-id> <answer>`` remains supported.
+
+Direct commands do not invoke a separate global/suite memory synthesis stage.
+Existing planner errors remain errors and prevent automatic memory publication.
+
+VLA diagnostic console
+~~~~~~~~~~~~~~~~~~~~~~
+
+Use the standalone console for prediction recording and explicit execution.
+The existing manual primitive entry remains ``robots/dual_franka/run_manual_skill.sh``.
+Diagnostics do not register task IDs 103/104 or dispatch through the shared runner.
+``--task-id`` selects an existing VLA task profile (default 1); the policy instruction
+comes from its ``vla_instruction`` unless overridden with ``--instruction``.
+Run the following command from a source checkout. The diagnostic initializes only
+the environment and VLA components; configured SAM3 services are not started or contacted.
+
+.. code-block:: bash
+
+   python -m tests.e2e_tests.dual_franka.dual_franka_vla --task-id 1 \
+     --robot-config /path/to/robot.yaml --calibration-path /path/to/calibration.json \
+     --vla-model-path /path/to/checkpoint --vla-repo-id org/dataset
+
+Commands: ``prompt <instruction>``, ``infer`` (no execution), ``step``
+(fresh prediction and execution), ``run N`` (1–20 chunks), ``reset``, ``quit``.
+Initialization may reset the robot. Inputs and predictions are saved before
+execution as JSON/NPZ. Invalid observations/actions are rejected; uncertain
+execution blocks further motion until restart. RPC success is not task success.
+Action validation expects 20 steps per prediction chunk. For a checkpoint with a
+different chunk length, set ``--expected-action-steps`` explicitly to match it.
+External model servers use the standard VLA prediction and health-check RPCs.

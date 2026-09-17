@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 
 import pytest
@@ -52,14 +51,6 @@ def make_corpus():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
         root.mkdir(parents=True, exist_ok=True)
-        manifest = {
-            "schema_version": 1,
-            "files": {
-                name: hashlib.sha256(text.encode()).hexdigest()
-                for name, text in files.items()
-            },
-        }
-        (root / "CORPUS.json").write_text(json.dumps(manifest))
         return root
 
     return create

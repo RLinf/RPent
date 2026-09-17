@@ -27,6 +27,15 @@
   <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_framework.png" alt="RPent framework"/>
 </div>
 
+## 基准测试结果
+
+对比 RPent 与参考方法在 LIBERO、LIBERO-PRO、RoboCasa365 Target50 和 RoboTwin C2R 上的成功率。排名仅限图中方法及评测范围；套件成绩和模型配置见[基准测试结果](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)。
+
+Codex / GPT-6 Astra / low / reasoning 已完成全部八套 LIBERO-PRO，**Overall 92.63%（741/800）**。详见 [套件汇总与 memory 批次说明](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html#libero-pro-astra-memory)，其中 Long 与 Spatial/Object/Goal 分别使用各自冻结的 memory 批次。
+
+[![RPent 四项基准成功率对比](https://cdn.jsdelivr.net/gh/RLinf/misc@c3b9b5d4ffa360a8324c5b7aa510e1ed0876aa43/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)
+
+
 ## 适用用户
 
 RPent 面向以下四类用户：
@@ -38,7 +47,8 @@ RPent 面向以下四类用户：
 
 ## 最新动态
 
-- [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。参见 [RoboCasa 安装与 Target50 指南](robots/robocasa/README.md)和 [完整中文文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
+- [2026/09] 🔥 新增交互式排行榜和基准测试结果汇总，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看[基准测试结果](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)。
+- [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。参见 [RoboCasa 安装与 Target50 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
 - [2026/08] 🔥 新增非推理（non-reasoning）模式，平均执行时间降低约 40%。
 - [2026/08] 🔥 支持 LIBERO 探索模式。文档：[LIBERO 探索模式](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#memory)。
 - [2026/08] 🔥 支持 RoboTwin，使用 LingBot-VLA 处理双臂操作任务。文档：[RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html)。
@@ -83,12 +93,14 @@ RPent 面向以下四类用户：
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html">LIBERO-PRO</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html">RoboTwin</a> ✅</li>
+          <li>RoboDojo</li>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
           <li>Franka</li>
           <li>SO-101</li>
+          <li>YAM</li>
         </ul>
       </td>
     </tr>
@@ -113,7 +125,13 @@ pip install -e ".[robotwin]"    # RoboTwin
 [安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
 
 RoboCasa 安装、任务 memory 与 Target50 协议参见
-[RoboCasa 指南](robots/robocasa/README.md)。
+[RoboCasa 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
+
+RoboCasa 默认 `--memory-policy task-global`：读取
+[RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa)
+中 `robocasa/task_only/` 下的当前任务文件和 `robocasa/global/GLOBAL_MEMORY.md`。
+用 `--memory-policy task-only` 进行对照。CLI 与 Dashboard 均要求首次机器人动作前
+完成所选文件的读取；HF memory 跟随当前分支，不锁定数据版本。
 
 下面的示例继续使用 LIBERO-PRO。
 

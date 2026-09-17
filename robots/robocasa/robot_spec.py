@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING, Any
 
 from robots.robocasa.eval.result import finalize_cell_result
 from robots.robocasa.memory import (
-    DEFAULT_MEMORY_REVISION,
     MEMORY_POLICIES,
     RoboCasaMemoryManager,
     memory_from_variables,
@@ -36,7 +35,6 @@ from robots.robocasa.prompt_bundle import (
 )
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
-from rpent.evaluation import write_json_atomic
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -124,18 +122,6 @@ ROBOCASA_DASHBOARD_SPEC: DashboardSpec = {
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
     ),
-    "frame_channels": (
-        {
-            "name": "camera",
-            "label": "fixed camera",
-            "artifact": "agentview.png",
-        },
-        {
-            "name": "wrist",
-            "label": "wrist camera",
-            "artifact": "wrist.png",
-        },
-    ),
     "primitives": (
         "move_to",
         "move_delta",
@@ -168,14 +154,13 @@ def get_robot_spec() -> RobotSpec:
         init_runtime=_init_runtime,
         dashboard=ROBOCASA_DASHBOARD_SPEC,
         supports_exploration=False,
-        memory_revision=DEFAULT_MEMORY_REVISION,
         finalize_run=finalize_cell_result,
     )
 
 
 def get_toolkit(
     *,
-    primitives_kwargs: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
 ):
@@ -189,10 +174,9 @@ def get_toolkit(
             **config.prompt_vars,
         }
     )
-    write_json_atomic(config.output_dir / "memory.json", selection.metadata())
     memory = RoboCasaMemoryManager(selection, output_dir=config.output_dir)
     return RoboCasaToolkit(
-        primitives_kwargs=primitives_kwargs,
+        runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
     )
@@ -206,11 +190,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         choices=MEMORY_POLICIES,
         default="task-global",
         help="RoboCasa memory layers: task-global (default) or task-only ablation",
-    )
-    parser.add_argument(
-        "--memory-revision",
-        default=None,
-        help="Override the pinned HF memory revision; local profiles record only an explicitly supplied revision",
     )
     parser.add_argument(
         "--task-name",
@@ -271,12 +250,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "recipe_tag": recipe_tag,
         "memory_dir": str(memory_dir),
         "memory_policy": getattr(args, "memory_policy", "task-global"),
-        "memory_revision": getattr(args, "memory_revision", None)
-        or (
-            DEFAULT_MEMORY_REVISION
-            if (getattr(args, "memory_profile", "hf") or "hf") == "hf"
-            else None
-        ),
     }
 
     output_dir = args.output_dir
@@ -440,7 +413,7 @@ def _init_runtime(
                 starter,
             )
 
-    primitives_kwargs: dict[str, Any] = {}
+    runtime_kwargs: dict[str, Any] = {}
     for component, (daemon, rpc) in pending.items():
         component_kwargs = try_wait_server(
             owned_daemons,
@@ -451,6 +424,6 @@ def _init_runtime(
             timeouts[component],
             post_fn=partial(connectors[component], rpc),
         )
-        primitives_kwargs.update(component_kwargs)
+        runtime_kwargs.update(component_kwargs)
 
-    return list(owned_daemons.values()), primitives_kwargs
+    return list(owned_daemons.values()), runtime_kwargs

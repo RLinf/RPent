@@ -39,12 +39,13 @@ loop is orchestrated, and which model SDK is used.
        Streamable HTTP MCP server that connects the toolkit to Codex.
      - You want the agent capabilities built into Codex or already have
        OpenAI or Codex quota available.
-   * - ``task_card``
-     - No LLM at all. Replays a **task card** recorded from an earlier
+   * - ``flash``
+     - **Flash Mode**, for evaluation only. Replays a plan from memory,
+       recorded from an earlier
        run, re-localizing each waypoint's anchor so the plan follows
-       objects that moved. See :doc:`task_card`.
-     - You want to re-run a known-good plan on new layouts, cheaply and
-       without model spend.
+       objects that moved. See :doc:`flash`.
+     - You want to re-run a known-good plan on new layouts, without online
+       LLM planning. Perception and VLA services are still required.
 
 The ``api`` planner (direct model API)
 ---------------------------------------
@@ -92,6 +93,10 @@ The ``claude_code`` planner
 ``--planner claude_code`` delegates the loop to the Claude Agent SDK.
 RPent creates an in-process MCP server through the SDK and registers
 the toolkit's tools under the ``mcp__rpent__<name>`` namespace.
+
+RPent disables filesystem settings sources for Claude planner sessions, so
+project ``CLAUDE.md`` instructions and development skills are not loaded
+automatically. The working directory remains the repository root.
 
 .. code-block:: bash
 
@@ -146,6 +151,11 @@ The ``codex`` planner
 RPent starts a local Streamable HTTP MCP server on a background thread
 in the current process, and Codex calls the same toolkit through that
 server. You do not need to start ``scripts/codex_proxy/`` first.
+
+RPent excludes repository ``AGENTS.md`` instructions and development skills
+in ``.agents/skills/`` from the Codex planner's automatic context loading.
+The working directory remains the repository root; robot guides and memory
+remain available through the existing tools.
 
 .. code-block:: bash
 

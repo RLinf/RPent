@@ -33,7 +33,6 @@ MANIFEST_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50.json"
 CONSTRAINTS_PATH = (
     REPO_ROOT / "robots" / "robocasa" / "eval" / "target50-constraints.txt"
 )
-OVERRIDES_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50-overrides.txt"
 RESULTS_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50_codex_results.md"
 EXPECTED_SPLIT_SHAPES = {
     "atomic": {
@@ -75,24 +74,24 @@ def test_target50_manifest_identity_and_dependencies():
     dependencies = manifest["dependencies"]
     assert dependencies["runtime"] == {
         "python": "3.10",
-        "cuda": "12.6",
+        "reference_accelerator": {
+            "cuda": "12.6",
+            "torch": "2.7.0",
+            "torchvision": "0.22.0",
+            "enforced": False,
+        },
         "constraints_file": "robots/robocasa/eval/target50-constraints.txt",
-        "overrides_file": "robots/robocasa/eval/target50-overrides.txt",
         "packages": {
             "mujoco": "3.3.1",
             "numpy": "1.26.4",
             "pydantic": "2.13.5",
             "pydantic-ai-slim": "2.1.0",
             "rlinf-rldx": "1.0.1.post10",
-            "rlinf-robocasa365": "1.0.1",
-            "torch": "2.7.0",
-            "torchvision": "0.22.0",
+            "rpent-robocasa365": "1.0.1",
             "transformers": "4.57.6",
         },
     }
-    assert dependencies["robosuite"]["commit"] == (
-        "97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
-    )
+    assert dependencies["robosuite"]["branch"] == "rpent"
     assert dependencies["rldx_checkpoint"]["revision"] == (
         "587e9ecdcc5e7184fcc17f58713908edff5af041"
     )
@@ -113,19 +112,38 @@ def test_target50_constraints_match_manifest_packages():
     }
 
     assert constraints == {f"{name}=={version}" for name, version in packages.items()}
+    assert not {"torch", "torchvision"} & packages.keys()
 
 
-def test_target50_override_freezes_robosuite_source():
-    revision = _manifest()["dependencies"]["robosuite"]["commit"]
-    overrides = {
-        line.strip()
-        for line in OVERRIDES_PATH.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.startswith("#")
+def test_target50_source_branches_match_extra_and_documentation():
+    dependencies = _manifest()["dependencies"]
+    sources = {
+        "robosuite": "robosuite",
+        "robocasa": "rpent-robocasa365",
+        "rldx": "rlinf-rldx",
     }
-
-    assert overrides == {
-        f"robosuite @ git+https://github.com/RLinf/robosuite.git@{revision}"
-    }
+    project = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    for name, package in sources.items():
+        assert dependencies[name]["branch"] == "rpent"
+        assert "commit" not in dependencies[name]
+        repository = dependencies[name]["repository"]
+        requirement = f"{package} @ git+{repository}.git@rpent"
+        assert requirement in project
+        for language in ("en", "zh"):
+            guide = (
+                REPO_ROOT
+                / "docs"
+                / f"source-{language}"
+                / "rst_source"
+                / "usage"
+                / "robocasa.rst"
+            ).read_text(encoding="utf-8")
+            assert '".[robocasa]"' in guide
+            assert "``rpent``" in guide
+            assert "uv pip check" in guide
+            assert "uv pip freeze" in guide
+            assert "--no-deps" not in guide
+            assert "--override" not in guide
 
 
 def test_target50_matrix_is_exact_and_has_no_duplicate_cells():
@@ -242,20 +260,15 @@ def test_spawned_environment_uses_cli_seed_and_clears_legacy_override(
 
 
 def _memory_metadata(task_name="OpenDrawer", policy="task-global") -> dict:
-    manifest = json.loads((MANIFEST_PATH.parent / "target50_v2.json").read_text())
-    selection = []
-    if task_name not in manifest["memory_policy"]["tasks_without_memory"]:
-        selection.extend(
-            [f"task_only/{task_name}_s0.json", f"task_only/{task_name}_s0_recipe.jsonl"]
-        )
-    if task_name in manifest["memory_policy"]["task_markdown_tasks"]:
-        selection.append(f"task_only/{task_name}.md")
+    selection = [
+        f"task_only/{task_name}_s0.json",
+        f"task_only/{task_name}_s0_recipe.jsonl",
+        f"task_only/{task_name}.md",
+    ]
     if policy == "task-global":
         selection.append("global/GLOBAL_MEMORY.md")
     return {
         "policy": policy,
-        "corpus_sha256": manifest["dependencies"]["task_memory"]["corpus_sha256"],
-        "hf_revision": None,
         "selected_files": selection,
         "read_files": sorted(selection),
         "missing_layers": [],
@@ -319,6 +332,16 @@ def test_cell_result_counts_planner_timeout_but_not_missing_environment_result()
     assert timeout["valid"] is True
     assert timeout["success"] is False
     assert missing["valid"] is False
+
+
+@pytest.mark.parametrize(
+    "memory",
+    [None, {"policy": "task-global"}, {"policy": "task-only", "selected_files": []}],
+)
+def test_cell_result_requires_memory_selection_and_read_records(memory):
+    result = _cell_result(memory=memory)
+    assert result["valid"] is False
+    assert result["termination_reason"] == "infrastructure_error"
 
 
 def test_robocasa_registers_and_adapts_shared_result_finalizer(tmp_path, monkeypatch):
@@ -397,6 +420,107 @@ def test_robocasa_finalizer_marks_missing_environment_result_invalid(
     assert result["termination_reason"] == "infrastructure_error"
 
 
+def _finalize_memory_run(output_dir: Path) -> dict:
+    path = finalize_cell_result(
+        RunFinalizationContext(
+            output_dir=output_dir,
+            robot_name="robocasa",
+            task_desc={"task_name": "OpenDrawer", "split": "target", "seed": 1},
+            environment_success=True,
+            agent_error=None,
+            elapsed_s=1.0,
+            planner="codex",
+            model="gpt-5.5",
+            reasoning_effort="xhigh",
+            max_turns=100,
+            planner_timeout_s=1800,
+            finish_result=None,
+            stats={},
+        )
+    )
+    return json.loads(path.read_text())
+
+
+@pytest.mark.parametrize(
+    ("first_policy", "second_policy"),
+    [
+        ("task-global", "task-global"),
+        ("task-global", "task-only"),
+        ("task-only", "task-global"),
+    ],
+)
+def test_reused_output_directory_credits_only_current_run_reads(
+    tmp_path, make_corpus, first_policy, second_policy
+):
+    from robots.robocasa.memory import RoboCasaMemoryManager, TaskMemory
+
+    root = make_corpus(tmp_path / "robocasa")
+    output = tmp_path / "run"
+
+    def start(policy):
+        return RoboCasaMemoryManager(
+            TaskMemory.load(root, "OpenDrawer", policy=policy), output_dir=output
+        )
+
+    def read_all(manager):
+        read = manager.get_common_tool_bindings()["read_text_file"][1]
+        for name in manager.selection.selected:
+            read(path=str(root / name))
+
+    first = start(first_policy)
+    read_all(first)
+    assert _finalize_memory_run(output)["valid"] is True
+    second = start(second_policy)
+    unread = _finalize_memory_run(output)
+    assert unread["valid"] is False
+    assert unread["memory"]["read_files"] == []
+    assert second.unread_files == second.selection.selected
+    read = second.get_common_tool_bindings()["read_text_file"][1]
+    read(path=str(root / second.selection.selected[0]), max_chars=1)
+    assert _finalize_memory_run(output)["valid"] is False
+    read_all(second)
+    result = _finalize_memory_run(output)
+    assert result["valid"] is True
+    assert result["memory"]["policy"] == second_policy
+    assert result["memory"]["read_files"] == sorted(second.selection.selected)
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["missing_reads", "missing_metadata", "truncated", "bad_event", "bad_complete"],
+)
+def test_missing_or_corrupt_read_audit_overwrites_a_previous_valid_result(
+    tmp_path, make_corpus, corruption
+):
+    from robots.robocasa.memory import RoboCasaMemoryManager, TaskMemory
+
+    root = make_corpus(tmp_path / "robocasa")
+    output = tmp_path / "run"
+    manager = RoboCasaMemoryManager(
+        TaskMemory.load(root, "OpenDrawer"), output_dir=output
+    )
+    read = manager.get_common_tool_bindings()["read_text_file"][1]
+    for name in manager.selection.selected:
+        read(path=str(root / name))
+    assert _finalize_memory_run(output)["valid"] is True
+    audit = output / "memory_reads.jsonl"
+    if corruption == "missing_reads":
+        audit.unlink()
+    elif corruption == "missing_metadata":
+        (output / "memory.json").unlink()
+    elif corruption == "truncated":
+        with audit.open("a") as handle:
+            handle.write('{"path":')
+    elif corruption == "bad_event":
+        audit.write_text("[]\n")
+    else:
+        audit.write_text('{"path":"task_only/OpenDrawer.md","complete":"true"}\n')
+    result = _finalize_memory_run(output)
+    assert result["valid"] is False
+    assert result["success"] is True  # Retain the native environment outcome.
+    assert result["termination_reason"] == "infrastructure_error"
+
+
 def _write_valid_cell_result(
     output_dir: Path,
     *,
@@ -428,8 +552,6 @@ def _write_valid_cell_result(
     ("field", "value", "message"),
     [
         ("policy", "task-only", "memory policy"),
-        ("corpus_sha256", "0" * 64, "memory corpus"),
-        ("hf_revision", "0" * 40, "HF memory revision"),
         ("read_files", [], "not read completely"),
         ("selected_files", ["task_only/ArrangeTea.md"], "selected memory files"),
     ],
