@@ -24,6 +24,7 @@ import threading
 import time
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from pydantic_ai import (
     BinaryContent,
@@ -38,6 +39,7 @@ from pydantic_ai.models.test import TestModel
 from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
 from rpent.planner.api_loop import ApiAgentLoop
+from rpent.session import EnvState
 from rpent.tools import common
 from rpent.tools.toolkit import Toolkit, readonly
 
@@ -55,9 +57,9 @@ class Events:
 
 
 class RobotToolkit(Toolkit):
-    def __init__(self, events):
+    def __init__(self, events, state=None):
         self.calls = []
-        super().__init__(dashboard_events=events, memory=SimpleNamespace())
+        super().__init__(dashboard_events=events, memory=SimpleNamespace(), state=state)
 
     def _register_common_tools(self):
         self.add_tool("finish", common.TOOLS_SPEC[-1], self.finish)
@@ -309,6 +311,137 @@ def test_multimodal_tool_results_and_dashboard_events(tmp_path, no_images):
     assert "Ready." in serialized
     assert "aW1hZ2U=" not in serialized
     assert any(m.get("name") == "observe" for m in result.messages)
+
+
+@pytest.fixture
+def image_state(tmp_path):
+    state = EnvState(tmp_path / "state")
+    for value in (0, 255):
+        with state.record_step(state={}):
+            for name in ("camera.png", "camera.jpg", "camera.jpeg"):
+                image = np.full((4, 4, 3), value, dtype=np.uint8)
+                assert state.save(name, image) == name
+    assert state.save("notes.json", {"position": 1}, step=0) == "notes.json"
+    return state
+
+
+@pytest.mark.parametrize("no_images", [False, True])
+@pytest.mark.parametrize(
+    "name,step,media_type",
+    [
+        ("camera.png", None, "image/png"),
+        ("camera.jpg", 0, "image/jpeg"),
+        ("camera.jpeg", 1, "image/jpeg"),
+    ],
+)
+def test_read_image_returns_saved_artifact_and_records_call(
+    tmp_path, image_state, monkeypatch, no_images, name, step, media_type
+):
+    events = Events()
+    toolkit = RobotToolkit(events, state=image_state)
+    arguments = {"name": name}
+    if step is not None:
+        arguments["step"] = step
+    resolved_step = image_state.latest_step if step is None else step
+    expected_bytes = image_state.load_bytes(name, step=resolved_step)
+    histories = []
+
+    if no_images:
+
+        def unexpected_read(*args, **kwargs):
+            pytest.fail("--no-images should not read image bytes")
+
+        monkeypatch.setattr(image_state, "load_bytes", unexpected_read)
+
+    async def stream(messages, info):
+        histories.append(copy.deepcopy(messages))
+        yield tool("read_image", arguments) if len(histories) == 1 else finish()
+
+    result, _, _ = solve(
+        tmp_path,
+        FunctionModel(stream_function=stream),
+        toolkit,
+        events,
+        no_images=no_images,
+    )
+    assert result.error is None
+    assert result.finish_result == {"_finish": True, **FINISH_ARGS}
+    returned = next(
+        part
+        for message in histories[1]
+        for part in message.parts
+        if isinstance(part, ToolReturnPart) and part.tool_name == "read_image"
+    )
+    assert returned.content["artifact"] == name
+    assert returned.content["step"] == resolved_step
+    images = [
+        item
+        for message in histories[1]
+        for part in message.parts
+        if isinstance(part, (ToolReturnPart, UserPromptPart))
+        and isinstance(part.content, list)
+        for item in part.content
+        if isinstance(item, BinaryContent)
+    ]
+    if no_images:
+        assert not images
+        assert "--no-images" in returned.content["notice"]
+    else:
+        assert len(images) == 1
+        assert images[0].data == expected_bytes
+        assert images[0].media_type == media_type
+    assert result.stats["tool_calls"] == 2
+    recorded = next(m for m in result.messages if m.get("name") == "read_image")
+    assert recorded["tool_call_id"] == returned.tool_call_id
+    assert json.loads(recorded["content"]) == returned.content
+    transcript = [e.payload for e in events.events if isinstance(e, TranscriptEvent)]
+    assert [p["type"] for p in transcript if p.get("tool") == "read_image"] == [
+        "tool_call",
+        "tool_result",
+    ]
+
+
+@pytest.mark.parametrize(
+    "name,step,error",
+    [
+        ("missing.png", 0, "not available"),
+        ("notes.json", 0, "not an image"),
+        ("../camera.png", 0, "base filename"),
+        ("camera.png", 99, "not present"),
+        ("unregistered.png", 0, "not available"),
+        ("camera.png", 0, "not available"),
+    ],
+)
+def test_read_image_errors_reach_model_without_ending_run(
+    tmp_path, image_state, name, step, error
+):
+    events = Events()
+    toolkit = RobotToolkit(events, state=image_state)
+    image_state.artifact_path("camera.png", step=0).unlink()
+    unregistered = image_state.artifact_path("unregistered.png", step=0)
+    unregistered.parent.mkdir()
+    unregistered.write_bytes(b"not registered in the step")
+    histories = []
+
+    async def stream(messages, info):
+        histories.append(copy.deepcopy(messages))
+        if len(histories) == 1:
+            yield tool("read_image", {"name": name, "step": step})
+        else:
+            yield finish()
+
+    result, _, _ = solve(
+        tmp_path, FunctionModel(stream_function=stream), toolkit, events
+    )
+    assert result.error is None
+    assert result.finish_result == {"_finish": True, **FINISH_ARGS}
+    returned = next(
+        part
+        for message in histories[1]
+        for part in message.parts
+        if isinstance(part, ToolReturnPart) and part.tool_name == "read_image"
+    )
+    assert error in returned.content["error"]
 
 
 def test_schema_validation_and_sequential_physical_tools(tmp_path):

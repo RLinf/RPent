@@ -21,6 +21,7 @@ RPent's runner saves the returned transcript through its existing output flow.
 
 import asyncio
 import base64
+import json
 import threading
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
@@ -245,7 +246,7 @@ class _ConversationAgent(WrapperAgent):
 
 
 class _HarnessToolkit(FunctionToolset):
-    """Translate schemas and multimodal results without bypassing Toolkit."""
+    """Expose Toolkit tools and a read-only image artifact reader."""
 
     def __init__(
         self,
@@ -264,6 +265,7 @@ class _HarnessToolkit(FunctionToolset):
         self.stopping = threading.Event()
         self.validators: dict[str, Draft202012Validator] = {}
         self.output_types: list[Any] = [str]
+        self.add_tool(Tool(self.read_image, takes_ctx=True, sequential=True))
         for spec in toolkit.get_tools_spec():
             name = spec["name"]
             self.validators[name] = Draft202012Validator(spec["input_schema"])
@@ -300,6 +302,47 @@ class _HarnessToolkit(FunctionToolset):
                     )
                 )
 
+    async def read_image(
+        self, ctx: RunContext, name: str, step: int = -1
+    ) -> ToolReturn:
+        """Read a saved image by artifact filename and step (-1 selects the latest)."""
+        self._record_call("read_image", {"name": name, "step": step})
+        result = await asyncio.to_thread(self._read_image, name, step)
+        self._record_result("read_image", ctx, json.dumps(result.return_value))
+        return result
+
+    def _read_image(self, name: str, step: int) -> ToolReturn:
+        """Resolve an image in the step store, returning artifact errors to the model."""
+        try:
+            state = self.toolkit.state
+            record = state.get(step)
+            path = state.artifact_path(name, step=record.step_idx)
+            if name not in record.artifacts or not path.is_file():
+                raise FileNotFoundError(
+                    f"image artifact {name!r} is not available at step {step}"
+                )
+            if path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+                raise ValueError(f"artifact {name!r} is not an image")
+            metadata = {"artifact": name, "step": record.step_idx}
+            if self.no_images:
+                return ToolReturn(
+                    return_value={
+                        **metadata,
+                        "notice": "Image omitted: --no-images is enabled.",
+                    }
+                )
+            image = BinaryContent(
+                data=state.load_bytes(name, step=record.step_idx),
+                media_type=(
+                    "image/jpeg"
+                    if path.suffix.lower() in {".jpg", ".jpeg"}
+                    else "image/png"
+                ),
+            )
+        except Exception as exc:
+            return ToolReturn(return_value={"error": str(exc)})
+        return ToolReturn(return_value=metadata, content=[image])
+
     async def execute(
         self, name: str, arguments: dict[str, Any], ctx: RunContext
     ) -> ToolResult:
@@ -307,12 +350,7 @@ class _HarnessToolkit(FunctionToolset):
         error = next(self.validators[name].iter_errors(arguments), None)
         if error is not None:
             raise ModelRetry(f"Invalid arguments for {name}: {error.message}")
-        if self.stopping.is_set():
-            raise asyncio.CancelledError
-        self.dashboard_events.emit(
-            TranscriptEvent({"type": "tool_call", "tool": name, "args": arguments})
-        )
-        self.tool_calls += 1
+        self._record_call(name, arguments)
         operation = asyncio.create_task(
             asyncio.to_thread(self.toolkit.execute_tool, name, arguments)
         )
@@ -325,7 +363,18 @@ class _HarnessToolkit(FunctionToolset):
             # Drain it before another run may use the same toolkit.
             await operation
             raise
-        text = self._text(result)
+        self._record_result(name, ctx, self._text(result))
+        return result
+
+    def _record_call(self, name: str, arguments: dict[str, Any]) -> None:
+        if self.stopping.is_set():
+            raise asyncio.CancelledError
+        self.dashboard_events.emit(
+            TranscriptEvent({"type": "tool_call", "tool": name, "args": arguments})
+        )
+        self.tool_calls += 1
+
+    def _record_result(self, name: str, ctx: RunContext, text: str) -> None:
         self.messages.append(
             {
                 "role": "tool",
@@ -337,7 +386,6 @@ class _HarnessToolkit(FunctionToolset):
         self.dashboard_events.emit(
             TranscriptEvent({"type": "tool_result", "tool": name, "result": text})
         )
-        return result
 
     async def call(self, name: str, ctx: RunContext, /, **arguments: Any) -> ToolReturn:
         """Return native multimodal content for an ordinary tool."""
