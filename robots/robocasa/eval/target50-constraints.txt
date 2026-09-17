@@ -1,12 +1,11 @@
 # Compatibility-sensitive package versions validated for Target50 reproduction.
-# The companion override file freezes the exact Robosuite Git revision.
+# Source dependencies follow the rpent branches recorded in target50.json.
+# Select a compatible Torch/torchvision/CUDA build for the host separately.
 mujoco==3.3.1
 numpy==1.26.4
 pydantic==2.13.5
 # RPent's API planner contract targets the instruction semantics introduced at 2.1.
 pydantic-ai-slim==2.1.0
 rlinf-rldx==1.0.1.post10
-rlinf-robocasa365==1.0.1
-torch==2.7.0
-torchvision==0.22.0
+rpent-robocasa365==1.0.1
 transformers==4.57.6

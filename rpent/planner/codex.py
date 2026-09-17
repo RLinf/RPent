@@ -799,10 +799,18 @@ def build_codex_config(
     env = _codex_environment()
     if api_key:
         env[PROVIDER_ENV_KEY] = api_key
+    config_overrides = _codex_mcp_config_overrides(mcp_url=mcp_url, base_url=base_url)
+    # Project development instructions and skills are excluded from planner context.
+    config_overrides.append("project_doc_max_bytes=0")
+    disabled_skills = [
+        f"{{ path = {json.dumps(str(path.resolve()), ensure_ascii=False)}, enabled = false }}"
+        for path in sorted((Path(cwd) / ".agents" / "skills").glob("*/SKILL.md"))
+        if path.is_file()
+    ]
+    if disabled_skills:
+        config_overrides.append(f"skills.config=[{', '.join(disabled_skills)}]")
     kwargs: dict[str, Any] = {
-        "config_overrides": tuple(
-            _codex_mcp_config_overrides(mcp_url=mcp_url, base_url=base_url)
-        ),
+        "config_overrides": tuple(config_overrides),
         "cwd": cwd,
         "env": env,
         # use True to support (namespace tools,

@@ -31,7 +31,6 @@ MANIFEST_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50.json"
 CONSTRAINTS_PATH = (
     REPO_ROOT / "robots" / "robocasa" / "eval" / "target50-constraints.txt"
 )
-OVERRIDES_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50-overrides.txt"
 RESULTS_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50_codex_results.md"
 EXPECTED_SPLIT_SHAPES = {
     "atomic": {
@@ -73,24 +72,24 @@ def test_target50_manifest_identity_and_dependencies():
     dependencies = manifest["dependencies"]
     assert dependencies["runtime"] == {
         "python": "3.10",
-        "cuda": "12.6",
+        "reference_accelerator": {
+            "cuda": "12.6",
+            "torch": "2.7.0",
+            "torchvision": "0.22.0",
+            "enforced": False,
+        },
         "constraints_file": "robots/robocasa/eval/target50-constraints.txt",
-        "overrides_file": "robots/robocasa/eval/target50-overrides.txt",
         "packages": {
             "mujoco": "3.3.1",
             "numpy": "1.26.4",
             "pydantic": "2.13.5",
             "pydantic-ai-slim": "2.1.0",
             "rlinf-rldx": "1.0.1.post10",
-            "rlinf-robocasa365": "1.0.1",
-            "torch": "2.7.0",
-            "torchvision": "0.22.0",
+            "rpent-robocasa365": "1.0.1",
             "transformers": "4.57.6",
         },
     }
-    assert dependencies["robosuite"]["commit"] == (
-        "97cfbde4b68d8ec43dad20cf4747297866a6ca2e"
-    )
+    assert dependencies["robosuite"]["branch"] == "rpent"
     assert dependencies["rldx_checkpoint"]["revision"] == (
         "587e9ecdcc5e7184fcc17f58713908edff5af041"
     )
@@ -111,19 +110,38 @@ def test_target50_constraints_match_manifest_packages():
     }
 
     assert constraints == {f"{name}=={version}" for name, version in packages.items()}
+    assert not {"torch", "torchvision"} & packages.keys()
 
 
-def test_target50_override_freezes_robosuite_source():
-    revision = _manifest()["dependencies"]["robosuite"]["commit"]
-    overrides = {
-        line.strip()
-        for line in OVERRIDES_PATH.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.startswith("#")
+def test_target50_source_branches_match_extra_and_documentation():
+    dependencies = _manifest()["dependencies"]
+    sources = {
+        "robosuite": "robosuite",
+        "robocasa": "rpent-robocasa365",
+        "rldx": "rlinf-rldx",
     }
-
-    assert overrides == {
-        f"robosuite @ git+https://github.com/RLinf/robosuite.git@{revision}"
-    }
+    project = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    for name, package in sources.items():
+        assert dependencies[name]["branch"] == "rpent"
+        assert "commit" not in dependencies[name]
+        repository = dependencies[name]["repository"]
+        requirement = f"{package} @ git+{repository}.git@rpent"
+        assert requirement in project
+        for language in ("en", "zh"):
+            guide = (
+                REPO_ROOT
+                / "docs"
+                / f"source-{language}"
+                / "rst_source"
+                / "usage"
+                / "robocasa.rst"
+            ).read_text(encoding="utf-8")
+            assert '".[robocasa]"' in guide
+            assert "``rpent``" in guide
+            assert "uv pip check" in guide
+            assert "uv pip freeze" in guide
+            assert "--no-deps" not in guide
+            assert "--override" not in guide
 
 
 def test_target50_matrix_is_exact_and_has_no_duplicate_cells():

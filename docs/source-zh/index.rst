@@ -77,7 +77,7 @@
    Agentic Planner <rst_source/usage/configure_planner>
    动作原语 <rst_source/usage/configure_primitives>
    数据飞轮 <rst_source/usage/flywheel>
-   任务卡模式 <rst_source/usage/task_card>
+   Flash Mode <rst_source/usage/flash>
    仿真环境 <rst_source/usage/simulation>
    真实机器人 <rst_source/usage/real_robots>
    高级部署 <rst_source/usage/advanced_deployment>
