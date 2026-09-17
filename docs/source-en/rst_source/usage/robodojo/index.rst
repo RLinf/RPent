@@ -49,7 +49,10 @@ registry entry is needed. Users select it with ``rpent --robot <name>``.
 Implement ``RobotSpec`` in ``robot_spec.py``: provide the name and prompts,
 register CLI arguments with ``add_cli_args``, build ``RunConfig`` in
 ``parse_config``, and launch requested components in ``init_runtime``.
-Pass runtime values to the toolkit through ``primitives_kwargs``. Use shared
+Accept ``runtime_kwargs``, ``dashboard_events`` and ``config`` in ``get_toolkit``;
+create its ``MemoryManager`` from the configured memory directory. RoboDojo's
+factory passes ``runtime_kwargs`` to its internal toolkit as ``primitives_kwargs``.
+Use shared
 ``try_spawn_server``, ``try_wait_server`` and ``ProcessDaemon`` helpers; return
 owned processes for cleanup, but do not stop borrowed endpoints. Implement
 ``run_flash(toolkit, cell_tag, note)`` only when frozen replay is supported.

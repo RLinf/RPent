@@ -138,7 +138,7 @@ def _run_flash(toolkit, cell_tag: str, note) -> dict:
 
 def get_toolkit(
     *,
-    primitives_kwargs: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
     allowed_tool_groups: frozenset[str] | None = None,
@@ -154,7 +154,7 @@ def get_toolkit(
 
         load_plan(memory.root, config.prompt_vars["task"])
     return RoboDojoToolkit(
-        primitives_kwargs=primitives_kwargs,
+        primitives_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
         allowed_tool_groups=allowed_tool_groups,

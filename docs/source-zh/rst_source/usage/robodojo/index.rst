@@ -45,8 +45,10 @@ RPent 共享的 planner、感知、工具与 memory 基础设施。该接入仍�
 
 在 ``robot_spec.py`` 实现 ``RobotSpec``：提供名称和 prompts，用
 ``add_cli_args`` 注册参数，``parse_config`` 生成 ``RunConfig``，
-``init_runtime`` 启动所需组件。通过 ``primitives_kwargs`` 将运行时参数传入
-toolkit。复用 ``try_spawn_server``、``try_wait_server`` 和 ``ProcessDaemon``，
+``init_runtime`` 启动所需组件。``get_toolkit`` 接收 ``runtime_kwargs``、
+``dashboard_events`` 和 ``config``，根据配置的 memory 目录创建 ``MemoryManager``。
+RoboDojo 工厂将 ``runtime_kwargs`` 作为 ``primitives_kwargs`` 传给内部 toolkit。
+复用 ``try_spawn_server``、``try_wait_server`` 和 ``ProcessDaemon``，
 返回自己创建的进程供清理，不停止借用的服务。仅在支持冻结重放时实现
 ``run_flash(toolkit, cell_tag, note)``。
 

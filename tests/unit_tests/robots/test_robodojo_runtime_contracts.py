@@ -195,6 +195,8 @@ def test_tool_group_hook_filters_schemas_and_dispatch(
     from robots.robodojo import toolkit as module
     from rpent.dashboard.events import NullDashboardEventSink
     from rpent.memory import MemoryManager
+    from rpent.robots.base import get_toolkit
+    from rpent.robots.robot_spec import RunConfig
     from rpent.utils import logging
 
     monkeypatch.setattr(logging, "_output_dir", tmp_path / "output")
@@ -205,12 +207,21 @@ def test_tool_group_hook_filters_schemas_and_dispatch(
         get_task_language=lambda: "instruction",
         get_reward_details=lambda: {"score": 100},
     )
-    toolkit = module.RoboDojoToolkit(
-        primitives_kwargs={"env": env, "task": task},
+    toolkit = get_toolkit(
+        "robodojo",
+        runtime_kwargs={"env": env, "task": task},
         dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "memory"),
+        config=RunConfig(
+            recipe_tag=task,
+            output_dir=tmp_path / "output",
+            prompt_vars={"memory_dir": str(tmp_path / "memory")},
+            task_desc={"task": task},
+        ),
         allowed_tool_groups=groups,
     )
+    assert isinstance(toolkit, module.RoboDojoToolkit)
+    assert isinstance(toolkit.memory, MemoryManager)
+    assert toolkit.memory.root == tmp_path / "memory"
     names = {spec["name"] for spec in toolkit.get_tools_spec()}
     robot_names = {spec["name"] for spec in tools.TOOLS_SPEC}
     assert sum(map(len, tools.TOOL_GROUPS.values())) == len(robot_names)
@@ -230,6 +241,31 @@ def test_tool_group_hook_filters_schemas_and_dispatch(
         if groups is None
         else {"error": "unknown tool: get_reward_details"}
     )
+
+
+@pytest.mark.parametrize("missing", ["runtime_kwargs", "dashboard_events", "config"])
+def test_registry_toolkit_factory_requires_cli_arguments(missing):
+    from rpent.robots.base import get_toolkit
+
+    kwargs = {"runtime_kwargs": {}, "dashboard_events": None, "config": None}
+    del kwargs[missing]
+    with pytest.raises(TypeError, match=f"required keyword-only argument: '{missing}'"):
+        get_toolkit("robodojo", **kwargs)
+
+
+def test_registry_toolkit_factory_rejects_unknown_arguments():
+    from rpent.robots.base import get_toolkit
+
+    with pytest.raises(
+        TypeError, match="unexpected keyword argument 'primitives_kwargs'"
+    ):
+        get_toolkit(
+            "robodojo",
+            runtime_kwargs={},
+            dashboard_events=None,
+            config=None,
+            primitives_kwargs={},
+        )
 
 
 def test_tool_group_hook_rejects_unknown_group():
