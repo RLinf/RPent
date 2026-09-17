@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Visual-grounding queries used at each stage of task-card replay.
+"""Visual-grounding queries used at each stage of Flash Mode replay.
 
-The object noun comes from the card. These templates add only the spatial or
+The object noun comes from the program. These templates add only the spatial or
 visual context needed by each localization stage.
 """
 

@@ -64,7 +64,7 @@ class LiberoPrimitives:
         self.env = env
         self.model = model
         self._sam3_client = sam3_client
-        #: Only a task-card replay reads this; other runs never start Molmo.
+        #: Only a Flash Mode replay reads this; other runs never start Molmo.
         self.molmo_client = molmo_client
         self._check_cancelled = check_cancelled
         self._last_obs = None

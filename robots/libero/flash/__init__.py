@@ -11,15 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""LIBERO task cards: a recorded plan, replayed with live grounding.
+"""LIBERO Flash plans: a recorded plan, replayed with live grounding.
 
-A card records what the planner localized, what it then commanded, and the
+A program records what the planner localized, what it then commanded, and the
 distance between the two. That distance is task logic and survives a change of
-layout; the absolute coordinate does not. Replaying a card re-reads its anchors
+layout; the absolute coordinate does not. Replaying a program re-reads its anchors
 now and moves every waypoint with them, so the plan follows objects that moved
 without a planner in the loop.
 """
 
-from robots.libero.task_card.replay import replay_card
+from robots.libero.flash.replay import run_flash
 
-__all__ = ["replay_card"]
+__all__ = ["run_flash"]

@@ -71,11 +71,14 @@ class RobotSpec:
     #: The CLI uses this instead of hard-coding robot names so real-robot
     #: extensions can opt into exploration with their own reset semantics.
     supports_exploration: bool = False
+    #: Supports human-interactive exploration via the shared HIL input broker.
+    #: Requires supports_exploration, get_toolkit(operator_input=...), and toolkit
+    #: request_direct_verdict/finalize_direct_verdict/direct_verdict_requested.
+    #: Operator success gates automatic memory publication for this capability.
+    supports_human_interactive_exploration: bool = False
     memory_repo_id: str = "RLinf/RPent-memory"
     finalize_run: RunFinalizer | None = None
     #: Replay this robot's recorded plan for one cell, in place of a planner.
     #: Takes the toolkit, the cell tag, and a note sink; returns at least
-    #: ``{"done": bool}``. Left unset by robots that record no cards.
-    replay_card: Callable[[Any, str, Callable[[str], None]], dict[str, Any]] | None = (
-        None
-    )
+    #: ``{"done": bool}``. Left unset by robots without Flash Mode.
+    run_flash: Callable[[Any, str, Callable[[str], None]], dict[str, Any]] | None = None

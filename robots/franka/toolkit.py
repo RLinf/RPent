@@ -40,7 +40,7 @@ class FrankaToolkit(Toolkit):
     def __init__(
         self,
         *,
-        primitives_kwargs: dict[str, Any],
+        runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
         state_output_dir: Path | str | None = None,
@@ -53,7 +53,7 @@ class FrankaToolkit(Toolkit):
         )
         self._primitives = self._primitives_cls(
             check_cancelled=self.raise_if_cancelled,
-            **primitives_kwargs,
+            **runtime_kwargs,
         )
         self._register_tools()
         self._state.reset()

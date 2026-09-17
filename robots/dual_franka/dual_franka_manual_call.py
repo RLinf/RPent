@@ -442,7 +442,7 @@ def _call_toolkit_tool(
     task: Any,
 ) -> dict[str, Any]:
     toolkit = DualFrankaToolkit(
-        primitives_kwargs={
+        runtime_kwargs={
             "env": env,
             "model": model,
             "task_description": task.instruction,
