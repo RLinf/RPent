@@ -115,12 +115,15 @@ def test_prompt_names_only_current_task_memory(tmp_path):
         system_prompt(),
         variables={
             "task_name": "OpenDrawer",
+            "reference_tag": "OpenDrawer_target_s0",
             "memory_dir": str(memory_dir),
         },
     )
 
-    assert str(memory_dir / "results" / "OpenDrawer_s0.json") in rendered
-    assert str(memory_dir / "results" / "recipe_OpenDrawer_s0.jsonl") in rendered
+    assert str(memory_dir / "task_only" / "OpenDrawer_target_s0.json") in rendered
+    assert (
+        str(memory_dir / "task_only" / "OpenDrawer_target_s0_recipe.jsonl") in rendered
+    )
     assert str(memory_dir / "results" / "OpenDrawer.md") in rendered
     assert "read every existing file" in rendered
     assert "ArrangeTea_s0" not in rendered
