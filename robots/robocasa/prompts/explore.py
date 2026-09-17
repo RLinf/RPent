@@ -57,10 +57,11 @@ suite/global entries whose applicability matches this task. Also inspect
 as a strategy prior: current RGB-D, task_progress, and primitive results take
 precedence. Coordinates never transfer between scenes.
 
-At every failed-attempt close-out, append a section to
-`{{memory_inbox}}/wip/notes.md` containing: attempt number, initial plan,
-commands/parameters tried, observed progress, bounded failure mechanism, and
-the next named lever. Phrase claims narrowly (for example, “this front-contact
+At every failed-attempt close-out, first write
+`{{output_dir}}/attempts/attempt_<N>_failed.json`. Record the attempt number,
+initial plan, commands and parameters tried, observed progress, bounded failure
+mechanism, and the next named lever. Then append the same concise evidence to
+`{{memory_inbox}}/wip/notes.md`. Phrase claims narrowly (for example, “this front-contact
 push stalled”) rather than declaring a fixture unreachable.
 
 After success, produce concise proposed memory:

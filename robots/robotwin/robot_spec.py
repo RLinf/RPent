@@ -305,17 +305,13 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if not args.task_name:
         raise ValueError("--task-name is required")
     env_cuda_device, vla_cuda_device = _resolve_cuda_devices(args)
+    task_config = getattr(args, "task_config", "demo_randomized")
+    recipe_tag = f"robotwin_{args.task_name}_{task_config}_s{args.seed}"
     output_dir = args.output_dir
     if output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
-        output_dir = (
-            get_repo_root()
-            / "logs"
-            / f"{timestamp}_robotwin_{args.task_name}_s{args.seed}"
-        )
+        output_dir = get_repo_root() / "logs" / f"{timestamp}_{recipe_tag}"
     output_dir = Path(output_dir)
-    recipe_tag = f"robotwin_{args.task_name}_s{args.seed}"
-    task_config = getattr(args, "task_config", "demo_randomized")
     initial_seed = int(args.seed)
     memory_dir = (
         Path(args.memory_dir).expanduser().resolve()
@@ -328,7 +324,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "task_config": task_config,
         "instruction": "<native task_language from state_00>",
         "memory_dir": str(memory_dir),
-        "reference_tag": f"robotwin_{args.task_name}_s0",
+        "reference_tag": f"robotwin_{args.task_name}_{task_config}_s0",
         "recipe_tag": recipe_tag,
     }
     if bool(getattr(args, "explore", False)):
