@@ -74,6 +74,7 @@ Welcome to RPent
    Overview <rst_source/overview>
    Installation <rst_source/installation>
    Quick Start <rst_source/quickstart>
+   Benchmark Results <rst_source/benchmarks>
 
 .. toctree::
    :maxdepth: 2
