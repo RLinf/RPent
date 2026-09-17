@@ -1,0 +1,527 @@
+{
+  "source_commit": "bd9040aa99b8fc75433b424905d832fecbef270f",
+  "schemas": {
+    "describe_dual_franka_setup": {
+      "type": "object",
+      "properties": {}
+    },
+    "view_env_state": {
+      "type": "object",
+      "properties": {
+        "step": {
+          "type": "integer",
+          "default": -1
+        }
+      }
+    },
+    "view_camera_meta": {
+      "type": "object",
+      "properties": {
+        "step": {
+          "type": "integer",
+          "default": -1
+        }
+      }
+    },
+    "back_project": {
+      "type": "object",
+      "properties": {
+        "camera": {
+          "type": "string",
+          "default": "d455",
+          "description": "Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts."
+        },
+        "row": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "col": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "target_name": {
+          "type": "string",
+          "default": "target"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "window_radius": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 2
+        }
+      },
+      "required": [
+        "row",
+        "col"
+      ]
+    },
+    "segment": {
+      "type": "object",
+      "properties": {
+        "camera": {
+          "type": "string",
+          "default": "d455",
+          "description": "Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts."
+        },
+        "prompt": {
+          "type": "string",
+          "default": "",
+          "description": "Text prompt for SAM3. Prefer short object/relation phrases; for the clean-desk box use 'white interior of the black cardboard box' or 'cardboard box'. Avoid over-specific surface words such as 'floor' when grounding is weak. Provide exactly one of prompt or point."
+        },
+        "point": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "Positive SAM3 point in camera image coordinates [row, col]. Provide exactly one of prompt or point."
+        },
+        "target_name": {
+          "type": "string",
+          "default": "target"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "min_score": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.2
+        },
+        "min_valid_depth_pixels": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 25
+        }
+      }
+    },
+    "move_delta": {
+      "type": "object",
+      "properties": {
+        "arm": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "description": "Which arm to command; the other arm is left uncommanded."
+        },
+        "delta_xyz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "arm",
+        "delta_xyz"
+      ]
+    },
+    "rotate_delta": {
+      "type": "object",
+      "properties": {
+        "arm": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "description": "Which arm to command; the other arm is left uncommanded."
+        },
+        "delta_rpy": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "arm",
+        "delta_rpy"
+      ]
+    },
+    "open_gripper": {
+      "type": "object",
+      "properties": {
+        "arm": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "description": "Which arm to command; the other arm is left uncommanded."
+        }
+      },
+      "required": [
+        "arm"
+      ]
+    },
+    "close_gripper": {
+      "type": "object",
+      "properties": {
+        "arm": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "description": "Which arm to command; the other arm is left uncommanded."
+        }
+      },
+      "required": [
+        "arm"
+      ]
+    },
+    "recover_joint_posture": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "default": ""
+        },
+        "return_to_start": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "request_scene_reset": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "Why the scene needs to be restored."
+        },
+        "expected_scene_state": {
+          "type": "string",
+          "default": "",
+          "description": "Short instruction for the operator describing the desired restored layout."
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    },
+    "request_operator_verdict": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "default": "Does the current real-robot scene satisfy the task?"
+        }
+      }
+    },
+    "vla_right_grasp": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."
+        },
+        "max_chunks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 20
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    },
+    "vla_handoff": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."
+        },
+        "max_chunks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 20
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    },
+    "vla_left_place": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."
+        },
+        "max_chunks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 20
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    },
+    "finish": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Outcome, e.g. 'success', 'failure', or 'stuck'."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Short natural-language summary of the run."
+        }
+      },
+      "required": [
+        "status",
+        "summary"
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "view_env_state",
+      "arguments": {},
+      "fields": [
+        "agent_observation",
+        "artifact_images",
+        "artifacts",
+        "available_camera_views",
+        "image_base_path",
+        "image_block_order",
+        "image_d455_path",
+        "image_left_wrist_path",
+        "image_right_wrist_path",
+        "images",
+        "state",
+        "step_idx",
+        "terminated",
+        "truncated"
+      ],
+      "image_count": 1
+    },
+    {
+      "name": "view_camera_meta",
+      "arguments": {},
+      "fields": [
+        "camera_meta",
+        "step"
+      ],
+      "image_count": 0
+    },
+    {
+      "name": "move_delta",
+      "arguments": {
+        "arm": "left",
+        "delta_xyz": [
+          0.01,
+          0,
+          0
+        ]
+      },
+      "fields": [
+        "agent_elapsed_s",
+        "agent_observation",
+        "artifact_images",
+        "artifacts",
+        "available_camera_views",
+        "command",
+        "elapsed_s",
+        "image_base_path",
+        "image_block_order",
+        "image_d455_path",
+        "image_left_wrist_path",
+        "image_right_wrist_path",
+        "images",
+        "result",
+        "state",
+        "step_idx",
+        "terminated",
+        "truncated"
+      ],
+      "image_count": 1,
+      "result_fields": [
+        "arm",
+        "ok"
+      ]
+    },
+    {
+      "name": "rotate_delta",
+      "arguments": {
+        "arm": "right",
+        "delta_rpy": [
+          0,
+          0,
+          0.1
+        ]
+      },
+      "fields": [
+        "agent_elapsed_s",
+        "agent_observation",
+        "artifact_images",
+        "artifacts",
+        "available_camera_views",
+        "command",
+        "elapsed_s",
+        "image_base_path",
+        "image_block_order",
+        "image_d455_path",
+        "image_left_wrist_path",
+        "image_right_wrist_path",
+        "images",
+        "result",
+        "state",
+        "step_idx",
+        "terminated",
+        "truncated"
+      ],
+      "image_count": 1,
+      "result_fields": [
+        "arm",
+        "ok"
+      ]
+    },
+    {
+      "name": "open_gripper",
+      "arguments": {
+        "arm": "left"
+      },
+      "fields": [
+        "agent_elapsed_s",
+        "agent_observation",
+        "artifact_images",
+        "artifacts",
+        "available_camera_views",
+        "command",
+        "elapsed_s",
+        "image_base_path",
+        "image_block_order",
+        "image_d455_path",
+        "image_left_wrist_path",
+        "image_right_wrist_path",
+        "images",
+        "result",
+        "state",
+        "step_idx",
+        "terminated",
+        "truncated"
+      ],
+      "image_count": 1,
+      "result_fields": [
+        "arm",
+        "ok",
+        "open"
+      ]
+    },
+    {
+      "name": "close_gripper",
+      "arguments": {
+        "arm": "right"
+      },
+      "fields": [
+        "agent_elapsed_s",
+        "agent_observation",
+        "artifact_images",
+        "artifacts",
+        "available_camera_views",
+        "command",
+        "elapsed_s",
+        "image_base_path",
+        "image_block_order",
+        "image_d455_path",
+        "image_left_wrist_path",
+        "image_right_wrist_path",
+        "images",
+        "result",
+        "state",
+        "step_idx",
+        "terminated",
+        "truncated"
+      ],
+      "image_count": 1,
+      "result_fields": [
+        "arm",
+        "ok",
+        "open"
+      ]
+    },
+    {
+      "name": "recover_joint_posture",
+      "arguments": {
+        "reason": "joint drift"
+      },
+      "fields": [
+        "agent_elapsed_s",
+        "agent_observation",
+        "artifact_images",
+        "artifacts",
+        "available_camera_views",
+        "command",
+        "elapsed_s",
+        "image_base_path",
+        "image_block_order",
+        "image_d455_path",
+        "image_left_wrist_path",
+        "image_right_wrist_path",
+        "images",
+        "result",
+        "state",
+        "step_idx",
+        "terminated",
+        "truncated"
+      ],
+      "image_count": 1,
+      "result_fields": [
+        "ok",
+        "reason",
+        "return_to_start"
+      ]
+    },
+    {
+      "name": "finish",
+      "arguments": {
+        "status": "success",
+        "summary": "offline baseline"
+      },
+      "fields": [
+        "_finish",
+        "operator_verdict",
+        "status",
+        "summary"
+      ],
+      "image_count": 0
+    }
+  ],
+  "descriptions": {
+    "describe_dual_franka_setup": "Read the dual-Franka runtime conventions, camera aliases, VLA policy conditioning text, semantic stop rules, and available primitive names before acting. This is read-only.",
+    "view_env_state": "Read a dual-Franka state snapshot. The D455 image is returned inline; left_wrist, base, and right_wrist are returned as artifact paths for targeted read_image inspection.",
+    "view_camera_meta": "Read camera intrinsics, serials, and projection metadata for the dual-Franka rig.",
+    "back_project": "Back-project one pixel from a registered RGBD camera view into shared right-base coordinates. Use a camera listed by view_env_state/view_camera_meta; default is the configured primary metric localization camera.",
+    "segment": "Use SAM3 on a registered RGB image with either a text prompt or one positive [row, col] point, return a mask overlay for verification, and estimate the mask median point in shared right-base coordinates.",
+    "move_delta": "Move one Franka TCP by a bounded world-frame xyz delta in meters.",
+    "rotate_delta": "Rotate one Franka TCP by a bounded world-frame rpy delta in radians.",
+    "open_gripper": "Open one Franka gripper and wait for the command to settle.",
+    "close_gripper": "Close one Franka gripper and wait for the command to settle.",
+    "recover_joint_posture": "Reset both arms to their healthy configured joint posture while preserving each gripper's open/closed state. Closed grippers are re-commanded before/after the joint reset so held objects stay clamped, then both TCPs return near their prior poses.",
+    "request_scene_reset": "Exploration-only real-robot reset gate. Ask the human operator to remove/secure held objects and restore the tabletop scene for another attempt, wait for terminal confirmation, then reset the robot posture. This does not automatically restore physical objects like a simulator.",
+    "request_operator_verdict": "Exploration-only human feedback gate. Ask the operator to mark the current physical task state as success, failure, or continue before the planner finishes or starts another attempt.",
+    "vla_right_grasp": "Run the learned right-grasp VLA segment. The active task prompt decides which object is currently allowed; this tool only defines the capability boundary: right gripper closes and the right TCP lifts.",
+    "vla_handoff": "Run the learned bimanual handoff VLA segment. The capability boundary is right-gripper release followed by the configured settle delay; do not rule-base pre-position either arm for it.",
+    "vla_left_place": "Run the learned left-placement VLA segment. The active task decides the destination; this tool only defines the capability boundary: left gripper opens and the left TCP lifts.",
+    "finish": "Call when the task is complete or unrecoverable. Halts the agent loop. Save any artifacts (recipe, audit) BEFORE calling finish."
+  }
+}

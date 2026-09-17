@@ -28,58 +28,66 @@ Two types of primitives
      - ``move_to``, ``rotate_wrist``, ``release``,
        ``back_project``
 
-From the LLM's perspective, both types expose the same interface: a
-tool schema, a primitives method, and a state dump after the
-call. They differ only in how the method is implemented.
+Both types are native tools: a typed handler receives the session's resources
+through ``ToolContext`` and returns ``ToolResult``. The toolkit validates
+arguments and captures the post-action observation.
 
 Add a scripted primitive
 ------------------------
 
-Adding a scripted primitive usually involves two steps:
+Define a module-level handler in ``robots/<robot>/tools.py`` and add the
+resulting ``Tool`` to the robot's tool tuple. For example, this LIBERO handler
+holds the current pose for a bounded number of environment steps:
 
-1. **Add a method to the primitives.** Add the method to the
-   current robot's primitives class, such as
-   ``LiberoPrimitives`` or ``MyRobotPrimitives``. The method accepts
-   the tool-call arguments, performs the work, usually through one or
-   more ``self._env.step(...)`` calls, and returns a small log ``dict``.
+.. code-block:: python
 
-  Primitive methods capture and re-render state (``get_env_state``)
-  automatically after they run:
+   from typing import Annotated
 
-   .. code-block:: python
+   from pydantic import Field
 
-      def open_drawer(self, dx: float = 0.15) -> dict:
-          # Move end-effector back by dx while gripper is closed.
-          for _ in range(N):
-              self._env.step(build_open_drawer_chunk(dx))
-          return {"ok": True, "dx": dx}
+   from rpent.tools import ToolContext, ToolResult, tool
 
-  You can mark read-only tools (``view_env_state``, ``back_project``, ``segment``,
-  ...) with :func:`~rpent.tools.toolkit.readonly` so the toolkit skips state
-  capture for them, improving performance.
+   @tool
+   def hold_pose(
+       steps: Annotated[int, Field(ge=1, le=100)] = 10,
+       *,
+       ctx: ToolContext,
+   ) -> ToolResult:
+       """Hold the current pose with the gripper closed.
 
-2. **Add the tool schema.** Add an entry to ``TOOLS_SPEC`` in
-   ``robots/<robot>/tools.py``:
+       Args:
+           steps: Number of environment steps.
+       """
+       runtime = ctx.robot
+       for _ in range(steps):
+           ctx.check_cancelled()
+           obs, _, terminated, truncated, _ = runtime.env.step(
+               [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+           )
+           runtime.executed_steps += 1
+           runtime.set_obs(obs)
+           ctx.record_frame(obs["main_images"])
+           if terminated or truncated:
+               break
+       return ToolResult(data={"steps_requested": steps})
 
-   .. code-block:: python
+   # Add hold_pose to the existing LIBERO_TOOLS tuple.
 
-      {
-          "name": "open_drawer",
-          "description": "Pull the currently-grasped drawer handle "
-                         "backwards by ``dx`` meters.",
-          "input_schema": {
-              "type": "object",
-              "properties": {"dx": {"type": "number"}},
-              "required": [],
-          },
-      }
+Use the concrete runtime type in ``ToolContext[LiberoRuntime]`` in robot code.
+``@tool`` generates the parameter model and JSON schema from the same function
+signature. Google-style docstrings provide descriptions; use ``Annotated`` /
+``Field`` for constraints on model-supplied arguments. ``ctx`` is injected by
+the executor and is not part of the published schema.
 
-Once both exist, the toolkit registers the tool automatically: it iterates
-``TOOLS_SPEC`` and binds each spec to the matching primitive-driver method
-(e.g. ``getattr(self._primitives, name)``).
+After adding the declaration to ``LIBERO_TOOLS``, all three planners can call
+it. The toolkit handles capture through ``_capture_observation``; handlers
+submit frames but do not save their own episode video or duplicate the state dump.
 
-After these steps, the ``api``, ``claude_code``, and ``codex`` planners
-can all call the primitive without any other code changes.
+For a tool that reads existing observations, place ``@readonly`` below
+``@tool`` to skip automatic capture. Calls still execute one at a time.
+``write_text_file`` and ``finish`` have no readonly marker and run exclusively;
+the executor skips observation capture for common tools and ``finish``.
+See :doc:`interfaces` for execution and cancellation.
 
 .. _add-primitive-model-based:
 
@@ -113,44 +121,26 @@ primitive requires a few additional components:
    ``rpent.robots.components.pi05_vla_client.Pi05VLAClient`` for the LIBERO
    implementation.
 
-3. **Add a method to the primitives.** In the current
-   robot's primitives class, call the model client, pass
-   the returned action chunk to the environment, and return a log
-   ``dict``. The model client API is
-   :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict`,
-   which reads the instruction from ``env_obs["task_descriptions"]`` and
-   returns a ``[chunk, action_dim]`` numpy action chunk (batch dim already
-   stripped):
+3. **Write a native tool handler.** Use ``ctx.robot`` to access the model and
+   environment clients, request a prediction, execute the returned actions,
+   and return ``ToolResult(data={...})``. Follow the robot's observation and
+   action conventions: Pi0.5 reads the instruction from
+   ``env_obs["task_descriptions"]`` and returns a ``[chunk, action_dim]``
+   NumPy array. Check cancellation before inference and at safe action
+   boundaries, and submit environment frames through ``ctx.record_frame``.
+   See ``pi0_pick`` in ``robots/libero/tools.py`` and ``rldx_skill`` in
+   ``robots/robocasa/tools.py`` for concrete implementations.
 
-   .. code-block:: python
+4. **Add the tool to the robot's tuple.** The toolkit receives that tuple in
+   its constructor and handles observation capture after execution, just as
+   for a scripted primitive.
 
-      def mymodel_pick(self, target: str) -> dict:
-          env_obs = self._env.get_obs()
-          env_obs["task_descriptions"] = f"pick {target}"
-          chunk = self._model.predict(env_obs)
-          self._env.chunk_step(chunk)
-          return {"model": "mymodel", "target": target}
-
-4. **Add the tool schema and register it in the toolkit.** Follow the
-   same pattern as for a scripted primitive.
-
-5. **Wire the components together in ``robot_spec.py``.** The
-   robot's ``get_toolkit`` builds the toolkit with
-   ``runtime_kwargs``:
-
-   .. code-block:: python
-
-      def get_toolkit(*, runtime_kwargs, dashboard_events):
-          from robots.myrobot.toolkit import MyRobotToolkit
-          return MyRobotToolkit(
-              runtime_kwargs=runtime_kwargs,
-              dashboard_events=dashboard_events,
-          )
-
-   The robot package's ``_init_runtime`` builds
-   ``runtime_kwargs``, for example
-   ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``.
-   The toolkit constructor then forwards it to the primitives.
+5. **Wire the clients in ``robot_spec.py``.** ``_init_runtime`` returns
+   ``(owned_daemons, runtime_kwargs)``, with entries such as ``env`` and
+   ``model``. ``get_toolkit(*, runtime_kwargs, dashboard_events, config)``
+   passes those inputs, ``config.output_dir``, and a ``MemoryManager`` to the
+   robot toolkit. The toolkit constructs the session runtime from
+   ``runtime_kwargs``. See :doc:`add_robot` for the complete factory.
 
 Reuse an existing vla_server across runs
 ----------------------------------------
@@ -190,7 +180,7 @@ parts:
   the server-side handler by the facade — the client does **not** pass it,
   and must not forge ``session_ids`` inside ``predict``'s ``options``.
 
-- **Primitives side**: call ``reset_session`` before a task starts to clear
+- **Runtime / tool side**: call ``reset_session`` before a task starts to clear
   policy state left over from the previous episode, so consecutive runs do
   not leak state into each other.
 
@@ -234,11 +224,12 @@ Design principles for a new primitive
 
 - **Tools describe intent, not motion.** A good tool name is
   ``pi0_pick``, not ``execute_action_chunk_of_length_20``.
-- **Every tool ends with a state dump.** The next turn depends on
-  the state dump reflecting the post-action world. Don't let the
-  primitive return before the render finishes.
-- **Return small dicts.** Tool return values are fed back to the LLM
-  as text. Save larger observations through ``EnvState.save``; ``EnvState``
+- **Action calls include a fresh observation.** The toolkit captures it after
+  the handler finishes and before returning to the planner. Readonly tools
+  reuse recorded observations.
+- **Return small ``ToolResult.data`` payloads.** The planner serializes them
+  as text and sends ``ToolResult.images`` as PNG content. Save larger observations
+  through ``EnvState.save``; ``EnvState``
   automatically records each logical base name in its owned
   ``StepRecord.artifacts`` set. Expose images through ``view_env_state`` and
   geometry through environment tools rather than returning raw paths.
@@ -262,5 +253,5 @@ The same pattern extends to non-VLA model primitives:
   head to call via a ``model`` kwarg on ``predict``.
 
 Regardless of the implementation, the framework contract remains
-unchanged: model process → model client → primitives method →
-tool schema → ``Toolkit.add_tool``.
+unchanged: model process → model client → native ``@tool`` handler →
+robot tool tuple → ``Toolkit.execute_tool``.

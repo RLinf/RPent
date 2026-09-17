@@ -46,6 +46,10 @@ them when the first test for that module lands.
 - Place cross-layer tests with the primary contract owner. Registry and config
   contracts belong to `rpent/robots/`; extension toolkit and schema contracts
   belong to `robots/`.
+- Keep historical tool schema comparisons for all robots and common tools in
+  `unit_tests/robots/test_tool_schema_contracts.py`. Store each robot's baseline
+  in `<robot>/fixtures/pre_native_tool_contracts.json`; keep runtime behavior
+  tests in the corresponding robot directory.
 - Keep one-off fakes in the test module that uses them. Put shared fixtures in
   the nearest `conftest.py`: use `tests/conftest.py` only for suite-wide
   fixtures and a module directory's `conftest.py` for local fixtures.

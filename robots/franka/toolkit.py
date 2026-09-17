@@ -12,31 +12,41 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Franka toolkit integrated with RPent's centralized environment state."""
+"""Native Franka toolkit and per-session robot resources."""
 
 from __future__ import annotations
 
-from functools import partial
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from robots.franka import perception as franka_perception
 from robots.franka import tools as franka_tools
 from robots.franka.runtime_config import set_calibration_path
-from rpent.dashboard.events import DashboardEventSink
-from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit
+from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
+from rpent.session import EnvState, StepRecord
+from rpent.tools import Toolkit, ToolResult
 from rpent.utils.logging import get_output_dir
 
 if TYPE_CHECKING:
+    from robots.franka.env_client import FrankaEnvClient
     from rpent.memory.manager import MemoryManager
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
 
-class FrankaToolkit(Toolkit):
-    """Common RPent tools plus safe single-Franka planner primitives."""
+@dataclass
+class FrankaRuntime:
+    """Environment and optional VLA client shared by one Franka session."""
 
-    _tools_module = franka_tools
-    _primitives_cls = franka_tools.FrankaPrimitives
+    env: FrankaEnvClient
+    model: Pi05VLAClient | None
+    task_description: str
+
+
+class FrankaToolkit(Toolkit[FrankaRuntime]):
+    """Common native tools plus single-Franka motion and perception."""
+
+    _runtime_type = FrankaRuntime
+    _robot_tools = franka_tools.FRANKA_TOOLS
 
     def __init__(
         self,
@@ -46,69 +56,59 @@ class FrankaToolkit(Toolkit):
         memory: MemoryManager,
         state_output_dir: Path | str | None = None,
     ) -> None:
-        state = EnvState(Path(state_output_dir or get_output_dir()))
-        super().__init__(
-            dashboard_events=dashboard_events,
-            state=state,
-            memory=memory,
-        )
+        runtime_kwargs = dict(runtime_kwargs)
         calibration_path = runtime_kwargs.pop("calibration_path", None)
         if calibration_path is not None:
             set_calibration_path(calibration_path)
-        self._primitives = self._primitives_cls(
-            check_cancelled=self.raise_if_cancelled,
-            **runtime_kwargs,
+        output_dir = Path(state_output_dir or get_output_dir())
+        state = EnvState(output_dir)
+        super().__init__(
+            state=state,
+            memory=memory,
+            robot=self._runtime_type(**runtime_kwargs),
+            output_dir=output_dir,
+            tools=self._robot_tools,
+            dashboard_events=dashboard_events,
         )
-        self._register_tools()
-        self._state.reset()
-        record = self._tools_module.dump_state(
-            self._primitives,
-            self._state,
+        # The env client already resets the robot when it connects.
+        state.reset()
+        record = self._dump_state(
             command=None,
             result=None,
             elapsed_s=None,
         )
-        self._publish_step(record)
+        self._dashboard_events.emit(StepRecordEvent(record=record, env_state=state))
 
-    def _register_tools(self) -> None:
-        state_handlers = {
-            "view_env_state": partial(franka_tools.view_env_state, state=self._state),
-            "view_camera_meta": partial(
-                franka_tools.view_camera_meta,
-                state=self._state,
-            ),
-            "view_perception_setup": partial(
-                franka_perception.view_perception_setup,
-                state=self._state,
-            ),
-            "back_project": partial(
-                franka_perception.back_project,
-                state=self._state,
-            ),
-            "back_project_correspondence": partial(
-                franka_perception.back_project_correspondence,
-                state=self._state,
-            ),
-        }
-        for spec in self._tools_module.TOOLS_SPEC:
-            name = spec["name"]
-            handler = state_handlers.get(name) or getattr(self._primitives, name)
-            self.add_tool(name, spec, handler)
-
-    def get_env_state(
+    def _capture_observation(
         self,
         *,
         command: dict[str, Any],
-        result: dict[str, Any],
+        result: ToolResult,
         elapsed_s: float,
-    ) -> dict[str, Any]:
-        record = self._tools_module.dump_state(
-            self._primitives,
-            self._state,
+    ) -> tuple[dict[str, Any], list[bytes]]:
+        record = self._dump_state(
+            command=command,
+            result=result.to_dict(),
+            elapsed_s=elapsed_s,
+        )
+        observation = self._build_observation(record)
+        observation.data["agent_elapsed_s"] = elapsed_s
+        return observation.data, observation.images
+
+    def _dump_state(
+        self,
+        *,
+        command: dict[str, Any] | None,
+        result: dict[str, Any] | None,
+        elapsed_s: float | None,
+    ) -> StepRecord:
+        return franka_tools.dump_state(
+            self._robot,
+            self.state,
             command=command,
             result=result,
             elapsed_s=elapsed_s,
         )
-        output = self._tools_module.view_env_state(record.step_idx, state=self._state)
-        output["agent_elapsed_s"] = elapsed_s
-        return output
+
+    def _build_observation(self, record: StepRecord) -> ToolResult:
+        return franka_tools.build_observation(self.state, record)

@@ -16,19 +16,18 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from threading import Event
 
 import numpy as np
 import pytest
 
-from robots.dual_franka import get_robot_spec
+from robots.dual_franka import get_robot_spec, tools
 from robots.dual_franka.perception import back_project, segment
 from robots.dual_franka.tasks import CLEAN_DESK_VLA_PROMPT
-from robots.dual_franka.toolkit import DualFrankaToolkit
+from robots.dual_franka.toolkit import DualFrankaRuntime, DualFrankaToolkit
 from robots.dual_franka.tools import (
-    DualFrankaPrimitives,
-    coerce_arm,
-    coerce_vec3,
     dump_state,
     view_env_state,
 )
@@ -38,7 +37,7 @@ from rpent.dashboard.events import NullDashboardEventSink, StepRecordEvent
 from rpent.dashboard.state import DashboardState
 from rpent.memory import MemoryManager
 from rpent.session import EnvState
-from rpent.tools.toolkit import ToolResult
+from rpent.tools import ToolContext
 
 
 class FakeEnv:
@@ -179,13 +178,23 @@ class BoundaryEnv(FakeEnv):
         return {"terminated": False, "truncated": False}
 
 
-def _primitives(env: FakeEnv, *, model=None, check_cancelled=lambda: None):
-    return DualFrankaPrimitives(
+def _runtime(env: FakeEnv, *, model=None):
+    return DualFrankaRuntime(
         env=env,
         model=model,
         task_description="default task",
         vla_instruction=CLEAN_DESK_VLA_PROMPT,
-        check_cancelled=check_cancelled,
+    )
+
+
+def _context(runtime=None, *, state=None):
+    return ToolContext(
+        robot=runtime,
+        state=state,
+        memory=None,
+        output_dir=Path("."),
+        record_frame=lambda frame: None,
+        _cancel_event=Event(),
     )
 
 
@@ -224,14 +233,14 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
     refused_eval = evaluation.execute_tool(
         "finish", {"status": "success", "summary": "not confirmed"}
     )
-    assert refused_eval.result["error"] == "finish refused"
-    assert refused_eval.is_finish is False
+    assert refused_eval.to_dict()["error"] == "finish refused"
+    assert refused_eval.is_error
     evaluation._read_operator_line = lambda prompt: "success checked by operator"
     evaluation.execute_tool("request_operator_verdict", {})
     accepted_eval = evaluation.execute_tool(
         "finish", {"status": "success", "summary": "confirmed"}
     )
-    assert accepted_eval.is_finish is True
+    assert not accepted_eval.is_error
     assert evaluation.solved()
     assert "request_scene_reset" in _tool_names(exploration)
     assert "request_operator_verdict" in _tool_names(exploration)
@@ -240,8 +249,8 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
         "finish",
         {"status": "success", "summary": "agent thinks done"},
     )
-    assert refused.result["error"].startswith("finish refused")
-    assert refused.is_finish is False
+    assert refused.to_dict()["error"].startswith("finish refused")
+    assert refused.is_error
 
     exploration._read_operator_line = lambda prompt: "done"
     exploration.execute_tool("request_scene_reset", {"reason": "prepare"})
@@ -251,8 +260,8 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
         "finish",
         {"status": "success", "summary": "operator accepted"},
     )
-    assert accepted.is_finish is True
-    assert accepted.result["operator_verdict"] == "success"
+    assert not accepted.is_error
+    assert accepted.to_dict()["operator_verdict"] == "success"
 
 
 def test_scene_reset_waits_for_operator_then_resets_robot(tmp_path: Path):
@@ -281,7 +290,7 @@ def test_scene_reset_waits_for_operator_then_resets_robot(tmp_path: Path):
             "reason": "retry with restored layout",
             "expected_scene_state": "objects back at the starting positions",
         },
-    ).result
+    ).to_dict()
 
     assert env.resets == 1
     assert result["result"]["robot_reset"] == {"ok": True}
@@ -292,32 +301,37 @@ def test_scene_reset_waits_for_operator_then_resets_robot(tmp_path: Path):
 
 def test_arm_and_vec3_validation_and_motion_forwarding():
     env = FakeEnv()
-    primitives = _primitives(env)
+    runtime = _runtime(env)
 
-    primitives.move_delta("left", [0.01, 0.0, -0.02])
-    primitives.rotate_delta("right", [0.0, 0.0, 0.1])
-    primitives.open_gripper("left")
-    primitives.close_gripper("right")
+    tools.move_delta.handler("left", [0.01, 0.0, -0.02], ctx=_context(runtime))
+    tools.rotate_delta.handler("right", [0.0, 0.0, 0.1], ctx=_context(runtime))
+    tools.open_gripper.handler("left", ctx=_context(runtime))
+    tools.close_gripper.handler("right", ctx=_context(runtime))
 
     assert env.moves[0][0] == "left"
     np.testing.assert_allclose(env.moves[0][1], [0.01, 0.0, -0.02])
     assert env.rotations[0][0] == "right"
     assert env.grippers == [("left", True), ("right", False)]
 
-    assert coerce_arm("LEFT") == "left"
+    assert tools.open_gripper.args_schema.model_validate({"arm": "LEFT"}).arm == "left"
     with pytest.raises(ValueError, match="left.*right"):
-        coerce_arm("both")
-    with pytest.raises(ValueError, match="exactly 3"):
-        coerce_vec3([1.0, 2.0], name="delta")
+        tools.open_gripper.args_schema.model_validate({"arm": "both"})
+    with pytest.raises(ValueError, match="at least 3"):
+        tools.move_delta.args_schema.model_validate(
+            {
+                "arm": "left",
+                "delta_xyz": [1.0, 2.0],
+            }
+        )
 
 
 def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
     env = FakeEnv()
-    primitives = _primitives(env)
+    runtime = _runtime(env)
     state = EnvState(tmp_path)
 
     record = dump_state(
-        primitives,
+        runtime,
         state,
         command={"action": "move_delta"},
         result={"ok": True},
@@ -335,8 +349,9 @@ def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
         "d455_depth.npy",
         "camera_meta.json",
     }
-    output = view_env_state(state=state)
-    assert output["_image_bytes"]
+    output = view_env_state.handler(ctx=_context(state=state))
+    assert output.images
+    output = output.to_dict()
     assert "_image_nav_bytes" not in output
     assert "_image_cam_bytes" not in output
     assert "_image_wrist_bytes" not in output
@@ -344,14 +359,16 @@ def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
     assert output["image_block_order"] == ["d455"]
     np.testing.assert_array_equal(state.load("base.png"), 7)
     np.testing.assert_array_equal(state.load("base_depth.npy"), 9)
-    camera_meta = view_camera_meta(state=state)["camera_meta"]
+    camera_meta = view_camera_meta.handler(ctx=_context(state=state)).data[
+        "camera_meta"
+    ]
     assert camera_meta["observation_camera_map"]["main"] == "left_wrist_0_rgb"
 
 
 def test_dashboard_discovers_dual_franka_camera_artifacts(tmp_path: Path):
     state = EnvState(tmp_path / "state")
     record = dump_state(
-        _primitives(FakeEnv()), state, command=None, result=None, elapsed_s=None
+        _runtime(FakeEnv()), state, command=None, result=None, elapsed_s=None
     )
     dashboard = DashboardState(
         output_dir=tmp_path, dashboard_spec=get_robot_spec().dashboard
@@ -365,23 +382,24 @@ def test_dashboard_discovers_dual_franka_camera_artifacts(tmp_path: Path):
 
 def test_view_env_state_emits_multimodal_image_blocks(tmp_path: Path):
     env = FakeEnv()
-    primitives = _primitives(env)
+    runtime = _runtime(env)
     state = EnvState(tmp_path)
 
-    dump_state(primitives, state, command=None, result=None, elapsed_s=None)
-    output = view_env_state(state=state)
+    dump_state(runtime, state, command=None, result=None, elapsed_s=None)
+    output = view_env_state.handler(ctx=_context(state=state))
     # Routine planner snapshots inline only D455, while auxiliary camera
     # artifacts stay available through returned paths/read_image.
+    output = output.to_dict()
     assert output["images"] == ["d455"]
     assert output["image_block_order"] == output["images"]
     assert output["artifact_images"] == ["base", "d455", "left_wrist", "right_wrist"]
 
-    result = ToolResult(name="view_env_state", result=output)
-    image_blocks = [b for b in result.content_blocks if b.get("type") == "image"]
+    result = view_env_state.handler(ctx=_context(state=state))
+    image_blocks = result.images
     assert len(image_blocks) == 1
-    text_block = next(b for b in result.content_blocks if b.get("type") == "text")
+    text = result.to_text()
     # Image bytes must be lifted out of the text block, not serialized into it.
-    assert "_image_" not in text_block["text"]
+    assert "_image_" not in text
 
 
 def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
@@ -471,11 +489,11 @@ def test_back_project_returns_annotated_image_block(tmp_path: Path):
     assert result["_image_cam_bytes"]
     assert result["image_block_order"] == ["d455_selection_diagnostic"]
 
-    tool_result = ToolResult(name="back_project", result=result)
-    image_blocks = [b for b in tool_result.content_blocks if b.get("type") == "image"]
+    tool_result = tools._perception_result(result)
+    image_blocks = tool_result.images
     assert len(image_blocks) == 1
-    text_block = next(b for b in tool_result.content_blocks if b.get("type") == "text")
-    assert "_image_" not in text_block["text"]
+    text = tool_result.to_text()
+    assert "_image_" not in text
 
 
 def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
@@ -529,8 +547,8 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
     assert result["_image_cam_bytes"]
     assert result["image_block_order"] == ["d455_segment_overlay"]
 
-    tool_result = ToolResult(name="segment", result=result)
-    image_blocks = [b for b in tool_result.content_blocks if b.get("type") == "image"]
+    tool_result = tools._perception_result(result)
+    image_blocks = tool_result.images
     assert len(image_blocks) == 1
 
 
@@ -548,19 +566,23 @@ def test_segment_without_sam3_client_falls_back(tmp_path: Path):
 
 def test_vla_grasp_runs_bounded_chunks():
     env = FakeEnv()
-    primitives = _primitives(env, model=FakeModel())
+    runtime = _runtime(env, model=FakeModel(expected_prompt=CLEAN_DESK_VLA_PROMPT))
 
-    result = primitives.vla_grasp("hand over the cube", max_chunks=3)
+    result = tools.vla_right_grasp.handler(
+        "hand over the cube", max_chunks=3, ctx=_context(runtime)
+    ).to_dict()
 
     assert result["chunks_executed"] == 3
-    assert len(env.chunks) == 3
+    assert len(env.chunks) == 6
 
 
 def test_recover_joint_posture_forwards_to_env():
     env = FakeEnv()
-    primitives = _primitives(env)
+    runtime = _runtime(env)
 
-    result = primitives.recover_joint_posture(reason="joint drift")
+    result = tools.recover_joint_posture.handler(
+        reason="joint drift", ctx=_context(runtime)
+    ).to_dict()
 
     assert result["ok"]
     assert result["reason"] == "joint drift"
@@ -568,14 +590,14 @@ def test_recover_joint_posture_forwards_to_env():
 
 def test_named_clean_desk_vla_uses_fixed_prompt_and_semantic_boundary():
     env = BoundaryEnv()
-    primitives = _primitives(
+    runtime = _runtime(
         env,
         model=FakeModel(expected_prompt=CLEAN_DESK_VLA_PROMPT),
     )
 
-    result = primitives.vla_right_grasp(
-        prompt="grasp the next task-allowed object", max_chunks=2
-    )
+    result = tools.vla_right_grasp.handler(
+        prompt="grasp the next task-allowed object", max_chunks=2, ctx=_context(runtime)
+    ).to_dict()
 
     assert result["ok"]
     assert result["skill_name"] == "vla_right_grasp"
@@ -587,13 +609,54 @@ def test_named_clean_desk_vla_uses_fixed_prompt_and_semantic_boundary():
 
 def test_named_vla_uses_task_configured_policy_instruction():
     instruction = "custom checkpoint instruction"
-    primitives = DualFrankaPrimitives(
+    runtime = DualFrankaRuntime(
         env=BoundaryEnv(),
         model=FakeModel(expected_prompt=instruction),
         task_description="planner task description",
         vla_instruction=instruction,
-        check_cancelled=lambda: None,
     )
-    result = primitives.vla_right_grasp(prompt="planner segment intent", max_chunks=2)
+    result = tools.vla_right_grasp.handler(
+        prompt="planner segment intent", max_chunks=2, ctx=_context(runtime)
+    ).to_dict()
     assert result["effective_policy_prompt"] == instruction
     assert result["prompt_overridden"]
+
+
+# Target-branch schemas and returns captured at bd9040a, before native migration.
+_CONTRACT = json.loads(
+    (Path(__file__).parent / "fixtures/pre_native_tool_contracts.json").read_text()
+)
+
+
+@pytest.mark.parametrize("case", _CONTRACT["cases"], ids=lambda case: case["name"])
+def test_normal_return_contract(case, tmp_path):
+    toolkit = DualFrankaToolkit(
+        runtime_kwargs={
+            "env": FakeEnv(),
+            "model": None,
+            "task_description": "default task",
+        },
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        state_output_dir=tmp_path,
+    )
+    if case["name"] == "finish":
+        toolkit._read_operator_line = lambda _: "success"
+        assert not toolkit.execute_tool("request_operator_verdict", {}).is_error
+    result = toolkit.execute_tool(case["name"], case["arguments"])
+    assert not result.is_error
+    data = result.to_dict()
+    assert sorted(data) == case["fields"]
+    assert len(result.images) == case["image_count"]
+    if "result_fields" in case:
+        assert sorted(data["result"]) == case["result_fields"]
+    if case["name"] == "finish":
+        assert data == {
+            "_finish": True,
+            "operator_verdict": "success",
+            **case["arguments"],
+        }
+        assert toolkit.finish_result == {
+            "operator_verdict": "success",
+            **case["arguments"],
+        }

@@ -57,7 +57,8 @@ For a new robot named ``myrobot``, use the following directory layout:
        robot_spec.py          # RobotSpec, factories, Dashboard spec, runtime hooks
        env_client.py          # MyEnvClient — agent-side RPC stub (§1)
        prompt_bundle.py       # system()/user() prompt factories         (§2)
-       toolkit.py             # MyRobotToolkit + primitives + tool definitions (§3)
+       toolkit.py             # Runtime, MyRobotToolkit, observations (§3)
+       tools.py               # Native tool declarations and handlers (§3)
        env_server.py          # server-side facade + RPC server (§1)
        vla_server.py          # (optional) VLA model server
 
@@ -100,6 +101,7 @@ these two functions:
        from robots.myrobot.toolkit import MyRobotToolkit
        return MyRobotToolkit(
            runtime_kwargs=runtime_kwargs,
+           output_dir=config.output_dir,
            dashboard_events=dashboard_events,
            memory=MemoryManager(
                root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
@@ -279,69 +281,69 @@ render time.
 3. ``toolkit.py``
 ------------------
 
-This module owns everything the LLM can call: the tool schemas, the primitives,
-the per-step state dump, and the MCP allowlist. (In the LIBERO robot these
-are split between ``tools.py`` and ``toolkit.py`` for historical reasons; for a
-new robot it is fine to keep them all in ``toolkit.py``.)
+Split robot behavior between ``tools.py`` and ``toolkit.py``, following
+``robots/libero/``, ``robots/robocasa/``, or ``robots/robotwin/``:
 
-A toolkit module typically contains four pieces:
+**Runtime** — a per-session object such as ``MyRobotRuntime`` holds the env
+and model clients, cached observations, and task progress. Construct it from
+``runtime_kwargs`` returned by ``init_runtime``. Tools access it through
+``ctx.robot``.
 
-**Primitives class** (e.g. ``MyRobotPrimitives``) — a Python object owned
-by the toolkit. It holds the ``EnvClient``, the VLA ``model`` client, and any
-state needed for the current run. It exposes one method per primitive tool
-(``move_to``, ``pi0_pick``, ``release``, …), with each method returning a
-``dict`` log.
+**Native tools** — define typed functions in ``tools.py`` with ``@tool`` and a
+required keyword-only ``ctx: ToolContext[MyRobotRuntime]``. Return
+``ToolResult`` and collect the declarations in a tuple such as
+``MYROBOT_TOOLS``. Tool schemas come from signatures and Google-style
+docstrings; planner adapters handle SDK and MCP serialization. See
+:doc:`add_primitive` for an example.
 
-**Tool definitions and handlers** — a module-level ``TOOLS_SPEC`` list of
-Anthropic-style tool definitions (``name``, ``description``, ``input_schema``),
-plus any module-level functions referenced by the toolkit (e.g.
-``view_env_state``, ``back_project``, ``finish``).
+**Observations** — ``dump_state(runtime, env_state, log)`` opens
+``env_state.record_step(...)`` to allocate and commit a ``StepRecord``.
+Save arrays, images, and metadata through ``env_state.save(...)``: inside
+the block, omitting ``step`` targets the new step; an explicit integer targets
+another step and ``step=None`` creates a run-level artifact. ``EnvState``
+adds each saved logical name to the record's ``artifacts`` set.
+``build_observation(state, record)`` returns JSON data and ordered PNG bytes
+for both action responses and ``view_env_state``.
 
-**Per-step state dump** — ``dump_state(driver, env_state, log)`` opens
-``env_state.record_step(...)`` and receives the allocated step index; the
-``StepRecord`` is appended and committed immediately. Save large observations
-through ``env_state.save(...)`` — inside a ``record_step`` block the ``step``
-argument may be omitted (it defaults to the new step), pass an explicit
-``step=<int>`` to target a different step, and ``step=None`` for run-level
-artifacts. ``EnvState`` adds every successfully saved base name to the step's
-flat ``artifacts`` set automatically. Readers use the canonical artifact
-filenames rather than maintaining a parallel observation index.
+**Toolkit** — subclass ``Toolkit[MyRobotRuntime]``:
 
-**Toolkit class** — subclass ``rpent.tools.toolkit.Toolkit``:
+- Construct the runtime and a fresh ``EnvState(output_dir)``; pass ``state``,
+  ``memory``, ``robot=runtime``, ``output_dir``, ``tools=MYROBOT_TOOLS``, and
+  ``dashboard_events`` to ``super().__init__``. Configure ``memory_access`` and
+  ``inbox_cell_tag`` on ``MemoryManager``; evaluation defaults to read-only memory.
+- Initialize the environment and record step 0. Publish its ``StepRecordEvent``
+  so the Dashboard can display the initial observation.
+- Implement ``_capture_observation(*, command, result, elapsed_s)`` using
+  ``dump_state`` and ``build_observation``. Save the original ``result.to_dict()``
+  in the step log. Return an observation containing the step, artifact names,
+  state, and action log, together with its PNG images. The base executor calls
+  this after non-readonly robot handlers, including failed handlers, except
+  ``finish``. Common tools also skip capture.
+- Implement ``solved()`` using the environment's success criterion. Provide a
+  robot-specific ``finish`` tool returning ``status`` and ``summary``; the
+  executor stores accepted results in ``toolkit.finish_result``.
 
-- forward ``memory`` (a :class:`~rpent.memory.MemoryManager`) and ``state`` to
-  ``super().__init__(...)``. Configure ``memory_access`` and
-  ``inbox_cell_tag`` on the ``MemoryManager``; eval uses read-only access by
-  default.
-- build the primitives in ``__init__`` through a custom initialization
-  helper (named ``init_primitives`` in LIBERO; it calls
-  ``EnvState.reset()``, constructs the primitives, and dumps step 0),
-- register each tool with ``self.add_tool(name, spec, handler)`` — stateless
-  readers (``view_env_state``, ``finish``, …) bind directly to module-level
-  functions; primitive tools route through ``_step(name, **kwargs)`` which
-  calls ``getattr(self._primitives, name)(**kwargs)`` and re-renders state,
-- override ``close()`` to save remaining agent-side artifacts through
-  ``EnvState`` (for example ``state.save("episode.mp4", frames, step=None)``).
-
-``runtime_kwargs`` (forwarded from ``robot_spec.py:get_toolkit``) is the dict
-the toolkit passes verbatim to your primitives' ``__init__`` — typically
-``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``.
+Tools submit environment-step RGB frames via ``ctx.record_frame(rgb)``.
+The base toolkit collects the frames and signals cancellation. Robot toolkits
+save Dashboard action clips during observation capture, override ``close()``
+to save the episode video, and implement ``write_recipe()`` from their trace.
 
 Conventions worth keeping
 -------------------------
 
-- ``output_dir`` is the working directory that the runner creates for each
-  run. Environment observations are owned by ``EnvState``; callers use logical
-  base names and never construct storage paths. Transcripts and other
-  run-management outputs share the same run directory.
-- Tool definitions use the Anthropic format (``name`` / ``description`` /
-  ``input_schema``). Every tool registered with ``self.add_tool(...)`` is
-  exposed to all planners.
-- Server-side return values must be picklable and torch-free.
-- Each primitive tool dumps a fresh state snapshot after running so the next
-  ``view_env_state`` call reflects the post-action world.
-- Treat ``dump_state`` as the source of truth for what the agent sees — any new
-  modality (e.g. tactile, force) goes through it.
+- ``output_dir`` is the runner-created working directory. Environment artifacts
+  are managed by ``EnvState`` through logical names; transcripts share the same
+  run directory.
+- ``@readonly`` below ``@tool`` skips automatic observation capture. Calls
+  execute one at a time. Call
+  ``ctx.check_cancelled()`` at safe boundaries in long loops.
+- Server-side values use transport-supported Python / NumPy types and remain
+  torch-free.
+- Add new observation modalities in ``dump_state`` and expose them through
+  ``build_observation``. ``view_env_state`` reads a saved step without stepping
+  or re-rendering the environment.
+
+See :doc:`interfaces` for the full tool execution and lifecycle contract.
 
 .. _add-robot-config:
 
@@ -404,7 +406,7 @@ validates those fields and returns a
   by this process. The active runner stops them during cleanup. A client for an
   external endpoint must not add that external service to this list.
 - ``runtime_kwargs: dict`` is passed to the toolkit constructor, which
-  forwards it to the primitives' ``__init__``. A complete set commonly
+  uses it to construct the robot runtime. A complete set commonly
   contains ``{"env": MyEnvClient(...), "model": VLAClient(...)}`` plus any
   supporting clients.
 
