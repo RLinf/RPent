@@ -33,7 +33,7 @@
 
 Codex / GPT-6 Astra / low / reasoning 已完成全部八套 LIBERO-PRO，**Overall 92.63%（741/800）**。详见 [套件汇总](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)，其中 Long 与 Spatial/Object/Goal 分别使用各自冻结的 memory 批次。
 
-[![RPent 四项基准成功率对比](https://raw.githubusercontent.com/RLinf/misc/36f26c2d0cdb2e00b78b6ea3166e4c265c45b51f/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)
+[![RPent 四项基准成功率对比](https://raw.githubusercontent.com/RLinf/misc/fbb158d608554595dcd2d4aae6fcc42e8f71c86b/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)
 
 
 ## 适用用户
