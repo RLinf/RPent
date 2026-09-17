@@ -25,8 +25,8 @@ class RoboDojoVLAClient(BaseVLAClient):
     """Client for the RoboDojo Pi_05 policy server (XPolicyLab ws backend).
 
     Uses the shared :class:`BaseVLAClient` wire protocol (``vla.predict``);
-    the RoboDojo-specific server lives in ``robots/robodojo/vla_server.py``
-    and adapts the XPolicyLab WebSocket Pi_05 to that protocol.
+    the shared XPolicyLab adapter translates WebSocket Pi_05 calls into
+    that protocol, including the backend's stateful ``reset`` operation.
     """
 
     def healthz(self) -> dict[str, Any]:

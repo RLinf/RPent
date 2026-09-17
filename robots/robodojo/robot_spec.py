@@ -351,12 +351,24 @@ def _spawn_vla_server(
         raise RuntimeError(f"RoboDojo Pi_05 env python not found: {pi05_python}")
     policy_port = pick_free_port()
     host, port = "127.0.0.1", pick_free_port()
+    overrides = _runtime_overrides(args)
     daemon = ProcessDaemon(
         name="robodojo_vla_server",
         cmd=[
             pi05_python,
             "-u",
-            str(get_repo_root() / "robots" / "robodojo" / "vla_server.py"),
+            "-m",
+            "rpent.robots.components.pi05_vla_server",
+            "--policy-backend",
+            "xpolicylab",
+            "--policy-root",
+            overrides["ROBODOJO_PI05_POLICY_ROOT"],
+            "--bench",
+            "RoboDojo",
+            "--evaluation-id",
+            os.environ.get(
+                "ROBODOJO_RUN_ID", datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            ),
             "--task",
             args.task,
             "--env-cfg-type",
@@ -373,13 +385,11 @@ def _spawn_vla_server(
             host,
             "--port",
             str(port),
-            "--parent-pid",
-            str(os.getpid()),
             "--transport",
             "http",
             "--parent-watch",
         ],
-        env_overrides=_runtime_overrides(args),
+        env_overrides=overrides,
         log_path=str(Path(output_dir) / "robodojo_vla_server.log"),
     )
     daemon.start()

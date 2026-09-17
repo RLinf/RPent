@@ -116,3 +116,182 @@ def test_libero_preset_keeps_existing_defaults():
     assert cfg.openpi.train_expert_only is True
     assert cfg.openpi.detach_critic_input is None
     assert "openpi_data" not in cfg
+
+
+@pytest.mark.parametrize("backend", ["rlinf", "xpolicylab"])
+def test_cli_selects_policy_backend(monkeypatch, backend):
+    import sys
+    from types import SimpleNamespace
+
+    from rpent.robots.components import pi05_vla_server as server
+    from rpent.robots.components import xpolicylab_vla_server as ws
+
+    received = {}
+
+    def rlinf(**kwargs):
+        received["backend"] = "rlinf"
+        return SimpleNamespace(serve=lambda **kw: received.update(kw))
+
+    def xpolicy(args):
+        received.update(backend="xpolicylab", task=args.task)
+        return SimpleNamespace(serve=lambda **kw: received.update(kw))
+
+    monkeypatch.setattr(server, "Pi05VLAFacade", rlinf)
+    monkeypatch.setattr(ws, "XPolicyLabVLAFacade", xpolicy)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "server",
+            "--policy-backend",
+            backend,
+            "--model-path",
+            "/checkpoint",
+            "--task",
+            "pick",
+            "--port",
+            "6000",
+            "--parent-watch",
+        ],
+    )
+    server.main()
+    assert received["backend"] == backend
+    assert received["port"] == 6000
+    assert received["parent_watch"] is True
+
+
+@pytest.mark.parametrize("wrapped", [True, False])
+def test_xpolicylab_rpc_preserves_observations_actions_and_reset(monkeypatch, wrapped):
+    import argparse
+    from types import SimpleNamespace
+
+    from rpent.robots.components import xpolicylab_vla_server as ws
+
+    parser = argparse.ArgumentParser()
+    ws.add_backend_args(parser)
+    args = parser.parse_args(["--task", "pick", "--policy-server-url", "ws://policy"])
+    calls = []
+    actions = np.zeros((5, 14), dtype=np.float64)
+
+    def call(**kwargs):
+        calls.append(kwargs)
+        return {"actions": actions} if wrapped else actions
+
+    monkeypatch.setattr(
+        ws,
+        "_connect_policy",
+        lambda *a: SimpleNamespace(call=call, close=lambda: calls.append("close")),
+    )
+    monkeypatch.setattr(ws, "_spawn_policy_server", lambda *a: pytest.fail("borrowed"))
+    facade = ws.XPolicyLabVLAFacade(args)
+    obs = {
+        "vision": {
+            name: {"color": np.zeros((2, 2, 3))}
+            for name in ("cam_head", "cam_left_wrist", "cam_right_wrist")
+        },
+        "state": {"joints": np.zeros(14)},
+        "instruction": "pick",
+    }
+    try:
+        assert facade._dispatch("vla.predict", (obs,), {}) is actions
+        assert calls[0]["obs"] is obs
+        assert [item["func_name"] for item in calls] == ["update_obs", "get_action"]
+        assert facade._dispatch("reset", (), {}) == {"ok": True}
+        assert calls[-1] == {"func_name": "reset"}
+    finally:
+        facade.close()
+    assert calls[-1] == "close"
+
+
+def test_xpolicylab_metadata(monkeypatch):
+    import argparse
+    import sys
+    from types import ModuleType
+
+    from rpent.robots.components import xpolicylab_vla_server as ws
+
+    module = ModuleType("client_server.ws.model_client")
+    module.WsModelClient = lambda **kwargs: kwargs
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    args = argparse.Namespace(task="pick", evaluation_id="run-1")
+    assert ws._connect_policy("ws://policy", args) == {
+        "url": "ws://policy",
+        "evaluation_id": "run-1",
+        "trial_id": "pick-vla",
+        "action_case_id": "pick_case",
+        "repeat_index": None,
+    }
+
+
+@pytest.mark.parametrize("failure", [None, "wait", "connect"])
+def test_xpolicylab_owned_launcher_cleanup(monkeypatch, tmp_path, failure):
+    import argparse
+    from types import SimpleNamespace
+
+    from rpent.robots.components import xpolicylab_vla_server as ws
+
+    (tmp_path / "setup_eval_policy_server.sh").touch()
+    parser = argparse.ArgumentParser()
+    ws.add_backend_args(parser)
+    args = parser.parse_args(
+        [
+            "--policy-root",
+            str(tmp_path),
+            "--bench",
+            "RoboDojo",
+            "--task",
+            "pick",
+            "--ckpt",
+            "weights",
+            "--env-cfg-type",
+            "arx_x5",
+            "--action-type",
+            "joint",
+            "--policy-port",
+            "1234",
+            "--policy-gpu",
+            "2",
+        ]
+    )
+    calls = []
+    recorded = {}
+
+    def daemon(**kwargs):
+        recorded.update(kwargs)
+        return SimpleNamespace(
+            start=lambda: calls.append("start"), stop=lambda: calls.append("stop")
+        )
+
+    def wait(*a):
+        if failure == "wait":
+            raise RuntimeError("wait failed")
+
+    def connect(*a):
+        if failure == "connect":
+            raise RuntimeError("connect failed")
+        return SimpleNamespace(close=lambda: calls.append("close"))
+
+    monkeypatch.setattr(ws, "ProcessDaemon", daemon)
+    monkeypatch.setattr(ws, "_wait_for_port", wait)
+    monkeypatch.setattr(ws, "_connect_policy", connect)
+    if failure:
+        with pytest.raises(RuntimeError, match=failure):
+            ws.XPolicyLabVLAFacade(args)
+        assert calls == ["start", "stop"]
+    else:
+        ws.XPolicyLabVLAFacade(args).close()
+        assert calls == ["start", "close", "stop"]
+    assert recorded["cmd"] == [
+        "bash",
+        str(tmp_path / "setup_eval_policy_server.sh"),
+        "RoboDojo",
+        "pick",
+        "weights",
+        "arx_x5",
+        "joint",
+        "0",
+        "2",
+        "uv",
+        "1234",
+        "localhost",
+    ]

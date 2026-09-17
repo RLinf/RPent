@@ -22,7 +22,8 @@ Key modules
   actions; per-camera video recording).
 * ``robots/robodojo/env_client.py`` — rpent-side client inheriting
   ``BaseEnvClient``.
-* ``robots/robodojo/vla_server.py`` / ``vla_client.py`` — Pi_05 policy
+* Shared ``rpent/robots/components/xpolicylab_vla_server.py`` and
+  ``robots/robodojo/vla_client.py`` — Pi_05 policy
   service (XPolicyLab WebSocket) adapted to the shared ``BaseVLAFacade`` /
   ``BaseVLAClient`` protocol.
 * ``robots/robodojo/toolkit.py`` / ``tools.py`` — primitives:

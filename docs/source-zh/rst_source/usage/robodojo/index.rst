@@ -19,7 +19,8 @@ SAM3 感知与 memory 层完全复用，只替换"身体"（仿真器/机器人�
   三相机 + 深度 + 标定、joint/ee 动作、逐相机视频录制）。
 * ``robots/robodojo/env_client.py`` —— 继承 ``BaseEnvClient`` 的 rpent
   侧客户端。
-* ``robots/robodojo/vla_server.py`` / ``vla_client.py`` —— Pi_05 策略服务
+* 共享的 ``rpent/robots/components/xpolicylab_vla_server.py`` 和
+  ``robots/robodojo/vla_client.py`` —— Pi_05 策略服务
   （XPolicyLab WebSocket）适配到共享 ``BaseVLAFacade`` / ``BaseVLAClient``
   协议。
 * ``robots/robodojo/toolkit.py`` / ``tools.py`` —— view_env_state /

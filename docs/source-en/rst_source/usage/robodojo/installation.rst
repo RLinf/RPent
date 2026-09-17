@@ -56,5 +56,9 @@ inherited by child processes.
 
 Use ``--env-endpoint``, ``--vla-endpoint``, and ``--sam3-endpoint`` to attach
 to already running services. A borrowed service requires no local source or
-Python path for that component. When starting ``vla_server.py`` directly,
-set ``ROBODOJO_PI05_POLICY_ROOT`` to ``XPolicyLab/policy/Pi_05``.
+Python path for that component. The CLI starts the shared
+``rpent.robots.components.pi05_vla_server`` with ``--policy-backend xpolicylab``
+and an explicit ``--policy-root`` pointing to ``XPolicyLab/policy/Pi_05``.
+This adapter uses XPolicyLab's launcher and checkpoint loader, not RLinf's
+Pi0.5 loader (the shared server's default ``--policy-backend rlinf``).
+Changing backend does not convert checkpoints or observation formats.

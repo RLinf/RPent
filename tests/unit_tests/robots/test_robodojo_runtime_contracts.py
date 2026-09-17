@@ -102,9 +102,59 @@ def test_spawn_uses_explicit_interpreter_and_child_paths(
     getattr(robot_spec, f"_spawn_{component}_server")(args, tmp_path)
     assert recorded["cmd"][0] == sys.executable
     assert recorded["started"]
+    if component == "vla":
+        cmd = recorded["cmd"]
+        assert cmd[2:4] == ["-m", "rpent.robots.components.pi05_vla_server"]
+        assert cmd[cmd.index("--policy-backend") + 1] == "xpolicylab"
+        assert cmd[cmd.index("--policy-root") + 1] == str(
+            tmp_path / "XPolicyLab/policy/Pi_05"
+        )
     assert recorded["env_overrides"]["ROBODOJO_PI05_POLICY_ROOT"] == str(
         tmp_path / "XPolicyLab/policy/Pi_05"
     )
+
+
+@pytest.mark.parametrize("lifting_arm", ["left", "right"])
+def test_pi0_pick_monitors_both_arms_and_preserves_policy_input(lifting_arm):
+    def observation(z):
+        state = {}
+        for arm in ("left", "right"):
+            state[f"{arm}_ee_pose"] = [0, 0, z if arm == lifting_arm else 1]
+            state[f"{arm}_ee_joint_state"] = [0.2]
+        return {
+            "state": state,
+            "vision": {
+                name: {"color": np.zeros((2, 2, 3))}
+                for name in ("cam_head", "cam_left_wrist", "cam_right_wrist")
+            },
+        }
+
+    obs = observation(1)
+    frames = iter([observation(0.9), observation(0.96)])
+    actions = np.zeros((2, 14))
+    executed = []
+
+    def predict(value):
+        assert value is obs
+        assert value["instruction"] == "pick bottle"
+        assert len(value["vision"]) == 3
+        return actions
+
+    def step(action):
+        executed.append(action)
+        return next(frames), 0, False, {"status": {"step": 1, "step_limit": 10}}
+
+    primitives = SimpleNamespace(
+        env=SimpleNamespace(get_obs=lambda: obs, step=step),
+        vla_client=SimpleNamespace(predict=predict),
+        _check_cancelled=lambda: None,
+    )
+    result = tools.pi0_pick(primitives, None, "pick bottle", arm="right")
+    assert result["success"] is True
+    assert result["chunks_used"] == 1
+    assert set(result["arms"]) == {"left", "right"}
+    assert result["arms"][lifting_arm]["peak_lift_m"] == 0.06
+    np.testing.assert_array_equal(executed, actions)
 
 
 def test_readers_are_readonly_and_do_not_act():

@@ -23,10 +23,14 @@ contracts. Observations contain camera RGB-D/calibration data and arm/gripper
 state. The backend supports joint and end-effector actions; motion requests
 must remain on the environment action path so its bounds and counters apply.
 
-`vla_client.py` and `vla_server.py` adapt the shared model RPC contract to
-XPolicyLab Pi_05. The policy process has its own Python environment.
-The wrapper uses `ROBODOJO_PI05_POLICY_ROOT`, derived from the explicit
-XPolicyLab checkout by the CLI, to locate the policy launcher.
+`vla_client.py` uses the shared model RPC contract. The shared
+`rpent.robots.components.pi05_vla_server` selects the XPolicyLab adapter with
+`--policy-backend xpolicylab`; the default `rlinf` backend retains its own loader
+and observation contract. Both implement `BaseVLAFacade`. The policy process
+has its own Python environment. The CLI passes `--policy-root`, derived from
+the explicit XPolicyLab checkout, to locate the policy launcher.
+The adapter passes observations and actions through unchanged and serializes
+`update_obs`/`get_action` with `reset`. It does not provide session isolation.
 
 ## Tool State Capture
 
