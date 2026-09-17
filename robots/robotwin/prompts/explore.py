@@ -21,8 +21,11 @@ Fresh observations and the current task_language override historical memory.
 Never replay stored coordinates across episodes."""
 
 MEMORY = """During exploration, write working notes only below
-{{memory_inbox}}/wip/. Before each reset, record the failed approach, observed
-failure, and one meaningful change for the next attempt. After success, write
+{{memory_inbox}}/wip/. Before each reset, write
+{{output_dir}}/attempts/attempt_<N>_failed.json with the attempt number,
+approach, commands and parameters tried, observed progress, bounded failure
+mechanism, and one meaningful change for the next attempt. Also append a
+concise handoff note to {{memory_inbox}}/wip/notes.md. After success, write
 concise suite or global proposals directly under {{memory_inbox}}/. Never
 write directly into published memory directories.
 
@@ -77,9 +80,19 @@ USER_MODE = """Explore mode is active. Use reset for a fresh attempt when the
 current episode is unrecoverable. The runner keeps session traces, exports the
 successful commands after the final reset, and merges validated memory."""
 
-OUTPUT = """Write the final audit to {{output_dir}}/{{recipe_tag}}.json before
-calling finish. Working notes belong in {{memory_inbox}}/wip/; publishable
-memory proposals belong directly in {{memory_inbox}}/."""
+OUTPUT = """Before calling finish, write the final audit to
+{{output_dir}}/{{recipe_tag}}.json. Include task_name, task_config, seed,
+eval_success, total attempts, final_state, and successful_strategy.
+
+When eval_success is true, successful_strategy must list in order every
+recipe-eligible command and its actual parameters from the successful
+trajectory after the final reset. Exclude failed attempts and reset itself.
+Re-check the recorded post-reset trajectory before writing the audit; do not
+invent, omit, or reorder commands. Do not claim a successful trajectory unless
+a recorded success step exists after the final reset.
+
+Working notes belong in {{memory_inbox}}/wip/; publishable memory proposals
+belong directly in {{memory_inbox}}/."""
 
 
 def system_prompt() -> dict[str, PromptNode]:

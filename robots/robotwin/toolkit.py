@@ -317,6 +317,8 @@ class RoboTwinToolkit(Toolkit):
                 default=-1,
             )
             records = [record for record in records if record.step_idx > last_reset]
+            if not any(record.terminated for record in records):
+                return ""
         recipe = [
             record.command
             for record in records
