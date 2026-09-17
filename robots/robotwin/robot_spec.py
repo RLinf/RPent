@@ -318,20 +318,29 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         if args.memory_dir
         else get_memory_dir("robotwin")
     )
+    explore = bool(getattr(args, "explore", False))
+    memory_profile = getattr(args, "memory_profile", None) or (
+        "local" if explore else "hf"
+    )
+    reference_tag = (
+        f"robotwin_{args.task_name}_{task_config}_s0"
+        if memory_profile == "local"
+        else f"{args.task_name}_s0"
+    )
     prompt_vars = {
         "task_name": args.task_name,
         "seed": args.seed,
         "task_config": task_config,
         "instruction": "<native task_language from state_00>",
         "memory_dir": str(memory_dir),
-        "reference_tag": f"robotwin_{args.task_name}_{task_config}_s0",
+        "mode": "explore" if explore else "eval",
+        "memory_profile": memory_profile,
+        "reference_tag": reference_tag,
         "recipe_tag": recipe_tag,
     }
-    if bool(getattr(args, "explore", False)):
+    if explore:
         prompt_vars.update(
             {
-                "mode": "explore",
-                "memory_profile": "local",
                 "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
                 "session_number": 1,
                 "session_max": max(1, int(getattr(args, "explore_sessions", 3))),
