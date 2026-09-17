@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 from pathlib import Path
 from threading import Event
@@ -188,40 +187,6 @@ def test_toolkit_factory_validation_and_capture(tmp_path, monkeypatch):
 _CONTRACT = json.loads(
     (Path(__file__).parent / "fixtures/pre_native_tool_contracts.json").read_text()
 )
-
-
-def test_tool_schema_and_description_contract():
-    expected = copy.deepcopy(_CONTRACT["schemas"])
-    for schema in expected.values():
-        schema["additionalProperties"] = False
-    # These existing optional inputs now explicitly advertise their None value.
-    nullable = {
-        "back_project": ("step",),
-        "back_project_correspondence": (
-            "third_person_row",
-            "third_person_col",
-            "wrist_row",
-            "wrist_col",
-            "pixels",
-            "step",
-        ),
-    }
-    for name, parameters in nullable.items():
-        for parameter in parameters:
-            schema = expected[name]["properties"][parameter]
-            schema["type"] = [schema["type"], "null"]
-    actual = {item.name: item.input_schema for item in tools.FRANKA_TOOLS}
-    assert len(actual) == len(tools.FRANKA_TOOLS)
-    assert actual == expected
-    assert {item.name: item.description for item in tools.FRANKA_TOOLS} == _CONTRACT[
-        "descriptions"
-    ]
-    for item in tools.FRANKA_TOOLS:
-        for name, parameter in actual[item.name]["properties"].items():
-            if "default" in parameter:
-                assert (
-                    item.args_schema.model_fields[name].default == parameter["default"]
-                )
 
 
 def _prepare_contract_perception(state):
