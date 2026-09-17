@@ -25,13 +25,13 @@ Leaderboard
 对比 LIBERO、LIBERO-PRO、RoboCasa365 Target50 和 RoboTwin C2R 上的成功率。
 排名仅限图中方法及评测范围；完整结果、模型配置和来源见 :doc:`leaderboard`。
 
-.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@d570f71d9089036cd4ba96ebb03489c58ae2faa3/rpent/benchmarks/leaderboard-zh-light.png
+.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@main/rpent/benchmarks/leaderboard-zh-light.png
    :alt: RPent Leaderboard
    :class: only-light
    :width: 100%
    :target: leaderboard.html
 
-.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@d570f71d9089036cd4ba96ebb03489c58ae2faa3/rpent/benchmarks/leaderboard-zh-dark.png
+.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@main/rpent/benchmarks/leaderboard-zh-dark.png
    :alt: RPent Leaderboard
    :class: only-dark
    :width: 100%
