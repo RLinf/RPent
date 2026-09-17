@@ -33,7 +33,7 @@
 
 Codex / GPT-6 Astra / low / reasoning 已完成全部八套 LIBERO-PRO，**Overall 92.63%（741/800）**。详见 [套件汇总与 memory 批次说明](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html#libero-pro-astra-memory)，其中 Long 与 Spatial/Object/Goal 分别使用各自冻结的 memory 批次。
 
-[![RPent 四项基准成功率对比](https://cdn.jsdelivr.net/gh/RLinf/misc@44420395c8a31ff5065f1ebede08ed19255b3711/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)
+[![RPent 四项基准成功率对比](https://cdn.jsdelivr.net/gh/RLinf/misc@881ca8850640e1ac5e728865926349e4660032e7/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)
 
 
 ## 适用用户
@@ -47,7 +47,7 @@ RPent 面向以下四类用户：
 
 ## 最新动态
 
-- [2026/09] 新增交互式排行榜和基准测试结果汇总，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看[基准测试结果](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)。
+- [2026/09] 🔥 新增交互式排行榜和基准测试结果汇总，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看[基准测试结果](https://rpent.readthedocs.io/zh-cn/latest/rst_source/benchmarks.html)。
 - [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。参见 [RoboCasa 安装与 Target50 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
 - [2026/08] 🔥 新增非推理（non-reasoning）模式，平均执行时间降低约 40%。
 - [2026/08] 🔥 支持 LIBERO 探索模式。文档：[LIBERO 探索模式](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#memory)。
