@@ -23,8 +23,42 @@ Never replay stored coordinates across episodes."""
 MEMORY = """During exploration, write working notes only below
 {{memory_inbox}}/wip/. Before each reset, record the failed approach, observed
 failure, and one meaningful change for the next attempt. After success, write
-concise suite or global proposals directly under {{memory_inbox}}/ with valid
-YAML frontmatter. Never write directly into published memory directories."""
+concise suite or global proposals directly under {{memory_inbox}}/. Never
+write directly into published memory directories.
+
+Every proposed file must begin with parseable YAML frontmatter.
+
+Suite proposal template:
+
+    ---
+    id: suite_robotwin_<task-name>
+    scope: suite
+    suite: robotwin
+    regime: {{task_config}}
+    task_id: {{task_name}}
+    task_language: <verbatim initial task language>
+    evidence:
+      cells: [{{recipe_tag}}]
+      attempts: <number attempted>
+      solved_seeds: [{{seed}}]
+      failed_seeds: []
+    confidence: single-shot
+    related: []
+    ---
+
+Global proposal template:
+
+    ---
+    id: global_<kind>_<short-name>
+    scope: global
+    kind: <primitive|perception|strategy|failure|infra>
+    title: <short descriptive title>
+    applies_when: <specific applicability conditions>
+    evidence:
+      cells: [{{recipe_tag}}]
+    confidence: single-shot
+    related: []
+    ---"""
 
 RUNTIME = """The registered RoboTwin Toolkit is the only control surface. Do
 not use shell, Python, network clients, hidden environment state, evaluator

@@ -259,6 +259,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "split": args.split,
         "seed": args.seed,
         "recipe_tag": recipe_tag,
+        "reference_tag": f"{args.task_name}_{args.split}_s0",
         "memory_dir": str(memory_dir),
     }
 

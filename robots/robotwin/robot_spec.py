@@ -328,7 +328,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "task_config": task_config,
         "instruction": "<native task_language from state_00>",
         "memory_dir": str(memory_dir),
-        "reference_tag": f"{args.task_name}_s0",
+        "reference_tag": f"robotwin_{args.task_name}_s0",
         "recipe_tag": recipe_tag,
     }
     if bool(getattr(args, "explore", False)):
