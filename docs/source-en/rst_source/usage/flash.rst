@@ -61,14 +61,18 @@ objects appear at different positions.
 Flash plan files
 ----------------
 
-Flash plans are distributed through the `RLinf/RPent-memory Flash directory
-<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/libero/flash>`_
-on Hugging Face rather than tracked in Git. RPent downloads them in HF memory
-mode and stores them locally under ``memory/libero/flash``. With
-``--memory-profile local --memory-dir /path/to/memory/libero``, it reads plans from
-``/path/to/memory/libero/flash`` without downloading data.
-There are 78 plans for 80 task identities; ``goal_swap_t0`` and ``10_swap_t9``
-have no plan. Missing plan or anchor files cause an error.
+Plans are distributed through the `GPT-5.5 memory directory
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/libero/GPT_5.5_xhigh>`_
+on Hugging Face rather than tracked in Git. Flash defaults to
+``--memory-version GPT_5.5_xhigh`` and uses that version's isolated cache.
+The migrated corpus preserves 20 Object Task/Swap plans under the legacy
+``task_card/`` name. This published coverage differs from the 78 plans used
+in the historical full-matrix evaluation above.
+
+With ``--memory-profile local --memory-dir /path/to/memory/libero``, replay
+reads ``flash/`` or the legacy ``task_card/`` under that root without downloading.
+Missing plan or anchor files cause an error. Astra memory has no replay assets;
+it cannot be used for Flash. See :ref:`Memory Management <memory-management>`.
 
 .. code-block:: text
 
@@ -114,7 +118,10 @@ To download only the Flash plans manually, run:
 .. code-block:: bash
 
    hf download RLinf/RPent-memory --repo-type dataset \
-     --include "libero/flash/**" --local-dir memory
+     --include "libero/GPT_5.5_xhigh/task_card/**" --local-dir /path/to/download
+
+Use ``--memory-profile local --memory-dir /path/to/download/libero/GPT_5.5_xhigh``
+with the downloaded plans.
 
 Run Flash Mode
 --------------

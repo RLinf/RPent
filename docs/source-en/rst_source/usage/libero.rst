@@ -116,8 +116,10 @@ RPent supports two LIBERO run modes:
   audit, recipe, and lessons produced by exploration. The HarnessVLA success
   rate is reproduced in evaluation mode.
 
-Evaluation remains the default mode.  Omitting ``--memory-profile`` preserves
-the original Hugging Face resource sync and prompt:
+Evaluation remains the default mode. Omitting ``--memory-profile`` selects
+Hugging Face memory; ``--memory-version auto`` chooses its model-specific
+version. See :ref:`Memory Management <memory-management>` for overrides,
+offline downloads and release provenance.
 
 Both profiles run the same single-attempt evaluation workflow; they differ only
 in where the evaluation memory comes from and which memory prompt is used.
