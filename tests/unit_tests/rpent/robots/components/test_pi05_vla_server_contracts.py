@@ -205,7 +205,9 @@ def test_cli_selects_policy_backend(monkeypatch, backend):
 
     def xpolicy(args):
         received.update(backend="xpolicylab", task=args.task)
-        return SimpleNamespace(serve=lambda **kw: received.update(kw))
+        return SimpleNamespace(
+            serve=lambda **kw: received.update(kw), close=lambda: None
+        )
 
     monkeypatch.setattr(server, "Pi05VLAFacade", rlinf)
     monkeypatch.setattr(ws, "XPolicyLabVLAFacade", xpolicy)
@@ -294,7 +296,69 @@ def test_xpolicylab_metadata(monkeypatch):
     }
 
 
-@pytest.mark.parametrize("failure", [None, "wait", "connect"])
+@pytest.mark.parametrize("exit_mode", ["normal", "sigterm", "error", "atexit"])
+def test_owned_policy_exits_with_server(tmp_path, exit_mode):
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    pid_file = tmp_path / "policy.pid"
+    script = textwrap.dedent("""
+        import os, signal, sys
+        from pathlib import Path
+        from types import SimpleNamespace
+        from rpent.utils.daemon import ProcessDaemon
+        from rpent.robots.components import pi05_vla_server as server
+        from rpent.robots.components import xpolicylab_vla_server as ws
+
+        mode, pid_file = sys.argv[1:]
+        def spawn(args):
+            daemon = ProcessDaemon("fake_policy", [sys.executable, "-c", "import time; time.sleep(60)"])
+            daemon.start()
+            Path(pid_file).write_text(str(daemon._proc.pid))
+            return daemon
+        ws._spawn_policy_server = spawn
+        ws._connect_policy = lambda *a: SimpleNamespace(close=lambda: None)
+        def serve(self, **kwargs):
+            if mode == "sigterm":
+                os.kill(os.getpid(), signal.SIGTERM)
+            if mode == "error":
+                raise RuntimeError("serve failed")
+        ws.XPolicyLabVLAFacade.serve = serve
+        sys.argv = ["server", "--policy-backend", "xpolicylab", "--task", "pick",
+                    "--bench", "bench", "--ckpt", "weights", "--env-cfg-type", "arms",
+                    "--action-type", "joint", "--policy-port", "1234"]
+        if mode == "atexit":
+            import argparse
+            parser = argparse.ArgumentParser()
+            ws.add_backend_args(parser)
+            ws.XPolicyLabVLAFacade(parser.parse_args(sys.argv[3:]))
+        else:
+            server.main()
+    """)
+    result = subprocess.run(
+        [sys.executable, "-c", script, exit_mode, str(pid_file)],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert (
+        result.returncode
+        == {"normal": 0, "sigterm": 143, "error": 1, "atexit": 0}[exit_mode]
+    ), result.stderr
+    pid = int(pid_file.read_text())
+    try:
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+    finally:
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            pass
+
+
+@pytest.mark.parametrize("failure", [None, "wait", "connect", "base", "close"])
 def test_xpolicylab_owned_launcher_cleanup(monkeypatch, tmp_path, failure):
     import argparse
     from types import SimpleNamespace
@@ -330,7 +394,7 @@ def test_xpolicylab_owned_launcher_cleanup(monkeypatch, tmp_path, failure):
     def daemon(**kwargs):
         recorded.update(kwargs)
         return SimpleNamespace(
-            start=lambda: calls.append("start"), stop=lambda: calls.append("stop")
+            start=lambda: calls.append("start"), stop=lambda **kw: calls.append("stop")
         )
 
     def wait(*a):
@@ -340,18 +404,32 @@ def test_xpolicylab_owned_launcher_cleanup(monkeypatch, tmp_path, failure):
     def connect(*a):
         if failure == "connect":
             raise RuntimeError("connect failed")
-        return SimpleNamespace(close=lambda: calls.append("close"))
+
+        def close():
+            calls.append("close")
+            if failure == "close":
+                raise RuntimeError("client close failed")
+
+        return SimpleNamespace(close=close)
 
     monkeypatch.setattr(ws, "ProcessDaemon", daemon)
     monkeypatch.setattr(ws, "_wait_for_port", wait)
     monkeypatch.setattr(ws, "_connect_policy", connect)
-    if failure:
+    if failure == "base":
+
+        def fail_init(self):
+            raise RuntimeError("base failed")
+
+        monkeypatch.setattr(ws.BaseVLAFacade, "__init__", fail_init)
+    if failure in {"wait", "connect", "base"}:
         with pytest.raises(RuntimeError, match=failure):
             ws.XPolicyLabVLAFacade(args)
-        assert calls == ["start", "stop"]
+        assert calls == ["start", "stop"] + (["close"] if failure == "base" else [])
     else:
-        ws.XPolicyLabVLAFacade(args).close()
-        assert calls == ["start", "close", "stop"]
+        facade = ws.XPolicyLabVLAFacade(args)
+        facade.close()
+        facade.close()
+        assert calls == ["start", "stop", "close"]
     assert recorded["cmd"] == [
         "bash",
         str(tmp_path / "setup_eval_policy_server.sh"),

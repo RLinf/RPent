@@ -23,6 +23,7 @@ observations are passed through unchanged.
 from __future__ import annotations
 
 import argparse
+import atexit
 import os
 import threading
 import time
@@ -136,20 +137,22 @@ class XPolicyLabVLAFacade(BaseVLAFacade):
                 "Local XPolicyLab requires bench, ckpt, env-cfg-type, action-type and policy-port"
             )
         self._policy_daemon = None
-        policy_url = args.policy_server_url
-        if not policy_url:
-            self._policy_daemon = _spawn_policy_server(args)
-            policy_url = f"ws://localhost:{args.policy_port}"
-        logger.info("connecting to policy server: %s", policy_url)
+        self._model_client = None
+        self._close_lock = threading.Lock()
+        atexit.register(self.close)
         try:
+            policy_url = args.policy_server_url
+            if not policy_url:
+                self._policy_daemon = _spawn_policy_server(args)
+                policy_url = f"ws://localhost:{args.policy_port}"
+            logger.info("connecting to policy server: %s", policy_url)
             self._model_client = _connect_policy(policy_url, args)
+            self._ws_lock = threading.Lock()
+            super().__init__()
         except BaseException:
-            if self._policy_daemon is not None:
-                self._policy_daemon.stop()
+            self.close()
             raise
-        self._ws_lock = threading.Lock()
         logger.info("policy client connected")
-        super().__init__()
 
     def _register_rpc(self) -> None:
         super()._register_rpc()
@@ -170,10 +173,16 @@ class XPolicyLabVLAFacade(BaseVLAFacade):
         return result
 
     def close(self) -> None:
-        try:
-            self._model_client.close()
-        except Exception:  # noqa: BLE001
-            pass
-        finally:
+        """Release owned policy processes even when the WebSocket close fails."""
+        with self._close_lock:
+            # Stop the GPU owner first; a broken WebSocket must not delay it.
             if self._policy_daemon is not None:
-                self._policy_daemon.stop()
+                self._policy_daemon.stop(timeout=5.0)
+                self._policy_daemon = None
+            if self._model_client is not None:
+                try:
+                    self._model_client.close()
+                except Exception:  # noqa: BLE001
+                    logger.warning("XPolicyLab client close failed", exc_info=True)
+                self._model_client = None
+            atexit.unregister(self.close)

@@ -322,13 +322,31 @@ def main() -> None:
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = target
 
-    facade = create_backend(args)
-    facade.serve(
-        transport=args.transport,
-        host=args.host,
-        port=args.port,
-        parent_watch=args.parent_watch,
-    )
+    import signal
+
+    def terminate(signum, frame):
+        raise SystemExit(128 + signum)
+
+    previous = None
+    if args.policy_backend == "xpolicylab":
+        # ProcessDaemon.stop sends SIGTERM; unwind startup/serve and its cleanup.
+        previous = signal.signal(signal.SIGTERM, terminate)
+    facade = None
+    try:
+        facade = create_backend(args)
+        facade.serve(
+            transport=args.transport,
+            host=args.host,
+            port=args.port,
+            parent_watch=args.parent_watch,
+        )
+    finally:
+        try:
+            if facade is not None and args.policy_backend == "xpolicylab":
+                facade.close()
+        finally:
+            if previous is not None:
+                signal.signal(signal.SIGTERM, previous)
 
 
 if __name__ == "__main__":
