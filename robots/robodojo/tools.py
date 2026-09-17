@@ -323,11 +323,14 @@ def segment(primitives, state, text_prompt, camera="cam_head", min_score=0.2) ->
     result = sam3.segment(color, text_prompt=text_prompt, min_score=min_score)
     if not result.found:
         return {"camera": camera, "found": False, "text_prompt": text_prompt}
+    from robots.robodojo.flash.grounding import mask_geometry
+
     return {
         "camera": camera,
         "found": True,
         "score": result.score,
         "box_px": _jsonable(result.box),
+        **mask_geometry(result.mask),
     }
 
 

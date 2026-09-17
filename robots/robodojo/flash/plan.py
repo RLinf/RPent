@@ -19,6 +19,7 @@ import re
 
 from jsonschema import validate
 
+from robots.robodojo.flash.grounding import ANCHOR_METHOD
 from robots.robodojo.tools import TOOLS_SPEC
 
 ACTIONS = {"move_to", "set_gripper", "pi0_pick"}
@@ -47,7 +48,7 @@ def vector(value) -> list[float]:
 
 def validate_plan(plan: dict) -> dict:
     """Reject unrecognized fields/actions before executing any motion."""
-    if set(plan) != {"version", "task", "anchors", "actions"} or plan["version"] != 1:
+    if set(plan) != {"version", "task", "anchors", "actions"} or plan["version"] != 2:
         raise ValueError("Unsupported Flash plan")
     task_name(plan["task"])
     anchors = plan["anchors"]
@@ -55,7 +56,8 @@ def validate_plan(plan: dict) -> dict:
         raise ValueError("Flash plan requires anchors")
     for anchor in anchors.values():
         if (
-            set(anchor) != {"query", "refine_camera", "min_score"}
+            set(anchor) != {"query", "method", "refine_camera", "min_score"}
+            or anchor["method"] != ANCHOR_METHOD
             or not isinstance(anchor["query"], str)
             or not anchor["query"].strip()
         ):

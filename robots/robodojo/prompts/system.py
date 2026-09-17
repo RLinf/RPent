@@ -34,14 +34,18 @@ manage environment or policy processes yourself.
 
 - `view_env_state` returns the camera images inline, so use them when your
   model accepts images: they are the authority for identity and coarse
-  geometry. Metric coordinates still come from `segment` (pixel boxes) +
+  geometry. Metric coordinates still come from `segment` (mask centroids) +
   `back_project` (world xyz) + depth, never from estimating them visually."""
 
 PERCEPTION = """Localization (no ground-truth coordinates):
 - Call `view_env_state` first and inspect the head camera image.
-- Use `segment` (SAM3 text prompts) to find objects and
-  their pixel boxes, then `back_project` pixel centers to world xyz with
-  depth + calibration.
+- Use `segment` (SAM3 text prompts), then immediately `back_project` its
+  `centroid_rc` exactly as [row, col] with the same camera. This mask-centroid
+  path is shared with Flash replay; do not substitute a box center or a
+  visually chosen pixel, or batch segmentations ahead of depth calls.
+- Before each motion, record a fresh head-camera segment -> centroid depth ->
+  action sequence. Frozen plans store the symbolic query, derivation method,
+  and commanded waypoint offset; they do not store fixed object coordinates.
 - Re-localize after every motion that changes the scene. Reference heights
   from memory are priors, never facts for this layout."""
 

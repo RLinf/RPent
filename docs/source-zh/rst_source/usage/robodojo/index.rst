@@ -129,8 +129,10 @@ Python toolkit 工厂接受 ``allowed_tool_groups``，例如传入
 RoboDojo 仍不支持 ``--explore``；这里的开发指普通 planner 循环，并非该 CLI 模式。
 
 开发运行在输出目录记录 ``flash_trace.json``。记录可迁移航点时，先对
-``cam_head`` 调用 ``segment``，再对框中心取整后的像素调用 ``back_project``，
-然后执行动作。每次动作前重复这组感知查询，在评测前导出：
+``cam_head`` 调用 ``segment``，再对返回的 ``centroid_rc``（行、列）调用
+``back_project``，然后执行动作。该像素是掩码前景坐标均值向下取整，不是框中心。
+录制与重放共用此推导；记录的掩码面积和坐标和用于拒绝被篡改的质心。
+不要先批量分割多个对象再批量反投影。每次动作前重复这组感知查询，在评测前导出：
 
 .. code-block:: bash
 
@@ -139,12 +141,16 @@ RoboDojo 仍不支持 ``--explore``；这里的开发指普通 planner 循环，
      --task put_bottles_into_dustbin \
      --destination /path/to/memory/robodojo/flash
 
-版本 1 JSON 包含任务、SAM3 符号查询、可选腕部精定位设置，以及有序动作、参数与
+版本 2 JSON 包含任务、SAM3 符号查询、显式的 ``sam3_mask_centroid_floor_v1``
+推导方法、可选腕部精定位设置，以及有序动作、参数与
 三维相对偏移，不保存参考物体坐标、分数或谓词结果。
 导出支持 ``move_to``、``set_gripper`` 和 ``pi0_pick``；不支持的动作
 （包括 ``place_in_bin``、``stabilize``）、失败调用或缺少锚点的航点会被拒绝，
 应在开发期将这些操作记录为支持的基础动作。导出不会覆盖已有计划。
 评测前审核并冻结计划；重放期间不筛选候选计划，也不写入计划。
+版本 1 框中心计划和缺少掩码矩的轨迹必须重新录制，不会静默转换。
+共享 XPolicyLab facade 只持有自己启动的策略进程，并在 close、启动失败、
+SIGTERM 和解释器正常退出时终止它们；借用的策略服务保持运行。
 
 使用正常运行时参数并指定：
 

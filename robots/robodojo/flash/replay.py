@@ -19,6 +19,7 @@ import math
 from collections.abc import Callable
 from pathlib import Path
 
+from robots.robodojo.flash.grounding import centroid_pixel
 from robots.robodojo.flash.plan import task_name, validate_plan, vector
 
 PICK_ATTEMPTS = 3
@@ -43,7 +44,7 @@ def execute(toolkit, name: str, arguments: dict) -> dict:
 
 
 def locate(toolkit, query: str, camera: str, min_score: float = 0.2) -> list[float]:
-    """Ground a symbolic SAM3 query through the same box-center depth contract."""
+    """Ground a query through the same mask-centroid path used during recording."""
     result = execute(
         toolkit,
         "segment",
@@ -51,15 +52,13 @@ def locate(toolkit, query: str, camera: str, min_score: float = 0.2) -> list[flo
     )
     if result.get("found") is not True:
         raise RuntimeError("Anchor not visible")
-    box = result["box_px"]
-    if len(box) != 4 or not all(math.isfinite(v) for v in box):
-        raise RuntimeError("Invalid segmentation box")
+    row, col = centroid_pixel(result)
     result = execute(
         toolkit,
         "back_project",
         {
-            "row": int((box[1] + box[3]) / 2),
-            "col": int((box[0] + box[2]) / 2),
+            "row": row,
+            "col": col,
             "camera": camera,
         },
     )

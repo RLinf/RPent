@@ -149,7 +149,11 @@ RoboDojo; development here means the normal planner loop, not that CLI mode.
 
 Development writes ``flash_trace.json`` in the run output directory. To record
 a transferable waypoint, call ``segment`` on ``cam_head``, then ``back_project``
-at the integer box center, then the action. Repeat that perception pair before
+at its returned ``centroid_rc`` (row, col), then the action. The pixel is the
+floored mean of foreground mask coordinates, not the box center. Recording
+and replay share this derivation; recorded mask area and coordinate sums
+allow export to reject a changed centroid. Do not batch different objects'
+segmentations ahead of depth calls. Repeat that perception pair before
 each action. Export the trace before evaluation:
 
 .. code-block:: bash
@@ -159,7 +163,8 @@ each action. Export the trace before evaluation:
      --task put_bottles_into_dustbin \
      --destination /path/to/memory/robodojo/flash
 
-The version-1 JSON contains a task, symbolic SAM3 queries, optional wrist-camera
+The version-2 JSON contains a task, symbolic SAM3 queries, the explicit
+``sam3_mask_centroid_floor_v1`` derivation method, optional wrist-camera
 refinement, and ordered actions with arguments and three-dimensional offsets.
 It contains no reference object coordinates, score or predicate results.
 Export accepts ``move_to``, ``set_gripper`` and ``pi0_pick``; unsupported actions
@@ -167,6 +172,10 @@ Export accepts ``move_to``, ``set_gripper`` and ``pi0_pick``; unsupported action
 are rejected. Record those operations as supported basic actions instead.
 Existing plans are never overwritten. Review and freeze the plan before eval;
 no candidate selection or plan writing occurs during replay.
+Version-1 box-center plans and traces without mask moments must be recorded
+again; they are not silently converted. The shared XPolicyLab facade owns only
+the policy processes it spawns and stops them on close, startup failure,
+SIGTERM and normal interpreter exit; borrowed policy services remain running.
 
 Use the usual runtime flags together with:
 

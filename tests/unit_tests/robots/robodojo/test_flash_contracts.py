@@ -23,6 +23,7 @@ from robots.robodojo import env_server, robot_spec
 from robots.robodojo.access import public_observation
 from robots.robodojo.env_client import RoboDojoEnvClient
 from robots.robodojo.flash.generate import generate_plan
+from robots.robodojo.flash.grounding import ANCHOR_METHOD, mask_geometry
 from robots.robodojo.flash.plan import validate_plan
 from robots.robodojo.flash.replay import replay, run_flash
 from robots.robodojo.toolkit import RoboDojoToolkit
@@ -36,7 +37,11 @@ def trace():
         {
             "action": "segment",
             "arguments": {"text_prompt": "bottle"},
-            "result": {"found": True, "box_px": [0, 0, 2, 2]},
+            "result": {
+                "found": True,
+                "box_px": [0, 0, 2, 2],
+                **mask_geometry([[0, 0], [0, 1]]),
+            },
         },
         {
             "action": "back_project",
@@ -67,7 +72,7 @@ class FakeToolkit:
     def execute_tool(self, name, args):
         self.calls.append((name, args))
         if name == "segment":
-            result = {"found": True, "box_px": [0, 0, 2, 2]}
+            result = {"found": True, **mask_geometry([[0, 0], [0, 1]])}
         elif name == "back_project":
             result = {
                 "world_xyz": [0.2, 0.3, 0.8]
@@ -91,6 +96,29 @@ def test_generate_and_replay_translates_waypoints_without_feedback():
     toolkit = FakeToolkit()
     assert replay(toolkit, plan, lambda _: None)["done"]
     np.testing.assert_allclose(toolkit.calls[-1][1]["xyz"], [0.22, 0.33, 0.9])
+
+
+def test_mask_centroid_not_box_center_and_tampering_is_rejected():
+    recorded = trace()
+    recorded[0]["result"].update(mask_geometry([[1, 1, 0], [1, 0, 0], [0, 0, 1]]))
+    recorded[1]["arguments"] = {"row": 0, "col": 0}
+    plan = validate_plan(generate_plan(recorded, "pick"))
+    assert plan["version"] == 2
+    assert plan["anchors"]["bottle"]["method"] == ANCHOR_METHOD
+    recorded[0]["result"]["centroid_rc"] = [1, 1]
+    with pytest.raises(ValueError, match="centroid does not match"):
+        generate_plan(recorded, "pick")
+    recorded[0]["result"]["centroid_rc"] = [0, 0]
+    recorded[1]["arguments"] = {"row": 1, "col": 1}
+    with pytest.raises(ValueError, match="mask centroid"):
+        generate_plan(recorded, "pick")
+
+
+def test_legacy_anchor_plan_is_not_silently_reinterpreted():
+    plan = generate_plan(trace(), "pick")
+    plan["version"] = 1
+    with pytest.raises(ValueError, match="Unsupported Flash plan"):
+        validate_plan(plan)
 
 
 @pytest.mark.parametrize("fine,passes", [([0.21, 0.3, 0.8], True), ([2, 3, 4], False)])
@@ -270,7 +298,7 @@ def test_dev_recording_exports_actual_tool_results(monkeypatch, tmp_path):
             "env": env,
             "sam3_client": SimpleNamespace(
                 segment=lambda *a, **kw: SimpleNamespace(
-                    found=True, score=0.9, box=[0, 0, 2, 2]
+                    found=True, score=0.9, box=[0, 0, 2, 2], mask=[[0, 0], [0, 1]]
                 )
             ),
         },

@@ -87,10 +87,10 @@ omits task verdicts, returns zero reward, and removes reset/diagnostic RPCs.
 The toolkit requires a mode-validated env client, removes common file tools,
 and records no development trace. Dev defaults are unchanged.
 
-`flash/generate.py` exports `flash_trace.json` to a strict version-1 plan;
+`flash/generate.py` exports `flash_trace.json` to a strict version-2 plan;
 `flash/replay.py` reads only `memory.root/flash/<task>_plan.json`. Queries are
 symbolic, moves contain relative offsets, and action order is frozen.
-SAM3 box-center depth supplies head grounding and optional consistent wrist
+SAM3 mask-centroid depth supplies head grounding and optional consistent wrist
 refinement. Grasp retries are bounded and require both the original pick
 heuristic and wrist/EEF proximity. See the paired usage guides for supported
 actions, recording prerequisites, limits, and commands. Plan completion is not

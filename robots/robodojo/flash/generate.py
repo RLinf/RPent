@@ -18,13 +18,14 @@ import argparse
 import json
 from pathlib import Path
 
+from robots.robodojo.flash.grounding import ANCHOR_METHOD, centroid_pixel
 from robots.robodojo.flash.plan import ACTIONS, task_name, validate_plan, vector
 
 
 def generate_plan(
     trace: list[dict], task: str, *, refine_camera: str | None = None
 ) -> dict:
-    """Associate head-camera box-center depth with subsequent command offsets.
+    """Associate head-camera mask-centroid depth with command offsets.
 
     Require a new segment/depth pair after motion; ambiguous or unsupported
     motion traces fail closed rather than inventing an anchor.
@@ -46,13 +47,14 @@ def generate_plan(
         elif name == "back_project":
             if segment is None or args.get("camera", "cam_head") != "cam_head":
                 raise ValueError("Depth must follow head-camera segmentation")
-            query, box = segment[0]["text_prompt"], segment[1]["box_px"]
-            row, col = int((box[1] + box[3]) / 2), int((box[0] + box[2]) / 2)
+            query = segment[0]["text_prompt"]
+            row, col = centroid_pixel(segment[1])
             if (args["row"], args["col"]) != (row, col):
-                raise ValueError("Depth pixel must be the segmentation box center")
+                raise ValueError("Depth pixel must be the segmentation mask centroid")
             measured = (query, vector(result["world_xyz"]))
             anchor = {
                 "query": query,
+                "method": ANCHOR_METHOD,
                 "refine_camera": refine_camera,
                 "min_score": segment[0].get("min_score", 0.2),
             }
@@ -84,7 +86,7 @@ def generate_plan(
         else:
             raise ValueError(f"Unsupported recorded action: {name}")
     return validate_plan(
-        {"version": 1, "task": task_name(task), "anchors": anchors, "actions": actions}
+        {"version": 2, "task": task_name(task), "anchors": anchors, "actions": actions}
     )
 
 
