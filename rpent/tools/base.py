@@ -185,7 +185,7 @@ def _parameter_model(
     return create_model(
         f"{handler.__name__}Parameters",
         __module__=handler.__module__,
-        __config__=ConfigDict(extra="forbid"),
+        __config__=ConfigDict(extra="forbid", allow_inf_nan=False),
         **fields,
     )
 

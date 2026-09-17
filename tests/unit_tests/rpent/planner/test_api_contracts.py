@@ -110,9 +110,16 @@ def test_successful_finish_waits_for_its_tool_result(
     assert any(isinstance(event, UsageEvent) for event in sink.events)
 
 
-def test_rejected_finish_does_not_end_the_run(
-    make_toolkit,
-) -> None:
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"error": "finish refused by environment"},
+        {"reading": float("nan")},
+        {"reading": float("inf")},
+        {"nested": {(1, 2): "invalid JSON key"}},
+    ],
+)
+def test_rejected_finish_does_not_end_the_run(make_toolkit, payload) -> None:
     def model(messages: list[Any], info: Any) -> ModelResponse:
         del info
         if any(
@@ -131,15 +138,15 @@ def test_rejected_finish_does_not_end_the_run(
             ]
         )
 
-    toolkit = make_toolkit({"error": "finish refused by environment"})
+    toolkit = make_toolkit(payload)
     result = solve_with_model(model, toolkit, RecordingSink())
 
     assert result.finish_result is None
     assert result.error is None
     assert result.stats["tool_calls"] == 1
+    error = payload.get("error", "Tool result serialization failed")
     assert any(
-        message.get("role") == "tool"
-        and "finish refused by environment" in message.get("content", "")
+        message.get("role") == "tool" and error in message.get("content", "")
         for message in result.messages
     )
 

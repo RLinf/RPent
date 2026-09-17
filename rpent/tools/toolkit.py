@@ -171,21 +171,26 @@ class Toolkit(Generic[RobotT]):
                         logger.exception(
                             "Dashboard failed to publish step %s", record.step_idx
                         )
-            if name == "finish" and not result.is_error:
-                self._finish_result = {
-                    key: value for key, value in result.data.items() if key != "_finish"
-                }
             # Images are logged by their owning artifact paths, not their bytes.
-            logger.info(
-                "Tool %s result: %s",
-                name,
-                json.dumps(
+            try:
+                result_text = json.dumps(
                     result.to_dict(),
                     ensure_ascii=False,
                     allow_nan=False,
                     default=str,
-                ),
-            )
+                )
+            except (TypeError, ValueError) as exc:
+                logger.exception("Tool %s result serialization failed", name)
+                result = ToolResult(
+                    error=f"Tool result serialization failed: {str(exc)[:500]}",
+                    images=result.images,
+                )
+                result_text = result.to_text()
+            if name == "finish" and not result.is_error:
+                self._finish_result = {
+                    key: value for key, value in result.data.items() if key != "_finish"
+                }
+            logger.info("Tool %s result: %s", name, result_text)
             return result
         finally:
             with self._operation_lock:

@@ -107,6 +107,22 @@ def test_already_reached_and_zero_budget_report_zero_actions(make_toolkit, name,
 
 
 @pytest.mark.parametrize(
+    "value", [float("nan"), float("inf"), -float("inf"), "NaN", "Infinity", "-Infinity"]
+)
+def test_nonfinite_motion_arguments_fail_before_execution(make_toolkit, value):
+    toolkit, env, _ = make_toolkit()
+    result = toolkit.execute_tool(
+        "move_to", {"xyz": [0, 0, 0.3], "tol": value, "max_steps": 0}
+    )
+
+    assert result.is_error
+    assert "finite_number" in result.error
+    assert env.actions == []
+    assert toolkit.state.latest_step == 0
+    assert not toolkit.execute_tool("view_env_state", {}).is_error
+
+
+@pytest.mark.parametrize(
     ("name", "args", "field"),
     [
         ("move_to", {"xyz": [1, 0, 0.3], "max_steps": 4}, "steps_used"),

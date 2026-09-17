@@ -136,6 +136,28 @@ def test_png_bytes_preserve_original_artifact_and_step(toolkit):
     assert toolkit.state.latest_step == 0
 
 
+def test_read_image_with_relative_output_dir(toolkit, tmp_path, monkeypatch):
+    working_dir = tmp_path / "outside"
+    working_dir.mkdir()
+    monkeypatch.chdir(working_dir)
+    state = EnvState("run")
+    relative_toolkit = Toolkit(
+        state=state,
+        memory=toolkit.memory,
+        robot=None,
+        output_dir="run",
+        tools=(),
+    )
+    with state.record_step(state={}):
+        state.save("frame.png", np.zeros((2, 2, 3), dtype=np.uint8))
+    expected = (working_dir / "run/frame.png/00.png").read_bytes()
+    for cwd in (working_dir, tmp_path):
+        monkeypatch.chdir(cwd)
+        result = relative_toolkit.execute_tool("read_image", {"name": "frame.png"})
+        assert not result.is_error
+        assert result.images == [expected]
+
+
 @pytest.mark.parametrize("suffix", ["jpg", "jpeg"])
 def test_read_image_rejects_jpeg_artifacts(toolkit, suffix):
     name = f"frame.{suffix}"
