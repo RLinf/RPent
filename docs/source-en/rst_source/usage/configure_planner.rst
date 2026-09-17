@@ -39,12 +39,13 @@ loop is orchestrated, and which model SDK is used.
        Streamable HTTP MCP server that connects the toolkit to Codex.
      - You want the agent capabilities built into Codex or already have
        OpenAI or Codex quota available.
-   * - ``task_card``
-     - No LLM at all. Replays a **task card** recorded from an earlier
+   * - ``flash``
+     - **Flash Mode**, for evaluation only. Replays a plan from memory,
+       recorded from an earlier
        run, re-localizing each waypoint's anchor so the plan follows
-       objects that moved. See :doc:`task_card`.
-     - You want to re-run a known-good plan on new layouts, cheaply and
-       without model spend.
+       objects that moved. See :doc:`flash`.
+     - You want to re-run a known-good plan on new layouts, without online
+       LLM planning. Perception and VLA services are still required.
 
 The ``api`` planner (direct model API)
 ---------------------------------------

@@ -13,10 +13,10 @@
 # limitations under the License.
 """Extract a small, explicit task graph from LIBERO goal instructions.
 
-Task cards record *how* a successful episode acted.  This module records what
+Task plans record *how* a successful episode acted.  This module records what
 the episode must accomplish, independently of the task/swap scene layout.  The
 graph is deliberately narrow: unsupported language is rejected instead of
-quietly producing a plausible but wrong card.
+quietly producing a plausible but wrong program.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class GoalRelation:
 
 @dataclass(frozen=True)
 class TaskGraph:
-    """Semantic part of a task card, in required execution order."""
+    """Semantic part of a Flash plan, in required execution order."""
 
     language: str
     entities: tuple[str, ...]

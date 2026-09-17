@@ -5,7 +5,7 @@
 # You may obtain a copy of the License at
 #
 #     https://www.apache.org/licenses/LICENSE-2.0
-"""Generate one replayable LIBERO task card from one successful trace.
+"""Generate one replayable LIBERO Flash plan from one successful trace.
 
 The generator deliberately has no candidate search or cross-seed evaluation.  Its
 two required inputs are the final episode audit (JSON) and the recorded primitive
@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from robots.libero.task_card.relations import (
+from robots.libero.flash.relations import (
     TaskGraph,
     extract_goal_relations,
     extract_long_relations,
@@ -68,7 +68,7 @@ def _read_audit(path: Path) -> dict[str, Any]:
         raise ValueError("audit JSON must contain one object")
     if audit.get("libero_terminated") is not True:
         raise ValueError(
-            "task cards can only be generated from libero_terminated=true traces"
+            "Flash plans can only be generated from libero_terminated=true traces"
         )
     return audit
 
@@ -346,14 +346,14 @@ def _attach_moves(
     return output
 
 
-def generate_task_card(
+def generate_flash_plan(
     audit_path: str | Path,
     recipe_path: str | Path,
     destination: str | Path,
     *,
     segments: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Generate and index exactly one card; never inspect another seed."""
+    """Generate exactly one Flash plan; never inspect another seed."""
     audit_path = Path(audit_path)
     recipe_path = Path(recipe_path)
     destination = Path(destination)
@@ -417,14 +417,14 @@ def generate_task_card(
     )
 
     destination.mkdir(parents=True, exist_ok=True)
-    card_name = f"{identity.family}_{identity.key}"
-    (destination / f"{card_name}_plan.json").write_text(
+    plan_name = f"{identity.family}_{identity.key}"
+    (destination / f"{plan_name}_plan.json").write_text(
         json.dumps(plan_doc, ensure_ascii=False, indent=2) + "\n"
     )
-    (destination / f"{card_name}_anchors.json").write_text(
+    (destination / f"{plan_name}_anchors.json").write_text(
         json.dumps(anchors_doc, ensure_ascii=False, indent=2) + "\n"
     )
-    (destination / f"{card_name}_trace.md").write_text(trace)
+    (destination / f"{plan_name}_trace.md").write_text(trace)
 
     row = {
         "family": identity.family,
@@ -450,7 +450,7 @@ def main() -> int:
         help="optional directory of segment_*.json readings from this trace",
     )
     args = parser.parse_args()
-    row = generate_task_card(
+    row = generate_flash_plan(
         args.audit, args.recipe, args.destination, segments=args.segments
     )
     print(json.dumps(row, ensure_ascii=False, indent=2))

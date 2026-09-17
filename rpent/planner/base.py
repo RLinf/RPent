@@ -240,10 +240,10 @@ def build_planner(
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
         )
-    if planner_type == "task_card":
-        from rpent.planner.task_card import TaskCardPlanner
+    if planner_type == "flash":
+        from rpent.planner.flash import FlashPlanner
 
-        return TaskCardPlanner(
+        return FlashPlanner(
             recipe_tag=recipe_tag,
             robot_name=robot_name,
         )
