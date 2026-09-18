@@ -30,7 +30,6 @@ from robots.franka.runtime_config import (
     FrankaRuntimeConfig,
     _require_mapping,
     flatten_control,
-    get_calibration_path,
     load_mapping,
     strict_mapping,
 )
@@ -99,7 +98,6 @@ def _perception_cameras(cameras: dict[str, Any]) -> dict[str, Any]:
     for name, value in perception.items():
         camera = _require_mapping(value, f"cameras.perception.{name}")
         output[str(name)] = {
-            "enabled": True,
             "serial_number": str(camera["serial"]),
             "camera_type": str(camera.get("type", "realsense")),
             "enable_depth": True,
@@ -271,7 +269,6 @@ def load_runtime_config(
     controller["robot_config_path"] = str(
         Path(path or DEFAULT_CONFIG).expanduser().resolve()
     )
-    controller["calibration_path"] = str(get_calibration_path())
     controller["perception"] = _perception_cameras(cameras)
     controller["agent_observation"] = _agent_observation(cameras)
     controller["projection_views"] = _projection_views(raw)
