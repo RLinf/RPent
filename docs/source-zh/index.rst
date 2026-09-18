@@ -66,7 +66,7 @@
    概览 <rst_source/overview>
    安装 <rst_source/installation>
    快速开始 <rst_source/quickstart>
-   基准测试结果 <rst_source/benchmarks>
+   Leaderboard <rst_source/leaderboard>
 
 .. toctree::
    :maxdepth: 2
