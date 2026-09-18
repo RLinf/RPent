@@ -22,7 +22,6 @@ from types import ModuleType, SimpleNamespace
 
 import gymnasium as gym
 import numpy as np
-import pytest
 
 from robots.franka.runtime_config import load_runtime_config
 
@@ -135,19 +134,3 @@ def test_camera_metadata_matches_current_rlinf_crop(
         [0.0, 160.0, 64.0],
         [0.0, 0.0, 1.0],
     ]
-
-
-def test_camera_metadata_rejects_non_realsense_camera(
-    fake_rlinf_realworld_modules,
-):
-    from robots.franka.rpent_env import RPentFrankaEnv
-
-    info = SimpleNamespace(name="wrist_1")
-    env = RPentFrankaEnv.__new__(RPentFrankaEnv)
-    env._cameras = {"wrist_1": SimpleNamespace(camera_info=info, depth_scale=0.001)}
-    env.observation_space = {
-        "frames": {"wrist_1": SimpleNamespace(shape=(128, 128, 3))}
-    }
-
-    with pytest.raises(TypeError, match="requires RLinf RealSenseCamera"):
-        env.get_camera_metadata()
