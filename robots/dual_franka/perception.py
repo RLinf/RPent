@@ -30,7 +30,6 @@ from robots.franka.runtime_config import (
     load_mapping,
 )
 from rpent.session import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
 from rpent.utils.transforms import (
     invert_transform,
     transform_points,
@@ -44,7 +43,6 @@ class DualFrankaPerceptionError(ValueError):
     """Raised when a dual-Franka perception artifact is missing or invalid."""
 
 
-@readonly
 def back_project(
     *,
     # PhysicalAgent alignment note: D455 is the deployed clean-desk primary
@@ -71,7 +69,6 @@ def back_project(
     )
 
 
-@readonly
 def segment(
     *,
     # Same deployment default as back_project: SAM3 can run on any registered

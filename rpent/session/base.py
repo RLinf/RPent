@@ -96,7 +96,7 @@ class EnvState:
     """Own a session's step trace and all state-related files in its output root."""
 
     def __init__(self, output_dir: Path | str):
-        self._output_dir = Path(output_dir)
+        self._output_dir = Path(output_dir).resolve()
         self.reset()
 
     # -- private file resolution -----------------------------------------

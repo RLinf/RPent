@@ -16,106 +16,60 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from threading import Event
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+from robots.franka import runtime_config, tools
+from robots.franka import toolkit as franka_toolkit
 from robots.franka.perception import back_project
 from robots.franka.runtime_config import set_calibration_path
+from robots.franka.toolkit import FrankaRuntime, FrankaToolkit
 from robots.franka.tools import (
-    FrankaPrimitives,
-    coerce_vec3,
     dump_state,
     view_camera_meta,
     view_env_state,
 )
+from rpent.dashboard.events import NullDashboardEventSink, StepRecordEvent
+from rpent.memory import MemoryManager
 from rpent.session import EnvState
+from rpent.tools import ToolContext
+from tests.unit_tests.robots.franka._fakes import FakeEnv, FakeModel
 
 
-class FakeEnv:
-    def __init__(self) -> None:
-        self.moves: list[np.ndarray] = []
-        self.rotations: list[np.ndarray] = []
-        self.gripper_open = True
-        self.chunks: list[np.ndarray] = []
-        self.observation_calls = 0
-
-    def reset(self):
-        return {"ok": True}
-
-    def move_delta(self, value):
-        self.moves.append(np.asarray(value))
-        return {"ok": True}
-
-    def rotate_delta(self, value):
-        self.rotations.append(np.asarray(value))
-        return {"ok": True}
-
-    def set_gripper(self, *, open: bool):
-        self.gripper_open = open
-        return {"ok": True, "open": open}
-
-    def _obs(self):
-        return {
-            "main_images": np.zeros((8, 8, 3), dtype=np.uint8),
-            "extra_view_images": np.ones((1, 8, 8, 3), dtype=np.uint8),
-            "main_depths": np.ones((8, 8), dtype=np.float32),
-            "extra_view_depths": np.ones((1, 8, 8), dtype=np.float32) * 2,
-            "states": np.zeros(8, dtype=np.float32),
-        }
-
-    def get_observation(self):
-        self.observation_calls += 1
-        return self._obs()
-
-    def get_robot_state(self):
-        return {"tcp_pose": [0.5, 0.0, 0.2, 0.0, 0.0, 0.0, 1.0]}
-
-    def get_camera_meta(self):
-        return {"depth_unit": "m", "cameras": {"wrist_1": {"fx": 100.0}}}
-
-    def chunk_step(self, actions):
-        self.chunks.append(np.asarray(actions))
-        return {"terminated": False, "truncated": False, "observation": self._obs()}
-
-
-class FakeModel:
-    def predict(self, observation, options=None):
-        assert observation["task_descriptions"] == "pick up the cube"
-        assert options == {"mode": "eval"}
-        return np.zeros((2, 7), dtype=np.float32)
-
-
-def _primitives(env: FakeEnv, *, model=None, check_cancelled=lambda: None):
-    return FrankaPrimitives(
-        env=env,
-        model=model,
-        task_description="default task",
-        check_cancelled=check_cancelled,
+def _context(env: FakeEnv, *, model=None, state=None):
+    return ToolContext(
+        robot=FrankaRuntime(env=env, model=model, task_description="default task"),
+        state=state,
+        memory=None,
+        output_dir=Path("."),
+        record_frame=lambda frame: None,
+        _cancel_event=Event(),
     )
 
 
 def test_vec3_validation_and_motion_forwarding():
     env = FakeEnv()
-    primitives = _primitives(env)
+    ctx = _context(env)
 
-    primitives.move_delta([0.01, 0.0, -0.02])
-    primitives.rotate_delta([0.0, 0.0, 0.1])
+    tools.move_delta.handler([0.01, 0.0, -0.02], ctx=ctx)
+    tools.rotate_delta.handler([0.0, 0.0, 0.1], ctx=ctx)
 
     np.testing.assert_allclose(env.moves[0], [0.01, 0.0, -0.02])
     np.testing.assert_allclose(env.rotations[0], [0.0, 0.0, 0.1])
-    with pytest.raises(ValueError, match="exactly 3"):
-        coerce_vec3([1.0, 2.0], name="delta")
 
 
 def test_dump_state_saves_canonical_rgbd_artifacts(tmp_path: Path):
     env = FakeEnv()
-    primitives = _primitives(env)
+    ctx = _context(env)
     state = EnvState(tmp_path)
 
     record = dump_state(
-        primitives,
+        ctx.robot,
         state,
         command={"action": "move_delta"},
         result={"ok": True},
@@ -129,19 +83,29 @@ def test_dump_state_saves_canonical_rgbd_artifacts(tmp_path: Path):
         "wrist.png",
         "wrist_depth.npy",
     }
-    output = view_env_state(state=state)
-    assert output["_image_wrist_bytes"]
-    assert output["_image_cam_bytes"]
-    assert view_camera_meta(state=state)["camera_meta"]["depth_unit"] == "m"
+    output = view_env_state.handler(ctx=_context(env, state=state))
+    assert output.images == [
+        state.load_bytes("camera.png"),
+        state.load_bytes("wrist.png"),
+    ]
+    assert "images" not in output.data
+    assert output.data["image_cam_path"] == str(state.artifact_path("camera.png"))
+    assert output.data["image_wrist_path"] == str(state.artifact_path("wrist.png"))
+    assert (
+        view_camera_meta.handler(ctx=_context(env, state=state)).data["camera_meta"][
+            "depth_unit"
+        ]
+        == "m"
+    )
 
 
 def test_vla_grasp_runs_bounded_chunks():
     env = FakeEnv()
-    primitives = _primitives(env, model=FakeModel())
+    ctx = _context(env, model=FakeModel())
 
-    result = primitives.vla_grasp("pick up the cube", max_chunks=3)
+    result = tools.vla_grasp.handler("pick up the cube", max_chunks=3, ctx=ctx)
 
-    assert result["chunks_executed"] == 3
+    assert result.data["chunks_executed"] == 3
     assert len(env.chunks) == 3
     # Obs is fetched once, then threaded from each chunk_step result.
     assert env.observation_calls == 1
@@ -172,3 +136,111 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
     assert result["coordinate_frame"] == "franka_base"
     assert result["depth_m"] == 0.5
     assert len(result["point_base"]) == 3
+
+
+def test_toolkit_factory_validation_and_capture(tmp_path, monkeypatch):
+    monkeypatch.setattr(franka_toolkit, "get_output_dir", lambda: tmp_path)
+    env = FakeEnv()
+    # RPC state contains NumPy arrays; native result text must still be JSON.
+    get_robot_state = env.get_robot_state
+    env.get_robot_state = lambda: {**get_robot_state(), "states": np.zeros(8)}
+    events = []
+    kwargs = {"env": env, "model": None, "task_description": "test task"}
+    toolkit = FrankaToolkit(
+        runtime_kwargs=kwargs,
+        dashboard_events=SimpleNamespace(enabled=True, emit=events.append),
+        memory=MemoryManager(root=tmp_path / "memory"),
+    )
+    assert kwargs == {"env": env, "model": None, "task_description": "test task"}
+    assert env.observation_calls == 1
+    assert len(events) == 1 and isinstance(events[0], StepRecordEvent)
+    assert all(
+        "ctx" not in tool.input_schema["properties"] for tool in toolkit.list_tools()
+    )
+    for delta in ([1, 2], [0, 0, float("inf")]):
+        result = toolkit.execute_tool("move_delta", {"delta_xyz": delta})
+        assert result.is_error
+    assert env.moves == []
+    assert env.observation_calls == 1
+    assert len(events) == 1
+    result = toolkit.execute_tool("move_delta", {"delta_xyz": [0.01, 0, 0]})
+    assert not result.is_error
+    assert "images" not in result.data
+    assert "image_cam_path" in result.data and "image_wrist_path" in result.data
+    assert len(result.images) == 2
+    assert "states" in result.to_text()
+    assert len(events) == 2
+    assert events[-1].record.command["action"] == "move_delta"
+    read = toolkit.execute_tool("view_env_state", {})
+    np.testing.assert_equal(
+        read.data,
+        {key: value for key, value in result.data.items() if key != "agent_elapsed_s"},
+    )
+    assert read.images == result.images
+    assert len(events) == 2
+    toolkit.cancel_active_and_wait()
+    assert toolkit.execute_tool("move_delta", {"delta_xyz": [0, 0, 0]}).is_error
+    assert len(env.moves) == 1
+    toolkit.resume_calls()
+    assert not toolkit.execute_tool("view_env_state", {}).is_error
+    assert "finish" in {tool.name for tool in toolkit.list_tools()}
+    assert toolkit.finish_result is None
+    toolkit.close()
+
+
+# Historical PR #172 schemas and return fields; do not regenerate from native tools.
+_CONTRACT = json.loads(
+    (Path(__file__).parent / "fixtures/pre_native_tool_contracts.json").read_text()
+)
+
+
+def _prepare_contract_perception(state):
+    metadata = {
+        "observation_camera_map": {"main": "wrist_cam", "extra_0": "external_cam"},
+        "cameras": {
+            name: {"intrinsic_K": [[100, 0, 2], [0, 100, 2], [0, 0, 1]]}
+            for name in ("wrist_cam", "external_cam")
+        },
+    }
+    images = {name: state.load(f"{name}.png") for name in ("wrist", "camera")}
+    with state.record_step(state={"raw_base_state": state.get().state}) as step:
+        for name, image in images.items():
+            state.save(f"{name}.png", image, step=step)
+            state.save(
+                f"{name}_depth.npy", np.full((4, 4), 0.5, dtype=np.float32), step=step
+            )
+        state.save("camera_meta.json", metadata, step=step)
+
+
+@pytest.mark.parametrize("case", _CONTRACT["cases"], ids=lambda case: case["name"])
+def test_normal_return_contract(case, tmp_path, monkeypatch):
+    monkeypatch.setattr(franka_toolkit, "get_output_dir", lambda: tmp_path)
+    toolkit = FrankaToolkit(
+        runtime_kwargs={
+            "env": FakeEnv(),
+            "model": FakeModel(),
+            "task_description": "default task",
+        },
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    name = case["name"]
+    if name.startswith("back_project") or name == "view_perception_setup":
+        _prepare_contract_perception(toolkit.state)
+        monkeypatch.setattr(
+            runtime_config,
+            "_calibration_path",
+            Path(__file__).parent / "fixtures/hand_eye_calibration.json",
+        )
+    result = toolkit.execute_tool(name, case["arguments"])
+    assert not result.is_error
+    data = result.to_dict()
+    assert sorted(data) == case["fields"]
+    assert len(result.images) == case["image_count"]
+    if "result_fields" in case:
+        assert sorted(data["result"]) == case["result_fields"]
+    if "last_chunk_fields" in case:
+        assert sorted(data["result"]["last_chunk"]) == case["last_chunk_fields"]
+    if name == "finish":
+        assert data == {"_finish": True, **case["arguments"]}
+        assert toolkit.finish_result == case["arguments"]

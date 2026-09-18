@@ -21,16 +21,16 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from robots.dual_franka import perception as dual_franka_perception
 from robots.dual_franka import tools as dual_franka_tools
-from robots.franka import tools as franka_tools
-from robots.franka.toolkit import FrankaToolkit
-from rpent.dashboard.events import DashboardEventSink
-from rpent.tools.toolkit import ToolCancelled, ToolResult, readonly
+from robots.franka.toolkit import FrankaRuntime, FrankaToolkit
+from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
+from rpent.session import StepRecord
+from rpent.tools import Tool, ToolCancelled, ToolContext, ToolResult
 from rpent.utils.logging import get_output_dir
 
 if TYPE_CHECKING:
@@ -52,6 +52,13 @@ _MOTION_TOOLS = {
 }
 
 
+@dataclass
+class DualFrankaRuntime(FrankaRuntime):
+    sam3_client: Any | None = None
+    vla_instruction: str | None = None
+    session: DualFrankaToolkit | None = field(default=None, init=False, repr=False)
+
+
 class DualFrankaToolkit(FrankaToolkit):
     """Dual-arm tools and the attended exploration lifecycle from PR #176.
 
@@ -59,8 +66,8 @@ class DualFrankaToolkit(FrankaToolkit):
     attempt boundaries are additional artifacts, not simulator termination flags.
     """
 
-    _tools_module = dual_franka_tools
-    _primitives_cls = dual_franka_tools.DualFrankaPrimitives
+    _runtime_type = DualFrankaRuntime
+    _robot_tools = dual_franka_tools.DUAL_FRANKA_TOOLS
 
     def __init__(
         self,
@@ -98,6 +105,31 @@ class DualFrankaToolkit(FrankaToolkit):
             memory=memory,
             state_output_dir=state_output_dir,
         )
+        self._robot.session = self
+        self._tools = {
+            name: replace(item, handler=partial(self._invoke_guarded, item))
+            if self._mode == "exploration"
+            and name in _MOTION_TOOLS | {"back_project", "segment"}
+            else item
+            for name, item in self._tools.items()
+            if self._mode == "exploration" or name not in _EXPLORATION_ONLY_TOOLS
+        }
+
+    def _invoke_guarded(
+        self, tool: Tool, *, ctx: ToolContext, **kwargs: Any
+    ) -> ToolResult:
+        handler = partial(tool.handler, ctx=ctx)
+        guard = (
+            self._guard_motion
+            if tool.name in _MOTION_TOOLS
+            else self._current_perception
+        )
+        result = guard(handler, **kwargs)
+        return (
+            result
+            if isinstance(result, ToolResult)
+            else dual_franka_tools._result(result)
+        )
 
     @property
     def direct_verdict_requested(self) -> bool:
@@ -108,7 +140,7 @@ class DualFrankaToolkit(FrankaToolkit):
         """Seal this attempt immediately; cancel in-flight work at its next boundary."""
         if verdict not in {"success", "failure", "abort"}:
             raise ValueError("verdict must be success, failure or abort")
-        with self._operation_lock:
+        with self._scheduler._condition:
             if self._direct_verdict_event.is_set():
                 return self._direct_verdict == verdict
             if self._mode != "exploration" or (
@@ -118,8 +150,7 @@ class DualFrankaToolkit(FrankaToolkit):
                 return False
             self._direct_verdict = verdict
             self._direct_verdict_event.set()
-            if self._active_operation is not None:
-                self._active_operation.cancel_event.set()
+            self._scheduler.cancel()
         return True
 
     def raise_if_cancelled(self) -> None:
@@ -127,16 +158,18 @@ class DualFrankaToolkit(FrankaToolkit):
             raise ToolCancelled(
                 "operator submitted a terminal verdict; stopping exploration"
             )
-        super().raise_if_cancelled()
+        with self._scheduler._condition:
+            cancelled = any(
+                call.cancel_event.is_set() for call in self._scheduler._active_calls
+            )
+        if cancelled:
+            raise ToolCancelled("Tool call cancelled.")
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
         if self._direct_verdict_event.is_set():
             return ToolResult(
-                name=name,
-                result={
-                    "error": "operator submitted a terminal verdict; exploration is closing",
-                    "motion_refused": True,
-                },
+                error="operator submitted a terminal verdict; exploration is closing",
+                data={"motion_refused": True},
             )
         return super().execute_tool(name, input_dict)
 
@@ -159,12 +192,16 @@ class DualFrankaToolkit(FrankaToolkit):
             self._event("verdict", verdict="abort", source="interactive_command")
             self._event("finish", **result)
             return result
-        self.get_env_state(
-            command={"action": "observe_for_verdict"}, result={}, elapsed_s=0.0
+        self._capture_observation(
+            command={"action": "observe_for_verdict"},
+            result=ToolResult(),
+            elapsed_s=0.0,
         )
         self._validate_observation()
         record = self.state.latest_record()
-        self._publish_step(record)
+        self._dashboard_events.emit(
+            StepRecordEvent(record=record, env_state=self.state)
+        )
         self._scene_ready = True
         self._operator_verdict = self._direct_verdict
         self._operator_notes = (
@@ -187,17 +224,6 @@ class DualFrankaToolkit(FrankaToolkit):
         self._event("finish", **result)
         return result
 
-    @readonly
-    def _describe_exploration_setup(self, inner):
-        result = inner()
-        result["phase"] = "exploration"
-        result["reset_policy"] = (
-            "No automatic reset was performed by the client. Before motion in "
-            "each session call request_scene_reset and wait for operator confirmation."
-        )
-        result["scene_ready"] = self._scene_ready
-        return result
-
     def _clear_verdict(self) -> None:
         self._operator_verdict = None
         self._operator_notes = ""
@@ -216,7 +242,6 @@ class DualFrankaToolkit(FrankaToolkit):
         self._clear_verdict()
         return inner(**kwargs)
 
-    @readonly
     def _current_perception(self, inner, **kwargs):
         step = kwargs.get("step")
         if not self._scene_ready or (
@@ -285,7 +310,7 @@ class DualFrankaToolkit(FrankaToolkit):
                 "operator_aborted": self._operator_aborted,
             }
         # Never count a failed reset or a failed post-reset observation as a new attempt.
-        result = self._primitives.reset()
+        result = self._robot.env.reset()
         if (
             not isinstance(result, dict)
             or result.get("ok") is not True
@@ -300,7 +325,6 @@ class DualFrankaToolkit(FrankaToolkit):
             "notice": "Scene restored by operator; robot posture reset. Re-localize from the new images.",
         }
 
-    @readonly
     def _request_operator_verdict(
         self, question="Does the current scene satisfy the task success criteria?"
     ):
@@ -312,12 +336,16 @@ class DualFrankaToolkit(FrankaToolkit):
         ):
             return {"error": "verdict refused; no active confirmed attempt"}
         # Save the evidence being judged using the existing camera/state logger.
-        self.get_env_state(
-            command={"action": "observe_for_verdict"}, result={}, elapsed_s=0.0
+        self._capture_observation(
+            command={"action": "observe_for_verdict"},
+            result=ToolResult(),
+            elapsed_s=0.0,
         )
         self._validate_observation()
         record = self.state.latest_record()
-        self._publish_step(record)
+        self._dashboard_events.emit(
+            StepRecordEvent(record=record, env_state=self.state)
+        )
         response = self._ask_operator(
             f"{question}\nAttempt {self._attempt}, observation step {record.step_idx}. "
             "Reply success, failure, continue, or abort; optional notes may follow.",
@@ -345,7 +373,6 @@ class DualFrankaToolkit(FrankaToolkit):
             "operator_aborted": self._operator_aborted,
         }
 
-    @readonly
     def _guarded_finish(self, inner, **kwargs):
         if not self._operator_aborted:
             if self._operator_verdict is None:
@@ -366,16 +393,17 @@ class DualFrankaToolkit(FrankaToolkit):
         self._event("finish", **result)
         return result
 
-    def get_env_state(self, *, command, result, elapsed_s):
+    def _capture_observation(self, *, command, result: ToolResult, elapsed_s):
         if self._mode != "exploration":
-            return super().get_env_state(
+            return super()._capture_observation(
                 command=command, result=result, elapsed_s=elapsed_s
             )
         try:
-            output = super().get_env_state(
+            output, images = super()._capture_observation(
                 command=command, result=result, elapsed_s=elapsed_s
             )
-            if command["action"] == "request_scene_reset" and result.get(
+            payload = result.to_dict()
+            if command["action"] == "request_scene_reset" and payload.get(
                 "scene_reset_confirmed"
             ):
                 self._validate_observation()
@@ -393,9 +421,9 @@ class DualFrankaToolkit(FrankaToolkit):
             self.state.save("exploration.json", status)
             output["exploration"] = status
             # Keep the original record layout, and expose lifecycle errors to the planner.
-            if result.get("error"):
-                output["error"] = result["error"]
-            return output
+            if result.is_error:
+                output["error"] = result.error
+            return output, images
         except Exception:
             self._scene_ready = False
             self._clear_verdict()
@@ -476,57 +504,6 @@ class DualFrankaToolkit(FrankaToolkit):
         audit_path.write_text(json.dumps(audit, indent=2) + "\n")
         return str(recipe)
 
-    def _register_tools(self) -> None:
-        state_handlers = {
-            "view_env_state": partial(
-                dual_franka_tools.view_env_state, state=self._state
-            ),
-            "view_camera_meta": partial(
-                franka_tools.view_camera_meta,
-                state=self._state,
-            ),
-            "back_project": partial(
-                dual_franka_perception.back_project,
-                state=self._state,
-            ),
-            "segment": partial(
-                dual_franka_perception.segment,
-                state=self._state,
-                sam3_client=getattr(self._primitives, "_sam3_client", None),
-            ),
-            "request_scene_reset": self._request_scene_reset,
-            "request_operator_verdict": self._request_operator_verdict
-            if self._mode == "exploration"
-            else self._evaluation_verdict,
-        }
-        for spec in self._tools_module.TOOLS_SPEC:
-            name = spec["name"]
-            if name in _EXPLORATION_ONLY_TOOLS and self._mode != "exploration":
-                continue
-            handler = state_handlers.get(name) or getattr(self._primitives, name, None)
-            if handler is None:
-                continue
-            if self._mode == "exploration":
-                if name in _MOTION_TOOLS:
-                    handler = partial(self._guard_motion, handler)
-                elif name in {"back_project", "segment"}:
-                    handler = partial(self._current_perception, handler)
-                elif name == "describe_dual_franka_setup":
-                    handler = partial(self._describe_exploration_setup, handler)
-            self.add_tool(name, spec, handler)
-        if self._mode != "exploration":
-            finish_spec, finish_handler = self._tools["finish"]
-            self.add_tool(
-                "finish", finish_spec, partial(self._evaluation_finish, finish_handler)
-            )
-        if self._mode == "exploration":
-            finish_spec, finish_handler = self._tools["finish"]
-            self.add_tool(
-                "finish",
-                finish_spec,
-                partial(self._guarded_finish, finish_handler),
-            )
-
     def _read_operator_line(self, prompt: str) -> str | None:
         if sys.stdin is None or not sys.stdin.isatty():
             return None
@@ -535,7 +512,6 @@ class DualFrankaToolkit(FrankaToolkit):
         except EOFError:
             return None
 
-    @readonly
     def _evaluation_verdict(
         self,
         question: str = "Does the current real-robot scene satisfy the task?",
@@ -581,7 +557,6 @@ class DualFrankaToolkit(FrankaToolkit):
             "attempt": self._attempt,
         }
 
-    @readonly
     def _evaluation_finish(self, inner: Any, **kwargs: Any) -> dict[str, Any]:
         """Require real-robot operator feedback before finishing a task."""
         if self._operator_verdict is None:
@@ -615,3 +590,21 @@ class DualFrankaToolkit(FrankaToolkit):
             if self._operator_notes:
                 result.setdefault("operator_notes", self._operator_notes)
         return result
+
+    def _dump_state(
+        self,
+        *,
+        command: dict[str, Any] | None,
+        result: dict[str, Any] | None,
+        elapsed_s: float | None,
+    ) -> StepRecord:
+        return dual_franka_tools.dump_state(
+            self._robot,
+            self.state,
+            command=command,
+            result=result,
+            elapsed_s=elapsed_s,
+        )
+
+    def _build_observation(self, record: StepRecord) -> ToolResult:
+        return dual_franka_tools.build_observation(self.state, record)

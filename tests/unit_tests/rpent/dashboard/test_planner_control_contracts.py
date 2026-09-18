@@ -222,6 +222,7 @@ def make_control(
     return DashboardPlannerControl(
         interaction=interaction,
         cancel_active_and_wait=cancel_active_and_wait,
+        resume_calls=lambda: events.append("toolkit-resume"),
         emit_user=lambda text: events.append(f"user:{text}"),
         emit_initial_user=lambda: events.append("initial-user"),
         defer_message_ack=defer_message_ack,
@@ -346,6 +347,7 @@ def test_interrupt_cancels_toolkit_before_backend_and_then_flushes() -> None:
     assert events[:2] == ["initial-user", "toolkit-cancel"]
     assert events[2:] == [
         "backend-interrupt",
+        "toolkit-resume",
         "submit:continue after interrupt",
         "user:continue after interrupt",
     ]
@@ -425,3 +427,31 @@ def test_end_seals_pending_messages_as_unsent() -> None:
 
     assert interaction.activity == "ended"
     assert interaction.messages[0].status == "unsent"
+
+
+def test_interrupt_allows_sdk_result_events_to_drain_without_flushing_input() -> None:
+    interaction = FakeInteraction()
+    interaction.submit("after", "new turn")
+    interaction.end_on_wait = True
+    events: list[str] = []
+    control = make_control(interaction, events)
+    driver = FakeDriver(events)
+
+    async def interrupt() -> int:
+        events.append("backend-interrupt")
+        await control.tool_completed(driver)
+        await control.complete(driver)
+        events.append("backend-drained")
+        assert not any(event.startswith("submit:") for event in events)
+        return 0
+
+    driver.interrupt = interrupt
+
+    async def scenario() -> None:
+        await control.start()
+        interaction.interrupt_requested = True
+        await asyncio.wait_for(control.run(driver), timeout=2)
+
+    asyncio.run(scenario())
+    assert events.index("backend-drained") < events.index("toolkit-resume")
+    assert events.index("toolkit-resume") < events.index("submit:new turn")
