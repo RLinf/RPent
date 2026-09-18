@@ -1,9 +1,53 @@
 RoboDojo 后端安装
 =================
 
-RPent/SAM3、RoboDojo 的 Isaac Sim 环境和 Pi_05 应使用独立 Python 环境。
-请遵循 RoboDojo 与 XPolicyLab 官方安装说明，选择兼容的仿真器、CUDA 和策略依赖。
-GPU 运行需要相应资产与 checkpoint；RPent 不会自动下载这些文件。
+本页只说明 RPent 集成在上游仓库之上新增的部分。仿真器、CUDA 与策略依赖请遵循
+RoboDojo 与 XPolicyLab 官方说明；GPU 运行需要相应资产与 checkpoint，RPent
+不会自动下载这些文件。
+
+Python 环境
+-----------
+
+该后端会驱动三个解释器，三者必须彼此独立。Isaac Sim 固定了
+``websockets==12.0``、``numpy==1.26.0``、``packaging==23.0``、
+``filelock==3.13.1`` 与 ``typing_extensions==4.12.2``；而 RPent 环境使用更新的
+``websockets`` 和自己的 ``torch`` 构建，Pi_05 环境运行 JAX 与 ``openpi``。
+把它们装进同一个解释器会破坏 Isaac Sim 的版本约束。
+
+**一、RPent。** 按仓库说明安装，再补上本后端需要的感知扩展：
+
+.. code-block:: bash
+
+   uv pip install -e ".[sam3]"
+
+**二、RoboDojo 仿真器。** 使用上游安装脚本，它会构建 Isaac Sim 环境与内置的
+CuRobo；这是被支持的路径，RPent 不重复实现：
+
+.. code-block:: bash
+
+   cd /path/to/RoboDojo
+   bash scripts/install.sh
+
+本后端验证过的组合是 Python 3.11 配 ``isaacsim 5.1.0.0``、
+``torch 2.7.0+cu128``、``numpy 1.26.0``、``websockets 12.0``、
+``viser 0.1.34``、``tyro 0.9.0`` 与 ``warp-lang 1.11.0``，CuRobo 来自
+``third_party/curobo``。把该环境的解释器作为 ``--sim-python`` 传入，不要把
+RPent 或 Pi_05 的包装进它。
+
+**三、Pi_05 策略。** 构建 XPolicyLab 部署配置指定的 uv 环境
+（``policy_uv_env_path: openpi``）：
+
+.. code-block:: bash
+
+   cd /path/to/RoboDojo/XPolicyLab/policy/Pi_05
+   bash install.sh
+
+该脚本需要 ``uv``，会生成 ``openpi/.venv``。RoboDojo 的启动脚本会激活这个环境，
+并需要 conda 以及一个能 import YAML 的解释器；默认解释器不满足时请设置
+``ROBODOJO_CONDA_ROOT``。把对应的解释器作为 ``--pi05-python`` 传入。RPent
+不会被安装进该环境：CLI 会用 RPent 仓库根目录、``--source-root`` 和
+``--xpolicylab-root`` 为每个子服务拼出 ``PYTHONPATH``，因此策略环境里不需要存在
+RPent 包。
 
 源码与资产
 ----------
@@ -27,14 +71,15 @@ GPU 运行需要相应资产与 checkpoint；RPent 不会自动下载这些文�
 RPent 配置
 ----------
 
-在 RPent 环境中安装：
+通过 ``SAM3_CHECKPOINT_PATH`` 配置 SAM3 checkpoint，并导出摆放稳定步数。
+默认值会让物体在 official 模式下不稳定；该变量由 RoboDojo 源码读取，而非
+RPent，CLI 会把它传给启动的子服务：
 
 .. code-block:: bash
 
-   uv pip install -e ".[sam3]"
+   export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
 
-通过 ``SAM3_CHECKPOINT_PATH`` 配置 SAM3 checkpoint，显式传入 RoboDojo
-源码目录和 Python 可执行文件：
+显式传入 RoboDojo 源码目录和 Python 可执行文件：
 
 .. code-block:: bash
 
@@ -55,3 +100,34 @@ CLI 启动共享的 ``rpent.robots.components.pi05_vla_server``，传入
 ``XPolicyLab/policy/Pi_05``。该适配器使用 XPolicyLab 的启动脚本和 checkpoint
 加载器，而非 RLinf Pi0.5 加载器（共享服务默认的 ``--policy-backend rlinf``）。
 切换后端不会转换 checkpoint 或观测格式。
+
+每个自有服务的日志与输出都落在本次运行的输出目录：CLI 以 ``--save-dir``
+传给环境服务、以 ``--output-dir`` 传给策略入口，因此并发运行不会互相干扰。
+
+验证安装
+--------
+
+跑一次有界的开发模式 episode，确认规划器接管之前各服务已就绪：
+
+.. code-block:: bash
+
+   export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
+   rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
+     --planner codex --model <planner-model> --max-turns 1 \
+     --source-root /path/to/RoboDojo \
+     --sim-python /path/to/sim-env/bin/python \
+     --pi05-python /path/to/pi05-env/bin/python \
+     --output-dir /path/to/run-output
+
+预期现象：
+
+* ``/path/to/run-output`` 下出现 ``robodojo_env_server.log``、
+  ``sam3_server.log``、``robodojo_vla_server.log``，策略服务启动后还会出现
+  ``vla_server.log``。
+* 环境服务报告 ready，第一条观测包含 ``cam_head``、``cam_left_wrist`` 与
+  ``cam_right_wrist`` 的内参、外参，以及关节与夹爪状态。
+* 本次运行在 ``/path/to/run-output/videos`` 下为每路相机写一个 MP4。
+* 退出后没有遗留的自有子进程，GPU 回到空闲。
+
+启动阶段某个服务退出是最常见的失败形式，先去运行输出目录读它的日志。
+Isaac Sim 启动需要数十秒，首次运行还要编译 shader。
