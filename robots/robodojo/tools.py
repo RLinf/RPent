@@ -16,10 +16,8 @@
 
 from __future__ import annotations
 
-from rpent.robots.components.perception_tools import (
-    back_project_depth,
-    view_recorded_state,
-)
+from typing import Any
+
 from rpent.tools.toolkit import readonly
 
 # (camera key in the obs dict, artifact base name). Mirrors the ``frame_channels``
@@ -256,17 +254,33 @@ def view_env_state(step: int = -1, *, state) -> dict:
     saved with that record are embedded as ``_image_bytes`` / ``_image_cam_bytes``
     / ``_image_wrist_bytes`` so the planner receives them as image blocks.
     """
-    return view_recorded_state(
-        step,
-        state=state,
-        image_artifacts={
-            slot: (artifact,)
-            for slot, (_, artifact) in zip(
-                ("_image_bytes", "_image_cam_bytes", "_image_wrist_bytes"),
-                CAMERA_ARTIFACTS,
-            )
-        },
-    )
+    try:
+        record = state.get(step)
+    except Exception as error:
+        return {"error": f"state step not available: {error}"}
+    result: dict[str, Any] = {
+        "step": record.step_idx,
+        "terminated": record.terminated,
+        "truncated": record.truncated,
+        "state": record.state,
+        "artifacts": sorted(record.artifacts),
+        "task_language": record.extras.get("task_language"),
+    }
+    result["log"] = {
+        "command": record.command,
+        "result": record.result,
+        "elapsed_s": record.elapsed_s,
+    }
+    for slot, (camera, artifact) in zip(
+        ("_image_bytes", "_image_cam_bytes", "_image_wrist_bytes"),
+        CAMERA_ARTIFACTS,
+    ):
+        if artifact in record.artifacts:
+            try:
+                result[slot] = state.load_bytes(artifact, step=record.step_idx)
+            except FileNotFoundError:
+                pass
+    return result
 
 
 def _summarize_obs(obs: dict) -> dict:
@@ -300,13 +314,44 @@ def _summarize_obs(obs: dict) -> dict:
 @readonly
 def back_project(primitives, state, row, col, camera="cam_head") -> dict:
     """Pixel -> world xyz via depth + camera calibration."""
+    import numpy as np
+
     if primitives._last_obs is None:
         primitives._last_obs = primitives.env.get_obs()
     cam = primitives._last_obs.get("vision", {}).get(camera)
     if cam is None:
         return {"error": f"camera {camera!r} not in observation"}
-    # Isaac/Omniverse camera poses use a negative optical Z axis.
-    return back_project_depth(cam, row, col, camera=camera, camera_z_sign=-1)
+    depth = cam.get("distance_to_image_plane")
+    if depth is None:
+        depth = cam.get("depth")
+    if depth is None:
+        return {"error": "depth not available in observation"}
+    K = np.asarray(cam.get("intrinsic_matrix"), dtype=np.float64)
+    T = np.asarray(cam.get("extrinsic_matrix"), dtype=np.float64)
+    if K.shape != (3, 3) or T.shape != (4, 4):
+        return {"error": f"calibration missing/invalid: K={K.shape} T={T.shape}"}
+    h, w = int(depth.shape[0]), int(depth.shape[1])
+    if not (0 <= int(row) < h and 0 <= int(col) < w):
+        return {"error": f"pixel out of range: row 0..{h - 1}, col 0..{w - 1}"}
+    d = float(depth[int(row), int(col)])
+    if not np.isfinite(d) or d <= 0:
+        return {"error": f"invalid depth at pixel: {d}"}
+    fx, fy = float(K[0, 0]), float(K[1, 1])
+    cx, cy = float(K[0, 2]), float(K[1, 2])
+    # Isaac/Omniverse cameras look along -Z; the distance_to_image_plane
+    # annotator returns distance along the optical axis, so the camera-frame
+    # z coordinate is NEGATIVE d.
+    p_cam = np.array(
+        [(int(col) - cx) / fx * d, (int(row) - cy) / fy * d, -d, 1.0],
+        dtype=np.float64,
+    )
+    p_world = T @ p_cam
+    return {
+        "camera": camera,
+        "pixel": [int(row), int(col)],
+        "depth_m": round(d, 4),
+        "world_xyz": [round(float(v), 4) for v in p_world[:3]],
+    }
 
 
 @readonly

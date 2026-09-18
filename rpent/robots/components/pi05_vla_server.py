@@ -18,6 +18,8 @@
 ``rlinf`` (default) loads a model in process; ``xpolicylab`` connects to an
 external WebSocket policy. Each adapter retains its native observation and
 checkpoint format; backend selection does not convert either format.
+For XPolicyLab, ``--output-dir`` selects the directory for the spawned policy
+server's ``vla_server.log`` (defaults to the current working directory).
 
 Embodiment-specific settings (openpi config name, action dim, …) are
 selected by the ``--embodiment`` CLI flag and looked up in

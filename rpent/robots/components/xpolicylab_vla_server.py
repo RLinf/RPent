@@ -28,6 +28,7 @@ import os
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
@@ -52,6 +53,9 @@ def add_backend_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--policy-gpu", type=int, default=0)
     parser.add_argument("--policy-port", type=int, default=0)
     parser.add_argument("--policy-server-url")
+    parser.add_argument(
+        "--output-dir", default=os.getcwd(), help="Directory for policy server logs"
+    )
 
 
 def _wait_for_port(host: str, port: int, timeout_s: float = 900) -> None:
@@ -90,10 +94,12 @@ def _spawn_policy_server(args: argparse.Namespace) -> ProcessDaemon:
         "localhost",
     ]
     logger.info("spawning policy server: %s", " ".join(cmd))
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     daemon = ProcessDaemon(
         name="xpolicylab_policy",
         cmd=cmd,
-        log_path="/tmp/rpent_pi05_policy_server.log",
+        log_path=str(output_dir / "vla_server.log"),
         cwd=os.getcwd(),
     )
     try:

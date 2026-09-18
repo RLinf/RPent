@@ -204,7 +204,9 @@ def test_cli_selects_policy_backend(monkeypatch, backend):
         return SimpleNamespace(serve=lambda **kw: received.update(kw))
 
     def xpolicy(args):
-        received.update(backend="xpolicylab", task=args.task)
+        received.update(
+            backend="xpolicylab", task=args.task, output_dir=args.output_dir
+        )
         return SimpleNamespace(
             serve=lambda **kw: received.update(kw), close=lambda: None
         )
@@ -218,6 +220,8 @@ def test_cli_selects_policy_backend(monkeypatch, backend):
             "server",
             "--policy-backend",
             backend,
+            "--output-dir",
+            "run-output",
             "--model-path",
             "/checkpoint",
             "--task",
@@ -229,6 +233,8 @@ def test_cli_selects_policy_backend(monkeypatch, backend):
     )
     server.main()
     assert received["backend"] == backend
+    if backend == "xpolicylab":
+        assert received["output_dir"] == "run-output"
     assert received["port"] == 6000
     assert received["parent_watch"] is True
 
@@ -359,13 +365,18 @@ def test_owned_policy_exits_with_server(tmp_path, exit_mode):
 
 
 @pytest.mark.parametrize("failure", [None, "wait", "connect", "base", "close"])
-def test_xpolicylab_owned_launcher_cleanup(monkeypatch, tmp_path, failure):
+@pytest.mark.parametrize("explicit_output", [False, True])
+def test_xpolicylab_owned_launcher_cleanup(
+    monkeypatch, tmp_path, failure, explicit_output
+):
     import argparse
     from types import SimpleNamespace
 
     from rpent.robots.components import xpolicylab_vla_server as ws
 
     (tmp_path / "setup_eval_policy_server.sh").touch()
+    monkeypatch.chdir(tmp_path)
+    output_dir = tmp_path / "run" if explicit_output else tmp_path
     parser = argparse.ArgumentParser()
     ws.add_backend_args(parser)
     args = parser.parse_args(
@@ -387,6 +398,7 @@ def test_xpolicylab_owned_launcher_cleanup(monkeypatch, tmp_path, failure):
             "--policy-gpu",
             "2",
         ]
+        + (["--output-dir", str(output_dir)] if explicit_output else [])
     )
     calls = []
     recorded = {}
@@ -430,6 +442,8 @@ def test_xpolicylab_owned_launcher_cleanup(monkeypatch, tmp_path, failure):
         facade.close()
         facade.close()
         assert calls == ["start", "stop", "close"]
+    assert recorded["log_path"] == str(output_dir / "vla_server.log")
+    assert output_dir.is_dir()
     assert recorded["cmd"] == [
         "bash",
         str(tmp_path / "setup_eval_policy_server.sh"),

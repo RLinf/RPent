@@ -774,6 +774,7 @@ def main() -> None:
     parser.add_argument("--cuda-device", type=int, default=0)
     parser.add_argument("--num-envs", type=int, default=1)
     parser.add_argument("--max-episode-steps", type=int, default=700)
+    parser.add_argument("--save-dir", default=os.getcwd())
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--parent-pid", type=int, default=None)
@@ -856,7 +857,7 @@ def main() -> None:
         collect_cfg["task_name"] = args.task
         collect_cfg["num_envs"] = args.num_envs
         collect_cfg["device_id"] = args.cuda_device
-        collect_cfg["save_dir"] = "/tmp/rpent_robodojo"
+        collect_cfg["save_dir"] = args.save_dir
         camera_cfg = load_yaml(
             os.path.join(
                 ENV_CONFIG_PATH, "camera", collect_cfg["config"]["camera"] + ".yml"

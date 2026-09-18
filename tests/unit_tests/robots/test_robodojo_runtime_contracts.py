@@ -102,6 +102,8 @@ def test_spawn_uses_explicit_interpreter_and_child_paths(
     getattr(robot_spec, f"_spawn_{component}_server")(args, tmp_path)
     assert recorded["cmd"][0] == sys.executable
     assert recorded["started"]
+    directory_flag = "--output-dir" if component == "vla" else "--save-dir"
+    assert recorded["cmd"][recorded["cmd"].index(directory_flag) + 1] == str(tmp_path)
     if component == "vla":
         cmd = recorded["cmd"]
         assert cmd[2:4] == ["-m", "rpent.robots.components.pi05_vla_server"]
