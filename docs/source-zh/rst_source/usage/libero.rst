@@ -254,9 +254,9 @@ Dashboard 支持 ``api``、``claude_code`` 和 ``codex`` planner。
 结果复现
 --------
 
-RPent 在 LIBERO-PRO Task/Swap 上的统一模型对比及对应配置见 :doc:`../benchmarks`。
+RPent 在 LIBERO-PRO Task/Swap 上的统一模型对比及对应配置见 :doc:`../leaderboard`。
 
-:doc:`GPT-6 Astra 套件汇总 <../benchmarks>`
+:doc:`GPT-6 Astra 套件汇总 <../leaderboard>`
 记录全部八个完整套件及 800 个已核验回合：741 成功、59 失败，Overall 92.63%，
 配置为 Codex / GPT-6 Astra / low / reasoning。
 
