@@ -101,3 +101,47 @@ from ``RPENT_RLINF_ROOT`` (or ``RLINF_REPO_PATH``), falling back to the
 ``rlinf`` directory next to the RPent checkout. A resolved path that does
 not exist is harmless — Python ignores invalid ``PYTHONPATH`` entries —
 so the servers import the installed ``rlinf`` package.
+
+.. _libero-parallel-eval:
+
+Parallel evaluation
+-------------------
+
+The following example demonstrates parallel evaluation with LIBERO using
+Pi0.5 VLA and SAM3. Other robots or evaluation setups may use different
+services and endpoints.
+
+To run the same LIBERO task concurrently, first start one Pi0.5 VLA service
+and one SAM3 service as described above. After both services report the log line
+``RPC server listening on ...``, pass the same endpoints —
+``http://VLA_HOST:VLA_PORT`` and ``http://SAM3_HOST:SAM3_PORT`` — to every
+concurrent ``rpent`` process, replacing the placeholders with the host addresses
+and ports of the corresponding services.
+
+When the services and RPent run on the same machine, the hosts can be
+``127.0.0.1``. All processes then use the same VLA and SAM3 services. Leave
+``--env-endpoint`` unset: each process starts its own ``env_server`` and keeps its
+evaluation environment independent. The VLA and SAM3 models are loaded once, so
+their services do not need to be started again for each run.
+
+.. code-block:: bash
+
+   pids=()
+
+   for i in $(seq 1 10); do
+     rpent --robot libero --libero-type pro \
+       --suite libero_object_swap --task 2 --seed 0 \
+       --planner claude_code --model claude-opus-4-8 \
+       --vla-endpoint http://VLA_HOST:VLA_PORT \
+       --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
+       --output-dir logs/parallel_object_swap_t2_s0/run_$i &
+     pids+=($!)
+   done
+
+   wait "${pids[@]}"
+
+.. note::
+
+   For long-running evaluations over SSH, start the shared services with
+   ``nohup`` or in a ``tmux`` / ``screen`` session; a bare ``&`` may stop them
+   when the SSH shell exits.
