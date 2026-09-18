@@ -258,3 +258,25 @@ Backend implementation checklist
    ``make -C docs html LANG=en SPHINXOPTS='-W --keep-going -E'`` and ``LANG=zh``.
    Follow ``CONTRIBUTING.md`` and ``tests/README.md`` for dependencies and
    runtime validation; report GPU, real-policy and simulator checks separately.
+
+Bounded smoke runs and shutdown diagnostics
+-----------------------------------------------
+
+For ``fill_pen_holder``, use an explicit smoke budget of
+``--planner-timeout-s 1500 --max-turns 40`` with an outer
+``timeout --signal=INT --kill-after=20s 1700s``. These are validation overrides,
+not regular defaults. The outer limit leaves time for startup and cleanup and
+keeps the run below 30 minutes. Stop after a timeout or failed gate; inspect the
+last completed tools and provider latency before scheduling another attempt.
+
+The CLI records planner errors in ``transcript_<cell>.json`` (``error``) and
+final errors, including finalization failures, in ``run_diagnostics.json``.
+Read these in both dev and Flash runs; a zero process status is not proof of
+official task success.
+
+Verify all three videos by full decoding and check every owned server's exit
+status. Between ``[robodojo-env] shutdown begin`` and process exit, require no
+``[Error]``, traceback, or ``Fatal Python error``. Headless GLFW warnings are
+expected noise, not a reason to ignore shutdown errors. The environment
+releases writers, camera annotators/render products, and syntheticdata graph
+handles before stopping Replicator and closing the stage/app on the main thread.

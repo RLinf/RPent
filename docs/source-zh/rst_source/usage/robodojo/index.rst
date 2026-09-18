@@ -218,3 +218,22 @@ RoboDojo 提供双臂运动与夹爪原语、三相机 RGB-D、SAM3 感知、XPo
    ``make -C docs html LANG=en SPHINXOPTS='-W --keep-going -E'`` 和 ``LANG=zh``。
    依赖与运行时验证遵循 ``CONTRIBUTING.md`` 和 ``tests/README.md``；
    单独报告 GPU、真实策略与仿真验证结果。
+
+有界冒烟与退出诊断
+------------------
+
+``fill_pen_holder`` 的冒烟显式使用
+``--planner-timeout-s 1500 --max-turns 40``，外层使用
+``timeout --signal=INT --kill-after=20s 1700s``。这是验证参数，不是常规默认值；
+外框为启动和清理留出时间，并将单次运行限制在 30 分钟内。超时或门禁失败后停止，
+先检查最后完成的工具调用与模型服务延迟，再安排下一次尝试。
+
+CLI 将 planner 错误写入 ``transcript_<cell>.json`` 的 ``error`` 字段，
+并将包含收尾失败的最终错误写入 ``run_diagnostics.json``。
+dev 与 Flash 都应检查这些工件；退出码为零不代表官方任务成功。
+
+完整解码三路视频，并检查每个自有服务的退出码。从
+``[robodojo-env] shutdown begin`` 到进程退出，不允许出现 ``[Error]``、
+traceback 或 ``Fatal Python error``。Headless GLFW warning 是预期噪音，
+不能据此忽略关闭错误。环境在主线程依次释放录像 writer、相机 annotator/render
+product、syntheticdata 图句柄，停止 Replicator，最后关闭 stage/app。
