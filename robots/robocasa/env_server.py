@@ -22,6 +22,7 @@ import sys
 
 import numpy as np
 
+from rpent.robots.components.action_spec import box_action_spec
 from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
@@ -145,6 +146,17 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 "env.get_task_progress",
             ]
         )
+
+    def get_action_spec(self) -> dict:
+        """Read the active simulator's controller action bounds."""
+        low, high = self.env.action_spec
+        return {
+            "default": box_action_spec(
+                low,
+                high,
+                "Native controls in the active environment's controller order.",
+            )
+        }
 
     def get_env_meta(self):
         return self._meta

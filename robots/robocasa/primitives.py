@@ -91,6 +91,17 @@ class RoboCasaPrimitives:
         return frames
 
     # ---- action helpers ----
+    def execute_action(self, values: list[float]) -> dict:
+        """Execute one native action and invalidate the VLA frame history."""
+        action = self.env.validate_action(values)
+        if self._check_cancelled is not None:
+            self._check_cancelled()
+        self._vla_desync = True
+        self.env.step(action)
+        if self._recording:
+            self.record_frame()
+        return {"executed_steps": 1}
+
     def _zero(self, base_mode=-1.0):
         a = np.zeros(12)
         a[11] = base_mode

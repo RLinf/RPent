@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from rpent.robots.components.action_spec import box_action_spec
 from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
 from rpent.utils.serialization import to_numpy_tree
@@ -234,6 +235,19 @@ class LiberoEnvFacade(BaseEnvFacade):
 
     def raw_obs(self) -> dict:
         return to_numpy_tree(self._env.current_raw_obs[self._env_idx])
+
+    def get_action_spec(self) -> dict:
+        """Read the active simulator's controller action bounds."""
+        low, high = self._env.env.workers[self._env_idx].env_call(
+            "__getattribute__", args=["action_spec"], target="robosuite"
+        )
+        return {
+            "default": box_action_spec(
+                low,
+                high,
+                "Native controls in the active environment's controller order.",
+            )
+        }
 
     def get_env_meta(self) -> dict:
         """Return the meta info this server was launched with."""

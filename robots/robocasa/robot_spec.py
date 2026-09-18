@@ -170,12 +170,18 @@ def get_toolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
+        enable_direct_action=config.enable_direct_action,
     )
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """Register RoboCasa CLI flags on the shared ``parser``."""
     required = not use_dashboard
+    parser.add_argument(
+        "--enable-direct-action",
+        action="store_true",
+        help="Expose execute_action for one native environment action alongside existing primitives.",
+    )
     parser.add_argument(
         "--task-name",
         default=None,
@@ -247,6 +253,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     output_dir = Path(output_dir)
 
     return RunConfig(
+        enable_direct_action=getattr(args, "enable_direct_action", False),
         recipe_tag=recipe_tag,
         output_dir=output_dir,
         prompt_vars=prompt_vars,

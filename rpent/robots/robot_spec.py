@@ -49,6 +49,7 @@ class RunConfig:
     output_dir: Path
     prompt_vars: dict[str, Any]
     task_desc: dict[str, Any]
+    enable_direct_action: bool = False
 
 
 @dataclass(frozen=True)
