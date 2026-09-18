@@ -80,38 +80,62 @@ Most users pick a built-in ``api``, ``claude_code``, or ``codex`` planner — se
        dashboard_interaction=None,
    ) -> PlannerResult: ...
 
-Contract: pass ``toolkit.get_tools_spec()`` to the model; dispatch each call via
-``toolkit.execute_tool(name, input_dict)``; feed results back to the model; return
-``PlannerResult`` on the ``finish`` tool or when turns are exhausted.
+Contract: read native declarations from ``toolkit.list_tools()`` and convert
+``name``, ``description``, and ``input_schema`` to the model SDK's format.
+Resolve schema placeholders with ``rpent.utils.templates.substitute`` before
+sending them. Dispatch registered toolkit calls through
+``toolkit.execute_tool(name, input_dict)``
+and return ``PlannerResult`` when ``toolkit.finish_result`` is set or the turn
+limit is reached.
 
 Toolkit
 -------
 
-Subclass ``Toolkit`` in ``robots/<robot>/toolkit.py`` and register robot tools with
-``add_tool``:
+Subclass ``Toolkit`` in ``robots/<robot>/toolkit.py``. The base constructor
+registers common file tools and ``finish``. Declare primitive methods with
+``@tool``, then register bound methods from the instance:
 
 .. code-block:: python
 
-   def add_tool(self, name: str, spec: dict, handler) -> None: ...
+   self.add_tool(self._primitives.move_to)
+   # Or collect a whole primitive object's declarations:
+   self.add_tools(iter_tools(self._primitives))
 
-.. list-table::
-   :header-rows: 1
-   :widths: 22 78
+A native ``Tool`` contains ``name``, ``description``, ``args_schema``, ``handler``,
+and ``readonly``; ``input_schema`` exposes its generated JSON Schema. Google-style
+``Args`` documentation supplies parameter descriptions. Type annotations and
+``Field`` constraints define validation. Python defaults control omitted
+arguments; publish a default explicitly with
+``Field(json_schema_extra={"default": value})``. ``self`` is excluded from model
+inputs, and the instance retains its environment and model clients.
 
-   * - Argument
-     - Meaning
-   * - ``name``
-     - Tool name the LLM sees.
-   * - ``spec``
-     - Tool description and parameter schema (``name``, ``description``,
-       ``input_schema``).
-   * - ``handler``
-     - Implementation; **must return a ``dict``**. Set ``_finish`` when the task
-       ends; optional ``_image_bytes`` (etc.) to return camera images.
+``add_tool(declaration, replace=True)`` explicitly replaces a registered name;
+otherwise duplicate names raise an error. ``declaration.with_handler(handler)``
+binds internal resources or an execution guard while retaining the schema and
+read-only metadata. See :doc:`add_primitive` for resource injection.
 
-The base class already registers common file tools; call ``super().__init__()`` then
-``add_tool`` for robot tools. Per-step state and ``view_env_state`` are in
-:doc:`add_primitive`.
+Native results and execution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Handlers and ``get_env_state`` return ``ToolResult`` with ``data`` (a dictionary),
+``images`` (an ordered list of PNG byte strings), and ``error`` (text or ``None``).
+Use ``to_dict()`` for structured output, ``to_text()`` for bounded model-facing
+text, and ``is_error`` for failure. Planner adapters assemble SDK content blocks.
+
+Registered tool calls from planners and the Dashboard pass through
+``execute_tool``. It validates arguments before running the handler. Stateful
+tools then capture a fresh observation through
+``get_env_state(command, result, elapsed_s)``; its data is
+returned with the tool's images and any execution error. ``@tool(readonly=True)``
+skips this automatic capture. Primitive classes own robot runtime state and frame
+buffers; ``EnvState`` owns recorded steps and artifacts.
+Common file tools call ``MemoryManager.authorize_read`` / ``authorize_write``
+for path access decisions.
+
+After an accepted ``finish``, ``toolkit.finish_result`` contains the full result
+without the internal ``_finish`` marker. API, Claude Code, and Codex read this
+value. An error or ``_finish=False`` leaves completion unset, and robot-specific
+operator metadata is preserved.
 
 Inter-process communication
 ---------------------------

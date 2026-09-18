@@ -27,6 +27,7 @@ from robots.robocasa.prompt_bundle import system_prompt
 from robots.robocasa.robot_spec import _parse_config
 from rpent.memory import MemoryManager
 from rpent.prompt.utils import format_prompt
+from rpent.tools.common import CommonTools
 
 
 def _args(
@@ -90,11 +91,11 @@ def test_results_corpus_is_readable_through_memory_tool(monkeypatch, tmp_path):
     audit.write_text('{"success": true}\n')
 
     manager = MemoryManager(root=memory_root)
-    bindings = manager.get_common_tool_bindings()
-    read_text_file = bindings["read_text_file"][1]
-    write_text_file = bindings["write_text_file"][1]
+    tools = CommonTools(memory=manager)
+    read_text_file = tools.read_text_file
+    write_text_file = tools.write_text_file
 
-    assert read_text_file(path=str(audit))["content"] == '{"success": true}\n'
+    assert read_text_file(path=str(audit)).data["content"] == '{"success": true}\n'
     with pytest.raises(PermissionError, match="writing to memory is denied"):
         write_text_file(path=str(audit), content="{}\n")
 

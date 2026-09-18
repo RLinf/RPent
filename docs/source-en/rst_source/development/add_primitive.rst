@@ -32,54 +32,71 @@ From the LLM's perspective, both types expose the same interface: a
 tool schema, a primitives method, and a state dump after the
 call. They differ only in how the method is implemented.
 
-Add a scripted primitive
-------------------------
+Declare tools from Python signatures
+------------------------------------
 
-Adding a scripted primitive usually involves two steps:
+``@tool`` generates a tool's description, JSON Schema, and argument validator from
+its signature and Google-style docstring. It works with plain functions and
+instance methods, so an existing primitives object can keep its clients and state:
 
-1. **Add a method to the primitives.** Add the method to the
-   current robot's primitives class, such as
-   ``LiberoPrimitives`` or ``MyRobotPrimitives``. The method accepts
-   the tool-call arguments, performs the work, usually through one or
-   more ``self._env.step(...)`` calls, and returns a small log ``dict``.
+.. code-block:: python
 
-  Primitive methods capture and re-render state (``get_env_state``)
-  automatically after they run:
+   from typing import Annotated
 
-   .. code-block:: python
+   from pydantic import Field
 
-      def open_drawer(self, dx: float = 0.15) -> dict:
-          # Move end-effector back by dx while gripper is closed.
-          for _ in range(N):
-              self._env.step(build_open_drawer_chunk(dx))
-          return {"ok": True, "dx": dx}
+   from rpent.tools import ToolResult, iter_tools, tool
 
-  You can mark read-only tools (``view_env_state``, ``back_project``, ``segment``,
-  ...) with :func:`~rpent.tools.toolkit.readonly` so the toolkit skips state
-  capture for them, improving performance.
+   class MyPrimitives:
+       def __init__(self, env):
+           self.env = env
 
-2. **Add the tool schema.** Add an entry to ``TOOLS_SPEC`` in
-   ``robots/<robot>/tools.py``:
+       @tool
+       def move_delta(
+           self,
+           delta_xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+       ) -> ToolResult:
+           """Move the TCP by a base-frame offset.
 
-   .. code-block:: python
+           Args:
+               delta_xyz: XYZ displacement in metres.
+           """
+           return ToolResult(data=self.env.move_delta(delta_xyz))
 
-      {
-          "name": "open_drawer",
-          "description": "Pull the currently-grasped drawer handle "
-                         "backwards by ``dx`` meters.",
-          "input_schema": {
-              "type": "object",
-              "properties": {"dx": {"type": "number"}},
-              "required": [],
-          },
-      }
+   # In your robot toolkit, after super().__init__(...):
+   self._primitives = MyPrimitives(env)
+   self.add_tools(iter_tools(self._primitives))
 
-Once both exist, the toolkit registers the tool automatically: it iterates
-``TOOLS_SPEC`` and binds each spec to the matching primitive-driver method
-(e.g. ``getattr(self._primitives, name)``).
+Register the **bound method** from the instance. ``self`` is excluded from the
+schema, and each instance retains its own resources. Methods remain callable
+from Python, including through ``self.move_delta(...)`` and inherited methods.
+An existing undecorated method can also be registered with
+``self.add_tool(tool(self._primitives.move_delta))``.
 
-After these steps, the ``api``, ``claude_code``, and ``codex`` planners
-can all call the primitive without any other code changes.
+Public parameters need type annotations and must accept keyword arguments.
+``Annotated[..., Field(...)]`` supplies constraints. Signature defaults apply at
+runtime; advertise them in the schema only when intended, with
+``Field(json_schema_extra={"default": value})``. ``Toolkit.execute_tool`` applies
+Pydantic validation before executing the handler or capturing observations,
+rejecting unknown arguments and non-finite numbers. Direct Python calls retain
+normal Python argument handling.
+
+Handlers return ``ToolResult(data=..., images=..., error=...)``. Put structured
+values in ``data``, PNG bytes in ``images``, and failures in ``error``. A primitive
+that calls another tool directly receives the same ``ToolResult``.
+Use ``@tool(readonly=True)`` to skip automatic observation capture.
+Tools declared with ``@tool`` or ``@tool()`` capture observations by default when
+called through ``Toolkit.execute_tool``. Direct Python calls do not capture
+observations. ``readonly`` controls this capture step; it does not prohibit file
+writes or allow concurrent tool execution.
+``iter_tools`` collects decorated members from the supplied instances or modules,
+including inherited methods. Adding a primitive requires decorating its method;
+there is no separate schema or tool-name list to update. Undecorated methods and
+properties are not collected. Toolkit still owns mode-specific filtering,
+resource binding, and execution guards. For an injected parameter such as
+``state``, declare ``exclude=("state",)`` and register
+``declaration.with_handler(partial(declaration, state=self.state))``.
+The decorator does not create environment or model clients.
 
 .. _add-primitive-model-based:
 
@@ -115,8 +132,8 @@ primitive requires a few additional components:
 
 3. **Add a method to the primitives.** In the current
    robot's primitives class, call the model client, pass
-   the returned action chunk to the environment, and return a log
-   ``dict``. The model client API is
+   the returned action chunk to the environment, and return
+   ``ToolResult(data=...)`` with the action log. The model client API is
    :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict`,
    which reads the instruction from ``env_obs["task_descriptions"]`` and
    returns a ``[chunk, action_dim]`` numpy action chunk (batch dim already
@@ -124,15 +141,15 @@ primitive requires a few additional components:
 
    .. code-block:: python
 
-      def mymodel_pick(self, target: str) -> dict:
+      def mymodel_pick(self, target: str) -> ToolResult:
           env_obs = self._env.get_obs()
           env_obs["task_descriptions"] = f"pick {target}"
           chunk = self._model.predict(env_obs)
           self._env.chunk_step(chunk)
-          return {"model": "mymodel", "target": target}
+          return ToolResult(data={"model": "mymodel", "target": target})
 
-4. **Add the tool schema and register it in the toolkit.** Follow the
-   same pattern as for a scripted primitive.
+4. **Decorate the method with ``@tool`` and register its bound method.** Use
+   type annotations and an ``Args`` docstring as in the example above.
 
 5. **Wire the components together in ``robot_spec.py``.** The
    robot's ``get_toolkit`` builds the toolkit with
@@ -237,7 +254,7 @@ Design principles for a new primitive
 - **Every tool ends with a state dump.** The next turn depends on
   the state dump reflecting the post-action world. Don't let the
   primitive return before the render finishes.
-- **Return small dicts.** Tool return values are fed back to the LLM
+- **Keep ``ToolResult.data`` small.** Tool return values are fed back to the LLM
   as text. Save larger observations through ``EnvState.save``; ``EnvState``
   automatically records each logical base name in its owned
   ``StepRecord.artifacts`` set. Expose images through ``view_env_state`` and

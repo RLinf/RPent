@@ -19,16 +19,17 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import numpy as np
+from pydantic import Field
 
 from robots.libero.env_client import LiberoEnvClient
 from rpent.robots.components.molmo_client import MolmoClient
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
+from rpent.tools import Tool, ToolResult, tool
 from rpent.utils.logging import get_logger
 
 logger = get_logger("libero")
@@ -192,6 +193,7 @@ class LiberoPrimitives:
             if original_task is not None:
                 self._last_obs["task_descriptions"] = original_task
 
+    @tool
     def pi0_pick(
         self,
         prompt: str,
@@ -200,14 +202,17 @@ class LiberoPrimitives:
         lift_thresh: float = 0.05,
         gripper_closed_thresh: float = 0.06,
         gripper_open_thresh: float = 0.0,
-        descent_thresh: float = 0.10,
-    ) -> dict:
-        """Closed-loop Pi0.5 pick driven by ``prompt`` as the VLA instruction.
+        descent_thresh: float = 0.1,
+    ) -> ToolResult:
+        """Pi0.5 closed-loop pick. Use it for the grasp; YOU then do every move_to and release. Use modest max_chunks and verify the grasp from EEF lift, gripper closure, and available images.
 
-        Success requires the EEF to descend by ``descent_thresh``, then rise by
-        ``lift_thresh``, with gripper opening in
-        [``gripper_open_thresh``, ``gripper_closed_thresh``). Terminates early
-        on LIBERO ``terminated`` (official success) or ``max_chunks``.
+        Args:
+            prompt: Pi0 prompt (e.g. 'pick up the akita black bowl').
+            max_chunks: Action-chunk budget (default 24)
+            lift_thresh: EEF post-descent ascent threshold for success, m (default 0.05)
+            gripper_closed_thresh: Finger-separation closed threshold (default 0.06)
+            gripper_open_thresh: Minimum finger separation accepted as a held object (default 0.0)
+            descent_thresh: Required descent before lift detection, m (default 0.10)
         """
         instr = prompt
         start_z = self._last_obs_eef_z
@@ -247,43 +252,41 @@ class LiberoPrimitives:
                 success = self.env.terminated
                 break
 
-        return {
-            "name": "pick",
-            "instruction": instr,
-            "success": success,
-            "chunks_used": chunks_used,
-            "max_chunks": max_chunks,
-            "peak_lift_m": post_min_peak_z - min_z,  # actual post-descent ascent
-            "min_gripper_opening": min_grip,
-            "final_gripper_opening": last_grip,
-            "terminated": self.env.terminated,
-            "truncated": self.env.truncated,
-            "diagnostics": {
-                "start_eef_z": round(start_z, 4),
-                "peak_eef_z": round(peak_z, 4),
-                "min_eef_z": round(min_z, 4),
-                "post_min_peak_z": round(post_min_peak_z, 4),
-                "descent_m": round(start_z - min_z, 4),
-                "post_min_ascent_m": round(post_min_peak_z - min_z, 4),
-                "descent_done": descent_done,
-                "lift_thresh": lift_thresh,
-                "gripper_closed_thresh": gripper_closed_thresh,
-                "gripper_open_thresh": gripper_open_thresh,
-                "descent_thresh": descent_thresh,
-            },
-        }
+        return ToolResult(
+            data={
+                "name": "pick",
+                "instruction": instr,
+                "success": success,
+                "chunks_used": chunks_used,
+                "max_chunks": max_chunks,
+                "peak_lift_m": post_min_peak_z - min_z,
+                "min_gripper_opening": min_grip,
+                "final_gripper_opening": last_grip,
+                "terminated": self.env.terminated,
+                "truncated": self.env.truncated,
+                "diagnostics": {
+                    "start_eef_z": round(start_z, 4),
+                    "peak_eef_z": round(peak_z, 4),
+                    "min_eef_z": round(min_z, 4),
+                    "post_min_peak_z": round(post_min_peak_z, 4),
+                    "descent_m": round(start_z - min_z, 4),
+                    "post_min_ascent_m": round(post_min_peak_z - min_z, 4),
+                    "descent_done": descent_done,
+                    "lift_thresh": lift_thresh,
+                    "gripper_closed_thresh": gripper_closed_thresh,
+                    "gripper_open_thresh": gripper_open_thresh,
+                    "descent_thresh": descent_thresh,
+                },
+            }
+        )
 
-    def pi0_doubled(
-        self,
-        prompt: str,
-        *,
-        max_chunks: int = 20,
-    ) -> dict:
-        """Closed-loop Pi0.5 contact skill.
+    @tool
+    def pi0_doubled(self, prompt: str, *, max_chunks: int = 20) -> ToolResult:
+        """Pi0.5 closed-loop contact skill for non-pick interactions (e.g. stove/knob/button/short push). Returned success/task_success only mirrors official termination; for intermediate contact skills, success=false does not necessarily mean the contact interaction failed. Inspect image/state evidence. Do not use it as a general pick/place shortcut.
 
-        Intended for non-pick contact interactions such as turning knobs,
-        toggling stoves, or short pushes. Success is the official LIBERO
-        termination predicate, not a private object-pose oracle.
+        Args:
+            prompt: Contact-skill prompt, e.g. 'turn on the stove'.
+            max_chunks: Action-chunk budget (default 20)
         """
         instr = prompt
         task_success = False
@@ -296,28 +299,28 @@ class LiberoPrimitives:
                 task_success = self.env.terminated
                 break
 
-        return {
-            "name": "pi0_doubled",
-            "instruction": instr,
-            "success": task_success,
-            "task_success": task_success,
-            "contact_skill_executed": chunks_used > 0,
-            "chunks_used": chunks_used,
-            "max_chunks": max_chunks,
-            "terminated": self.env.terminated,
-            "truncated": self.env.truncated,
-            "diagnostics": {
-                "mode": "contact_skill_success_by_termination",
-                "success_meaning": (
-                    "`success` mirrors official LIBERO task termination only; "
-                    "for intermediate contact skills, inspect image/state evidence."
-                ),
-            },
-        }
+        return ToolResult(
+            data={
+                "name": "pi0_doubled",
+                "instruction": instr,
+                "success": task_success,
+                "task_success": task_success,
+                "contact_skill_executed": chunks_used > 0,
+                "chunks_used": chunks_used,
+                "max_chunks": max_chunks,
+                "terminated": self.env.terminated,
+                "truncated": self.env.truncated,
+                "diagnostics": {
+                    "mode": "contact_skill_success_by_termination",
+                    "success_meaning": "`success` mirrors official LIBERO task termination only; for intermediate contact skills, inspect image/state evidence.",
+                },
+            }
+        )
 
+    @tool
     def move_to(
         self,
-        xyz,
+        xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
         *,
         max_steps: int = 80,
         gripper: float = -1.0,
@@ -325,14 +328,19 @@ class LiberoPrimitives:
         tol: float = 0.012,
         action_scale: float = 0.05,
         target_yaw: float | None = None,
-        yaw_step_clip: float = 0.10,
-    ) -> dict:
-        """Scripted EEF servo to a world-frame target xyz.
+        yaw_step_clip: float = 0.1,
+    ) -> ToolResult:
+        """Scripted EEF servo to a world-frame XYZ target via the OSC controller. Holds orientation (use rotate_wrist / rotate_pitch / move_pose to reorient). gripper: -1 = open, +1 = close. NEVER command a single move_to with |Δxy| > 0.30 — OSC flips IK and the run corrupts; split long traversal into 2-3 mid waypoints at carry z.
 
-        Sends 7-D delta actions; the env's underlying OSC_POSE controller
-        interprets ``action[:3] ∈ [-1, 1]`` as a per-step desired delta scaled
-        by ``action_scale`` (so ``action=1.0`` -> ~5 cm per env step).
-        ``gripper``: +1.0 keeps it closed (holding object), -1.0 opens.
+        Args:
+            xyz: World-frame target [x, y, z] in meters
+            gripper: Gripper command: -1 open, +1 close (default -1)
+            tol: Position tolerance, m (default 0.012)
+            step_clip: Per-step Δxyz cap before action_scale, m (default 0.025)
+            max_steps: Step budget (default 80)
+            action_scale: OSC action scale (default 0.05)
+            target_yaw: Optional world-frame yaw target in radians
+            yaw_step_clip: Per-step yaw clip, rad (default 0.10)
         """
         target = np.asarray(_normalize_xyz(xyz), dtype=np.float32)
         traj = []
@@ -372,17 +380,20 @@ class LiberoPrimitives:
             if self.env.terminated or self.env.truncated:
                 break
         final = self._last_obs_eef_pos
-        return {
-            "name": "move_to",
-            "target_xyz": [float(x) for x in target],
-            "final_eef_pos": [round(float(x), 4) for x in final],
-            "final_dist_m": round(float(np.linalg.norm(target - final)), 4),
-            "steps_used": len(traj),
-            "max_steps": max_steps,
-            "terminated": self.env.terminated,
-            "truncated": self.env.truncated,
-        }
+        return ToolResult(
+            data={
+                "name": "move_to",
+                "target_xyz": [float(x) for x in target],
+                "final_eef_pos": [round(float(x), 4) for x in final],
+                "final_dist_m": round(float(np.linalg.norm(target - final)), 4),
+                "steps_used": len(traj),
+                "max_steps": max_steps,
+                "terminated": self.env.terminated,
+                "truncated": self.env.truncated,
+            }
+        )
 
+    @tool
     def rotate_wrist(
         self,
         *,
@@ -391,21 +402,17 @@ class LiberoPrimitives:
         gripper: float = 1.0,
         max_steps: int = 40,
         tol: float = 0.02,
-        step_clip: float = 0.10,
-    ) -> dict:
-        """Rotate wrist around world z-axis. Provide EITHER target_yaw (absolute)
-        or delta_yaw (relative, applied as a single rotation goal).
+        step_clip: float = 0.1,
+    ) -> ToolResult:
+        """Rotate the wrist around the world Z-axis. Provide either target_yaw (absolute) or delta_yaw (relative). Holds xyz fixed.
 
-        Uses ``action[5]`` (axis-angle z component) to drive wrist yaw via the
-        OSC controller. Holds xyz pose constant during rotation.
-
-        Yaw is the world-frame z-rotation, recovered as
-        ``atan2(R[1,0], R[0,0])`` where R is the eef rotation matrix in the
-        world frame. (Note: ``as_euler('zyx')[0]`` returns the *negative*
-        of this value for gripper-down configurations because the Z-Y-X
-        decomposition picks the chart with γ ≈ π, flipping α. Bug fixed
-        2026-05-19 — previous implementation rotated the wrist in the
-        opposite direction of the commanded yaw.)
+        Args:
+            target_yaw: Absolute world-frame yaw target, rad
+            delta_yaw: Relative yaw delta, rad
+            gripper: Gripper command held during rotation (default +1)
+            max_steps: Step budget (default 40)
+            tol: Yaw tolerance, rad (default 0.02)
+            step_clip: Per-step yaw clip, rad (default 0.10)
         """
         from scipy.spatial.transform import Rotation as _R
 
@@ -423,7 +430,9 @@ class LiberoPrimitives:
         cur_quat = raw["robot0_eef_quat"]
         start_yaw = _yaw_of(cur_quat)
         if target_yaw is None and delta_yaw is None:
-            return {"name": "rotate_wrist", "error": "need target_yaw or delta_yaw"}
+            return ToolResult(
+                data={"name": "rotate_wrist"}, error="need target_yaw or delta_yaw"
+            )
         if target_yaw is None:
             target_yaw = start_yaw + float(delta_yaw)
 
@@ -446,19 +455,22 @@ class LiberoPrimitives:
             if self.env.terminated or self.env.truncated:
                 break
         final_yaw = _yaw_of(self.env.raw_obs()["robot0_eef_quat"])
-        return {
-            "name": "rotate_wrist",
-            "start_yaw": round(start_yaw, 4),
-            "target_yaw": round(float(target_yaw), 4),
-            "final_yaw": round(final_yaw, 4),
-            "final_err": round(
-                float((target_yaw - final_yaw + np.pi) % (2 * np.pi) - np.pi), 4
-            ),
-            "steps_used": len(traj),
-            "terminated": self.env.terminated,
-            "truncated": self.env.truncated,
-        }
+        return ToolResult(
+            data={
+                "name": "rotate_wrist",
+                "start_yaw": round(start_yaw, 4),
+                "target_yaw": round(float(target_yaw), 4),
+                "final_yaw": round(final_yaw, 4),
+                "final_err": round(
+                    float((target_yaw - final_yaw + np.pi) % (2 * np.pi) - np.pi), 4
+                ),
+                "steps_used": len(traj),
+                "terminated": self.env.terminated,
+                "truncated": self.env.truncated,
+            }
+        )
 
+    @tool
     def rotate_pitch(
         self,
         *,
@@ -467,32 +479,17 @@ class LiberoPrimitives:
         gripper: float = 1.0,
         max_steps: int = 40,
         tol: float = 0.02,
-        step_clip: float = 0.10,
-    ) -> dict:
-        """Tilt the gripper around the world X-axis ("pitch").
+        step_clip: float = 0.1,
+    ) -> ToolResult:
+        """Tilt the gripper around the world X-axis. Provide either target_pitch (absolute) or delta_pitch (relative). Holds xyz and yaw fixed. Use before threading the gripper into a narrow opening whose front face normal is along world ±y (e.g. microwave cavity).
 
-        Pitch is defined as the angle between the eef z-axis and the
-        world -z direction, measured in the world yz-plane:
-
-            pitch = atan2(R[1, 2], -R[2, 2])
-
-        - pitch =  0       -> gripper z-axis aligned with world -z (default
-                              "gripper down" rest pose).
-        - pitch = +pi/2    -> gripper z-axis points in world +y (gripper
-                              "looking forward" along world +y).
-        - pitch = -pi/2    -> gripper z-axis points in world -y.
-
-        Driven by ``action[3]`` (axis-angle X component) of the OSC_POSE
-        controller. Sign verified empirically (probe_pitch.py 2026-05-19):
-        action[3]=+1.0 tilts eef z toward world +y, matching this pitch
-        definition with no sign flip.
-
-        Holds xyz, yaw, and gripper constant during rotation. Use BEFORE
-        threading the gripper into a narrow opening whose front face
-        normal is along world ±y (e.g. microwave cavity in libero_10 t9).
-
-        Provide EITHER ``target_pitch`` (absolute) or ``delta_pitch``
-        (relative). Both in radians.
+        Args:
+            target_pitch: Absolute world-frame pitch target, rad
+            delta_pitch: Relative pitch delta, rad
+            gripper: Gripper command held during rotation (default +1)
+            max_steps: Step budget (default 40)
+            tol: Pitch tolerance, rad (default 0.02)
+            step_clip: Per-step pitch clip, rad (default 0.10)
         """
         from scipy.spatial.transform import Rotation as _R
 
@@ -504,7 +501,9 @@ class LiberoPrimitives:
         raw = self.env.raw_obs()
         start_pitch = _pitch_of(raw["robot0_eef_quat"])
         if target_pitch is None and delta_pitch is None:
-            return {"name": "rotate_pitch", "error": "need target_pitch or delta_pitch"}
+            return ToolResult(
+                data={"name": "rotate_pitch"}, error="need target_pitch or delta_pitch"
+            )
         if target_pitch is None:
             target_pitch = start_pitch + float(delta_pitch)
 
@@ -528,22 +527,25 @@ class LiberoPrimitives:
             if self.env.terminated or self.env.truncated:
                 break
         final_pitch = _pitch_of(self.env.raw_obs()["robot0_eef_quat"])
-        return {
-            "name": "rotate_pitch",
-            "start_pitch": round(start_pitch, 4),
-            "target_pitch": round(float(target_pitch), 4),
-            "final_pitch": round(final_pitch, 4),
-            "final_err": round(
-                float((target_pitch - final_pitch + np.pi) % (2 * np.pi) - np.pi), 4
-            ),
-            "steps_used": len(traj),
-            "terminated": self.env.terminated,
-            "truncated": self.env.truncated,
-        }
+        return ToolResult(
+            data={
+                "name": "rotate_pitch",
+                "start_pitch": round(start_pitch, 4),
+                "target_pitch": round(float(target_pitch), 4),
+                "final_pitch": round(final_pitch, 4),
+                "final_err": round(
+                    float((target_pitch - final_pitch + np.pi) % (2 * np.pi) - np.pi), 4
+                ),
+                "steps_used": len(traj),
+                "terminated": self.env.terminated,
+                "truncated": self.env.truncated,
+            }
+        )
 
+    @tool
     def move_pose(
         self,
-        xyz,
+        xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
         *,
         target_pitch: float | None = None,
         target_yaw: float | None = None,
@@ -555,15 +557,21 @@ class LiberoPrimitives:
         ori_tol: float = 0.05,
         action_scale: float = 0.05,
         max_steps: int = 150,
-    ) -> dict:
-        """Servo position AND orientation (pitch + yaw) SIMULTANEOUSLY.
+    ) -> ToolResult:
+        """Servo position AND orientation (pitch + yaw) SIMULTANEOUSLY. Unlike move_to (holds orientation) + rotate_pitch (holds xyz), this co-varies xyz and wrist tilt every env.step. Use to thread cabinet-front / low-shelf poses where a decoupled position servo drives the wrist into an IK singularity and stalls.
 
-        Unlike ``move_to`` (holds orientation) + ``rotate_pitch`` (holds
-        xyz), this co-varies xyz and wrist tilt every env.step. Co-variation
-        lets the OSC controller thread cabinet-front-low poses where a
-        decoupled position servo (fixed gripper-down orientation) drives
-        the wrist into a singularity and stalls — mimicking pi0's curved
-        reach-in.
+        Args:
+            xyz: World-frame target [x, y, z] in meters
+            target_pitch: Absolute pitch target, rad
+            target_yaw: Absolute yaw target, rad
+            gripper: Gripper command held during the move (default -1)
+            step_clip: Per-step Δxyz cap, m (default 0.02)
+            pitch_step: Per-step pitch clip, rad (default 0.08)
+            yaw_step: Per-step yaw clip, rad (default 0.08)
+            tol: Position tolerance, m (default 0.012)
+            ori_tol: Orientation tolerance, rad (default 0.05)
+            action_scale: OSC action scale (default 0.05)
+            max_steps: Step budget (default 150)
         """
         from scipy.spatial.transform import Rotation as _R
 
@@ -618,24 +626,24 @@ class LiberoPrimitives:
                 break
         final = self._last_obs_eef_pos
         fq = self.env.raw_obs()["robot0_eef_quat"]
-        return {
-            "name": "move_pose",
-            "final_eef_pos": [round(float(x), 4) for x in final],
-            "final_dist_m": round(float(np.linalg.norm(target - final)), 4),
-            "final_pitch": round(_pitch_of(fq), 4),
-            "steps_used": step + 1,
-            "terminated": self.env.terminated,
-            "truncated": self.env.truncated,
-        }
+        return ToolResult(
+            data={
+                "name": "move_pose",
+                "final_eef_pos": [round(float(x), 4) for x in final],
+                "final_dist_m": round(float(np.linalg.norm(target - final)), 4),
+                "final_pitch": round(_pitch_of(fq), 4),
+                "steps_used": step + 1,
+                "terminated": self.env.terminated,
+                "truncated": self.env.truncated,
+            }
+        )
 
-    def release(
-        self,
-        *,
-        max_steps: int = 20,
-    ) -> dict:
-        """Open gripper for ``max_steps`` env steps while keeping eef in place.
+    @tool
+    def release(self, *, max_steps: int = 20) -> ToolResult:
+        """Open the gripper for up to max_steps env steps while holding EEF in place. Triggers libero termination if the matching On/In predicate is met.
 
-        Returns once libero terminates (success) or step budget exhausted.
+        Args:
+            max_steps: Step budget (default 20)
         """
         assert max_steps > 0, f"max_steps must be > 0, got {max_steps}"
         start_grip = self._last_obs_gripper
@@ -647,23 +655,26 @@ class LiberoPrimitives:
             peak_grip = max(peak_grip, self._last_obs_gripper)
             if self.env.terminated or self.env.truncated:
                 break
-        return {
-            "name": "release",
-            "steps_used": step + 1,
-            "start_gripper_opening": round(start_grip, 4),
-            "peak_gripper_opening": round(peak_grip, 4),
-            "final_gripper_opening": round(self._last_obs_gripper, 4),
-            "terminated": self.env.terminated,
-            "truncated": self.env.truncated,
-        }
+        return ToolResult(
+            data={
+                "name": "release",
+                "steps_used": step + 1,
+                "start_gripper_opening": round(start_grip, 4),
+                "peak_gripper_opening": round(peak_grip, 4),
+                "final_gripper_opening": round(self._last_obs_gripper, 4),
+                "terminated": self.env.terminated,
+                "truncated": self.env.truncated,
+            }
+        )
 
-    def set_gripper(
-        self,
-        *,
-        gripper: float = -1.0,
-        steps: int = 5,
-    ) -> dict:
-        """Hold the current EEF pose and drive ``gripper`` for ``steps`` env steps."""
+    @tool
+    def set_gripper(self, *, gripper: float = -1.0, steps: int = 5) -> ToolResult:
+        """Hold the current EEF pose and drive the gripper command for `steps` env steps. Use to firm up a grip mid-carry.
+
+        Args:
+            gripper: Gripper command: -1 open, +1 close (default -1)
+            steps: Number of env steps (default 5)
+        """
         g = float(gripper)
         n = int(steps)
         for _ in range(n):
@@ -672,37 +683,43 @@ class LiberoPrimitives:
             self._step_env(action)
             if self.env.terminated or self.env.truncated:
                 break
-        return {
-            "name": "set_gripper",
-            "gripper": g,
-            "steps": n,
-            "terminated": self.env.terminated,
-            "truncated": self.env.truncated,
-        }
+        return ToolResult(
+            data={
+                "name": "set_gripper",
+                "gripper": g,
+                "steps": n,
+                "terminated": self.env.terminated,
+                "truncated": self.env.truncated,
+            }
+        )
 
     # ---- introspection helpers (for LLM-in-the-loop) ----
 
-    @readonly
+    @tool(readonly=True, exclude=("state",))
     def segment(
         self,
         prompt: str = "",
-        camera: str = "agentview",
-        step: int = -1,
-        point: list[int] | None = None,
+        camera: Literal["agentview", "wrist"] = "agentview",
+        step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
+        point: Annotated[list[int], Field(min_length=2, max_length=2)] | None = None,
         min_score: float = 0.2,
         *,
         state: EnvState,
-    ) -> dict:
-        """Call SAM3 on an existing image artifact without advancing the env.
+    ) -> ToolResult:
+        """SAM3 visual segmentation over an existing run artifact. It never renders a new camera view. Provide exactly one text prompt or single positive point. A successful top-ranked mask is projected through the matching world map to produce world_xyz.
 
-        This tool deliberately does not render camera views or create wrist/high-res
-        artifacts. Errors are structured so the agent can continue with image
-        inspection and ``back_project``.
+        Args:
+            prompt: Object/text prompt to segment.
+            camera: Artifact camera to use (default agentview).
+            step: Step to segment; -1 = latest.
+            point: Optional single positive point as [row, col]. Mutually exclusive with prompt.
+            min_score: Minimum accepted mask score (default 0.2).
         """
+        images: list[bytes] = []
         try:
             record = state.get(step)
         except Exception as exc:
-            return {"error": f"state step not available: {exc}"}
+            return ToolResult(error=f"state step not available: {exc}")
         nn = record.step_idx
 
         camera = camera or "agentview"
@@ -710,25 +727,27 @@ class LiberoPrimitives:
         has_prompt = bool(prompt)
         has_point = point is not None
         if has_prompt == has_point:
-            return {"error": "segment needs exactly one of prompt or point"}
+            return ToolResult(error="segment needs exactly one of prompt or point")
         try:
             image_name, world_name, artifact_pairs = _select_segment_artifacts(
                 state, record, camera
             )
         except ValueError as e:
-            return {"error": str(e)}
+            return ToolResult(error=str(e))
         if image_name is None or world_name is None:
-            return {
-                "error": "complete segment artifacts not found",
-                "step": nn,
-                "camera": camera,
-                "checked_artifacts": [
-                    name
-                    for image, world in artifact_pairs
-                    for name in (image, world)
-                    if name
-                ],
-            }
+            return ToolResult(
+                data={
+                    "step": nn,
+                    "camera": camera,
+                    "checked_artifacts": [
+                        name
+                        for (image, world) in artifact_pairs
+                        for name in (image, world)
+                        if name
+                    ],
+                },
+                error="complete segment artifacts not found",
+            )
 
         try:
             data = self._sam3_client.segment(
@@ -738,20 +757,20 @@ class LiberoPrimitives:
                 min_score=min_score,
             )
         except ValueError as e:
-            return {
-                "error": str(e),
-                "step": nn,
-                "camera": camera,
-                "image_artifact": image_name,
-            }
+            return ToolResult(
+                data={"step": nn, "camera": camera, "image_artifact": image_name},
+                error=str(e),
+            )
         except Exception as e:
-            return {
-                "error": f"segmentation service call failed: {e}",
-                "step": nn,
-                "camera": camera,
-                "image_artifact": image_name,
-                "fallback": "Use manual visual localization and back_project.",
-            }
+            return ToolResult(
+                data={
+                    "step": nn,
+                    "camera": camera,
+                    "image_artifact": image_name,
+                    "fallback": "Use manual visual localization and back_project.",
+                },
+                error=f"segmentation service call failed: {e}",
+            )
 
         segment_index = _next_segment_index(record)
         segment_name = f"segment_{segment_index:02d}.json"
@@ -832,20 +851,20 @@ class LiberoPrimitives:
             result["fallback"] = "Use manual visual localization and back_project."
         if saved_overlay is not None:
             result["overlay_artifact"] = saved_overlay
-            result["_image_bytes"] = state.load_bytes(saved_overlay, step=nn)
-        return result
+            images.append(state.load_bytes(saved_overlay, step=nn))
+        return ToolResult(data=result, error=result.pop("error", None), images=images)
 
 
 def _is_primitive_action(name: object) -> bool:
     """Whether ``name`` is a state-advancing LIBERO primitive.
 
-    A primitive is any non-read-only method on :class:`LiberoPrimitives`;
+    A primitive is any non-read-only tool on :class:`LiberoPrimitives`;
     read-only tools and non-strings read as ``False``.
     """
     if not isinstance(name, str):
         return False
     method = getattr(LiberoPrimitives, name, None)
-    return method is not None and not bool(getattr(method, "_readonly", False))
+    return isinstance(method, Tool) and not method.readonly
 
 
 def write_recipe_from_states(
@@ -1179,486 +1198,23 @@ def _save_observation_artifacts(
 # Tool schema declarations (Anthropic-shaped canonical schema)
 # ---------------------------------------------------------------------------
 
-TOOLS_SPEC = [
-    {
-        "name": "reset",
-        "description": (
-            "EXPLORE MODE ONLY. Abandon the current episode and restore the "
-            "same initial scene. Archive the failed attempt first and state "
-            "which strategy lever will change in the next attempt."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "reason": {
-                    "type": "string",
-                    "description": (
-                        "Why this episode is unrecoverable and what will change."
-                    ),
-                }
-            },
-            "required": ["reason"],
-        },
-    },
-    {
-        "name": "view_env_state",
-        "description": (
-            "Read one recorded state and its observation artifacts. Step -1 "
-            "selects the latest entry. Embeds policy, agentview, and wrist "
-            "images when available. "
-            "Use the calibration-frame images for pixel back-projection; JSON "
-            "state alone is not enough. Use agentview for global tabletop "
-            "layout and object locations; use wrist for close-range details "
-            "near the gripper, occlusions, and container/cabinet interiors."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "step": {
-                    "type": "integer",
-                    "default": -1,
-                    "description": "Step number; 0 = initial, -1 = latest.",
-                },
-            },
-        },
-    },
-    {
-        "name": "move_to",
-        "description": (
-            "Scripted EEF servo to a world-frame XYZ target via the OSC "
-            "controller. Holds orientation (use rotate_wrist / rotate_pitch "
-            "/ move_pose to reorient). gripper: -1 = open, +1 = close. NEVER "
-            "command a single move_to with |Δxy| > 0.30 — OSC flips IK and "
-            "the run corrupts; split long traversal into 2-3 mid waypoints "
-            "at carry z."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "xyz": {
-                    "type": "array",
-                    "description": "World-frame target [x, y, z] in meters",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                },
-                "gripper": {
-                    "type": "number",
-                    "description": "Gripper command: -1 open, +1 close (default -1)",
-                },
-                "tol": {
-                    "type": "number",
-                    "description": "Position tolerance, m (default 0.012)",
-                },
-                "step_clip": {
-                    "type": "number",
-                    "description": "Per-step Δxyz cap before action_scale, m (default 0.025)",
-                },
-                "max_steps": {
-                    "type": "integer",
-                    "description": "Step budget (default 80)",
-                },
-                "action_scale": {
-                    "type": "number",
-                    "description": "OSC action scale (default 0.05)",
-                },
-                "target_yaw": {
-                    "type": ["number", "null"],
-                    "description": "Optional world-frame yaw target in radians",
-                },
-                "yaw_step_clip": {
-                    "type": "number",
-                    "description": "Per-step yaw clip, rad (default 0.10)",
-                },
-            },
-            "required": ["xyz"],
-        },
-    },
-    {
-        "name": "pi0_pick",
-        "description": (
-            "Pi0.5 closed-loop pick. Use it for the grasp; YOU then do "
-            "every move_to and release. Use modest max_chunks and verify "
-            "the grasp from EEF lift, gripper closure, and available images."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "prompt": {
-                    "type": "string",
-                    "description": "Pi0 prompt (e.g. 'pick up the akita black bowl').",
-                },
-                "max_chunks": {
-                    "type": "integer",
-                    "description": "Action-chunk budget (default 24)",
-                },
-                "lift_thresh": {
-                    "type": "number",
-                    "description": "EEF post-descent ascent threshold for success, m (default 0.05)",
-                },
-                "gripper_closed_thresh": {
-                    "type": "number",
-                    "description": "Finger-separation closed threshold (default 0.06)",
-                },
-                "gripper_open_thresh": {
-                    "type": "number",
-                    "description": "Minimum finger separation accepted as a held object (default 0.0)",
-                },
-                "descent_thresh": {
-                    "type": "number",
-                    "description": "Required descent before lift detection, m (default 0.10)",
-                },
-            },
-            "required": ["prompt"],
-        },
-    },
-    {
-        "name": "pi0_doubled",
-        "description": (
-            "Pi0.5 closed-loop contact skill for non-pick interactions "
-            "(e.g. stove/knob/button/short push). Returned success/task_success "
-            "only mirrors official termination; for intermediate contact "
-            "skills, success=false does not necessarily mean the contact "
-            "interaction failed. Inspect image/state evidence. Do not use it "
-            "as a general pick/place shortcut."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "prompt": {
-                    "type": "string",
-                    "description": "Contact-skill prompt, e.g. 'turn on the stove'.",
-                },
-                "max_chunks": {
-                    "type": "integer",
-                    "description": "Action-chunk budget (default 20)",
-                },
-            },
-            "required": ["prompt"],
-        },
-    },
-    {
-        "name": "release",
-        "description": (
-            "Open the gripper for up to max_steps env steps while holding "
-            "EEF in place. Triggers libero termination if the matching "
-            "On/In predicate is met."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "max_steps": {
-                    "type": "integer",
-                    "description": "Step budget (default 20)",
-                },
-            },
-        },
-    },
-    {
-        "name": "set_gripper",
-        "description": (
-            "Hold the current EEF pose and drive the gripper command for "
-            "`steps` env steps. Use to firm up a grip mid-carry."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "gripper": {
-                    "type": "number",
-                    "description": "Gripper command: -1 open, +1 close (default -1)",
-                },
-                "steps": {
-                    "type": "integer",
-                    "description": "Number of env steps (default 5)",
-                },
-            },
-        },
-    },
-    {
-        "name": "rotate_wrist",
-        "description": (
-            "Rotate the wrist around the world Z-axis. Provide either "
-            "target_yaw (absolute) or delta_yaw (relative). Holds xyz fixed."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "target_yaw": {
-                    "type": ["number", "null"],
-                    "description": "Absolute world-frame yaw target, rad",
-                },
-                "delta_yaw": {
-                    "type": ["number", "null"],
-                    "description": "Relative yaw delta, rad",
-                },
-                "gripper": {
-                    "type": "number",
-                    "description": "Gripper command held during rotation (default +1)",
-                },
-                "max_steps": {
-                    "type": "integer",
-                    "description": "Step budget (default 40)",
-                },
-                "tol": {
-                    "type": "number",
-                    "description": "Yaw tolerance, rad (default 0.02)",
-                },
-                "step_clip": {
-                    "type": "number",
-                    "description": "Per-step yaw clip, rad (default 0.10)",
-                },
-            },
-        },
-    },
-    {
-        "name": "rotate_pitch",
-        "description": (
-            "Tilt the gripper around the world X-axis. Provide either "
-            "target_pitch (absolute) or delta_pitch (relative). Holds xyz "
-            "and yaw fixed. Use before threading the gripper into a narrow "
-            "opening whose front face normal is along world ±y (e.g. "
-            "microwave cavity)."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "target_pitch": {
-                    "type": ["number", "null"],
-                    "description": "Absolute world-frame pitch target, rad",
-                },
-                "delta_pitch": {
-                    "type": ["number", "null"],
-                    "description": "Relative pitch delta, rad",
-                },
-                "gripper": {
-                    "type": "number",
-                    "description": "Gripper command held during rotation (default +1)",
-                },
-                "max_steps": {
-                    "type": "integer",
-                    "description": "Step budget (default 40)",
-                },
-                "tol": {
-                    "type": "number",
-                    "description": "Pitch tolerance, rad (default 0.02)",
-                },
-                "step_clip": {
-                    "type": "number",
-                    "description": "Per-step pitch clip, rad (default 0.10)",
-                },
-            },
-        },
-    },
-    {
-        "name": "move_pose",
-        "description": (
-            "Servo position AND orientation (pitch + yaw) SIMULTANEOUSLY. "
-            "Unlike move_to (holds orientation) + rotate_pitch (holds xyz), "
-            "this co-varies xyz and wrist tilt every env.step. Use to thread "
-            "cabinet-front / low-shelf poses where a decoupled position "
-            "servo drives the wrist into an IK singularity and stalls."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "xyz": {
-                    "type": "array",
-                    "description": "World-frame target [x, y, z] in meters",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                },
-                "target_pitch": {
-                    "type": ["number", "null"],
-                    "description": "Absolute pitch target, rad",
-                },
-                "target_yaw": {
-                    "type": ["number", "null"],
-                    "description": "Absolute yaw target, rad",
-                },
-                "gripper": {
-                    "type": "number",
-                    "description": "Gripper command held during the move (default -1)",
-                },
-                "step_clip": {
-                    "type": "number",
-                    "description": "Per-step Δxyz cap, m (default 0.02)",
-                },
-                "pitch_step": {
-                    "type": "number",
-                    "description": "Per-step pitch clip, rad (default 0.08)",
-                },
-                "yaw_step": {
-                    "type": "number",
-                    "description": "Per-step yaw clip, rad (default 0.08)",
-                },
-                "tol": {
-                    "type": "number",
-                    "description": "Position tolerance, m (default 0.012)",
-                },
-                "ori_tol": {
-                    "type": "number",
-                    "description": "Orientation tolerance, rad (default 0.05)",
-                },
-                "action_scale": {
-                    "type": "number",
-                    "description": "OSC action scale (default 0.05)",
-                },
-                "max_steps": {
-                    "type": "integer",
-                    "description": "Step budget (default 150)",
-                },
-            },
-            "required": ["xyz"],
-        },
-    },
-    {
-        "name": "view_camera_meta",
-        "description": (
-            "Read per-step camera calibration metadata from recorded artifacts."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "camera": {
-                    "type": "string",
-                    "enum": ["agentview", "wrist"],
-                    "description": "Camera metadata to read (default agentview).",
-                },
-                "step": {
-                    "type": "integer",
-                    "default": -1,
-                    "description": "Metadata step to use; -1 = latest.",
-                },
-            },
-        },
-    },
-    {
-        "name": "segment",
-        "description": (
-            "SAM3 visual segmentation over an existing run artifact. It never "
-            "renders a new camera view. Provide exactly one text prompt or "
-            "single positive point. A successful top-ranked mask is projected "
-            "through the matching world map to produce world_xyz."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "prompt": {
-                    "type": "string",
-                    "description": "Object/text prompt to segment.",
-                },
-                "camera": {
-                    "type": "string",
-                    "enum": ["agentview", "wrist"],
-                    "description": "Artifact camera to use (default agentview).",
-                },
-                "step": {
-                    "type": "integer",
-                    "default": -1,
-                    "description": "Step to segment; -1 = latest.",
-                },
-                "point": {
-                    "type": ["array", "null"],
-                    "description": (
-                        "Optional single positive point as [row, col]. "
-                        "Mutually exclusive with prompt."
-                    ),
-                    "items": {"type": "integer"},
-                    "minItems": 2,
-                    "maxItems": 2,
-                },
-                "min_score": {
-                    "type": "number",
-                    "description": "Minimum accepted mask score (default 0.2).",
-                },
-            },
-        },
-    },
-    {
-        "name": "back_project",
-        "description": (
-            "Back-project a pixel (row, col) to a world XYZ point using the "
-            "selected camera's precomputed world map. Row 0 = top of image, "
-            "col 0 = left. Returns world_xyz in meters.\n\n"
-            "USE THIS to find where an object is in the world — look at "
-            "the embedded high-resolution image returned by view_env_state "
-            "to pick a pixel on the target object, then call back_project. "
-            "The default resolution is high (1024x1024). Pass "
-            "resolution='low' only for pixels from the embedded/standard "
-            "256 image. The pixel coordinates must come "
-            "from the same camera and resolution requested here. Use "
-            "camera='agentview' for global tabletop layout and object "
-            "locations; use camera='wrist' for close-range details near the "
-            "gripper, occlusions, and container/cabinet interiors. "
-            "Sample several pixels on the object and median their xy for "
-            "robustness.\n\n"
-            "REGION MODE: pass row_range=[r0,r1] and col_range=[c0,c1] instead "
-            "of row/col to get the midpoint of world xy over that pixel window, "
-            "with an optional world-z band (z_min, z_max). Use it for the "
-            "center of a container cavity or flat region, where a single-pixel "
-            "or mask-median estimate is biased toward an edge/rim."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "row": {
-                    "type": ["integer", "null"],
-                    "description": "Pixel row (0=top) in the selected resolution image.",
-                },
-                "col": {
-                    "type": ["integer", "null"],
-                    "description": "Pixel column (0=left) in the selected resolution image.",
-                },
-                "step": {
-                    "type": "integer",
-                    "default": -1,
-                    "description": "Depth/world-map step; 0 = initial, -1 = latest.",
-                },
-                "camera": {
-                    "type": "string",
-                    "enum": ["agentview", "wrist"],
-                    "description": "Camera to back-project from (default agentview).",
-                },
-                "resolution": {
-                    "type": "string",
-                    "enum": ["high", "low"],
-                    "description": (
-                        "Coordinate system for row/col (default high). "
-                        "Use low only when row/col came from the "
-                        "embedded/standard 256 image."
-                    ),
-                },
-                "row_range": {
-                    "type": ["array", "null"],
-                    "items": {"type": "integer"},
-                    "description": "Region mode: [r0, r1] pixel row window. Requires col_range.",
-                },
-                "col_range": {
-                    "type": ["array", "null"],
-                    "items": {"type": "integer"},
-                    "description": "Region mode: [c0, c1] pixel col window. Requires row_range.",
-                },
-                "z_min": {
-                    "type": ["number", "null"],
-                    "description": "Region mode: keep only pixels with world z >= z_min.",
-                },
-                "z_max": {
-                    "type": ["number", "null"],
-                    "description": "Region mode: keep only pixels with world z <= z_max.",
-                },
-            },
-        },
-    },
-]
 
+@tool(readonly=True, exclude=("state",))
+def view_env_state(
+    step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
+    *,
+    state: EnvState,
+) -> ToolResult:
+    """Read one recorded state and its observation artifacts. Step -1 selects the latest entry. Embeds policy, agentview, and wrist images when available. Use the calibration-frame images for pixel back-projection; JSON state alone is not enough. Use agentview for global tabletop layout and object locations; use wrist for close-range details near the gripper, occlusions, and container/cabinet interiors.
 
-@readonly
-def view_env_state(step: int = -1, *, state: EnvState) -> dict:
+    Args:
+        step: Step number; 0 = initial, -1 = latest.
+    """
+    images: list[bytes] = []
     try:
         record = state.get(step)
     except Exception as exc:
-        return {"error": f"state step not available: {exc}"}
+        return ToolResult(error=f"state step not available: {exc}")
 
     nn = record.step_idx
     extras = record.extras
@@ -1675,18 +1231,18 @@ def view_env_state(step: int = -1, *, state: EnvState) -> dict:
         "result": record.result,
         "elapsed_s": record.elapsed_s,
     }
-    for slot, names in (
-        ("_image_bytes", ("agentview_policy.png",)),
-        ("_image_cam_bytes", ("agentview_high.png", "agentview.png")),
-        ("_image_wrist_bytes", ("wrist_high.png", "wrist.png")),
+    for names in (
+        ("agentview_policy.png",),
+        ("agentview_high.png", "agentview.png"),
+        ("wrist_high.png", "wrist.png"),
     ):
         name = next((name for name in names if name in record.artifacts), None)
         if name:
             try:
-                out[slot] = state.load_bytes(name, step=nn)
+                images.append(state.load_bytes(name, step=nn))
             except FileNotFoundError:
                 pass
-    return out
+    return ToolResult(data=out, images=images)
 
 
 def _select_segment_artifacts(
@@ -1790,16 +1346,21 @@ def _make_segment_overlay(
     return overlay
 
 
-@readonly
+@tool(readonly=True, exclude=("state",))
 def view_camera_meta(
-    camera: str = "agentview",
-    step: int = -1,
+    camera: Literal["agentview", "wrist"] = "agentview",
+    step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
     *,
     state: EnvState,
-) -> dict:
-    """Read camera calibration metadata for localization."""
+) -> ToolResult:
+    """Read per-step camera calibration metadata from recorded artifacts.
+
+    Args:
+        camera: Camera metadata to read (default agentview).
+        step: Metadata step to use; -1 = latest.
+    """
     if camera not in ("agentview", "wrist"):
-        return {"error": f"bad camera '{camera}' (use 'agentview' or 'wrist')"}
+        return ToolResult(error=f"bad camera '{camera}' (use 'agentview' or 'wrist')")
 
     try:
         record = state.get(step)
@@ -1808,89 +1369,101 @@ def view_camera_meta(
             raise FileNotFoundError(metadata_name)
         meta = state.load(metadata_name, step=record.step_idx)
     except Exception as e:
-        return {"error": f"{camera} camera metadata not found: {e}"}
+        return ToolResult(error=f"{camera} camera metadata not found: {e}")
 
     if camera == "agentview":
-        return {"camera": "agentview", "camera_meta": meta}
-    return {"camera": "wrist", "step": record.step_idx, "camera_meta": meta}
+        return ToolResult(data={"camera": "agentview", "camera_meta": meta})
+    return ToolResult(
+        data={"camera": "wrist", "step": record.step_idx, "camera_meta": meta}
+    )
 
 
-@readonly
+@tool(readonly=True, exclude=("state",))
 def back_project(
     row: int | None = None,
     col: int | None = None,
-    step: int = -1,
-    camera: str = "agentview",
-    resolution: str = "high",
-    row_range: list | None = None,
-    col_range: list | None = None,
+    step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
+    camera: Literal["agentview", "wrist"] = "agentview",
+    resolution: Literal["high", "low"] = "high",
+    row_range: list[int] | None = None,
+    col_range: list[int] | None = None,
     z_min: float | None = None,
     z_max: float | None = None,
     *,
     state: EnvState,
-) -> dict:
-    """Look up a pixel's world XYZ in the precomputed world map."""
+) -> ToolResult:
+    """Back-project a pixel (row, col) to a world XYZ point using the selected camera's precomputed world map. Row 0 = top of image, col 0 = left. Returns world_xyz in meters.
+
+    USE THIS to find where an object is in the world — look at the embedded high-resolution image returned by view_env_state to pick a pixel on the target object, then call back_project. The default resolution is high (1024x1024). Pass resolution='low' only for pixels from the embedded/standard 256 image. The pixel coordinates must come from the same camera and resolution requested here. Use camera='agentview' for global tabletop layout and object locations; use camera='wrist' for close-range details near the gripper, occlusions, and container/cabinet interiors. Sample several pixels on the object and median their xy for robustness.
+
+    REGION MODE: pass row_range=[r0,r1] and col_range=[c0,c1] instead of row/col to get the midpoint of world xy over that pixel window, with an optional world-z band (z_min, z_max). Use it for the center of a container cavity or flat region, where a single-pixel or mask-median estimate is biased toward an edge/rim.
+
+    Args:
+        row: Pixel row (0=top) in the selected resolution image.
+        col: Pixel column (0=left) in the selected resolution image.
+        step: Depth/world-map step; 0 = initial, -1 = latest.
+        camera: Camera to back-project from (default agentview).
+        resolution: Coordinate system for row/col (default high). Use low only when row/col came from the embedded/standard 256 image.
+        row_range: Region mode: [r0, r1] pixel row window. Requires col_range.
+        col_range: Region mode: [c0, c1] pixel col window. Requires row_range.
+        z_min: Region mode: keep only pixels with world z >= z_min.
+        z_max: Region mode: keep only pixels with world z <= z_max.
+    """
     if camera not in ("agentview", "wrist"):
-        return {"error": f"bad camera '{camera}' (use 'agentview' or 'wrist')"}
+        return ToolResult(error=f"bad camera '{camera}' (use 'agentview' or 'wrist')")
     if resolution not in ("high", "low"):
-        return {"error": f"bad resolution '{resolution}' (use 'high' or 'low')"}
+        return ToolResult(error=f"bad resolution '{resolution}' (use 'high' or 'low')")
 
     region_mode = row_range is not None or col_range is not None
     if not region_mode and (row is None or col is None):
-        return {
-            "error": (
-                "provide either (row, col) for a single pixel, or "
-                "row_range=[r0,r1] and col_range=[c0,c1] for a region center"
-            )
-        }
+        return ToolResult(
+            error="provide either (row, col) for a single pixel, or "
+            "row_range=[r0,r1] and col_range=[c0,c1] for a region center"
+        )
 
     try:
         record = state.get(step)
     except Exception as e:
-        return {"error": f"state step not available: {e}"}
+        return ToolResult(error=f"state step not available: {e}")
     nn = record.step_idx
 
     hi_artifact = f"{camera}_world_high.npz"
     low_artifact = f"{camera}_world.npz"
     source_artifact = hi_artifact if resolution == "high" else low_artifact
     if source_artifact not in record.artifacts:
-        return {
-            "error": (
-                f"{camera} {resolution}-resolution world map not recorded for step {nn}"
-            )
-        }
+        return ToolResult(
+            error=f"{camera} {resolution}-resolution world map not recorded for step {nn}"
+        )
 
     try:
         world_map = state.load(str(source_artifact), step=nn)
     except Exception as e:
-        return {
-            "error": (
-                f"{camera} {resolution}-resolution artifact not found "
-                f"for step {nn}: {e}"
-            )
-        }
+        return ToolResult(
+            error=f"{camera} {resolution}-resolution artifact not found "
+            f"for step {nn}: {e}"
+        )
 
     height, width = world_map.shape[:2]
 
     if region_mode:
         if row_range is None or col_range is None:
-            return {
-                "error": "region mode needs BOTH row_range=[r0,r1] and col_range=[c0,c1]"
-            }
+            return ToolResult(
+                error="region mode needs BOTH row_range=[r0,r1] and col_range=[c0,c1]"
+            )
         try:
             r0, r1 = int(row_range[0]), int(row_range[1])
             c0, c1 = int(col_range[0]), int(col_range[1])
         except Exception:
-            return {"error": "row_range/col_range must each be [min, max] integers"}
+            return ToolResult(
+                error="row_range/col_range must each be [min, max] integers"
+            )
         r0, r1 = sorted((max(0, r0), min(height, r1)))
         c0, c1 = sorted((max(0, c0), min(width, c1)))
         if r1 <= r0 or c1 <= c0:
-            return {
-                "error": (
-                    f"empty region after clamping to image {height}x{width}: "
-                    f"rows [{r0},{r1}] cols [{c0},{c1}]"
-                )
-            }
+            return ToolResult(
+                error=f"empty region after clamping to image {height}x{width}: "
+                f"rows [{r0},{r1}] cols [{c0},{c1}]"
+            )
         window = (
             world_map[r0:r1, c0:c1].reshape(-1, world_map.shape[2]).astype(np.float64)
         )
@@ -1904,44 +1477,42 @@ def back_project(
         if z_max is not None:
             pts = pts[pts[:, 2] <= float(z_max)]
         if pts.shape[0] < 8:
-            return {
-                "error": (
-                    f"too few valid pixels in region after z-filter "
-                    f"({int(pts.shape[0])}); widen the window or the z band"
-                ),
-                "n_valid_before_zfilter": n_total,
-            }
+            return ToolResult(
+                data={"n_valid_before_zfilter": n_total},
+                error=f"too few valid pixels in region after z-filter "
+                f"({int(pts.shape[0])}); widen the window or the z band",
+            )
         xs, ys, zs = pts[:, 0], pts[:, 1], pts[:, 2]
         center = [
             round(float((xs.min() + xs.max()) / 2.0), 4),
             round(float((ys.min() + ys.max()) / 2.0), 4),
             round(float(np.median(zs)), 4),
         ]
-        return {
-            "camera": camera,
-            "resolution": resolution,
-            "mode": "region",
-            "row_range": [r0, r1],
-            "col_range": [c0, c1],
-            "z_band": [z_min, z_max],
-            "center_xyz": center,
-            "median_xyz": [
-                round(float(np.median(xs)), 4),
-                round(float(np.median(ys)), 4),
-                round(float(np.median(zs)), 4),
-            ],
-            "n_valid": int(pts.shape[0]),
-            "step": nn,
-            "image_size": [height, width],
-            "source_artifact": source_artifact,
-        }
+        return ToolResult(
+            data={
+                "camera": camera,
+                "resolution": resolution,
+                "mode": "region",
+                "row_range": [r0, r1],
+                "col_range": [c0, c1],
+                "z_band": [z_min, z_max],
+                "center_xyz": center,
+                "median_xyz": [
+                    round(float(np.median(xs)), 4),
+                    round(float(np.median(ys)), 4),
+                    round(float(np.median(zs)), 4),
+                ],
+                "n_valid": int(pts.shape[0]),
+                "step": nn,
+                "image_size": [height, width],
+                "source_artifact": source_artifact,
+            }
+        )
 
     if row < 0 or row >= height or col < 0 or col >= width:
-        return {
-            "error": (
-                f"pixel ({row},{col}) out of bounds; {camera} image is {height}x{width}"
-            )
-        }
+        return ToolResult(
+            error=f"pixel ({row},{col}) out of bounds; {camera} image is {height}x{width}"
+        )
 
     depth_m = None
     if source_artifact == low_artifact:
@@ -1953,21 +1524,19 @@ def back_project(
             if depth.ndim == 3:
                 depth = depth[..., 0]
         except Exception as e:
-            return {"error": f"{camera} depth not found for step {nn}: {e}"}
+            return ToolResult(error=f"{camera} depth not found for step {nn}: {e}")
         depth_m = float(depth[row, col])
         if not np.isfinite(depth_m) or depth_m <= 0 or depth_m > 10:
-            return {
-                "error": (
-                    f"invalid {camera} depth {depth_m:.3f}m at pixel "
-                    f"({row},{col}); pick a different pixel"
-                )
-            }
+            return ToolResult(
+                error=f"invalid {camera} depth {depth_m:.3f}m at pixel "
+                f"({row},{col}); pick a different pixel"
+            )
     world_xyz_raw = world_map[row, col]
     if (
         not np.isfinite(world_xyz_raw).all()
         or float(np.abs(world_xyz_raw[:3]).sum()) <= 1e-6
     ):
-        return {"error": f"invalid {camera} world xyz at pixel ({row},{col})"}
+        return ToolResult(error=f"invalid {camera} world xyz at pixel ({row},{col})")
     world_xyz = [round(float(v), 4) for v in world_xyz_raw[:3]]
 
     out = {
@@ -1981,4 +1550,4 @@ def back_project(
     }
     if depth_m is not None:
         out["depth_m"] = round(depth_m, 4)
-    return out
+    return ToolResult(data=out, error=out.pop("error", None))

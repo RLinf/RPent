@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import time
 from pathlib import Path
@@ -28,7 +29,8 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.memory.manager import MemoryManager
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, readonly
+from rpent.tools import ToolResult, tool
+from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import init_output_dir
 
 CONCURRENT_CALLS = [
@@ -65,62 +67,30 @@ class FakeToolkit(Toolkit):
         self._register_fake_tools()
 
     def _register_fake_tools(self) -> None:
-        @readonly
-        def read_text_file(path: str, max_chars: int = 40000) -> dict:
+        @tool(readonly=True)
+        def read_text_file(path: str, max_chars: int = 40000) -> ToolResult:
             time.sleep(0.05)
             p = Path(path)
-            return {"path": str(p), "size": 0, "content": "fake content"}
+            return ToolResult(
+                data={"path": str(p), "size": 0, "content": "fake content"}
+            )
 
-        @readonly
-        def list_dir(path: str = "") -> dict:
+        @tool(readonly=True)
+        def list_dir(path: str = "") -> ToolResult:
             time.sleep(0.05)
-            return {"path": path, "count": 0, "files": []}
+            return ToolResult(data={"path": path, "count": 0, "files": []})
 
-        def view_env_state(step: int = -1) -> dict:
+        def view_env_state(step: int = -1) -> ToolResult:
             time.sleep(0.3)
-            return {"step": step, "mode": "evaluation"}
+            return ToolResult(data={"step": step, "mode": "evaluation"})
 
-        self.add_tool(
-            "read_text_file",
-            {
-                "name": "read_text_file",
-                "description": "Read a UTF-8 text file.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"path": {"type": "string"}},
-                    "required": ["path"],
-                },
-            },
-            read_text_file,
-        )
-        self.add_tool(
-            "list_dir",
-            {
-                "name": "list_dir",
-                "description": "List files in a directory.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"path": {"type": "string"}},
-                },
-            },
-            list_dir,
-        )
-        self.add_tool(
-            "view_env_state",
-            {
-                "name": "view_env_state",
-                "description": "View the current environment state.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"step": {"type": "integer"}},
-                },
-            },
-            view_env_state,
-        )
+        self.add_tool(read_text_file, replace=True)
+        self.add_tool(list_dir, replace=True)
+        self.add_tool(tool(view_env_state))
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> Any:
         result = super().execute_tool(name, input_dict)
-        if result.result.get("error") == "another tool operation is still active":
+        if result.to_dict().get("error") == "another tool operation is still active":
             self.overlap_errors.append((name, dict(input_dict)))
         return result
 
@@ -130,8 +100,8 @@ class FakeToolkit(Toolkit):
         command: dict[str, Any],
         result: dict[str, Any],
         elapsed_s: float,
-    ) -> dict[str, Any]:
-        return {"observed": True}
+    ) -> ToolResult:
+        return ToolResult(data={"observed": True})
 
     def solved(self) -> bool:
         return False
@@ -149,6 +119,79 @@ def test_http_mcp_server_serializes_concurrent_tool_calls(tmp_path: Path) -> Non
 
     assert rejected == 0
     assert toolkit.overlap_errors == []
+
+
+def test_native_method_results_and_finish_cross_the_mcp_boundary(tmp_path) -> None:
+    from rpent.planner.api_loop import _ApiRunObserver
+    from rpent.planner.claude_code import _Recorder as ClaudeRecorder
+    from rpent.planner.codex import _Recorder as CodexRecorder
+
+    init_output_dir(tmp_path / "log")
+    toolkit = FakeToolkit(tmp_path)
+    calls = []
+
+    class Primitives:
+        @tool(readonly=True)
+        def inspect_scene(self, count: int) -> ToolResult:
+            """Read the saved camera view."""
+            calls.append(count)
+            return ToolResult(data={"count": count}, images=[b"camera pixels"])
+
+        @tool(readonly=True)
+        def finish(self, status: str) -> ToolResult:
+            """Finish only after confirmation."""
+            if status != "success":
+                return ToolResult(error="operator confirmation required")
+            return ToolResult(data={"status": status, "operator_notes": "confirmed"})
+
+    primitives = Primitives()
+    toolkit.add_tool(primitives.inspect_scene)
+    toolkit.add_tool(primitives.finish, replace=True)
+    recorders = [
+        _ApiRunObserver(
+            toolkit=toolkit, dashboard_events=RecordingSink(), messages=[], max_turns=2
+        ),
+        ClaudeRecorder(toolkit=toolkit, dashboard_events=RecordingSink(), max_turns=2),
+        CodexRecorder(toolkit=toolkit, dashboard_events=RecordingSink(), max_turns=2),
+    ]
+
+    async def exercise(url):
+        async with httpx.AsyncClient(trust_env=False) as http_client:
+            async with streamable_http_client(url, http_client=http_client) as (
+                read,
+                write,
+                _,
+            ):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    result = await session.call_tool("inspect_scene", {"count": 2})
+                    assert not result.isError
+                    assert json.loads(result.content[0].text) == {"count": 2}
+                    assert base64.b64decode(result.content[1].data) == b"camera pixels"
+                    coerced = await session.call_tool("inspect_scene", {"count": "3"})
+                    assert not coerced.isError
+                    assert json.loads(coerced.content[0].text) == {"count": 3}
+                    rejected = await session.call_tool("inspect_scene", {"self": {}})
+                    assert rejected.isError and calls == [2, 3]
+                    assert json.loads(rejected.content[0].text)["error"] == (
+                        "bad arguments for inspect_scene"
+                    )
+                    refused = await session.call_tool("finish", {"status": "failure"})
+                    assert refused.isError
+                    assert all(recorder.finish_result is None for recorder in recorders)
+                    accepted = await session.call_tool("finish", {"status": "success"})
+                    assert not accepted.isError
+                    assert all(
+                        recorder.finish_result
+                        == {"status": "success", "operator_notes": "confirmed"}
+                        for recorder in recorders
+                    )
+
+    server = HttpMcpServer(toolkit)
+    try:
+        asyncio.run(exercise(server.start()))
+    finally:
+        server.stop()
 
 
 async def _fire_concurrent(url: str) -> int:

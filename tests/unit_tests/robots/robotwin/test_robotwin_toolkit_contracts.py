@@ -26,7 +26,8 @@ from robots.robotwin import toolkit
 from robots.robotwin.primitives import RoboTwinPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
-from rpent.tools.toolkit import Toolkit, _is_readonly, readonly
+from rpent.tools import ToolResult, iter_tools
+from rpent.tools.toolkit import Toolkit
 from rpent.utils import templates
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
@@ -91,7 +92,7 @@ class FakeRoboTwinPrimitives:
         }
 
     def finish(self, *, status: str, summary: str) -> dict[str, Any]:
-        return {"_finish": True, "status": status, "summary": summary}
+        return ToolResult(data={"_finish": True, "status": status, "summary": summary})
 
     @staticmethod
     def _operation(name: str, **kwargs: Any) -> dict[str, Any]:
@@ -118,15 +119,11 @@ def _record(step_idx: int = 0) -> SimpleNamespace:
 
 
 def _tool_names(robot_toolkit: Toolkit) -> set[str]:
-    return {spec["name"] for spec in robot_toolkit.get_tools_spec()}
+    return {tool.name for tool in robot_toolkit.list_tools()}
 
 
 def _readonly_names(robot_toolkit: Toolkit) -> set[str]:
-    return {
-        name
-        for name, (_, handler) in robot_toolkit._tools.items()
-        if _is_readonly(handler)
-    }
+    return {tool.name for tool in robot_toolkit.list_tools() if tool.readonly}
 
 
 def test_fake_and_real_implement_toolkit_primitive_protocol() -> None:
@@ -150,6 +147,12 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
     monkeypatch.setattr(
         templates, "default_variables", lambda: {"output_dir": "/offline/output"}
     )
+    for definition in iter_tools(toolkit.RoboTwinPrimitives):
+        monkeypatch.setattr(
+            FakeRoboTwinPrimitives,
+            definition.name,
+            definition.with_handler(getattr(FakeRoboTwinPrimitives, definition.name)),
+        )
     monkeypatch.setattr(toolkit, "RoboTwinPrimitives", FakeRoboTwinPrimitives)
     monkeypatch.setattr(toolkit, "get_output_dir", lambda: tmp_path)
     monkeypatch.setattr(
@@ -168,7 +171,9 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
     monkeypatch.setattr(
         toolkit.tools,
         "view_env_state",
-        readonly(lambda step=-1, *, state: {"step": step}),
+        toolkit.tools.view_env_state.with_handler(
+            lambda step=-1, *, state: ToolResult(data={"step": step})
+        ),
     )
 
     robot_toolkit = toolkit.RoboTwinToolkit(
@@ -194,10 +199,13 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
     assert primitive.recording_started is True
     assert callable(primitive.kwargs["check_cancelled"])
 
-    robot_toolkit.get_env_state = lambda *, command, result, elapsed_s: dict(result)
+    robot_toolkit.get_env_state = lambda *, command, result, elapsed_s: ToolResult(
+        data=dict(result)
+    )
     render = robot_toolkit.execute_tool("render", {})
-    assert render.result == {"success": True}
+    assert render.to_dict() == {"success": True}
     finish = robot_toolkit.execute_tool(
         "finish", {"status": "failure", "summary": "offline"}
     )
-    assert finish.is_finish is True
+    assert not finish.is_error
+    assert robot_toolkit.finish_result is not None

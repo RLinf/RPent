@@ -17,13 +17,12 @@
 The loop wraps the agent's :class:`~rpent.tools.toolkit.Toolkit` as
 pydantic-ai function tools and drives :class:`pydantic_ai.Agent` runs,
 streaming each turn so progress is logged in real time. Task completion is
-signalled by the robot-provided ``finish`` tool, whose result carries ``_finish``.
+recorded in ``toolkit.finish_result`` after the robot accepts a ``finish`` call.
 """
 
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
 import dataclasses
 import json
@@ -61,6 +60,7 @@ from rpent.planner.base import REASONING_EFFORTS, PlannerResult
 from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
+from rpent.utils.templates import substitute
 
 logger = get_logger("api_loop")
 
@@ -158,6 +158,7 @@ class ApiAgentLoop:
         interactive = input_queue is not None
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
         observer = _ApiRunObserver(
+            toolkit=toolkit,
             dashboard_events=self._dashboard_events,
             messages=messages,
             max_turns=max_turns,
@@ -315,6 +316,7 @@ class ApiAgentLoop:
             defer_message_ack=True,
         )
         observer = _ApiRunObserver(
+            toolkit=toolkit,
             dashboard_events=self._dashboard_events,
             messages=messages,
             max_turns=max_turns,
@@ -380,13 +382,16 @@ class ApiAgentLoop:
 class _ApiRunObserver:
     """Record model/tool events shared by terminal and Dashboard runs."""
 
+    toolkit: Toolkit
     dashboard_events: DashboardEventSink
     messages: list[dict[str, Any]]
     max_turns: int
     turns: int = 0
     tool_calls: int = 0
-    finish_result: dict[str, Any] | None = None
-    pending_finish: dict[str, Any] | None = None
+
+    @property
+    def finish_result(self) -> dict[str, Any] | None:
+        return self.toolkit.finish_result
 
     def observe_response(
         self,
@@ -425,19 +430,13 @@ class _ApiRunObserver:
                     {"type": "tool_call", "tool": part.tool_name, "args": args}
                 )
             )
-            if part.tool_name == "finish":
-                self.pending_finish = {"_finish": True, **args}
         elif isinstance(event, FunctionToolResultEvent):
             completed = True
             message = _serialize_tool_result(event)
             self.messages.append(message)
             _log_tool_result(message)
             part = event.part
-            is_error = bool(getattr(part, "is_error", False))
-            if self.pending_finish is not None:
-                if not is_error and "finish refused" not in str(message):
-                    self.finish_result = self.pending_finish
-                self.pending_finish = None
+            is_error = bool((getattr(part, "metadata", None) or {}).get("is_error"))
             self.dashboard_events.emit(
                 TranscriptEvent(
                     {
@@ -722,14 +721,14 @@ def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
     # sequential=True serializes a turn's tool calls so the toolkit's
     # single-operation lock never rejects an overlapping call.
     tools: list[Tool] = [Tool(image_reader, name="read_image", sequential=True)]
-    for spec in toolkit.get_tools_spec():
-        name = spec["name"]
+    for declaration in toolkit.list_tools():
+        name = declaration.name
         tools.append(
             Tool.from_schema(
                 function=_make_tool_function(toolkit, name, no_images=no_images),
                 name=name,
-                description=spec.get("description", ""),
-                json_schema=spec.get("input_schema")
+                description=declaration.description,
+                json_schema=substitute(declaration.input_schema)
                 or {"type": "object", "properties": {}},
                 takes_ctx=False,
                 sequential=True,
@@ -822,37 +821,24 @@ def _make_tool_function(toolkit: Toolkit, name: str, *, no_images: bool = False)
 
     def _call(**kwargs: Any) -> Any:
         result = toolkit.execute_tool(name, kwargs)
-        text, images = _content_blocks_to_pydantic(result.content_blocks)
-        if images and not no_images:
-            return ToolReturn(return_value=text, content=images)
-        return text
+        images = (
+            []
+            if no_images
+            else [
+                BinaryContent(data=data, media_type="image/png")
+                for data in result.images
+            ]
+        )
+        if images or result.is_error:
+            return ToolReturn(
+                return_value=result.to_text(),
+                content=images,
+                metadata={"is_error": result.is_error},
+            )
+        return result.to_text()
 
     _call.__name__ = name
     return _call
-
-
-def _content_blocks_to_pydantic(
-    blocks: list[dict[str, Any]],
-) -> tuple[str, list[BinaryContent]]:
-    """Split Anthropic-shaped content blocks into text and image content."""
-    text_parts: list[str] = []
-    images: list[BinaryContent] = []
-    for block in blocks:
-        block_type = block.get("type")
-        if block_type == "text":
-            text_parts.append(block.get("text", ""))
-        elif block_type == "image":
-            source = block.get("source") or {}
-            data = source.get("data")
-            if source.get("type") == "base64" and data:
-                images.append(
-                    BinaryContent(
-                        data=base64.b64decode(data),
-                        media_type=source.get("media_type", "image/png"),
-                    )
-                )
-    text = "\n\n".join(part for part in text_parts if part) or "{}"
-    return text, images
 
 
 def _serialize_response(response: ModelResponse) -> dict[str, Any]:

@@ -30,51 +30,66 @@
 从 LLM 的视角看，两类原语采用相同的接口：一份工具定义、一个
 primitives 方法，以及调用完成后的状态快照。区别仅在于方法的具体实现。
 
-添加一个脚本化原语
-------------------
+从 Python 签名声明工具
+------------------------------
 
-添加脚本化原语通常需要以下两个步骤：
+``@tool`` 从函数签名和 Google 风格 docstring 生成工具说明、JSON Schema
+和参数校验模型。普通函数和实例方法都可以使用，已有 primitives 对象继续持有
+客户端与运行状态：
 
-1. **在 primitives 中添加方法。** 在当前机器人的 primitives
-   类（如 ``LiberoPrimitives``、``MyRobotPrimitives``）中添加
-   一个方法。该方法接收工具调用的参数，执行一次或多次
-   ``self._env.step(...)``，并返回一个简短的日志字典。
+.. code-block:: python
 
-     primitive 方法执行后默认会自动捕获并重新渲染状态
-     （``get_env_state``）：
+   from typing import Annotated
 
-   .. code-block:: python
+   from pydantic import Field
 
-      def open_drawer(self, dx: float = 0.15) -> dict:
-          # 保持夹爪闭合，沿 -x 方向后拉 dx 米。
-          for _ in range(N):
-              self._env.step(build_open_drawer_chunk(dx))
-          return {"ok": True, "dx": dx}
+   from rpent.tools import ToolResult, iter_tools, tool
 
-   只读工具（``view_env_state``、``back_project``、``segment`` 等）
-     可以使用 :func:`~rpent.tools.toolkit.readonly` 标记，toolkit 会跳过
-     它们的状态捕获，提升性能。
+   class MyPrimitives:
+       def __init__(self, env):
+           self.env = env
 
-2. **添加工具定义。** 在 ``robots/<robot>/tools.py`` 的 ``TOOLS_SPEC`` 中新增一项：
+       @tool
+       def move_delta(
+           self,
+           delta_xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+       ) -> ToolResult:
+           """Move the TCP by a base-frame offset.
 
-   .. code-block:: python
+           Args:
+               delta_xyz: XYZ displacement in metres.
+           """
+           return ToolResult(data=self.env.move_delta(delta_xyz))
 
-      {
-          "name": "open_drawer",
-          "description": "Pull the currently-grasped drawer handle "
-                         "backwards by ``dx`` meters.",
-          "input_schema": {
-              "type": "object",
-              "properties": {"dx": {"type": "number"}},
-              "required": [],
-          },
-      }
+   # 在机器人 toolkit 的 super().__init__(...) 之后注册：
+   self._primitives = MyPrimitives(env)
+   self.add_tools(iter_tools(self._primitives))
 
-两者就位后，toolkit 会自动注册该工具：它遍历 ``TOOLS_SPEC``，把每个定义
-绑定到对应的 primitive 方法（如 ``getattr(self._primitives, name)``）。
+注册时传入实例上的 **绑定方法**。``self`` 不出现在 schema 中，每个实例使用
+各自的资源。方法仍可从 Python 直接调用，包括类内的 ``self.move_delta(...)``
+和继承的方法。已有方法也可以在注册时包装：
+``self.add_tool(tool(self._primitives.move_delta))``。
 
-完成以上步骤后，``api``、``claude_code`` 和 ``codex`` 三种 planner
-都可以调用该工具，无需修改其他代码。
+公开参数必须有类型注解，并能以关键字传入。约束通过
+``Annotated[..., Field(...)]`` 声明。函数签名中的默认值在运行时补齐参数；
+需要在 schema 中公开时，用 ``Field(json_schema_extra={"default": value})``
+显式声明。``Toolkit.execute_tool`` 在调用工具和采集观测之前执行 Pydantic
+参数校验，拒绝未知参数和非有限数值。直接从 Python 调用方法时，沿用普通
+Python 的参数处理方式。
+
+工具返回 ``ToolResult(data=..., images=..., error=...)``。结构化数据放在
+``data`` 中，PNG 字节放在 ``images`` 中，错误通过 ``error`` 表达。
+原语内部直接调用其他工具时，取得的同样是 ``ToolResult``。
+只读工具使用 ``@tool(readonly=True)``，跳过自动观测采集。
+通过 ``Toolkit.execute_tool`` 调用时，``@tool`` 和 ``@tool()`` 声明的工具
+默认都会采集观测；直接从 Python 调用时不会自动采集。
+``readonly`` 仅控制这一步采集，不禁止文件写入，也不允许工具并发执行。
+``iter_tools`` 从指定实例或模块中收集装饰过的工具，包括继承的方法。
+新增原语时装饰其成员方法即可，无需再维护 schema 或工具名称列表。
+普通方法和 property 不会被收集。模式筛选、资源绑定和执行保护仍由 Toolkit
+负责。对于 ``state`` 等内部注入参数，声明 ``exclude=("state",)``，再用
+``declaration.with_handler(partial(declaration, state=self.state))`` 绑定后注册。
+装饰器不会创建环境或模型客户端。
 
 .. _add-primitive-model-based:
 
@@ -103,7 +118,8 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
    ``rpent.robots.components.pi05_vla_client.Pi05VLAClient``。
 
 3. **在 primitives 中添加方法。** 在当前机器人的 primitives
-   类中调用 model client，将其返回的动作块交给环境执行，并返回日志字典。
+   类中调用 model client，将其返回的动作块交给环境执行，并用
+   ``ToolResult(data=...)`` 返回动作日志。
    model client 的接口是
    :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict`，
    指令从 ``env_obs["task_descriptions"]`` 中读取；返回 ``[chunk, action_dim]``
@@ -111,14 +127,15 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 
    .. code-block:: python
 
-      def mymodel_pick(self, target: str) -> dict:
+      def mymodel_pick(self, target: str) -> ToolResult:
           env_obs = self._env.get_obs()
           env_obs["task_descriptions"] = f"pick {target}"
           chunk = self._model.predict(env_obs)
           self._env.chunk_step(chunk)
-          return {"model": "mymodel", "target": target}
+          return ToolResult(data={"model": "mymodel", "target": target})
 
-4. **添加工具定义并在 toolkit 中注册。** 具体做法与脚本化原语相同。
+4. **为方法添加 ``@tool``，并注册实例上的绑定方法。** 按上面的示例，
+   使用类型注解和 docstring 的 ``Args`` 段声明参数。
 
 5. **在 ``robot_spec.py`` 中连接各组件。** 机器人的 ``get_toolkit`` 使用
    ``runtime_kwargs`` 构造 toolkit：
@@ -211,7 +228,7 @@ mixin 覆盖的 ``serve`` 与 :class:`~rpent.utils.rpc.RpcFacade` 的
   而不是 ``execute_action_chunk_of_length_20``。
 - **每个工具执行结束后都要保存新的状态快照。** 下一轮需要读取动作执行后的
   环境状态，因此原语不能在渲染完成前返回。
-- **工具只返回简短的字典。** 返回值会以文本形式提供给 LLM；图像、深度数据和
+- **保持 ``ToolResult.data`` 简短。** 返回值会以文本形式提供给 LLM；图像、深度数据和
   其他大型观测应通过 ``EnvState.save`` 保存；``EnvState`` 会把每个逻辑基础
   文件名自动加入其持有的 ``StepRecord.artifacts`` 集合。图像通过
   ``view_env_state`` 提供，几何数据通过环境工具访问，不返回原始路径。

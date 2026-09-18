@@ -169,7 +169,7 @@ Planner, Toolkit, and RPC transports
 -------------------------------------
 
 These three layers stay decoupled, each owning one segment of the path. The
-planner only pulls the tool list via ``get_tools_spec`` and invokes tools with
+planner only pulls the tool list via ``list_tools`` and invokes tools with
 ``execute_tool``, indifferent to whether a tool is scripted or a VLA. The
 toolkit translates each tool call into a primitive call, and the primitives
 issues ``reset`` / ``step`` / ``predict`` requests to ``env_server`` /
