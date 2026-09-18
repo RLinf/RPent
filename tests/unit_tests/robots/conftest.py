@@ -109,6 +109,10 @@ class FakeSingleArmPrimitives:
         return self._operation("move_base", **kwargs)
 
 
+class FakeRealSenseCamera:
+    """Inert stand-in for RLinf's concrete RealSense camera class."""
+
+
 @pytest.fixture
 def fake_single_arm_primitives() -> type[FakeSingleArmPrimitives]:
     FakeSingleArmPrimitives.instances.clear()
@@ -207,6 +211,12 @@ def fake_rlinf_realworld_modules(monkeypatch: pytest.MonkeyPatch) -> None:
             ),
         ),
         "rlinf.robotics": _fake_module("rlinf.robotics", __path__=[]),
+        "rlinf.robotics.parts": _fake_module("rlinf.robotics.parts", __path__=[]),
+        "rlinf.robotics.parts.cameras": _fake_module(
+            "rlinf.robotics.parts.cameras",
+            CameraInfo=object,
+            RealSenseCamera=FakeRealSenseCamera,
+        ),
         "rlinf.robotics.robots": _fake_module("rlinf.robotics.robots", __path__=[]),
         "rlinf.robotics.robots.franka": _fake_module(
             "rlinf.robotics.robots.franka",

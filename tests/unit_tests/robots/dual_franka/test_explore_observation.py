@@ -26,7 +26,11 @@ from robots.dual_franka.env_server import _create_worker_class
 def test_worker_reads_before_reset_and_refreshes_cached_frames(monkeypatch):
     for name, attrs in {
         "rlinf.envs.real.env": {"RealWorldEnv": object},
-        "rlinf.robotics.parts.cameras": {"Camera": object, "CameraInfo": object},
+        "rlinf.robotics.parts.cameras": {
+            "Camera": object,
+            "CameraInfo": object,
+            "RealSenseCamera": object,
+        },
         "rlinf.scheduler": {"Worker": object},
     }.items():
         module = ModuleType(name)

@@ -24,6 +24,7 @@ import numpy as np
 from gymnasium.envs.registration import register
 from rlinf.envs.real.franka.base import FrankaEnv
 from rlinf.envs.real.wrappers import build_stack
+from rlinf.robotics.parts.cameras import CameraInfo, RealSenseCamera
 
 
 class RPentFrankaEnv(FrankaEnv):
@@ -37,37 +38,6 @@ class RPentFrankaEnv(FrankaEnv):
             self._franka_state = self._read_robot()
         observation = self._get_observation()
         return observation.get("frames", {}), observation.get("depths", {})
-
-    @staticmethod
-    def _color_intrinsics(camera: Any) -> dict[str, Any] | None:
-        """Read color intrinsics across the old and composable RLinf cameras."""
-        getter = getattr(camera, "get_color_intrinsics", None)
-        if callable(getter):
-            return dict(getter())
-
-        profile = getattr(camera, "profile", None)
-        if profile is None:
-            return None
-        try:
-            import pyrealsense2 as rs
-
-            intrinsics = (
-                profile.get_stream(rs.stream.color)
-                .as_video_stream_profile()
-                .get_intrinsics()
-            )
-        except Exception:
-            return None
-        return {
-            "width": int(intrinsics.width),
-            "height": int(intrinsics.height),
-            "fx": float(intrinsics.fx),
-            "fy": float(intrinsics.fy),
-            "ppx": float(intrinsics.ppx),
-            "ppy": float(intrinsics.ppy),
-            "distortion_model": str(intrinsics.model),
-            "coeffs": [float(value) for value in intrinsics.coeffs],
-        }
 
     @staticmethod
     def _crop_bounds(
@@ -94,23 +64,23 @@ class RPentFrankaEnv(FrankaEnv):
     def _camera_projection_metadata(
         cls,
         *,
-        camera_info: Any,
-        raw_intrinsics: dict[str, Any] | None,
+        camera_info: CameraInfo,
+        raw_intrinsics: dict[str, Any],
         output_size: tuple[int, int],
         depth_scale: float,
         depth_enabled: bool,
     ) -> dict[str, Any]:
         """Describe the image transform used by RLinf's camera observation."""
-        raw_width, raw_height = camera_info.resolution
-        if raw_intrinsics is not None:
-            raw_width = int(raw_intrinsics["width"])
-            raw_height = int(raw_intrinsics["height"])
+        raw_width = raw_intrinsics["width"]
+        raw_height = raw_intrinsics["height"]
         x1, y1, x2, y2 = cls._crop_bounds(
             width=raw_width,
             height=raw_height,
             crop_region=camera_info.crop_region,
         )
         output_width, output_height = output_size
+        scale_x = output_width / float(x2 - x1)
+        scale_y = output_height / float(y2 - y1)
         metadata = {
             "name": camera_info.name,
             "serial_number": camera_info.serial_number,
@@ -128,39 +98,56 @@ class RPentFrankaEnv(FrankaEnv):
             "extrinsic_cam2base": None,
             "extrinsic_cam2ee": None,
             "raw_color_intrinsics": raw_intrinsics,
-            "intrinsic_K": None,
+            "intrinsic_K": [
+                [
+                    raw_intrinsics["fx"] * scale_x,
+                    0.0,
+                    (raw_intrinsics["ppx"] - x1) * scale_x,
+                ],
+                [
+                    0.0,
+                    raw_intrinsics["fy"] * scale_y,
+                    (raw_intrinsics["ppy"] - y1) * scale_y,
+                ],
+                [0.0, 0.0, 1.0],
+            ],
         }
-        if raw_intrinsics is None:
-            return metadata
-
-        scale_x = output_width / float(x2 - x1)
-        scale_y = output_height / float(y2 - y1)
-        metadata["intrinsic_K"] = [
-            [
-                float(raw_intrinsics["fx"]) * scale_x,
-                0.0,
-                (float(raw_intrinsics["ppx"]) - x1) * scale_x,
-            ],
-            [
-                0.0,
-                float(raw_intrinsics["fy"]) * scale_y,
-                (float(raw_intrinsics["ppy"]) - y1) * scale_y,
-            ],
-            [0.0, 0.0, 1.0],
-        ]
         return metadata
 
     def get_camera_metadata(self) -> dict[str, Any]:
         """Return projection metadata matching the emitted RGB-D observations."""
         cameras = {}
-        for camera in getattr(self, "_cameras", {}).values():
+        for camera in self._cameras.values():
+            if not isinstance(camera, RealSenseCamera):
+                raise TypeError(
+                    "camera projection metadata requires RLinf RealSenseCamera, "
+                    f"got {type(camera).__name__}"
+                )
+
+            import pyrealsense2 as rs
+
             info = camera.camera_info
+            intrinsics = (
+                camera.profile.get_stream(rs.stream.color)
+                .as_video_stream_profile()
+                .get_intrinsics()
+            )
+            raw_intrinsics = {
+                "width": int(intrinsics.width),
+                "height": int(intrinsics.height),
+                "fx": float(intrinsics.fx),
+                "fy": float(intrinsics.fy),
+                "ppx": float(intrinsics.ppx),
+                "ppy": float(intrinsics.ppy),
+                "distortion_model": str(intrinsics.model),
+                "coeffs": [float(value) for value in intrinsics.coeffs],
+            }
             output_height, output_width = self.observation_space["frames"][
                 info.name
             ].shape[:2]
             cameras[info.name] = self._camera_projection_metadata(
                 camera_info=info,
-                raw_intrinsics=self._color_intrinsics(camera),
+                raw_intrinsics=raw_intrinsics,
                 output_size=(int(output_width), int(output_height)),
                 depth_scale=float(camera.depth_scale),
                 depth_enabled=bool(info.enable_depth),

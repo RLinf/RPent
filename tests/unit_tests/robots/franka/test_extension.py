@@ -16,11 +16,13 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import gymnasium as gym
 import numpy as np
+import pytest
 
 from robots.franka.runtime_config import load_runtime_config
 
@@ -68,7 +70,10 @@ def test_live_camera_observation_refreshes_rlinf_camera_cache(
 
 def test_camera_metadata_matches_current_rlinf_crop(
     fake_rlinf_realworld_modules,
+    monkeypatch,
 ):
+    from rlinf.robotics.parts.cameras import RealSenseCamera
+
     from robots.franka.rpent_env import RPentFrankaEnv
 
     info = SimpleNamespace(
@@ -79,18 +84,30 @@ def test_camera_metadata_matches_current_rlinf_crop(
         crop_region=None,
         enable_depth=True,
     )
-    camera = SimpleNamespace(
-        camera_info=info,
-        depth_scale=0.001,
-        get_color_intrinsics=lambda: {
-            "width": 640,
-            "height": 480,
-            "fx": 600.0,
-            "fy": 600.0,
-            "ppx": 320.0,
-            "ppy": 240.0,
-        },
+    intrinsics = SimpleNamespace(
+        width=640,
+        height=480,
+        fx=600.0,
+        fy=600.0,
+        ppx=320.0,
+        ppy=240.0,
+        model="brown_conrady",
+        coeffs=[0.1, 0.2, 0.3, 0.4, 0.5],
     )
+    video_profile = SimpleNamespace(get_intrinsics=lambda: intrinsics)
+    video_profile.as_video_stream_profile = lambda: video_profile
+    color_stream = object()
+    profile = SimpleNamespace(
+        get_stream=lambda stream: video_profile if stream is color_stream else None
+    )
+    realsense = ModuleType("pyrealsense2")
+    realsense.stream = SimpleNamespace(color=color_stream)
+    monkeypatch.setitem(sys.modules, "pyrealsense2", realsense)
+
+    camera = RealSenseCamera()
+    camera.camera_info = info
+    camera.depth_scale = 0.001
+    camera.profile = profile
     env = RPentFrankaEnv.__new__(RPentFrankaEnv)
     env._cameras = {"wrist_1": camera}
     env.config = SimpleNamespace(enable_camera_depth=True)
@@ -103,8 +120,34 @@ def test_camera_metadata_matches_current_rlinf_crop(
     assert metadata["depth_unit"] == "m"
     assert metadata["cameras"]["wrist_1"]["crop_bounds_xyxy"] == [80, 0, 560, 480]
     assert metadata["cameras"]["wrist_1"]["output_resolution"] == [128, 128]
+    assert metadata["cameras"]["wrist_1"]["raw_color_intrinsics"] == {
+        "width": 640,
+        "height": 480,
+        "fx": 600.0,
+        "fy": 600.0,
+        "ppx": 320.0,
+        "ppy": 240.0,
+        "distortion_model": "brown_conrady",
+        "coeffs": [0.1, 0.2, 0.3, 0.4, 0.5],
+    }
     assert metadata["cameras"]["wrist_1"]["intrinsic_K"] == [
         [160.0, 0.0, 64.0],
         [0.0, 160.0, 64.0],
         [0.0, 0.0, 1.0],
     ]
+
+
+def test_camera_metadata_rejects_non_realsense_camera(
+    fake_rlinf_realworld_modules,
+):
+    from robots.franka.rpent_env import RPentFrankaEnv
+
+    info = SimpleNamespace(name="wrist_1")
+    env = RPentFrankaEnv.__new__(RPentFrankaEnv)
+    env._cameras = {"wrist_1": SimpleNamespace(camera_info=info, depth_scale=0.001)}
+    env.observation_space = {
+        "frames": {"wrist_1": SimpleNamespace(shape=(128, 128, 3))}
+    }
+
+    with pytest.raises(TypeError, match="requires RLinf RealSenseCamera"):
+        env.get_camera_metadata()

@@ -103,7 +103,7 @@ def _pack_dual_action(
 def _create_worker_class():
     """Build the Worker subclass only inside the RLinf server environment."""
     from rlinf.envs.real.env import RealWorldEnv
-    from rlinf.robotics.parts.cameras import Camera, CameraInfo
+    from rlinf.robotics.parts.cameras import Camera, CameraInfo, RealSenseCamera
     from rlinf.scheduler import Worker
     from scipy.spatial.transform import Rotation as Rotation
 
@@ -672,8 +672,30 @@ def _create_worker_class():
                     depth_scale = float(camera.depth_scale)
                     depth = frame[..., 3].astype(np.float32) * depth_scale
                     output["raw_depths"][raw_key] = depth
-                intrinsics = camera.get_color_intrinsics()
-                info = camera._camera_info
+                if not isinstance(camera, RealSenseCamera):
+                    raise TypeError(
+                        "camera projection metadata requires RLinf "
+                        f"RealSenseCamera, got {type(camera).__name__}"
+                    )
+
+                import pyrealsense2 as rs
+
+                color_intrinsics = (
+                    camera.profile.get_stream(rs.stream.color)
+                    .as_video_stream_profile()
+                    .get_intrinsics()
+                )
+                intrinsics = {
+                    "width": int(color_intrinsics.width),
+                    "height": int(color_intrinsics.height),
+                    "fx": float(color_intrinsics.fx),
+                    "fy": float(color_intrinsics.fy),
+                    "ppx": float(color_intrinsics.ppx),
+                    "ppy": float(color_intrinsics.ppy),
+                    "distortion_model": str(color_intrinsics.model),
+                    "coeffs": [float(value) for value in color_intrinsics.coeffs],
+                }
+                info = camera.camera_info
                 meta = {
                     "name": raw_key,
                     "camera_alias": alias,
