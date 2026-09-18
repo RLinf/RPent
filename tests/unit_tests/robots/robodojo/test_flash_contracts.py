@@ -14,6 +14,7 @@
 
 import copy
 import json
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -219,6 +220,86 @@ def test_eval_facade_never_queries_privileged_feedback(monkeypatch):
     facade.step({})
     with pytest.raises(RuntimeError, match="budget"):
         facade.step({})
+
+
+def test_env_close_releases_recording_capture_and_replicator_in_order(monkeypatch):
+    events = []
+
+    class Recorder:
+        def close(self):
+            events.append("writer")
+            return []
+
+    class Capture:
+        tiled_cameras = [
+            SimpleNamespace(
+                _render_product_path="/camera/render",
+                _annotators={
+                    "rgb": SimpleNamespace(
+                        detach=lambda paths: events.append(("detach", paths))
+                    )
+                },
+            )
+        ]
+
+        def destroy(self):
+            events.append("capture")
+
+    env = SimpleNamespace(obs_manager=SimpleNamespace(capture_manager=Capture()))
+    facade = env_server.RoboDojoEnvFacade(
+        env, SimpleNamespace(close=lambda: events.append("app")), Recorder(), meta={}
+    )
+    monkeypatch.setattr(
+        env_server.RoboDojoEnvFacade,
+        "_stop_replicator",
+        staticmethod(lambda: events.append("replicator")),
+    )
+    facade.request_close()
+    assert facade._shutdown_event.is_set()
+    assert events == []
+    facade.close()
+    facade.close()
+    assert events == [
+        "writer",
+        ("detach", ["/camera/render"]),
+        "capture",
+        "replicator",
+        "app",
+    ]
+
+
+def test_shutdown_clears_stale_syntheticdata_handles_before_replicator_ticks(
+    monkeypatch,
+):
+    stale_handles = ["destroyed-camera-graph"]
+
+    def reset(*, usd):
+        assert usd is False  # Render products already destroyed their USD graphs.
+        stale_handles.clear()
+
+    def tick():
+        assert not stale_handles, "Invalid object in Py_Graph"
+
+    rep = SimpleNamespace(
+        orchestrator=SimpleNamespace(
+            set_capture_on_play=lambda value: tick(),
+            stop=tick,
+            wait_until_complete=tick,
+        )
+    )
+    monkeypatch.setitem(
+        sys.modules, "omni", SimpleNamespace(replicator=SimpleNamespace(core=rep))
+    )
+    monkeypatch.setitem(sys.modules, "omni.replicator", SimpleNamespace(core=rep))
+    monkeypatch.setitem(sys.modules, "omni.replicator.core", rep)
+    monkeypatch.setitem(
+        sys.modules,
+        "omni.syntheticdata",
+        SimpleNamespace(
+            SyntheticData=SimpleNamespace(Get=lambda: SimpleNamespace(reset=reset))
+        ),
+    )
+    env_server.RoboDojoEnvFacade._stop_replicator()
 
 
 def test_eval_client_rejects_dev_service_and_does_not_reset():

@@ -539,6 +539,7 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         self.env = env
         self.app = app
         self.recorder = recorder
+        self._closed = False
         self.meta = meta
         self.eval_fair = meta.get("mode", "dev") == "eval-fair"
         self.bottle_mon = _SafetyMonitor()
@@ -554,7 +555,7 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 "env.get_safety_status": self.get_safety_status,
                 "env.solve_ik_position": self.solve_ik_position,
                 "env.is_success": self.is_success,
-                "env.close": self.close,
+                "env.close": self.request_close,
             }
         )
         self._readonly_methods.update(
@@ -707,22 +708,60 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
     def is_success(self) -> bool:
         return bool(self.env.is_success(env_idx=0))
 
+    def request_close(self) -> None:
+        """Let the RPC response finish before main-thread resource teardown."""
+        self._shutdown_event.set()
+
     def close(self) -> None:
+        """Release Isaac resources on the serving thread exactly once."""
+        if self._closed:
+            return
+        # Isaac's stage/UI teardown requires the main thread's event loop,
+        # even with --headless. Never start a background app.close callback.
+        if threading.current_thread() is not threading.main_thread():
+            raise RuntimeError("Isaac teardown must run on the main thread")
+        self._closed = True
+        print("[robodojo-env] shutdown begin", flush=True)
+        # Release resources in dependency order: encoded frames first, then
+        # camera annotators/render products, then Replicator before Isaac.
         try:
             paths = self.recorder.close()
             print(f"[robodojo-env] videos written: {paths}", flush=True)
         finally:
+            self._close_capture_manager()
+            self._stop_replicator()
+            try:
+                self.app.close()
+            finally:
+                print("[robodojo-env] shutdown complete", flush=True)
 
-            def _shutdown() -> None:
-                time.sleep(0.5)
-                try:
-                    self.app.close()
-                except Exception:  # noqa: BLE001
-                    pass
+    def _close_capture_manager(self) -> None:
+        manager = getattr(self.env, "capture_manager", None)
+        if manager is None:
+            manager = getattr(
+                getattr(self.env, "obs_manager", None), "capture_manager", None
+            )
+        destroy = getattr(manager, "destroy", None)
+        if callable(destroy):
+            # RoboDojo's CameraView destructor still refers to the old tiled
+            # sensor fields; detach its current annotators before destroy().
+            for camera in manager.tiled_cameras:
+                for annotator in camera._annotators.values():
+                    annotator.detach([camera._render_product_path])
+                camera._annotators.clear()
+            destroy()
 
-            # Respond to the RPC first, then tear down Isaac (the process
-            # would otherwise exit before the HTTP response is sent).
-            threading.Thread(target=_shutdown, daemon=True).start()
+    @staticmethod
+    def _stop_replicator() -> None:
+        import omni.replicator.core as rep
+        from omni.syntheticdata import SyntheticData
+
+        # Destroyed camera graphs must not be evaluated on the next app tick.
+        # usd=False clears cached handles after capture.destroy removed graphs.
+        SyntheticData.Get().reset(usd=False)
+        rep.orchestrator.set_capture_on_play(False)
+        rep.orchestrator.stop()
+        rep.orchestrator.wait_until_complete()
 
 
 def main() -> None:
