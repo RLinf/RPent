@@ -93,7 +93,7 @@ RPent 面向以下四类用户：
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html">LIBERO-PRO</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html">RoboTwin</a> ✅</li>
-          <li>RoboDojo</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robodojo/index.html">RoboDojo</a>（实验性：双臂、三相机 RGB-D、Pi_05、Flash；支持任务发现，未验证任务成功；无 handover，低 Z 脚本 IK 受限）</li>
         </ul>
       </td>
       <td>

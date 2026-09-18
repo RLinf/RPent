@@ -17,9 +17,9 @@
 from __future__ import annotations
 
 import os
+import select
 import socket
 import subprocess
-import sys
 import threading
 from typing import Callable
 
@@ -34,23 +34,53 @@ logger = get_logger("daemon")
 # ---------------------------------------------------------------------------
 
 
-def watch_parent_death(on_death: Callable[[], None]) -> None:
+class ParentDeathWatcher:
+    """Cancellable stdin EOF watcher that never touches ``BufferedReader``."""
+
+    def __init__(self, on_death: Callable[[], None], fd: int = 0) -> None:
+        self._on_death = on_death
+        self._fd = fd
+        self._stop = threading.Event()
+        # Owners stop and join this thread. A startup exception must not keep
+        # the interpreter alive; raw fd reads are safe during finalization.
+        self._thread = threading.Thread(
+            target=self._run, name="parent-watch", daemon=True
+        )
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                ready, _, _ = select.select([self._fd], [], [], 0.1)
+            except (OSError, ValueError):
+                return
+            if not ready:
+                continue
+            try:
+                data = os.read(self._fd, 4096)
+            except OSError:
+                return
+            if not data:
+                if not self._stop.is_set():
+                    self._on_death()
+                return
+
+    def close(self) -> None:
+        """Cancel polling and wait for the watcher to finish."""
+        self._stop.set()
+        if self._thread is not threading.current_thread():
+            self._thread.join(timeout=1.0)
+
+
+def watch_parent_death(on_death: Callable[[], None]) -> ParentDeathWatcher:
     """Call ``on_death()`` once, from a background thread, when stdin hits EOF.
 
-    Under :class:`ProcessDaemon` this fires exactly when the parent dies. If
-    invoked from a terminal, ``read()`` blocks on user input and never fires;
-    if stdin is redirected from ``/dev/null`` or already closed, it fires
-    immediately.
+    The owner must close the returned handle during teardown. ProcessDaemon
+    closes the pipe for graceful shutdown, or the OS closes it on parent death.
+    Terminal input is polled without blocking; /dev/null produces immediate EOF.
     """
 
-    def _watch() -> None:
-        try:
-            sys.stdin.buffer.read()
-        except Exception:
-            pass
-        on_death()
-
-    threading.Thread(target=_watch, daemon=True).start()
+    return ParentDeathWatcher(on_death)
 
 
 # ---------------------------------------------------------------------------
@@ -123,11 +153,23 @@ class ProcessDaemon:
 
     def stop(self, timeout: float = 15.0) -> None:
         if self._proc is not None and self._proc.poll() is None:
-            self._proc.terminate()
-            try:
-                self._proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
+            # Closing the parent-watch pipe lets cooperative servers unwind
+            # their RPC/facade cleanup and exit with status 0.
+            if "--parent-watch" in self.cmd and self._proc.stdin is not None:
+                try:
+                    self._proc.stdin.close()
+                    self._proc.wait(timeout=timeout)
+                except (BrokenPipeError, OSError, subprocess.TimeoutExpired):
+                    pass
+            if self._proc.poll() is None:
+                self._proc.terminate()
+                try:
+                    self._proc.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    self._proc.kill()
+                    self._proc.wait()
+        if self._proc is not None and self._proc.stdin is not None:
+            self._proc.stdin.close()
         if self._log_f is not None:
             try:
                 self._log_f.close()

@@ -14,9 +14,16 @@
 
 """RPC server wrapping the Pi0.5 VLA.
 
+``--policy-backend`` selects an adapter implementing ``BaseVLAFacade``:
+``rlinf`` (default) loads a model in process; ``xpolicylab`` connects to an
+external WebSocket policy. Each adapter retains its native observation and
+checkpoint format; backend selection does not convert either format.
+For XPolicyLab, ``--output-dir`` selects the directory for the spawned policy
+server's ``vla_server.log`` (defaults to the current working directory).
+
 Embodiment-specific settings (openpi config name, action dim, …) are
 selected by the ``--embodiment`` CLI flag and looked up in
-``PI05_EMBODIMENTS``.
+``PI05_EMBODIMENTS`` for the RLinf adapter.
 
 The ``--model-backend`` flag picks the RLinf loader an embodiment uses
 (``openpi_pytorch``, the default, or ``openpi_rlinf``). Presets whose loader
@@ -33,8 +40,6 @@ import time
 from typing import Any
 
 import numpy as np
-import torch
-from omegaconf import OmegaConf
 
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.config import get_pi05_checkpoint_path
@@ -105,6 +110,14 @@ def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
     the model config.  ``model_path`` is set at runtime, not from the
     embodiment preset.
     """
+    try:
+        from omegaconf import OmegaConf
+    except ImportError as exc:
+        raise RuntimeError(
+            "The RLinf policy backend requires omegaconf to build model configuration; "
+            "install omegaconf in the policy server's Python environment."
+        ) from exc
+
     cfg = {
         "model_type": "openpi",
         "model_path": model_path,
@@ -173,6 +186,7 @@ class Pi05VLAFacade(BaseVLAFacade):
         self._embodiment = embodiment
         super().__init__()
 
+        cfg = build_model_cfg(model_path=model_path, emb_cfg=emb_cfg)
         if model_backend == "openpi_rlinf":
             from rlinf.models.embodiment.openpi_rlinf import get_model
         else:
@@ -182,7 +196,6 @@ class Pi05VLAFacade(BaseVLAFacade):
         if platform is not None:
             os.environ.setdefault("ROBOT_PLATFORM", platform)
 
-        cfg = build_model_cfg(model_path=model_path, emb_cfg=emb_cfg)
         if repo_id is not None or norm_stats_path is not None:
             cfg.openpi_data = {}
             if repo_id is not None:
@@ -207,6 +220,8 @@ class Pi05VLAFacade(BaseVLAFacade):
         The caller (client) is responsible for encoding env-native obs into
         the openpi wire format (see ``Pi05VLAClient.encode_obs``).
         """
+        import torch
+
         mode = (options or {}).get("mode", "eval")
         with torch.no_grad():
             actions, _ = self._model.predict_action_batch(obs, mode=mode)
@@ -226,11 +241,38 @@ class Pi05VLAFacade(BaseVLAFacade):
 # ---------------------------------------------------------------------------
 
 
+def create_backend(args: argparse.Namespace) -> BaseVLAFacade:
+    """Select a policy adapter implementing the shared VLA RPC contract."""
+    if args.policy_backend == "xpolicylab":
+        from rpent.robots.components.xpolicylab_vla_server import XPolicyLabVLAFacade
+
+        return XPolicyLabVLAFacade(args)
+    if args.policy_backend != "rlinf":
+        raise ValueError(f"Unknown policy backend: {args.policy_backend!r}")
+    model_path = args.model_path or get_pi05_checkpoint_path()
+    if not model_path:
+        raise RuntimeError(
+            "PI05_CHECKPOINT_PATH is not set; provide the Pi0.5 checkpoint "
+            "path via --model-path or the environment."
+        )
+    return Pi05VLAFacade(
+        model_path=model_path,
+        embodiment=args.embodiment,
+        model_backend=args.model_backend,
+        norm_stats_path=args.norm_stats_path,
+        repo_id=args.repo_id,
+    )
+
+
 def main() -> None:
+    from rpent.robots.components.xpolicylab_vla_server import add_backend_args
+
     p = argparse.ArgumentParser()
+    p.add_argument("--policy-backend", choices=["rlinf", "xpolicylab"], default="rlinf")
+    add_backend_args(p)
     p.add_argument(
         "--embodiment",
-        required=True,
+        default=None,
         help="Embodiment preset name (e.g. 'libero'); see PI05_EMBODIMENTS",
     )
     p.add_argument("--transport", choices=["socket", "http"], default="http")
@@ -282,26 +324,31 @@ def main() -> None:
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = target
 
-    model_path = args.model_path or get_pi05_checkpoint_path()
-    if not model_path:
-        raise RuntimeError(
-            "PI05_CHECKPOINT_PATH is not set; provide the Pi0.5 checkpoint "
-            "path via --model-path or the environment."
-        )
+    import signal
 
-    facade = Pi05VLAFacade(
-        model_path=model_path,
-        embodiment=args.embodiment,
-        model_backend=args.model_backend,
-        norm_stats_path=args.norm_stats_path,
-        repo_id=args.repo_id,
-    )
-    facade.serve(
-        transport=args.transport,
-        host=args.host,
-        port=args.port,
-        parent_watch=args.parent_watch,
-    )
+    def terminate(signum, frame):
+        raise SystemExit(128 + signum)
+
+    previous = None
+    if args.policy_backend == "xpolicylab":
+        # ProcessDaemon.stop sends SIGTERM; unwind startup/serve and its cleanup.
+        previous = signal.signal(signal.SIGTERM, terminate)
+    facade = None
+    try:
+        facade = create_backend(args)
+        facade.serve(
+            transport=args.transport,
+            host=args.host,
+            port=args.port,
+            parent_watch=args.parent_watch,
+        )
+    finally:
+        try:
+            if facade is not None and args.policy_backend == "xpolicylab":
+                facade.close()
+        finally:
+            if previous is not None:
+                signal.signal(signal.SIGTERM, previous)
 
 
 if __name__ == "__main__":
