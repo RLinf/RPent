@@ -21,6 +21,7 @@ import json
 from pathlib import Path
 
 from rpent.memory import MemoryManager
+from rpent.memory.versions import MEMORY_VERSIONS, select_version, sync_version
 from rpent.utils.config import get_memory_dir
 
 
@@ -44,11 +45,38 @@ def _parser() -> argparse.ArgumentParser:
     )
     subparsers.add_parser("validate", help="Validate published memory leaves.")
     subparsers.add_parser("build-index", help="Rebuild MEMORY.md.")
+    sync = subparsers.add_parser(
+        "sync", help="Download one model-specific LIBERO memory corpus."
+    )
+    sync.add_argument("--robot", choices=["libero"], default="libero")
+    sync.add_argument("--memory-version", choices=MEMORY_VERSIONS, default="auto")
+    sync.add_argument("--model", default=None)
+    sync.add_argument(
+        "--planner", choices=["api", "codex", "claude_code", "flash"], default="codex"
+    )
+    sync.add_argument("--revision", default="main", help="Hub commit, tag or branch.")
+    sync.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Copy the corpus into a new directory for --memory-dir.",
+    )
     return parser
 
 
 def main() -> int:
     args = _parser().parse_args()
+    if args.command == "sync":
+        version = select_version(
+            args.memory_version, model=args.model, planner=args.planner
+        )
+        root = sync_version(
+            version=version,
+            revision=args.revision,
+            cache_dir=get_memory_dir(args.robot) / ".versions",
+            output_dir=args.output_dir,
+        )
+        print(root)
+        return 0
     manager = MemoryManager(args.memory_dir)
     if args.command == "merge":
         result = manager.merge_memory(
