@@ -26,7 +26,8 @@ from robots.robocasa import robot_spec, toolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
-from rpent.tools.toolkit import Toolkit, _is_readonly
+from rpent.tools import iter_tools
+from rpent.tools.toolkit import Toolkit
 from rpent.utils import templates
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
@@ -54,15 +55,11 @@ def _record(step_idx: int = 0) -> SimpleNamespace:
 
 
 def _tool_names(robot_toolkit: Toolkit) -> set[str]:
-    return {spec["name"] for spec in robot_toolkit.get_tools_spec()}
+    return {tool.name for tool in robot_toolkit.list_tools()}
 
 
 def _readonly_names(robot_toolkit: Toolkit) -> set[str]:
-    return {
-        name
-        for name, (_, handler) in robot_toolkit._tools.items()
-        if _is_readonly(handler)
-    }
+    return {tool.name for tool in robot_toolkit.list_tools() if tool.readonly}
 
 
 def test_toolkit_falls_back_to_memory_root(
@@ -105,6 +102,14 @@ def test_toolkit_constructs_and_classifies_tools_with_a_fake(
     monkeypatch.setattr(
         templates, "default_variables", lambda: {"output_dir": "/offline/output"}
     )
+    for definition in iter_tools(primitives_module.RoboCasaPrimitives):
+        monkeypatch.setattr(
+            fake_single_arm_primitives,
+            definition.name,
+            definition.with_handler(
+                getattr(fake_single_arm_primitives, definition.name)
+            ),
+        )
     monkeypatch.setattr(
         primitives_module,
         "RoboCasaPrimitives",

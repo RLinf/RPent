@@ -16,19 +16,18 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 import numpy as np
+from pydantic import Field
 
 from rpent.session import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
+from rpent.tools import ToolResult
+from rpent.tools.base import tool
 
 
-def _tool_error(code: str, message: str, **details: Any) -> dict[str, Any]:
-    return {
-        "success": False,
-        "error": {"code": code, "message": message, **details},
-    }
+def _tool_error(code: str, message: str, **details: Any) -> ToolResult:
+    return ToolResult(data={"success": False, "code": code, **details}, error=message)
 
 
 def _artifact_name(view: str, field: str) -> str:
@@ -46,7 +45,7 @@ def _load_world_xyz(
     *,
     view: str,
     step: int | None,
-) -> tuple[dict[str, Any] | None, np.ndarray | None, dict[str, Any] | None]:
+) -> tuple[dict[str, Any] | None, np.ndarray | None, ToolResult | None]:
     """Load one persisted agent-visible world map without touching the env."""
     requested_step = -1 if step is None else int(step)
     try:
@@ -112,16 +111,25 @@ def _load_world_xyz(
     return state, np.asarray(world), None
 
 
-@readonly
+@tool(readonly=True, exclude=("env_state",))
 def sample_world_xyz(
     env_state: EnvState,
     *,
     view: str,
-    pixels: list[list[int]],
+    pixels: Annotated[
+        list[Annotated[list[int], Field(min_length=2, max_length=2)]],
+        Field(min_length=1, max_length=256),
+    ],
     step: int | None = None,
-    neighborhood: int = 1,
-) -> dict[str, Any]:
-    """Return deterministic median world coordinates around image pixels."""
+    neighborhood: Annotated[
+        int, Field(ge=0, le=32, json_schema_extra={"default": 1})
+    ] = 1,
+) -> ToolResult:
+    """Read persisted same-frame world xyz around [row,col] pixels. The view is also the pixel coordinate space: use the exact view whose RGB supplied the pixels. The current state's view_specs gives each view's [height,width]. This is read-only and does not render or move the robot.
+
+    Args:
+        view: Artifact view and pixel coordinate space. It must match the RGB image used to choose pixels.
+    """
     state, world, error = _load_world_xyz(env_state, view=view, step=step)
     if error is not None:
         return error
@@ -187,31 +195,39 @@ def sample_world_xyz(
                 "valid_coordinates": finite_counts.tolist(),
             }
         )
-    return {
-        "success": True,
-        "step_idx": state["step_idx"],
-        "view": view,
-        "coordinate_space": view,
-        "image_shape": [height, width],
-        "pixel_order": "row_col",
-        "coordinate_order": "xyz",
-        "frame": "world",
-        "unit": "metre",
-        "neighborhood": radius,
-        "samples": samples,
-    }
+    return ToolResult(
+        data={
+            "success": True,
+            "step_idx": state["step_idx"],
+            "view": view,
+            "coordinate_space": view,
+            "image_shape": [height, width],
+            "pixel_order": "row_col",
+            "coordinate_order": "xyz",
+            "frame": "world",
+            "unit": "metre",
+            "neighborhood": radius,
+            "samples": samples,
+        }
+    )
 
 
-@readonly
+@tool(readonly=True, exclude=("env_state",))
 def query_world_map(
     env_state: EnvState,
     *,
     view: str,
-    bbox: list[int],
+    bbox: Annotated[list[int], Field(min_length=4, max_length=4)],
     step: int | None = None,
-    max_points: int = 256,
-) -> dict[str, Any]:
-    """Return deterministic row-major samples and statistics for one bbox."""
+    max_points: Annotated[
+        int, Field(ge=1, le=4096, json_schema_extra={"default": 256})
+    ] = 256,
+) -> ToolResult:
+    """Read deterministic world-xyz samples from a half-open [row_start,col_start,row_end,col_end] region. The view is also the bbox coordinate space and must match the source RGB artifact; view_specs gives [height,width]. This is read-only.
+
+    Args:
+        view: Artifact view and bbox coordinate space. It must match the RGB image used to choose the bbox.
+    """
     state, world, error = _load_world_xyz(env_state, view=view, step=step)
     if error is not None:
         return error
@@ -269,25 +285,27 @@ def query_world_map(
         }
         for index in indices
     ]
-    return {
-        "success": True,
-        "step_idx": state["step_idx"],
-        "view": view,
-        "coordinate_space": view,
-        "image_shape": [height, width],
-        "bbox": [row_start, col_start, row_end, col_end],
-        "bbox_interval": "half_open",
-        "pixel_order": "row_col",
-        "coordinate_order": "xyz",
-        "frame": "world",
-        "unit": "metre",
-        "valid_points": int(len(xyz)),
-        "returned_points": len(points),
-        "xyz_min": np.min(xyz, axis=0).tolist(),
-        "xyz_max": np.max(xyz, axis=0).tolist(),
-        "xyz_median": np.median(xyz, axis=0).tolist(),
-        "points": points,
-    }
+    return ToolResult(
+        data={
+            "success": True,
+            "step_idx": state["step_idx"],
+            "view": view,
+            "coordinate_space": view,
+            "image_shape": [height, width],
+            "bbox": [row_start, col_start, row_end, col_end],
+            "bbox_interval": "half_open",
+            "pixel_order": "row_col",
+            "coordinate_order": "xyz",
+            "frame": "world",
+            "unit": "metre",
+            "valid_points": int(len(xyz)),
+            "returned_points": len(points),
+            "xyz_min": np.min(xyz, axis=0).tolist(),
+            "xyz_max": np.max(xyz, axis=0).tolist(),
+            "xyz_median": np.median(xyz, axis=0).tolist(),
+            "points": points,
+        }
+    )
 
 
 def dump_observation(
@@ -365,12 +383,22 @@ def dump_observation(
     return env_state.get(step_idx)
 
 
-@readonly
-def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
+@tool(readonly=True, exclude=("state",))
+def view_env_state(
+    step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
+    *,
+    state: EnvState,
+) -> ToolResult:
+    """Read one EnvState step and its synchronized RoboTwin observation artifacts. Step -1 selects the latest entry. Embeds the head, left wrist, and right wrist RGB images when available.
+
+    Args:
+        step: Step number; 0 = initial, -1 = latest.
+    """
+    images: list[bytes] = []
     try:
         record = state.get(step)
     except Exception as error:
-        return {"error": f"state step not available: {error}"}
+        return ToolResult(error=f"state step not available: {error}")
     result: dict[str, Any] = {
         "step": record.step_idx,
         "terminated": record.terminated,
@@ -384,223 +412,11 @@ def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
         "result": record.result,
         "elapsed_s": record.elapsed_s,
     }
-    for slot, views in (
-        ("_image_bytes", ("head",)),
-        ("_image_cam_bytes", ("left_wrist",)),
-        ("_image_wrist_bytes", ("right_wrist",)),
-    ):
-        name = next(
-            (
-                _artifact_name(view, "rgb")
-                for view in views
-                if _artifact_name(view, "rgb") in record.artifacts
-            ),
-            None,
-        )
-        if name is not None:
+    for view in ("head", "left_wrist", "right_wrist"):
+        name = _artifact_name(view, "rgb")
+        if name in record.artifacts:
             try:
-                result[slot] = state.load_bytes(name, step=record.step_idx)
+                images.append(state.load_bytes(name, step=record.step_idx))
             except FileNotFoundError:
                 pass
-    return result
-
-
-TOOLS_SPEC = [
-    {
-        "name": "view_env_state",
-        "description": (
-            "Read one EnvState step and its synchronized RoboTwin observation "
-            "artifacts. Step -1 selects the latest entry. Embeds the head, left "
-            "wrist, and right wrist RGB images when available."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "step": {
-                    "type": "integer",
-                    "default": -1,
-                    "description": "Step number; 0 = initial, -1 = latest.",
-                }
-            },
-        },
-    },
-    {
-        "name": "render",
-        "description": "Capture a fresh synchronized RoboTwin agent observation.",
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "sample_world_xyz",
-        "description": (
-            "Read persisted same-frame world xyz around [row,col] pixels. "
-            "The view is also the pixel coordinate space: use the exact view "
-            "whose RGB supplied the pixels. The current state's view_specs "
-            "gives each view's [height,width]. This is read-only and does not "
-            "render or move the robot."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "view": {
-                    "type": "string",
-                    "description": (
-                        "Artifact view and pixel coordinate space. It must match "
-                        "the RGB image used to choose pixels."
-                    ),
-                },
-                "pixels": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 256,
-                    "items": {
-                        "type": "array",
-                        "items": {"type": "integer"},
-                        "minItems": 2,
-                        "maxItems": 2,
-                    },
-                },
-                "step": {"type": ["integer", "null"]},
-                "neighborhood": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 32,
-                    "default": 1,
-                },
-            },
-            "required": ["view", "pixels"],
-        },
-    },
-    {
-        "name": "query_world_map",
-        "description": (
-            "Read deterministic world-xyz samples from a half-open "
-            "[row_start,col_start,row_end,col_end] region. The view is also "
-            "the bbox coordinate space and must match the source RGB artifact; "
-            "view_specs gives [height,width]. This is read-only."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "view": {
-                    "type": "string",
-                    "description": (
-                        "Artifact view and bbox coordinate space. It must match "
-                        "the RGB image used to choose the bbox."
-                    ),
-                },
-                "bbox": {
-                    "type": "array",
-                    "items": {"type": "integer"},
-                    "minItems": 4,
-                    "maxItems": 4,
-                },
-                "step": {"type": ["integer", "null"]},
-                "max_points": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 4096,
-                    "default": 256,
-                },
-            },
-            "required": ["view", "bbox"],
-        },
-    },
-    {
-        "name": "lingbot_act",
-        "description": (
-            "Run LingBot-VLA eef16 actions using the native task instruction. "
-            "The optional prompt is recorded but never sent to the policy."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "chunks": {"type": "integer", "minimum": 1, "default": 4},
-                "use_length": {"type": "integer", "const": 50, "default": 50},
-                "prompt": {"type": ["string", "null"]},
-            },
-        },
-    },
-    {
-        "name": "move_to",
-        "description": (
-            "Plan and move one arm to a world-frame xyz and wxyz orientation. "
-            "The native planner returns qpos waypoints executed with fresh state."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": {"type": "string", "enum": ["left", "right"]},
-                "xyz": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                },
-                "quat": {
-                    "type": ["array", "null"],
-                    "items": {"type": "number"},
-                    "minItems": 4,
-                    "maxItems": 4,
-                },
-                "gripper": {"type": ["number", "null"]},
-                "substeps": {"type": "integer", "minimum": 0, "default": 25},
-            },
-            "required": ["arm", "xyz"],
-        },
-    },
-    {
-        "name": "rotate_wrist",
-        "description": "Rotate one EEF about world Z by a relative angle in degrees.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": {"type": "string", "enum": ["left", "right"]},
-                "delta_yaw_deg": {"type": "number"},
-                "gripper": {"type": ["number", "null"]},
-                "substeps": {"type": "integer", "minimum": 0, "default": 25},
-            },
-            "required": ["arm", "delta_yaw_deg"],
-        },
-    },
-    {
-        "name": "set_gripper",
-        "description": "Linearly move one normalized gripper to val over 10 actions.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": {"type": "string", "enum": ["left", "right"]},
-                "val": {"type": "number", "minimum": 0, "maximum": 1},
-                "steps": {"type": "integer", "minimum": 1, "default": 10},
-            },
-            "required": ["arm", "val"],
-        },
-    },
-    {
-        "name": "release",
-        "description": "Open one gripper to 1.0 over 10 native actions.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": {"type": "string", "enum": ["left", "right"]},
-                "val": {"type": "number", "default": 1.0},
-                "steps": {"type": "integer", "minimum": 1, "default": 10},
-            },
-            "required": ["arm"],
-        },
-    },
-    {
-        "name": "finish",
-        "description": (
-            "Stop the run. A fresh native status query is authoritative; requesting "
-            "success cannot override TASK_ENV.eval_success."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "status": {"type": "string"},
-                "summary": {"type": "string"},
-            },
-            "required": ["status", "summary"],
-        },
-    },
-]
+    return ToolResult(data=result, images=images)

@@ -145,7 +145,7 @@ planner 后端集中在 ``rpent/planner/``，
 Planner、Toolkit 与 RPC 传输层
 ------------------------------
 
-这三层各管一段、层层解耦。planner 只通过 ``get_tools_spec`` 拿到工具清单、
+这三层各管一段、层层解耦。planner 只通过 ``list_tools`` 拿到工具清单、
 用 ``execute_tool`` 逐个调用，并不关心工具背后是脚本还是 VLA；
 toolkit 把每次工具调用翻译成对 primitive 的调用，再由 primitives
 经 RPC 向 ``env_server`` / ``vla_server`` 发起 ``reset`` / ``step`` /

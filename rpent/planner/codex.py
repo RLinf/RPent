@@ -150,6 +150,7 @@ class CodexPlanner:
             )
         output_path, raw_stream_path, last_message_path = self._output_paths()
         recorder = _Recorder(
+            toolkit=toolkit,
             max_turns=max_turns,
             dashboard_events=self._dashboard_events,
         )
@@ -359,7 +360,9 @@ class CodexPlanner:
         """Run a controllable sequence of turns on one Codex thread."""
         output_path, raw_stream_path, last_message_path = self._output_paths()
         recorder = _Recorder(
-            max_turns=max_turns, dashboard_events=self._dashboard_events
+            toolkit=toolkit,
+            max_turns=max_turns,
+            dashboard_events=self._dashboard_events,
         )
         chunks: list[str] = []
         error: str | None = None
@@ -615,6 +618,7 @@ class _CodexDashboardSession:
 class _Recorder:
     """Pure adapter: consume Codex SDK events, emit text + accumulate stats."""
 
+    toolkit: Toolkit
     max_turns: int
     dashboard_events: DashboardEventSink
     turns: int = 0
@@ -628,8 +632,11 @@ class _Recorder:
         }
     )
     final_response: str | None = None
-    finish_result: dict[str, Any] | None = None
     error: str | None = None
+
+    @property
+    def finish_result(self) -> dict[str, Any] | None:
+        return self.toolkit.finish_result
 
     def stats(self) -> dict[str, int]:
         return {"turns_used": self.turns, "tool_calls": self.tool_calls, **self.usage}
@@ -691,7 +698,6 @@ class _Recorder:
             self.tool_calls += 1
             if item_type in {"mcpToolCall", "dynamicToolCall"}:
                 name = strip_mcp_prefix(str(_get(item, "tool", item_type)))
-                self._maybe_capture_finish(name, item)
             elif item_type == "commandExecution":
                 name = str(_get(item, "command", item_type))
             else:
@@ -750,26 +756,6 @@ class _Recorder:
                 tool_calls=self.tool_calls,
             )
         )
-
-    def _maybe_capture_finish(self, name: str, item: Any) -> None:
-        if self.finish_result is not None:
-            return
-        if name.lower() != "finish":
-            return
-        status = _status(item)
-        if status and status != "completed":
-            return
-        if _get(item, "error") not in (None, ""):
-            return
-        data = _jsonable(item)
-        args = data.get("arguments") if isinstance(data, dict) else None
-        if isinstance(args, str):
-            try:
-                args = json.loads(args)
-            except Exception:
-                args = None
-        if isinstance(args, dict):
-            self.finish_result = {"_finish": True, **args}
 
 
 # ---------------------------------------------------------------------------

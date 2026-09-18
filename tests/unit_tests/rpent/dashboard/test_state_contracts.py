@@ -36,7 +36,7 @@ from rpent.dashboard.interaction import (
 from rpent.dashboard.spec import DashboardSpec
 from rpent.dashboard.state import DashboardState
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, ToolResult
+from rpent.tools import Toolkit, ToolResult, tool
 
 DASHBOARD_SPEC: DashboardSpec = {
     "task": {
@@ -226,13 +226,13 @@ def test_dashboard_primitives_are_available_only_while_planner_is_idle(
     state = _ready_state(tmp_path)
     _claim_started_task(state)
     toolkit = MagicMock(spec=Toolkit)
-    toolkit.get_tools_spec.return_value = [
-        {
-            "name": "move_to",
-            "input_schema": {"type": "object", "additionalProperties": False},
-        }
-    ]
-    tool_result = ToolResult(name="move_to", result={"ok": True})
+
+    @tool
+    def move_to() -> ToolResult:
+        return ToolResult(data={"ok": True})
+
+    toolkit.list_tools.return_value = (move_to,)
+    tool_result = ToolResult(data={"ok": True})
     toolkit.execute_tool.return_value = tool_result
     state.bind_toolkit(toolkit)
 
@@ -244,7 +244,9 @@ def test_dashboard_primitives_are_available_only_while_planner_is_idle(
 
     state.set_planner_activity("idle", accepting_input=True)
     assert state.snapshot()["primitives_available"] is True
-    assert state.primitive_specs() == toolkit.get_tools_spec.return_value
+    assert state.primitive_specs() == [
+        {"name": "move_to", "input_schema": move_to.input_schema}
+    ]
     assert state.execute_primitive("move_to", {}) is tool_result
 
     state.set_planner_activity("busy")
@@ -383,3 +385,42 @@ def test_dashboard_step_events_offset_new_traces_and_resolve_action_video(
     assert detail["timeline"][1]["terminated"] is True
     assert state.frame("camera") == second_env.load_bytes("camera.png")
     assert state.action_video_path(0) == first_env.artifact_path("action.mp4", step=0)
+
+
+def test_dashboard_uses_toolkit_argument_validation_before_motion(
+    tmp_path, monkeypatch
+):
+    from typing import Annotated
+
+    from pydantic import Field
+
+    from rpent.memory import MemoryManager
+
+    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    calls = []
+    toolkit = Toolkit(dashboard_events=state, memory=MemoryManager(tmp_path / "memory"))
+
+    @tool
+    def move_to(
+        xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+    ) -> ToolResult:
+        calls.append(xyz)
+        return ToolResult(data={"ok": True})
+
+    def capture(**kwargs):
+        raise AssertionError("Invalid arguments must not capture state")
+
+    toolkit.add_tool(move_to)
+    toolkit.get_env_state = capture
+    state.bind_toolkit(toolkit)
+    state.set_planner_activity("idle", accepting_input=True)
+    for arguments in ({}, {"xyz": [1, 2]}, {"xyz": [1, 2, 3], "unknown": True}):
+        direct = toolkit.execute_tool("move_to", arguments)
+        manual = state.execute_primitive("move_to", arguments)
+        assert direct.is_error and manual.is_error
+        assert manual.to_dict() == direct.to_dict()
+        assert manual.error == "bad arguments for move_to"
+    assert calls == []
+    assert state._active_primitive_calls == {}

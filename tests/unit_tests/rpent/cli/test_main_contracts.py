@@ -419,12 +419,11 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
             self.calls.append((name, args))
             return ToolResult(
-                name,
-                {
+                data={
                     "_finish": True,
                     "status": args["status"],
                     "summary": args["summary"],
-                },
+                }
             )
 
         def close(self) -> None:
@@ -460,7 +459,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
                 {"status": "success", "summary": "simulated task complete"},
             )
             return PlannerResult(
-                finish_result=finish.result,
+                finish_result=finish.to_dict(),
                 messages=[{"role": "assistant", "content": "finished offline"}],
                 stats={
                     "total_input_tokens": 0,

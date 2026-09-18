@@ -271,6 +271,7 @@ construction branch to ``rpent.planner.base.build_planner``:
 
    # rpent/planner/my_planner.py
    from rpent.planner.base import PlannerResult
+   from rpent.utils.templates import substitute
 
    class MyPlanner:
        def solve(
@@ -282,13 +283,20 @@ construction branch to ``rpent.planner.base.build_planner``:
            max_turns,
            input_queue=None,
        ):
-           tool_specs = toolkit.get_tools_spec()
+           tool_specs = [
+               {
+                   "name": declaration.name,
+                   "description": declaration.description,
+                   "input_schema": substitute(declaration.input_schema),
+               }
+               for declaration in toolkit.list_tools()
+           ]
            # Call the model with system_prompt, user_message, and tool_specs.
            # Execute each tool call through this interface:
            tool_result = toolkit.execute_tool(tool_name, arguments)
            ...
            return PlannerResult(
-               finish_result=finish_result,
+               finish_result=toolkit.finish_result,
                messages=messages,
                stats=stats,
                error=error,
@@ -297,12 +305,12 @@ construction branch to ``rpent.planner.base.build_planner``:
 Any planner must:
 
 1. Accept the rendered ``system_prompt`` and ``user_message``.
-2. Read the tool schemas from ``toolkit.get_tools_spec()`` and execute
+2. Read the tool schemas from ``toolkit.list_tools()`` and execute
    tools with ``toolkit.execute_tool(name, arguments)``.
-3. Convert the text and images in ``ToolResult.content_blocks`` to the
-   format expected by the model SDK.
-4. Detect ``ToolResult.is_finish`` and stop according to
-   ``max_turns`` and any other limits.
+3. Convert ``tool_result.to_text()`` and ``tool_result.images`` to the format
+   expected by the model SDK, preserving ``tool_result.is_error``.
+4. Stop after ``toolkit.finish_result`` is set by an accepted ``finish`` call,
+   and enforce ``max_turns`` and any other limits.
 5. Return a ``PlannerResult`` containing the finish state, messages,
    statistics, and an optional error.
 

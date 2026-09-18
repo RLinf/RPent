@@ -17,13 +17,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import numpy as np
+from pydantic import Field
 
 from robots.robotwin.env_client import RoboTwinEnvClient
 from robots.robotwin.robot_spec import MODEL_SPEC, ROBOTWIN_CAMERA_NAMES
 from robots.robotwin.vla_client import LingBotVLAClient
+from rpent.tools import ToolResult, tool
 
 
 def _qmult(left: np.ndarray, right: np.ndarray) -> np.ndarray:
@@ -197,10 +199,17 @@ class RoboTwinPrimitives:
             "episode_status": episode_status,
         }
 
+    @tool
     def lingbot_act(
-        self, *, chunks: int = 4, use_length: int = 50, prompt: str | None = None
-    ) -> dict[str, Any]:
-        """Infer and execute up to the requested number of LingBot EEF action chunks."""
+        self,
+        *,
+        chunks: Annotated[int, Field(ge=1, json_schema_extra={"default": 4})] = 4,
+        use_length: Annotated[
+            int, Field(json_schema_extra={"default": 50, "const": 50})
+        ] = 50,
+        prompt: str | None = None,
+    ) -> ToolResult:
+        """Run LingBot-VLA eef16 actions using the native task instruction. The optional prompt is recorded but never sent to the policy."""
         if int(chunks) < 1:
             raise ValueError("chunks must be at least 1")
         if int(use_length) != MODEL_SPEC.use_length:
@@ -239,30 +248,31 @@ class RoboTwinPrimitives:
             self.native_actions += count
             self._check_cancelled()
         status = self.env.last_info["episode_status"]
-        return {
-            **self._completion(
-                requested=requested,
-                executed=executed,
-                status=status,
-            ),
-            "success": True,
-            "prompt": native_prompt,
-            "agent_prompt_ignored": prompt is not None,
-            "ignored_agent_prompt": prompt,
-            "episode_status": status,
-        }
+        return ToolResult(
+            data={
+                **self._completion(
+                    requested=requested, executed=executed, status=status
+                ),
+                "success": True,
+                "prompt": native_prompt,
+                "agent_prompt_ignored": prompt is not None,
+                "ignored_agent_prompt": prompt,
+                "episode_status": status,
+            }
+        )
 
+    @tool(exclude=("_primitive_name",))
     def move_to(
         self,
         *,
-        arm: str,
-        xyz: list[float],
-        quat: list[float] | None = None,
+        arm: Literal["left", "right"],
+        xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+        quat: Annotated[list[float], Field(min_length=4, max_length=4)] | None = None,
         gripper: float | None = None,
-        substeps: int = 25,
+        substeps: Annotated[int, Field(ge=0, json_schema_extra={"default": 25})] = 25,
         _primitive_name: str = "move_to",
-    ) -> dict[str, Any]:
-        """Plan and execute a qpos path to a target end-effector pose."""
+    ) -> ToolResult:
+        """Plan and move one arm to a world-frame xyz and wxyz orientation. The native planner returns qpos waypoints executed with fresh state."""
         del _primitive_name
         if int(substeps) < 0:
             raise ValueError("substeps must be non-negative")
@@ -275,15 +285,17 @@ class RoboTwinPrimitives:
         planned = self.env.plan_arm_path(arm, target)
         self._check_cancelled()
         if planned["status"] != "Success" or planned.get("position") is None:
-            return {
-                "completed": False,
-                "requested_steps": 0,
-                "executed_steps": 0,
-                "stop_reason": "plan_failed",
-                "success": False,
-                "plan_status": planned["status"],
-                "hint": "target may be unreachable or in collision",
-            }
+            return ToolResult(
+                data={
+                    "completed": False,
+                    "requested_steps": 0,
+                    "executed_steps": 0,
+                    "stop_reason": "plan_failed",
+                    "success": False,
+                    "plan_status": planned["status"],
+                    "hint": "target may be unreachable or in collision",
+                }
+            )
         path = np.asarray(planned["position"], dtype=np.float64)
         if substeps == 1:
             path = path[-1:]
@@ -301,31 +313,32 @@ class RoboTwinPrimitives:
         final = self.env.last_info["robot_state"]
         key = "left_eef_pose" if arm == "left" else "right_eef_pose"
         final_pose = np.asarray(final[key], dtype=np.float64)
-        return {
-            **execution,
-            **self._completion(
-                requested=len(updates),
-                executed=executed,
-                status=status,
-            ),
-            "success": True,
-            "plan_status": planned["status"],
-            "waypoints": len(path),
-            "final_eef_xyz": final_pose[:3].tolist(),
-            "final_dist_m": float(
-                np.linalg.norm(final_pose[:3] - np.asarray(xyz, dtype=np.float64))
-            ),
-        }
+        return ToolResult(
+            data={
+                **execution,
+                **self._completion(
+                    requested=len(updates), executed=executed, status=status
+                ),
+                "success": True,
+                "plan_status": planned["status"],
+                "waypoints": len(path),
+                "final_eef_xyz": final_pose[:3].tolist(),
+                "final_dist_m": float(
+                    np.linalg.norm(final_pose[:3] - np.asarray(xyz, dtype=np.float64))
+                ),
+            }
+        )
 
+    @tool
     def rotate_wrist(
         self,
         *,
-        arm: str,
+        arm: Literal["left", "right"],
         delta_yaw_deg: float,
         gripper: float | None = None,
-        substeps: int = 25,
-    ) -> dict[str, Any]:
-        """Rotate an arm about world z by the requested yaw delta."""
+        substeps: Annotated[int, Field(ge=0, json_schema_extra={"default": 25})] = 25,
+    ) -> ToolResult:
+        """Rotate one EEF about world Z by a relative angle in degrees."""
         state = self.env.last_info["robot_state"]
         key = "left_eef_pose" if arm == "left" else "right_eef_pose"
         pose = np.asarray(state[key], dtype=np.float64)
@@ -339,18 +352,19 @@ class RoboTwinPrimitives:
             substeps=substeps,
             _primitive_name="rotate_wrist",
         )
-        result["requested_delta_yaw_deg"] = float(delta_yaw_deg)
+        result.data["requested_delta_yaw_deg"] = float(delta_yaw_deg)
         return result
 
+    @tool(exclude=("_primitive_name",))
     def set_gripper(
         self,
         *,
-        arm: str,
-        val: float,
-        steps: int = 10,
+        arm: Literal["left", "right"],
+        val: Annotated[float, Field(ge=0, le=1)],
+        steps: Annotated[int, Field(ge=1, json_schema_extra={"default": 10})] = 10,
         _primitive_name: str = "set_gripper",
-    ) -> dict[str, Any]:
-        """Interpolate the gripper command to a target value over multiple steps."""
+    ) -> ToolResult:
+        """Linearly move one normalized gripper to val over 10 actions."""
         del _primitive_name
         if int(steps) < 1:
             raise ValueError("steps must be at least 1")
@@ -370,19 +384,26 @@ class RoboTwinPrimitives:
         self._check_cancelled()
         status = execution["episode_status"]
         now = self.env.last_info["robot_state"]
-        return {
-            **execution,
-            **self._completion(
-                requested=len(updates),
-                executed=executed,
-                status=status,
-            ),
-            "success": True,
-            "gripper_val": float(now[f"{arm}_gripper"]),
-        }
+        return ToolResult(
+            data={
+                **execution,
+                **self._completion(
+                    requested=len(updates), executed=executed, status=status
+                ),
+                "success": True,
+                "gripper_val": float(now[f"{arm}_gripper"]),
+            }
+        )
 
-    def release(self, *, arm: str, val: float = 1.0, steps: int = 10) -> dict[str, Any]:
-        """Open the gripper to the requested release value."""
+    @tool
+    def release(
+        self,
+        *,
+        arm: Literal["left", "right"],
+        val: Annotated[float, Field(json_schema_extra={"default": 1.0})] = 1.0,
+        steps: Annotated[int, Field(ge=1, json_schema_extra={"default": 10})] = 10,
+    ) -> ToolResult:
+        """Open one gripper to 1.0 over 10 native actions."""
         return self.set_gripper(
             arm=arm,
             val=val,
@@ -398,31 +419,36 @@ class RoboTwinPrimitives:
             "native_actions": self.native_actions,
         }
 
-    def finish(self, *, status: str, summary: str) -> dict[str, Any]:
-        """Finish the Planner run and verify success against native episode status."""
+    @tool(readonly=True)
+    def finish(self, *, status: str, summary: str) -> ToolResult:
+        """Stop the run. A fresh native status query is authoritative; requesting success cannot override TASK_ENV.eval_success."""
         requested_success = status.lower() == "success"
         try:
             native = self.status()
         except Exception as error:  # The terminal tool must still stop the Planner.
-            return {
-                "_finish": True,
-                "status": "error",
-                "summary": summary,
-                "requested_status": status,
-                "requested_success": requested_success,
-                "runtime_error": f"{type(error).__name__}: {error}",
-            }
+            return ToolResult(
+                data={
+                    "_finish": True,
+                    "status": "error",
+                    "summary": summary,
+                    "requested_status": status,
+                    "requested_success": requested_success,
+                    "runtime_error": f"{type(error).__name__}: {error}",
+                }
+            )
         verified_success = native.get("eval_success") is True
         reported_status = (
             "success"
             if verified_success
             else ("failure" if requested_success else status)
         )
-        return {
-            "_finish": True,
-            "status": reported_status,
-            "summary": summary,
-            "requested_success": requested_success,
-            "success": verified_success,
-            "episode_status": native,
-        }
+        return ToolResult(
+            data={
+                "_finish": True,
+                "status": reported_status,
+                "summary": summary,
+                "requested_success": requested_success,
+                "success": verified_success,
+                "episode_status": native,
+            }
+        )

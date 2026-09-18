@@ -22,11 +22,13 @@ from typing import Any
 
 import pytest
 
-from robots.libero import robot_spec, toolkit
+from robots.libero import robot_spec, toolkit, tools
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
-from rpent.tools.toolkit import Toolkit, _is_readonly
+from rpent.tools import ToolResult, iter_tools
+from rpent.tools.common import CommonTools
+from rpent.tools.toolkit import Toolkit
 from rpent.utils import templates
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
@@ -51,16 +53,20 @@ def _record(step_idx: int = 0) -> SimpleNamespace:
     return SimpleNamespace(step_idx=step_idx, terminated=False)
 
 
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [("pi0_pick", True), ("segment", False), ("view_env_state", False), (None, False)],
+)
+def test_recipe_action_filter_respects_readonly_declarations(name, expected) -> None:
+    assert tools._is_primitive_action(name) is expected
+
+
 def _tool_names(robot_toolkit: Toolkit) -> set[str]:
-    return {spec["name"] for spec in robot_toolkit.get_tools_spec()}
+    return {tool.name for tool in robot_toolkit.list_tools()}
 
 
 def _readonly_names(robot_toolkit: Toolkit) -> set[str]:
-    return {
-        name
-        for name, (_, handler) in robot_toolkit._tools.items()
-        if _is_readonly(handler)
-    }
+    return {tool.name for tool in robot_toolkit.list_tools() if tool.readonly}
 
 
 def _run_config(memory_dir: Path, *, recipe_tag: str = "cell-s0") -> RunConfig:
@@ -102,16 +108,12 @@ def test_toolkit_factory_configures_memory_access_by_mode(
 
     assert evaluation.memory.root == memory_dir.resolve()
     assert exploration.memory.root == memory_dir.resolve()
-    evaluation_write = evaluation.memory.get_common_tool_bindings()["write_text_file"][
-        1
-    ]
-    exploration_write = exploration.memory.get_common_tool_bindings()[
-        "write_text_file"
-    ][1]
+    evaluation_write = CommonTools(memory=evaluation.memory).write_text_file
+    exploration_write = CommonTools(memory=exploration.memory).write_text_file
     own_draft = memory_dir / "_internal" / "inbox" / config.recipe_tag / "draft.md"
     with pytest.raises(PermissionError, match="writing to memory is denied"):
         evaluation_write(str(own_draft), "draft")
-    assert exploration_write(str(own_draft), "draft")["bytes_written"] == 5
+    assert exploration_write(str(own_draft), "draft").data["bytes_written"] == 5
     assert captured[0]["mode"] == "evaluation"
     assert captured[1]["mode"] == "exploration"
     assert captured[1]["attempts_per_session"] == 2
@@ -126,6 +128,14 @@ def test_toolkit_modes_construct_with_fake_primitives(
     monkeypatch.setattr(
         templates, "default_variables", lambda: {"output_dir": "/offline/output"}
     )
+    for definition in iter_tools(toolkit.libero_tools.LiberoPrimitives):
+        monkeypatch.setattr(
+            fake_single_arm_primitives,
+            definition.name,
+            definition.with_handler(
+                getattr(fake_single_arm_primitives, definition.name)
+            ),
+        )
     monkeypatch.setattr(
         toolkit.libero_tools,
         "LiberoPrimitives",
@@ -181,16 +191,20 @@ def test_toolkit_modes_construct_with_fake_primitives(
     refused = exploration.execute_tool(
         "finish", {"status": "failure", "summary": "first attempt"}
     )
-    assert refused.result["error"] == "finish refused"
-    assert refused.is_finish is False
+    assert refused.to_dict()["error"] == "finish refused"
+    assert exploration.finish_result is None
 
-    exploration.get_env_state = lambda *, command, result, elapsed_s: dict(result)
+    exploration.get_env_state = lambda *, command, result, elapsed_s: ToolResult(
+        data=dict(result)
+    )
     assert (
-        exploration.execute_tool("reset", {"reason": "new approach"}).result["attempt"]
+        exploration.execute_tool("reset", {"reason": "new approach"}).to_dict()[
+            "attempt"
+        ]
         == 2
     )
     assert (
-        exploration.execute_tool("reset", {"reason": "third approach"}).result[
+        exploration.execute_tool("reset", {"reason": "third approach"}).to_dict()[
             "attempt"
         ]
         == 3
@@ -198,4 +212,47 @@ def test_toolkit_modes_construct_with_fake_primitives(
     allowed = exploration.execute_tool(
         "finish", {"status": "failure", "summary": "budget spent"}
     )
-    assert allowed.is_finish is True
+    assert not allowed.is_error
+    assert exploration.finish_result is not None
+
+
+@pytest.mark.parametrize("error", [None, "segment unavailable"])
+def test_flash_survey_consumes_native_results_and_keeps_failed_anchors_optional(error):
+    from robots.libero.flash.replay import replay
+
+    calls = []
+
+    def execute_tool(name, arguments):
+        calls.append((name, arguments))
+        return ToolResult(data={"world_xyz": [0.1, 0.2, 0.5]}, error=error)
+
+    toolkit = SimpleNamespace(
+        state=SimpleNamespace(latest_step=0),
+        execute_tool=execute_tool,
+        solved=lambda: False,
+    )
+    result = replay(
+        toolkit,
+        None,
+        {
+            "plan": [],
+            "reference": {"bowl": [0.1, 0.2]},
+            "locator_of": {"bowl": "segment"},
+        },
+    )
+    assert result == {"done": False, "anchors": 1 if error is None else 0, "plan": 0}
+    assert len(calls) == 1
+    assert calls[0][0] == "segment"
+
+
+def test_flash_profile_reads_native_projection_data(monkeypatch):
+    from robots.libero.flash.replay import profile
+
+    monkeypatch.setattr(
+        tools,
+        "back_project",
+        lambda **kwargs: ToolResult(data={"world_xyz": [0.1, 0.2, 0.5]}),
+    )
+    result = profile(None, step=0, camera="agentview", col=20, row=20)
+    assert result["xy"].tolist() == [0.1, 0.2]
+    assert result["z_top"] == 0.5

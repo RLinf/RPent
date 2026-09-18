@@ -15,8 +15,9 @@
 from __future__ import annotations
 
 import asyncio
-import base64
+import json
 import queue
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -34,10 +35,15 @@ from rpent.dashboard.events import TranscriptEvent, UsageEvent
 from rpent.planner.api_loop import (
     ApiAgentLoop,
     _build_tools,
-    _content_blocks_to_pydantic,
     _make_tool_function,
 )
-from rpent.tools.toolkit import ToolResult
+from rpent.tools import ToolResult, tool
+
+
+@pytest.fixture(autouse=True)
+def _template_output_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide run variables without configuring process-wide logging."""
+    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
 
 
 class RecordingSink:
@@ -55,30 +61,26 @@ class RecordingSink:
 class FakeToolkit:
     state = None
 
-    def __init__(self, result: dict[str, Any] | None = None) -> None:
-        self.result = result or {"ok": True}
+    def __init__(self, result: ToolResult | None = None) -> None:
+        self.result = result or ToolResult(data={"ok": True})
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.cancel_calls = 0
+        self.finish_result = None
 
-    def get_tools_spec(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": "finish",
-                "description": "Finish after the environment accepts the result.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string"},
-                        "summary": {"type": "string"},
-                    },
-                    "required": ["status", "summary"],
-                },
-            }
-        ]
+    @tool(readonly=True)
+    def finish(self, status: str, summary: str) -> ToolResult:
+        """Finish after the environment accepts the result."""
+        return self.result
+
+    def list_tools(self):
+        return (self.finish,)
 
     def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
         self.calls.append((name, args))
-        return ToolResult(name, dict(self.result))
+        result = self.result
+        if name == "finish" and not result.is_error:
+            self.finish_result = dict(args)
+        return result
 
     def cancel_active_and_wait(self) -> None:
         self.cancel_calls += 1
@@ -134,7 +136,6 @@ def test_successful_finish_waits_for_its_tool_result() -> None:
     assert seen_instructions == ["Use tools carefully."]
     assert toolkit.calls == [("finish", {"status": "success", "summary": "done"})]
     assert result.finish_result == {
-        "_finish": True,
         "status": "success",
         "summary": "done",
     }
@@ -171,7 +172,7 @@ def test_rejected_finish_does_not_end_the_run() -> None:
             ]
         )
 
-    toolkit = FakeToolkit({"error": "finish refused by environment"})
+    toolkit = FakeToolkit(ToolResult(error="finish refused by environment"))
     result = solve_with_model(model, toolkit, RecordingSink())
 
     assert result.finish_result is None
@@ -251,36 +252,21 @@ def test_tool_schema_and_dispatch_are_mapped_to_pydantic_ai() -> None:
     assert all(tool.sequential for tool in tools)
     finish = tools[1]
     assert finish.description == "Finish after the environment accepts the result."
-    assert (
-        finish.function_schema.json_schema
-        == toolkit.get_tools_spec()[0]["input_schema"]
-    )
+    assert finish.function_schema.json_schema == toolkit.list_tools()[0].input_schema
 
 
 def test_tool_result_conversion_keeps_text_and_images_separate() -> None:
-    raw_image = b"\x89PNG\r\ncontract-image"
-    encoded = base64.b64encode(raw_image).decode()
-    blocks = [
-        {"type": "text", "text": "observation"},
-        {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/png",
-                "data": encoded,
-            },
-        },
-    ]
-
-    text, images = _content_blocks_to_pydantic(blocks)
-
-    assert text == "observation"
-    assert images == [BinaryContent(data=raw_image, media_type="image/png")]
-    assert blocks[1]["source"]["data"] == encoded
+    raw_image = b"contract-image"
+    toolkit = FakeToolkit(ToolResult(data={"value": "observation"}, images=[raw_image]))
+    result = _make_tool_function(toolkit, "inspect")()
+    assert json.loads(result.return_value) == {"value": "observation"}
+    assert result.content == [BinaryContent(data=raw_image, media_type="image/png")]
 
 
 def test_no_images_mode_suppresses_binary_tool_content() -> None:
-    toolkit = FakeToolkit({"value": "visible", "_image_bytes": b"secret pixels"})
+    toolkit = FakeToolkit(
+        ToolResult(data={"value": "visible"}, images=[b"secret pixels"])
+    )
 
     multimodal = _make_tool_function(toolkit, "finish")(
         status="success",

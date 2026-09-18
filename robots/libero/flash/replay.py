@@ -96,7 +96,7 @@ def profile(
             resolution="high",
             state=state,
         )
-        world = found.get("world_xyz") if isinstance(found, dict) else None
+        world = found.data.get("world_xyz") if not found.is_error else None
         if isinstance(world, list) and len(world) >= 3 and all(np.isfinite(world[:3])):
             points.append([float(v) for v in world[:3]])
     if not points:
@@ -150,7 +150,7 @@ def held_body(molmo: MolmoClient, state: EnvState, step: int, query: str):
                 resolution="high",
                 state=state,
             )
-            world = got.get("world_xyz") if isinstance(got, dict) else None
+            world = got.data.get("world_xyz") if not got.is_error else None
             if (
                 isinstance(world, list)
                 and len(world) >= 3
@@ -200,12 +200,10 @@ def pick_succeeded(raw) -> bool:
 
 def execute(toolkit: Any, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Execute one toolkit action and turn its error result into an exception."""
-    result = toolkit.execute_tool(name, arguments).result
-    if not isinstance(result, dict):
-        raise RuntimeError(f"{name} returned an invalid result: {result!r}")
-    if error := result.get("error"):
-        raise RuntimeError(f"{name} failed: {error}")
-    return result
+    result = toolkit.execute_tool(name, arguments)
+    if result.is_error:
+        raise RuntimeError(f"{name} failed: {result.error}")
+    return result.data
 
 
 def plans(root: Path) -> Path:
@@ -286,7 +284,7 @@ def replay(
             except RuntimeError as exc:
                 note(f"      {phrase[:26]!r} segmentation failed: {exc}")
                 found = {}
-            world = found.get("world_xyz") if isinstance(found, dict) else None
+            world = found.get("world_xyz")
             xy = (
                 np.array(world[:2], dtype=float)
                 if isinstance(world, list) and len(world) >= 2
