@@ -55,6 +55,10 @@ TOOLS = """Motion and manipulation:
   current eef height and check `dist_to_target_m` / `reached` in the result.
 - `pi0_pick` runs the Pi_05 policy closed-loop and monitors BOTH arms. Its
   `success` heuristic is provisional; confirm holds from the wrist camera.
+- Omit `pi0_pick.prompt` to use resolved official task language. An explicit
+  override must identify the intended object, not just say "pick the bottle".
+  Never pass template markers such as `<target>`. A broad official task may
+  permit several objects; it does not promise a particular grasp order.
 - Gripper semantics: 1 = close/hold, -1 = open. Keep the gripper closed while
   carrying an object.
 - Do not confuse the policy's grasp heuristic with environment task success."""

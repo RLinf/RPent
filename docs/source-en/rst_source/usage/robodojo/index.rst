@@ -217,6 +217,21 @@ completed, not that the official task predicate passed. Official scoring must
 remain outside the replay context. GPU, real policy and simulator validation
 are required before claiming benchmark compatibility or success.
 
+Task language
+~~~~~~~~~~~~~
+
+Task-language RPC and public observations use RoboDojo's description manager,
+not raw ``gen_instruction`` templates. If the manager is unavailable or returns
+unresolved language, labels are filled from ``get_label_descriptions`` for
+environment 0, choosing the first description deterministically. Missing labels,
+empty language and remaining template markers raise an explicit error; task names
+are not substituted. The official instruction stays public in eval-fair.
+Omitting ``pi0_pick.prompt`` uses this resolved official language. Explicit
+overrides remain supported for contact segments but must identify the intended
+object; unresolved markers are rejected before inference. Official multi-object
+tasks do not specify a grasp order, and descriptive overrides do not guarantee
+that a checkpoint can select arbitrary instances. Verify the actual held target.
+
 Capability scope and limitations
 ------------------------------------------------------------
 

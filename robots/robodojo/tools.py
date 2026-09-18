@@ -159,11 +159,14 @@ TOOLS_SPEC: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "prompt": {"type": "string", "description": "Pick instruction"},
+                "prompt": {
+                    "type": "string",
+                    "description": "Optional specific target instruction; omit to use resolved official task language",
+                },
                 "arm": {"type": "string", "enum": ["left", "right"]},
                 "max_chunks": {"type": "integer", "description": "Max policy chunks"},
             },
-            "required": ["prompt"],
+            "required": [],
         },
     },
     {
@@ -471,7 +474,7 @@ def set_gripper(primitives, state, arm, gripper) -> dict:
 def pi0_pick(
     primitives,
     state,
-    prompt,
+    prompt=None,
     arm="right",
     max_chunks=8,
     lift_thresh=0.04,
@@ -479,6 +482,12 @@ def pi0_pick(
 ) -> dict:
     """Closed-loop Pi_05 pick driven by the policy's own action chunks."""
     import numpy as np
+
+    from robots.robodojo.language import validate_instruction
+
+    prompt = validate_instruction(
+        primitives.env.get_task_language() if prompt is None else prompt
+    )
 
     vla = getattr(primitives, "vla_client", None)
     if vla is None:

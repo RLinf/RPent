@@ -324,7 +324,10 @@ def _encode(obj: Any) -> Any:
 
 
 def _obs_dict(env, recorder) -> dict[str, Any]:
+    from robots.robodojo.language import resolve_instruction
+
     obs = env.get_obs(env_idx=0)
+    obs["instruction"] = resolve_instruction(env)
     _record_obs_frame(recorder, obs)
     return obs
 
@@ -594,10 +597,9 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         return dict(self.meta)
 
     def get_task_language(self) -> str:
-        try:
-            return str(self.env.gen_instruction(0)[0])
-        except Exception:  # noqa: BLE001
-            return self.meta["task"]
+        from robots.robodojo.language import resolve_instruction
+
+        return resolve_instruction(self.env)
 
     def get_camera_meta(
         self,
