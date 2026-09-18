@@ -175,7 +175,7 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 
 ### 交互模式
 
-加上 `--interactive`（`-i`）即可在终端里实时引导智能体。在 `you>` 提示符处，内置任务已预填——按 Enter 直接使用，或替换为你自己的任务；智能体运行时，随时输入消息即可在下一轮引导它（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要交互式终端（TTY）。
+使用 `claude_code` 或 `codex` 时，加上 `--interactive`（`-i`）即可在终端里实时引导智能体。内置任务会预填在 `you>` 提示符处——按 Enter 使用或替换，然后在运行中输入消息（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要真实终端（TTY）。`api` planner 使用原生 CLI，先运行预设任务，再在每轮运行完成后接收输入，使用 `/exit` 退出。
 
 ```bash
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \

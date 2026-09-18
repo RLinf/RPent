@@ -23,8 +23,8 @@ loop is orchestrated, and which model SDK is used.
      - Provider-agnostic tool-calling loop built on
        `pydantic-ai <https://ai.pydantic.dev/>`_. It currently supports
        the Anthropic Messages API, the OpenAI Responses API, and
-       OpenAI-compatible Chat Completions APIs. It handles prompt caching
-       and history-image pruning.
+       OpenAI-compatible Chat Completions APIs. It uses Anthropic prompt
+       caching and Harness sliding-window history trimming.
      - You want the tightest control over model calls, the widest
        provider coverage, or the cheapest per-turn spend.
    * - ``claude_code``
@@ -50,8 +50,8 @@ loop is orchestrated, and which model SDK is used.
 The ``api`` planner (direct model API)
 ---------------------------------------
 
-``--planner api`` is the default. It uses Pydantic AI to implement the
-tool-calling loop and requires a provider prefix in ``--model``. The
+``--planner api`` is the default. It uses the native Pydantic AI tool-calling
+runtime and requires a provider prefix in ``--model``. The
 project currently installs the Anthropic and OpenAI integrations, so it
 can directly use the Anthropic Messages API, the OpenAI Responses API,
 and OpenAI-compatible Chat Completions APIs.
@@ -79,11 +79,16 @@ needed):
 Relevant ``api`` planner knobs:
 
 - ``--max-tokens`` — cap each LLM reply (default ``8192``).
-- ``--max-turns`` — cap the number of tool-calling turns (default
-  ``100``).
+- ``--max-turns`` — cap model requests across the whole conversation,
+  including retries and follow-ups (default ``100``).
 - ``--no-images`` — never send image bytes; this is required for
   text-only models. The agent then reasons from textual state alone,
   so task performance may not be satisfactory.
+
+``--interactive`` requires a TTY and uses Pydantic AI's native CLI: the preset
+task runs first, followed by input between completed runs; ``/exit`` closes
+the session. Use ``--dashboard`` instead to steer during execution.
+Programmatic callers use ``interactive=True`` instead of ``input_queue``.
 
 .. _planner-claude-code:
 

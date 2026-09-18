@@ -275,7 +275,10 @@ Winning technique and failure evidence.
     assert (t.memory.root / "task_only/dual_franka_t0_recipe.jsonl").exists()
 
 
-def test_cli_two_sessions_operator_feedback_and_memory_pipeline(tmp_path, monkeypatch):
+@pytest.mark.parametrize("interactive", [False, True])
+def test_cli_two_sessions_operator_feedback_and_memory_pipeline(
+    tmp_path, monkeypatch, interactive
+):
     import sys
     from dataclasses import replace
     from types import SimpleNamespace
@@ -289,7 +292,7 @@ def test_cli_two_sessions_operator_feedback_and_memory_pipeline(tmp_path, monkey
 
     class Operator:
         def __init__(self, **kwargs):
-            pass
+            assert kwargs["interactive"] is False
 
         def __call__(self, prompt, cancelled):
             cancelled()
@@ -375,6 +378,7 @@ Observed success in session 2.
             "--memory-dir",
             str(tmp_path / "memory"),
             "--auto-merge-memory",
+            *(["--interactive"] if interactive else []),
         ],
     )
     assert cli.main() == 0
@@ -601,6 +605,8 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             "rpent",
             "--robot",
             robot_name,
+            "--planner",
+            "codex",
             "--explore",
             "--interactive",
             "--output-dir",
