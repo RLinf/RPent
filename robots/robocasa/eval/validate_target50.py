@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-DEFAULT_MANIFEST = Path(__file__).with_name("target50.json")
+DEFAULT_MANIFEST = Path(__file__).with_name("target50_v2.json")
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -36,6 +36,7 @@ def validate_results(
     results_root: Path | str,
     *,
     manifest_path: Path | str = DEFAULT_MANIFEST,
+    memory_policy: str | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Validate expected result files and return ``(summary, errors)``."""
     root = Path(results_root)
@@ -47,6 +48,12 @@ def validate_results(
 
     reference = manifest["planner_reference"]
     runtime_protocol = manifest["runtime_protocol"]
+    is_v2 = manifest["protocol_id"] == "robocasa-harness-vla-v2"
+    expected_memory_policy = memory_policy or manifest["memory_policy"].get(
+        "default", "task-only"
+    )
+    if expected_memory_policy not in {"task-global", "task-only"}:
+        raise ValueError("memory_policy must be task-global or task-only")
     for split_name, split in manifest["splits"].items():
         split_successes = 0
         split_valid = 0
@@ -65,7 +72,7 @@ def validate_results(
                     continue
 
                 expected = {
-                    "schema_version": "1.0",
+                    "schema_version": runtime_protocol["result_schema_version"],
                     "protocol_id": manifest["protocol_id"],
                     "evaluation_split": split_name,
                     "task_name": task_name,
@@ -73,6 +80,7 @@ def validate_results(
                     "seed": seed,
                     "success_source": manifest["success_source"],
                 }
+                errors_before_cell = len(errors)
                 for key, expected_value in expected.items():
                     if result.get(key) != expected_value:
                         errors.append(
@@ -130,7 +138,48 @@ def validate_results(
                         f"{relative}: RLDX action steps do not match the manifest"
                     )
 
-                if result.get("valid") is True and isinstance(success, bool):
+                if is_v2:
+                    memory = result.get("memory", {})
+                    if memory.get("policy") != expected_memory_policy:
+                        errors.append(
+                            f"{relative}: memory policy does not match the evaluation"
+                        )
+                    candidates = [
+                        f"task_only/{task_name}_s0.json",
+                        f"task_only/{task_name}_s0_recipe.jsonl",
+                        f"task_only/{task_name}.md",
+                    ]
+                    if expected_memory_policy == "task-global":
+                        candidates.append("global/GLOBAL_MEMORY.md")
+                    selected = memory.get("selected_files", [])
+                    missing = memory.get("missing_layers", [])
+                    if (
+                        not isinstance(selected, list)
+                        or not isinstance(missing, list)
+                        or selected != [name for name in candidates if name in selected]
+                        or missing
+                        != [name for name in candidates if name not in selected]
+                        or ((candidates[0] in selected) != (candidates[1] in selected))
+                        or (
+                            expected_memory_policy == "task-global"
+                            and "global/GLOBAL_MEMORY.md" not in selected
+                        )
+                    ):
+                        errors.append(
+                            f"{relative}: selected memory files violate the task/policy boundary"
+                        )
+                    if not isinstance(selected, list) or memory.get(
+                        "read_files"
+                    ) != sorted(selected, key=str):
+                        errors.append(
+                            f"{relative}: required memory was not read completely"
+                        )
+
+                if (
+                    len(errors) == errors_before_cell
+                    and result.get("valid") is True
+                    and isinstance(success, bool)
+                ):
                     valid_cells += 1
                     split_valid += 1
                     task_successes += int(success)
@@ -167,6 +216,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Directory containing <split>/<Task>_s<seed>/result.json files.",
     )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument(
+        "--memory-policy", choices=("task-global", "task-only"), default=None
+    )
     return parser
 
 
@@ -177,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
         summary, errors = validate_results(
             args.results_root,
             manifest_path=args.manifest,
+            memory_policy=args.memory_policy,
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"manifest error: {exc}", file=sys.stderr)

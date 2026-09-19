@@ -127,6 +127,13 @@ pip install -e ".[robotwin]"    # RoboTwin
 For RoboCasa setup, task memory, and the Target50 protocol, see the
 [RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
 
+RoboCasa defaults to `--memory-policy task-global`: current-task files in
+`robocasa/task_only/` plus `robocasa/global/GLOBAL_MEMORY.md` from
+[RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa).
+Use `--memory-policy task-only` for a comparison. Both the CLI and Dashboard
+read the selected files before robot actions; HF memory follows the current
+branch without a fixed data revision.
+
 The example below continues with LIBERO-PRO.
 
 **2. Download the LIBERO-PRO simulator assets.**

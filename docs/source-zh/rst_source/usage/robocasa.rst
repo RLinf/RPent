@@ -9,7 +9,8 @@ RoboCasa
 
 .. note::
 
-   公开的 Target50 协议固定在 ``robots/robocasa/eval/target50.json`` 中。
+   当前 task/global 协议为 ``robots/robocasa/eval/target50_v2.json``，
+   ``target50.json`` 保留旧 v1 协议。
    340 个 cell 均使用普通的单任务 ``rpent --robot robocasa`` 命令。
 
 运行流程
@@ -65,7 +66,8 @@ import 包的 ``rlinf-robocasa365``。无需再次安装固定 SHA 的源码。
    uv pip freeze > installed-requirements.txt
 
 将此环境记录与实验产物一起保存；稍后再次安装同一分支并不保证源码相同。
-下文的 checkpoint、backbone 支持文件和 task memory 仍使用固定 HF snapshot。
+下文的 checkpoint 和 backbone 支持文件仍使用固定 HF snapshot；
+task/global memory 跟随所选分支。
 constraints 不固定 Torch、torchvision 或 CUDA backend，安装时
 保留已安装且兼容的版本组合；依赖冲突必须先解决再运行。Manifest 的
 ``reference_accelerator`` 仅记录此前使用的 Torch 2.7.0 / torchvision 0.22.0 /
@@ -168,63 +170,105 @@ revision 参数或手工修改缓存 ref。该固定值仅作用于 backbone 元
 ``--vla-model-path`` 选择的微调权重。
 模型和 assets 的许可证独立于 RPent 代码许可证。
 
-**任务 Memory**
+**任务与 Global Memory**
 
-通过 ``--memory-profile hf`` （默认值）启用自动同步。每次以该 profile 普通
-运行前，RPent 都会通过统一 memory manager，从
+``--memory-profile hf``（默认值）下，CLI 与 Dashboard 均从
 `RLinf/RPent-memory 数据集
-<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/results>`_
-自动同步 ``robocasa/**`` 到 ``memory/robocasa``，因此在线普通运行无需单独下载
-memory。当前任务只能读取 ``results/`` 下与该任务对应的 memory：
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa>`_
+当前的 ``main`` 分支同步 ``robocasa/**``，不锁定数据 commit。目录结构为：
 
 .. code-block:: text
 
-   memory/robocasa/results/<Task>_s0.json
-   memory/robocasa/results/recipe_<Task>_s0.jsonl
-   memory/robocasa/results/<Task>.md  # 可选
+   memory/robocasa/
+   ├── task_only/
+   │   ├── <Task>_s0.json
+   │   ├── <Task>_s0_recipe.jsonl
+   │   └── <Task>.md              # 可选
+   └── global/
+       └── GLOBAL_MEMORY.md
 
-最终发布的 corpus 包含 43 个 audit JSON、43 个 recipe JSONL 和 25 个任务
-Markdown，共 111 个文件且不含 global memory。JSON/JSONL pair 保存经过审核的
-seed-0 证据。可选 Markdown 保存同任务探索 memory，可能汇总多次尝试；全部
-16 个 Composite-Seen 和 9 个 Composite-Unseen 任务包含该文件。Prompt 要求
-planner 在开始动作前主动通过 ``read_text_file`` 读取当前任务所有存在的文件；
-RPent 不会把 Markdown 内容强制注入 prompt。
+默认 ``--memory-policy task-global`` 选择当前任务已有的 JSON、recipe、
+Markdown，以及 ``global/GLOBAL_MEMORY.md``。首次机器人动作前，planner 必须
+通过 RPent 的 ``read_text_file`` 工具完整读取全部选中文件。提示词与文件工具
+使用相同的文件选择；RPent 文件工具拒绝读取其他任务的 memory。这是工具层限制，
+不是操作系统级隔离。
 
-RoboCasa 不要求 planner 使用 global memory，也不会退回读取其他任务的 memory。
-7 个 Composite-Unseen 任务完全没有 task memory，但仍计入评测：
-``HeatKebabSandwich``、``PanTransfer``、``PortionHotDogs``、
-``SeparateFreezerRack``、``WaffleReheat``、``WashFruitColander`` 和
-``WeighIngredients``；这些任务基于实时观测继续。Memory 仅是策略证据，历史
-坐标、位姿、像素和子任务 prompt 不能替代当前定位与完整实时任务语言。
+用 ``--memory-policy task-only`` 进行对照时，任务文件不变，提示词和文件工具
+同时关闭 global。JSON/JSONL 均缺失时，任务继续使用实时观测和启用的 global；
+只有其中一个存在则报错。缺少可选 Markdown 会记录日志。task-global 模式要求
+global 文件存在。文件按任务名和目录直接发现，无需额外索引。
+CLI 在启动机器人服务前校验 memory。Dashboard 在启动共享 VLA 前检查 memory
+目录和启用的 global 层；选定任务后，先检查该任务的文件，再启动其环境。
+任务 memory 校验失败时，已有的共享 VLA 仍可供其他任务使用。
 
-普通运行同步 Hugging Face ``main``；正式 Target50 使用固定 memory snapshot
-``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``：
+实时 ``task_language``、RGB-D、任务进展和工具返回优先于 memory。
+只有可见前提成立时才应用 global 策略。有接触、持有物体、fixture 进展或计数器
+上升时保持 VLA 连续调用；连续两次无接触且无可见进展后，重新定位并有限调整姿态。
+每次 VLA 调用都使用完整、逐字的实时任务语言。历史 ``vla_act`` 仅描述策略，
+执行使用当前工具，不回放历史坐标。仍然不允许 reset。
+
+使用本地 memory 时，下载到新目录后选择 local profile。使用新目录也可避免旧
+下载目录残留已从远端删除的文件：
 
 .. code-block:: bash
 
-   hf download RLinf/RPent-memory \
-      --repo-type dataset \
-      --revision 551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b \
-      --include "robocasa/**" \
-      --local-dir ./target50-memory
+   hf download RLinf/RPent-memory --repo-type dataset \
+      --include 'robocasa/**' --local-dir ./target50-memory
 
-随后选择 local profile，并传入固定的 RoboCasa memory 根目录：
+   rpent --robot robocasa \
+         --task-name OpenDrawer --split target --seed 1 \
+         --vla-model-path /path/to/rldx \
+         --planner codex --model gpt-5.5 --reasoning-effort xhigh \
+         --memory-profile local --memory-dir ./target50-memory/robocasa \
+         --memory-policy task-global
+
+使用维护中的复现 memory 分支时，在下载命令中加上
+``--revision reproduce/memory``。它选择可更新的分支，不锁定数据版本。
+切换分支请使用新目录。两个分支的 RoboCasa 均采用上述 task/global 结构；
+后续更新对应的任务或 global 文件即可，无需修改代码。
+
+自定义 memory 来源
+~~~~~~~~~~~~~~~~~~
+
+使用相同 ``robocasa/`` 结构的其他 HF 数据集时，启动 RPent 前设置
+``RPENT_MEMORY_HF_REPO=<owner>/<dataset>``，并使用
+``--memory-profile hf``。这里接受数据集仓库 ID，不是浏览器页面 URL。
+
+使用自定义子目录或维护分支时，下载对应子树到新目录后选择 local profile：
 
 .. code-block:: bash
 
-   rpent --robot robocasa --task-name OpenDrawer --seed 1 \
-         --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
-         --planner claude_code --model claude-opus-4-8 \
-         --memory-profile local \
-         --memory-dir ./target50-memory/robocasa
+   hf download <owner>/<dataset> --repo-type dataset \
+      --include '<subpath>/**' --local-dir ./custom-memory
+
+   # 在 RPent 运行命令中加上：
+   # --memory-profile local --memory-dir ./custom-memory/<subpath>
+
+所选目录应包含 ``task_only/``，task-global 模式还要求
+``global/GLOBAL_MEMORY.md``。选择分支时，在 HF 下载命令中加上
+``--revision <branch>``。无需交付包或迁移脚本。
 
 Harness VLA Target50 复现协议
 -----------------------------
 
-``robots/robocasa/eval/target50.json`` 是 Harness VLA 在 RoboCasa Target50
-上的规范复现清单。它固定 ``target`` 环境 split、HF 资源 revision、memory 边界、
-task/seed 矩阵、cell 时限、成功来源与重试规则；协议 ID 为
-``robocasa-harness-vla-v1``：
+当前 ``robots/robocasa/eval/target50_v2.json`` 协议
+（``robocasa-harness-vla-v2``）使用 task/global memory，不锁定数据版本。
+它保留 target 的 task/seed 矩阵、cell 时限、no-reset 规则、环境成功判据和
+40/999/8 的 RLDX 参数。协议 ID 标识结果格式和评测规则，供校验器区分 v1 与 v2，
+不是 memory 数据版本选择参数。
+
+结果记录 memory 模式、选中及缺失的文件、完整读取记录。
+校验器拒绝混合模式、读取不完整或跨任务读取的结果，但不验证不同运行之间的
+memory 正文是否一致。默认跟随可更新的 ``main``；``reproduce/memory`` 也用于
+持续维护，不是冻结快照。需要可重复的对照实验时，只下载一次 memory，所有 cell
+均用 ``--memory-profile local --memory-dir`` 指向同一份保持不变的目录。
+保留这些原始文件，并在本地实验记录中保存下载时的 HF commit 或文件哈希。
+RPent 不固定 memory 版本，也不向结果元数据添加这些标识。
+
+旧 ``target50.json`` v1 清单及已发布的 task-only 成绩继续保留。
+新版 task-only 使用 v2，属于新对照，不代表复现旧语料基线。
+校验旧结果时传入 ``--manifest robots/robocasa/eval/target50.json``。
+源码依赖跟随清单记录的 ``rpent`` 分支。
 
 .. list-table:: RoboCasa Target50 矩阵
    :header-rows: 1
@@ -353,6 +397,9 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
 
    python -m robots.robocasa.eval.validate_target50 ./runs/target50
 
+单独进行 task-only 对照时，运行命令和校验器均传入
+``--memory-policy task-only``，并使用独立结果目录。
+
 .. note::
 
    使用 ``--env-endpoint`` / ``--vla-endpoint`` 指向已运行的服务器
@@ -360,40 +407,14 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
    子进程，日志分别写到 ``<output_dir>/env_server.log`` 和
    ``<output_dir>/vla_server.log``。
 
-已发布的 Target50 结果
------------------------
+历史 task-only 结果
+----------------------
 
-已发布 Codex 复现覆盖全部 340 cells，任务级汇总如下：
-
-.. list-table:: Codex Target50 复现结果
-   :header-rows: 1
-   :widths: 30 20 20 30
-
-   * - Split
-     - 成功 cells
-     - 成功率
-     - Harness VLA 参考值
-   * - Atomic
-     - 163/180
-     - 90.56%
-     - 165/180 (91.67%)
-   * - Composite-Seen
-     - 49/80
-     - 61.25%
-     - 45/80 (56.25%)
-   * - Composite-Unseen
-     - 12/80
-     - 15.00%
-     - 11/80 (13.75%)
-   * - 总体（任务加权）
-     - 不适用
-     - 57.00%
-     - 55.40%
-
-`完整逐任务结果表
-<https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_
-给出每个任务的成功次数和准确率。当前发布内容是任务级聚合数据，不包含 seed 级
-trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
+已发布的 v1 task-only Codex 评测覆盖 340 个 cell，任务加权成功率为 57.00%。
+这是历史汇总数据，不代表当前 task-global 模式的成绩。
+`完整历史表格
+<https://github.com/RLinf/RPent/blob/57088f6df30b227f2229ead985aa75403c0ce291/robots/robocasa/eval/target50_codex_results.md>`_
+链接到对应代码 commit；该记录不包含逐 seed 轨迹或失败分类。
 
 .. _environment-smoke-tests:
 
@@ -453,7 +474,7 @@ trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
   安装 ``.[robocasa]`` 以刷新 ``RLinf/robosuite`` 的 ``rpent`` 分支；不要手工
   修改已安装的 XML。
 - ``read_text_file`` 报告缺少当前任务结果时，请检查
-  ``memory/robocasa/results/`` 目录或所选本地目录。RPent 不会读取其他任务的
+  ``memory/robocasa/task_only/`` 目录或所选本地目录。RPent 不会读取其他任务的
   memory 作为替代。
   Markdown 为可选文件；Atomic 任务没有发布 ``<Task>.md``。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和

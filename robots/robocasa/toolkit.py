@@ -24,9 +24,10 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from robots.robocasa import tools as robocasa_tools
+from robots.robocasa.memory import RoboCasaMemoryManager
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit
+from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
@@ -37,6 +38,34 @@ logger = get_logger("robocasa_toolkit")
 
 class RoboCasaToolkit(Toolkit):
     """Toolkit for the RoboCasa robot."""
+
+    def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
+        """Require selected memory reads before state changes or completion."""
+        gated_tools = {
+            "move_to",
+            "move_delta",
+            "rotate_pitch",
+            "set_gripper",
+            "release",
+            "scripted_grasp",
+            "rldx_skill",
+            "rldx_arm",
+            "navigate_to",
+            "move_base",
+            "reset",
+            "finish",
+        }
+        if name in gated_tools and isinstance(self.memory, RoboCasaMemoryManager):
+            unread = self.memory.unread_files
+            if unread:
+                return ToolResult(
+                    name=name,
+                    result={
+                        "error": "Read the selected memory files completely before acting: "
+                        + ", ".join(unread)
+                    },
+                )
+        return super().execute_tool(name, input_dict)
 
     def __init__(
         self,

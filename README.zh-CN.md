@@ -127,6 +127,12 @@ pip install -e ".[robotwin]"    # RoboTwin
 RoboCasa 安装、任务 memory 与 Target50 协议参见
 [RoboCasa 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
 
+RoboCasa 默认 `--memory-policy task-global`：读取
+[RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa)
+中 `robocasa/task_only/` 下的当前任务文件和 `robocasa/global/GLOBAL_MEMORY.md`。
+用 `--memory-policy task-only` 进行对照。CLI 与 Dashboard 均要求首次机器人动作前
+完成所选文件的读取；HF memory 跟随当前分支，不锁定数据版本。
+
 下面的示例继续使用 LIBERO-PRO。
 
 **2. 下载 LIBERO-PRO 仿真资产。**

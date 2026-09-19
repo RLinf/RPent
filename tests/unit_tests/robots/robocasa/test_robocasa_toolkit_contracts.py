@@ -68,8 +68,11 @@ def _readonly_names(robot_toolkit: Toolkit) -> set[str]:
 def test_toolkit_falls_back_to_memory_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    make_corpus,
 ) -> None:
     memory_dir = tmp_path / "robocasa"
+    make_corpus(memory_dir)
+    (tmp_path / "run").mkdir()
     monkeypatch.setattr(robot_spec, "get_memory_dir", lambda _: memory_dir)
     monkeypatch.setattr(
         toolkit,
@@ -80,7 +83,7 @@ def test_toolkit_falls_back_to_memory_root(
         recipe_tag="cell-s0",
         output_dir=tmp_path / "run",
         prompt_vars={},
-        task_desc={},
+        task_desc={"task_name": "OpenDrawer"},
     )
 
     robot_toolkit = robot_spec.get_toolkit(
@@ -146,3 +149,62 @@ def test_solved_reads_only_the_final_environment_record() -> None:
 
     records.append(SimpleNamespace(extras={"success": False}))
     assert robot_toolkit.solved() is False
+
+
+@pytest.mark.parametrize("policy", ["task-global", "task-only"])
+@pytest.mark.parametrize("allow_reset", [False, True])
+def test_reset_requires_complete_memory_and_preserves_no_reset(
+    tmp_path, monkeypatch, make_corpus, policy, allow_reset
+):
+    from robots.robocasa.memory import RoboCasaMemoryManager, TaskMemory
+    from robots.robocasa.primitives import RoboCasaPrimitives
+    from robots.robocasa.tools import TOOLS_SPEC
+    from rpent.session import EnvState
+
+    root = make_corpus(tmp_path / "robocasa")
+    memory = RoboCasaMemoryManager(TaskMemory.load(root, "OpenDrawer", policy=policy))
+    robot_toolkit = toolkit.RoboCasaToolkit.__new__(toolkit.RoboCasaToolkit)
+    Toolkit.__init__(
+        robot_toolkit,
+        dashboard_events=NullDashboardEventSink(),
+        memory=memory,
+        state=EnvState(tmp_path / "run"),
+    )
+    resets = []
+    primitive = RoboCasaPrimitives.__new__(RoboCasaPrimitives)
+    primitive._allow_reset = allow_reset
+    primitive.env = SimpleNamespace(
+        reset=lambda: resets.append("env"),
+        eef_pos=SimpleNamespace(tolist=lambda: [0, 0, 0]),
+    )
+    primitive._rldx = SimpleNamespace(reset_session=lambda: resets.append("vla"))
+    robot_toolkit.add_tool(
+        "reset",
+        next(spec for spec in TOOLS_SPEC if spec["name"] == "reset"),
+        primitive.reset,
+    )
+    monkeypatch.setattr(
+        robot_toolkit, "get_env_state", lambda **kwargs: kwargs["result"]
+    )
+
+    assert (
+        "Read the selected memory"
+        in robot_toolkit.execute_tool("reset", {}).result["error"]
+    )
+    read = memory.get_common_tool_bindings()["read_text_file"][1]
+    read(path=str(root / memory.selection.selected[0]), max_chars=1)
+    assert (
+        "Read the selected memory"
+        in robot_toolkit.execute_tool("reset", {}).result["error"]
+    )
+    assert resets == []
+
+    for name in memory.selection.selected:
+        read(path=str(root / name))
+    result = robot_toolkit.execute_tool("reset", {}).result
+    if allow_reset:
+        assert result["reset"] is True
+        assert resets == ["env", "vla"]
+    else:
+        assert "reset is DISABLED" in result["error"]
+        assert resets == []

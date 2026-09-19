@@ -23,8 +23,8 @@ from typing import Any
 
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
 
-RESULT_SCHEMA_VERSION = "1.0"
-TARGET50_MANIFEST = Path(__file__).with_name("target50.json")
+RESULT_SCHEMA_VERSION = "1.1"
+TARGET50_MANIFEST = Path(__file__).with_name("target50_v2.json")
 
 
 def _target50_identity(
@@ -66,12 +66,25 @@ def build_cell_result(
     reasoning_effort: str,
     max_turns: int,
     cell_timeout_seconds: int | None,
+    memory: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one sanitized, environment-authoritative cell result."""
     protocol_id, evaluation_split = _target50_identity(
         task_name, environment_split, seed
     )
     reason = _termination_reason(agent_error, success)
+    memory = memory or {}
+    selected = memory.get("selected_files")
+    reads = memory.get("read_files")
+    memory_complete = (
+        memory.get("policy") in {"task-global", "task-only"}
+        and isinstance(selected, list)
+        and isinstance(reads, list)
+        and all(isinstance(name, str) for name in [*selected, *reads])
+        and set(reads) == set(selected)
+    )
+    if not memory_complete:
+        reason = "infrastructure_error"
     max_chunks = int(os.environ.get("RLDX_MAX_CHUNKS", "70"))
     settle_patience = int(os.environ.get("RLDX_SETTLE_PATIENCE", "999"))
     action_steps = int(os.environ.get("RLDX_ACTION_STEPS_PER_CHUNK", "8"))
@@ -99,12 +112,34 @@ def build_cell_result(
             "rldx_settle_patience": settle_patience,
             "rldx_action_steps_per_chunk": action_steps,
         },
+        "memory": memory,
     }
 
 
 def finalize_cell_result(context: RunFinalizationContext) -> Path:
     """Adapt shared run state to the RoboCasa Target50 result schema."""
     task = context.task_desc
+    try:
+        memory = json.loads((context.output_dir / "memory.json").read_text())
+        reads = [
+            json.loads(line)
+            for line in (context.output_dir / "memory_reads.jsonl")
+            .read_text()
+            .splitlines()
+        ]
+        if not isinstance(memory, dict) or any(
+            not isinstance(event, dict)
+            or not isinstance(event.get("path"), str)
+            or not isinstance(event.get("complete"), bool)
+            for event in reads
+        ):
+            raise ValueError("invalid memory read audit")
+        memory["read_files"] = sorted(
+            {event["path"] for event in reads if event["complete"]}
+        )
+    except (OSError, ValueError):
+        # Missing or corrupt evidence cannot inherit an earlier valid result.
+        memory = {}
     record = build_cell_result(
         task_name=str(task["task_name"]),
         environment_split=str(task["split"]),
@@ -118,5 +153,6 @@ def finalize_cell_result(context: RunFinalizationContext) -> Path:
         reasoning_effort=context.reasoning_effort,
         max_turns=context.max_turns,
         cell_timeout_seconds=context.planner_timeout_s,
+        memory=memory,
     )
     return write_json_atomic(context.output_dir / "result.json", record)

@@ -24,13 +24,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.robocasa.eval.result import finalize_cell_result
+from robots.robocasa.memory import (
+    MEMORY_POLICIES,
+    RoboCasaMemoryManager,
+    TaskMemory,
+    memory_from_variables,
+)
 from robots.robocasa.prompt_bundle import (
     system_prompt,
     user_prompt,
 )
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
-from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -163,9 +168,14 @@ def get_toolkit(
     """Return the RoboCasa toolkit for the current session."""
     from robots.robocasa.toolkit import RoboCasaToolkit
 
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
+    selection = memory_from_variables(
+        {
+            "memory_dir": str(get_memory_dir("robocasa")),
+            "task_name": config.task_desc["task_name"],
+            **config.prompt_vars,
+        }
     )
+    memory = RoboCasaMemoryManager(selection, output_dir=config.output_dir)
     return RoboCasaToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
@@ -176,6 +186,12 @@ def get_toolkit(
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """Register RoboCasa CLI flags on the shared ``parser``."""
     required = not use_dashboard
+    parser.add_argument(
+        "--memory-policy",
+        choices=MEMORY_POLICIES,
+        default="task-global",
+        help="RoboCasa memory layers: task-global (default) or task-only ablation",
+    )
     parser.add_argument(
         "--task-name",
         default=None,
@@ -234,6 +250,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "seed": args.seed,
         "recipe_tag": recipe_tag,
         "memory_dir": str(memory_dir),
+        "memory_policy": getattr(args, "memory_policy", "task-global"),
     }
 
     output_dir = args.output_dir
@@ -385,6 +402,17 @@ def _init_runtime(
     unknown = selected.difference(starters)
     if unknown:
         raise ValueError(f"unknown RoboCasa runtime components: {sorted(unknown)}")
+
+    # CLI/Dashboard supply a memory profile; standalone component diagnostics
+    # only parse robot arguments and do not use planner memory. Dashboard starts
+    # shared services before a task is selected, so validate the global layer
+    # then and the current task before starting its environment.
+    if hasattr(args, "memory_profile"):
+        TaskMemory.load(
+            getattr(args, "memory_dir", None) or get_memory_dir("robocasa"),
+            args.task_name,
+            policy=getattr(args, "memory_policy", "task-global"),
+        )
 
     pending: dict[str, tuple[ProcessDaemon | None, RpcClient]] = {}
     owned_daemons: dict[str, ProcessDaemon] = {}

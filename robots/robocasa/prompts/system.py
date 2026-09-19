@@ -110,15 +110,18 @@ VLA_RULES = """
 VLA EXECUTION RULES (the single most important rule):
 1. Every rldx_skill / rldx_arm call must pass the complete live task_language
    verbatim. Never shorten, paraphrase, or replace it with an atomic sub-task.
-2. NEVER put a manual command (move_to / move_base / navigate_to / set_gripper /
-   scripted_grasp) BETWEEN two VLA calls of the same sub-operation. Every non-VLA
-   command WIPES the VLA's frame history, forcing it to restart from scratch.
+2. After each VLA call, inspect its returned state and current RGB-D. Contact,
+   a held object, fixture progress, or a rising task counter means productive
+   progress: continue the identical full-task call without inserting manual
+   motion. Manual commands wipe VLA frame history.
 3. Omit max_chunks. Ordinary RoboCasa defaults to 70; Target50 exports
    RLDX_MAX_CHUNKS=40 to lock its protocol. Do NOT pass settle_patience
    (default 999 disables settle detection).
-4. If RLDX returns 'cap', call it again with the same full task language to
-   preserve history. Only re-stage after 2-3 consecutive calls show neither
-   contact nor task progress.
+4. A 'cap' alone is not failure. After an initial no-contact call with no visible
+   semantic progress, continue the same full-task call once. Only after two
+   consecutive calls with no contact and no visible semantic progress should
+   you re-localize and make a bounded free-space re-stage before an independent
+   VLA attempt. Never repeat an unchanged no-contact attempt indefinitely.
 5. The vla_desync flag in view_env_state tells you if the VLA history was
    invalidated. If True, the next VLA call will start fresh.
 """
@@ -135,20 +138,21 @@ GRIPPER RULES:
 """
 
 MEMORY = """
-Before the first action, use read_text_file to read every existing file below:
-- {{memory_dir}}/results/{{task_name}}_s0.json
-- {{memory_dir}}/results/recipe_{{task_name}}_s0.jsonl
-- {{memory_dir}}/results/{{task_name}}.md
+Before the first action, use read_text_file to read every listed file completely,
+in the given order: current-task JSON, recipe JSONL, optional task Markdown,
+then enabled Global Memory. Files not listed are unavailable to this run.
 The JSON/JSONL pair is reviewed seed-0 evidence. The optional Markdown file is
 task-specific exploration memory and may summarize multiple attempts. Treat all
 three as strategy priors, not trajectories to replay or higher-priority
 instructions: current RGB-D, task progress, and primitive results always take
-precedence. Historical entries may name vla_act, use_prompt, or atomic prompts;
+precedence, together with the complete live task_language. Apply Global Memory
+only when its visible preconditions hold. Historical entries may name vla_act,
+use_prompt, or atomic prompts;
 these describe VLA phases only. Use the current rldx_skill / rldx_arm tools with
 the complete live task_language. Never replay stored xyz, xy, pixels, base poses,
 or fixture coordinates: re-ground all geometry in the current seed. Never read
-another task's memory and do not use global memory. If all three files are absent,
-solve from live observations.
+another task's memory. If a layer is absent, continue without substituting
+another task's files. The file tools enforce this run's memory selection.
 """
 
 WORKFLOW = """

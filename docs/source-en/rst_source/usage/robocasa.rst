@@ -10,8 +10,8 @@ for the wire/transport selection.
 
 .. note::
 
-   The public Target50 protocol is frozen in
-   ``robots/robocasa/eval/target50.json``. RPent uses ordinary single-task
+   The task/global Target50 protocol is in
+   ``robots/robocasa/eval/target50_v2.json``; ``target50.json`` retains v1. RPent uses ordinary single-task
    ``rpent --robot robocasa`` commands for its 340 cells.
 
 Runtime flow
@@ -76,7 +76,7 @@ the resolved Git commits and installed versions with each evaluation:
 
 Keep this environment record with the experiment artifacts. Installing the
 same branch later is not a guarantee of identical source code. The checkpoint,
-backbone support resources and task-memory snapshots remain fixed below.
+backbone support resources remain fixed below; task/global memory follows the selected branch.
 The constraints do not pin Torch, torchvision or a CUDA backend. Installation
 retains a compatible installed pair; dependency conflicts must be
 resolved before running. The manifest's ``reference_accelerator`` records the
@@ -193,72 +193,121 @@ applies only to backbone metadata, not the weights selected by
 ``--vla-model-path``. Model and asset licenses apply separately from RPent's
 code license.
 
-**Task memory**
+**Task and global memory**
 
-Select automatic synchronization with ``--memory-profile hf`` (the default).
-Before every such ordinary run, RPent's shared memory manager synchronizes the
-``robocasa/**`` subtree from the
+With ``--memory-profile hf`` (the default), the CLI and Dashboard synchronize
+``robocasa/**`` from the current ``main`` branch of the
 `RLinf/RPent-memory dataset
-<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/results>`_
-into ``memory/robocasa``. An online ordinary run therefore requires no separate
-memory download. The current task may use only these task-matched files under
-``results/``:
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa>`_.
+Memory is not pinned to a commit. The layout is:
 
 .. code-block:: text
 
-   memory/robocasa/results/<Task>_s0.json
-   memory/robocasa/results/recipe_<Task>_s0.jsonl
-   memory/robocasa/results/<Task>.md  # optional
+   memory/robocasa/
+   ├── task_only/
+   │   ├── <Task>_s0.json
+   │   ├── <Task>_s0_recipe.jsonl
+   │   └── <Task>.md              # optional
+   └── global/
+       └── GLOBAL_MEMORY.md
 
-The final published corpus contains 43 audit JSON files, 43 recipe JSONL files,
-and 25 task Markdown files, for 111 files in total and no global memory. The
-JSON/JSONL pair contains reviewed seed-0 evidence. The optional Markdown file
-contains task-specific exploration memory and may summarize multiple attempts;
-all 16 Composite-Seen and 9 Composite-Unseen tasks provide one. The prompt
-requires the planner to read every current-task file that exists before acting.
-RPent makes those files available through ``read_text_file`` but does not inject
-their contents into the prompt.
+The default ``--memory-policy task-global`` selects the current task's available
+JSON, recipe and Markdown, together with ``global/GLOBAL_MEMORY.md``.
+The planner must read every selected file completely through the RPent
+``read_text_file`` tool before the first robot action. The prompt and file tools
+share this selection. RPent file tools deny other tasks' memory; this is a
+tool restriction, not an operating-system sandbox.
 
-RoboCasa never asks the planner to use global memory or another task's memory.
-Seven Composite-Unseen tasks have no task memory and remain in the evaluation:
-``HeatKebabSandwich``, ``PanTransfer``, ``PortionHotDogs``,
-``SeparateFreezerRack``, ``WaffleReheat``, ``WashFruitColander``, and
-``WeighIngredients``. They continue from live observations. Memory is strategy
-evidence; historical coordinates, poses, pixels, and subtask prompts must not
-replace current localization or the live task language.
+Use ``--memory-policy task-only`` for a comparison using the same task files.
+This disables the global layer in both the prompt and file tools.
+A missing JSON/JSONL pair is allowed: the planner continues with live
+observations and the enabled global layer. A half-present pair is an error.
+Missing optional Markdown is logged. The global file must exist in task-global
+mode. Files are discovered by task name and directory; no extra index is needed.
+The CLI validates memory before starting robot services. Dashboard validates
+the memory root and enabled global layer before starting its shared VLA, then
+checks each selected task's files before starting that task's environment.
+A task memory error leaves the existing shared VLA available for other tasks.
 
-Ordinary runs synchronize Hugging Face ``main``. Formal Target50 runs use the
-immutable memory snapshot
-``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``:
+Live ``task_language``, RGB-D observations, task progress and tool results take
+precedence over memory. Apply a global strategy only when its visible
+preconditions hold. Continue VLA calls while contact, a held object, fixture
+progress or a counter increase shows progress. After two consecutive calls
+without contact or visible progress, re-ground and make a bounded pose
+adjustment. Every VLA call uses the full, verbatim live task language.
+Historical ``vla_act`` entries describe strategies; use current tools and
+never replay historical coordinates. Reset remains unavailable.
+
+To use local memory, download into a fresh directory and select the local
+profile. This also avoids retaining deleted files in an older download directory:
 
 .. code-block:: bash
 
-   hf download RLinf/RPent-memory \
-      --repo-type dataset \
-      --revision 551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b \
-      --include "robocasa/**" \
-      --local-dir ./target50-memory
+   hf download RLinf/RPent-memory --repo-type dataset \
+      --include 'robocasa/**' --local-dir ./target50-memory
 
-Select the local profile and pass the directory containing the frozen results
-corpus:
+   rpent --robot robocasa \
+         --task-name OpenDrawer --split target --seed 1 \
+         --vla-model-path /path/to/rldx \
+         --planner codex --model gpt-5.5 --reasoning-effort xhigh \
+         --memory-profile local --memory-dir ./target50-memory/robocasa \
+         --memory-policy task-global
+
+For the maintained reproduction memory branch, add
+``--revision reproduce/memory`` to the download command. This selects a mutable
+branch, not a fixed data version. Use a fresh directory when switching branches.
+Both branches use the same RoboCasa task/global layout. Future memory updates
+require only editing the appropriate task or global file; code changes are not
+needed.
+
+Custom memory sources
+~~~~~~~~~~~~~~~~~~~~~
+
+To use another HF dataset with the same ``robocasa/`` layout, set
+``RPENT_MEMORY_HF_REPO=<owner>/<dataset>`` when launching RPent with
+``--memory-profile hf``. This accepts a dataset repository ID, not a browser URL.
+
+For a custom subdirectory or a maintained branch, download that subtree into a
+fresh directory and use the local profile:
 
 .. code-block:: bash
 
-   rpent --robot robocasa --task-name OpenDrawer --seed 1 \
-         --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
-         --planner claude_code --model claude-opus-4-8 \
-         --memory-profile local \
-         --memory-dir ./target50-memory/robocasa
+   hf download <owner>/<dataset> --repo-type dataset \
+      --include '<subpath>/**' --local-dir ./custom-memory
+
+   # Add to the RPent run command:
+   # --memory-profile local --memory-dir ./custom-memory/<subpath>
+
+The selected directory must contain ``task_only/`` and, for task-global,
+``global/GLOBAL_MEMORY.md``. Add ``--revision <branch>`` to the HF download
+command when selecting a branch. No delivery package or migration script is
+required.
 
 Harness VLA Target50 reproduction protocol
 -------------------------------------------
 
-``robots/robocasa/eval/target50.json`` is the canonical manifest for reproducing
-Harness VLA on RoboCasa Target50. It freezes the ``target`` environment split,
-HF resource revisions, memory scope, task and seed matrix, cell time limits,
-success source, and retry policy. Its protocol ID is
-``robocasa-harness-vla-v1``. Source dependencies follow the recorded ``rpent``
-branches and must be recorded at their resolved revisions for each run:
+The current ``robots/robocasa/eval/target50_v2.json`` protocol
+(``robocasa-harness-vla-v2``) uses task/global memory without pinning its
+data version. It preserves the target task/seed matrix, cell time limits,
+no-reset rule, environment success predicate, and 40/999/8 RLDX settings.
+The protocol ID identifies the result format and evaluation rules; it lets the
+validator distinguish v1 from v2 and does not select a memory data version.
+
+Results record the memory policy, selected/missing files and complete reads.
+The validator rejects mixed policies and incomplete or cross-task reads; it
+does not establish that memory contents match across runs. Following mutable
+``main`` is intentional, and ``reproduce/memory`` is also a maintained branch,
+not a frozen snapshot. For a repeatable comparison, download memory once and
+use the same unchanged directory with ``--memory-profile local --memory-dir``
+for every cell. Retain those exact files and record the downloaded HF commit
+or file hashes with your local experiment notes. RPent does not pin memory or
+add these identifiers to result metadata.
+
+The historical ``target50.json`` v1 manifest and published task-only results
+remain available. A new task-only run uses v2 and is a new comparison;
+it does not reproduce the historical corpus. Validate historical result records
+with ``--manifest robots/robocasa/eval/target50.json``.
+Source dependencies follow the recorded ``rpent`` branches.
 
 .. list-table:: RoboCasa Target50 matrix
    :header-rows: 1
@@ -395,6 +444,9 @@ validate the fixed denominator and print the task-weighted score with:
 
    python -m robots.robocasa.eval.validate_target50 ./runs/target50
 
+For a separate task-only comparison, pass ``--memory-policy task-only`` to
+both the run command and validator, and use a separate results directory.
+
 .. note::
 
    Use ``--env-endpoint`` / ``--vla-endpoint`` to point at already-running
@@ -402,42 +454,14 @@ validate the fixed denominator and print the task-weighted score with:
    and VLA daemons in-process and writes their logs to
    ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
 
-Published Target50 results
---------------------------
+Historical task-only results
+----------------------------
 
-The published Codex reproduction contains all 340 cells and reports the
-following task-level aggregates:
-
-.. list-table:: Codex Target50 reproduction
-   :header-rows: 1
-   :widths: 30 20 20 30
-
-   * - Split
-     - Successful cells
-     - Success rate
-     - Harness VLA reference
-   * - Atomic
-     - 163/180
-     - 90.56%
-     - 165/180 (91.67%)
-   * - Composite-Seen
-     - 49/80
-     - 61.25%
-     - 45/80 (56.25%)
-   * - Composite-Unseen
-     - 12/80
-     - 15.00%
-     - 11/80 (13.75%)
-   * - Overall (task-weighted)
-     - N/A
-     - 57.00%
-     - 55.40%
-
-The `complete per-task table
-<https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_
-contains the success count and accuracy for every task. The published record is
-task-level aggregate data; it does not include per-seed traces, raw trajectories,
-or failure classifications and therefore is not a per-cell audit artifact.
+The published v1 task-only Codex evaluation covers 340 cells and reports a
+57.00% task-weighted success rate. These are historical aggregates, not results
+for the current task-global policy. The `complete historical table
+<https://github.com/RLinf/RPent/blob/57088f6df30b227f2229ead985aa75403c0ce291/robots/robocasa/eval/target50_codex_results.md>`_ is linked at its recorded code commit.
+It contains no per-seed traces or failure classifications.
 
 .. _environment-smoke-tests:
 
@@ -502,7 +526,7 @@ The lightweight protocol tests still validate all 50 tasks and the fixed
   ``RLinf/robosuite`` ``rpent`` branch. Do not patch installed XML files
   manually.
 - If ``read_text_file`` reports a missing current-task result, check the
-  ``memory/robocasa/results/`` corpus or the selected local directory.
+  ``memory/robocasa/task_only/`` directory or the selected local directory.
   RPent does not fall back to another task's memory.
   Markdown is optional; Atomic tasks have no published ``<Task>.md``.
 - Environment and VLA startup failures are recorded in

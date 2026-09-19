@@ -21,6 +21,8 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from robots.robocasa import robot_spec
 from robots.robocasa.eval.result import build_cell_result, finalize_cell_result
 from robots.robocasa.eval.validate_target50 import validate_results
@@ -257,6 +259,22 @@ def test_spawned_environment_uses_cli_seed_and_clears_legacy_override(
     assert client == "http://127.0.0.1:43210"
 
 
+def _memory_metadata(task_name="OpenDrawer", policy="task-global") -> dict:
+    selection = [
+        f"task_only/{task_name}_s0.json",
+        f"task_only/{task_name}_s0_recipe.jsonl",
+        f"task_only/{task_name}.md",
+    ]
+    if policy == "task-global":
+        selection.append("global/GLOBAL_MEMORY.md")
+    return {
+        "policy": policy,
+        "selected_files": selection,
+        "read_files": sorted(selection),
+        "missing_layers": [],
+    }
+
+
 def _cell_result(**overrides) -> dict:
     values = {
         "task_name": "OpenDrawer",
@@ -271,6 +289,7 @@ def _cell_result(**overrides) -> dict:
         "reasoning_effort": "xhigh",
         "max_turns": 100,
         "cell_timeout_seconds": 1800,
+        "memory": _memory_metadata(),
     }
     values.update(overrides)
     return build_cell_result(**values)
@@ -286,7 +305,7 @@ def test_cell_result_uses_environment_success_and_sanitizes_errors(monkeypatch):
         agent_error="private provider connection failed at a secret endpoint",
     )
 
-    assert result["protocol_id"] == "robocasa-harness-vla-v1"
+    assert result["protocol_id"] == "robocasa-harness-vla-v2"
     assert result["evaluation_split"] == "atomic"
     assert result["success"] is False
     assert result["success_source"] == "state.success"
@@ -315,11 +334,32 @@ def test_cell_result_counts_planner_timeout_but_not_missing_environment_result()
     assert missing["valid"] is False
 
 
+@pytest.mark.parametrize(
+    "memory",
+    [None, {"policy": "task-global"}, {"policy": "task-only", "selected_files": []}],
+)
+def test_cell_result_requires_memory_selection_and_read_records(memory):
+    result = _cell_result(memory=memory)
+    assert result["valid"] is False
+    assert result["termination_reason"] == "infrastructure_error"
+
+
 def test_robocasa_registers_and_adapts_shared_result_finalizer(tmp_path, monkeypatch):
     monkeypatch.setenv("RLDX_MAX_CHUNKS", "40")
 
     spec = robot_spec.get_robot_spec()
     assert spec.finalize_run is finalize_cell_result
+    memory = _memory_metadata()
+    write_json_atomic(
+        tmp_path / "memory.json",
+        {key: value for key, value in memory.items() if key != "read_files"},
+    )
+    (tmp_path / "memory_reads.jsonl").write_text(
+        "".join(
+            json.dumps({"path": name, "complete": True}) + "\n"
+            for name in memory["read_files"]
+        )
+    )
 
     path = finalize_cell_result(
         RunFinalizationContext(
@@ -380,6 +420,107 @@ def test_robocasa_finalizer_marks_missing_environment_result_invalid(
     assert result["termination_reason"] == "infrastructure_error"
 
 
+def _finalize_memory_run(output_dir: Path) -> dict:
+    path = finalize_cell_result(
+        RunFinalizationContext(
+            output_dir=output_dir,
+            robot_name="robocasa",
+            task_desc={"task_name": "OpenDrawer", "split": "target", "seed": 1},
+            environment_success=True,
+            agent_error=None,
+            elapsed_s=1.0,
+            planner="codex",
+            model="gpt-5.5",
+            reasoning_effort="xhigh",
+            max_turns=100,
+            planner_timeout_s=1800,
+            finish_result=None,
+            stats={},
+        )
+    )
+    return json.loads(path.read_text())
+
+
+@pytest.mark.parametrize(
+    ("first_policy", "second_policy"),
+    [
+        ("task-global", "task-global"),
+        ("task-global", "task-only"),
+        ("task-only", "task-global"),
+    ],
+)
+def test_reused_output_directory_credits_only_current_run_reads(
+    tmp_path, make_corpus, first_policy, second_policy
+):
+    from robots.robocasa.memory import RoboCasaMemoryManager, TaskMemory
+
+    root = make_corpus(tmp_path / "robocasa")
+    output = tmp_path / "run"
+
+    def start(policy):
+        return RoboCasaMemoryManager(
+            TaskMemory.load(root, "OpenDrawer", policy=policy), output_dir=output
+        )
+
+    def read_all(manager):
+        read = manager.get_common_tool_bindings()["read_text_file"][1]
+        for name in manager.selection.selected:
+            read(path=str(root / name))
+
+    first = start(first_policy)
+    read_all(first)
+    assert _finalize_memory_run(output)["valid"] is True
+    second = start(second_policy)
+    unread = _finalize_memory_run(output)
+    assert unread["valid"] is False
+    assert unread["memory"]["read_files"] == []
+    assert second.unread_files == second.selection.selected
+    read = second.get_common_tool_bindings()["read_text_file"][1]
+    read(path=str(root / second.selection.selected[0]), max_chars=1)
+    assert _finalize_memory_run(output)["valid"] is False
+    read_all(second)
+    result = _finalize_memory_run(output)
+    assert result["valid"] is True
+    assert result["memory"]["policy"] == second_policy
+    assert result["memory"]["read_files"] == sorted(second.selection.selected)
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["missing_reads", "missing_metadata", "truncated", "bad_event", "bad_complete"],
+)
+def test_missing_or_corrupt_read_audit_overwrites_a_previous_valid_result(
+    tmp_path, make_corpus, corruption
+):
+    from robots.robocasa.memory import RoboCasaMemoryManager, TaskMemory
+
+    root = make_corpus(tmp_path / "robocasa")
+    output = tmp_path / "run"
+    manager = RoboCasaMemoryManager(
+        TaskMemory.load(root, "OpenDrawer"), output_dir=output
+    )
+    read = manager.get_common_tool_bindings()["read_text_file"][1]
+    for name in manager.selection.selected:
+        read(path=str(root / name))
+    assert _finalize_memory_run(output)["valid"] is True
+    audit = output / "memory_reads.jsonl"
+    if corruption == "missing_reads":
+        audit.unlink()
+    elif corruption == "missing_metadata":
+        (output / "memory.json").unlink()
+    elif corruption == "truncated":
+        with audit.open("a") as handle:
+            handle.write('{"path":')
+    elif corruption == "bad_event":
+        audit.write_text("[]\n")
+    else:
+        audit.write_text('{"path":"task_only/OpenDrawer.md","complete":"true"}\n')
+    result = _finalize_memory_run(output)
+    assert result["valid"] is False
+    assert result["success"] is True  # Retain the native environment outcome.
+    assert result["termination_reason"] == "infrastructure_error"
+
+
 def _write_valid_cell_result(
     output_dir: Path,
     *,
@@ -402,8 +543,64 @@ def _write_valid_cell_result(
             reasoning_effort="xhigh",
             max_turns=100,
             cell_timeout_seconds=cell_timeout_seconds,
+            memory=_memory_metadata(task_name),
         ),
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("policy", "task-only", "memory policy"),
+        ("read_files", [], "not read completely"),
+        ("selected_files", ["task_only/ArrangeTea.md"], "selected memory files"),
+    ],
+)
+def test_v2_validator_rejects_mixed_or_unread_memory(
+    tmp_path, monkeypatch, field, value, message
+):
+    monkeypatch.setenv("RLDX_MAX_CHUNKS", "40")
+    for task in ("OpenDrawer", "CloseFridge"):
+        output = tmp_path / "atomic" / f"{task}_s1"
+        output.mkdir(parents=True)
+        _write_valid_cell_result(
+            output, task_name=task, seed=1, cell_timeout_seconds=1800
+        )
+    path = tmp_path / "atomic/CloseFridge_s1/result.json"
+    result = json.loads(path.read_text())
+    result["memory"][field] = value
+    write_json_atomic(path, result)
+    summary, errors = validate_results(tmp_path)
+    assert summary["valid_cells"] == 1
+    assert any("CloseFridge_s1" in error and message in error for error in errors)
+
+
+def test_v2_task_only_ablation_requires_explicit_validation_policy(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("RLDX_MAX_CHUNKS", "40")
+    output = tmp_path / "atomic/OpenDrawer_s1"
+    output.mkdir(parents=True)
+    result = _cell_result(memory=_memory_metadata(policy="task-only"))
+    write_json_atomic(output / "result.json", result)
+    summary, errors = validate_results(tmp_path, memory_policy="task-only")
+    assert summary["valid_cells"] == 1
+    assert not any("OpenDrawer_s1/" in error for error in errors)
+    assert validate_results(tmp_path)[0]["valid_cells"] == 0
+
+
+def test_legacy_v1_results_require_the_legacy_manifest(tmp_path, monkeypatch):
+    monkeypatch.setenv("RLDX_MAX_CHUNKS", "40")
+    output = tmp_path / "atomic/OpenDrawer_s1"
+    output.mkdir(parents=True)
+    legacy = _cell_result()
+    legacy.update(schema_version="1.0", protocol_id="robocasa-harness-vla-v1")
+    legacy.pop("memory")
+    write_json_atomic(output / "result.json", legacy)
+    summary, errors = validate_results(tmp_path, manifest_path=MANIFEST_PATH)
+    assert summary["valid_cells"] == 1
+    assert not any("OpenDrawer_s1/" in error for error in errors)
+    assert validate_results(tmp_path)[0]["valid_cells"] == 0
 
 
 def test_target50_validator_accepts_exactly_all_340_cells(tmp_path, monkeypatch):
