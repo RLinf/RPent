@@ -27,6 +27,7 @@ from robots.robocasa.eval.result import finalize_cell_result
 from robots.robocasa.memory import (
     MEMORY_POLICIES,
     RoboCasaMemoryManager,
+    TaskMemory,
     memory_from_variables,
 )
 from robots.robocasa.prompt_bundle import (
@@ -401,6 +402,17 @@ def _init_runtime(
     unknown = selected.difference(starters)
     if unknown:
         raise ValueError(f"unknown RoboCasa runtime components: {sorted(unknown)}")
+
+    # CLI/Dashboard supply a memory profile; standalone component diagnostics
+    # only parse robot arguments and do not use planner memory. Dashboard starts
+    # shared services before a task is selected, so validate the global layer
+    # then and the current task before starting its environment.
+    if hasattr(args, "memory_profile"):
+        TaskMemory.load(
+            getattr(args, "memory_dir", None) or get_memory_dir("robocasa"),
+            args.task_name,
+            policy=getattr(args, "memory_policy", "task-global"),
+        )
 
     pending: dict[str, tuple[ProcessDaemon | None, RpcClient]] = {}
     owned_daemons: dict[str, ProcessDaemon] = {}

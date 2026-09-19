@@ -224,6 +224,10 @@ A missing JSON/JSONL pair is allowed: the planner continues with live
 observations and the enabled global layer. A half-present pair is an error.
 Missing optional Markdown is logged. The global file must exist in task-global
 mode. Files are discovered by task name and directory; no extra index is needed.
+The CLI validates memory before starting robot services. Dashboard validates
+the memory root and enabled global layer before starting its shared VLA, then
+checks each selected task's files before starting that task's environment.
+A task memory error leaves the existing shared VLA available for other tasks.
 
 Live ``task_language``, RGB-D observations, task progress and tool results take
 precedence over memory. Apply a global strategy only when its visible
@@ -290,9 +294,14 @@ The protocol ID identifies the result format and evaluation rules; it lets the
 validator distinguish v1 from v2 and does not select a memory data version.
 
 Results record the memory policy, selected/missing files and complete reads.
-The validator rejects mixed policies and incomplete or cross-task reads.
-Keep memory unchanged across cells of a comparison and retain the downloaded
-files and validation evidence locally.
+The validator rejects mixed policies and incomplete or cross-task reads; it
+does not establish that memory contents match across runs. Following mutable
+``main`` is intentional, and ``reproduce/memory`` is also a maintained branch,
+not a frozen snapshot. For a repeatable comparison, download memory once and
+use the same unchanged directory with ``--memory-profile local --memory-dir``
+for every cell. Retain those exact files and record the downloaded HF commit
+or file hashes with your local experiment notes. RPent does not pin memory or
+add these identifiers to result metadata.
 
 The historical ``target50.json`` v1 manifest and published task-only results
 remain available. A new task-only run uses v2 and is a new comparison;

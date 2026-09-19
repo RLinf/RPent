@@ -60,18 +60,22 @@ class TaskMemory:
     def load(
         cls,
         root: str | Path,
-        task_name: str,
+        task_name: str | None,
         *,
         policy: str = "task-global",
     ) -> TaskMemory:
-        """Select conventional task/global paths without a dataset manifest."""
+        """Select conventional task/global paths without a dataset manifest.
+
+        With no task yet, validate only the session's root, policy and global
+        layer before starting shared services. Task runs must supply their name.
+        """
         if policy not in MEMORY_POLICIES:
             raise ValueError(f"unsupported RoboCasa memory policy: {policy}")
         root = Path(root).expanduser().resolve()
-        wanted = task_files(task_name)
+        wanted = task_files(task_name) if task_name is not None else ()
         if not root.is_dir():
             raise ValueError(f"RoboCasa memory directory not found: {root}")
-        if (root / wanted[0]).exists() != (root / wanted[1]).exists():
+        if wanted and (root / wanted[0]).exists() != (root / wanted[1]).exists():
             raise ValueError(f"incomplete seed-0 JSON/JSONL pair for {task_name}")
         candidates = wanted + ((GLOBAL_FILE,) if policy == "task-global" else ())
         contents = {}

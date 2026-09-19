@@ -40,8 +40,8 @@ class RoboCasaToolkit(Toolkit):
     """Toolkit for the RoboCasa robot."""
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
-        """Require selected memory reads before robot motion or completion."""
-        motion_tools = {
+        """Require selected memory reads before state changes or completion."""
+        gated_tools = {
             "move_to",
             "move_delta",
             "rotate_pitch",
@@ -52,9 +52,10 @@ class RoboCasaToolkit(Toolkit):
             "rldx_arm",
             "navigate_to",
             "move_base",
+            "reset",
             "finish",
         }
-        if name in motion_tools and isinstance(self.memory, RoboCasaMemoryManager):
+        if name in gated_tools and isinstance(self.memory, RoboCasaMemoryManager):
             unread = self.memory.unread_files
             if unread:
                 return ToolResult(

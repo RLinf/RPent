@@ -21,6 +21,7 @@ import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -41,6 +42,7 @@ def _args(
         seed=1,
         output_dir=tmp_path / "run",
         memory_dir=memory_dir,
+        memory_profile="local",
     )
 
 
@@ -327,3 +329,125 @@ def test_updated_optional_markdown_is_discovered_without_manifest(
     selection = TaskMemory.load(root, "OpenDrawer")
     assert "task_only/OpenDrawer.md" in selection.selected
     assert not (root / "CORPUS.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("components", "task_name", "missing"),
+    [
+        (None, "OpenDrawer", "global/GLOBAL_MEMORY.md"),
+        (None, "OpenDrawer", "task_only/OpenDrawer_s0.json"),
+        ({"vla"}, None, "global/GLOBAL_MEMORY.md"),
+    ],
+)
+def test_invalid_memory_prevents_runtime_start(
+    tmp_path, monkeypatch, make_corpus, components, task_name, missing
+):
+    from robots.robocasa import robot_spec
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    root = make_corpus(tmp_path / "robocasa")
+    (root / missing).unlink()
+    args = _args(tmp_path, memory_dir=root)
+    args.task_name = task_name
+    spawn = Mock()
+    monkeypatch.setattr(robot_spec, "try_spawn_server", spawn)
+
+    with pytest.raises(ValueError, match="task-global requires|incomplete seed-0"):
+        robot_spec.get_robot_spec().init_runtime(
+            args, tmp_path / "run", NullDashboardEventSink(), components
+        )
+    spawn.assert_not_called()
+
+
+def test_component_diagnostics_do_not_require_planner_memory(tmp_path, monkeypatch):
+    from robots.robocasa import robot_spec
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    parser = argparse.ArgumentParser()
+    spec = robot_spec.get_robot_spec()
+    spec.add_cli_args(parser, use_dashboard=False)
+    args = parser.parse_args(["--task-name", "OpenDrawer"])
+    monkeypatch.setenv("RPENT_REPO_ROOT", str(tmp_path))
+    spawn = Mock(return_value=(None, object()))
+    monkeypatch.setattr(robot_spec, "try_spawn_server", spawn)
+    monkeypatch.setattr(robot_spec, "try_wait_server", Mock(return_value={}))
+
+    spec.init_runtime(args, tmp_path / "run", NullDashboardEventSink(), {"env"})
+    assert [call.args[2] for call in spawn.call_args_list] == ["env"]
+
+
+@pytest.mark.parametrize("policy", ["task-global", "task-only"])
+@pytest.mark.parametrize("missing", ["json", "jsonl", "global"])
+def test_dashboard_checks_each_task_before_starting_its_env(
+    tmp_path, monkeypatch, make_corpus, policy, missing
+):
+    from robots.robocasa import robot_spec
+    from rpent.cli import dashboard as dashboard_cli
+    from rpent.dashboard.events import NullDashboardEventSink
+    from rpent.dashboard.state import ClaimedTask
+
+    root = make_corpus(tmp_path / "robocasa")
+    args = _args(tmp_path, memory_dir=root)
+    args.task_name = None  # The shared VLA starts before /rpent-task.
+    args.memory_policy = policy
+    args.verbose = False
+    args.explore = False
+    args.model = "offline"
+    spec = robot_spec.get_robot_spec()
+    spawn = Mock(return_value=(None, object()))
+    shared = {"vla_client": object()}
+    monkeypatch.setattr(robot_spec, "try_spawn_server", spawn)
+    monkeypatch.setattr(robot_spec, "try_wait_server", Mock(return_value=shared))
+
+    # Missing task files cannot be checked until the task is selected.
+    path = (
+        root
+        / {
+            "json": "task_only/OpenDrawer_s0.json",
+            "jsonl": "task_only/OpenDrawer_s0_recipe.jsonl",
+            "global": "global/GLOBAL_MEMORY.md",
+        }[missing]
+    )
+    content = path.read_bytes()
+    if missing != "global" or policy == "task-only":
+        path.unlink()
+    daemons, runtime = spec.init_runtime(
+        args, tmp_path / "session", NullDashboardEventSink(), {"vla"}
+    )
+    assert daemons == []
+    assert runtime == shared
+    assert [call.args[2] for call in spawn.call_args_list] == ["vla"]
+    spawn.reset_mock()
+
+    if missing == "global" and policy == "task-global":
+        path.unlink()  # Also catch a file removed after shared startup.
+    state = SimpleNamespace(task_replacement_requested=False)
+    claimed = ClaimedTask(
+        number=1,
+        request={"task_name": "OpenDrawer", "split": "target", "seed": 1},
+        output_dir=tmp_path / "run",
+    )
+    if missing == "global" and policy == "task-only":
+        # This mode has no global dependency and may start the task runtime.
+        args.task_name = "OpenDrawer"
+        spec.init_runtime(args, claimed.output_dir, NullDashboardEventSink(), {"env"})
+        assert [call.args[2] for call in spawn.call_args_list] == ["env"]
+        return
+
+    error = dashboard_cli._run_dashboard_task(
+        args=args,
+        robot_spec=spec,
+        state=state,
+        claimed=claimed,
+        shared_runtime_kwargs=runtime,
+        unique_components={"env"},
+        session_root=tmp_path / "session",
+    )
+    assert "task-global requires" in error or "incomplete seed-0" in error
+    spawn.assert_not_called()
+
+    # Repairing memory lets a later task use the existing shared VLA.
+    path.write_bytes(content)
+    args.task_name = "OpenDrawer"
+    spec.init_runtime(args, claimed.output_dir, NullDashboardEventSink(), {"env"})
+    assert [call.args[2] for call in spawn.call_args_list] == ["env"]

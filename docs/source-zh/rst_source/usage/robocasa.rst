@@ -197,6 +197,9 @@ Markdown，以及 ``global/GLOBAL_MEMORY.md``。首次机器人动作前，plann
 同时关闭 global。JSON/JSONL 均缺失时，任务继续使用实时观测和启用的 global；
 只有其中一个存在则报错。缺少可选 Markdown 会记录日志。task-global 模式要求
 global 文件存在。文件按任务名和目录直接发现，无需额外索引。
+CLI 在启动机器人服务前校验 memory。Dashboard 在启动共享 VLA 前检查 memory
+目录和启用的 global 层；选定任务后，先检查该任务的文件，再启动其环境。
+任务 memory 校验失败时，已有的共享 VLA 仍可供其他任务使用。
 
 实时 ``task_language``、RGB-D、任务进展和工具返回优先于 memory。
 只有可见前提成立时才应用 global 策略。有接触、持有物体、fixture 进展或计数器
@@ -255,8 +258,12 @@ Harness VLA Target50 复现协议
 不是 memory 数据版本选择参数。
 
 结果记录 memory 模式、选中及缺失的文件、完整读取记录。
-校验器拒绝混合模式、读取不完整或跨任务读取的结果。同一组对照实验期间应保持
-memory 内容一致，下载文件和验证证据保存在本地。
+校验器拒绝混合模式、读取不完整或跨任务读取的结果，但不验证不同运行之间的
+memory 正文是否一致。默认跟随可更新的 ``main``；``reproduce/memory`` 也用于
+持续维护，不是冻结快照。需要可重复的对照实验时，只下载一次 memory，所有 cell
+均用 ``--memory-profile local --memory-dir`` 指向同一份保持不变的目录。
+保留这些原始文件，并在本地实验记录中保存下载时的 HF commit 或文件哈希。
+RPent 不固定 memory 版本，也不向结果元数据添加这些标识。
 
 旧 ``target50.json`` v1 清单及已发布的 task-only 成绩继续保留。
 新版 task-only 使用 v2，属于新对照，不代表复现旧语料基线。
