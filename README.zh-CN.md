@@ -27,13 +27,13 @@
   <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_framework.png" alt="RPent framework"/>
 </div>
 
-## Leaderboard
+## 排行榜
 
-对比 RPent 与参考方法在 LIBERO、LIBERO-PRO、RoboCasa365 Target50 和 RoboTwin C2R 上的成功率。排名仅限图中方法及评测范围；套件成绩和模型配置见 [Leaderboard](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html)。
+对比 RPent 与参考方法在 LIBERO、LIBERO-PRO、RoboCasa365 Target50 和 RoboTwin C2R 上的成功率。排名仅限图中方法及评测范围；套件成绩和模型配置见 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html)。
 
 Codex / GPT-6 Astra / low / reasoning 已完成全部八套 LIBERO-PRO，**Overall 92.63%（741/800）**。详见 [套件汇总与 memory 批次说明](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html#libero-pro-astra-memory)，其中 Long 与 Spatial/Object/Goal 分别使用各自冻结的 memory 批次。
 
-[![RPent Leaderboard](https://cdn.jsdelivr.net/gh/RLinf/misc@main/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html)
+[![RPent 排行榜](https://cdn.jsdelivr.net/gh/RLinf/misc@a6657fc43a6b3874a20ee1695a480090a4737c35/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html)
 
 
 ## 适用用户
@@ -47,7 +47,7 @@ RPent 面向以下四类用户：
 
 ## 最新动态
 
-- [2026/09] 🔥 新增交互式 RPent Leaderboard，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看 [Leaderboard](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html)。
+- [2026/09] 🔥 新增交互式 RPent 排行榜，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html)。
 - [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。参见 [RoboCasa 安装与 Target50 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
 - [2026/08] 🔥 新增非推理（non-reasoning）模式，平均执行时间降低约 40%。
 - [2026/08] 🔥 支持 LIBERO 探索模式。文档：[LIBERO 探索模式](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#memory)。
