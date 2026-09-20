@@ -718,10 +718,12 @@ def _api_error_text(error: Exception, *, no_images: bool) -> str:
 
 def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
     """Build the API-only image reader plus pydantic-ai toolkit wrappers."""
-    image_reader = _make_image_reader(toolkit.state, no_images=no_images)
     # sequential=True serializes a turn's tool calls so the toolkit's
     # single-operation lock never rejects an overlapping call.
-    tools: list[Tool] = [Tool(image_reader, name="read_image", sequential=True)]
+    tools: list[Tool] = []
+    if getattr(toolkit, "include_image_reader", True):
+        image_reader = _make_image_reader(toolkit.state, no_images=no_images)
+        tools.append(Tool(image_reader, name="read_image", sequential=True))
     for spec in toolkit.get_tools_spec():
         name = spec["name"]
         tools.append(

@@ -181,6 +181,8 @@ class Toolkit:
     :meth:`close` to release robot-side primitives / servers at the end of the run.
     """
 
+    include_image_reader: ClassVar[bool] = True
+
     def __init__(
         self,
         *,

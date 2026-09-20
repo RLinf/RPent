@@ -257,6 +257,18 @@ def test_tool_schema_and_dispatch_are_mapped_to_pydantic_ai() -> None:
     )
 
 
+@pytest.mark.parametrize("no_images", [False, True])
+def test_toolkit_can_disable_injected_image_tool_without_an_envstate(no_images):
+    class StateFreeToolkit(FakeToolkit):
+        include_image_reader = False
+
+        @property
+        def state(self):
+            raise AssertionError("image-disabled toolkit must not require EnvState")
+
+    assert [tool.name for tool in _build_tools(StateFreeToolkit(), no_images=no_images)] == ["finish"]
+
+
 def test_tool_result_conversion_keeps_text_and_images_separate() -> None:
     raw_image = b"\x89PNG\r\ncontract-image"
     encoded = base64.b64encode(raw_image).decode()
