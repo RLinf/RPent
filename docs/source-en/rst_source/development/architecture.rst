@@ -1,5 +1,7 @@
-System Internals
-================
+.. _system-internals:
+
+System Description
+==================
 
 This page is the implementation-level view of RPent. It walks through
 what the three processes in the core control path actually own, how
@@ -124,8 +126,8 @@ components required for a run. On startup, it:
    environment implementation starts or connects to the runtime services
    required by that environment, such as ``env_server``, ``vla_server``, and
    optional supporting services (for example, LIBERO's ``sam3_server`` for
-   segmentation), and returns ``(daemons, primitives_kwargs)``.
-9. Passes ``primitives_kwargs`` and a ``dashboard_events`` sink to the robot's
+   segmentation), and returns ``(daemons, runtime_kwargs)``.
+9. Passes ``runtime_kwargs`` and a ``dashboard_events`` sink to the robot's
    ``get_toolkit`` factory to construct the **toolkit**. The one-shot path
    uses a no-op event sink.
 10. Runs the tool-calling loop, then writes
@@ -150,7 +152,7 @@ two factories exposed by that package:
    # robots/myrobot/__init__.py
    def get_robot_spec() -> RobotSpec: ...  # identity, prompt bundle, and runner hooks
    def get_toolkit(
-       *, primitives_kwargs, dashboard_events
+       *, runtime_kwargs, dashboard_events
    ): ...
 
 ``RobotSpec`` gathers the robot's identity, prompt templates, optional

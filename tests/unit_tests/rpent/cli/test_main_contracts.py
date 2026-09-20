@@ -82,6 +82,7 @@ def _capture_validated_args(
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
+            supports_human_interactive_exploration=False,
             is_real_robot=False,
         )
 
@@ -240,6 +241,7 @@ def test_shared_cli_validation_stops_before_robot_runtime(
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
+            supports_human_interactive_exploration=False,
             is_real_robot=False,
         ),
     )
@@ -567,7 +569,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert toolkit.calls == [("finish", finish_args)]
     assert toolkit.closed is True
     assert daemon.stopped is True
-    assert calls["get_toolkit"][1]["primitives_kwargs"] == {"runtime": "simulated"}
+    assert calls["get_toolkit"][1]["runtime_kwargs"] == {"runtime": "simulated"}
     assert calls["get_toolkit"][1]["mode"] == "exploration"
     assert calls["get_toolkit"][1]["attempts_per_session"] == 2
     if solved:

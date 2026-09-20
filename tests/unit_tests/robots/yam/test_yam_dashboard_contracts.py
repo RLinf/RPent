@@ -266,7 +266,7 @@ def test_task_result_memory_and_cleanup(
         robot_spec=spec,
         state=state,
         claimed=claimed,
-        shared_primitives_kwargs={},
+        shared_runtime_kwargs={},
         unique_components={"env"},
         session_root=tmp_path,
     )

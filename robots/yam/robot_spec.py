@@ -62,10 +62,6 @@ YAM_DASHBOARD_SPEC: DashboardSpec = {
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
     ),
-    "frame_channels": tuple(
-        {"name": name, "label": name, "artifact": f"{name}_rgb.png"}
-        for name in MODEL_SPEC.camera_order
-    ),
     "primitives": (
         "status",
         "pi05_act",

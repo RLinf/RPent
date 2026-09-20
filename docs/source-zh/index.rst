@@ -66,9 +66,10 @@
    概览 <rst_source/overview>
    安装 <rst_source/installation>
    快速开始 <rst_source/quickstart>
+   排行榜 <rst_source/leaderboard>
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
    :includehidden:
    :titlesonly:
    :hidden:
@@ -76,15 +77,10 @@
 
    Agentic Planner <rst_source/usage/configure_planner>
    动作原语 <rst_source/usage/configure_primitives>
-   LIBERO <rst_source/usage/libero>
-   LIBERO 数据飞轮 <rst_source/usage/flywheel>
-   RoboCasa <rst_source/usage/robocasa>
-   RoboTwin <rst_source/usage/robotwin>
-   YAM <rst_source/usage/yam>
-   Franka <rst_source/usage/franka>
-   Dual Franka <rst_source/usage/dual_franka>
-   SO-101 <rst_source/usage/so101>
-   任务卡模式 <rst_source/usage/task_card>
+   数据飞轮 <rst_source/usage/flywheel>
+   Flash Mode <rst_source/usage/flash>
+   仿真环境 <rst_source/usage/simulation>
+   真实机器人 <rst_source/usage/real_robots>
    高级部署 <rst_source/usage/advanced_deployment>
 
 .. toctree::
@@ -94,11 +90,11 @@
    :hidden:
    :caption: 开发教程
 
-   系统设计 <rst_source/development/architecture>
+   系统说明 <rst_source/development/architecture>
    核心接口 <rst_source/development/interfaces>
+   Memory 管理 <rst_source/development/memory>
    添加新机器人 <rst_source/development/add_robot>
    添加动作原语 <rst_source/development/add_primitive>
-   Memory 管理 <rst_source/development/memory>
 
 .. toctree::
    :maxdepth: 2

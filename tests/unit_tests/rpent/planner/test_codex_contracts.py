@@ -289,6 +289,33 @@ def test_build_config_constructs_with_the_installed_codex_sdk(
     assert config.experimental_api is True
     assert config.env[PROVIDER_ENV_KEY] == "contract-key"
     assert f'model_provider="{PROVIDER_ID}"' in config.config_overrides
+    assert "project_doc_max_bytes=0" in config.config_overrides
+    assert not any(
+        entry.startswith("skills.config=") for entry in config.config_overrides
+    )
+
+
+def test_build_config_disables_symlinked_project_skills(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEX_BIN", raising=False)
+    skill = tmp_path / "shared" / "review-代码" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: review-pr\ndescription: Review a PR.\n---\n")
+    linked_skill = tmp_path / ".agents" / "skills" / "review-pr"
+    linked_skill.parent.mkdir(parents=True)
+    linked_skill.symlink_to(skill.parent, target_is_directory=True)
+    planner = make_planner(tmp_path, RecordingSink())
+
+    config = planner._build_config("http://fake.invalid/mcp/")
+
+    assert config.cwd == str(tmp_path)
+    assert "project_doc_max_bytes=0" in config.config_overrides
+    assert (
+        "skills.config=["
+        f"{{ path = {json.dumps(str(skill.resolve()), ensure_ascii=False)}, enabled = false }}]"
+    ) in config.config_overrides
 
 
 def test_build_config_scopes_loopback_no_proxy_to_codex_child(

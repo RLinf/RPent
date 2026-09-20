@@ -48,16 +48,9 @@ class RuntimeComponentSpec(RuntimeComponentSpecRequired, total=False):
     planners: tuple[str, ...]
 
 
-class FrameChannelSpec(TypedDict):
-    name: str
-    label: str
-    artifact: str
-
-
 class DashboardSpecRequired(TypedDict):
     task: TaskSpec
     runtime_components: tuple[RuntimeComponentSpec, ...]
-    frame_channels: tuple[FrameChannelSpec, ...]
     primitives: tuple[str, ...]
 
 

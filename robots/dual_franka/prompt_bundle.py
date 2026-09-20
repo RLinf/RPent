@@ -26,6 +26,8 @@ from rpent.prompt.utils import Numbered, PromptNode
 
 def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the dual-Franka system prompt."""
+    if (variables or {}).get("mode") == "explore":
+        return explore_parts.system_prompt()
     node: dict[str, object] = {
         "ROLE": system_parts.ROLE,
         "RUNTIME": system_parts.RUNTIME,
@@ -34,14 +36,6 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
         "VLA SEGMENT GATES": Numbered(system_parts.VLA_GATES),
         "WORKFLOW": Numbered(system_parts.WORKFLOW),
     }
-    if (variables or {}).get("mode") == "explore":
-        node.update(
-            {
-                "EXPLORATION MODE": explore_parts.MODE,
-                "EXPLORATION RULES": Numbered(explore_parts.RULES),
-                "EXPLORATION WORKFLOW": Numbered(explore_parts.WORKFLOW),
-            }
-        )
     return node
 
 
@@ -50,7 +44,9 @@ def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     node: dict[str, object] = {
         "TASK": user_parts.TASK,
         "TASK CONSTRAINTS": user_parts.CONSTRAINTS,
-        "BEGIN": user_parts.BEGIN,
+        "BEGIN": explore_parts.BEGIN
+        if (variables or {}).get("mode") == "explore"
+        else user_parts.BEGIN,
     }
     if (variables or {}).get("mode") == "explore":
         node["EXPLORATION OUTPUT"] = (

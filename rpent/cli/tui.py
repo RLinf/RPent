@@ -45,11 +45,13 @@ While the agent runs, type to steer it at the next turn.
 """
 
 
-def handle_local_command(line: str) -> bool:
+def handle_local_command(line: str, *, extra_help: str = "") -> bool:
     """Handle TUI-local commands; return True when the line was consumed."""
     if line.strip().lower() not in HELP_TOKENS:
         return False
     print(_HELP_TEXT, end="")
+    if extra_help:
+        print(extra_help, end="")
     return True
 
 
@@ -150,6 +152,9 @@ def start_interactive_reader(
     input_queue: "queue.Queue[str | None]",
     *,
     first_prompt_default: str | None = None,
+    line_handler: Callable[[str], bool] | None = None,
+    on_close: Callable[[], None] | None = None,
+    extra_help: str = "",
 ) -> threading.Thread:
     """Start a prompt-toolkit input UI and forward submitted lines."""
     if not sys.stdin.isatty():
@@ -180,13 +185,17 @@ def start_interactive_reader(
                             )
                         except (EOFError, KeyboardInterrupt):
                             break
-                        if handle_local_command(line):
+                        if handle_local_command(line, extra_help=extra_help):
+                            continue
+                        if line_handler is not None and line_handler(line):
                             continue
                         input_queue.put(line)
                         pending_default = None
                         if line.strip().lower() in QUIT_TOKENS:
                             break
         finally:
+            if on_close is not None:
+                on_close()
             input_queue.put(None)
 
     thread = threading.Thread(target=_read, name="interactive-input", daemon=True)

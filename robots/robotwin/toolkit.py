@@ -91,7 +91,7 @@ class RoboTwinToolkit(Toolkit):
     def __init__(
         self,
         *,
-        primitives_kwargs: dict[str, Any],
+        runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
     ):
@@ -104,7 +104,7 @@ class RoboTwinToolkit(Toolkit):
         self._latest_status: dict[str, Any] = {}
         self._primitives = RoboTwinPrimitives(
             check_cancelled=self.raise_if_cancelled,
-            **primitives_kwargs,
+            **runtime_kwargs,
         )
         self._primitives.start_recording()
         self._action_frame_cursor = self._primitives.recorded_frame_count()
