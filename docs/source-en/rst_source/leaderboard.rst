@@ -14,7 +14,7 @@ RPent Leaderboard
 
 .. raw:: html
 
-   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@1519c0f7828d597ae96a8c5b2a2926bd4e43678f/rpent/benchmarks/embed.js"></script>
+   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@a6657fc43a6b3874a20ee1695a480090a4737c35/rpent/benchmarks/embed.js"></script>
    <div id="rpent-interactive-leaderboard" data-section="index"
         data-performance-url="leaderboard/performance.html"
         data-costs-url="leaderboard/time-token-costs.html"></div>
