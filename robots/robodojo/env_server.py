@@ -777,7 +777,6 @@ def main() -> None:
     parser.add_argument("--save-dir", default=os.getcwd())
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
-    parser.add_argument("--parent-pid", type=int, default=None)
     parser.add_argument(
         "--video-dir",
         default=None,
@@ -809,20 +808,6 @@ def main() -> None:
         args.kit_args = f"{args.kit_args} {_CAMERA_KIT_ARGS}"
     else:
         args.kit_args = _CAMERA_KIT_ARGS
-
-    if args.parent_pid is not None:
-
-        def _watch_parent(pid: int) -> None:
-            while True:
-                try:
-                    os.kill(pid, 0)
-                except OSError:
-                    os._exit(0)
-                time.sleep(2)
-
-        threading.Thread(
-            target=_watch_parent, args=(args.parent_pid,), daemon=True
-        ).start()
 
     os.environ.setdefault(
         "ROBODOJO_RUN_ID", datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

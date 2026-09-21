@@ -24,7 +24,7 @@ Key modules
 * ``robots/robodojo/env_client.py`` — rpent-side client inheriting
   ``BaseEnvClient``.
 * Shared ``rpent/robots/components/xpolicylab_vla_server.py`` and
-  ``robots/robodojo/vla_client.py`` — Pi_05 policy
+  ``rpent/robots/components/xpolicylab_vla_client.py`` — Pi_05 policy
   service (XPolicyLab WebSocket) adapted to the shared ``BaseVLAFacade`` /
   ``BaseVLAClient`` protocol.
 * ``robots/robodojo/toolkit.py`` / ``tools.py`` — primitives:

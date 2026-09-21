@@ -22,7 +22,7 @@ RPent 共享的 planner、工具与 memory 基础设施。该接入仍属实验�
 * ``robots/robodojo/env_client.py`` —— 继承 ``BaseEnvClient`` 的 rpent
   侧客户端。
 * 共享的 ``rpent/robots/components/xpolicylab_vla_server.py`` 和
-  ``robots/robodojo/vla_client.py`` —— Pi_05 策略服务
+  ``rpent/robots/components/xpolicylab_vla_client.py`` —— Pi_05 策略服务
   （XPolicyLab WebSocket）适配到共享 ``BaseVLAFacade`` / ``BaseVLAClient``
   协议。
 * ``robots/robodojo/toolkit.py`` / ``tools.py`` —— view_env_state /

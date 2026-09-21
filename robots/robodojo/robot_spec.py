@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 from robots.robodojo.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
+from rpent.evaluation import RunFinalizationContext, write_json_atomic
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -127,7 +128,29 @@ def get_robot_spec() -> RobotSpec:
         init_runtime=_init_runtime,
         dashboard=ROBODOJO_DASHBOARD_SPEC,
         run_flash=_run_flash,
+        finalize_run=finalize_run,
     )
+
+
+def finalize_run(context: RunFinalizationContext) -> Path:
+    """Write RoboDojo task identity and environment-authoritative run results."""
+    record = {
+        "task": context.task_desc["task"],
+        "layout": context.task_desc["layout"],
+        "mode": context.task_desc.get("mode", "dev"),
+        "success": context.environment_success,
+        "environment_result_available": context.environment_success is not None,
+        "agent_error_present": context.agent_error is not None,
+        "elapsed_s": round(context.elapsed_s, 1),
+        "planner": {
+            "backend": context.planner,
+            "model": context.model,
+            "reasoning_effort": context.reasoning_effort,
+            "max_turns": context.max_turns,
+        },
+        "planner_timeout_s": context.planner_timeout_s,
+    }
+    return write_json_atomic(context.output_dir / "result.json", record)
 
 
 def _run_flash(toolkit, cell_tag: str, note) -> dict:
@@ -310,8 +333,6 @@ def _spawn_env_server(
             host,
             "--port",
             str(port),
-            "--parent-pid",
-            str(os.getpid()),
             "--video-dir",
             str(Path(output_dir) / "videos"),
             "--save-dir",
@@ -429,8 +450,8 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every RoboDojo component, or only ``components`` when given."""
     from robots.robodojo.env_client import RoboDojoEnvClient
-    from robots.robodojo.vla_client import RoboDojoVLAClient
     from rpent.robots.components.sam3_client import Sam3Client
+    from rpent.robots.components.xpolicylab_vla_client import XPolicyLabVLAClient
 
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
@@ -457,7 +478,7 @@ def _init_runtime(
                 },
             )
         },
-        "vla": lambda rpc: {"vla_client": RoboDojoVLAClient(rpc)},
+        "vla": lambda rpc: {"vla_client": XPolicyLabVLAClient(rpc)},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
     }
     timeouts = {"env": 900.0, "sam3": 300.0, "vla": 1800.0}

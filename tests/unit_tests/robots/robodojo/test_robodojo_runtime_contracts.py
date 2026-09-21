@@ -15,6 +15,7 @@
 """Offline RoboDojo configuration and read-only dispatch contracts."""
 
 import argparse
+import json
 import os
 import sys
 from functools import partial
@@ -31,6 +32,51 @@ def _args(*flags):
     parser = argparse.ArgumentParser()
     robot_spec._add_cli_args(parser, False)
     return parser.parse_args(["--task", "put_bottles_into_dustbin", *flags])
+
+
+@pytest.mark.parametrize("success", [True, False, None])
+@pytest.mark.parametrize("mode", ["dev", "eval-fair"])
+def test_finalize_run_writes_environment_result(tmp_path, success, mode):
+    from rpent.evaluation import RunFinalizationContext
+
+    task_desc = {"task": "put_bottles_into_dustbin", "layout": 2}
+    if mode == "eval-fair":
+        task_desc["mode"] = mode
+    context = RunFinalizationContext(
+        output_dir=tmp_path,
+        robot_name="robodojo",
+        task_desc=task_desc,
+        environment_success=success,
+        agent_error="private error details",
+        elapsed_s=12.34,
+        planner="flash" if mode == "eval-fair" else "api",
+        model=None,
+        reasoning_effort="low",
+        max_turns=20,
+        planner_timeout_s=60,
+        finish_result={"done": True},
+        stats={},
+    )
+    path = robot_spec.get_robot_spec().finalize_run(context)
+    assert path == tmp_path / "result.json"
+    record = json.loads(path.read_text())
+    assert record == {
+        "task": task_desc["task"],
+        "layout": 2,
+        "mode": mode,
+        "success": success,
+        "environment_result_available": success is not None,
+        "agent_error_present": True,
+        "elapsed_s": 12.3,
+        "planner": {
+            "backend": context.planner,
+            "model": None,
+            "reasoning_effort": "low",
+            "max_turns": 20,
+        },
+        "planner_timeout_s": 60,
+    }
+    assert not (tmp_path / ".result.json.tmp").exists()
 
 
 def test_explicit_paths_do_not_read_workspace_or_mutate_parent(monkeypatch, tmp_path):
@@ -102,6 +148,7 @@ def test_spawn_uses_explicit_interpreter_and_child_paths(
     getattr(robot_spec, f"_spawn_{component}_server")(args, tmp_path)
     assert recorded["cmd"][0] == sys.executable
     assert recorded["started"]
+    assert "--parent-watch" in recorded["cmd"]
     directory_flag = "--output-dir" if component == "vla" else "--save-dir"
     assert recorded["cmd"][recorded["cmd"].index(directory_flag) + 1] == str(tmp_path)
     if component == "vla":

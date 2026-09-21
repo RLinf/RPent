@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""RoboDojo Pi_05 VLA client — shared ``BaseVLAClient`` RPC surface."""
+"""XPolicyLab VLA client — shared ``BaseVLAClient`` RPC surface."""
 
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ from typing import Any
 from rpent.robots.components.vla_client_base import BaseVLAClient
 
 
-class RoboDojoVLAClient(BaseVLAClient):
-    """Client for the RoboDojo Pi_05 policy server (XPolicyLab ws backend).
+class XPolicyLabVLAClient(BaseVLAClient):
+    """Client for the shared XPolicyLab WebSocket policy adapter.
 
     Uses the shared :class:`BaseVLAClient` wire protocol (``vla.predict``);
     the shared XPolicyLab adapter translates WebSocket Pi_05 calls into
