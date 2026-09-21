@@ -204,6 +204,11 @@ def test_tool_result_conversion_preserves_native_data_images_and_errors() -> Non
     assert image["mimeType"] == "image/png"
     assert base64.b64decode(image["data"]) == b"image bytes"
 
+    business_data = {"error": {"count": 0}}
+    converted = mcp_result(ToolResult(data=business_data))
+    assert converted["isError"] is False
+    assert json.loads(converted["content"][0]["text"]) == business_data
+
 
 def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
     tmp_path: Path,

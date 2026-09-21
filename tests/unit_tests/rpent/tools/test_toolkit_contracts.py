@@ -234,19 +234,6 @@ def test_toolkit_accepts_finish_only_after_successful_execution(tmp_path) -> Non
     assert toolkit.finish_result["status"] == "success"
 
 
-def test_native_error_flag_is_independent_of_business_data(tmp_path) -> None:
-    toolkit = _ContractToolkit(tmp_path)
-
-    @tool(readonly=True)
-    def inspect_scene() -> ToolResult:
-        return ToolResult(data={"error": {"count": 0}})
-
-    toolkit.add_tool(inspect_scene)
-    result = toolkit.execute_tool("inspect_scene", {})
-    assert not result.is_error
-    assert result.data == {"error": {"count": 0}}
-
-
 @pytest.mark.parametrize("value", ["界" * 10, "x" * 100])
 def test_tool_result_text_limit_preserves_complete_data(monkeypatch, value) -> None:
     monkeypatch.setattr(tools_base, "MAX_TOOL_TEXT_BYTES", 20)
