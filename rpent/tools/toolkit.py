@@ -36,7 +36,7 @@ from rpent.tools.base import Tool, ToolResult, iter_tools
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
 
-logger = get_logger("tools")
+logger = get_logger("toolkit")
 
 if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager
