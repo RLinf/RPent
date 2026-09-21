@@ -16,10 +16,8 @@
 # ruff: noqa: E402
 """Run one Dual-Franka primitive manually against live RPent services.
 
-This is the RPent-side replacement for the old PhysicalAgent
-``cli.dual_franka_manual`` helper.  It intentionally bypasses the planner: use it
-for live robot bring-up, single-skill VLA checks, perception checks, and reset
-or gripper sanity tests.
+This command bypasses the planner for robot bring-up, single-skill VLA checks,
+perception checks, and reset or gripper sanity tests.
 """
 
 from __future__ import annotations
@@ -586,7 +584,7 @@ def main() -> int:
                 result=result,
                 elapsed_s=elapsed_s,
             )
-        except Exception as exc:  # keep manual action result visible
+        except Exception as exc:  # Preserve the primitive result on capture failure.
             result = {
                 "ok": bool(result.get("ok")) if isinstance(result, dict) else None,
                 "primitive_result": result,

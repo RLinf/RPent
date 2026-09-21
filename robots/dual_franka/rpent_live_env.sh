@@ -50,10 +50,6 @@ export RPENT_VLA_ENDPOINT="${RPENT_VLA_ENDPOINT:-http://127.0.0.1:6000}"
 export RPENT_SAM3_ENDPOINT="${RPENT_SAM3_ENDPOINT:-http://127.0.0.1:8114}"
 
 # Hardware/config defaults for the current dual-Franka setup.
-#
-# PhysicalAgent alignment note: hand-eye calibration is loaded from the
-# easy_handeye YAMLs referenced by ``perception.calibration`` inside the robot
-# config below; there is no separate calibration file to point at.
 export RPENT_ROBOT_CONFIG="${RPENT_ROBOT_CONFIG:-${RPENT_REPO_ROOT}/robots/dual_franka/config/example.yaml}"
 
 # Planner defaults for reproducible live runs. Per-run command line flags still

@@ -48,10 +48,6 @@ class DualFrankaPerceptionError(ValueError):
 @readonly
 def back_project(
     *,
-    # PhysicalAgent alignment note: D455 is the deployed clean-desk primary
-    # metric view.  The implementation accepts any camera registered in
-    # perception.projection_views; this default should become config-driven
-    # before treating dual_franka as a portable robot extension.
     camera: str = "d455",
     row: int,
     col: int,
@@ -75,9 +71,6 @@ def back_project(
 @readonly
 def segment(
     *,
-    # Same deployment default as back_project: SAM3 can run on any registered
-    # RGBD projection view, but D455 is the live clean-desk reference camera
-    # used for log alignment with PhysicalAgent.
     camera: str = "d455",
     prompt: str = "",
     point: list[int] | None = None,
