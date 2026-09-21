@@ -30,6 +30,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import numpy as np
@@ -41,20 +42,18 @@ if str(REPO_ROOT) not in sys.path:
 from robots.dual_franka import perception as dual_franka_perception
 from robots.dual_franka.runtime_config import DEFAULT_CONFIG
 from robots.dual_franka.tasks import get_dual_franka_task
-from robots.dual_franka.toolkit import DualFrankaToolkit
+from robots.dual_franka.toolkit import DualFrankaRuntime, DualFrankaToolkit
 from robots.dual_franka.tools import (
-    TOOLS_SPEC,
-    DualFrankaPrimitives,
+    DUAL_FRANKA_TOOLS,
     dump_state,
-    view_env_state,
 )
 from robots.franka.runtime_config import set_calibration_path, set_robot_config_path
-from robots.franka.tools import view_camera_meta
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState
+from rpent.tools import ToolContext
 from rpent.utils.config import get_repo_root
 from rpent.utils.rpc import make_rpc_client, wait_for_ready
 
@@ -69,7 +68,14 @@ _RESET_SPEC: dict[str, Any] = {
 
 
 def _tool_spec_map(*, include_manual: bool = False) -> dict[str, dict[str, Any]]:
-    specs = {str(spec["name"]): spec for spec in TOOLS_SPEC}
+    specs = {
+        item.name: {
+            "name": item.name,
+            "description": item.description,
+            "input_schema": item.input_schema,
+        }
+        for item in DUAL_FRANKA_TOOLS
+    }
     if include_manual:
         specs[str(_RESET_SPEC["name"])] = _RESET_SPEC
     return specs
@@ -334,31 +340,50 @@ def _default_output_dir(primitive: str) -> Path:
     return get_repo_root() / "logs" / f"{stamp}-manual-{primitive}"
 
 
+def _call_native_tool(
+    name: str,
+    params: dict[str, Any],
+    runtime: DualFrankaRuntime,
+    state: EnvState | None = None,
+) -> dict[str, Any]:
+    item = next(item for item in DUAL_FRANKA_TOOLS if item.name == name)
+    args = item.args_schema.model_validate(params)
+    ctx = ToolContext(
+        robot=runtime,
+        state=state,
+        memory=None,
+        output_dir=Path("."),
+        record_frame=lambda frame: None,
+        _cancel_event=Event(),
+    )
+    return item.handler(**args.model_dump(), ctx=ctx).to_dict()
+
+
 def _call_readonly_tool(
     primitive: str,
     params: dict[str, Any],
     *,
-    primitives: DualFrankaPrimitives,
+    runtime: DualFrankaRuntime,
     state: EnvState,
     sam3_client: Sam3Client | None,
     dump_state_enabled: bool,
 ) -> dict[str, Any]:
     if primitive == "describe_dual_franka_setup":
-        return primitives.describe_dual_franka_setup()
+        return _call_native_tool(primitive, params, runtime, state)
     if primitive == "view_env_state":
         if dump_state_enabled:
             dump_state(
-                primitives,
+                runtime,
                 state,
                 command={"action": "view_env_state", "params": params},
                 result=None,
                 elapsed_s=None,
             )
-            return view_env_state(state=state, **params)
+            return _call_native_tool(primitive, params, runtime, state)
         return {
             "step_idx": None,
-            "state": primitives.env.get_robot_state(),
-            "camera_meta": primitives.env.get_camera_meta() or {},
+            "state": runtime.env.get_robot_state(),
+            "camera_meta": runtime.env.get_camera_meta() or {},
             "images": [],
             "artifact_images": [],
             "note": (
@@ -369,14 +394,14 @@ def _call_readonly_tool(
     if primitive == "view_camera_meta":
         if dump_state_enabled:
             dump_state(
-                primitives,
+                runtime,
                 state,
                 command={"action": "view_camera_meta", "params": params},
                 result=None,
                 elapsed_s=None,
             )
-            return view_camera_meta(state=state, **params)
-        return {"step": None, "camera_meta": primitives.env.get_camera_meta() or {}}
+            return _call_native_tool(primitive, params, runtime, state)
+        return {"step": None, "camera_meta": runtime.env.get_camera_meta() or {}}
     if primitive == "back_project":
         if state.latest_step is None:
             if not dump_state_enabled:
@@ -385,7 +410,7 @@ def _call_readonly_tool(
                     "--no-dump-state so the manual tool can capture one first."
                 )
             dump_state(
-                primitives,
+                runtime,
                 state,
                 command={"action": "snapshot_before_back_project", "params": {}},
                 result=None,
@@ -400,7 +425,7 @@ def _call_readonly_tool(
                     "--no-dump-state so the manual tool can capture one first."
                 )
             dump_state(
-                primitives,
+                runtime,
                 state,
                 command={"action": "snapshot_before_segment", "params": {}},
                 result=None,
@@ -419,23 +444,12 @@ def _call_mutating_primitive(
     params: dict[str, Any],
     *,
     env: ManualDualFrankaEnv,
-    primitives: DualFrankaPrimitives,
+    runtime: DualFrankaRuntime,
 ) -> dict[str, Any]:
     if primitive == "reset":
         return env.reset()
-    if primitive == "move_delta":
-        return primitives.move_delta(**params)
-    if primitive == "rotate_delta":
-        return primitives.rotate_delta(**params)
-    if primitive == "open_gripper":
-        return primitives.open_gripper(**params)
-    if primitive == "close_gripper":
-        return primitives.close_gripper(**params)
-    if primitive == "recover_joint_posture":
-        return primitives.recover_joint_posture(**params)
     if primitive in _registered_tool_names():
-        handler = getattr(primitives, primitive)
-        return handler(**params)
+        return _call_native_tool(primitive, params, runtime)
     raise KeyError(primitive)
 
 
@@ -468,7 +482,7 @@ def _call_toolkit_tool(
         state_output_dir=output_dir,
     )
     try:
-        return toolkit.execute_tool(primitive, params).result
+        return toolkit.execute_tool(primitive, params).to_dict()
     finally:
         toolkit.close()
 
@@ -523,12 +537,11 @@ def main() -> int:
         sam3_client = Sam3Client(sam3_rpc)
 
     state = EnvState(output_dir)
-    primitives = DualFrankaPrimitives(
+    runtime = DualFrankaRuntime(
         env=env,
         model=model,
         task_description=task.instruction,
         vla_instruction=task.vla_instruction,
-        check_cancelled=lambda: None,
         sam3_client=sam3_client,
     )
 
@@ -546,15 +559,17 @@ def main() -> int:
             result = _call_readonly_tool(
                 primitive,
                 params,
-                primitives=primitives,
+                runtime=runtime,
                 state=state,
                 sam3_client=sam3_client,
                 dump_state_enabled=not args.no_dump_state,
             )
         else:
-            if primitive in _registered_tool_names() and not hasattr(
-                primitives, primitive
-            ):
+            if primitive in {
+                "request_scene_reset",
+                "request_operator_verdict",
+                "finish",
+            }:
                 used_toolkit_tool = True
                 result = _call_toolkit_tool(
                     primitive,
@@ -570,7 +585,7 @@ def main() -> int:
                     primitive,
                     params,
                     env=env,
-                    primitives=primitives,
+                    runtime=runtime,
                 )
     except KeyError:
         known = sorted(_manual_primitive_names())
@@ -590,7 +605,7 @@ def main() -> int:
     ):
         try:
             dump_state(
-                primitives,
+                runtime,
                 state,
                 command={"action": primitive, "params": params},
                 result=result,

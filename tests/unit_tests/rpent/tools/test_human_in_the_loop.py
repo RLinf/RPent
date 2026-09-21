@@ -18,8 +18,8 @@ import threading
 
 import pytest
 
+from rpent.tools import ToolCancelled
 from rpent.tools.human_in_the_loop import HumanInTheLoopInput
-from rpent.tools.toolkit import ToolCancelled
 
 
 def test_operator_replies_are_request_scoped_and_do_not_consume_steering(monkeypatch):

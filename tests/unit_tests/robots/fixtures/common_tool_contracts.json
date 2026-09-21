@@ -1,0 +1,60 @@
+{
+  "source_commit": "949f61ecea1c571168ca6a29a59f6d3207f6f947",
+  "schemas": {
+    "read_text_file": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Absolute or repo-relative path"
+        },
+        "max_chars": {
+          "type": "integer",
+          "description": "Max chars (default 40000)"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "write_text_file": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ]
+    },
+    "list_dir": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Default: {{output_dir}}"
+        }
+      }
+    },
+    "read_image": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "step": {
+          "type": "integer",
+          "minimum": -1
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  }
+}

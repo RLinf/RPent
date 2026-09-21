@@ -25,7 +25,6 @@ from PIL import Image, ImageDraw
 
 from robots.franka.runtime_config import get_calibration_path
 from rpent.session import EnvState
-from rpent.tools.toolkit import readonly
 
 
 class PerceptionError(ValueError):
@@ -77,7 +76,6 @@ def load_calibration_bundle(
     }
 
 
-@readonly
 def view_perception_setup(
     *,
     state: EnvState | None = None,
@@ -103,7 +101,6 @@ def view_perception_setup(
     }
 
 
-@readonly
 def back_project(
     *,
     row: int,
@@ -249,7 +246,6 @@ def _save_selected_pixel_overlay(
         return None
 
 
-@readonly
 def back_project_correspondence(
     *,
     third_person_row: int | None = None,

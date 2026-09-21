@@ -46,8 +46,8 @@
        ``runtime_kwargs``。普通 CLI 传 ``None``；Dashboard 从 spec 得到显式声明
        的 shared 和 unique 子集后分别传入。``DashboardEventSink`` 用于上报运行时状态。
 
-``get_toolkit`` 一般只需把 ``runtime_kwargs`` 传给机器人子类；
-``dashboard_events`` 和 ``config`` 由当前 runner 传入。它需要构造一个
+``get_toolkit`` 用 ``runtime_kwargs`` 中的客户端构造机器人 toolkit；
+运行配置 ``config`` 和 Dashboard 事件接收器 ``dashboard_events`` 也由 runner 提供。它需要构造一个
 :class:`~rpent.memory.MemoryManager`（root 取自
 ``config.prompt_vars["memory_dir"]``，未设置时回退到
 ``get_memory_dir(robot_name)``）并传给 toolkit。Memory 访问权限在
@@ -77,34 +77,91 @@ Planner
        dashboard_interaction=None,
    ) -> PlannerResult: ...
 
-约定：用 ``toolkit.get_tools_spec()`` 把工具交给模型；每次调用 ``toolkit.execute_tool(name, input_dict)``；
-把结果喂回模型；在 ``finish`` 工具或轮次用尽时返回 ``PlannerResult``。
+Planner 先通过 ``toolkit.list_tools()`` 获取工具定义，将每个工具的 ``name``、
+``description`` 和 ``input_schema`` 交给模型。模型发起调用后，使用
+``toolkit.execute_tool(name, arguments)`` 执行，再将返回的文本和图片送回模型，
+继续下一轮推理。当 ``toolkit.finish_result`` 有值，或达到运行限制时，返回
+``PlannerResult``。
+
+如果 planner 使用异步调用，可以通过 ``rpent.planner.base.execute_tool``
+在线程中执行工具。这个辅助函数也会处理取消，等待工具完成清理后再退出。
 
 工具集
 ------
 
-在 ``robots/<robot>/toolkit.py`` 里继承 ``Toolkit``，用 ``add_tool`` 注册机器人工具：
+在 ``robots/<robot>/toolkit.py`` 中继承 ``Toolkit``，构造时传入机器人使用的
+客户端、状态和工具集合：
 
 .. code-block:: python
 
-   def add_tool(self, name: str, spec: dict, handler) -> None: ...
+   super().__init__(
+       state=state,
+       memory=memory,
+       robot=runtime,
+       output_dir=output_dir,
+       tools=MYROBOT_TOOLS,
+       dashboard_events=dashboard_events,
+   )
+
+``MYROBOT_TOOLS`` 是由 ``@tool`` 声明组成的元组。编写工具时，主要需要了解
+以下三部分，它们都可以从 ``rpent.tools`` 导入：
 
 .. list-table::
    :header-rows: 1
    :widths: 22 78
 
-   * - 参数
-     - 含义
-   * - ``name``
-     - LLM 看到的工具名。
-   * - ``spec``
-     - 工具说明与参数 schema（``name``、``description``、``input_schema``）。
-   * - ``handler``
-     - 执行逻辑，须返回 ``dict``。任务结束时在该 ``dict`` 里设 ``_finish``；
-       需要回传相机图时可设 ``_image_bytes`` 等字段。
+   * - 接口
+     - 用法
+   * - ``@tool``
+     - 将函数声明为工具。函数名就是工具名，Google 风格 docstring 提供说明，
+       参数类型和 ``Field`` 约束用于生成校验模型及 JSON schema。
+   * - ``ToolContext``
+     - 工具通过必填的仅限关键字参数 ``ctx`` 获取上下文。其中 ``robot`` 是
+       运行时对象，``state`` 和 ``memory`` 分别管理观测与记忆，``output_dir``
+       指向输出目录。``ctx`` 由 toolkit 提供，不出现在模型可见的参数中。
+   * - ``ToolResult``
+     - 工具函数的返回值。``data`` 保存执行结果，``images`` 保存 PNG 字节，
+       出错时填写 ``error``。Planner 使用 ``to_text()`` 和 ``images`` 读取
+       文本与图片，通过 ``is_error`` 判断调用是否失败。
 
-基类已注册公共文件工具；子类 ``super().__init__()`` 后追加本机器人工具即可。逐步状态与
-``view_env_state`` 见 :doc:`add_primitive`。
+基类会自动加入公共文件工具，文件访问权限由 ``MemoryManager`` 检查。
+其中 ``read_image`` 供 API planner 使用；Claude Code 和 Codex 使用各自内置的
+图片读取工具。工具函数的完整示例见 :doc:`add_primitive`。
+
+``FrankaToolkit`` 和 ``DualFrankaToolkit`` 保留机器人工具的主要参数、正常返回字段、
+图片顺序和路径字段，以及 ``finish``。测试完整对比历史输入 schema、工具说明和
+正常返回字段，保留公开的默认值和参数说明。schema 仅允许明确列出的可选参数
+额外接受 ``null``，并统一增加 ``additionalProperties: false``，在执行前拒绝
+未知的顶层参数（包括调用者传入的 ``ctx``）。文件工具、错误处理和校验后的参数
+日志沿用公共 native 执行器。
+arm 的归一化声明在 Pydantic 参数类型中。
+
+``finish`` 成功后，``Toolkit.finish_result`` 保留完整的业务数据，仅去掉内部的
+``_finish`` 标记。Planner 读取该结果，包括 ``operator_aborted``、``operator_notes``
+等机器人特有字段，供会话控制与运行记录使用。
+
+默认情况下，工具独占执行，完成后由机器人子类的 ``_capture_observation``
+保存状态并返回新的观测。观测会替换动作返回的数据，因此需要保留的执行详情
+应写入观测中的日志；动作错误仍会保留。即使工具函数出错，toolkit 也会尝试
+捕获观测，让 planner 了解当前环境。
+
+读取已有观测的工具可以在 ``@tool`` 下方添加 ``@readonly``，允许与其他
+readonly 工具并行，并跳过自动捕获。其余工具独占执行；等待中的独占调用
+优先执行，并保持登记顺序。
+
+公共工具和 ``finish`` 不触发观测捕获。``write_text_file`` 和 ``finish``
+不设置 readonly，因此独占执行但不新增观测。LIBERO 的 ``segment`` 使用
+``@readonly``，将分割附件保存到源 step 并直接返回分割结果，不新增观测。
+
+长时间运行的工具应在安全的动作边界调用 ``ctx.check_cancelled()``。收到中断后，
+``cancel_active_and_wait()`` 会暂停新调用，并等待已有调用取消和清理；后续可以用
+``resume_calls()`` 恢复。运行结束时，``close()`` 关闭工具集并保存通过
+``ctx.record_frame`` 收集的录像帧。
+
+每个机器人提供自己的 ``finish`` 工具。调用成功后，toolkit 将其中的 ``status``
+和 ``summary`` 保存到 ``finish_result``，供 planner 结束循环；环境是否真正成功，
+则由 ``solved()`` 判断。Recipe 的导出由 ``write_recipe(recipe_tag)`` 完成，
+memory 的使用与发布见 :doc:`memory`。
 
 进程间通信
 ----------

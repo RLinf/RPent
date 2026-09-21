@@ -80,38 +80,104 @@ Most users pick a built-in ``api``, ``claude_code``, or ``codex`` planner — se
        dashboard_interaction=None,
    ) -> PlannerResult: ...
 
-Contract: pass ``toolkit.get_tools_spec()`` to the model; dispatch each call via
-``toolkit.execute_tool(name, input_dict)``; feed results back to the model; return
-``PlannerResult`` on the ``finish`` tool or when turns are exhausted.
+Contract: read ``toolkit.list_tools()`` and adapt each ``Tool``'s ``name``,
+``description``, and ``input_schema`` to the model SDK. Dispatch through
+``toolkit.execute_tool(name, arguments)`` and return ``PlannerResult`` when
+``toolkit.finish_result`` is set or a run limit is reached. For asynchronous
+adapters, use ``rpent.planner.base.execute_tool`` to run the synchronous executor
+in a worker and retain it through cancellation.
 
-Toolkit
--------
+Native tools and Toolkit
+------------------------
 
-Subclass ``Toolkit`` in ``robots/<robot>/toolkit.py`` and register robot tools with
-``add_tool``:
+Import ``Tool``, ``ToolContext``, ``ToolResult``, ``Toolkit``, ``tool``,
+and ``readonly`` from ``rpent.tools``.
+
+- ``@tool`` turns a function into a ``Tool``. Its name and Google-style
+  docstring describe the tool; typed parameters and Pydantic ``Field``
+  constraints generate both the validation model (``args_schema``) and
+  the published JSON schema (``input_schema``). Unknown top-level arguments,
+  including a caller-supplied ``ctx``, are rejected before execution;
+  the schema advertises ``additionalProperties: false``.
+- Every handler takes a required keyword-only ``ctx: ToolContext[RobotRuntime]``.
+  The executor injects it and excludes it from the model-facing schema.
+  It provides ``state``, ``memory``, ``robot``, ``output_dir``,
+  ``record_frame(rgb)``, and ``check_cancelled()``.
+- Handlers return ``ToolResult(data={...}, images=[png_bytes], error=None)``.
+  ``to_dict()`` combines data and any error; ``to_text()`` serializes that
+  payload, truncating only the model-facing text to 60,000 bytes. PNG bytes
+  remain separate in ``images``; ``is_error`` indicates an error.
+  After a successful ``finish`` call, ``Toolkit.finish_result`` retains the full
+  data payload except the internal ``_finish`` marker. Planners use this accepted
+  result, including robot-specific fields such as ``operator_aborted`` and
+  ``operator_notes``.
+
+Construct the robot subclass with a fixed tuple of native tools:
 
 .. code-block:: python
 
-   def add_tool(self, name: str, spec: dict, handler) -> None: ...
+   super().__init__(
+       state=state,
+       memory=memory,
+       robot=runtime,
+       output_dir=output_dir,
+       tools=MYROBOT_TOOLS,
+       dashboard_events=dashboard_events,
+   )
 
-.. list-table::
-   :header-rows: 1
-   :widths: 22 78
+The base class adds ``read_text_file``, ``write_text_file``, ``list_dir``, and
+``read_image`` from ``rpent.tools.common_tools``. The MCP adapters omit
+``read_image`` because Claude Code and Codex use their built-in image readers.
+Memory file access goes through ``MemoryManager.authorize_read`` and
+``authorize_write``.
 
-   * - Argument
-     - Meaning
-   * - ``name``
-     - Tool name the LLM sees.
-   * - ``spec``
-     - Tool description and parameter schema (``name``, ``description``,
-       ``input_schema``).
-   * - ``handler``
-     - Implementation; **must return a ``dict``**. Set ``_finish`` when the task
-       ends; optional ``_image_bytes`` (etc.) to return camera images.
+Franka compatibility
+~~~~~~~~~~~~~~~~~~~~
 
-The base class already registers common file tools; call ``super().__init__()`` then
-``add_tool`` for robot tools. Per-step state and ``view_env_state`` are in
-:doc:`add_primitive`.
+``FrankaToolkit`` and ``DualFrankaToolkit`` preserve main robot tool parameters,
+normal result fields, image order and path fields, and ``finish``. Focused tests
+compare full input schemas, tool descriptions and normal return fields with a
+historical baseline, retaining the published defaults and parameter descriptions.
+Schema differences are explicitly listed optional inputs that now also accept
+``null`` and the shared rejection of unknown top-level arguments. File tools,
+error handling, and validated argument logs follow
+the shared native executor. Arm normalization is declared in the Pydantic
+parameter type.
+
+Scheduling and lifecycle
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Tools run exclusively by default. Place ``@readonly`` below ``@tool`` to allow
+execution alongside other readonly tools and skip automatic observation capture.
+Pending exclusive calls take priority and keep their queue order.
+
+Non-readonly robot tools capture a new observation after execution. Common tools
+and ``finish`` are excluded from capture: ``write_text_file`` and ``finish`` run
+exclusively without adding an observation. LIBERO ``segment`` uses ``@readonly``:
+it saves segmentation artifacts on the source step and returns the segmentation
+result directly, without capturing a new observation.
+
+Override ``_capture_observation(*, command, result, elapsed_s)`` to save a
+``StepRecord`` and return ``(observation_data, png_images)``. The executor
+replaces action data with observation data, appends the images, and retains
+any action error. Include the action log in the observation when needed.
+Capture also runs after handler errors; the call remains active until capture
+and Dashboard publication finish.
+
+Long-running handlers call ``ctx.check_cancelled()`` at safe boundaries.
+``cancel_active_and_wait()`` pauses admission, cancels pending and active calls,
+and waits for cleanup; ``resume_calls()`` reopens admission.
+``close()`` permanently closes admission, drains calls, and saves collected
+frames as ``episode.mp4``. Tools submit RGB frames with ``ctx.record_frame``;
+when Dashboard events are enabled, the executor also saves per-action clips.
+
+Each robot supplies its own ``finish`` tool. A successful call stores its
+``status`` and ``summary`` in ``toolkit.finish_result``; it does not close
+admission. ``solved()`` reports environment success independently of the
+planner's requested finish status. ``write_recipe(recipe_tag)`` exports
+successful robot calls, including perception and resets, in completion order;
+common file/image tools and ``finish`` are excluded. The runner decides whether
+the run qualifies for memory publication.
 
 Inter-process communication
 ---------------------------
