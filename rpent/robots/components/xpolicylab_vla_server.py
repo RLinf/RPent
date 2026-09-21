@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import os
+import signal
 import threading
 import time
 from datetime import datetime
@@ -192,3 +193,60 @@ class XPolicyLabVLAFacade(BaseVLAFacade):
                     logger.warning("XPolicyLab client close failed", exc_info=True)
                 self._model_client = None
             atexit.unregister(self.close)
+
+
+def main() -> None:
+    """Run the XPolicyLab adapter and clean up its owned policy process."""
+    parser = argparse.ArgumentParser()
+    add_backend_args(parser)
+    parser.add_argument("--transport", choices=["socket", "http"], default="http")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=0)
+    parser.add_argument(
+        "--parent-watch",
+        action="store_true",
+        help="watch parent process via stdin pipe and exit when it dies",
+    )
+    parser.add_argument(
+        "--cuda-device",
+        type=int,
+        default=None,
+        help="GPU device exposed through CUDA_VISIBLE_DEVICES.",
+    )
+    args = parser.parse_args()
+
+    if args.cuda_device is not None:
+        target = str(args.cuda_device)
+        prev = os.environ.get("CUDA_VISIBLE_DEVICES")
+        if prev is not None and prev != target:
+            logger.warning(
+                "CUDA_VISIBLE_DEVICES=%s is already set; overriding with --cuda-device=%s",
+                prev,
+                args.cuda_device,
+            )
+        os.environ["CUDA_VISIBLE_DEVICES"] = target
+
+    def terminate(signum, frame):
+        raise SystemExit(128 + signum)
+
+    # ProcessDaemon.stop sends SIGTERM; unwind startup/serve and its cleanup.
+    previous = signal.signal(signal.SIGTERM, terminate)
+    facade = None
+    try:
+        facade = XPolicyLabVLAFacade(args)
+        facade.serve(
+            transport=args.transport,
+            host=args.host,
+            port=args.port,
+            parent_watch=args.parent_watch,
+        )
+    finally:
+        try:
+            if facade is not None:
+                facade.close()
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+
+
+if __name__ == "__main__":
+    main()

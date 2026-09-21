@@ -95,10 +95,10 @@ CLI 构造子进程导入路径，不读取工作区的 ``config/runtime.env``�
 
 通过 ``--env-endpoint``、``--vla-endpoint`` 和 ``--sam3-endpoint`` 可连接已有服务。
 连接已有服务时，该组件不需要本地源码或 Python 路径。
-CLI 启动共享的 ``rpent.robots.components.pi05_vla_server``，传入
-``--policy-backend xpolicylab``，并通过 ``--policy-root`` 显式指定
+CLI 启动共享的 ``rpent.robots.components.xpolicylab_vla_server``，
+并通过 ``--policy-root`` 显式指定
 ``XPolicyLab/policy/Pi_05``。该适配器使用 XPolicyLab 的启动脚本和 checkpoint
-加载器，而非 RLinf Pi0.5 加载器（共享服务默认的 ``--policy-backend rlinf``）。
+加载器，而非 RLinf Pi0.5 加载器。
 切换后端不会转换 checkpoint 或观测格式。
 
 每个自有服务的日志与输出都落在本次运行的输出目录：CLI 以 ``--save-dir``

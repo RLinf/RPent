@@ -40,7 +40,7 @@ RPent 共享的 planner、工具与 memory 基础设施。该接入仍属实验�
 ``(obs, reward, done, info)`` 四元组。不支持 chunk stepping，原语通过环境
 动作接口逐步执行，保留该接口的边界检查与计数。
 
-策略通过 ``rpent.robots.components.pi05_vla_server --policy-backend xpolicylab``
+策略通过 ``rpent.robots.components.xpolicylab_vla_server``
 在独立 Python 环境中运行。``--policy-root`` 指向配置源码目录中的
 ``XPolicyLab/policy/Pi_05``。适配器原样传递观测与动作，并将
 ``update_obs``/``get_action`` 与 ``reset`` 串行化，不提供会话隔离。

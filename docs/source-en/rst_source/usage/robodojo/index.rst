@@ -46,7 +46,7 @@ primitives issue individual steps through the environment action path, retaining
 its bounds and counters.
 
 The policy runs in a separate Python environment through
-``rpent.robots.components.pi05_vla_server --policy-backend xpolicylab``.
+``rpent.robots.components.xpolicylab_vla_server``.
 Its ``--policy-root`` points to ``XPolicyLab/policy/Pi_05`` in the configured
 checkout. The adapter passes observations/actions through unchanged and
 serializes ``update_obs``/``get_action`` with ``reset``; it does not isolate
