@@ -246,7 +246,7 @@ Dashboard 提供同一项检查：启动页的 **测试连接** 按钮会针对�
 
 如果内置 planner 都不合适，例如需要接入内部 planner、研究原型或其他
 agent SDK，可以继承 ``rpent.planner.base.Planner``，实现抽象方法 ``solve()``，
-并在 ``rpent.planner.base.build_planner`` 中增加对应的构造分支：
+并修改 ``rpent.planner.base.build_planner``，使其能够创建新后端的实例：
 
 .. code-block:: python
 
@@ -275,13 +275,6 @@ agent SDK，可以继承 ``rpent.planner.base.Planner``，实现抽象方法 ``s
                stats=stats,
                error=error,
            )
-
-若要支持 Dashboard 交互，需提供符合
-``rpent.dashboard.interaction.PlannerSessionDriver`` 协议的会话驱动，实现异步
-``submit(message: DashboardMessage) -> int`` 和 ``interrupt() -> int``，供
-``DashboardPlannerControl`` 转发输入和中断请求。返回值用于维护待完成事件的
-数量；SDK 初始化和清理仍由后端负责。API、Claude Code 和 Codex 提供了这些
-驱动，Flash 不提供。
 
 任何 planner 必须：
 

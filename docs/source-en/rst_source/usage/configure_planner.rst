@@ -270,7 +270,7 @@ Add a custom planner
 If none of the built-in planners fit — say you want to plug in an
 in-house planner, a research prototype, or a different agent SDK —
 subclass ``rpent.planner.base.Planner``, implement its abstract ``solve()``
-method, and add a construction branch to ``rpent.planner.base.build_planner``:
+method, and update ``rpent.planner.base.build_planner`` to create the new backend:
 
 .. code-block:: python
 
@@ -299,13 +299,6 @@ method, and add a construction branch to ``rpent.planner.base.build_planner``:
                stats=stats,
                error=error,
            )
-
-For Dashboard steering, provide a session driver implementing
-``rpent.dashboard.interaction.PlannerSessionDriver``. Its async
-``submit(message: DashboardMessage) -> int`` and ``interrupt() -> int`` methods
-let ``DashboardPlannerControl`` forward input and interrupts. Their return
-values track expected completion events; SDK setup and cleanup remain in the
-backend. API, Claude Code, and Codex provide these drivers; Flash does not.
 
 Any planner must:
 
