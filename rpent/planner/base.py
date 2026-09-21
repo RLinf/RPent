@@ -12,14 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared protocol for high-level reasoning backends."""
+"""Shared abstract base class for high-level reasoning backends."""
 
 from __future__ import annotations
 
 import os
 import queue
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.interaction import DashboardInteractionPort
@@ -74,7 +75,7 @@ class PlannerResult:
         self.error = error  # str | None  — set when the planner raises
 
 
-class Planner(Protocol):
+class Planner(ABC):
     """A planner selects or supplies the actions used to solve a task.
 
     It is given one system prompt, one initial user message, and a set of
@@ -82,6 +83,7 @@ class Planner(Protocol):
     finished or the turn budget is exhausted.
     """
 
+    @abstractmethod
     def solve(
         self,
         *,
@@ -109,7 +111,7 @@ class Planner(Protocol):
             ``PlannerResult`` with finish status, conversation transcript,
             token-usage stats, and optional error string.
         """
-        ...
+        raise NotImplementedError
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +182,7 @@ def build_planner(
     dashboard_events: DashboardEventSink,
     no_images: bool = False,
     interactive: bool = False,
-):
+) -> Planner:
     """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
     # codex all import from this module (PlannerResult).

@@ -244,16 +244,16 @@ Dashboard 提供同一项检查：启动页的 **测试连接** 按钮会针对�
 接入自定义 planner
 ------------------
 
-如果三种内置 planner 都不合适，例如需要接入内部 planner、研究原型或其他
-agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
-``rpent.planner.base.build_planner`` 中增加对应的构造分支：
+如果内置 planner 都不合适，例如需要接入内部 planner、研究原型或其他
+agent SDK，可以继承 ``rpent.planner.base.Planner``，实现抽象方法 ``solve()``，
+并在 ``rpent.planner.base.build_planner`` 中增加对应的构造分支：
 
 .. code-block:: python
 
    # rpent/planner/my_planner.py
-   from rpent.planner.base import PlannerResult
+   from rpent.planner.base import Planner, PlannerResult
 
-   class MyPlanner:
+   class MyPlanner(Planner):
        def solve(
            self,
            *,
@@ -262,6 +262,7 @@ agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
            toolkit,
            max_turns,
            input_queue=None,
+           dashboard_interaction=None,
        ):
            tool_specs = toolkit.get_tools_spec()
            # 使用 system_prompt、user_message 和 tool_specs 调用模型。
@@ -274,6 +275,13 @@ agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
                stats=stats,
                error=error,
            )
+
+若要支持 Dashboard 交互，需提供符合
+``rpent.dashboard.interaction.PlannerSessionDriver`` 协议的会话驱动，实现异步
+``submit(message: DashboardMessage) -> int`` 和 ``interrupt() -> int``，供
+``DashboardPlannerControl`` 转发输入和中断请求。返回值用于维护待完成事件的
+数量；SDK 初始化和清理仍由后端负责。API、Claude Code 和 Codex 提供了这些
+驱动，Flash 不提供。
 
 任何 planner 必须：
 

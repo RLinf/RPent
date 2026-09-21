@@ -65,14 +65,14 @@ from pydantic_ai_harness.compaction import SlidingWindowCompaction
 from rpent.dashboard.events import DashboardEventSink, TranscriptEvent, UsageEvent
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import DashboardPlannerControl
-from rpent.planner.base import REASONING_EFFORTS, PlannerResult
+from rpent.planner.base import REASONING_EFFORTS, Planner, PlannerResult
 from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.logging import get_logger
 
 logger = get_logger("api")
 
 
-class ApiAgentLoop:
+class ApiAgentLoop(Planner):
     """Implement ``Planner`` with a native Agent and reusable Harness capabilities."""
 
     def __init__(
@@ -553,7 +553,7 @@ class _Session(AbstractCapability):
             )
         )
 
-    async def submit_dashboard_message(self, message: DashboardMessage) -> int:
+    async def submit(self, message: DashboardMessage) -> int:
         self.inbox.put_nowait(message)
         return 1
 

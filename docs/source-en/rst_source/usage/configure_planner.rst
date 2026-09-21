@@ -267,17 +267,17 @@ schemas, or your context length.
 Add a custom planner
 --------------------
 
-If none of the three planners fit — say you want to plug in an
+If none of the built-in planners fit — say you want to plug in an
 in-house planner, a research prototype, or a different agent SDK —
-implement the ``rpent.planner.base.Planner`` protocol and add a
-construction branch to ``rpent.planner.base.build_planner``:
+subclass ``rpent.planner.base.Planner``, implement its abstract ``solve()``
+method, and add a construction branch to ``rpent.planner.base.build_planner``:
 
 .. code-block:: python
 
    # rpent/planner/my_planner.py
-   from rpent.planner.base import PlannerResult
+   from rpent.planner.base import Planner, PlannerResult
 
-   class MyPlanner:
+   class MyPlanner(Planner):
        def solve(
            self,
            *,
@@ -286,6 +286,7 @@ construction branch to ``rpent.planner.base.build_planner``:
            toolkit,
            max_turns,
            input_queue=None,
+           dashboard_interaction=None,
        ):
            tool_specs = toolkit.get_tools_spec()
            # Call the model with system_prompt, user_message, and tool_specs.
@@ -298,6 +299,13 @@ construction branch to ``rpent.planner.base.build_planner``:
                stats=stats,
                error=error,
            )
+
+For Dashboard steering, provide a session driver implementing
+``rpent.dashboard.interaction.PlannerSessionDriver``. Its async
+``submit(message: DashboardMessage) -> int`` and ``interrupt() -> int`` methods
+let ``DashboardPlannerControl`` forward input and interrupts. Their return
+values track expected completion events; SDK setup and cleanup remain in the
+backend. API, Claude Code, and Codex provide these drivers; Flash does not.
 
 Any planner must:
 

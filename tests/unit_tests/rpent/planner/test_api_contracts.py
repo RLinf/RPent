@@ -815,7 +815,7 @@ def test_model_failure_preserves_rpent_transcript(tmp_path, after_tool):
 
 
 def test_factory_passes_interactive_mode(tmp_path, monkeypatch):
-    from rpent.planner.base import build_planner
+    from rpent.planner.base import Planner, build_planner
 
     model = TestModel(call_tools=[], custom_output_args=FINISH_ARGS)
     monkeypatch.setattr("rpent.planner.base.build_api_model", lambda *args: model)
@@ -829,4 +829,5 @@ def test_factory_passes_interactive_mode(tmp_path, monkeypatch):
         interactive=True,
     )
     assert isinstance(planner, ApiAgentLoop)
+    assert isinstance(planner, Planner)
     assert planner.interactive is True
