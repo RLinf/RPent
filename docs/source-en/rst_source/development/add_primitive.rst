@@ -77,9 +77,11 @@ Public parameters need type annotations and must accept keyword arguments.
 ``Annotated[..., Field(...)]`` supplies constraints. Signature defaults apply at
 runtime; advertise them in the schema only when intended, with
 ``Field(json_schema_extra={"default": value})``. ``Toolkit.execute_tool`` applies
-Pydantic validation before executing the handler or capturing observations,
-rejecting unknown arguments and non-finite numbers. Direct Python calls retain
-normal Python argument handling.
+strict Pydantic validation before executing the handler or capturing observations,
+rejecting unknown arguments, non-finite numbers, and implicit conversions from
+strings or booleans to numbers. Float parameters accept integer inputs, but integer
+parameters require integers (for example, ``10``, not ``10.0``). Explicit field
+validators still apply. Direct Python calls retain normal Python argument handling.
 
 Handlers return ``ToolResult(data=..., images=..., error=...)``. Put structured
 values in ``data``, PNG bytes in ``images``, and failures in ``error``. A primitive

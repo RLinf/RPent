@@ -74,7 +74,9 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 ``Annotated[..., Field(...)]`` 声明。函数签名中的默认值在运行时补齐参数；
 需要在 schema 中公开时，用 ``Field(json_schema_extra={"default": value})``
 显式声明。``Toolkit.execute_tool`` 在调用工具和采集观测之前执行 Pydantic
-参数校验，拒绝未知参数和非有限数值。直接从 Python 调用方法时，沿用普通
+严格参数校验，拒绝未知参数、非有限数值，以及字符串或布尔值到数值的隐式转换。
+浮点参数可以接受整数输入；整数参数必须传整数（例如 ``10``，不能传 ``10.0``）。
+显式定义的字段 validator 仍会执行。直接从 Python 调用方法时，沿用普通
 Python 的参数处理方式。
 
 工具返回 ``ToolResult(data=..., images=..., error=...)``。结构化数据放在

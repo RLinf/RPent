@@ -142,7 +142,7 @@ class Toolkit:
         if tool is None:
             return ToolResult(error=f"unknown tool: {name}")
         try:
-            parameters = tool.args_schema.model_validate(input_dict)
+            parameters = tool.args_schema.model_validate(input_dict, strict=True)
         except ValidationError as exc:
             return ToolResult(
                 error=f"bad arguments for {name}",

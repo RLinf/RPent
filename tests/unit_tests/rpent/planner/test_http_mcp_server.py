@@ -168,11 +168,16 @@ def test_native_method_results_and_finish_cross_the_mcp_boundary(tmp_path) -> No
                     assert not result.isError
                     assert json.loads(result.content[0].text) == {"count": 2}
                     assert base64.b64decode(result.content[1].data) == b"camera pixels"
-                    coerced = await session.call_tool("inspect_scene", {"count": "3"})
-                    assert not coerced.isError
-                    assert json.loads(coerced.content[0].text) == {"count": 3}
+                    for count in ("3", True, 3.0):
+                        rejected = await session.call_tool(
+                            "inspect_scene", {"count": count}
+                        )
+                        assert rejected.isError and calls == [2]
+                        assert json.loads(rejected.content[0].text)["error"] == (
+                            "bad arguments for inspect_scene"
+                        )
                     rejected = await session.call_tool("inspect_scene", {"self": {}})
-                    assert rejected.isError and calls == [2, 3]
+                    assert rejected.isError and calls == [2]
                     assert json.loads(rejected.content[0].text)["error"] == (
                         "bad arguments for inspect_scene"
                     )

@@ -400,27 +400,47 @@ def test_dashboard_uses_toolkit_argument_validation_before_motion(
     state = _ready_state(tmp_path)
     _claim_started_task(state)
     calls = []
-    toolkit = Toolkit(dashboard_events=state, memory=MemoryManager(tmp_path / "memory"))
+    captures = []
+    toolkit = Toolkit(
+        dashboard_events=state,
+        memory=MemoryManager(tmp_path / "memory"),
+        state=EnvState(tmp_path / "state"),
+    )
 
     @tool
     def move_to(
         xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+        max_steps: int = 80,
     ) -> ToolResult:
-        calls.append(xyz)
+        calls.append((xyz, max_steps))
         return ToolResult(data={"ok": True})
 
     def capture(**kwargs):
-        raise AssertionError("Invalid arguments must not capture state")
+        captures.append(kwargs)
+        return ToolResult(data=kwargs["result"])
 
     toolkit.add_tool(move_to)
     toolkit.get_env_state = capture
     state.bind_toolkit(toolkit)
     state.set_planner_activity("idle", accepting_input=True)
-    for arguments in ({}, {"xyz": [1, 2]}, {"xyz": [1, 2, 3], "unknown": True}):
+    for arguments in (
+        {},
+        {"xyz": [1, 2]},
+        {"xyz": [1, 2, 3], "unknown": True},
+        {"xyz": [True, False, False]},
+        {"xyz": ["0.1", 0, 0]},
+        {"xyz": [0, 0, 0], "max_steps": True},
+        {"xyz": [0, 0, 0], "max_steps": 10.0},
+    ):
         direct = toolkit.execute_tool("move_to", arguments)
         manual = state.execute_primitive("move_to", arguments)
         assert direct.is_error and manual.is_error
         assert manual.to_dict() == direct.to_dict()
         assert manual.error == "bad arguments for move_to"
     assert calls == []
+    assert captures == []
+    accepted = state.execute_primitive("move_to", {"xyz": [0, 0, 0]})
+    assert not accepted.is_error
+    assert calls == [([0.0, 0.0, 0.0], 80)]
+    assert len(captures) == 1
     assert state._active_primitive_calls == {}

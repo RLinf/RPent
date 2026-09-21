@@ -138,6 +138,8 @@ def test_decorated_method_uses_existing_capture_and_result_contract(
         {"distance": float("nan")},
         {"distance": float("inf")},
         {"distance": "invalid"},
+        {"distance": "0.1"},
+        {"distance": True},
         {"self": primitives},
         {"unknown": 1},
     ):
@@ -146,6 +148,11 @@ def test_decorated_method_uses_existing_capture_and_result_contract(
         assert result.to_dict()["errors"]
     assert primitives.moves == [0.1]
     assert len(toolkit.capture_calls) == len(toolkit.events.events) == 1
+
+    result = toolkit.execute_tool("move", {"distance": 1})
+    assert not result.is_error
+    assert primitives.moves == [0.1, 1.0]
+    assert len(toolkit.capture_calls) == len(toolkit.events.events) == 2
 
     with pytest.raises(TypeError, match="unbound method"):
         toolkit.add_tool(Primitives.move)
