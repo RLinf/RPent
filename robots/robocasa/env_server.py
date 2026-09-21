@@ -26,7 +26,7 @@ from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
 
-logger = get_logger("env_server")
+logger = get_logger("robocasa_env_server")
 
 
 DEFAULT_CAMS = [

@@ -34,7 +34,7 @@ assert "mujoco" not in sys.modules, (
     "mujoco must not be imported before MUJOCO_GL/PYOPENGL_PLATFORM are set"
 )
 
-logger = get_logger("env_server")
+logger = get_logger("libero_env_server")
 
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 

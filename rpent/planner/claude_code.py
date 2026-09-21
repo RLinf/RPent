@@ -54,7 +54,7 @@ from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
 
-logger = get_logger("claude")
+logger = get_logger("claude_code")
 
 _MAX_STREAM_BUFFER_BYTES = 8 * 1024 * 1024
 

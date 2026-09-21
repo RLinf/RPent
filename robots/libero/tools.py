@@ -32,7 +32,7 @@ from rpent.session import EnvState, StepRecord
 from rpent.tools import Tool, ToolResult, tool
 from rpent.utils.logging import get_logger
 
-logger = get_logger("libero")
+logger = get_logger("libero_tools")
 
 
 def _normalize_xyz(xyz):

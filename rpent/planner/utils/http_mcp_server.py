@@ -49,7 +49,7 @@ from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
 
-logger = get_logger("mcp_http")
+logger = get_logger("http_mcp_server")
 
 SERVER_NAME = "rpent"
 
