@@ -22,7 +22,7 @@ import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
-from typing import Annotated, Any, ClassVar, Generic, ParamSpec, get_type_hints
+from typing import Annotated, Any, Generic, ParamSpec, get_type_hints
 
 from docstring_parser import DocstringStyle, parse
 from pydantic import BaseModel, ConfigDict, Field, create_model
@@ -30,50 +30,38 @@ from pydantic.json_schema import GenerateJsonSchema
 from pydantic_core import core_schema
 
 ParamsT = ParamSpec("ParamsT")
-
-
-def _truncate_utf8(text: str, max_bytes: int, *, marker: str = "") -> str:
-    """Truncate text to a valid UTF-8 byte budget, including its marker."""
-    encoded = text.encode("utf-8")
-    if len(encoded) <= max_bytes:
-        return text
-    if max_bytes <= 0:
-        return ""
-
-    marker_bytes = marker.encode("utf-8")
-    if len(marker_bytes) > max_bytes:
-        return marker_bytes[:max_bytes].decode("utf-8", errors="ignore")
-    body = encoded[: max_bytes - len(marker_bytes)].decode(
-        "utf-8",
-        errors="ignore",
-    )
-    return body + marker
+MAX_TOOL_TEXT_BYTES = 60000
 
 
 @dataclass
 class ToolResult:
-    """Provider-independent tool data, PNG images, and an explicit error."""
+    """Tool data, PNG images, and an optional error."""
 
     data: dict[str, Any] = field(default_factory=dict)
     images: list[bytes] = field(default_factory=list)
     error: str | None = None
-    MAX_TEXT_BYTES: ClassVar[int] = 60000
 
     @property
     def is_error(self) -> bool:
         return self.error is not None
 
     def to_dict(self) -> dict[str, Any]:
-        """Return the public payload without image bytes or SDK content blocks."""
+        """Combine result fields into the public JSON payload."""
         payload = dict(self.data)
         if self.error is not None:
             payload["error"] = self.error
         return payload
 
     def to_text(self) -> str:
-        """Serialize a bounded model-facing result without truncating its data."""
-        text = json.dumps(self.to_dict(), indent=2, allow_nan=False, default=str)
-        return _truncate_utf8(text, self.MAX_TEXT_BYTES, marker="\n[truncated]")
+        """Encode the original tool payload without truncating internal state."""
+        # ASCII output makes character counts equal to UTF-8 byte counts.
+        text = json.dumps(
+            self.to_dict(), indent=2, allow_nan=False, ensure_ascii=True, default=str
+        )
+        if len(text) <= MAX_TOOL_TEXT_BYTES:
+            return text
+        suffix = "\n[truncated]"
+        return text[: MAX_TOOL_TEXT_BYTES - len(suffix)] + suffix
 
 
 class _ToolJsonSchema(GenerateJsonSchema):

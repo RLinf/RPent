@@ -28,6 +28,7 @@ from rpent.dashboard.events import StepRecordEvent
 from rpent.memory import MemoryManager
 from rpent.memory import manager as memory_manager
 from rpent.session import EnvState
+from rpent.tools import base as tools_base
 from rpent.tools import common, iter_tools, tool
 from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.templates import substitute
@@ -248,7 +249,7 @@ def test_native_error_flag_is_independent_of_business_data(tmp_path) -> None:
 
 @pytest.mark.parametrize("value", ["界" * 10, "x" * 100])
 def test_tool_result_text_limit_preserves_complete_data(monkeypatch, value) -> None:
-    monkeypatch.setattr(ToolResult, "MAX_TEXT_BYTES", 20)
+    monkeypatch.setattr(tools_base, "MAX_TOOL_TEXT_BYTES", 20)
     result = ToolResult(data={"value": value})
     text = result.to_text()
     assert len(text.encode("utf-8")) <= 20
