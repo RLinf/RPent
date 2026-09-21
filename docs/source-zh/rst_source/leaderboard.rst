@@ -2,21 +2,19 @@
 
 .. _leaderboard:
 
-RPent Leaderboard
-=================
+RPent 排行榜
+===================
+
+.. toctree::
+   :maxdepth: 1
+   :titlesonly:
+
+   评测成绩 <leaderboard/performance>
+   耗时与 Token 开销 <leaderboard/time-token-costs>
 
 .. raw:: html
 
-   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/RLinf/misc@main/rpent/benchmarks/docs.css">
-   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@main/rpent/benchmarks/table-sort.js"></script>
-   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@main/rpent/benchmarks/leaderboard.js"></script>
-   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@main/rpent/benchmarks/embed.js"></script>
-   <div id="rpent-interactive-leaderboard" data-language="zh"
-        data-results-url="https://cdn.jsdelivr.net/gh/RLinf/misc@main/rpent/benchmarks/results.json">
-     <div class="rpent-static-leaderboard">
-       <section data-benchmark="libero-pro"><h2>LIBERO-PRO</h2><table><thead><tr><th>方法 / 模型</th><th>成功率</th></tr></thead><tbody><tr><td>Codex / GPT-6 Astra / low / reasoning</td><td>92.63%</td></tr><tr><td>Claude Code / Opus-4.7 / max.reasoning</td><td>82.4%</td></tr><tr><td>RPent Flash Mode</td><td>72.63%</td></tr><tr><td>Codex / GPT-5.5 / xhigh / reasoning</td><td>72.1%</td></tr><tr><td>ASPIRE</td><td>61.36%</td></tr><tr><td>π_RLinf</td><td>50.0%</td></tr><tr><td>π0.5</td><td>11.0%</td></tr><tr><td>AtomVLA</td><td>6.3%</td></tr><tr><td>X-VLA</td><td>3.8%</td></tr><tr><td>MolmoAct</td><td>1.5%</td></tr><tr><td>π0</td><td>0.3%</td></tr></tbody></table><p>GPT-6 Astra: 92.63% (741/800). RPent Flash Mode / Molmo2-8B: 72.63% (581/800).</p><h3>完整方法与分项成绩</h3><div class="table-wrap" tabindex="0"><table><thead><tr><th>方法 / 模型</th><th>总体</th><th>Spatial Task</th><th>Spatial Swap</th><th>Object Task</th><th>Object Swap</th><th>Goal Task</th><th>Goal Swap</th><th>Long Task</th><th>Long Swap</th></tr></thead><tbody><tr><td>GPT-6 Astra</td><td>92.63%</td><td>100%</td><td>98%</td><td>100%</td><td>99%</td><td>88%</td><td>99%</td><td>85%</td><td>72%</td></tr><tr><td>Opus-4.7 / max.reasoning</td><td>82.4%</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr><tr><td>RPent Flash Mode / Molmo2-8B</td><td>72.63%</td><td>79.00%</td><td>70.00%</td><td>86.00%</td><td>93.00%</td><td>74.00%</td><td>65.00%</td><td>60.00%</td><td>54.00%</td></tr><tr><td>GPT-5.5</td><td>72.1%</td><td>81.0%</td><td>69.0%</td><td>94.0%</td><td>91.0%</td><td>75.0%</td><td>66.0%</td><td>52.0%</td><td>49.0%</td></tr><tr><td>ASPIRE</td><td>61.36%</td><td>60.0%</td><td>51.0%</td><td>95.0%</td><td>98.0%</td><td>45.0%</td><td>81.0%</td><td>38.3%</td><td>22.6%</td></tr><tr><td>π_RLinf</td><td>50.0%</td><td>42.0%</td><td>59.0%</td><td>71.0%</td><td>78.0%</td><td>45.0%</td><td>42.0%</td><td>49.0%</td><td>14.0%</td></tr><tr><td>π0.5</td><td>11.0%</td><td>1.0%</td><td>20.0%</td><td>1.0%</td><td>17.0%</td><td>2.0%</td><td>38.0%</td><td>1.0%</td><td>8.0%</td></tr><tr><td>AtomVLA</td><td>6.3%</td><td>1.0%</td><td>16.0%</td><td>0.0%</td><td>10.0%</td><td>11.0%</td><td>2.0%</td><td>9.0%</td><td>1.0%</td></tr><tr><td>X-VLA</td><td>3.8%</td><td>0.0%</td><td>0.0%</td><td>8.0%</td><td>2.0%</td><td>9.0%</td><td>1.0%</td><td>10.0%</td><td>0.0%</td></tr><tr><td>MolmoAct</td><td>1.5%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>6.0%</td><td>0.0%</td><td>0.0%</td><td>6.0%</td><td>0.0%</td></tr><tr><td>π0</td><td>0.3%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>2.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td></tr><tr><td>Cap-X</td><td>—</td><td>14.0%</td><td>12.0%</td><td>18.0%</td><td>22.0%</td><td>17.0%</td><td>26.0%</td><td>—</td><td>—</td></tr><tr><td>RATS</td><td>—</td><td>31.0%</td><td>29.0%</td><td>63.0%</td><td>61.0%</td><td>36.0%</td><td>43.0%</td><td>—</td><td>—</td></tr></tbody></table></div><p>ASPIRE：Long Task 和 Long Swap 使用 LIBERO-90 技能库进行 zero-shot 迁移。</p><p id="libero-pro-astra-memory" class="memory-context">GPT-6 Astra：Long Task/Swap 与其余六套件使用各自探索后冻结的 memory 文件快照，评测期间不更新。Overall 合并两个不重叠批次：Long 157/200，加上其余套件 584/600，得到 741/800（92.63%）；并非全部回合共享同一份 memory 快照。</p></section>
-       <section data-benchmark="standard-libero"><h2>LIBERO</h2><table><thead><tr><th>方法 / 模型</th><th>成功率</th></tr></thead><tbody><tr><td>AtomVLA</td><td>97.0%</td></tr><tr><td>Claude Code / Opus-4.7 / max.reasoning</td><td>96.0%</td></tr><tr><td>π_RLinf</td><td>95.3%</td></tr><tr><td>π0</td><td>94.2%</td></tr><tr><td>NORA</td><td>79.5%</td></tr><tr><td>OpenVLA</td><td>76.5%</td></tr></tbody></table></section>
-       <section data-benchmark="robocasa"><h2>RoboCasa365 · Target50</h2><table><thead><tr><th>方法 / 模型</th><th>成功率</th></tr></thead><tbody><tr><td>Codex / GPT-6 Astra / low / reasoning</td><td>59.20%</td></tr><tr><td>Xiaomi-Robotics-1</td><td>57.4%</td></tr><tr><td>Codex / GPT-5.5 / xhigh / reasoning</td><td>57.1%</td></tr><tr><td>Claude Code / Opus-4.7 / max.reasoning</td><td>48.6%</td></tr><tr><td>WorldDreamer</td><td>35.3%</td></tr><tr><td>RLDX-1</td><td>30.0%</td></tr><tr><td>π0.5</td><td>16.9%</td></tr><tr><td>π0</td><td>14.8%</td></tr></tbody></table><h3>RoboCasa365 · Target50 · 完整方法与分项成绩</h3><div class="table-wrap" tabindex="0"><table><thead><tr><th>方法 / 模型</th><th>总体</th><th>Atomic-Seen</th><th>Composite-Seen</th><th>Composite-Unseen</th></tr></thead><tbody><tr><td>GPT-6 Astra</td><td>59.20%</td><td>87.78%</td><td>43.75%</td><td>42.50%</td></tr><tr><td>Xiaomi-Robotics-1</td><td>57.4%</td><td>80.2%</td><td>57.1%</td><td>32.1%</td></tr><tr><td>GPT-5.5</td><td>57.1%</td><td>92.0%</td><td>61.0%</td><td>13.8%</td></tr><tr><td>Opus-4.7 / max.reasoning</td><td>48.6%</td><td>79.4%</td><td>47.5%</td><td>15.0%</td></tr><tr><td>WorldDreamer</td><td>35.3%</td><td>66.3%</td><td>26.7%</td><td>9.0%</td></tr><tr><td>RLDX-1</td><td>30.0%</td><td>60.0%</td><td>21.3%</td><td>5.0%</td></tr><tr><td>π0.5</td><td>16.9%</td><td>39.6%</td><td>7.1%</td><td>1.2%</td></tr><tr><td>π0</td><td>14.8%</td><td>34.6%</td><td>6.1%</td><td>1.1%</td></tr></tbody></table></div></section>
-       <section data-benchmark="robotwin"><h2>RoboTwin</h2><table><thead><tr><th>方法 / 模型</th><th>成功率</th></tr></thead><tbody><tr><td>Codex / GPT-5.5 / xhigh / reasoning</td><td>62.4%</td></tr><tr><td>Claude Code / Opus-4.7 / max.reasoning</td><td>58.4%</td></tr><tr><td>LingBot-VLA</td><td>50.4%</td></tr><tr><td>π0.5</td><td>47.9%</td></tr><tr><td>GR00T-N1.7</td><td>20.7%</td></tr><tr><td>StarVLA</td><td>10.6%</td></tr></tbody></table></section>
-     </div>
-   </div>
+   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@a6657fc43a6b3874a20ee1695a480090a4737c35/rpent/benchmarks/embed.js"></script>
+   <div id="rpent-interactive-leaderboard" data-section="index"
+        data-performance-url="leaderboard/performance.html"
+        data-costs-url="leaderboard/time-token-costs.html"></div>
