@@ -123,7 +123,11 @@ def run_scripted_policy_chain(
         )
     transcript = json.loads(transcript_paths[0].read_text(encoding="utf-8"))
     finish = transcript.get("finish")
-    if not isinstance(finish, dict) or finish.get("_finish") is not True:
+    if (
+        not isinstance(finish, dict)
+        or not isinstance(finish.get("status"), str)
+        or finish.get("summary") != script[-1].arguments["summary"]
+    ):
         raise RuntimeError(f"scripted {robot} session did not call finish")
 
     state_path = output_dir / "states.json"

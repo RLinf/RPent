@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from argparse import Namespace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -128,6 +129,47 @@ def test_vla_always_uses_live_task_language_and_preserves_continuity() -> None:
     assert second.data["effective_prompt"] == task_language
     assert second.data["effective_max_chunks"] == 4
     assert second.data["prompt_overridden"] is True
+
+
+def test_gpu_policy_chain_arguments_execute_the_current_vla_tool(tmp_path, monkeypatch):
+    from rpent.dashboard.events import NullDashboardEventSink
+    from rpent.memory import MemoryManager
+    from rpent.session import EnvState
+    from rpent.tools import Toolkit
+    from tests.e2e_tests.robocasa import scenario
+
+    primitives, rldx = _fake_primitives("Open the drawer")
+    toolkit = Toolkit(
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        state=EnvState(tmp_path / "state"),
+    )
+    toolkit.add_tool(primitives.rldx_skill)
+    monkeypatch.setattr(
+        toolkit, "get_env_state", lambda **kwargs: ToolResult(data=kwargs["result"])
+    )
+    for variable in ("RLDX_MAX_CHUNKS", "RLDX_ACTION_STEPS_PER_CHUNK"):
+        monkeypatch.delenv(variable, raising=False)
+
+    def execute_chain(*, action, **kwargs):
+        result = toolkit.execute_tool(action.name, action.arguments)
+        assert not result.is_error, result.to_dict()
+        assert len(rldx.calls) == 1
+        assert rldx.calls[0]["prompt"] == "Open the drawer"
+        assert rldx.calls[0]["max_chunks"] == 1
+        assert rldx.calls[0]["n_action_steps"] == 1
+
+    monkeypatch.setattr(scenario, "run_scripted_policy_chain", execute_chain)
+    scenario._policy_chain(
+        tmp_path,
+        Namespace(
+            task_name="OpenDrawer",
+            split="target",
+            seed=0,
+            vla_model_path="unused",
+            cuda_device=0,
+        ),
+    )
 
 
 def test_environment_max_chunks_locks_the_formal_protocol(monkeypatch) -> None:
