@@ -306,7 +306,7 @@ class _HarnessToolkit(FunctionToolset):
         self, ctx: RunContext, name: str, step: int = -1
     ) -> ToolReturn:
         """Read a saved image by artifact filename and step (-1 selects the latest)."""
-        self._record_call("read_image", {"name": name, "step": step})
+        self._record_call("read_image", {"name": name, "step": step}, ctx)
         result = await asyncio.to_thread(self._read_image, name, step)
         self._record_result("read_image", ctx, json.dumps(result.return_value))
         return result
@@ -350,7 +350,7 @@ class _HarnessToolkit(FunctionToolset):
         error = next(self.validators[name].iter_errors(arguments), None)
         if error is not None:
             raise ModelRetry(f"Invalid arguments for {name}: {error.message}")
-        self._record_call(name, arguments)
+        self._record_call(name, arguments, ctx)
         operation = asyncio.create_task(
             asyncio.to_thread(self.toolkit.execute_tool, name, arguments)
         )
@@ -366,8 +366,13 @@ class _HarnessToolkit(FunctionToolset):
         self._record_result(name, ctx, self._text(result))
         return result
 
-    def _record_call(self, name: str, arguments: dict[str, Any]) -> None:
+    def _record_call(
+        self, name: str, arguments: dict[str, Any], ctx: RunContext
+    ) -> None:
         if self.stopping.is_set():
+            # Toolkit draining can finish before Dashboard sends its token.
+            # Mark this as application cancellation so the SDK raises RunCancelled.
+            ctx.cancel()
             raise asyncio.CancelledError
         self.dashboard_events.emit(
             TranscriptEvent({"type": "tool_call", "tool": name, "args": arguments})

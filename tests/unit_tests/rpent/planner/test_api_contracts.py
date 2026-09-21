@@ -607,7 +607,26 @@ def test_dashboard_interrupt_then_followup_preserves_history(tmp_path):
     assert state.snapshot()["interaction"]["messages"][0]["status"] == "sent"
 
 
-def test_dashboard_interrupt_drains_tool_before_followup(tmp_path):
+@pytest.fixture(params=[False, True], ids=["normal", "tool-stops-first"])
+def dashboard_interrupt_order(request, monkeypatch):
+    if not request.param:
+        return
+    from rpent.planner.api_loop import _Session
+
+    interrupt = _Session.interrupt
+
+    async def interrupt_after_tool_stop(self):
+        # Let the SDK reach the queued sibling tool before Dashboard sends its
+        # cancellation token, reproducing the physical-drain scheduling race.
+        await asyncio.wait_for(self.run_done.wait(), timeout=1)
+        return await interrupt(self)
+
+    monkeypatch.setattr(_Session, "interrupt", interrupt_after_tool_stop)
+
+
+def test_dashboard_interrupt_drains_tool_before_followup(
+    tmp_path, dashboard_interrupt_order
+):
     state = dashboard(tmp_path)
     toolkit = RobotToolkit(state)
     stopped = threading.Event()
@@ -666,7 +685,9 @@ def test_dashboard_interrupt_drains_tool_before_followup(tmp_path):
     ]
 
 
-def test_task_replacement_cancels_and_drains_physical_work(tmp_path):
+def test_task_replacement_cancels_and_drains_physical_work(
+    tmp_path, dashboard_interrupt_order
+):
     state = dashboard(tmp_path)
     toolkit = RobotToolkit(state)
     stopped = threading.Event()
