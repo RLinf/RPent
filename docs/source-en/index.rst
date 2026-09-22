@@ -89,6 +89,7 @@ Welcome to RPent
    Flash Mode <rst_source/usage/flash>
    Simulation <rst_source/usage/simulation>
    Real Robots <rst_source/usage/real_robots>
+   Real-World Demos <rst_source/usage/real_world_demos>
    Advanced Deployment <rst_source/usage/advanced_deployment>
 
 .. toctree::

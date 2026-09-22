@@ -81,6 +81,7 @@
    Flash Mode <rst_source/usage/flash>
    仿真环境 <rst_source/usage/simulation>
    真实机器人 <rst_source/usage/real_robots>
+   真实世界演示 <rst_source/usage/real_world_demos>
    高级部署 <rst_source/usage/advanced_deployment>
 
 .. toctree::
