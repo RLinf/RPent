@@ -50,17 +50,17 @@ _HARDWARE_KEYS = {
 
 
 def test_override_keys_are_valid_rlinf_fields(fake_rlinf_realworld_modules):
-    from rlinf.envs.realworld.franka.tasks.dual_franka_tcp_env import (
-        DualFrankaTCPRobotConfig,
+    from rlinf.envs.real.franka.dual_franka_tcp import (
+        DualFrankaTCPEnvConfig,
     )
 
-    valid = {field.name for field in dataclasses.fields(DualFrankaTCPRobotConfig)}
+    valid = {field.name for field in dataclasses.fields(DualFrankaTCPEnvConfig)}
     unknown = sorted(_OVERRIDE_KEYS - valid)
-    assert not unknown, f"override keys not in DualFrankaTCPRobotConfig: {unknown}"
+    assert not unknown, f"override keys not in DualFrankaTCPEnvConfig: {unknown}"
 
 
 def test_hardware_keys_are_valid_rlinf_fields(fake_rlinf_realworld_modules):
-    from rlinf.scheduler.hardware.robots.dual_franka import DualFrankaConfig
+    from rlinf.robotics.robots.dual_franka import DualFrankaConfig
 
     valid = {field.name for field in dataclasses.fields(DualFrankaConfig)}
     unknown = sorted(_HARDWARE_KEYS - valid)

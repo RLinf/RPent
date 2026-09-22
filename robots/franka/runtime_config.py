@@ -196,29 +196,8 @@ _COMPLIANCE_PARAM = {
     "rotational_Ki": 0,
 }
 
-_PRECISION_PARAM = {
-    "translational_stiffness": 3000,
-    "translational_damping": 89,
-    "rotational_stiffness": 300,
-    "rotational_damping": 9,
-    "translational_Ki": 0.1,
-    "translational_clip_x": 0.01,
-    "translational_clip_y": 0.01,
-    "translational_clip_z": 0.01,
-    "translational_clip_neg_x": 0.01,
-    "translational_clip_neg_y": 0.01,
-    "translational_clip_neg_z": 0.01,
-    "rotational_clip_x": 0.05,
-    "rotational_clip_y": 0.05,
-    "rotational_clip_z": 0.05,
-    "rotational_clip_neg_x": 0.05,
-    "rotational_clip_neg_y": 0.05,
-    "rotational_clip_neg_z": 0.05,
-    "rotational_Ki": 0.1,
-}
-
 # ``env.eval.override_cfg`` values RPent sets away from RLinf's
-# ``FrankaRobotConfig`` defaults. Keys are RLinf field names; anything omitted
+# ``FrankaEnvConfig`` defaults. Keys are RLinf field names; anything omitted
 # here keeps RLinf's default.
 ENV_DEFAULTS = {
     # RPent drives the cameras through its own env server; it does not run the
@@ -226,8 +205,6 @@ ENV_DEFAULTS = {
     "enable_camera_player": False,
     # The back-projection primitives need per-pixel depth.
     "enable_camera_depth": True,
-    # Native resolution keeps pixel back-projection aligned with calibration.
-    "camera_resize": False,
     # Episodes are bounded by the planner, not a step budget.
     "max_num_steps": 200_000_000,
     # Success is decided by the planner; these thresholds are nominal.
@@ -237,7 +214,6 @@ ENV_DEFAULTS = {
     # Grasp timing is planner-controlled; no fixed per-step gripper penalty.
     "enable_gripper_penalty": False,
     "compliance_param": _COMPLIANCE_PARAM,
-    "precision_param": _PRECISION_PARAM,
 }
 
 
@@ -325,8 +301,8 @@ def load_runtime_config(
     """Load the user YAML, apply developer defaults, and build the adapter."""
     # Lazy RLinf imports: keys are validated against these dataclasses (drift
     # guard), deferred so importing this module stays RLinf-free.
-    from rlinf.envs.realworld.franka.franka_env import FrankaRobotConfig
-    from rlinf.scheduler.hardware.robots.franka import FrankaConfig
+    from rlinf.envs.real.franka.base import FrankaEnvConfig
+    from rlinf.robotics.robots.franka import FrankaConfig
 
     raw = load_mapping(path or get_robot_config_path())
     robot = _require_mapping(raw.get("robot"), "robot")
@@ -365,7 +341,7 @@ def load_runtime_config(
         where="cluster.node_groups[].hardware.configs[]",
     )
     override_cfg = strict_mapping(
-        FrankaRobotConfig,
+        FrankaEnvConfig,
         {
             **ENV_DEFAULTS,
             "task_description": task_description,

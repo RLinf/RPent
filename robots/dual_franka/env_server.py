@@ -102,8 +102,8 @@ def _pack_dual_action(
 
 def _create_worker_class():
     """Build the Worker subclass only inside the RLinf server environment."""
-    from rlinf.envs.realworld.common.camera import CameraInfo, create_camera
-    from rlinf.envs.realworld.realworld_env import RealWorldEnv
+    from rlinf.envs.real.env import RealWorldEnv
+    from rlinf.robotics.parts.cameras import Camera, CameraInfo
     from rlinf.scheduler import Worker
     from scipy.spatial.transform import Rotation as Rotation
 
@@ -176,7 +176,7 @@ def _create_worker_class():
         def close_env(self) -> None:
             for camera in self._perception_cameras.values():
                 try:
-                    camera.close()
+                    camera.disconnect()
                 except Exception:
                     pass
             self._perception_cameras.clear()
@@ -616,12 +616,12 @@ def _create_worker_class():
                     fps=int(raw_config.get("fps", 15)),
                     enable_depth=bool(raw_config.get("enable_depth", True)),
                 )
-                camera = create_camera(info)
-                camera.open()
+                camera = Camera.of(info)
+                camera.connect()
                 try:
                     first_frame = camera.get_frame(timeout=8)
                 except Exception:
-                    camera.close()
+                    camera.disconnect()
                     raise
                 self._perception_cameras[str(alias)] = camera
                 self._perception_camera_last_frames[str(alias)] = np.asarray(
@@ -629,6 +629,9 @@ def _create_worker_class():
                 )
 
         def _capture_perception_camera_snapshot(self) -> dict[str, dict[str, Any]]:
+            # Deferred: the helper imports RLinf camera types with the single-arm env.
+            from robots.franka.rpent_env import realsense_color_intrinsics
+
             output: dict[str, dict[str, Any]] = {
                 "raw_frames": {},
                 "raw_depths": {},
@@ -653,8 +656,8 @@ def _create_worker_class():
                     depth_scale = float(camera.depth_scale)
                     depth = frame[..., 3].astype(np.float32) * depth_scale
                     output["raw_depths"][raw_key] = depth
-                intrinsics = camera.get_color_intrinsics()
-                info = camera._camera_info
+                intrinsics = realsense_color_intrinsics(camera)
+                info = camera.camera_info
                 meta = {
                     "name": raw_key,
                     "camera_alias": alias,

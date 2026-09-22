@@ -109,6 +109,10 @@ class FakeSingleArmPrimitives:
         return self._operation("move_base", **kwargs)
 
 
+class FakeRealSenseCamera:
+    """Inert stand-in for RLinf's concrete RealSense camera class."""
+
+
 @pytest.fixture
 def fake_single_arm_primitives() -> type[FakeSingleArmPrimitives]:
     FakeSingleArmPrimitives.instances.clear()
@@ -124,9 +128,9 @@ def _fake_module(name: str, **attrs: Any) -> types.ModuleType:
 
 @pytest.fixture
 def fake_rlinf_realworld_modules(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Install minimal RLinf realworld modules for config-contract tests.
+    """Install minimal RLinf real-world modules for config-contract tests.
 
-    Importing RLinf's realworld package can start/clean ROS/Ray processes as an
+    Importing RLinf's real-world package can start/clean ROS/Ray processes as an
     import side effect on lab machines.  These tests only need RLinf dataclass
     field names, so they use inert stand-ins instead of importing hardware code.
     """
@@ -134,13 +138,11 @@ def fake_rlinf_realworld_modules(monkeypatch: pytest.MonkeyPatch) -> None:
     franka_robot_fields = [
         "enable_camera_player",
         "enable_camera_depth",
-        "camera_resize",
         "max_num_steps",
         "reward_threshold",
         "action_scale",
         "enable_gripper_penalty",
         "compliance_param",
-        "precision_param",
         "task_description",
         "camera_names",
         "target_ee_pose",
@@ -191,44 +193,37 @@ def fake_rlinf_realworld_modules(monkeypatch: pytest.MonkeyPatch) -> None:
     modules = {
         "rlinf": _fake_module("rlinf", __path__=[]),
         "rlinf.envs": _fake_module("rlinf.envs", __path__=[]),
-        "rlinf.envs.realworld": _fake_module("rlinf.envs.realworld", __path__=[]),
-        "rlinf.envs.realworld.common": _fake_module(
-            "rlinf.envs.realworld.common", __path__=[]
+        "rlinf.envs.real": _fake_module("rlinf.envs.real", __path__=[]),
+        "rlinf.envs.real.wrappers": _fake_module(
+            "rlinf.envs.real.wrappers",
+            build_stack=lambda env, _env_cfg: env,
         ),
-        "rlinf.envs.realworld.common.wrappers": _fake_module(
-            "rlinf.envs.realworld.common.wrappers",
-            apply_single_arm_wrappers=lambda env, _env_cfg: env,
-        ),
-        "rlinf.envs.realworld.franka": _fake_module(
-            "rlinf.envs.realworld.franka", __path__=[]
-        ),
-        "rlinf.envs.realworld.franka.franka_env": _fake_module(
-            "rlinf.envs.realworld.franka.franka_env",
+        "rlinf.envs.real.franka": _fake_module("rlinf.envs.real.franka", __path__=[]),
+        "rlinf.envs.real.franka.base": _fake_module(
+            "rlinf.envs.real.franka.base",
             FrankaEnv=FakeFrankaEnv,
-            FrankaRobotConfig=dataclass_for("FrankaRobotConfig", franka_robot_fields),
+            FrankaEnvConfig=dataclass_for("FrankaEnvConfig", franka_robot_fields),
         ),
-        "rlinf.envs.realworld.franka.tasks": _fake_module(
-            "rlinf.envs.realworld.franka.tasks", __path__=[]
-        ),
-        "rlinf.envs.realworld.franka.tasks.dual_franka_tcp_env": _fake_module(
-            "rlinf.envs.realworld.franka.tasks.dual_franka_tcp_env",
-            DualFrankaTCPRobotConfig=dataclass_for(
-                "DualFrankaTCPRobotConfig", dual_robot_fields
+        "rlinf.envs.real.franka.dual_franka_tcp": _fake_module(
+            "rlinf.envs.real.franka.dual_franka_tcp",
+            DualFrankaTCPEnvConfig=dataclass_for(
+                "DualFrankaTCPEnvConfig", dual_robot_fields
             ),
         ),
-        "rlinf.scheduler": _fake_module("rlinf.scheduler", __path__=[]),
-        "rlinf.scheduler.hardware": _fake_module(
-            "rlinf.scheduler.hardware", __path__=[]
+        "rlinf.robotics": _fake_module("rlinf.robotics", __path__=[]),
+        "rlinf.robotics.parts": _fake_module("rlinf.robotics.parts", __path__=[]),
+        "rlinf.robotics.parts.cameras": _fake_module(
+            "rlinf.robotics.parts.cameras",
+            CameraInfo=object,
+            RealSenseCamera=FakeRealSenseCamera,
         ),
-        "rlinf.scheduler.hardware.robots": _fake_module(
-            "rlinf.scheduler.hardware.robots", __path__=[]
-        ),
-        "rlinf.scheduler.hardware.robots.franka": _fake_module(
-            "rlinf.scheduler.hardware.robots.franka",
+        "rlinf.robotics.robots": _fake_module("rlinf.robotics.robots", __path__=[]),
+        "rlinf.robotics.robots.franka": _fake_module(
+            "rlinf.robotics.robots.franka",
             FrankaConfig=dataclass_for("FrankaConfig", franka_hardware_fields),
         ),
-        "rlinf.scheduler.hardware.robots.dual_franka": _fake_module(
-            "rlinf.scheduler.hardware.robots.dual_franka",
+        "rlinf.robotics.robots.dual_franka": _fake_module(
+            "rlinf.robotics.robots.dual_franka",
             DualFrankaConfig=dataclass_for("DualFrankaConfig", dual_hardware_fields),
         ),
     }
