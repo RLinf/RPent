@@ -37,9 +37,9 @@ The three videos below show a changing goal, a blocked path, and the reuse of an
        </video>
        <div style="padding: 1rem 1.25rem;">
          <h3 style="font-size: 1.15rem;">From placing to pouring: reuse the skill</h3>
-         <p>The later tasks show how RPent reuses existing capabilities. A skill originally used to pick up and place a container can be recombined for pouring steel beads; grasping can also be combined with dual-arm coordination and sustained contact for plate wiping and storage.</p>
+         <p>The tasks in this video further show how RPent reuses existing capabilities. A skill originally used to pick up and place a container can be recombined for pouring steel beads; grasping can also be combined with dual-arm coordination and sustained contact for plate wiping and storage.</p>
          <p>After exploration succeeds, RPent stores the verified task logic as a Task Card. Flash Mode can replay the card on a later run, making only the visual adjustments that the current scene requires instead of calling the large model for every step, which reduces execution latency.</p>
-         <p>This video is not about teaching a robot a few more motions. It asks whether a robot entering the open world can reorganize existing skills as new tasks, objects, and obstacles appear outside the training distribution. RPent moves the robot from executing a fixed instruction toward understanding the goal, calling the right capability, adapting to change, and turning one success into reusable experience.</p>
+         <p>These videos are not about teaching a robot a few more motions. They ask whether a robot entering the open world can reorganize existing skills as new tasks, objects, and obstacles appear outside the training distribution. RPent moves the robot from executing a fixed instruction toward understanding the goal, calling the right capability, adapting to change, and turning one success into reusable experience.</p>
        </div>
      </article>
    </div>
