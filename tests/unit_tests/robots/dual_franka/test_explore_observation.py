@@ -29,7 +29,6 @@ def test_worker_reads_before_reset_and_refreshes_cached_frames(monkeypatch):
         "rlinf.robotics.parts.cameras": {
             "Camera": object,
             "CameraInfo": object,
-            "RealSenseCamera": object,
         },
         "rlinf.scheduler": {"Worker": object},
     }.items():

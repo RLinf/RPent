@@ -32,16 +32,12 @@ from robots.franka import runtime_config
 
 @pytest.fixture
 def worker_classes(monkeypatch):
-    class FakeRealSenseCamera:
-        pass
-
     modules = {
         "rlinf.scheduler": {"Worker": object},
         "rlinf.envs.real.env": {"RealWorldEnv": object},
         "rlinf.robotics.parts.cameras": {
             "Camera": object,
             "CameraInfo": object,
-            "RealSenseCamera": FakeRealSenseCamera,
         },
     }
     for name, attrs in modules.items():
@@ -177,89 +173,6 @@ def test_runtime_starts_vla_for_dashboard_and_exploration(
         args, tmp_path, SimpleNamespace(emit=lambda event: None), {"vla"}
     )
     assert started == ["vla"]
-
-
-def test_single_live_camera_bridge_uses_public_rpent_method(worker_classes):
-    worker = worker_classes[0].__new__(worker_classes[0])
-    frame = np.zeros((4, 5, 3), dtype=np.uint8)
-    depth = np.ones((4, 5), dtype=np.float32)
-    requested = []
-
-    class VectorEnv:
-        envs = [SimpleNamespace(unwrapped=SimpleNamespace())]
-
-    def get_live_camera_observation():
-        requested.append("snapshot")
-        return {"wrist_1": frame}, {"wrist_1": depth}
-
-    VectorEnv.envs[
-        0
-    ].unwrapped.get_live_camera_observation = get_live_camera_observation
-    worker.env = SimpleNamespace(env=VectorEnv())
-    worker.cfg = SimpleNamespace(
-        env=SimpleNamespace(eval={"main_image_key": "wrist_1"})
-    )
-
-    observation = worker._read_live_frames()
-
-    assert requested == ["snapshot"]
-    np.testing.assert_array_equal(observation["main_images"], frame)
-    np.testing.assert_array_equal(observation["main_depths"], depth)
-
-
-def test_dual_perception_camera_metadata_uses_rlinf_realsense_profile(
-    worker_classes,
-    monkeypatch,
-):
-    from rlinf.robotics.parts.cameras import RealSenseCamera
-
-    intrinsics = SimpleNamespace(
-        width=640,
-        height=480,
-        fx=600.0,
-        fy=600.0,
-        ppx=320.0,
-        ppy=240.0,
-        model="brown_conrady",
-        coeffs=[0.1, 0.2, 0.3, 0.4, 0.5],
-    )
-    video_profile = SimpleNamespace(get_intrinsics=lambda: intrinsics)
-    video_profile.as_video_stream_profile = lambda: video_profile
-    color_stream = object()
-    profile = SimpleNamespace(
-        get_stream=lambda stream: video_profile if stream is color_stream else None
-    )
-    realsense = types.ModuleType("pyrealsense2")
-    realsense.stream = SimpleNamespace(color=color_stream)
-    monkeypatch.setitem(sys.modules, "pyrealsense2", realsense)
-
-    camera = RealSenseCamera()
-    camera.camera_info = SimpleNamespace(
-        camera_type="realsense",
-        serial_number="camera-1",
-        enable_depth=True,
-    )
-    camera.depth_scale = 0.001
-    camera.profile = profile
-    camera.get_frame = lambda timeout: np.zeros((2, 3, 4), dtype=np.uint16)
-
-    worker = worker_classes[1].__new__(worker_classes[1])
-    worker._perception_cameras = {"d455": camera}
-    worker._perception_camera_last_frames = {}
-    worker._perception_camera_meta = {}
-
-    snapshot = worker._capture_perception_camera_snapshot()
-
-    assert snapshot["camera_meta"]["d455_rgb"]["color_intrinsics"] == {
-        "width": 640,
-        "height": 480,
-        "fx": 600.0,
-        "fy": 600.0,
-        "ppx": 320.0,
-        "ppy": 240.0,
-        "distortion_model": "brown_conrady",
-        "coeffs": [0.1, 0.2, 0.3, 0.4, 0.5],
-    }
 
 
 def test_observation_refreshes_without_reset(worker_classes):

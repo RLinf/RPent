@@ -27,6 +27,33 @@ from rlinf.envs.real.wrappers import build_stack
 from rlinf.robotics.parts.cameras import CameraInfo, RealSenseCamera
 
 
+def realsense_color_intrinsics(camera: RealSenseCamera) -> dict[str, Any]:
+    """Return the color-stream intrinsics of a connected RealSense camera."""
+    if not isinstance(camera, RealSenseCamera):
+        raise TypeError(
+            "camera projection metadata requires RLinf RealSenseCamera, "
+            f"got {type(camera).__name__}"
+        )
+
+    import pyrealsense2 as rs
+
+    intrinsics = (
+        camera.profile.get_stream(rs.stream.color)
+        .as_video_stream_profile()
+        .get_intrinsics()
+    )
+    return {
+        "width": int(intrinsics.width),
+        "height": int(intrinsics.height),
+        "fx": float(intrinsics.fx),
+        "fy": float(intrinsics.fy),
+        "ppx": float(intrinsics.ppx),
+        "ppy": float(intrinsics.ppy),
+        "distortion_model": str(intrinsics.model),
+        "coeffs": [float(value) for value in intrinsics.coeffs],
+    }
+
+
 class RPentFrankaEnv(FrankaEnv):
     """FrankaEnv variant used as the RPent real-robot contract."""
 
@@ -118,30 +145,8 @@ class RPentFrankaEnv(FrankaEnv):
         """Return projection metadata matching the emitted RGB-D observations."""
         cameras = {}
         for camera in self._cameras.values():
-            if not isinstance(camera, RealSenseCamera):
-                raise TypeError(
-                    "camera projection metadata requires RLinf RealSenseCamera, "
-                    f"got {type(camera).__name__}"
-                )
-
-            import pyrealsense2 as rs
-
             info = camera.camera_info
-            intrinsics = (
-                camera.profile.get_stream(rs.stream.color)
-                .as_video_stream_profile()
-                .get_intrinsics()
-            )
-            raw_intrinsics = {
-                "width": int(intrinsics.width),
-                "height": int(intrinsics.height),
-                "fx": float(intrinsics.fx),
-                "fy": float(intrinsics.fy),
-                "ppx": float(intrinsics.ppx),
-                "ppy": float(intrinsics.ppy),
-                "distortion_model": str(intrinsics.model),
-                "coeffs": [float(value) for value in intrinsics.coeffs],
-            }
+            raw_intrinsics = realsense_color_intrinsics(camera)
             output_height, output_width = self.observation_space["frames"][
                 info.name
             ].shape[:2]
