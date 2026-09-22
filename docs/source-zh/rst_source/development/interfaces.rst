@@ -77,11 +77,10 @@ Planner
        dashboard_interaction=None,
    ) -> PlannerResult: ...
 
-约定：从 ``toolkit.list_tools()`` 获取原生声明，将 ``name``、
-``description`` 和 ``input_schema`` 转换成模型 SDK 所需的格式。发送前通过
-``rpent.utils.templates.substitute`` 替换 schema 中的占位符。对已注册的 toolkit
-工具，通过 ``toolkit.execute_tool(name, input_dict)`` 执行；当 ``toolkit.finish_result``
-设置完成或达到轮次上限时，返回 ``PlannerResult``。
+通过 ``toolkit.list_tools()`` 获取工具，用 ``toolkit.execute_tool(name, input_dict)``
+执行调用并将结果交回模型。``toolkit.finish_result`` 不为 ``None`` 或达到轮次
+上限时，返回 ``PlannerResult``。SDK 格式转换和 schema 占位符替换的示例见
+:doc:`../usage/configure_planner`。
 
 工具集
 ------
@@ -95,36 +94,33 @@ Planner
    # 也可以收集并注册整个原语对象的工具声明：
    self.add_tools(iter_tools(self._primitives))
 
-原生 ``Tool`` 包含 ``name``、``description``、``args_schema``、``handler``
-和 ``readonly``，通过 ``input_schema`` 获取生成的 JSON Schema。
-Google 风格 docstring 的 ``Args`` 段提供参数说明，类型注解和 ``Field`` 约束
-定义参数校验。Python 默认值用于补齐省略的参数；如需在 schema 中公开默认值，
-使用 ``Field(json_schema_extra={"default": value})`` 显式声明。``self`` 不暴露
-给模型，环境和模型客户端仍由实例持有。
+工具参数必须有类型注解，并能以关键字传入。参数说明写在 docstring 的
+``Args`` 段中，约束通过 ``Annotated[..., Field(...)]`` 声明，示例见
+:doc:`add_primitive`。函数默认值在调用时生效；如需同时写入 schema，使用
+``Field(json_schema_extra={"default": value})``。
 
-``add_tool(declaration, replace=True)`` 显式覆盖同名工具，否则重复注册会报错。
-``declaration.with_handler(handler)`` 可以绑定内部资源或包装执行逻辑，同时
-保留 schema 和只读标记。资源注入示例见 :doc:`add_primitive`。
+覆盖同名工具需传入 ``add_tool(declaration, replace=True)``，否则注册会报错。
+用 ``declaration.with_handler(handler)`` 包装处理函数可保留 schema 和
+``readonly`` 设置。例如，在 ``@tool`` 中用 ``exclude=("state",)`` 排除内部
+参数，再用 ``declaration.with_handler(partial(declaration, state=self.state))``
+绑定后注册（``partial`` 来自 ``functools``）。
 
-原生结果与执行
-~~~~~~~~~~~~~~
+工具返回值与执行流程
+~~~~~~~~~~~~~~~~~~~~
 
-处理函数和 ``get_env_state`` 均返回 ``ToolResult``：``data`` 是结果字典，
-``images`` 是按顺序排列的 PNG 字节列表，``error`` 是错误文本或 ``None``。
-结构化输出使用 ``to_dict()``，发给模型的限长文本使用 ``to_text()``，
-失败状态使用 ``is_error``。各 planner 适配器负责生成对应 SDK 的内容块。
+处理函数和 ``get_env_state`` 返回 ``ToolResult``：``data`` 存放结果字典，
+``images`` 存放 PNG 字节列表，``error`` 存放错误信息或 ``None``。
+``to_dict()`` 和 ``to_text()`` 分别生成字典和限长文本，``is_error`` 表示是否出错。
 
-planner 和 Dashboard 均通过 ``execute_tool`` 调用已注册工具，在处理函数执行前
-统一校验参数。状态推进工具执行后通过 ``get_env_state(command, result,
-elapsed_s)`` 采集新观测，返回观测数据、工具图片和执行错误。
-``@tool(readonly=True)`` 跳过这一步自动采集。Primitives 类管理机器人运行状态
-和视频帧缓冲，``EnvState`` 管理已记录的步骤和工件。
-公共文件工具调用 ``MemoryManager.authorize_read`` / ``authorize_write``
-判断路径访问权限。
+``execute_tool`` 先用 Pydantic 严格校验参数，拒绝未知参数和非有限数值，
+再执行工具并调用 ``get_env_state`` 采集观测。返回结果包含观测数据、图片和
+执行错误。
 
-``finish`` 被接受后，``toolkit.finish_result`` 保存完整结果，并去除内部
-``_finish`` 标记。API、Claude Code 和 Codex 读取该结果。错误或
-``_finish=False`` 不会设置结束状态，机器人特有的操作员反馈字段会完整保留。
+``@tool(readonly=True)`` 只跳过自动观测采集，不改变文件访问权限或工具并发
+限制。直接从 Python 调用工具方法时，不经过上述参数校验和观测采集。
+
+``finish`` 调用成功且未返回 ``_finish=False`` 时，Toolkit 将结果保存到
+``finish_result``，仅移除内部 ``_finish`` 标记。
 
 进程间通信
 ----------

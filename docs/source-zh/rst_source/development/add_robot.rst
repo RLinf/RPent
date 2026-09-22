@@ -270,11 +270,8 @@ toolkit 模块通常包含四部分：
 原语工具（``move_to``、``pi0_pick``、``release`` 等）对应一个方法，并返回
 包含动作日志的 ``ToolResult``。
 
-**工具定义和处理函数** 在原语成员方法和模块级观测函数上使用 ``@tool``。
-类型注解、``Field`` 约束和 Google 风格 docstring 共同生成 schema 及参数校验器。
-Python 默认值在运行时生效；需要公开时，通过
-``Field(json_schema_extra={"default": value})`` 显式声明。只读工具使用 ``@tool(readonly=True)``。``iter_tools`` 收集
-这些声明，无需额外维护 schema 列表。
+**工具定义和处理函数** 使用 ``@tool`` 声明，工具说明和参数 schema 由类型注解
+及 docstring 生成。具体写法见 :doc:`add_primitive`。
 
 **每步状态 dump** —— ``dump_state(driver, env_state, log)`` 通过
 ``env_state.record_step(...)`` 创建由 ``EnvState`` 持有的步骤，并取得分配的
@@ -293,10 +290,8 @@ step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过
   中的方法名为 ``init_primitives``；它会调用 ``EnvState.reset()``、构造
   原语并 dump 第 0 步）,
 - 用 ``iter_tools(self._primitives, tools_module)`` 收集声明，并通过
-  ``self.add_tools(...)`` 或 ``self.add_tool(declaration)`` 注册。需要覆盖同名
-  工具时显式传入 ``replace=True``。需要绑定 ``state`` 等内部资源或包装
-  原语执行逻辑时，先调用 ``declaration.with_handler(handler)``。模式筛选和
-  观测采集由 Toolkit 负责；
+  ``self.add_tools(...)`` 注册。按运行模式筛选工具、绑定内部资源或包装执行
+  逻辑时，在注册前完成。注册接口见 :doc:`interfaces`；
 - 重写 ``close()``，通过 ``EnvState`` 保存 agent 侧剩余工件（例如
   ``state.save("episode.mp4", frames, step=None)``）。
 
@@ -310,9 +305,8 @@ primitives 的 ``__init__``。其中通常包含
 - ``output_dir`` 是 runner 为单次运行创建的工作目录。环境观测由
   ``EnvState`` 管理；调用方只使用逻辑基础文件名，不自行拼接存储路径。
   transcript 等运行管理输出与环境工件共享该目录。
-- 原生 ``Tool`` 声明通过 ``list_tools()`` 暴露 ``name``、``description`` 和
-  ``input_schema``，由 planner 适配器转换成 SDK 格式。所有已注册工具都会
-  暴露给所有 planner。
+- 所有 planner 都通过 ``list_tools()`` 获取已注册工具，并转换为各自 SDK
+  所需的格式。
 - 环境侧的返回值必须可 pickle，且不包含 torch 对象。
 - 每个原语工具执行后要 dump 一次新的状态快照, 这样下一次
   ``view_env_state`` 看到的是动作后的世界。

@@ -80,13 +80,11 @@ Most users pick a built-in ``api``, ``claude_code``, or ``codex`` planner — se
        dashboard_interaction=None,
    ) -> PlannerResult: ...
 
-Contract: read native declarations from ``toolkit.list_tools()`` and convert
-``name``, ``description``, and ``input_schema`` to the model SDK's format.
-Resolve schema placeholders with ``rpent.utils.templates.substitute`` before
-sending them. Dispatch registered toolkit calls through
-``toolkit.execute_tool(name, input_dict)``
-and return ``PlannerResult`` when ``toolkit.finish_result`` is set or the turn
-limit is reached.
+Read tools from ``toolkit.list_tools()``, call them through
+``toolkit.execute_tool(name, input_dict)``, and feed results back to the model.
+Return ``PlannerResult`` when ``toolkit.finish_result`` is not ``None`` or the
+turn limit is reached. See :doc:`../usage/configure_planner` for SDK conversion
+and schema placeholder substitution.
 
 Toolkit
 -------
@@ -101,41 +99,37 @@ registers common file tools and ``finish``. Declare primitive methods with
    # Or collect a whole primitive object's declarations:
    self.add_tools(iter_tools(self._primitives))
 
-A native ``Tool`` contains ``name``, ``description``, ``args_schema``, ``handler``,
-and ``readonly``; ``input_schema`` exposes its generated JSON Schema. Google-style
-``Args`` documentation supplies parameter descriptions. Type annotations and
-``Field`` constraints define validation. Python defaults control omitted
-arguments; publish a default explicitly with
-``Field(json_schema_extra={"default": value})``. ``self`` is excluded from model
-inputs, and the instance retains its environment and model clients.
+Tool parameters need type annotations and must accept keyword arguments. Use
+the docstring's ``Args`` section for descriptions and ``Annotated[..., Field(...)]``
+for constraints; see :doc:`add_primitive` for an example. Signature defaults apply
+at runtime. To include them in the schema, use
+``Field(json_schema_extra={"default": value})``.
 
-``add_tool(declaration, replace=True)`` explicitly replaces a registered name;
-otherwise duplicate names raise an error. ``declaration.with_handler(handler)``
-binds internal resources or an execution guard while retaining the schema and
-read-only metadata. See :doc:`add_primitive` for resource injection.
+To replace a registered tool, use ``add_tool(declaration, replace=True)``;
+otherwise duplicate names raise an error. Use ``declaration.with_handler(handler)``
+to wrap a handler while retaining its schema and ``readonly`` setting. For example,
+exclude an internal parameter with ``@tool(exclude=("state",))``, then register
+``declaration.with_handler(partial(declaration, state=self.state))``
+using ``functools.partial``.
 
-Native results and execution
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Tool results and execution
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Handlers and ``get_env_state`` return ``ToolResult`` with ``data`` (a dictionary),
-``images`` (an ordered list of PNG byte strings), and ``error`` (text or ``None``).
-Use ``to_dict()`` for structured output, ``to_text()`` for bounded model-facing
-text, and ``is_error`` for failure. Planner adapters assemble SDK content blocks.
+Handlers and ``get_env_state`` return ``ToolResult``: ``data`` holds a result
+dictionary, ``images`` a list of PNG byte strings, and ``error`` an error message
+or ``None``. Use ``to_dict()`` for a dictionary, ``to_text()`` for bounded text,
+and ``is_error`` to check for errors.
 
-Registered tool calls from planners and the Dashboard pass through
-``execute_tool``. It validates arguments before running the handler. Stateful
-tools then capture a fresh observation through
-``get_env_state(command, result, elapsed_s)``; its data is
-returned with the tool's images and any execution error. ``@tool(readonly=True)``
-skips this automatic capture. Primitive classes own robot runtime state and frame
-buffers; ``EnvState`` owns recorded steps and artifacts.
-Common file tools call ``MemoryManager.authorize_read`` / ``authorize_write``
-for path access decisions.
+``execute_tool`` applies strict Pydantic validation, rejecting unknown arguments
+and non-finite numbers, then runs the tool and calls ``get_env_state`` to capture
+observations. The result contains observation data, images, and any execution error.
 
-After an accepted ``finish``, ``toolkit.finish_result`` contains the full result
-without the internal ``_finish`` marker. API, Claude Code, and Codex read this
-value. An error or ``_finish=False`` leaves completion unset, and robot-specific
-operator metadata is preserved.
+``@tool(readonly=True)`` skips automatic observation capture without changing
+file permissions or tool concurrency limits. Direct Python calls bypass this
+argument validation and observation capture.
+
+When ``finish`` succeeds without returning ``_finish=False``, Toolkit saves the
+result in ``finish_result``, removing only the internal ``_finish`` marker.
 
 Inter-process communication
 ---------------------------

@@ -276,21 +276,19 @@ agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
                error=error,
            )
 
-任何 planner 必须：
+自定义 planner 需要：
 
 1. 接收已经渲染好的 ``system_prompt`` 和 ``user_message``。
 2. 从 ``toolkit.list_tools()`` 取得工具定义，并通过
    ``toolkit.execute_tool(name, arguments)`` 执行工具。
-3. 将 ``tool_result.to_text()`` 和 ``tool_result.images`` 转换成模型 SDK
-   所需的格式，同时保留 ``tool_result.is_error`` 错误标记。
-4. ``finish`` 调用被接受、``toolkit.finish_result`` 设置后结束循环，并遵守
-   ``max_turns`` 等运行限制。
+3. 将 ``tool_result.to_text()`` 和 ``tool_result.images`` 转为 SDK 格式，
+   保留 ``tool_result.is_error`` 错误标记。
+4. 在 ``toolkit.finish_result`` 不为 ``None`` 时结束循环，并遵守 ``max_turns``
+   等运行限制。
 5. 返回包含结束状态、消息、统计信息和可选错误的 ``PlannerResult``。
 
-由于 RPent 工具定义和 prompt 渲染流程保持不变，新增 planner 不需要修改
-工具或环境服务。接口参见
-:doc:`../development/architecture`；想给
-自定义 planner 暴露新工具，见 :doc:`../development/add_primitive`。
+新增 planner 无需修改工具或环境服务。接口说明见 :doc:`../development/interfaces`；
+添加工具的方法见 :doc:`../development/add_primitive`。
 
 设置 planner 的运行限制
 -----------------------

@@ -30,12 +30,12 @@
 从 LLM 的视角看，两类原语采用相同的接口：一份工具定义、一个
 primitives 方法，以及调用完成后的状态快照。区别仅在于方法的具体实现。
 
-从 Python 签名声明工具
-------------------------------
+添加一个脚本化原语
+------------------
 
-``@tool`` 从函数签名和 Google 风格 docstring 生成工具说明、JSON Schema
-和参数校验模型。普通函数和实例方法都可以使用，已有 primitives 对象继续持有
-客户端与运行状态：
+在机器人的 primitives 类中添加方法，用 ``@tool`` 声明工具，并返回
+``ToolResult``。工具说明和参数 schema 根据类型注解及 Google 风格 docstring
+自动生成。下面的例子用 ``Field`` 将位移参数限制为三个分量：
 
 .. code-block:: python
 
@@ -65,31 +65,12 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
    self._primitives = MyPrimitives(env)
    self.add_tools(iter_tools(self._primitives))
 
-注册时传入实例上的 **绑定方法**。``self`` 不出现在 schema 中，每个实例使用
-各自的资源。方法仍可从 Python 直接调用，包括类内的 ``self.move_delta(...)``
-和继承的方法。已有方法也可以在注册时包装：
-``self.add_tool(tool(self._primitives.move_delta))``。
+``iter_tools`` 收集实例中带 ``@tool`` 的方法（包括继承的方法），再由
+``add_tools`` 注册。注册时使用实例上的绑定方法，``self`` 不会出现在参数
+schema 中。工具通过 ``ToolResult.data`` 返回动作日志。
 
-公开参数必须有类型注解，并能以关键字传入。约束通过
-``Annotated[..., Field(...)]`` 声明。函数签名中的默认值在运行时补齐参数；
-需要在 schema 中公开时，用 ``Field(json_schema_extra={"default": value})``
-显式声明。``Toolkit.execute_tool`` 在调用工具和采集观测之前执行 Pydantic
-严格参数校验，拒绝未知参数和非有限数值。直接从 Python 调用方法时，沿用普通
-Python 的参数处理方式。
-
-工具返回 ``ToolResult(data=..., images=..., error=...)``。结构化数据放在
-``data`` 中，PNG 字节放在 ``images`` 中，错误通过 ``error`` 表达。
-原语内部直接调用其他工具时，取得的同样是 ``ToolResult``。
-只读工具使用 ``@tool(readonly=True)``，跳过自动观测采集。
-通过 ``Toolkit.execute_tool`` 调用时，``@tool`` 和 ``@tool()`` 声明的工具
-默认都会采集观测；直接从 Python 调用时不会自动采集。
-``readonly`` 仅控制这一步采集，不禁止文件写入，也不允许工具并发执行。
-``iter_tools`` 从指定实例或模块中收集装饰过的工具，包括继承的方法。
-新增原语时装饰其成员方法即可，无需再维护 schema 或工具名称列表。
-普通方法和 property 不会被收集。模式筛选、资源绑定和执行保护仍由 Toolkit
-负责。对于 ``state`` 等内部注入参数，声明 ``exclude=("state",)``，再用
-``declaration.with_handler(partial(declaration, state=self.state))`` 绑定后注册。
-装饰器不会创建环境或模型客户端。
+Toolkit 会在工具执行后采集观测；只读工具用 ``@tool(readonly=True)`` 跳过
+这一步。参数校验、返回值和资源绑定的规则见 :doc:`interfaces`。
 
 .. _add-primitive-model-based:
 
@@ -134,8 +115,8 @@ Python 的参数处理方式。
           self._env.chunk_step(chunk)
           return ToolResult(data={"model": "mymodel", "target": target})
 
-4. **为方法添加 ``@tool``，并注册实例上的绑定方法。** 按上面的示例，
-   使用类型注解和 docstring 的 ``Args`` 段声明参数。
+4. **声明并注册工具。** 与脚本化原语一样，为方法添加 ``@tool``、类型注解
+   和 docstring，再注册实例上的绑定方法。
 
 5. **在 ``robot_spec.py`` 中连接各组件。** 机器人的 ``get_toolkit`` 使用
    ``runtime_kwargs`` 构造 toolkit：

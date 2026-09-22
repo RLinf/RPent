@@ -292,12 +292,9 @@ state needed for the current run. It exposes one method per primitive tool
 (``move_to``, ``pi0_pick``, ``release``, …), with each method returning a
 ``ToolResult`` containing its action log.
 
-**Tool definitions and handlers** use ``@tool`` on primitive methods and
-module-level observation functions. Type annotations, ``Field`` constraints, and
-Google-style docstrings generate the schema and validator. Python defaults apply
-at runtime; publish them explicitly with ``Field(json_schema_extra={"default": value})``.
-Read-only tools use ``@tool(readonly=True)``. ``iter_tools`` collects these
-declarations without a separate schema list.
+**Tool definitions and handlers** use ``@tool`` to generate descriptions and
+parameter schemas from type annotations and docstrings. See :doc:`add_primitive`
+for examples.
 
 **Per-step state dump** — ``dump_state(driver, env_state, log)`` opens
 ``env_state.record_step(...)`` and receives the allocated step index; the
@@ -319,11 +316,9 @@ filenames rather than maintaining a parallel observation index.
   helper (named ``init_primitives`` in LIBERO; it calls
   ``EnvState.reset()``, constructs the primitives, and dumps step 0),
 - collect declarations with ``iter_tools(self._primitives, tools_module)`` and
-  register them with ``self.add_tools(...)`` or ``self.add_tool(declaration)``.
-  Use ``replace=True`` for deliberate overrides. Bind internal resources such
-  as ``state`` or preserve primitive execution guards through
-  ``declaration.with_handler(handler)`` before registration. The Toolkit owns
-  mode-specific filtering and observation capture,
+  register them with ``self.add_tools(...)``. Apply any mode-specific filtering,
+  resource binding, or execution wrappers before registration; see
+  :doc:`interfaces` for the registration API,
 - override ``close()`` to save remaining agent-side artifacts through
   ``EnvState`` (for example ``state.save("episode.mp4", frames, step=None)``).
 
@@ -338,9 +333,8 @@ Conventions worth keeping
   run. Environment observations are owned by ``EnvState``; callers use logical
   base names and never construct storage paths. Transcripts and other
   run-management outputs share the same run directory.
-- Native ``Tool`` declarations expose ``name``, ``description``, and
-  ``input_schema`` through ``list_tools()``. Planner adapters convert these
-  declarations to their SDK format. Every registered tool is exposed to all planners.
+- All planners read registered tools through ``list_tools()`` and convert them
+  to their SDK's format.
 - Server-side return values must be picklable and torch-free.
 - Each primitive tool dumps a fresh state snapshot after running so the next
   ``view_env_state`` call reflects the post-action world.

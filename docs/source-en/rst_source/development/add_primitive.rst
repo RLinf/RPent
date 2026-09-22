@@ -32,12 +32,13 @@ From the LLM's perspective, both types expose the same interface: a
 tool schema, a primitives method, and a state dump after the
 call. They differ only in how the method is implemented.
 
-Declare tools from Python signatures
-------------------------------------
+Add a scripted primitive
+------------------------
 
-``@tool`` generates a tool's description, JSON Schema, and argument validator from
-its signature and Google-style docstring. It works with plain functions and
-instance methods, so an existing primitives object can keep its clients and state:
+Add a method to the robot's primitives class, decorate it with ``@tool``, and
+return a ``ToolResult``. Type annotations and a Google-style docstring supply
+the tool description and parameter schema. This example uses ``Field`` to
+require exactly three displacement components:
 
 .. code-block:: python
 
@@ -67,36 +68,14 @@ instance methods, so an existing primitives object can keep its clients and stat
    self._primitives = MyPrimitives(env)
    self.add_tools(iter_tools(self._primitives))
 
-Register the **bound method** from the instance. ``self`` is excluded from the
-schema, and each instance retains its own resources. Methods remain callable
-from Python, including through ``self.move_delta(...)`` and inherited methods.
-An existing undecorated method can also be registered with
-``self.add_tool(tool(self._primitives.move_delta))``.
+``iter_tools`` collects the instance's decorated methods, including inherited
+methods, for registration with ``add_tools``. Register bound methods from the
+instance; ``self`` is excluded from the schema. Return action logs in
+``ToolResult.data``.
 
-Public parameters need type annotations and must accept keyword arguments.
-``Annotated[..., Field(...)]`` supplies constraints. Signature defaults apply at
-runtime; advertise them in the schema only when intended, with
-``Field(json_schema_extra={"default": value})``. ``Toolkit.execute_tool`` applies
-strict Pydantic validation before executing the handler or capturing observations,
-rejecting unknown arguments and non-finite numbers. Direct Python calls retain
-normal Python argument handling.
-
-Handlers return ``ToolResult(data=..., images=..., error=...)``. Put structured
-values in ``data``, PNG bytes in ``images``, and failures in ``error``. A primitive
-that calls another tool directly receives the same ``ToolResult``.
-Use ``@tool(readonly=True)`` to skip automatic observation capture.
-Tools declared with ``@tool`` or ``@tool()`` capture observations by default when
-called through ``Toolkit.execute_tool``. Direct Python calls do not capture
-observations. ``readonly`` controls this capture step; it does not prohibit file
-writes or allow concurrent tool execution.
-``iter_tools`` collects decorated members from the supplied instances or modules,
-including inherited methods. Adding a primitive requires decorating its method;
-there is no separate schema or tool-name list to update. Undecorated methods and
-properties are not collected. Toolkit still owns mode-specific filtering,
-resource binding, and execution guards. For an injected parameter such as
-``state``, declare ``exclude=("state",)`` and register
-``declaration.with_handler(partial(declaration, state=self.state))``.
-The decorator does not create environment or model clients.
+Toolkit captures observations after execution. Use ``@tool(readonly=True)``
+for tools that should skip this step. See :doc:`interfaces` for argument
+validation, return values, and resource binding.
 
 .. _add-primitive-model-based:
 
@@ -148,8 +127,8 @@ primitive requires a few additional components:
           self._env.chunk_step(chunk)
           return ToolResult(data={"model": "mymodel", "target": target})
 
-4. **Decorate the method with ``@tool`` and register its bound method.** Use
-   type annotations and an ``Args`` docstring as in the example above.
+4. **Declare and register the tool.** As with scripted primitives, add ``@tool``,
+   type annotations, and a docstring, then register the bound method.
 
 5. **Wire the components together in ``robot_spec.py``.** The
    robot's ``get_toolkit`` builds the toolkit with
