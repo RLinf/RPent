@@ -261,7 +261,7 @@ class RoboTwinPrimitives:
             }
         )
 
-    @tool(exclude=("_primitive_name",))
+    @tool
     def move_to(
         self,
         *,
@@ -270,10 +270,8 @@ class RoboTwinPrimitives:
         quat: Annotated[list[float], Field(min_length=4, max_length=4)] | None = None,
         gripper: float | None = None,
         substeps: Annotated[int, Field(ge=0, json_schema_extra={"default": 25})] = 25,
-        _primitive_name: str = "move_to",
     ) -> ToolResult:
         """Plan and move one arm to a world-frame xyz and wxyz orientation. The native planner returns qpos waypoints executed with fresh state."""
-        del _primitive_name
         if int(substeps) < 0:
             raise ValueError("substeps must be non-negative")
         self._check_cancelled()
@@ -350,22 +348,19 @@ class RoboTwinPrimitives:
             quat=_qmult(world_z, pose[3:]).tolist(),
             gripper=gripper,
             substeps=substeps,
-            _primitive_name="rotate_wrist",
         )
         result.data["requested_delta_yaw_deg"] = float(delta_yaw_deg)
         return result
 
-    @tool(exclude=("_primitive_name",))
+    @tool
     def set_gripper(
         self,
         *,
         arm: Literal["left", "right"],
         val: Annotated[float, Field(ge=0, le=1)],
         steps: Annotated[int, Field(ge=1, json_schema_extra={"default": 10})] = 10,
-        _primitive_name: str = "set_gripper",
     ) -> ToolResult:
         """Linearly move one normalized gripper to val over 10 actions."""
-        del _primitive_name
         if int(steps) < 1:
             raise ValueError("steps must be at least 1")
         self._check_cancelled()
@@ -408,7 +403,6 @@ class RoboTwinPrimitives:
             arm=arm,
             val=val,
             steps=steps,
-            _primitive_name="release",
         )
 
     def status(self) -> dict[str, Any]:
