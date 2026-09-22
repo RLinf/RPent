@@ -48,6 +48,7 @@ RPent 面向以下四类用户：
 ## 最新动态
 
 - [2026/09] 🔥 新增交互式 RPent 排行榜，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html)。
+- [2026/09] 🔥 RPent 支持 Franka 单臂与双臂真机扩展。文档：[Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/franka.html) · [Dual Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/dual_franka.html)。
 - [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。参见 [RoboCasa 安装与 Target50 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
 - [2026/08] 🔥 新增非推理（non-reasoning）模式，平均执行时间降低约 40%。
 - [2026/08] 🔥 支持 LIBERO 探索模式。文档：[LIBERO 探索模式](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#memory)。
@@ -98,7 +99,8 @@ RPent 面向以下四类用户：
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li>Franka</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/franka.html">Franka</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/dual_franka.html">Dual Franka</a> ✅</li>
           <li>SO-101</li>
           <li>YAM</li>
         </ul>
