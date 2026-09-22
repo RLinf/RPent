@@ -1,37 +1,17 @@
 Real-World Demos
 ================
 
-From Digital Agents to the Physical World
------------------------------------------
-
-Coding agents such as Codex and Claude Code have made a productive pattern
-familiar: a model understands the goal, breaks it into steps, calls tools,
-checks what happened, and keeps adjusting. A robot cannot simply roll back a
-bad action. Its scene keeps changing, its observations are incomplete, and a
-grasp or contact changes the world for real. Planning is only one part of the
-problem; fast and precise specialist controllers are still needed for the
-physical execution.
-
-RPent connects these pieces. It combines the task understanding and planning
-of a general model with the fine-grained manipulation of VLA specialists,
-memory, tools, and robot interfaces. The result is a loop that can observe,
-decide, act, and correct instead of replaying one fixed action sequence. RPent
-is an open-source embodied-agent infrastructure jointly initiated by Tsinghua
-University, Wuwen Xinqiong, and Zhengxing Innovation, and is built by the core
-team behind the RLinf embodied reinforcement-learning framework. See the
-`RPent repository <https://github.com/RLinf/RPent>`_ for the code.
-
 See the Shape of an Embodied Agent
 ----------------------------------
 
-Start with the three clips below. A blue plate is sent to a new destination, a
-robot reads both a bottle and its target bag, and a learned placing skill is
-reused to pour steel beads. The point is not that the robot has memorized
-three more motions. The point is that the task can change while the robot is
-working, and the agent can reorganize what it knows around the new goal.
-
-The videos are edited showcase clips rather than benchmark results. For setup
-and reproduction details, see the real-robot guides.
+These three edited real-robot demos show RPent re-observing the scene and
+changing its action when the goal changes, a path is blocked, or a skill must
+be recombined: placing the same blue plate in a new cardboard box, reading a
+bottle and bag label while checking the grasp, and reusing a placing skill to
+pour steel beads. They show a loop of observation, decision, action, and
+correction rather than a replay of fixed motions, and how a successful run can
+become a reusable capability. The clips are a system showcase rather than
+benchmark results; see the real-robot guides for setup and reproduction.
 
 .. raw:: html
 
