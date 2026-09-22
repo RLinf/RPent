@@ -26,8 +26,12 @@ release = version
 extensions = [
     "sphinx_copybutton",
     "sphinx_design",
+    "sphinx_reredirects",
     "sphinx_sitemap",
 ]
+
+# Relative targets keep old links within the same language and build version.
+redirects = {"rst_source/benchmarks": "leaderboard.html"}
 
 source_suffix = {".rst": "restructuredtext"}
 root_doc = "index"

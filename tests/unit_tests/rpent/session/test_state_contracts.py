@@ -387,6 +387,28 @@ def test_record_step_failure_removes_artifacts_written_by_discarded_step(
     assert not env_state.artifact_path("partial.bin", step=step).exists()
 
 
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit])
+def test_record_step_preserves_control_flow_exceptions_after_rollback(
+    tmp_path: Path,
+    error_type: type[BaseException],
+) -> None:
+    env_state = EnvState(tmp_path)
+    error = error_type("stop")
+
+    with pytest.raises(error_type) as exc_info:
+        with env_state.record_step(state={"partial": True}) as step:
+            assert env_state.save("partial.bin", b"partial") == "partial.bin"
+            raise error
+
+    assert exc_info.value is error
+    assert env_state.records() == []
+    assert not env_state.artifact_path("partial.bin", step=step).exists()
+    assert json.loads((tmp_path / "states.json").read_text()) == {
+        "run_artifacts": [],
+        "steps": [],
+    }
+
+
 def test_env_state_rejects_nested_step_records(tmp_path: Path) -> None:
     env_state = EnvState(tmp_path)
 
