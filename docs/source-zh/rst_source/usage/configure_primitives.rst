@@ -1,8 +1,7 @@
 动作原语
 ========
 
-planner 决定执行什么操作，而 **动作原语** 决定如何执行。每个原语
-都会将一次工具调用（如 ``pi0_pick``、``move_to`` 或
+planner 决定执行什么操作，而 **动作原语** 决定如何执行。每个原语都会将一次工具调用（如 ``pi0_pick``、``move_to`` 或
 ``rotate_wrist``）转换成一段可由环境直接执行的动作。
 
 RPent 内置两类原语：
@@ -14,8 +13,7 @@ RPent 内置两类原语：
   ``release`` 和 ``back_project`` 等确定性动作。这类原语位于
   agent 侧，不需要加载 VLA 权重，并通过 RPC 调用 ``env_server``。
 
-各机器人的具体配置，例如使用哪个 VLA、checkpoint 路径以及对外提供的工具，
-请参考对应的机器人页面：:doc:`libero`、:doc:`robocasa`、
+各机器人的具体配置，例如使用哪个 VLA、checkpoint 路径以及对外提供的工具，请参考对应的机器人页面：:doc:`libero`、:doc:`robocasa`、
 :doc:`franka`、:doc:`dual_franka`、:doc:`so101`。
 
 各机器人使用的 VLA
@@ -49,8 +47,7 @@ RPent 内置两类原语：
 VLA server 通过统一的 ``predict`` 和 ``healthz`` 方法提供服务，并支持
 HTTP（JSON）和 socket（pickle-framed）两种传输方式。直接启动 VLA server
 时，可通过服务端的
-``--transport {http,socket}`` 选项选择传输方式，默认为 ``http``。
-设计理由参见 :doc:`../development/add_robot`。
+``--transport {http,socket}`` 选项选择传输方式，默认为 ``http``。设计理由参见 :doc:`../development/add_robot`。
 
 独立服务、远程 endpoint 和跨运行复用模型的方法参见
 :doc:`advanced_deployment`。

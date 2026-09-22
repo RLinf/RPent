@@ -34,8 +34,7 @@
      - ``PromptBundle``：``system`` 与 ``user`` 两套 prompt 工厂（见
        ``robots/<robot>/prompt_bundle.py``）。
    * - ``dashboard``
-     - 可选的 Dashboard 描述。设为 ``None`` 时，该机器人不支持 Dashboard 控制；
-       否则由该 spec 定义任务命令与字段、runtime components 和 frame channels。
+     - 可选的 Dashboard 描述。设为 ``None`` 时，该机器人不支持 Dashboard 控制；否则由该 spec 定义任务命令与字段、runtime components 和 frame channels。
    * - ``add_cli_args``
      - 注册本机器人的 CLI 参数（如 ``--suite``、``--env-endpoint``）。
    * - ``parse_config``
@@ -43,8 +42,7 @@
        三项需由你正确填写（供 prompt 模板插值）。
    * - ``init_runtime``
      - 启动或连接全部 runtime components，或只处理指定名称的子集，并构造对应的
-       ``runtime_kwargs``。普通 CLI 传 ``None``；Dashboard 从 spec 得到显式声明
-       的 shared 和 unique 子集后分别传入。``DashboardEventSink`` 用于上报运行时状态。
+       ``runtime_kwargs``。普通 CLI 传 ``None``；Dashboard 从 spec 得到显式声明的 shared 和 unique 子集后分别传入。``DashboardEventSink`` 用于上报运行时状态。
 
 ``get_toolkit`` 一般只需把 ``runtime_kwargs`` 传给机器人子类；
 ``dashboard_events`` 和 ``config`` 由当前 runner 传入。它需要构造一个
@@ -77,8 +75,7 @@ Planner
        dashboard_interaction=None,
    ) -> PlannerResult: ...
 
-约定：用 ``toolkit.get_tools_spec()`` 把工具交给模型；每次调用 ``toolkit.execute_tool(name, input_dict)``；
-把结果喂回模型；在 ``finish`` 工具或轮次用尽时返回 ``PlannerResult``。
+约定：用 ``toolkit.get_tools_spec()`` 把工具交给模型；每次调用 ``toolkit.execute_tool(name, input_dict)``；把结果喂回模型；在 ``finish`` 工具或轮次用尽时返回 ``PlannerResult``。
 
 工具集
 ------
@@ -100,8 +97,7 @@ Planner
    * - ``spec``
      - 工具说明与参数 schema（``name``、``description``、``input_schema``）。
    * - ``handler``
-     - 执行逻辑，须返回 ``dict``。任务结束时在该 ``dict`` 里设 ``_finish``；
-       需要回传相机图时可设 ``_image_bytes`` 等字段。
+     - 执行逻辑，须返回 ``dict``。任务结束时在该 ``dict`` 里设 ``_finish``；需要回传相机图时可设 ``_image_bytes`` 等字段。
 
 基类已注册公共文件工具；子类 ``super().__init__()`` 后追加本机器人工具即可。逐步状态与
 ``view_env_state`` 见 :doc:`add_primitive`。
@@ -120,13 +116,9 @@ runtime 钩子中解析）：
 
 常见：``--env-endpoint``、``--vla-endpoint``。``http`` 为默认，走 ``POST /call``
 传 JSON，其中 NumPy 数组编码为 ``{"__ndarray__": <base64>, "dtype": ..., "shape": ...}``；
-NumPy 标量编码为 ``{"__npscalar__": <value>, "dtype": ...}`` 以保留精确 dtype；
-观测数据很大、或是多帧堆叠的嵌套 NumPy 字典时可改 ``socket``，用带长度前缀的
+NumPy 标量编码为 ``{"__npscalar__": <value>, "dtype": ...}`` 以保留精确 dtype；观测数据很大、或是多帧堆叠的嵌套 NumPy 字典时可改 ``socket``，用带长度前缀的
 pickle 数据帧传输，省掉反复的 JSON 编解码。pickle 不适合不可信输入，socket 只应连接可信端点。
 
-环境和 VLA client 通常应分别继承 ``BaseEnvClient``、``BaseVLAClient``；服务端
-分别继承 ``BaseEnvFacade``、``BaseVLAFacade``，并通过 ``_register_rpc`` 注册
-扩展路由。这些基类在 ``RpcFacade`` 之上提供公共路由和锁。只有尚无专用基类的
-服务类型才直接继承 ``RpcFacade``。业务子类不必实现 ``healthz`` / ``shutdown``。
+环境和 VLA client 通常应分别继承 ``BaseEnvClient``、``BaseVLAClient``；服务端分别继承 ``BaseEnvFacade``、``BaseVLAFacade``，并通过 ``_register_rpc`` 注册扩展路由。这些基类在 ``RpcFacade`` 之上提供公共路由和锁。只有尚无专用基类的服务类型才直接继承 ``RpcFacade``。业务子类不必实现 ``healthz`` / ``shutdown``。
 
 细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。

@@ -7,21 +7,17 @@ runner。完整的参考实现见 ``robots/libero/``。
 接入原则
 --------
 
-- **复用 RPent 公共抽象。** Env、VLA、运行时和 Memory 优先复用已有组件，
-  例如 ``BaseEnvClient``、``BaseEnvFacade``、``BaseVLAClient``、
+- **复用 RPent 公共抽象。** Env、VLA、运行时和 Memory 优先复用已有组件，例如 ``BaseEnvClient``、``BaseEnvFacade``、``BaseVLAClient``、
   ``BaseVLAFacade`` 和 ``MemoryManager``。
-- **优先复用 RLinf 的 Env 或 VLA。** 如果 RLinf 已有对应实现，RPent 尽量只增加
-  必要的适配层。
+- **优先复用 RLinf 的 Env 或 VLA。** 如果 RLinf 已有对应实现，RPent 尽量只增加必要的适配层。
 - **尽量和现有机器人接入方式保持一致。** ``RobotSpec``、Prompt、Toolkit
   和运行时尽量参考已有实现，不为单个机器人引入新的公共机制。
-- **无法复用时说明原因。** 如果 RPent 或 RLinf 已有相关 Env / VLA 但无法复用，
-  请在 PR 描述中说明或提交 issue，帮助改进现有抽象。
+- **无法复用时说明原因。** 如果 RPent 或 RLinf 已有相关 Env / VLA 但无法复用，请在 PR 描述中说明或提交 issue，帮助改进现有抽象。
 
 接入步骤概览
 ------------
 
-RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 <architecture>`。
-本页不再重复设计原理，只说明接入新机器人需要实现的扩展点。建议按以下顺序完成：
+RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 <architecture>`。本页不再重复设计原理，只说明接入新机器人需要实现的扩展点。建议按以下顺序完成：
 
 1. 在 :ref:`入口 <add-robot-entry>` 中注册 ``RobotSpec`` 和 toolkit 工厂。
 2. 实现 :ref:`env_client 和 env_server <add-robot-env-rpc>`。如需接入 VLA
@@ -52,9 +48,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
        env_server.py          # 环境侧 facade + RPC 服务                 (§1)
        vla_server.py          # （可选）VLA 模型服务
 
-``__init__.py`` 是机器人包入口，应保持精简，仅重导出 ``robot_spec.py`` 中实现的
-工厂。``rpent/robots/base.py`` 中的注册表会按需导入 ``robots.<name>``，并调用
-这两个函数：
+``__init__.py`` 是机器人包入口，应保持精简，仅重导出 ``robot_spec.py`` 中实现的工厂。``rpent/robots/base.py`` 中的注册表会按需导入 ``robots.<name>``，并调用这两个函数：
 
 .. code-block:: python
 
@@ -116,13 +110,10 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
        """
        ...
 
-``dashboard`` 是可选项；环境不支持 Dashboard 控制时保持为 ``None``。支持时，
-在机器人包中定义该 spec：其中 ``task`` 描述命令、校验字段、展示模板和输出目录
+``dashboard`` 是可选项；环境不支持 Dashboard 控制时保持为 ``None``。支持时，在机器人包中定义该 spec：其中 ``task`` 描述命令、校验字段、展示模板和输出目录
 slug；机器人专用的 Session 设置继续使用普通命令行参数；
 ``runtime_components`` 描述服务行；``primitives`` 按顺序列出 Dashboard
-展示并允许直接执行的 Toolkit 动作。相机标签从每步记录的 PNG 工件中自动发现。
-任务候选项应直接保存在 spec 中，避免导入机器人包时依赖仿真器包。
-完整结构参考 ``robots/libero/robot_spec.py``。
+展示并允许直接执行的 Toolkit 动作。相机标签从每步记录的 PNG 工件中自动发现。任务候选项应直接保存在 spec 中，避免导入机器人包时依赖仿真器包。完整结构参考 ``robots/libero/robot_spec.py``。
 
 ``_resolve_robot(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
 动态加载机器人包。因此，只需将机器人包放在 ``robots/`` 下，无需维护中央注册列表。
@@ -135,8 +126,7 @@ slug；机器人专用的 Session 设置继续使用普通命令行参数；
 1. ``env_client.py`` + ``env_server.py``
 -----------------------------------------
 
-这两个文件连接 agent 进程与 ``env_server``。client 在 agent 进程内将方法调用
-转换成 RPC 请求，``env_server`` 负责处理这些请求。
+这两个文件连接 agent 进程与 ``env_server``。client 在 agent 进程内将方法调用转换成 RPC 请求，``env_server`` 负责处理这些请求。
 
 1.1 Env client（agent 侧）
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -144,8 +134,7 @@ slug；机器人专用的 Session 设置继续使用普通命令行参数；
 继承 :class:`rpent.robots.components.env_client_base.BaseEnvClient`。它已经负责启动时校验
 ``env.get_env_meta``、执行首次 reset、缓存 ``last_obs``，并实现公共的
 ``reset``、``step``、``chunk_step``、``render_camera``、
-``get_camera_meta`` 和 ``get_task_language`` RPC。子类只需增加环境专用方法；
-扩展方法需要独立超时时，再扩展超时表。RPC 名称需要保持稳定，因为服务端
+``get_camera_meta`` 和 ``get_task_language`` RPC。子类只需增加环境专用方法；扩展方法需要独立超时时，再扩展超时表。RPC 名称需要保持稳定，因为服务端
 facade 会显式注册每个名称。
 
 .. code-block:: python
@@ -172,9 +161,7 @@ facade 会显式注册每个名称。
 
 在 ``env_server`` 中定义与 client API 对应的 facade 类，例如
 ``MyEnvFacade``。该类继承
-:class:`rpent.robots.components.env_facade_base.BaseEnvFacade`；基类已提供公共 RPC 路由和
-读写分派锁。子类实现公共环境方法，并通过 ``_register_rpc`` 增加环境专用路由。
-方法接收与 client 一致的位置参数和关键字参数，返回传输层支持的 Python / NumPy
+:class:`rpent.robots.components.env_facade_base.BaseEnvFacade`；基类已提供公共 RPC 路由和读写分派锁。子类实现公共环境方法，并通过 ``_register_rpc`` 增加环境专用路由。方法接收与 client 一致的位置参数和关键字参数，返回传输层支持的 Python / NumPy
 值（不要返回 torch；agent 进程不导入 torch）。
 
 .. code-block:: python
@@ -206,8 +193,7 @@ facade 会显式注册每个名称。
    facade = MyEnvFacade(env, meta)
    facade.serve(transport="http", host=host, port=port)
 
-``BaseEnvFacade`` 通过 ``_register_rpc`` 注册公共路由，并使用读写锁串行化会改变
-状态的调用。只有确认某个扩展路由可以安全地与其他读操作并发时，才把它加入
+``BaseEnvFacade`` 通过 ``_register_rpc`` 注册公共路由，并使用读写锁串行化会改变状态的调用。只有确认某个扩展路由可以安全地与其他读操作并发时，才把它加入
 ``_readonly_methods``。继承的 ``RpcFacade.serve`` 负责绑定传输方式（HTTP 或
 socket）、提供 ``healthz`` 和 ``shutdown``、检测父进程退出并执行资源清理。
 
@@ -218,8 +204,7 @@ socket）、提供 ``healthz`` 和 ``shutdown``、检测父进程退出并执行
 
 定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在机器人的
 ``robot_spec.py`` 中构造
-``PromptBundle(system=system_prompt, user=user_prompt)`` （见上面的“入口”）。
-每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节；
+``PromptBundle(system=system_prompt, user=user_prompt)`` （见上面的“入口”）。每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节；
 ``PromptBundle.render`` 负责组装和填充。一套 prompt 供 API loop、Claude Code
 和 Codex 等 planner 共用。正文使用工具的裸名（如 ``move_to``），并说明 Claude
 Code 和 Codex SDK 会将其显示为 ``mcp__rpent__<name>``；无需分别维护 CLI 与
@@ -266,9 +251,7 @@ MCP allowlist。(LIBERO 中由于历史原因把这些拆到了 ``tools.py`` 和
 toolkit 模块通常包含四部分：
 
 **Primitives 类**\ （例如 ``MyRobotPrimitives``）是 toolkit 持有的 Python
-对象。它保存 ``EnvClient``、VLA ``model`` client 和单次运行所需的状态。每个
-原语工具（``move_to``、``pi0_pick``、``release`` 等）对应一个方法，并返回
-日志字典。
+对象。它保存 ``EnvClient``、VLA ``model`` client 和单次运行所需的状态。每个原语工具（``move_to``、``pi0_pick``、``release`` 等）对应一个方法，并返回日志字典。
 
 **工具定义和处理函数** 包括模块级的 ``TOOLS_SPEC`` 列表（列表元素采用
 Anthropic API 的工具定义格式，包含 ``name``、``description`` 和
@@ -278,8 +261,7 @@ Anthropic API 的工具定义格式，包含 ``name``、``description`` 和
 **每步状态 dump** —— ``dump_state(driver, env_state, log)`` 通过
 ``env_state.record_step(...)`` 创建由 ``EnvState`` 持有的步骤，并取得分配的
 step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过
-``env_state.save(...)`` 保存——在 ``record_step`` 块内可省略 ``step`` 参数
-（默认指向刚创建的步骤），传显式 ``step=<int>`` 可指定其它步骤，``step=None``
+``env_state.save(...)`` 保存——在 ``record_step`` 块内可省略 ``step`` 参数（默认指向刚创建的步骤），传显式 ``step=<int>`` 可指定其它步骤，``step=None``
 用于运行级工件。每次保存成功后，``EnvState`` 会自动把基础文件名加入该
 ``StepRecord`` 的扁平 ``artifacts`` 集合；读取方直接使用规范化的工件文件名。
 
@@ -289,10 +271,8 @@ step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过
   :class:`~rpent.memory.MemoryManager`）和 ``state``。``memory_access`` 和
   ``inbox_cell_tag`` 在构造 ``MemoryManager`` 时配置；eval 默认只读。
 - 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitives（LIBERO
-  中的方法名为 ``init_primitives``；它会调用 ``EnvState.reset()``、构造
-  原语并 dump 第 0 步）,
-- 用 ``self.add_tool(name, spec, handler)`` 注册每个工具。无状态的读取工具
-  （如 ``view_env_state``、``finish``）直接绑定模块级函数；原语工具通过
+  中的方法名为 ``init_primitives``；它会调用 ``EnvState.reset()``、构造原语并 dump 第 0 步）,
+- 用 ``self.add_tool(name, spec, handler)`` 注册每个工具。无状态的读取工具（如 ``view_env_state``、``finish``）直接绑定模块级函数；原语工具通过
   ``_step(name, **kwargs)`` 调用。``_step`` 使用
   ``getattr(self._primitives, name)(**kwargs)`` 调用 driver 方法并重新渲染状态；
 - 重写 ``close()``，通过 ``EnvState`` 保存 agent 侧剩余工件（例如
@@ -309,41 +289,33 @@ primitives 的 ``__init__``。其中通常包含
   ``EnvState`` 管理；调用方只使用逻辑基础文件名，不自行拼接存储路径。
   transcript 等运行管理输出与环境工件共享该目录。
 - 工具定义使用 Anthropic API 格式（``name`` / ``description`` /
-  ``input_schema``）。
-  每个用 ``self.add_tool(...)`` 注册的工具都会暴露给所有 planner。
+  ``input_schema``）。每个用 ``self.add_tool(...)`` 注册的工具都会暴露给所有 planner。
 - 环境侧的返回值必须可 pickle，且不包含 torch 对象。
 - 每个原语工具执行后要 dump 一次新的状态快照, 这样下一次
   ``view_env_state`` 看到的是动作后的世界。
-- ``dump_state`` 是 Agent 获取环境状态的唯一数据来源；任何新的模态
-  （例如触觉、力）都通过它提供。
+- ``dump_state`` 是 Agent 获取环境状态的唯一数据来源；任何新的模态（例如触觉、力）都通过它提供。
 
 .. _add-robot-config:
 
 4. ``_add_cli_args`` + ``_parse_config`` (runner 钩子)
 ------------------------------------------------------
 
-机器人特有的 CLI 参数通过两个钩子接入 ``rpent/cli/main.py`` 的解析流程，并参与
-最终的 argparse 解析：
+机器人特有的 CLI 参数通过两个钩子接入 ``rpent/cli/main.py`` 的解析流程，并参与最终的 argparse 解析：
 
 **``_add_cli_args(parser, use_dashboard) -> None``。** 将机器人参数注册到
-main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参数是否保持可选。
-每个 Dashboard TaskRun 会在 ``parse_config`` 调用前，由机器人 Dashboard spec
-定义的任务命令提供其声明的字段。main.py 会在 ``parser.parse_args()`` 之前调用
-该钩子，因此 argparse 的 usage 和错误信息也会包含机器人参数。
+main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参数是否保持可选。每个 Dashboard TaskRun 会在 ``parse_config`` 调用前，由机器人 Dashboard spec
+定义的任务命令提供其声明的字段。main.py 会在 ``parser.parse_args()`` 之前调用该钩子，因此 argparse 的 usage 和错误信息也会包含机器人参数。
 
 **``_parse_config(args) -> RunConfig``。** 普通 CLI 模式下，该钩子在
-``parser.parse_args()`` 后调用；Dashboard 模式下，每个 TaskRun 会先把请求字段
-写入任务参数，再调用该钩子。该钩子校验这些字段并返回
+``parser.parse_args()`` 后调用；Dashboard 模式下，每个 TaskRun 会先把请求字段写入任务参数，再调用该钩子。该钩子校验这些字段并返回
 :class:`~rpent.robots.RunConfig`：
 
-- ``recipe_tag`` —— 单次运行的机器人标签，用于 transcript 文件名和 recipe 路径
-  （LIBERO 使用 ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``）。
+- ``recipe_tag`` —— 单次运行的机器人标签，用于 transcript 文件名和 recipe 路径（LIBERO 使用 ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``）。
 - ``output_dir`` —— 单次运行的临时目录路径。main.py 随后调用
   ``init_output_dir`` 创建目录并配置日志。
 - ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和
   prompt 引用的其他变量。
-- ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录
-  （LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
+- ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录（LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
 
 .. code-block:: python
 
@@ -370,40 +342,30 @@ main.py 已创建的共享 parser。``use_dashboard`` 决定原本必填的参�
 
 ``init_runtime`` 返回 ``(owned_daemons, runtime_kwargs)``：
 
-- ``owned_daemons: list[ProcessDaemon]`` 只包含当前进程实际启动的子进程，
-  当前 runner 会在清理阶段停止它们。连接外部 endpoint 时，不能把外部服务加入
-  该列表。
+- ``owned_daemons: list[ProcessDaemon]`` 只包含当前进程实际启动的子进程，当前 runner 会在清理阶段停止它们。连接外部 endpoint 时，不能把外部服务加入该列表。
 - ``runtime_kwargs: dict`` 会传给 toolkit 构造器，再由后者传入 primitives
   的 ``__init__``。完整参数通常包含
   ``{"env": MyEnvClient(...), "model": VLAClient(...)}``，以及其他辅助 client。
 
 第四个参数 ``components`` 指定要初始化的服务名称。``None`` 表示全部服务，普通
-CLI 会传入这个值。Dashboard 根据 ``dashboard.runtime_components`` 得到两个子集，
-每个 component 都必须显式声明 ``scope: "shared"`` 或 ``scope: "unique"``。Dashboard
+CLI 会传入这个值。Dashboard 根据 ``dashboard.runtime_components`` 得到两个子集，每个 component 都必须显式声明 ``scope: "shared"`` 或 ``scope: "unique"``。Dashboard
 先初始化一次 shared components，再为每个新的环境实例初始化 unique
 components。两次都调用同一个钩子，最后合并返回的 ``runtime_kwargs``。在
 LIBERO 中，这两个子集分别是 ``{"vla", "sam3"}`` 和 ``{"env"}``。
 
-实现应在启动任何服务前拒绝未知 component 名称。如果多个选中的本地服务初始化
-较慢，应先全部启动，再依次等待 ready，让初始化过程可以重叠。参考实现见
+实现应在启动任何服务前拒绝未知 component 名称。如果多个选中的本地服务初始化较慢，应先全部启动，再依次等待 ready，让初始化过程可以重叠。参考实现见
 ``robots/libero/robot_spec.py`` 中的有序 component registry。
 
 endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
-``--sam3-endpoint``）解析和环境专用服务命令，应放在拥有对应服务的钩子中。
-这些 spawner 应通过 ``rpent.robots.runtime.try_spawn_server`` 和
-``try_wait_server`` 组合，使各环境的状态事件、就绪失败和 owned daemon 清理保持
-一致；runner 不处理这些环境细节。参考模式见 ``robots/libero/robot_spec.py`` 和
+``--sam3-endpoint``）解析和环境专用服务命令，应放在拥有对应服务的钩子中。这些 spawner 应通过 ``rpent.robots.runtime.try_spawn_server`` 和
+``try_wait_server`` 组合，使各环境的状态事件、就绪失败和 owned daemon 清理保持一致；runner 不处理这些环境细节。参考模式见 ``robots/libero/robot_spec.py`` 和
 ``robots/robocasa/robot_spec.py``。
 
 可选的运行结果 finalizer
 ------------------------
 
-``RobotSpec.finalize_run`` 是面向所有机器人、与具体 benchmark 无关的通用运行结束
-钩子。RoboCasa 是当前使用方，用它记录单 cell 评测结果，供后续结果统计和聚合。
-任何需要发布机器可读评测产物的机器人都可以注册该钩子。其默认值为 ``None``，不会
-改变 runner 行为。配置该钩子后，普通终端 runner 会在关闭 toolkit 前读取
-``toolkit.solved()``，完成运行时清理后再把结构化的 ``RunFinalizationContext`` 传给
-钩子。产物 schema 与文件名由钩子负责，RPent 只定义生命周期边界。
+``RobotSpec.finalize_run`` 是面向所有机器人、与具体 benchmark 无关的通用运行结束钩子。RoboCasa 是当前使用方，用它记录单 cell 评测结果，供后续结果统计和聚合。任何需要发布机器可读评测产物的机器人都可以注册该钩子。其默认值为 ``None``，不会改变 runner 行为。配置该钩子后，普通终端 runner 会在关闭 toolkit 前读取
+``toolkit.solved()``，完成运行时清理后再把结构化的 ``RunFinalizationContext`` 传给钩子。产物 schema 与文件名由钩子负责，RPent 只定义生命周期边界。
 
 JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整结果：
 
@@ -421,19 +383,15 @@ JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整�
            },
        )
 
-通过 ``RobotSpec(..., finalize_run=_finalize_run)`` 注册回调。该钩子目前只用于普通
-终端运行，Dashboard 不会调用。benchmark manifest、机器人专用 runtime 字段和
-聚合逻辑应继续放在机器人目录中，而不是共享 CLI。
+通过 ``RobotSpec(..., finalize_run=_finalize_run)`` 注册回调。该钩子目前只用于普通终端运行，Dashboard 不会调用。benchmark manifest、机器人专用 runtime 字段和聚合逻辑应继续放在机器人目录中，而不是共享 CLI。
 
 .. _add-robot-testing:
 
 6. 需要补充的测试
 -----------------
 
-新增机器人时，应先分别测试它使用的每个 runtime 组件，再跑一次完整调用链。
-例如，使用 Env、Pi0.5 和 SAM3 的机器人，需要分别提供环境测试、Pi0.5 推理测试、
-SAM3 分割测试，以及完整调用链测试。每个组件都应实际调用一次并检查结果，
-仅能导入模块或通过服务健康检查还不够。
+新增机器人时，应先分别测试它使用的每个 runtime 组件，再跑一次完整调用链。例如，使用 Env、Pi0.5 和 SAM3 的机器人，需要分别提供环境测试、Pi0.5 推理测试、
+SAM3 分割测试，以及完整调用链测试。每个组件都应实际调用一次并检查结果，仅能导入模块或通过服务健康检查还不够。
 
 测试放在哪里
 ~~~~~~~~~~~~
@@ -441,44 +399,34 @@ SAM3 分割测试，以及完整调用链测试。每个组件都应实际调用
 以下 ``myrobot`` 替换为新机器人的包名：
 
 - ``tests/unit_tests/robots/myrobot/``：离线单元测试，覆盖配置解析、client
-  参数处理、工具分派，以及 runtime 启动和清理逻辑。用 fake 替代仿真器和模型，
-  保证可在 CPU 上运行。
-- ``tests/e2e_tests/myrobot/test_components.py``：为每个真实组件分别编写测试，
-  例如 ``test_environment_component``、``test_pi05_component`` 和
+  参数处理、工具分派，以及 runtime 启动和清理逻辑。用 fake 替代仿真器和模型，保证可在 CPU 上运行。
+- ``tests/e2e_tests/myrobot/test_components.py``：为每个真实组件分别编写测试，例如 ``test_environment_component``、``test_pi05_component`` 和
   ``test_sam3_component``；只需覆盖该机器人实际使用的组件。
 - ``tests/e2e_tests/myrobot/test_policy_chain.py``：编写一个串起 planner、
   toolkit、模型和环境的完整调用链测试。
 - Fixture 放在同目录的 ``conftest.py``，可复用的场景初始化和调用放在
-  ``scenario.py``。生命周期与断言辅助函数复用 ``tests/e2e_tests/common.py``，
-  目录组织可参考 ``tests/e2e_tests/libero/``。
+  ``scenario.py``。生命周期与断言辅助函数复用 ``tests/e2e_tests/common.py``，目录组织可参考 ``tests/e2e_tests/libero/``。
 
 每个组件测什么
 ~~~~~~~~~~~~~~
 
-- **Env：** 启动真实环境，用固定 task/seed 执行 reset 并获取观测，检查所需
-  相机图像和状态字段的 shape、dtype。至少执行一个合法动作，再检查下一帧观测、
-  终止信息和成功判定。
-- **VLA 或其他动作模型：** 加载真实 checkpoint，按该机器人的输入格式传入
-  观测和指令，执行一次推理。检查返回动作非空、数值有限，且维度符合环境要求。
+- **Env：** 启动真实环境，用固定 task/seed 执行 reset 并获取观测，检查所需相机图像和状态字段的 shape、dtype。至少执行一个合法动作，再检查下一帧观测、终止信息和成功判定。
+- **VLA 或其他动作模型：** 加载真实 checkpoint，按该机器人的输入格式传入观测和指令，执行一次推理。检查返回动作非空、数值有限，且维度符合环境要求。
 - **感知或其他服务：** 用已知输入实际调用每个服务，并验证输出。例如让 SAM3
   分割图像中的已知物体，检查 mask 尺寸与图像一致且包含前景。
 
 通过受支持的 runtime 接口启动各组件，并检查测试结束后自己启动的 daemon
-全部退出。复用已有组件时可以复用其测试，但要说明已有覆盖位置，并补测新增的
-输入输出适配。
+全部退出。复用已有组件时可以复用其测试，但要说明已有覆盖位置，并补测新增的输入输出适配。
 
 完整调用链测什么
 ~~~~~~~~~~~~~~~~
 
 组件测试通过后，复用 ``tests/e2e_tests/common.py`` 中的
-``run_scripted_policy_chain``，以固定 task/seed 和有限动作数运行公开 CLI。
-其中的本地 ``OfflinePlannerServer`` 会请求一个真实动作原语，再调用 ``finish``，
-无需外部 LLM API。环境和模型服务保持真实，不要 monkeypatch CLI 或 runtime
+``run_scripted_policy_chain``，以固定 task/seed 和有限动作数运行公开 CLI。其中的本地 ``OfflinePlannerServer`` 会请求一个真实动作原语，再调用 ``finish``，无需外部 LLM API。环境和模型服务保持真实，不要 monkeypatch CLI 或 runtime
 内部实现。
 
 检查至少执行了一个环境动作、transcript 记录了 ``finish``、``states.json``
-包含无错误的动作记录、生成了预期观测工件，以及自己启动的 daemon 全部退出。
-这种有界接入测试不要求任务成功。
+包含无错误的动作记录、生成了预期观测工件，以及自己启动的 daemon 全部退出。这种有界接入测试不要求任务成功。
 
 离线测试使用 ``pytest tests/unit_tests/robots/myrobot -v`` 运行。安装机器人
 extra 并准备好所需 GPU、checkpoint 和资产后，使用

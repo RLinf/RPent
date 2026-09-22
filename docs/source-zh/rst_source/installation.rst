@@ -29,8 +29,7 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 
 .. tip::
 
-   ``openai-codex-cli-bin`` 目前在清华 TUNA PyPI 镜像中不可用。
-   如果从默认 PyPI 安装较慢，可以使用阿里云 PyPI 镜像：
+   ``openai-codex-cli-bin`` 目前在清华 TUNA PyPI 镜像中不可用。如果从默认 PyPI 安装较慢，可以使用阿里云 PyPI 镜像：
 
    .. code-block:: bash
 
@@ -70,8 +69,7 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 2. 下载运行 LIBERO 所需的仿真资源
 ------------------------------------------------
 
-通过 pip 安装的 Python 包不包含运行 LIBERO 所需的大型资源文件。请根据上一步安装的
-依赖组合，从以下命令中选择一条：
+通过 pip 安装的 Python 包不包含运行 LIBERO 所需的大型资源文件。请根据上一步安装的依赖组合，从以下命令中选择一条：
 
 .. code-block:: bash
 
@@ -92,8 +90,7 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 3. (可选) 真实机器人依赖
 ------------------------
 
-Franka 与 SO-101 的支持正在逐步接入; 每个机器人的 robot 包未来会以一个
-包的形式放在 ``robots/<name>/`` 下, 并附带 ``README.md`` 说明其 SDK /
+Franka 与 SO-101 的支持正在逐步接入; 每个机器人的 robot 包未来会以一个包的形式放在 ``robots/<name>/`` 下, 并附带 ``README.md`` 说明其 SDK /
 固件要求。当前进度参见 :doc:`usage/franka` 与 :doc:`usage/so101`。
 
 检查是否安装成功
@@ -110,5 +107,4 @@ Franka 与 SO-101 的支持正在逐步接入; 每个机器人的 robot 包未�
 - SAM3 server 的日志在 ``<output_dir>/sam3_server.log``。
 - agent 的运行日志在 ``<output_dir>/run.log``。
 
-这四份日志都保存在本次运行的输出目录中，排查失败任务时无需再从其他位置
-收集日志。
+这四份日志都保存在本次运行的输出目录中，排查失败任务时无需再从其他位置收集日志。

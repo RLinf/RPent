@@ -1,8 +1,7 @@
 远程服务
 ========
 
-默认情况下，RPent 会随每次 LIBERO 运行启动并关闭环境、VLA 与 SAM3 服务。单机运行时建议保留这一默认行为。
-只有当服务分布在不同主机，或需要跨任务复用 VLA 与 SAM3 模型时，才需要配置外部
+默认情况下，RPent 会随每次 LIBERO 运行启动并关闭环境、VLA 与 SAM3 服务。单机运行时建议保留这一默认行为。只有当服务分布在不同主机，或需要跨任务复用 VLA 与 SAM3 模型时，才需要配置外部
 endpoint。
 
 三个参数分别设置对应服务的 endpoint：LIBERO 环境用 ``--env-endpoint``，
@@ -10,8 +9,7 @@ Pi0.5 VLA 用 ``--vla-endpoint``，SAM3 用 ``--sam3-endpoint``。每个都取
 ``[protocol://]HOST:PORT``，省略 protocol 时默认 HTTP，也可用 ``socket://``
 改走 socket RPC。
 
-Dashboard Session 不支持 ``--env-endpoint``，因为每个 TaskRun 都需要使用新的
-环境服务；Dashboard 模式仍可使用 ``--vla-endpoint`` 和 ``--sam3-endpoint``。
+Dashboard Session 不支持 ``--env-endpoint``，因为每个 TaskRun 都需要使用新的环境服务；Dashboard 模式仍可使用 ``--vla-endpoint`` 和 ``--sam3-endpoint``。
 
 LIBERO 环境服务
 ---------------
@@ -76,9 +74,7 @@ SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。
      --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
      --planner claude_code --model claude-opus-4-8
 
-请将各 ``*_HOST`` 替换为运行对应服务的机器地址，并确保运行 RPent 的机器能访问该地址；
-将各 ``*_PORT`` 替换为启动服务时选择的空闲端口。三个 endpoint 参数可以分别省略，
-某项未指定时，RPent 会在当前机器上启动对应服务并自动选择空闲端口。三个服务省略
+请将各 ``*_HOST`` 替换为运行对应服务的机器地址，并确保运行 RPent 的机器能访问该地址；将各 ``*_PORT`` 替换为启动服务时选择的空闲端口。三个 endpoint 参数可以分别省略，某项未指定时，RPent 会在当前机器上启动对应服务并自动选择空闲端口。三个服务省略
 protocol 时都默认使用 HTTP，也都可以通过 ``socket://HOST:PORT`` 改用 socket
 RPC。
 
@@ -102,18 +98,13 @@ RPC。
 并行评测
 --------
 
-以下以使用 Pi0.5 VLA 和 SAM3 的 LIBERO 评测为例说明如何进行并行评测。
-其他机器人或评测配置可能使用不同的服务和 endpoint。
+以下以使用 Pi0.5 VLA 和 SAM3 的 LIBERO 评测为例说明如何进行并行评测。其他机器人或评测配置可能使用不同的服务和 endpoint。
 
 要对同一个 LIBERO 任务并行运行多次评测，先按照上文的说明各启动一个 Pi0.5 VLA
-服务和一个 SAM3 服务。等待两个服务输出 ``RPC server listening on ...`` 后，
-为每个并发的 ``rpent`` 进程传入相同的 endpoint：
-``http://VLA_HOST:VLA_PORT`` 和 ``http://SAM3_HOST:SAM3_PORT``，
-其中各占位符替换为对应服务的主机地址和端口。
+服务和一个 SAM3 服务。等待两个服务输出 ``RPC server listening on ...`` 后，为每个并发的 ``rpent`` 进程传入相同的 endpoint：
+``http://VLA_HOST:VLA_PORT`` 和 ``http://SAM3_HOST:SAM3_PORT``，其中各占位符替换为对应服务的主机地址和端口。
 
-如果服务与 RPent 在同一台机器上，host 可以使用 ``127.0.0.1``。
-这样所有进程会共同访问同一组 VLA 和 SAM3 服务。省略 ``--env-endpoint``，
-则每个进程会单独启动自己的 ``env_server``，评测环境彼此独立；
+如果服务与 RPent 在同一台机器上，host 可以使用 ``127.0.0.1``。这样所有进程会共同访问同一组 VLA 和 SAM3 服务。省略 ``--env-endpoint``，则每个进程会单独启动自己的 ``env_server``，评测环境彼此独立；
 VLA 和 SAM3 模型只需加载一次，无需为每次评测重复启动。
 
 .. code-block:: bash
@@ -134,5 +125,4 @@ VLA 和 SAM3 模型只需加载一次，无需为每次评测重复启动。
 
 .. note::
 
-   通过 SSH 运行长时间评测时，请在 ``nohup`` 或 ``tmux`` / ``screen`` 会话中
-   启动共享服务；直接使用 ``&`` 时，SSH shell 退出可能会结束服务。
+   通过 SSH 运行长时间评测时，请在 ``nohup`` 或 ``tmux`` / ``screen`` 会话中启动共享服务；直接使用 ``&`` 时，SSH shell 退出可能会结束服务。
