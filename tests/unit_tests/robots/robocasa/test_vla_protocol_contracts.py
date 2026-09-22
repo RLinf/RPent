@@ -21,6 +21,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+from pydantic import ValidationError
+
 from robots.robocasa.primitives import RoboCasaPrimitives
 from robots.robocasa.prompt_bundle import system_prompt
 from robots.robocasa.vla_server import _normalize_legacy_processor_geometry
@@ -101,6 +104,18 @@ def test_vla_tool_schema_hides_historical_prompt_override() -> None:
         assert schema["required"] == ["prompt"]
         assert "use_prompt" not in schema["properties"]
         assert "complete live task_language" in spec["description"]
+
+
+@pytest.mark.parametrize("tool_name", ["rldx_skill", "rldx_arm"])
+def test_vla_requires_prompt_before_execution(tool_name: str) -> None:
+    primitives, rldx = _fake_primitives("Open the drawer.")
+    declared = getattr(primitives, tool_name)
+
+    with pytest.raises(ValidationError):
+        declared.args_schema.model_validate({})
+    with pytest.raises(TypeError, match="prompt"):
+        declared()
+    assert rldx.calls == []
 
 
 def test_vla_always_uses_live_task_language_and_preserves_continuity() -> None:

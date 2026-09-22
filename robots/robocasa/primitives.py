@@ -611,13 +611,14 @@ class RoboCasaPrimitives:
         )
 
     # ---- VLA wrappers (public API for execute) ----
-    @tool(exclude=("use_prompt",), required=("prompt",))
+    @tool(exclude=("use_prompt",))
     def rldx_skill(
         self,
         base_clip: float | None = None,
         max_chunks: int = 70,
         use_prompt=None,
-        prompt: str = "",
+        *,
+        prompt: str,
         force_reset: bool = False,
         n_action_steps: int = 8,
         settle_patience: int = int(os.environ.get("RLDX_SETTLE_PATIENCE", 999)),
@@ -646,13 +647,14 @@ class RoboCasaPrimitives:
         )
         return ToolResult(data=data, error=data.pop("error", None))
 
-    @tool(exclude=("use_prompt",), required=("prompt",))
+    @tool(exclude=("use_prompt",))
     def rldx_arm(
         self,
         base_clip: float | None = 0.1,
         max_chunks: int = 70,
         use_prompt=None,
-        prompt: str = "",
+        *,
+        prompt: str,
         force_reset: bool = False,
         n_action_steps: int = 8,
         settle_patience: int = int(os.environ.get("RLDX_SETTLE_PATIENCE", 999)),

@@ -187,9 +187,9 @@ def test_unsupported_signatures_fail_when_declared() -> None:
             tool(function)
 
 
-def test_internal_resources_are_excluded_and_model_required_inputs_stay_required():
-    @tool(exclude=("state",), required=("prompt",))
-    def act(prompt: str = "", *, state: object) -> ToolResult:
+def test_internal_resources_are_excluded_and_signature_inputs_stay_required():
+    @tool(exclude=("state",))
+    def act(prompt: str, *, state: object) -> ToolResult:
         return ToolResult(data={"prompt": prompt, "state": state})
 
     assert act.input_schema["required"] == ["prompt"]
@@ -198,4 +198,8 @@ def test_internal_resources_are_excluded_and_model_required_inputs_stay_required
         act.args_schema.model_validate({})
     with pytest.raises(ValidationError):
         act.args_schema.model_validate({"prompt": "pick", "state": "injected"})
-    assert act(state="internal") == ToolResult(data={"prompt": "", "state": "internal"})
+    with pytest.raises(TypeError, match="prompt"):
+        act(state="internal")
+    assert act(prompt="pick", state="internal") == ToolResult(
+        data={"prompt": "pick", "state": "internal"}
+    )

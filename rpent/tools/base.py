@@ -151,7 +151,6 @@ def tool(
     name: str | None = None,
     readonly: bool = False,
     exclude: tuple[str, ...] = (),
-    required: tuple[str, ...] = (),
 ) -> Any:
     """Declare a tool from a function or an instance method with typed parameters.
 
@@ -162,23 +161,21 @@ def tool(
     @tool(readonly=True) to skip Toolkit's automatic observation capture.
 
     name overrides the published tool name. exclude names internal resources
-    supplied by the caller. required can require a model argument while retaining
-    a Python default for internal calls.
+    supplied by the caller. Parameters without defaults are required.
     """
     namespace = dict(sys._getframe(1).f_locals)
     if function is None:
         return lambda handler: _declare_tool(
-            handler, exclude, required, namespace, tool_name=name, readonly=readonly
+            handler, exclude, namespace, tool_name=name, readonly=readonly
         )
     return _declare_tool(
-        function, exclude, required, namespace, tool_name=name, readonly=readonly
+        function, exclude, namespace, tool_name=name, readonly=readonly
     )
 
 
 def _declare_tool(
     function: Callable,
     exclude: tuple[str, ...],
-    required: tuple[str, ...],
     namespace: dict,
     *,
     tool_name: str | None,
@@ -220,9 +217,7 @@ def _declare_tool(
         if name in descriptions:
             annotation = Annotated[annotation, Field(description=descriptions[name])]
         default = (
-            ...
-            if name in required or parameter.default is inspect.Parameter.empty
-            else parameter.default
+            ... if parameter.default is inspect.Parameter.empty else parameter.default
         )
         fields[name] = (annotation, default)
     return Tool(
