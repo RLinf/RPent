@@ -1,10 +1,7 @@
-Real-World Demos
-================
+Dual-arm Franka
+===============
 
-See the Shape of an Embodied Agent
-----------------------------------
-
-The three videos below show a changing goal, a blocked path, and the reuse of an existing skill. Each explanation sits directly below the task it describes.
+The videos below show a dual-arm Franka adapting to a changed goal and reusing existing skills.
 
 .. raw:: html
 
@@ -17,17 +14,6 @@ The three videos below show a changing goal, a blocked path, and the reuse of an
        <div style="padding: 1rem 1.25rem;">
          <h3 style="font-size: 1.15rem;">When the goal changes, the plate finds a new home</h3>
          <p>When the task changes to putting clean dishes in the cardboard box, a frozen VLA may replay its learned route and place the same blue plate in the metal basket. RPent first observes the current scene, selects the new destination, checks the result, and re-localizes the plate when visual positioning drifts: when the task changes, the robot changes its action.</p>
-       </div>
-     </article>
-     <article style="border: 1px solid var(--color-foreground-border); border-radius: 0.6rem; overflow: hidden;">
-       <video controls playsinline preload="metadata" poster="https://raw.githubusercontent.com/RLinf/misc/c6f629129ac1a889d764dcd93defc213a4c31ae5/rpent/demo/real-world-demo02-poster.jpg" style="width: 100%; height: auto; display: block;">
-         <source src="https://raw.githubusercontent.com/RLinf/misc/c6f629129ac1a889d764dcd93defc213a4c31ae5/rpent/demo/real-world-demo02.mp4" type="video/mp4">
-         Your browser does not support embedded video. <a href="https://raw.githubusercontent.com/RLinf/misc/c6f629129ac1a889d764dcd93defc213a4c31ae5/rpent/demo/real-world-demo02.mp4">Download the video</a>.
-       </video>
-       <div style="padding: 1rem 1.25rem;">
-         <h3 style="font-size: 1.15rem;">Read the labels, place it right</h3>
-         <p>In another task, the robot reads the brand labels on a bottle and a bag, sorts each drink into the matching bag, and performs a small test lift to verify the grasp. When the original path is unavailable, it changes its wrist posture; when a spoon is hidden under bowls, it moves the bowls away before attempting the grasp.</p>
-         <p>This is an observation, decision, action, and correction loop rather than a pre-written sequence.</p>
        </div>
      </article>
      <article style="border: 1px solid var(--color-foreground-border); border-radius: 0.6rem; overflow: hidden;">
