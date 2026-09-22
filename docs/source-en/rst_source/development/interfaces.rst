@@ -80,56 +80,40 @@ Most users pick a built-in ``api``, ``claude_code``, or ``codex`` planner — se
        dashboard_interaction=None,
    ) -> PlannerResult: ...
 
-Read tools from ``toolkit.list_tools()``, call them through
-``toolkit.execute_tool(name, input_dict)``, and feed results back to the model.
-Return ``PlannerResult`` when ``toolkit.finish_result`` is not ``None`` or the
-turn limit is reached. See :doc:`../usage/configure_planner` for SDK conversion
-and schema placeholder substitution.
+Contract: read tools from ``toolkit.list_tools()``; dispatch calls through
+``toolkit.execute_tool(name, input_dict)``; feed results back to the model; return
+``PlannerResult`` when ``toolkit.finish_result`` is set or the turn limit is reached.
+See :doc:`../usage/configure_planner` for SDK conversion and schema placeholders.
 
 Toolkit
 -------
 
 Subclass ``Toolkit`` in ``robots/<robot>/toolkit.py``. The base constructor
-registers common file tools and ``finish``. Declare primitive methods with
-``@tool``, then register bound methods from the instance:
+registers common file tools and ``finish``. Decorate primitive methods with
+``@tool``, then register them from an instance:
 
 .. code-block:: python
 
    self.add_tool(self._primitives.move_to)
-   # Or collect a whole primitive object's declarations:
+   # Or register all decorated methods:
    self.add_tools(iter_tools(self._primitives))
 
-Tool parameters need type annotations and must accept keyword arguments. Use
-the docstring's ``Args`` section for descriptions and ``Annotated[..., Field(...)]``
-for constraints; see :doc:`add_primitive` for an example. Signature defaults apply
-at runtime. To include them in the schema, use
-``Field(json_schema_extra={"default": value})``.
+``add_tool(declaration, replace=True)`` replaces a registered tool; otherwise
+duplicate names raise an error. ``declaration.with_handler(handler)`` wraps the
+handler while retaining its schema and ``readonly`` setting.
 
-To replace a registered tool, use ``add_tool(declaration, replace=True)``;
-otherwise duplicate names raise an error. Use ``declaration.with_handler(handler)``
-to wrap a handler while retaining its schema and ``readonly`` setting. For example,
-exclude an internal parameter with ``@tool(exclude=("state",))``, then register
-``declaration.with_handler(partial(declaration, state=self.state))``
-using ``functools.partial``.
+Type annotations, ``Field`` constraints, and Google-style docstrings define
+parameters. Signature defaults apply at runtime; use
+``Field(json_schema_extra={"default": value})`` to include them in the schema.
 
-Tool results and execution
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+Handlers return ``ToolResult`` with ``data`` (a dictionary), ``images`` (PNG byte
+strings), and ``error`` (text or ``None``). ``execute_tool`` validates arguments,
+runs the handler, and captures observations through ``get_env_state``.
+``@tool(readonly=True)`` skips capture; direct Python calls bypass both validation
+and capture. Tool declarations and observation examples are in :doc:`add_primitive`.
 
-Handlers and ``get_env_state`` return ``ToolResult``: ``data`` holds a result
-dictionary, ``images`` a list of PNG byte strings, and ``error`` an error message
-or ``None``. Use ``to_dict()`` for a dictionary, ``to_text()`` for bounded text,
-and ``is_error`` to check for errors.
-
-``execute_tool`` applies strict Pydantic validation, rejecting unknown arguments
-and non-finite numbers, then runs the tool and calls ``get_env_state`` to capture
-observations. The result contains observation data, images, and any execution error.
-
-``@tool(readonly=True)`` skips automatic observation capture without changing
-file permissions or tool concurrency limits. Direct Python calls bypass this
-argument validation and observation capture.
-
-When ``finish`` succeeds without returning ``_finish=False``, Toolkit saves the
-result in ``finish_result``, removing only the internal ``_finish`` marker.
+After an accepted ``finish``, ``toolkit.finish_result`` contains the result without
+its internal ``_finish`` marker. Errors or ``_finish=False`` do not end the task.
 
 Inter-process communication
 ---------------------------

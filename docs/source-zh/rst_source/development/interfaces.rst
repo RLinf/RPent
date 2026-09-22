@@ -77,50 +77,38 @@ Planner
        dashboard_interaction=None,
    ) -> PlannerResult: ...
 
-通过 ``toolkit.list_tools()`` 获取工具，用 ``toolkit.execute_tool(name, input_dict)``
-执行调用并将结果交回模型。``toolkit.finish_result`` 不为 ``None`` 或达到轮次
-上限时，返回 ``PlannerResult``。SDK 格式转换和 schema 占位符替换的示例见
-:doc:`../usage/configure_planner`。
+约定：从 ``toolkit.list_tools()`` 获取工具，通过
+``toolkit.execute_tool(name, input_dict)`` 执行调用，并把结果交回模型；
+当 ``toolkit.finish_result`` 已设置或达到轮次上限时，返回 ``PlannerResult``。
+SDK 格式转换和 schema 占位符的处理见 :doc:`../usage/configure_planner`。
 
 工具集
 ------
 
-在 ``robots/<robot>/toolkit.py`` 中继承 ``Toolkit``。基类构造器已注册公共文件
-工具和 ``finish``。在原语成员方法上添加 ``@tool``，再注册实例上的绑定方法：
+在 ``robots/<robot>/toolkit.py`` 中继承 ``Toolkit``。基类已注册公共文件工具
+和 ``finish``；为原语方法添加 ``@tool`` 后，注册实例上的绑定方法：
 
 .. code-block:: python
 
    self.add_tool(self._primitives.move_to)
-   # 也可以收集并注册整个原语对象的工具声明：
+   # 也可以注册所有带 @tool 的方法：
    self.add_tools(iter_tools(self._primitives))
 
-工具参数必须有类型注解，并能以关键字传入。参数说明写在 docstring 的
-``Args`` 段中，约束通过 ``Annotated[..., Field(...)]`` 声明，示例见
-:doc:`add_primitive`。函数默认值在调用时生效；如需同时写入 schema，使用
-``Field(json_schema_extra={"default": value})``。
+``add_tool(declaration, replace=True)`` 覆盖同名工具，否则重复注册会报错。
+``declaration.with_handler(handler)`` 可包装处理函数，保留 schema 和
+``readonly`` 设置。
 
-覆盖同名工具需传入 ``add_tool(declaration, replace=True)``，否则注册会报错。
-用 ``declaration.with_handler(handler)`` 包装处理函数可保留 schema 和
-``readonly`` 设置。例如，在 ``@tool`` 中用 ``exclude=("state",)`` 排除内部
-参数，再用 ``declaration.with_handler(partial(declaration, state=self.state))``
-绑定后注册（``partial`` 来自 ``functools``）。
+参数由类型注解、``Field`` 约束和 Google 风格 docstring 定义。函数默认值
+在运行时生效；如需写入 schema，使用 ``Field(json_schema_extra={"default": value})``。
 
-工具返回值与执行流程
-~~~~~~~~~~~~~~~~~~~~
+处理函数返回 ``ToolResult``：``data`` 是结果字典，``images`` 是 PNG 字节列表，
+``error`` 是错误信息或 ``None``。``execute_tool`` 校验参数、执行处理函数，
+再通过 ``get_env_state`` 采集观测。``@tool(readonly=True)`` 跳过观测采集；
+直接调用 Python 方法不经过这些校验和采集步骤。工具声明和观测示例见
+:doc:`add_primitive`。
 
-处理函数和 ``get_env_state`` 返回 ``ToolResult``：``data`` 存放结果字典，
-``images`` 存放 PNG 字节列表，``error`` 存放错误信息或 ``None``。
-``to_dict()`` 和 ``to_text()`` 分别生成字典和限长文本，``is_error`` 表示是否出错。
-
-``execute_tool`` 先用 Pydantic 严格校验参数，拒绝未知参数和非有限数值，
-再执行工具并调用 ``get_env_state`` 采集观测。返回结果包含观测数据、图片和
-执行错误。
-
-``@tool(readonly=True)`` 只跳过自动观测采集，不改变文件访问权限或工具并发
-限制。直接从 Python 调用工具方法时，不经过上述参数校验和观测采集。
-
-``finish`` 调用成功且未返回 ``_finish=False`` 时，Toolkit 将结果保存到
-``finish_result``，仅移除内部 ``_finish`` 标记。
+``finish`` 被接受后，``toolkit.finish_result`` 保存去除内部 ``_finish`` 标记的
+结果。调用出错或返回 ``_finish=False`` 时，不会结束任务。
 
 进程间通信
 ----------
