@@ -35,6 +35,7 @@ Other environment configurations are available when needed:
 
    pip install -e ".[robocasa]"    # RoboCasa
    pip install -e ".[robotwin]"    # RoboTwin
+   pip install -e ".[franka]"      # Franka / Dual Franka
 
 ``.[libero-pro]`` is the recommended default.
 
@@ -56,6 +57,9 @@ Available extras:
    * - ``.[robotwin]``
      - RoboTwin simulation and LingBot inference dependencies;
        see :doc:`usage/robotwin`
+   * - ``.[franka]``
+     - Franka and Dual Franka real-robot extra; see :doc:`usage/franka`
+       and :doc:`usage/dual_franka`
    * - ``.[rlinf]``
      - RLinf runtime only
    * - ``.[sam3]``
@@ -89,10 +93,10 @@ These resources usually need to be downloaded only once;
 3. (Optional) Real-world robot dependencies
 -------------------------------------------
 
-Franka and SO-101 support is being rolled in; when it lands, each
-robot's robot package will live under ``robots/<name>/`` with its own
-``README.md`` describing the SDK / firmware requirements. See
-:doc:`usage/franka` and :doc:`usage/so101` for the current status.
+Franka single-arm and dual-arm support is available through the
+``.[franka]`` extra. See :doc:`usage/franka` and :doc:`usage/dual_franka`
+for hardware setup. SO-101 support is still being rolled in; see
+:doc:`usage/so101` for the current status.
 
 Checking the installation
 -------------------------
