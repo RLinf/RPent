@@ -8,54 +8,40 @@ Follow the upstream RoboDojo and XPolicyLab instructions for simulator, CUDA
 and policy dependencies, and download the required assets and checkpoints.
 For shared backend interfaces, see :doc:`../development/add_robot`.
 
-Python environments
--------------------
+Python environment
+------------------
 
-The backend drives three interpreters and they must stay separate. Isaac Sim
-pins ``websockets==12.0``, ``numpy==1.26.0``, ``packaging==23.0``,
-``filelock==3.13.1`` and ``typing_extensions==4.12.2``; the RPent environment
-runs a newer ``websockets`` with its own ``torch`` build, and the Pi_05
-environment runs JAX and ``openpi``. Installing them into one interpreter
-breaks the Isaac Sim pins.
+RoboDojo installs into a single environment. The ``robodojo-sim`` extra declares
+the simulator stack: Isaac Sim 5.1, RoboDojo's IsaacLab fork, cuRobo and the
+runtime pins that go with them. ``robodojo`` adds SAM3 perception, the RLinf
+version that provides ``pi05_robodojo_arx_x5``, and the openpi runtime. Each
+robot extra carries its own runtime pins, so install one per environment.
 
-**1. RPent.** Install the repository, then add the perception extra this
-backend uses:
+That environment holds the simulator dependencies and RPent itself, but not
+RPent's agent stack. The two are not jointly resolvable: ``mcp`` needs
+``uvicorn>=0.31.1`` where Isaac Sim pins ``0.29.0``, and ``rpent-openpi`` needs
+``filelock>=3.16.1`` where the simulator pins ``3.13.1``. RPent is therefore
+installed with ``--no-deps``, and the planner runs in its own environment,
+reaching the RoboDojo services over RPC. The ``override-dependencies`` block in
+``pyproject.toml`` settles the remaining Isaac Sim / IsaacLab clashes; uv reads
+it from the project root, so run the installs from there.
 
-.. code-block:: bash
+The ``robodojo-sim`` extra supplies Isaac Sim 5.1, RoboDojo's IsaacLab fork,
+cuRobo and the full set of runtime version pins. The ``robodojo`` extra adds
+SAM3 perception, the RLinf version providing ``pi05_robodojo_arx_x5``, and
+the openpi runtime.
 
-   uv pip install -e ".[sam3]"
+IsaacLab must also be installed in editable mode: the non-editable VCS
+subdirectory installation ships only ``__init__.py`` and omits
+``config/extension.toml``, which ``isaaclab/__init__.py`` loads through
+``ISAACLAB_EXT_DIR``. Making RPent editable with the command above does not
+make its dependencies editable; the IsaacLab source packages need their own
+editable installation in the same environment for the configuration and
+source changes to take effect.
 
-**2. RoboDojo simulator.** Use the upstream installer, which builds the Isaac
-Sim environment and the vendored CuRobo. That script is the supported path and
-RPent does not re-implement it:
-
-.. code-block:: bash
-
-   cd /path/to/RoboDojo
-   bash scripts/install.sh
-
-The combination this backend is validated against is Python 3.11 with
-``isaacsim 5.1.0.0``, ``torch 2.7.0+cu128``, ``numpy 1.26.0``,
-``websockets 12.0``, ``viser 0.1.34``, ``tyro 0.9.0`` and ``warp-lang 1.11.0``,
-with CuRobo installed from ``third_party/curobo``. Pass that environment's
-interpreter as ``--sim-python``, and do not install RPent or Pi_05 packages into
-it.
-
-**3. Pi_05 policy.** Build the uv environment named by XPolicyLab's deploy
-config (``policy_uv_env_path: openpi``):
-
-.. code-block:: bash
-
-   cd /path/to/RoboDojo/XPolicyLab/policy/Pi_05
-   bash install.sh
-
-The script requires ``uv`` and creates ``openpi/.venv``. The RoboDojo launcher
-activates that environment and needs a conda installation plus an interpreter it
-can import YAML from, so set ``ROBODOJO_CONDA_ROOT`` when the default one cannot.
-Pass the matching interpreter as ``--pi05-python``. RPent is not installed into
-this environment: the CLI composes ``PYTHONPATH`` for every child service from
-the RPent repository root, ``--source-root`` and ``--xpolicylab-root``, so no
-RPent package has to live in the policy environment.
+The Git references currently target the fork branches RoboDojo depends on.
+Switch them back to the official branches once the corresponding upstream
+pull requests are merged.
 
 Sources and assets
 ------------------
@@ -83,8 +69,8 @@ RPent configuration
 The default ``--policy-backend rlinf`` requires a policy interpreter that
 provides the ``pi05_robodojo_arx_x5`` config and its openpi dependencies;
 RLinf main does not include that config yet. Set ``PI05_CHECKPOINT_PATH`` to a
-compatible RLinf checkpoint and pass that interpreter as ``--pi05-python``.
-Use ``--policy-backend xpolicylab`` for the XPolicyLab environment described above.
+compatible RLinf checkpoint. The ``robodojo`` extra supplies this policy runtime.
+Use ``--policy-backend xpolicylab`` for an independently prepared XPolicyLab runtime.
 
 Configure SAM3's checkpoint using ``SAM3_CHECKPOINT_PATH``, and export the
 placement settling budget. The default leaves objects unstable in official
@@ -95,18 +81,17 @@ passes it on to the child services it starts:
 
    export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
 
-Supply the RoboDojo checkout and the Python executables explicitly:
+Supply the RoboDojo checkout:
 
 .. code-block:: bash
 
    rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
-     --source-root /path/to/RoboDojo \
-     --sim-python /path/to/sim-env/bin/python \
-     --pi05-python /path/to/pi05-env/bin/python
+     --source-root /path/to/RoboDojo
 
 ``--xpolicylab-root`` defaults to ``SOURCE_ROOT/XPolicyLab``; set it for
-a separate checkout. Both Python flags default to the current interpreter,
-so separate runtimes must pass their executable paths. The CLI constructs
+a separate checkout. In a single environment, services default to the current
+interpreter; use ``--sim-python`` or ``--pi05-python`` to override it when needed.
+The CLI constructs
 child import paths without reading a workspace's ``config/runtime.env`` or
 changing the parent environment. Child processes inherit shell environment
 variables. Omitting

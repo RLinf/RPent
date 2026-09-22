@@ -9,46 +9,30 @@ RPent 的规划器、工具与记忆系统。该接入仍属实验性，仿真�
 Python 环境
 -----------
 
-该后端会驱动三个解释器，三者必须彼此独立。Isaac Sim 固定了
-``websockets==12.0``、``numpy==1.26.0``、``packaging==23.0``、
-``filelock==3.13.1`` 与 ``typing_extensions==4.12.2``；而 RPent 环境使用更新的
-``websockets`` 和自己的 ``torch`` 构建，Pi_05 环境运行 JAX 与 ``openpi``。
-把它们装进同一个解释器会破坏 Isaac Sim 的版本约束。
+RoboDojo 安装在同一个环境中。``robodojo-sim`` extra 声明仿真栈：Isaac Sim 5.1、
+RoboDojo 使用的 IsaacLab fork、cuRobo 及配套的运行时版本约束；``robodojo`` 在其
+之上增加 SAM3 感知、提供 ``pi05_robodojo_arx_x5`` 的 RLinf 版本，以及 openpi
+运行时。每个机器人 extra 都带自己那套运行时钉版，因此一个环境只装一个。
 
-**一、RPent。** 按仓库说明安装，再补上本后端需要的感知扩展：
+该环境包含仿真依赖和 RPent 本身，但不包含 RPent 的 agent 依赖——两者无法共同
+解析：``mcp`` 需要 ``uvicorn>=0.31.1``，而 Isaac Sim 钉的是 ``0.29.0``；
+``rpent-openpi`` 需要 ``filelock>=3.16.1``，而仿真器钉的是 ``3.13.1``。因此 RPent
+以 ``--no-deps`` 安装，规划器跑在自己的环境里，通过 RPC 访问 RoboDojo 的各服务。
+剩余的 Isaac Sim 与 IsaacLab 版本冲突由 ``pyproject.toml`` 里的
+``override-dependencies`` 化解；uv 从项目根目录读取它，所以请在仓库根目录执行安装。
 
-.. code-block:: bash
+``robodojo-sim`` extra 提供 Isaac Sim 5.1、RoboDojo 使用的 IsaacLab fork、
+cuRobo 及整套运行时版本约束。``robodojo`` 在此基础上增加 SAM3 感知扩展、
+提供 ``pi05_robodojo_arx_x5`` 的 RLinf 版本，以及 openpi 运行时。
 
-   uv pip install -e ".[sam3]"
+IsaacLab 本身也需要可编辑安装：非 editable 的 VCS 子目录安装只包含
+``__init__.py``，会丢失 ``config/extension.toml``，而 ``isaaclab/__init__.py``
+通过 ``ISAACLAB_EXT_DIR`` 加载该文件。上述命令只将 RPent 设为可编辑安装，
+不会让依赖也变为可编辑安装；还需在同一环境中以可编辑方式安装 IsaacLab 源码包，
+才能正确加载配置并使源码修改生效。
 
-**二、RoboDojo 仿真器。** 使用上游安装脚本，它会构建 Isaac Sim 环境与内置的
-CuRobo；这是被支持的路径，RPent 不重复实现：
-
-.. code-block:: bash
-
-   cd /path/to/RoboDojo
-   bash scripts/install.sh
-
-本后端验证过的组合是 Python 3.11 配 ``isaacsim 5.1.0.0``、
-``torch 2.7.0+cu128``、``numpy 1.26.0``、``websockets 12.0``、
-``viser 0.1.34``、``tyro 0.9.0`` 与 ``warp-lang 1.11.0``，CuRobo 来自
-``third_party/curobo``。把该环境的解释器作为 ``--sim-python`` 传入，不要把
-RPent 或 Pi_05 的包装进它。
-
-**三、Pi_05 策略。** 构建 XPolicyLab 部署配置指定的 uv 环境
-（``policy_uv_env_path: openpi``）：
-
-.. code-block:: bash
-
-   cd /path/to/RoboDojo/XPolicyLab/policy/Pi_05
-   bash install.sh
-
-该脚本需要 ``uv``，会生成 ``openpi/.venv``。RoboDojo 的启动脚本会激活这个环境，
-并需要 conda 以及一个能 import YAML 的解释器；默认解释器不满足时请设置
-``ROBODOJO_CONDA_ROOT``。把对应的解释器作为 ``--pi05-python`` 传入。RPent
-不会被安装进该环境：CLI 会用 RPent 仓库根目录、``--source-root`` 和
-``--xpolicylab-root`` 为每个子服务拼出 ``PYTHONPATH``，因此策略环境里不需要存在
-RPent 包。
+这些 Git 引用目前指向 RoboDojo 所依赖的 fork 分支；对应的上游 PR 合并后，
+应改回官方分支。
 
 源码与资产
 ----------
@@ -73,9 +57,10 @@ RPent 配置
 ----------
 
 默认的 ``--policy-backend rlinf`` 需要策略解释器提供
-``pi05_robodojo_arx_x5`` 配置及其 openpi 依赖；官方 main 尚未包含该配置。通过 ``PI05_CHECKPOINT_PATH`` 指定兼容的 RLinf checkpoint，并以
-``--pi05-python`` 传入该解释器。使用上文的 XPolicyLab 环境时，选择
-``--policy-backend xpolicylab``。
+``pi05_robodojo_arx_x5`` 配置及其 openpi 依赖；官方 main 尚未包含该配置。
+通过 ``PI05_CHECKPOINT_PATH`` 指定兼容的 RLinf checkpoint；
+``robodojo`` extra 已提供该策略运行时。使用另行准备的 XPolicyLab 运行时时，
+选择 ``--policy-backend xpolicylab``。
 
 通过 ``SAM3_CHECKPOINT_PATH`` 配置 SAM3 checkpoint，并导出摆放稳定步数。
 默认值会让物体在 official 模式下不稳定；该变量由 RoboDojo 源码读取，而非
@@ -85,17 +70,16 @@ RPent，CLI 会把它传给启动的子服务：
 
    export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
 
-显式传入 RoboDojo 源码目录和 Python 可执行文件：
+传入 RoboDojo 源码目录：
 
 .. code-block:: bash
 
    rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
-     --source-root /path/to/RoboDojo \
-     --sim-python /path/to/sim-env/bin/python \
-     --pi05-python /path/to/pi05-env/bin/python
+     --source-root /path/to/RoboDojo
 
 ``--xpolicylab-root`` 默认使用 ``SOURCE_ROOT/XPolicyLab``；独立克隆时请指定。
-两个 Python 参数默认使用当前解释器，因此独立运行时需要显式指定可执行文件路径。
+单环境下各服务默认使用当前解释器；需要指向其他解释器时，仍可通过
+``--sim-python`` 或 ``--pi05-python`` 覆盖。
 CLI 构造子进程导入路径，不读取工作区的 ``config/runtime.env``，也不修改父进程环境。
 子进程继承已有 shell 环境变量。省略 ``--cuda-device`` 时保留
 ``CUDA_VISIBLE_DEVICES`` 的原值（包括未设置的状态）；显式传入时，为本地启动的服务选择 GPU。

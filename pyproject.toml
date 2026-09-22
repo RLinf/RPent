@@ -129,8 +129,80 @@ robotwin = [
     "nvidia-curobo @ git+https://github.com/NVlabs/curobo.git@v0.7.8",
 ]
 
+robodojo = [
+    "rpent[robodojo-sim,sam3]",
+    # The RoboDojo openpi config/policy live on this branch, not in the
+    # released rpent-rlinf.
+    "rlinf @ git+https://github.com/qurakchin/rlinf.git@rlinf_robodojo",
+    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
+]
+robodojo-sim = [
+    # Isaac Sim 5.1 and the Isaac Lab fork RoboDojo pins. The canonical
+    # installation is EDITABLE via scripts_repro/install_sim_editable.sh: a
+    # non-editable VCS-subdirectory install of `isaaclab` ships only
+    # `__init__.py` and loses `config/extension.toml`, which
+    # `isaaclab/__init__.py` loads through `ISAACLAB_EXT_DIR`. These git
+    # references are kept so the extra is still *resolvable* with plain uv,
+    # but source edits only take effect through the editable script.
+    "isaacsim[all,extscache]==5.1.0",
+    "isaaclab @ git+https://github.com/yuechen0614/IsaacLab.git@main#subdirectory=source/isaaclab",
+    "isaaclab_assets @ git+https://github.com/yuechen0614/IsaacLab.git@main#subdirectory=source/isaaclab_assets",
+    "isaaclab_tasks @ git+https://github.com/yuechen0614/IsaacLab.git@main#subdirectory=source/isaaclab_tasks",
+    "torch==2.7.0",
+    "torchvision==0.22.0",
+    "torchaudio==2.7.0",
+    "nvidia-curobo[cu12] @ git+https://github.com/yuechen0614/curobo.git@main",
+    # CuRobo runtime pins carried over from the validated deployment.
+    "tyro==0.9.0",
+    "websockets==12.0",
+    # The runtime pins RoboDojo's installer applies on top of Isaac Sim
+    # (`pin_runtime_deps` in scripts/install.sh).
+    "numpy==1.26.0",
+    "filelock==3.13.1",
+    "warp-lang==1.11.0",
+    "onnx>=1.18,<1.22",
+    "ipython<9",
+    # RoboDojo's own Python dependencies that its env server actually imports.
+    "opencv-python-headless==4.11.0.86",
+    "pillow",
+    "scipy==1.15.3",
+    "transforms3d",
+    # `RoboDojo/env/scene_manager/layout_manager.py` imports these at module
+    # level, and the scene manager pulls that file in on the env-server boot
+    # path, so they were missing from this list.
+    "shapely",
+    "omegaconf",
+    # `isaaclab/isaaclab/utils/datasets/hdf5_dataset_file_handler.py` (imported
+    # by `isaaclab.utils.datasets`) and `isaaclab_tasks/direct/automate/`
+    # import h5py directly; it was missing from this list.
+    "h5py",
+]
+
 [tool.uv]
 prerelease = "allow"
+
+# Upstream packaging defects that make `rpent[robodojo-sim]` unsatisfiable.
+# They live here instead of an external `--override` file so that a clean
+# install resolves with no extra flags. uv reads `override-dependencies` from
+# the pyproject.toml discovered in the current directory, so run e.g.
+# `cd rpent && uv pip install -e ".[robodojo-sim]"`.
+override-dependencies = [
+    # isaacsim-core==5.1.0.0 declares `pywin32==306` with NO platform marker,
+    # which makes Linux resolution fail. Force it back to Windows-only.
+    "pywin32==306 ; sys_platform == 'win32'",
+    # isaaclab==0.54.3 pins starlette==0.49.1, while isaacsim-kernel==5.1.0.0
+    # -> fastapi==0.115.7 needs starlette>=0.40,<0.46. RoboDojo's own
+    # `pin_runtime_deps` installs starlette==0.45.3.
+    "starlette==0.45.3",
+    # isaacsim-kernel==5.1.0.0 pins typing-extensions==4.12.2 exactly. This
+    # only bites when RPent's agent deps share the sim env
+    # (pydantic-ai-slim -> pydantic>=2.12 -> typing-extensions>=4.14). The
+    # sim runtime is isolated, so RPent is installed with `--no-deps` (see
+    # scripts_repro/install_sim_editable.sh); the override only keeps the
+    # extra *resolvable* for plain-uv installs and never pulls the agent
+    # stack into the sim env.
+    "typing-extensions==4.12.2",
+]
 
 # Each robot extra pulls a separately pinned VLA runtime whose Torch,
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
@@ -162,14 +234,18 @@ conflicts = [
 ]
 
 [tool.uv.extra-build-dependencies]
-nvidia-curobo = ["torch==2.7.1"]
+# Match robodojo-sim's runtime Torch: differing build-time and runtime
+# versions can cause ABI drift.
+nvidia-curobo = ["torch==2.7.0"]
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rpent*"]
+# robots is a top-level package; without it, non-editable installations
+# leave the CLI unable to import any backend.
+include = ["rpent*", "robots*"]
 exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]
