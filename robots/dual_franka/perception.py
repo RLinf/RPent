@@ -41,10 +41,6 @@ from rpent.utils.transforms import (
 ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "example.yaml"
 
 
-class DualFrankaPerceptionError(ValueError):
-    """Raised when a dual-Franka perception artifact is missing or invalid."""
-
-
 @readonly
 def back_project(
     *,
@@ -119,9 +115,9 @@ def segment(
         image_name = f"{camera}.png"
         depth_name = f"{camera}_depth.npy"
         if not state.exists(image_name, step=step_idx):
-            raise DualFrankaPerceptionError(f"{camera} image artifact is missing")
+            raise ValueError(f"{camera} image artifact is missing")
         if not state.exists(depth_name, step=step_idx):
-            raise DualFrankaPerceptionError(f"{camera} depth artifact is missing")
+            raise ValueError(f"{camera} depth artifact is missing")
         image_bytes = state.load_bytes(image_name, step=step_idx)
         data = sam3_client.segment(
             image_bytes,
@@ -129,8 +125,6 @@ def segment(
             point=point,
             min_score=float(min_score),
         )
-    except DualFrankaPerceptionError as exc:
-        return {"ok": False, "found": False, "error": str(exc)}
     except ValueError as exc:
         return {"ok": False, "found": False, "error": str(exc)}
     except Exception as exc:
@@ -279,7 +273,7 @@ def _back_project_camera_pixel(
     camera_config = projection_cameras.get(camera)
     if camera_config is None:
         known = ", ".join(sorted(projection_cameras)) or "<none>"
-        raise DualFrankaPerceptionError(
+        raise ValueError(
             f"unsupported projection camera: {camera!r}; registered={known}"
         )
     depth_name = f"{camera}_depth.npy"
@@ -398,9 +392,7 @@ def _load_perception_config() -> dict[str, Any]:
     raw = load_mapping(get_robot_config_path(ROBOT_CONFIG_PATH))
     perception = raw.get("perception")
     if not isinstance(perception, dict):
-        raise DualFrankaPerceptionError(
-            "Robot configuration missing the 'perception' section"
-        )
+        raise ValueError("Robot configuration missing the 'perception' section")
     return perception
 
 
@@ -423,13 +415,11 @@ def _projection_cameras_for_state(
 
 def _coerce_projection_views(configured: Any) -> dict[str, dict[str, Any]]:
     if not isinstance(configured, dict):
-        raise DualFrankaPerceptionError("perception.projection_views must be a mapping")
+        raise ValueError("perception.projection_views must be a mapping")
     cameras: dict[str, dict[str, Any]] = {}
     for alias, raw_config in configured.items():
         if not isinstance(raw_config, dict):
-            raise DualFrankaPerceptionError(
-                f"perception.projection_views.{alias} must be a mapping"
-            )
+            raise ValueError(f"perception.projection_views.{alias} must be a mapping")
         alias_str = str(alias)
         cameras[alias_str] = {
             "raw_key": str(raw_config.get("raw_key", f"{alias_str}_rgb")),
@@ -444,7 +434,7 @@ def _coerce_projection_views(configured: Any) -> dict[str, dict[str, Any]]:
 def _resolve_projection_camera_alias(camera: str) -> str:
     alias = str(camera or "").strip()
     if not alias:
-        raise DualFrankaPerceptionError("camera must be a non-empty string")
+        raise ValueError("camera must be a non-empty string")
     return alias
 
 
@@ -516,7 +506,7 @@ def transform_pose_between_base_frames(
     """Transform an xyz+xyzw TCP pose between robot base frames."""
     pose_arr = np.asarray(pose, dtype=np.float64).reshape(-1)
     if pose_arr.size < 7:
-        raise DualFrankaPerceptionError(
+        raise ValueError(
             f"expected xyz+quat pose with at least 7 values, got {pose_arr.shape}"
         )
     pose_arr = pose_arr[:7].copy()
@@ -766,7 +756,7 @@ def _mask_to_camera_world(
     camera_config = projection_cameras.get(camera)
     if camera_config is None:
         known = ", ".join(sorted(projection_cameras)) or "<none>"
-        raise DualFrankaPerceptionError(
+        raise ValueError(
             f"unsupported projection camera: {camera!r}; registered={known}"
         )
     mask = np.asarray(mask, dtype=bool)
@@ -841,9 +831,7 @@ def _mask_to_camera_world(
     calibration_key = str(camera_config["calibration_key"])
     camera_calibration = calibration.get(calibration_key)
     if not isinstance(camera_calibration, dict):
-        raise DualFrankaPerceptionError(
-            f"calibration entry {calibration_key!r} is missing"
-        )
+        raise ValueError(f"calibration entry {calibration_key!r} is missing")
     t_right_camera = _transform_to_matrix(camera_calibration["transformation"])
     points_right = transform_points(t_right_camera, points_camera)
     valid_localization, validity_contract = _localization_validity_mask(
@@ -1097,7 +1085,7 @@ def _base_frame_transform(
     inverse_key = f"T_{source}_{target}"
     if isinstance(frames.get(inverse_key), dict):
         return invert_transform(_transform_to_matrix(frames[inverse_key]))
-    raise DualFrankaPerceptionError(f"missing base-frame transform {key}")
+    raise ValueError(f"missing base-frame transform {key}")
 
 
 def _tcp_xyz(pose: Any) -> np.ndarray | None:
