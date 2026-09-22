@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 torch = pytest.importorskip("torch")
-rlinf_robotwin = pytest.importorskip("rlinf.envs.sim.robotwin.robotwin_env")
+rlinf_robotwin = pytest.importorskip("rlinf.envs.robotwin.robotwin_env")
 rpent_robotwin = pytest.importorskip("robots.robotwin.rlinf_env")
 rpent_env_server = pytest.importorskip("robots.robotwin.env_server")
 RoboTwinEnv = rlinf_robotwin.RoboTwinEnv

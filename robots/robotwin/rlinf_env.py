@@ -20,7 +20,7 @@ from typing import Any, Literal
 
 import numpy as np
 import torch
-from rlinf.envs.sim.robotwin.robotwin_env import RoboTwinEnv
+from rlinf.envs.robotwin.robotwin_env import RoboTwinEnv
 
 from robots.robotwin.robot_spec import RoboTwinActionType
 

@@ -42,7 +42,7 @@ os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 # sets CUDA_VISIBLE_DEVICES in main()); LiberoEnv transitively imports torch.
 if TYPE_CHECKING:
     import torch  # noqa: F401  (transitive dep of LiberoEnv; type-check only)
-    from rlinf.envs.sim.libero.libero_env import LiberoEnv
+    from rlinf.envs.libero.libero_env import LiberoEnv
 
 
 # ---------------------------------------------------------------------------
@@ -107,8 +107,8 @@ def make_env(
     max_episode_steps: int = 10000,
 ) -> LiberoEnv:
     """Build a single-env LiberoEnv pinned to ``task_id`` / ``seed``."""
-    from rlinf.envs.sim.libero.libero_env import LiberoEnv
-    from rlinf.envs.sim.libero.utils import benchmark as _bench_mod
+    from rlinf.envs.libero.libero_env import LiberoEnv
+    from rlinf.envs.libero.utils import benchmark as _bench_mod
 
     suite = _bench_mod.get_benchmark(suite_name)()
     first_id = sum(len(suite.get_task_init_states(t)) for t in range(task_id))
@@ -132,7 +132,7 @@ def make_env(
 
 class LiberoEnvFacade(BaseEnvFacade):
     """Implements :class:`robots.libero.env_client.LiberoEnvClient`
-    over :class:`rlinf.envs.sim.libero.libero_env.LiberoEnv`.
+    over :class:`rlinf.envs.libero.libero_env.LiberoEnv`.
 
     All return values are converted to CPU numpy so the agent process
     (which does not import torch) can consume them after the pickle round
