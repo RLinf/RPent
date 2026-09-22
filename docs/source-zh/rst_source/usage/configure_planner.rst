@@ -21,8 +21,9 @@ SDK。
    * - ``api``
      - 基于 `Pydantic AI <https://pydantic.dev/docs/ai/>`_ 实现的工具调用循环，
        不绑定特定模型提供商。当前支持 Anthropic Messages API、OpenAI Responses
-       API 和 OpenAI 兼容的 Chat Completions API，使用 Anthropic prompt 缓存
-       和 Harness 滑动窗口历史裁剪。
+       API 和 OpenAI 兼容的 Chat Completions API。对话较长时会裁剪较早的消息，
+       控制上下文大小。对 Anthropic 显式启用提示缓存，复用重复输入的计算结果；
+       其他提供商沿用其默认缓存行为。
      - 需要精细控制模型调用、支持更多模型提供商，或降低单轮调用成本。
    * - ``claude_code``
      - `Claude Agent SDK
@@ -77,10 +78,7 @@ SDK。
 - ``--no-images`` —— 不向模型发送图片字节；纯文本模型必须加此参数。此时
   智能体只依赖文本状态推理，任务表现可能不够理想。
 
-``--interactive`` 要求真实终端（TTY），使用 Pydantic AI 原生 CLI：先运行
-预设任务，再在每轮运行完成后接收输入；使用 ``/exit`` 退出。需要在执行中
-输入指导时，改用 ``--dashboard``。代码调用使用 ``interactive=True``，
-不再使用 ``input_queue``。
+``--interactive`` 的用法见 :ref:`终端交互 <quickstart-interactive>`。
 
 .. _planner-claude-code:
 

@@ -23,8 +23,10 @@ loop is orchestrated, and which model SDK is used.
      - Provider-agnostic tool-calling loop built on
        `pydantic-ai <https://ai.pydantic.dev/>`_. It currently supports
        the Anthropic Messages API, the OpenAI Responses API, and
-       OpenAI-compatible Chat Completions APIs. It uses Anthropic prompt
-       caching and Harness sliding-window history trimming.
+       OpenAI-compatible Chat Completions APIs. It trims older messages
+       from long conversations to limit context size. Prompt caching is
+       explicitly enabled for Anthropic to reuse repeated input;
+       other providers use their default caching behavior.
      - You want the tightest control over model calls, the widest
        provider coverage, or the cheapest per-turn spend.
    * - ``claude_code``
@@ -85,10 +87,7 @@ Relevant ``api`` planner knobs:
   text-only models. The agent then reasons from textual state alone,
   so task performance may not be satisfactory.
 
-``--interactive`` requires a TTY and uses Pydantic AI's native CLI: the preset
-task runs first, followed by input between completed runs; ``/exit`` closes
-the session. Use ``--dashboard`` instead to steer during execution.
-Programmatic callers use ``interactive=True`` instead of ``input_queue``.
+For ``--interactive`` usage, see :ref:`Terminal interaction <quickstart-interactive>`.
 
 .. _planner-claude-code:
 

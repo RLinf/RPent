@@ -187,10 +187,6 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
             ["--robot", "libero", "--dashboard", "--interactive"],
             "cannot be used together",
         ),
-        (
-            ["--robot", "libero", "--planner", "api", "--interactive"],
-            "--interactive with api requires a terminal",
-        ),
         (["--robot", "robocasa", "--explore"], "not supported for robot"),
         (
             ["--robot", "libero", "--explore", "--memory-profile", "hf"],

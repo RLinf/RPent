@@ -371,8 +371,6 @@ def main() -> int:
         if sys.stdin is None or not sys.stdin.isatty():
             parser.error("This robot requires a TTY for operator confirmation.")
     native_cli = args.interactive and args.planner == "api"
-    if native_cli and (sys.stdin is None or not sys.stdin.isatty()):
-        parser.error("--interactive with api requires a terminal")
     if args.base_url and args.planner in BASE_URL_ENV_BY_PLANNER:
         parser.error(
             "--base-url applies to the 'api' planner only; "
