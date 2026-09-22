@@ -10,4 +10,4 @@ Choose a simulation environment for setup and usage instructions.
    LIBERO <libero>
    RoboCasa <robocasa>
    RoboTwin <robotwin>
-   RoboDojo <robodojo/index>
+   RoboDojo <robodojo>

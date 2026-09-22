@@ -34,7 +34,7 @@ class RoboDojoToolkit(Toolkit):
     ``allowed_tool_groups`` optionally filters robot tool registration, not
     common file tools or automatic state capture. None preserves all tools in
     dev. ``eval_fair`` additionally requires a mode-validated environment,
-    removes file/privileged tools, and disables development trace recording.
+    removes file/privileged tools, and disables development perception recording.
     """
 
     def __init__(
@@ -55,7 +55,6 @@ class RoboDojoToolkit(Toolkit):
         self.eval_fair = eval_fair
         if eval_fair and not getattr(primitives_kwargs.get("env"), "eval_fair", False):
             raise ValueError("eval-fair requires a mode-validated environment client")
-        self._flash_trace = []
         if eval_fair:
             allowed_tool_groups = frozenset({"general", "mixed"}) & (
                 allowed_tool_groups
@@ -89,23 +88,22 @@ class RoboDojoToolkit(Toolkit):
         if not self.eval_fair and name in {
             "segment",
             "back_project",
-            "move_to",
-            "set_gripper",
-            "pi0_pick",
-            "place_in_bin",
-            "stabilize",
         }:
             import copy
 
-            raw = result.result
-            if isinstance(raw, dict):
-                raw = raw.get("log", {}).get("result", raw)
-                self._flash_trace.append(
+            if isinstance(result.result, dict):
+                # Read-only queries do not create EnvState steps. Attach them
+                # to the next action for Flash grounding; actions themselves
+                # are already recorded by the shared Toolkit/EnvState path.
+                self._pending_perception.append(
                     copy.deepcopy(
-                        {"action": name, "arguments": input_dict, "result": raw}
+                        {
+                            "action": name,
+                            "arguments": input_dict,
+                            "result": result.result,
+                        }
                     )
                 )
-                self._state.save("flash_trace.json", self._flash_trace, step=None)
         return result
 
     def flash_observation(self) -> dict:
@@ -126,7 +124,7 @@ class RoboDojoToolkit(Toolkit):
         """
         from robots.robodojo import tools as robodojo_tools
 
-        self._flash_trace = []
+        self._pending_perception = []
         self._state.reset()
         self._primitives = RoboDojoPrimitives(
             env=primitives_kwargs["env"],
@@ -235,7 +233,9 @@ class RoboDojoToolkit(Toolkit):
             self._primitives,
             self._state,
             log={"command": command, "result": result, "elapsed_s": elapsed_s},
+            perception=self._pending_perception,
         )
+        self._pending_perception = []
         return robodojo_tools.view_env_state(record.step_idx, state=self._state)
 
 

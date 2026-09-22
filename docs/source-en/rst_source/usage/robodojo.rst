@@ -1,19 +1,166 @@
 RoboDojo
 ========
 
-.. toctree::
-   :maxdepth: 1
-   :hidden:
-
-   installation
-
 RoboDojo connects Isaac Sim / IsaacLab, dual ARX-X5 arms and an RLinf Pi0.5
-policy to RPent's shared planner, tool and memory infrastructure.
-The integration is experimental: offline contracts do not establish simulator
-compatibility or task success. For installation and a runnable CLI example,
-see :doc:`installation`.
+policy to RPent's planners, tools and memory. The integration is experimental;
+simulator compatibility and task success require GPU validation.
+Follow the upstream RoboDojo and XPolicyLab instructions for simulator, CUDA
+and policy dependencies, and download the required assets and checkpoints.
+For shared backend interfaces, see :doc:`../development/add_robot`.
 
-For shared backend interfaces, see :doc:`../../development/add_robot`.
+Python environments
+-------------------
+
+The backend drives three interpreters and they must stay separate. Isaac Sim
+pins ``websockets==12.0``, ``numpy==1.26.0``, ``packaging==23.0``,
+``filelock==3.13.1`` and ``typing_extensions==4.12.2``; the RPent environment
+runs a newer ``websockets`` with its own ``torch`` build, and the Pi_05
+environment runs JAX and ``openpi``. Installing them into one interpreter
+breaks the Isaac Sim pins.
+
+**1. RPent.** Install the repository, then add the perception extra this
+backend uses:
+
+.. code-block:: bash
+
+   uv pip install -e ".[sam3]"
+
+**2. RoboDojo simulator.** Use the upstream installer, which builds the Isaac
+Sim environment and the vendored CuRobo. That script is the supported path and
+RPent does not re-implement it:
+
+.. code-block:: bash
+
+   cd /path/to/RoboDojo
+   bash scripts/install.sh
+
+The combination this backend is validated against is Python 3.11 with
+``isaacsim 5.1.0.0``, ``torch 2.7.0+cu128``, ``numpy 1.26.0``,
+``websockets 12.0``, ``viser 0.1.34``, ``tyro 0.9.0`` and ``warp-lang 1.11.0``,
+with CuRobo installed from ``third_party/curobo``. Pass that environment's
+interpreter as ``--sim-python``, and do not install RPent or Pi_05 packages into
+it.
+
+**3. Pi_05 policy.** Build the uv environment named by XPolicyLab's deploy
+config (``policy_uv_env_path: openpi``):
+
+.. code-block:: bash
+
+   cd /path/to/RoboDojo/XPolicyLab/policy/Pi_05
+   bash install.sh
+
+The script requires ``uv`` and creates ``openpi/.venv``. The RoboDojo launcher
+activates that environment and needs a conda installation plus an interpreter it
+can import YAML from, so set ``ROBODOJO_CONDA_ROOT`` when the default one cannot.
+Pass the matching interpreter as ``--pi05-python``. RPent is not installed into
+this environment: the CLI composes ``PYTHONPATH`` for every child service from
+the RPent repository root, ``--source-root`` and ``--xpolicylab-root``, so no
+RPent package has to live in the policy environment.
+
+Sources and assets
+------------------
+
+Install Git LFS before cloning the official repository and its submodules:
+
+.. code-block:: bash
+
+   git lfs install
+   git clone --recurse-submodules https://github.com/RoboDojo-Benchmark/RoboDojo.git
+   cd RoboDojo
+   git lfs pull
+   git submodule foreach --recursive 'git lfs pull'
+   git lfs fsck
+
+Download the asset/checkpoint repositories linked by the official RoboDojo
+release with the same Git LFS workflow: clone, ``git lfs pull``, and
+``git lfs fsck``. Follow that release's placement instructions. Confirm that
+required files contain real data rather than LFS pointer text before starting
+the simulator. Resolve incomplete LFS attributes with the dataset publisher.
+
+RPent configuration
+-------------------
+
+The default ``--policy-backend rlinf`` requires a policy interpreter that
+provides the ``pi05_robodojo_arx_x5`` config and its openpi dependencies;
+RLinf main does not include that config yet. Set ``PI05_CHECKPOINT_PATH`` to a
+compatible RLinf checkpoint and pass that interpreter as ``--pi05-python``.
+Use ``--policy-backend xpolicylab`` for the XPolicyLab environment described above.
+
+Configure SAM3's checkpoint using ``SAM3_CHECKPOINT_PATH``, and export the
+placement settling budget. The default leaves objects unstable in official
+mode; the variable is read by the RoboDojo checkout, not by RPent, and the CLI
+passes it on to the child services it starts:
+
+.. code-block:: bash
+
+   export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
+
+Supply the RoboDojo checkout and the Python executables explicitly:
+
+.. code-block:: bash
+
+   rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
+     --source-root /path/to/RoboDojo \
+     --sim-python /path/to/sim-env/bin/python \
+     --pi05-python /path/to/pi05-env/bin/python
+
+``--xpolicylab-root`` defaults to ``SOURCE_ROOT/XPolicyLab``; set it for
+a separate checkout. Both Python flags default to the current interpreter,
+so separate runtimes must pass their executable paths. The CLI constructs
+child import paths without reading a workspace's ``config/runtime.env`` or
+changing the parent environment. Child processes inherit shell environment
+variables. Omitting
+``--cuda-device`` preserves ``CUDA_VISIBLE_DEVICES``, including an unset value;
+passing it explicitly selects the GPU for locally started services.
+For XPolicyLab, an omitted GPU flag starts its Python policy entry point with
+``--pi05-python`` directly; an explicit flag uses its shell launcher.
+
+Use ``--env-endpoint``, ``--vla-endpoint``, and ``--sam3-endpoint`` to attach
+to already running services. A borrowed service requires no local source or
+Python path for that component. The CLI starts the shared
+``rpent.robots.components.pi05_vla_server --embodiment robodojo`` by default.
+With ``--policy-backend xpolicylab``, it starts ``xpolicylab_vla_server`` with
+``--policy-root`` pointing to ``XPolicyLab/policy/Pi_05`` instead.
+Select the matching backend when borrowing a VLA endpoint. Changing backend
+does not convert checkpoints; the RLinf client encodes native observations
+into openpi's wire format.
+
+Every owned service logs and writes into the run's output directory: the CLI
+passes it as ``--save-dir`` to the environment server and as ``--output-dir``
+to the optional XPolicyLab entry point. Its inner policy log is ``vla_server.log``.
+Direct service launches default to the current directory; use separate output
+directories for concurrent runs.
+
+Verify the installation
+-----------------------
+
+Run one bounded development episode and confirm the services come up before the
+planner takes over:
+
+.. code-block:: bash
+
+   export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
+   rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
+     --planner codex --model <planner-model> --max-turns 1 \
+     --source-root /path/to/RoboDojo \
+     --sim-python /path/to/sim-env/bin/python \
+     --pi05-python /path/to/pi05-env/bin/python \
+     --output-dir /path/to/run-output
+
+Expected behaviour:
+
+* ``/path/to/run-output`` contains ``robodojo_env_server.log``,
+  ``sam3_server.log``, ``robodojo_vla_server.log`` and, once the policy server is
+  spawned with XPolicyLab, ``vla_server.log``.
+* The environment server reports ready, and the first observation carries
+  ``cam_head``, ``cam_left_wrist`` and ``cam_right_wrist`` with intrinsics and
+  extrinsics, plus joint and gripper state.
+* The run writes one MP4 per camera under ``/path/to/run-output/videos``.
+* Shutdown leaves no owned child process behind and the GPUs return to idle.
+
+A service that exits during startup is the usual failure mode; read its log in
+the run output directory first. Isaac Sim start-up takes tens of seconds and the
+first run also compiles shaders.
 
 Key modules
 -----------
@@ -48,28 +195,15 @@ step returns ``(obs, reward, done, info)``. Chunk stepping is unsupported, so
 primitives issue individual steps through the environment action path, retaining
 its bounds and counters.
 
-By default, the policy runs through ``rpent.robots.components.pi05_vla_server``
-with ``--embodiment robodojo`` and checkpoint ``PI05_CHECKPOINT_PATH``.
-The policy interpreter needs an RLinf checkout that provides the
-``pi05_robodojo_arx_x5`` config; RLinf main does not include it yet.
-The client maps head, left-wrist and right-wrist RGB to ``main_images``,
+The RLinf client maps head, left-wrist and right-wrist RGB to ``main_images``,
 ``wrist_images`` and ``extra_view_images``. ``states`` contains left arm (6),
 right arm (6), left gripper (1), right gripper (1), with observed gripper
 values unchanged (1=open, 0=closed); ``task_descriptions`` carries the instruction.
 
-Select ``--policy-backend xpolicylab`` to run the optional policy through
-``rpent.robots.components.xpolicylab_vla_server``.
-Its ``--policy-root`` points to ``XPolicyLab/policy/Pi_05`` in the configured
-checkout. The adapter passes observations/actions through unchanged and
+The XPolicyLab adapter passes observations/actions through unchanged and
 serializes ``update_obs``/``get_action`` with ``reset``; it does not isolate
 sessions. RoboDojo requires three-camera inputs and 14-DoF joint actions;
 neither backend converts checkpoints or joint actions to end-effector actions.
-
-The runtime passes the run output directory as the environment's ``--save-dir``
-and, for XPolicyLab, the policy launcher's ``--output-dir``. Its inner policy log is
-``vla_server.log`` in that directory. When started directly without these flags,
-both services default to the current working directory. Use separate output
-directories for concurrent runs.
 
 Tools and information access
 ----------------------------
@@ -104,7 +238,9 @@ Normal planners retain the development tool set and privileged feedback.
 ``RobotSpec.run_flash`` without an LLM. ``--explore`` remains unsupported for
 RoboDojo; development here means the normal planner loop, not that CLI mode.
 
-Development writes ``flash_trace.json`` in the run output directory. To record
+Development records actions and observations in the shared ``states.json``
+manifest. Read-only perception results are attached to the next action for
+Flash export. Existing ``flash_trace.json`` exports remain readable. To record
 a transferable waypoint, call ``segment`` on ``cam_head``, then ``back_project``
 at its returned ``centroid_rc`` (row, col), then the action. The pixel is the
 floored mean of foreground mask coordinates, not the box center. Recording
@@ -116,7 +252,7 @@ each action. Export the trace before evaluation:
 .. code-block:: bash
 
    python -m robots.robodojo.flash.generate \
-     --trace /path/to/dev-run/flash_trace.json \
+     --trace /path/to/dev-run/states.json \
      --task put_bottles_into_dustbin \
      --destination /path/to/memory/robodojo/flash
 
@@ -177,12 +313,9 @@ are required before claiming benchmark compatibility or success.
 Task language
 ~~~~~~~~~~~~~
 
-Task-language RPC and public observations use RoboDojo's description manager,
-not raw ``gen_instruction`` templates. If the manager is unavailable or returns
-unresolved language, labels are filled from ``get_label_descriptions`` for
-environment 0, choosing the first description deterministically. Missing labels,
-empty language and remaining template markers raise an explicit error; task names
-are not substituted. The official instruction stays public in eval-fair.
+Task-language RPC and public observations use RoboDojo's initialized description
+manager. Empty language or unresolved template markers raise an error. The
+official instruction stays public in eval-fair.
 Omitting ``pi0_pick.prompt`` uses this resolved official language. Explicit
 overrides remain supported for contact segments but must identify the intended
 object; unresolved markers are rejected before inference. Official multi-object
@@ -190,7 +323,7 @@ tasks do not specify a grasp order, and descriptive overrides do not guarantee
 that a checkpoint can select arbitrary instances. Verify the actual held target.
 
 Capability scope and limitations
-------------------------------------------------------------
+--------------------------------
 
 RoboDojo provides dual-arm motion and gripper primitives, three-camera RGB-D,
 SAM3 perception, RLinf Pi0.5 (or optional XPolicyLab) and frozen Flash replay. Task names come from
@@ -199,12 +332,12 @@ the configured checkout; examples include ``put_bottles_into_dustbin``,
 ``place_in_bin`` is registered only for ``put_bottles_into_dustbin``.
 Handover is not implemented. Low-Z tabletop and lateral scripted IK motions
 have reachability limits: inspect ``reached`` and ``dist_to_target`` rather
-than assuming the commanded pose was achieved. See :doc:`../flash` for the
+than assuming the commanded pose was achieved. See :doc:`flash` for the
 shared evaluation-only planner; replay executes actions, it is not a
 read-only robot operation.
 
 Bounded smoke runs and shutdown diagnostics
------------------------------------------------
+--------------------------------------------
 
 For ``fill_pen_holder``, use an explicit smoke budget of
 ``--planner-timeout-s 1500 --max-turns 40`` with an outer

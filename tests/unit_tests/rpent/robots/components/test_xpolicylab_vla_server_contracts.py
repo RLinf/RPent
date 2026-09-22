@@ -16,6 +16,60 @@ import numpy as np
 import pytest
 
 
+@pytest.mark.parametrize("mask", [None, "", "2,3", "GPU-example"])
+def test_policy_without_gpu_flag_preserves_visibility(monkeypatch, tmp_path, mask):
+    import argparse
+    import json
+    import os
+    import sys
+    from types import SimpleNamespace
+
+    from rpent.robots.components import xpolicylab_vla_server as server
+
+    root = tmp_path / "XPolicyLab"
+    policy = root / "policy/Pi_05"
+    policy.mkdir(parents=True)
+    (policy / "setup_eval_policy_server.sh").touch()
+    info = root / "utils/robot"
+    info.mkdir(parents=True)
+    (info / "_robot_info.json").write_text(
+        json.dumps({"arx_x5": {"arm_dim": [6, 6], "ee_dim": [1, 1]}})
+    )
+    parser = argparse.ArgumentParser()
+    server.add_backend_args(parser)
+    args = parser.parse_args(
+        [
+            "--policy-root",
+            str(policy),
+            "--env-cfg-type",
+            "arx_x5",
+            "--output-dir",
+            str(tmp_path / "run"),
+        ]
+    )
+    if mask is None:
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    else:
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", mask)
+    recorded = {}
+
+    def daemon(**kwargs):
+        recorded.update(kwargs)
+        return SimpleNamespace(start=lambda: None)
+
+    monkeypatch.setattr(server, "ProcessDaemon", daemon)
+    monkeypatch.setattr(server, "_wait_for_port", lambda *args: None)
+    server._spawn_policy_server(args)
+    assert recorded["cmd"][:3] == [
+        sys.executable,
+        "-u",
+        str(root / "setup_policy_server.py"),
+    ]
+    assert "action_dim=14" in recorded["cmd"]
+    assert "CUDA_VISIBLE_DEVICES" not in recorded.get("env_overrides", {})
+    assert os.environ.get("CUDA_VISIBLE_DEVICES") == mask
+
+
 def test_xpolicylab_cli_without_rlinf_dependencies(monkeypatch):
     import importlib.util
     import sys

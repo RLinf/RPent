@@ -713,7 +713,7 @@ def _jsonable(obj):
     return obj
 
 
-def dump_state(primitives, state, *, log: dict | None = None):
+def dump_state(primitives, state, *, log: dict | None = None, perception=None):
     """Record one RoboDojo observation and save its camera artifacts.
 
     Fetches a live observation, appends a :class:`StepRecord` through
@@ -730,7 +730,10 @@ def dump_state(primitives, state, *, log: dict | None = None):
         command=log.get("command"),
         result=log.get("result"),
         elapsed_s=log.get("elapsed_s"),
-        extras={"task_language": primitives.env.get_task_language()},
+        extras={
+            "task_language": primitives.env.get_task_language(),
+            **({"perception": perception} if perception else {}),
+        },
     ) as step_idx:
         vision = obs.get("vision", {})
         for camera, artifact in CAMERA_ARTIFACTS:

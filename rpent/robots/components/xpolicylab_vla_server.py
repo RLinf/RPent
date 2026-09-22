@@ -15,17 +15,19 @@
 """Shared policy adapter for XPolicyLab WebSocket inference.
 
 Exposes the shared :class:`BaseVLAFacade` wire protocol (``vla.predict``) over
-the XPolicyLab WebSocket Pi_05 policy server. It spawns the policy server via
-the configured launcher and connects with the XPolicyLab model client. Policy
-observations are passed through unchanged.
+the XPolicyLab WebSocket Pi_05 policy server. It starts the policy through its
+Python entry point or shell launcher and connects with the XPolicyLab model
+client. Policy observations are passed through unchanged.
 """
 
 from __future__ import annotations
 
 import argparse
 import atexit
+import json
 import os
 import signal
+import sys
 import threading
 import time
 from datetime import datetime
@@ -51,7 +53,7 @@ def add_backend_args(parser: argparse.ArgumentParser) -> None:
         "evaluation-id",
     ):
         parser.add_argument(f"--{name}")
-    parser.add_argument("--policy-gpu", type=int, default=0)
+    parser.add_argument("--policy-gpu", type=int, default=None)
     parser.add_argument("--policy-port", type=int, default=0)
     parser.add_argument("--policy-server-url")
     parser.add_argument(
@@ -73,7 +75,7 @@ def _wait_for_port(host: str, port: int, timeout_s: float = 900) -> None:
 
 
 def _spawn_policy_server(args: argparse.Namespace) -> ProcessDaemon:
-    """Launch the Pi_05 policy server via the configured launcher."""
+    """Launch Pi_05, preserving inherited GPU visibility unless overridden."""
     pi05_root = args.policy_root
     if not pi05_root:
         raise ValueError("--policy-root is required for a local XPolicyLab server")
@@ -94,12 +96,45 @@ def _spawn_policy_server(args: argparse.Namespace) -> ProcessDaemon:
         str(args.policy_port),
         "localhost",
     ]
+    overrides = None
+    if args.policy_gpu is None:
+        # The shell launcher always assigns CUDA_VISIBLE_DEVICES. Use its
+        # Python entry point with the configured policy interpreter to retain
+        # the caller's mask, including an unset or empty value.
+        root = Path(pi05_root).resolve().parents[1]
+        robot_info = json.loads((root / "utils/robot/_robot_info.json").read_text())[
+            args.env_cfg_type
+        ]
+        action_dim = sum(robot_info["arm_dim"]) + sum(robot_info["ee_dim"])
+        cmd = [
+            sys.executable,
+            "-u",
+            str(root / "setup_policy_server.py"),
+            "--config_path",
+            str(Path(pi05_root) / "deploy.yml"),
+            "--overrides",
+            f"port={args.policy_port}",
+            "host=localhost",
+            f"bench_name={args.bench}",
+            f"task_name={args.task}",
+            f"ckpt_name={args.ckpt}",
+            f"env_cfg_type={args.env_cfg_type}",
+            "seed=0",
+            f"policy_name={Path(pi05_root).name}",
+            f"action_type={args.action_type}",
+            f"action_dim={action_dim}",
+        ]
+        overrides = {
+            "XLA_PYTHON_CLIENT_MEM_FRACTION": "0.3",
+            "PYTHONWARNINGS": "ignore::UserWarning",
+        }
     logger.info("spawning policy server: %s", " ".join(cmd))
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     daemon = ProcessDaemon(
         name="xpolicylab_policy",
         cmd=cmd,
+        env_overrides=overrides,
         log_path=str(output_dir / "vla_server.log"),
         cwd=os.getcwd(),
     )

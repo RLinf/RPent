@@ -80,33 +80,28 @@ def main() -> None:
     if not robot_config.is_file():
         raise FileNotFoundError(f"LingBot robot config not found: {robot_config}")
 
-    watcher = None
     if args.parent_watch:
         # The upstream server has no shutdown API. Ending this process when its
         # parent exits releases the socket and CUDA context.
-        watcher = watch_parent_death(_on_parent_death)
+        watch_parent_death(_on_parent_death)
 
-    try:
-        from deploy.lingbot_vla_policy import LingbotVLAServer
-        from deploy.websocket_policy_server import WebsocketPolicyServer
+    from deploy.lingbot_vla_policy import LingbotVLAServer
+    from deploy.websocket_policy_server import WebsocketPolicyServer
 
-        native_policy = LingbotVLAServer(
-            args.model_path,
-            use_length=args.use_length,
-            robot_norm_path=args.norm_path,
-            num_denoising_step=args.num_denoising_step,
-            use_compile=args.use_compile,
-            robot_config=robot_config,
-        )
-        policy = LingBotVLAFacade(native_policy)
-        WebsocketPolicyServer(
-            policy,
-            port=args.port,
-            metadata=vla_runtime_contract(),
-        ).serve_forever()
-    finally:
-        if watcher is not None:
-            watcher.close()
+    native_policy = LingbotVLAServer(
+        args.model_path,
+        use_length=args.use_length,
+        robot_norm_path=args.norm_path,
+        num_denoising_step=args.num_denoising_step,
+        use_compile=args.use_compile,
+        robot_config=robot_config,
+    )
+    policy = LingBotVLAFacade(native_policy)
+    WebsocketPolicyServer(
+        policy,
+        port=args.port,
+        metadata=vla_runtime_contract(),
+    ).serve_forever()
 
 
 if __name__ == "__main__":

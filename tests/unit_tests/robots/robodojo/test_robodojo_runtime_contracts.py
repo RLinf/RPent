@@ -102,6 +102,48 @@ def test_local_spawn_requires_source_root():
         robot_spec._runtime_overrides(_args())
 
 
+@pytest.mark.parametrize("inherited", [None, "", "2", "2,3", "GPU-example"])
+@pytest.mark.parametrize("explicit", [None, 0, 3])
+@pytest.mark.parametrize("component", ["env", "sam3", "vla"])
+@pytest.mark.parametrize("backend", ["rlinf", "xpolicylab"])
+def test_cuda_selection_is_only_overridden_explicitly(
+    monkeypatch, tmp_path, inherited, explicit, component, backend
+):
+    if inherited is None:
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    else:
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", inherited)
+    recorded = {}
+
+    class Daemon:
+        def __init__(self, **kwargs):
+            recorded.update(kwargs)
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
+    flags = [] if explicit is None else ["--cuda-device", str(explicit)]
+    args = _args("--source-root", str(tmp_path), "--policy-backend", backend, *flags)
+    assert args.cuda_device == explicit
+    getattr(robot_spec, f"_spawn_{component}_server")(args, tmp_path)
+    overrides = recorded.get("env_overrides", {})
+    if component != "sam3":
+        assert ("CUDA_VISIBLE_DEVICES" in overrides) == (explicit is not None)
+        child_env = dict(os.environ, **overrides)
+        assert child_env.get("CUDA_VISIBLE_DEVICES") == (
+            inherited if explicit is None else str(explicit)
+        )
+    flag = "--policy-gpu" if component == "vla" else "--cuda-device"
+    cmd = recorded["cmd"]
+    if component != "vla" or backend == "xpolicylab":
+        assert (flag in cmd) == (explicit is not None)
+        if explicit is not None:
+            assert cmd[cmd.index(flag) + 1] == str(explicit)
+    assert "None" not in cmd
+    assert os.environ.get("CUDA_VISIBLE_DEVICES") == inherited
+
+
 def test_task_inventory_uses_explicit_checkout(tmp_path, monkeypatch):
     from robots.robodojo import tasks
 

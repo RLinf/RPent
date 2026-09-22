@@ -355,6 +355,7 @@ def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair):
 
 
 def test_dev_recording_exports_actual_tool_results(monkeypatch, tmp_path):
+    from robots.robodojo.flash.generate import trace_from_states
     from rpent.utils import logging
 
     monkeypatch.setattr(logging, "_output_dir", tmp_path)
@@ -389,9 +390,31 @@ def test_dev_recording_exports_actual_tool_results(monkeypatch, tmp_path):
     toolkit.execute_tool("segment", {"text_prompt": "bottle"})
     toolkit.execute_tool("back_project", {"row": 1, "col": 1})
     toolkit.execute_tool("move_to", {"xyz": [1, 1, -1], "arm": "left"})
-    recorded = json.loads((tmp_path / "flash_trace.json").read_text())
+    manifest = json.loads((tmp_path / "states.json").read_text())
+    recorded = trace_from_states(manifest)
+    assert not (tmp_path / "flash_trace.json").exists()
+    assert len(manifest["steps"]) == 2  # Initial observation and one motion.
+    state = toolkit.execute_tool("view_env_state", {}).result
+    assert state["log"]["command"] == {
+        "action": "move_to",
+        "xyz": [1, 1, -1],
+        "arm": "left",
+    }
+    assert state["task_language"] == "pick"
+    assert state["state"]["eef"]["left"] == [1, 1, -1]
+    assert "cam_head.png" in state["artifacts"]
+    assert state["_image_bytes"]
     plan = generate_plan(recorded, "pick")
     assert plan["actions"][0]["offset"] == [0, 0, 0]
+    manifest["steps"].append(
+        {"command": {"action": "finish"}, "result": {"done": True}}
+    )
+    assert generate_plan(trace_from_states(manifest), "pick") == plan
+    toolkit.execute_tool("move_to", {"xyz": [1, 1, -1], "arm": "left"})
+    manifest = json.loads((tmp_path / "states.json").read_text())
+    assert "perception" not in manifest["steps"][-1]["extras"]
+    with pytest.raises(ValueError, match="fresh measured"):
+        generate_plan(trace_from_states(manifest), "pick")
 
 
 def test_flash_config_selects_mode_without_task_summary(monkeypatch, tmp_path):

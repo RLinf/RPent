@@ -90,6 +90,29 @@ def generate_plan(
     )
 
 
+def trace_from_states(manifest: dict) -> list[dict]:
+    """Read action records and their preceding perception from EnvState."""
+    trace = []
+    for record in manifest["steps"]:
+        command = record.get("command")
+        if not command:
+            continue
+        trace.extend(record.get("extras", {}).get("perception", []))
+        name = command["action"]
+        if name not in {*ACTIONS, "place_in_bin", "stabilize"}:
+            continue
+        trace.append(
+            {
+                "action": name,
+                "arguments": {
+                    key: value for key, value in command.items() if key != "action"
+                },
+                "result": record["result"],
+            }
+        )
+    return trace
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trace", type=Path, required=True)
@@ -99,9 +122,10 @@ def main() -> None:
         "--refine-camera", choices=["cam_left_wrist", "cam_right_wrist"]
     )
     args = parser.parse_args()
-    plan = generate_plan(
-        json.loads(args.trace.read_text()), args.task, refine_camera=args.refine_camera
-    )
+    trace = json.loads(args.trace.read_text())
+    if isinstance(trace, dict):
+        trace = trace_from_states(trace)
+    plan = generate_plan(trace, args.task, refine_camera=args.refine_camera)
     args.destination.mkdir(parents=True, exist_ok=True)
     with (args.destination / f"{plan['task']}_plan.json").open("x") as output:
         json.dump(plan, output, indent=2, allow_nan=False)

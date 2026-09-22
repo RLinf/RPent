@@ -1,18 +1,146 @@
 RoboDojo
 ========
 
-.. toctree::
-   :maxdepth: 1
-   :hidden:
-
-   installation
-
 RoboDojo 将 Isaac Sim / IsaacLab、双臂 ARX-X5 和 RLinf Pi0.5 策略接入
-RPent 共享的 planner、工具与 memory 基础设施。该接入仍属实验性：
-离线契约测试不代表仿真兼容性或任务成功。安装与可运行的 CLI 示例见
-:doc:`installation`。
+RPent 的规划器、工具与记忆系统。该接入仍属实验性，仿真兼容性和任务成功率
+需要 GPU 验证。仿真器、CUDA 与策略依赖请按 RoboDojo 和 XPolicyLab 官方说明
+安装，并下载所需资产与 checkpoint。共享后端接口见 :doc:`../development/add_robot`。
 
-共享后端接口见 :doc:`../../development/add_robot`。
+Python 环境
+-----------
+
+该后端会驱动三个解释器，三者必须彼此独立。Isaac Sim 固定了
+``websockets==12.0``、``numpy==1.26.0``、``packaging==23.0``、
+``filelock==3.13.1`` 与 ``typing_extensions==4.12.2``；而 RPent 环境使用更新的
+``websockets`` 和自己的 ``torch`` 构建，Pi_05 环境运行 JAX 与 ``openpi``。
+把它们装进同一个解释器会破坏 Isaac Sim 的版本约束。
+
+**一、RPent。** 按仓库说明安装，再补上本后端需要的感知扩展：
+
+.. code-block:: bash
+
+   uv pip install -e ".[sam3]"
+
+**二、RoboDojo 仿真器。** 使用上游安装脚本，它会构建 Isaac Sim 环境与内置的
+CuRobo；这是被支持的路径，RPent 不重复实现：
+
+.. code-block:: bash
+
+   cd /path/to/RoboDojo
+   bash scripts/install.sh
+
+本后端验证过的组合是 Python 3.11 配 ``isaacsim 5.1.0.0``、
+``torch 2.7.0+cu128``、``numpy 1.26.0``、``websockets 12.0``、
+``viser 0.1.34``、``tyro 0.9.0`` 与 ``warp-lang 1.11.0``，CuRobo 来自
+``third_party/curobo``。把该环境的解释器作为 ``--sim-python`` 传入，不要把
+RPent 或 Pi_05 的包装进它。
+
+**三、Pi_05 策略。** 构建 XPolicyLab 部署配置指定的 uv 环境
+（``policy_uv_env_path: openpi``）：
+
+.. code-block:: bash
+
+   cd /path/to/RoboDojo/XPolicyLab/policy/Pi_05
+   bash install.sh
+
+该脚本需要 ``uv``，会生成 ``openpi/.venv``。RoboDojo 的启动脚本会激活这个环境，
+并需要 conda 以及一个能 import YAML 的解释器；默认解释器不满足时请设置
+``ROBODOJO_CONDA_ROOT``。把对应的解释器作为 ``--pi05-python`` 传入。RPent
+不会被安装进该环境：CLI 会用 RPent 仓库根目录、``--source-root`` 和
+``--xpolicylab-root`` 为每个子服务拼出 ``PYTHONPATH``，因此策略环境里不需要存在
+RPent 包。
+
+源码与资产
+----------
+
+克隆官方仓库及子模块前，先安装 Git LFS：
+
+.. code-block:: bash
+
+   git lfs install
+   git clone --recurse-submodules https://github.com/RoboDojo-Benchmark/RoboDojo.git
+   cd RoboDojo
+   git lfs pull
+   git submodule foreach --recursive 'git lfs pull'
+   git lfs fsck
+
+对于官方 RoboDojo release 链接的资产和 checkpoint 仓库，同样依次执行克隆、
+``git lfs pull`` 和 ``git lfs fsck``，并按该 release 的说明放置文件。
+启动仿真器前，确认所需文件是实际数据而非 LFS 指针文本。
+release 的 LFS 属性不完整时，请向数据集发布方核实。
+
+RPent 配置
+----------
+
+默认的 ``--policy-backend rlinf`` 需要策略解释器提供
+``pi05_robodojo_arx_x5`` 配置及其 openpi 依赖；官方 main 尚未包含该配置。通过 ``PI05_CHECKPOINT_PATH`` 指定兼容的 RLinf checkpoint，并以
+``--pi05-python`` 传入该解释器。使用上文的 XPolicyLab 环境时，选择
+``--policy-backend xpolicylab``。
+
+通过 ``SAM3_CHECKPOINT_PATH`` 配置 SAM3 checkpoint，并导出摆放稳定步数。
+默认值会让物体在 official 模式下不稳定；该变量由 RoboDojo 源码读取，而非
+RPent，CLI 会把它传给启动的子服务：
+
+.. code-block:: bash
+
+   export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
+
+显式传入 RoboDojo 源码目录和 Python 可执行文件：
+
+.. code-block:: bash
+
+   rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
+     --source-root /path/to/RoboDojo \
+     --sim-python /path/to/sim-env/bin/python \
+     --pi05-python /path/to/pi05-env/bin/python
+
+``--xpolicylab-root`` 默认使用 ``SOURCE_ROOT/XPolicyLab``；独立克隆时请指定。
+两个 Python 参数默认使用当前解释器，因此独立运行时需要显式指定可执行文件路径。
+CLI 构造子进程导入路径，不读取工作区的 ``config/runtime.env``，也不修改父进程环境。
+子进程继承已有 shell 环境变量。省略 ``--cuda-device`` 时保留
+``CUDA_VISIBLE_DEVICES`` 的原值（包括未设置的状态）；显式传入时，为本地启动的服务选择 GPU。
+XPolicyLab 在省略 GPU 参数时直接用 ``--pi05-python`` 启动 Python 策略入口；
+显式指定时使用其 shell 启动脚本。
+
+通过 ``--env-endpoint``、``--vla-endpoint`` 和 ``--sam3-endpoint`` 可连接已有服务。
+连接已有服务时，该组件不需要本地源码或 Python 路径。
+CLI 默认启动共享的 ``rpent.robots.components.pi05_vla_server --embodiment robodojo``。
+选择 ``--policy-backend xpolicylab`` 时，改为启动 ``xpolicylab_vla_server``，
+并通过 ``--policy-root`` 指定 ``XPolicyLab/policy/Pi_05``。
+连接已有 VLA 服务时也应选择匹配的后端。切换后端不会转换 checkpoint；
+RLinf 客户端会将原生观测编码为 openpi wire 格式。
+
+每个自有服务的日志与输出都落在本次运行的输出目录：CLI 以 ``--save-dir``
+传给环境服务、以 ``--output-dir`` 传给可选的 XPolicyLab 策略入口，内层策略日志为
+``vla_server.log``。直接启动服务且省略这些参数时使用当前目录；并发运行应指定不同输出目录。
+
+验证安装
+--------
+
+跑一次有界的开发模式 episode，确认规划器接管之前各服务已就绪：
+
+.. code-block:: bash
+
+   export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
+   rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
+     --planner codex --model <planner-model> --max-turns 1 \
+     --source-root /path/to/RoboDojo \
+     --sim-python /path/to/sim-env/bin/python \
+     --pi05-python /path/to/pi05-env/bin/python \
+     --output-dir /path/to/run-output
+
+预期现象：
+
+* ``/path/to/run-output`` 下出现 ``robodojo_env_server.log``、
+  ``sam3_server.log``、``robodojo_vla_server.log``，XPolicyLab 策略服务启动后还会出现
+  ``vla_server.log``。
+* 环境服务报告 ready，第一条观测包含 ``cam_head``、``cam_left_wrist`` 与
+  ``cam_right_wrist`` 的内参、外参，以及关节与夹爪状态。
+* 本次运行在 ``/path/to/run-output/videos`` 下为每路相机写一个 MP4。
+* 退出后没有遗留的自有子进程，GPU 回到空闲。
+
+启动阶段某个服务退出是最常见的失败形式，先去运行输出目录读它的日志。
+Isaac Sim 启动需要数十秒，首次运行还要编译 shader。
 
 主要模块
 --------
@@ -43,25 +171,15 @@ RPent 共享的 planner、工具与 memory 基础设施。该接入仍属实验�
 ``(obs, reward, done, info)`` 四元组。不支持 chunk stepping，原语通过环境
 动作接口逐步执行，保留该接口的边界检查与计数。
 
-默认策略通过 ``rpent.robots.components.pi05_vla_server`` 启动，使用
-``--embodiment robodojo`` 和 ``PI05_CHECKPOINT_PATH`` 指定的 checkpoint。
-策略解释器需要一份提供 ``pi05_robodojo_arx_x5`` 配置的 RLinf 检出；
-RLinf 官方 main 尚未包含该配置。客户端将头部、左腕、右腕 RGB 分别映射到
+RLinf 客户端将头部、左腕、右腕 RGB 分别映射到
 ``main_images``、``wrist_images``、``extra_view_images``；``states`` 按左臂 6 维、
 右臂 6 维、左夹爪 1 维、右夹爪 1 维拼接，夹爪保留观测原值（1=张开，0=闭合），
 ``task_descriptions`` 携带指令。
 
-选择 ``--policy-backend xpolicylab`` 时，策略通过
-``rpent.robots.components.xpolicylab_vla_server``
-在独立 Python 环境中运行。``--policy-root`` 指向配置源码目录中的
-``XPolicyLab/policy/Pi_05``。适配器原样传递观测与动作，并将
+XPolicyLab 适配器原样传递观测与动作，并将
 ``update_obs``/``get_action`` 与 ``reset`` 串行化，不提供会话隔离。
 RoboDojo 要求三相机输入和 14-DoF 关节动作；两种后端均不转换 checkpoint，
 也不会将关节动作转换成末端位姿动作。
-
-运行时将本次输出目录分别通过环境服务的 ``--save-dir`` 和 XPolicyLab 策略入口的
-``--output-dir`` 传入，内层策略日志写入该目录的 ``vla_server.log``。
-直接启动服务且省略这些参数时，均使用当前工作目录。并发运行应使用不同输出目录。
 
 工具与信息访问
 --------------
@@ -91,7 +209,9 @@ Python toolkit 工厂接受 ``allowed_tool_groups``，例如传入
 由 RPent 原生 Flash planner 调用 ``RobotSpec.run_flash``，LLM 不进环。
 RoboDojo 仍不支持 ``--explore``；这里的开发指普通 planner 循环，并非该 CLI 模式。
 
-开发运行在输出目录记录 ``flash_trace.json``。记录可迁移航点时，先对
+开发运行通过共享的 ``states.json`` 保存动作和观测，将只读感知结果附加到下一个
+动作记录，供 Flash 导出使用。已有 ``flash_trace.json`` 仍可导出。
+记录可迁移航点时，先对
 ``cam_head`` 调用 ``segment``，再对返回的 ``centroid_rc``（行、列）调用
 ``back_project``，然后执行动作。该像素是掩码前景坐标均值向下取整，不是框中心。
 录制与重放共用此推导；记录的掩码面积和坐标和用于拒绝被篡改的质心。
@@ -100,7 +220,7 @@ RoboDojo 仍不支持 ``--explore``；这里的开发指普通 planner 循环，
 .. code-block:: bash
 
    python -m robots.robodojo.flash.generate \
-     --trace /path/to/dev-run/flash_trace.json \
+     --trace /path/to/dev-run/states.json \
      --task put_bottles_into_dustbin \
      --destination /path/to/memory/robodojo/flash
 
@@ -150,10 +270,8 @@ GPU、真实策略服务与仿真端到端。
 任务语言
 ~~~~~~~~
 
-任务语言 RPC 与公开观测使用 RoboDojo 的 description manager，而不是原始
-``gen_instruction`` 模板。管理器不可用或返回未解析语言时，使用环境 0 的
-``get_label_descriptions`` 逐标签填充，确定性地选择第一条描述。缺失标签、空语言
-或残留模板标记均明确报错，不用任务名替代。官方 instruction 在 eval-fair 中仍是公开信息。
+任务语言 RPC 与公开观测使用 RoboDojo 已初始化的 description manager。
+空指令或残留模板标记会明确报错。官方 instruction 在 eval-fair 中仍是公开信息。
 省略 ``pi0_pick.prompt`` 即使用这条填好的官方语言。接触动作仍可显式覆盖指令，
 但应指明目标身份；未解析标记会在策略推理前被拒绝。多物体官方任务不一定指定抓取顺序，
 描述性覆盖也不保证 checkpoint 能选择任意实例，必须检查实际抓住的目标。
@@ -167,7 +285,7 @@ RoboDojo 提供双臂运动与夹爪原语、三相机 RGB-D、SAM3 感知、RLi
 并非已验证成功的任务套件。``place_in_bin`` 仅为 ``put_bottles_into_dustbin`` 注册。
 尚未实现 handover。低 Z 桌面级与侧向脚本 IK 存在可达性限制，应检查
 ``reached`` 和 ``dist_to_target``，不要假设指令位姿已到达。
-共享的仅评测 planner 见 :doc:`../flash`；重放会执行动作，并非对机器人只读。
+共享的仅评测 planner 见 :doc:`flash`；重放会执行动作，并非对机器人只读。
 
 有界冒烟与退出诊断
 ------------------
