@@ -10,8 +10,7 @@ be recombined: placing the same blue plate in a new cardboard box, reading a
 bottle and bag label while checking the grasp, and reusing a placing skill to
 pour steel beads. They show a loop of observation, decision, action, and
 correction rather than a replay of fixed motions, and how a successful run can
-become a reusable capability. The clips are a system showcase rather than
-benchmark results; see the real-robot guides for setup and reproduction.
+become a reusable capability.
 
 .. raw:: html
 
