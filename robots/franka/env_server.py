@@ -23,11 +23,7 @@ from typing import Any
 
 import numpy as np
 
-from robots.franka.runtime_config import (
-    DEFAULT_CALIBRATION_PATH,
-    load_runtime_config,
-    set_calibration_path,
-)
+from robots.franka.runtime_config import load_runtime_config
 from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
 from rpent.utils.serialization import to_numpy_tree
@@ -435,14 +431,6 @@ def main(
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--robot-config", default=None)
-    parser.add_argument(
-        "--calibration-path",
-        default=str(DEFAULT_CALIBRATION_PATH),
-        help=(
-            "Path to hand_eye_calibration.json. Dual-Franka uses this inside "
-            "the env server to expose agent-facing TCP poses in right_base."
-        ),
-    )
     parser.add_argument("--task-description", required=True)
     parser.add_argument("--parent-watch", action="store_true")
     parser.add_argument(
@@ -452,7 +440,6 @@ def main(
     )
     args = parser.parse_args()
 
-    set_calibration_path(args.calibration_path)
     runtime = load_runtime_config(
         args.robot_config,
         task_description=args.task_description,

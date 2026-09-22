@@ -172,7 +172,6 @@ def test_runtime_starts_vla_for_dashboard_and_exploration(
         task_id=task_id,
         vla_endpoint=None,
         sam3_endpoint=None,
-        calibration_path="unused",
     )
     robot_spec._init_runtime(
         args, tmp_path, SimpleNamespace(emit=lambda event: None), {"vla"}

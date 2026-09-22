@@ -45,13 +45,9 @@ TOOLS_SPEC = [
     {
         "name": "view_env_state",
         "description": (
-            # This wording documents the current lab observation policy used for
-            # PhysicalAgent log alignment.  The implementation itself reads
-            # cameras.agent_observation from robot config, so non-D455 setups
-            # should update the config and this deployment-oriented prose.
-            "Read a dual-Franka state snapshot. The D455 image is returned inline; "
-            "left_wrist, base, and right_wrist are returned as artifact paths for "
-            "targeted read_image inspection."
+            "Read a dual-Franka state snapshot. Configured inline camera views "
+            "are returned directly; other available views are returned as "
+            "artifact paths; use read_image to inspect these artifacts."
         ),
         "input_schema": {
             "type": "object",
@@ -410,7 +406,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
 
     @readonly
     def describe_dual_franka_setup(self) -> dict[str, Any]:
-        """Return PhysicalAgent-compatible setup guidance without moving hardware."""
+        """Return setup guidance without moving hardware."""
         meta = self.env.meta
         observation_policy = _agent_observation_policy(meta)
         return {

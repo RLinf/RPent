@@ -20,3 +20,8 @@ workspace:
   reset_ee_pose: [0.65875577, 0.04438992, 0.27458871, 2.94857731, -0.0676843, -0.18130717]
   ee_pose_limit_min: [0.15875577, -0.45561008, 0.03458871, 2.93857731, -0.0776843, -1.76130717]
   ee_pose_limit_max: [1.15875577, 0.54438992, 0.27458871, 2.95857731, -0.0576843, 1.39869283]
+
+perception:
+  calibration:
+    external: ~/.ros/easy_handeye/fr3_external_apriltag_eye_on_base.yaml
+    wrist: ~/.ros/easy_handeye/fr3_wrist_apriltag_ee_eye_on_hand.yaml
