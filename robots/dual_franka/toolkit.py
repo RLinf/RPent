@@ -420,7 +420,7 @@ class DualFrankaToolkit(FrankaToolkit):
             }
             self.state.save("exploration.json", status)
             output.data["exploration"] = status
-            # Keep the original record layout, and expose lifecycle errors to the planner.
+            # Propagate lifecycle errors to the planner.
             if result.get("error"):
                 output.error = result["error"]
             return output
