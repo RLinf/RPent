@@ -11,25 +11,27 @@ For shared backend interfaces, see :doc:`../development/add_robot`.
 Python environment
 ------------------
 
-RoboDojo installs into a single environment. The ``robodojo-sim`` extra declares
-the simulator stack: Isaac Sim 5.1, RoboDojo's IsaacLab fork, cuRobo and the
+The goal is to install RoboDojo into a single environment. The ``robodojo-sim``
+extra declares the simulator stack: Isaac Sim 5.1, RoboDojo's IsaacLab fork, cuRobo and the
 runtime pins that go with them. ``robodojo`` adds SAM3 perception, the RLinf
 version that provides ``pi05_robodojo_arx_x5``, and the openpi runtime. Each
 robot extra carries its own runtime pins, so install one per environment.
 
-That environment holds the simulator dependencies and RPent itself, but not
-RPent's agent stack. The two are not jointly resolvable: ``mcp`` needs
-``uvicorn>=0.31.1`` where Isaac Sim pins ``0.29.0``, and ``rpent-openpi`` needs
-``filelock>=3.16.1`` where the simulator pins ``3.13.1``. RPent is therefore
-installed with ``--no-deps``, and the planner runs in its own environment,
-reaching the RoboDojo services over RPC. The ``override-dependencies`` block in
-``pyproject.toml`` settles the remaining Isaac Sim / IsaacLab clashes; uv reads
-it from the project root, so run the installs from there.
+The target is a one-command install with ``uv pip install -e ".[robodojo]"``.
+Three upstream Isaac Sim pins still conflict with RPent/RLinf dependencies:
+``uvicorn==0.29.0`` versus ``mcp``'s ``uvicorn>=0.31.1``,
+``wrapt==1.16.0`` versus RLinf's ``swanlab>=0.6.11`` requiring ``wrapt>=1.17.0``,
+and ``filelock==3.13.1`` versus ``rpent-openpi``'s ``filelock>=3.16.1``.
+In addition, ``rpent-openpi==0.2.2`` pins ``torch==2.7.1``, while the simulator
+requires ``torch==2.7.0``. These constraints need upstream fixes through
+``rlinf``-prefixed forks before the one-command install can work; they should
+not be bypassed by adding RPent overrides.
 
-The ``robodojo-sim`` extra supplies Isaac Sim 5.1, RoboDojo's IsaacLab fork,
-cuRobo and the full set of runtime version pins. The ``robodojo`` extra adds
-SAM3 perception, the RLinf version providing ``pi05_robodojo_arx_x5``, and
-the openpi runtime.
+Until then, set up the simulator environment in two steps: install the simulator
+stack declared by ``robodojo-sim``, then install RPent into that same environment
+with ``uv pip install --no-deps -e .``. This temporary setup does not install
+the full agent/policy stack. Run uv from the project root so it reads the
+existing ``override-dependencies`` in ``pyproject.toml``.
 
 IsaacLab must also be installed in editable mode: the non-editable VCS
 subdirectory installation ships only ``__init__.py`` and omits

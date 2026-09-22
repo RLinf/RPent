@@ -137,13 +137,12 @@ robodojo = [
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
 ]
 robodojo-sim = [
-    # Isaac Sim 5.1 and the Isaac Lab fork RoboDojo pins. The canonical
-    # installation is EDITABLE via scripts_repro/install_sim_editable.sh: a
+    # Install RoboDojo's IsaacLab fork editable in the same environment: a
     # non-editable VCS-subdirectory install of `isaaclab` ships only
     # `__init__.py` and loses `config/extension.toml`, which
-    # `isaaclab/__init__.py` loads through `ISAACLAB_EXT_DIR`. These git
-    # references are kept so the extra is still *resolvable* with plain uv,
-    # but source edits only take effect through the editable script.
+    # `isaaclab/__init__.py` loads through `ISAACLAB_EXT_DIR`.
+    # Keep Isaac Sim and the Torch family pinned: Isaac Sim's version and
+    # CuRobo's build/runtime ABI are tightly coupled.
     "isaacsim[all,extscache]==5.1.0",
     "isaaclab @ git+https://github.com/yuechen0614/IsaacLab.git@main#subdirectory=source/isaaclab",
     "isaaclab_assets @ git+https://github.com/yuechen0614/IsaacLab.git@main#subdirectory=source/isaaclab_assets",
@@ -152,20 +151,20 @@ robodojo-sim = [
     "torchvision==0.22.0",
     "torchaudio==2.7.0",
     "nvidia-curobo[cu12] @ git+https://github.com/yuechen0614/curobo.git@main",
-    # CuRobo runtime pins carried over from the validated deployment.
-    "tyro==0.9.0",
-    "websockets==12.0",
-    # The runtime pins RoboDojo's installer applies on top of Isaac Sim
+    # CuRobo runtime minimums based on the validated deployment.
+    "tyro>=0.9.0",
+    "websockets>=12.0",
+    # Runtime minimums based on the pins RoboDojo applies on top of Isaac Sim
     # (`pin_runtime_deps` in scripts/install.sh).
-    "numpy==1.26.0",
-    "filelock==3.13.1",
-    "warp-lang==1.11.0",
+    "numpy>=1.26.0",
+    "filelock>=3.13.1",
+    "warp-lang>=1.11.0",
     "onnx>=1.18,<1.22",
     "ipython<9",
     # RoboDojo's own Python dependencies that its env server actually imports.
-    "opencv-python-headless==4.11.0.86",
+    "opencv-python-headless>=4.11.0.86",
     "pillow",
-    "scipy==1.15.3",
+    "scipy>=1.15.3",
     "transforms3d",
     # `RoboDojo/env/scene_manager/layout_manager.py` imports these at module
     # level, and the scene manager pulls that file in on the env-server boot
@@ -197,12 +196,22 @@ override-dependencies = [
     # isaacsim-kernel==5.1.0.0 pins typing-extensions==4.12.2 exactly. This
     # only bites when RPent's agent deps share the sim env
     # (pydantic-ai-slim -> pydantic>=2.12 -> typing-extensions>=4.14). The
-    # sim runtime is isolated, so RPent is installed with `--no-deps` (see
-    # scripts_repro/install_sim_editable.sh); the override only keeps the
-    # extra *resolvable* for plain-uv installs and never pulls the agent
-    # stack into the sim env.
+    # temporary simulator setup installs RPent with `--no-deps`. This
+    # override preserves the simulator pin for resolution; it does not
+    # establish compatibility with the full agent stack.
     "typing-extensions==4.12.2",
 ]
+
+# Remaining upstream blockers for the single-environment robodojo extra:
+# - isaacsim-kernel==5.1.0.0 pins uvicorn==0.29.0; mcp>=1.23.0 needs >=0.31.1.
+# - isaacsim-kernel==5.1.0.0 pins wrapt==1.16.0; rlinf's swanlab>=0.6.11
+#   needs wrapt>=1.17.0.
+# - isaacsim-core==5.1.0.0 pins filelock==3.13.1; rpent-openpi needs >=3.16.1.
+# - rpent-openpi==0.2.2 pins torch==2.7.1; the simulator requires torch==2.7.0.
+# The agreed approach is to relax them in rlinf-prefixed forks of the
+# affected packages and then point these references back at the official
+# branches.
+# Do not bypass these constraints with additional RPent overrides.
 
 # Each robot extra pulls a separately pinned VLA runtime whose Torch,
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.

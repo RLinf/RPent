@@ -9,21 +9,24 @@ RPent 的规划器、工具与记忆系统。该接入仍属实验性，仿真�
 Python 环境
 -----------
 
-RoboDojo 安装在同一个环境中。``robodojo-sim`` extra 声明仿真栈：Isaac Sim 5.1、
+目标是将 RoboDojo 安装在同一个环境中。``robodojo-sim`` extra 声明仿真栈：Isaac Sim 5.1、
 RoboDojo 使用的 IsaacLab fork、cuRobo 及配套的运行时版本约束；``robodojo`` 在其
 之上增加 SAM3 感知、提供 ``pi05_robodojo_arx_x5`` 的 RLinf 版本，以及 openpi
 运行时。每个机器人 extra 都带自己那套运行时钉版，因此一个环境只装一个。
 
-该环境包含仿真依赖和 RPent 本身，但不包含 RPent 的 agent 依赖——两者无法共同
-解析：``mcp`` 需要 ``uvicorn>=0.31.1``，而 Isaac Sim 钉的是 ``0.29.0``；
-``rpent-openpi`` 需要 ``filelock>=3.16.1``，而仿真器钉的是 ``3.13.1``。因此 RPent
-以 ``--no-deps`` 安装，规划器跑在自己的环境里，通过 RPC 访问 RoboDojo 的各服务。
-剩余的 Isaac Sim 与 IsaacLab 版本冲突由 ``pyproject.toml`` 里的
-``override-dependencies`` 化解；uv 从项目根目录读取它，所以请在仓库根目录执行安装。
+最终希望通过 ``uv pip install -e ".[robodojo]"`` 一键安装。目前 Isaac Sim
+仍有三处上游钉版与 RPent/RLinf 依赖冲突：``uvicorn==0.29.0`` 与
+``mcp`` 要求的 ``uvicorn>=0.31.1``；``wrapt==1.16.0`` 与 RLinf 引入的
+``swanlab>=0.6.11`` 要求的 ``wrapt>=1.17.0``；以及 ``filelock==3.13.1`` 与
+``rpent-openpi`` 要求的 ``filelock>=3.16.1``。此外，``rpent-openpi==0.2.2``
+钉住了 ``torch==2.7.1``，而仿真运行时需要 ``torch==2.7.0``。
+这些约束需经 ``rlinf`` 前缀的 fork 在上游修正，才能打通一键安装；
+不应在 RPent 中继续添加 override 来绕过。
 
-``robodojo-sim`` extra 提供 Isaac Sim 5.1、RoboDojo 使用的 IsaacLab fork、
-cuRobo 及整套运行时版本约束。``robodojo`` 在此基础上增加 SAM3 感知扩展、
-提供 ``pi05_robodojo_arx_x5`` 的 RLinf 版本，以及 openpi 运行时。
+在上游放宽之前，仿真环境按两步准备：先安装 ``robodojo-sim`` 声明的仿真栈，
+再用 ``uv pip install --no-deps -e .`` 将 RPent 安装到同一环境。
+这一临时方案不安装完整的 agent/策略依赖栈。请在项目根目录运行 uv，
+以读取 ``pyproject.toml`` 中已有的 ``override-dependencies``。
 
 IsaacLab 本身也需要可编辑安装：非 editable 的 VCS 子目录安装只包含
 ``__init__.py``，会丢失 ``config/extension.toml``，而 ``isaaclab/__init__.py``

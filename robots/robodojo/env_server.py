@@ -14,14 +14,13 @@
 
 """RPC server wrapping one RoboDojo Isaac Sim environment.
 
-Runs inside the ``robodojo-sim`` conda environment and exposes the unified
-``rpent`` env RPC (``BaseEnvFacade``). Isaac Sim is not thread-safe, so the
-facade mixes in :class:`MainThreadServeMixin` to dispatch every env op on the
-main thread.
+Requires an interpreter with the ``robodojo-sim`` dependencies installed.
+Exposes the unified ``rpent`` env RPC (``BaseEnvFacade``). Isaac Sim is not
+thread-safe, so the facade mixes in :class:`MainThreadServeMixin` to dispatch
+every env op on the main thread.
 
 Launch:
 
-    source <workspace>/scripts/activate_runtime.sh sim
     python -u robots/robodojo/env_server.py --task put_bottles_into_dustbin \
         --layout 1 --env-cfg-type arx_x5 --cuda-device 0 --host 127.0.0.1 \
         --port 0 --transport http --parent-watch
