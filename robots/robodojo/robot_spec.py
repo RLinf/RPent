@@ -203,6 +203,12 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="Python executable with Isaac Sim and RoboDojo installed",
     )
     parser.add_argument(
+        "--policy-backend",
+        choices=["rlinf", "xpolicylab"],
+        default="rlinf",
+        help="Pi0.5 policy backend (default: rlinf)",
+    )
+    parser.add_argument(
         "--pi05-python",
         default=sys.executable,
         help="Python executable with Pi_05 dependencies installed",
@@ -393,15 +399,16 @@ def _spawn_vla_server(
     pi05_python = str(Path(args.pi05_python).expanduser())
     if not Path(pi05_python).exists():
         raise RuntimeError(f"RoboDojo Pi_05 env python not found: {pi05_python}")
-    policy_port = pick_free_port()
     host, port = "127.0.0.1", pick_free_port()
     overrides = _runtime_overrides(args)
-    daemon = ProcessDaemon(
-        name="robodojo_vla_server",
-        cmd=[
-            pi05_python,
-            "-u",
-            "-m",
+    if args.policy_backend == "rlinf":
+        policy_args = [
+            "rpent.robots.components.pi05_vla_server",
+            "--embodiment",
+            "robodojo",
+        ]
+    else:
+        policy_args = [
             "rpent.robots.components.xpolicylab_vla_server",
             "--output-dir",
             str(output_dir),
@@ -424,7 +431,15 @@ def _spawn_vla_server(
             "--policy-gpu",
             str(args.cuda_device),
             "--policy-port",
-            str(policy_port),
+            str(pick_free_port()),
+        ]
+    daemon = ProcessDaemon(
+        name="robodojo_vla_server",
+        cmd=[
+            pi05_python,
+            "-u",
+            "-m",
+            *policy_args,
             "--host",
             host,
             "--port",
@@ -448,6 +463,7 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every RoboDojo component, or only ``components`` when given."""
     from robots.robodojo.env_client import RoboDojoEnvClient
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
     from rpent.robots.components.xpolicylab_vla_client import XPolicyLabVLAClient
 
@@ -476,7 +492,13 @@ def _init_runtime(
                 },
             )
         },
-        "vla": lambda rpc: {"vla_client": XPolicyLabVLAClient(rpc)},
+        "vla": lambda rpc: {
+            "vla_client": (
+                Pi05VLAClient(rpc, embodiment="robodojo")
+                if args.policy_backend == "rlinf"
+                else XPolicyLabVLAClient(rpc)
+            )
+        },
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
     }
     timeouts = {"env": 900.0, "sam3": 300.0, "vla": 1800.0}

@@ -131,8 +131,9 @@ def test_borrowed_endpoint_needs_no_local_paths(monkeypatch, tmp_path, component
 @pytest.mark.parametrize(
     "component,flag", [("env", "--sim-python"), ("vla", "--pi05-python")]
 )
+@pytest.mark.parametrize("backend", ["rlinf", "xpolicylab"])
 def test_spawn_uses_explicit_interpreter_and_child_paths(
-    monkeypatch, tmp_path, component, flag
+    monkeypatch, tmp_path, component, flag, backend
 ):
     recorded = {}
 
@@ -144,14 +145,25 @@ def test_spawn_uses_explicit_interpreter_and_child_paths(
             recorded["started"] = True
 
     monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
-    args = _args("--source-root", str(tmp_path), flag, sys.executable)
+    flags = [] if backend == "rlinf" else ["--policy-backend", backend]
+    args = _args("--source-root", str(tmp_path), flag, sys.executable, *flags)
+    assert args.policy_backend == backend
     getattr(robot_spec, f"_spawn_{component}_server")(args, tmp_path)
     assert recorded["cmd"][0] == sys.executable
     assert recorded["started"]
     assert "--parent-watch" in recorded["cmd"]
-    directory_flag = "--output-dir" if component == "vla" else "--save-dir"
-    assert recorded["cmd"][recorded["cmd"].index(directory_flag) + 1] == str(tmp_path)
-    if component == "vla":
+    if component == "env" or backend == "xpolicylab":
+        directory_flag = "--output-dir" if component == "vla" else "--save-dir"
+        assert recorded["cmd"][recorded["cmd"].index(directory_flag) + 1] == str(
+            tmp_path
+        )
+    if component == "vla" and backend == "rlinf":
+        cmd = recorded["cmd"]
+        assert cmd[2:4] == ["-m", "rpent.robots.components.pi05_vla_server"]
+        assert cmd[cmd.index("--embodiment") + 1] == "robodojo"
+        assert "--model-path" not in cmd  # Server resolves PI05_CHECKPOINT_PATH.
+        assert "--policy-root" not in cmd
+    elif component == "vla":
         cmd = recorded["cmd"]
         assert cmd[2:4] == ["-m", "rpent.robots.components.xpolicylab_vla_server"]
         assert cmd[cmd.index("--policy-root") + 1] == str(
@@ -160,6 +172,28 @@ def test_spawn_uses_explicit_interpreter_and_child_paths(
     assert recorded["env_overrides"]["ROBODOJO_PI05_POLICY_ROOT"] == str(
         tmp_path / "XPolicyLab/policy/Pi_05"
     )
+
+
+@pytest.mark.parametrize("backend", ["rlinf", "xpolicylab"])
+def test_runtime_connects_matching_policy_client(monkeypatch, tmp_path, backend):
+    from rpent.dashboard.events import NullDashboardEventSink
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+    from rpent.robots.components.xpolicylab_vla_client import XPolicyLabVLAClient
+
+    rpc = object()
+    monkeypatch.setattr(robot_spec, "_spawn_vla_server", lambda *a: (None, rpc))
+    monkeypatch.setattr(robot_spec, "try_wait_server", lambda *a, post_fn: post_fn())
+    daemons, kwargs = robot_spec._init_runtime(
+        _args("--policy-backend", backend), tmp_path, NullDashboardEventSink(), {"vla"}
+    )
+    assert daemons == []
+    client = kwargs["vla_client"]
+    assert isinstance(
+        client, Pi05VLAClient if backend == "rlinf" else XPolicyLabVLAClient
+    )
+    assert client._client is rpc
+    if backend == "rlinf":
+        assert client._embodiment == "robodojo"
 
 
 @pytest.mark.parametrize("lifting_arm", ["left", "right"])

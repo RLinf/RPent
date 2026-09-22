@@ -71,6 +71,11 @@ RPent 包。
 RPent 配置
 ----------
 
+默认的 ``--policy-backend rlinf`` 需要策略解释器提供
+``pi05_robodojo_arx_x5`` 配置及其 openpi 依赖；官方 main 尚未包含该配置。通过 ``PI05_CHECKPOINT_PATH`` 指定兼容的 RLinf checkpoint，并以
+``--pi05-python`` 传入该解释器。使用上文的 XPolicyLab 环境时，选择
+``--policy-backend xpolicylab``。
+
 通过 ``SAM3_CHECKPOINT_PATH`` 配置 SAM3 checkpoint，并导出摆放稳定步数。
 默认值会让物体在 official 模式下不稳定；该变量由 RoboDojo 源码读取，而非
 RPent，CLI 会把它传给启动的子服务：
@@ -95,14 +100,14 @@ CLI 构造子进程导入路径，不读取工作区的 ``config/runtime.env``�
 
 通过 ``--env-endpoint``、``--vla-endpoint`` 和 ``--sam3-endpoint`` 可连接已有服务。
 连接已有服务时，该组件不需要本地源码或 Python 路径。
-CLI 启动共享的 ``rpent.robots.components.xpolicylab_vla_server``，
-并通过 ``--policy-root`` 显式指定
-``XPolicyLab/policy/Pi_05``。该适配器使用 XPolicyLab 的启动脚本和 checkpoint
-加载器，而非 RLinf Pi0.5 加载器。
-切换后端不会转换 checkpoint 或观测格式。
+CLI 默认启动共享的 ``rpent.robots.components.pi05_vla_server --embodiment robodojo``。
+选择 ``--policy-backend xpolicylab`` 时，改为启动 ``xpolicylab_vla_server``，
+并通过 ``--policy-root`` 指定 ``XPolicyLab/policy/Pi_05``。
+连接已有 VLA 服务时也应选择匹配的后端。切换后端不会转换 checkpoint；
+RLinf 客户端会将原生观测编码为 openpi wire 格式。
 
 每个自有服务的日志与输出都落在本次运行的输出目录：CLI 以 ``--save-dir``
-传给环境服务、以 ``--output-dir`` 传给策略入口，因此并发运行不会互相干扰。
+传给环境服务、以 ``--output-dir`` 传给可选的 XPolicyLab 策略入口，因此并发运行不会互相干扰。
 
 验证安装
 --------
@@ -122,7 +127,7 @@ CLI 启动共享的 ``rpent.robots.components.xpolicylab_vla_server``，
 预期现象：
 
 * ``/path/to/run-output`` 下出现 ``robodojo_env_server.log``、
-  ``sam3_server.log``、``robodojo_vla_server.log``，策略服务启动后还会出现
+  ``sam3_server.log``、``robodojo_vla_server.log``，XPolicyLab 策略服务启动后还会出现
   ``vla_server.log``。
 * 环境服务报告 ready，第一条观测包含 ``cam_head``、``cam_left_wrist`` 与
   ``cam_right_wrist`` 的内参、外参，以及关节与夹爪状态。

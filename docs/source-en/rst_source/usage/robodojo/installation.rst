@@ -79,6 +79,12 @@ the dataset publisher; RPent does not provide a custom materializer.
 RPent configuration
 -------------------
 
+The default ``--policy-backend rlinf`` requires a policy interpreter that
+provides the ``pi05_robodojo_arx_x5`` config and its openpi dependencies;
+RLinf main does not include that config yet. Set ``PI05_CHECKPOINT_PATH`` to a
+compatible RLinf checkpoint and pass that interpreter as ``--pi05-python``.
+Use ``--policy-backend xpolicylab`` for the XPolicyLab environment described above.
+
 Configure SAM3's checkpoint using ``SAM3_CHECKPOINT_PATH``, and export the
 placement settling budget. The default leaves objects unstable in official
 mode; the variable is read by the RoboDojo checkout, not by RPent, and the CLI
@@ -107,15 +113,16 @@ inherited by child processes.
 Use ``--env-endpoint``, ``--vla-endpoint``, and ``--sam3-endpoint`` to attach
 to already running services. A borrowed service requires no local source or
 Python path for that component. The CLI starts the shared
-``rpent.robots.components.xpolicylab_vla_server``
-and an explicit ``--policy-root`` pointing to ``XPolicyLab/policy/Pi_05``.
-This adapter uses XPolicyLab's launcher and checkpoint loader, not RLinf's
-Pi0.5 loader.
-Changing backend does not convert checkpoints or observation formats.
+``rpent.robots.components.pi05_vla_server --embodiment robodojo`` by default.
+With ``--policy-backend xpolicylab``, it starts ``xpolicylab_vla_server`` with
+``--policy-root`` pointing to ``XPolicyLab/policy/Pi_05`` instead.
+Select the matching backend when borrowing a VLA endpoint. Changing backend
+does not convert checkpoints; the RLinf client encodes native observations
+into openpi's wire format.
 
 Every owned service logs and writes into the run's output directory: the CLI
 passes it as ``--save-dir`` to the environment server and as ``--output-dir``
-to the policy entry point, so concurrent runs do not share state.
+to the optional XPolicyLab entry point, so concurrent runs do not share state.
 
 Verify the installation
 -----------------------
@@ -137,7 +144,7 @@ Expected behaviour:
 
 * ``/path/to/run-output`` contains ``robodojo_env_server.log``,
   ``sam3_server.log``, ``robodojo_vla_server.log`` and, once the policy server is
-  spawned, ``vla_server.log``.
+  spawned with XPolicyLab, ``vla_server.log``.
 * The environment server reports ready, and the first observation carries
   ``cam_head``, ``cam_left_wrist`` and ``cam_right_wrist`` with intrinsics and
   extrinsics, plus joint and gripper state.

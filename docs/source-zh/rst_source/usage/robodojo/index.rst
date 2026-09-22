@@ -7,7 +7,7 @@ RoboDojo
 
    installation
 
-RoboDojo 将 Isaac Sim / IsaacLab、双臂 ARX-X5 和 XPolicyLab Pi_05 策略接入
+RoboDojo 将 Isaac Sim / IsaacLab、双臂 ARX-X5 和 RLinf Pi0.5 策略接入
 RPent 共享的 planner、工具与 memory 基础设施。该接入仍属实验性：
 离线契约测试不代表仿真兼容性或任务成功。安装与可运行的 CLI 示例见
 :doc:`installation`。
@@ -21,7 +21,10 @@ RPent 共享的 planner、工具与 memory 基础设施。该接入仍属实验�
   三相机 + 深度 + 标定、joint/ee 动作、逐相机视频录制）。
 * ``robots/robodojo/env_client.py`` —— 继承 ``BaseEnvClient`` 的 rpent
   侧客户端。
-* 共享的 ``rpent/robots/components/xpolicylab_vla_server.py`` 和
+* 共享的 ``rpent/robots/components/pi05_vla_server.py`` 和
+  ``rpent/robots/components/pi05_vla_client.py`` —— 默认 RLinf openpi 策略，
+  使用 ``robodojo`` embodiment。
+* 可选的 ``rpent/robots/components/xpolicylab_vla_server.py`` 和
   ``rpent/robots/components/xpolicylab_vla_client.py`` —— Pi_05 策略服务
   （XPolicyLab WebSocket）适配到共享 ``BaseVLAFacade`` / ``BaseVLAClient``
   协议。
@@ -40,13 +43,23 @@ RPent 共享的 planner、工具与 memory 基础设施。该接入仍属实验�
 ``(obs, reward, done, info)`` 四元组。不支持 chunk stepping，原语通过环境
 动作接口逐步执行，保留该接口的边界检查与计数。
 
-策略通过 ``rpent.robots.components.xpolicylab_vla_server``
+默认策略通过 ``rpent.robots.components.pi05_vla_server`` 启动，使用
+``--embodiment robodojo`` 和 ``PI05_CHECKPOINT_PATH`` 指定的 checkpoint。
+策略解释器需要一份提供 ``pi05_robodojo_arx_x5`` 配置的 RLinf 检出；
+RLinf 官方 main 尚未包含该配置。客户端将头部、左腕、右腕 RGB 分别映射到
+``main_images``、``wrist_images``、``extra_view_images``；``states`` 按左臂 6 维、
+右臂 6 维、左夹爪 1 维、右夹爪 1 维拼接，夹爪保留观测原值（1=张开，0=闭合），
+``task_descriptions`` 携带指令。
+
+选择 ``--policy-backend xpolicylab`` 时，策略通过
+``rpent.robots.components.xpolicylab_vla_server``
 在独立 Python 环境中运行。``--policy-root`` 指向配置源码目录中的
 ``XPolicyLab/policy/Pi_05``。适配器原样传递观测与动作，并将
 ``update_obs``/``get_action`` 与 ``reset`` 串行化，不提供会话隔离。
-RoboDojo 要求三相机输入和 14-DoF 关节动作；切换策略后端不会转换这些格式。
+RoboDojo 要求三相机输入和 14-DoF 关节动作；两种后端均不转换 checkpoint，
+也不会将关节动作转换成末端位姿动作。
 
-运行时将本次输出目录分别通过环境服务的 ``--save-dir`` 和策略入口的
+运行时将本次输出目录分别通过环境服务的 ``--save-dir`` 和 XPolicyLab 策略入口的
 ``--output-dir`` 传入，内层策略日志写入该目录的 ``vla_server.log``。
 直接启动服务且省略这些参数时，均使用当前工作目录。并发运行应使用不同输出目录。
 
@@ -148,7 +161,7 @@ GPU、真实策略服务与仿真端到端。
 能力范围与限制
 --------------
 
-RoboDojo 提供双臂运动与夹爪原语、三相机 RGB-D、SAM3 感知、XPolicyLab Pi_05
+RoboDojo 提供双臂运动与夹爪原语、三相机 RGB-D、SAM3 感知、RLinf Pi0.5（或可选 XPolicyLab）
 及冻结 Flash 重放。任务名称来自配置的源码目录，例如
 ``put_bottles_into_dustbin``、``fill_pen_holder`` 和 ``stack_bowls_random``，
 并非已验证成功的任务套件。``place_in_bin`` 仅为 ``put_bottles_into_dustbin`` 注册。

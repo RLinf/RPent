@@ -49,6 +49,21 @@ logger = get_logger("vla_server")
 # NOTE: an embodiment added here must also be registered in the client's
 # ``_ENCODE_OBS`` (obs encoding); the two registries are kept in sync manually.
 PI05_EMBODIMENTS: dict[str, dict] = {
+    "robodojo": {
+        "num_action_chunks": 50,
+        "action_dim": 14,
+        "use_proprio": True,
+        "num_steps": 5,
+        "add_value_head": False,
+        "openpi": {
+            "config_name": "pi05_robodojo_arx_x5",
+            "num_images_in_input": 3,
+            "action_chunk": 50,
+            "num_steps": 5,
+            "action_env_dim": 14,
+            "add_value_head": False,
+        },
+    },
     "dual_franka": {
         "num_action_chunks": 20,
         "action_dim": 20,

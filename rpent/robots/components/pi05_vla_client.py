@@ -65,6 +65,46 @@ def _encode_obs_libero(env_obs: dict) -> dict:
     }
 
 
+def _encode_obs_robodojo(env_obs: dict) -> dict:
+    """RoboDojo single-env obs → openpi batched wire obs."""
+
+    def _batch_view(camera: str) -> np.ndarray:
+        try:
+            value = env_obs["vision"][camera]["color"]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"missing RoboDojo camera: vision/{camera}/color") from exc
+        arr = np.asarray(value)
+        if arr.ndim != 3 or arr.shape[-1] != 3:
+            raise ValueError(f"{camera}: expected [H,W,3] image, got {arr.shape}")
+        return arr.astype(np.uint8)[None]
+
+    parts = []
+    for key, size in (
+        ("left_arm_joint_state", 6),
+        ("right_arm_joint_state", 6),
+        ("left_ee_joint_state", 1),
+        ("right_ee_joint_state", 1),
+    ):
+        try:
+            value = env_obs["state"][key]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"missing RoboDojo state: state/{key}") from exc
+        part = np.asarray(value, dtype=np.float32)
+        if part.shape != (size,):
+            raise ValueError(f"state/{key}: expected shape ({size},), got {part.shape}")
+        parts.append(part)
+    # Keep observed gripper values: 1.0 is open and 0.0 is closed.
+    states = np.concatenate(parts)
+    assert states.shape == (14,)
+    return {
+        "main_images": _batch_view("cam_head"),
+        "wrist_images": _batch_view("cam_left_wrist"),
+        "extra_view_images": _batch_view("cam_right_wrist"),
+        "states": states[None],
+        "task_descriptions": [str(env_obs.get("instruction") or "")],
+    }
+
+
 def _batch_views(v):
     """``[H,W,3]`` → ``[1,H,W,3]`` or ``[N,H,W,3]`` → ``[1,N,H,W,3]``.
     Used by the dual-Franka encoder to batch the two extra views (base + right-wrist).
@@ -137,6 +177,7 @@ def _encode_obs_dual_franka(env_obs: dict) -> dict:
 # the two registries are kept in sync manually.
 _ENCODE_OBS: dict[str, Any] = {
     "libero": _encode_obs_libero,
+    "robodojo": _encode_obs_robodojo,
     "franka": _encode_obs_franka,
     "dual_franka": _encode_obs_dual_franka,
 }

@@ -7,7 +7,7 @@ RoboDojo
 
    installation
 
-RoboDojo connects Isaac Sim / IsaacLab, dual ARX-X5 arms and an XPolicyLab Pi_05
+RoboDojo connects Isaac Sim / IsaacLab, dual ARX-X5 arms and an RLinf Pi0.5
 policy to RPent's shared planner, tool and memory infrastructure.
 The integration is experimental: offline contracts do not establish simulator
 compatibility or task success. For installation and a runnable CLI example,
@@ -23,7 +23,10 @@ Key modules
   actions; per-camera video recording).
 * ``robots/robodojo/env_client.py`` — rpent-side client inheriting
   ``BaseEnvClient``.
-* Shared ``rpent/robots/components/xpolicylab_vla_server.py`` and
+* Shared ``rpent/robots/components/pi05_vla_server.py`` and
+  ``rpent/robots/components/pi05_vla_client.py`` — default RLinf openpi policy
+  with the ``robodojo`` embodiment.
+* Optional ``rpent/robots/components/xpolicylab_vla_server.py`` and
   ``rpent/robots/components/xpolicylab_vla_client.py`` — Pi_05 policy
   service (XPolicyLab WebSocket) adapted to the shared ``BaseVLAFacade`` /
   ``BaseVLAClient`` protocol.
@@ -45,16 +48,25 @@ step returns ``(obs, reward, done, info)``. Chunk stepping is unsupported, so
 primitives issue individual steps through the environment action path, retaining
 its bounds and counters.
 
-The policy runs in a separate Python environment through
+By default, the policy runs through ``rpent.robots.components.pi05_vla_server``
+with ``--embodiment robodojo`` and checkpoint ``PI05_CHECKPOINT_PATH``.
+The policy interpreter needs an RLinf checkout that provides the
+``pi05_robodojo_arx_x5`` config; RLinf main does not include it yet.
+The client maps head, left-wrist and right-wrist RGB to ``main_images``,
+``wrist_images`` and ``extra_view_images``. ``states`` contains left arm (6),
+right arm (6), left gripper (1), right gripper (1), with observed gripper
+values unchanged (1=open, 0=closed); ``task_descriptions`` carries the instruction.
+
+Select ``--policy-backend xpolicylab`` to run the optional policy through
 ``rpent.robots.components.xpolicylab_vla_server``.
 Its ``--policy-root`` points to ``XPolicyLab/policy/Pi_05`` in the configured
 checkout. The adapter passes observations/actions through unchanged and
 serializes ``update_obs``/``get_action`` with ``reset``; it does not isolate
 sessions. RoboDojo requires three-camera inputs and 14-DoF joint actions;
-selecting another policy backend does not convert these formats.
+neither backend converts checkpoints or joint actions to end-effector actions.
 
 The runtime passes the run output directory as the environment's ``--save-dir``
-and the policy launcher's ``--output-dir``. The inner policy log is
+and, for XPolicyLab, the policy launcher's ``--output-dir``. Its inner policy log is
 ``vla_server.log`` in that directory. When started directly without these flags,
 both services default to the current working directory. Use separate output
 directories for concurrent runs.
@@ -181,7 +193,7 @@ Capability scope and limitations
 ------------------------------------------------------------
 
 RoboDojo provides dual-arm motion and gripper primitives, three-camera RGB-D,
-SAM3 perception, XPolicyLab Pi_05 and frozen Flash replay. Task names come from
+SAM3 perception, RLinf Pi0.5 (or optional XPolicyLab) and frozen Flash replay. Task names come from
 the configured checkout; examples include ``put_bottles_into_dustbin``,
 ``fill_pen_holder`` and ``stack_bowls_random``, not a validated success suite.
 ``place_in_bin`` is registered only for ``put_bottles_into_dustbin``.
