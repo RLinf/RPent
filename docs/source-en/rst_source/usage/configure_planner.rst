@@ -20,13 +20,9 @@ loop is orchestrated, and which model SDK is used.
      - What it is
      - When to pick it
    * - ``api``
-     - Provider-agnostic tool-calling loop built on
-       `pydantic-ai <https://ai.pydantic.dev/>`_. It currently supports
-       the Anthropic Messages API, the OpenAI Responses API, and
-       OpenAI-compatible Chat Completions APIs. It trims older messages
-       from long conversations to limit context size. Prompt caching is
-       explicitly enabled for Anthropic to reuse repeated input;
-       other providers use their default caching behavior.
+     - A tool-calling loop built on `Pydantic AI <https://ai.pydantic.dev/>`_
+       that supports multiple model APIs. For long conversations, it sends
+       fewer older messages to the model.
      - You want the tightest control over model calls, the widest
        provider coverage, or the cheapest per-turn spend.
    * - ``claude_code``
