@@ -66,6 +66,7 @@
    概览 <rst_source/overview>
    安装 <rst_source/installation>
    快速开始 <rst_source/quickstart>
+   排行榜 <rst_source/leaderboard>
 
 .. toctree::
    :maxdepth: 2

@@ -27,6 +27,15 @@
   <img src="https://github.com/RLinf/misc/raw/main/pic/rpent_framework.png" alt="RPent framework"/>
 </div>
 
+## Leaderboard
+
+Compare RPent with reference methods on LIBERO, LIBERO-PRO, RoboCasa365 Target50, and RoboTwin C2R. Rankings apply to the methods and evaluation coverage shown; see the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard.html) for suite results and model configurations.
+
+Codex / GPT-6 Astra / low / reasoning: **92.63% Overall (741/800)** across all eight LIBERO-PRO suites. See the [suite results and memory-batch explanation](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard.html#libero-pro-astra-memory), including the separately frozen Long and Spatial/Object/Goal memory batches.
+
+[![RPent Leaderboard](https://cdn.jsdelivr.net/gh/RLinf/misc@a6657fc43a6b3874a20ee1695a480090a4737c35/rpent/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard.html)
+
+
 ## Who Should Consider Using RPent?
 
 RPent is built for four kinds of users:
@@ -38,6 +47,7 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
+- [2026/09] 🔥 Added the interactive RPent Leaderboard for LIBERO, LIBERO-PRO, RoboCasa365, and RoboTwin, with model comparisons and suite-level results. Explore the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard.html).
 - [2026/09] 🔥 RPent supports Franka single-arm and dual-arm real-robot extensions. Doc: [Franka](https://rpent.readthedocs.io/en/latest/rst_source/usage/franka.html) · [Dual Franka](https://rpent.readthedocs.io/en/latest/rst_source/usage/dual_franka.html).
 - [2026/08] 🔥 RPent supports RoboCasa with RLDX-1 as manipulation model. See the [RoboCasa setup and Target50 guide](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
 - [2026/08] 🔥 RPent supports the non-reasoning mode, which reduces average execution time by ~40%.
@@ -84,6 +94,7 @@ RPent is built for four kinds of users:
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html">LIBERO-PRO</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html">RoboTwin</a> ✅</li>
+          <li>RoboDojo</li>
         </ul>
       </td>
       <td>
@@ -91,6 +102,7 @@ RPent is built for four kinds of users:
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/franka.html">Franka</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/dual_franka.html">Dual Franka</a> ✅</li>
           <li>SO-101</li>
+          <li>YAM</li>
         </ul>
       </td>
     </tr>

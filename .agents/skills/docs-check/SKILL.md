@@ -36,9 +36,10 @@ intended audience, then read their owning implementation and nearby examples.
 
 ## Use existing validation
 
-Use [docs/Makefile](../../../docs/Makefile) for local targets and
-[the documentation workflow](../../../.github/workflows/docs.yml) for the CI
-commands. From the repository root, with
+Use [docs/Makefile](../../../docs/Makefile) for local targets. See the
+[English](../../../docs/source-en/.readthedocs.yaml) and
+[Chinese](../../../docs/source-zh/.readthedocs.yaml) Read the Docs configurations
+for CI build settings. From the repository root, with
 [documentation dependencies](../../../docs/requirements.txt) installed:
 
 ```bash

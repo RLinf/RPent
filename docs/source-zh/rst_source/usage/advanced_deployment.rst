@@ -96,3 +96,43 @@ RPC。
 ``RPENT_RLINF_ROOT`` （或 ``RLINF_REPO_PATH`` ）解析，默认回退到 RPent
 仓库旁边的 ``rlinf`` 目录。解析出的路径不存在也无妨：Python 会忽略无效的
 ``PYTHONPATH`` 条目，server 将导入已安装的 ``rlinf`` 包。
+
+.. _libero-parallel-eval:
+
+并行评测
+--------
+
+以下以使用 Pi0.5 VLA 和 SAM3 的 LIBERO 评测为例说明如何进行并行评测。
+其他机器人或评测配置可能使用不同的服务和 endpoint。
+
+要对同一个 LIBERO 任务并行运行多次评测，先按照上文的说明各启动一个 Pi0.5 VLA
+服务和一个 SAM3 服务。等待两个服务输出 ``RPC server listening on ...`` 后，
+为每个并发的 ``rpent`` 进程传入相同的 endpoint：
+``http://VLA_HOST:VLA_PORT`` 和 ``http://SAM3_HOST:SAM3_PORT``，
+其中各占位符替换为对应服务的主机地址和端口。
+
+如果服务与 RPent 在同一台机器上，host 可以使用 ``127.0.0.1``。
+这样所有进程会共同访问同一组 VLA 和 SAM3 服务。省略 ``--env-endpoint``，
+则每个进程会单独启动自己的 ``env_server``，评测环境彼此独立；
+VLA 和 SAM3 模型只需加载一次，无需为每次评测重复启动。
+
+.. code-block:: bash
+
+   pids=()
+
+   for i in $(seq 1 10); do
+     rpent --robot libero --libero-type pro \
+       --suite libero_object_swap --task 2 --seed 0 \
+       --planner claude_code --model claude-opus-4-8 \
+       --vla-endpoint http://VLA_HOST:VLA_PORT \
+       --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
+       --output-dir logs/parallel_object_swap_t2_s0/run_$i &
+     pids+=($!)
+   done
+
+   wait "${pids[@]}"
+
+.. note::
+
+   通过 SSH 运行长时间评测时，请在 ``nohup`` 或 ``tmux`` / ``screen`` 会话中
+   启动共享服务；直接使用 ``&`` 时，SSH shell 退出可能会结束服务。

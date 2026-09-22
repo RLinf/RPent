@@ -1,0 +1,18 @@
+parameters:
+  eye_on_hand: true
+  freehand_robot_movement: true
+  move_group: manipulator
+  move_group_namespace: /
+  namespace: /fr3_wrist_apriltag_ee_eye_on_hand/
+  robot_base_frame: fr3_link0
+  robot_effector_frame: fr3_EE
+  tracking_base_frame: wrist_cam_color_optical_frame
+  tracking_marker_frame: calibration_tag
+transformation:
+  qw: 0.700798461779487
+  qx: 0.008827639050571932
+  qy: -0.016188432746246595
+  qz: -0.7131209738897865
+  x: 0.06531670324255999
+  y: 0.02759950864247399
+  z: -0.1809718238822886

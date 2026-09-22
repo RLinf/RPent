@@ -187,7 +187,9 @@ def test_budget_and_old_perception_boundary(setup):
     assert env.resets == 2
 
 
-def test_explore_prompt_and_factory_use_local_layered_memory(tmp_path):
+def test_explore_prompt_and_factory_use_local_layered_memory(
+    tmp_path, dual_franka_robot_config
+):
     parser = argparse.ArgumentParser()
     parser.add_argument("--explore", action="store_true")
     parser.add_argument("--memory-dir")
@@ -201,6 +203,8 @@ def test_explore_prompt_and_factory_use_local_layered_memory(tmp_path):
             str(tmp_path / "memory"),
             "--output-dir",
             str(tmp_path),
+            "--robot-config",
+            str(dual_franka_robot_config),
         ]
     )
     config = robot_spec.get_robot_spec().parse_config(args)
@@ -277,7 +281,7 @@ Winning technique and failure evidence.
 
 @pytest.mark.parametrize("interactive", [False, True])
 def test_cli_two_sessions_operator_feedback_and_memory_pipeline(
-    tmp_path, monkeypatch, interactive
+    tmp_path, monkeypatch, interactive, dual_franka_robot_config
 ):
     import sys
     from dataclasses import replace
@@ -353,7 +357,6 @@ Observed success in session 2.
             "env": env,
             "model": None,
             "task_description": "test",
-            "calibration_path": "/tmp/unused-calibration.json",
         }
 
     spec = replace(robot_spec.get_robot_spec(), init_runtime=init_runtime)
@@ -377,6 +380,8 @@ Observed success in session 2.
             str(tmp_path / "run"),
             "--memory-dir",
             str(tmp_path / "memory"),
+            "--robot-config",
+            str(dual_franka_robot_config),
             "--auto-merge-memory",
             *(["--interactive"] if interactive else []),
         ],
@@ -550,7 +555,12 @@ def test_direct_success_with_failed_observation_does_not_publish(setup):
 @pytest.mark.parametrize("verdict", ["success", "failure", "abort"])
 @pytest.mark.parametrize("planner_error", [None, "planner transport failed"])
 def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
-    tmp_path, monkeypatch, verdict, planner_error, robot_name
+    tmp_path,
+    monkeypatch,
+    dual_franka_robot_config,
+    verdict,
+    planner_error,
+    robot_name,
 ):
     import sys
     from dataclasses import replace
@@ -613,6 +623,8 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             str(tmp_path / "run"),
             "--memory-dir",
             str(tmp_path / "memory"),
+            "--robot-config",
+            str(dual_franka_robot_config),
         ],
     )
     assert cli.main() == (1 if planner_error else 0)
