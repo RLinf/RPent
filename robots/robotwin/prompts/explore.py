@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from robots.robotwin.prompts import system as base
+from robots.robotwin.prompts import evaluate as base
 from rpent.prompt.utils import PromptNode
 
 ROLE = """You control a RoboTwin task in MULTI-ATTEMPT EXPLORE mode. Use fresh
