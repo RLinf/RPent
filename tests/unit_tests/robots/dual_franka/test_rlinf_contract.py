@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import dataclasses
-from pathlib import Path
 
 # Keys RPent builds into ``env.eval.override_cfg`` and the ``DualFranka``
 # hardware config. Kept here (not a runtime constant) so this test doubles as
@@ -51,34 +50,46 @@ _HARDWARE_KEYS = {
 
 
 def test_override_keys_are_valid_rlinf_fields(fake_rlinf_realworld_modules):
-    from rlinf.envs.realworld.franka.tasks.dual_franka_tcp_env import (
-        DualFrankaTCPRobotConfig,
+    from rlinf.envs.real.franka.dual_franka_tcp import (
+        DualFrankaTCPEnvConfig,
     )
 
-    valid = {field.name for field in dataclasses.fields(DualFrankaTCPRobotConfig)}
+    valid = {field.name for field in dataclasses.fields(DualFrankaTCPEnvConfig)}
     unknown = sorted(_OVERRIDE_KEYS - valid)
-    assert not unknown, f"override keys not in DualFrankaTCPRobotConfig: {unknown}"
+    assert not unknown, f"override keys not in DualFrankaTCPEnvConfig: {unknown}"
 
 
 def test_hardware_keys_are_valid_rlinf_fields(fake_rlinf_realworld_modules):
-    from rlinf.scheduler.hardware.robots.dual_franka import DualFrankaConfig
+    from rlinf.robotics.robots.dual_franka import DualFrankaConfig
 
     valid = {field.name for field in dataclasses.fields(DualFrankaConfig)}
     unknown = sorted(_HARDWARE_KEYS - valid)
     assert not unknown, f"hardware keys not in DualFrankaConfig: {unknown}"
 
 
-def test_controller_carries_calibration_path_for_ray_worker(
+def test_controller_carries_calibration_mapping_for_ray_worker(
     fake_rlinf_realworld_modules,
 ):
     from robots.dual_franka.runtime_config import load_runtime_config
-    from robots.franka.runtime_config import set_calibration_path
+    from robots.franka.runtime_config import (
+        get_perception_calibration_mapping,
+        set_robot_config_path,
+    )
 
-    path = Path("/tmp/rpent-test-hand-eye-calibration.json")
-    set_calibration_path(path)
+    runtime = load_runtime_config(None, task_description="test task")
+
+    # The Ray worker resolves hand-eye calibration through the robot config
+    # path carried in the controller: the config's perception.calibration
+    # mapping lists the easy_handeye YAMLs, so no separate calibration file
+    # is threaded through the controller.
+    set_robot_config_path(runtime.controller["robot_config_path"])
     try:
-        runtime = load_runtime_config(None, task_description="test task")
+        mapping = get_perception_calibration_mapping()
     finally:
-        set_calibration_path(None)
+        set_robot_config_path(None)
 
-    assert runtime.controller["calibration_path"] == str(path)
+    assert mapping, (
+        "robot config must list easy_handeye YAMLs under "
+        "perception.calibration so the Ray worker can resolve hand-eye "
+        "calibration"
+    )

@@ -413,7 +413,10 @@ def main() -> int:
 
         return run_dashboard_session(args, robot_spec, parser=parser)
 
-    run_config = robot_spec.parse_config(args)
+    try:
+        run_config = robot_spec.parse_config(args)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
     recipe_tag = run_config.recipe_tag
     output_dir = run_config.output_dir
     prompt_vars = run_config.prompt_vars

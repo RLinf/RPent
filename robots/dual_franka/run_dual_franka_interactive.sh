@@ -25,6 +25,5 @@ exec .venv/bin/python -m rpent.cli.main \
   --vla-endpoint "${RPENT_VLA_ENDPOINT}" \
   --sam3-endpoint "${RPENT_SAM3_ENDPOINT}" \
   --robot-config "${RPENT_ROBOT_CONFIG}" \
-  --calibration-path "${RPENT_CALIBRATION_PATH}" \
   --output-dir "${OUT}" \
   "$@"

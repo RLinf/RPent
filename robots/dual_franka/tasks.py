@@ -20,18 +20,7 @@ from dataclasses import replace
 
 from robots.franka.tasks import FrankaTask
 
-# Deployment task registry note:
-# tasks 1 and 3 below intentionally mirror the old PhysicalAgent clean-desk
-# reproduction prompts rather than trying to be generic dual-Franka examples.
-# They encode the current table layout, object order, D455-centric evidence
-# policy, and named VLA segment boundaries so the new RPent runner can be
-# compared against previous live logs.  Before an upstream/general PR, keep
-# these as optional demo tasks and avoid treating their object/container rules
-# as part of the robot-wide prompt or tool contract.
-#
-# Keep this stable with the instruction used by the deployed clean-desk
-# checkpoint. Named VLA tools use it directly instead of allowing the planner
-# to accidentally paraphrase the policy conditioning text.
+# Named VLA tools pass this instruction to the policy unchanged.
 CLEAN_DESK_VLA_PROMPT = (
     "I am currently performing a desk organizing task. I will use my right hand "
     "to hand bowls, plates, cups, chopsticks, and a spoon to my left hand in "
@@ -258,12 +247,7 @@ DUAL_FRANKA_TASKS = {
     ),
 }
 
-# Exploration candidate for the current dirty/clean sorting demo.  It keeps the
-# task definition and safety-critical tool boundaries from task 3, but removes
-# first-round strategy hints that should be discoverable through exploration:
-# D455 bookkeeping tables, SAM3 phrasing tricks, bowl-specific direct-grasp
-# advice, 10 cm pre-grasp staging, long post-grasp success heuristics, and
-# left-placement x/y/z staging recipes.
+# Exploration variant retaining task 3's task and safety constraints.
 _DIRTY_CLEAN_TASK = DUAL_FRANKA_TASKS[3]
 _DIRTY_CLEAN_CONSTRAINTS = _DIRTY_CLEAN_TASK.constraints
 DUAL_FRANKA_TASKS[4] = replace(
