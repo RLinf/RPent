@@ -99,7 +99,7 @@ class Planner(Protocol):
             user_message: Initial user message (task description, first steps).
             toolkit: The full :class:`~rpent.tools.toolkit.Toolkit`
                 (common + robot tools). Backends derive ``tools_spec`` via
-                ``toolkit.get_tools_spec()`` and dispatch calls via
+                ``toolkit.list_tools()`` and dispatch calls via
                 ``toolkit.execute_tool()``.
             max_turns: Maximum LLM turns before giving up.
             input_queue: Optional queue of user-typed lines for interactive steering.

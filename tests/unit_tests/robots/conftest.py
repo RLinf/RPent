@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from rpent.tools.toolkit import readonly
+from rpent.tools import ToolResult
 
 
 class FakeSingleArmPrimitives:
@@ -58,54 +58,53 @@ class FakeSingleArmPrimitives:
     def dump_success_criteria(self) -> str:
         return "offline success criteria"
 
-    @readonly
-    def segment(self, **kwargs: Any) -> dict[str, Any]:
-        return {"segment": kwargs}
+    def segment(self, **kwargs: Any) -> ToolResult:
+        return ToolResult(data={"segment": kwargs})
 
     @staticmethod
-    def _operation(name: str, **kwargs: Any) -> dict[str, Any]:
-        return {"operation": name, "arguments": kwargs}
+    def _operation(name: str, **kwargs: Any) -> ToolResult:
+        return ToolResult(data={"operation": name, "arguments": kwargs})
 
-    def move_to(self, **kwargs: Any) -> dict[str, Any]:
+    def move_to(self, **kwargs: Any) -> ToolResult:
         return self._operation("move_to", **kwargs)
 
-    def pi0_pick(self, **kwargs: Any) -> dict[str, Any]:
+    def pi0_pick(self, **kwargs: Any) -> ToolResult:
         return self._operation("pi0_pick", **kwargs)
 
-    def pi0_doubled(self, **kwargs: Any) -> dict[str, Any]:
+    def pi0_doubled(self, **kwargs: Any) -> ToolResult:
         return self._operation("pi0_doubled", **kwargs)
 
-    def release(self, **kwargs: Any) -> dict[str, Any]:
+    def release(self, **kwargs: Any) -> ToolResult:
         return self._operation("release", **kwargs)
 
-    def set_gripper(self, **kwargs: Any) -> dict[str, Any]:
+    def set_gripper(self, **kwargs: Any) -> ToolResult:
         return self._operation("set_gripper", **kwargs)
 
-    def rotate_wrist(self, **kwargs: Any) -> dict[str, Any]:
+    def rotate_wrist(self, **kwargs: Any) -> ToolResult:
         return self._operation("rotate_wrist", **kwargs)
 
-    def rotate_pitch(self, **kwargs: Any) -> dict[str, Any]:
+    def rotate_pitch(self, **kwargs: Any) -> ToolResult:
         return self._operation("rotate_pitch", **kwargs)
 
-    def move_pose(self, **kwargs: Any) -> dict[str, Any]:
+    def move_pose(self, **kwargs: Any) -> ToolResult:
         return self._operation("move_pose", **kwargs)
 
-    def move_delta(self, **kwargs: Any) -> dict[str, Any]:
+    def move_delta(self, **kwargs: Any) -> ToolResult:
         return self._operation("move_delta", **kwargs)
 
-    def scripted_grasp(self, **kwargs: Any) -> dict[str, Any]:
+    def scripted_grasp(self, **kwargs: Any) -> ToolResult:
         return self._operation("scripted_grasp", **kwargs)
 
-    def rldx_skill(self, **kwargs: Any) -> dict[str, Any]:
+    def rldx_skill(self, **kwargs: Any) -> ToolResult:
         return self._operation("rldx_skill", **kwargs)
 
-    def rldx_arm(self, **kwargs: Any) -> dict[str, Any]:
+    def rldx_arm(self, **kwargs: Any) -> ToolResult:
         return self._operation("rldx_arm", **kwargs)
 
-    def navigate_to(self, **kwargs: Any) -> dict[str, Any]:
+    def navigate_to(self, **kwargs: Any) -> ToolResult:
         return self._operation("navigate_to", **kwargs)
 
-    def move_base(self, **kwargs: Any) -> dict[str, Any]:
+    def move_base(self, **kwargs: Any) -> ToolResult:
         return self._operation("move_base", **kwargs)
 
 

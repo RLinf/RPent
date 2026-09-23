@@ -133,9 +133,9 @@ def test_dump_state_saves_canonical_rgbd_artifacts(tmp_path: Path):
         "wrist_depth.npy",
     }
     output = view_env_state(state=state)
-    assert output["_image_wrist_bytes"]
-    assert output["_image_cam_bytes"]
-    assert view_camera_meta(state=state)["camera_meta"]["depth_unit"] == "m"
+    assert output.images[1]
+    assert output.images[0]
+    assert view_camera_meta(state=state).data["camera_meta"]["depth_unit"] == "m"
 
 
 def test_vla_grasp_runs_bounded_chunks():
@@ -144,7 +144,7 @@ def test_vla_grasp_runs_bounded_chunks():
 
     result = primitives.vla_grasp("pick up the cube", max_chunks=3)
 
-    assert result["chunks_executed"] == 3
+    assert result.data["chunks_executed"] == 3
     assert len(env.chunks) == 3
     # Obs is fetched once, then threaded from each chunk_step result.
     assert env.observation_calls == 1
@@ -181,9 +181,9 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
     finally:
         set_robot_config_path(None)
 
-    assert result["coordinate_frame"] == "franka_base"
-    assert result["depth_m"] == 0.5
-    assert len(result["point_base"]) == 3
+    assert result.data["coordinate_frame"] == "franka_base"
+    assert result.data["depth_m"] == 0.5
+    assert len(result.data["point_base"]) == 3
 
 
 def test_load_calibration_bundle_reads_easy_handeye_yamls(tmp_path: Path):

@@ -26,7 +26,8 @@ from robots.robotwin.primitives import RoboTwinPrimitives
 from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, readonly
+from rpent.tools import ToolResult, iter_tools, tool
+from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_output_dir
 
 if TYPE_CHECKING:
@@ -86,8 +87,6 @@ def _world_from_depth(
 class RoboTwinToolkit(Toolkit):
     """Common RPent tools plus RoboTwin primitives."""
 
-    _SPECS = {spec["name"]: spec for spec in tools.TOOLS_SPEC}
-
     def __init__(
         self,
         *,
@@ -121,43 +120,35 @@ class RoboTwinToolkit(Toolkit):
         record = self._state.latest_record()
         if record is not None:
             self._publish_step(record)
-        initial_state = initial.get("state")
+        initial_state = initial.data.get("state")
         if isinstance(initial_state, dict):
             self._latest_status = initial_state.get(
                 "episode_status", self._latest_status
             )
 
     def _register_robotwin_tools(self) -> None:
-        self._tools.pop("finish", None)
-        self.add_tool(
-            "view_env_state",
-            self._SPECS["view_env_state"],
-            partial(tools.view_env_state, state=self._state),
-        )
-        self.add_tool(
-            "sample_world_xyz",
-            self._SPECS["sample_world_xyz"],
-            partial(tools.sample_world_xyz, self._state),
-        )
-        self.add_tool(
-            "query_world_map",
-            self._SPECS["query_world_map"],
-            partial(tools.query_world_map, self._state),
-        )
-        for name in (
-            "render",
-            "lingbot_act",
-            "move_to",
-            "rotate_wrist",
-            "set_gripper",
-            "release",
-        ):
-            self.add_tool(name, self._SPECS[name], partial(self._step, name))
-        self.add_tool("finish", self._SPECS["finish"], self._finish)
+        for definition in iter_tools(tools):
+            if definition.name == "view_env_state":
+                handler = partial(definition, state=self._state)
+            else:
+                handler = partial(definition, self._state)
+            self.add_tool(definition.with_handler(handler))
+        for definition in iter_tools(self._primitives):
+            handler = (
+                definition
+                if definition.name == "finish"
+                else partial(self._step, definition.name)
+            )
+            self.add_tool(
+                definition.with_handler(handler), replace=definition.name == "finish"
+            )
+        self.add_tool(self.render)
 
-    @readonly
-    def _finish(self, *, status: str, summary: str) -> dict[str, Any]:
-        return self._primitives.finish(status=status, summary=summary)
+    @tool
+    def render(self) -> ToolResult:
+        """Capture a fresh synchronized RoboTwin agent observation."""
+        self.raise_if_cancelled()
+        return ToolResult(data={"success": True})
 
     def _capture_full_observation(self) -> dict[str, Any]:
         """Assemble the full observation (rgb + depth + camera_meta + world_xyz).
@@ -199,7 +190,7 @@ class RoboTwinToolkit(Toolkit):
         command: dict[str, Any],
         result: dict[str, Any],
         elapsed_s: float,
-    ) -> dict[str, Any]:
+    ) -> ToolResult:
         frame_start = self._action_frame_cursor
         self._action_frame_cursor = self._primitives.recorded_frame_count()
         status = self._primitives.status()
@@ -232,10 +223,8 @@ class RoboTwinToolkit(Toolkit):
         if frames:
             self._state.save("episode.mp4", frames, step=None, fps=20)
 
-    def _step(self, name: str, **kwargs) -> dict[str, Any]:
+    def _step(self, name: str, **kwargs) -> ToolResult:
         self.raise_if_cancelled()
-        if name == "render":
-            return {"success": True}
         return getattr(self._primitives, name)(**kwargs)
 
     def write_recipe(self, recipe_tag: str) -> str:

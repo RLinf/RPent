@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 from robots.robocasa import tools as robocasa_tools
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
+from rpent.tools import ToolResult, iter_tools
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
@@ -55,29 +56,17 @@ class RoboCasaToolkit(Toolkit):
         self.init_primitives(runtime_kwargs=runtime_kwargs)
         self._register_robocasa_tools()
 
-    # ---- registration: one explicit add_tool per RoboCasa tool ----
     def _register_robocasa_tools(self) -> None:
-        # Stateless perception tools: bind a state= kwarg via partial.
-        state_handlers = {
-            "view_env_state": partial(robocasa_tools.view_env_state, state=self._state),
-            "back_project_batch": partial(
-                robocasa_tools.back_project_batch, state=self._state
-            ),
-            "query_world_map": partial(
-                robocasa_tools.query_world_map, state=self._state
-            ),
-        }
-        for spec in robocasa_tools.TOOLS_SPEC:
-            name = spec["name"]
-            if name in state_handlers:
-                handler = state_handlers[name]
-            elif name == "finish":
-                handler = robocasa_tools.finish
-            else:
-                handler = getattr(self._primitives, name, None)
-                if handler is None:
-                    continue  # spec without a backing primitive method
-            self.add_tool(name, spec, handler)
+        self.add_tools(iter_tools(self._primitives))
+        for definition in iter_tools(robocasa_tools):
+            handler = (
+                definition
+                if definition.name == "finish"
+                else partial(definition, state=self._state)
+            )
+            self.add_tool(
+                definition.with_handler(handler), replace=definition.name == "finish"
+            )
 
     def get_env_state(
         self,
@@ -85,7 +74,7 @@ class RoboCasaToolkit(Toolkit):
         command: dict[str, Any],
         result: dict[str, Any],
         elapsed_s: float,
-    ) -> dict[str, Any]:
+    ) -> ToolResult:
         frame_start = self._action_frame_cursor
         self._action_frame_cursor = self._primitives.recorded_frame_count()
         record = robocasa_tools.dump_state(
@@ -111,9 +100,12 @@ class RoboCasaToolkit(Toolkit):
                     e,
                 )
         out = robocasa_tools.view_env_state(record.step_idx, state=self._state)
-        out["agent_elapsed_s"] = elapsed_s
+        out.data["agent_elapsed_s"] = elapsed_s
         if result.get("interrupted"):
-            out.update(result)
+            out.data.update(
+                {key: value for key, value in result.items() if key != "error"}
+            )
+            out.error = result.get("error")
         return out
 
     def init_primitives(

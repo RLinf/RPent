@@ -35,9 +35,9 @@ from rpent.planner.codex import (
 )
 from rpent.planner.utils.http_mcp_server import (
     HttpMcpServer,
-    _toolkit_to_mcp_content,
+    mcp_result,
 )
-from rpent.tools.toolkit import ToolResult
+from rpent.tools import ToolResult, tool
 
 
 class RecordingSink:
@@ -55,24 +55,19 @@ class RecordingSink:
 class FakeToolkit:
     def __init__(self) -> None:
         self.cancel_calls = 0
+        self.finish_result = None
 
-    def get_tools_spec(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": "finish",
-                "description": "Finish the task.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string"},
-                        "summary": {"type": "string"},
-                    },
-                },
-            }
-        ]
+    @tool(readonly=True)
+    def finish(self, status: str, summary: str) -> ToolResult:
+        """Finish the task."""
+        return self.result
+
+    def list_tools(self):
+        return (self.finish,)
 
     def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
-        return ToolResult(name, {"name": name, "args": args})
+        self.finish_result = dict(args) if name == "finish" else None
+        return ToolResult(data={"name": name, "args": args})
 
     def cancel_active_and_wait(self) -> None:
         self.cancel_calls += 1
@@ -102,7 +97,18 @@ class FakeTurn:
         self.steered: list[str] = []
 
     def stream(self):
-        yield from self.events
+        for event in self.events:
+            item = event.get("payload", {}).get("item", {})
+            if (
+                item.get("type") == "mcpToolCall"
+                and item.get("status") == "completed"
+                and not item.get("error")
+            ):
+                name = item["tool"].removeprefix("mcp__rpent__")
+                FakeMcpServer.instances[-1].toolkit.execute_tool(
+                    name, item.get("arguments", {})
+                )
+            yield event
 
     def interrupt(self) -> None:
         self.interrupt_calls += 1
@@ -174,21 +180,13 @@ def install_fake_backend(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]
 
 
 def test_mcp_content_conversion_preserves_text_images_and_error_status() -> None:
-    plain, plain_error = _toolkit_to_mcp_content("plain")
-    assert plain_error is False
-    assert plain[0].type == "text"
-    assert plain[0].text == "plain"
-
-    result = ToolResult(
-        "finish",
-        {"error": "finish refused", "_image_bytes": b"image bytes"},
-    )
-    content, is_error = _toolkit_to_mcp_content(result)
-
-    assert [block.type for block in content] == ["text", "image"]
-    assert json.loads(content[0].text) == {"error": "finish refused"}
-    assert content[1].mimeType == "image/png"
-    assert is_error is True
+    result = ToolResult(images=[b"image bytes"], error="finish refused")
+    converted = mcp_result(result)
+    content = converted["content"]
+    assert [block["type"] for block in content] == ["text", "image"]
+    assert json.loads(content[0]["text"]) == {"error": "finish refused"}
+    assert content[1]["mimeType"] == "image/png"
+    assert converted["isError"] is True
 
 
 def test_http_mcp_readiness_ignores_environment_proxy(
@@ -436,7 +434,6 @@ def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
     assert fake_codex.closed is True
     assert fake_codex.thread.turn_prompts[0][0] == "system rules\n\nuser task"
     assert result.finish_result == {
-        "_finish": True,
         "status": "success",
         "summary": "done",
     }
@@ -457,7 +454,9 @@ def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
 def test_rejected_finish_item_is_not_promoted() -> None:
     from rpent.planner.codex import _Recorder
 
-    recorder = _Recorder(max_turns=2, dashboard_events=RecordingSink())
+    recorder = _Recorder(
+        toolkit=FakeToolkit(), max_turns=2, dashboard_events=RecordingSink()
+    )
 
     rendered = recorder.observe(
         {

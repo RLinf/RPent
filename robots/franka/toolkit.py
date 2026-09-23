@@ -24,6 +24,7 @@ from robots.franka import perception as franka_perception
 from robots.franka import tools as franka_tools
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
+from rpent.tools import ToolResult, iter_tools
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_output_dir
 
@@ -67,29 +68,11 @@ class FrankaToolkit(Toolkit):
         self._publish_step(record)
 
     def _register_tools(self) -> None:
-        state_handlers = {
-            "view_env_state": partial(franka_tools.view_env_state, state=self._state),
-            "view_camera_meta": partial(
-                franka_tools.view_camera_meta,
-                state=self._state,
-            ),
-            "view_perception_setup": partial(
-                franka_perception.view_perception_setup,
-                state=self._state,
-            ),
-            "back_project": partial(
-                franka_perception.back_project,
-                state=self._state,
-            ),
-            "back_project_correspondence": partial(
-                franka_perception.back_project_correspondence,
-                state=self._state,
-            ),
-        }
-        for spec in self._tools_module.TOOLS_SPEC:
-            name = spec["name"]
-            handler = state_handlers.get(name) or getattr(self._primitives, name)
-            self.add_tool(name, spec, handler)
+        self.add_tools(iter_tools(self._primitives))
+        for definition in iter_tools(self._tools_module, franka_perception):
+            self.add_tool(
+                definition.with_handler(partial(definition, state=self._state))
+            )
 
     def get_env_state(
         self,
@@ -97,7 +80,7 @@ class FrankaToolkit(Toolkit):
         command: dict[str, Any],
         result: dict[str, Any],
         elapsed_s: float,
-    ) -> dict[str, Any]:
+    ) -> ToolResult:
         record = self._tools_module.dump_state(
             self._primitives,
             self._state,
@@ -106,5 +89,5 @@ class FrankaToolkit(Toolkit):
             elapsed_s=elapsed_s,
         )
         output = self._tools_module.view_env_state(record.step_idx, state=self._state)
-        output["agent_elapsed_s"] = elapsed_s
+        output.data["agent_elapsed_s"] = elapsed_s
         return output

@@ -15,10 +15,13 @@
 """RoboCasaPrimitives — action primitives, perception, and VLA execution for RoboCasa."""
 
 import os
+from typing import Annotated
 
 import numpy as np
+from pydantic import Field
 
 from robots.robocasa.rldx_skill import RLDXSkill
+from rpent.tools import ToolResult, tool
 
 OSC_POS_SCALE = 0.05  # action 1.0 -> 0.05 m target delta
 OSC_ROT_SCALE = 0.5  # action 1.0 -> 0.5 rad
@@ -151,11 +154,24 @@ class RoboCasaPrimitives:
         self._pos_jac = np.stack(cols, axis=1)  # 3x3: world_dpos = J @ a_xyz
         return self._pos_jac
 
-    def move_to(self, xyz, gripper="hold", step_clip=0.02, max_steps=200, tol=0.012):
-        """Closed-loop OSC servo of the eef to a WORLD xyz target.
-        gripper="hold" (DEFAULT) maintains the CURRENT finger width — carry a grasped
-        object WITHOUT crushing it (a sustained +1 squeezes small objects out) or letting
-        it drop. Pass +1 to actively CLOSE, -1 to actively OPEN."""
+    @tool
+    def move_to(
+        self,
+        xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+        gripper: float | str = "hold",
+        step_clip: float = 0.02,
+        max_steps: int = 200,
+        tol: float = 0.012,
+    ) -> ToolResult:
+        """Scripted EEF servo to a world-frame XYZ target via the OSC controller. Holds pitch/yaw orientation (use rotate_pitch to reorient). gripper='hold' (DEFAULT) maintains current finger width — carry-safe without crushing small objects. Pass +1 to close, -1 to open. NEVER command a single move_to with |dxyz| > 0.30 — OSC flips IK; split long traversal into 2-3 mid waypoints at carry z.
+
+        Args:
+            xyz: World-frame target [x, y, z] in meters
+            gripper: Gripper: +1 close, -1 open, or 'hold' to maintain current finger width (default 'hold')
+            step_clip: Per-step dxyz cap, m (default 0.02)
+            max_steps: Step budget (default 200)
+            tol: Position tolerance, m (default 0.012)
+        """
         self._vla_desync = True
         target = np.asarray(xyz, dtype=np.float64)
         target_q = float(self.env.gripper_qpos[0])  # finger width to hold
@@ -167,13 +183,15 @@ class RoboCasaPrimitives:
             err = target - cur
             dist = float(np.linalg.norm(err))
             if dist < tol:
-                return {
-                    "ok": True,
-                    "steps": i,
-                    "final_dist": dist,
-                    "eef": cur.tolist(),
-                    "gripper_qpos": round(float(self.env.gripper_qpos[0]), 4),
-                }
+                return ToolResult(
+                    data={
+                        "ok": True,
+                        "steps": i,
+                        "final_dist": dist,
+                        "eef": cur.tolist(),
+                        "gripper_qpos": round(float(self.env.gripper_qpos[0]), 4),
+                    }
+                )
             step_world = err if dist <= step_clip else err / dist * step_clip
             a_xyz = np.clip(Jinv @ step_world, -1, 1)
             a = self._zero()
@@ -185,29 +203,62 @@ class RoboCasaPrimitives:
             if self._recording:
                 self.record_frame()
         cur = self.env.eef_pos
-        return {
-            "ok": False,
-            "steps": max_steps,
-            "final_dist": float(np.linalg.norm(target - cur)),
-            "eef": cur.tolist(),
-            "gripper_qpos": round(float(self.env.gripper_qpos[0]), 4),
-        }
+        return ToolResult(
+            data={
+                "ok": False,
+                "steps": max_steps,
+                "final_dist": float(np.linalg.norm(target - cur)),
+                "eef": cur.tolist(),
+                "gripper_qpos": round(float(self.env.gripper_qpos[0]), 4),
+            }
+        )
 
-    def move_delta(self, dxyz, gripper="hold", step_clip=0.02, max_steps=80):
+    @tool
+    def move_delta(
+        self,
+        dxyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+        gripper: float | str = "hold",
+        step_clip: float = 0.02,
+        max_steps: int = 80,
+    ) -> ToolResult:
+        """Relative EEF displacement from the current position. Computes target = current_eef + dxyz and delegates to move_to. Use for small adjustments (micro-align for grasp, approach). gripper='hold' (DEFAULT) maintains current finger width.
+
+        Args:
+            dxyz: Relative displacement [dx, dy, dz] in meters
+            gripper: Gripper: +1 close, -1 open, or 'hold' (default 'hold')
+            step_clip: Per-step dxyz cap, m (default 0.02)
+            max_steps: Step budget (default 80)
+        """
         self._vla_desync = True
         return self.move_to(
             self.env.eef_pos + np.asarray(dxyz), gripper, step_clip, max_steps
         )
 
-    def rotate_pitch(self, target_pitch=0.6, gripper=1, n=12):
-        """Tilt the wrist forward (axis-angle about control-x). Reuses arm drot."""
+    @tool
+    def rotate_pitch(
+        self, target_pitch: float = 0.6, gripper: float = 1, n: int = 12
+    ) -> ToolResult:
+        """Tilt the wrist forward (axis-angle about the control X-axis). This pitches the gripper down/up. Holds xyz fixed. Use before threading the gripper into a narrow opening whose front face normal is along world +/-y.
+
+        Args:
+            target_pitch: Absolute pitch target, radians (clamped +/-1.5; default 0.6)
+            gripper: Gripper command held during rotation (default +1)
+            n: Number of env steps for the rotation (default 12)
+        """
         self._vla_desync = True
         per = float(np.clip(target_pitch, -1.5, 1.5)) / n
         for _ in range(n):
             self._step_arm(drot=(per, 0, 0), gripper=gripper, n=1)
-        return {"ok": True, "eef": self.env.eef_pos.tolist()}
+        return ToolResult(data={"ok": True, "eef": self.env.eef_pos.tolist()})
 
-    def set_gripper(self, gripper=1, steps=10):
+    @tool
+    def set_gripper(self, gripper: float = 1, steps: int = 10) -> ToolResult:
+        """Hold the current EEF pose and drive the gripper command for `steps` env steps. Use to firm up a grip mid-carry or to actively open/close the gripper.
+
+        Args:
+            gripper: Gripper command: +1 close, -1 open (default +1)
+            steps: Number of env steps to hold (default 10)
+        """
         self._vla_desync = True
         g = self._hold_gripper_val(gripper)
         a = self._zero()
@@ -218,34 +269,57 @@ class RoboCasaPrimitives:
             self.env.step(a)
             if self._recording:
                 self.record_frame()
-        return {"ok": True, "gripper_qpos": self.env.gripper_qpos.tolist()}
+        return ToolResult(
+            data={"ok": True, "gripper_qpos": self.env.gripper_qpos.tolist()}
+        )
 
-    def release(self, steps=10):
+    @tool
+    def release(self, steps: int = 10) -> ToolResult:
+        """Open the gripper for `steps` env steps while holding EEF in place. Delegates to set_gripper(-1.0, steps=steps). Use to drop a grasped object.
+
+        Args:
+            steps: Number of env steps (default 10)
+        """
         return self.set_gripper(-1.0, steps=steps)
 
     # ---- Phase 4: scripted grasp ----
-    def scripted_grasp(self, xyz, approach_z=0.10, grasp_z_offset=0.0, step_clip=0.02):
-        """Open -> hover above target -> descend -> close -> lift. Coarse; replace
-        with RLDX closed-loop grasp for hard objects."""
+    @tool
+    def scripted_grasp(
+        self,
+        xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+        approach_z: float = 0.1,
+        grasp_z_offset: float = 0.0,
+        step_clip: float = 0.02,
+    ) -> ToolResult:
+        """Coarse scripted grasp sequence: open -> hover above target -> descend -> close -> lift. A fallback when the VLA closed-loop grasp is unavailable. For hard objects prefer rldx_arm. approach_z and grasp_z_offset are RELATIVE offsets from the target xyz.
+
+        Args:
+            xyz: World-frame grasp target [x, y, z] in meters
+            approach_z: Z offset above target before descent, m (default 0.10)
+            grasp_z_offset: Z offset at grasp point (default 0.0; negative = below target)
+            step_clip: Per-step dxyz cap during descent, m (default 0.02)
+        """
         t = np.asarray(xyz, dtype=np.float64)
         self.set_gripper(-1.0, steps=4)
         r = self.move_to(t + [0, 0, approach_z], gripper=-1.0, step_clip=step_clip)
-        if not r["ok"]:
-            return {**r, "stage": "approach"}
+        if not r.data["ok"]:
+            return ToolResult(data={**r.data, "stage": "approach"})
         r = self.move_to(
             t + [0, 0, grasp_z_offset], gripper=-1.0, step_clip=0.012, tol=0.01
         )
-        if not r["ok"]:
-            return {**r, "stage": "descent"}
+        if not r.data["ok"]:
+            return ToolResult(data={**r.data, "stage": "descent"})
         self.set_gripper(+1.0, steps=14)
         r = self.move_to(t + [0, 0, approach_z + 0.05], gripper="hold", step_clip=0.015)
-        if not r["ok"]:
-            return {**r, "stage": "lift"}
-        return {
-            "ok": True,
-            "gripper_qpos": self.env.gripper_qpos.tolist(),
-            "eef": self.env.eef_pos.tolist(),
-        }
+        if not r.data["ok"]:
+            return ToolResult(data={**r.data, "stage": "lift"})
+        return ToolResult(
+            data={
+                "ok": True,
+                "gripper_qpos": self.env.gripper_qpos.tolist(),
+                "eef": self.env.eef_pos.tolist(),
+            }
+        )
 
     # ---- Phase 3: navigation ----
     def _base_pose(self):
@@ -255,9 +329,24 @@ class RoboCasaPrimitives:
             np.asarray(o["robot0_base_quat"], dtype=np.float64),
         )
 
-    def move_base(self, forward=0, lateral=0, turn=0, steps=10, gripper="hold"):
-        """Raw base velocity command (robot-local: +fwd, +lateral, +turn yaw).
-        gripper="hold" (DEFAULT) maintains the finger width while driving (carry-safe)."""
+    @tool
+    def move_base(
+        self,
+        forward: float = 0,
+        lateral: float = 0,
+        turn: float = 0,
+        steps: int = 10,
+        gripper: float | str = "hold",
+    ) -> ToolResult:
+        """Raw base velocity commands in the robot's LOCAL frame. +forward = drive forward, +lateral = strafe right, +turn = rotate CCW (yaw). All values clamped [-1, 1]. Use move_base for fine base adjustments near a target; use navigate_to for long-range navigation. gripper='hold' (DEFAULT) maintains finger width while driving.
+
+        Args:
+            forward: Forward velocity, [-1, 1] (default 0)
+            lateral: Lateral / strafe velocity, [-1, 1] (default 0)
+            turn: Yaw rotation velocity, [-1, 1] (default 0)
+            steps: Number of env steps (default 10)
+            gripper: Gripper while driving: +1 close, -1 open, or 'hold' (default 'hold')
+        """
         self._vla_desync = True
         target_q = float(self.env.gripper_qpos[0])
         a = self._zero(base_mode=1.0)
@@ -275,11 +364,13 @@ class RoboCasaPrimitives:
             if self._recording:
                 self.record_frame()
         bp1, _ = self._base_pose()
-        return {
-            "ok": True,
-            "base_moved": (bp1 - bp0).tolist(),
-            "base_pos": bp1.tolist(),
-        }
+        return ToolResult(
+            data={
+                "ok": True,
+                "base_moved": (bp1 - bp0).tolist(),
+                "base_pos": bp1.tolist(),
+            }
+        )
 
     def _yaw(self):
         from scipy.spatial.transform import Rotation as R
@@ -312,11 +403,22 @@ class RoboCasaPrimitives:
             self._fwd_offset = 0.0
         return self._fwd_offset
 
-    def navigate_to(self, xy, tol=0.20, max_steps=300, gripper="hold"):
-        """Drive the mobile base toward a WORLD (x,y) target. Online-calibrates the
-        base forward->world heading, then turns to face + drives forward at full
-        speed (closed-loop). Holds the arm (base_mode>0). Base ~2.3mm/step.
-        gripper="hold" (DEFAULT) maintains the finger width while driving (carry-safe)."""
+    @tool
+    def navigate_to(
+        self,
+        xy: Annotated[list[float], Field(min_length=2, max_length=2)],
+        tol: float = 0.2,
+        max_steps: int = 300,
+        gripper: float | str = "hold",
+    ) -> ToolResult:
+        """Drive the mobile base toward a WORLD (x, y) target. Online-calibrates the base forward-heading, then turns to face + drives forward closed-loop. Holds the arm in place. gripper='hold' (DEFAULT) maintains current finger width while driving (carry-safe). Use tol = expected approach distance + object radius.
+
+        Args:
+            xy: World-frame target [x, y] in meters (z ignored if provided)
+            tol: Distance threshold to stop, m (default 0.20)
+            max_steps: Step budget (default 300)
+            gripper: Gripper while driving: +1 close, -1 open, or 'hold' (default 'hold')
+        """
         self._vla_desync = True
         target = np.asarray(xy[:2], dtype=np.float64)
         target_q = float(self.env.gripper_qpos[0])
@@ -330,14 +432,16 @@ class RoboCasaPrimitives:
             if dist < tol:
                 self._pos_jac = None  # base moved -> recalibrate arm
                 moved = float(np.linalg.norm(bp[:2] - start))
-                return {
-                    "ok": True,
-                    "steps": i,
-                    "final_dist": dist,
-                    "moved": moved,
-                    "start_pos": start.tolist(),
-                    "base_pos": bp.tolist(),
-                }
+                return ToolResult(
+                    data={
+                        "ok": True,
+                        "steps": i,
+                        "final_dist": dist,
+                        "moved": moved,
+                        "start_pos": start.tolist(),
+                        "base_pos": bp.tolist(),
+                    }
+                )
             world_dir = np.arctan2(to[1], to[0])
             cur_forward = self._yaw() + self._fwd_offset
             dyaw = (world_dir - cur_forward + np.pi) % (2 * np.pi) - np.pi
@@ -357,15 +461,17 @@ class RoboCasaPrimitives:
         self._pos_jac = None
         moved = float(np.linalg.norm(bp[:2] - start))
         # stuck = ran out of steps having barely moved (rammed a fixture, no path-planning)
-        return {
-            "ok": False,
-            "steps": max_steps,
-            "final_dist": float(np.linalg.norm(target - bp[:2])),
-            "moved": moved,
-            "stuck": moved < 0.12,
-            "start_pos": start.tolist(),
-            "base_pos": bp.tolist(),
-        }
+        return ToolResult(
+            data={
+                "ok": False,
+                "steps": max_steps,
+                "final_dist": float(np.linalg.norm(target - bp[:2])),
+                "moved": moved,
+                "stuck": moved < 0.12,
+                "start_pos": start.tolist(),
+                "base_pos": bp.tolist(),
+            }
+        )
 
     def dump_success_criteria(self):
         """Return this task's EXACT success condition text (the env's _check_success +
@@ -485,16 +591,14 @@ class RoboCasaPrimitives:
         return result
 
     # ---- reset ----
-    def reset(self):
-        # reset is ONLY for EXPLORE mode (reset-based multi-attempt recipe search).
-        # In no-reset / matched-scene evaluation it is a give-up-and-restart and is
-        # FORBIDDEN — the policy must solve the scene in one shot like the fullshot eval.
-        # Gated by RLDX_ALLOW_RESET (default 0 = disabled); explore launchers opt in.
+    @tool
+    def reset(self) -> ToolResult:
+        """Restart the episode (new layout / object placement sampled). Arm and base calibration are invalidated on reset. DISABLED in no-reset / matched evaluation — the policy must solve the scene in one shot. Only available in EXPLORE mode when RLDX_ALLOW_RESET is enabled."""
         if not self._allow_reset:
-            return {
-                "error": "reset is DISABLED in this run (no-reset/matched evaluation). "
+            return ToolResult(
+                error="reset is DISABLED in this run (no-reset/matched evaluation). "
                 "Solve the scene in one shot; do not restart the episode."
-            }
+            )
         # EXPLORE MODE: restart the episode for a fresh attempt. New layout/
         # object placement sampled; arm/base calibration is invalidated.
         self._vla_desync = True
@@ -502,22 +606,36 @@ class RoboCasaPrimitives:
         self._pos_jac = None
         self._fwd_offset = None
         self._rldx.reset_session()
-        return {"ok": True, "reset": True, "eef": self.env.eef_pos.tolist()}
+        return ToolResult(
+            data={"ok": True, "reset": True, "eef": self.env.eef_pos.tolist()}
+        )
 
     # ---- VLA wrappers (public API for execute) ----
+    @tool(exclude=("use_prompt",))
     def rldx_skill(
         self,
-        base_clip=None,
-        max_chunks=70,
+        base_clip: float | None = None,
+        max_chunks: int = 70,
         use_prompt=None,
-        prompt="",
-        force_reset=False,
-        n_action_steps=8,
-        settle_patience=int(os.environ.get("RLDX_SETTLE_PATIENCE", 999)),
-        settle_eps=0.012,
-    ):
-        # rldx_skill = full base motion (fullshot); base NOT clamped.
-        return self.run_rldx_skill(
+        *,
+        prompt: str,
+        force_reset: bool = False,
+        n_action_steps: int = 8,
+        settle_patience: int = int(os.environ.get("RLDX_SETTLE_PATIENCE", 999)),
+        settle_eps: float = 0.012,
+    ) -> ToolResult:
+        """RLDX VLA closed-loop skill — FULL base motion allowed. The VLA drives both arm and mobile base. Use for full-body tasks where the base must reposition (e.g. navigating to a counter while reaching). Pass the complete live task_language verbatim; the runtime always uses that environment language for RLDX. Do NOT interrupt consecutive VLA calls with manual primitives — that breaks VLA frame history continuity (sets vla_desync=True).
+
+        Args:
+            prompt: Complete live task_language, copied verbatim
+            base_clip: Base motion magnitude cap (default null = no clamp)
+            max_chunks: Action-chunk budget (default 70)
+            force_reset: Force VLA frame history reset (default False)
+            n_action_steps: Actions per VLA chunk (default 8)
+            settle_patience: Settle step budget before declaring done (default 999; do NOT set small)
+            settle_eps: Settle position tolerance, m (default 0.012)
+        """
+        data = self.run_rldx_skill(
             base_clip,
             max_chunks,
             use_prompt,
@@ -527,21 +645,33 @@ class RoboCasaPrimitives:
             settle_patience,
             settle_eps,
         )
+        return ToolResult(data=data, error=data.pop("error", None))
 
+    @tool(exclude=("use_prompt",))
     def rldx_arm(
         self,
-        base_clip=0.1,
-        max_chunks=70,
+        base_clip: float | None = 0.1,
+        max_chunks: int = 70,
         use_prompt=None,
-        prompt="",
-        force_reset=False,
-        n_action_steps=8,
-        settle_patience=int(os.environ.get("RLDX_SETTLE_PATIENCE", 999)),
-        settle_eps=0.012,
-    ):
-        # rldx_arm = base CLAMPED to a small range so the VLA can micro-align
-        # for the grasp but can't drive away.
-        return self.run_rldx_skill(
+        *,
+        prompt: str,
+        force_reset: bool = False,
+        n_action_steps: int = 8,
+        settle_patience: int = int(os.environ.get("RLDX_SETTLE_PATIENCE", 999)),
+        settle_eps: float = 0.012,
+    ) -> ToolResult:
+        """RLDX VLA closed-loop skill — base CLAMPED to small motions (base_clip=0.1 default). The VLA drives the arm for precise micro-alignment (e.g. fine-tuning a grasp approach) but cannot drive the base away. Pass the complete live task_language verbatim; the runtime always uses that environment language for RLDX. Do NOT interrupt consecutive VLA calls with manual primitives.
+
+        Args:
+            prompt: Complete live task_language, copied verbatim
+            base_clip: Base motion magnitude cap (default 0.1 = small)
+            max_chunks: Action-chunk budget (default 70)
+            force_reset: Force VLA frame history reset (default False)
+            n_action_steps: Actions per VLA chunk (default 8)
+            settle_patience: Settle step budget before declaring done (default 999; do NOT set small)
+            settle_eps: Settle position tolerance, m (default 0.012)
+        """
+        data = self.run_rldx_skill(
             base_clip,
             max_chunks,
             use_prompt,
@@ -551,3 +681,4 @@ class RoboCasaPrimitives:
             settle_patience,
             settle_eps,
         )
+        return ToolResult(data=data, error=data.pop("error", None))

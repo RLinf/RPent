@@ -17,10 +17,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import numpy as np
 from PIL import Image, ImageDraw
+from pydantic import Field
+from pydantic.json_schema import SkipJsonSchema
 
 from robots.franka.runtime_config import (
     get_perception_calibration_mapping,
@@ -28,7 +30,8 @@ from robots.franka.runtime_config import (
     load_easy_handeye_yaml,
 )
 from rpent.session import EnvState
-from rpent.tools.toolkit import readonly
+from rpent.tools import ToolResult
+from rpent.tools.base import tool
 
 _CAMERA_ARTIFACTS = {
     "main": ("wrist.png", "wrist_depth.npy"),
@@ -93,43 +96,40 @@ def load_calibration_bundle() -> dict[str, Any]:
     }
 
 
-@readonly
+@tool(readonly=True, exclude=("state",))
 def view_perception_setup(
     *,
     state: EnvState | None = None,
-    step: int = -1,
-) -> dict[str, Any]:
-    """Return camera metadata plus normalized calibration summaries."""
+    step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
+) -> ToolResult:
+    """Read calibrated camera geometry and projection conventions."""
     meta = load_camera_meta(state=state, step=step)
     calibration = load_calibration_bundle()
-    return {
-        "camera_meta": meta,
-        "calibration": {
-            name: _compact_calibration(item)
-            for name, item in calibration.items()
-            if isinstance(item, dict)
-        },
-        "convention": calibration["convention"],
-        "current_policy": (
-            "back_project accepts a single pixel from one camera and returns "
-            "the corresponding point in the robot base frame. The tool owns "
-            "depth lookup, intrinsics, and hand-eye calibration; callers should "
-            "not manually compute camera transforms."
-        ),
-    }
+    return ToolResult(
+        data={
+            "camera_meta": meta,
+            "calibration": {
+                name: _compact_calibration(item)
+                for (name, item) in calibration.items()
+                if isinstance(item, dict)
+            },
+            "convention": calibration["convention"],
+            "current_policy": "back_project accepts a single pixel from one camera and returns the corresponding point in the robot base frame. The tool owns depth lookup, intrinsics, and hand-eye calibration; callers should not manually compute camera transforms.",
+        }
+    )
 
 
-@readonly
+@tool(readonly=True, exclude=("state",))
 def back_project(
     *,
-    row: int,
-    col: int,
-    step: int | None = None,
-    camera: str = "wrist",
-    debug: bool = False,
+    row: Annotated[int, Field(ge=0)],
+    col: Annotated[int, Field(ge=0)],
+    step: int | SkipJsonSchema[None] = None,
+    camera: Literal["wrist", "third_person"] = "wrist",
+    debug: Annotated[bool, Field(json_schema_extra={"default": False})] = False,
     state: EnvState | None = None,
-) -> dict[str, Any]:
-    """Back-project one camera pixel into the Franka robot base frame."""
+) -> ToolResult:
+    """Back-project one wrist or external-camera pixel into Franka base coordinates."""
     if state is None:
         raise ValueError("state is required")
     step_idx, record_state = _resolve_step(state, step)
@@ -176,7 +176,7 @@ def back_project(
         }
         if overlay_path:
             out["selected_pixel_overlay"] = str(overlay_path)
-        return out
+        return ToolResult(data=out, error=out.pop("error", None))
 
     out = {
         "camera": camera_alias,
@@ -205,7 +205,7 @@ def back_project(
                 "calibration."
             ),
         }
-    return out
+    return ToolResult(data=out, error=out.pop("error", None))
 
 
 def _save_selected_pixel_overlay(
@@ -265,25 +265,19 @@ def _save_selected_pixel_overlay(
         return None
 
 
-@readonly
+@tool(readonly=True, exclude=("state",))
 def back_project_correspondence(
     *,
-    third_person_row: int | None = None,
-    third_person_col: int | None = None,
-    wrist_row: int | None = None,
-    wrist_col: int | None = None,
-    pixels: list[dict[str, Any]] | None = None,
-    step: int | None = None,
-    debug: bool = False,
+    third_person_row: Annotated[int, Field(ge=0)] | SkipJsonSchema[None] = None,
+    third_person_col: Annotated[int, Field(ge=0)] | SkipJsonSchema[None] = None,
+    wrist_row: Annotated[int, Field(ge=0)] | SkipJsonSchema[None] = None,
+    wrist_col: Annotated[int, Field(ge=0)] | SkipJsonSchema[None] = None,
+    pixels: list[dict[str, Any]] | SkipJsonSchema[None] = None,
+    step: int | SkipJsonSchema[None] = None,
+    debug: Annotated[bool, Field(json_schema_extra={"default": False})] = False,
     state: EnvState | None = None,
-) -> dict[str, Any]:
-    """Back-project target pixels to robot base frame.
-
-    Wrist pixels are required. Matched third-person pixels are optional but
-    recommended when the task exposes this tool: their independently projected
-    base-frame point is compared against the wrist estimate to produce a
-    confidence score, and high/medium-confidence pairs are fused.
-    """
+) -> ToolResult:
+    """Fuse matched wrist and external-camera pixels into a Franka base point."""
     if state is None:
         raise ValueError("state is required")
     step_idx, record_state = _resolve_step(state, step)
@@ -324,17 +318,20 @@ def back_project_correspondence(
             for point in valid_points
             if point.get("confidence", {}).get("level") in {"high", "medium"}
         ]
-        return {
-            "points": points,
-            "source": "multi_view_rgbd",
-            "step": step_idx,
-            "count": len(points),
-            "valid_count": len(valid_points),
-            "reliable_count": len(reliable_points),
-            "aggregate": _aggregate_points(reliable_points or valid_points),
-            "tcp_pose_source": "RLinf raw_base_state.tcp_pose",
-        }
-    return points[0]
+        return ToolResult(
+            data={
+                "points": points,
+                "source": "multi_view_rgbd",
+                "step": step_idx,
+                "count": len(points),
+                "valid_count": len(valid_points),
+                "reliable_count": len(reliable_points),
+                "aggregate": _aggregate_points(reliable_points or valid_points),
+                "tcp_pose_source": "RLinf raw_base_state.tcp_pose",
+            }
+        )
+    data = points[0]
+    return ToolResult(data=data, error=data.pop("error", None))
 
 
 def _normalize_camera_alias(camera: str) -> str:

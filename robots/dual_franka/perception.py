@@ -17,10 +17,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import numpy as np
 from PIL import Image, ImageDraw
+from pydantic import Field
+from pydantic.json_schema import SkipJsonSchema
 
 from robots.franka.perception import _resolve_step
 from robots.franka.runtime_config import (
@@ -31,7 +33,8 @@ from robots.franka.runtime_config import (
     load_mapping,
 )
 from rpent.session import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
+from rpent.tools import ToolResult
+from rpent.tools.base import tool
 from rpent.utils.transforms import (
     invert_transform,
     transform_points,
@@ -41,18 +44,24 @@ from rpent.utils.transforms import (
 ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "example.yaml"
 
 
-@readonly
+@tool(readonly=True, exclude=("state",))
 def back_project(
     *,
-    camera: str = "d455",
-    row: int,
-    col: int,
-    target_name: str = "target",
-    step: int | None = None,
-    window_radius: int = 2,
+    camera: Annotated[str, Field(json_schema_extra={"default": "d455"})] = "d455",
+    row: Annotated[int, Field(ge=0)],
+    col: Annotated[int, Field(ge=0)],
+    target_name: Annotated[
+        str, Field(json_schema_extra={"default": "target"})
+    ] = "target",
+    step: int | SkipJsonSchema[None] = None,
+    window_radius: Annotated[int, Field(ge=0, json_schema_extra={"default": 2})] = 2,
     state: EnvState | None = None,
-) -> dict[str, Any]:
-    """Back-project one registered camera pixel into the shared right_base frame."""
+) -> ToolResult:
+    """Back-project one pixel from a registered RGBD camera view into shared right-base coordinates. Use a camera listed by view_env_state/view_camera_meta; default is the configured primary metric localization camera.
+
+    Args:
+        camera: Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts.
+    """
     return _back_project_camera_pixel(
         camera=camera,
         row=row,
@@ -64,50 +73,62 @@ def back_project(
     )
 
 
-@readonly
+@tool(readonly=True, exclude=("state", "sam3_client"))
 def segment(
     *,
-    camera: str = "d455",
-    prompt: str = "",
-    point: list[int] | None = None,
-    target_name: str = "target",
-    step: int | None = None,
-    min_score: float = 0.2,
-    min_valid_depth_pixels: int = 25,
+    camera: Annotated[str, Field(json_schema_extra={"default": "d455"})] = "d455",
+    prompt: Annotated[str, Field(json_schema_extra={"default": ""})] = "",
+    point: Annotated[list[int], Field(min_length=2, max_length=2)]
+    | SkipJsonSchema[None] = None,
+    target_name: Annotated[
+        str, Field(json_schema_extra={"default": "target"})
+    ] = "target",
+    step: int | SkipJsonSchema[None] = None,
+    min_score: Annotated[
+        Annotated[float, Field(ge=0.0, le=1.0)],
+        Field(json_schema_extra={"default": 0.2}),
+    ] = 0.2,
+    min_valid_depth_pixels: Annotated[
+        int, Field(ge=1, json_schema_extra={"default": 25})
+    ] = 25,
     state: EnvState | None = None,
     sam3_client: Any | None = None,
-) -> dict[str, Any]:
-    """Segment one registered RGBD camera with SAM3 and localize in right_base."""
+) -> ToolResult:
+    """Use SAM3 on a registered RGB image with either a text prompt or one positive [row, col] point, return a mask overlay for verification, and estimate the mask median point in shared right-base coordinates.
+
+    Args:
+        camera: Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts.
+        prompt: Text prompt for SAM3. Prefer short object/relation phrases; for the clean-desk box use 'white interior of the black cardboard box' or 'cardboard box'. Avoid over-specific surface words such as 'floor' when grounding is weak. Provide exactly one of prompt or point.
+        point: Positive SAM3 point in camera image coordinates [row, col]. Provide exactly one of prompt or point.
+    """
+    images: list[bytes] = []
     camera = _resolve_projection_camera_alias(camera)
     if state is None:
-        return {"ok": False, "found": False, "error": "state is required"}
+        return ToolResult(data={"ok": False, "found": False}, error="state is required")
     if sam3_client is None:
-        return {
-            "ok": False,
-            "found": False,
-            "error": (
-                "SAM3 client is not configured. Start RPent with --sam3-endpoint "
-                "or set SAM3_CHECKPOINT_PATH for local SAM3 auto-start."
-            ),
-            "fallback": f"Use manual {camera} image inspection and back_project.",
-        }
+        return ToolResult(
+            data={
+                "ok": False,
+                "found": False,
+                "fallback": f"Use manual {camera} image inspection and back_project.",
+            },
+            error="SAM3 client is not configured. Start RPent with --sam3-endpoint "
+            "or set SAM3_CHECKPOINT_PATH for local SAM3 auto-start.",
+        )
 
     text_prompt = prompt.strip()
     has_prompt = bool(text_prompt)
     has_point = point is not None
     if has_prompt == has_point:
-        return {
-            "ok": False,
-            "found": False,
-            "error": "segment needs exactly one of prompt or point",
-        }
+        return ToolResult(
+            data={"ok": False, "found": False},
+            error="segment needs exactly one of prompt or point",
+        )
     if has_point:
         if not isinstance(point, list) or len(point) != 2:
-            return {
-                "ok": False,
-                "found": False,
-                "error": "point must be [row, col]",
-            }
+            return ToolResult(
+                data={"ok": False, "found": False}, error="point must be [row, col]"
+            )
         point = [int(point[0]), int(point[1])]
 
     try:
@@ -126,14 +147,16 @@ def segment(
             min_score=float(min_score),
         )
     except ValueError as exc:
-        return {"ok": False, "found": False, "error": str(exc)}
+        return ToolResult(data={"ok": False, "found": False}, error=str(exc))
     except Exception as exc:
-        return {
-            "ok": False,
-            "found": False,
-            "error": f"segmentation service call failed: {exc}",
-            "fallback": f"Use manual {camera} image inspection and back_project.",
-        }
+        return ToolResult(
+            data={
+                "ok": False,
+                "found": False,
+                "fallback": f"Use manual {camera} image inspection and back_project.",
+            },
+            error=f"segmentation service call failed: {exc}",
+        )
 
     segment_index = _next_named_artifact_index(
         state.get(step_idx), prefix=f"{camera}_segment", suffix=".json"
@@ -244,7 +267,7 @@ def segment(
         result["segment_artifact"] = saved_segment
     if saved_overlay is not None:
         result["overlay_artifact"] = saved_overlay
-        result["_image_cam_bytes"] = state.load_bytes(saved_overlay, step=step_idx)
+        images.append(state.load_bytes(saved_overlay, step=step_idx))
         result["image_block_order"] = [f"{camera}_segment_overlay"]
         result["image_delivery"] = (
             f"sam3_{camera}_segment_overlay_returned_for_verification"
@@ -252,7 +275,7 @@ def segment(
     if segment_blob.get("error"):
         result["error"] = segment_blob["error"]
         result["fallback"] = f"Use manual {camera} image inspection and back_project."
-    return result
+    return ToolResult(data=result, error=result.pop("error", None), images=images)
 
 
 def _back_project_camera_pixel(
@@ -264,7 +287,8 @@ def _back_project_camera_pixel(
     step: int | None,
     window_radius: int,
     state: EnvState | None = None,
-) -> dict[str, Any]:
+) -> ToolResult:
+    images: list[bytes] = []
     camera = _resolve_projection_camera_alias(camera)
     if state is None:
         raise ValueError("state is required")
@@ -373,14 +397,14 @@ def _back_project_camera_pixel(
         )
         annotated_path = out["diagnostic_artifacts"].get("annotated_image")
         if annotated_path:
-            out["_image_cam_bytes"] = Path(annotated_path).read_bytes()
+            images.append(Path(annotated_path).read_bytes())
             out["image_block_order"] = [f"{camera}_selection_diagnostic"]
             out["image_delivery"] = (
                 f"annotated_{camera}_selection_returned_for_verification"
             )
     except Exception as exc:
         out["diagnostic_error"] = f"{type(exc).__name__}: {exc}"
-    return out
+    return ToolResult(data=out, error=out.pop("error", None), images=images)
 
 
 def _load_perception_config() -> dict[str, Any]:

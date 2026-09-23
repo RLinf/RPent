@@ -17,302 +17,15 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Sequence
-from typing import Any
+from collections.abc import Callable
+from typing import Annotated, Any, Literal
 
 import numpy as np
+from pydantic import BeforeValidator, Field
 
 from robots.franka.tools import FrankaPrimitives, coerce_vec3
 from rpent.session import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
-
-_ARM_PROPERTY = {
-    "type": "string",
-    "enum": ["left", "right"],
-    "description": "Which arm to command; the other arm is left uncommanded.",
-}
-
-TOOLS_SPEC = [
-    {
-        "name": "describe_dual_franka_setup",
-        "description": (
-            "Read the dual-Franka runtime conventions, camera aliases, VLA "
-            "policy conditioning text, semantic stop rules, and available "
-            "primitive names before acting. This is read-only."
-        ),
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "view_env_state",
-        "description": (
-            "Read a dual-Franka state snapshot. Configured inline camera views "
-            "are returned directly; other available views are returned as "
-            "artifact paths; use read_image to inspect these artifacts."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {"step": {"type": "integer", "default": -1}},
-        },
-    },
-    {
-        "name": "view_camera_meta",
-        "description": "Read camera intrinsics, serials, and projection metadata for the dual-Franka rig.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"step": {"type": "integer", "default": -1}},
-        },
-    },
-    {
-        "name": "back_project",
-        "description": (
-            "Back-project one pixel from a registered RGBD camera view into "
-            "shared right-base coordinates. Use a camera listed by "
-            "view_env_state/view_camera_meta; default is the configured primary "
-            "metric localization camera."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "camera": {
-                    "type": "string",
-                    "default": "d455",
-                    "description": (
-                        "Registered projection view name, e.g. d455 or base. "
-                        "Valid names come from perception.projection_views and "
-                        "the current state's saved artifacts."
-                    ),
-                },
-                "row": {"type": "integer", "minimum": 0},
-                "col": {"type": "integer", "minimum": 0},
-                "target_name": {"type": "string", "default": "target"},
-                "step": {"type": "integer"},
-                "window_radius": {"type": "integer", "minimum": 0, "default": 2},
-            },
-            "required": ["row", "col"],
-        },
-    },
-    {
-        "name": "segment",
-        "description": (
-            "Use SAM3 on a registered RGB image with either a text prompt or one "
-            "positive [row, col] point, return a mask overlay for verification, "
-            "and estimate the mask median point in shared right-base coordinates."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "camera": {
-                    "type": "string",
-                    "default": "d455",
-                    "description": (
-                        "Registered projection view name, e.g. d455 or base. "
-                        "Valid names come from perception.projection_views and "
-                        "the current state's saved artifacts."
-                    ),
-                },
-                "prompt": {
-                    "type": "string",
-                    "default": "",
-                    "description": (
-                        # Phrase hints are intentionally copied from the live
-                        # clean-desk debugging runs where SAM3 often confused
-                        # the cardboard-box interior with nearby table/metal
-                        # basket surfaces.  They are task/deployment hints, not
-                        # an inherent property of the generic segment tool.
-                        "Text prompt for SAM3. Prefer short object/relation phrases; "
-                        "for the clean-desk box use 'white interior of the black "
-                        "cardboard box' or 'cardboard box'. Avoid over-specific "
-                        "surface words such as 'floor' when grounding is weak. "
-                        "Provide exactly one of prompt or point."
-                    ),
-                },
-                "point": {
-                    "type": "array",
-                    "items": {"type": "integer"},
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "description": (
-                        "Positive SAM3 point in camera image coordinates [row, col]. "
-                        "Provide exactly one of prompt or point."
-                    ),
-                },
-                "target_name": {"type": "string", "default": "target"},
-                "step": {"type": "integer"},
-                "min_score": {
-                    "type": "number",
-                    "minimum": 0.0,
-                    "maximum": 1.0,
-                    "default": 0.2,
-                },
-                "min_valid_depth_pixels": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "default": 25,
-                },
-            },
-        },
-    },
-    {
-        "name": "move_delta",
-        "description": "Move one Franka TCP by a bounded world-frame xyz delta in meters.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": _ARM_PROPERTY,
-                "delta_xyz": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                },
-            },
-            "required": ["arm", "delta_xyz"],
-        },
-    },
-    {
-        "name": "rotate_delta",
-        "description": "Rotate one Franka TCP by a bounded world-frame rpy delta in radians.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": _ARM_PROPERTY,
-                "delta_rpy": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                },
-            },
-            "required": ["arm", "delta_rpy"],
-        },
-    },
-    {
-        "name": "open_gripper",
-        "description": "Open one Franka gripper and wait for the command to settle.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"arm": _ARM_PROPERTY},
-            "required": ["arm"],
-        },
-    },
-    {
-        "name": "close_gripper",
-        "description": "Close one Franka gripper and wait for the command to settle.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"arm": _ARM_PROPERTY},
-            "required": ["arm"],
-        },
-    },
-    {
-        "name": "recover_joint_posture",
-        "description": (
-            "Reset both arms to their healthy configured joint posture while "
-            "preserving each gripper's open/closed state. Closed grippers are "
-            "re-commanded before/after the joint reset so held objects stay clamped, "
-            "then both TCPs return near their prior poses."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "reason": {"type": "string", "default": ""},
-                "return_to_start": {"type": "boolean", "default": True},
-            },
-        },
-    },
-    {
-        "name": "request_scene_reset",
-        "description": (
-            "Exploration-only real-robot reset gate. Ask the human operator to "
-            "remove/secure held objects and restore the tabletop scene for another "
-            "attempt, wait for terminal confirmation, then reset the robot posture. "
-            "This does not automatically restore physical objects like a simulator."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "reason": {
-                    "type": "string",
-                    "description": "Why the scene needs to be restored.",
-                },
-                "expected_scene_state": {
-                    "type": "string",
-                    "default": "",
-                    "description": (
-                        "Short instruction for the operator describing the "
-                        "desired restored layout."
-                    ),
-                },
-            },
-            "required": ["reason"],
-        },
-    },
-    {
-        "name": "request_operator_verdict",
-        "description": (
-            "Exploration-only human feedback gate. Ask the operator to mark "
-            "the current physical task state as success, failure, or continue "
-            "before the planner finishes or starts another attempt."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "question": {
-                    "type": "string",
-                    "default": "Does the current real-robot scene satisfy the task?",
-                },
-            },
-        },
-    },
-    *[
-        {
-            "name": name,
-            "description": description,
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "prompt": {
-                        "type": "string",
-                        "description": (
-                            "Planner-facing segment intent. This is recorded in "
-                            "the tool result; the current live clean-desk "
-                            "checkpoint still receives its fixed training "
-                            "instruction during policy inference."
-                        ),
-                    },
-                    "max_chunks": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 20,
-                        "default": 20,
-                    },
-                },
-                "required": ["prompt"],
-            },
-        }
-        for name, description in (
-            (
-                "vla_right_grasp",
-                "Run the learned right-grasp VLA segment. The active task prompt "
-                "decides which object is currently allowed; this tool only "
-                "defines the capability boundary: right gripper closes and the "
-                "right TCP lifts.",
-            ),
-            (
-                "vla_handoff",
-                "Run the learned bimanual handoff VLA segment. The capability "
-                "boundary is right-gripper release followed by the configured "
-                "settle delay; do not rule-base pre-position either arm for it.",
-            ),
-            (
-                "vla_left_place",
-                "Run the learned left-placement VLA segment. The active task "
-                "decides the destination; this tool only defines the capability "
-                "boundary: left gripper opens and the left TCP lifts.",
-            ),
-        )
-    ],
-]
+from rpent.tools import ToolResult, tool
 
 
 def coerce_arm(value: Any) -> str:
@@ -344,16 +57,6 @@ def _agent_observation_policy(meta: dict[str, Any] | None) -> dict[str, list[str
     }
 
 
-def _image_bytes_key(index: int) -> str:
-    keys = [
-        "_image_bytes",
-        "_image_cam_bytes",
-        "_image_nav_bytes",
-        "_image_wrist_bytes",
-    ]
-    return keys[index]
-
-
 class DualFrankaPrimitives(FrankaPrimitives):
     """Safe agent-facing operations over a remote dual-Franka environment."""
 
@@ -376,91 +79,126 @@ class DualFrankaPrimitives(FrankaPrimitives):
         self._sam3_client = sam3_client
         self._vla_instruction = vla_instruction or task_description
 
-    def move_delta(self, arm: str, delta_xyz: Sequence[float]) -> dict[str, Any]:
+    @tool
+    def move_delta(
+        self,
+        arm: Annotated[Literal["left", "right"], BeforeValidator(coerce_arm)],
+        delta_xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+    ) -> ToolResult:
+        """Move one Franka TCP by a bounded world-frame xyz delta in meters.
+
+        Args:
+            arm: Which arm to command; the other arm is left uncommanded.
+        """
         self._check_cancelled()
-        return self.env.move_delta(
+        data = self.env.move_delta(
             coerce_arm(arm), coerce_vec3(delta_xyz, name="delta_xyz")
         )
+        return ToolResult(data=data, error=data.pop("error", None))
 
-    def rotate_delta(self, arm: str, delta_rpy: Sequence[float]) -> dict[str, Any]:
+    @tool
+    def rotate_delta(
+        self,
+        arm: Annotated[Literal["left", "right"], BeforeValidator(coerce_arm)],
+        delta_rpy: Annotated[list[float], Field(min_length=3, max_length=3)],
+    ) -> ToolResult:
+        """Rotate one Franka TCP by a bounded world-frame rpy delta in radians.
+
+        Args:
+            arm: Which arm to command; the other arm is left uncommanded.
+        """
         self._check_cancelled()
-        return self.env.rotate_delta(
+        data = self.env.rotate_delta(
             coerce_arm(arm), coerce_vec3(delta_rpy, name="delta_rpy")
         )
+        return ToolResult(data=data, error=data.pop("error", None))
 
-    def open_gripper(self, arm: str) -> dict[str, Any]:
+    @tool
+    def open_gripper(
+        self, arm: Annotated[Literal["left", "right"], BeforeValidator(coerce_arm)]
+    ) -> ToolResult:
+        """Open one Franka gripper and wait for the command to settle.
+
+        Args:
+            arm: Which arm to command; the other arm is left uncommanded.
+        """
         self._check_cancelled()
-        return self.env.set_gripper(coerce_arm(arm), open=True)
+        data = self.env.set_gripper(coerce_arm(arm), open=True)
+        return ToolResult(data=data, error=data.pop("error", None))
 
-    def close_gripper(self, arm: str) -> dict[str, Any]:
+    @tool
+    def close_gripper(
+        self, arm: Annotated[Literal["left", "right"], BeforeValidator(coerce_arm)]
+    ) -> ToolResult:
+        """Close one Franka gripper and wait for the command to settle.
+
+        Args:
+            arm: Which arm to command; the other arm is left uncommanded.
+        """
         self._check_cancelled()
-        return self.env.set_gripper(coerce_arm(arm), open=False)
+        data = self.env.set_gripper(coerce_arm(arm), open=False)
+        return ToolResult(data=data, error=data.pop("error", None))
 
+    @tool
     def recover_joint_posture(
-        self, reason: str = "", return_to_start: bool = True
-    ) -> dict[str, Any]:
+        self,
+        reason: Annotated[str, Field(json_schema_extra={"default": ""})] = "",
+        return_to_start: Annotated[
+            bool, Field(json_schema_extra={"default": True})
+        ] = True,
+    ) -> ToolResult:
+        """Reset both arms to their healthy configured joint posture while preserving each gripper's open/closed state. Closed grippers are re-commanded before/after the joint reset so held objects stay clamped, then both TCPs return near their prior poses."""
         self._check_cancelled()
-        return self.env.recover_joint_posture(
+        data = self.env.recover_joint_posture(
             reason=str(reason), return_to_start=bool(return_to_start)
         )
+        return ToolResult(data=data, error=data.pop("error", None))
 
-    @readonly
-    def describe_dual_franka_setup(self) -> dict[str, Any]:
-        """Return setup guidance without moving hardware."""
+    @tool(readonly=True)
+    def describe_dual_franka_setup(self) -> ToolResult:
+        """Read the dual-Franka runtime conventions, camera aliases, VLA policy conditioning text, semantic stop rules, and available primitive names before acting. This is read-only."""
+        from robots.dual_franka.toolkit import DualFrankaToolkit
+
         meta = self.env.meta
         observation_policy = _agent_observation_policy(meta)
-        return {
-            "ok": True,
-            "phase": "strict",
-            "reset_policy": (
-                "The runner reset the robot at startup. Do not call reset during "
-                "a task unless reset is explicitly exposed and there is a clear "
-                "robot-side reason."
-            ),
-            "coordinate_frame": "right_base",
-            "camera_aliases": meta.get("observation_camera_map", {}),
-            "projection_views": meta.get("projection_views", {}),
-            "agent_observation": observation_policy,
-            "vla": {
-                "policy_instruction": self._vla_instruction,
-                "num_action_chunks": 20,
-                "action_dim": 20,
-                "num_images_in_input": 3,
-                "external_localization_views_in_policy_input": False,
-                "agent_visible_images": observation_policy["inline_cameras"],
-                "auxiliary_artifact_images": observation_policy["auxiliary_cameras"],
-                "skill_stop_rules": {
-                    "enabled": True,
-                    "grasp_lift_m": 0.15,
-                    "place_lift_m": 0.10,
-                    "handoff_release_delay_s": 1.5,
-                    "min_steps_after_gripper_event": 2,
+        return ToolResult(
+            data={
+                "ok": True,
+                "phase": "strict",
+                "reset_policy": "The runner reset the robot at startup. Do not call reset during a task unless reset is explicitly exposed and there is a clear robot-side reason.",
+                "coordinate_frame": "right_base",
+                "camera_aliases": meta.get("observation_camera_map", {}),
+                "projection_views": meta.get("projection_views", {}),
+                "agent_observation": observation_policy,
+                "vla": {
+                    "policy_instruction": self._vla_instruction,
+                    "num_action_chunks": 20,
+                    "action_dim": 20,
+                    "num_images_in_input": 3,
+                    "external_localization_views_in_policy_input": False,
+                    "agent_visible_images": observation_policy["inline_cameras"],
+                    "auxiliary_artifact_images": observation_policy[
+                        "auxiliary_cameras"
+                    ],
+                    "skill_stop_rules": {
+                        "enabled": True,
+                        "grasp_lift_m": 0.15,
+                        "place_lift_m": 0.1,
+                        "handoff_release_delay_s": 1.5,
+                        "min_steps_after_gripper_event": 2,
+                    },
                 },
-            },
-            "sam3": {
-                "tool": "segment",
-                "status": (
-                    "optional; returns an error and falls back to manual camera "
-                    "projection when no SAM3 client is configured"
-                ),
-                "usage": (
-                    "Use text prompt or one [row, col] positive camera point, then "
-                    "inspect the returned mask overlay before trusting point_xyz. "
-                    "SAM3 text grounding is phrase-sensitive; if a prompt returns a very low score, "
-                    "retry a shorter/rephrased prompt or point prompt rather than "
-                    "lowering min_score blindly."
-                ),
-            },
-            "available_primitives": [spec["name"] for spec in TOOLS_SPEC],
-            "operator_guidance": (
-                "Named VLA semantic boundaries are segment boundaries, not proof "
-                "of physical success. Verify images, gripper widths/open flags, "
-                "joint_health, and projection evidence after every action. "
-                "recover_joint_posture re-commands and preserves each gripper's "
-                "open/closed state; inspect its gripper_preserved result before "
-                "continuing."
-            ),
-        }
+                "sam3": {
+                    "tool": "segment",
+                    "status": "optional; returns an error and falls back to manual camera projection when no SAM3 client is configured",
+                    "usage": "Use text prompt or one [row, col] positive camera point, then inspect the returned mask overlay before trusting point_xyz. SAM3 text grounding is phrase-sensitive; if a prompt returns a very low score, retry a shorter/rephrased prompt or point prompt rather than lowering min_score blindly.",
+                },
+                "available_primitives": [
+                    tool.name for tool in DualFrankaToolkit.declared_tools()
+                ],
+                "operator_guidance": "Named VLA semantic boundaries are segment boundaries, not proof of physical success. Verify images, gripper widths/open flags, joint_health, and projection evidence after every action. recover_joint_posture re-commands and preserves each gripper's open/closed state; inspect its gripper_preserved result before continuing.",
+            }
+        )
 
     def _run_named_vla_skill(
         self,
@@ -683,29 +421,68 @@ class DualFrankaPrimitives(FrankaPrimitives):
             "robot_state": state,
         }
 
-    def vla_right_grasp(self, prompt: str, max_chunks: int = 20) -> dict[str, Any]:
-        return self._run_named_vla_skill(
+    @tool
+    def vla_right_grasp(
+        self,
+        prompt: str,
+        max_chunks: Annotated[
+            int, Field(ge=1, le=20, json_schema_extra={"default": 20})
+        ] = 20,
+    ) -> ToolResult:
+        """Run the learned right-grasp VLA segment. The active task prompt decides which object is currently allowed; this tool only defines the capability boundary: right gripper closes and the right TCP lifts.
+
+        Args:
+            prompt: Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference.
+        """
+        data = self._run_named_vla_skill(
             skill_name="vla_right_grasp",
             boundary="grasp",
             prompt=prompt,
             max_chunks=max_chunks,
         )
+        return ToolResult(data=data, error=data.pop("error", None))
 
-    def vla_handoff(self, prompt: str, max_chunks: int = 20) -> dict[str, Any]:
-        return self._run_named_vla_skill(
+    @tool
+    def vla_handoff(
+        self,
+        prompt: str,
+        max_chunks: Annotated[
+            int, Field(ge=1, le=20, json_schema_extra={"default": 20})
+        ] = 20,
+    ) -> ToolResult:
+        """Run the learned bimanual handoff VLA segment. The capability boundary is right-gripper release followed by the configured settle delay; do not rule-base pre-position either arm for it.
+
+        Args:
+            prompt: Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference.
+        """
+        data = self._run_named_vla_skill(
             skill_name="vla_handoff",
             boundary="handoff",
             prompt=prompt,
             max_chunks=max_chunks,
         )
+        return ToolResult(data=data, error=data.pop("error", None))
 
-    def vla_left_place(self, prompt: str, max_chunks: int = 20) -> dict[str, Any]:
-        return self._run_named_vla_skill(
+    @tool
+    def vla_left_place(
+        self,
+        prompt: str,
+        max_chunks: Annotated[
+            int, Field(ge=1, le=20, json_schema_extra={"default": 20})
+        ] = 20,
+    ) -> ToolResult:
+        """Run the learned left-placement VLA segment. The active task decides the destination; this tool only defines the capability boundary: left gripper opens and the left TCP lifts.
+
+        Args:
+            prompt: Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference.
+        """
+        data = self._run_named_vla_skill(
             skill_name="vla_left_place",
             boundary="place",
             prompt=prompt,
             max_chunks=max_chunks,
         )
+        return ToolResult(data=data, error=data.pop("error", None))
 
 
 def dump_state(
@@ -797,9 +574,14 @@ def dump_state(
     return state.get(step)
 
 
-@readonly
-def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
-    """Return one recorded dual-Franka state with configured inline camera views."""
+@tool(readonly=True, exclude=("state",))
+def view_env_state(
+    step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
+    *,
+    state: EnvState,
+) -> ToolResult:
+    """Read a dual-Franka state snapshot. Configured inline camera views are returned directly; other available views are returned as artifact paths; use read_image to inspect these artifacts."""
+    images: list[bytes] = []
     record = state.get(step)
     output = record.to_blob()
     output["images"] = []
@@ -829,9 +611,7 @@ def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
         artifact = f"{view}.png"
         if index >= 4 or not state.exists(artifact, step=record.step_idx):
             continue
-        output[_image_bytes_key(index)] = state.load_bytes(
-            artifact, step=record.step_idx
-        )
+        images.append(state.load_bytes(artifact, step=record.step_idx))
         output["images"].append(view)
     output["image_block_order"] = list(output["images"])
-    return output
+    return ToolResult(data=output, error=output.pop("error", None), images=images)

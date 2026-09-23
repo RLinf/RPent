@@ -77,34 +77,38 @@ Planner
        dashboard_interaction=None,
    ) -> PlannerResult: ...
 
-约定：用 ``toolkit.get_tools_spec()`` 把工具交给模型；每次调用 ``toolkit.execute_tool(name, input_dict)``；
-把结果喂回模型；在 ``finish`` 工具或轮次用尽时返回 ``PlannerResult``。
+约定：从 ``toolkit.list_tools()`` 获取工具，通过
+``toolkit.execute_tool(name, input_dict)`` 执行调用，并把结果交回模型；
+当 ``toolkit.finish_result`` 已设置或达到轮次上限时，返回 ``PlannerResult``。
+SDK 格式转换和 schema 占位符的处理见 :doc:`../usage/configure_planner`。
 
 工具集
 ------
 
-在 ``robots/<robot>/toolkit.py`` 里继承 ``Toolkit``，用 ``add_tool`` 注册机器人工具：
+在 ``robots/<robot>/toolkit.py`` 中继承 ``Toolkit``。基类已注册公共文件工具
+和 ``finish``；为原语方法添加 ``@tool`` 后，注册实例上的绑定方法：
 
 .. code-block:: python
 
-   def add_tool(self, name: str, spec: dict, handler) -> None: ...
+   self.add_tool(self._primitives.move_to)
+   # 也可以注册所有带 @tool 的方法：
+   self.add_tools(iter_tools(self._primitives))
 
-.. list-table::
-   :header-rows: 1
-   :widths: 22 78
+``add_tool(declaration, replace=True)`` 覆盖同名工具，否则重复注册会报错。
+``declaration.with_handler(handler)`` 可包装处理函数，保留 schema 和
+``readonly`` 设置。
 
-   * - 参数
-     - 含义
-   * - ``name``
-     - LLM 看到的工具名。
-   * - ``spec``
-     - 工具说明与参数 schema（``name``、``description``、``input_schema``）。
-   * - ``handler``
-     - 执行逻辑，须返回 ``dict``。任务结束时在该 ``dict`` 里设 ``_finish``；
-       需要回传相机图时可设 ``_image_bytes`` 等字段。
+参数由类型注解、``Field`` 约束和 Google 风格 docstring 定义。函数默认值
+在运行时生效；如需写入 schema，使用 ``Field(json_schema_extra={"default": value})``。
 
-基类已注册公共文件工具；子类 ``super().__init__()`` 后追加本机器人工具即可。逐步状态与
-``view_env_state`` 见 :doc:`add_primitive`。
+处理函数返回 ``ToolResult``：``data`` 是结果字典，``images`` 是 PNG 字节列表，
+``error`` 是错误信息或 ``None``。``execute_tool`` 校验参数、执行处理函数，
+再通过 ``get_env_state`` 采集观测。``@tool(readonly=True)`` 跳过观测采集；
+直接调用 Python 方法不经过这些校验和采集步骤。工具声明和观测示例见
+:doc:`add_primitive`。
+
+``finish`` 被接受后，``toolkit.finish_result`` 保存去除内部 ``_finish`` 标记的
+结果。调用出错或返回 ``_finish=False`` 时，不会结束任务。
 
 进程间通信
 ----------

@@ -15,10 +15,18 @@
 """Robot-specific schema contracts for RoboTwin tools."""
 
 from robots.robotwin import tools
+from rpent.tools import iter_tools
 
 
 def test_perception_schemas_use_the_same_view_coordinate_space() -> None:
-    by_name = {spec["name"]: spec for spec in tools.TOOLS_SPEC}
+    by_name = {
+        tool.name: {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.input_schema,
+        }
+        for tool in iter_tools(tools)
+    }
 
     for tool_name, coordinate_name in (
         ("sample_world_xyz", "pixels"),

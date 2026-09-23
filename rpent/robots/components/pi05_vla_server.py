@@ -40,7 +40,7 @@ from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.config import get_pi05_checkpoint_path
 from rpent.utils.logging import get_logger
 
-logger = get_logger("vla_server")
+logger = get_logger("pi05_vla_server")
 
 # ---------------------------------------------------------------------------
 # Embodiment registry

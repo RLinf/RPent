@@ -80,38 +80,40 @@ Most users pick a built-in ``api``, ``claude_code``, or ``codex`` planner — se
        dashboard_interaction=None,
    ) -> PlannerResult: ...
 
-Contract: pass ``toolkit.get_tools_spec()`` to the model; dispatch each call via
+Contract: read tools from ``toolkit.list_tools()``; dispatch calls through
 ``toolkit.execute_tool(name, input_dict)``; feed results back to the model; return
-``PlannerResult`` on the ``finish`` tool or when turns are exhausted.
+``PlannerResult`` when ``toolkit.finish_result`` is set or the turn limit is reached.
+See :doc:`../usage/configure_planner` for SDK conversion and schema placeholders.
 
 Toolkit
 -------
 
-Subclass ``Toolkit`` in ``robots/<robot>/toolkit.py`` and register robot tools with
-``add_tool``:
+Subclass ``Toolkit`` in ``robots/<robot>/toolkit.py``. The base constructor
+registers common file tools and ``finish``. Decorate primitive methods with
+``@tool``, then register them from an instance:
 
 .. code-block:: python
 
-   def add_tool(self, name: str, spec: dict, handler) -> None: ...
+   self.add_tool(self._primitives.move_to)
+   # Or register all decorated methods:
+   self.add_tools(iter_tools(self._primitives))
 
-.. list-table::
-   :header-rows: 1
-   :widths: 22 78
+``add_tool(declaration, replace=True)`` replaces a registered tool; otherwise
+duplicate names raise an error. ``declaration.with_handler(handler)`` wraps the
+handler while retaining its schema and ``readonly`` setting.
 
-   * - Argument
-     - Meaning
-   * - ``name``
-     - Tool name the LLM sees.
-   * - ``spec``
-     - Tool description and parameter schema (``name``, ``description``,
-       ``input_schema``).
-   * - ``handler``
-     - Implementation; **must return a ``dict``**. Set ``_finish`` when the task
-       ends; optional ``_image_bytes`` (etc.) to return camera images.
+Type annotations, ``Field`` constraints, and Google-style docstrings define
+parameters. Signature defaults apply at runtime; use
+``Field(json_schema_extra={"default": value})`` to include them in the schema.
 
-The base class already registers common file tools; call ``super().__init__()`` then
-``add_tool`` for robot tools. Per-step state and ``view_env_state`` are in
-:doc:`add_primitive`.
+Handlers return ``ToolResult`` with ``data`` (a dictionary), ``images`` (PNG byte
+strings), and ``error`` (text or ``None``). ``execute_tool`` validates arguments,
+runs the handler, and captures observations through ``get_env_state``.
+``@tool(readonly=True)`` skips capture; direct Python calls bypass both validation
+and capture. Tool declarations and observation examples are in :doc:`add_primitive`.
+
+After an accepted ``finish``, ``toolkit.finish_result`` contains the result without
+its internal ``_finish`` marker. Errors or ``_finish=False`` do not end the task.
 
 Inter-process communication
 ---------------------------

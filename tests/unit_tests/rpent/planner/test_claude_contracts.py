@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import queue
 from pathlib import Path
@@ -22,6 +23,7 @@ from typing import Any
 
 import claude_agent_sdk
 import pytest
+from mcp import types
 
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
 from rpent.planner.claude_code import (
@@ -29,9 +31,9 @@ from rpent.planner.claude_code import (
     _build_rpent_server,
     _ClaudeSessionDriver,
     _Recorder,
-    _tool_result_to_mcp,
 )
-from rpent.tools.toolkit import ToolResult
+from rpent.planner.utils.http_mcp_server import mcp_result
+from rpent.tools import ToolResult, tool
 
 
 class RecordingSink:
@@ -47,38 +49,31 @@ class RecordingSink:
 
 
 class FakeToolkit:
-    def __init__(self, result: dict[str, Any] | None = None) -> None:
-        self.result = result or {"value": "ok"}
+    def __init__(self, result: ToolResult | None = None) -> None:
+        self.result = result or ToolResult(data={"value": "ok"})
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.cancel_calls = 0
+        self.finish_result = None
 
-    def get_tools_spec(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": "inspect_scene",
-                "description": "Inspect the current scene.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"detail": {"type": "string"}},
-                },
-            },
-            {
-                "name": "finish",
-                "description": "Finish the task.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string"},
-                        "summary": {"type": "string"},
-                    },
-                    "required": ["status", "summary"],
-                },
-            },
-        ]
+    @tool(readonly=True)
+    def inspect_scene(self, detail: str = "") -> ToolResult:
+        """Inspect the current scene."""
+        return self.result
+
+    @tool(readonly=True)
+    def finish(self, status: str, summary: str) -> ToolResult:
+        """Finish the task."""
+        return self.result
+
+    def list_tools(self):
+        return (self.inspect_scene, self.finish)
 
     def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
         self.calls.append((name, args))
-        return ToolResult(name, dict(self.result))
+        result = self.result
+        if name == "finish" and not result.is_error:
+            self.finish_result = dict(args)
+        return result
 
     def cancel_active_and_wait(self) -> None:
         self.cancel_calls += 1
@@ -87,41 +82,14 @@ class FakeToolkit:
 class FakeSdkTools:
     def __init__(self) -> None:
         self.options: dict[str, Any] | None = None
-        self.created_server: dict[str, Any] | None = None
 
     def ClaudeAgentOptions(self, **kwargs: Any) -> dict[str, Any]:
         self.options = kwargs
         return kwargs
 
-    @staticmethod
-    def tool(name: str, description: str, schema: dict[str, Any]):
-        def decorate(function: Any) -> Any:
-            function.sdk_name = name
-            function.sdk_description = description
-            function.sdk_schema = schema
-            return function
-
-        return decorate
-
-    def create_sdk_mcp_server(
-        self,
-        *,
-        name: str,
-        version: str,
-        tools: list[Any],
-    ) -> dict[str, Any]:
-        self.created_server = {"name": name, "version": version, "tools": tools}
-        return self.created_server
-
 
 def patch_sdk_surface(monkeypatch: pytest.MonkeyPatch, fake: FakeSdkTools) -> None:
     monkeypatch.setattr(claude_agent_sdk, "ClaudeAgentOptions", fake.ClaudeAgentOptions)
-    monkeypatch.setattr(claude_agent_sdk, "tool", fake.tool)
-    monkeypatch.setattr(
-        claude_agent_sdk,
-        "create_sdk_mcp_server",
-        fake.create_sdk_mcp_server,
-    )
 
 
 def make_planner(tmp_path: Path, sink: RecordingSink, *, timeout_s: float = 1):
@@ -144,7 +112,7 @@ def test_options_translate_builtin_and_rpent_tools_without_mutating_specs(
     sink = RecordingSink()
     planner = make_planner(tmp_path, sink)
     toolkit = FakeToolkit()
-    original_specs = toolkit.get_tools_spec()
+    original_specs = toolkit.list_tools()
     fake_sdk = FakeSdkTools()
 
     options = planner._build_options(fake_sdk, toolkit=toolkit, max_turns=4)
@@ -164,7 +132,7 @@ def test_options_translate_builtin_and_rpent_tools_without_mutating_specs(
     ]
     assert options["add_dirs"] == [str(tmp_path), str(tmp_path / "memory")]
     assert options["setting_sources"] == []
-    assert toolkit.get_tools_spec() == original_specs
+    assert toolkit.list_tools() == original_specs
 
 
 def test_options_construct_with_the_installed_claude_sdk(tmp_path: Path) -> None:
@@ -186,45 +154,60 @@ def test_options_construct_with_the_installed_claude_sdk(tmp_path: Path) -> None
     ]
 
 
-def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors() -> None:
-    toolkit = FakeToolkit({"error": "rejected", "_image_bytes": b"contract-image"})
-    fake_sdk = FakeSdkTools()
+async def _sdk_call(server, name, arguments):
+    request = types.CallToolRequest(
+        method="tools/call",
+        params=types.CallToolRequestParams(name=name, arguments=arguments),
+    )
+    result = await server["instance"].request_handlers[types.CallToolRequest](request)
+    return result.root
 
-    server = _build_rpent_server(fake_sdk, toolkit=toolkit)
 
+def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
+    toolkit = FakeToolkit(ToolResult(error="rejected", images=[b"contract-image"]))
+    server = _build_rpent_server(toolkit=toolkit)
+    assert server["type"] == "sdk"
     assert server["name"] == "rpent"
-    assert server["version"] == "0.1.0"
-    tools = {tool.sdk_name: tool for tool in server["tools"]}
-    assert tools["inspect_scene"].sdk_description == "Inspect the current scene."
-    assert (
-        tools["inspect_scene"].sdk_schema == toolkit.get_tools_spec()[0]["input_schema"]
-    )
 
-    response = asyncio.run(tools["inspect_scene"]({"detail": "high"}))
+    async def exercise():
+        listed = await server["instance"].request_handlers[types.ListToolsRequest](
+            types.ListToolsRequest(method="tools/list")
+        )
+        tools = {item.name: item for item in listed.root.tools}
+        assert tools["inspect_scene"].description == "Inspect the current scene."
+        assert (
+            tools["inspect_scene"].inputSchema == toolkit.list_tools()[0].input_schema
+        )
+        return await _sdk_call(server, "inspect_scene", {"detail": "high"})
 
+    response = asyncio.run(exercise())
     assert toolkit.calls == [("inspect_scene", {"detail": "high"})]
-    assert response["is_error"] is True
-    assert [block["type"] for block in response["content"]] == ["text", "image"]
-    assert response["content"][1]["mimeType"] == "image/png"
+    assert response.isError
+    assert [block.type for block in response.content] == ["text", "image"]
+    assert response.content[1].mimeType == "image/png"
 
 
-def test_tool_result_conversion_supports_plain_values_and_content_blocks() -> None:
-    assert _tool_result_to_mcp("plain") == {
-        "content": [{"type": "text", "text": "plain"}]
-    }
-
+def test_tool_result_conversion_preserves_native_data_images_and_errors() -> None:
     result = ToolResult(
-        "inspect_scene",
-        {"value": "visible", "_image_bytes": b"pixels"},
+        data={"step": 1}, images=[b"image bytes"], error="finish refused"
     )
-    converted = _tool_result_to_mcp(result)
-
-    assert converted["content"][0] == {
-        "type": "text",
-        "text": '{\n  "value": "visible"\n}',
+    converted = mcp_result(result)
+    assert converted["isError"] is True
+    assert json.loads(converted["content"][0]["text"]) == {
+        "step": 1,
+        "error": "finish refused",
     }
-    assert converted["content"][1]["type"] == "image"
-    assert "is_error" not in converted
+    image = converted["content"][1]
+    assert image["mimeType"] == "image/png"
+    assert base64.b64decode(image["data"]) == b"image bytes"
+
+    business_data = {"error": {"count": 0}}
+    converted = mcp_result(ToolResult(data=business_data))
+    assert converted["isError"] is False
+    assert json.loads(converted["content"][0]["text"]) == business_data
 
 
 def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
@@ -253,6 +236,11 @@ def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
                 },
             ],
         }
+        await _sdk_call(
+            options["mcp_servers"]["rpent"],
+            "finish",
+            {"status": "success", "summary": "done"},
+        )
         yield {
             "type": "UserMessage",
             "parent_tool_use_id": "finish-1",
@@ -271,7 +259,6 @@ def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
     )
 
     assert result.finish_result == {
-        "_finish": True,
         "status": "success",
         "summary": "done",
     }
@@ -290,7 +277,9 @@ def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
 
 
 def test_rejected_finish_result_is_not_promoted(tmp_path: Path) -> None:
-    recorder = _Recorder(max_turns=2, dashboard_events=RecordingSink())
+    recorder = _Recorder(
+        toolkit=FakeToolkit(), max_turns=2, dashboard_events=RecordingSink()
+    )
     recorder.observe(
         {
             "type": "AssistantMessage",
@@ -456,7 +445,9 @@ def test_stateful_sdk_driver_closes_adapter_tasks_and_client() -> None:
     driver = _ClaudeSessionDriver(
         sdk=Sdk(),
         options={"fake": "options"},
-        recorder=_Recorder(max_turns=1, dashboard_events=RecordingSink()),
+        recorder=_Recorder(
+            toolkit=FakeToolkit(), max_turns=1, dashboard_events=RecordingSink()
+        ),
         emit=lambda message: events.append(f"message:{message}"),
     )
 

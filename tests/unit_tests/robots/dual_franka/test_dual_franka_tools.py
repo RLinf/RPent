@@ -41,7 +41,6 @@ from rpent.dashboard.events import NullDashboardEventSink, StepRecordEvent
 from rpent.dashboard.state import DashboardState
 from rpent.memory import MemoryManager
 from rpent.session import EnvState
-from rpent.tools.toolkit import ToolResult
 
 
 class FakeEnv:
@@ -227,14 +226,15 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
     refused_eval = evaluation.execute_tool(
         "finish", {"status": "success", "summary": "not confirmed"}
     )
-    assert refused_eval.result["error"] == "finish refused"
-    assert refused_eval.is_finish is False
+    assert refused_eval.to_dict()["error"] == "finish refused"
+    assert evaluation.finish_result is None
     evaluation._read_operator_line = lambda prompt: "success checked by operator"
     evaluation.execute_tool("request_operator_verdict", {})
     accepted_eval = evaluation.execute_tool(
         "finish", {"status": "success", "summary": "confirmed"}
     )
-    assert accepted_eval.is_finish is True
+    assert not accepted_eval.is_error
+    assert evaluation.finish_result is not None
     assert evaluation.solved()
     assert "request_scene_reset" in _tool_names(exploration)
     assert "request_operator_verdict" in _tool_names(exploration)
@@ -243,8 +243,8 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
         "finish",
         {"status": "success", "summary": "agent thinks done"},
     )
-    assert refused.result["error"].startswith("finish refused")
-    assert refused.is_finish is False
+    assert refused.to_dict()["error"].startswith("finish refused")
+    assert exploration.finish_result is None
 
     exploration._read_operator_line = lambda prompt: "done"
     exploration.execute_tool("request_scene_reset", {"reason": "prepare"})
@@ -254,8 +254,8 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
         "finish",
         {"status": "success", "summary": "operator accepted"},
     )
-    assert accepted.is_finish is True
-    assert accepted.result["operator_verdict"] == "success"
+    assert exploration.finish_result is not None
+    assert accepted.to_dict()["operator_verdict"] == "success"
 
 
 def test_scene_reset_waits_for_operator_then_resets_robot(tmp_path: Path):
@@ -284,7 +284,7 @@ def test_scene_reset_waits_for_operator_then_resets_robot(tmp_path: Path):
             "reason": "retry with restored layout",
             "expected_scene_state": "objects back at the starting positions",
         },
-    ).result
+    ).to_dict()
 
     assert env.resets == 1
     assert result["result"]["robot_reset"] == {"ok": True}
@@ -337,15 +337,20 @@ def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
         "camera_meta.json",
     }
     output = view_env_state(state=state)
-    assert output["_image_bytes"]
-    assert "_image_nav_bytes" not in output
-    assert "_image_cam_bytes" not in output
-    assert "_image_wrist_bytes" not in output
-    assert output["artifact_images"] == ["base", "d455", "left_wrist", "right_wrist"]
-    assert output["image_block_order"] == ["d455"]
+    assert output.images[0]
+    assert "_image_nav_bytes" not in output.data
+    assert "_image_cam_bytes" not in output.data
+    assert "_image_wrist_bytes" not in output.data
+    assert output.data["artifact_images"] == [
+        "base",
+        "d455",
+        "left_wrist",
+        "right_wrist",
+    ]
+    assert output.data["image_block_order"] == ["d455"]
     np.testing.assert_array_equal(state.load("base.png"), 7)
     np.testing.assert_array_equal(state.load("base_depth.npy"), 9)
-    camera_meta = view_camera_meta(state=state)["camera_meta"]
+    camera_meta = view_camera_meta(state=state).data["camera_meta"]
     assert camera_meta["observation_camera_map"]["main"] == "left_wrist_0_rgb"
 
 
@@ -373,16 +378,21 @@ def test_view_env_state_emits_multimodal_image_blocks(tmp_path: Path):
     output = view_env_state(state=state)
     # Routine planner snapshots inline only D455, while auxiliary camera
     # artifacts stay available through returned paths/read_image.
-    assert output["images"] == ["d455"]
-    assert output["image_block_order"] == output["images"]
-    assert output["artifact_images"] == ["base", "d455", "left_wrist", "right_wrist"]
+    assert output.data["images"] == ["d455"]
+    assert output.data["image_block_order"] == output.data["images"]
+    assert output.data["artifact_images"] == [
+        "base",
+        "d455",
+        "left_wrist",
+        "right_wrist",
+    ]
 
-    result = ToolResult(name="view_env_state", result=output)
-    image_blocks = [b for b in result.content_blocks if b.get("type") == "image"]
+    result = output
+    image_blocks = result.images
     assert len(image_blocks) == 1
-    text_block = next(b for b in result.content_blocks if b.get("type") == "text")
+    text_block = result.to_text()
     # Image bytes must be lifted out of the text block, not serialized into it.
-    assert "_image_" not in text_block["text"]
+    assert "_image_" not in text_block
 
 
 def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
@@ -436,9 +446,9 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
     finally:
         set_robot_config_path(None)
 
-    assert result["coordinate_frame"] == "right_base"
-    assert result["depth_m"] == 0.5
-    assert len(result["point_xyz"]) == 3
+    assert result.data["coordinate_frame"] == "right_base"
+    assert result.data["depth_m"] == 0.5
+    assert len(result.data["point_xyz"]) == 3
 
 
 def test_load_calibration_bundle_merges_easy_handeye_yamls_and_robot_config(
@@ -549,30 +559,30 @@ def test_back_project_returns_annotated_image_block(tmp_path: Path):
     finally:
         set_robot_config_path(None)
 
-    assert result["coordinate_frame"] == "right_base"
-    assert result["tcp_delta_coordinate_frame"] == "right_base"
-    assert result["left_tcp_xyz"] == [0.01, 0.69, 0.0]
-    assert result["right_tcp_xyz"] == [0.0, 0.0, 0.0]
-    point = np.asarray(result["point_xyz"])
+    assert result.data["coordinate_frame"] == "right_base"
+    assert result.data["tcp_delta_coordinate_frame"] == "right_base"
+    assert result.data["left_tcp_xyz"] == [0.01, 0.69, 0.0]
+    assert result.data["right_tcp_xyz"] == [0.0, 0.0, 0.0]
+    point = np.asarray(result.data["point_xyz"])
     np.testing.assert_allclose(
-        result["delta_left_tcp_to_point_xyz"],
-        point - np.asarray(result["left_tcp_xyz"]),
+        result.data["delta_left_tcp_to_point_xyz"],
+        point - np.asarray(result.data["left_tcp_xyz"]),
         atol=1e-5,
     )
     np.testing.assert_allclose(
-        result["delta_right_tcp_to_point_xyz"],
-        point - np.asarray(result["right_tcp_xyz"]),
+        result.data["delta_right_tcp_to_point_xyz"],
+        point - np.asarray(result.data["right_tcp_xyz"]),
         atol=1e-5,
     )
-    assert result["diagnostic_artifacts"]["annotated_image"].endswith(".png")
-    assert result["_image_cam_bytes"]
-    assert result["image_block_order"] == ["d455_selection_diagnostic"]
+    assert result.data["diagnostic_artifacts"]["annotated_image"].endswith(".png")
+    assert result.images[0]
+    assert result.data["image_block_order"] == ["d455_selection_diagnostic"]
 
-    tool_result = ToolResult(name="back_project", result=result)
-    image_blocks = [b for b in tool_result.content_blocks if b.get("type") == "image"]
+    tool_result = result
+    image_blocks = tool_result.images
     assert len(image_blocks) == 1
-    text_block = next(b for b in tool_result.content_blocks if b.get("type") == "text")
-    assert "_image_" not in text_block["text"]
+    text_block = tool_result.to_text()
+    assert "_image_" not in text_block
 
 
 def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
@@ -633,21 +643,21 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
     finally:
         set_robot_config_path(None)
 
-    assert result["ok"]
-    assert result["found"]
-    assert result["coordinate_frame"] == "right_base"
-    assert result["tcp_delta_coordinate_frame"] == "right_base"
-    assert "delta_left_tcp_to_point_xyz" in result
-    assert "delta_right_tcp_to_point_xyz" in result
-    assert len(result["point_xyz"]) == 3
-    assert result["centroid_pixel"] == [4, 4]
-    assert result["segment_artifact"].startswith("d455_segment_")
-    assert result["overlay_artifact"].startswith("d455_segment_overlay_")
-    assert result["_image_cam_bytes"]
-    assert result["image_block_order"] == ["d455_segment_overlay"]
+    assert result.data["ok"]
+    assert result.data["found"]
+    assert result.data["coordinate_frame"] == "right_base"
+    assert result.data["tcp_delta_coordinate_frame"] == "right_base"
+    assert "delta_left_tcp_to_point_xyz" in result.data
+    assert "delta_right_tcp_to_point_xyz" in result.data
+    assert len(result.data["point_xyz"]) == 3
+    assert result.data["centroid_pixel"] == [4, 4]
+    assert result.data["segment_artifact"].startswith("d455_segment_")
+    assert result.data["overlay_artifact"].startswith("d455_segment_overlay_")
+    assert result.images[0]
+    assert result.data["image_block_order"] == ["d455_segment_overlay"]
 
-    tool_result = ToolResult(name="segment", result=result)
-    image_blocks = [b for b in tool_result.content_blocks if b.get("type") == "image"]
+    tool_result = result
+    image_blocks = tool_result.images
     assert len(image_blocks) == 1
 
 
@@ -658,9 +668,9 @@ def test_segment_without_sam3_client_falls_back(tmp_path: Path):
 
     result = segment(prompt="cup", state=state, sam3_client=None)
 
-    assert not result["ok"]
-    assert "SAM3 client is not configured" in result["error"]
-    assert "back_project" in result["fallback"]
+    assert not result.data["ok"]
+    assert "SAM3 client is not configured" in result.error
+    assert "back_project" in result.data["fallback"]
 
 
 def test_vla_grasp_runs_bounded_chunks():
@@ -669,7 +679,7 @@ def test_vla_grasp_runs_bounded_chunks():
 
     result = primitives.vla_grasp("hand over the cube", max_chunks=3)
 
-    assert result["chunks_executed"] == 3
+    assert result.data["chunks_executed"] == 3
     assert len(env.chunks) == 3
 
 
@@ -679,8 +689,8 @@ def test_recover_joint_posture_forwards_to_env():
 
     result = primitives.recover_joint_posture(reason="joint drift")
 
-    assert result["ok"]
-    assert result["reason"] == "joint drift"
+    assert result.data["ok"]
+    assert result.data["reason"] == "joint drift"
 
 
 def test_named_clean_desk_vla_uses_fixed_prompt_and_semantic_boundary():
@@ -694,11 +704,11 @@ def test_named_clean_desk_vla_uses_fixed_prompt_and_semantic_boundary():
         prompt="grasp the next task-allowed object", max_chunks=2
     )
 
-    assert result["ok"]
-    assert result["skill_name"] == "vla_right_grasp"
-    assert result["prompt_overridden"]
-    assert result["boundary"] == "grasp"
-    assert result["boundary_reached"]
+    assert result.data["ok"]
+    assert result.data["skill_name"] == "vla_right_grasp"
+    assert result.data["prompt_overridden"]
+    assert result.data["boundary"] == "grasp"
+    assert result.data["boundary_reached"]
     assert len(env.chunks) == 3
 
 
@@ -712,5 +722,5 @@ def test_named_vla_uses_task_configured_policy_instruction():
         check_cancelled=lambda: None,
     )
     result = primitives.vla_right_grasp(prompt="planner segment intent", max_chunks=2)
-    assert result["effective_policy_prompt"] == instruction
-    assert result["prompt_overridden"]
+    assert result.data["effective_policy_prompt"] == instruction
+    assert result.data["prompt_overridden"]

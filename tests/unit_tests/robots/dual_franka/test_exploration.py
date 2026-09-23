@@ -90,7 +90,7 @@ def setup(tmp_path, monkeypatch):
 
 
 def call(t, name, **kwargs):
-    return t.execute_tool(name, kwargs).result
+    return t.execute_tool(name, kwargs).to_dict()
 
 
 def reset(t, replies):
@@ -511,8 +511,12 @@ def test_direct_success_stops_active_tool_and_records_memory(setup, tmp_path):
         t.raise_if_cancelled()
         pytest.fail("motion must not continue after success")
 
-    t.add_tool("move_delta", t._tools["move_delta"][0], active_motion)
-    worker = threading.Thread(target=lambda: results.append(call(t, "move_delta")))
+    t.add_tool(t._tools["move_delta"].with_handler(active_motion), replace=True)
+    worker = threading.Thread(
+        target=lambda: results.append(
+            call(t, "move_delta", arm="right", delta_xyz=[0.01, 0, 0])
+        )
+    )
     worker.start()
     assert entered.wait(2)
     assert t.request_direct_verdict("success")

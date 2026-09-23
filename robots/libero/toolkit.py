@@ -20,6 +20,7 @@ LIBERO primitives (``move_to``, ``pi0_pick``, ``release``, ...) on top.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -27,7 +28,9 @@ from typing import TYPE_CHECKING, Any
 from robots.libero import tools as libero_tools
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, readonly
+from rpent.tools import ToolResult, iter_tools
+from rpent.tools.base import tool
+from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
@@ -71,74 +74,60 @@ class LiberoToolkit(Toolkit):
     # Registration
     # ------------------------------------------------------------------
     def _register_libero_tools(self) -> None:
-        # These read-only handlers need the run's EnvState bound in. Every
-        # other spec binds to a primitive-driver method and captures state by
-        # default unless that method is explicitly marked @readonly.
-        state_handlers = {
-            "view_env_state": partial(libero_tools.view_env_state, state=self._state),
-            "view_camera_meta": partial(
-                libero_tools.view_camera_meta, state=self._state
-            ),
-            "back_project": partial(libero_tools.back_project, state=self._state),
-            "segment": partial(self._primitives.segment, state=self._state),
-        }
-        for spec in libero_tools.TOOLS_SPEC:
-            name = spec["name"]
-            if name == "reset" and self._mode != "exploration":
-                continue
-            if name in state_handlers:
-                handler = state_handlers[name]
-            else:
-                handler = getattr(self._primitives, name, None)
-                if handler is None:
-                    continue  # spec without a backing primitive method
-                handler = partial(self._execute_primitive, name, handler)
-            self.add_tool(name, spec, handler)
-        if self._mode == "exploration":
-            reset_spec = next(
-                spec for spec in libero_tools.TOOLS_SPEC if spec["name"] == "reset"
-            )
-            self.add_tool("reset", reset_spec, self._reset_episode)
-            finish_spec, finish_handler = self._tools["finish"]
+        for definition in iter_tools(libero_tools):
             self.add_tool(
-                "finish", finish_spec, partial(self._guarded_finish, finish_handler)
+                definition.with_handler(partial(definition, state=self._state))
+            )
+        for definition in iter_tools(self._primitives):
+            if definition.name == "segment":
+                handler = partial(definition, state=self._state)
+            else:
+                handler = partial(self._execute_primitive, definition.name, definition)
+            self.add_tool(definition.with_handler(handler))
+        if self._mode == "exploration":
+            self.add_tool(self._reset_episode)
+            finish = self._tools["finish"]
+            self.add_tool(
+                finish.with_handler(partial(self._guarded_finish, finish)), replace=True
             )
 
-    def _execute_primitive(self, name: str, handler: Any, **kwargs: Any) -> Any:
+    def _execute_primitive(
+        self, name: str, handler: Callable[..., ToolResult], **kwargs: Any
+    ) -> ToolResult:
         self._primitives.begin_primitive(name)
         try:
             return handler(**kwargs)
         finally:
             self._primitives.end_primitive()
 
-    @readonly
-    def _guarded_finish(self, inner: Any, **kwargs: Any) -> dict[str, Any]:
+    def _guarded_finish(self, inner: Any, **kwargs: Any) -> ToolResult:
         """Refuse to end an unsolved session while attempts remain."""
         budget = self._attempts_per_session
         if budget and not self.solved() and self._session_attempt < budget:
             remaining = budget - self._session_attempt
-            return {
-                "error": "finish refused",
-                "reason": (
-                    f"This session has {remaining} of its {budget} attempts left "
-                    "and the task is not solved. Archive this attempt, call "
-                    "`reset`, and try another approach."
-                ),
-            }
+            return ToolResult(
+                data={
+                    "reason": f"This session has {remaining} of its {budget} attempts left and the task is not solved. Archive this attempt, call `reset`, and try another approach."
+                },
+                error="finish refused",
+            )
         return inner(**kwargs)
 
-    def _reset_episode(self, reason: str) -> dict[str, Any]:
-        """Restart the episode while preserving the full exploration trace."""
+    @tool(name="reset")
+    def _reset_episode(self, reason: str) -> ToolResult:
+        """EXPLORE MODE ONLY. Abandon the current episode and restore the same initial scene. Archive the failed attempt first and state which strategy lever will change in the next attempt.
+
+        Args:
+            reason: Why this episode is unrecoverable and what will change.
+        """
         budget = self._attempts_per_session
         if budget and self._session_attempt >= budget:
-            return {
-                "error": "reset refused",
-                "reason": (
-                    f"This session's attempt budget is spent ({budget} attempts). "
-                    "Archive the attempt, update the handoff notes, and call "
-                    "`finish` so the next session can continue."
-                ),
-            }
+            return ToolResult(
+                data={
+                    "reason": f"This session's attempt budget is spent ({budget} attempts). Archive the attempt, update the handoff notes, and call `finish` so the next session can continue."
+                },
+                error="reset refused",
+            )
         self._attempt += 1
         self._session_attempt += 1
         result = self._primitives.reset_episode(reason=reason)
@@ -147,7 +136,7 @@ class LiberoToolkit(Toolkit):
             f"Episode restarted; this is attempt {self._attempt}. The original "
             "layout was restored. Re-run perception before acting."
         )
-        return result
+        return ToolResult(data=result, error=result.pop("error", None))
 
     def get_env_state(
         self,
@@ -155,7 +144,7 @@ class LiberoToolkit(Toolkit):
         command: dict[str, Any],
         result: dict[str, Any],
         elapsed_s: float,
-    ) -> dict[str, Any]:
+    ) -> ToolResult:
         frame_start = self._action_frame_cursor
         self._action_frame_cursor = self._primitives.recorded_frame_count()
         record = libero_tools.dump_state(
@@ -182,9 +171,12 @@ class LiberoToolkit(Toolkit):
                     e,
                 )
         out = libero_tools.view_env_state(record.step_idx, state=self._state)
-        out["agent_elapsed_s"] = elapsed_s
+        out.data["agent_elapsed_s"] = elapsed_s
         if result.get("interrupted"):
-            out.update(result)
+            out.data.update(
+                {key: value for key, value in result.items() if key != "error"}
+            )
+            out.error = result.get("error")
         return out
 
     @property

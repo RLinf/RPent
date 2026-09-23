@@ -33,48 +33,44 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 添加一个脚本化原语
 ------------------
 
-添加脚本化原语通常需要以下两个步骤：
+在机器人的 primitives 类中添加方法，用 ``@tool`` 声明工具，并返回
+``ToolResult``。工具说明和参数 schema 根据类型注解及 Google 风格 docstring
+自动生成。下面的例子用 ``Field`` 将位移参数限制为三个分量：
 
-1. **在 primitives 中添加方法。** 在当前机器人的 primitives
-   类（如 ``LiberoPrimitives``、``MyRobotPrimitives``）中添加
-   一个方法。该方法接收工具调用的参数，执行一次或多次
-   ``self._env.step(...)``，并返回一个简短的日志字典。
+.. code-block:: python
 
-     primitive 方法执行后默认会自动捕获并重新渲染状态
-     （``get_env_state``）：
+   from typing import Annotated
 
-   .. code-block:: python
+   from pydantic import Field
 
-      def open_drawer(self, dx: float = 0.15) -> dict:
-          # 保持夹爪闭合，沿 -x 方向后拉 dx 米。
-          for _ in range(N):
-              self._env.step(build_open_drawer_chunk(dx))
-          return {"ok": True, "dx": dx}
+   from rpent.tools import ToolResult, iter_tools, tool
 
-   只读工具（``view_env_state``、``back_project``、``segment`` 等）
-     可以使用 :func:`~rpent.tools.toolkit.readonly` 标记，toolkit 会跳过
-     它们的状态捕获，提升性能。
+   class MyPrimitives:
+       def __init__(self, env):
+           self.env = env
 
-2. **添加工具定义。** 在 ``robots/<robot>/tools.py`` 的 ``TOOLS_SPEC`` 中新增一项：
+       @tool
+       def move_delta(
+           self,
+           delta_xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+       ) -> ToolResult:
+           """Move the TCP by a base-frame offset.
 
-   .. code-block:: python
+           Args:
+               delta_xyz: XYZ displacement in metres.
+           """
+           return ToolResult(data=self.env.move_delta(delta_xyz))
 
-      {
-          "name": "open_drawer",
-          "description": "Pull the currently-grasped drawer handle "
-                         "backwards by ``dx`` meters.",
-          "input_schema": {
-              "type": "object",
-              "properties": {"dx": {"type": "number"}},
-              "required": [],
-          },
-      }
+   # 在机器人 toolkit 的 super().__init__(...) 之后注册：
+   self._primitives = MyPrimitives(env)
+   self.add_tools(iter_tools(self._primitives))
 
-两者就位后，toolkit 会自动注册该工具：它遍历 ``TOOLS_SPEC``，把每个定义
-绑定到对应的 primitive 方法（如 ``getattr(self._primitives, name)``）。
+``iter_tools`` 收集实例中带 ``@tool`` 的方法（包括继承的方法），再由
+``add_tools`` 注册。注册时使用实例上的绑定方法，``self`` 不会出现在参数
+schema 中。工具通过 ``ToolResult.data`` 返回动作日志。
 
-完成以上步骤后，``api``、``claude_code`` 和 ``codex`` 三种 planner
-都可以调用该工具，无需修改其他代码。
+Toolkit 会在工具执行后采集观测；只读工具用 ``@tool(readonly=True)`` 跳过
+这一步。参数校验、返回值和资源绑定的规则见 :doc:`interfaces`。
 
 .. _add-primitive-model-based:
 
@@ -103,7 +99,8 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
    ``rpent.robots.components.pi05_vla_client.Pi05VLAClient``。
 
 3. **在 primitives 中添加方法。** 在当前机器人的 primitives
-   类中调用 model client，将其返回的动作块交给环境执行，并返回日志字典。
+   类中调用 model client，将其返回的动作块交给环境执行，并用
+   ``ToolResult(data=...)`` 返回动作日志。
    model client 的接口是
    :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict`，
    指令从 ``env_obs["task_descriptions"]`` 中读取；返回 ``[chunk, action_dim]``
@@ -111,14 +108,15 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 
    .. code-block:: python
 
-      def mymodel_pick(self, target: str) -> dict:
+      def mymodel_pick(self, target: str) -> ToolResult:
           env_obs = self._env.get_obs()
           env_obs["task_descriptions"] = f"pick {target}"
           chunk = self._model.predict(env_obs)
           self._env.chunk_step(chunk)
-          return {"model": "mymodel", "target": target}
+          return ToolResult(data={"model": "mymodel", "target": target})
 
-4. **添加工具定义并在 toolkit 中注册。** 具体做法与脚本化原语相同。
+4. **声明并注册工具。** 与脚本化原语一样，为方法添加 ``@tool``、类型注解
+   和 docstring，再注册实例上的绑定方法。
 
 5. **在 ``robot_spec.py`` 中连接各组件。** 机器人的 ``get_toolkit`` 使用
    ``runtime_kwargs`` 构造 toolkit：
@@ -211,7 +209,7 @@ mixin 覆盖的 ``serve`` 与 :class:`~rpent.utils.rpc.RpcFacade` 的
   而不是 ``execute_action_chunk_of_length_20``。
 - **每个工具执行结束后都要保存新的状态快照。** 下一轮需要读取动作执行后的
   环境状态，因此原语不能在渲染完成前返回。
-- **工具只返回简短的字典。** 返回值会以文本形式提供给 LLM；图像、深度数据和
+- **保持 ``ToolResult.data`` 简短。** 返回值会以文本形式提供给 LLM；图像、深度数据和
   其他大型观测应通过 ``EnvState.save`` 保存；``EnvState`` 会把每个逻辑基础
   文件名自动加入其持有的 ``StepRecord.artifacts`` 集合。图像通过
   ``view_env_state`` 提供，几何数据通过环境工具访问，不返回原始路径。
