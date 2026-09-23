@@ -16,6 +16,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+from rpent.prompt.utils import Numbered, PromptNode
+
 ROLE_AND_EVALUATION = """You are an LLM-in-the-loop hybrid agent for the LIBERO PRO benchmark, running
 in PERCEPTION-ISOLATED mode: you are NOT given object world coordinates. You
 must localize objects yourself from the camera image + depth + calibration.
@@ -513,3 +517,91 @@ OUTPUT_DISCIPLINE = """- Brief reasoning before each tool call (1-2 sentences): 
   returned the new state.
 - Save the audit BEFORE calling `finish`.
 - Stop immediately after writing the audit and calling `finish`. Do not chat further."""
+
+(
+    _,
+    STEP_READ_GUIDES,
+    _,
+    STEP_INSPECT_INITIAL,
+    STEP_PERCEPTION_PASS,
+    STEP_EXECUTE,
+    STEP_PRIMITIVES,
+    STEP_RECOVERY,
+    STEP_FINISH,
+) = WORKFLOW_STEPS
+
+LOCAL_MEMORY_PROFILE = """Use the LOCAL exploration corpus for this evaluation. Its three layers have
+different jobs; use every layer that is available:
+
+1. GLOBAL: `{{memory_dir}}/global/` — reusable robot/perception/primitive lessons.
+2. SUITE: `{{memory_dir}}/suite/suite_libero10_<regime>_t{{task}}.md` — the
+   task/regime strategy, validated ranges, and failure table.
+3. TASK: `{{memory_dir}}/task_only/{{reference_tag}}.json` plus
+   `{{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl` — the matched successful
+   audit and command order from seed 0.
+
+Read the task pair and the exact suite leaf when present, then select only the
+relevant global leaves through `MEMORY.md`. Recipes are technique references,
+not coordinates: re-localize every entity in the current image. Never read
+`_internal/` during evaluation."""
+
+STEP_READ_LOCAL_MEMORY = """READ EACH AVAILABLE LOCAL MEMORY LAYER FIRST:
+- task audit: `{{memory_dir}}/task_only/{{reference_tag}}.json`
+- task recipe: `{{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl`
+- suite leaf: find the matching task/regime leaf under `{{memory_dir}}/suite/`
+- global index: `{{memory_dir}}/MEMORY.md`, then only relevant leaves under
+  `{{memory_dir}}/global/`
+
+If a layer is absent, state that explicitly and continue with the available
+validated layers. Record the exact files used in final `strategy_notes`. Treat
+absolute coordinates as stale and re-derive them from this scene."""
+
+LOCAL_WORKFLOW_STEPS = (
+    STEP_READ_LOCAL_MEMORY,
+    STEP_READ_GUIDES,
+    STEP_INSPECT_INITIAL,
+    STEP_PERCEPTION_PASS,
+    STEP_EXECUTE,
+    STEP_PRIMITIVES,
+    STEP_RECOVERY,
+    STEP_FINISH,
+)
+
+
+def system_prompt(
+    variables: Mapping[str, object] | None = None,
+) -> PromptNode:
+    """Assemble the LIBERO evaluation prompt for the selected memory profile."""
+    if (variables or {}).get("memory_profile", "hf") == "local":
+        return {
+            "ROLE AND EVALUATION": ROLE_AND_EVALUATION,
+            "MEMORY PROFILE — LOCAL SUITE + TASK + GLOBAL": (LOCAL_MEMORY_PROFILE),
+            "PROVEN LEVERS": PROVEN_LEVERS,
+            "RUNTIME": RUNTIME,
+            "YOUR GOAL": GOAL,
+            "RULES (NON-NEGOTIABLE)": RULES,
+            "LOCALIZATION": LOCALIZATION,
+            "FIRST-STEP ALGORITHM": PERCEPTION_ALGORITHM,
+            "WORKFLOW": Numbered(LOCAL_WORKFLOW_STEPS),
+            "KEY HYPERPARAMETERS": KEY_HYPERPARAMETERS,
+            "OUTPUT DISCIPLINE": OUTPUT_DISCIPLINE,
+        }
+
+    return {
+        "ROLE AND EVALUATION": ROLE_AND_EVALUATION,
+        "PROVEN LEVERS & LESSONS — libero_10_task seed-0 sweep solved 9/10 (READ THIS)": (
+            PROVEN_LEVERS
+        ),
+        "RUNTIME": RUNTIME,
+        "YOUR GOAL": GOAL,
+        "RULES (NON-NEGOTIABLE)": RULES,
+        "LOCALIZATION — how to get an object's world xyz WITHOUT GT coords": (
+            LOCALIZATION
+        ),
+        "FIRST-STEP ALGORITHM — agentview = IDENTITY, wrist = GEOMETRY": (
+            PERCEPTION_ALGORITHM
+        ),
+        "WORKFLOW": Numbered(WORKFLOW_STEPS),
+        "KEY HYPERPARAMETERS": KEY_HYPERPARAMETERS,
+        "OUTPUT DISCIPLINE": OUTPUT_DISCIPLINE,
+    }

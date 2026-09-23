@@ -21,12 +21,13 @@ RoboCasa primitives (``move_to``, ``rldx_skill``, ``release``, ...) on top.
 from __future__ import annotations
 
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.robocasa import tools as robocasa_tools
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit
+from rpent.tools.toolkit import Toolkit, readonly
 from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
@@ -44,15 +45,28 @@ class RoboCasaToolkit(Toolkit):
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
+        mode: str = "evaluation",
+        attempts_per_session: int = 0,
+        state_output_dir: Path | str | None = None,
     ) -> None:
         """Create a RoboCasa toolkit, wiring the primitives and tools."""
-        state = EnvState(get_output_dir())
+        if mode not in {"evaluation", "exploration"}:
+            raise ValueError(f"unsupported RoboCasa toolkit mode: {mode!r}")
+        state = EnvState(Path(state_output_dir or get_output_dir()))
         super().__init__(
             dashboard_events=dashboard_events,
             state=state,
             memory=memory,
         )
-        self.init_primitives(runtime_kwargs=runtime_kwargs)
+        self._mode = mode
+        self._attempt = 1
+        self._attempts_per_session = max(0, int(attempts_per_session))
+        self.init_primitives(
+            runtime_kwargs={
+                **runtime_kwargs,
+                "allow_reset": mode == "exploration",
+            }
+        )
         self._register_robocasa_tools()
 
     # ---- registration: one explicit add_tool per RoboCasa tool ----
@@ -78,6 +92,53 @@ class RoboCasaToolkit(Toolkit):
                 if handler is None:
                     continue  # spec without a backing primitive method
             self.add_tool(name, spec, handler)
+        if self._mode == "exploration":
+            reset_spec = next(
+                spec for spec in robocasa_tools.TOOLS_SPEC if spec["name"] == "reset"
+            )
+            self.add_tool("reset", reset_spec, self._reset_episode)
+            finish_spec, finish_handler = self._tools["finish"]
+            self.add_tool(
+                "finish", finish_spec, partial(self._guarded_finish, finish_handler)
+            )
+
+    @readonly
+    def _guarded_finish(self, inner: Any, **kwargs: Any) -> dict[str, Any]:
+        budget = self._attempts_per_session
+        if budget and not self.solved() and self._attempt < budget:
+            return {
+                "error": "finish refused",
+                "reason": (
+                    f"This session has {budget - self._attempt} of its {budget} "
+                    "attempts left. Archive the attempt, reset, and change the plan."
+                ),
+            }
+        return inner(**kwargs)
+
+    def _reset_episode(self) -> dict[str, Any]:
+        if self.solved():
+            return {
+                "error": "reset refused",
+                "reason": "The task is already solved; save artifacts and finish.",
+            }
+        budget = self._attempts_per_session
+        if budget and self._attempt >= budget:
+            return {
+                "error": "reset refused",
+                "reason": (
+                    f"This session's attempt budget is spent ({budget} attempts). "
+                    "Update the handoff notes and finish this session."
+                ),
+            }
+        result = self._primitives.reset()
+        if result.get("error"):
+            return result
+        self._attempt += 1
+        return {
+            **result,
+            "attempt": self._attempt,
+            "notice": "Fresh episode started. Re-run perception before acting.",
+        }
 
     def get_env_state(
         self,
@@ -130,7 +191,11 @@ class RoboCasaToolkit(Toolkit):
             check_cancelled=self.raise_if_cancelled,
             **runtime_kwargs,
         )
-        primitives.reset()
+        # RoboCasaPrimitives initializes the environment in its constructor.
+        # Keep the legacy evaluation call (where reset is disabled), but avoid
+        # sampling and immediately discarding a second episode in exploration.
+        if self._mode == "evaluation":
+            primitives.reset()
         primitives.start_recording()
         self._action_frame_cursor = primitives.recorded_frame_count()
         record = robocasa_tools.dump_state(primitives, self._state, log=None)
@@ -161,4 +226,8 @@ class RoboCasaToolkit(Toolkit):
 
     def write_recipe(self, recipe_tag: str) -> str:
         """Write the RoboCasa recipe JSONL from the dumped state trace."""
-        return robocasa_tools.write_recipe_from_states(self._state, recipe_tag)
+        return robocasa_tools.write_recipe_from_states(
+            self._state,
+            recipe_tag,
+            output_dir=get_output_dir() if self._mode == "exploration" else None,
+        )
