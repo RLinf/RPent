@@ -128,6 +128,34 @@ def test_collection_disabled_keeps_fast_chunk_path():
     assert primitives.finalize_flywheel() is None
 
 
+@pytest.mark.parametrize("failure", [None, "predict", "step"])
+def test_policy_subinstruction_does_not_mutate_environment_observations(failure):
+    env = _Env()
+    primitives = _primitives(env)
+    initial, _ = primitives.reset()
+    initial_keys = set(initial)
+
+    def predict(observation, *, options):
+        assert initial["task_descriptions"] == "put the bowl on the plate"
+        assert observation["task_descriptions"] == "pick up the bowl"
+        if failure == "predict":
+            raise RuntimeError("prediction failed")
+        return np.zeros((2, 7))
+
+    primitives.model.predict = predict
+    if failure == "step":
+        env.chunk_step = Mock(side_effect=RuntimeError("step failed"))
+    if failure is None:
+        primitives.pi0_doubled("pick up the bowl", max_chunks=1)
+    else:
+        with pytest.raises(RuntimeError, match="failed"):
+            primitives.pi0_doubled("pick up the bowl", max_chunks=1)
+
+    assert set(initial) == initial_keys
+    assert initial["task_descriptions"] == "put the bowl on the plate"
+    assert primitives._last_obs["task_descriptions"] == "put the bowl on the plate"
+
+
 def test_dashboard_flywheel_config_belongs_to_unique_env(tmp_path, monkeypatch):
     args = SimpleNamespace(
         collect_flywheel_data=True,

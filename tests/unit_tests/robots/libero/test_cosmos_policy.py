@@ -246,33 +246,44 @@ def test_runtime_borrows_cosmos_service_without_spawning_pi05(
     assert runtime["model"]._client is rpc
 
 
-def test_cosmos_tool_uses_fresh_raw_obs_and_stops_after_termination() -> None:
+@pytest.mark.parametrize("stop_after", [1, 2])
+def test_cosmos_tool_uses_fresh_raw_obs_and_stops_after_termination(stop_after) -> None:
     observation = {"states": np.zeros(8), "task_descriptions": "native task"}
     env = Mock(terminated=False, truncated=False, return_all_frames=False)
-    env.get_task_language.return_value = "native task"
-    env.raw_obs.return_value = _raw_obs()
+    env.raw_obs.side_effect = [
+        {**_raw_obs(), "robot0_eef_pos": np.full(3, step)} for step in range(stop_after)
+    ]
     model = Mock(predict=Mock(return_value=np.zeros((16, 7))))
     primitive = LiberoPrimitives(env, model, Mock(), lambda: None)
     primitive.set_obs(observation)
 
     def step(actions):
-        env.terminated = True
-        return observation.copy(), 1, True, False, {}
+        env.terminated = env.chunk_step.call_count == stop_after
+        return observation.copy(), 1, env.terminated, False, {}
 
     env.chunk_step.side_effect = step
     result = primitive.cosmos_act(max_chunks=3)
-    assert result["chunks"] == 1
+    assert result["chunks"] == stop_after
     assert result["success"] is True
     assert model.predict.call_args.args[0]["task_descriptions"] == "native task"
     assert "robot0_eef_quat" in model.predict.call_args.args[0]
     assert primitive._last_obs["task_descriptions"] == "native task"
-    env.raw_obs.assert_called_once()
+    assert env.raw_obs.call_count == stop_after
+    for step, call in enumerate(model.predict.call_args_list):
+        np.testing.assert_array_equal(call.args[0]["robot0_eef_pos"], np.full(3, step))
+    env.get_task_language.assert_not_called()
     assert primitive.cosmos_act()["chunks"] == 0
     with pytest.raises(ValueError, match="max_chunks"):
         primitive.cosmos_act(max_chunks=0)
 
 
-def test_cosmos_toolkit_exposes_cosmos_instead_of_pi05(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "backend,mode",
+    [("pi05", "evaluation"), ("pi05", "exploration"), ("cosmos-policy", "evaluation")],
+)
+def test_toolkit_exposes_selected_backend_tools(
+    tmp_path, monkeypatch, backend, mode
+) -> None:
     monkeypatch.setattr(
         templates, "default_variables", lambda: {"output_dir": str(tmp_path)}
     )
@@ -286,9 +297,15 @@ def test_cosmos_toolkit_exposes_cosmos_instead_of_pi05(tmp_path, monkeypatch) ->
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "memory"),
         state_output_dir=tmp_path / "output",
-        vla_backend="cosmos-policy",
+        vla_backend=backend,
+        mode=mode,
     )
     names = {spec["name"] for spec in instance.get_tools_spec()}
-    assert "cosmos_act" in names
-    assert {"pi0_pick", "pi0_doubled", "reset"}.isdisjoint(names)
+    if backend == "cosmos-policy":
+        assert "cosmos_act" in names
+        assert {"pi0_pick", "pi0_doubled"}.isdisjoint(names)
+    else:
+        assert "cosmos_act" not in names
+        assert {"pi0_pick", "pi0_doubled"} <= names
+    assert ("reset" in names) == (mode == "exploration")
     assert {"move_to", "view_env_state", "finish"} <= names

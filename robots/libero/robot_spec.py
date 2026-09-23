@@ -445,7 +445,7 @@ def _spawn_vla_server(
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     if args.vla_endpoint is not None:
         return None, make_rpc_client(args.vla_endpoint)
-    if getattr(args, "vla_backend", "pi05") == "cosmos-policy":
+    if args.vla_backend == "cosmos-policy":
         raise ValueError("Cosmos Policy requires a separately started --vla-endpoint")
 
     host, port = "127.0.0.1", pick_free_port()
@@ -551,7 +551,7 @@ def _init_runtime(
         },
         "vla": lambda rpc: {
             "model": CosmosPolicyClient(rpc)
-            if getattr(args, "vla_backend", "pi05") == "cosmos-policy"
+            if args.vla_backend == "cosmos-policy"
             else Pi05VLAClient(rpc, embodiment="libero")
         },
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},

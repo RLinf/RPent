@@ -149,53 +149,42 @@ class LiberoPrimitives:
         }
 
     def _vlm_chunk(self, instruction: str, *, raw_obs: dict | None = None):
-        """One model forward + ``chunk_size`` env steps. Overrides prompt."""
+        """Predict and execute one chunk with a request-local task instruction."""
         self._check_cancelled()
-        original_task = self._last_obs.get("task_descriptions")
-        try:
-            self._last_obs["task_descriptions"] = instruction
-            self._last_obs.setdefault("extra_view_images", None)
+        policy_obs = (self._last_obs if raw_obs is None else raw_obs).copy()
+        policy_obs["task_descriptions"] = instruction
+        actions = self.model.predict(policy_obs, options={"mode": "eval"})
+        self._check_cancelled()
 
-            policy_obs = (
-                self._last_obs
-                if raw_obs is None
-                else {**raw_obs, "task_descriptions": instruction}
+        vla_id = (
+            self._flywheel.add_proposal(instruction, actions)
+            if self._flywheel is not None
+            else -1
+        )
+
+        if not self._recording and self._flywheel is None:
+            chunk_obs, _r, _t, _tr, _i = self.env.chunk_step(actions)
+            obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
+        else:
+            chunk_obs, rewards, terminated, truncated, _info = self.env.chunk_step(
+                actions, return_all_frames=True
             )
-            actions = self.model.predict(policy_obs, options={"mode": "eval"})
-            self._check_cancelled()
-
-            vla_id = (
-                self._flywheel.add_proposal(instruction, actions)
-                if self._flywheel is not None
-                else -1
-            )
-
-            if not self._recording and self._flywheel is None:
-                chunk_obs, _r, _t, _tr, _i = self.env.chunk_step(actions)
-                obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
-            else:
-                chunk_obs, rewards, terminated, truncated, _info = self.env.chunk_step(
-                    actions, return_all_frames=True
-                )
-                for index, obs in enumerate(chunk_obs):
-                    if self._recording:
-                        self.record_frame(obs)
-                    if self._flywheel is not None:
-                        self._flywheel.add_transition(
-                            actions[index],
-                            obs,
-                            rewards[index],
-                            terminated[index],
-                            truncated[index],
-                            vla_id=vla_id,
-                            proposal_index=index,
-                        )
-                obs = chunk_obs[-1]
-            self.set_obs(obs)
-            return self._last_obs
-        finally:
-            if original_task is not None:
-                self._last_obs["task_descriptions"] = original_task
+            for index, obs in enumerate(chunk_obs):
+                if self._recording:
+                    self.record_frame(obs)
+                if self._flywheel is not None:
+                    self._flywheel.add_transition(
+                        actions[index],
+                        obs,
+                        rewards[index],
+                        terminated[index],
+                        truncated[index],
+                        vla_id=vla_id,
+                        proposal_index=index,
+                    )
+            obs = chunk_obs[-1]
+        self.set_obs(obs)
+        return self._last_obs
 
     def cosmos_act(self, *, max_chunks: int = 1) -> dict:
         """Execute bounded Cosmos Policy chunks with the environment's full task."""
@@ -208,7 +197,9 @@ class LiberoPrimitives:
         chunks = 0
         while chunks < max_chunks and not (self.env.terminated or self.env.truncated):
             self._check_cancelled()
-            self._vlm_chunk(self.env.get_task_language(), raw_obs=self.env.raw_obs())
+            self._vlm_chunk(
+                self._last_obs["task_descriptions"], raw_obs=self.env.raw_obs()
+            )
             chunks += 1
         return {
             "model": "cosmos-policy",
