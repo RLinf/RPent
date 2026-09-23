@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 
 from rpent.embodied_agent import EmbodiedAgent, McpServer
+from rpent.llm import LLMConfig
 from rpent.planner.base import PlannerResult
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.tools.toolkit import ToolResult
@@ -91,14 +92,29 @@ def test_embodied_agent_discovers_calls_and_preserves_images(
                 "finish", {"status": "success", "summary": "placed"}
             )
             assert finish.is_finish
-            return PlannerResult(finish_result=finish.result)
+            return PlannerResult(
+                finish_result=finish.result,
+                stats={
+                    "total_input_tokens": 10,
+                    "total_output_tokens": 5,
+                    "cache_read_tokens": 3,
+                    "cache_write_tokens": 2,
+                    "requests": 1,
+                },
+            )
 
-    monkeypatch.setattr(
-        "rpent.embodied_agent.build_planner", lambda *a, **kw: _Planner()
-    )
+    planner_kwargs: dict[str, Any] = {}
+
+    def build_planner(*args: Any, **kwargs: Any) -> _Planner:
+        planner_kwargs.update(kwargs)
+        return _Planner()
+
+    monkeypatch.setattr("rpent.embodied_agent.build_planner", build_planner)
+    llm = LLMConfig("openai", "gpt-4o", api_key="test")
     agent = EmbodiedAgent(
         mcp_servers=[McpServer(name="robot", url=server.url)],
         output_dir=tmp_path / "episode",
+        llm=llm,
     )
     try:
         result = agent.run(
@@ -108,6 +124,9 @@ def test_embodied_agent_discovers_calls_and_preserves_images(
         server.stop()
 
     assert result.finish_result["status"] == "success"
+    assert planner_kwargs["llm_config"] is llm
+    assert result.stats["llm_usage"]["total_tokens"] == 15
+    assert result.stats["llm_usage"]["cache_read_tokens"] == 3
     assert seen["user_message"] == "Place the block."
     assert "Use safe poses." in seen["system_prompt"]
     assert "Use the front camera" in seen["system_prompt"]

@@ -9,12 +9,13 @@ EmbodiedAgent：接入外部 MCP Benchmark
 .. code-block:: python
 
    from rpent.embodied_agent import EmbodiedAgent, McpServer
+   from rpent.llm import LLMConfig
 
    agent = EmbodiedAgent(
        mcp_servers=[McpServer(name="robot", url="http://127.0.0.1:8000/mcp")],
        output_dir="runs/episode-001",
        planner="api",
-       model="openai:gpt-5.5",
+       llm=LLMConfig(provider="openai", model="gpt-5.5"),
    )
    result = agent.run(
        "把红色方块放进碗里。",
@@ -25,6 +26,9 @@ EmbodiedAgent：接入外部 MCP Benchmark
        skills=["benchmark/SKILL.md"],
    )
    # 用 benchmark 自身的成功标志为这个 episode 计分。
+   usage = result.stats["llm_usage"]
+   print(usage["input_tokens"], usage["output_tokens"])
+   print(usage["cache_read_tokens"], usage["cache_write_tokens"])
 
 如果移动和拍照由独立的工具完成，也使用同一个入口；在 ``system_prompt`` 或
 skill 中写明调用顺序即可。工具名、输入 schema 和描述直接从 MCP 服务发现。
@@ -38,7 +42,23 @@ RPent 不预设 ``move_eef`` 或 ``snapshot`` 的参数格式。
 ``run`` 都会启动并关闭 stdio 服务。请为每个 episode 使用不同的
 ``output_dir``。
 
-可选 planner 为 ``api``、``claude_code``、``codex``。模型名称和提供商凭据
-参见 :doc:`configure_planner`。每次运行都会重新读取并注入所列的 skill 文件，
+可选 planner 为 ``api``、``claude_code``、``codex``。``LLMConfig`` 用于
+``api`` planner，支持 ``provider="openai"`` 和 ``provider="anthropic"``。
+默认从 ``OPENAI_API_KEY`` 或 ``ANTHROPIC_API_KEY`` 读取凭据；也可显式传入
+``api_key``、``base_url``。OpenAI 默认使用 Responses API；兼容 Chat
+Completions 的端点可设 ``openai_format="chat"``。原有 ``model`` 和
+``base_url`` 参数仍可使用，参见 :doc:`configure_planner`。
+
+``result.stats["llm_usage"]`` 包含 ``input_tokens``、``output_tokens``、
+``cache_read_tokens``、``cache_write_tokens``、``reasoning_output_tokens``、
+``requests``、``cost_usd`` 和 ``total_tokens``。缓存输入已计入
+``input_tokens``，推理输出已计入 ``output_tokens``，不要重复相加。若请求数
+或费用未报告，则对应值为 ``None``；缓存数为 0 也可能只是提供商未报告。
+
+独立调用模型可使用 ``LLMClient(LLMConfig(...))`` 的 ``generate`` 或
+``generate_sync``；返回值包含 ``text`` 和本次 ``usage``，客户端的
+``total_usage`` 则记录累计消耗。
+
+每次运行都会重新读取并注入所列的 skill 文件，
 不会自动加载工作目录中的文件。本地 ``finish`` 工具把 agent 的结论写入
 ``PlannerResult.finish_result``；评测得分应以 benchmark 的成功条件为准。

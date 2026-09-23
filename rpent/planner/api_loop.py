@@ -57,6 +57,7 @@ from rpent.dashboard.events import (
 )
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import DashboardPlannerControl
+from rpent.llm.client import build_model_settings
 from rpent.planner.base import REASONING_EFFORTS, PlannerResult
 from rpent.session import EnvState
 from rpent.tools.toolkit import Toolkit
@@ -626,16 +627,7 @@ class _ApiDashboardSession:
 
 def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
     """Build model settings, enabling prompt caching for Anthropic models."""
-    from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
-
-    if isinstance(model, AnthropicModel):
-        return AnthropicModelSettings(
-            max_tokens=max_tokens,
-            anthropic_cache_instructions=True,
-            anthropic_cache_tool_definitions=True,
-            anthropic_cache_messages=True,
-        )
-    return ModelSettings(max_tokens=max_tokens)
+    return build_model_settings(model, max_tokens)
 
 
 def _prune_history_images(messages: list[ModelMessage]) -> list[ModelMessage]:
@@ -906,6 +898,12 @@ def _build_stats(
                 "requests": int(usage.requests or 0),
             }
         )
+        if usage.details.get("reasoning_tokens") is not None:
+            stats["total_reasoning_output_tokens"] = int(
+                usage.details["reasoning_tokens"]
+            )
+        if usage.cost is not None:
+            stats["total_cost_usd"] = float(usage.cost)
     return stats
 
 

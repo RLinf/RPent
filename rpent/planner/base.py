@@ -32,6 +32,8 @@ from rpent.utils.config import (
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
 
+    from rpent.llm import LLMConfig
+
 #: MCP namespace prefix for RPent tools (``mcp__<server>__<tool>``).
 #: Toolkits expose plain tool names; planners add/strip this prefix.
 MCP_TOOL_PREFIX = "mcp__rpent__"
@@ -173,6 +175,7 @@ def build_planner(
     robot_name: str,
     base_url: str | None = None,
     model: str | None = None,
+    llm_config: LLMConfig | None = None,
     max_tokens: int = 8192,
     planner_timeout_s: int | None = None,
     reasoning_effort: str = "none",
@@ -184,10 +187,17 @@ def build_planner(
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
     # codex all import from this module (PlannerResult).
 
+    if llm_config is not None and planner_type != "api":
+        raise ValueError("llm_config is supported only by the api planner")
+    if llm_config is not None and (model is not None or base_url is not None):
+        raise ValueError("pass either llm_config or model/base_url")
+
     if planner_type == "api":
         from rpent.planner.api_loop import ApiAgentLoop
 
-        api_model = build_api_model(model, base_url)
+        api_model = (
+            llm_config.build_model() if llm_config else build_api_model(model, base_url)
+        )
         api_timeout_s = planner_timeout_s
         if api_timeout_s is None:
             api_timeout_s = int(os.environ.get("CELL_TIMEOUT_S", "1200"))
