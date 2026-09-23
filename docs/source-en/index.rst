@@ -92,6 +92,7 @@ Welcome to RPent
    :caption: Usage Tutorial
 
    Agentic Planner <rst_source/usage/configure_planner>
+   EmbodiedAgent <rst_source/usage/embodied_agent>
    Action Primitives <rst_source/usage/configure_primitives>
    Data Flywheel <rst_source/usage/flywheel>
    Flash Mode <rst_source/usage/flash>
