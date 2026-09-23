@@ -1,0 +1,44 @@
+EmbodiedAgent：接入外部 MCP Benchmark
+=====================================
+
+``EmbodiedAgent`` 将 RPent 现有的 planner 循环提供给 benchmark 使用，无需在
+``robots/`` 下新增机器人包。benchmark 负责重置 episode、执行机器人动作、采集
+观测以及判定任务成功。用户把动作和观测实现为 MCP 服务，提供 system prompt 和
+可选的 skill 文件，然后对每个 episode 调用一次 ``run``。
+
+.. code-block:: python
+
+   from rpent.embodied_agent import EmbodiedAgent, McpServer
+
+   agent = EmbodiedAgent(
+       mcp_servers=[McpServer(name="robot", url="http://127.0.0.1:8000/mcp")],
+       output_dir="runs/episode-001",
+       planner="api",
+       model="openai:gpt-5.5",
+   )
+   result = agent.run(
+       "把红色方块放进碗里。",
+       system_prompt=(
+           "通过 MCP 工具控制机器人。move_eef 接收目标位姿并返回相机观测。"
+           "每次操作后先检查结果，再决定下一步。"
+       ),
+       skills=["benchmark/SKILL.md"],
+   )
+   # 用 benchmark 自身的成功标志为这个 episode 计分。
+
+如果移动和拍照由独立的工具完成，也使用同一个入口；在 ``system_prompt`` 或
+skill 中写明调用顺序即可。工具名、输入 schema 和描述直接从 MCP 服务发现。
+planner 看到的名称为 ``<server_name>__<tool_name>``，MCP 返回的文本和图片
+会传回模型。如需模型直接看见相机像素，请让工具返回 MCP 图片内容；纯文本
+路径或 URL 仍按文本处理。任务说明、坐标系、动作限制以及观测规则由用户提供；
+RPent 不预设 ``move_eef`` 或 ``snapshot`` 的参数格式。
+
+本地 stdio 服务使用 ``command``，并可提供 ``args``、``env``、``cwd``，
+代替 ``url``。每个服务必须二选一；可接入多个服务，但名称必须不同。每次
+``run`` 都会启动并关闭 stdio 服务。请为每个 episode 使用不同的
+``output_dir``。
+
+可选 planner 为 ``api``、``claude_code``、``codex``。模型名称和提供商凭据
+参见 :doc:`configure_planner`。每次运行都会重新读取并注入所列的 skill 文件，
+不会自动加载工作目录中的文件。本地 ``finish`` 工具把 agent 的结论写入
+``PlannerResult.finish_result``；评测得分应以 benchmark 的成功条件为准。

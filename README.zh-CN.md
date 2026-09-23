@@ -109,6 +109,10 @@ RPent 面向以下四类用户：
 
 ## 快速开始
 
+若 benchmark 已将机器人动作和相机观测封装为 MCP 工具，可使用 Python
+[`EmbodiedAgent` 入口](docs/source-zh/rst_source/usage/embodied_agent.rst)
+接入 RPent，并通过 system prompt 和 skill 文件提供评测任务的约束。
+
 **1. 选择一个环境并安装 RPent。**
 
 ```bash

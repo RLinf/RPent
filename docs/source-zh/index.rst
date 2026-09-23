@@ -84,6 +84,7 @@
    :caption: 使用教程
 
    Agentic Planner <rst_source/usage/configure_planner>
+   EmbodiedAgent <rst_source/usage/embodied_agent>
    动作原语 <rst_source/usage/configure_primitives>
    数据飞轮 <rst_source/usage/flywheel>
    Flash Mode <rst_source/usage/flash>
