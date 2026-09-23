@@ -26,15 +26,21 @@ def test_prompts_render_with_memory_relative_paths():
         "task_config": "demo_randomized",
         "seed": 100000,
         "memory_dir": "memory/robotwin",
-        "reference_tag": "beat_block_hammer_s0",
+        "reference_tag": "robotwin_beat_block_hammer_demo_randomized_s0",
     }
 
     system = format_prompt(system_prompt(), variables=variables)
     user = format_prompt(user_prompt(), variables=variables)
 
     assert "robots/robotwin/guides/GUIDE_RPENT.md" in system
-    assert "memory/robotwin/task_only/beat_block_hammer_s0.json" in system
-    assert "memory/robotwin/task_only/beat_block_hammer_s0_recipe.jsonl" in system
+    assert (
+        "memory/robotwin/task_only/robotwin_beat_block_hammer_demo_randomized_s0.json"
+        in system
+    )
+    assert (
+        "memory/robotwin/task_only/robotwin_beat_block_hammer_demo_randomized_s0_recipe.jsonl"
+        in system
+    )
     assert "memory/robotwin/MEMORY.md" in system
     assert "task: beat_block_hammer" in user
     assert "seed: 100000" in user

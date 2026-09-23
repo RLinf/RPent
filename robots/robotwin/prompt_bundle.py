@@ -18,7 +18,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from robots.robotwin.prompts import system as system_parts
+from robots.robotwin.prompts import evaluate as evaluate_parts
+from robots.robotwin.prompts import explore as explore_parts
 from robots.robotwin.prompts import user as user_parts
 from rpent.prompt.utils import PromptNode
 
@@ -26,27 +27,22 @@ from rpent.prompt.utils import PromptNode
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    return {
-        "ROLE": system_parts.ROLE,
-        "READ ORDER": system_parts.READ_ORDER,
-        "CLEAN-TO-RANDOMIZED TRANSFER": system_parts.TRANSFER,
-        "ACCURACY-FIRST LOOP": system_parts.ACCURACY_LOOP,
-        "CONDITIONAL TASK-FAMILY PLAYBOOKS": system_parts.TASK_FAMILIES,
-        "VLA AND PRIMITIVE CONTROL": system_parts.CONTROL,
-        "PERCEPTION": system_parts.PERCEPTION,
-        "RUNTIME": system_parts.RUNTIME,
-        "BUDGET AND SUCCESS": system_parts.BUDGET_AND_SUCCESS,
-        "MODE": system_parts.USER_MODE,
-    }
+    """Return the RoboTwin system prompt for the selected run mode."""
+    if (variables or {}).get("mode", "eval") == "explore":
+        return explore_parts.system_prompt()
+    return evaluate_parts.system_prompt(variables)
 
 
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    return {
+    prompt = {
         "CELL": user_parts.CELL,
         "BEGIN": user_parts.BEGIN,
     }
+    if (variables or {}).get("mode", "eval") == "explore":
+        prompt["EXPLORE MODE"] = explore_parts.USER_MODE
+    return prompt
 
 
 __all__ = ["system_prompt", "user_prompt"]
