@@ -28,7 +28,7 @@ Cosmos Policy（实验性）
 ``--vla-backend cosmos-policy`` 通过独立启动的 RPC 服务使用 NVIDIA
 `Cosmos Policy <https://github.com/NVlabs/cosmos-policy>`_ 的 LIBERO checkpoint。
 当前支持标准 ``libero_spatial``、``libero_object``、``libero_goal`` 和
-``libero_10`` 的单次评测，尚未在 RPent 中验证 GPU 任务成功率。
+``libero_10`` 的单次评测。
 此适配器暂不支持探索模式、Flash Mode、PRO/plus 变体以及基于世界模型的
 best-of-N 规划。
 
@@ -93,6 +93,24 @@ CLI 和 Dashboard 均通过 ``--vla-backend`` 选择模型。
 
 测试需要真实 LIBERO 资源，完整链路还需要 SAM3。链路通过说明动作执行和
 产物记录正常，不代表任务成功。
+
+如需单独测量策略性能，准备运行中的服务和标准 LIBERO 资源后，在 RPent
+仓库目录执行：
+
+.. code-block:: bash
+
+   RPENT_COSMOS_ENDPOINT=http://127.0.0.1:8116 CUDA_VISIBLE_DEVICES=1 \
+     python -m tests.e2e_tests.libero.benchmark_cosmos_policy \
+     --output-dir /path/to/new-cosmos-results
+
+脚本使用固定的真实观测预热 5 次，再测量 100 次串行 RPC；随后评测 Spatial
+全部 10 个任务，每任务使用初始状态 0、1、2，每回合最多执行 220 个策略动作。
+``results.json`` 保存原始耗时、延迟分位数和每个回合的结果，包括异常。
+RPC 耗时包含传输与推理，不含仿真步进；每次预测生成 16 个动作。
+成功与否由仿真器的原生终止信号判断，评测不使用 LLM 规划器或 SAM3。
+这 30 个回合属于小规模集成评测，并非论文基准复现。RPent 使用 RLinf 的
+重置逻辑和当前安装的 LIBERO/robosuite 版本；报告结果时，应一并记录这些
+版本以及服务的 checkpoint、去噪步数和随机种子。
 
 SAM3 配置
 ---------

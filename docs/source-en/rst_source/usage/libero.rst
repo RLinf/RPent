@@ -31,7 +31,7 @@ Cosmos Policy (experimental)
 `Cosmos Policy <https://github.com/NVlabs/cosmos-policy>`_ LIBERO checkpoint
 through an independently started RPC service. It supports single-attempt
 evaluation on standard ``libero_spatial``, ``libero_object``, ``libero_goal``
-and ``libero_10``. GPU task success has not yet been validated in RPent.
+and ``libero_10``.
 Exploration, Flash Mode, PRO/plus variants and best-of-N world-model planning
 are not supported by this adapter.
 
@@ -104,6 +104,27 @@ planner, install ``.[test,libero]`` and run:
 
 These checks require real LIBERO assets and, for the complete chain, SAM3.
 A passing chain verifies action execution and artifacts, not task success.
+
+To measure policy performance separately, run from the RPent checkout with
+a running worker and standard LIBERO assets:
+
+.. code-block:: bash
+
+   RPENT_COSMOS_ENDPOINT=http://127.0.0.1:8116 CUDA_VISIBLE_DEVICES=1 \
+     python -m tests.e2e_tests.libero.benchmark_cosmos_policy \
+     --output-dir /path/to/new-cosmos-results
+
+The runner measures 100 sequential RPC calls after five warm-up calls on a
+fixed real observation, then evaluates all ten Spatial tasks with initial
+states 0, 1 and 2, capped at 220 policy actions per episode. ``results.json``
+contains raw timings, percentiles and every episode outcome, including errors.
+RPC timing includes transport and inference, but excludes simulator steps;
+each prediction produces 16 actions. Success comes from native simulator
+termination. This evaluates the policy without an LLM planner or SAM3.
+These 30 episodes are a small integration evaluation, not a reproduction of
+the published benchmark. RPent uses RLinf's reset behavior and its installed
+LIBERO/robosuite versions; record those versions and the worker's checkpoint,
+denoising steps and seed alongside results.
 
 SAM3 configuration
 ------------------
