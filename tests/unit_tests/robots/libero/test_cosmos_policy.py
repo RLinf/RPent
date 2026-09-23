@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -158,6 +160,54 @@ def test_cosmos_config_isolates_memory_and_renders_available_tools() -> None:
         )
         assert "cosmos_act" in rendered
         assert "pi0_pick" not in rendered
+
+
+@pytest.mark.parametrize("local_memory", [False, True])
+def test_public_cli_cosmos_requires_explicit_local_memory(
+    monkeypatch, capsys, tmp_path, local_memory
+) -> None:
+    from rpent.cli import main as cli
+
+    spec = robot_spec.get_robot_spec()
+
+    class ConfigCaptured(Exception):
+        pass
+
+    def capture_config(args):
+        config = spec.parse_config(args)
+        assert args.memory_profile == "local"
+        assert config.task_desc["vla_backend"] == "cosmos-policy"
+        raise ConfigCaptured
+
+    monkeypatch.setattr(
+        cli, "get_robot_spec", lambda name: replace(spec, parse_config=capture_config)
+    )
+    argv = [
+        "rpent",
+        "--robot",
+        "libero",
+        "--suite",
+        "libero_spatial",
+        "--task",
+        "0",
+        "--vla-backend",
+        "cosmos-policy",
+        "--vla-endpoint",
+        "http://127.0.0.1:8116",
+        "--output-dir",
+        str(tmp_path),
+    ]
+    if local_memory:
+        argv.extend(["--memory-profile", "local"])
+    monkeypatch.setattr(sys, "argv", argv)
+    if local_memory:
+        with pytest.raises(ConfigCaptured):
+            cli.main()
+    else:
+        with pytest.raises(SystemExit) as exc:
+            cli.main()
+        assert exc.value.code == 2
+        assert "requires --memory-profile local" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

@@ -308,7 +308,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     explore = bool(getattr(args, "explore", False))
     requested_profile = getattr(args, "memory_profile", None)
     if cosmos and requested_profile == "hf":
-        raise ValueError("Cosmos Policy uses local memory; the HF corpus targets Pi0.5")
+        raise ValueError(
+            "Cosmos Policy requires --memory-profile local; "
+            "use local memory because the HF corpus targets Pi0.5"
+        )
     if explore and requested_profile == "hf":
         raise ValueError("--explore cannot be used with --memory-profile hf")
     if explore and args.explore_sessions <= 0:

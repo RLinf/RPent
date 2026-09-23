@@ -39,7 +39,8 @@ Set up the official Cosmos Policy environment using its
 `setup guide <https://github.com/NVlabs/cosmos-policy/blob/main/SETUP.md>`_.
 The adapter follows upstream revision
 ``18a2accadf4e7a3531e56754102af5a24d2316da``. Keep that environment separate:
-Cosmos requires Transformers 4.57.1 while RPent's OpenPI stack pins 4.53.2.
+Cosmos pins its own Torch and CUDA extension versions, which differ from
+RPent's OpenPI stack.
 From the Cosmos Policy checkout, with RPent available at ``/path/to/RPent``,
 start the worker using the official CUDA 12.8 / Python 3.10 environment:
 
@@ -55,7 +56,12 @@ The defaults download ``nvidia/Cosmos-Policy-LIBERO-Predict2-2B``, its
 dataset statistics and T5 instruction embeddings. For local files, provide
 ``--checkpoint``, ``--dataset-stats`` and ``--text-embeddings`` together.
 Run from the Cosmos checkout so its relative configuration and tokenizer
-paths resolve. Follow NVIDIA's model-access requirements before starting.
+paths resolve. Before starting, obtain Hugging Face access to
+``nvidia/Cosmos-Predict2-2B-Video2World`` and authenticate the worker environment;
+its video tokenizer is required even with a local policy checkpoint. The
+referenced upstream revision also downloads base Video2World and ALOHA policy
+weights when importing experiment configurations. Reserve disk space and network
+access for these additional files.
 
 In the RPent environment, install ``.[libero]``, download standard LIBERO
 assets with ``libero-download-assets --skip-existing``, and configure SAM3
@@ -65,6 +71,7 @@ as below. A Pi0.5 checkpoint is not needed for Cosmos runs:
 
    rpent --robot libero --suite libero_spatial --task 0 --seed 0 \
      --vla-backend cosmos-policy --vla-endpoint http://127.0.0.1:8116 \
+     --memory-profile local \
      --cuda-device 1 --planner api --model anthropic:claude-opus-4-8
 
 The worker's GPU and RPent's ``--cuda-device`` are independent; choose GPUs
@@ -82,8 +89,8 @@ preprocessing, normalization and action unnormalization. RPent records the
 executed state/images using the existing LIBERO toolkit. Future video/value
 prediction is disabled.
 
-Cosmos uses its own prompt and local memory directory
-(``memory/libero_cosmos`` by default, allowed to be empty).
+Pass ``--memory-profile local`` for Cosmos. It uses its own prompt and local
+memory directory (``memory/libero_cosmos`` by default, allowed to be empty).
 ``--memory-profile hf`` is rejected because that corpus describes Pi0.5 tools.
 The CLI and Dashboard both select the backend through ``--vla-backend``.
 

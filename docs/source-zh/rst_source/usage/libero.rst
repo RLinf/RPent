@@ -35,7 +35,7 @@ best-of-N 规划。
 按官方 `安装指南 <https://github.com/NVlabs/cosmos-policy/blob/main/SETUP.md>`_
 准备 Cosmos Policy 环境。适配器依据上游版本
 ``18a2accadf4e7a3531e56754102af5a24d2316da`` 实现。请使用独立环境：Cosmos
-需要 Transformers 4.57.1，而 RPent 的 OpenPI 依赖固定为 4.53.2。
+固定的 Torch 和 CUDA 扩展版本与 RPent 的 OpenPI 依赖不同。
 假设 RPent 位于 ``/path/to/RPent``，在 Cosmos Policy 仓库目录下，使用官方
 CUDA 12.8 / Python 3.10 环境启动服务：
 
@@ -50,7 +50,11 @@ CUDA 12.8 / Python 3.10 环境启动服务：
 默认下载 ``nvidia/Cosmos-Policy-LIBERO-Predict2-2B``、对应的数据集统计量和
 T5 指令嵌入。使用本地文件时，请同时设置 ``--checkpoint``、``--dataset-stats``
 和 ``--text-embeddings``。从 Cosmos 仓库目录运行，以便解析其配置和 tokenizer
-的相对路径；启动前按 NVIDIA 要求准备模型访问权限。
+的相对路径。启动前，请在 Hugging Face 获得
+``nvidia/Cosmos-Predict2-2B-Video2World`` 的访问权限，并在服务环境中登录；
+即使使用本地策略 checkpoint，也需要该模型的视频 tokenizer。上述上游版本
+在导入实验配置时，还会下载基础 Video2World 和 ALOHA 策略权重，需为这些
+额外文件预留磁盘空间和网络访问条件。
 
 在 RPent 环境安装 ``.[libero]``，执行
 ``libero-download-assets --skip-existing`` 下载标准 LIBERO 资源，并按下文配置
@@ -60,6 +64,7 @@ SAM3。Cosmos 运行不需要 Pi0.5 checkpoint：
 
    rpent --robot libero --suite libero_spatial --task 0 --seed 0 \
      --vla-backend cosmos-policy --vla-endpoint http://127.0.0.1:8116 \
+     --memory-profile local \
      --cuda-device 1 --planner api --model anthropic:claude-opus-4-8
 
 服务的 GPU 与 RPent 的 ``--cuda-device`` 分别配置，需为策略、仿真和 SAM3
@@ -74,8 +79,9 @@ SAM3。Cosmos 运行不需要 Pi0.5 checkpoint：
 反归一化由 NVIDIA 实现负责，执行后的状态和图像由现有 LIBERO toolkit 记录。
 未来视频及价值预测在此适配器中关闭。
 
-Cosmos 使用独立提示词和本地 memory 目录，默认为 ``memory/libero_cosmos``，
-允许目录为空。``--memory-profile hf`` 会被拒绝，因为该语料依赖 Pi0.5 工具。
+Cosmos 需显式指定 ``--memory-profile local``，使用独立提示词和本地 memory
+目录，默认为 ``memory/libero_cosmos``，允许目录为空。
+``--memory-profile hf`` 会被拒绝，因为该语料依赖 Pi0.5 工具。
 CLI 和 Dashboard 均通过 ``--vla-backend`` 选择模型。
 
 安装 ``.[test,libero]`` 后，可使用离线规划器验证真实服务及有界执行链路：
