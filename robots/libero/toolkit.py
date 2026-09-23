@@ -48,6 +48,7 @@ class LiberoToolkit(Toolkit):
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
+        vla_backend: str = "pi05",
     ) -> None:
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
@@ -59,6 +60,7 @@ class LiberoToolkit(Toolkit):
             memory=memory,
         )
         self._mode = mode
+        self._vla_backend = vla_backend
         self._solved: bool = False
         self._attempt: int = 1
         # Bound the resettable attempts owned by this planner session.
@@ -84,6 +86,13 @@ class LiberoToolkit(Toolkit):
         }
         for spec in libero_tools.TOOLS_SPEC:
             name = spec["name"]
+            if name == "cosmos_act" and self._vla_backend != "cosmos-policy":
+                continue
+            if (
+                name in {"pi0_pick", "pi0_doubled"}
+                and self._vla_backend == "cosmos-policy"
+            ):
+                continue
             if name == "reset" and self._mode != "exploration":
                 continue
             if name in state_handlers:

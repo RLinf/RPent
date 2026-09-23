@@ -85,6 +85,7 @@ RPent is built for four kinds of users:
           </ul>
           <li><b>WAM</b></li>
           <ul>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#cosmos-policy-experimental">Cosmos Policy</a> (experimental LIBERO adapter)</li>
             <li>DreamZero</li>
           </ul>
         </ul>
