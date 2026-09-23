@@ -59,6 +59,12 @@ PI05_EMBODIMENTS: dict[str, dict] = {
         "add_value_head": False,
         "openpi": {
             "config_name": "pi05_robodojo_arx_x5",
+            "task": "eval",
+            "model_action_dim": 32,
+            "paligemma_variant": "gemma_2b",
+            "action_expert_variant": "gemma_300m",
+            "discrete_state_input": True,
+            "torch_compile": False,
             "num_images_in_input": 3,
             "action_chunk": 50,
             "num_steps": 5,

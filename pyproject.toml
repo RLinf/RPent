@@ -134,8 +134,8 @@ robodojo = [
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
 ]
 robodojo-sim = [
-    # The simulator adapter and policy config must come from the same revision.
-    "rlinf @ git+https://github.com/littleZ05/RLinf.git@feat/robodojo-env",
+    # Supplies both the simulator adapter and the OpenPI policy configuration.
+    "rlinf @ git+https://github.com/littleZ05/RLinf.git@rpent/robodojo",
     # Use a versioned release after maintainers create RLinf/RoboDojo and publish it.
     "rlinf-robodojo-runtime @ git+https://github.com/littleZ05/RoboDojo.git@rpent",
     # uv reads build overrides only from the root project.

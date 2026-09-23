@@ -126,6 +126,12 @@ def test_robodojo_preset_uses_full_horizon_and_joint_actions():
 
     cfg = build_model_cfg("/checkpoint", PI05_EMBODIMENTS["robodojo"])
     assert cfg.openpi.config_name == "pi05_robodojo_arx_x5"
+    assert cfg.openpi.task == "eval"
+    assert cfg.openpi.model_action_dim == 32
+    assert cfg.openpi.paligemma_variant == "gemma_2b"
+    assert cfg.openpi.action_expert_variant == "gemma_300m"
+    assert cfg.openpi.discrete_state_input is True
+    assert cfg.openpi.torch_compile is False
     assert cfg.action_dim == cfg.openpi.action_env_dim == 14
     assert cfg.num_action_chunks == cfg.openpi.action_chunk == 50
     assert cfg.num_steps == cfg.openpi.num_steps == 5
