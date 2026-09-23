@@ -103,7 +103,6 @@ def test_cli_forwards_model_configuration(monkeypatch, embodiment):
     assert received["embodiment"] == embodiment
     assert received["repo_id"] == "test/dataset"
     assert received["norm_stats_path"] == "/stats"
-    assert received["model_backend"] == "openpi"
     assert received["port"] == 6000
 
 

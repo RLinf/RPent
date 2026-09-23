@@ -18,11 +18,11 @@ Embodiment-specific settings (openpi config name, action dim, …) are
 selected by the ``--embodiment`` CLI flag and looked up in
 ``PI05_EMBODIMENTS``.
 
-The ``--model-backend`` flag selects the RLinf loader. Current RLinf main
-exposes the unified ``openpi`` loader. Presets whose loader resolves
-normalisation statistics from a directory take ``--norm-stats-path``
-(or the ``PI05_NORM_STATS_PATH`` environment variable). Use ``--repo-id``
-to select dataset normalization statistics within a checkpoint.
+RLinf's unified ``openpi`` loader detects the checkpoint layout
+automatically. Presets whose loader resolves normalisation statistics from a
+directory take ``--norm-stats-path`` (or the ``PI05_NORM_STATS_PATH``
+environment variable). Use ``--repo-id`` to select dataset normalization
+statistics within a checkpoint.
 """
 
 from __future__ import annotations
@@ -89,10 +89,6 @@ PI05_ROBOT_PLATFORMS: dict[str, str] = {
     "libero": "LIBERO",
 }
 
-# RLinf exposes one unified OpenPI loader for Pi0/Pi0.5 checkpoints.
-PI05_MODEL_BACKENDS: tuple[str, ...] = ("openpi",)
-
-
 # ---------------------------------------------------------------------------
 # Config builder
 # ---------------------------------------------------------------------------
@@ -148,9 +144,7 @@ class Pi05VLAFacade(BaseVLAFacade):
 
     Wires ``vla.predict`` to :meth:`predict` (registered by the base class).
     Embodiment-specific behavior (model config, loader, obs decode) is driven
-    by the ``embodiment`` name passed at construction. ``model_backend``
-    selects the RLinf loader; current RLinf main exposes the unified
-    ``openpi`` loader.
+    by the ``embodiment`` name passed at construction.
 
     Session-isolation is not supported (``reset_session`` is not registered).
     """
@@ -160,7 +154,6 @@ class Pi05VLAFacade(BaseVLAFacade):
         *,
         model_path: str,
         embodiment: str,
-        model_backend: str = "openpi",
         norm_stats_path: str | None = None,
         repo_id: str | None = None,
     ):
@@ -170,11 +163,6 @@ class Pi05VLAFacade(BaseVLAFacade):
                 f"registered={list(PI05_EMBODIMENTS)}"
             )
         emb_cfg = PI05_EMBODIMENTS[embodiment]
-        if model_backend not in PI05_MODEL_BACKENDS:
-            raise ValueError(
-                f"unsupported pi05 model backend: {model_backend!r}; "
-                f"supported={list(PI05_MODEL_BACKENDS)}"
-            )
         if embodiment == "dual_franka" and not (repo_id or norm_stats_path):
             raise ValueError("dual_franka requires repo_id or norm_stats_path")
         self._embodiment = embodiment
@@ -195,9 +183,8 @@ class Pi05VLAFacade(BaseVLAFacade):
                 cfg.openpi_data.norm_stats_path = norm_stats_path
         t0 = time.time()
         logger.info(
-            "loading Pi0.5 (embodiment=%s, model_backend=%s, model_path=%s) ...",
+            "loading Pi0.5 (embodiment=%s, model_path=%s) ...",
             embodiment,
-            model_backend,
             cfg["model_path"],
         )
         self._model = get_model(cfg, torch_dtype=None).cuda().eval()
@@ -257,12 +244,6 @@ def main() -> None:
         help="Pi0.5 checkpoint (defaults to PI05_CHECKPOINT_PATH env)",
     )
     p.add_argument(
-        "--model-backend",
-        choices=list(PI05_MODEL_BACKENDS),
-        default="openpi",
-        help="RLinf model loader (default: openpi)",
-    )
-    p.add_argument(
         "--norm-stats-path",
         default=os.environ.get("PI05_NORM_STATS_PATH"),
         help="norm_stats directory, for presets whose loader needs it "
@@ -296,7 +277,6 @@ def main() -> None:
     facade = Pi05VLAFacade(
         model_path=model_path,
         embodiment=args.embodiment,
-        model_backend=args.model_backend,
         norm_stats_path=args.norm_stats_path,
         repo_id=args.repo_id,
     )
