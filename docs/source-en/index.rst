@@ -96,6 +96,7 @@ Welcome to RPent
    Data Flywheel <rst_source/usage/flywheel>
    Flash Mode <rst_source/usage/flash>
    Simulation <rst_source/usage/simulation>
+   Scripted RoboDojo <rst_source/usage/robodojo_scripted>
    Real Robots <rst_source/usage/real_robots>
    Advanced Deployment <rst_source/usage/advanced_deployment>
 

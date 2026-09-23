@@ -129,6 +129,9 @@ RoboCasa 安装、任务 memory 与 Target50 协议参见
 
 下面的示例继续使用 LIBERO-PRO。
 
+使用 CuRobo 和独占 dev 服务执行独立 RoboDojo 配方，参见
+[脚本化规控指南](docs/source-zh/rst_source/usage/robodojo_scripted.rst)。
+
 **2. 下载 LIBERO-PRO 仿真资产。**
 
 ```bash
