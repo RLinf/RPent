@@ -18,8 +18,7 @@ Embodiment-specific settings (openpi config name, action dim, …) are
 selected by the ``--embodiment`` CLI flag and looked up in
 ``PI05_EMBODIMENTS``.
 
-RLinf's unified ``openpi`` loader detects the checkpoint layout
-automatically. Presets whose loader resolves normalisation statistics from a
+Presets whose loader resolves normalisation statistics from a
 directory take ``--norm-stats-path`` (or the ``PI05_NORM_STATS_PATH``
 environment variable). Use ``--repo-id`` to select dataset normalization
 statistics within a checkpoint.
@@ -95,7 +94,7 @@ PI05_ROBOT_PLATFORMS: dict[str, str] = {
 
 
 def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
-    """Build OmegaConf for RLinf's unified ``openpi.get_model`` loader.
+    """Build OmegaConf for RLinf's ``openpi.get_model`` loader.
 
     Two-level merge ``emb_cfg`` into a default config template. ``emb_cfg``
     mirrors the OmegaConf structure (top-level keys + ``openpi`` sub-dict),
