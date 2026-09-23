@@ -198,20 +198,34 @@ override-dependencies = [
     # (pydantic-ai-slim -> pydantic>=2.12 -> typing-extensions>=4.14). The
     # temporary simulator setup installs RPent with `--no-deps`. This
     # override preserves the simulator pin for resolution; it does not
-    # establish compatibility with the full agent stack.
+    # establish compatibility with the full agent stack. Note that tyro,
+    # pulled in through rlinf, needs typing-extensions>=4.13.0 for
+    # TypeForm, so the RLinf policy config only imports with a newer pin
+    # than the simulator declares. Which side to relax belongs with the
+    # upstream fix, not with another override here.
     "typing-extensions==4.12.2",
+    # Required for the single-environment install; see the note above.
+    "uvicorn>=0.31.1",
+    "wrapt>=1.17.0",
+    "filelock>=3.16.1",
+    "torch==2.7.0",
 ]
 
-# Remaining upstream blockers for the single-environment robodojo extra:
+# Upstream blockers for the single-environment robodojo extra.
+# `uv pip install -e ".[robodojo]"` was verified on 2026-09-23 on a clean
+# Python 3.11 environment: the extras install (282 packages for
+# robodojo-sim, 129 more for robodojo, about 20 GB), the CuRobo native
+# extension builds, and `robots.robodojo` plus the RLinf RoboDojo config
+# import. That install needs the four overrides below, because the pinned
+# simulator packages disagree with RPent's dependencies:
 # - isaacsim-kernel==5.1.0.0 pins uvicorn==0.29.0; mcp>=1.23.0 needs >=0.31.1.
 # - isaacsim-kernel==5.1.0.0 pins wrapt==1.16.0; rlinf's swanlab>=0.6.11
 #   needs wrapt>=1.17.0.
 # - isaacsim-core==5.1.0.0 pins filelock==3.13.1; rpent-openpi needs >=3.16.1.
 # - rpent-openpi==0.2.2 pins torch==2.7.1; the simulator requires torch==2.7.0.
-# The agreed approach is to relax them in rlinf-prefixed forks of the
-# affected packages and then point these references back at the official
-# branches.
-# Do not bypass these constraints with additional RPent overrides.
+# They are overridden here so the documented install works today; the
+# agreed approach is to relax them in rlinf-prefixed forks of the affected
+# packages and then point these references back at the official branches.
 
 # Each robot extra pulls a separately pinned VLA runtime whose Torch,
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
