@@ -72,3 +72,13 @@ prompt、响应正文或 API key。独立调用可向 ``LLMClient`` 传入 ``log
 每次运行都会重新读取并注入所列的 skill 文件，
 不会自动加载工作目录中的文件。本地 ``finish`` 工具把 agent 的结论写入
 ``PlannerResult.finish_result``；评测得分应以 benchmark 的成功条件为准。
+
+RoboDojo 示例
+-------------
+
+``examples/robodojo`` 提供 XPolicyLab 适配层，使用 ``EmbodiedAgent`` 完成每轮
+RoboDojo 决策。MCP 工具 ``snapshot`` 返回相机画面和机器人状态，
+``submit_action`` 提交简短的离散动作；RoboDawn 的运动控制器负责执行，
+RoboDojo 负责原生评分。示例固定 RoboDawn 控制器版本，将凭据保存在 Git 之外，
+并提供并行 GPU 作业的启动适配。安装步骤与结果路径见示例目录的
+``README.md``。

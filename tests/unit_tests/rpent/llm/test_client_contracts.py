@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import json
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,7 @@ from pydantic_ai.usage import RequestUsage, RunUsage
 
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.llm import LLMClient, LLMConfig, LLMUsage, RetryPolicy
+from rpent.llm.client import build_model_settings
 from rpent.llm.retry import RetryLoggingModel
 from rpent.planner.api_loop import _build_stats
 from rpent.planner.base import build_planner
@@ -51,6 +53,21 @@ def test_provider_configuration_builds_selected_model(
     model = config.build_model()
     assert type(model).__name__ == model_type
     assert model.model_name == config.model
+
+
+def test_openai_settings_do_not_import_anthropic_sdk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = LLMConfig("openai", "gpt-test", api_key="test").build_model()
+    real_import = builtins.__import__
+
+    def import_without_anthropic(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "pydantic_ai.models.anthropic":
+            raise ImportError("anthropic is not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_anthropic)
+    assert build_model_settings(model, 100)["max_tokens"] == 100
 
 
 def test_direct_calls_report_per_call_and_cumulative_usage(
