@@ -22,11 +22,16 @@ the root project's packaging overrides and cuRobo build dependencies:
 
    uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com
 
+On Blackwell GPUs, append ``--torch-backend=cu128`` to select a PyTorch
+build with ``sm_120`` support. The default CUDA 12.6 build of PyTorch 2.7.0
+does not support these GPUs. Use the same option when reinstalling this extra.
+
 These overrides allow dependency resolution; they do not establish simulation
-task success. The RLinf policy path has had an end-to-end policy-chain smoke
-check with real weights and one prediction, but no simulation task success
-rate has been established. Its action chunk remains 50, matching the training
-configuration's ``Pi0Config.action_horizon``.
+task success. The RLinf integration branch supplies both the environment
+adapter and ``pi05_robodojo_arx_x5``. The RoboDojo preset selects the OpenPI
+``eval`` loader with a 50-step horizon, a padded 32-dimensional model action,
+and 14-dimensional environment actions. Real-weight RPC inference has returned
+finite actions of shape ``(1, 50, 14)``; this is not a task-success guarantee.
 
 The simulation bridge requires runtime version 0.3.0 or later.
 The Git references are temporary until versioned releases are published.
@@ -35,6 +40,20 @@ offline bridge tests do not establish simulator compatibility.
 IsaacLab's upstream non-editable packaging can omit its extension configuration.
 If that defect affects the installed revision, use a separately prepared
 editable IsaacLab installation; the runtime wheel does not repair IsaacLab.
+The pinned ``afca7b09`` revision fails with a missing
+``config/extension.toml`` after a wheel install. Check out the IsaacLab fork
+and revision named by the runtime dependency into a separate writable directory,
+then, from the RPent root and in the same environment, run:
+
+.. code-block:: bash
+
+   uv pip install --no-deps \
+     -e /path/to/IsaacLab/source/isaaclab \
+     -e /path/to/IsaacLab/source/isaaclab_assets \
+     -e /path/to/IsaacLab/source/isaaclab_tasks
+
+This is an additional manual packaging workaround, not a zero-step clean
+runtime installation. Retain that checkout while using the environment.
 
 Sources and assets
 ------------------
@@ -93,7 +112,8 @@ RPent configuration
 The default ``--policy-backend rlinf`` requires a policy interpreter that
 provides the ``pi05_robodojo_arx_x5`` config and its openpi dependencies;
 RLinf main does not include that config yet. Set ``PI05_CHECKPOINT_PATH`` to a
-compatible RLinf checkpoint. The ``robodojo`` extra supplies this policy runtime.
+compatible RLinf checkpoint and its normalization statistics. The ``robodojo``
+extra selects an integration branch that includes the required preset.
 Use ``--policy-backend xpolicylab`` for an independently prepared XPolicyLab runtime.
 
 Configure SAM3's checkpoint using ``SAM3_CHECKPOINT_PATH``, and export the

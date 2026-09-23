@@ -19,14 +19,29 @@ Isaac Sim / IsaacLab 的版本约束由运行时包维护。``robodojo`` 还会�
 
    uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com
 
-这些 override 使依赖可以解析，不代表仿真任务成功。RLinf 策略路径已做
-真实权重、单次预测的端到端策略链冒烟，但尚未在仿真中取得任务成功率。
-action chunk 保持 50，与训练配置的 ``Pi0Config.action_horizon`` 一致。
+Blackwell GPU 需在命令末尾添加 ``--torch-backend=cu128``，选择支持
+``sm_120`` 的 PyTorch 构建。PyTorch 2.7.0 默认的 CUDA 12.6 构建不支持
+这类 GPU。重新安装该 extra 时也需保留此选项。
+
+这些 override 使依赖可以解析，不代表仿真任务成功。RLinf 集成分支同时提供环境适配器和 ``pi05_robodojo_arx_x5``。RoboDojo 预设选择 OpenPI 的 ``eval`` loader，预测长度为 50，模型动作补齐到 32 维，环境动作保持 14 维。真实权重的 RPC 推理已返回形状为 ``(1, 50, 14)`` 且全部有限的动作；这不保证任务成功。
 
 仿真桥需要运行时包 0.3.0 或更新版本。发布版本号之前，暂时使用 Git 引用。
 全新依赖安装与 GPU rollout 仍需分别验证；桥的离线测试不代表仿真兼容性已获验证。
 IsaacLab 上游的非 editable 打包可能遗漏扩展配置。如果所安装的版本仍有此问题，
 需另行准备 editable IsaacLab 安装；运行时 wheel 不修复 IsaacLab 的打包问题。
+当前固定的 ``afca7b09`` 版本在 wheel 安装后确实会因缺少
+``config/extension.toml`` 失败。将运行时依赖指定的 IsaacLab fork 及对应版本
+检出到独立的可写目录，然后在 RPent 根目录、同一环境中执行：
+
+.. code-block:: bash
+
+   uv pip install --no-deps \
+     -e /path/to/IsaacLab/source/isaaclab \
+     -e /path/to/IsaacLab/source/isaaclab_assets \
+     -e /path/to/IsaacLab/source/isaaclab_tasks
+
+这是额外的手工打包修复步骤，不属于零手工步骤的干净运行时安装。
+使用此环境期间需保留该源码目录。
 
 源码与资产
 ----------
@@ -81,8 +96,8 @@ RPent 配置
 
 默认的 ``--policy-backend rlinf`` 需要策略解释器提供
 ``pi05_robodojo_arx_x5`` 配置及其 openpi 依赖；官方 main 尚未包含该配置。
-通过 ``PI05_CHECKPOINT_PATH`` 指定兼容的 RLinf checkpoint；
-``robodojo`` extra 已提供该策略运行时。使用另行准备的 XPolicyLab 运行时时，
+通过 ``PI05_CHECKPOINT_PATH`` 指定兼容的 RLinf checkpoint 及其归一化统计量。
+``robodojo`` extra 选择包含所需预设的集成分支。使用另行准备的 XPolicyLab 运行时时，
 选择 ``--policy-backend xpolicylab``。
 
 通过 ``SAM3_CHECKPOINT_PATH`` 配置 SAM3 checkpoint，并导出摆放稳定步数。

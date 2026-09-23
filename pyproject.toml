@@ -151,46 +151,28 @@ prerelease = "allow"
 # the pyproject.toml discovered in the current directory, so run e.g.
 # `cd rpent && uv pip install -e ".[robodojo-sim]"`.
 override-dependencies = [
-    # isaacsim-core==5.1.0.0 declares `pywin32==306` with NO platform marker,
-    # which makes Linux resolution fail. Force it back to Windows-only.
-    "pywin32==306 ; sys_platform == 'win32'",
     # isaaclab==0.54.3 pins starlette==0.49.1, while isaacsim-kernel==5.1.0.0
     # -> fastapi==0.115.7 needs starlette>=0.40,<0.46. RoboDojo's own
     # `pin_runtime_deps` installs starlette==0.45.3.
     "starlette==0.45.3",
-    # isaacsim-kernel==5.1.0.0 pins typing-extensions==4.12.2 exactly. This
-    # only bites when RPent's agent deps share the sim env
-    # (pydantic-ai-slim -> pydantic>=2.12 -> typing-extensions>=4.14). The
-    # temporary simulator setup installs RPent with `--no-deps`. This
-    # override preserves the simulator pin for resolution; it does not
-    # establish compatibility with the full agent stack. Note that tyro,
-    # pulled in through rlinf, needs typing-extensions>=4.13.0 for
-    # TypeForm, so the RLinf policy config only imports with a newer pin
-    # than the simulator declares. Which side to relax belongs with the
-    # upstream fix, not with another override here.
-    "typing-extensions==4.12.2",
-    # Required for the single-environment install; see the note above.
+    # isaacsim-kernel pins 4.12.2, but tyro imports TypeForm (>=4.13)
+    # and the resolved pydantic/anyio versions require >=4.16. Keeping
+    # the simulator pin resolves but fails on policy startup.
+    "typing-extensions>=4.16.0",
+    # Simulator pins conflict with mcp, swanlab and openpi, respectively.
     "uvicorn>=0.31.1",
     "wrapt>=1.17.0",
     "filelock>=3.16.1",
     "torch==2.7.0",
 ]
 
-# Upstream blockers for the single-environment robodojo extra.
-# `uv pip install -e ".[robodojo]"` was verified on 2026-09-23 on a clean
-# Python 3.11 environment: the extras install (282 packages for
-# robodojo-sim, 129 more for robodojo, about 20 GB), the CuRobo native
-# extension builds, and `robots.robodojo` plus the RLinf RoboDojo config
-# import. That install needs the four overrides below, because the pinned
-# simulator packages disagree with RPent's dependencies:
+# Additional conflicts in the single-environment robodojo extra:
 # - isaacsim-kernel==5.1.0.0 pins uvicorn==0.29.0; mcp>=1.23.0 needs >=0.31.1.
 # - isaacsim-kernel==5.1.0.0 pins wrapt==1.16.0; rlinf's swanlab>=0.6.11
 #   needs wrapt>=1.17.0.
 # - isaacsim-core==5.1.0.0 pins filelock==3.13.1; rpent-openpi needs >=3.16.1.
 # - rpent-openpi==0.2.2 pins torch==2.7.1; the simulator requires torch==2.7.0.
-# They are overridden here so the documented install works today; the
-# agreed approach is to relax them in rlinf-prefixed forks of the affected
-# packages and then point these references back at the official branches.
+# Resolving these conflicts does not establish runtime compatibility.
 
 # Each robot extra pulls a separately pinned VLA runtime whose Torch,
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
