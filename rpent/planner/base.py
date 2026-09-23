@@ -193,10 +193,16 @@ def build_planner(
         raise ValueError("pass either llm_config or model/base_url")
 
     if planner_type == "api":
+        from rpent.llm.retry import RetryLoggingModel, RetryPolicy
         from rpent.planner.api_loop import ApiAgentLoop
 
-        api_model = (
+        raw_model = (
             llm_config.build_model() if llm_config else build_api_model(model, base_url)
+        )
+        api_model = RetryLoggingModel(
+            raw_model,
+            policy=llm_config.retry if llm_config else RetryPolicy(),
+            log_path=Path(output_dir) / "llm_errors.jsonl",
         )
         api_timeout_s = planner_timeout_s
         if api_timeout_s is None:

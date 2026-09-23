@@ -15,5 +15,6 @@
 """OpenAI and Anthropic model configuration, calls, and token accounting."""
 
 from rpent.llm.client import LLMClient, LLMConfig, LLMResponse, LLMUsage
+from rpent.llm.retry import RetryPolicy
 
-__all__ = ["LLMClient", "LLMConfig", "LLMResponse", "LLMUsage"]
+__all__ = ["LLMClient", "LLMConfig", "LLMResponse", "LLMUsage", "RetryPolicy"]

@@ -18,8 +18,12 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+
+from rpent.llm.retry import RetryLoggingModel, RetryPolicy
+from rpent.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
@@ -27,6 +31,8 @@ if TYPE_CHECKING:
 
 ProviderName = Literal["openai", "anthropic"]
 OpenAIFormat = Literal["responses", "chat"]
+
+logger = get_logger("llm.client")
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +49,7 @@ class LLMConfig:
     api_key: str | None = None
     base_url: str | None = None
     openai_format: OpenAIFormat | None = None
+    retry: RetryPolicy = field(default_factory=RetryPolicy)
 
     def __post_init__(self) -> None:
         if self.provider not in {"openai", "anthropic"}:
@@ -193,7 +200,8 @@ def build_model_settings(model: Model, max_tokens: int):
 
     if max_tokens < 1:
         raise ValueError("max_tokens must be positive")
-    if isinstance(model, AnthropicModel):
+    underlying = model.wrapped if isinstance(model, RetryLoggingModel) else model
+    if isinstance(underlying, AnthropicModel):
         return AnthropicModelSettings(
             max_tokens=max_tokens,
             anthropic_cache_instructions=True,
@@ -206,9 +214,11 @@ def build_model_settings(model: Model, max_tokens: int):
 class LLMClient:
     """Make direct text calls and track both per-call and cumulative usage."""
 
-    def __init__(self, config: LLMConfig):
+    def __init__(self, config: LLMConfig, *, log_path: str | Path | None = None):
         self.config = config
-        self._model = config.build_model()
+        self._model = RetryLoggingModel(
+            config.build_model(), policy=config.retry, log_path=log_path
+        )
         self._total_usage: LLMUsage | None = None
         self._usage_lock = threading.Lock()
 
@@ -246,6 +256,14 @@ class LLMClient:
             result = await self._agent(system_prompt, max_tokens).run(
                 prompt, usage=call_usage
             )
+        except Exception as exc:
+            logger.error(
+                "LLM call failed provider=%s model=%s error_type=%s",
+                self.config.provider,
+                self.config.model,
+                type(exc).__name__,
+            )
+            raise
         finally:
             self._record(LLMUsage.from_run_usage(call_usage))
         return LLMResponse(
@@ -265,6 +283,14 @@ class LLMClient:
             result = self._agent(system_prompt, max_tokens).run_sync(
                 prompt, usage=call_usage
             )
+        except Exception as exc:
+            logger.error(
+                "LLM call failed provider=%s model=%s error_type=%s",
+                self.config.provider,
+                self.config.model,
+                type(exc).__name__,
+            )
+            raise
         finally:
             self._record(LLMUsage.from_run_usage(call_usage))
         return LLMResponse(

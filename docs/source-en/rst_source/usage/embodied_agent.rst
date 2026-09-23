@@ -66,6 +66,18 @@ For standalone model calls, ``LLMClient(LLMConfig(...))`` offers ``generate``
 and ``generate_sync``. Each response has ``text`` and ``usage``; the client also
 exposes cumulative ``total_usage``.
 
+LLM requests retry HTTP 408, 409, 425, 429, and 5xx responses, plus provider
+API or connection errors without an HTTP status. The default is two retries
+with capped exponential backoff;
+configure it with ``LLMConfig(retry=RetryPolicy(max_retries=...))``. HTTP 400,
+401, 403, and other permanent failures are logged and returned immediately.
+Each failed provider attempt writes a sanitized record to
+``<output_dir>/llm_errors.jsonl`` for the ``api`` planner. The record includes
+the status, attempt number, and retry decision, without prompts, response
+bodies, or API keys. For direct calls, pass ``log_path`` to ``LLMClient`` to
+save the same records to a file. Errors still propagate from direct calls;
+``EmbodiedAgent.run`` returns them in ``PlannerResult.error``.
+
 Skill files are read and inserted into the prompt on every run; they are not
 automatically discovered from the working directory. The local ``finish`` tool records the
 agent's own conclusion in ``PlannerResult.finish_result``. That conclusion is

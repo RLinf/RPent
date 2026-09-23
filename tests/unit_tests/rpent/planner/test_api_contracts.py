@@ -17,10 +17,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import queue
+from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic_ai import BinaryContent, ToolReturn
+from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import (
     ModelResponse,
     TextPart,
@@ -31,6 +33,7 @@ from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
+from rpent.llm.retry import RetryLoggingModel, RetryPolicy
 from rpent.planner.api_loop import (
     ApiAgentLoop,
     _build_tools,
@@ -150,6 +153,48 @@ def test_successful_finish_waits_for_its_tool_result() -> None:
     }
     assert any(isinstance(event, TranscriptEvent) for event in sink.events)
     assert any(isinstance(event, UsageEvent) for event in sink.events)
+
+
+def test_transient_model_failure_does_not_repeat_robot_tool_call(
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+
+    def model(messages: list[Any], info: Any) -> ModelResponse:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ModelHTTPError(503, "offline")
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    "finish", {"status": "success", "summary": "done"}, "finish-call"
+                )
+            ],
+            usage=RequestUsage(input_tokens=7, output_tokens=3),
+        )
+
+    toolkit = FakeToolkit()
+    planner = ApiAgentLoop(
+        RetryLoggingModel(
+            FunctionModel(model),
+            policy=RetryPolicy(max_retries=1, initial_delay_s=0, max_delay_s=0),
+            log_path=tmp_path / "llm_errors.jsonl",
+        ),
+        max_tokens=32,
+        dashboard_events=RecordingSink(),
+        timeout_s=5,
+    )
+    result = planner.solve(
+        system_prompt="Use tools.",
+        user_message="Complete task.",
+        toolkit=toolkit,
+        max_turns=3,
+    )
+    assert result.error is None
+    assert attempts == 2
+    assert len(toolkit.calls) == 1
+    assert len((tmp_path / "llm_errors.jsonl").read_text().splitlines()) == 1
 
 
 def test_rejected_finish_does_not_end_the_run() -> None:

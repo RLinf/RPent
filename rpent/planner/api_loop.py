@@ -138,6 +138,7 @@ class ApiAgentLoop:
             return asyncio.run(asyncio.wait_for(solve, timeout=self._timeout_s))
         except asyncio.TimeoutError:
             toolkit.cancel_active_and_wait()
+            logger.error("API planner timed out after %ss", self._timeout_s)
             return PlannerResult(
                 finish_result=None,
                 messages=[{"role": "user", "content": user_message}],
@@ -335,9 +336,11 @@ class ApiAgentLoop:
             )
         except asyncio.TimeoutError:
             error = f"API planner timed out after {self._timeout_s}s"
+            logger.error("%s", error)
             control.end()
         except Exception as exc:
             error = _api_error_text(exc, no_images=self._no_images)
+            logger.error("agent run failed: %s", error)
             control.end()
         finally:
             try:
@@ -590,6 +593,7 @@ class _ApiDashboardSession:
                 run_completed = True
         except Exception as exc:
             self.error = _api_error_text(exc, no_images=self._no_images)
+            logger.error("agent run failed: %s", self.error)
             if not self._closing:
                 self._control.end()
         finally:
