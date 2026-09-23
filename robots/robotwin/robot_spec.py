@@ -190,7 +190,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=ROBOTWIN_DASHBOARD_SPEC,
-        supports_exploration=False,
+        supports_exploration=True,
     )
 
 
@@ -199,17 +199,25 @@ def get_toolkit(
     runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
+    mode: str = "evaluation",
+    attempts_per_session: int = 0,
+    state_output_dir: Path | str | None = None,
 ):
     """Return the RoboTwin toolkit for the current session."""
     from robots.robotwin.toolkit import RoboTwinToolkit
 
     memory = MemoryManager(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
+        memory_access="inbox_write" if mode == "exploration" else "read_only",
+        inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
     )
     return RoboTwinToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
+        mode=mode,
+        attempts_per_session=attempts_per_session,
+        state_output_dir=state_output_dir,
     )
 
 
@@ -231,6 +239,24 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         choices=ROBOTWIN_TASK_CONFIGS,
         default="demo_randomized",
         help="Native RoboTwin task YAML.",
+    )
+    parser.add_argument(
+        "--auto-merge-memory",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Merge exploration output into layered memory (default: enabled).",
+    )
+    parser.add_argument(
+        "--explore-attempts-per-session",
+        type=int,
+        default=5,
+        help="Attempts per exploration session (default: 5; 0 disables limit).",
+    )
+    parser.add_argument(
+        "--explore-sessions",
+        type=int,
+        default=3,
+        help="Independent planner sessions per exploration run (default: 3).",
     )
     parser.add_argument(
         "--max-episode-steps",
@@ -279,34 +305,54 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if not args.task_name:
         raise ValueError("--task-name is required")
     env_cuda_device, vla_cuda_device = _resolve_cuda_devices(args)
+    task_config = getattr(args, "task_config", "demo_randomized")
+    recipe_tag = f"robotwin_{args.task_name}_{task_config}_s{args.seed}"
     output_dir = args.output_dir
     if output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
-        output_dir = (
-            get_repo_root()
-            / "logs"
-            / f"{timestamp}_robotwin_{args.task_name}_s{args.seed}"
-        )
+        output_dir = get_repo_root() / "logs" / f"{timestamp}_{recipe_tag}"
     output_dir = Path(output_dir)
-    recipe_tag = f"robotwin_{args.task_name}_s{args.seed}"
-    task_config = getattr(args, "task_config", "demo_randomized")
     initial_seed = int(args.seed)
     memory_dir = (
         Path(args.memory_dir).expanduser().resolve()
         if args.memory_dir
         else get_memory_dir("robotwin")
     )
+    explore = bool(getattr(args, "explore", False))
+    memory_profile = getattr(args, "memory_profile", None) or (
+        "local" if explore else "hf"
+    )
+    reference_tag = (
+        f"robotwin_{args.task_name}_{task_config}_s0"
+        if memory_profile == "local"
+        else f"{args.task_name}_s0"
+    )
+    prompt_vars = {
+        "task_name": args.task_name,
+        "seed": args.seed,
+        "task_config": task_config,
+        "instruction": "<native task_language from state_00>",
+        "memory_dir": str(memory_dir),
+        "mode": "explore" if explore else "eval",
+        "memory_profile": memory_profile,
+        "reference_tag": reference_tag,
+        "recipe_tag": recipe_tag,
+    }
+    if explore:
+        prompt_vars.update(
+            {
+                "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
+                "session_number": 1,
+                "session_max": max(1, int(getattr(args, "explore_sessions", 3))),
+                "explore_attempts_per_session": int(
+                    getattr(args, "explore_attempts_per_session", 5)
+                ),
+            }
+        )
     return RunConfig(
         recipe_tag=recipe_tag,
         output_dir=output_dir,
-        prompt_vars={
-            "task_name": args.task_name,
-            "seed": args.seed,
-            "task_config": task_config,
-            "instruction": "<native task_language from state_00>",
-            "memory_dir": str(memory_dir),
-            "reference_tag": f"{args.task_name}_s0",
-        },
+        prompt_vars=prompt_vars,
         task_desc={
             "env": "robotwin",
             "task_name": args.task_name,

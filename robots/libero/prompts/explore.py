@@ -14,7 +14,7 @@
 
 """LIBERO exploration prompt.
 
-The evaluation prompt in :mod:`~robots.libero.prompts.system` measures
+The evaluation prompt in :mod:`~robots.libero.prompts.evaluate` measures
 single-shot success: one episode, no restarts. Exploration has a different
 job — find an approach that works, however many episodes it takes, and leave
 the knowledge behind in memory.
@@ -32,7 +32,7 @@ whole exploration contract in one file.
 
 from __future__ import annotations
 
-from robots.libero.prompts import system as base
+from robots.libero.prompts import evaluate as base
 from rpent.prompt.utils import Numbered, PromptNode
 
 (
