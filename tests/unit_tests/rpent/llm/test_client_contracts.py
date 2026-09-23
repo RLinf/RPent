@@ -17,16 +17,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage, RunUsage
 
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.llm import LLMClient, LLMConfig, LLMUsage
+from rpent.llm import LLMClient, LLMConfig, LLMUsage, RetryPolicy
+from rpent.llm.retry import RetryLoggingModel
 from rpent.planner.api_loop import _build_stats
 from rpent.planner.base import build_planner
 
@@ -106,7 +109,125 @@ def test_api_planner_uses_explicit_llm_configuration(
         llm_config=config,
         dashboard_events=NullDashboardEventSink(),
     )
-    assert planner._model is model
+    assert isinstance(planner._model, RetryLoggingModel)
+    assert planner._model.wrapped is model
+    assert planner._model.log_path == tmp_path / "llm_errors.jsonl"
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_attempts"),
+    [(400, 1), (401, 1), (429, 3), (503, 3)],
+)
+def test_http_failures_have_bounded_retries_and_sanitized_logs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    status: int,
+    expected_attempts: int,
+) -> None:
+    attempts = 0
+
+    def model(messages: list[Any], info: Any) -> ModelResponse:
+        nonlocal attempts
+        attempts += 1
+        raise ModelHTTPError(status, "offline", body={"prompt": "private text"})
+
+    monkeypatch.setattr(LLMConfig, "build_model", lambda self: FunctionModel(model))
+    log_path = tmp_path / "llm_errors.jsonl"
+    client = LLMClient(
+        LLMConfig(
+            "openai",
+            "offline",
+            api_key="secret-key",
+            retry=RetryPolicy(max_retries=2, initial_delay_s=0, max_delay_s=0),
+        ),
+        log_path=log_path,
+    )
+    with pytest.raises(ModelHTTPError):
+        client.generate_sync("private text")
+
+    records = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert attempts == expected_attempts
+    assert len(records) == expected_attempts
+    assert [record["will_retry"] for record in records] == [
+        *([True] * (expected_attempts - 1)),
+        False,
+    ]
+    assert all(record["status_code"] == status for record in records)
+    assert "private text" not in log_path.read_text()
+    assert "secret-key" not in log_path.read_text()
+
+
+def test_transient_failure_recovers_without_replaying_completed_request(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    attempts = 0
+
+    def model(messages: list[Any], info: Any) -> ModelResponse:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ModelHTTPError(429, "offline")
+        return ModelResponse(
+            parts=[TextPart("recovered")],
+            usage=RequestUsage(input_tokens=4, output_tokens=2),
+        )
+
+    monkeypatch.setattr(LLMConfig, "build_model", lambda self: FunctionModel(model))
+    log_path = tmp_path / "llm_errors.jsonl"
+    client = LLMClient(
+        LLMConfig(
+            "anthropic",
+            "offline",
+            api_key="test",
+            retry=RetryPolicy(max_retries=2, initial_delay_s=0, max_delay_s=0),
+        ),
+        log_path=log_path,
+    )
+    result = asyncio.run(client.generate("task"))
+    assert attempts == 2
+    assert result.text == "recovered"
+    assert result.usage.requests == 1
+    assert len(log_path.read_text().splitlines()) == 1
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_attempts"),
+    [(ModelAPIError("offline", "connection failed"), 3), (ValueError("bad data"), 1)],
+)
+def test_non_http_failures_are_logged_and_only_connection_errors_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error: Exception,
+    expected_attempts: int,
+) -> None:
+    attempts = 0
+
+    def model(messages: list[Any], info: Any) -> ModelResponse:
+        nonlocal attempts
+        attempts += 1
+        raise error
+
+    monkeypatch.setattr(LLMConfig, "build_model", lambda self: FunctionModel(model))
+    log_path = tmp_path / "llm_errors.jsonl"
+    client = LLMClient(
+        LLMConfig(
+            "openai",
+            "offline",
+            api_key="test",
+            retry=RetryPolicy(max_retries=2, initial_delay_s=0, max_delay_s=0),
+        ),
+        log_path=log_path,
+    )
+    with pytest.raises(type(error)):
+        client.generate_sync("task")
+    assert attempts == expected_attempts
+    assert len(log_path.read_text().splitlines()) == expected_attempts
+
+
+@pytest.mark.parametrize("provider", ["openai", "anthropic"])
+def test_provider_sdk_retries_are_disabled_for_explicit_policy(provider: str) -> None:
+    client = LLMClient(LLMConfig(provider, "offline", api_key="test"))
+    assert client._model.wrapped.provider.client.max_retries == 0
 
 
 def test_planner_usage_normalizes_cache_without_double_counting() -> None:

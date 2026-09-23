@@ -59,6 +59,16 @@ Completions 的端点可设 ``openai_format="chat"``。原有 ``model`` 和
 ``generate_sync``；返回值包含 ``text`` 和本次 ``usage``，客户端的
 ``total_usage`` 则记录累计消耗。
 
+LLM 请求遇到 HTTP 408、409、425、429、5xx，或没有 HTTP 状态码的
+提供商 API、连接错误时会重试。
+默认最多重试两次，并使用有上限的指数退避；可通过
+``LLMConfig(retry=RetryPolicy(max_retries=...))`` 调整。HTTP 400、401、
+403 等永久性错误会记录并立即返回。``api`` planner 每次失败的请求都会向
+``<output_dir>/llm_errors.jsonl`` 写入状态码、尝试次数和重试决定；记录不含
+prompt、响应正文或 API key。独立调用可向 ``LLMClient`` 传入 ``log_path``
+保存相同的日志。独立调用的错误继续抛出；``EmbodiedAgent.run`` 则通过
+``PlannerResult.error`` 返回。
+
 每次运行都会重新读取并注入所列的 skill 文件，
 不会自动加载工作目录中的文件。本地 ``finish`` 工具把 agent 的结论写入
 ``PlannerResult.finish_result``；评测得分应以 benchmark 的成功条件为准。
