@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 from datetime import datetime
 from functools import partial
@@ -97,22 +98,36 @@ ROBODOJO_DASHBOARD_SPEC: DashboardSpec = {
 
 
 def _runtime_overrides(args: argparse.Namespace) -> dict[str, str]:
-    """Build child imports from explicitly configured source directories."""
-    if not args.source_root:
-        raise ValueError("--source-root is required when spawning RoboDojo services")
-    source = Path(args.source_root).expanduser().resolve()
+    """Resolve packaged code in the simulator interpreter, preserving overrides."""
+    if args.source_root:
+        source = Path(args.source_root).expanduser().resolve()
+    else:
+        source = Path(
+            subprocess.check_output(
+                [
+                    str(Path(args.sim_python).expanduser()),
+                    "-c",
+                    "from robodojo_runtime import source_root; print(source_root())",
+                ],
+                text=True,
+            ).strip()
+        )
     xpolicy = (
         Path(args.xpolicylab_root).expanduser().resolve()
         if args.xpolicylab_root
         else source / "XPolicyLab"
     )
     overrides = {
+        "ROBODOJO_SOURCE_ROOT": str(source),
+        "ROBODOJO_ROOT": str(source),
         "PYTHONPATH": os.pathsep.join(
             [str(get_repo_root()), str(source), str(xpolicy)]
             + ([os.environ["PYTHONPATH"]] if os.environ.get("PYTHONPATH") else [])
         ),
         "ROBODOJO_PI05_POLICY_ROOT": str(xpolicy / "policy" / "Pi_05"),
     }
+    if os.environ.get("ROBODOJO_ASSETS_ROOT"):
+        overrides["ROBODOJO_ASSETS_ROOT"] = os.environ["ROBODOJO_ASSETS_ROOT"]
     if args.cuda_device is not None:
         overrides["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
     return overrides
@@ -190,7 +205,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--source-root",
         default=None,
-        help="RoboDojo source checkout (required for locally spawned services)",
+        help="Override the source tree shipped by rlinf-robodojo-runtime",
     )
     parser.add_argument(
         "--xpolicylab-root",

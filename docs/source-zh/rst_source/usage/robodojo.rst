@@ -9,13 +9,11 @@ RPent 的规划器、工具与记忆系统。该接入仍属实验性，仿真�
 Python 环境
 -----------
 
-目标是将 RoboDojo 安装在同一个环境中。``robodojo-sim`` extra 声明仿真栈：Isaac Sim 5.1、
-RoboDojo 使用的 IsaacLab fork、cuRobo 及配套的运行时版本约束；``robodojo`` 在其
-之上增加 SAM3 感知、提供 ``pi05_robodojo_arx_x5`` 的 RLinf 版本，以及 openpi
-运行时。每个机器人 extra 都带自己那套运行时钉版，因此一个环境只装一个。
-
-在 RPent 根目录运行 uv，以读取 ``pyproject.toml`` 中针对上游运行时
-版本冲突已有的 ``override-dependencies``：
+在 Python 3.11 环境中，从 RPent 根目录安装运行时与 agent 依赖。
+``robodojo-sim`` extra 安装 ``rlinf-robodojo-runtime`` 和 RLinf 环境适配器，
+Isaac Sim / IsaacLab 的版本约束由运行时包维护。``robodojo`` 还会安装 SAM3
+与 openpi 策略运行时。每个环境只安装一个机器人 extra。
+在此目录运行 uv，以读取根项目的打包兼容 override 和 cuRobo 构建依赖：
 
 .. code-block:: bash
 
@@ -25,34 +23,18 @@ RoboDojo 使用的 IsaacLab fork、cuRobo 及配套的运行时版本约束；``
 真实权重、单次预测的端到端策略链冒烟，但尚未在仿真中取得任务成功率。
 action chunk 保持 50，与训练配置的 ``Pi0Config.action_horizon`` 一致。
 
-IsaacLab 本身也需要可编辑安装：非 editable 的 VCS 子目录安装只包含
-``__init__.py``，会丢失 ``config/extension.toml``，而 ``isaaclab/__init__.py``
-通过 ``ISAACLAB_EXT_DIR`` 加载该文件。上述命令只将 RPent 设为可编辑安装，
-不会让依赖也变为可编辑安装。按下节准备源码后，在同一环境中安装源码包：
-
-.. code-block:: bash
-
-   uv pip install --no-deps \
-     -e /path/to/RoboDojo/third_party/IsaacLab/source/isaaclab \
-     -e /path/to/RoboDojo/third_party/IsaacLab/source/isaaclab_assets \
-     -e /path/to/RoboDojo/third_party/IsaacLab/source/isaaclab_tasks
-
-RoboDojo 依赖其开发者维护的 IsaacLab 分支：``yuechen0614/IsaacLab`` 是
-``isaac-sim/IsaacLab`` 的公开 fork，并非官方仓库。RoboDojo 子模块指向
-``afca7b09``，也是该 fork 当前 main。相对共同基点 ``f4aa17f8``，该提交修改了
-``app_launcher.py`` 中的 headless 相机处理和 Kit experience 选择。
-在官方版本的等效仿真行为得到验证前，保留 fork。
+仿真桥需要运行时包 0.3.0 或更新版本。发布版本号之前，暂时使用 Git 引用。
+全新依赖安装与 GPU rollout 仍需分别验证；桥的离线测试不代表仿真兼容性已获验证。
+IsaacLab 上游的非 editable 打包可能遗漏扩展配置。如果所安装的版本仍有此问题，
+需另行准备 editable IsaacLab 安装；运行时 wheel 不修复 IsaacLab 的打包问题。
 
 源码与资产
 ----------
 
-准备好 Git LFS 后，将源码获取与 uv 安装分开：
-
-.. code-block:: bash
-
-   GIT_LFS_SKIP_SMUDGE=1 git clone --recurse-submodules https://github.com/RoboDojo-Benchmark/RoboDojo.git
-
-参考 RoboTwin，场景数据独立于 Python 依赖下载：
+运行时 wheel 已包含验证过的 RoboDojo 代码树，无需克隆 RoboDojo。
+环境默认使用 ``robodojo_runtime.source_root()``；仍可用 ``--source-root``
+显式指定本地 checkout。场景数据独立于 Python 依赖下载。
+将 ``ROBODOJO_ASSETS_ROOT`` 指向包含 ``Assets/`` 的目录：
 
 * **RoboDojo 机器人、物体、材质和布局资产：** 只下载
   `RoboDojo 数据集 <https://huggingface.co/datasets/RoboDojo-Benchmark/RoboDojo>`_
@@ -62,14 +44,11 @@ RoboDojo 依赖其开发者维护的 IsaacLab 分支：``yuechen0614/IsaacLab`` 
 
      hf download RoboDojo-Benchmark/RoboDojo --repo-type dataset \
        --include 'Assets/**' --local-dir /data/robodojo
-     export ROBODOJO_ASSETS_PATH=/data/robodojo/Assets
-     ln -s "$ROBODOJO_ASSETS_PATH" /path/to/RoboDojo/Assets
+     export ROBODOJO_ASSETS_ROOT=/data/robodojo
 
-  ``ROBODOJO_ASSETS_PATH`` 仅供 shell 创建此链接，不是上游运行时读取的变量；
-  RoboDojo 实际读取 ``SOURCE_ROOT/Assets``。仅当目标不存在时创建链接，保留已有数据。
-  确认 ``Robots``、``Object``、``Material``、``Eval_Layout`` 下是实际文件，
-  而非 LFS 指针。也可在 RoboDojo 源码目录单独执行上游的
-  ``bash scripts/init_assets.sh``，由它下载并链接该数据集。
+  运行时读取 ``ROBODOJO_ASSETS_ROOT/Assets``，无需向安装目录创建符号链接。
+  确认 ``Robots``、``Object``、``Material`` 和 ``Eval_Layout`` 下是实际文件，
+  而非 LFS 指针。
 * **IsaacLab 引用的 NVIDIA USD/材质资产：** 它们不在 ``isaaclab_assets`` 包内。
   按 `NVIDIA 资产下载说明 <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_
   获取对应版本。RoboDojo 的 ``utils/ensure_usd_path.py`` 仅改写
@@ -114,14 +93,14 @@ RPent，CLI 会把它传给启动的子服务：
 
    export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
 
-传入 RoboDojo 源码目录：
+使用包内代码启动：
 
 .. code-block:: bash
 
-   rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
-     --source-root /path/to/RoboDojo
+   rpent --robot robodojo --task put_bottles_into_dustbin --layout 0
 
-``--xpolicylab-root`` 默认使用 ``SOURCE_ROOT/XPolicyLab``；独立克隆时请指定。
+运行时 wheel 不含 XPolicyLab。``--xpolicylab-root`` 默认使用
+``SOURCE_ROOT/XPolicyLab``；独立克隆时请指定。
 单环境下各服务默认使用当前解释器；需要指向其他解释器时，仍可通过
 ``--sim-python`` 或 ``--pi05-python`` 覆盖。
 CLI 构造子进程导入路径，不读取工作区的 ``config/runtime.env``，也不修改父进程环境。
@@ -152,7 +131,6 @@ RLinf 客户端会将原生观测编码为 openpi wire 格式。
    export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
    rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
      --planner codex --model <planner-model> --max-turns 1 \
-     --source-root /path/to/RoboDojo \
      --sim-python /path/to/sim-env/bin/python \
      --pi05-python /path/to/pi05-env/bin/python \
      --output-dir /path/to/run-output
@@ -173,6 +151,10 @@ Isaac Sim 启动需要数十秒，首次运行还要编译 shader。
 主要模块
 --------
 
+* ``robots/robodojo/rlinf_env.py`` —— 基于 RLinf ``RoboDojoEnv`` 的 agent 适配器，
+  提供视频录制、相机元数据和回合诊断。
+* ``robodojo_runtime/bridge.py`` —— 仿真器创建、重置、观测与动作执行，
+  由 RLinf 惰性导入。
 * ``robots/robodojo/env_server.py`` —— Isaac Sim RPC 服务（主线程渲染、
   三相机 + 深度 + 标定、joint/ee 动作、逐相机视频录制）。
 * ``robots/robodojo/env_client.py`` —— 继承 ``BaseEnvClient`` 的 rpent
@@ -271,7 +253,6 @@ SIGTERM 和解释器正常退出时终止它们；借用的策略服务保持运
 
    rpent --robot robodojo --task put_bottles_into_dustbin --layout 1 \
      --planner flash --memory-profile local --memory-dir /path/to/memory/robodojo \
-     --source-root /path/to/RoboDojo \
      --sim-python /path/to/sim-env/bin/python \
      --pi05-python /path/to/pi05-env/bin/python
 

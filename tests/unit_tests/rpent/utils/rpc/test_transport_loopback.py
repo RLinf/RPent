@@ -60,8 +60,16 @@ def test_robodojo_camera_meta_roundtrip(transport, make_server_and_client):
         "extrinsic_matrix": np.eye(4, dtype=np.float64),
         "color": np.zeros((2, 3, 3), dtype=np.uint8),
     }
-    env = SimpleNamespace(get_obs=lambda env_idx: {"vision": {"cam_head": camera}})
-    facade = RoboDojoEnvFacade(env, None, None, meta={})
+    env = SimpleNamespace(
+        eval_fair=False,
+        get_camera_meta=lambda *args: {
+            "camera_name": "cam_head",
+            "height": 2,
+            "width": 3,
+            **{key: camera[key] for key in ("intrinsic_matrix", "extrinsic_matrix")},
+        },
+    )
+    facade = RoboDojoEnvFacade(env)
     with make_server_and_client(facade, transport) as client:
         result = client.call("env.get_camera_meta", kwargs={"camera_name": "cam_head"})
     assert result["camera_name"] == "cam_head"

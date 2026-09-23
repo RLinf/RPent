@@ -131,62 +131,21 @@ robotwin = [
 
 robodojo = [
     "rpent[robodojo-sim,sam3]",
-    # The RoboDojo openpi config/policy live on this branch, not in the
-    # released rpent-rlinf.
-    "rlinf @ git+https://github.com/qurakchin/rlinf.git@rlinf_robodojo",
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
 ]
 robodojo-sim = [
-    # RoboDojo depends on its developer-maintained IsaacLab branch, a public
-    # fork of isaac-sim/IsaacLab. Commit afca7b09 changes headless camera
-    # rendering and Kit experience selection; do not replace it unvalidated.
-    # Install RoboDojo's IsaacLab fork editable in the same environment: a
-    # non-editable VCS-subdirectory install of `isaaclab` ships only
-    # `__init__.py` and loses `config/extension.toml`, which
-    # `isaaclab/__init__.py` loads through `ISAACLAB_EXT_DIR`.
-    # Keep Isaac Sim and the Torch family pinned: Isaac Sim's version and
-    # CuRobo's build/runtime ABI are tightly coupled.
-    # Isaac Sim / extscache are runtime binaries, not downloadable scene data.
-    # isaaclab_assets is Python configuration, not the USD asset payload.
-    # Download scene assets separately; see the RoboDojo usage guide.
-    "isaacsim[all,extscache]==5.1.0",
-    "isaaclab @ git+https://github.com/yuechen0614/IsaacLab.git@main#subdirectory=source/isaaclab",
-    "isaaclab_assets @ git+https://github.com/yuechen0614/IsaacLab.git@main#subdirectory=source/isaaclab_assets",
-    "isaaclab_tasks @ git+https://github.com/yuechen0614/IsaacLab.git@main#subdirectory=source/isaaclab_tasks",
-    "torch==2.7.0",
-    "torchvision==0.22.0",
-    "torchaudio==2.7.0",
+    # The simulator adapter and policy config must come from the same revision.
+    "rlinf @ git+https://github.com/littleZ05/RLinf.git@feat/robodojo-env",
+    # Use a versioned release after maintainers create RLinf/RoboDojo and publish it.
+    "rlinf-robodojo-runtime @ git+https://github.com/littleZ05/RoboDojo.git@rpent",
+    # uv reads build overrides only from the root project.
     "nvidia-curobo[cu12] @ git+https://github.com/yuechen0614/curobo.git@main",
-    # CuRobo runtime minimums based on the validated deployment.
-    "tyro>=0.9.0",
-    "websockets>=12.0",
-    # Runtime minimums based on the pins RoboDojo applies on top of Isaac Sim
-    # (`pin_runtime_deps` in scripts/install.sh).
-    "numpy>=1.26.0",
-    "filelock>=3.13.1",
-    "warp-lang>=1.11.0",
-    "onnx>=1.18,<1.22",
-    "ipython<9",
-    # RoboDojo's own Python dependencies that its env server actually imports.
-    "opencv-python-headless>=4.11.0.86",
-    # IsaacLab already requires pillow==11.3.0.
-    "scipy>=1.15.3",
-    "transforms3d",
-    # `RoboDojo/env/scene_manager/layout_manager.py` imports these at module
-    # level, and the scene manager pulls that file in on the env-server boot
-    # path, so they were missing from this list.
-    "shapely",
-    "omegaconf",
-    # `isaaclab/isaaclab/utils/datasets/hdf5_dataset_file_handler.py` (imported
-    # by `isaaclab.utils.datasets`) and `isaaclab_tasks/direct/automate/`
-    # import h5py directly; it was missing from this list.
-    "h5py",
 ]
 
 [tool.uv]
 prerelease = "allow"
 
-# Upstream packaging defects that make `rpent[robodojo-sim]` unsatisfiable.
+# Packaging defects in dependencies of rlinf-robodojo-runtime.
 # They live here instead of an external `--override` file so that a clean
 # install resolves with no extra flags. uv reads `override-dependencies` from
 # the pyproject.toml discovered in the current directory, so run e.g.

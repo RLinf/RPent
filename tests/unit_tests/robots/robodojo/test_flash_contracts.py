@@ -14,7 +14,6 @@
 
 import copy
 import json
-import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -189,7 +188,9 @@ def test_flash_planner_offline_memory_smoke(tmp_path):
         run_flash(toolkit, "other_l2", lambda _: None)
 
 
-def test_eval_facade_never_queries_privileged_feedback(monkeypatch):
+def test_eval_facade_never_queries_privileged_feedback(
+    monkeypatch, agent_module, make_agent
+):
     raw = {
         "reward": 999,
         "instruction": "pick",
@@ -197,13 +198,22 @@ def test_eval_facade_never_queries_privileged_feedback(monkeypatch):
         "vision": {"cam_head": {"color": np.zeros((2, 2, 3)), "object_id": 77}},
     }
     env = SimpleNamespace(take_action_cnt=[0], step_lim=2, apply_target=lambda *a: None)
-    facade = env_server.RoboDojoEnvFacade(env, None, None, meta={"mode": "eval-fair"})
-    monkeypatch.setattr(env_server, "_obs_dict", lambda *a: copy.deepcopy(raw))
-    monkeypatch.setattr(env_server, "_control_info_from_action", lambda *a: {})
-    monkeypatch.setattr(
-        env_server, "_reward_details", lambda *a: pytest.fail("reward read")
+
+    def apply(action, action_type, *, eval_fair):
+        assert eval_fair
+        env.take_action_cnt[0] += 1
+
+    agent = make_agent(
+        env,
+        meta={"mode": "eval-fair"},
+        slot=SimpleNamespace(env=env, apply_action=apply),
     )
-    facade.bottle_mon.check = lambda *a: pytest.fail("truth monitor read")
+    facade = env_server.RoboDojoEnvFacade(agent)
+    monkeypatch.setattr(agent_module, "_obs_dict", lambda *a: copy.deepcopy(raw))
+    monkeypatch.setattr(
+        agent_module, "_reward_details", lambda *a: pytest.fail("reward read")
+    )
+    agent.bottle_mon.check = lambda *a: pytest.fail("truth monitor read")
     for method in (
         "env.get_reward_details",
         "env.get_safety_status",
@@ -222,14 +232,17 @@ def test_eval_facade_never_queries_privileged_feedback(monkeypatch):
         facade.step({})
 
 
-def test_dev_diagnostics_remain_callable_through_client_rpc(monkeypatch):
+def test_dev_diagnostics_remain_callable_through_client_rpc(
+    monkeypatch, agent_module, make_agent
+):
     from robots.robodojo import tools
 
-    facade = env_server.RoboDojoEnvFacade(
-        SimpleNamespace(is_success=lambda **kw: True), None, None, meta={"mode": "dev"}
+    agent = make_agent(
+        SimpleNamespace(is_success=lambda **kw: True), meta={"mode": "dev"}
     )
-    monkeypatch.setattr(env_server, "_reward_details", lambda *a: {"score": 100})
-    monkeypatch.setattr(facade.bottle_mon, "status", lambda: {"rolling": []})
+    facade = env_server.RoboDojoEnvFacade(agent)
+    monkeypatch.setattr(agent_module, "_reward_details", lambda *a: {"score": 100})
+    monkeypatch.setattr(agent.bottle_mon, "status", lambda: {"rolling": []})
     facade._rpc["env.reset"] = lambda: {}
 
     def call(method, *, args=(), kwargs=None, **options):
@@ -249,84 +262,20 @@ def test_dev_diagnostics_remain_callable_through_client_rpc(monkeypatch):
     assert toolkit.solved() is True
 
 
-def test_env_close_releases_recording_capture_and_replicator_in_order(monkeypatch):
+def test_agent_close_flushes_video_before_runtime(make_agent):
     events = []
-
-    class Recorder:
-        def close(self):
-            events.append("writer")
-            return []
-
-    class Capture:
-        tiled_cameras = [
-            SimpleNamespace(
-                _render_product_path="/camera/render",
-                _annotators={
-                    "rgb": SimpleNamespace(
-                        detach=lambda paths: events.append(("detach", paths))
-                    )
-                },
-            )
-        ]
-
-        def destroy(self):
-            events.append("capture")
-
-    env = SimpleNamespace(obs_manager=SimpleNamespace(capture_manager=Capture()))
-    facade = env_server.RoboDojoEnvFacade(
-        env, SimpleNamespace(close=lambda: events.append("app")), Recorder(), meta={}
+    agent = make_agent(
+        SimpleNamespace(),
+        recorder=SimpleNamespace(close=lambda: events.append("writer")),
     )
-    monkeypatch.setattr(
-        env_server.RoboDojoEnvFacade,
-        "_stop_replicator",
-        staticmethod(lambda: events.append("replicator")),
-    )
+    agent.venv.close = lambda clear_cache: events.append(("runtime", clear_cache))
+    facade = env_server.RoboDojoEnvFacade(agent)
     facade.request_close()
     assert facade._shutdown_event.is_set()
     assert events == []
     facade.close()
     facade.close()
-    assert events == [
-        "writer",
-        ("detach", ["/camera/render"]),
-        "capture",
-        "replicator",
-        "app",
-    ]
-
-
-def test_shutdown_clears_stale_syntheticdata_handles_before_replicator_ticks(
-    monkeypatch,
-):
-    stale_handles = ["destroyed-camera-graph"]
-
-    def reset(*, usd):
-        assert usd is False  # Render products already destroyed their USD graphs.
-        stale_handles.clear()
-
-    def tick():
-        assert not stale_handles, "Invalid object in Py_Graph"
-
-    rep = SimpleNamespace(
-        orchestrator=SimpleNamespace(
-            set_capture_on_play=lambda value: tick(),
-            stop=tick,
-            wait_until_complete=tick,
-        )
-    )
-    monkeypatch.setitem(
-        sys.modules, "omni", SimpleNamespace(replicator=SimpleNamespace(core=rep))
-    )
-    monkeypatch.setitem(sys.modules, "omni.replicator", SimpleNamespace(core=rep))
-    monkeypatch.setitem(sys.modules, "omni.replicator.core", rep)
-    monkeypatch.setitem(
-        sys.modules,
-        "omni.syntheticdata",
-        SimpleNamespace(
-            SyntheticData=SimpleNamespace(Get=lambda: SimpleNamespace(reset=reset))
-        ),
-    )
-    env_server.RoboDojoEnvFacade._stop_replicator()
+    assert events == ["writer", ("runtime", True)]
 
 
 def test_eval_client_rejects_dev_service_and_does_not_reset():

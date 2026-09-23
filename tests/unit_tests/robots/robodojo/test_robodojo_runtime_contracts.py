@@ -97,9 +97,23 @@ def test_explicit_paths_do_not_read_workspace_or_mutate_parent(monkeypatch, tmp_
     assert args.sim_python == args.pi05_python == sys.executable
 
 
-def test_local_spawn_requires_source_root():
-    with pytest.raises(ValueError, match="--source-root"):
-        robot_spec._runtime_overrides(_args())
+def test_local_spawn_uses_packaged_source_root(monkeypatch, tmp_path):
+    calls = []
+
+    def resolve(command, **kwargs):
+        calls.append(command)
+        return str(tmp_path / "packaged") + "\n"
+
+    monkeypatch.setattr(robot_spec.subprocess, "check_output", resolve)
+    monkeypatch.setenv("ROBODOJO_ASSETS_ROOT", str(tmp_path / "data"))
+    overrides = robot_spec._runtime_overrides(_args())
+    assert calls[0][0] == sys.executable
+    assert overrides["ROBODOJO_SOURCE_ROOT"] == str(tmp_path / "packaged")
+    assert overrides["ROBODOJO_ROOT"] == str(tmp_path / "packaged")
+    assert overrides["ROBODOJO_ASSETS_ROOT"] == str(tmp_path / "data")
+    assert overrides["ROBODOJO_PI05_POLICY_ROOT"] == str(
+        tmp_path / "packaged/XPolicyLab/policy/Pi_05"
+    )
 
 
 @pytest.mark.parametrize("inherited", [None, "", "2", "2,3", "GPU-example"])

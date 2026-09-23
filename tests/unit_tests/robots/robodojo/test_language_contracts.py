@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from robots.robodojo import env_server, tools
+from robots.robodojo import agent_support, tools
 from robots.robodojo.access import public_observation
 from robots.robodojo.language import resolve_instruction, validate_instruction
 
@@ -32,9 +32,9 @@ def environment(description=None):
 
 def test_official_manager_is_shared_by_rpc_observation_and_eval(monkeypatch):
     env = environment("Pick up the mint green scissors by 10 cm.")
-    monkeypatch.setattr(env_server, "_record_obs_frame", lambda *args: None)
-    rpc = env_server.RoboDojoEnvFacade.get_task_language(SimpleNamespace(env=env))
-    obs = env_server._obs_dict(env, None)
+    monkeypatch.setattr(agent_support, "_record_obs_frame", lambda *args: None)
+    rpc = resolve_instruction(env)
+    obs = agent_support._obs_dict(env, None)
     assert rpc == obs["instruction"] == public_observation(obs)["instruction"]
     assert rpc == "Pick up the mint green scissors by 10 cm."
 

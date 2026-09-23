@@ -11,14 +11,12 @@ For shared backend interfaces, see :doc:`../development/add_robot`.
 Python environment
 ------------------
 
-The goal is to install RoboDojo into a single environment. The ``robodojo-sim``
-extra declares the simulator stack: Isaac Sim 5.1, RoboDojo's IsaacLab fork, cuRobo and the
-runtime pins that go with them. ``robodojo`` adds SAM3 perception, the RLinf
-version that provides ``pi05_robodojo_arx_x5``, and the openpi runtime. Each
-robot extra carries its own runtime pins, so install one per environment.
-
-From the RPent root, use uv so it reads ``pyproject.toml``'s existing
-``override-dependencies`` for the conflicting upstream runtime pins:
+Install the runtime and agent dependencies from the RPent root in Python 3.11.
+The ``robodojo-sim`` extra installs ``rlinf-robodojo-runtime`` and the
+RLinf environment adapter; the runtime owns the Isaac Sim / IsaacLab pins.
+``robodojo`` also installs SAM3 and the openpi policy runtime.
+Use one robot extra per environment. Run uv from this directory so it reads
+the root project's packaging overrides and cuRobo build dependencies:
 
 .. code-block:: bash
 
@@ -30,37 +28,22 @@ check with real weights and one prediction, but no simulation task success
 rate has been established. Its action chunk remains 50, matching the training
 configuration's ``Pi0Config.action_horizon``.
 
-IsaacLab must also be installed in editable mode: the non-editable VCS
-subdirectory installation ships only ``__init__.py`` and omits
-``config/extension.toml``, which ``isaaclab/__init__.py`` loads through
-``ISAACLAB_EXT_DIR``. Making RPent editable with the command above does not
-make its dependencies editable. After preparing the source checkout below,
-install its source packages in the same environment:
-
-.. code-block:: bash
-
-   uv pip install --no-deps \
-     -e /path/to/RoboDojo/third_party/IsaacLab/source/isaaclab \
-     -e /path/to/RoboDojo/third_party/IsaacLab/source/isaaclab_assets \
-     -e /path/to/RoboDojo/third_party/IsaacLab/source/isaaclab_tasks
-
-RoboDojo depends on its developer-maintained IsaacLab branch:
-``yuechen0614/IsaacLab`` is a public fork of ``isaac-sim/IsaacLab``, not the
-official repository. RoboDojo's submodule points to ``afca7b09``, also the fork's
-current main. Relative to the shared base ``f4aa17f8``, that commit changes
-headless camera handling and Kit experience selection in ``app_launcher.py``.
-Retain the fork until equivalent simulator behavior is verified upstream.
+The simulation bridge requires runtime version 0.3.0 or later.
+The Git references are temporary until versioned releases are published.
+Fresh dependency installation and GPU rollout must be validated separately;
+offline bridge tests do not establish simulator compatibility.
+IsaacLab's upstream non-editable packaging can omit its extension configuration.
+If that defect affects the installed revision, use a separately prepared
+editable IsaacLab installation; the runtime wheel does not repair IsaacLab.
 
 Sources and assets
 ------------------
 
-With Git LFS available, prepare the source independently of uv installation:
-
-.. code-block:: bash
-
-   GIT_LFS_SKIP_SMUDGE=1 git clone --recurse-submodules https://github.com/RoboDojo-Benchmark/RoboDojo.git
-
-As with RoboTwin, download scene data separately from Python dependencies:
+The runtime wheel includes the validated RoboDojo code tree, so a RoboDojo
+checkout is not required. By default, the environment uses
+``robodojo_runtime.source_root()``; ``--source-root`` can override it
+with a local checkout. Scene data remains separate from Python dependencies.
+Set ``ROBODOJO_ASSETS_ROOT`` to the directory containing ``Assets/``:
 
 * **RoboDojo robot/object/material/layout assets:** download only ``Assets/**``
   from `RoboDojo's dataset <https://huggingface.co/datasets/RoboDojo-Benchmark/RoboDojo>`_.
@@ -70,15 +53,11 @@ As with RoboTwin, download scene data separately from Python dependencies:
 
      hf download RoboDojo-Benchmark/RoboDojo --repo-type dataset \
        --include 'Assets/**' --local-dir /data/robodojo
-     export ROBODOJO_ASSETS_PATH=/data/robodojo/Assets
-     ln -s "$ROBODOJO_ASSETS_PATH" /path/to/RoboDojo/Assets
+     export ROBODOJO_ASSETS_ROOT=/data/robodojo
 
-  ``ROBODOJO_ASSETS_PATH`` is a shell convenience for this link, not an
-  upstream runtime variable: RoboDojo reads ``SOURCE_ROOT/Assets``. Create the
-  link only when that destination is absent; preserve existing data.
-  Check that ``Robots``, ``Object``, ``Material`` and ``Eval_Layout`` contain real
-  files, not LFS pointers. The upstream alternative is ``bash scripts/init_assets.sh``
-  from the RoboDojo checkout, which downloads and links this dataset separately.
+  The packaged runtime reads ``ROBODOJO_ASSETS_ROOT/Assets``; no symlink
+  into the installed code is needed. Check that ``Robots``, ``Object``,
+  ``Material`` and ``Eval_Layout`` contain real files, not LFS pointers.
 * **NVIDIA USD/material assets referenced by IsaacLab:** these are separate
   from ``isaaclab_assets``. Obtain the matching asset pack from
   `NVIDIA's asset download instructions <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_.
@@ -126,14 +105,14 @@ passes it on to the child services it starts:
 
    export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
 
-Supply the RoboDojo checkout:
+Start with the packaged code:
 
 .. code-block:: bash
 
-   rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
-     --source-root /path/to/RoboDojo
+   rpent --robot robodojo --task put_bottles_into_dustbin --layout 0
 
-``--xpolicylab-root`` defaults to ``SOURCE_ROOT/XPolicyLab``; set it for
+XPolicyLab is not included in the runtime wheel. ``--xpolicylab-root`` defaults
+to ``SOURCE_ROOT/XPolicyLab``; set it for
 a separate checkout. In a single environment, services default to the current
 interpreter; use ``--sim-python`` or ``--pi05-python`` to override it when needed.
 The CLI constructs
@@ -172,7 +151,6 @@ planner takes over:
    export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
    rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
      --planner codex --model <planner-model> --max-turns 1 \
-     --source-root /path/to/RoboDojo \
      --sim-python /path/to/sim-env/bin/python \
      --pi05-python /path/to/pi05-env/bin/python \
      --output-dir /path/to/run-output
@@ -195,6 +173,10 @@ first run also compiles shaders.
 Key modules
 -----------
 
+* ``robots/robodojo/rlinf_env.py`` — agent recording, camera metadata and episode
+  diagnostics over RLinf's ``RoboDojoEnv``.
+* ``robodojo_runtime/bridge.py`` — simulator creation, reset, observations and
+  control execution; imported lazily by RLinf.
 * ``robots/robodojo/env_server.py`` — Isaac Sim RPC server (main-thread
   rendering; head + dual-wrist RGB-D with intrinsics/extrinsics; joint/ee
   actions; per-camera video recording).
@@ -308,7 +290,6 @@ Use the usual runtime flags together with:
 
    rpent --robot robodojo --task put_bottles_into_dustbin --layout 1 \
      --planner flash --memory-profile local --memory-dir /path/to/memory/robodojo \
-     --source-root /path/to/RoboDojo \
      --sim-python /path/to/sim-env/bin/python \
      --pi05-python /path/to/pi05-env/bin/python
 
