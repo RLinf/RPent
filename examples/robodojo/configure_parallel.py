@@ -62,6 +62,25 @@ def configure(
         'export PYTHONPATH="${RP_ONCE_DEPS}:${WORKSPACE}',
         f'export PYTHONPATH="${{RP_ONCE_DEPS}}:${{EXPERIMENT}}/runtime/python:{repo}:${{WORKSPACE}}',
     )
+    # Warp writes compiled kernels by renaming a temporary directory to a
+    # shared cache key. Concurrent workers using one XDG cache can remove each
+    # other's temporary directory and fail before the first model decision.
+    cache_root = "${EXPERIMENT}/runtime/worker-cache/${SHARD##*/}"
+    replace_once(
+        worker,
+        'export XDG_CACHE_HOME="${RP_ONCE_CACHE_ROOT}/xdg/isaaclab232"',
+        f'export XDG_CACHE_HOME="{cache_root}/xdg"',
+    )
+    replace_once(
+        worker,
+        'export TORCH_EXTENSIONS_DIR="${RP_ONCE_CACHE_ROOT}/torch_extensions/${GPU_TAG}-isaaclab232"',
+        f'export TORCH_EXTENSIONS_DIR="{cache_root}/torch_extensions/${{GPU_TAG}}"',
+    )
+    replace_once(
+        worker,
+        'export CUDA_CACHE_PATH="${RP_ONCE_CACHE_ROOT}/cuda_cache/driver${DRIVER_TAG}"',
+        f'export CUDA_CACHE_PATH="{cache_root}/cuda_cache/driver${{DRIVER_TAG}}"',
+    )
     replace_once(
         worker,
         "from XPolicyLab.policy.RoboDojo_Agent_L3_Inspect_EEF.model import Model",

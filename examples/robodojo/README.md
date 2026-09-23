@@ -36,6 +36,8 @@ endpoint, and Python path. It copies the key into
 directory belongs in Git. Install RPent's runtime dependencies into
 `runtime/python` for the Isaac image's Python 3.11 interpreter. The launcher
 adds that directory and the RPent checkout to `PYTHONPATH`.
+Warp, Torch extension, and CUDA caches are isolated per shard so 16 workers
+cannot race while compiling the same kernel.
 
 ```bash
 python3.11 -m pip install --target /path/to/new-experiment/runtime/python \
