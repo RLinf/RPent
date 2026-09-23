@@ -29,7 +29,6 @@ Launch:
 from __future__ import annotations
 
 import argparse
-import base64
 import os
 import random
 import sys
@@ -299,27 +298,6 @@ class _SafetyMonitor:
             "alarms": dict(self.alarms),
             "alarm_count": len(self.alarms),
         }
-
-
-def _encode(obj: Any) -> Any:
-    """Recursively encode numpy arrays for the JSON wire (matches rpent)."""
-    if isinstance(obj, np.ndarray):
-        return {
-            "__ndarray__": base64.b64encode(obj.tobytes()).decode("ascii"),
-            "dtype": str(obj.dtype),
-            "shape": list(obj.shape),
-        }
-    if isinstance(obj, dict):
-        return {str(k): _encode(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_encode(v) for v in obj]
-    if isinstance(obj, (np.integer,)):
-        return int(obj)
-    if isinstance(obj, (np.floating,)):
-        return float(obj)
-    if isinstance(obj, (np.bool_,)):
-        return bool(obj)
-    return obj
 
 
 def _obs_dict(env, recorder) -> dict[str, Any]:
@@ -611,8 +589,8 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
             raise ValueError(f"unknown camera: {camera_name!r}")
         meta: dict[str, Any] = {
             "camera_name": camera_name,
-            "intrinsic_matrix": _encode(cam.get("intrinsic_matrix")),
-            "extrinsic_matrix": _encode(cam.get("extrinsic_matrix")),
+            "intrinsic_matrix": cam.get("intrinsic_matrix"),
+            "extrinsic_matrix": cam.get("extrinsic_matrix"),
         }
         color = cam.get("color")
         if color is not None:

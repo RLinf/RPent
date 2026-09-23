@@ -23,6 +23,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
 from typing import Literal
 
 import numpy as np
@@ -49,6 +50,25 @@ PROXY_ENVIRONMENT_VARIABLES = (
     "all_proxy",
     "no_proxy",
 )
+
+
+def test_robodojo_camera_meta_roundtrip(transport, make_server_and_client):
+    from robots.robodojo.env_server import RoboDojoEnvFacade
+
+    camera = {
+        "intrinsic_matrix": np.eye(3, dtype=np.float32),
+        "extrinsic_matrix": np.eye(4, dtype=np.float64),
+        "color": np.zeros((2, 3, 3), dtype=np.uint8),
+    }
+    env = SimpleNamespace(get_obs=lambda env_idx: {"vision": {"cam_head": camera}})
+    facade = RoboDojoEnvFacade(env, None, None, meta={})
+    with make_server_and_client(facade, transport) as client:
+        result = client.call("env.get_camera_meta", kwargs={"camera_name": "cam_head"})
+    assert result["camera_name"] == "cam_head"
+    assert (result["height"], result["width"]) == (2, 3)
+    for key in ("intrinsic_matrix", "extrinsic_matrix"):
+        np.testing.assert_array_equal(result[key], camera[key])
+        assert result[key].dtype == camera[key].dtype
 
 
 @pytest.fixture(autouse=True)
