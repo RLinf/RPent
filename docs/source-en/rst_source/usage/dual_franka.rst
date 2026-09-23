@@ -9,8 +9,8 @@ Install
 
 .. note::
 
-	The following guide installs only the Python side (the custom RLinf
-	Franka branch and ``rlinf-openpi``); it does **not** build the robot-node
+	The following guide installs only the Python side (the pinned RLinf main
+	checkout and ``rlinf-openpi``); it does **not** build the robot-node
 	control stack the two arms need. Before installing RPent, follow the RLinf
 	dual-Franka guide to set up both robot nodes: choose a compatible
 	``LIBFRANKA_VERSION``, build the ``franka-franky`` (franky/libfranka) control
@@ -25,7 +25,7 @@ From the RPent repository root:
 
    uv sync --extra franka --extra sam3
 
-This installs the custom RLinf Franka branch and ``rlinf-openpi`` into
+This installs the pinned RLinf main checkout and ``rlinf-openpi`` into
 ``.venv``.
 
 Calibration
@@ -63,7 +63,9 @@ Review and edit the checked-in development defaults before enabling motion:
 * ``robots/dual_franka/config/example.yaml`` contains the machine identity (both
 	robot IPs, camera serials/types, gripper connections), workspace geometry
 	(target poses and safety limits), the easy_handeye YAML mapping (see
-	Calibration), and perception localization bounds + base-frame transform.
+	Calibration), and perception localization bounds + base-frame transform. It
+	sets ``realtime_config: ignore``; use ``enforce`` on a PREEMPT_RT kernel to
+	refuse non-real-time operation.
 
 RPent translates this robot-focused schema into the internal two-node RLinf
 cluster and environment objects. To use a different file, pass

@@ -18,9 +18,9 @@ Embodiment-specific settings (openpi config name, action dim, …) are
 selected by the ``--embodiment`` CLI flag and looked up in
 ``PI05_EMBODIMENTS``.
 
-The ``--model-backend`` flag picks the RLinf loader an embodiment uses
-(``openpi_pytorch``, the default, or ``openpi_rlinf``). Presets whose loader
-resolves normalisation statistics from a directory take ``--norm-stats-path``
+The ``--model-backend`` flag selects the RLinf loader. Current RLinf main
+exposes the unified ``openpi`` loader. Presets whose loader resolves
+normalisation statistics from a directory take ``--norm-stats-path``
 (or the ``PI05_NORM_STATS_PATH`` environment variable). Use ``--repo-id``
 to select dataset normalization statistics within a checkpoint.
 """
@@ -56,6 +56,7 @@ PI05_EMBODIMENTS: dict[str, dict] = {
         "num_steps": 5,
         "add_value_head": False,
         "openpi": {
+            "task": "eval",
             "config_name": "pi05_dualfranka_tcp_rot6d",
             "num_images_in_input": 3,
             "action_chunk": 20,
@@ -73,6 +74,7 @@ PI05_EMBODIMENTS: dict[str, dict] = {
         "num_steps": 5,
         "add_value_head": False,
         "openpi": {
+            "task": "eval",
             "config_name": "pi05_libero",
             "num_images_in_input": 2,
             "action_chunk": 5,
@@ -87,8 +89,8 @@ PI05_ROBOT_PLATFORMS: dict[str, str] = {
     "libero": "LIBERO",
 }
 
-# RLinf model loaders an embodiment preset may select via ``model_backend``.
-PI05_MODEL_BACKENDS: tuple[str, ...] = ("openpi_rlinf", "openpi_pytorch")
+# RLinf exposes one unified OpenPI loader for Pi0/Pi0.5 checkpoints.
+PI05_MODEL_BACKENDS: tuple[str, ...] = ("openpi",)
 
 
 # ---------------------------------------------------------------------------
@@ -97,28 +99,33 @@ PI05_MODEL_BACKENDS: tuple[str, ...] = ("openpi_rlinf", "openpi_pytorch")
 
 
 def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
-    """OmegaConf for the RLinf ``openpi`` / ``openpi_rlinf`` ``get_model``.
+    """Build OmegaConf for RLinf's unified ``openpi.get_model`` loader.
 
-    Two-level merge ``emb_cfg`` into a default config template.  ``emb_cfg``
+    Two-level merge ``emb_cfg`` into a default config template. ``emb_cfg``
     mirrors the OmegaConf structure (top-level keys + ``openpi`` sub-dict),
     so adding a new key to an embodiment preset automatically flows into
-    the model config.  ``model_path`` is set at runtime, not from the
+    the model config. ``model_path`` is set at runtime, not from the
     embodiment preset.
     """
     cfg = {
         "model_type": "openpi",
         "model_path": model_path,
         "precision": None,
+        "pi05": True,
         "is_lora": False,
         "lora_rank": 32,
         "openpi": {
+            "task": "eval",
+            "model_action_dim": 32,
+            "paligemma_variant": "gemma_2b",
+            "action_expert_variant": "gemma_300m",
+            "max_token_len": 200,
             "noise_level": 0.5,
             "train_expert_only": True,
             "noise_method": "flow_sde",
             "value_after_vlm": False,
             "value_vlm_mode": "mean_token",
             "detach_critic_input": None,
-            "use_dsrl": False,
         },
     }
     # Deep merge: top-level keys override, openpi sub-dict merges into cfg.openpi
@@ -142,8 +149,8 @@ class Pi05VLAFacade(BaseVLAFacade):
     Wires ``vla.predict`` to :meth:`predict` (registered by the base class).
     Embodiment-specific behavior (model config, loader, obs decode) is driven
     by the ``embodiment`` name passed at construction. ``model_backend``
-    selects the RLinf loader — ``openpi_pytorch`` (default) or ``openpi_rlinf``
-    for the real-robot YAM joint policy.
+    selects the RLinf loader; current RLinf main exposes the unified
+    ``openpi`` loader.
 
     Session-isolation is not supported (``reset_session`` is not registered).
     """
@@ -153,7 +160,7 @@ class Pi05VLAFacade(BaseVLAFacade):
         *,
         model_path: str,
         embodiment: str,
-        model_backend: str = "openpi_pytorch",
+        model_backend: str = "openpi",
         norm_stats_path: str | None = None,
         repo_id: str | None = None,
     ):
@@ -173,10 +180,7 @@ class Pi05VLAFacade(BaseVLAFacade):
         self._embodiment = embodiment
         super().__init__()
 
-        if model_backend == "openpi_rlinf":
-            from rlinf.models.embodiment.openpi_rlinf import get_model
-        else:
-            from rlinf.models.embodiment.openpi import get_model
+        from rlinf.models.embodiment.openpi import get_model
 
         platform = PI05_ROBOT_PLATFORMS.get(embodiment)
         if platform is not None:
@@ -255,8 +259,8 @@ def main() -> None:
     p.add_argument(
         "--model-backend",
         choices=list(PI05_MODEL_BACKENDS),
-        default="openpi_pytorch",
-        help="RLinf model loader (default: openpi_pytorch)",
+        default="openpi",
+        help="RLinf model loader (default: openpi)",
     )
     p.add_argument(
         "--norm-stats-path",

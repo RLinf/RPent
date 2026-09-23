@@ -332,6 +332,7 @@ def load_runtime_config(
         FrankaConfig,
         {
             "robot_ip": robot["ip"],
+            "backend": str(robot.get("backend", "franka_ros")),
             "camera_serials": camera_serials,
             "camera_type": camera_types.pop(),
             "gripper_type": end_effector.get("type", "franka"),
