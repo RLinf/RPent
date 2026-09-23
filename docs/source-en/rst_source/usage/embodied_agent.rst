@@ -10,12 +10,13 @@ files, then calls ``run`` once per episode.
 .. code-block:: python
 
    from rpent.embodied_agent import EmbodiedAgent, McpServer
+   from rpent.llm import LLMConfig
 
    agent = EmbodiedAgent(
        mcp_servers=[McpServer(name="robot", url="http://127.0.0.1:8000/mcp")],
        output_dir="runs/episode-001",
        planner="api",
-       model="openai:gpt-5.5",
+       llm=LLMConfig(provider="openai", model="gpt-5.5"),
    )
    result = agent.run(
        "Place the red block in the bowl.",
@@ -27,6 +28,9 @@ files, then calls ``run`` once per episode.
        skills=["benchmark/SKILL.md"],
    )
    # Read the benchmark's own success flag to score this episode.
+   usage = result.stats["llm_usage"]
+   print(usage["input_tokens"], usage["output_tokens"])
+   print(usage["cache_read_tokens"], usage["cache_write_tokens"])
 
 The same entry point works when motion and camera capture are separate tools:
 describe their intended sequence in ``system_prompt`` or a skill. Tool names,
@@ -43,10 +47,27 @@ per server. Multiple servers may be supplied, with unique names. A stdio
 server is launched and closed for every call to ``run``. Use a distinct
 ``output_dir`` for each episode.
 
-Supported planners are ``api``, ``claude_code``, and ``codex``. Set ``model``
-and provider credentials as described in :doc:`configure_planner`. Skill files
-are read and inserted into the prompt on every run; they are not automatically
-discovered from the working directory. The local ``finish`` tool records the
+Supported planners are ``api``, ``claude_code``, and ``codex``. ``LLMConfig``
+works with the ``api`` planner and supports ``provider="openai"`` or
+``provider="anthropic"``. It reads ``OPENAI_API_KEY`` or ``ANTHROPIC_API_KEY``
+by default; ``api_key`` and ``base_url`` may also be passed explicitly. OpenAI
+uses the Responses API by default; set ``openai_format="chat"`` for a Chat
+Completions-compatible endpoint. The previous ``model`` and ``base_url``
+arguments remain available as described in :doc:`configure_planner`.
+
+``result.stats["llm_usage"]`` contains ``input_tokens``, ``output_tokens``,
+``cache_read_tokens``, ``cache_write_tokens``, ``reasoning_output_tokens``,
+``requests``, ``cost_usd``, and ``total_tokens``. Cached input is included in
+``input_tokens``; reasoning output is included in ``output_tokens``. ``None``
+for requests or cost means it was not reported. A zero cache count may mean the
+provider did not report cache usage.
+
+For standalone model calls, ``LLMClient(LLMConfig(...))`` offers ``generate``
+and ``generate_sync``. Each response has ``text`` and ``usage``; the client also
+exposes cumulative ``total_usage``.
+
+Skill files are read and inserted into the prompt on every run; they are not
+automatically discovered from the working directory. The local ``finish`` tool records the
 agent's own conclusion in ``PlannerResult.finish_result``. That conclusion is
 not a benchmark success signal; always use the environment's score or success
 predicate for evaluation.

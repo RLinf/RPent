@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from rpent.dashboard.events import NullDashboardEventSink
+from rpent.llm import LLMConfig, LLMUsage
 from rpent.planner.base import PlannerResult, build_planner
 from rpent.session import EnvState
 from rpent.tools.toolkit import ToolResult
@@ -293,6 +294,7 @@ class EmbodiedAgent:
     planner: str = "api"
     model: str | None = None
     base_url: str | None = None
+    llm: LLMConfig | None = None
     max_turns: int = 100
     max_tokens: int = 8192
     planner_timeout_s: int | None = None
@@ -325,6 +327,12 @@ class EmbodiedAgent:
         """
         if self.planner not in {"api", "claude_code", "codex"}:
             raise ValueError(f"unsupported embodied planner: {self.planner}")
+        if self.llm is not None and self.planner != "api":
+            raise ValueError("llm is supported only by the api planner")
+        if self.llm is not None and (
+            self.model is not None or self.base_url is not None
+        ):
+            raise ValueError("pass either llm or model/base_url")
         if not self.mcp_servers:
             raise ValueError("at least one MCP server is required")
         names = [server.name for server in self.mcp_servers]
@@ -354,17 +362,22 @@ class EmbodiedAgent:
                 robot_name="embodied_agent",
                 base_url=self.base_url,
                 model=self.model,
+                llm_config=self.llm,
                 max_tokens=self.max_tokens,
                 planner_timeout_s=self.planner_timeout_s,
                 reasoning_effort=self.reasoning_effort,
                 dashboard_events=NullDashboardEventSink(),
             )
-            return planner.solve(
+            result = planner.solve(
                 system_prompt=prompt,
                 user_message=task,
                 toolkit=toolkit,
                 max_turns=self.max_turns,
             )
+            result.stats["llm_usage"] = LLMUsage.from_planner_stats(
+                result.stats
+            ).as_dict()
+            return result
         finally:
             toolkit.close()
             self._run_lock.release()
