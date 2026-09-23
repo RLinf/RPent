@@ -34,7 +34,6 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
     "general": frozenset(
         {"back_project", "segment", "move_to", "pi0_pick", "stabilize"}
     ),
-    "privileged": frozenset({"get_reward_details", "get_safety_status"}),
     "mixed": frozenset({"view_env_state", "set_gripper", "place_in_bin"}),
 }
 
@@ -168,35 +167,11 @@ TOOLS_SPEC: list[dict] = [
         },
     },
     {
-        "name": "get_reward_details",
-        "description": (
-            "Return the environment's reward/score breakdown: per-bottle "
-            "is_on_bin_bottom status, grippers open, arms home, current "
-            "score tier, and success."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
-    {
-        "name": "get_safety_status",
-        "description": (
-            "Return the env safety monitor state: any bottle reported as "
-            "rolling (moving fast) or off-table. If an alarm is present, "
-            "stabilize the bottle FIRST before continuing the task."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
-    {
         "name": "stabilize",
         "description": (
             "Emergency stabilization: move an arm's open gripper to a world "
-            "xyz at table height to block/stop a rolling bottle (call when a "
-            "safety alarm reports a rolling bottle)."
+            "xyz at table height to block/stop a bottle observed rolling "
+            "in the camera images."
         ),
         "input_schema": {
             "type": "object",
@@ -260,7 +235,6 @@ def view_env_state(step: int = -1, *, state) -> dict:
         return {"error": f"state step not available: {error}"}
     result: dict[str, Any] = {
         "step": record.step_idx,
-        "terminated": record.terminated,
         "truncated": record.truncated,
         "state": record.state,
         "artifacts": sorted(record.artifacts),
@@ -284,6 +258,9 @@ def view_env_state(step: int = -1, *, state) -> dict:
 
 
 def _summarize_obs(obs: dict) -> dict:
+    from robots.robodojo.access import public_observation
+
+    obs = public_observation(obs)
     vision = obs.get("vision", {})
     state_data = obs.get("state", {})
     return {
@@ -512,7 +489,11 @@ def set_gripper(primitives, state, arm, gripper) -> dict:
     return {
         "arm": arm,
         "gripper": "closed" if gripper > 0 else "open",
-        "status": info["status"],
+        "status": {
+            key: info["status"][key]
+            for key in ("step", "step_limit")
+            if key in info["status"]
+        },
     }
 
 
@@ -725,7 +706,9 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
     log = log or {}
     with state.record_step(
         state=_summarize_obs(obs),
-        terminated=bool(status.get("success", False)),
+        # Official success is read by the runner after planner execution,
+        # not written into planner-readable state artifacts.
+        terminated=False,
         truncated=int(status.get("step", 0)) >= int(status.get("step_limit", 0) or 0),
         command=log.get("command"),
         result=log.get("result"),

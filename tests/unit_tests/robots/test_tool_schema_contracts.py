@@ -68,8 +68,6 @@ EXPECTED_TOOL_NAMES = {
         "move_to",
         "set_gripper",
         "pi0_pick",
-        "get_reward_details",
-        "get_safety_status",
         "stabilize",
         "place_in_bin",
     },

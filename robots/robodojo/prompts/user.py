@@ -29,11 +29,7 @@ scene, then localize targets and execute."""
 PUT_BOTTLES_CONTEXT = """For put_bottles_into_dustbin:
 - Use `place_in_bin` to carry a held bottle to the bin mouth CENTER, descend
   below the rim, release, and retract. Releasing at mouth height can catch the rim.
-- When available, `get_safety_status` reports bottle `rolling` / `off_table`
-  alarms. For a rolling bottle, use `stabilize` to place an open gripper in its
+- Inspect camera images for bottles rolling or falling off the table.
+  For a rolling bottle, use `stabilize` to place an open gripper in its
   path at table height; reassess before resuming. An off-table bottle may be
-  unrecoverable.
-- `get_reward_details`, when available, includes per-bottle
-  `bottles_on_bin_bottom`, `grippers_open`, `arms_home`, score tiers
-  (10/25/40/100), and environment `success`. These are privileged diagnostics,
-  not visual estimates."""
+  unrecoverable."""

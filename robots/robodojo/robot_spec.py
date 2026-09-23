@@ -90,8 +90,6 @@ ROBODOJO_DASHBOARD_SPEC: DashboardSpec = {
         "move_to",
         "set_gripper",
         "pi0_pick",
-        "get_reward_details",
-        "get_safety_status",
         "stabilize",
         "place_in_bin",
     ),

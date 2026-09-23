@@ -281,6 +281,30 @@ def test_pi0_pick_monitors_both_arms_and_preserves_policy_input(lifting_arm):
     np.testing.assert_array_equal(executed, actions)
 
 
+def test_gripper_result_does_not_expose_environment_feedback():
+    primitives = SimpleNamespace(
+        env=SimpleNamespace(
+            get_obs=lambda: {"state": {}},
+            step=lambda action: (
+                {},
+                100,
+                True,
+                {
+                    "status": {
+                        "step": 1,
+                        "step_limit": 10,
+                        "success": True,
+                        "score": 100,
+                        "safety": {"rolling": ["bottle"]},
+                    }
+                },
+            ),
+        ),
+    )
+    result = tools.set_gripper(primitives, None, "left", 1)
+    assert result["status"] == {"step": 1, "step_limit": 10}
+
+
 def test_readers_are_readonly_and_do_not_act():
     obs = {
         "vision": {
@@ -359,12 +383,12 @@ def test_tool_group_hook_filters_schemas_and_dispatch(
         expected = expected - {"place_in_bin"}
     assert names & robot_names == expected
     assert "finish" in names
-    result = toolkit.execute_tool("get_reward_details", {}).result
-    assert result == (
-        {"score": 100}
-        if groups is None
-        else {"error": "unknown tool: get_reward_details"}
-    )
+    assert "privileged" not in tools.TOOL_GROUPS
+    for name in ("get_reward_details", "get_safety_status"):
+        assert name not in names
+        assert toolkit.execute_tool(name, {}).result == {
+            "error": f"unknown tool: {name}"
+        }
 
 
 @pytest.mark.parametrize("missing", ["runtime_kwargs", "dashboard_events", "config"])
@@ -419,7 +443,8 @@ def test_task_guidance_is_scoped_and_tools_are_injected():
         user = bundle.render("user", variables=variables)
         assert "dustbin" not in system and "place_in_bin" not in system
         assert ("place_in_bin" in user) == (task == "put_bottles_into_dustbin")
-        assert ("bottles_on_bin_bottom" in user) == (task == "put_bottles_into_dustbin")
+        assert "bottles_on_bin_bottom" not in user
+        assert ("rolling" in user) == (task == "put_bottles_into_dustbin")
         assert "planner supplies structured tools" in system
         assert "JSON-RPC" not in system + user
         assert "MCP URL" not in system + user

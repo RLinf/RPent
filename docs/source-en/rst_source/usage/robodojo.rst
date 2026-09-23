@@ -209,8 +209,7 @@ Key modules
   ``BaseVLAClient`` protocol.
 * ``robots/robodojo/toolkit.py`` / ``tools.py`` — primitives:
   ``view_env_state``, ``back_project``, ``segment``, ``move_to``,
-  ``set_gripper``, ``pi0_pick``, ``stabilize``, ``place_in_bin``,
-  ``get_reward_details``, etc.
+  ``set_gripper``, ``pi0_pick``, ``stabilize``, ``place_in_bin``.
 * ``robots/robodojo/robot_spec.py`` — ``RobotSpec`` factory (CLI, run config,
   runtime orchestration).
 * ``robots/robodojo/tasks.py`` — task inventory from the configured source checkout.
@@ -239,20 +238,23 @@ Tools and information access
 ----------------------------
 
 The planner supplies tools directly; call their listed names. Dustbin placement
-and bottle-specific scoring guidance are included only in the
+and bottle recovery guidance are included only in the
 ``put_bottles_into_dustbin`` task context, not the generic system prompt.
 Recorded-state reading and calibrated depth projection are local to
 ``robots/robodojo/tools.py``. Projection uses Isaac's negative optical Z axis;
-segmentation uses the shared SAM3 client. ``view_env_state``, ``back_project``,
-``segment``, ``get_reward_details`` and ``get_safety_status`` are read-only:
+segmentation uses the shared SAM3 client. ``view_env_state``, ``back_project`` and
+``segment`` are read-only:
 they do not advance the environment or trigger post-action state capture.
 
 ``robots.robodojo.tools.TOOL_GROUPS`` marks direct outputs as ``general``
-(depth/segmentation and motion), ``privileged`` (``get_reward_details`` and
-``get_safety_status``), or ``mixed`` (``view_env_state``, ``set_gripper``,
-``place_in_bin``). Safety alarms expose ground-truth object world coordinates;
-reward details expose per-object success predicates. Mixed outputs include
-success, status, or historical results that can contain privileged information.
+(depth/segmentation and motion) or ``mixed`` (``view_env_state``,
+``set_gripper``, ``place_in_bin``). Neither group exposes reward details or
+ground-truth safety alarms. Planners judge progress from observations only.
+The underlying ``env.get_reward_details`` and ``env.get_safety_status`` RPCs
+remain available on dev servers for external evaluation and diagnostics, not
+as planner tools. Reward and official success belong to the evaluation path
+after the planner's action channel is closed. ``finalize_run`` records the
+runner-provided result; it does not call these RPCs itself.
 
 The Python toolkit factory accepts ``allowed_tool_groups``; for example,
 ``frozenset({"general"})`` registers only general robot tools. The default
@@ -263,7 +265,7 @@ memory, or common file tools. It is not an evaluation isolation mode.
 Development and frozen replay
 -----------------------------
 
-Normal planners retain the development tool set and privileged feedback.
+Normal planners retain the development tool set without scoring or safety diagnostics.
 ``--planner flash`` selects eval-fair: RPent's native Flash planner invokes
 ``RobotSpec.run_flash`` without an LLM. ``--explore`` remains unsupported for
 RoboDojo; development here means the normal planner loop, not that CLI mode.
@@ -326,8 +328,8 @@ the preceding approach with fresh head grounding, at most three pick attempts.
 Errors, lost localization, unreachable waypoints and step-budget exhaustion
 stop replay without reset. These checks are not a collision-safety guarantee.
 
-Eval-fair excludes privileged tools and common file/memory tools. The service
-advertises the mode in its metadata, rejects reset and diagnostic RPCs, returns
+Eval-fair additionally excludes common file/memory tools and task-specific helpers.
+The service advertises the mode in its metadata, rejects reset and diagnostic RPCs, returns
 zero reward and no task-success feedback, and exposes only RGB-D, camera
 calibration, instruction and arm proprioception. Ground-truth bottle alarms
 are disabled. Existing dev endpoints are rejected for eval-fair; boot creates

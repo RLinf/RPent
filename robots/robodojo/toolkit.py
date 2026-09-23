@@ -34,7 +34,8 @@ class RoboDojoToolkit(Toolkit):
     ``allowed_tool_groups`` optionally filters robot tool registration, not
     common file tools or automatic state capture. None preserves all tools in
     dev. ``eval_fair`` additionally requires a mode-validated environment,
-    removes file/privileged tools, and disables development perception recording.
+    removes file tools and task-specific helpers, and disables development
+    perception recording. Scoring and safety diagnostics are never planner tools.
     """
 
     def __init__(
@@ -143,11 +144,10 @@ class RoboDojoToolkit(Toolkit):
         self._primitives.env.close()
 
     def solved(self) -> bool:
-        """Return the success value from the final recorded environment state."""
+        """Read official success for the runner after planner execution."""
         if self.eval_fair:
             return False  # Plan completion is not an official task verdict.
-        record = self._state.latest_record()
-        return bool(record is not None and record.terminated)
+        return self._primitives.env.is_success()
 
     def _register_robodojo_tools(self) -> None:
         from robots.robodojo import tools as robodojo_tools
@@ -179,16 +179,6 @@ class RoboDojoToolkit(Toolkit):
             ),
             "pi0_pick": partial(
                 robodojo_tools.pi0_pick,
-                primitives=self._primitives,
-                state=self._state,
-            ),
-            "get_reward_details": partial(
-                robodojo_tools.get_reward_details,
-                primitives=self._primitives,
-                state=self._state,
-            ),
-            "get_safety_status": partial(
-                robodojo_tools.get_safety_status,
                 primitives=self._primitives,
                 state=self._state,
             ),

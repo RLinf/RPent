@@ -68,11 +68,11 @@ SAFETY = """Safety:
   unstable or an arm is obstructed. Re-localize before attempting recovery."""
 
 REWARD = """Scoring:
-- When available, `get_reward_details` reports environment scoring and success.
-  Report unavailable evidence as unknown rather than inferring a score from images."""
+- Judge progress from camera images and robot poses. Environment scoring is
+  unavailable; report it as unknown rather than inferring a score from images."""
 
 OUTPUT_DISCIPLINE = """When the task is complete or unrecoverable:
 1. Write the audit JSON into {{output_dir}} (task, layout, strategy notes,
-   final state, terminated/success).
+   observed final state and any uncertainty).
 2. Call `finish` with status and a short summary.
 Do not call `finish` before writing the audit."""

@@ -222,6 +222,33 @@ def test_eval_facade_never_queries_privileged_feedback(monkeypatch):
         facade.step({})
 
 
+def test_dev_diagnostics_remain_callable_through_client_rpc(monkeypatch):
+    from robots.robodojo import tools
+
+    facade = env_server.RoboDojoEnvFacade(
+        SimpleNamespace(is_success=lambda **kw: True), None, None, meta={"mode": "dev"}
+    )
+    monkeypatch.setattr(env_server, "_reward_details", lambda *a: {"score": 100})
+    monkeypatch.setattr(facade.bottle_mon, "status", lambda: {"rolling": []})
+    facade._rpc["env.reset"] = lambda: {}
+
+    def call(method, *, args=(), kwargs=None, **options):
+        return facade._rpc[method](*args, **(kwargs or {}))
+
+    client = RoboDojoEnvClient(
+        SimpleNamespace(call=call), expected_meta={"mode": "dev"}
+    )
+    primitives = SimpleNamespace(env=client)
+    assert client.get_reward_details() == {"score": 100}
+    assert client.get_safety_status() == {"rolling": []}
+    assert tools.get_reward_details(primitives, None) == {"score": 100}
+    assert tools.get_safety_status(primitives, None) == {"rolling": []}
+    toolkit = object.__new__(RoboDojoToolkit)
+    toolkit.eval_fair = False
+    toolkit._primitives = primitives
+    assert toolkit.solved() is True
+
+
 def test_env_close_releases_recording_capture_and_replicator_in_order(monkeypatch):
     events = []
 
@@ -325,8 +352,8 @@ def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair):
     monkeypatch.setattr(logging, "_output_dir", tmp_path)
     env = SimpleNamespace(
         eval_fair=eval_fair,
-        get_obs=lambda: {"vision": {}, "state": {}},
-        get_status=lambda: {"step": 0, "step_limit": 10},
+        get_obs=lambda: {"vision": {}, "state": {"object_world_xyz": [9, 9, 9]}},
+        get_status=lambda: {"step": 0, "step_limit": 10, "success": True, "score": 100},
         get_task_language=lambda: "pick",
     )
     toolkit = RoboDojoToolkit(
@@ -336,7 +363,28 @@ def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair):
         eval_fair=eval_fair,
     )
     names = {s["name"] for s in toolkit.get_tools_spec()}
-    assert ("get_reward_details" in names) is not eval_fair
+    state = toolkit.execute_tool("view_env_state", {}).result
+    assert "terminated" not in state
+    assert "object_world_xyz" not in state["state"]["state"]
+    assert not toolkit._state.latest_record().terminated
+    for name in ("get_reward_details", "get_safety_status"):
+        assert name not in names
+        assert "unknown tool" in toolkit.execute_tool(name, {}).result["error"]
+    bundle = robot_spec.get_robot_spec().prompts
+    variables = {
+        "mode": "eval-fair" if eval_fair else "dev",
+        "task": "put_bottles_into_dustbin",
+        "layout": 0,
+        "output_dir": str(tmp_path),
+        "env_cfg_type": "arx_x5",
+        "action_type": "joint",
+        "task_summary": "scene",
+    }
+    prompt = bundle.render("system", variables=variables) + bundle.render(
+        "user", variables=variables
+    )
+    for name in ("get_reward_details", "get_safety_status", "privileged"):
+        assert name not in prompt
     assert ("read_text_file" in names) is not eval_fair
     if eval_fair:
         assert "get_safety_status" not in names

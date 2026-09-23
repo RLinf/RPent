@@ -186,7 +186,7 @@ Isaac Sim 启动需要数十秒，首次运行还要编译 shader。
   协议。
 * ``robots/robodojo/toolkit.py`` / ``tools.py`` —— view_env_state /
   back_project / segment / move_to / set_gripper / pi0_pick / stabilize /
-  place_in_bin / get_reward_details 等原语。
+  place_in_bin 等原语。
 * ``robots/robodojo/robot_spec.py`` —— RobotSpec 工厂（CLI、RunConfig、
   运行时编排）。
 * ``robots/robodojo/tasks.py`` —— 从指定源码目录读取任务列表。
@@ -212,18 +212,20 @@ RoboDojo 要求三相机输入和 14-DoF 关节动作；两种后端均不转换
 工具与信息访问
 --------------
 
-planner 直接提供工具，按工具列表中的名称调用即可。垃圾桶放置与瓶子评分指导仅在
+planner 直接提供工具，按工具列表中的名称调用即可。垃圾桶放置与瓶子恢复操作指导仅在
 ``put_bottles_into_dustbin`` 的任务上下文中提供，不放入通用 system prompt。
 状态记录读取和标定深度反投影在 ``robots/robodojo/tools.py`` 内实现；反投影采用
 Isaac 的负光轴 Z 约定，分割使用共享 SAM3 client。``view_env_state``、
-``back_project``、``segment``、``get_reward_details`` 和 ``get_safety_status``
+``back_project`` 和 ``segment``
 均为只读调用，不推进环境，也不触发动作后的状态采集。
 
 ``robots.robodojo.tools.TOOL_GROUPS`` 将工具的直接输出分为 ``general``
-（深度、分割与运动）、``privileged``（``get_reward_details`` 和
-``get_safety_status``）与 ``mixed``（``view_env_state``、``set_gripper``、
-``place_in_bin``）。安全告警暴露物体真值世界坐标，reward 明细暴露逐物体成功谓词；
-混合输出包含成功标志、状态或历史结果，可能携带特权信息。
+（深度、分割与运动）与 ``mixed``（``view_env_state``、``set_gripper``、
+``place_in_bin``）。两组均不暴露 reward 明细或基于真值的安全告警，planner 只根据观测
+判断进展。底层 ``env.get_reward_details`` 和 ``env.get_safety_status`` RPC
+仍在 dev 服务中保留，供外部评测与诊断使用，不注册为 planner 工具。
+reward 与官方 success 仅由评测路径在 planner 动作通道关闭后读取。
+``finalize_run`` 写入 runner 提供的结果，本身不调用这些 RPC。
 
 Python toolkit 工厂接受 ``allowed_tool_groups``，例如传入
 ``frozenset({"general"})`` 只注册 general 组的机器人工具。默认 ``None``
@@ -233,7 +235,7 @@ Python toolkit 工厂接受 ``allowed_tool_groups``，例如传入
 开发与冻结重放
 --------------
 
-普通 planner 保留开发工具集合和特权反馈。``--planner flash`` 选择 eval-fair，
+普通 planner 保留开发工具集合，但不提供评分或安全诊断。``--planner flash`` 选择 eval-fair，
 由 RPent 原生 Flash planner 调用 ``RobotSpec.run_flash``，LLM 不进环。
 RoboDojo 仍不支持 ``--explore``；这里的开发指普通 planner 循环，并非该 CLI 模式。
 
@@ -285,7 +287,7 @@ HF 模式复用原生 ``robodojo/flash/**`` 同步过滤；仓库不附带 RoboD
 12 cm。未保持抓取时重新用头部定位并重放前一接近动作，最多尝试抓取三次。
 调用失败、定位丢失、航点不可达或步数耗尽均停止，不重置场景；这些检查不保证碰撞安全。
 
-eval-fair 移除特权工具与通用文件/memory 工具。服务元数据标明模式，拒绝 reset
+eval-fair 额外移除通用文件/memory 工具与任务专用辅助工具。服务元数据标明模式，拒绝 reset
 和诊断 RPC，返回零 reward 且不返回任务成功反馈；观测只含 RGB-D、相机标定、
 公开指令和双臂本体状态，不启用瓶子真值告警。eval-fair 拒绝连接 dev 服务；
 启动时创建回合，eval 客户端不再重复 reset。自动状态日志因此只包含公开观测与动作诊断。
