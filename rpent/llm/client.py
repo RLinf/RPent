@@ -196,12 +196,13 @@ class LLMResponse:
 def build_model_settings(model: Model, max_tokens: int):
     """Use RPent's Anthropic prompt-cache settings for direct and agent calls."""
     from pydantic_ai import ModelSettings
-    from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 
     if max_tokens < 1:
         raise ValueError("max_tokens must be positive")
     underlying = model.wrapped if isinstance(model, RetryLoggingModel) else model
-    if isinstance(underlying, AnthropicModel):
+    if underlying.system == "anthropic":
+        from pydantic_ai.models.anthropic import AnthropicModelSettings
+
         return AnthropicModelSettings(
             max_tokens=max_tokens,
             anthropic_cache_instructions=True,

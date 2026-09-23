@@ -83,3 +83,14 @@ automatically discovered from the working directory. The local ``finish`` tool r
 agent's own conclusion in ``PlannerResult.finish_result``. That conclusion is
 not a benchmark success signal; always use the environment's score or success
 predicate for evaluation.
+
+RoboDojo example
+----------------
+
+``examples/robodojo`` contains an XPolicyLab bridge that uses ``EmbodiedAgent``
+for RoboDojo decisions. Its ``snapshot`` MCP tool supplies camera frames and
+state; ``submit_action`` returns short discrete commands. RoboDawn's motion
+controller executes those commands, and RoboDojo supplies the native score.
+The example pins the RoboDawn controller revision, keeps credentials outside
+Git, and includes a launcher for parallel GPU workers. See the example's
+``README.md`` for the installation-specific setup and result paths.
